@@ -685,6 +685,50 @@ class SimulatedMotorBoard:
             return self._target.get(axis, 0)
 
     # ------------------------------------------------------------------
+    # Diagnostic commands (match MotorBoard API surface)
+    # ------------------------------------------------------------------
+    def get_config(self):
+        """Simulated CONFIG — returns motorconfig data."""
+        return {
+            'Serial Number': self._fullinfo.get('serial_number', 'SIM-0000'),
+            'Axis Present': {'X': 1, 'Y': 1, 'Z': 1, 'T': 0},
+        }
+
+    def get_drvstat(self, axis=None):
+        """Simulated DRVSTAT — returns fake driver status."""
+        axes = [axis] if axis else ['X', 'Y', 'Z', 'T']
+        return [{'axis': a, 'raw': '0x00000000', 'SG': 0, 'CS': 0,
+                 'raw_line': f'{a}: raw=0x00000000 SG=0 CS=0'} for a in axes]
+
+    def get_motordetect(self):
+        """Simulated MOTORDETECT."""
+        return [{'axis': a, 'detected': True, 'configured': True,
+                 'raw_line': f'{a}: detected=True configured=True'}
+                for a in ['X', 'Y', 'Z', 'T']]
+
+    def get_current(self):
+        """Simulated CURRENT."""
+        return [{'axis': a, 'CS_ACTUAL': 0, 'IRUN': 10, 'IHOLD': 3, 'SG_RESULT': 0,
+                 'raw_line': f'{a}: CS_ACTUAL=0 IRUN=10 IHOLD=3 SG_RESULT=0'}
+                for a in ['X', 'Y', 'Z', 'T']]
+
+    def get_voltage(self):
+        """Simulated VOLTAGE."""
+        return {'raw': '24V=OK 5V=N/A 3V3=N/A 1V2=N/A', '24V': 'OK'}
+
+    def wait_for_position(self, axis, timeout=5.0):
+        """Simulated wait — always returns True (position reached instantly)."""
+        return True
+
+    def read_status(self, axis):
+        """Simulated STATUS register — return position_reached set."""
+        return 0x200  # bit 9 = position_reached
+
+    def detect_firmware_version(self):
+        """No-op for simulator — version is set at construction."""
+        pass
+
+    # ------------------------------------------------------------------
     # Raw REPL stubs (match SerialBoard API surface)
     # ------------------------------------------------------------------
     def enter_raw_repl(self):

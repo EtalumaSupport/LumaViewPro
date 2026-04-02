@@ -40,7 +40,7 @@ def _connect_motor_board():
         print('ERROR: Motor board not found (VID=0x2E8A, PID=0x0005)')
         sys.exit(1)
     board.connect()
-    if board.driver is None:
+    if not board.is_connected():
         print('ERROR: Failed to connect to motor board')
         sys.exit(1)
     return board
@@ -55,7 +55,7 @@ def _connect_serial_board(vid=0x2E8A, pid=0x0005, label='[Tool]',
         print(f'ERROR: Board not found (VID=0x{vid:04X}, PID=0x{pid:04X})')
         sys.exit(1)
     board.connect()
-    if board.driver is None:
+    if not board.is_connected():
         print('ERROR: Failed to connect')
         sys.exit(1)
     return board

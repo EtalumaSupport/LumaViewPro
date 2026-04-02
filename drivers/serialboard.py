@@ -330,6 +330,15 @@ class SerialBoard:
             self.firmware_responding = False
             self.protocol_version = ProtocolVersion.LEGACY
 
+    def detect_firmware_version(self):
+        """Re-detect firmware version from the connected board.
+
+        Useful after firmware updates when the version may have changed
+        without a full reconnect cycle. Updates firmware_version,
+        firmware_date, and firmware_responding attributes.
+        """
+        self._detect_firmware_version()
+
     @property
     def is_v2(self) -> bool:
         """True if firmware is v2.0 or later."""

@@ -246,6 +246,97 @@ class LEDBoard(SerialBoard):
         command = 'LEDS_OFF'
         self._write_command_fast(command)
 
+    # ------------------------------------------------------------------
+    # Engineering mode and diagnostics
+    # ------------------------------------------------------------------
+    def enter_engineering_mode(self, timeout=5.0):
+        """Enter engineering mode (FACTORY command with Y/N confirmation).
+
+        Sends FACTORY, waits for Y/N prompt, sends Y, drains help text.
+        Returns True on success, False if prompt not seen or timeout.
+        """
+        resp = self.exchange_multiline(
+            'FACTORY', timeout=timeout,
+            end_markers=['Y/N', 'y/n', 'FACTORY'])
+        if resp is None:
+            logger.warning('[LED Class ] enter_engineering_mode(): no response')
+            return False
+        if 'Y/N' not in resp.upper():
+            logger.warning(f'[LED Class ] enter_engineering_mode(): no Y/N prompt in: {resp!r}')
+            return False
+        # Confirm with Y
+        confirm_resp = self.exchange_multiline(
+            'Y', timeout=timeout,
+            end_markers=['FACTORY', 'Engineering', 'RAW', 'ADC'])
+        # Drain any remaining help text
+        time.sleep(0.5)
+        with self._lock:
+            if self.driver is not None:
+                stale = self.driver.in_waiting
+                if stale > 0:
+                    self.driver.read(stale)
+        logger.info('[LED Class ] Entered engineering mode')
+        return True
+
+    def exit_engineering_mode(self):
+        """Exit engineering mode back to safe mode (Q command).
+
+        Returns response string.
+        """
+        resp = self.exchange_command('Q', timeout=3)
+        time.sleep(0.3)
+        # Drain any remaining output
+        with self._lock:
+            if self.driver is not None:
+                stale = self.driver.in_waiting
+                if stale > 0:
+                    self.driver.read(stale)
+        logger.info('[LED Class ] Exited engineering mode')
+        return resp
+
+    def selftest(self, timeout=180):
+        """Run LED SELFTEST and return parsed results.
+
+        Sends SELFTEST, collects multiline response (one line per channel
+        with settle delays between), returns list of result line strings.
+        The response ends with a 'Complete' marker.
+        """
+        resp = self.exchange_multiline(
+            'SELFTEST', timeout=timeout,
+            end_markers=['Complete', 'COMPLETE', 'DONE', 'ERROR'])
+        if resp is None:
+            logger.warning('[LED Class ] selftest(): no response')
+            return []
+        lines = [line.strip() for line in resp.split('\n') if line.strip()]
+        logger.info(f'[LED Class ] selftest(): {len(lines)} lines')
+        return lines
+
+    def get_info(self):
+        """Send INFO and return parsed dict.
+
+        Returns dict with keys like 'version', 'date', 'cal_status',
+        and 'raw' (the full response text). Returns empty dict on failure.
+        """
+        resp = self.exchange_command('INFO', response_numlines=6, timeout=2)
+        if resp is None:
+            return {}
+        if isinstance(resp, list):
+            raw = '\n'.join(resp)
+        else:
+            raw = resp
+        result = {'raw': raw}
+        # Parse version
+        import re as _re
+        ver_match = _re.search(r'v(\d+\.\d+(?:\.\d+)?)', raw)
+        if ver_match:
+            result['version'] = ver_match.group(1)
+        date_match = _re.search(r'(\d{4}-\d{2}-\d{2})', raw)
+        if date_match:
+            result['date'] = date_match.group(1)
+        if 'Cal:' in raw or 'Calibrated' in raw:
+            result['cal_status'] = 'calibrated' if 'Calibrated' in raw else 'default'
+        return result
+
     def read_led_current(self, channel):
         """Read measured LED current (mA) from ADC feedback. Requires v2.0+ firmware in engineering mode.
         Returns measured current in mA, or None on error/unsupported."""

@@ -252,7 +252,13 @@ class SequentialIOExecutor:
         return fut
 
     def protocol_start(self):
-
+        # Clear stale finish flag from previous run. If protocol_finish is
+        # still set (dispatcher hasn't processed it yet), clear it now so
+        # the dispatcher doesn't asynchronously call protocol_end() during
+        # the new run — that would clear protocol_running mid-execution.
+        if self.protocol_finish.is_set():
+            self.protocol_finish.clear()
+            logger.info(f"{self.name} Cleared stale protocol_finish flag")
         self.protocol_running.set()
         logger.info(f"{self.name} Protocol Started")
 
@@ -284,9 +290,16 @@ class SequentialIOExecutor:
             self.protocol_complete_cb_kwargs = cb_kwargs if cb_kwargs is not None else {}
 
     def is_protocol_queue_active(self) -> bool:
-        """Returns True if protocol queue has pending tasks or is draining."""
-        return (self.protocol_finish.is_set() or
-                not self.protocol_queue.empty() or
+        """Returns True if protocol queue has pending tasks or a protocol task is running.
+
+        Does NOT include protocol_finish flag — that flag only signals the
+        dispatcher to drain remaining items, and clears asynchronously on the
+        next dispatch cycle (~0.2s). Including it here caused back-to-back
+        protocol runs to be blocked for up to 200ms after the queue was
+        already empty (the run_complete callback fires before protocol_finish
+        clears).
+        """
+        return (not self.protocol_queue.empty() or
                 (self.running_task is not None and getattr(self.running_task, 'protocol', False)))
 
     def wait_for_task(self, task: IOTask, timeout: float):

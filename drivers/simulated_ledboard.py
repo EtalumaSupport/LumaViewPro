@@ -252,6 +252,39 @@ class SimulatedLEDBoard:
             self._channel_states[ch] = 0
         self._write_command_fast('LEDS_OFF')
 
+    # ------------------------------------------------------------------
+    # Engineering mode and diagnostics (match LEDBoard API)
+    # ------------------------------------------------------------------
+    def enter_engineering_mode(self, timeout=5.0):
+        """Simulated engineering mode entry — always succeeds."""
+        logger.info('[LED Sim   ] enter_engineering_mode()')
+        return True
+
+    def exit_engineering_mode(self):
+        """Simulated engineering mode exit."""
+        logger.info('[LED Sim   ] exit_engineering_mode()')
+        return 'Q'
+
+    def selftest(self, timeout=180):
+        """Simulated SELFTEST — returns fake result lines."""
+        lines = []
+        for ch in range(6):
+            ma = self._channel_states.get(ch, 0)
+            lines.append(f'LED{ch}: 0.1mA OK  1mA OK  10mA OK  100mA OK  500mA OK')
+        lines.append('SELFTEST Complete')
+        return lines
+
+    def get_info(self):
+        """Simulated INFO — returns version dict."""
+        return {
+            'raw': f'Simulated LED Board v{self.firmware_version}',
+            'version': self.firmware_version,
+        }
+
+    def detect_firmware_version(self):
+        """No-op for simulator — version is set at construction."""
+        pass
+
     def read_led_current(self, channel):
         """Simulated ADC feedback — returns the set current for the channel, or None if not v2."""
         if not self.is_v2:

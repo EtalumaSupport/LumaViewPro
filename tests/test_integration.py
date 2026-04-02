@@ -576,10 +576,28 @@ class TestIntegrationStateAssertions:
         # Camera grabbing state is managed externally, should still be active
         assert scope.camera.is_grabbing()
 
-    @pytest.mark.skip(reason="Known issue: executor back-to-back runs blocked by file_io_executor drain")
-    def test_second_run_after_first(self, scope, executors, tmp_path):
+    @pytest.mark.skip(reason="Executor reuse bug: second run() starts but run_complete callback "
+                             "never fires. Debug shows: run enters, _reset_vars clears state, "
+                             "protocol_start sets flags, run_loop task submitted — but cleanup's "
+                             "run_complete callback doesn't reach the test's done.set(). "
+                             "Two fixes applied (is_protocol_queue_active, protocol_start clears "
+                             "stale protocol_finish), but deeper issue remains in cleanup callback "
+                             "dispatch. Needs executor simplification in 4.1.")
+    def test_second_run_after_first(self, executor, scope, tmp_path):
         """A second protocol run completes after the first finishes."""
-        pass
+        protocol = _make_protocol([{'color': 'BF', 'illumination': 50.0}])
+
+        # First run
+        completed_1, _ = _run_and_wait(executor, protocol, tmp_path)
+        assert completed_1, "First protocol run did not complete"
+
+        # Wait for executor to be fully idle (run_in_progress cleared, queue drained)
+        idle = _wait_for_executor_idle(executor, timeout=5.0)
+        assert idle, "Executor did not reach idle state after first run"
+
+        # Second run — should start without being blocked
+        completed_2, _ = _run_and_wait(executor, protocol, tmp_path)
+        assert completed_2, "Second protocol run did not complete (back-to-back blocked)"
 
     def test_different_exposure_per_step(self, executor, scope, tmp_path):
         """Protocol with varying exposure times completes."""

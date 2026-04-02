@@ -1301,7 +1301,7 @@ def deploy_firmware_file(
         time.sleep(3.0)
 
         # Re-detect firmware version after reboot
-        board._detect_firmware_version()
+        board.detect_firmware_version()
         new_version = board.firmware_version or board.firmware_date
         result.new_version = new_version
         logger.info(f"New firmware version: {new_version}")

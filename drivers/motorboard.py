@@ -701,6 +701,174 @@ class MotorBoard(SerialBoard):
         return left, right
 
 
+    # ------------------------------------------------------------------
+    # Diagnostic commands (firmware v3.0.5+)
+    # ------------------------------------------------------------------
+    def get_config(self):
+        """Send CONFIG and return parsed dict.
+
+        Firmware returns JSON (v3.0.5+) or Python dict repr (older).
+        Returns parsed dict, or empty dict on failure.
+        """
+        resp = self.exchange_command('CONFIG')
+        if resp is None:
+            return {}
+        # Take first line (may have trailing newline noise)
+        data_str = resp.split('\n')[0].strip() if '\n' in resp else resp.strip()
+        import json as _json
+        try:
+            return _json.loads(data_str)
+        except (ValueError, TypeError):
+            import ast
+            try:
+                return ast.literal_eval(data_str)
+            except (ValueError, SyntaxError):
+                logger.warning(f'[XYZ Class ] get_config(): unparseable response: {data_str[:200]}')
+                return {}
+
+    def get_drvstat(self, axis=None):
+        """Send DRVSTAT and return parsed driver status.
+
+        Args:
+            axis: Optional single axis ('X', 'Y', 'Z', 'T').
+                If None, returns status for all axes.
+
+        Returns:
+            List of dicts, one per axis, with keys:
+                'axis', 'raw' (hex string), 'SG' (int), 'CS' (int),
+                and flag strings from firmware.
+            Returns empty list on failure.
+        """
+        cmd = f'DRVSTAT_{axis}' if axis else 'DRVSTAT'
+        resp = self.exchange_multiline(cmd, timeout=5, end_markers=['T:'])
+        if resp is None:
+            # Try single-line for single axis
+            if axis:
+                resp = self.exchange_command(cmd, timeout=5)
+            if resp is None:
+                return []
+
+        lines = [l.strip() for l in resp.split('\n') if l.strip()]
+        results = []
+        for line in lines:
+            entry = {'raw_line': line}
+            # Parse axis prefix (e.g. "Z: raw=0x...")
+            if ':' in line:
+                entry['axis'] = line.split(':')[0].strip()
+            # Parse raw hex
+            import re as _re
+            raw_match = _re.search(r'raw=0x([0-9a-fA-F]+)', line)
+            if raw_match:
+                entry['raw'] = '0x' + raw_match.group(1)
+            sg_match = _re.search(r'SG=(\d+)', line)
+            if sg_match:
+                entry['SG'] = int(sg_match.group(1))
+            cs_match = _re.search(r'CS=(\d+)', line)
+            if cs_match:
+                entry['CS'] = int(cs_match.group(1))
+            results.append(entry)
+        return results
+
+    def get_motordetect(self):
+        """Send MOTORDETECT and return parsed motor detection status.
+
+        Returns list of dicts, one per axis, with keys:
+            'axis', 'detected' (bool), 'configured' (bool), 'raw_line'.
+        Returns empty list on failure.
+        """
+        resp = self.exchange_multiline('MOTORDETECT', timeout=5,
+                                       end_markers=['T:'])
+        if resp is None:
+            return []
+        lines = [l.strip() for l in resp.split('\n') if l.strip()]
+        results = []
+        for line in lines:
+            entry = {'raw_line': line}
+            if ':' in line:
+                entry['axis'] = line.split(':')[0].strip()
+            entry['detected'] = 'detected=True' in line or 'detected=1' in line
+            entry['configured'] = 'configured=True' in line or 'configured=1' in line
+            results.append(entry)
+        return results
+
+    def get_current(self):
+        """Send CURRENT and return parsed motor current info.
+
+        Returns list of dicts, one per axis, with keys:
+            'axis', 'CS_ACTUAL' (int), 'IRUN' (int), 'IHOLD' (int),
+            'SG_RESULT' (int), 'raw_line'.
+        Returns empty list on failure.
+        """
+        resp = self.exchange_multiline('CURRENT', timeout=5,
+                                       end_markers=['T:'])
+        if resp is None:
+            return []
+        import re as _re
+        lines = [l.strip() for l in resp.split('\n') if l.strip()]
+        results = []
+        for line in lines:
+            entry = {'raw_line': line}
+            if ':' in line:
+                entry['axis'] = line.split(':')[0].strip()
+            for key in ('CS_ACTUAL', 'IRUN', 'IHOLD', 'SG_RESULT'):
+                m = _re.search(rf'{key}=(\d+)', line)
+                if m:
+                    entry[key] = int(m.group(1))
+            results.append(entry)
+        return results
+
+    def get_voltage(self):
+        """Send VOLTAGE and return parsed voltage info.
+
+        Returns dict with voltage readings, or empty dict on failure.
+        """
+        resp = self.exchange_command('VOLTAGE', timeout=5)
+        if resp is None:
+            return {}
+        result = {'raw': resp}
+        import re as _re
+        for key in ('24V', '5V', '3V3', '1V2'):
+            m = _re.search(rf'{key}[=:]\s*([\d.]+|HIGH|LOW|OK)', resp)
+            if m:
+                result[key] = m.group(1)
+        return result
+
+    def wait_for_position(self, axis, timeout=5.0):
+        """Wait until axis reaches target position.
+
+        Polls target_status() at ~100Hz until position is reached or timeout.
+
+        Args:
+            axis: Axis letter ('X', 'Y', 'Z', 'T').
+            timeout: Maximum wait time in seconds.
+
+        Returns True if position reached, False on timeout.
+        """
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            try:
+                if self.target_status(axis):
+                    return True
+            except Exception:
+                pass
+            time.sleep(0.01)
+        logger.warning(f'[XYZ Class ] wait_for_position({axis}): timed out after {timeout}s')
+        return False
+
+    def read_status(self, axis):
+        """Read raw STATUS register value for axis.
+
+        Returns int (32-bit register value), or None on failure.
+        """
+        try:
+            resp = self.exchange_command('STATUS_R' + axis)
+            if resp is None:
+                return None
+            return int(resp)
+        except (ValueError, TypeError) as e:
+            logger.warning(f'[XYZ Class ] read_status({axis}) failed: {e}')
+            return None
+
     def get_current_firmware(self):
         """ Returns current version of firmware on Motorboard
 

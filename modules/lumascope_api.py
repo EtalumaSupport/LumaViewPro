@@ -335,7 +335,7 @@ class Lumascope():
                     if self._motion_monitor_stop.is_set():
                         break
                     try:
-                        if self.motion.driver and self.get_target_status(ax):
+                        if self.motion.is_connected() and self.get_target_status(ax):
                             # Axis has arrived — transition to IDLE
                             self._set_axis_state(ax, AxisState.IDLE)
                     except Exception as e:
@@ -680,13 +680,13 @@ class Lumascope():
 
     @property
     def motor_connected(self) -> bool:
-        """Whether the motor controller is connected (replaces scope.motion.driver checks)."""
-        return not isinstance(self.motion, NullMotionBoard) and bool(self.motion.driver)
+        """Whether the motor controller is connected."""
+        return not isinstance(self.motion, NullMotionBoard) and self.motion.is_connected()
 
     @property
     def led_connected(self) -> bool:
-        """Whether the LED controller is connected (replaces scope.led checks)."""
-        return not isinstance(self.led, NullLEDBoard) and bool(self.led.driver)
+        """Whether the LED controller is connected."""
+        return not isinstance(self.led, NullLEDBoard) and self.led.is_connected()
 
     def lens_focal_length(self) -> float:
         """Get tube lens focal length from motorconfig.
@@ -2362,6 +2362,12 @@ class Lumascope():
         """
         if not self.motor_connected:
             return None
+        # Note: Uses exchange_command directly because this method expects
+        # the caller to provide the full SPI address (with write bit 0x80
+        # already set for writes). MotorBoard.spi_write() adds 0x80
+        # automatically, so the address conventions are different.
+        # TODO: Migrate callers to use MotorBoard.spi_write() with base
+        # addresses, then remove this raw command path.
         cmd = f'SPI{axis}0x{address:02X}{value}'
         return self.motion.exchange_command(cmd)
 
@@ -2643,7 +2649,7 @@ class Lumascope():
         Returns:
             dict: Keys 'firmware_version', 'connected'.
         """
-        if not self.led or not self.led.driver:
+        if not self.led or not self.led.is_connected():
             return {'firmware_version': None, 'connected': False}
 
         return {
