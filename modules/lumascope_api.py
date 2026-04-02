@@ -2203,7 +2203,7 @@ class Lumascope():
         by move commands — no polling needed.
         """
         positions = {}
-        for ax in ('X', 'Y', 'Z', 'T'):
+        for ax in self.axes_present():
             try:
                 pos = self.motion.target_pos(axis=ax)
                 positions[ax] = pos if pos is not None else 0.0
@@ -2591,7 +2591,7 @@ class Lumascope():
             dict: Mapping of axis name to limit switch state.
         """
         resp = {}
-        for axis in ('X','Y','Z','T'):
+        for axis in self.axes_present():
             resp[axis] = self.get_limit_switch_status(axis=axis)
         return resp
 
@@ -2635,7 +2635,7 @@ class Lumascope():
             bool: True if all axes arrived, False if timed out.
         """
         deadline = time.monotonic() + timeout
-        for ax in self.VALID_AXES:
+        for ax in self.axes_present():
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 logger.warning(f'[SCOPE API ] wait_until_finished_moving timed out on axis {ax}')

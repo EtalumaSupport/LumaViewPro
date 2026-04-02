@@ -65,7 +65,6 @@ class AppContext:
     autofocus_thread_executor: object = None
     scope_display_thread_executor: object = None
     reset_executor: object = None
-    temp_ij_executor: object = None
 
     # Helpers
     wellplate_loader: object = None

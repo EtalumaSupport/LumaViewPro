@@ -201,7 +201,6 @@ if __name__ == "__main__":
     # Executors — created in build(), registered on AppContext
     io_executor = None
     camera_executor = None
-    temp_ij_executor = None
     protocol_executor = None
     file_io_executor = None
     autofocus_thread_executor = None
@@ -477,9 +476,6 @@ class LumaViewProApp(TooltipMixin, App):
         if camera_executor is not None:
             camera_executor.shutdown(wait=False)
 
-        if temp_ij_executor is not None:
-            temp_ij_executor.shutdown(wait=False)
-
         if protocol_executor is not None:
             protocol_executor.shutdown(wait=False)
 
@@ -583,12 +579,11 @@ class LumaViewProApp(TooltipMixin, App):
         objective_helper = objectives_loader.ObjectiveLoader(source_path=source_path)
 
         # Create executors (previously at module level, moved here for init consolidation)
-        global io_executor, camera_executor, temp_ij_executor, protocol_executor
+        global io_executor, camera_executor, protocol_executor
         global file_io_executor, autofocus_thread_executor, scope_display_thread_executor
         global stage_executor, turret_executor, reset_executor
         io_executor = SequentialIOExecutor(name="IO")
         camera_executor = SequentialIOExecutor(name="CAMERA")
-        temp_ij_executor = SequentialIOExecutor(name="IJ")
         protocol_executor = SequentialIOExecutor(name="PROTOCOL")
         file_io_executor = SequentialIOExecutor(name="FILE")
         autofocus_thread_executor = SequentialIOExecutor(name="AUTOFOCUS")
@@ -613,7 +608,6 @@ class LumaViewProApp(TooltipMixin, App):
 
         io_executor.start()
         camera_executor.start()
-        temp_ij_executor.start()
         protocol_executor.start()
         file_io_executor.start()
         autofocus_thread_executor.start()
@@ -621,12 +615,6 @@ class LumaViewProApp(TooltipMixin, App):
         # stage_executor and turret_executor are aliases for io_executor (already started above)
         reset_executor.start()
         #ij_helper = imagej_helper.ImageJHelper()
-
-        # temp_ij_executor.put(IOTask(
-        #     action=imagej_helper.ImageJHelper,
-        #     callback=ij_creation,
-        #     pass_result=True
-        # ))
 
         autofocus_executor = AutofocusExecutor(
             scope=lumaview.scope,
@@ -668,7 +656,6 @@ class LumaViewProApp(TooltipMixin, App):
             autofocus_thread_executor=autofocus_thread_executor,
             scope_display_thread_executor=scope_display_thread_executor,
             reset_executor=reset_executor,
-            temp_ij_executor=temp_ij_executor,
             wellplate_loader=wellplate_loader,
             coordinate_transformer=coordinate_transformer,
             objective_helper=objective_helper,
