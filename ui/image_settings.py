@@ -360,6 +360,13 @@ class ImageSettings(BoxLayout):
         if ctx.initializing:
             return
 
+        # Don't turn off LEDs if "Protocol LEDs On" is active and we're
+        # stepping through a protocol. The accordion collapse fires when
+        # go_to_step_update_ui opens the step's channel — this would kill
+        # the LED that step_navigation just turned on. (fixes #605)
+        if ctx.settings.get('protocol_led_on', False):
+            return
+
         # turn off the camera update and all LEDs
         scope_display = ctx.scope_display
         # scope_display.stop()
