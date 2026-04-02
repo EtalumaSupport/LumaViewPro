@@ -189,6 +189,9 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
             save_folder = pathlib.Path(settings['live_folder']) / "Manual"
 
         self.video_save_folder = save_folder
+        # Set last save folder immediately so "Open Last Save Folder"
+        # works even if the async cleanup callback hasn't fired yet (fixes #603)
+        set_last_save_folder(save_folder)
 
         self.start_ts = time.time()
         self.stop_ts = self.start_ts + max_duration
