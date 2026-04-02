@@ -339,6 +339,10 @@ class Lumascope():
                         if self.motion.is_connected() and self.get_target_status(ax):
                             # Axis has arrived — transition to IDLE
                             self._set_axis_state(ax, AxisState.IDLE)
+                        else:
+                            # Still moving — fire position listener so UI
+                            # updates crosshair during motion (fixes #601)
+                            self._fire_position_listeners(ax)
                     except Exception as e:
                         logger.warning(f'[SCOPE API ] Motion monitor: target_status({ax}) failed: {e}')
 

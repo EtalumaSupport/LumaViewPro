@@ -158,6 +158,11 @@ class ProtocolStepExecutor:
 
         # If autofocus selected, not running, not complete — start it
         if step['Auto_Focus'] and not p._autofocus_executor.complete() and not p._autofocus_executor.in_progress():
+            # Turn on LED before autofocus — AF needs illumination to
+            # compute focus scores (fixes #602)
+            if p._scope.led_connected:
+                self.led_on(color=step['Color'], illumination=step['Illumination'])
+
             if p._callbacks.autofocus_in_progress:
                 _schedule_ui(lambda dt: p._callbacks.autofocus_in_progress(), 0)
 
@@ -203,6 +208,8 @@ class ProtocolStepExecutor:
 
         if step["Auto_Focus"]:
             p._autofocus_count += 1
+            # Turn off LED after AF — capture will turn it on again if needed
+            self.leds_off()
 
         # --- Capture ---
         if remaining_scans > 0:
