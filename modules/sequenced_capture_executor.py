@@ -351,11 +351,17 @@ class SequencedCaptureExecutor:
         with self._run_lock:
             if self._run_in_progress_event.is_set():
                 logger.error(f"[{self.LOGGER_NAME} ] Cannot start new run, run already in progress")
+                from modules.notification_center import notifications
+                notifications.warning("Protocol", "Already Running",
+                    "A protocol run is already in progress.")
                 return
 
         # Check if file_io_executor still has pending writes
         if self.file_io_executor.is_protocol_queue_active():
             logger.error(f"[{self.LOGGER_NAME} ] Cannot start new run, file writing still in progress")
+            from modules.notification_center import notifications
+            notifications.warning("Protocol", "Files Still Writing",
+                "Previous run's files are still being written. Please wait.")
             return
 
         if leds_state_at_end not in ("off", "return_to_original",):
@@ -363,6 +369,9 @@ class SequencedCaptureExecutor:
 
         if protocol.num_steps() == 0:
             logger.error(f"[PROTOCOL] Protocol has no steps. Cannot start run.")
+            from modules.notification_center import notifications
+            notifications.warning("Protocol", "No Steps",
+                "Protocol has no steps. Add at least one step before running.")
             return
 
         # Pre-run validation: check positions within axis limits
@@ -385,6 +394,9 @@ class SequencedCaptureExecutor:
         try:
             if not self._scope.are_all_connected():
                 logger.error(f"[PROTOCOL] Not all scope components connected. Cannot start run.")
+                from modules.notification_center import notifications
+                notifications.error("Protocol", "Hardware Disconnected",
+                    "Not all hardware components are connected. Check connections and try again.")
                 return
         except Exception as ex:
             logger.error(f"[PROTOCOL] Error checking scope connection: {ex}")
