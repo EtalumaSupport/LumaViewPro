@@ -17,7 +17,7 @@ from modules.protocol_cleanup import run_cleanup
 from modules.protocol_step_executor import ProtocolStepExecutor
 from modules.protocol_run_loop import ProtocolRunLoop
 
-from modules.kivy_utils import Clock, schedule_ui as _schedule_ui
+from modules.kivy_utils import schedule_ui as _schedule_ui
 
 
 from modules.lumascope_api import Lumascope
@@ -479,13 +479,10 @@ class SequencedCaptureExecutor:
         Note: With the loop-based approach, most work happens in executor threads,
         so there's less to unschedule than before.
         """
-        try:
-            if self._protocol_iterator is not None:
-                Clock.unschedule(self._protocol_iterator)
-            if self._scan_iterator is not None:
-                Clock.unschedule(self._scan_iterator)
-        except Exception:
-            pass  # Safe to ignore — iterators may not be Clock-scheduled
+        # Legacy Clock.unschedule calls removed — with the loop-based
+        # architecture, iterators run on executor threads, not Kivy Clock.
+        self._protocol_iterator = None
+        self._scan_iterator = None
 
 
     def _cleanup(self):

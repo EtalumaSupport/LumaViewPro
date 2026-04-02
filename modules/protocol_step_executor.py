@@ -26,7 +26,7 @@ from modules.sequential_io_executor import IOTask
 if TYPE_CHECKING:
     from modules.sequenced_capture_executor import SequencedCaptureExecutor
 
-from modules.kivy_utils import Clock, schedule_ui as _schedule_ui
+from modules.kivy_utils import schedule_ui as _schedule_ui
 
 
 class ProtocolStepExecutor:

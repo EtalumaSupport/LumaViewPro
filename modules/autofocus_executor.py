@@ -9,7 +9,7 @@ import typing
 
 from lvp_logger import logger
 
-from modules.kivy_utils import Clock, schedule_ui as _schedule_ui
+from modules.kivy_utils import schedule_ui as _schedule_ui
 
 import threading
 

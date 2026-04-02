@@ -2062,16 +2062,15 @@ def _start_support_report(self):
     self._report_progress.open()
 
     def run():
+        from modules.kivy_utils import schedule_ui as _schedule_ui
         report = TechSupportReport(scope=self.scope)
 
         def progress(pct, msg):
-            from kivy.clock import Clock
-            Clock.schedule_once(
+            _schedule_ui(
                 lambda dt: self._update_report_progress(pct, msg), 0)
 
         path = report.generate(callback=progress, include_bandwidth_test=False)
-        from kivy.clock import Clock
-        Clock.schedule_once(lambda dt: self._report_done(path), 0)
+        _schedule_ui(lambda dt: self._report_done(path), 0)
 
     threading.Thread(target=run, daemon=True).start()
 

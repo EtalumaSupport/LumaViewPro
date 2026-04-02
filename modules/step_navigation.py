@@ -10,7 +10,7 @@ They are re-exported by lumaviewpro.py so existing call sites work.
 import copy
 import logging
 
-from kivy.clock import Clock
+from modules.kivy_utils import schedule_ui as _schedule_ui
 
 import modules.app_context as _app_ctx
 import modules.common_utils as common_utils
@@ -40,19 +40,19 @@ def go_to_step(
     protocol_settings = ctx.motion_settings.ids['protocol_settings_id']
     if num_steps <= 0:
         protocol_settings.curr_step = -1
-        Clock.schedule_once(lambda dt: protocol_settings.update_step_ui(), 0)
+        _schedule_ui(lambda dt: protocol_settings.update_step_ui(), 0)
         return
 
     if (step_idx < 0) or (step_idx >= num_steps):
         protocol_settings.curr_step = -1
-        Clock.schedule_once(lambda dt: protocol_settings.update_step_ui(), 0)
+        _schedule_ui(lambda dt: protocol_settings.update_step_ui(), 0)
         return
 
     step = protocol.step(idx=step_idx)
     protocol_settings.curr_step = step_idx
 
-    Clock.schedule_once(lambda dt: protocol_settings.generate_step_name_input(), 0)
-    Clock.schedule_once(lambda dt: protocol_settings.update_step_ui(), 0)
+    _schedule_ui(lambda dt: protocol_settings.generate_step_name_input(), 0)
+    _schedule_ui(lambda dt: protocol_settings.update_step_ui(), 0)
 
 
     # Convert plate coordinates to stage coordinates
@@ -84,7 +84,7 @@ def go_to_step(
             if not called_from_protocol:
                 if turret_pos is not None:
                     io_executor.put(IOTask(action=move_absolute_position,kwargs={"axis":'T',"pos": turret_pos,"protocol": False}))
-                    Clock.schedule_once(lambda dt: ctx.motion_settings.ids['verticalcontrol_id'].update_turret_gui(turret_pos), 0)
+                    _schedule_ui(lambda dt: ctx.motion_settings.ids['verticalcontrol_id'].update_turret_gui(turret_pos), 0)
                 io_executor.put(IOTask(action=move_absolute_position,kwargs={"axis":'X',"pos": sx,"protocol": False}))
                 io_executor.put(IOTask(
                         action=move_absolute_position,
@@ -105,7 +105,7 @@ def go_to_step(
             else:
                 if turret_pos is not None:
                     move_absolute_position(axis='T', pos=turret_pos, protocol=True)
-                    Clock.schedule_once(lambda dt: ctx.motion_settings.ids['verticalcontrol_id'].update_turret_gui(turret_pos), 0)
+                    _schedule_ui(lambda dt: ctx.motion_settings.ids['verticalcontrol_id'].update_turret_gui(turret_pos), 0)
                 move_absolute_position('X', sx, protocol=True)
                 move_absolute_position('Y', sy, protocol=True)
                 move_absolute_position('Z', step["Z"], protocol=True, wait_until_complete=True)
@@ -135,7 +135,7 @@ def go_to_step(
 
         if not called_from_protocol and settings['protocol_led_on']:
             scope_commands.led_on(ctx.scope, io_executor, color, step['Illumination'])
-            Clock.schedule_once(lambda dt: temp(), 0)
+            _schedule_ui(lambda dt: temp(), 0)
         else:
             layer_obj.apply_settings(ignore_auto_gain=ignore_auto_gain, protocol=True)
 
@@ -145,11 +145,11 @@ def go_to_step(
         # but when go_to_step is used (all UI-triggered protocols), _default_move
         # is bypassed. Schedule on main thread since go_to_step may be called
         # from the protocol executor thread.
-        Clock.schedule_once(lambda dt: ctx.motion_settings.update_xy_stage_control_gui(), 0)
+        _schedule_ui(lambda dt: ctx.motion_settings.update_xy_stage_control_gui(), 0)
         # Also force a stage widget redraw so the crosshair/well indicator moves
-        Clock.schedule_once(lambda dt: ctx.stage.draw_labware(), 0)
+        _schedule_ui(lambda dt: ctx.stage.draw_labware(), 0)
 
-        Clock.schedule_once(lambda dt: go_to_step_update_ui(step), 0)
+        _schedule_ui(lambda dt: go_to_step_update_ui(step), 0)
 
 
 def go_to_step_update_ui(step):

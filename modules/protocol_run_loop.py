@@ -20,7 +20,7 @@ from modules.protocol_state_machine import ProtocolState
 if TYPE_CHECKING:
     from modules.sequenced_capture_executor import SequencedCaptureExecutor
 
-from modules.kivy_utils import Clock, schedule_ui as _schedule_ui
+from modules.kivy_utils import schedule_ui as _schedule_ui
 
 # --- Disk-space estimation constants ---
 ESTIMATED_VIDEO_STEP_MB = 50   # MP4 compressed, ~10-50 MB typical

@@ -11,9 +11,9 @@ continue to work.
 
 import logging
 
-from kivy.clock import Clock
 from kivy.core.window import Window
 from kivy.uix.scrollview import ScrollView
+from modules.kivy_utils import schedule_ui as _schedule_ui
 
 import modules.app_context as _app_ctx
 import modules.common_utils as common_utils
@@ -93,7 +93,7 @@ def _update_step_number_callback(step_num: int):
     ctx = _app_ctx.ctx
     protocol_settings = ctx.motion_settings.ids['protocol_settings_id']
     protocol_settings.curr_step = step_num-1
-    Clock.schedule_once(lambda dt: protocol_settings.update_step_ui(), 0)
+    _schedule_ui(lambda dt: protocol_settings.update_step_ui(), 0)
 
 
 # ============================================================================
@@ -157,7 +157,7 @@ def move_absolute_position(
                 overshoot_enabled=overshoot_enabled,
             )
 
-        Clock.schedule_once(lambda dt: _handle_ui_update_for_axis(axis=axis), 0)
+        _schedule_ui(lambda dt: _handle_ui_update_for_axis(axis=axis), 0)
 
 
 def move_relative_position(
@@ -179,7 +179,7 @@ def move_relative_position(
 def move_home(axis: str):
     ctx = _app_ctx.ctx
     axis = axis.upper()
-    Clock.schedule_once(lambda dt: Window.set_title(f"Lumaview Pro {ctx.version}   |   Homing, please wait..."), 0)
+    _schedule_ui(lambda dt: Window.set_title(f"Lumaview Pro {ctx.version}   |   Homing, please wait..."), 0)
     scope_commands.move_home(ctx.scope, ctx.io_executor, axis, callback=move_home_cb, cb_args=(axis))
 
 

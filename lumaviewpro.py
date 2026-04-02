@@ -582,15 +582,24 @@ class LumaViewProApp(TooltipMixin, App):
         global io_executor, camera_executor, protocol_executor
         global file_io_executor, autofocus_thread_executor, scope_display_thread_executor
         global stage_executor, turret_executor, reset_executor
-        io_executor = SequentialIOExecutor(name="IO")
-        camera_executor = SequentialIOExecutor(name="CAMERA")
-        protocol_executor = SequentialIOExecutor(name="PROTOCOL")
-        file_io_executor = SequentialIOExecutor(name="FILE")
-        autofocus_thread_executor = SequentialIOExecutor(name="AUTOFOCUS")
-        scope_display_thread_executor = SequentialIOExecutor(name="SCOPEDISPLAY")
+        # Rule 15: Pass Clock.schedule_once as the UI dispatcher so executors
+        # can schedule callbacks on the Kivy main thread without importing Kivy.
+        from kivy.clock import Clock
+        _ui = Clock.schedule_once
+
+        # Also set the global dispatcher for kivy_utils.schedule_ui()
+        from modules.kivy_utils import set_ui_dispatcher
+        set_ui_dispatcher(_ui)
+
+        io_executor = SequentialIOExecutor(name="IO", ui_dispatcher=_ui)
+        camera_executor = SequentialIOExecutor(name="CAMERA", ui_dispatcher=_ui)
+        protocol_executor = SequentialIOExecutor(name="PROTOCOL", ui_dispatcher=_ui)
+        file_io_executor = SequentialIOExecutor(name="FILE", ui_dispatcher=_ui)
+        autofocus_thread_executor = SequentialIOExecutor(name="AUTOFOCUS", ui_dispatcher=_ui)
+        scope_display_thread_executor = SequentialIOExecutor(name="SCOPEDISPLAY", ui_dispatcher=_ui)
         stage_executor = io_executor    # consolidated: all motor serial I/O through one executor
         turret_executor = io_executor   # consolidated: prevents concurrent motor board access
-        reset_executor = SequentialIOExecutor(name="RESET")
+        reset_executor = SequentialIOExecutor(name="RESET", ui_dispatcher=_ui)
 
         # Create the GUI-independent scope session
         global scope_session

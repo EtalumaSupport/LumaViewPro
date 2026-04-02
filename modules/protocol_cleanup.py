@@ -22,7 +22,7 @@ if TYPE_CHECKING:
     from modules.protocol_callbacks import ProtocolCallbacks
 
 
-from modules.kivy_utils import Clock, schedule_ui as _schedule_ui
+from modules.kivy_utils import schedule_ui as _schedule_ui
 
 
 def run_cleanup(
