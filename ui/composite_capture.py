@@ -248,6 +248,7 @@ class CompositeCapture(FloatLayout):
                 'initial_layer': initial_layer,
                 'led_restore_state': led_restore_state,
                 'use_full_pixel_depth': use_full_pixel_depth,
+                'saved_video_false_color': saved_video_false_color,
             },
         ))
 
@@ -257,6 +258,7 @@ class CompositeCapture(FloatLayout):
         initial_layer,
         led_restore_state,
         use_full_pixel_depth,
+        saved_video_false_color=None,
     ):
         """Runs on background thread — performs hardware I/O without blocking UI."""
         ctx = _app_ctx.ctx
