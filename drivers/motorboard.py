@@ -31,7 +31,6 @@ class MotorBoard(SerialBoard):
         if motorconfig_defaults_file is None:
             motorconfig_defaults_file = pathlib.Path("data/motorconfig_defaults.json")
         self.motorconfig = MotorConfig(defaults_file=motorconfig_defaults_file)
-        self.backlash = self.motorconfig.antibacklash_um('Z')
 
         # Default timeout 5s for regular commands. Long-running commands
         # (HOME, CALIBRATE) pass explicit timeout overrides (H15).
@@ -41,6 +40,16 @@ class MotorBoard(SerialBoard):
         # Backward-compatible alias for lock name
         self.thread_lock = self._lock
 
+        # Build cached values from motorconfig (rebuilt after board merge)
+        self._rebuild_cached_values()
+
+    def _rebuild_cached_values(self):
+        """Recompute cached values from motorconfig.
+
+        Called at init (with defaults only) and again after
+        update_from_board() merges per-unit board data.
+        """
+        self.backlash = self.motorconfig.antibacklash_um('Z')
         self.axes_config = {
             'Z': {
                 'limits': {
@@ -102,6 +111,17 @@ class MotorBoard(SerialBoard):
                 info = self.fullinfo()
                 with self._state_lock:
                     self._fullinfo = info
+
+                # Merge per-unit config from board (overrides defaults
+                # only for keys explicitly present in board config)
+                board_cfg = self.get_config()
+                if board_cfg:
+                    self.motorconfig.update_from_board(board_cfg)
+                    self._rebuild_cached_values()
+                    logger.info(f'[XYZ Class ] Board config merged: model={self.motorconfig.model()}, '
+                                f'SN={self.motorconfig.serial_number()}, '
+                                f'Z_usteps/mm={self.motorconfig.usteps_per_mm("Z")}')
+
                 logger.info('[XYZ Class ] Connected to motor controller')
             except Exception as e:
                 self._close_driver()
