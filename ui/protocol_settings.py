@@ -1753,6 +1753,16 @@ class ProtocolSettings(FloatLayout):
         ctx = _app_ctx.ctx
         ctx.motion_settings.ids['verticalcontrol_id']._reset_run_autofocus_button()
         ctx.motion_settings.ids['verticalcontrol_id'].is_complete = False
+        # Sync LED toggle UI with hardware state after AF turns LEDs off.
+        # AF executor calls scope.leds_off() directly (not via ui_helpers)
+        # so the UI button state doesn't get updated automatically.
+        # TODO: LED state management needs structural redesign — LED on/off
+        # is spread across 6+ files with no single source of truth for UI state.
+        opened_layer = common_utils.get_opened_layer(ctx.image_settings)
+        if opened_layer:
+            layer_obj = ctx.image_settings.layer_lookup(layer=opened_layer)
+            if layer_obj:
+                layer_obj.update_led_toggle_ui()
 
 
     def run_sequenced_capture(
