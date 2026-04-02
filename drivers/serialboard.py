@@ -48,7 +48,6 @@ class SerialBoard:
         self.firmware_version = None
         self.firmware_date = None
         self.firmware_responding = False
-        self._is_v3_plus = False  # Set by _detect_firmware_version(); skips 20ms drain sleep
         self.driver = None
         self._last_error_log_time = 0.0
         self._error_log_interval = 2.0  # seconds between repeated error logs
@@ -322,23 +321,14 @@ class SerialBoard:
 
             if self.firmware_version:
                 logger.info(f'{self._label} Firmware v{self.firmware_version} detected')
-                # v3.0+ firmware sends exactly one response line per command.
-                # Skip the 20ms post-read drain sleep for these boards.
-                try:
-                    major = int(self.firmware_version.split('.')[0])
-                    self._is_v3_plus = (major >= 3)
-                except (ValueError, IndexError):
-                    self._is_v3_plus = False
             else:
                 logger.info(f'{self._label} Legacy firmware (no version string, date={self.firmware_date})')
-                self._is_v3_plus = False
 
         except Exception as e:
             logger.debug(f'{self._label} version detection failed: {e}')
             self.firmware_version = None
             self.firmware_responding = False
             self.protocol_version = ProtocolVersion.LEGACY
-            self._is_v3_plus = False
 
     def detect_firmware_version(self):
         """Re-detect firmware version from the connected board.
@@ -448,11 +438,7 @@ class SerialBoard:
                 # Old firmware (pre-v3.0) sends multi-line INFO/STATUS even
                 # when we only requested 1 line. Without this drain, leftover
                 # lines pollute the next command's response.
-                # v3.0+ firmware sends exactly one line per single-line command,
-                # so the 20ms wait is unnecessary. Skip it to save ~20ms per
-                # command (~1s/s saved during 50Hz motion polling).
-                if not getattr(self, '_is_v3_plus', False):
-                    time.sleep(0.02)  # Legacy firmware: wait for trailing lines
+                time.sleep(0.02)  # Brief pause for remaining lines to arrive
                 remaining = self.driver.in_waiting
                 if remaining > 0:
                     self.driver.read(remaining)
