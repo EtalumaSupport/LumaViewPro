@@ -124,6 +124,17 @@ class AutofocusExecutor:
         }
 
 
+    def _led_on(self):
+        """Turn on LED for autofocus illumination (if configured)."""
+        if self._led_color is not None and self._scope.led_connected:
+            ch = self._scope.color2ch(self._led_color)
+            self._scope.led_on(channel=ch, mA=self._led_illumination, block=True)
+
+    def _led_off(self):
+        """Turn off LED after autofocus (if we turned it on)."""
+        if self._led_color is not None and self._scope.led_connected:
+            self._scope.leds_off()
+
     def run(
         self,
         objective_id: str,
@@ -131,6 +142,8 @@ class AutofocusExecutor:
         save_results_to_file: bool = False,
         run_trigger_source: str = None,
         results_dir: pathlib.Path | None = None,
+        led_color: str | None = None,
+        led_illumination: float = 0,
     ):
         if self._af_in_progress.is_set():
             return
@@ -138,6 +151,8 @@ class AutofocusExecutor:
         self._reset_state()
         self._callbacks = callbacks
         self._run_trigger_source = run_trigger_source
+        self._led_color = led_color
+        self._led_illumination = led_illumination
         self._autofocus_executor.protocol_start()
         self._last_progress_ts = time.monotonic()
 
@@ -161,6 +176,8 @@ class AutofocusExecutor:
                      f'range={self._params["range"]:.1f} '
                      f'step={self._params["resolution"]:.1f} '
                      f'z=[{self._params["z_min"]:.1f}, {self._params["z_max"]:.1f}] ---')
+        # Turn on LED for AF illumination (structural fix for #602)
+        self._led_on()
         self._move_absolute_position(pos=self._params['z_min'])
 
         # Queue single IOTask that runs the entire autofocus loop
@@ -170,6 +187,13 @@ class AutofocusExecutor:
         """Main autofocus loop - runs continuously until AF completes or is cancelled"""
         last_gc_time = time.monotonic()
 
+        try:
+            self._autofocus_loop_inner(last_gc_time)
+        finally:
+            # Always turn off LED when AF loop exits, regardless of how it exited
+            self._led_off()
+
+    def _autofocus_loop_inner(self, last_gc_time):
         while self._af_in_progress.is_set() and self._is_focusing:
             try:
                 # Periodic maintenance: GC every 60 seconds
@@ -212,6 +236,7 @@ class AutofocusExecutor:
             return
         _af_log.info('--- AF CANCELLED ---')
         self._scope.set_motor_precision_mode('Z', False)
+        self._led_off()
         self._af_in_progress.clear()
         self._is_focusing = False
         self._autofocus_executor.protocol_end()
@@ -607,6 +632,8 @@ class AutofocusExecutor:
         self._last_pass = False         # Are we on the last scan for autofocus?
         self._params = {}
         self._run_trigger_source = None
+        self._led_color = None
+        self._led_illumination = 0
         self._autofocus_executor.protocol_end()
         self._autofocus_executor.clear_protocol_pending()
         try:

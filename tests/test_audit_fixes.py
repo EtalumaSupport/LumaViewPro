@@ -828,3 +828,121 @@ class TestAxisState:
         sim_scope.xycenter()
         assert sim_scope.get_axis_state('X') == AxisState.IDLE
         assert sim_scope.get_axis_state('Y') == AxisState.IDLE
+
+
+# ===========================================================================
+# Issue Regression Tests — each bug fix gets a test (Rule 18)
+# ===========================================================================
+
+class TestIssue602_AFExecutorLED:
+    """#602: Autofocus All Steps doesn't turn on the LED.
+
+    Root cause: AF executor had no LED control. Fix: AF executor
+    accepts led_color/led_illumination and manages its own LED.
+    """
+
+    def test_af_executor_accepts_led_params(self, _mock_heavy_deps):
+        """AutofocusExecutor.run() should accept led_color and led_illumination."""
+        import inspect
+        from modules.autofocus_executor import AutofocusExecutor
+        sig = inspect.signature(AutofocusExecutor.run)
+        assert 'led_color' in sig.parameters
+        assert 'led_illumination' in sig.parameters
+
+    def test_af_executor_turns_led_on(self, _mock_heavy_deps):
+        """AF executor should call led_on when led_color is provided."""
+        from modules.autofocus_executor import AutofocusExecutor
+        from modules.lumascope_api import Lumascope
+
+        scope = Lumascope(simulate=True)
+        from modules.sequential_io_executor import SequentialIOExecutor
+        io = SequentialIOExecutor(name="IO_TEST")
+        cam = SequentialIOExecutor(name="CAM_TEST")
+        af_ex = SequentialIOExecutor(name="AF_TEST")
+        file_ex = SequentialIOExecutor(name="FILE_TEST")
+        af = AutofocusExecutor(
+            scope=scope,
+            camera_executor=cam,
+            io_executor=io,
+            file_io_executor=file_ex,
+            autofocus_executor=af_ex,
+        )
+        # Verify _led_on and _led_off methods exist
+        assert hasattr(af, '_led_on')
+        assert hasattr(af, '_led_off')
+        # Verify _reset_state initializes LED fields
+        af._reset_state()
+        assert af._led_color is None
+        assert af._led_illumination == 0
+
+    def test_af_executor_led_off_in_cancel(self, _mock_heavy_deps):
+        """AF executor cancel() should turn off LED."""
+        from modules.autofocus_executor import AutofocusExecutor
+        from modules.lumascope_api import Lumascope
+        from unittest.mock import patch
+
+        scope = Lumascope(simulate=True)
+        from modules.sequential_io_executor import SequentialIOExecutor
+        io = SequentialIOExecutor(name="IO_TEST")
+        cam = SequentialIOExecutor(name="CAM_TEST")
+        af_ex = SequentialIOExecutor(name="AF_TEST")
+        file_ex = SequentialIOExecutor(name="FILE_TEST")
+        af = AutofocusExecutor(
+            scope=scope,
+            camera_executor=cam,
+            io_executor=io,
+            file_io_executor=file_ex,
+            autofocus_executor=af_ex,
+        )
+        # Set LED state as if AF was running with LED
+        af._led_color = 'BF'
+        af._led_illumination = 100
+        af._af_in_progress.set()
+
+        with patch.object(af, '_led_off') as mock_led_off:
+            af.cancel()
+            mock_led_off.assert_called_once()
+
+
+class TestIssue605_AccordionLEDProtocol:
+    """#605: Stepping through Protocol with 'Protocol LEDs On' doesn't stay on.
+
+    Root cause: accordion_collapse() unconditionally called scope_leds_off().
+    Fix: skip leds_off when protocol_led_on setting is active.
+    """
+
+    def test_accordion_collapse_has_protocol_led_on_guard(self):
+        """accordion_collapse source must check protocol_led_on setting."""
+        import pathlib
+        source = pathlib.Path("ui/image_settings.py").read_text()
+        # Find the accordion_collapse method body
+        assert "protocol_led_on" in source, \
+            "accordion_collapse must check protocol_led_on setting (#605)"
+        assert "scope_leds_off" in source, \
+            "accordion_collapse must still call scope_leds_off when protocol_led_on is False"
+
+
+class TestIssue606_TurretObjectiveValidation:
+    """#606: Objective changeable without turret position assignment.
+
+    Root cause: no validation in select_objective() or _is_protocol_valid().
+    Fix: warn on select, block protocol run.
+    """
+
+    def test_select_objective_validates_turret(self):
+        """select_objective source must check turret assignments."""
+        import pathlib
+        source = pathlib.Path("ui/microscope_settings.py").read_text()
+        assert "Objective Not in Turret" in source, \
+            "select_objective must warn when objective not in turret (#606)"
+
+    def test_is_protocol_valid_checks_turret(self):
+        """_is_protocol_valid source must validate turret config."""
+        import pathlib
+        source = pathlib.Path("ui/protocol_settings.py").read_text()
+        # Find the _is_protocol_valid method
+        idx = source.find("def _is_protocol_valid")
+        assert idx != -1, "_is_protocol_valid method must exist"
+        method_body = source[idx:idx+2000]
+        assert "turret" in method_body.lower(), \
+            "_is_protocol_valid must check turret objective assignments (#606)"

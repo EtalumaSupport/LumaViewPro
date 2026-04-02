@@ -324,7 +324,13 @@ class MicroscopeSettings(BoxLayout):
 
             if lumaview.scope.has_turret():
                 turret_objectives = list(settings["turret_objectives"].values())
-                if objective_id not in turret_objectives:
+                assigned = [obj for obj in turret_objectives if obj is not None]
+                if not assigned:
+                    from modules.notification_center import notifications
+                    notifications.warning("Turret", "No Turret Objectives Assigned",
+                        "Turret positions have no objectives assigned. "
+                        "Please assign objectives in Vertical Control > Turret before running protocols.")
+                elif objective_id not in assigned:
                     logger.warning(f"Startup objective {objective_id} not found in turret objectives ({turret_objectives}).")
 
             self.ids['objective_spinner'].text = objective_id
@@ -792,6 +798,17 @@ class MicroscopeSettings(BoxLayout):
             lumaview = ctx.lumaview
             settings = ctx.settings
             objective_helper = ctx.objective_helper
+
+            # If turret is present, objective must be assigned to a turret position (#606)
+            if lumaview.scope.has_turret():
+                turret_objectives = list(settings.get("turret_objectives", {}).values())
+                assigned = [obj for obj in turret_objectives if obj is not None]
+                if assigned and objective_id not in assigned:
+                    from modules.notification_center import notifications
+                    notifications.warning("Objective", "Objective Not in Turret",
+                        f"'{objective_id}' is not assigned to any turret position. "
+                        f"Assign it in Vertical Control > Turret before using.")
+
             objective = objective_helper.get_objective_info(objective_id=objective_id)
             settings['objective_id'] = objective_id
             microscope_settings_id = ctx.motion_settings.ids['microscope_settings_id']
