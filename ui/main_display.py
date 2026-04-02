@@ -22,7 +22,7 @@ from modules import gui_logger
 import modules.image_utils as image_utils
 import modules.scope_commands as scope_commands
 from modules.sequential_io_executor import IOTask
-from modules.ui_helpers import set_last_save_folder
+from ui.ui_helpers import set_last_save_folder
 from ui.composite_capture import CompositeCapture
 
 logger = logging.getLogger('LVP.ui.main_display')

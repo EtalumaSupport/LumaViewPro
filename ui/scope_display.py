@@ -291,7 +291,7 @@ class ScopeDisplay(Image):
                 y_dist_pixel = texture_click_pos_y - texture_height/2 # Positive means above center
 
                 from modules.config_ui_getters import get_current_objective_info, get_binning_from_ui
-                from modules.ui_helpers import move_relative_position
+                from ui.ui_helpers import move_relative_position
                 _, objective = get_current_objective_info()
                 pixel_size_um = common_utils.get_pixel_size(
                     focal_length=objective['focal_length'],

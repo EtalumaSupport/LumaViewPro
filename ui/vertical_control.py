@@ -24,7 +24,7 @@ from modules.protocol import Protocol
 from modules.sequenced_capture_executor import SequencedCaptureRunMode
 from modules.sequential_io_executor import IOTask
 from modules.tiling_config import TilingConfig
-from modules.ui_helpers import (
+from ui.ui_helpers import (
     _handle_ui_for_led,
     _handle_ui_for_leds_off,
     _handle_ui_update_for_axis,

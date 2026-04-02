@@ -146,7 +146,7 @@ class ImageSettings(BoxLayout):
                     for child in layer_control.walk():
                         if isinstance(child, ScrollView):
                             # Schedule cleanup after collapse animation completes
-                            from modules.ui_helpers import cleanup_scrollview_viewport
+                            from ui.ui_helpers import cleanup_scrollview_viewport
                             Clock.schedule_once(lambda dt, sv=child: cleanup_scrollview_viewport(sv), 0.2)
 
                 accordion_item_obj.collapse = True
@@ -353,7 +353,7 @@ class ImageSettings(BoxLayout):
 
     def accordion_collapse(self):
         logger.info('[LVP Main  ] ImageSettings.accordion_collapse()')
-        from modules.ui_helpers import scope_leds_off
+        from ui.ui_helpers import scope_leds_off
         ctx = _app_ctx.ctx
 
         # Skip during app initialization - will be called explicitly after init completes

@@ -253,7 +253,7 @@ else:
 # Imports — extracted modules (must be after Kivy init)
 # ============================================================================
 
-from modules.ui_helpers import (  # noqa: E402
+from ui.ui_helpers import (  # noqa: E402
     move_absolute_position, move_relative_position, move_home, move_home_cb,
     scope_leds_off, set_recording_title, set_writing_title, reset_title,
     live_histo_off, live_histo_reverse, set_last_save_folder,

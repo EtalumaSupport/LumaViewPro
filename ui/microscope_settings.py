@@ -24,7 +24,7 @@ from modules.path_utils import resolve_data_file
 from modules.scope_init_config import ScopeInitConfig
 from modules.memory_profiler import MemoryLeakProfiler
 from modules.sequential_io_executor import IOTask
-from modules.ui_helpers import move_absolute_position, move_home, scope_leds_off
+from ui.ui_helpers import move_absolute_position, move_home, scope_leds_off
 from modules.zstack_config import ZStackConfig
 
 logger = logging.getLogger('LVP.ui.microscope_settings')

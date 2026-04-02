@@ -22,7 +22,7 @@ from modules.composite_builder import build_composite
 import modules.image_utils as image_utils
 import modules.scope_commands as scope_commands
 from modules.sequential_io_executor import IOTask
-from modules.ui_helpers import (
+from ui.ui_helpers import (
     live_histo_off, live_histo_reverse, set_last_save_folder,
 )
 

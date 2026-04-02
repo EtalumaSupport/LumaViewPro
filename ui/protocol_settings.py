@@ -45,7 +45,7 @@ from modules.step_navigation import go_to_step
 from modules.tiling_config import TilingConfig
 from modules.timedelta_formatter import strfdelta
 from modules import gui_logger
-from modules.ui_helpers import (
+from ui.ui_helpers import (
     _handle_ui_for_led,
     _handle_ui_for_leds_off,
     _handle_ui_update_for_axis,

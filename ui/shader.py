@@ -216,7 +216,7 @@ void main (void) {
 
     def _flush_scroll_z(self, dt):
         """Debounced scroll-to-focus: send one accumulated Z move."""
-        from modules.ui_helpers import move_relative_position
+        from ui.ui_helpers import move_relative_position
         from modules.sequential_io_executor import IOTask
 
         delta = self._scroll_z_pending

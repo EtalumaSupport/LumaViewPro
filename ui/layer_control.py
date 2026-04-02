@@ -143,7 +143,7 @@ class LayerControl(BoxLayout):
         Clean up ScrollView viewport resources in this LayerControl.
         Called when accordion is collapsed to prevent memory accumulation.
         """
-        from modules.ui_helpers import cleanup_scrollview_viewport
+        from ui.ui_helpers import cleanup_scrollview_viewport
         for child in self.walk():
             if isinstance(child, ScrollView):
                 cleanup_scrollview_viewport(child)
@@ -566,7 +566,7 @@ class LayerControl(BoxLayout):
         ))
 
     def execute_goto_focus(self):
-        from modules.ui_helpers import move_absolute_position
+        from ui.ui_helpers import move_absolute_position
         settings = _app_ctx.ctx.settings
         pos = settings[self.layer]['focus']
         move_absolute_position('Z', pos)  # set current z height in usteps
