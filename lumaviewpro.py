@@ -599,16 +599,25 @@ class LumaViewProApp(TooltipMixin, App):
 
         logger.info('[LVP Main  ] -----------------------------------------')
         logger.info(f'[LVP Main  ] Version: {version}')
-        # Log git commit so logs always identify exact code version
+        # Log git commit so logs always identify exact code version.
+        # Try live git first, fall back to version.txt (ZIP downloads).
+        _git_hash = None
         try:
             import subprocess
             _git_hash = subprocess.check_output(
                 ['git', 'rev-parse', '--short', 'HEAD'],
                 cwd=source_path, stderr=subprocess.DEVNULL, timeout=2
             ).decode().strip()
-            logger.info(f'[LVP Main  ] Git: {_git_hash}')
         except Exception:
-            logger.info('[LVP Main  ] Git: unknown')
+            # No git repo — read from version.txt (3rd line if present)
+            try:
+                with open(os.path.join(source_path, 'version.txt')) as _vf:
+                    _lines = _vf.read().strip().splitlines()
+                    if len(_lines) >= 3:
+                        _git_hash = _lines[2].strip()
+            except Exception:
+                pass
+        logger.info(f'[LVP Main  ] Git: {_git_hash or "unknown"}')
         logger.info('[LVP Main  ] Run Time: ' + time.strftime("%Y %m %d %H:%M:%S"))
         logger.info('[LVP Main  ] -----------------------------------------')
 
