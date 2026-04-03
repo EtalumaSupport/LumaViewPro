@@ -232,3 +232,47 @@ class TestLEDSaveRestore:
         # Restore (should be a no-op since user's LED was never touched)
         scope.restore_led_state(snapshot, owner='autofocus')
         assert scope.led_enabled(scope.ch2color(0))   # still on
+
+
+# ---------------------------------------------------------------------------
+# Camera Listener Tests
+# ---------------------------------------------------------------------------
+
+class TestCameraListener:
+    """Tests for add_camera_listener / _fire_camera_listeners."""
+
+    def test_listener_fires_on_set_gain(self, scope):
+        events = []
+        scope.add_camera_listener(lambda p, v: events.append((p, v)))
+        scope.set_gain(5.0)
+        assert len(events) == 1
+        assert events[0] == ('gain', 5.0)
+
+    def test_listener_fires_on_set_exposure(self, scope):
+        events = []
+        scope.add_camera_listener(lambda p, v: events.append((p, v)))
+        scope.set_exposure_time(25.0)  # Different from default 10ms
+        assert len(events) == 1
+        assert events[0] == ('exposure', 25.0)
+
+    def test_listener_not_fired_on_redundant_gain(self, scope):
+        """Skip-check: same gain value should not fire listener."""
+        scope.set_gain(5.0)
+        events = []
+        scope.add_camera_listener(lambda p, v: events.append((p, v)))
+        scope.set_gain(5.0)  # redundant
+        assert len(events) == 0
+
+    def test_remove_camera_listener(self, scope):
+        events = []
+        listener = lambda p, v: events.append((p, v))
+        scope.add_camera_listener(listener)
+        scope.remove_camera_listener(listener)
+        scope.set_gain(5.0)
+        assert len(events) == 0
+
+    def test_camera_listener_exception_does_not_propagate(self, scope):
+        def bad_listener(p, v):
+            raise RuntimeError("broken")
+        scope.add_camera_listener(bad_listener)
+        scope.set_gain(5.0)  # should not raise

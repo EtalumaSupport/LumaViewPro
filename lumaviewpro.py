@@ -362,6 +362,38 @@ class LumaViewProApp(TooltipMixin, App):
 
         lumaview.scope.add_led_listener(_on_led_state_changed)
 
+        # Camera listener: push-based UI updates on gain/exposure changes.
+        # Ensures sliders reflect actual hardware state when any code path
+        # calls set_gain or set_exposure_time (protocol, auto-gain, REST API).
+        # Only fires on set_gain/set_exposure_time — NOT per-frame, so zero
+        # overhead on display framerate.
+        def _on_camera_setting_changed(param, value):
+            def _update_camera_ui(dt, p=param, v=value):
+                if not ctx.ready:
+                    return
+                opened_layer = common_utils.get_opened_layer(ctx.image_settings)
+                if not opened_layer:
+                    return
+                try:
+                    layer_obj = ctx.image_settings.layer_lookup(layer=opened_layer)
+                except Exception:
+                    return
+                if not layer_obj:
+                    return
+                # Only update if the layer isn't initializing (avoid cascades)
+                if layer_obj._initializing:
+                    return
+                if p == 'gain':
+                    layer_obj.ids['gain_slider'].value = v
+                    layer_obj.ids['gain_text'].text = str(round(v, 1))
+                elif p == 'exposure':
+                    layer_obj.ids['exp_slider'].value = v
+                    layer_obj.ids['exp_text'].text = str(round(v, 2))
+
+            Clock.schedule_once(_update_camera_ui, 0)
+
+        lumaview.scope.add_camera_listener(_on_camera_setting_changed)
+
         # Slow idle refresh (1Hz) for display elements that may change without motion
         # (e.g., labware selection, stage offset changes)
         Clock.schedule_interval(stage.draw_labware, 1.0)

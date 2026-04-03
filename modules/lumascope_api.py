@@ -117,6 +117,14 @@ class Lumascope():
         self._led_owner_lock = threading.Lock()
         self._led_owners = {}  # color -> owner tag
 
+        # Camera change listeners — push-based UI update mechanism.
+        # Each listener is called with (param: str, value: float) whenever
+        # camera gain or exposure changes.  param is 'gain' or 'exposure'.
+        # Fires from the thread that caused the change, so listeners MUST
+        # schedule UI work via Clock.schedule_once.
+        self._camera_listeners_lock = threading.Lock()
+        self._camera_listeners = []
+
         # Motion profile for position prediction during moves.
         # Stores ramp parameters + start time/pos so get_current_position()
         # can return interpolated position during MOVING state.
@@ -735,6 +743,45 @@ class Lumascope():
                 self.frame_validity.invalidate('led')
                 _api_log.info(f'led_off ch={ch} (owned release by {owner})')
                 self._fire_led_listeners(color, False, 0.0, owner=owner)
+
+    # ------------------------------------------------------------------
+    # Camera change listeners
+    # ------------------------------------------------------------------
+
+    def add_camera_listener(self, listener):
+        """Register a callback for camera setting changes.
+
+        The listener is called with ``(param, value)`` whenever camera
+        gain or exposure changes.  *param* is ``'gain'`` or ``'exposure'``.
+        It fires from the thread that caused the change, so listeners
+        **must** schedule UI work via ``Clock.schedule_once``.
+
+        Note: this fires on set_gain/set_exposure_time (user actions),
+        NOT on every camera frame grab — zero overhead on display framerate.
+
+        Args:
+            listener: ``callable(param: str, value: float)``
+        """
+        with self._camera_listeners_lock:
+            self._camera_listeners.append(listener)
+
+    def remove_camera_listener(self, listener):
+        """Unregister a camera listener."""
+        with self._camera_listeners_lock:
+            try:
+                self._camera_listeners.remove(listener)
+            except ValueError:
+                pass
+
+    def _fire_camera_listeners(self, param: str, value: float):
+        """Notify all camera listeners of a setting change."""
+        with self._camera_listeners_lock:
+            listeners = list(self._camera_listeners)
+        for fn in listeners:
+            try:
+                fn(param, value)
+            except Exception as ex:
+                _api_log.debug(f'camera listener error: {ex}')
 
     def _set_axis_state(self, axis: str, state: str):
         """Set the state of an axis (internal use only).
@@ -2053,6 +2100,7 @@ class Lumascope():
         with self._camera_cache_lock:
             self._camera_cache['gain'] = float(gain)
         _api_log.info(f'set_gain {gain}dB')
+        self._fire_camera_listeners('gain', float(gain))
 
     def set_auto_gain(self, state: bool, settings: dict):
         """Enable or disable automatic gain adjustment.
@@ -2090,6 +2138,7 @@ class Lumascope():
         with self._camera_cache_lock:
             self._camera_cache['exposure_ms'] = float(t)
         _api_log.info(f'set_exposure {t}ms')
+        self._fire_camera_listeners('exposure', float(t))
 
     def get_exposure_time(self):
         """Get the current camera exposure time.
