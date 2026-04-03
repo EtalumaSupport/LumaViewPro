@@ -2168,8 +2168,11 @@ class Lumascope():
         if abs(float(t) - self.camera_exposure_ms) < 0.001:
             return
         if t < 0.1:
+            import traceback
+            _caller = ''.join(traceback.format_stack(limit=6)[-4:-1]).strip()
             logger.warning(f'[SCOPE API ] set_exposure_time({t}ms) is very low — '
-                           f'image will be nearly black. Value should be in milliseconds.')
+                           f'image will be nearly black. Value should be in milliseconds.\n'
+                           f'Call stack:\n{_caller}')
         with self._cam_lock:
             self.camera.exposure_t(t)
         self.frame_validity.invalidate('exposure')
