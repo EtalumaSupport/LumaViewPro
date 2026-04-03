@@ -309,6 +309,18 @@ scope.add_camera_listener(on_camera)
 scope.remove_camera_listener(on_camera)
 ```
 
+**Camera save/restore** (for AF, protocol channel switching):
+```python
+# Save current camera settings before a subsystem takes over
+snapshot = scope.save_camera_state('autofocus')
+# snapshot = {'tag': 'autofocus', 'gain': 1.0, 'exposure': 2.0}
+
+# ... subsystem changes gain/exposure ...
+
+# Restore previous settings
+scope.restore_camera_state(snapshot)
+```
+
 ### Frame Validity
 
 Frame validity is the **single source of truth** for capture readiness. Every hardware state change (LED, gain, exposure, motion) invalidates the frame. `capture_and_wait()` drains stale frames until all sources have settled, then returns a valid frame.
@@ -679,7 +691,7 @@ A1_BF	60000	40000	5000	False	BF	False	100	10	False	50	1	10x Oly	A1		-1	False	-1	
 
 ## Testing
 
-**1246+ tests** across 26 test files.
+**1279 tests** across 26 test files (20 skipped — hardware-only).
 
 ```bash
 # Run all tests (no hardware needed)
@@ -778,19 +790,39 @@ scope.disconnect()
 ### Multi-Channel Composite
 
 ```python
+from modules.composite_builder import build_composite
+
 channels = [
     {'color': 'Blue', 'mA': 200, 'exposure': 100, 'gain': 15},
     {'color': 'Green', 'mA': 150, 'exposure': 80, 'gain': 12},
     {'color': 'Red', 'mA': 180, 'exposure': 90, 'gain': 10},
 ]
 
-images = {}
+# Capture each fluorescence channel
+channel_images = {}
 for ch in channels:
     scope.set_exposure_time(ch['exposure'])
     scope.set_gain(ch['gain'])
     scope.led_on(ch['color'], ch['mA'])
-    images[ch['color']] = scope.capture_and_wait()
+    channel_images[ch['color']] = scope.capture_and_wait()
     scope.led_off(ch['color'])
+
+# Optional: capture transmitted (BF) as base image
+scope.set_exposure_time(2.0)
+scope.set_gain(1.0)
+scope.led_on('BF', 100)
+bf_image = scope.capture_and_wait()
+scope.leds_off()
+
+# Build composite RGB image (H, W, 3)
+composite = build_composite(
+    channel_images=channel_images,
+    transmitted_image=bf_image,          # Optional — fluor overlaid on BF
+    brightness_thresholds={'Blue': 20, 'Green': 15, 'Red': 10},
+)
+
+scope.save_image(array=composite, save_folder='./output',
+                 file_root='composite', color=None, output_format='tiff')
 ```
 
 ### Z-Stack
@@ -818,10 +850,11 @@ scope.leds_off()
 
 ## Development Conventions
 
-- **Branch policy**: Work on feature branches. Do NOT commit directly to `main` without explicit agreement.
+- **Branch policy**: `4.0.0-beta` is the shipping branch. `4.1.0-dev` is for new development. Do NOT commit directly to `main` without explicit agreement.
 - **Serial protocol**: LED commands use CR+LF response endings, motor commands use LF only. Both accept LF-only on input.
 - **Test suite**: pytest, no hardware required for most tests. Hardware tests require `--run-hardware` flag.
 - **Executors**: All hardware commands must go through `SequentialIOExecutor` instances — never call hardware directly from GUI code.
 - **Frame validity**: After any state change (LED, gain, exposure, Z move), use `capture_and_wait()` to drain stale frames before grabbing a fresh one.
 - **Image bit depth**: Camera captures 12-bit natively. `force_to_8bit=True` (default) converts to uint8. Full-depth mode produces uint16 (12-bit values in 16-bit container).
 - **Coordinate system**: Stage coordinates are in µm, origin at bottom-right (after homing). Plate coordinates are in mm, origin at top-left.
+- **Version identification**: Startup log shows `Git: <hash>` (from git or version.txt). Always check this when debugging from logs.
