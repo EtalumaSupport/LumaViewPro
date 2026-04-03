@@ -34,7 +34,8 @@ def leds_off(scope, executor, callback=None):
     logger.info('[ScopeCmd  ] scope.leds_off()')
 
 
-def led_on(scope, executor, channel, illumination, callback=None, cb_kwargs=None):
+def led_on(scope, executor, channel, illumination, callback=None,
+           cb_kwargs=None, owner: str = ''):
     """Turn on a specific LED channel via the executor.
 
     Args:
@@ -44,20 +45,24 @@ def led_on(scope, executor, channel, illumination, callback=None, cb_kwargs=None
         illumination: Illumination level (mA)
         callback: Optional callback invoked after LED is turned on
         cb_kwargs: Optional keyword arguments for callback
+        owner: Ownership tag passed through to scope.led_on()
     """
     if not scope.led_connected:
         logger.warning('[ScopeCmd  ] LED controller not available.')
         return
 
+    kwargs = {'owner': owner} if owner else {}
     executor.put(IOTask(
         action=scope.led_on,
         args=(channel, illumination),
+        kwargs=kwargs,
         callback=callback,
         cb_kwargs=cb_kwargs,
     ))
 
 
-def led_off(scope, executor, channel, callback=None, cb_kwargs=None):
+def led_off(scope, executor, channel, callback=None, cb_kwargs=None,
+            owner: str = ''):
     """Turn off a specific LED channel via the executor.
 
     Args:
@@ -66,20 +71,25 @@ def led_off(scope, executor, channel, callback=None, cb_kwargs=None):
         channel: LED channel number
         callback: Optional callback invoked after LED is turned off
         cb_kwargs: Optional keyword arguments for callback
+        owner: Ownership tag passed through to scope.led_off()
     """
     if not scope.led_connected:
         logger.warning('[ScopeCmd  ] LED controller not available.')
         return
 
+    kwargs = {'channel': channel}
+    if owner:
+        kwargs['owner'] = owner
     executor.put(IOTask(
         action=scope.led_off,
-        kwargs={'channel': channel},
+        kwargs=kwargs,
         callback=callback,
         cb_kwargs=cb_kwargs,
     ))
 
 
-def led_on_sync(scope, executor, channel, illumination, timeout=5):
+def led_on_sync(scope, executor, channel, illumination, timeout=5,
+                owner: str = ''):
     """Turn on a specific LED channel synchronously (blocks until complete).
 
     Args:
@@ -88,12 +98,15 @@ def led_on_sync(scope, executor, channel, illumination, timeout=5):
         channel: LED channel number
         illumination: Illumination level (mA)
         timeout: Seconds to wait for completion
+        owner: Ownership tag passed through to scope.led_on()
     """
     if not scope.led_connected:
         logger.warning('[ScopeCmd  ] LED controller not available.')
         return
 
-    task = IOTask(action=scope.led_on, args=(channel, illumination))
+    kwargs = {'owner': owner} if owner else {}
+    task = IOTask(action=scope.led_on, args=(channel, illumination),
+                  kwargs=kwargs)
     fut = executor.put(task, return_future=True)
     if fut:
         fut.result(timeout=timeout)

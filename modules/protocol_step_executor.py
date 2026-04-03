@@ -371,7 +371,10 @@ class ProtocolStepExecutor:
     # ------------------------------------------------------------------
 
     def leds_off(self):
-        """Turn all LEDs off via the IO executor."""
+        """Turn all LEDs off via the IO executor.
+
+        UI update is handled by the LED observer — no manual callback needed.
+        """
         p = self._p
         fut = p._io_executor.protocol_put(IOTask(
             action=p._scope.leds_off
@@ -383,11 +386,13 @@ class ProtocolStepExecutor:
                 p._scope.leds_off()
             except Exception as ex:
                 logger.warning(f"[{p.LOGGER_NAME}] Direct leds_off fallback failed: {ex}")
-        if p._callbacks.leds_off:
-            _schedule_ui(lambda dt: p._callbacks.leds_off(), 0)
+        # LED observer handles UI sync — no manual callback
 
     def led_on(self, color: str, illumination: float, block: bool = True, force: bool = False):
-        """Turn on a single LED channel via the IO executor."""
+        """Turn on a single LED channel via the IO executor.
+
+        UI update is handled by the LED observer — no manual callback needed.
+        """
         p = self._p
         if p._protocol_ended.is_set() and not force:
             return
@@ -398,12 +403,11 @@ class ProtocolStepExecutor:
                 "channel": p._scope.color2ch(color),
                 "mA": illumination,
                 "block": block,
+                "owner": "protocol",
             },
         ), return_future=True)
         if fut:
             fut.result(timeout=5)
         # Sleep for 5 ms to ensure that LED properly turns on before next action
         time.sleep(0.005)
-
-        if p._callbacks.led_state:
-            _schedule_ui(lambda dt, c=color: p._callbacks.led_state(layer=c, enabled=True))
+        # LED observer handles UI sync — no manual callback

@@ -330,6 +330,38 @@ class LumaViewProApp(TooltipMixin, App):
                     Clock.schedule_once(lambda dt: z_ctrl._update_z_text(target), 0)
         lumaview.scope.add_position_listener(_on_position_change)
 
+        # LED listener: push-based UI updates on every LED state change.
+        # Replaces all manual update_led_toggle_ui() calls. Coalesces rapid
+        # stim pulses — at most one UI update per color per Kivy frame.
+        _pending_led_updates = {}
+
+        def _on_led_state_changed(color, enabled, mA, owner):
+            if color in _pending_led_updates:
+                return  # Already scheduled, will pick up latest state
+            _pending_led_updates[color] = True
+
+            def _update_led_ui(dt, c=color):
+                _pending_led_updates.pop(c, None)
+                if not ctx.ready:
+                    return
+                try:
+                    layer_obj = ctx.image_settings.layer_lookup(layer=c)
+                except Exception:
+                    return
+                # Read CURRENT state from driver (not event args, which may be stale)
+                state = lumaview.scope.get_led_state(color=c)
+                target = 'down' if state.get('enabled', False) else 'normal'
+                if layer_obj.ids['enable_led_btn'].state != target:
+                    LayerControl._suppressing_led_log = True
+                    try:
+                        layer_obj.ids['enable_led_btn'].state = target
+                    finally:
+                        LayerControl._suppressing_led_log = False
+
+            Clock.schedule_once(_update_led_ui, 0)
+
+        lumaview.scope.add_led_listener(_on_led_state_changed)
+
         # Slow idle refresh (1Hz) for display elements that may change without motion
         # (e.g., labware selection, stage offset changes)
         Clock.schedule_interval(stage.draw_labware, 1.0)

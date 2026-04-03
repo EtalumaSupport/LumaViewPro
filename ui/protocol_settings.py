@@ -1753,6 +1753,7 @@ class ProtocolSettings(FloatLayout):
         ctx = _app_ctx.ctx
         ctx.motion_settings.ids['verticalcontrol_id']._reset_run_autofocus_button()
         ctx.motion_settings.ids['verticalcontrol_id'].is_complete = False
+        # LED observer handles UI button sync after AF — no manual update needed
 
 
     def run_sequenced_capture(
@@ -1852,13 +1853,7 @@ class ProtocolSettings(FloatLayout):
             self._reset_run_autofocus_scan_button()
             ctx.stage.set_motion_capability(True)
 
-            # Refresh LED button states from hardware after protocol (M23)
-            try:
-                for layer in common_utils.get_layers_with_led():
-                    layer_obj = ctx.image_settings.layer_lookup(layer=layer)
-                    layer_obj.update_led_toggle_ui()
-            except Exception:
-                pass
+            # LED observer handles UI button sync after protocol — no manual refresh needed
 
     def cancel_all_protocols(self):
         logger.info('[LVP Main  ] ProtocolSettings.cancel_all_protocols()')

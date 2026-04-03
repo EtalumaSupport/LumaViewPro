@@ -75,12 +75,15 @@ def _handle_ui_for_led(layer: str, enabled: bool, **kwargs):
 
 
 def scope_leds_off(no_callback: bool = False):
+    """Turn off all LEDs. UI sync is handled by the LED observer."""
     ctx = _app_ctx.ctx
     if ctx.protocol_running.is_set():
         return
 
-    callback = None if no_callback else _handle_ui_for_leds_off
-    scope_commands.leds_off(ctx.scope, ctx.io_executor, callback=callback)
+    # LED observer handles UI button sync — no manual callback needed.
+    # The no_callback parameter is kept for API compatibility but is now
+    # effectively always True (observer replaces the callback).
+    scope_commands.leds_off(ctx.scope, ctx.io_executor)
 
 
 # ============================================================================
