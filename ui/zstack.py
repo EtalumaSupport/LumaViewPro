@@ -144,6 +144,8 @@ class ZStack(FloatLayout):
             zstack_params = get_zstack_params()
             active_layer, active_layer_config = get_active_layer_config()
             active_layer_config['acquire'] = "image"
+            # Z-stack manages Z positions explicitly — AF would override them
+            active_layer_config['autofocus'] = False
 
             if not zstack_positions_valid:
                 logger.info('[LVP Main  ] ZStack.acquire_zstack() -> No Z-Stack positions configured')

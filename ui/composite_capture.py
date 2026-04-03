@@ -261,6 +261,42 @@ class CompositeCapture(FloatLayout):
         saved_video_false_color=None,
     ):
         """Runs on background thread — performs hardware I/O without blocking UI."""
+        try:
+            self._composite_capture_worker_inner(
+                z_stage_present=z_stage_present,
+                initial_layer=initial_layer,
+                led_restore_state=led_restore_state,
+                use_full_pixel_depth=use_full_pixel_depth,
+                saved_video_false_color=saved_video_false_color,
+            )
+        except Exception as ex:
+            logger.error(f'[COMPOSITE] _composite_capture_worker failed: {ex}', exc_info=True)
+            from modules.notification_center import notifications
+            notifications.error("Composite", "Composite Capture Failed", str(ex))
+        finally:
+            # Always clear _capturing so the button resets even on error.
+            # Without this, a save_image failure leaves _capturing set and
+            # all subsequent composite clicks are blocked. (#610 session)
+            CompositeCapture._capturing.clear()
+            self.video_false_color = saved_video_false_color
+            def _restore_ui_on_error(dt):
+                try:
+                    ctx = _app_ctx.ctx
+                    ctx.lumaview.ids['composite_btn'].state = 'normal'
+                    live_histo_reverse()
+                except Exception:
+                    pass
+            Clock.schedule_once(_restore_ui_on_error, 0)
+
+    def _composite_capture_worker_inner(
+        self,
+        z_stage_present,
+        initial_layer,
+        led_restore_state,
+        use_full_pixel_depth,
+        saved_video_false_color=None,
+    ):
+        """Inner worker — actual composite capture logic."""
         ctx = _app_ctx.ctx
         settings = ctx.settings
         io_executor = ctx.io_executor

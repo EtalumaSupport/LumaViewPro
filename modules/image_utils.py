@@ -409,6 +409,7 @@ def generate_tiff_data(data, metadata: dict, image_type: str, color: str,):
     if is_color_image(data):
         photometric = tf.PHOTOMETRIC.RGB
         modality = 'RGB'
+        axes = 'YXS'  # 3rd dimension is samples (RGB channels)
     elif color in common_utils.get_transmitted_layers():
         photometric = tf.PHOTOMETRIC.MINISBLACK
         modality = color
