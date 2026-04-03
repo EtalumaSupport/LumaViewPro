@@ -493,6 +493,12 @@ class Lumascope():
         with self._camera_cache_lock:
             return self._camera_cache['max_exposure']
 
+    @property
+    def camera_pixel_format(self) -> str:
+        """Current camera pixel format (e.g. 'Mono8', 'Mono12') (reads cache)."""
+        with self._camera_cache_lock:
+            return self._camera_cache.get('pixel_format', 'Mono8')
+
     # --- CR-2: Thread-safe properties for shared state ---
 
     @property

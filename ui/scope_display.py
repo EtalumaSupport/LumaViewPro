@@ -527,8 +527,14 @@ class ScopeDisplay(Image):
             self._perf_blit_schedule_times.append(t_queue_wait)
 
         # Capture FPS tracking + camera data rate
+        # Use raw camera frame size (before 12→8 bit conversion) so the
+        # displayed data rate reflects actual camera throughput, not the
+        # post-conversion display throughput.
         self._capture_fps_count += 1
-        self._last_frame_nbytes = image.nbytes
+        fs = ctx.scope.camera_frame_size
+        pixel_format = ctx.scope.camera_pixel_format
+        bpp = 2 if pixel_format in ('Mono10', 'Mono10g40IDS', 'Mono12', 'Mono12g24IDS') else 1
+        self._last_frame_nbytes = fs.get('width', 0) * fs.get('height', 0) * bpp
         now = time.monotonic()
         elapsed = now - self._capture_fps_last_time
         if elapsed >= 1.0:
