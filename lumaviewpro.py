@@ -387,12 +387,35 @@ class LumaViewProApp(TooltipMixin, App):
                 # Only update if the layer isn't initializing (avoid cascades)
                 if layer_obj._initializing:
                     return
+
+                settings = ctx.settings
                 if p == 'gain':
-                    layer_obj.ids['gain_slider'].value = v
-                    layer_obj.ids['gain_text'].text = str(round(v, 1))
+                    # Round to slider precision to prevent feedback loop:
+                    # camera returns 1.000047, slider is at 1.0 — setting
+                    # 1.000047 triggers on_value, which calls apply_settings,
+                    # which sets camera again. Rounding prevents the mismatch.
+                    rounded = round(v, 1)
+                    # Only update if this layer's settings match the camera
+                    # value. If another layer changed the camera (composite,
+                    # AF restore), don't corrupt this layer's sliders. (#610)
+                    expected = settings[opened_layer]['gain']
+                    if abs(rounded - expected) > 0.5:
+                        return
+                    if layer_obj.ids['gain_slider'].value != rounded:
+                        layer_obj.ids['gain_slider'].value = rounded
+                    text = str(rounded)
+                    if layer_obj.ids['gain_text'].text != text:
+                        layer_obj.ids['gain_text'].text = text
                 elif p == 'exposure':
-                    layer_obj.ids['exp_slider'].value = v
-                    layer_obj.ids['exp_text'].text = str(round(v, 2))
+                    rounded = round(v, 2)
+                    expected = settings[opened_layer]['exp']
+                    if abs(rounded - expected) > 0.5:
+                        return
+                    if layer_obj.ids['exp_slider'].value != rounded:
+                        layer_obj.ids['exp_slider'].value = rounded
+                    text = str(rounded)
+                    if layer_obj.ids['exp_text'].text != text:
+                        layer_obj.ids['exp_text'].text = text
 
             Clock.schedule_once(_update_camera_ui, 0)
 
@@ -576,6 +599,16 @@ class LumaViewProApp(TooltipMixin, App):
 
         logger.info('[LVP Main  ] -----------------------------------------')
         logger.info(f'[LVP Main  ] Version: {version}')
+        # Log git commit so logs always identify exact code version
+        try:
+            import subprocess
+            _git_hash = subprocess.check_output(
+                ['git', 'rev-parse', '--short', 'HEAD'],
+                cwd=source_path, stderr=subprocess.DEVNULL, timeout=2
+            ).decode().strip()
+            logger.info(f'[LVP Main  ] Git: {_git_hash}')
+        except Exception:
+            logger.info('[LVP Main  ] Git: unknown')
         logger.info('[LVP Main  ] Run Time: ' + time.strftime("%Y %m %d %H:%M:%S"))
         logger.info('[LVP Main  ] -----------------------------------------')
 
