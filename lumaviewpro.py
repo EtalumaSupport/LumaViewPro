@@ -419,12 +419,10 @@ class LumaViewProApp(TooltipMixin, App):
                     pass
 
             # Check if a protocol is loaded and has steps
-            protocol_settings = ctx.motion_settings.ids['protocol_settings_id']
-            if hasattr(protocol_settings, '_protocol') and protocol_settings._protocol is not None:
-                if protocol_settings._protocol.num_steps() > 0:
-                    # Go to the first step of the protocol
-                    protocol_settings.go_to_step(protocol=False)
-                    return
+            if ctx.protocol is not None and ctx.protocol.num_steps() > 0:
+                protocol_settings = ctx.motion_settings.ids['protocol_settings_id']
+                protocol_settings.go_to_step(protocol=False)
+                return
 
             # If no protocol, just apply settings for the default BF layer
             ctx.image_settings.accordion_collapse()

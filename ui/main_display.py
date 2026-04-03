@@ -48,6 +48,7 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
         self.video_writing_progress = 0
         self.video_writing_total_frames = 0
         self.led_on_before_pause = False
+        self.led_mA_before_pause = 0
 
     def log_camera_temps(self):
         if self.scope.camera_is_connected():
@@ -74,7 +75,9 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
                 scope_display.play = False
                 scope_display.stop()
                 if self.scope.led_connected:
-                    self.led_on_before_pause = self.scope.get_led_state(color=common_utils.get_opened_layer(ctx.image_settings))['enabled']
+                    led_state = self.scope.get_led_state(color=common_utils.get_opened_layer(ctx.image_settings))
+                    self.led_on_before_pause = led_state.get('enabled', False)
+                    self.led_mA_before_pause = led_state.get('illumination', 0)
                     scope_commands.leds_off(self.scope, io_executor)
                     # LED observer handles UI button sync
             else:
@@ -82,7 +85,8 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
                     opened_layer = common_utils.get_opened_layer(ctx.image_settings)
                     io_executor.put(IOTask(
                         action=self.scope.led_on,
-                        kwargs={'channel': self.scope.color2ch(opened_layer), 'mA': settings[opened_layer]['ill']}
+                        kwargs={'channel': self.scope.color2ch(opened_layer),
+                                'mA': self.led_mA_before_pause}
                     ))
                     # LED observer handles UI button sync
 

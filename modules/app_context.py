@@ -86,6 +86,7 @@ class AppContext:
     ij_helper: object = None
 
     # State
+    protocol: object = None            # Protocol instance (canonical owner, not UI)
     protocol_running: object = None    # threading.Event
     engineering_mode: bool = False
     show_tooltips: bool = False

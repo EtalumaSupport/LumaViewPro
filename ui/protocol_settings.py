@@ -112,7 +112,10 @@ class ProtocolSettings(FloatLayout):
 
         self.tiling_count = self.tiling_config.get_mxn_size(self.tiling_config.default_config())
 
-        self._protocol = None
+        # Protocol is owned by AppContext, not this widget.
+        # Property delegation below ensures all existing self._protocol
+        # references keep working while the canonical owner is ctx.
+        self._protocol = None  # bootstraps before ctx exists
 
         self.exposures = 1  # 1 indexed
         self._init_ui_retries = 0
@@ -464,6 +467,7 @@ class ProtocolSettings(FloatLayout):
             return
 
         self._protocol = protocol
+        ctx.protocol = protocol  # canonical owner is AppContext
 
         ctx.stage.set_protocol_steps(df=self._protocol.steps())
         def temp():
@@ -570,6 +574,7 @@ class ProtocolSettings(FloatLayout):
             return False
 
         self._protocol = protocol
+        ctx.protocol = protocol  # canonical owner is AppContext
 
         settings['protocol']['filepath'] = filepath
         self.ids['protocol_filename'].text = os.path.basename(filepath)
