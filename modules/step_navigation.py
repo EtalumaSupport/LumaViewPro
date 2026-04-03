@@ -145,6 +145,9 @@ def go_to_step(
             layer_obj.apply_settings(ignore_auto_gain=ignore_auto_gain, protocol=True)
 
         if not called_from_protocol and settings['protocol_led_on']:
+            # Turn off previous channel before switching — one LED at a time,
+            # same pattern as composite capture and protocol capture (#605).
+            scope_commands.leds_off(ctx.scope, io_executor)
             scope_commands.led_on(ctx.scope, io_executor, color, step['Illumination'])
             _schedule_ui(lambda dt: temp(), 0)
         else:
