@@ -100,6 +100,16 @@ class ProtocolStepExecutor:
         if p._autofocus_executor.in_progress():
             return
 
+        # #610 diagnostic: AF gate passed — capture can proceed
+        _af_complete = p._autofocus_executor.complete()
+        if _af_complete:
+            _cam_gain = p._scope.get_gain() if p._scope.camera_active else '?'
+            _cam_exp = p._scope.get_exposure_time() if p._scope.camera_active else '?'
+            logger.info(
+                f"[SCAN DIAG] AF gate passed: in_progress=False complete={_af_complete} "
+                f"camera_gain={_cam_gain} camera_exp={_cam_exp} step={p._curr_step}"
+            )
+
         remaining_scans = p.remaining_scans()
         if remaining_scans <= 0:
             return

@@ -229,6 +229,9 @@ class AutofocusExecutor:
             # a race where capture() read stale cached gain while this
             # thread was still restoring the camera to pre-AF settings.
             # (#610 race fix)
+            _af_log.info(f'[AF DIAG] Clearing _af_in_progress — '
+                         f'camera now at gain={self._scope.get_gain()} '
+                         f'exp={self._scope.get_exposure_time()}')
             self._af_in_progress.clear()
 
     def _autofocus_loop_inner(self, last_gc_time):
@@ -569,7 +572,13 @@ class AutofocusExecutor:
 
 
     def in_progress(self) -> bool:
-        return self._is_focusing_event.is_set()
+        # Use _af_in_progress, not _is_focusing_event. _is_focusing_event
+        # is cleared in _iterate() when AF finds the best focus, but the
+        # finally block in _autofocus_loop() still needs to restore camera
+        # state. _af_in_progress is cleared at the END of the finally block,
+        # so callers (protocol capture) won't proceed until restore is done.
+        # (#610 race fix)
+        return self._af_in_progress.is_set()
 
 
     def complete(self) -> bool:
