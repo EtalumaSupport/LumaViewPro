@@ -148,6 +148,8 @@ class AutofocusExecutor:
         results_dir: pathlib.Path | None = None,
         led_color: str | None = None,
         led_illumination: float = 0,
+        camera_gain: float | None = None,
+        camera_exposure: float | None = None,
     ):
         if self._af_in_progress.is_set():
             return
@@ -157,6 +159,8 @@ class AutofocusExecutor:
         self._run_trigger_source = run_trigger_source
         self._led_color = led_color
         self._led_illumination = led_illumination
+        self._camera_gain = camera_gain
+        self._camera_exposure = camera_exposure
         self._autofocus_executor.protocol_start()
         self._last_progress_ts = time.monotonic()
 
@@ -180,8 +184,16 @@ class AutofocusExecutor:
                      f'range={self._params["range"]:.1f} '
                      f'step={self._params["resolution"]:.1f} '
                      f'z=[{self._params["z_min"]:.1f}, {self._params["z_max"]:.1f}] ---')
-        # Save LED state before AF so we can restore it after (#608)
+        # Save LED + camera state before AF so we can restore after (#608, #610)
         self._saved_led_state = self._scope.save_led_state('autofocus')
+        self._saved_camera_state = self._scope.save_camera_state('autofocus')
+        # Apply the step's camera settings so AF scans with correct gain/exposure.
+        # Without this, AF inherits whatever the previous protocol step left behind
+        # (e.g., Green's gain=12.8/exp=100ms when AF needs BF's gain=0/exp=2ms).
+        if self._camera_gain is not None:
+            self._scope.set_gain(self._camera_gain)
+        if self._camera_exposure is not None:
+            self._scope.set_exposure_time(self._camera_exposure)
         # Turn on LED for AF illumination with ownership (#602)
         self._led_on()
         self._move_absolute_position(pos=self._params['z_min'])
@@ -196,11 +208,13 @@ class AutofocusExecutor:
         try:
             self._autofocus_loop_inner(last_gc_time)
         finally:
-            # Turn off AF's LED, then restore whatever was on before AF (#602/#608)
+            # Restore LED and camera state to pre-AF values (#602/#608/#610)
             self._led_off()
             if self._saved_led_state:
                 self._scope.restore_led_state(self._saved_led_state,
                                               owner='autofocus')
+            if self._saved_camera_state:
+                self._scope.restore_camera_state(self._saved_camera_state)
 
     def _autofocus_loop_inner(self, last_gc_time):
         while self._af_in_progress.is_set() and self._is_focusing_event.is_set():
@@ -249,6 +263,8 @@ class AutofocusExecutor:
         if self._saved_led_state:
             self._scope.restore_led_state(self._saved_led_state,
                                           owner='autofocus')
+        if self._saved_camera_state:
+            self._scope.restore_camera_state(self._saved_camera_state)
         self._af_in_progress.clear()
         self._is_focusing_event.clear()
         self._autofocus_executor.protocol_end()
@@ -638,6 +654,9 @@ class AutofocusExecutor:
         self._is_focusing_event = threading.Event()   # thread-safe (#607)
         self._is_complete_event = threading.Event()    # thread-safe (#607)
         self._saved_led_state = None
+        self._saved_camera_state = None
+        self._camera_gain = None
+        self._camera_exposure = None
         self._af_in_progress.clear()
         self._af_data_pass = []
         self._af_data_full = []

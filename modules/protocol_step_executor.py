@@ -178,6 +178,8 @@ class ProtocolStepExecutor:
                 callbacks=af_executor_callbacks,
                 led_color=step['Color'],
                 led_illumination=step['Illumination'],
+                camera_gain=step['Gain'],
+                camera_exposure=step['Exposure'],
             )
             return
 
