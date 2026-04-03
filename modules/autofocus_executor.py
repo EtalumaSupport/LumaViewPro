@@ -224,6 +224,12 @@ class AutofocusExecutor:
                              f'gain={self._saved_camera_state.get("gain", "?")} '
                              f'exp={self._saved_camera_state.get("exposure", "?")}')
                 self._scope.restore_camera_state(self._saved_camera_state)
+            # Signal AF complete AFTER all state is restored. Previously
+            # this was in _iterate() before the finally block ran, creating
+            # a race where capture() read stale cached gain while this
+            # thread was still restoring the camera to pre-AF settings.
+            # (#610 race fix)
+            self._af_in_progress.clear()
 
     def _autofocus_loop_inner(self, last_gc_time):
         while self._af_in_progress.is_set() and self._is_focusing_event.is_set():
@@ -254,7 +260,8 @@ class AutofocusExecutor:
                 self._autofocus_executor.clear_protocol_pending()
                 self._is_focusing_event.clear()
                 self._is_complete_event.clear()
-                self._af_in_progress.clear()
+                # _af_in_progress is cleared in _autofocus_loop() after
+                # camera state is restored (#610 race fix).
                 # Surface error in logs; UI callback (if present) will clear button
                 import logging as _logging
                 _logging.getLogger().error(f"[AF] Error during loop: {ex}", exc_info=True)
@@ -485,7 +492,10 @@ class AutofocusExecutor:
                 self._is_focusing_event.clear()
                 self._is_complete_event.set()
 
-                self._af_in_progress.clear()
+                # _af_in_progress is cleared in _autofocus_loop() after
+                # camera state is restored (#610 race fix). Clearing it
+                # here let the protocol worker race ahead into capture()
+                # while the finally block was still restoring camera state.
 
                 if 'complete' in self._callbacks:
                     _schedule_ui(lambda dt: self._callbacks['complete']())
