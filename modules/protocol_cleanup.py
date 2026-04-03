@@ -37,8 +37,7 @@ def run_cleanup(
     leds_state_at_end: str,
     original_led_states: dict,
     original_autofocus_states: dict,
-    original_gain: float,
-    original_exposure: float,
+    saved_camera_state: dict,
     return_to_position: dict | None,
     disable_saving_artifacts: bool,
     protocol,
@@ -117,10 +116,7 @@ def run_cleanup(
 
     # --- Restore camera gain and exposure ---
     try:
-        if original_gain >= 0:
-            scope.set_gain(original_gain)
-        if original_exposure > 0:
-            scope.set_exposure_time(original_exposure)
+        scope.restore_camera_state(saved_camera_state)
     except Exception as ex:
         logger.error(f"[PROTOCOL] Error restoring camera gain/exposure during cleanup: {ex}")
 

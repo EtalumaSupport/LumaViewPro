@@ -276,3 +276,37 @@ class TestCameraListener:
             raise RuntimeError("broken")
         scope.add_camera_listener(bad_listener)
         scope.set_gain(5.0)  # should not raise
+
+
+# ---------------------------------------------------------------------------
+# Camera Save/Restore Tests
+# ---------------------------------------------------------------------------
+
+class TestCameraSaveRestore:
+    """Tests for save_camera_state / restore_camera_state."""
+
+    def test_save_restore_roundtrip(self, scope):
+        scope.set_gain(5.0)
+        scope.set_exposure_time(25.0)
+        snapshot = scope.save_camera_state('test')
+        # Change to different values
+        scope.set_gain(10.0)
+        scope.set_exposure_time(50.0)
+        assert scope.get_gain() != 5.0
+        # Restore
+        scope.restore_camera_state(snapshot)
+        assert abs(scope.get_gain() - 5.0) < 0.01
+        assert abs(scope.get_exposure_time() - 25.0) < 0.01
+
+    def test_restore_empty_snapshot(self, scope):
+        scope.set_gain(5.0)
+        scope.restore_camera_state(None)
+        assert abs(scope.get_gain() - 5.0) < 0.01  # unchanged
+        scope.restore_camera_state({})
+        assert abs(scope.get_gain() - 5.0) < 0.01  # unchanged
+
+    def test_snapshot_contains_tag(self, scope):
+        snapshot = scope.save_camera_state('protocol')
+        assert snapshot['tag'] == 'protocol'
+        assert 'gain' in snapshot
+        assert 'exposure' in snapshot

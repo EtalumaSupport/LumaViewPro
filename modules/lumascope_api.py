@@ -726,6 +726,38 @@ class Lumascope():
                         saved_owner = snapshot.get('owners', {}).get(color, '')
                         self.led_on(channel=ch, mA=mA, owner=saved_owner)
 
+    def save_camera_state(self, tag: str) -> dict:
+        """Snapshot the current camera gain and exposure for later restoration.
+
+        Args:
+            tag: Descriptive name for the snapshot (for logging).
+
+        Returns:
+            dict: Snapshot suitable for passing to ``restore_camera_state``.
+        """
+        gain = self.get_gain()
+        exposure = self.get_exposure_time()
+        snapshot = {'tag': tag, 'gain': gain, 'exposure': exposure}
+        _api_log.info(f'save_camera_state tag={tag}: gain={gain} exp={exposure}')
+        return snapshot
+
+    def restore_camera_state(self, snapshot: dict):
+        """Restore camera gain and exposure from a previously saved state.
+
+        Args:
+            snapshot: Return value from ``save_camera_state``.
+        """
+        if not snapshot:
+            return
+        tag = snapshot.get('tag', '?')
+        _api_log.info(f'restore_camera_state tag={tag}')
+        gain = snapshot.get('gain', -1)
+        exposure = snapshot.get('exposure', 0)
+        if gain >= 0:
+            self.set_gain(gain)
+        if exposure > 0:
+            self.set_exposure_time(exposure)
+
     def leds_off_owned(self, owner: str):
         """Turn off only the LED channels owned by *owner*.
 

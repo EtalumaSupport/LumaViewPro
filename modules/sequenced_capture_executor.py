@@ -403,10 +403,9 @@ class SequencedCaptureExecutor:
             return
 
         
-        # Not IO
+        # Snapshot hardware state for restoration after protocol
         self._original_led_states = self._scope.get_led_states()
-        self._original_gain = self._scope.get_gain()
-        self._original_exposure = self._scope.get_exposure_time()
+        self._saved_camera_state = self._scope.save_camera_state('protocol')
         if initial_autofocus_states is not None:
             self._original_autofocus_states = initial_autofocus_states
         else:
@@ -518,8 +517,7 @@ class SequencedCaptureExecutor:
             leds_state_at_end=self._leds_state_at_end,
             original_led_states=self._original_led_states,
             original_autofocus_states=self._original_autofocus_states,
-            original_gain=getattr(self, '_original_gain', -1),
-            original_exposure=getattr(self, '_original_exposure', 0),
+            saved_camera_state=getattr(self, '_saved_camera_state', None),
             return_to_position=self._return_to_position,
             disable_saving_artifacts=self._disable_saving_artifacts,
             protocol=self._protocol,
