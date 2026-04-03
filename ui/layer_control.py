@@ -623,6 +623,95 @@ class LayerControl(BoxLayout):
                 LayerControl._suppressing_led_log = False
 
 
+    def set_step_state(self, step: dict):
+        """Update widgets to reflect a protocol step.
+
+        Only updates widgets for keys that are present in *step*.
+        This allows partial updates (e.g. stim-config-only for non-current
+        layers) without clobbering unrelated widget values.
+
+        Suppresses event handlers via ``_initializing`` to prevent
+        redundant hardware commands during the batch update.
+
+        Args:
+            step: Protocol step dict.  Recognized keys: 'Illumination',
+                'Gain', 'Exposure', 'Sum', 'Auto_Focus', 'Auto_Gain',
+                'False_Color', 'Acquire', 'Video Config', 'Stim_Config'.
+        """
+        self._initializing = True
+        try:
+            if 'Auto_Focus' in step:
+                self.ids['autofocus'].active = step['Auto_Focus']
+            if 'False_Color' in step:
+                self.ids['false_color'].active = step['False_Color']
+
+            if 'Illumination' in step:
+                ill = step['Illumination']
+                self.ids['ill_text'].text = str(ill)
+                self.ids['ill_slider'].value = float(ill)
+
+            if 'Gain' in step:
+                self.ids['gain_text'].text = str(step['Gain'])
+                self.ids['gain_slider'].value = float(step['Gain'])
+
+            if 'Auto_Gain' in step:
+                self.ids['auto_gain'].active = step['Auto_Gain']
+
+            if 'Exposure' in step:
+                self.ids['exp_text'].text = str(step['Exposure'])
+                self.ids['exp_slider'].value = float(step['Exposure'])
+
+            if 'Sum' in step:
+                self.ids['sum_text'].text = str(step['Sum'])
+                self.ids['sum_slider'].value = int(step['Sum'])
+
+            # Video config
+            vc = step.get('Video Config')
+            if isinstance(vc, dict):
+                import copy
+                ctx = _app_ctx.ctx
+                with ctx.settings_lock:
+                    ctx.settings[self.layer]['video_config'] = copy.deepcopy(vc)
+                if 'duration' in vc:
+                    self.ids['video_duration_text'].text = str(vc['duration'])
+                    self.ids['video_duration_slider'].value = float(vc['duration'])
+
+            # Stim config (only for this layer's stim settings)
+            sc = step.get('Stim_Config')
+            if isinstance(sc, dict) and self.layer in sc:
+                import copy
+                stim = sc[self.layer]
+                ctx = _app_ctx.ctx
+                with ctx.settings_lock:
+                    ctx.settings[self.layer]['stim_config'] = copy.deepcopy(stim)
+                if stim.get('enabled', False):
+                    self.ids['stim_enable_btn'].active = True
+                    self.ids['stim_disable_btn'].active = False
+                else:
+                    self.ids['stim_disable_btn'].active = True
+                    self.ids['stim_enable_btn'].active = False
+                self.update_stim_controls_visibility()
+                self.ids['stim_freq_text'].text = str(stim.get('frequency', 1))
+                self.ids['stim_freq_slider'].value = float(stim.get('frequency', 1))
+                self.ids['stim_pulse_width_text'].text = str(stim.get('pulse_width', 10))
+                self.ids['stim_pulse_width_slider'].value = float(stim.get('pulse_width', 10))
+                self.ids['stim_pulse_count_text'].text = str(stim.get('pulse_count', 1))
+                self.ids['stim_pulse_count_slider'].value = int(stim.get('pulse_count', 1))
+
+            # Acquire type
+            if 'Acquire' in step:
+                for sel in ('acquire_video', 'acquire_image', 'acquire_none'):
+                    self.ids[sel].active = False
+                acquire = step['Acquire']
+                if acquire == 'video':
+                    self.ids['acquire_video'].active = True
+                elif acquire == 'image':
+                    self.ids['acquire_image'].active = True
+                else:
+                    self.ids['acquire_none'].active = True
+        finally:
+            self._initializing = False
+
     def apply_settings(self, ignore_auto_gain=False, update_led=True, protocol=False):
 
         # Skip apply_settings if layer is still initializing

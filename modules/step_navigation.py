@@ -7,7 +7,6 @@ updating LED/camera settings, and refreshing UI controls).
 They are re-exported by lumaviewpro.py so existing call sites work.
 """
 
-import copy
 import logging
 
 from modules.kivy_utils import schedule_ui as _schedule_ui
@@ -153,6 +152,13 @@ def go_to_step(
 
 
 def go_to_step_update_ui(step):
+    """Update UI widgets to reflect a protocol step.
+
+    Delegates per-layer widget updates to LayerControl.set_step_state(),
+    which encapsulates widget knowledge. This function handles only the
+    cross-layer concerns: opening the settings panel, expanding the
+    accordion, and setting the LED button during protocol preview.
+    """
     ctx = _app_ctx.ctx
     settings = ctx.settings
     protocol_running_global = ctx.protocol_running
@@ -160,114 +166,35 @@ def go_to_step_update_ui(step):
     color = step['Color']
     layer_obj = ctx.image_settings.layer_lookup(layer=color)
 
-    # Suppress Kivy event handlers during programmatic widget updates.
-    # Without this, every slider.value/checkbox.active/button.state change
-    # triggers event handlers that send redundant hardware commands.
-    layer_obj._initializing = True
-
-    # open ImageSettings
+    # Open ImageSettings panel
     ctx.image_settings.ids['toggle_imagesettings'].state = 'down'
     ctx.image_settings.toggle_settings()
 
-    # set accordion item to corresponding channel (skip during protocol to prevent memory leaks)
+    # Expand accordion to step's channel (skip during protocol to prevent memory leaks)
     if not protocol_running_global.is_set():
         accordion_item_obj = ctx.image_settings.accordion_item_lookup(layer=color)
         accordion_item_obj.collapse = False
 
+    # Delegate all per-layer widget updates to LayerControl
+    layer_obj.set_step_state(step)
 
-    # set autofocus checkbox
-    logger.info(f'[LVP Main  ] autofocus: {step["Auto_Focus"]}')
-
-    layer_obj.ids['autofocus'].active = step['Auto_Focus']
-
-    # set false_color checkbox
-    logger.info(f'[LVP Main  ] false_color: {step["False_Color"]}')
-
-    layer_obj.ids['false_color'].active = step['False_Color']
-
-    # set illumination settings, text, and slider
-    logger.info(f'[LVP Main  ] ill: {step["Illumination"]}')
-
-    layer_obj.ids['ill_text'].text = str(step["Illumination"])
-    layer_obj.ids['ill_slider'].value = float(step["Illumination"])
-
-    # set gain settings, text, and slider
-    logger.info(f'[LVP Main  ] gain: {step["Gain"]}')
-
-    layer_obj.ids['gain_text'].text = str(step["Gain"])
-    layer_obj.ids['gain_slider'].value = float(step["Gain"])
-
-    # set auto_gain checkbox
-    logger.info(f'[LVP Main  ] auto_gain: {step["Auto_Gain"]}')
-
-    layer_obj.ids['auto_gain'].active = step["Auto_Gain"]
-
-    # set exposure settings, text, and slider
-    logger.info(f'[LVP Main  ] exp: {step["Exposure"]}')
-
-    layer_obj.ids['exp_text'].text = str(step["Exposure"])
-    layer_obj.ids['exp_slider'].value = float(step["Exposure"])
-
-    # set sum count settings, text, and slider
-    logger.info(f'[LVP Main  ] sum: {step["Sum"]}')
-
-    layer_obj.ids['sum_text'].text = str(step["Sum"])
-    layer_obj.ids['sum_slider'].value = int(step["Sum"])
-
-    # set video config (e.g., duration) controls
-    if 'Video Config' in step and isinstance(step['Video Config'], dict):
-        vc = step['Video Config']
-        with ctx.settings_lock:
-            settings[color]['video_config'] = copy.deepcopy(vc)
-        if 'duration' in vc:
-            layer_obj.ids['video_duration_text'].text = str(vc['duration'])
-            layer_obj.ids['video_duration_slider'].value = float(vc['duration'])
-
-    # Set stim configuration for each channel
-    if 'Stim_Config' in step:
-        if isinstance(step['Stim_Config'], dict):
-            # Update each channel's stim config
-            for layer in step['Stim_Config']:
-                stim_config = step['Stim_Config'][layer]
-                with ctx.settings_lock:
-                    settings[layer]['stim_config'] = copy.deepcopy(stim_config)
-
-                stim_layer_obj = ctx.image_settings.layer_lookup(layer=layer)
-
-                if stim_config['enabled']:
-                    stim_layer_obj.ids['stim_enable_btn'].active = True
-                    stim_layer_obj.ids['stim_disable_btn'].active = False
-                else:
-                    stim_layer_obj.ids['stim_disable_btn'].active = True
-                    stim_layer_obj.ids['stim_enable_btn'].active = False
-
-                stim_layer_obj.update_stim_controls_visibility()
-
-                stim_layer_obj.ids['stim_freq_text'].text = str(stim_config['frequency'])
-                stim_layer_obj.ids['stim_freq_slider'].value = float(stim_config['frequency'])
-                stim_layer_obj.ids['stim_pulse_width_text'].text = str(stim_config['pulse_width'])
-                stim_layer_obj.ids['stim_pulse_width_slider'].value = float(stim_config['pulse_width'])
-                stim_layer_obj.ids['stim_pulse_count_text'].text = str(stim_config['pulse_count'])
-                stim_layer_obj.ids['stim_pulse_count_slider'].value = int(stim_config['pulse_count'])
-
-    # acquire type
-
-    for acquire_sel in ('acquire_video', 'acquire_image', 'acquire_none'):
-        layer_obj.ids[acquire_sel].active = False
-
-    if step['Acquire'] == 'video':
-        layer_obj.ids['acquire_video'].active = True
-    elif step['Acquire'] == 'image':
-        layer_obj.ids['acquire_image'].active = True
-    else:
-        layer_obj.ids['acquire_none'].active = True
+    # Stim config spans multiple layers — update non-current layers too
+    sc = step.get('Stim_Config')
+    if isinstance(sc, dict):
+        for layer in sc:
+            if layer != color:
+                other_obj = ctx.image_settings.layer_lookup(layer=layer)
+                # Build a minimal step dict for the other layer's stim only
+                other_obj.set_step_state({'Stim_Config': {layer: sc[layer]}})
 
     # Set LED button state to show which channel is active for this step.
     # During protocol: show the step's channel as 'down' so user sees which
     # LED is being used, even though the actual on/off happens in the executor.
     # Outside protocol: only if protocol_led_on is enabled (preview mode).
     if protocol_running_global.is_set() or settings.get('protocol_led_on', False):
-        layer_obj.ids['enable_led_btn'].state = 'down'
-
-    # Re-enable event handlers now that UI is updated
-    layer_obj._initializing = False
+        from ui.layer_control import LayerControl
+        LayerControl._suppressing_led_log = True
+        try:
+            layer_obj.ids['enable_led_btn'].state = 'down'
+        finally:
+            LayerControl._suppressing_led_log = False
