@@ -81,6 +81,7 @@ class ProtocolImageWriter:
         video_as_frames: bool = False,
         separate_folder_per_channel: bool = False,
         curr_step: int = 0,
+        keep_led_on: bool = False,
     ):
         """Orchestrate image/video acquisition for a single protocol step.
 
@@ -279,7 +280,8 @@ class ProtocolImageWriter:
                 }
             ))
 
-        self._leds_off()
+        if not keep_led_on:
+            self._leds_off()
 
     def write_capture(
         self,

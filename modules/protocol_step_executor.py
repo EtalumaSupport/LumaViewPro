@@ -233,6 +233,15 @@ class ProtocolStepExecutor:
 
                 # Video encoding runs on FILE_WORKER after capture — no gate needed
 
+                # Keep LED on between consecutive steps of the same channel
+                # (e.g., Z-stack slices). Avoids unnecessary LED cycling.
+                _keep_led = False
+                num_steps = p._protocol.num_steps()
+                if p._curr_step < num_steps - 1:
+                    next_step = p._protocol.step(idx=p._curr_step + 1)
+                    if next_step['Color'] == step['Color']:
+                        _keep_led = True
+
                 _t_capture_start = time.monotonic()
                 p._image_writer.capture(
                     save_folder=save_folder,
@@ -247,6 +256,7 @@ class ProtocolStepExecutor:
                     video_as_frames=p._video_as_frames,
                     separate_folder_per_channel=p._separate_folder_per_channel,
                     curr_step=p._curr_step,
+                    keep_led_on=_keep_led,
                 )
                 _t_capture_done = time.monotonic()
                 logger.debug(f"[TIMING] Step {p._curr_step} capture+save: {(_t_capture_done - _t_capture_start)*1000:.1f}ms")
