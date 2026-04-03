@@ -128,6 +128,18 @@ def go_to_step(
 
         layer_obj = ctx.image_settings.layer_lookup(layer=color)
 
+        # #610 diagnostic: trace what go_to_step does with camera settings
+        _curr_gain = ctx.scope.get_gain() if ctx.scope.camera_active else '?'
+        _curr_exp = ctx.scope.get_exposure_time() if ctx.scope.camera_active else '?'
+        logger.info(
+            f"[GO_TO_STEP DIAG] step_idx={step_idx} color={color} "
+            f"step_gain={step['Gain']} step_exp={step['Exposure']} "
+            f"step_auto_gain={step['Auto_Gain']!r} "
+            f"camera_gain={_curr_gain} camera_exp={_curr_exp} "
+            f"called_from_protocol={called_from_protocol} "
+            f"protocol_running={ctx.protocol_running.is_set()}"
+        )
+
         def temp():
             layer_obj.ids['enable_led_btn'].state = 'down'
             layer_obj.apply_settings(ignore_auto_gain=ignore_auto_gain, protocol=True)

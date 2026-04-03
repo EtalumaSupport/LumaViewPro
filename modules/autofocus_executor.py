@@ -187,6 +187,11 @@ class AutofocusExecutor:
         # Save LED + camera state before AF so we can restore after (#608, #610)
         self._saved_led_state = self._scope.save_led_state('autofocus')
         self._saved_camera_state = self._scope.save_camera_state('autofocus')
+        # #610 diagnostic: what state did AF just save?
+        _af_log.info(f'[AF DIAG] Saved pre-AF camera state: '
+                     f'gain={self._saved_camera_state.get("gain", "?")} '
+                     f'exp={self._saved_camera_state.get("exposure", "?")} '
+                     f'(step wants gain={self._camera_gain} exp={self._camera_exposure})')
         # Apply the step's camera settings so AF scans with correct gain/exposure.
         # Without this, AF inherits whatever the previous protocol step left behind
         # (e.g., Green's gain=12.8/exp=100ms when AF needs BF's gain=0/exp=2ms).
@@ -214,6 +219,10 @@ class AutofocusExecutor:
                 self._scope.restore_led_state(self._saved_led_state,
                                               owner='autofocus')
             if self._saved_camera_state:
+                # #610 diagnostic: what state is AF about to restore?
+                _af_log.info(f'[AF DIAG] Restoring pre-AF camera state: '
+                             f'gain={self._saved_camera_state.get("gain", "?")} '
+                             f'exp={self._saved_camera_state.get("exposure", "?")}')
                 self._scope.restore_camera_state(self._saved_camera_state)
 
     def _autofocus_loop_inner(self, last_gc_time):

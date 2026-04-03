@@ -738,6 +738,12 @@ class LayerControl(BoxLayout):
 
 
         if protocol or protocol_running_global.is_set():
+            # #610 diagnostic: camera settings are NOT applied in protocol mode
+            logger.info(
+                f"[APPLY_SETTINGS DIAG] {self.layer} — early return (protocol={protocol}, "
+                f"running={protocol_running_global.is_set()}). "
+                f"Camera settings NOT applied to hardware."
+            )
             Clock.schedule_once(disable_leds_for_other_layers, 0)
             Clock.schedule_once(update_shader, 0)
             return
