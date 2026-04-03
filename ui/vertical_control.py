@@ -88,9 +88,10 @@ class VerticalControl(BoxLayout):
 
     def update_text_only(self):
         # Cache text to prevent redundant ScrollView updates
-        new_text = format(max(0, self.ids['obj_position'].value), '.2f')
-        if self.ids['z_position_id'].text != new_text:
-            self.ids['z_position_id'].text = new_text
+        if not self.ids['z_position_id'].focus:
+            new_text = format(max(0, self.ids['obj_position'].value), '.2f')
+            if self.ids['z_position_id'].text != new_text:
+                self.ids['z_position_id'].text = new_text
 
 
     def execute_kivy_gui(self, vertical_control=False, result=None, exception=None):
@@ -112,17 +113,24 @@ class VerticalControl(BoxLayout):
             Clock.schedule_once(lambda dt, p=set_pos: self._update_z_text(p), 0)
 
     def _update_z_position(self, pos):
-        """Update Z slider and text — must be called on main thread."""
+        """Update Z slider and text — must be called on main thread.
+
+        Only updates text field when user is not typing (focus check),
+        matching XY behavior. Without this, the text shows current
+        position during motion then snaps to target — confusing.
+        """
         self.ids['obj_position'].value = max(0, pos)
-        new_text = format(max(0, pos), '.2f')
-        if self.ids['z_position_id'].text != new_text:
-            self.ids['z_position_id'].text = new_text
+        if not self.ids['z_position_id'].focus:
+            new_text = format(max(0, pos), '.2f')
+            if self.ids['z_position_id'].text != new_text:
+                self.ids['z_position_id'].text = new_text
 
     def _update_z_text(self, pos):
         """Update Z text only — must be called on main thread."""
-        new_text = format(max(0, pos), '.2f')
-        if self.ids['z_position_id'].text != new_text:
-            self.ids['z_position_id'].text = new_text
+        if not self.ids['z_position_id'].focus:
+            new_text = format(max(0, pos), '.2f')
+            if self.ids['z_position_id'].text != new_text:
+                self.ids['z_position_id'].text = new_text
 
     def _z_jog(self, direction: int, coarse: bool, overshoot_enabled: bool = False):
         """Shared Z-axis jog handler.
