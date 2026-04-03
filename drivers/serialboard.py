@@ -386,6 +386,7 @@ class SerialBoard:
         with self._lock:
             if self.driver is None:
                 try:
+                    logger.info(f'{self._label} Auto-reconnect triggered by {command}')
                     self.connect()
                 except Exception as e:
                     _serial_log.error(f'{self._label} {command} -> RECONNECT FAILED: {e}')
@@ -507,6 +508,7 @@ class SerialBoard:
         with self._lock:
             if self.driver is None:
                 try:
+                    logger.info(f'{self._label} Auto-reconnect triggered by {command}')
                     self.connect()
                 except Exception as e:
                     _serial_log.error(f'{self._label} {command} -> RECONNECT FAILED: {e}')

@@ -40,14 +40,23 @@ class MotorBoard(SerialBoard):
         # Backward-compatible alias for lock name
         self.thread_lock = self._lock
 
-        # Build cached values from motorconfig (rebuilt after board merge)
+        # 1. Build cached values from defaults
         self._rebuild_cached_values()
+        # 2. Open port, reset firmware, verify connection
+        self._initial_connect()
+        # 3. Load per-unit config from board, rebuild cache with real values
+        self._load_board_config()
 
     def _rebuild_cached_values(self):
         """Recompute cached values from motorconfig.
 
         Called at init (with defaults only) and again after
-        update_from_board() merges per-unit board data.
+        update_from_board() merges per-unit board data inside connect().
+
+        NOTE: This must NOT call connect(). connect() calls this method
+        after update_from_board(), so calling connect() here would recurse
+        and attempt to reopen the serial port while it's already open —
+        causing PermissionError on Windows. (#610)
         """
         self.backlash = self.motorconfig.antibacklash_um('Z')
         self.axes_config = {
@@ -77,11 +86,31 @@ class MotorBoard(SerialBoard):
             }
         }
 
+    def _initial_connect(self):
+        """Called once from __init__ to establish the first connection."""
+        logger.info('[XYZ Class ] _initial_connect() — first connection attempt')
         try:
             self.connect()
         except Exception:
-            logger.error('[XYZ Class ] Failed to connect to motor controller')
+            logger.error('[XYZ Class ] _initial_connect() failed')
             raise
+
+    def _load_board_config(self):
+        """Read per-unit config from connected board and merge into motorconfig.
+
+        Called once after connect() succeeds. Separate from connect() because
+        connect's job is opening the port — config loading is a post-connect step.
+        """
+        try:
+            board_cfg = self.get_config()
+            if board_cfg:
+                self.motorconfig.update_from_board(board_cfg)
+                self._rebuild_cached_values()
+                logger.info(f'[XYZ Class ] Board config merged: model={self.motorconfig.model()}, '
+                            f'SN={self.motorconfig.serial_number()}, '
+                            f'Z_usteps/mm={self.motorconfig.usteps_per_mm("Z")}')
+        except Exception as e:
+            logger.warning(f'[XYZ Class ] Board config load failed (using defaults): {e}')
 
     def _on_disconnect(self):
         """Clear cached firmware info on disconnect (called under self._lock)."""
@@ -98,11 +127,22 @@ class MotorBoard(SerialBoard):
         # by _open_serial, _reset_firmware, exchange_command etc. is safe.
         with self._lock:
             try:
-                self._open_serial()
+                # Skip if already connected
+                if self.driver is not None and self.driver.is_open:
+                    logger.debug(f'[XYZ Class ] connect() skipped — already connected on {self.port}')
+                    return
 
-                # Motor-specific: close/open dance for port reset
+                logger.info(f'[XYZ Class ] connect() starting on {self.port}')
+                self._open_serial()
+                logger.info(f'[XYZ Class ] connect() port opened: {self.port}')
+
+                # Legacy port reset: close and reopen to flush USB CDC
+                # buffers on Windows. Has existed since original code.
                 self.driver.close()
+                logger.debug(f'[XYZ Class ] connect() port closed for reset')
+                time.sleep(0.05)  # brief pause for Windows to release port
                 self.driver.open()
+                logger.debug(f'[XYZ Class ] connect() port reopened after reset')
 
                 self._connect_fails = 0
                 if lvp_logger.is_thread_paused():
@@ -112,16 +152,6 @@ class MotorBoard(SerialBoard):
                 info = self.fullinfo()
                 with self._state_lock:
                     self._fullinfo = info
-
-                # Merge per-unit config from board (overrides defaults
-                # only for keys explicitly present in board config)
-                board_cfg = self.get_config()
-                if board_cfg:
-                    self.motorconfig.update_from_board(board_cfg)
-                    self._rebuild_cached_values()
-                    logger.info(f'[XYZ Class ] Board config merged: model={self.motorconfig.model()}, '
-                                f'SN={self.motorconfig.serial_number()}, '
-                                f'Z_usteps/mm={self.motorconfig.usteps_per_mm("Z")}')
 
                 logger.info('[XYZ Class ] Connected to motor controller')
             except Exception as e:
