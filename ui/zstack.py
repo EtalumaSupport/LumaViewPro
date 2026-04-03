@@ -232,7 +232,7 @@ class ZStack(FloatLayout):
                 autogain_settings=autogain_settings,
                 callbacks=callbacks,
                 return_to_position=initial_position,
-                leds_state_at_end="off",
+                leds_state_at_end="return_to_original",
                 video_as_frames = settings['video_as_frames']
             )
 
