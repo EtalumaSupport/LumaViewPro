@@ -102,6 +102,29 @@ class Lumascope():
         self._position_listeners_lock = threading.Lock()
         self._position_listeners = []
 
+        # LED change listeners — push-based UI update mechanism.
+        # Each listener is called with (color: str, enabled: bool, mA: float,
+        # owner: str) whenever any LED channel changes state.  Fires from the
+        # thread that caused the change, so listeners MUST schedule UI work
+        # via Clock.schedule_once.
+        self._led_listeners_lock = threading.Lock()
+        self._led_listeners = []
+
+        # LED ownership tracking — prevents subsystems from turning off LEDs
+        # they did not turn on.  Each led_on with an owner records who claimed
+        # the channel.  led_off with a non-matching owner is a no-op.
+        # leds_off() without owner is the "nuclear" option (shutdown only).
+        self._led_owner_lock = threading.Lock()
+        self._led_owners = {}  # color -> owner tag
+
+        # Camera change listeners — push-based UI update mechanism.
+        # Each listener is called with (param: str, value: float) whenever
+        # camera gain or exposure changes.  param is 'gain' or 'exposure'.
+        # Fires from the thread that caused the change, so listeners MUST
+        # schedule UI work via Clock.schedule_once.
+        self._camera_listeners_lock = threading.Lock()
+        self._camera_listeners = []
+
         # Motion profile for position prediction during moves.
         # Stores ramp parameters + start time/pos so get_current_position()
         # can return interpolated position during MOVING state.
@@ -470,6 +493,12 @@ class Lumascope():
         with self._camera_cache_lock:
             return self._camera_cache['max_exposure']
 
+    @property
+    def camera_pixel_format(self) -> str:
+        """Current camera pixel format (e.g. 'Mono8', 'Mono12') (reads cache)."""
+        with self._camera_cache_lock:
+            return self._camera_cache.get('pixel_format', 'Mono8')
+
     # --- CR-2: Thread-safe properties for shared state ---
 
     @property
@@ -605,6 +634,192 @@ class Lumascope():
                 fn(axis, target, state)
             except Exception as ex:
                 _api_log.debug(f'position listener error: {ex}')
+
+    # ------------------------------------------------------------------
+    # LED change listeners
+    # ------------------------------------------------------------------
+
+    def add_led_listener(self, listener):
+        """Register a callback for LED state changes.
+
+        The listener is called with ``(color, enabled, mA, owner)`` whenever
+        any LED channel changes state.  It fires from the thread that caused
+        the change, so listeners **must** schedule UI work via
+        ``Clock.schedule_once``.
+
+        Args:
+            listener: ``callable(color: str, enabled: bool, mA: float, owner: str)``
+        """
+        with self._led_listeners_lock:
+            self._led_listeners.append(listener)
+
+    def remove_led_listener(self, listener):
+        """Unregister an LED listener."""
+        with self._led_listeners_lock:
+            try:
+                self._led_listeners.remove(listener)
+            except ValueError:
+                pass
+
+    def _fire_led_listeners(self, color: str, enabled: bool, mA: float,
+                            owner: str = ''):
+        """Notify all LED listeners of a state change on *color*."""
+        with self._led_listeners_lock:
+            listeners = list(self._led_listeners)
+        for fn in listeners:
+            try:
+                fn(color, enabled, mA, owner)
+            except Exception as ex:
+                _api_log.debug(f'led listener error: {ex}')
+
+    # ------------------------------------------------------------------
+    # LED ownership
+    # ------------------------------------------------------------------
+
+    def save_led_state(self, tag: str) -> dict:
+        """Snapshot the current LED state for later restoration.
+
+        Args:
+            tag: Descriptive name for the snapshot (for logging).
+
+        Returns:
+            dict: Snapshot suitable for passing to ``restore_led_state``.
+        """
+        states = self.get_led_states()
+        with self._led_owner_lock:
+            owners = dict(self._led_owners)
+        snapshot = {'tag': tag, 'states': states, 'owners': owners}
+        _api_log.info(f'save_led_state tag={tag}: '
+                      f'{[c for c, s in states.items() if s.get("enabled")]}')
+        return snapshot
+
+    def restore_led_state(self, snapshot: dict, owner: str = ''):
+        """Restore LEDs to a previously saved state.
+
+        Turns off channels owned by *owner* (or all if owner is empty),
+        then re-enables channels that were on in the snapshot.
+
+        Args:
+            snapshot: Return value from ``save_led_state``.
+            owner: If set, only turn off channels currently owned by
+                this owner before restoring.
+        """
+        if not snapshot:
+            return
+        tag = snapshot.get('tag', '?')
+        saved_states = snapshot.get('states', {})
+        _api_log.info(f'restore_led_state tag={tag}')
+
+        # Turn off what the owner turned on
+        if owner:
+            self.leds_off_owned(owner)
+        else:
+            self.leds_off()
+
+        # Restore channels that were on in the snapshot
+        for color, state in saved_states.items():
+            if state.get('enabled', False):
+                mA = state.get('illumination', 0)
+                if mA and mA > 0:
+                    ch = self.color2ch(color)
+                    if ch is not None:
+                        saved_owner = snapshot.get('owners', {}).get(color, '')
+                        self.led_on(channel=ch, mA=mA, owner=saved_owner)
+
+    def save_camera_state(self, tag: str) -> dict:
+        """Snapshot the current camera gain and exposure for later restoration.
+
+        Args:
+            tag: Descriptive name for the snapshot (for logging).
+
+        Returns:
+            dict: Snapshot suitable for passing to ``restore_camera_state``.
+        """
+        gain = self.get_gain()
+        exposure = self.get_exposure_time()
+        snapshot = {'tag': tag, 'gain': gain, 'exposure': exposure}
+        _api_log.info(f'save_camera_state tag={tag}: gain={gain} exp={exposure}')
+        return snapshot
+
+    def restore_camera_state(self, snapshot: dict):
+        """Restore camera gain and exposure from a previously saved state.
+
+        Args:
+            snapshot: Return value from ``save_camera_state``.
+        """
+        if not snapshot:
+            return
+        tag = snapshot.get('tag', '?')
+        _api_log.info(f'restore_camera_state tag={tag}')
+        gain = snapshot.get('gain', -1)
+        exposure = snapshot.get('exposure', 0)
+        if gain >= 0:
+            self.set_gain(gain)
+        if exposure > 0:
+            self.set_exposure_time(exposure)
+
+    def leds_off_owned(self, owner: str):
+        """Turn off only the LED channels owned by *owner*.
+
+        Channels owned by other subsystems are left alone.
+
+        Args:
+            owner: The owner tag whose channels should be turned off.
+        """
+        if not self.led or not owner:
+            return
+        with self._led_owner_lock:
+            channels_to_off = [color for color, own in self._led_owners.items()
+                               if own == owner]
+            for color in channels_to_off:
+                self._led_owners.pop(color, None)
+        for color in channels_to_off:
+            ch = self.color2ch(color)
+            if ch is not None:
+                with self._led_lock:
+                    self.led.led_off(ch)
+                self.frame_validity.invalidate('led')
+                _api_log.info(f'led_off ch={ch} (owned release by {owner})')
+                self._fire_led_listeners(color, False, 0.0, owner=owner)
+
+    # ------------------------------------------------------------------
+    # Camera change listeners
+    # ------------------------------------------------------------------
+
+    def add_camera_listener(self, listener):
+        """Register a callback for camera setting changes.
+
+        The listener is called with ``(param, value)`` whenever camera
+        gain or exposure changes.  *param* is ``'gain'`` or ``'exposure'``.
+        It fires from the thread that caused the change, so listeners
+        **must** schedule UI work via ``Clock.schedule_once``.
+
+        Note: this fires on set_gain/set_exposure_time (user actions),
+        NOT on every camera frame grab — zero overhead on display framerate.
+
+        Args:
+            listener: ``callable(param: str, value: float)``
+        """
+        with self._camera_listeners_lock:
+            self._camera_listeners.append(listener)
+
+    def remove_camera_listener(self, listener):
+        """Unregister a camera listener."""
+        with self._camera_listeners_lock:
+            try:
+                self._camera_listeners.remove(listener)
+            except ValueError:
+                pass
+
+    def _fire_camera_listeners(self, param: str, value: float):
+        """Notify all camera listeners of a setting change."""
+        with self._camera_listeners_lock:
+            listeners = list(self._camera_listeners)
+        for fn in listeners:
+            try:
+                fn(param, value)
+            except Exception as ex:
+                _api_log.debug(f'camera listener error: {ex}')
 
     def _set_axis_state(self, axis: str, state: str):
         """Set the state of an axis (internal use only).
@@ -1082,13 +1297,17 @@ class Lumascope():
         return self.led.get_led_states()
 
 
-    def led_on(self, channel, mA, block=False):
+    def led_on(self, channel, mA, block=False, owner: str = ''):
         """Turn on an LED channel at the specified current.
 
         Args:
             channel: Channel number (0-5) or color name string.
             mA: Illumination current in milliamps.
             block: If True, wait for confirmation from the LED board.
+            owner: Optional ownership tag (e.g. 'autofocus', 'protocol').
+                If set, only ``led_off`` / ``leds_off_owned`` with the same
+                owner can turn this channel off.  Empty string (default) means
+                no ownership tracking.
 
         Raises:
             ValueError: If channel or mA is out of range.
@@ -1114,13 +1333,24 @@ class Lumascope():
         with self._led_lock:
             self.led.led_on(channel, mA, block=block)
         self.frame_validity.invalidate('led')
-        _api_log.info(f'led_on ch={channel} mA={mA}')
+        _api_log.info(f'led_on ch={channel} mA={mA} owner={owner!r}')
 
-    def led_off(self, channel):
+        # Record ownership and notify listeners
+        color_name = self.ch2color(channel)
+        if color_name:
+            if owner:
+                with self._led_owner_lock:
+                    self._led_owners[color_name] = owner
+            self._fire_led_listeners(color_name, True, float(mA), owner)
+
+    def led_off(self, channel, owner: str = ''):
         """Turn off an LED channel.
 
         Args:
             channel: Channel number (0-5) or color name string.
+            owner: If set, only turn off if this owner currently owns
+                the channel.  A non-matching owner is a no-op (logged).
+                Empty string (default) turns off unconditionally.
 
         Raises:
             ValueError: If channel is out of range.
@@ -1138,10 +1368,27 @@ class Lumascope():
         if color_name and not self.led_enabled(color_name):
             return
 
+        # Check ownership — if caller specifies an owner, only allow if it matches
+        if owner and color_name:
+            with self._led_owner_lock:
+                current_owner = self._led_owners.get(color_name, '')
+                if current_owner and current_owner != owner:
+                    _api_log.debug(f'led_off blocked: ch={channel} owner={owner!r} '
+                                   f'but owned by {current_owner!r}')
+                    return
+                self._led_owners.pop(color_name, None)
+
         with self._led_lock:
             self.led.led_off(channel)
         self.frame_validity.invalidate('led')
-        _api_log.info(f'led_off ch={channel}')
+        _api_log.info(f'led_off ch={channel} owner={owner!r}')
+
+        if color_name:
+            # Clear ownership if no owner specified (unconditional off)
+            if not owner:
+                with self._led_owner_lock:
+                    self._led_owners.pop(color_name, None)
+            self._fire_led_listeners(color_name, False, 0.0, owner)
 
     def led_on_fast(self, channel, mA):
         """Turn on an LED with write-only (no read-back) for time-critical pulses.
@@ -1163,6 +1410,9 @@ class Lumascope():
         with self._led_lock:
             self.led.led_on_fast(channel, mA)
         self.frame_validity.invalidate('led')
+        color_name = self.ch2color(channel)
+        if color_name:
+            self._fire_led_listeners(color_name, True, float(mA), '')
 
     def led_off_fast(self, channel):
         """Turn off an LED with write-only (no read-back) for time-critical pulses.
@@ -1181,6 +1431,9 @@ class Lumascope():
         with self._led_lock:
             self.led.led_off_fast(channel)
         self.frame_validity.invalidate('led')
+        color_name = self.ch2color(channel)
+        if color_name:
+            self._fire_led_listeners(color_name, False, 0.0, '')
 
     def leds_off_fast(self):
         """Turn off all LEDs with write-only (no read-back) for time-critical pulses."""
@@ -1188,14 +1441,20 @@ class Lumascope():
         with self._led_lock:
             self.led.leds_off_fast()
         self.frame_validity.invalidate('led')
+        for color in self.led.led_ma:
+            self._fire_led_listeners(color, False, 0.0, '')
 
     def leds_off(self):
-        """Turn off all LEDs."""
+        """Turn off all LEDs (nuclear — ignores ownership, clears all owners)."""
         if not self.led: return
         with self._led_lock:
             self.led.leds_off()
+        with self._led_owner_lock:
+            self._led_owners.clear()
         self.frame_validity.invalidate('led')
         _api_log.info('leds_off')
+        for color in self.led.led_ma:
+            self._fire_led_listeners(color, False, 0.0, '')
 
     def get_led_status(self):
         """Get the LED board status register."""
@@ -1879,6 +2138,7 @@ class Lumascope():
         with self._camera_cache_lock:
             self._camera_cache['gain'] = float(gain)
         _api_log.info(f'set_gain {gain}dB')
+        self._fire_camera_listeners('gain', float(gain))
 
     def set_auto_gain(self, state: bool, settings: dict):
         """Enable or disable automatic gain adjustment.
@@ -1916,6 +2176,7 @@ class Lumascope():
         with self._camera_cache_lock:
             self._camera_cache['exposure_ms'] = float(t)
         _api_log.info(f'set_exposure {t}ms')
+        self._fire_camera_listeners('exposure', float(t))
 
     def get_exposure_time(self):
         """Get the current camera exposure time.

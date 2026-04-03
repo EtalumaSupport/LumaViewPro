@@ -1,26 +1,9 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-try:
-    from kivy.clock import Clock
-except ImportError:
-    # Subprocess mode - dummy Clock
-    class Clock:
-        @staticmethod
-        def schedule_once(func, timeout): 
-            # In subprocess, call immediately without UI scheduling
-            if callable(func):
-                try:
-                    func(0)  # Call with dummy dt=0
-                except Exception as e:
-                    import logging as _log
-                    _log.getLogger('LVP').debug(f'Clock fallback schedule_once error: {e}')
-        
-        @staticmethod
-        def schedule_interval(func, interval): 
-            return None
-        
-        @staticmethod
-        def unschedule(event): 
-            pass
+#
+# Rule 15: Executors must be GUI-agnostic. No Kivy imports here.
+# UI callbacks are dispatched via _ui_dispatch(), which defaults to
+# direct invocation. The GUI layer passes Clock.schedule_once as
+# the ui_dispatcher parameter when constructing executors.
 
 from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor, Future, CancelledError
 import queue
@@ -53,6 +36,7 @@ IOTask
 class IOTask:
         def __init__(self, action, args=None, kwargs=None, callback=None, cb_args=None, cb_kwargs=None, pass_result=False):
             self.action = action
+            self._ui_dispatch = None  # Set by executor when task is dispatched
             if args is None:
                 self.args = ()
             # if it’s a sequence (list, tuple, etc) but not a string
@@ -118,7 +102,10 @@ class IOTask:
                 cb_kwargs = self.cb_kwargs
 
             cb_args = self.cb_args
-            Clock.schedule_once(_safe_callback, 0)
+            if self._ui_dispatch is not None:
+                self._ui_dispatch(_safe_callback, 0)
+            else:
+                _direct_dispatch(_safe_callback, 0)
 
         def set_name(self, name):
             self.name = name
@@ -145,8 +132,22 @@ SequentialIOExecutor
     # ... later ...
     executor.shutdown(wait=True)
 """
+def _direct_dispatch(func, timeout=0):
+    """Default UI dispatcher: call function directly (no GUI scheduling).
+
+    Used when no Kivy Clock is available (tests, headless, REST API).
+    Matches Clock.schedule_once(func, timeout) signature.
+    """
+    if callable(func):
+        try:
+            func(0)  # Call with dummy dt=0 (same as Clock passes)
+        except Exception as e:
+            import logging as _log
+            _log.getLogger('LVP').debug(f'_direct_dispatch error: {e}')
+
+
 class SequentialIOExecutor:
-    def __init__(self, max_workers: int=1, name: str=None):
+    def __init__(self, max_workers: int=1, name: str=None, ui_dispatcher=None):
         self.queue = queue.Queue()
         self.protocol_queue = queue.Queue()
         self.protocol_running = threading.Event()
@@ -180,6 +181,10 @@ class SequentialIOExecutor:
         self.protocol_complete_callback = None
         self.protocol_complete_cb_args = ()
         self.protocol_complete_cb_kwargs = {}
+
+        # UI dispatcher — Rule 15: executors don't import GUI frameworks.
+        # GUI layer passes Clock.schedule_once; tests/headless use default.
+        self._ui_dispatch = ui_dispatcher or _direct_dispatch
 
     @property
     def running_task(self):
@@ -348,14 +353,14 @@ class SequentialIOExecutor:
                             self.protocol_complete_cb_args = ()
                             self.protocol_complete_cb_kwargs = {}
                         if _cb is not None:
-                            Clock.schedule_once(
+                            self._ui_dispatch(
                                 lambda dt: _cb(*_cb_args, **_cb_kwargs), 0
                             )
                     continue
                 if self.protocol_running.is_set() or self.protocol_finish.is_set():
                     if self.pending_shutdown:
                         return
-                    # Inline to avoid holding future reference - GC can collect immediately after callback attached
+                    task._ui_dispatch = self._ui_dispatch
                     self.executor.submit(task.run).add_done_callback(partial(self._safe_done_cb, task=task))
                     self.running_task = task
                 else:
@@ -363,7 +368,7 @@ class SequentialIOExecutor:
                         self.protocol_queue.queue.clear()
                     if self.pending_shutdown:
                         return
-                    # Inline to avoid holding future reference - GC can collect immediately after callback attached
+                    task._ui_dispatch = self._ui_dispatch
                     self.executor.submit(task.run).add_done_callback(partial(self._safe_done_cb, task=task))
                     self.running_task = task
             except Exception as e:
@@ -429,8 +434,7 @@ class SequentialIOExecutor:
 
         self.running_task = None
         if self.global_callback is not None:
-            # Lambda wrapper to consume dt parameter that Clock always passes
-            Clock.schedule_once(lambda dt: self.global_callback(*self.global_cb_args, **self.global_cb_kwargs), 0)
+            self._ui_dispatch(lambda dt: self.global_callback(*self.global_cb_args, **self.global_cb_kwargs), 0)
 
     def set_done_callback(self, callback_fn, cb_args, cb_kwargs):
         # Allows to set a callback for when any IO task finishes (universal)

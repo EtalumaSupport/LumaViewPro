@@ -9,7 +9,7 @@ import typing
 
 from lvp_logger import logger
 
-from modules.kivy_utils import Clock, schedule_ui as _schedule_ui
+from modules.kivy_utils import schedule_ui as _schedule_ui
 
 import threading
 
@@ -125,15 +125,19 @@ class AutofocusExecutor:
 
 
     def _led_on(self):
-        """Turn on LED for autofocus illumination (if configured)."""
+        """Turn on LED for autofocus illumination (if configured).
+
+        Uses owner='autofocus' so only AF can turn this LED off.
+        """
         if self._led_color is not None and self._scope.led_connected:
             ch = self._scope.color2ch(self._led_color)
-            self._scope.led_on(channel=ch, mA=self._led_illumination, block=True)
+            self._scope.led_on(channel=ch, mA=self._led_illumination,
+                               block=True, owner='autofocus')
 
     def _led_off(self):
-        """Turn off LED after autofocus (if we turned it on)."""
+        """Turn off only the LED(s) that AF owns (not all LEDs)."""
         if self._led_color is not None and self._scope.led_connected:
-            self._scope.leds_off()
+            self._scope.leds_off_owned('autofocus')
 
     def run(
         self,
@@ -144,6 +148,8 @@ class AutofocusExecutor:
         results_dir: pathlib.Path | None = None,
         led_color: str | None = None,
         led_illumination: float = 0,
+        camera_gain: float | None = None,
+        camera_exposure: float | None = None,
     ):
         if self._af_in_progress.is_set():
             return
@@ -153,6 +159,8 @@ class AutofocusExecutor:
         self._run_trigger_source = run_trigger_source
         self._led_color = led_color
         self._led_illumination = led_illumination
+        self._camera_gain = camera_gain
+        self._camera_exposure = camera_exposure
         self._autofocus_executor.protocol_start()
         self._last_progress_ts = time.monotonic()
 
@@ -161,7 +169,7 @@ class AutofocusExecutor:
 
         self._save_results_to_file = save_results_to_file
         self._results_dir = results_dir
-        self._is_focusing = True
+        self._is_focusing_event.set()
         self._af_in_progress.set()
 
         self._objective = self._objective_loader.get_objective_info(
@@ -176,7 +184,22 @@ class AutofocusExecutor:
                      f'range={self._params["range"]:.1f} '
                      f'step={self._params["resolution"]:.1f} '
                      f'z=[{self._params["z_min"]:.1f}, {self._params["z_max"]:.1f}] ---')
-        # Turn on LED for AF illumination (structural fix for #602)
+        # Save LED + camera state before AF so we can restore after (#608, #610)
+        self._saved_led_state = self._scope.save_led_state('autofocus')
+        self._saved_camera_state = self._scope.save_camera_state('autofocus')
+        # #610 diagnostic: what state did AF just save?
+        _af_log.info(f'[AF DIAG] Saved pre-AF camera state: '
+                     f'gain={self._saved_camera_state.get("gain", "?")} '
+                     f'exp={self._saved_camera_state.get("exposure", "?")} '
+                     f'(step wants gain={self._camera_gain} exp={self._camera_exposure})')
+        # Apply the step's camera settings so AF scans with correct gain/exposure.
+        # Without this, AF inherits whatever the previous protocol step left behind
+        # (e.g., Green's gain=12.8/exp=100ms when AF needs BF's gain=0/exp=2ms).
+        if self._camera_gain is not None:
+            self._scope.set_gain(self._camera_gain)
+        if self._camera_exposure is not None:
+            self._scope.set_exposure_time(self._camera_exposure)
+        # Turn on LED for AF illumination with ownership (#602)
         self._led_on()
         self._move_absolute_position(pos=self._params['z_min'])
 
@@ -190,11 +213,29 @@ class AutofocusExecutor:
         try:
             self._autofocus_loop_inner(last_gc_time)
         finally:
-            # Always turn off LED when AF loop exits, regardless of how it exited
+            # Restore LED and camera state to pre-AF values (#602/#608/#610)
             self._led_off()
+            if self._saved_led_state:
+                self._scope.restore_led_state(self._saved_led_state,
+                                              owner='autofocus')
+            if self._saved_camera_state:
+                # #610 diagnostic: what state is AF about to restore?
+                _af_log.info(f'[AF DIAG] Restoring pre-AF camera state: '
+                             f'gain={self._saved_camera_state.get("gain", "?")} '
+                             f'exp={self._saved_camera_state.get("exposure", "?")}')
+                self._scope.restore_camera_state(self._saved_camera_state)
+            # Signal AF complete AFTER all state is restored. Previously
+            # this was in _iterate() before the finally block ran, creating
+            # a race where capture() read stale cached gain while this
+            # thread was still restoring the camera to pre-AF settings.
+            # (#610 race fix)
+            _af_log.info(f'[AF DIAG] Clearing _af_in_progress — '
+                         f'camera now at gain={self._scope.get_gain()} '
+                         f'exp={self._scope.get_exposure_time()}')
+            self._af_in_progress.clear()
 
     def _autofocus_loop_inner(self, last_gc_time):
-        while self._af_in_progress.is_set() and self._is_focusing:
+        while self._af_in_progress.is_set() and self._is_focusing_event.is_set():
             try:
                 # Periodic maintenance: GC every 60 seconds
                 if time.monotonic() - last_gc_time > 60:
@@ -220,9 +261,10 @@ class AutofocusExecutor:
                 self._scope.set_motor_precision_mode('Z', False)
                 self._autofocus_executor.protocol_end()
                 self._autofocus_executor.clear_protocol_pending()
-                self._is_focusing = False
-                self._is_complete = False
-                self._af_in_progress.clear()
+                self._is_focusing_event.clear()
+                self._is_complete_event.clear()
+                # _af_in_progress is cleared in _autofocus_loop() after
+                # camera state is restored (#610 race fix).
                 # Surface error in logs; UI callback (if present) will clear button
                 import logging as _logging
                 _logging.getLogger().error(f"[AF] Error during loop: {ex}", exc_info=True)
@@ -237,8 +279,13 @@ class AutofocusExecutor:
         _af_log.info('--- AF CANCELLED ---')
         self._scope.set_motor_precision_mode('Z', False)
         self._led_off()
+        if self._saved_led_state:
+            self._scope.restore_led_state(self._saved_led_state,
+                                          owner='autofocus')
+        if self._saved_camera_state:
+            self._scope.restore_camera_state(self._saved_camera_state)
         self._af_in_progress.clear()
-        self._is_focusing = False
+        self._is_focusing_event.clear()
         self._autofocus_executor.protocol_end()
         self._autofocus_executor.clear_protocol_pending()
 
@@ -249,9 +296,9 @@ class AutofocusExecutor:
             dict with keys: 'state' (idle/focusing/complete), 'best_position',
                   'in_progress'.
         """
-        if self._is_complete:
+        if self._is_complete_event.is_set():
             state = 'complete'
-        elif self._is_focusing:
+        elif self._is_focusing_event.is_set():
             state = 'focusing'
         else:
             state = 'idle'
@@ -266,7 +313,7 @@ class AutofocusExecutor:
         return self._af_in_progress.is_set()
 
     def _iterate(self, dt=None):
-            if not self._is_focusing:
+            if not self._is_focusing_event.is_set():
                 return
 
             if not self._af_in_progress.is_set():
@@ -278,7 +325,7 @@ class AutofocusExecutor:
                 return
 
             if not self._autofocus_executor.is_protocol_running():
-                self._is_focusing = False
+                self._is_focusing_event.clear()
                 return
 
             # REMOVED: 2-frame drain was a workaround for VSTOP=1000 motor
@@ -301,7 +348,7 @@ class AutofocusExecutor:
             height, width = image.shape
 
             if not self._autofocus_executor.is_protocol_running():
-                self._is_focusing = False
+                self._is_focusing_event.clear()
                 return
 
             # Detect dark/blank frames — would score 0, corrupting the curve.
@@ -334,14 +381,14 @@ class AutofocusExecutor:
             _af_log.info(f'  Z={current_pos:.2f} score={focus_score:.1f}')
 
             if not self._autofocus_executor.is_protocol_running():
-                self._is_focusing = False
+                self._is_focusing_event.clear()
                 return
 
             resolution = self._params['resolution']
             next_target = self._scope.get_target_position('Z') + resolution
 
             if not self._autofocus_executor.is_protocol_running():
-                self._is_focusing = False
+                self._is_focusing_event.clear()
                 self._last_progress_ts = time.monotonic()
                 return
 
@@ -402,8 +449,8 @@ class AutofocusExecutor:
                 logger.warning("Autofocus: degenerate focus curve (all scores zero or NaN) — aborting, keeping current Z position")
                 _af_log.warning('--- AF ABORT: degenerate curve (all scores zero/NaN) ---')
                 self._scope.set_motor_precision_mode('Z', False)
-                self._is_focusing = False
-                self._is_complete = True
+                self._is_focusing_event.clear()
+                self._is_complete_event.set()
                 self._best_focus_position = self._params['center']
                 return
 
@@ -445,10 +492,13 @@ class AutofocusExecutor:
                 # Restore normal motor mode after fine pass
                 self._scope.set_motor_precision_mode('Z', False)
 
-                self._is_focusing = False
-                self._is_complete = True
+                self._is_focusing_event.clear()
+                self._is_complete_event.set()
 
-                self._af_in_progress.clear()
+                # _af_in_progress is cleared in _autofocus_loop() after
+                # camera state is restored (#610 race fix). Clearing it
+                # here let the protocol worker race ahead into capture()
+                # while the finally block was still restoring camera state.
 
                 if 'complete' in self._callbacks:
                     _schedule_ui(lambda dt: self._callbacks['complete']())
@@ -473,7 +523,7 @@ class AutofocusExecutor:
     def _tick_iterate(self, dt=None):
         """Callback-based iteration - triggers next iteration without Clock.schedule_interval"""
         # Don't queue if AF is done or stopped
-        if not self._af_in_progress.is_set() or not self._is_focusing:
+        if not self._af_in_progress.is_set() or not self._is_focusing_event.is_set():
             return
 
         # Guard against queue buildup
@@ -522,11 +572,17 @@ class AutofocusExecutor:
 
 
     def in_progress(self) -> bool:
-        return self._is_focusing
+        # Use _af_in_progress, not _is_focusing_event. _is_focusing_event
+        # is cleared in _iterate() when AF finds the best focus, but the
+        # finally block in _autofocus_loop() still needs to restore camera
+        # state. _af_in_progress is cleared at the END of the finally block,
+        # so callers (protocol capture) won't proceed until restore is done.
+        # (#610 race fix)
+        return self._af_in_progress.is_set()
 
 
     def complete(self) -> bool:
-        return self._is_complete
+        return self._is_complete_event.is_set()
 
 
     def _save_autofocus_data(self):
@@ -623,8 +679,12 @@ class AutofocusExecutor:
 
     def _reset_state(self):
         self._objective = None
-        self._is_focusing = False
-        self._is_complete = False
+        self._is_focusing_event = threading.Event()   # thread-safe (#607)
+        self._is_complete_event = threading.Event()    # thread-safe (#607)
+        self._saved_led_state = None
+        self._saved_camera_state = None
+        self._camera_gain = None
+        self._camera_exposure = None
         self._af_in_progress.clear()
         self._af_data_pass = []
         self._af_data_full = []

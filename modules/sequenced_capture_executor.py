@@ -17,7 +17,7 @@ from modules.protocol_cleanup import run_cleanup
 from modules.protocol_step_executor import ProtocolStepExecutor
 from modules.protocol_run_loop import ProtocolRunLoop
 
-from modules.kivy_utils import Clock, schedule_ui as _schedule_ui
+from modules.kivy_utils import schedule_ui as _schedule_ui
 
 
 from modules.lumascope_api import Lumascope
@@ -351,11 +351,17 @@ class SequencedCaptureExecutor:
         with self._run_lock:
             if self._run_in_progress_event.is_set():
                 logger.error(f"[{self.LOGGER_NAME} ] Cannot start new run, run already in progress")
+                from modules.notification_center import notifications
+                notifications.warning("Protocol", "Already Running",
+                    "A protocol run is already in progress.")
                 return
 
         # Check if file_io_executor still has pending writes
         if self.file_io_executor.is_protocol_queue_active():
             logger.error(f"[{self.LOGGER_NAME} ] Cannot start new run, file writing still in progress")
+            from modules.notification_center import notifications
+            notifications.warning("Protocol", "Files Still Writing",
+                "Previous run's files are still being written. Please wait.")
             return
 
         if leds_state_at_end not in ("off", "return_to_original",):
@@ -363,6 +369,9 @@ class SequencedCaptureExecutor:
 
         if protocol.num_steps() == 0:
             logger.error(f"[PROTOCOL] Protocol has no steps. Cannot start run.")
+            from modules.notification_center import notifications
+            notifications.warning("Protocol", "No Steps",
+                "Protocol has no steps. Add at least one step before running.")
             return
 
         # Pre-run validation: check positions within axis limits
@@ -385,16 +394,18 @@ class SequencedCaptureExecutor:
         try:
             if not self._scope.are_all_connected():
                 logger.error(f"[PROTOCOL] Not all scope components connected. Cannot start run.")
+                from modules.notification_center import notifications
+                notifications.error("Protocol", "Hardware Disconnected",
+                    "Not all hardware components are connected. Check connections and try again.")
                 return
         except Exception as ex:
             logger.error(f"[PROTOCOL] Error checking scope connection: {ex}")
             return
 
         
-        # Not IO
+        # Snapshot hardware state for restoration after protocol
         self._original_led_states = self._scope.get_led_states()
-        self._original_gain = self._scope.get_gain()
-        self._original_exposure = self._scope.get_exposure_time()
+        self._saved_camera_state = self._scope.save_camera_state('protocol')
         if initial_autofocus_states is not None:
             self._original_autofocus_states = initial_autofocus_states
         else:
@@ -479,13 +490,10 @@ class SequencedCaptureExecutor:
         Note: With the loop-based approach, most work happens in executor threads,
         so there's less to unschedule than before.
         """
-        try:
-            if self._protocol_iterator is not None:
-                Clock.unschedule(self._protocol_iterator)
-            if self._scan_iterator is not None:
-                Clock.unschedule(self._scan_iterator)
-        except Exception:
-            pass  # Safe to ignore — iterators may not be Clock-scheduled
+        # Legacy Clock.unschedule calls removed — with the loop-based
+        # architecture, iterators run on executor threads, not Kivy Clock.
+        self._protocol_iterator = None
+        self._scan_iterator = None
 
 
     def _cleanup(self):
@@ -509,8 +517,7 @@ class SequencedCaptureExecutor:
             leds_state_at_end=self._leds_state_at_end,
             original_led_states=self._original_led_states,
             original_autofocus_states=self._original_autofocus_states,
-            original_gain=getattr(self, '_original_gain', -1),
-            original_exposure=getattr(self, '_original_exposure', 0),
+            saved_camera_state=getattr(self, '_saved_camera_state', None),
             return_to_position=self._return_to_position,
             disable_saving_artifacts=self._disable_saving_artifacts,
             protocol=self._protocol,

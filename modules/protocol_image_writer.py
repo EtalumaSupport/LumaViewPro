@@ -81,6 +81,7 @@ class ProtocolImageWriter:
         video_as_frames: bool = False,
         separate_folder_per_channel: bool = False,
         curr_step: int = 0,
+        keep_led_on: bool = False,
     ):
         """Orchestrate image/video acquisition for a single protocol step.
 
@@ -95,10 +96,24 @@ class ProtocolImageWriter:
 
         is_video = step['Acquire'] == "video"
 
+        # #610 diagnostic: trace camera settings decision at each capture
+        _ag = step['Auto_Gain']
+        _curr_gain = self._scope.get_gain()
+        _curr_exp = self._scope.get_exposure_time()
+        logger.info(
+            f"[CAPTURE DIAG] step={step.get('Name','?')} color={step['Color']} "
+            f"Auto_Gain={_ag!r} (type={type(_ag).__name__}) "
+            f"step_gain={step['Gain']} step_exp={step['Exposure']} "
+            f"camera_gain={_curr_gain} camera_exp={_curr_exp}"
+        )
+
         if not step['Auto_Gain']:
+            logger.info(f"[CAPTURE DIAG] Applying step camera settings: gain={step['Gain']}, exp={step['Exposure']}")
             with self._scope.update_camera_config():
                 self._scope.set_gain(step['Gain'])
                 self._scope.set_exposure_time(step['Exposure'])
+        else:
+            logger.warning(f"[CAPTURE DIAG] SKIPPING camera settings — Auto_Gain is truthy: {_ag!r}")
 
         # Objective short name for filename
         objective_short_name = None
@@ -265,7 +280,8 @@ class ProtocolImageWriter:
                 }
             ))
 
-        self._leds_off()
+        if not keep_led_on:
+            self._leds_off()
 
     def write_capture(
         self,

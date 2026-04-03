@@ -291,7 +291,7 @@ class ScopeDisplay(Image):
                 y_dist_pixel = texture_click_pos_y - texture_height/2 # Positive means above center
 
                 from modules.config_ui_getters import get_current_objective_info, get_binning_from_ui
-                from modules.ui_helpers import move_relative_position
+                from ui.ui_helpers import move_relative_position
                 _, objective = get_current_objective_info()
                 pixel_size_um = common_utils.get_pixel_size(
                     focal_length=objective['focal_length'],
@@ -505,7 +505,7 @@ class ScopeDisplay(Image):
 
         # Update scale bar color based on active channel (black for transmitted, white for fluorescence)
         if active_layer is not None:
-            ctx.scope._scale_bar['color'] = active_layer
+            ctx.scope.set_scale_bar(enabled=ctx.scope.scale_bar_config['enabled'], color=active_layer)
 
         # Likely not an IO call as image will be stored in buffer
         t_grab_start = time.monotonic()
@@ -527,8 +527,14 @@ class ScopeDisplay(Image):
             self._perf_blit_schedule_times.append(t_queue_wait)
 
         # Capture FPS tracking + camera data rate
+        # Use raw camera frame size (before 12→8 bit conversion) so the
+        # displayed data rate reflects actual camera throughput, not the
+        # post-conversion display throughput.
         self._capture_fps_count += 1
-        self._last_frame_nbytes = image.nbytes
+        fs = ctx.scope.camera_frame_size
+        pixel_format = ctx.scope.camera_pixel_format
+        bpp = 2 if pixel_format in ('Mono10', 'Mono10g40IDS', 'Mono12', 'Mono12g24IDS') else 1
+        self._last_frame_nbytes = fs.get('width', 0) * fs.get('height', 0) * bpp
         now = time.monotonic()
         elapsed = now - self._capture_fps_last_time
         if elapsed >= 1.0:

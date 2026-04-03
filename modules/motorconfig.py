@@ -22,8 +22,66 @@ class MotorConfig:
         self._config = dict(self._defaults)
 
     def update_from_board(self, board_config: dict):
-        """Merge per-unit config from the motor controller on top of defaults."""
-        self._deep_merge(self._config, board_config)
+        """Merge per-unit config from the motor controller on top of defaults.
+
+        Only keys explicitly present in board_config override defaults.
+        Missing keys are left at their default values.  This is safe for
+        boards with minimal configs (e.g., only serial number and model).
+
+        Basic type validation is applied to numeric fields — if a board
+        sends a non-numeric value where a number is expected, the board
+        value is rejected and the default is kept.
+        """
+        validated = self._validate_board_config(board_config)
+        self._deep_merge(self._config, validated)
+
+    # Sections where values must be numeric (int or float).
+    _NUMERIC_SECTIONS = frozenset({
+        "Axis Microsteps per mm / Objective",
+        "Axis Travel Limit",
+        "Axis Present",
+        "Axis antibacklash",
+        "Axis Offset",
+        "Axis Timeout",
+    })
+
+    def _validate_board_config(self, board_config: dict) -> dict:
+        """Return a copy of board_config with invalid values removed."""
+        cleaned = {}
+        for key, value in board_config.items():
+            if key in self._NUMERIC_SECTIONS and isinstance(value, dict):
+                valid_axes = {}
+                for axis, val in value.items():
+                    if isinstance(val, (int, float)):
+                        valid_axes[axis] = val
+                    else:
+                        logger.warning(
+                            f"[MotorConfig] Rejecting non-numeric board value "
+                            f"{key}.{axis}={val!r} (type={type(val).__name__})")
+                cleaned[key] = valid_axes
+            elif key == "TurretPosition" and isinstance(value, dict):
+                valid_pos = {}
+                for pos, val in value.items():
+                    if isinstance(val, (int, float)):
+                        valid_pos[pos] = val
+                    else:
+                        logger.warning(
+                            f"[MotorConfig] Rejecting non-numeric turret "
+                            f"position {pos}={val!r}")
+                cleaned[key] = valid_pos
+            elif key == "Optics" and isinstance(value, dict):
+                valid_optics = {}
+                for okey, oval in value.items():
+                    if isinstance(oval, (int, float, str)):
+                        valid_optics[okey] = oval
+                    else:
+                        logger.warning(
+                            f"[MotorConfig] Rejecting invalid optics "
+                            f"value {okey}={oval!r}")
+                cleaned[key] = valid_optics
+            else:
+                cleaned[key] = value
+        return cleaned
 
     @staticmethod
     def _load_json(file_path: pathlib.Path, label: str = "") -> dict:

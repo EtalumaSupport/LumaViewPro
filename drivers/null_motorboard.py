@@ -61,7 +61,7 @@ class NullMotionBoard:
         self.backlash = 0.0
 
         self.axes_config = {
-            'Z': {'limits': {'min': 0., 'max': 20000.}, 'move_func': self.z_um2ustep},
+            'Z': {'limits': {'min': 0., 'max': 14000.}, 'move_func': self.z_um2ustep},
             'X': {'limits': {'min': 0., 'max': 120000.}, 'move_func': self.xy_um2ustep},
             'Y': {'limits': {'min': 0., 'max': 80000.}, 'move_func': self.xy_um2ustep},
             'T': {'move_func': self.t_pos2ustep},

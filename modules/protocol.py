@@ -899,6 +899,13 @@ class Protocol:
 
                 if not use_zstacking:
                     zstack_position_offsets = {None: None}
+                elif zstack_params['step_size'] <= 0 or zstack_params['range'] <= 0:
+                    # Z-stack enabled but not configured — treat as single Z
+                    logger.warning(
+                        f"[Protocol] Z-stack enabled but range={zstack_params['range']} "
+                        f"step_size={zstack_params['step_size']} — using single Z position"
+                    )
+                    zstack_position_offsets = {None: None}
                 else:
                     zstack_config = ZStackConfig(
                         range=zstack_params['range'],

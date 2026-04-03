@@ -26,7 +26,7 @@ from modules.sequential_io_executor import IOTask
 if TYPE_CHECKING:
     from modules.sequenced_capture_executor import SequencedCaptureExecutor
 
-from modules.kivy_utils import Clock, schedule_ui as _schedule_ui
+from modules.kivy_utils import schedule_ui as _schedule_ui
 
 
 class ProtocolStepExecutor:
@@ -99,6 +99,16 @@ class ProtocolStepExecutor:
             return
         if p._autofocus_executor.in_progress():
             return
+
+        # #610 diagnostic: AF gate passed — capture can proceed
+        _af_complete = p._autofocus_executor.complete()
+        if _af_complete:
+            _cam_gain = p._scope.get_gain() if p._scope.camera_active else '?'
+            _cam_exp = p._scope.get_exposure_time() if p._scope.camera_active else '?'
+            logger.info(
+                f"[SCAN DIAG] AF gate passed: in_progress=False complete={_af_complete} "
+                f"camera_gain={_cam_gain} camera_exp={_cam_exp} step={p._curr_step}"
+            )
 
         remaining_scans = p.remaining_scans()
         if remaining_scans <= 0:
@@ -178,6 +188,8 @@ class ProtocolStepExecutor:
                 callbacks=af_executor_callbacks,
                 led_color=step['Color'],
                 led_illumination=step['Illumination'],
+                camera_gain=step['Gain'],
+                camera_exposure=step['Exposure'],
             )
             return
 
@@ -221,6 +233,15 @@ class ProtocolStepExecutor:
 
                 # Video encoding runs on FILE_WORKER after capture — no gate needed
 
+                # Keep LED on between consecutive steps of the same channel
+                # (e.g., Z-stack slices). Avoids unnecessary LED cycling.
+                _keep_led = False
+                num_steps = p._protocol.num_steps()
+                if p._curr_step < num_steps - 1:
+                    next_step = p._protocol.step(idx=p._curr_step + 1)
+                    if next_step['Color'] == step['Color']:
+                        _keep_led = True
+
                 _t_capture_start = time.monotonic()
                 p._image_writer.capture(
                     save_folder=save_folder,
@@ -235,6 +256,7 @@ class ProtocolStepExecutor:
                     video_as_frames=p._video_as_frames,
                     separate_folder_per_channel=p._separate_folder_per_channel,
                     curr_step=p._curr_step,
+                    keep_led_on=_keep_led,
                 )
                 _t_capture_done = time.monotonic()
                 logger.debug(f"[TIMING] Step {p._curr_step} capture+save: {(_t_capture_done - _t_capture_start)*1000:.1f}ms")
@@ -371,7 +393,10 @@ class ProtocolStepExecutor:
     # ------------------------------------------------------------------
 
     def leds_off(self):
-        """Turn all LEDs off via the IO executor."""
+        """Turn all LEDs off via the IO executor.
+
+        UI update is handled by the LED observer — no manual callback needed.
+        """
         p = self._p
         fut = p._io_executor.protocol_put(IOTask(
             action=p._scope.leds_off
@@ -383,11 +408,13 @@ class ProtocolStepExecutor:
                 p._scope.leds_off()
             except Exception as ex:
                 logger.warning(f"[{p.LOGGER_NAME}] Direct leds_off fallback failed: {ex}")
-        if p._callbacks.leds_off:
-            _schedule_ui(lambda dt: p._callbacks.leds_off(), 0)
+        # LED observer handles UI sync — no manual callback
 
     def led_on(self, color: str, illumination: float, block: bool = True, force: bool = False):
-        """Turn on a single LED channel via the IO executor."""
+        """Turn on a single LED channel via the IO executor.
+
+        UI update is handled by the LED observer — no manual callback needed.
+        """
         p = self._p
         if p._protocol_ended.is_set() and not force:
             return
@@ -398,12 +425,11 @@ class ProtocolStepExecutor:
                 "channel": p._scope.color2ch(color),
                 "mA": illumination,
                 "block": block,
+                "owner": "protocol",
             },
         ), return_future=True)
         if fut:
             fut.result(timeout=5)
         # Sleep for 5 ms to ensure that LED properly turns on before next action
         time.sleep(0.005)
-
-        if p._callbacks.led_state:
-            _schedule_ui(lambda dt, c=color: p._callbacks.led_state(layer=c, enabled=True))
+        # LED observer handles UI sync — no manual callback

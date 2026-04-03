@@ -45,9 +45,7 @@ from modules.step_navigation import go_to_step
 from modules.tiling_config import TilingConfig
 from modules.timedelta_formatter import strfdelta
 from modules import gui_logger
-from modules.ui_helpers import (
-    _handle_ui_for_led,
-    _handle_ui_for_leds_off,
+from ui.ui_helpers import (
     _handle_ui_update_for_axis,
     _update_step_number_callback,
     live_histo_off,
@@ -112,7 +110,10 @@ class ProtocolSettings(FloatLayout):
 
         self.tiling_count = self.tiling_config.get_mxn_size(self.tiling_config.default_config())
 
-        self._protocol = None
+        # Protocol is owned by AppContext, not this widget.
+        # Property delegation below ensures all existing self._protocol
+        # references keep working while the canonical owner is ctx.
+        self._protocol = None  # bootstraps before ctx exists
 
         self.exposures = 1  # 1 indexed
         self._init_ui_retries = 0
@@ -464,6 +465,7 @@ class ProtocolSettings(FloatLayout):
             return
 
         self._protocol = protocol
+        ctx.protocol = protocol  # canonical owner is AppContext
 
         ctx.stage.set_protocol_steps(df=self._protocol.steps())
         def temp():
@@ -570,6 +572,7 @@ class ProtocolSettings(FloatLayout):
             return False
 
         self._protocol = protocol
+        ctx.protocol = protocol  # canonical owner is AppContext
 
         settings['protocol']['filepath'] = filepath
         self.ids['protocol_filename'].text = os.path.basename(filepath)
@@ -1284,8 +1287,7 @@ class ProtocolSettings(FloatLayout):
                 'go_to_step': go_to_step,
                 'run_complete': self._autofocus_run_complete_callback,
                 'files_complete': self._autofocus_files_complete,
-                'leds_off': _handle_ui_for_leds_off,
-                'led_state': _handle_ui_for_led,
+                # LED observer handles UI sync — no manual callbacks needed
                 'reset_autofocus_btns': update_autofocus_selection_after_protocol,
                 'set_recording_title': set_recording_title,
                 'set_writing_title': set_writing_title,
@@ -1483,8 +1485,7 @@ class ProtocolSettings(FloatLayout):
             'scan_iterate_post': run_not_started_func,
             'run_complete': run_complete_func,
             'files_complete': self._scan_files_complete,
-            'leds_off': _handle_ui_for_leds_off,
-            'led_state': _handle_ui_for_led,
+            # LED observer handles UI sync — no manual callbacks needed
             'pause_live_ui': lambda: (
                 ctx.scope_display.stop(),
                 Clock.unschedule(ctx.motion_settings.update_xy_stage_control_gui)
@@ -1673,8 +1674,7 @@ class ProtocolSettings(FloatLayout):
                 'autofocus_complete': self._autofocus_complete_callback,
                 'run_complete': run_complete_func,
                 'files_complete': self._protocol_files_complete,
-                'leds_off': _handle_ui_for_leds_off,
-                'led_state': _handle_ui_for_led,
+                # LED observer handles UI sync — no manual callbacks needed
                 'pause_live_ui': lambda: (
                     ctx.scope_display.stop(),
                     Clock.unschedule(ctx.motion_settings.update_xy_stage_control_gui)
@@ -1753,16 +1753,7 @@ class ProtocolSettings(FloatLayout):
         ctx = _app_ctx.ctx
         ctx.motion_settings.ids['verticalcontrol_id']._reset_run_autofocus_button()
         ctx.motion_settings.ids['verticalcontrol_id'].is_complete = False
-        # Sync LED toggle UI with hardware state after AF turns LEDs off.
-        # AF executor calls scope.leds_off() directly (not via ui_helpers)
-        # so the UI button state doesn't get updated automatically.
-        # TODO: LED state management needs structural redesign — LED on/off
-        # is spread across 6+ files with no single source of truth for UI state.
-        opened_layer = common_utils.get_opened_layer(ctx.image_settings)
-        if opened_layer:
-            layer_obj = ctx.image_settings.layer_lookup(layer=opened_layer)
-            if layer_obj:
-                layer_obj.update_led_toggle_ui()
+        # LED observer handles UI button sync after AF — no manual update needed
 
 
     def run_sequenced_capture(
@@ -1785,8 +1776,7 @@ class ProtocolSettings(FloatLayout):
         callbacks.update(
             {
                 'move_position': _handle_ui_update_for_axis,
-                'leds_off': _handle_ui_for_leds_off,
-                'led_state': _handle_ui_for_led,
+                # LED observer handles UI sync — no manual callbacks needed
                 'update_step_number': _update_step_number_callback,
                 'go_to_step': go_to_step,
                 'update_scope_display': ctx.scope_display.update_scopedisplay,
@@ -1862,13 +1852,7 @@ class ProtocolSettings(FloatLayout):
             self._reset_run_autofocus_scan_button()
             ctx.stage.set_motion_capability(True)
 
-            # Refresh LED button states from hardware after protocol (M23)
-            try:
-                for layer in common_utils.get_layers_with_led():
-                    layer_obj = ctx.image_settings.layer_lookup(layer=layer)
-                    layer_obj.update_led_toggle_ui()
-            except Exception:
-                pass
+            # LED observer handles UI button sync after protocol — no manual refresh needed
 
     def cancel_all_protocols(self):
         logger.info('[LVP Main  ] ProtocolSettings.cancel_all_protocols()')

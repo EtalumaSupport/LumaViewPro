@@ -31,7 +31,6 @@ class MotorBoard(SerialBoard):
         if motorconfig_defaults_file is None:
             motorconfig_defaults_file = pathlib.Path("data/motorconfig_defaults.json")
         self.motorconfig = MotorConfig(defaults_file=motorconfig_defaults_file)
-        self.backlash = self.motorconfig.antibacklash_um('Z')
 
         # Default timeout 5s for regular commands. Long-running commands
         # (HOME, CALIBRATE) pass explicit timeout overrides (H15).
@@ -41,6 +40,25 @@ class MotorBoard(SerialBoard):
         # Backward-compatible alias for lock name
         self.thread_lock = self._lock
 
+        # 1. Build cached values from defaults
+        self._rebuild_cached_values()
+        # 2. Open port, reset firmware, verify connection
+        self._initial_connect()
+        # 3. Load per-unit config from board, rebuild cache with real values
+        self._load_board_config()
+
+    def _rebuild_cached_values(self):
+        """Recompute cached values from motorconfig.
+
+        Called at init (with defaults only) and again after
+        update_from_board() merges per-unit board data inside connect().
+
+        NOTE: This must NOT call connect(). connect() calls this method
+        after update_from_board(), so calling connect() here would recurse
+        and attempt to reopen the serial port while it's already open —
+        causing PermissionError on Windows. (#610)
+        """
+        self.backlash = self.motorconfig.antibacklash_um('Z')
         self.axes_config = {
             'Z': {
                 'limits': {
@@ -68,11 +86,31 @@ class MotorBoard(SerialBoard):
             }
         }
 
+    def _initial_connect(self):
+        """Called once from __init__ to establish the first connection."""
+        logger.info('[XYZ Class ] _initial_connect() — first connection attempt')
         try:
             self.connect()
         except Exception:
-            logger.error('[XYZ Class ] Failed to connect to motor controller')
+            logger.error('[XYZ Class ] _initial_connect() failed')
             raise
+
+    def _load_board_config(self):
+        """Read per-unit config from connected board and merge into motorconfig.
+
+        Called once after connect() succeeds. Separate from connect() because
+        connect's job is opening the port — config loading is a post-connect step.
+        """
+        try:
+            board_cfg = self.get_config()
+            if board_cfg:
+                self.motorconfig.update_from_board(board_cfg)
+                self._rebuild_cached_values()
+                logger.info(f'[XYZ Class ] Board config merged: model={self.motorconfig.model()}, '
+                            f'SN={self.motorconfig.serial_number()}, '
+                            f'Z_usteps/mm={self.motorconfig.usteps_per_mm("Z")}')
+        except Exception as e:
+            logger.warning(f'[XYZ Class ] Board config load failed (using defaults): {e}')
 
     def _on_disconnect(self):
         """Clear cached firmware info on disconnect (called under self._lock)."""
@@ -80,6 +118,7 @@ class MotorBoard(SerialBoard):
             self._fullinfo = None
             self.initial_homing_complete = False
             self.initial_t_homing_complete = False
+        self._accel_cache = None
         logger.info('[XYZ Class ] Motor state cache cleared on disconnect')
 
     def connect(self):
@@ -88,11 +127,22 @@ class MotorBoard(SerialBoard):
         # by _open_serial, _reset_firmware, exchange_command etc. is safe.
         with self._lock:
             try:
-                self._open_serial()
+                # Skip if already connected
+                if self.driver is not None and self.driver.is_open:
+                    logger.debug(f'[XYZ Class ] connect() skipped — already connected on {self.port}')
+                    return
 
-                # Motor-specific: close/open dance for port reset
+                logger.info(f'[XYZ Class ] connect() starting on {self.port}')
+                self._open_serial()
+                logger.info(f'[XYZ Class ] connect() port opened: {self.port}')
+
+                # Legacy port reset: close and reopen to flush USB CDC
+                # buffers on Windows. Has existed since original code.
                 self.driver.close()
+                logger.debug(f'[XYZ Class ] connect() port closed for reset')
+                time.sleep(0.05)  # brief pause for Windows to release port
                 self.driver.open()
+                logger.debug(f'[XYZ Class ] connect() port reopened after reset')
 
                 self._connect_fails = 0
                 if lvp_logger.is_thread_paused():
@@ -102,6 +152,7 @@ class MotorBoard(SerialBoard):
                 info = self.fullinfo()
                 with self._state_lock:
                     self._fullinfo = info
+
                 logger.info('[XYZ Class ] Connected to motor controller')
             except Exception as e:
                 self._close_driver()
@@ -155,7 +206,8 @@ class MotorBoard(SerialBoard):
             return {"model": "unknown", "serial_number": "unknown"}
         return {
             "model": model,
-            "serial_number": serial_number
+            "serial_number": serial_number,
+            "_raw": info,  # Cached raw response for detect_present_axes()
         }
 
 
@@ -167,12 +219,17 @@ class MotorBoard(SerialBoard):
     def detect_present_axes(self):
         """Detect which axes are present on this board.
 
-        Parses FULLINFO response for 'X present: True' etc.
+        Uses cached FULLINFO from connect() if available, avoiding
+        an unnecessary serial round-trip.
         Returns list of axis letters, e.g. ['X', 'Y', 'Z', 'T'] or ['Z', 'T'].
         """
-        resp = self.exchange_command('FULLINFO')
-        if resp is None:
-            return []
+        # Use cached fullinfo if available (set during connect)
+        with self._state_lock:
+            info = self._fullinfo
+        if info is not None:
+            resp = info.get('_raw', '')
+        else:
+            resp = self.exchange_command('FULLINFO') or ''
         axes = []
         for axis in ('X', 'Y', 'Z', 'T'):
             if f'{axis} present: True' in resp or f'{axis} present:True' in resp:
@@ -211,10 +268,19 @@ class MotorBoard(SerialBoard):
     # Acceleration control functions
     #----------------------------------------------------------
 
+    # Cache for acceleration limits — read once from firmware, reuse thereafter.
+    # Invalidated on reconnect via _on_disconnect().
+    _accel_cache: dict = None
+
     # Get single acceleration limit for a specific axis and parameter
     def acceleration_limit(self, axis: str, parameter: str) -> int:
         if not self._acceleration_validate_inputs(axis=axis, parameter=parameter):
             return 0
+
+        # Return cached value if available
+        cache_key = f"{axis}_{parameter}"
+        if self._accel_cache is not None and cache_key in self._accel_cache:
+            return self._accel_cache[cache_key]
 
         parameter_map = {
             'acceleration': 'A',
@@ -245,7 +311,14 @@ class MotorBoard(SerialBoard):
         else:
             logger.info(f'[XYZ Class ] MotorBoard.acceleration_limit({command}): {resp}')
 
-        return int(resp)
+        value = int(resp)
+
+        # Cache the result
+        if self._accel_cache is None:
+            self._accel_cache = {}
+        self._accel_cache[cache_key] = value
+
+        return value
 
 
     def _acceleration_validate_inputs(self, axis: str, parameter: str):

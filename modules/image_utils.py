@@ -283,7 +283,7 @@ def write_tiff(
     # Reads from user settings; defaults to off if settings unavailable.
     if (data.dtype == np.uint16
             and not is_color_image(data)
-            and color in ('Red', 'Green', 'Blue', 'Lumi')):
+            and color in common_utils.get_image_layers()):
         try:
             from modules import app_context as _app_ctx
             if _app_ctx.ctx.settings.get('false_color_16bit', False):
@@ -383,7 +383,7 @@ def write_tiff(
             # (imagej type) or OME Channel metadata (ome type).
             # BF/PC/DF: always MINISBLACK, no colormap needed.
             colormap_array = None
-            if data.dtype == np.uint8 and color in ('Red', 'Green', 'Blue', 'Lumi'):
+            if data.dtype == np.uint8 and color in common_utils.get_image_layers():
                 colormap_type = color_channel_to_colormap_type(color_channel=color)
                 if colormap_type != LvpColormap.GRAY:
                     colormap_array = get_tiff_colormap(colormap=colormap_type, dtype=data.dtype)
@@ -409,10 +409,11 @@ def generate_tiff_data(data, metadata: dict, image_type: str, color: str,):
     if is_color_image(data):
         photometric = tf.PHOTOMETRIC.RGB
         modality = 'RGB'
-    elif color in ('BF', 'PC', 'DF'):
+        axes = 'YXS'  # 3rd dimension is samples (RGB channels)
+    elif color in common_utils.get_transmitted_layers():
         photometric = tf.PHOTOMETRIC.MINISBLACK
         modality = color
-    elif color in ('Red', 'Green', 'Blue', 'Lumi'):
+    elif color in common_utils.get_image_layers():
         # 8-bit: PALETTE with colormap — works in Windows Preview and ImageJ.
         # 16-bit: MINISBLACK — Windows Preview can't handle PALETTE with uint16.
         #         Color is provided via ImageJ LUT metadata (ImageJ type) or
@@ -569,8 +570,7 @@ def _compute_scale_bar_overlay(height, width, dtype, is_color, objective, binnin
     scale_bar_bottom_offset = int(height / 40)
     scale_bar_right_offset = int(width / 40)
 
-    transmitted_channels = ('BF', 'PC', 'DF')
-    if color in transmitted_channels:
+    if color in common_utils.get_transmitted_layers():
         scale_bar_value = 0
     elif dtype == np.uint8:
         scale_bar_value = 255

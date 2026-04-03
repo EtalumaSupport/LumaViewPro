@@ -22,7 +22,7 @@ from modules import gui_logger
 import modules.image_utils as image_utils
 import modules.scope_commands as scope_commands
 from modules.sequential_io_executor import IOTask
-from modules.ui_helpers import set_last_save_folder
+from ui.ui_helpers import set_last_save_folder
 from ui.composite_capture import CompositeCapture
 
 logger = logging.getLogger('LVP.ui.main_display')
@@ -47,7 +47,7 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
         self.writing_progress_update = None
         self.video_writing_progress = 0
         self.video_writing_total_frames = 0
-        self.led_on_before_pause = False
+        self._pause_led_snapshot = None  # save/restore via API
 
     def log_camera_temps(self):
         if self.scope.camera_is_connected():
@@ -74,19 +74,14 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
                 scope_display.play = False
                 scope_display.stop()
                 if self.scope.led_connected:
-                    self.led_on_before_pause = self.scope.get_led_state(color=common_utils.get_opened_layer(ctx.image_settings))['enabled']
+                    self._pause_led_snapshot = self.scope.save_led_state('camera_pause')
                     scope_commands.leds_off(self.scope, io_executor)
-                    layer_obj = ctx.image_settings.layer_lookup(layer=common_utils.get_opened_layer(ctx.image_settings))
-                    layer_obj.update_led_toggle_ui()
+                    # LED observer handles UI button sync
             else:
-                if self.led_on_before_pause:
-                    opened_layer = common_utils.get_opened_layer(ctx.image_settings)
-                    io_executor.put(IOTask(
-                        action=self.scope.led_on,
-                        kwargs={'channel': self.scope.color2ch(opened_layer), 'mA': settings[opened_layer]['ill']}
-                    ))
-                    layer_obj = ctx.image_settings.layer_lookup(layer=opened_layer)
-                    layer_obj.update_led_toggle_ui()
+                if self._pause_led_snapshot:
+                    self.scope.restore_led_state(self._pause_led_snapshot)
+                    self._pause_led_snapshot = None
+                    # LED observer handles UI button sync
 
                 scope_display.play = True
                 scope_display.start()

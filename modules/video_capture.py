@@ -19,6 +19,7 @@ import numpy as np
 
 from lvp_logger import logger
 import modules.image_utils as image_utils
+from modules.kivy_utils import schedule_ui as _schedule_ui
 from modules.video_writer import VideoWriter
 
 
@@ -122,8 +123,7 @@ class VideoCaptureSession:
             stim_thread.start()
 
         if "set_recording_title" in self._callbacks:
-            from kivy.clock import Clock
-            Clock.schedule_once(
+            _schedule_ui(
                 lambda dt: self._callbacks['set_recording_title'](progress=0),
                 0)
 
@@ -142,8 +142,7 @@ class VideoCaptureSession:
             curr_time = time.time()
             progress = (curr_time - start_ts) / duration_sec * 100
             if "set_recording_title" in self._callbacks:
-                from kivy.clock import Clock
-                Clock.schedule_once(
+                _schedule_ui(
                     lambda dt, p=progress:
                         self._callbacks['set_recording_title'](progress=p),
                     0)
@@ -161,8 +160,7 @@ class VideoCaptureSession:
                     f"[PROTOCOL-VIDEO] Cancelled - drained {captured_frames} queued frames"
                 )
                 if "reset_title" in self._callbacks:
-                    from kivy.clock import Clock
-                    Clock.schedule_once(
+                        _schedule_ui(
                         lambda dt: self._callbacks['reset_title'](), 0)
                 return None
 
@@ -254,19 +252,11 @@ def write_video(result: VideoCaptureResult, save_folder: pathlib.Path,
     Returns:
         pathlib.Path or None: Path to the output file/folder
     """
-    try:
-        from kivy.clock import Clock
-    except ImportError:
-        class Clock:
-            @staticmethod
-            def schedule_once(func, timeout):
-                pass
-
     video_images = result.video_images
     captured_frames = result.captured_frames
 
     if "set_writing_title" in callbacks:
-        Clock.schedule_once(
+        _schedule_ui(
             lambda dt: callbacks['set_writing_title'](progress=0), 0)
 
     logger.info("[PROTOCOL-VIDEO] Writing video...")
@@ -281,7 +271,7 @@ def write_video(result: VideoCaptureResult, save_folder: pathlib.Path,
             while not video_images.empty():
                 progress = frame_num / max(1, captured_frames) * 100
                 if "set_writing_title" in callbacks:
-                    Clock.schedule_once(
+                    _schedule_ui(
                         lambda dt, p=progress:
                             callbacks['set_writing_title'](progress=p),
                         0)
@@ -336,7 +326,7 @@ def write_video(result: VideoCaptureResult, save_folder: pathlib.Path,
                 while not video_images.empty():
                     progress = frame_num / max(1, captured_frames) * 100
                     if "set_writing_title" in callbacks:
-                        Clock.schedule_once(
+                        _schedule_ui(
                             lambda dt, p=progress:
                                 callbacks['set_writing_title'](progress=p),
                             0)
@@ -362,7 +352,7 @@ def write_video(result: VideoCaptureResult, save_folder: pathlib.Path,
         pass  # Caller manages video_write_finished event
 
     if "reset_title" in callbacks:
-        Clock.schedule_once(lambda dt: callbacks['reset_title'](), 0)
+        _schedule_ui(lambda dt: callbacks['reset_title'](), 0)
 
     logger.info("[PROTOCOL-VIDEO] Video writing finished.")
 

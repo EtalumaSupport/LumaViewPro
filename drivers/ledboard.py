@@ -153,19 +153,25 @@ class LEDBoard(SerialBoard):
     _MAX_CHANNEL = 5
     _MAX_MA = 1000  # Firmware CH_MAX — absolute hardware limit
 
-    def led_on(self, channel, mA, block=False, timeout: float = 5.0):
-        """
-        Turn on LED at channel number at mA power
-        If block=True, verify correct callback before returning (with timeout)
+    def _validate_and_build_led_cmd(self, channel, mA):
+        """Validate channel/mA and return (color, command) string.
+
+        Shared by led_on() and led_on_fast() to eliminate duplicate validation.
         """
         if not (0 <= int(channel) <= self._MAX_CHANNEL):
             raise ValueError(f"LED channel {channel} out of range [0-{self._MAX_CHANNEL}]")
         if not (0 <= int(mA) <= self._MAX_MA):
             raise ValueError(f"LED current {mA} mA out of safe range [0-{self._MAX_MA}]")
-
         color = self.ch2color(channel=channel)
-
         command = 'LED' + str(int(channel)) + '_' + str(int(mA))
+        return color, command
+
+    def led_on(self, channel, mA, block=False, timeout: float = 5.0):
+        """
+        Turn on LED at channel number at mA power
+        If block=True, verify correct callback before returning (with timeout)
+        """
+        color, command = self._validate_and_build_led_cmd(channel, mA)
         response = self.exchange_command(command)
 
         if response is not None:
@@ -207,14 +213,9 @@ class LEDBoard(SerialBoard):
 
     def led_on_fast(self, channel, mA):
         """Fast write-only version of led_on for time-critical toggling."""
-        if not (0 <= int(channel) <= self._MAX_CHANNEL):
-            raise ValueError(f"LED channel {channel} out of range [0-{self._MAX_CHANNEL}]")
-        if not (0 <= int(mA) <= self._MAX_MA):
-            raise ValueError(f"LED current {mA} mA out of safe range [0-{self._MAX_MA}]")
-        color = self.ch2color(channel=channel)
+        color, command = self._validate_and_build_led_cmd(channel, mA)
         with self._state_lock:
             self.led_ma[color] = mA
-        command = 'LED' + str(int(channel)) + '_' + str(int(mA))
         self._write_command_fast(command)
 
     def led_off_fast(self, channel):

@@ -52,6 +52,23 @@ def load_settings(logger, filename, lvp_appdata):
             logger.exception(f'[LVP Main  ] Unable to open file {filepath}')
             raise
 
+def _deep_merge_defaults(current: dict, defaults: dict, path: str = "", logger=None) -> list[str]:
+    """Recursively merge missing keys from defaults into current.
+
+    Only adds keys that are absent in current — never overwrites existing
+    values. Returns list of keys that were added (for logging).
+    """
+    added = []
+    for key, default_value in defaults.items():
+        full_key = f"{path}.{key}" if path else key
+        if key not in current:
+            current[key] = default_value
+            added.append(full_key)
+        elif isinstance(default_value, dict) and isinstance(current[key], dict):
+            added.extend(_deep_merge_defaults(current[key], default_value, full_key, logger))
+    return added
+
+
 def load_lvp_settings(logger, lvp_appdata):
     global settings
 
@@ -70,6 +87,19 @@ def load_lvp_settings(logger, lvp_appdata):
                 load_settings(logger, settings_path, lvp_appdata)
             else:
                 raise FileNotFoundError(f'current.json corrupt and no settings.json fallback in {data_dir}')
+
+        # Merge missing keys from settings.json defaults into current.json.
+        # current.json drifts from settings.json as new features add keys.
+        # This ensures new keys are available without losing user values.
+        if settings is not None and os.path.exists(settings_path):
+            try:
+                with open(settings_path, "r") as f:
+                    defaults = json.load(f)
+                added = _deep_merge_defaults(settings, defaults, logger=logger)
+                if added:
+                    logger.info(f'[Settings ] Merged {len(added)} missing keys from settings.json: {added}')
+            except Exception:
+                logger.warning('[Settings ] Could not load settings.json for default merge')
 
     elif os.path.exists(settings_path):
         load_settings(logger, settings_path, lvp_appdata)

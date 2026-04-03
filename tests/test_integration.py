@@ -528,6 +528,68 @@ class TestIntegrationAutofocus:
                                       update_z_pos_from_autofocus=True)
         assert completed, "Autofocus protocol did not complete"
 
+    def test_camera_state_restored_before_af_signals_done(self, scope, executors):
+        """Regression test for #610: AF must restore camera state before
+        clearing _af_in_progress, otherwise capture() on the protocol
+        thread races ahead and reads stale cached gain.
+
+        The bug: _iterate() cleared _af_in_progress before the finally
+        block in _autofocus_loop() restored camera state. The protocol
+        worker saw AF as done, entered capture(), and set_gain() was a
+        no-op (cache still showed AF scanning gain). Then the finally
+        block restored the previous channel's gain, and the frame was
+        grabbed with wrong settings.
+        """
+        # Set up focus simulation
+        scope.camera.set_test_pattern('focus_target')
+        scope.camera.set_focal_z(5000.0)
+
+        af = AutofocusExecutor(
+            scope=scope,
+            camera_executor=executors['camera'],
+            io_executor=executors['io'],
+            file_io_executor=executors['file_io'],
+            autofocus_executor=executors['autofocus'],
+            use_kivy_clock=False,
+        )
+
+        # Simulate the multi-channel scenario: camera is at Green settings
+        # when BF AF starts. This is the state AF will save and later restore.
+        scope.set_gain(20.0)
+        scope.set_exposure_time(100.0)
+
+        # Start AF with BF camera settings — AF will save gain=20/exp=100,
+        # apply gain=1/exp=2 for scanning, then restore gain=20/exp=100.
+        executors['autofocus'].protocol_start()
+        af.run(
+            objective_id='10x Oly',
+            led_color='BF',
+            led_illumination=50.0,
+            camera_gain=1.0,
+            camera_exposure=2.0,
+        )
+
+        # Wait for AF to complete
+        deadline = time.monotonic() + 15.0
+        while af.in_progress() and time.monotonic() < deadline:
+            time.sleep(0.05)
+        assert not af.in_progress(), "AF did not complete within timeout"
+
+        # THE KEY ASSERTION: the moment in_progress() returns False,
+        # camera state must already reflect the restored (pre-AF) values.
+        # Before the fix, there was a window where in_progress() was False
+        # but the camera was still at AF scanning values (gain=1.0).
+        actual_gain = scope.get_gain()
+        actual_exp = scope.get_exposure_time()
+        assert abs(actual_gain - 20.0) < 0.1, (
+            f"Camera gain should be restored to 20.0 (pre-AF) when "
+            f"in_progress() returns False, but got {actual_gain}"
+        )
+        assert abs(actual_exp - 100.0) < 0.1, (
+            f"Camera exposure should be restored to 100.0ms (pre-AF) when "
+            f"in_progress() returns False, but got {actual_exp}"
+        )
+
 
 # ===========================================================================
 # Tier 4: State assertion tests

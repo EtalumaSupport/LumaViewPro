@@ -121,7 +121,7 @@ class LayerControl(BoxLayout):
             return
         settings = ctx.settings
 
-        if self.layer in ['Red', 'Green', 'Blue'] and settings['stimulation_enabled']:
+        if self.layer in common_utils.get_fluorescence_layers() and settings['stimulation_enabled']:
             self.stimulation_support = True
             self.show_stim_controls = True
         else:
@@ -143,7 +143,7 @@ class LayerControl(BoxLayout):
         Clean up ScrollView viewport resources in this LayerControl.
         Called when accordion is collapsed to prevent memory accumulation.
         """
-        from modules.ui_helpers import cleanup_scrollview_viewport
+        from ui.ui_helpers import cleanup_scrollview_viewport
         for child in self.walk():
             if isinstance(child, ScrollView):
                 cleanup_scrollview_viewport(child)
@@ -312,7 +312,7 @@ class LayerControl(BoxLayout):
                 # fluorescence channels where sub-ms is never realistic.
                 exp_min = self.ids['exp_slider'].min
                 exp_max = self.ids['exp_slider'].max
-                if self.layer in ('Red', 'Green', 'Blue', 'Lumi'):
+                if self.layer in common_utils.get_image_layers():
                     exp_min = max(exp_min, FLUORESCENCE_MIN_EXPOSURE_MS)
                 exp = float(np.clip(exp, exp_min, exp_max))
 
@@ -566,7 +566,7 @@ class LayerControl(BoxLayout):
         ))
 
     def execute_goto_focus(self):
-        from modules.ui_helpers import move_absolute_position
+        from ui.ui_helpers import move_absolute_position
         settings = _app_ctx.ctx.settings
         pos = settings[self.layer]['focus']
         move_absolute_position('Z', pos)  # set current z height in usteps
@@ -609,19 +609,97 @@ class LayerControl(BoxLayout):
             logger.info(f'[LVP Main  ] lumaview.scope.led_on(lumaview.scope.color2ch({self.layer}), {illumination})')
             scope_commands.led_on(ctx.scope, io_executor, channel, illumination)
 
-    def update_led_toggle_ui(self):
-        ctx = _app_ctx.ctx
-        if ctx.scope.led_connected:
-            led_state = ctx.scope.get_led_state(color=self.layer)
-            LayerControl._suppressing_led_log = True
-            try:
-                if led_state['enabled']:
-                    self.ids['enable_led_btn'].state = 'down'
-                else:
-                    self.ids['enable_led_btn'].state = 'normal'
-            finally:
-                LayerControl._suppressing_led_log = False
+    # update_led_toggle_ui() removed — LED observer handles UI sync.
+    # See Phase 1 commit 96defe3.
 
+    def set_step_state(self, step: dict):
+        """Update widgets to reflect a protocol step.
+
+        Only updates widgets for keys that are present in *step*.
+        This allows partial updates (e.g. stim-config-only for non-current
+        layers) without clobbering unrelated widget values.
+
+        Suppresses event handlers via ``_initializing`` to prevent
+        redundant hardware commands during the batch update.
+
+        Args:
+            step: Protocol step dict.  Recognized keys: 'Illumination',
+                'Gain', 'Exposure', 'Sum', 'Auto_Focus', 'Auto_Gain',
+                'False_Color', 'Acquire', 'Video Config', 'Stim_Config'.
+        """
+        self._initializing = True
+        try:
+            if 'Auto_Focus' in step:
+                self.ids['autofocus'].active = step['Auto_Focus']
+            if 'False_Color' in step:
+                self.ids['false_color'].active = step['False_Color']
+
+            if 'Illumination' in step:
+                ill = step['Illumination']
+                self.ids['ill_text'].text = str(ill)
+                self.ids['ill_slider'].value = float(ill)
+
+            if 'Gain' in step:
+                self.ids['gain_text'].text = str(step['Gain'])
+                self.ids['gain_slider'].value = float(step['Gain'])
+
+            if 'Auto_Gain' in step:
+                self.ids['auto_gain'].active = step['Auto_Gain']
+
+            if 'Exposure' in step:
+                self.ids['exp_text'].text = str(step['Exposure'])
+                self.ids['exp_slider'].value = float(step['Exposure'])
+
+            if 'Sum' in step:
+                self.ids['sum_text'].text = str(step['Sum'])
+                self.ids['sum_slider'].value = int(step['Sum'])
+
+            # Video config
+            vc = step.get('Video Config')
+            if isinstance(vc, dict):
+                import copy
+                ctx = _app_ctx.ctx
+                with ctx.settings_lock:
+                    ctx.settings[self.layer]['video_config'] = copy.deepcopy(vc)
+                if 'duration' in vc:
+                    self.ids['video_duration_text'].text = str(vc['duration'])
+                    self.ids['video_duration_slider'].value = float(vc['duration'])
+
+            # Stim config (only for this layer's stim settings)
+            sc = step.get('Stim_Config')
+            if isinstance(sc, dict) and self.layer in sc:
+                import copy
+                stim = sc[self.layer]
+                ctx = _app_ctx.ctx
+                with ctx.settings_lock:
+                    ctx.settings[self.layer]['stim_config'] = copy.deepcopy(stim)
+                if stim.get('enabled', False):
+                    self.ids['stim_enable_btn'].active = True
+                    self.ids['stim_disable_btn'].active = False
+                else:
+                    self.ids['stim_disable_btn'].active = True
+                    self.ids['stim_enable_btn'].active = False
+                self.update_stim_controls_visibility()
+                self.ids['stim_freq_text'].text = str(stim.get('frequency', 1))
+                self.ids['stim_freq_slider'].value = float(stim.get('frequency', 1))
+                self.ids['stim_pulse_width_text'].text = str(stim.get('pulse_width', 10))
+                self.ids['stim_pulse_width_slider'].value = float(stim.get('pulse_width', 10))
+                self.ids['stim_pulse_count_text'].text = str(stim.get('pulse_count', 1))
+                self.ids['stim_pulse_count_slider'].value = int(stim.get('pulse_count', 1))
+
+            # Acquire type
+            if 'Acquire' in step:
+                for sel in ('acquire_video', 'acquire_image', 'acquire_none'):
+                    self.ids[sel].active = False
+                acquire = step['Acquire']
+                if acquire == 'video':
+                    self.ids['acquire_video'].active = True
+                elif acquire == 'image':
+                    self.ids['acquire_image'].active = True
+                else:
+                    self.ids['acquire_none'].active = True
+        finally:
+            self._initializing = False
 
     def apply_settings(self, ignore_auto_gain=False, update_led=True, protocol=False):
 
@@ -660,6 +738,12 @@ class LayerControl(BoxLayout):
 
 
         if protocol or protocol_running_global.is_set():
+            # #610 diagnostic: camera settings are NOT applied in protocol mode
+            logger.info(
+                f"[APPLY_SETTINGS DIAG] {self.layer} — early return (protocol={protocol}, "
+                f"running={protocol_running_global.is_set()}). "
+                f"Camera settings NOT applied to hardware."
+            )
             Clock.schedule_once(disable_leds_for_other_layers, 0)
             Clock.schedule_once(update_shader, 0)
             return

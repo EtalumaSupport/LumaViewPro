@@ -28,9 +28,7 @@ from modules.config_ui_getters import (
 from modules.protocol import Protocol
 from modules.sequenced_capture_executor import SequencedCaptureRunMode
 from modules.tiling_config import TilingConfig
-from modules.ui_helpers import (
-    _handle_ui_for_led,
-    _handle_ui_for_leds_off,
+from ui.ui_helpers import (
     _handle_ui_update_for_axis,
     live_histo_off,
     live_histo_reverse,
@@ -146,9 +144,20 @@ class ZStack(FloatLayout):
             zstack_params = get_zstack_params()
             active_layer, active_layer_config = get_active_layer_config()
             active_layer_config['acquire'] = "image"
+            # Z-stack manages Z positions explicitly — AF would override them
+            active_layer_config['autofocus'] = False
 
             if not zstack_positions_valid:
-                logger.info('[LVP Main  ] ZStack.acquire_zstack() -> No Z-Stack positions configured')
+                _range = zstack_params.get('range', 0)
+                _step = zstack_params.get('step_size', 0)
+                if _range <= 0 or _step <= 0:
+                    msg = (f"Z-stack range ({_range}) and step size ({_step}) "
+                           f"must both be greater than zero.")
+                else:
+                    msg = "No Z-stack positions configured."
+                logger.warning(f'[LVP Main  ] ZStack: {msg}')
+                from modules.notification_center import notifications
+                notifications.warning("Z-Stack", "Z-Stack Not Configured", msg)
                 run_not_started_func()
                 return
 
@@ -189,8 +198,7 @@ class ZStack(FloatLayout):
                 'move_position': _handle_ui_update_for_axis,
                 'update_scope_display': ctx.scope_display.update_scopedisplay,
                 'run_complete': run_complete_func,
-                'leds_off': _handle_ui_for_leds_off,
-                'led_state': _handle_ui_for_led,
+                # LED observer handles UI sync — no manual callbacks needed
                 'reset_autofocus_btns': update_autofocus_selection_after_protocol,
                 'set_recording_title': set_recording_title,
                 'set_writing_title': set_writing_title,
@@ -224,7 +232,7 @@ class ZStack(FloatLayout):
                 autogain_settings=autogain_settings,
                 callbacks=callbacks,
                 return_to_position=initial_position,
-                leds_state_at_end="off",
+                leds_state_at_end="return_to_original",
                 video_as_frames = settings['video_as_frames']
             )
 

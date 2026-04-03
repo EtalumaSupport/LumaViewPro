@@ -12,7 +12,7 @@ import modules.app_context as _app_ctx
 from modules.config_ui_getters import get_selected_labware
 from modules.sequential_io_executor import IOTask
 from modules.step_navigation import go_to_step
-from modules.ui_helpers import find_nearest_step, move_absolute_position
+from ui.ui_helpers import find_nearest_step, move_absolute_position
 
 logger = logging.getLogger('LVP.ui.stage')
 

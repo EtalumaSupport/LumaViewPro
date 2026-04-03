@@ -24,7 +24,7 @@ from modules.path_utils import resolve_data_file
 from modules.scope_init_config import ScopeInitConfig
 from modules.memory_profiler import MemoryLeakProfiler
 from modules.sequential_io_executor import IOTask
-from modules.ui_helpers import move_absolute_position, move_home, scope_leds_off
+from ui.ui_helpers import move_absolute_position, move_home, scope_leds_off
 from modules.zstack_config import ZStackConfig
 
 logger = logging.getLogger('LVP.ui.microscope_settings')
@@ -551,18 +551,19 @@ class MicroscopeSettings(BoxLayout):
 
         ctx.scope_display.use_full_pixel_depth = use_full_pixel_depth
 
-        if use_full_pixel_depth:
-            # Try Mono12, fall back to first supported format
-            if not ctx.lumaview.scope.set_pixel_format('Mono12'):
-                formats = ctx.lumaview.scope.get_supported_pixel_formats()
-                if formats:
-                    ctx.lumaview.scope.set_pixel_format(formats[0])
-        else:
-            # Try Mono8, fall back to first supported format
-            if not ctx.lumaview.scope.set_pixel_format('Mono8'):
-                formats = ctx.lumaview.scope.get_supported_pixel_formats()
-                if formats:
-                    ctx.lumaview.scope.set_pixel_format(formats[0])
+        # Route through camera executor to prevent race with live view grab loop
+        def _set_pixel_format():
+            if use_full_pixel_depth:
+                if not ctx.lumaview.scope.set_pixel_format('Mono12'):
+                    formats = ctx.lumaview.scope.get_supported_pixel_formats()
+                    if formats:
+                        ctx.lumaview.scope.set_pixel_format(formats[0])
+            else:
+                if not ctx.lumaview.scope.set_pixel_format('Mono8'):
+                    formats = ctx.lumaview.scope.get_supported_pixel_formats()
+                    if formats:
+                        ctx.lumaview.scope.set_pixel_format(formats[0])
+        ctx.camera_executor.put(IOTask(action=_set_pixel_format))
 
         settings['use_full_pixel_depth'] = use_full_pixel_depth
 
@@ -648,7 +649,7 @@ class MicroscopeSettings(BoxLayout):
 
         # Update all layer controls
         for layer in common_utils.get_layers():
-            if layer in ['Red', 'Green', 'Blue']:
+            if layer in common_utils.get_fluorescence_layers():
                 layer_obj = _app_ctx.ctx.image_settings.layer_lookup(layer=layer)
                 if layer_obj:
                     if stimulation_enabled:
@@ -724,7 +725,11 @@ class MicroscopeSettings(BoxLayout):
         if ctx.initializing:
             return
 
-        lumaview.scope.set_binning_size(size=new_binning_size)
+        # Route through camera executor to prevent race with live view grab loop
+        ctx.camera_executor.put(IOTask(
+            action=lumaview.scope.set_binning_size,
+            kwargs={'size': new_binning_size}
+        ))
         self.frame_size()
 
 
@@ -885,7 +890,11 @@ class MicroscopeSettings(BoxLayout):
         self.ids['field_of_view_width_id'].text = str(round(fov_size['width'],0))
         self.ids['field_of_view_height_id'].text = str(round(fov_size['height'],0))
 
-        lumaview.scope.set_frame_size(width, height)
+        # Route through camera executor to prevent race with live view grab loop
+        ctx.camera_executor.put(IOTask(
+            action=lumaview.scope.set_frame_size,
+            args=(width, height)
+        ))
 
     def generate_support_report(self):
         """Show confirmation dialog, then generate a tech support report."""

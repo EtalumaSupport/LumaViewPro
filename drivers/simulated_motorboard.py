@@ -27,7 +27,7 @@ class SimulatedMotorBoard:
     AXIS_SPEEDS = {
         'X': 20157 * 50,   # ~50 mm/s
         'Y': 20157 * 50,   # ~50 mm/s
-        'Z': 170667 * 5,   # ~5 mm/s
+        'Z': 170666 * 5,   # ~5 mm/s
         'T': 80000,         # ~90 deg/s
     }
 

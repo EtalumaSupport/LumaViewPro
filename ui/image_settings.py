@@ -86,6 +86,10 @@ class ImageSettings(BoxLayout):
         self._accordion_item_green_control = AccordionItemImageSettingsGreenControl()
         self._accordion_item_blue_control = AccordionItemImageSettingsBlueControl()
         self._init_ui_retries = 0
+        # Debounce accordion_collapse — Kivy fires multiple collapse events
+        # when switching tabs (one per item). Trigger collapses them into one.
+        self._accordion_collapse_trigger = Clock.create_trigger(
+            lambda dt: self._do_accordion_collapse(), 0)
         Clock.schedule_once(self._init_ui, 0)
 
 
@@ -146,7 +150,7 @@ class ImageSettings(BoxLayout):
                     for child in layer_control.walk():
                         if isinstance(child, ScrollView):
                             # Schedule cleanup after collapse animation completes
-                            from modules.ui_helpers import cleanup_scrollview_viewport
+                            from ui.ui_helpers import cleanup_scrollview_viewport
                             Clock.schedule_once(lambda dt, sv=child: cleanup_scrollview_viewport(sv), 0.2)
 
                 accordion_item_obj.collapse = True
@@ -352,8 +356,16 @@ class ImageSettings(BoxLayout):
             layer_obj.ids['ill_slider'].max = 50
 
     def accordion_collapse(self):
+        """Called by Kivy on every accordion item collapse/expand.
+
+        Kivy fires this multiple times when switching tabs (once per item).
+        Debounced via Clock.create_trigger so the actual work runs once per frame.
+        """
+        self._accordion_collapse_trigger()
+
+    def _do_accordion_collapse(self):
         logger.info('[LVP Main  ] ImageSettings.accordion_collapse()')
-        from modules.ui_helpers import scope_leds_off
+        from ui.ui_helpers import scope_leds_off
         ctx = _app_ctx.ctx
 
         # Skip during app initialization - will be called explicitly after init completes
@@ -368,11 +380,9 @@ class ImageSettings(BoxLayout):
             return
 
         # turn off the camera update and all LEDs
-        scope_display = ctx.scope_display
-        # scope_display.stop()
         scope_leds_off()
 
-        # turn off all LED toggle buttons and histograms
+        # apply settings for the newly-opened layer
         for layer in common_utils.get_layers():
             layer_accordion = self.accordion_item_lookup(layer=layer)
             layer_is_collapsed = layer_accordion.collapse
@@ -382,10 +392,6 @@ class ImageSettings(BoxLayout):
 
             layer_obj = self.layer_lookup(layer=layer)
             layer_obj.apply_settings()
-
-        # Restart camera feed
-        # if scope_display.play == True:
-        #     scope_display.start()
 
 
     def check_settings(self, *args):

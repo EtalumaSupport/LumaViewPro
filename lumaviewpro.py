@@ -253,12 +253,11 @@ else:
 # Imports — extracted modules (must be after Kivy init)
 # ============================================================================
 
-from modules.ui_helpers import (  # noqa: E402
+from ui.ui_helpers import (  # noqa: E402
     move_absolute_position, move_relative_position, move_home, move_home_cb,
     scope_leds_off, set_recording_title, set_writing_title, reset_title,
     live_histo_off, live_histo_reverse, set_last_save_folder,
     reset_acquire_ui, reset_stim_ui,
-    _handle_ui_for_leds_off, _handle_ui_for_led,
     _update_step_number_callback, _handle_ui_update_for_axis,
     _handle_autofocus_ui, update_autofocus_selection_after_protocol,
     focus_log, find_nearest_step,
@@ -330,6 +329,98 @@ class LumaViewProApp(TooltipMixin, App):
                     Clock.schedule_once(lambda dt: z_ctrl._update_z_text(target), 0)
         lumaview.scope.add_position_listener(_on_position_change)
 
+        # LED listener: push-based UI updates on every LED state change.
+        # Replaces all manual update_led_toggle_ui() calls. Coalesces rapid
+        # stim pulses — at most one UI update per color per Kivy frame.
+        _pending_led_updates = {}
+
+        def _on_led_state_changed(color, enabled, mA, owner):
+            if color in _pending_led_updates:
+                return  # Already scheduled, will pick up latest state
+            _pending_led_updates[color] = True
+
+            def _update_led_ui(dt, c=color):
+                _pending_led_updates.pop(c, None)
+                if not ctx.ready:
+                    return
+                try:
+                    layer_obj = ctx.image_settings.layer_lookup(layer=c)
+                except Exception:
+                    return
+                # Read CURRENT state from driver (not event args, which may be stale)
+                state = lumaview.scope.get_led_state(color=c)
+                target = 'down' if state.get('enabled', False) else 'normal'
+                if layer_obj.ids['enable_led_btn'].state != target:
+                    LayerControl._suppressing_led_log = True
+                    try:
+                        layer_obj.ids['enable_led_btn'].state = target
+                    finally:
+                        LayerControl._suppressing_led_log = False
+
+            Clock.schedule_once(_update_led_ui, 0)
+
+        lumaview.scope.add_led_listener(_on_led_state_changed)
+
+        # Camera listener: push-based UI updates on gain/exposure changes.
+        # Ensures sliders reflect actual hardware state when any code path
+        # calls set_gain or set_exposure_time (protocol, auto-gain, REST API).
+        # Only fires on set_gain/set_exposure_time — NOT per-frame, so zero
+        # overhead on display framerate.
+        def _on_camera_setting_changed(param, value):
+            def _update_camera_ui(dt, p=param, v=value):
+                if not ctx.ready:
+                    return
+                # During protocol, the engine cycles gain/exposure across
+                # channels. Don't update the open tab's sliders with another
+                # channel's values — that's confusing, not helpful.
+                if ctx.protocol_running.is_set():
+                    return
+                opened_layer = common_utils.get_opened_layer(ctx.image_settings)
+                if not opened_layer:
+                    return
+                try:
+                    layer_obj = ctx.image_settings.layer_lookup(layer=opened_layer)
+                except Exception:
+                    return
+                if not layer_obj:
+                    return
+                # Only update if the layer isn't initializing (avoid cascades)
+                if layer_obj._initializing:
+                    return
+
+                settings = ctx.settings
+                if p == 'gain':
+                    # Round to slider precision to prevent feedback loop:
+                    # camera returns 1.000047, slider is at 1.0 — setting
+                    # 1.000047 triggers on_value, which calls apply_settings,
+                    # which sets camera again. Rounding prevents the mismatch.
+                    rounded = round(v, 1)
+                    # Only update if this layer's settings match the camera
+                    # value. If another layer changed the camera (composite,
+                    # AF restore), don't corrupt this layer's sliders. (#610)
+                    expected = settings[opened_layer]['gain']
+                    if abs(rounded - expected) > 0.5:
+                        return
+                    if layer_obj.ids['gain_slider'].value != rounded:
+                        layer_obj.ids['gain_slider'].value = rounded
+                    text = str(rounded)
+                    if layer_obj.ids['gain_text'].text != text:
+                        layer_obj.ids['gain_text'].text = text
+                elif p == 'exposure':
+                    rounded = round(v, 2)
+                    expected = settings[opened_layer]['exp']
+                    if abs(rounded - expected) > 0.5:
+                        return
+                    if layer_obj.ids['exp_slider'].value != rounded:
+                        layer_obj.ids['exp_slider'].value = rounded
+                    text = str(rounded)
+                    if layer_obj.ids['exp_text'].text != text:
+                        layer_obj.ids['exp_text'].text = text
+
+            Clock.schedule_once(_update_camera_ui, 0)
+
+        lumaview.scope.add_camera_listener(_on_camera_setting_changed)
+
         # Slow idle refresh (1Hz) for display elements that may change without motion
         # (e.g., labware selection, stage offset changes)
         Clock.schedule_interval(stage.draw_labware, 1.0)
@@ -344,7 +435,7 @@ class LumaViewProApp(TooltipMixin, App):
                 # Log initial per-channel settings for debugging
                 try:
                     settings = ctx.settings
-                    for layer in ('BF', 'PC', 'DF', 'Red', 'Green', 'Blue', 'Lumi'):
+                    for layer in common_utils.get_layers():
                         ls = settings.get(layer, {})
                         logger.info(
                             f'[INIT      ] {layer:6s}: gain={ls.get("gain", "?"):>6}, '
@@ -355,12 +446,10 @@ class LumaViewProApp(TooltipMixin, App):
                     pass
 
             # Check if a protocol is loaded and has steps
-            protocol_settings = ctx.motion_settings.ids['protocol_settings_id']
-            if hasattr(protocol_settings, '_protocol') and protocol_settings._protocol is not None:
-                if protocol_settings._protocol.num_steps() > 0:
-                    # Go to the first step of the protocol
-                    protocol_settings.go_to_step(protocol=False)
-                    return
+            if ctx.protocol is not None and ctx.protocol.num_steps() > 0:
+                protocol_settings = ctx.motion_settings.ids['protocol_settings_id']
+                protocol_settings.go_to_step(protocol=False)
+                return
 
             # If no protocol, just apply settings for the default BF layer
             ctx.image_settings.accordion_collapse()
@@ -510,6 +599,25 @@ class LumaViewProApp(TooltipMixin, App):
 
         logger.info('[LVP Main  ] -----------------------------------------')
         logger.info(f'[LVP Main  ] Version: {version}')
+        # Log git commit so logs always identify exact code version.
+        # Try live git first, fall back to version.txt (ZIP downloads).
+        _git_hash = None
+        try:
+            import subprocess
+            _git_hash = subprocess.check_output(
+                ['git', 'rev-parse', '--short', 'HEAD'],
+                cwd=source_path, stderr=subprocess.DEVNULL, timeout=2
+            ).decode().strip()
+        except Exception:
+            # No git repo — read from version.txt (3rd line if present)
+            try:
+                with open(os.path.join(source_path, 'version.txt')) as _vf:
+                    _lines = _vf.read().strip().splitlines()
+                    if len(_lines) >= 3:
+                        _git_hash = _lines[2].strip()
+            except Exception:
+                pass
+        logger.info(f'[LVP Main  ] Git: {_git_hash or "unknown"}')
         logger.info('[LVP Main  ] Run Time: ' + time.strftime("%Y %m %d %H:%M:%S"))
         logger.info('[LVP Main  ] -----------------------------------------')
 
@@ -582,15 +690,24 @@ class LumaViewProApp(TooltipMixin, App):
         global io_executor, camera_executor, protocol_executor
         global file_io_executor, autofocus_thread_executor, scope_display_thread_executor
         global stage_executor, turret_executor, reset_executor
-        io_executor = SequentialIOExecutor(name="IO")
-        camera_executor = SequentialIOExecutor(name="CAMERA")
-        protocol_executor = SequentialIOExecutor(name="PROTOCOL")
-        file_io_executor = SequentialIOExecutor(name="FILE")
-        autofocus_thread_executor = SequentialIOExecutor(name="AUTOFOCUS")
-        scope_display_thread_executor = SequentialIOExecutor(name="SCOPEDISPLAY")
+        # Rule 15: Pass Clock.schedule_once as the UI dispatcher so executors
+        # can schedule callbacks on the Kivy main thread without importing Kivy.
+        from kivy.clock import Clock
+        _ui = Clock.schedule_once
+
+        # Also set the global dispatcher for kivy_utils.schedule_ui()
+        from modules.kivy_utils import set_ui_dispatcher
+        set_ui_dispatcher(_ui)
+
+        io_executor = SequentialIOExecutor(name="IO", ui_dispatcher=_ui)
+        camera_executor = SequentialIOExecutor(name="CAMERA", ui_dispatcher=_ui)
+        protocol_executor = SequentialIOExecutor(name="PROTOCOL", ui_dispatcher=_ui)
+        file_io_executor = SequentialIOExecutor(name="FILE", ui_dispatcher=_ui)
+        autofocus_thread_executor = SequentialIOExecutor(name="AUTOFOCUS", ui_dispatcher=_ui)
+        scope_display_thread_executor = SequentialIOExecutor(name="SCOPEDISPLAY", ui_dispatcher=_ui)
         stage_executor = io_executor    # consolidated: all motor serial I/O through one executor
         turret_executor = io_executor   # consolidated: prevents concurrent motor board access
-        reset_executor = SequentialIOExecutor(name="RESET")
+        reset_executor = SequentialIOExecutor(name="RESET", ui_dispatcher=_ui)
 
         # Create the GUI-independent scope session
         global scope_session

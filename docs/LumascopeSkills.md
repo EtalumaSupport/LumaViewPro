@@ -39,6 +39,18 @@ LumaViewPro controls Etaluma microscopes: LED illumination, XYZ stage + turret m
 └─────┘   └─────────┘   └──────────┘
 ```
 
+### State Ownership Principles
+
+1. **The Lumascope API owns all hardware state.** LED on/off, motor positions, camera settings — the API is the single source of truth. The GUI observes it; it never owns hardware state independently.
+
+2. **Observers replace manual sync.** Every hardware state change fires listeners (position, LED, camera). UI registers listeners and updates widgets reactively. No manual `update_*_ui()` calls scattered across the codebase.
+
+3. **Ownership prevents clobbering.** When AF turns on an LED, it uses `owner='autofocus'`. When AF finishes, `leds_off_owned('autofocus')` only kills AF's LED — the user's LED stays on. Same for protocol (`owner='protocol'`).
+
+4. **Save/restore for subsystem handoff.** AF and camera pause save LED state before starting, restore it after. No shadow variables, no manual bookkeeping.
+
+5. **Settings dict is user config, not hardware state.** `settings['Blue']['ill']` is what the user *wants*, not what the hardware *is*. To know what's actually on, call `scope.get_led_state('Blue')`.
+
 ### Key Files
 
 | File | Purpose |
@@ -72,6 +84,7 @@ LumaViewPro controls Etaluma microscopes: LED illumination, XYZ stage + turret m
 | `drivers/simulated_motorboard.py` | Simulated motor board for testing |
 | `drivers/null_motorboard.py` | No-op motor board (no hardware connected) |
 | `drivers/null_ledboard.py` | No-op LED board (no hardware connected) |
+| `drivers/protocols.py` | `MotorBoardProtocol` / `LEDBoardProtocol` (typing.Protocol ABCs) |
 | `modules/frame_validity.py` | Single source of truth for capture readiness |
 | `modules/notification_center.py` | Thread-safe notification bus (error/warning/info) |
 | `modules/video_writer.py` | H.264/MP4 video writer (PyAV primary, cv2 fallback) |
@@ -164,9 +177,8 @@ scope.get_led_states()           # All channels
 scope.color2ch('Blue')           # 0
 scope.ch2color(0)                # 'Blue'
 
-# Wait for confirmation
+# Blocking LED-on (waits for firmware confirmation)
 scope.led_on('Blue', 200, block=True)  # Blocks until firmware confirms
-scope.wait_until_led_on()              # Block until any LED confirms on
 ```
 
 **Safety limits** (enforced by firmware):
@@ -240,6 +252,61 @@ from modules.lumascope_api import AxisState
 
 scope.get_axis_state('Z')       # AxisState.IDLE, MOVING, HOMING, or UNKNOWN
 scope.is_any_axis_moving()      # True if any axis is MOVING
+```
+
+**LED listeners** (push-based UI updates):
+```python
+# Register for LED state changes on any channel.
+# Called from the thread that caused the change — schedule UI work via Clock.
+def on_led(color, enabled, mA, owner):
+    print(f"{color} {'ON' if enabled else 'OFF'} {mA}mA owner={owner}")
+
+scope.add_led_listener(on_led)
+scope.remove_led_listener(on_led)
+```
+
+**LED ownership** (prevents subsystems from clobbering each other):
+```python
+# Turn on with ownership — only the owner can turn it off
+scope.led_on('BF', 200, owner='autofocus')
+
+# This is a no-op (wrong owner):
+scope.led_off('BF', owner='protocol')
+
+# This works (matching owner):
+scope.led_off('BF', owner='autofocus')
+
+# Turn off only channels owned by a specific subsystem:
+scope.leds_off_owned('autofocus')
+
+# Nuclear off (shutdown/cleanup — ignores ownership):
+scope.leds_off()
+
+# No owner (default) — backwards compatible, no tracking:
+scope.led_on('Blue', 100)
+scope.led_off('Blue')
+```
+
+**LED save/restore** (for AF, protocol, camera pause):
+```python
+# Save current LED state before a subsystem takes over
+snapshot = scope.save_led_state('autofocus')
+
+# ... subsystem does its work ...
+
+# Restore — turns off owner's LEDs, then re-enables what was on before
+scope.restore_led_state(snapshot, owner='autofocus')
+```
+
+**Camera listeners** (push-based gain/exposure updates):
+```python
+# Fires on set_gain() and set_exposure_time() only — NOT per-frame.
+# Zero overhead on display framerate.
+def on_camera(param, value):
+    print(f"Camera {param} = {value}")
+
+scope.add_camera_listener(on_camera)
+scope.remove_camera_listener(on_camera)
 ```
 
 ### Frame Validity
@@ -464,26 +531,25 @@ Communication with the RP2040 controllers is over USB CDC serial. Each board has
 | Parameter | LED Board | Motor Board |
 |-----------|-----------|-------------|
 | VID:PID | 0x0424:0x704C | 0x2E8A:0x0005 |
-| Baud | 115200 | 115200 |
+| Transport | UART via USB hub bridge (115200 baud) | USB CDC native (USB full-speed, baud rate irrelevant) |
 | Line ending (send) | `\n` | `\n` |
-| Line ending (recv) | `\r\n` | `\r\n` |
-| Timeout | 100 ms | 30 s |
-| Echo | Yes (`RE: <cmd>`) | No |
+| Line ending (recv) | `\r\n` (MicroPython `input()` on USB CDC) | `\n` |
+| Timeout (default) | 100 ms | 5 s (homing commands: 15–30 s) |
+| Echo | Yes (`RE: <cmd>`) | Yes (MicroPython `input()` echo) |
 
-**Important**: LED firmware echoes every command as `RE: <command>` before sending the actual response. The host driver auto-detects and strips this echo.
+**Important**: Both boards echo commands. LED firmware explicitly prints `RE: <command>`. Motor firmware echoes via MicroPython's `input()` function. The host driver (`SerialBoard`) auto-detects and strips both echo types.
 
 ### LED Commands
 
 | Command | Response | Description |
 |---------|----------|-------------|
-| `INFO` | Board info string | Firmware version, cal status, reset cause |
-| `STATUS` | Status string | Board status |
+| `INFO` | Board info string (6 lines) | Firmware version, cal status, reset cause, heap |
 | `LEDS_ENT` | Confirmation | Enable all LED channels |
 | `LEDS_ENF` | Confirmation | Disable all LED channels |
 | `LEDS_OFF` | Confirmation | Turn off all LEDs |
 | `LED{ch}_{mA}` | Confirmation | Set channel 0-7 to mA (float OK: `LED3_200`, `LED0_0.5`) |
 | `LED{ch}_OFF` | Confirmation | Turn off channel |
-| `LEDREAD{ch}` | Multi-line: I_SENS + LED_K | Read ADC current feedback (v2.0+, engineering mode) |
+| `LEDREAD{ch}` | Multi-line: I_SENS + LED_K | Read ADC current feedback (engineering mode) |
 
 **Engineering mode** (entered via `FACTORY` command):
 | Command | Description |
@@ -507,8 +573,8 @@ Communication with the RP2040 controllers is over USB CDC serial. Each board has
 | Command | Response | Description |
 |---------|----------|-------------|
 | `INFO` | Info string | Firmware version |
-| `FULLINFO` | Model + serial + axis info | Extended info (v2.0+) |
-| `CONFIG` | Motor configuration | Current config display (v2.0+) |
+| `FULLINFO` | Model + serial + axis info | Extended info (v3.0+) |
+| `CONFIG` | Motor configuration | Current config display (v3.0+) |
 | `HOME` | Completion msg | Home all axes (XY, Z, T) |
 | `ZHOME` | Completion msg | Home Z only |
 | `THOME` | Completion msg | Home turret only |
@@ -518,11 +584,11 @@ Communication with the RP2040 controllers is over USB CDC serial. Each board has
 | `TARGET_R{axis}` | Integer (µsteps) | Read target position |
 | `ACTUAL_R{axis}` | Integer (µsteps) | Read current position |
 | `STATUS_R{axis}` | Integer (32-bit) | Read status register |
-| `DRVSTAT` | All axes | TMC5072 driver status (v2.0+) |
-| `DRVSTAT_{axis}` | Single axis | Per-axis driver status (v2.0+) |
-| `MOTORDETECT` | Open load flags | Motor presence detection (v2.0+) |
-| `VOLTAGE` | Rail status | 24V presence + voltage rail status (v2.0+) |
-| `CURRENT` | All axes | CS_ACTUAL, IRUN, IHOLD, SG_RESULT (v2.0+) |
+| `DRVSTAT` | All axes | TMC5072 driver status (v3.0+) |
+| `DRVSTAT_{axis}` | Single axis | Per-axis driver status (v3.0+) |
+| `MOTORDETECT` | Open load flags | Motor presence detection (v3.0+) |
+| `VOLTAGE` | Rail status | 24V presence + voltage rail status (v3.0+) |
+| `CURRENT` | All axes | CS_ACTUAL, IRUN, IHOLD, SG_RESULT (v3.0+) |
 | `AMAX{axis}` | Integer | Read acceleration limit |
 | `DMAX{axis}` | Integer | Read deceleration limit |
 | `FAN:{duty}` | Confirmation | Set fan PWM duty cycle |
@@ -530,7 +596,7 @@ Communication with the RP2040 controllers is over USB CDC serial. Each board has
 
 **Axes**: `X`, `Y`, `Z`, `T`
 
-**Responsive homing** (v2.0.4+): During homing, the firmware checks for serial input. `STOP` aborts homing mid-sequence. `INFO`, `ACTUAL_R`, `STATUS_R`, and `VOLTAGE` respond normally. Other commands return `BUSY`.
+**Responsive homing** (v3.0.4+): During homing, the firmware checks for serial input. `STOP` aborts homing mid-sequence. `INFO`, `ACTUAL_R`, `STATUS_R`, and `VOLTAGE` respond normally. Other commands return `BUSY`.
 
 **Position conversion** (µsteps ↔ µm): Conversion factors are defined in `motorconfig.json` and vary by hardware configuration. Use `scope.get_axes_config()` to retrieve the current axis scaling and limits at runtime rather than relying on hardcoded values.
 
@@ -613,32 +679,32 @@ A1_BF	60000	40000	5000	False	BF	False	100	10	False	50	1	10x Oly	A1		-1	False	-1	
 
 ## Testing
 
-**~1100+ tests** across 14+ test files.
+**1246+ tests** across 26 test files.
 
 ```bash
 # Run all tests (no hardware needed)
 python -m pytest tests/ --ignore=tests/test_hardware_serial.py -v
 
-# Individual test suites
-python -m pytest tests/test_serial_safety.py -v       # Serial driver (96 tests)
-python -m pytest tests/test_simulators.py -v          # Simulator fidelity (86 tests)
-python -m pytest tests/test_protocol_execution.py -v  # Protocol execution (83 tests)
+# Largest test suites
+python -m pytest tests/test_simulators.py -v          # Simulator fidelity (172 tests)
+python -m pytest tests/test_protocol_roundtrip.py -v  # Protocol roundtrip (134 tests)
+python -m pytest tests/test_serial_safety.py -v       # Serial driver (122 tests)
+python -m pytest tests/test_tiff_format.py -v         # TIFF format (115 tests)
+python -m pytest tests/test_protocol_execution.py -v  # Protocol execution (101 tests)
+python -m pytest tests/test_audit_fixes.py -v         # Audit fix regressions (88 tests)
 python -m pytest tests/test_scope_api.py -v           # Scope API (60 tests)
-python -m pytest tests/test_firmware_updater.py -v    # Firmware updater (45 tests)
+python -m pytest tests/test_protocol_modules.py -v    # Protocol modules (54 tests)
+python -m pytest tests/test_integration.py -v         # Integration (53 tests)
+python -m pytest tests/test_frame_validity.py -v      # Frame validity (50 tests)
+python -m pytest tests/test_firmware_updater.py -v    # Firmware updater (46 tests)
 python -m pytest tests/test_validate_steps.py -v      # Protocol validation (43 tests)
-python -m pytest tests/test_frame_validity.py -v      # Frame validity (29 tests)
-python -m pytest tests/test_time_estimator.py -v      # Time estimation (23 tests)
-python -m pytest tests/test_integration.py -v         # Integration (22 tests)
-python -m pytest tests/test_stitcher.py -v            # Image stitcher (19 tests)
-python -m pytest tests/test_composite_builder.py -v   # Composite builder (18 tests)
-python -m pytest tests/test_regression_p2.py -v       # P2 bug regressions (16 tests)
-python -m pytest tests/test_motorconfig.py -v         # Motorconfig integration (15 tests)
+python -m pytest tests/test_null_motorboard.py -v     # Null motor board (33 tests)
 
 # Hardware-only tests (requires microscope connected)
 python -m pytest tests/test_hardware_serial.py --run-hardware -v
 ```
 
-**Mock pattern**: All tests mock heavy dependencies (Kivy, camera SDKs, userpaths) before importing modules under test. See any test file header for the standard mock block.
+**Test pattern**: Tests use simulators (`SimulatedMotorBoard`, `SimulatedLEDBoard`, `SimulatedCamera`) for hardware fidelity. Heavy dependencies (Kivy, camera SDKs) are mocked at import time via `sys.modules.setdefault`. See any test file header for the standard mock block.
 
 ---
 

@@ -12,7 +12,7 @@ from modules import gui_logger
 from modules.config_ui_getters import get_current_objective_info, get_selected_labware
 from modules.debounce import debounce
 from modules.sequential_io_executor import IOTask
-from modules.ui_helpers import move_absolute_position, move_home, move_relative_position
+from ui.ui_helpers import move_absolute_position, move_home, move_relative_position
 from ui.image_settings import AccordionItemXyStageControl
 
 logger = logging.getLogger('LVP.ui.motion_settings')
