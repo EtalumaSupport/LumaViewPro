@@ -370,6 +370,11 @@ class LumaViewProApp(TooltipMixin, App):
             def _update_camera_ui(dt, p=param, v=value):
                 if not ctx.ready:
                     return
+                # During protocol, the engine cycles gain/exposure across
+                # channels. Don't update the open tab's sliders with another
+                # channel's values — that's confusing, not helpful.
+                if ctx.protocol_running.is_set():
+                    return
                 opened_layer = common_utils.get_opened_layer(ctx.image_settings)
                 if not opened_layer:
                     return
