@@ -56,22 +56,8 @@ def find_nearest_step(x, y, protocol):
 # LED / Illumination Helpers
 # ============================================================================
 
-def _handle_ui_for_leds_off():
-    ctx = _app_ctx.ctx
-    for layer in common_utils.get_layers_with_led():
-        layer_obj = ctx.image_settings.layer_lookup(layer=layer)
-        layer_obj.ids['enable_led_btn'].state = 'normal'
-
-
-def _handle_ui_for_led(layer: str, enabled: bool, **kwargs):
-    ctx = _app_ctx.ctx
-    if enabled:
-        state = "down"
-    else:
-        state = "normal"
-
-    layer_obj = ctx.image_settings.layer_lookup(layer=layer)
-    layer_obj.ids['enable_led_btn'].state = state
+# _handle_ui_for_leds_off and _handle_ui_for_led removed —
+# LED observer handles UI sync. See Phase 1 commit 96defe3.
 
 
 def scope_leds_off(no_callback: bool = False):

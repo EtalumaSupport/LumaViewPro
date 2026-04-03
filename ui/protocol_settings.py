@@ -46,8 +46,6 @@ from modules.tiling_config import TilingConfig
 from modules.timedelta_formatter import strfdelta
 from modules import gui_logger
 from ui.ui_helpers import (
-    _handle_ui_for_led,
-    _handle_ui_for_leds_off,
     _handle_ui_update_for_axis,
     _update_step_number_callback,
     live_histo_off,
@@ -1289,8 +1287,7 @@ class ProtocolSettings(FloatLayout):
                 'go_to_step': go_to_step,
                 'run_complete': self._autofocus_run_complete_callback,
                 'files_complete': self._autofocus_files_complete,
-                'leds_off': _handle_ui_for_leds_off,
-                'led_state': _handle_ui_for_led,
+                # LED observer handles UI sync — no manual callbacks needed
                 'reset_autofocus_btns': update_autofocus_selection_after_protocol,
                 'set_recording_title': set_recording_title,
                 'set_writing_title': set_writing_title,
@@ -1488,8 +1485,7 @@ class ProtocolSettings(FloatLayout):
             'scan_iterate_post': run_not_started_func,
             'run_complete': run_complete_func,
             'files_complete': self._scan_files_complete,
-            'leds_off': _handle_ui_for_leds_off,
-            'led_state': _handle_ui_for_led,
+            # LED observer handles UI sync — no manual callbacks needed
             'pause_live_ui': lambda: (
                 ctx.scope_display.stop(),
                 Clock.unschedule(ctx.motion_settings.update_xy_stage_control_gui)
@@ -1678,8 +1674,7 @@ class ProtocolSettings(FloatLayout):
                 'autofocus_complete': self._autofocus_complete_callback,
                 'run_complete': run_complete_func,
                 'files_complete': self._protocol_files_complete,
-                'leds_off': _handle_ui_for_leds_off,
-                'led_state': _handle_ui_for_led,
+                # LED observer handles UI sync — no manual callbacks needed
                 'pause_live_ui': lambda: (
                     ctx.scope_display.stop(),
                     Clock.unschedule(ctx.motion_settings.update_xy_stage_control_gui)
@@ -1781,8 +1776,7 @@ class ProtocolSettings(FloatLayout):
         callbacks.update(
             {
                 'move_position': _handle_ui_update_for_axis,
-                'leds_off': _handle_ui_for_leds_off,
-                'led_state': _handle_ui_for_led,
+                # LED observer handles UI sync — no manual callbacks needed
                 'update_step_number': _update_step_number_callback,
                 'go_to_step': go_to_step,
                 'update_scope_display': ctx.scope_display.update_scopedisplay,

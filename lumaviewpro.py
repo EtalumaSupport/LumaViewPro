@@ -258,7 +258,6 @@ from ui.ui_helpers import (  # noqa: E402
     scope_leds_off, set_recording_title, set_writing_title, reset_title,
     live_histo_off, live_histo_reverse, set_last_save_folder,
     reset_acquire_ui, reset_stim_ui,
-    _handle_ui_for_leds_off, _handle_ui_for_led,
     _update_step_number_callback, _handle_ui_update_for_axis,
     _handle_autofocus_ui, update_autofocus_selection_after_protocol,
     focus_log, find_nearest_step,

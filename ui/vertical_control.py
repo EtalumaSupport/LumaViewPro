@@ -25,8 +25,6 @@ from modules.sequenced_capture_executor import SequencedCaptureRunMode
 from modules.sequential_io_executor import IOTask
 from modules.tiling_config import TilingConfig
 from ui.ui_helpers import (
-    _handle_ui_for_led,
-    _handle_ui_for_leds_off,
     _handle_ui_update_for_axis,
     live_histo_off,
     live_histo_reverse,
@@ -513,8 +511,7 @@ class VerticalControl(BoxLayout):
             'update_scope_display': ctx.scope_display.update_scopedisplay,
             'scan_iterate_post': run_complete_func,
             'run_complete': run_complete_func,
-            'leds_off': _handle_ui_for_leds_off,
-            'led_state': _handle_ui_for_led,
+            # LED observer handles UI sync — no manual callbacks needed
             'reset_autofocus_btns': update_autofocus_selection_after_protocol,
             'set_recording_title': set_recording_title,
             'set_writing_title': set_writing_title,

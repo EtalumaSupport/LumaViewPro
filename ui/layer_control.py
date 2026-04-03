@@ -609,19 +609,8 @@ class LayerControl(BoxLayout):
             logger.info(f'[LVP Main  ] lumaview.scope.led_on(lumaview.scope.color2ch({self.layer}), {illumination})')
             scope_commands.led_on(ctx.scope, io_executor, channel, illumination)
 
-    def update_led_toggle_ui(self):
-        ctx = _app_ctx.ctx
-        if ctx.scope.led_connected:
-            led_state = ctx.scope.get_led_state(color=self.layer)
-            LayerControl._suppressing_led_log = True
-            try:
-                if led_state['enabled']:
-                    self.ids['enable_led_btn'].state = 'down'
-                else:
-                    self.ids['enable_led_btn'].state = 'normal'
-            finally:
-                LayerControl._suppressing_led_log = False
-
+    # update_led_toggle_ui() removed — LED observer handles UI sync.
+    # See Phase 1 commit 96defe3.
 
     def set_step_state(self, step: dict):
         """Update widgets to reflect a protocol step.
