@@ -148,7 +148,16 @@ class ZStack(FloatLayout):
             active_layer_config['autofocus'] = False
 
             if not zstack_positions_valid:
-                logger.info('[LVP Main  ] ZStack.acquire_zstack() -> No Z-Stack positions configured')
+                _range = zstack_params.get('range', 0)
+                _step = zstack_params.get('step_size', 0)
+                if _range <= 0 or _step <= 0:
+                    msg = (f"Z-stack range ({_range}) and step size ({_step}) "
+                           f"must both be greater than zero.")
+                else:
+                    msg = "No Z-stack positions configured."
+                logger.warning(f'[LVP Main  ] ZStack: {msg}')
+                from modules.notification_center import notifications
+                notifications.warning("Z-Stack", "Z-Stack Not Configured", msg)
                 run_not_started_func()
                 return
 
