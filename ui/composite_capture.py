@@ -419,6 +419,14 @@ class CompositeCapture(FloatLayout):
             Clock.schedule_once(_unschedule_histo, 0)
             logger.info('[LVP Main  ] Clock.unschedule(lumaview...histogram)')
 
+        # Validate: at least one channel must have been captured
+        if transmitted_image is None and len(channel_images) == 0:
+            from modules.notification_center import notifications
+            notifications.warning("Composite", "No Channels Selected",
+                "No channels are selected for capture. Enable at least one channel before using Composite Capture.")
+            logger.warning("[COMPOSITE] No channels selected — nothing to capture")
+            return
+
         # Build composite image from collected channels
         img = build_composite(
             channel_images=channel_images,
