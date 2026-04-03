@@ -737,16 +737,29 @@ class LayerControl(BoxLayout):
                     LayerControl._suppressing_led_log = False
 
 
-        if protocol or protocol_running_global.is_set():
-            # #610 diagnostic: camera settings are NOT applied in protocol mode
+        if protocol_running_global.is_set():
+            # Protocol actively running — capture() handles camera settings
+            # per-step. Don't apply here to avoid duplicate commands (#587/#588).
             logger.info(
-                f"[APPLY_SETTINGS DIAG] {self.layer} — early return (protocol={protocol}, "
-                f"running={protocol_running_global.is_set()}). "
-                f"Camera settings NOT applied to hardware."
+                f"[APPLY_SETTINGS DIAG] {self.layer} — early return "
+                f"(protocol running). Camera settings NOT applied."
             )
             Clock.schedule_once(disable_leds_for_other_layers, 0)
             Clock.schedule_once(update_shader, 0)
             return
+        if protocol and not settings.get('protocol_led_on', False):
+            # Protocol preview mode with LEDs OFF — no need to apply camera
+            # settings since there's nothing to display.
+            logger.info(
+                f"[APPLY_SETTINGS DIAG] {self.layer} — early return "
+                f"(protocol preview, LEDs off). Camera settings NOT applied."
+            )
+            Clock.schedule_once(disable_leds_for_other_layers, 0)
+            Clock.schedule_once(update_shader, 0)
+            return
+        # All other cases: apply camera settings normally.
+        # This includes protocol preview with LEDs ON (#613) — user needs
+        # correct gain/exposure to see the step's channel properly.
 
         # global gain_vals
 

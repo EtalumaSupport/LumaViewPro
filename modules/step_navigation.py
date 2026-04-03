@@ -145,12 +145,7 @@ def go_to_step(
             layer_obj.apply_settings(ignore_auto_gain=ignore_auto_gain, protocol=True)
 
         if not called_from_protocol and settings['protocol_led_on']:
-            # Preview mode: LED is on, so camera settings must match this
-            # step's channel. apply_settings(protocol=True) early-returns
-            # without applying camera settings (#613), so apply directly.
             scope_commands.led_on(ctx.scope, io_executor, color, step['Illumination'])
-            scope_commands.set_gain_sync(ctx.scope, ctx.camera_executor, step['Gain'])
-            scope_commands.set_exposure_sync(ctx.scope, ctx.camera_executor, step['Exposure'])
             _schedule_ui(lambda dt: temp(), 0)
         else:
             layer_obj.apply_settings(ignore_auto_gain=ignore_auto_gain, protocol=True)
