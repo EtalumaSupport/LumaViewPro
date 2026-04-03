@@ -39,6 +39,18 @@ LumaViewPro controls Etaluma microscopes: LED illumination, XYZ stage + turret m
 └─────┘   └─────────┘   └──────────┘
 ```
 
+### State Ownership Principles
+
+1. **The Lumascope API owns all hardware state.** LED on/off, motor positions, camera settings — the API is the single source of truth. The GUI observes it; it never owns hardware state independently.
+
+2. **Observers replace manual sync.** Every hardware state change fires listeners (position, LED, camera). UI registers listeners and updates widgets reactively. No manual `update_*_ui()` calls scattered across the codebase.
+
+3. **Ownership prevents clobbering.** When AF turns on an LED, it uses `owner='autofocus'`. When AF finishes, `leds_off_owned('autofocus')` only kills AF's LED — the user's LED stays on. Same for protocol (`owner='protocol'`).
+
+4. **Save/restore for subsystem handoff.** AF and camera pause save LED state before starting, restore it after. No shadow variables, no manual bookkeeping.
+
+5. **Settings dict is user config, not hardware state.** `settings['Blue']['ill']` is what the user *wants*, not what the hardware *is*. To know what's actually on, call `scope.get_led_state('Blue')`.
+
 ### Key Files
 
 | File | Purpose |
@@ -240,6 +252,61 @@ from modules.lumascope_api import AxisState
 
 scope.get_axis_state('Z')       # AxisState.IDLE, MOVING, HOMING, or UNKNOWN
 scope.is_any_axis_moving()      # True if any axis is MOVING
+```
+
+**LED listeners** (push-based UI updates):
+```python
+# Register for LED state changes on any channel.
+# Called from the thread that caused the change — schedule UI work via Clock.
+def on_led(color, enabled, mA, owner):
+    print(f"{color} {'ON' if enabled else 'OFF'} {mA}mA owner={owner}")
+
+scope.add_led_listener(on_led)
+scope.remove_led_listener(on_led)
+```
+
+**LED ownership** (prevents subsystems from clobbering each other):
+```python
+# Turn on with ownership — only the owner can turn it off
+scope.led_on('BF', 200, owner='autofocus')
+
+# This is a no-op (wrong owner):
+scope.led_off('BF', owner='protocol')
+
+# This works (matching owner):
+scope.led_off('BF', owner='autofocus')
+
+# Turn off only channels owned by a specific subsystem:
+scope.leds_off_owned('autofocus')
+
+# Nuclear off (shutdown/cleanup — ignores ownership):
+scope.leds_off()
+
+# No owner (default) — backwards compatible, no tracking:
+scope.led_on('Blue', 100)
+scope.led_off('Blue')
+```
+
+**LED save/restore** (for AF, protocol, camera pause):
+```python
+# Save current LED state before a subsystem takes over
+snapshot = scope.save_led_state('autofocus')
+
+# ... subsystem does its work ...
+
+# Restore — turns off owner's LEDs, then re-enables what was on before
+scope.restore_led_state(snapshot, owner='autofocus')
+```
+
+**Camera listeners** (push-based gain/exposure updates):
+```python
+# Fires on set_gain() and set_exposure_time() only — NOT per-frame.
+# Zero overhead on display framerate.
+def on_camera(param, value):
+    print(f"Camera {param} = {value}")
+
+scope.add_camera_listener(on_camera)
+scope.remove_camera_listener(on_camera)
 ```
 
 ### Frame Validity
