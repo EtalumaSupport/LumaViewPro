@@ -3376,6 +3376,9 @@
 				size_hint_y: None
 				height: '30dp'
 				color: root.bg_color
+				disabled: False if self.visible else True
+				opacity: 1 if self.visible else 0
+				visible: True if root.show_camera_controls else False
 
 			BoxLayout:
 				orientation: 'horizontal'
@@ -3383,6 +3386,9 @@
 				height: '30dp'
 				padding: '0dp'
 				spacing: '5dp'
+				disabled: False if self.visible else True
+				opacity: 1 if self.visible else 0
+				visible: True if root.show_camera_controls else False
 
 				CheckBox:
 					id: false_color
@@ -3391,7 +3397,7 @@
 					active: True
 					tooltip_text: 'Apply false emission color to image'
 					on_release: root.false_color()
-				Label:		
+				Label:
 					id: false_color_label
 					font_size: '12sp'
 					text: 'False Color'
