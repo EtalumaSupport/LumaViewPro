@@ -723,14 +723,25 @@ class LayerControl(BoxLayout):
 
         def disable_leds_for_other_layers(dt=None):
             if self.ids['enable_led_btn'].state == 'down':
+                # Turn off other channels' hardware LEDs before updating
+                # buttons. Previously only changed button state with
+                # _suppressing_led_log blocking the hardware call — LEDs
+                # stayed physically on (#614).
+                if not protocol_running_global.is_set():
+                    from modules import scope_commands
+                    scope_commands.leds_off(ctx.scope, ctx.io_executor)
+                    # Re-enable this layer's LED (leds_off turned it off too)
+                    scope_commands.led_on(
+                        ctx.scope, ctx.io_executor, self.layer,
+                        settings[self.layer]['ill'],
+                    )
+                # Update button states (visual only — hardware already handled)
                 LayerControl._suppressing_led_log = True
                 try:
                     for layer in common_utils.get_layers():
                         if layer != self.layer:
                             layer_obj = ctx.image_settings.layer_lookup(layer=layer)
                             btn = layer_obj.ids['enable_led_btn']
-                            # Only set if changed — Kivy skips event dispatch
-                            # if value is the same, avoiding cascade overhead
                             if btn.state != 'normal':
                                 btn.state = 'normal'
                 finally:
