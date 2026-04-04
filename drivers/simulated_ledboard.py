@@ -21,7 +21,8 @@ from lvp_logger import logger
 
 class SimulatedLEDBoard:
 
-    TIMING_FAST = {'delay': 0.0}
+    TIMING_INSTANT = {'delay': 0.0}     # Zero delay — for unit tests only
+    TIMING_FAST = {'delay': 0.001}      # 1ms minimum — nothing returns instantly
     TIMING_REALISTIC = {'delay': 0.012}  # ~12ms per exchange (1ms flush + 10ms write + 1ms read)
 
     def __init__(self, delay: float = 0.0, timing: str = 'fast',
@@ -59,13 +60,15 @@ class SimulatedLEDBoard:
         self._channel_states = {i: 0 for i in range(6)}  # channel -> mA
 
     def set_timing_mode(self, mode: str):
-        """Switch timing mode: 'fast' or 'realistic'."""
-        if mode == 'realistic':
-            preset = self.TIMING_REALISTIC
-        elif mode == 'fast':
-            preset = self.TIMING_FAST
-        else:
-            raise ValueError(f"Unknown timing mode: {mode!r}. Use 'fast' or 'realistic'.")
+        """Switch timing mode: 'instant', 'fast', or 'realistic'."""
+        presets = {
+            'instant': self.TIMING_INSTANT,
+            'fast': self.TIMING_FAST,
+            'realistic': self.TIMING_REALISTIC,
+        }
+        if mode not in presets:
+            raise ValueError(f"Unknown timing mode: {mode!r}. Use 'instant', 'fast', or 'realistic'.")
+        preset = presets[mode]
         self._delay = preset['delay']
         self._timing_mode = mode
 

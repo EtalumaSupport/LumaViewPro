@@ -39,11 +39,17 @@ class SimulatedMotorBoard:
     }
 
     # Timing presets
-    TIMING_FAST = {
+    TIMING_INSTANT = {
         'cmd_delay': 0.0,
         'move_delay': 0.0,
-        'simulate_move_duration': True,   # Even fast mode simulates brief move duration
-        'fast_move_duration': 0.003,      # 3ms per move in fast mode (not instant)
+        'simulate_move_duration': False,  # Truly instant — for unit tests only
+        'fast_move_duration': 0.0,
+    }
+    TIMING_FAST = {
+        'cmd_delay': 0.001,               # 1ms minimum — nothing returns instantly
+        'move_delay': 0.0,
+        'simulate_move_duration': True,   # Simulates brief move duration
+        'fast_move_duration': 0.003,      # 3ms per move in fast mode
     }
     TIMING_REALISTIC = {
         'cmd_delay': 0.003,       # ~3ms serial round-trip
@@ -124,19 +130,20 @@ class SimulatedMotorBoard:
         }
 
     def set_timing_mode(self, mode: str):
-        """Switch timing mode: 'fast' or 'realistic'.
+        """Switch timing mode: 'instant', 'fast', or 'realistic'.
 
-        fast: moves complete in ~3ms (not instant — gives motion monitor time
-              to detect MOVING state). No serial delay.
-        realistic: moves use actual TMC5072 trapezoidal ramp timing from
-                   motorconfig. Serial commands have ~3ms simulated delay.
+        instant: zero delays, truly instant moves. For unit tests only.
+        fast: 1ms command delay, 3ms move duration. Default for --simulate.
+        realistic: 3ms command delay, TMC5072 ramp-calculated move durations.
         """
-        if mode == 'realistic':
-            preset = self.TIMING_REALISTIC
-        elif mode == 'fast':
-            preset = self.TIMING_FAST
-        else:
-            raise ValueError(f"Unknown timing mode: {mode!r}. Use 'fast' or 'realistic'.")
+        presets = {
+            'instant': self.TIMING_INSTANT,
+            'fast': self.TIMING_FAST,
+            'realistic': self.TIMING_REALISTIC,
+        }
+        if mode not in presets:
+            raise ValueError(f"Unknown timing mode: {mode!r}. Use 'instant', 'fast', or 'realistic'.")
+        preset = presets[mode]
         self._cmd_delay = preset['cmd_delay']
         self._move_delay = preset['move_delay']
         self._simulate_move_duration = preset['simulate_move_duration']
@@ -177,8 +184,17 @@ class SimulatedMotorBoard:
     # ------------------------------------------------------------------
     # Serial simulation
     # ------------------------------------------------------------------
-    def _sim_delay(self):
-        if self._cmd_delay > 0:
+    # Fast SPI register reads — return in ~100-200µs on real hardware.
+    # Matched by startswith(), so 'STATUS_RZ' matches 'STATUS_R'.
+    _FAST_PREFIXES = ('STATUS_R', 'TARGET_R', 'ACTUAL_R', 'VOLTAGE', 'CURRENT')
+
+    def _sim_delay(self, command: str = ''):
+        if self._cmd_delay <= 0:
+            return
+        # Fast register reads get a much shorter delay than general commands
+        if command and command.startswith(self._FAST_PREFIXES):
+            time.sleep(self._cmd_delay * 0.1)  # ~0.1ms for status reads
+        else:
             time.sleep(self._cmd_delay)
 
     def exchange_command(self, command, response_numlines=1, timeout=None):
@@ -205,7 +221,7 @@ class SimulatedMotorBoard:
                 logger.warning(f'[XYZ Sim   ] INJECTED FAILURE: timeout on {cmd_word}')
                 return None
 
-            self._sim_delay()
+            self._sim_delay(command)
             response = self._handle_command(command)
             logger.debug(f'[XYZ Sim   ] exchange_command({command}) -> {response}')
             if response_numlines == 1:

@@ -1171,10 +1171,16 @@ class TestCameraProfiles:
 class TestTimingModes:
     """Verify timing mode switching across all simulators."""
 
+    def test_motor_instant_mode(self):
+        m = SimulatedMotorBoard(timing='instant')
+        assert m._cmd_delay == 0.0
+        assert m._simulate_move_duration is False
+        assert m._fast_move_duration == 0.0
+
     def test_motor_fast_mode(self):
         m = SimulatedMotorBoard(timing='fast')
-        assert m._cmd_delay == 0.0
-        assert m._simulate_move_duration is True  # Even fast mode simulates brief delay
+        assert m._cmd_delay > 0  # 1ms minimum — nothing returns instantly
+        assert m._simulate_move_duration is True
         assert m._fast_move_duration > 0  # Brief ~3ms per move
 
     def test_motor_realistic_mode(self):
@@ -1187,8 +1193,11 @@ class TestTimingModes:
         m.set_timing_mode('realistic')
         assert m._simulate_move_duration is True
         m.set_timing_mode('fast')
-        assert m._simulate_move_duration is True  # Both modes simulate duration now
-        assert m._fast_move_duration > 0  # Fast mode uses brief fixed delay
+        assert m._simulate_move_duration is True
+        assert m._fast_move_duration > 0
+        m.set_timing_mode('instant')
+        assert m._simulate_move_duration is False
+        assert m._cmd_delay == 0.0
 
     def test_motor_realistic_move_not_instant(self):
         """In realistic mode, target_status returns False during move."""
@@ -1217,9 +1226,13 @@ class TestTimingModes:
         time.sleep(0.005)
         assert m.target_status('Z') is True
 
+    def test_led_instant_mode(self):
+        led = SimulatedLEDBoard(timing='instant')
+        assert led._delay == 0.0
+
     def test_led_fast_mode(self):
         led = SimulatedLEDBoard(timing='fast')
-        assert led._delay == 0.0
+        assert led._delay > 0  # 1ms minimum — nothing returns instantly
 
     def test_led_realistic_mode(self):
         led = SimulatedLEDBoard(timing='realistic')
@@ -1230,6 +1243,8 @@ class TestTimingModes:
         led.set_timing_mode('realistic')
         assert led._delay > 0
         led.set_timing_mode('fast')
+        assert led._delay > 0  # fast mode now has 1ms delay
+        led.set_timing_mode('instant')
         assert led._delay == 0.0
 
     def test_invalid_mode_raises(self):
