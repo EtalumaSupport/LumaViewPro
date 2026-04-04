@@ -10,6 +10,7 @@ import typing
 from lvp_logger import logger
 
 from modules.kivy_utils import schedule_ui as _schedule_ui
+from modules.notification_center import notifications
 
 import threading
 
@@ -265,9 +266,11 @@ class AutofocusExecutor:
                 self._is_complete_event.clear()
                 # _af_in_progress is cleared in _autofocus_loop() after
                 # camera state is restored (#610 race fix).
-                # Surface error in logs; UI callback (if present) will clear button
+                # Surface error in logs and notify user (Rule 14)
                 import logging as _logging
                 _logging.getLogger().error(f"[AF] Error during loop: {ex}", exc_info=True)
+                notifications.error("Autofocus", "Autofocus Failed",
+                                    f"Unexpected error during autofocus: {ex}")
                 if 'complete' in self._callbacks:
                     _schedule_ui(lambda dt: self._callbacks['complete']())
                 break
@@ -448,6 +451,8 @@ class AutofocusExecutor:
             if scores.max() == 0 or scores.isna().all():
                 logger.warning("Autofocus: degenerate focus curve (all scores zero or NaN) — aborting, keeping current Z position")
                 _af_log.warning('--- AF ABORT: degenerate curve (all scores zero/NaN) ---')
+                notifications.error("Autofocus", "Autofocus Failed",
+                                    "Focus curve is flat or invalid — check sample and illumination")
                 self._scope.set_motor_precision_mode('Z', False)
                 self._is_focusing_event.clear()
                 self._is_complete_event.set()

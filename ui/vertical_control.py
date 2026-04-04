@@ -229,6 +229,8 @@ class VerticalControl(BoxLayout):
     def goto_bookmark(self):
         gui_logger.button('GOTO_Z_BOOKMARK')
         ctx = _app_ctx.ctx
+        if ctx.protocol_running.is_set():
+            return
         settings = ctx.settings
         logger.info('[LVP Main  ] VerticalControl.goto_bookmark()')
         pos = settings['bookmark']['z']
@@ -239,6 +241,8 @@ class VerticalControl(BoxLayout):
         try:
             gui_logger.button('HOME_Z')
             ctx = _app_ctx.ctx
+            if ctx.protocol_running.is_set():
+                return
             logger.info('[LVP Main  ] VerticalControl.home()')
             ctx.io_executor.put(IOTask(action=move_home, kwargs={"axis":'Z'}))
         except Exception as e:
@@ -554,6 +558,8 @@ class VerticalControl(BoxLayout):
     def turret_home(self):
         gui_logger.button('HOME_TURRET')
         ctx = _app_ctx.ctx
+        if ctx.protocol_running.is_set():
+            return
         def _on_turret_homed():
             Clock.schedule_once(lambda dt: self._reset_turret_buttons(), 0)
 

@@ -4,7 +4,6 @@
 import pathlib
 import threading
 import time
-import lvp_logger
 from lvp_logger import logger
 
 from drivers.serialboard import SerialBoard
@@ -26,6 +25,7 @@ class MotorBoard(SerialBoard):
         self.initial_t_homing_complete = False
         self._fullinfo = None
         self._connect_fails = 0
+        self._connect_log_suppressed = False
 
         # Load hardware config (per-unit values from motorconfig.json, with defaults fallback)
         if motorconfig_defaults_file is None:
@@ -145,8 +145,7 @@ class MotorBoard(SerialBoard):
                 logger.debug(f'[XYZ Class ] connect() port reopened after reset')
 
                 self._connect_fails = 0
-                if lvp_logger.is_thread_paused():
-                    lvp_logger.unpause_thread()
+                self._connect_log_suppressed = False
 
                 self._reset_firmware()
                 info = self.fullinfo()
@@ -157,11 +156,12 @@ class MotorBoard(SerialBoard):
             except Exception as e:
                 self._close_driver()
                 self._connect_fails += 1
-                if self._connect_fails >= 10:
-                    logger.critical(f'[XYZ Class ] MotorBoard.connect() failed 10 times, pausing thread logs')
-                    lvp_logger.pause_thread()
-                logger.error(f'[XYZ Class ] MotorBoard.connect() failed: {e}')
-                notifications.error("Motor", "Motor Connection Failed", f"Cannot connect to motor controller: {e}")
+                if self._connect_fails >= 10 and not self._connect_log_suppressed:
+                    logger.critical('[XYZ Class ] MotorBoard.connect() failed 10 times — suppressing further connect errors (other logging continues)')
+                    self._connect_log_suppressed = True
+                if not self._connect_log_suppressed:
+                    logger.error(f'[XYZ Class ] MotorBoard.connect() failed: {e}')
+                    notifications.error("Motor", "Motor Connection Failed", f"Cannot connect to motor controller: {e}")
 
 
     # v3.0 STUB: Motor command builders for JSON Lines protocol

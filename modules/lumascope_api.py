@@ -2418,11 +2418,13 @@ class Lumascope():
         #if not self.motion:
         #    return
 
-        # Move turret
+        # Move turret — set HOMING after Z is safe, not before.
+        # Setting T to HOMING clears its arrival event, which would block
+        # wait_until_finished_moving() inside safe_turret_mover's Z move.
         _api_log.info('thome START')
-        self._set_axis_state('T', AxisState.HOMING)
         with self.reference_position_logger():
             with self.safe_turret_mover():
+                self._set_axis_state('T', AxisState.HOMING)
                 self.motion.thome()
         self._set_axis_state('T', AxisState.IDLE)
         self.refresh_position_cache()
@@ -2520,7 +2522,7 @@ class Lumascope():
         """
         if axis is None:
             result = {}
-            for ax in self.VALID_AXES:
+            for ax in self.axes_present():
                 result[ax] = self.get_current_position(ax)
             return result
 
@@ -2646,30 +2648,6 @@ class Lumascope():
             return
         self.motion.set_precision_mode(axis, enabled)
 
-    def write_motor_register(self, axis: str, address: int, value: int):
-        """Write a TMC5072 register via SPI.
-
-        Low-level access for engineering/characterization. Uses the
-        firmware's SPI command to write directly to the motor controller.
-
-        Args:
-            axis: Axis name ("X", "Y", "Z", "T").
-            address: Register address (e.g. 0x4B for VSTOP_M2).
-            value: Register value (unsigned 32-bit).
-
-        Returns:
-            str: Response from firmware, or None on failure.
-        """
-        if not self.motor_connected:
-            return None
-        # Note: Uses exchange_command directly because this method expects
-        # the caller to provide the full SPI address (with write bit 0x80
-        # already set for writes). MotorBoard.spi_write() adds 0x80
-        # automatically, so the address conventions are different.
-        # TODO: Migrate callers to use MotorBoard.spi_write() with base
-        # addresses, then remove this raw command path.
-        cmd = f'SPI{axis}0x{address:02X}{value}'
-        return self.motion.exchange_command(cmd)
 
     def move_absolute_position(self, axis, pos, wait_until_complete=False, overshoot_enabled: bool = True, ignore_limits: bool = False):
         """Move an axis to an absolute position.

@@ -166,6 +166,11 @@ class LEDBoard(SerialBoard):
         command = 'LED' + str(int(channel)) + '_' + str(int(mA))
         return color, command
 
+    def _update_state_cache(self, color: str, mA):
+        """Update the cached LED state under lock."""
+        with self._state_lock:
+            self.led_ma[color] = mA
+
     def led_on(self, channel, mA, block=False, timeout: float = 5.0):
         """
         Turn on LED at channel number at mA power
@@ -175,8 +180,7 @@ class LEDBoard(SerialBoard):
         response = self.exchange_command(command)
 
         if response is not None:
-            with self._state_lock:
-                self.led_ma[color] = mA
+            self._update_state_cache(color, mA)
         else:
             logger.warning(f'[LED Class ] led_on(ch={channel}, mA={mA}) got no response')
 
@@ -195,8 +199,7 @@ class LEDBoard(SerialBoard):
                 time.sleep(0.01)  # Prevent busy-wait CPU burn
                 response = self.exchange_command(command)
                 if response is not None:
-                    with self._state_lock:
-                        self.led_ma[color] = mA
+                    self._update_state_cache(color, mA)
 
     def led_off(self, channel):
         """ Turn off LED at channel number """
@@ -206,23 +209,20 @@ class LEDBoard(SerialBoard):
         response = self.exchange_command(command)
 
         if response is not None:
-            with self._state_lock:
-                self.led_ma[color] = -1
+            self._update_state_cache(color, -1)
         else:
             logger.warning(f'[LED Class ] led_off(ch={channel}) got no response')
 
     def led_on_fast(self, channel, mA):
         """Fast write-only version of led_on for time-critical toggling."""
         color, command = self._validate_and_build_led_cmd(channel, mA)
-        with self._state_lock:
-            self.led_ma[color] = mA
+        self._update_state_cache(color, mA)
         self._write_command_fast(command)
 
     def led_off_fast(self, channel):
         """Fast write-only version of led_off for time-critical toggling."""
         color = self.ch2color(channel=channel)
-        with self._state_lock:
-            self.led_ma[color] = -1
+        self._update_state_cache(color, -1)
         command = 'LED' + str(int(channel)) + '_OFF'
         self._write_command_fast(command)
 

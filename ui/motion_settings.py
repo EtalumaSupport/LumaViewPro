@@ -464,6 +464,8 @@ class XYStageControl(BoxLayout):
         try:
             gui_logger.button('HOME_XY')
             ctx = _app_ctx.ctx
+            if ctx.protocol_running.is_set():
+                return
             logger.info('[LVP Main  ] XYStageControl.home()')
 
             if ctx.lumaview.scope.motor_connected: # motor controller is actively connected
