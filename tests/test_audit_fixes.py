@@ -100,14 +100,19 @@ def _camera_sdk_mock_modules():
 
 
 def _common_mock_modules():
-    """Return a dict of commonly needed mock modules (lvp_logger, userpaths, etc)."""
+    """Return a dict of commonly needed mock modules (lvp_logger, userpaths, etc).
+
+    NOTE: cv2 is NOT mocked — it's a real installed package with no Kivy
+    dependency. Mocking it causes test-ordering contamination: image_utils
+    caches the mock cv2 reference at import time, and monkeypatch cleanup
+    can't fix the cached reference. This broke TestAddTimestampInPlace.
+    """
     mods = {
         'userpaths': MagicMock(),
         'lvp_logger': _build_mock_logger(),
         'requests': MagicMock(),
         'requests.structures': MagicMock(),
         'psutil': MagicMock(),
-        'cv2': MagicMock(),
     }
     mock_settings_init = MagicMock()
     mock_settings_init.settings = {}
@@ -177,7 +182,9 @@ class TestDomainExceptions:
 def sim_scope(_mock_heavy_deps):
     """Create a Lumascope in simulate mode (no hardware needed)."""
     from modules.lumascope_api import Lumascope
-    return Lumascope(simulate=True)
+    scope = Lumascope(simulate=True)
+    yield scope
+    scope.disconnect()
 
 
 class TestLedOnValidation:
@@ -946,3 +953,157 @@ class TestIssue606_TurretObjectiveValidation:
         method_body = source[idx:idx+2000]
         assert "turret" in method_body.lower(), \
             "_is_protocol_valid must check turret objective assignments (#606)"
+
+
+# ===========================================================================
+# Audit Fix Regression Tests — Session 8 (B6, B5, D2, G3, F7, G4)
+# ===========================================================================
+
+class TestB6_WriteMotorRegisterRemoved:
+    """B6: write_motor_register() was dead code with zero callers."""
+
+    def test_write_motor_register_removed(self, _mock_heavy_deps):
+        """write_motor_register should no longer exist on the API class."""
+        from modules.lumascope_api import Lumascope
+        scope = Lumascope(simulate=True)
+        assert not hasattr(scope, 'write_motor_register'), \
+            "write_motor_register() should have been removed (B6 — zero callers)"
+
+
+class TestB5_GetCurrentPositionUsesAxesPresent:
+    """B5: get_current_position(axis=None) should use axes_present(), not VALID_AXES."""
+
+    def test_returns_only_present_axes(self, _mock_heavy_deps):
+        """get_current_position(None) should return dict keyed by present axes only."""
+        from modules.lumascope_api import Lumascope
+        scope = Lumascope(simulate=True)
+        result = scope.get_current_position(axis=None)
+        assert set(result.keys()) == set(scope.axes_present()), \
+            "get_current_position(None) should use axes_present(), not hardcoded VALID_AXES"
+
+
+class TestD2_LEDBoardStateCacheHelper:
+    """D2: LED state cache updates should use _update_state_cache() helper."""
+
+    def test_update_state_cache_exists(self, _mock_heavy_deps):
+        """LEDBoard should have _update_state_cache method."""
+        from drivers.ledboard import LEDBoard
+        assert hasattr(LEDBoard, '_update_state_cache'), \
+            "LEDBoard must have _update_state_cache helper (D2)"
+
+    def test_led_on_fast_updates_cache(self, _mock_heavy_deps):
+        """led_on_fast should update state cache via _update_state_cache."""
+        from drivers.simulated_ledboard import SimulatedLEDBoard
+        led = SimulatedLEDBoard()
+        led.led_on_fast(0, 100)
+        # SimulatedLEDBoard tracks its own state; verify the color cache
+        color = led.ch2color(0)
+        assert led.led_ma[color] == 100
+
+
+class TestG3_AutofocusFailureNotification:
+    """G3: AF failures must notify the user (Rule 14)."""
+
+    def test_af_exception_notifies_user(self, _mock_heavy_deps):
+        """AF exception handler must call notifications.error()."""
+        import pathlib
+        source = pathlib.Path("modules/autofocus_executor.py").read_text()
+        # Find the exception handler block
+        idx = source.find("Error during loop")
+        assert idx != -1, "Exception handler must exist"
+        # Check notification exists near the error handler
+        nearby = source[idx:idx+300]
+        assert "notifications.error" in nearby, \
+            "AF exception handler must call notifications.error (G3 — Rule 14)"
+
+    def test_af_degenerate_curve_notifies_user(self, _mock_heavy_deps):
+        """AF degenerate curve detection must call notifications.error()."""
+        import pathlib
+        source = pathlib.Path("modules/autofocus_executor.py").read_text()
+        idx = source.find("degenerate focus curve")
+        assert idx != -1, "Degenerate curve handler must exist"
+        nearby = source[idx:idx+500]
+        assert "notifications.error" in nearby, \
+            "AF degenerate curve handler must call notifications.error (G3 — Rule 14)"
+
+    def test_af_imports_notifications(self, _mock_heavy_deps):
+        """autofocus_executor must import notifications module."""
+        import pathlib
+        source = pathlib.Path("modules/autofocus_executor.py").read_text()
+        assert "from modules.notification_center import notifications" in source, \
+            "autofocus_executor must import notifications (G3)"
+
+
+class TestF7_ProtocolHomingInterlock:
+    """F7: Homing/bookmark must be blocked during protocol execution."""
+
+    def test_z_home_checks_protocol_running(self):
+        """vertical_control home() must check protocol_running."""
+        import pathlib
+        source = pathlib.Path("ui/vertical_control.py").read_text()
+        # Find the home method
+        idx = source.find("def home(self):")
+        assert idx != -1
+        method_body = source[idx:idx+300]
+        assert "protocol_running.is_set()" in method_body, \
+            "Z home() must check protocol_running before homing (F7)"
+
+    def test_goto_bookmark_checks_protocol_running(self):
+        """vertical_control goto_bookmark() must check protocol_running."""
+        import pathlib
+        source = pathlib.Path("ui/vertical_control.py").read_text()
+        idx = source.find("def goto_bookmark(self):")
+        assert idx != -1
+        method_body = source[idx:idx+300]
+        assert "protocol_running.is_set()" in method_body, \
+            "goto_bookmark() must check protocol_running (F7)"
+
+    def test_turret_home_checks_protocol_running(self):
+        """vertical_control turret_home() must check protocol_running."""
+        import pathlib
+        source = pathlib.Path("ui/vertical_control.py").read_text()
+        idx = source.find("def turret_home(self):")
+        assert idx != -1
+        method_body = source[idx:idx+300]
+        assert "protocol_running.is_set()" in method_body, \
+            "turret_home() must check protocol_running (F7)"
+
+    def test_xy_home_checks_protocol_running(self):
+        """motion_settings home() must check protocol_running."""
+        import pathlib
+        source = pathlib.Path("ui/motion_settings.py").read_text()
+        # Find the XYStageControl home method (after line 460)
+        idx = source.find("def home(self):")
+        assert idx != -1
+        method_body = source[idx:idx+300]
+        assert "protocol_running.is_set()" in method_body, \
+            "XY home() must check protocol_running before homing (F7)"
+
+
+class TestG4_MotorLogSuppression:
+    """G4: Motor board should suppress only connect errors, not entire thread logging."""
+
+    def test_no_pause_thread_in_motorboard(self):
+        """motorboard.py must NOT call lvp_logger.pause_thread()."""
+        import pathlib
+        source = pathlib.Path("drivers/motorboard.py").read_text()
+        assert "pause_thread()" not in source, \
+            "motorboard.py must not use pause_thread() — suppresses all thread logging (G4)"
+
+    def test_connect_log_suppressed_flag_exists(self, _mock_heavy_deps):
+        """MotorBoard must have _connect_log_suppressed flag."""
+        import pathlib
+        source = pathlib.Path("drivers/motorboard.py").read_text()
+        assert "_connect_log_suppressed" in source, \
+            "MotorBoard must use _connect_log_suppressed flag for targeted suppression (G4)"
+
+    def test_connect_log_suppressed_resets_on_success(self):
+        """_connect_log_suppressed must be reset when connection succeeds."""
+        import pathlib
+        source = pathlib.Path("drivers/motorboard.py").read_text()
+        # Find the success path (where _connect_fails = 0)
+        idx = source.find("self._connect_fails = 0", source.find("def connect"))
+        assert idx != -1
+        nearby = source[idx:idx+200]
+        assert "_connect_log_suppressed = False" in nearby, \
+            "_connect_log_suppressed must be reset to False on successful connection (G4)"
