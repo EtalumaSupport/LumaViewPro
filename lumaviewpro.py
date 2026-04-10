@@ -562,8 +562,6 @@ def get_layer_configs(
         video_config = layer_settings['video_config']
 
         if 'stim_config' in layer_settings:
-            # Force an update to keep stim_config.illumination in sync with layer illumination
-            settings[layer]['stim_config']['illumination'] = layer_settings['ill']
             stim_config = layer_settings['stim_config']
         else:
             stim_config = None
@@ -576,10 +574,6 @@ def get_layer_configs(
         auto_gain = common_utils.to_bool(layer_settings['auto_gain'])
         exposure = round(layer_settings['exp'], common_utils.max_decimal_precision('exposure'))
         focus = layer_settings['focus']
-
-        # Final check to ensure consistent stim_config.illumination
-        if stim_config is not None:
-            stim_config['illumination'] = illumination
 
         layer_configs[layer] = {
             'acquire': acquire,
@@ -5920,9 +5914,6 @@ class LayerControl(BoxLayout):
         illumination = self.ids['ill_slider'].value
         settings[self.layer]['ill'] = illumination
 
-        if 'stim_config' in settings[self.layer]:
-            settings[self.layer]['stim_config']['illumination'] = illumination
-
         self.apply_settings()
 
     def ill_text(self):
@@ -5939,9 +5930,6 @@ class LayerControl(BoxLayout):
         settings[self.layer]['ill'] = illumination
         self.ids['ill_slider'].value = illumination
         self.ids['ill_text'].text = str(illumination)
-
-        if 'stim_config' in settings[self.layer]:
-            settings[self.layer]['stim_config']['illumination'] = illumination
 
         self.apply_settings()
 
