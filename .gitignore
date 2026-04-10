@@ -14,3 +14,4 @@ tmp/
 notebooks/
 logs/profiling/*
 og_issues_zip/*
+.claude/settings.local.json
