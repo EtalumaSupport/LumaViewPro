@@ -159,9 +159,8 @@ class LEDBoard:
             try:
                 with self.com_lock:
                     self.driver.write(stream)
-            except:
-                # Suppress to keep this path fast and non-blocking
-                pass
+            except Exception as ex:
+                logger.warning(f'[LED Class ] _write_command_fast({command}) write failed: {ex}')
         else:
             # If not connected, attempt to connect quickly; if it fails, just return
             try:
@@ -169,8 +168,8 @@ class LEDBoard:
                 if self.driver:
                     with self.com_lock:
                         self.driver.write(stream)
-            except:
-                pass
+            except Exception as ex:
+                logger.warning(f'[LED Class ] _write_command_fast({command}) reconnect/write failed: {ex}')
       
     def color2ch(self, color):
         """ Convert color name to numerical channel """
