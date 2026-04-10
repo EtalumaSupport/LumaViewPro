@@ -941,29 +941,35 @@ class Protocol:
 
         if (config['version'] == 2) and (cls.CURRENT_VERSION >= 4):
             protocol_df['Acquire'] = "image"
-            protocol_df['Video Config'] = DEFAULT_VIDEO_CONFIG
+            protocol_df['Video Config'] = [copy.deepcopy(DEFAULT_VIDEO_CONFIG) for _ in range(len(protocol_df))]
         else:
 
-            # Convert Video Config strings per step to dictionary
-            try:
-                protocol_df['Video Config'] = protocol_df.apply(lambda x: ast.literal_eval(x['Video Config']), axis=1)
-            except Exception as ex:
-                logger.error(f"Unable to parse video config, using default instead: {ex}")
-                protocol_df['Video Config'] = DEFAULT_VIDEO_CONFIG
+            # Convert Video Config strings per step to dictionary (per-row to avoid one bad row breaking all)
+            def _parse_video_config(row):
+                try:
+                    return ast.literal_eval(row['Video Config'])
+                except Exception as ex:
+                    logger.error(f"Unable to parse video config for step '{row.get('Name', '?')}': {ex}")
+                    return copy.deepcopy(DEFAULT_VIDEO_CONFIG)
+
+            protocol_df['Video Config'] = protocol_df.apply(_parse_video_config, axis=1)
 
 
         if (config['version'] in (2,3,)) and (cls.CURRENT_VERSION >= 4):
             protocol_df['Sum'] = DEFAULT_SUM_CONFIG
 
         if (config['version'] in (2,3,4)) and (cls.CURRENT_VERSION >= 5):
-            protocol_df['Stim_Config'] = DEFAULT_STIM_CONFIG
+            protocol_df['Stim_Config'] = [copy.deepcopy(DEFAULT_STIM_CONFIG) for _ in range(len(protocol_df))]
         else:
-            # Convert Stim Config strings per step to dictionary
-            try:
-                protocol_df['Stim_Config'] = protocol_df.apply(lambda x: ast.literal_eval(x['Stim_Config']), axis=1)
-            except Exception as ex:
-                logger.error(f"Unable to parse stim config, using default instead: {ex}")
-                protocol_df['Stim_Config'] = DEFAULT_STIM_CONFIG
+            # Convert Stim Config strings per step to dictionary (per-row to avoid one bad row breaking all)
+            def _parse_stim_config(row):
+                try:
+                    return ast.literal_eval(row['Stim_Config'])
+                except Exception as ex:
+                    logger.error(f"Unable to parse stim config for step '{row.get('Name', '?')}': {ex}")
+                    return copy.deepcopy(DEFAULT_STIM_CONFIG)
+
+            protocol_df['Stim_Config'] = protocol_df.apply(_parse_stim_config, axis=1)
 
         if config['version'] in (2, 3, 4, 5):
             protocol_df['Step Index'] = protocol_df.index
