@@ -480,16 +480,14 @@ def go_to_step(
 
                 stim_layer_obj.update_stim_controls_visibility()
 
+                stim_layer_obj.ids['stim_ill_text'].text = str(stim_config['illumination'])
+                stim_layer_obj.ids['stim_ill_slider'].value = float(stim_config['illumination'])
                 stim_layer_obj.ids['stim_freq_text'].text = str(stim_config['frequency'])
                 stim_layer_obj.ids['stim_freq_slider'].value = float(stim_config['frequency'])
                 stim_layer_obj.ids['stim_pulse_width_text'].text = str(stim_config['pulse_width'])
                 stim_layer_obj.ids['stim_pulse_width_slider'].value = float(stim_config['pulse_width'])
                 stim_layer_obj.ids['stim_pulse_count_text'].text = str(stim_config['pulse_count'])
                 stim_layer_obj.ids['stim_pulse_count_slider'].value = int(stim_config['pulse_count'])
-
-                # layer_obj.ids['enable_stim_btn'].state = 'down'
-                # layer_obj.ids['stim_text'].text = str(stim_config['illumination'])
-                # layer_obj.ids['stim_slider'].value = float(stim_config['illumination'])
 
     # acquire type
     settings[color]['acquire'] = step['Acquire']
@@ -6072,6 +6070,32 @@ class LayerControl(BoxLayout):
         # self.ids['exp_slider'].value = float(np.log10(exposure)) # convert slider to log_10
         self.ids['exp_text'].text = str(exposure)
 
+        self.apply_settings()
+
+    def stim_ill_slider(self):
+        logger.info('[LVP Main  ] LayerControl.stim_ill_slider()')
+        illumination = self.ids['stim_ill_slider'].value
+        settings[self.layer]['stim_config']['illumination'] = illumination
+        self.apply_settings()
+
+    def stim_ill_text(self):
+        logger.info('[LVP Main  ] LayerControl.stim_ill_text()')
+
+        ill_min = self.ids['stim_ill_slider'].min
+        ill_max = self.ids['stim_ill_slider'].max
+
+        try:
+            ill_val = float(self.ids['stim_ill_text'].text)
+        except Exception as e:
+            logger.error(f"[LVP Main  ] LayerControl.stim_ill_text() -> {e}")
+            return
+
+        illumination = float(np.clip(ill_val, ill_min, ill_max))
+
+        self.ids['stim_ill_slider'].value = illumination
+        self.ids['stim_ill_text'].text = str(illumination)
+
+        settings[self.layer]['stim_config']['illumination'] = illumination
         self.apply_settings()
 
     def stim_freq_slider(self):

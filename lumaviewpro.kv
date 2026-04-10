@@ -2267,6 +2267,50 @@
 					text_size: self.size
 			
 			BoxLayout:
+				id: stim_ill_box
+				orientation: 'horizontal'
+				size_hint_y: None if self.visible else 0
+				height: '30dp' if self.visible else 0
+				padding: '0dp'
+				spacing: '5dp' if self.visible else 0
+				opacity: 1 if self.visible else 0
+				disabled: False if self.visible else True
+				visible: True if root.show_stim_controls else False
+
+				Label:
+					text: 'Brightness (mA)'
+					halign: 'left'
+					valign: 'middle'
+					font_size: '12sp'
+					size_hint_x: None
+					width: '95dp'
+					text_size: self.size
+				ModSlider:
+					id: stim_ill_slider
+					min: 0
+					max: 500.
+					value: 100.
+					step: 1.
+					cursor_size: '20dp','20dp'
+					cursor_image: './data/icons/slider_cursor.png'
+					value_track: True
+					value_track_color: root.bg_color
+					value_track_width: 5
+					on_release: root.stim_ill_slider()
+				TextInput:
+					id: stim_ill_text
+					size_hint_x: None
+					width: '45dp'
+					multiline: False
+					font_size: '12sp'
+					padding: ['4dp', (self.height-self.line_height)/2]
+					halign: 'right'
+					input_filter: 'float'
+					text: format(stim_ill_slider.value, '.4g')
+					on_text_validate: root.stim_ill_text()
+					on_focus: if not self.focus: root.stim_ill_text()
+
+			BoxLayout:
 				id: stim_freq_box
 				orientation: 'horizontal'
 				size_hint_y: None if self.visible else 0
