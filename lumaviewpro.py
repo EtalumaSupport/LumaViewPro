@@ -360,7 +360,7 @@ def _update_step_number_callback(step_num: int):
 
 
 def _update_stim_info_callback(stim_config: dict):
-    """Show active stim settings in the center info label during video recording."""
+    """Show active stim settings in the window title bar during video recording."""
     parts = []
     for color in stim_config:
         cfg = stim_config[color]
@@ -376,13 +376,16 @@ def _update_stim_info_callback(stim_config: dict):
     else:
         text = ''
     logger.info(f"[LVP Main  ] Stim info display: '{text}'")
-    lumaview.ids['stim_info_label'].text = text
+    if text:
+        Window.set_title(f"Lumaview Pro {version}   |   {text}")
+    else:
+        Window.set_title(f"Lumaview Pro {version}")
 
 
 def _clear_stim_info_callback():
-    """Clear the stim info label when video recording ends."""
+    """Restore the original window title when video recording ends."""
     logger.info("[LVP Main  ] Stim info display cleared")
-    lumaview.ids['stim_info_label'].text = ''
+    Window.set_title(f"Lumaview Pro {version}")
 
 
 def go_to_step(

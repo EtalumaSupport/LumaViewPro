@@ -135,27 +135,6 @@
             size: '40dp', '40dp'
             on_release: root.one2one_image()
 
-    # Stim Info Display (shown during video recording with stim)
-    # Positioned to the right of the center camera control buttons
-    Label:
-        id: stim_info_label
-        text: ''
-        size_hint: None, None
-        size: '350dp', '40dp'
-        pos: (root.width + 7*45) / 2 + 10, 5
-        font_size: '11sp'
-        halign: 'center'
-        valign: 'middle'
-        text_size: self.size
-        color: 0.2, 1, 0.2, 1
-        opacity: 1 if self.text else 0
-        canvas.before:
-            Color:
-                rgba: 0.1, 0.1, 0.1, (0.7 if self.text else 0)
-            RoundedRectangle:
-                size: self.size
-                pos: self.pos
-                radius: [5]
 
 
 # ShaderViewer - Shaded Live Camera view
