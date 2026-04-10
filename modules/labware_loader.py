@@ -59,6 +59,10 @@ class SlideLoader(LabwareLoader):
 class WellPlateLoader(LabwareLoader):
     """A class that stores and computes actions for wellplate labware"""
 
+    LABWARE_ALIASES = {
+        "384 well Corning Spheroid Microplate": "384 well microplate",
+    }
+
     def __init__(self, *arg):
         super(WellPlateLoader, self).__init__()
   
@@ -68,6 +72,7 @@ class WellPlateLoader(LabwareLoader):
     
 
     def get_plate(self, plate_key):
+        plate_key = self.LABWARE_ALIASES.get(plate_key, plate_key)
         return labware.WellPlate(config=self.labware['Wellplate'][plate_key])
 
 

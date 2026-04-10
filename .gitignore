@@ -13,3 +13,4 @@ tmp/
 .DS_Store
 notebooks/
 logs/profiling/*
+og_issues_zip/*

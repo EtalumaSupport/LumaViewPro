@@ -70,14 +70,21 @@ class MotorBoard:
         self.driver = False
         self._fullinfo = None
         try:
-            logger.info('[XYZ Class ] Found motor controller and about to establish connection.')
-            self.connect()
+            if self.found:
+                logger.info('[XYZ Class ] Found motor controller and about to establish connection.')
+                self.connect()
+            else:
+                logger.warning('[XYZ Class ] Motor controller not found; running with inactive motion board.')
         except:
             logger.exception('[XYZ Class ] Found motor controller but unable to establish connection.')
             raise
 
     def connect(self):
         """ Try to connect to the motor controller based on the known VID/PID"""
+        if (self.found is False) or (not hasattr(self, 'port')):
+            self.driver = False
+            logger.warning('[XYZ Class ] MotorBoard.connect() skipped; motor controller not found')
+            return
         try:
             logger.info('[XYZ Class ] Found motor controller and about to create driver.')
             self.driver = serial.Serial(port=self.port,

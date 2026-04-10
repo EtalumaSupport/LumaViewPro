@@ -706,6 +706,7 @@ def get_selected_labware() -> tuple[str, labware.WellPlate]:
         except Exception as e:
             logger.exception("LVP Main: Settings file issue. Replace file with a known working version")
             logger.exception(e)
+            return None, None
     except Exception as e:
         logger.exception(f"LVP Main: Labware could not be loaded: {e}")
         logger.warning(f"Check to ensure labware {labware_id} is in the labware file")

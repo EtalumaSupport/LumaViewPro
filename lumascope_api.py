@@ -47,6 +47,7 @@ import numpy as np
 from motorboard import MotorBoard
 from ledboard import LEDBoard
 from pyloncamera import PylonCamera
+from modules.offline_hardware import OfflineCamera, OfflineLEDBoard, OfflineMotorBoard
 
 # Import additional libraries
 from lvp_logger import logger, version
@@ -62,26 +63,36 @@ class Lumascope():
         """Initialize Microscope"""
         self._coordinate_transformer = coord_transformations.CoordinateTransformer()
         self._objectives_loader = objectives_loader.ObjectiveLoader()
+        self._offline_test = os.getenv("LVP_OFFLINE_TEST", "0") == "1"
 
-        # LED Control Board
-        try:
-            self.led = LEDBoard()
+        if self._offline_test:
+            logger.info("[SCOPE API ] Offline protocol sandbox enabled")
+            self.led = OfflineLEDBoard()
+            self.motion = OfflineMotorBoard()
+            self.camera = OfflineCamera(led_board=self.led)
+        else:
 
-        except:
-            logger.exception('[SCOPE API ] LED Board Not Initialized')
-        
-        # Motion Control Board
-        try:
-            self.motion = MotorBoard()
-        except:
-            logger.exception('[SCOPE API ] Motion Board Not Initialized')
+            # LED Control Board
+            try:
+                self.led = LEDBoard()
+
+            except:
+                logger.exception('[SCOPE API ] LED Board Not Initialized')
+            
+            # Motion Control Board
+            try:
+                self.motion = MotorBoard()
+            except:
+                logger.exception('[SCOPE API ] Motion Board Not Initialized')
+
+            # Camera
+            try:
+                self.camera = PylonCamera()
+            except:
+                logger.exception('[SCOPE API ] Camera Board Not Initialized')
 
         # Camera
         self.image_buffer = None
-        try:
-            self.camera = PylonCamera()
-        except:
-            logger.exception('[SCOPE API ] Camera Board Not Initialized')
 
         # Initialize scope status booleans
         self.is_homing = False           # Is the microscope currently moving to home position
@@ -625,28 +636,28 @@ class Lumascope():
         Grab the max pixel width of camera
         """
         if (not self.camera) or (not self.camera.active): return 0
-        return self.camera.active.Width.Max
+        return self.camera.get_max_frame_size()['width']
 
     def get_max_height(self):
         """CAMERA FUNCTIONS
         Grab the max pixel height of camera
         """
         if (not self.camera) or (not self.camera.active): return 0
-        return self.camera.active.Height.Max
+        return self.camera.get_max_frame_size()['height']
       
     def get_width(self):
         """CAMERA FUNCTIONS
         Grab the current pixel width setting of camera
         """
-        if not self.camera: return 0
-        return self.camera.active.Width.GetValue()
+        if (not self.camera) or (not self.camera.active): return 0
+        return self.camera.get_frame_size()['width']
 
     def get_height(self):
         """CAMERA FUNCTIONS
         Grab the current pixel height setting of camera
         """
-        if not self.camera: return 0
-        return self.camera.active.Height.GetValue()
+        if (not self.camera) or (not self.camera.active): return 0
+        return self.camera.get_frame_size()['height']
 
     def set_frame_size(self, w, h):
         """CAMERA FUNCTIONS

@@ -77,8 +77,11 @@ class LEDBoard:
         }
 
         try:
-            logger.info('[LED Class ] Found LED controller and about to establish connection.')
-            self.connect()
+            if self.found:
+                logger.info('[LED Class ] Found LED controller and about to establish connection.')
+                self.connect()
+            else:
+                logger.warning('[LED Class ] LED controller not found; running with inactive LED board.')
         except:
             logger.exception('[LED Class ] Found LED controller but unable to establish connection.')
             raise
@@ -87,6 +90,10 @@ class LEDBoard:
     def connect(self):
         """ Try to connect to the LED controller based on the known VID/PID"""
         with self.com_lock:
+            if (self.found is False) or (not hasattr(self, 'port')):
+                self.driver = False
+                logger.warning('[LED Class ] LEDBoard.connect() skipped; LED controller not found')
+                return
 
             try:
                 logger.info('[LED Class ] Found LED controller and about to create driver.')
