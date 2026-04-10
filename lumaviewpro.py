@@ -359,6 +359,30 @@ def _update_step_number_callback(step_num: int):
     protocol_settings.update_step_ui()
 
 
+def _update_stim_info_callback(stim_config: dict):
+    """Show active stim settings in the center info label during video recording."""
+    parts = []
+    for color in stim_config:
+        cfg = stim_config[color]
+        if cfg.get('enabled', False):
+            parts.append(
+                f"{color} {cfg['illumination']} mA | "
+                f"{cfg['frequency']} Hz | "
+                f"{cfg['pulse_width']} ms | "
+                f"{cfg['pulse_count']} pulses"
+            )
+    if parts:
+        text = "Stim: " + " ; ".join(parts)
+    else:
+        text = ''
+    lumaview.ids['maindisplay_id'].ids['stim_info_label'].text = text
+
+
+def _clear_stim_info_callback():
+    """Clear the stim info label when video recording ends."""
+    lumaview.ids['maindisplay_id'].ids['stim_info_label'].text = ''
+
+
 def go_to_step(
     protocol: Protocol,
     step_idx: int,
@@ -4914,6 +4938,8 @@ class ProtocolSettings(CompositeCapture):
                 'update_step_number': _update_step_number_callback,
                 'go_to_step': go_to_step,
                 'update_scope_display': lumaview.ids['viewer_id'].ids['scope_display_id'].update_scopedisplay,
+                'stim_info': _update_stim_info_callback,
+                'clear_stim_info': _clear_stim_info_callback,
             }
         )
 

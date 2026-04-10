@@ -63,6 +63,21 @@
         pos: root.width-30, 0
 
 
+    # Stim Info Display (shown during video recording with stim)
+    Label:
+        id: stim_info_label
+        text: ''
+        size_hint: None, None
+        size: '350dp', '25dp'
+        pos: (root.width - self.width) / 2, '45dp'
+        font_size: '11sp'
+        halign: 'center'
+        valign: 'middle'
+        text_size: self.size
+        markup: True
+        color: 0.2, 1, 0.2, 1
+        opacity: 1 if self.text else 0
+
     # Camera Controls
     # ------------------------------
     BoxLayout:

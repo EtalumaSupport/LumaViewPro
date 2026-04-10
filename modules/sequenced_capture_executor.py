@@ -731,6 +731,9 @@ class SequencedCaptureExecutor:
 
                 start_event.set()
 
+                if stim_threads and 'stim_info' in self._callbacks:
+                    self._callbacks['stim_info'](step['Stim_Config'])
+
                 logger.info(f"Protocol-Video] Capturing video...")
 
                 while time.time() < stop_ts:
@@ -767,6 +770,9 @@ class SequencedCaptureExecutor:
                 stop_event.set()
                 for stim_thread in stim_threads:
                     stim_thread.join()
+
+                if stim_threads and 'clear_stim_info' in self._callbacks:
+                    self._callbacks['clear_stim_info']()
 
                 calculated_fps = captured_frames//duration_sec
             
