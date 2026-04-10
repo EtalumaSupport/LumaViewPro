@@ -913,7 +913,7 @@ class SequencedCaptureExecutor:
         led_on_timings = []
         led_off_timings = []
         led_actual_on_timings = []  # Time from LED ON command return to LED OFF command call
-        profiling_enabled = True
+        profiling_enabled = settings.get('profiling', {}).get('stim_profiling', False)
         start_epoch = None  # Will be set after start_event
         pulses_executed = 0
         end_reason = "not_started"
