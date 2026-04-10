@@ -74,9 +74,15 @@
         halign: 'center'
         valign: 'middle'
         text_size: self.size
-        markup: True
         color: 0.2, 1, 0.2, 1
         opacity: 1 if self.text else 0
+        canvas.before:
+            Color:
+                rgba: 0.1, 0.1, 0.1, 0.7
+            RoundedRectangle:
+                size: self.size
+                pos: self.pos
+                radius: [5]
 
     # Camera Controls
     # ------------------------------
