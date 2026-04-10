@@ -375,11 +375,13 @@ def _update_stim_info_callback(stim_config: dict):
         text = "Stim: " + " ; ".join(parts)
     else:
         text = ''
+    logger.info(f"[LVP Main  ] Stim info display: '{text}'")
     lumaview.ids['stim_info_label'].text = text
 
 
 def _clear_stim_info_callback():
     """Clear the stim info label when video recording ends."""
+    logger.info("[LVP Main  ] Stim info display cleared")
     lumaview.ids['stim_info_label'].text = ''
 
 
