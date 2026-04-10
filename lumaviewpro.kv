@@ -63,27 +63,6 @@
         pos: root.width-30, 0
 
 
-    # Stim Info Display (shown during video recording with stim)
-    Label:
-        id: stim_info_label
-        text: ''
-        size_hint: None, None
-        size: '350dp', '25dp'
-        pos: (root.width - self.width) / 2, '45dp'
-        font_size: '11sp'
-        halign: 'center'
-        valign: 'middle'
-        text_size: self.size
-        color: 0.2, 1, 0.2, 1
-        opacity: 1 if self.text else 0
-        canvas.before:
-            Color:
-                rgba: 0.1, 0.1, 0.1, 0.7
-            RoundedRectangle:
-                size: self.size
-                pos: self.pos
-                radius: [5]
-
     # Camera Controls
     # ------------------------------
     BoxLayout:
@@ -155,6 +134,26 @@
             size_hint: None, None
             size: '40dp', '40dp'
             on_release: root.one2one_image()
+
+        # Stim Info Display (shown during video recording with stim)
+        Label:
+            id: stim_info_label
+            text: ''
+            size_hint: None, None
+            size: '350dp', '40dp'
+            font_size: '11sp'
+            halign: 'center'
+            valign: 'middle'
+            text_size: self.size
+            color: 0.2, 1, 0.2, 1
+            opacity: 1 if self.text else 0
+            canvas.before:
+                Color:
+                    rgba: 0.1, 0.1, 0.1, (0.7 if self.text else 0)
+                RoundedRectangle:
+                    size: self.size
+                    pos: self.pos
+                    radius: [5]
 
 
 # ShaderViewer - Shaded Live Camera view
