@@ -488,6 +488,8 @@ class MicroscopeSettings(BoxLayout):
                     stim_config = settings[layer]['stim_config']
                     layer_obj.ids['stim_enable_btn'].active = stim_config['enabled']
                     layer_obj.ids['stim_disable_btn'].active = not stim_config['enabled']
+                    layer_obj.ids['stim_ill_text'].text = str(stim_config.get('illumination', 100))
+                    layer_obj.ids['stim_ill_slider'].value = float(stim_config.get('illumination', 100))
                     layer_obj.ids['stim_freq_text'].text = str(stim_config['frequency'])
                     layer_obj.ids['stim_freq_slider'].value = float(stim_config['frequency'])
                     layer_obj.ids['stim_pulse_width_text'].text = str(stim_config['pulse_width'])
@@ -496,9 +498,11 @@ class MicroscopeSettings(BoxLayout):
                     layer_obj.ids['stim_pulse_count_slider'].value = int(stim_config['pulse_count'])
 
                     # Force hide until enabled
+                    layer_obj.ids['stim_ill_box'].visible = False
                     layer_obj.ids['stim_pulse_count_box'].visible = False
                     layer_obj.ids['stim_freq_box'].visible = False
                     layer_obj.ids['stim_pulse_width_box'].visible = False
+                    layer_obj.ids['stim_ill_box'].opacity = 0
                     layer_obj.ids['stim_pulse_count_box'].opacity = 0
                     layer_obj.ids['stim_freq_box'].opacity = 0
                     layer_obj.ids['stim_pulse_width_box'].opacity = 0

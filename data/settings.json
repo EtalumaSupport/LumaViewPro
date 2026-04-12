@@ -188,7 +188,8 @@
     "mode": "normal",
     "debug_mode": false,
     "profiling": {
-        "enabled": false
+        "enabled": false,
+        "stim_profiling": false
     },
     "scale_bar": {
         "enabled": false

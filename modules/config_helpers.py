@@ -55,7 +55,6 @@ def get_layer_configs(settings: dict, specific_layers: list | None = None) -> di
         if 'stim_config' in layer_settings:
             # Copy stim_config so we don't mutate the input settings dict
             stim_config = dict(layer_settings['stim_config'])
-            stim_config['illumination'] = layer_settings['ill']
         else:
             stim_config = None
 
@@ -67,10 +66,6 @@ def get_layer_configs(settings: dict, specific_layers: list | None = None) -> di
         auto_gain = common_utils.to_bool(layer_settings['auto_gain'])
         exposure = round(layer_settings['exp'], common_utils.max_decimal_precision('exposure'))
         focus = layer_settings['focus']
-
-        # Final check to ensure consistent stim_config.illumination
-        if stim_config is not None:
-            stim_config['illumination'] = illumination
 
         layer_configs[layer] = {
             'acquire': acquire,

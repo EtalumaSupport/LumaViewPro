@@ -52,6 +52,8 @@ class ProtocolImageWriter:
         leds_off_fn,
         led_on_fn,
         is_run_in_progress_fn,
+        stim_profiling: bool = False,
+        run_dir: pathlib.Path | None = None,
     ):
         self._scope = scope
         self._callbacks = callbacks
@@ -63,6 +65,8 @@ class ProtocolImageWriter:
         self._leds_off = leds_off_fn
         self._led_on = led_on_fn
         self._is_run_in_progress = is_run_in_progress_fn
+        self._stim_profiling = stim_profiling
+        self._run_dir = run_dir
         self._consecutive_capture_failures = 0
         self._MAX_CONSECUTIVE_CAPTURE_FAILURES = 3
 
@@ -184,6 +188,8 @@ class ProtocolImageWriter:
                     is_protocol_running_fn=self._protocol_executor.is_protocol_running,
                     callbacks=self._callbacks.to_dict(),
                     leds_off_fn=self._leds_off,
+                    stim_profiling=self._stim_profiling,
+                    run_dir=self._run_dir,
                 )
                 video_result = session.capture()
 
