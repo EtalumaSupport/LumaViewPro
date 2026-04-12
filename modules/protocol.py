@@ -1392,33 +1392,57 @@ class Protocol:
         if (config['version'] < cls.CURRENT_VERSION):
             logger.info(f"Converting loaded protocol from {config['version']} to {cls.CURRENT_VERSION}")
 
+        def _parse_config_per_row(row, column, default):
+            """Parse a JSON config string for a single row.
+
+            Returns the parsed dict, or a fresh deepcopy of default if that
+            row's value is missing or corrupt.  Errors are logged with the
+            step name so the bad row is easy to find.  If the value is already
+            a dict (programmatic build), returns it as-is.
+            """
+            val = row[column]
+            if isinstance(val, dict):
+                return val
+            try:
+                return json.loads(val)
+            except Exception as ex:
+                step_name = row.get('Name', '?')
+                logger.error(
+                    f"Unable to parse {column} for step '{step_name}', "
+                    f"using default: {ex}"
+                )
+                return copy.deepcopy(default)
+
         if (config['version'] == 2) and (cls.CURRENT_VERSION >= 4):
             protocol_df['Acquire'] = "image"
-            # Ensure each row gets its own Video Config dict
-            protocol_df['Video Config'] = copy.deepcopy(DEFAULT_VIDEO_CONFIG)
+            # Each row gets its own independent dict
+            protocol_df['Video Config'] = [
+                copy.deepcopy(DEFAULT_VIDEO_CONFIG)
+                for _ in range(len(protocol_df))
+            ]
         else:
-
-            # Convert Video Config strings per step to dictionary
-            try:
-                protocol_df['Video Config'] = protocol_df.apply(lambda x: json.loads(x['Video Config']), axis=1)
-            except Exception as ex:
-                logger.error(f"Unable to parse video config, using default instead: {ex}")
-                protocol_df['Video Config'] = copy.deepcopy(DEFAULT_VIDEO_CONFIG)
+            # Parse per-row so one corrupt row doesn't wipe all configs
+            protocol_df['Video Config'] = protocol_df.apply(
+                lambda row: _parse_config_per_row(row, 'Video Config', DEFAULT_VIDEO_CONFIG),
+                axis=1,
+            )
 
 
         if (config['version'] in (2,3,)) and (cls.CURRENT_VERSION >= 4):
             protocol_df['Sum'] = DEFAULT_SUM_CONFIG
 
         if (config['version'] in (2,3,4)) and (cls.CURRENT_VERSION >= 5):
-            # Ensure each row gets its own Stim Config dict
-            protocol_df['Stim_Config'] = copy.deepcopy(DEFAULT_STIM_CONFIG)
+            # Each row gets its own independent dict
+            protocol_df['Stim_Config'] = [
+                copy.deepcopy(DEFAULT_STIM_CONFIG)
+                for _ in range(len(protocol_df))
+            ]
         else:
-            # Convert Stim Config strings per step to dictionary
-            try:
-                protocol_df['Stim_Config'] = protocol_df.apply(lambda x: json.loads(x['Stim_Config']), axis=1)
-            except Exception as ex:
-                logger.error(f"Unable to parse stim config, using default instead: {ex}")
-                protocol_df['Stim_Config'] = copy.deepcopy(DEFAULT_STIM_CONFIG)
+            # Parse per-row so one corrupt row doesn't wipe all configs
+            protocol_df['Stim_Config'] = protocol_df.apply(
+                lambda row: _parse_config_per_row(row, 'Stim_Config', DEFAULT_STIM_CONFIG),
+                axis=1,
+            )
 
         if config['version'] in (2, 3, 4, 5):
             protocol_df['Step Index'] = protocol_df.index

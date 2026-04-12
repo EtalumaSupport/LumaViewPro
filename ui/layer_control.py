@@ -175,9 +175,6 @@ class LayerControl(BoxLayout):
             gui_logger.slider(f'ILLUMINATION_{self.layer}', illumination)
         settings[self.layer]['ill'] = illumination
 
-        if 'stim_config' in settings[self.layer]:
-            settings[self.layer]['stim_config']['illumination'] = illumination
-
         # Update text only if changed to reduce ScrollView recalculations
         new_text = str(illumination)
         if self.ids['ill_text'].text != new_text:
@@ -207,9 +204,6 @@ class LayerControl(BoxLayout):
         settings[self.layer]['ill'] = illumination
         self.ids['ill_slider'].value = float(np.clip(illumination, ill_min, self.ids['ill_slider'].max))
         self.ids['ill_text'].text = str(illumination)
-
-        if 'stim_config' in settings[self.layer]:
-            settings[self.layer]['stim_config']['illumination'] = illumination
 
         self.apply_settings()
 
@@ -472,6 +466,28 @@ class LayerControl(BoxLayout):
         ):
             self.apply_settings()
 
+    def stim_ill_slider(self):
+        settings = _app_ctx.ctx.settings
+        logger.info('[LVP Main  ] LayerControl.stim_ill_slider()')
+        illumination = round(self.ids['stim_ill_slider'].value)
+        gui_logger.slider(f'STIM_ILL_{self.layer}', illumination)
+        try:
+            settings[self.layer]['stim_config']['illumination'] = illumination
+        except Exception as e:
+            logger.error(f"[LVP Main  ] LayerControl.stim_ill_slider() -> {e}")
+        new_text = str(illumination)
+        if self.ids['stim_ill_text'].text != new_text:
+            self.ids['stim_ill_text'].text = new_text
+        self.apply_settings()
+
+    def stim_ill_text(self):
+        logger.info('[LVP Main  ] LayerControl.stim_ill_text()')
+        if self._validate_and_apply_text_input(
+            'stim_ill_text', 'stim_ill_slider', 'illumination',
+            cast=int, settings_path='stim_config.illumination',
+        ):
+            self.apply_settings()
+
     def false_color(self):
         settings = _app_ctx.ctx.settings
         logger.info('[LVP Main  ] LayerControl.false_color()')
@@ -680,6 +696,8 @@ class LayerControl(BoxLayout):
                     self.ids['stim_disable_btn'].active = True
                     self.ids['stim_enable_btn'].active = False
                 self.update_stim_controls_visibility()
+                self.ids['stim_ill_text'].text = str(stim.get('illumination', 100))
+                self.ids['stim_ill_slider'].value = float(stim.get('illumination', 100))
                 self.ids['stim_freq_text'].text = str(stim.get('frequency', 1))
                 self.ids['stim_freq_slider'].value = float(stim.get('frequency', 1))
                 self.ids['stim_pulse_width_text'].text = str(stim.get('pulse_width', 10))

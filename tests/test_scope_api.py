@@ -163,11 +163,22 @@ class TestGetLayerConfigs:
         for cfg in configs.values():
             assert cfg['stim_config'] is None
 
-    def test_stim_config_illumination_synced(self):
+    def test_stim_config_illumination_independent(self):
+        """Stim illumination is independent from imaging illumination.
+
+        The stim brightness slider controls stim_config['illumination']
+        directly -- it is NOT force-synced to the layer's imaging illumination.
+        """
         settings = _make_settings(with_stim=True)
+        # Set stim illumination to a different value than layer illumination
+        for layer in settings:
+            if isinstance(settings[layer], dict) and 'stim_config' in settings[layer]:
+                settings[layer]['stim_config']['illumination'] = 200
         configs = config_helpers.get_layer_configs(settings)
         for cfg in configs.values():
-            assert cfg['stim_config']['illumination'] == cfg['illumination']
+            assert cfg['stim_config']['illumination'] == 200
+            # Layer illumination is different (50.123456 rounded)
+            assert cfg['illumination'] != 200
 
     def test_auto_gain_bool_conversion(self):
         settings = _make_settings()

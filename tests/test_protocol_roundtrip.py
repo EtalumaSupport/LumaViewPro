@@ -1889,3 +1889,82 @@ class TestLumascapeAPICamera:
         import numpy as np
         result = scope.capture_and_wait()
         assert isinstance(result, np.ndarray), f"capture_and_wait returned {type(result)}"
+
+
+# ===========================================================================
+# REGRESSION: per-row config parsing (ported from archive/2.3.2-OG)
+# ===========================================================================
+
+class TestPerRowConfigParsing:
+    """One corrupt row must not wipe all rows to defaults.
+
+    Regression tests for per-row config parsing fix ported from
+    archive/2.3.2-OG. Previously, one corrupt row caused ALL rows to
+    fall back to defaults (all-or-nothing try/except around .apply()).
+    """
+
+    def _save_and_corrupt(self, tmp_path, steps, column, corrupt_row_idx, corrupt_value):
+        """Save a protocol, corrupt one cell in the TSV, and reload."""
+        proto = _build_protocol(steps)
+        tsv_path = tmp_path / "test.tsv"
+        proto.to_file(tsv_path)
+
+        lines = tsv_path.read_text().splitlines()
+        # Find the header line (starts with "Name\t")
+        header_idx = next(i for i, l in enumerate(lines) if l.startswith("Name\t"))
+        header = lines[header_idx].split('\t')
+        col_idx = header.index(column)
+
+        # Corrupt the specified data row
+        data_line_idx = header_idx + 1 + corrupt_row_idx
+        parts = lines[data_line_idx].split('\t')
+        parts[col_idx] = corrupt_value
+        lines[data_line_idx] = '\t'.join(parts)
+        tsv_path.write_text('\n'.join(lines))
+
+        return Protocol.from_file(tsv_path, tiling_configs_file_loc=TILING_CONFIGS)
+
+    def test_one_corrupt_video_config_preserves_others(self, tmp_path):
+        """If one row has corrupt Video Config JSON, only that row gets default."""
+        steps = [
+            _make_step(name="A1_BF", video_config={"duration": 5.0, "fps": 10}),
+            _make_step(name="A2_BF", video_config={"duration": 5.0, "fps": 10}),
+            _make_step(name="A3_BF", video_config={"duration": 5.0, "fps": 10}),
+        ]
+        loaded = self._save_and_corrupt(
+            tmp_path, steps, 'Video Config', corrupt_row_idx=1,
+            corrupt_value="THIS IS NOT JSON",
+        )
+
+        # Good rows should keep their custom config
+        assert loaded.step(idx=0)['Video Config']['duration'] == 5.0
+        assert loaded.step(idx=2)['Video Config']['duration'] == 5.0
+        # Corrupt row should have the default, not crash
+        assert isinstance(loaded.step(idx=1)['Video Config'], dict)
+
+    def test_one_corrupt_stim_config_preserves_others(self, tmp_path):
+        """If one row has corrupt Stim_Config JSON, only that row gets default."""
+        sc = _stim_config_enabled(channels=["Red"])
+        steps = [
+            _make_step(name="A1_BF", stim_config=sc),
+            _make_step(name="A2_BF", stim_config=sc),
+            _make_step(name="A3_BF", stim_config=sc),
+        ]
+        loaded = self._save_and_corrupt(
+            tmp_path, steps, 'Stim_Config', corrupt_row_idx=1,
+            corrupt_value="{BROKEN",
+        )
+        # Good rows should keep their stim config
+        assert loaded.step(idx=0)['Stim_Config']['Red']['enabled'] is True
+        assert loaded.step(idx=2)['Stim_Config']['Red']['enabled'] is True
+        # Corrupt row should have default (all disabled), not crash
+        assert isinstance(loaded.step(idx=1)['Stim_Config'], dict)
+
+    def test_default_assignment_gives_independent_dicts(self):
+        """Each row's default config must be independent (no shared mutable dict)."""
+        steps = [_make_step(name="A"), _make_step(name="B")]
+        proto = _build_protocol(steps)
+        # Mutate one row's video config
+        proto.step(idx=0)['Video Config']['duration'] = 999
+        # Other row should be unaffected
+        assert proto.step(idx=1)['Video Config']['duration'] != 999
