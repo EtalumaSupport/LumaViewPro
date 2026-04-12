@@ -17,10 +17,10 @@ _REQUIRED_SETTINGS_KEYS = frozenset({
 
 
 def _validate_settings(settings: dict, filepath: str, logger) -> None:
-    """Check that loaded settings contain all required keys.
+    """Check that loaded settings contain all required keys and types.
 
-    Logs warnings for missing keys but does not raise — allows the app
-    to start with partial config rather than crashing on startup.
+    Raises on missing critical keys. Warns on missing optional keys or
+    type mismatches — allows the app to start with partial config.
     """
     missing = _REQUIRED_SETTINGS_KEYS - settings.keys()
     if missing:
@@ -30,8 +30,46 @@ def _validate_settings(settings: dict, filepath: str, logger) -> None:
         )
 
     # Type checks for critical nested structures
-    if 'frame' in settings and not isinstance(settings['frame'], dict):
-        logger.warning(f'[Settings ] {filepath}: "frame" should be a dict, got {type(settings["frame"]).__name__}')
+    if 'frame' in settings:
+        frame = settings['frame']
+        if not isinstance(frame, dict):
+            logger.warning(f'[Settings ] {filepath}: "frame" should be a dict, got {type(frame).__name__}')
+        else:
+            for field in ('width', 'height'):
+                if field not in frame:
+                    logger.warning(f'[Settings ] {filepath}: "frame" missing "{field}"')
+                elif not isinstance(frame[field], int):
+                    logger.warning(f'[Settings ] {filepath}: "frame.{field}" should be int, got {type(frame[field]).__name__}')
+
+    # Validate layer settings have expected structure
+    from modules.common_utils import get_layers
+    _REQUIRED_LAYER_FIELDS = {
+        'ill': (int, float),
+        'gain': (int, float),
+        'exp': (int, float),
+        'acquire': (str, type(None)),
+        'autofocus': bool,
+        'false_color': (bool, list),
+        'focus': (int, float),
+    }
+    for layer in get_layers():
+        if layer not in settings:
+            logger.warning(f'[Settings ] {filepath}: missing layer "{layer}"')
+            continue
+        layer_settings = settings[layer]
+        if not isinstance(layer_settings, dict):
+            logger.warning(f'[Settings ] {filepath}: "{layer}" should be dict')
+            continue
+        for field, expected_type in _REQUIRED_LAYER_FIELDS.items():
+            if field not in layer_settings:
+                logger.warning(f'[Settings ] {filepath}: "{layer}" missing "{field}"')
+
+    # Validate motion settings
+    if 'motion' in settings:
+        if not isinstance(settings['motion'], dict):
+            logger.warning(f'[Settings ] {filepath}: "motion" should be dict')
+        elif 'acceleration_max_pct' not in settings['motion']:
+            logger.warning(f'[Settings ] {filepath}: "motion" missing "acceleration_max_pct"')
 
 
 def load_settings(logger, filename, lvp_appdata):

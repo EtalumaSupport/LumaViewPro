@@ -57,7 +57,8 @@ class ZStack(FloatLayout):
             step_size = 0
             self.ids['zstack_stepsize_id'].text = str(step_size)
         finally:
-            settings['zstack']['step_size'] = step_size
+            with _app_ctx.ctx.settings_lock:
+                settings['zstack']['step_size'] = step_size
 
         try:
             step_range = float(self.ids['zstack_range_id'].text)
@@ -68,7 +69,8 @@ class ZStack(FloatLayout):
             step_range = 0
             self.ids['zstack_range_id'].text = str(step_range)
         finally:
-            settings['zstack']['range'] = step_range
+            with _app_ctx.ctx.settings_lock:
+                settings['zstack']['range'] = step_range
 
         z_reference = common_utils.convert_zstack_reference_position_setting_to_config(
             text_label=self.ids['zstack_spinner'].text
@@ -85,8 +87,9 @@ class ZStack(FloatLayout):
 
 
     def set_position(self):
-        settings = _app_ctx.ctx.settings
-        settings['zstack']['position'] = self.ids['zstack_spinner'].text
+        ctx = _app_ctx.ctx
+        with ctx.settings_lock:
+            ctx.settings['zstack']['position'] = self.ids['zstack_spinner'].text
 
 
     def _reset_run_zstack_acquire_button(self, **kwargs):

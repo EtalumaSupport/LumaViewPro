@@ -243,7 +243,8 @@ def reset_stim_ui():
         layer_obj = ctx.image_settings.layer_lookup(layer=layer)
         if "stim_config" in ctx.settings[layer]:
             if ctx.settings[layer]['stim_config'] is not None:
-                ctx.settings[layer]['stim_config']['enabled'] = False
+                with ctx.settings_lock:
+                    ctx.settings[layer]['stim_config']['enabled'] = False
                 layer_obj._initializing = True
                 try:
                     layer_obj.ids['stim_disable_btn'].active = True

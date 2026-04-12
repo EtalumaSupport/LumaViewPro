@@ -53,6 +53,26 @@ class MicroscopeSettings(BoxLayout):
                 "Please restore from backup or reinstall."
             )
 
+        self._validate_scopes(scopes_path)
+
+    def _validate_scopes(self, filepath):
+        """Check scopes.json has required structure per scope entry."""
+        if not isinstance(self.scopes, dict):
+            raise ValueError(f"scopes.json at {filepath}: expected dict, got {type(self.scopes).__name__}")
+        _REQUIRED_SCOPE_FIELDS = {'Focus': bool, 'XYStage': bool, 'Turret': bool, 'Layers': dict}
+        for scope_id, scope in self.scopes.items():
+            if not isinstance(scope, dict):
+                logger.warning(f"[Scopes    ] '{scope_id}' should be dict in {filepath}")
+                continue
+            for field, expected_type in _REQUIRED_SCOPE_FIELDS.items():
+                if field not in scope:
+                    logger.warning(f"[Scopes    ] '{scope_id}' missing '{field}' in {filepath}")
+                elif not isinstance(scope[field], expected_type):
+                    logger.warning(
+                        f"[Scopes    ] '{scope_id}'.'{field}' should be "
+                        f"{expected_type.__name__}, got {type(scope[field]).__name__} in {filepath}"
+                    )
+
         # try:
         #     os.chdir(source_path)
         #     with open('./data/objectives.json', "r") as read_file:
@@ -163,7 +183,8 @@ class MicroscopeSettings(BoxLayout):
 
     def set_acceleration_limit(self, val_pct: int):
         ctx = _app_ctx.ctx
-        ctx.settings['motion']['acceleration_max_pct'] = val_pct
+        with ctx.settings_lock:
+            ctx.settings['motion']['acceleration_max_pct'] = val_pct
         ctx.lumaview.scope.set_acceleration_limit(val_pct=val_pct)
 
 
@@ -180,7 +201,8 @@ class MicroscopeSettings(BoxLayout):
         if fps_val > 60:
             fps_val = 0
         ctx.live_view_fps = fps_val
-        ctx.settings['live_view_fps'] = fps_val
+        with ctx.settings_lock:
+            ctx.settings['live_view_fps'] = fps_val
         logger.info(f'[LVP Main  ] Live view FPS set to {"Max (uncapped)" if fps_val == 0 else fps_val}')
 
         # Restart scope display with new FPS

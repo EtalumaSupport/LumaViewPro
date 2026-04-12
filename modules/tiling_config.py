@@ -31,6 +31,32 @@ class TilingConfig:
                 "Please restore from backup or reinstall."
             )
 
+        self._validate_tiling(tiling_configs_file_loc)
+
+    def _validate_tiling(self, filepath):
+        """Check tiling.json has required structure."""
+        cfg = self._available_configs
+        if not isinstance(cfg, dict):
+            raise ValueError(f"tiling.json at {filepath}: expected dict, got {type(cfg).__name__}")
+        if 'metadata' not in cfg:
+            logger.warning(f"[Tiling    ] missing 'metadata' key in {filepath}")
+        if 'data' not in cfg:
+            raise ValueError(f"tiling.json at {filepath}: missing required 'data' key")
+        if not isinstance(cfg['data'], dict):
+            raise ValueError(f"tiling.json at {filepath}: 'data' must be a dict")
+        for label, entry in cfg['data'].items():
+            if not isinstance(entry, dict):
+                logger.warning(f"[Tiling    ] '{label}' should be dict in {filepath}")
+                continue
+            for field in ('m', 'n'):
+                if field not in entry:
+                    logger.warning(f"[Tiling    ] '{label}' missing '{field}' in {filepath}")
+                elif not isinstance(entry[field], int):
+                    logger.warning(
+                        f"[Tiling    ] '{label}'.'{field}' should be int, "
+                        f"got {type(entry[field]).__name__} in {filepath}"
+                    )
+
 
     def available_configs(self) -> list[str]:
         return list(self._available_configs['data'].keys())

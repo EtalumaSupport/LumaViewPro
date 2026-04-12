@@ -286,7 +286,9 @@ def write_tiff(
             and color in common_utils.get_image_layers()):
         try:
             from modules import app_context as _app_ctx
-            if _app_ctx.ctx.settings.get('false_color_16bit', False):
+            with _app_ctx.ctx.settings_lock:
+                use_false_color_16bit = _app_ctx.ctx.settings.get('false_color_16bit', False)
+            if use_false_color_16bit:
                 data = add_false_color(data, color)
                 # IMPORTANT: add_false_color() returns BGR (OpenCV convention
                 # used throughout the app), but tifffile.imwrite() expects RGB.

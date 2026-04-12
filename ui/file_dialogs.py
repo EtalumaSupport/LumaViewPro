@@ -243,7 +243,8 @@ class FolderChooseBTN(HoverBehavior, Button):
             return
 
         if self.context == 'live_folder':
-            settings['live_folder'] = str(pathlib.Path(path).resolve())
+            with ctx.settings_lock:
+                settings['live_folder'] = str(pathlib.Path(path).resolve())
         elif self.context == 'apply_cell_count_method_to_folder':
             ctx.cell_count_content.apply_method_to_folder(
                 path=path

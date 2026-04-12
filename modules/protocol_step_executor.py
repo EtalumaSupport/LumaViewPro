@@ -154,7 +154,8 @@ class ProtocolStepExecutor:
         bf_af_for_fluor = False
         try:
             import modules.app_context as _app_ctx
-            bf_af_for_fluor = _app_ctx.ctx.settings.get('protocol', {}).get('bf_af_for_fluorescence', False)
+            with _app_ctx.ctx.settings_lock:
+                bf_af_for_fluor = _app_ctx.ctx.settings.get('protocol', {}).get('bf_af_for_fluorescence', False)
         except Exception as e:
             logger.debug(f"[Capture   ] Could not read bf_af_for_fluorescence setting: {e}")
         if bf_af_for_fluor and step['Color'] != 'BF':

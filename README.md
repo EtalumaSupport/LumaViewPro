@@ -4,7 +4,7 @@ LumaViewPro is an open-source fluorescence microscope control application writte
 
 **Current version:** 4.0.0-beta
 
-![lvpscreenshot2](https://user-images.githubusercontent.com/108957480/179601967-8c2f3be7-5371-4091-9f07-fd34e1c8f9bb.png)
+<img width="1920" height="1038" alt="850System" src="https://github.com/user-attachments/assets/e402a4b3-ea5d-4f4b-847e-8dc5b9784ad0" />
 
 ## Hardware Overview
 

@@ -1214,7 +1214,8 @@ class ProtocolSettings(FloatLayout):
         """Toggle: use BF autofocus result for all fluorescence channels."""
         ctx = _app_ctx.ctx
         enabled = self.ids['bf_af_for_fluorescence_btn'].state == 'down'
-        ctx.settings['protocol']['bf_af_for_fluorescence'] = enabled
+        with ctx.settings_lock:
+            ctx.settings['protocol']['bf_af_for_fluorescence'] = enabled
         logger.info(f'[Protocol  ] BF AF for fluorescence: {enabled}')
 
     def run_autofocus_scan_from_ui(self):

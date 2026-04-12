@@ -11,6 +11,40 @@ from modules.path_utils import resolve_data_file
 logger = logging.getLogger('LVP.modules.objectives_loader')
 
 
+_REQUIRED_OBJECTIVE_FIELDS = {
+    'description': str,
+    'magnification': (int, float),
+    'focal_length': (int, float),
+    'aperture': (int, float),
+    'DOF': (int, float),
+    'working_distance': (int, float),
+    'AF_min': (int, float),
+    'AF_max': (int, float),
+    'AF_range': (int, float),
+    'z_fine': (int, float),
+    'z_coarse': (int, float),
+    'xy_fine': (int, float),
+    'xy_coarse': (int, float),
+}
+
+
+def _validate_objectives(objectives: dict, filepath: str) -> None:
+    """Validate objectives.json structure: each entry must have required fields."""
+    if not isinstance(objectives, dict):
+        raise ValueError(f"objectives.json at {filepath}: expected dict, got {type(objectives).__name__}")
+    for obj_id, obj in objectives.items():
+        if not isinstance(obj, dict):
+            raise ValueError(f"objectives.json: objective '{obj_id}' must be a dict")
+        for field, expected_type in _REQUIRED_OBJECTIVE_FIELDS.items():
+            if field not in obj:
+                logger.warning(f"[Objectives] '{obj_id}' missing field '{field}' in {filepath}")
+            elif not isinstance(obj[field], expected_type):
+                logger.warning(
+                    f"[Objectives] '{obj_id}'.'{field}' should be "
+                    f"{expected_type}, got {type(obj[field]).__name__} in {filepath}"
+                )
+
+
 class ObjectiveLoader:
 
     def __init__(self, *arg, source_path: str | pathlib.Path | None = None):
@@ -31,6 +65,7 @@ class ObjectiveLoader:
                 "Please restore from backup or reinstall."
             )
 
+        _validate_objectives(self._objectives, filepath)
         self._generate_short_names()
         self._objectives_df = pd.DataFrame.from_dict(self._objectives, orient='index')
         

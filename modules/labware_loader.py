@@ -9,6 +9,51 @@ from modules.path_utils import resolve_data_file
 
 logger = logging.getLogger('LVP.modules.labware_loader')
 
+_REQUIRED_WELLPLATE_FIELDS = {
+    'columns': int,
+    'rows': int,
+    'dimensions': dict,
+    'spacing': dict,
+    'offset': dict,
+}
+
+_REQUIRED_DIMENSION_FIELDS = {'x': (int, float), 'y': (int, float)}
+
+
+def _validate_labware(labware: dict, filepath: str) -> None:
+    """Validate labware.json: check structure and required fields per entry."""
+    if not isinstance(labware, dict):
+        raise ValueError(f"labware.json at {filepath}: expected dict, got {type(labware).__name__}")
+    for category, items in labware.items():
+        if not isinstance(items, dict):
+            logger.warning(f"[Labware   ] category '{category}' should be dict in {filepath}")
+            continue
+        if category == 'Slide':
+            continue  # Slides only need x/y/z
+        for name, entry in items.items():
+            if not isinstance(entry, dict):
+                logger.warning(f"[Labware   ] '{category}/{name}' should be dict in {filepath}")
+                continue
+            for field, expected_type in _REQUIRED_WELLPLATE_FIELDS.items():
+                if field not in entry:
+                    logger.warning(f"[Labware   ] '{category}/{name}' missing '{field}' in {filepath}")
+                elif not isinstance(entry[field], expected_type):
+                    logger.warning(
+                        f"[Labware   ] '{category}/{name}'.'{field}' should be "
+                        f"{expected_type.__name__}, got {type(entry[field]).__name__} in {filepath}"
+                    )
+            # Check nested dimension/spacing/offset dicts
+            for subfield in ('dimensions', 'spacing', 'offset'):
+                sub = entry.get(subfield)
+                if isinstance(sub, dict):
+                    for coord, coord_type in _REQUIRED_DIMENSION_FIELDS.items():
+                        if coord not in sub:
+                            logger.warning(
+                                f"[Labware   ] '{category}/{name}'.'{subfield}' "
+                                f"missing '{coord}' in {filepath}"
+                            )
+
+
 class LabwareLoader(object):
     """A class that stores and computes actions for objective labware"""
 
@@ -34,6 +79,8 @@ class LabwareLoader(object):
                 f"labware.json is corrupt ({e}). "
                 "Please restore from backup or reinstall."
             )
+
+        _validate_labware(self.labware, filepath)
         
 
 class SlideLoader(LabwareLoader):

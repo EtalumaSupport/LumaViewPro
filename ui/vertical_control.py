@@ -203,9 +203,9 @@ class VerticalControl(BoxLayout):
 
     def ex_set_bookmark(self):
         ctx = _app_ctx.ctx
-        settings = ctx.settings
         height = ctx.lumaview.scope.get_current_position('Z')  # Get current z height in um
-        settings['bookmark']['z'] = height
+        with ctx.settings_lock:
+            ctx.settings['bookmark']['z'] = height
 
     def set_all_bookmarks(self):
         gui_logger.button('SET_ALL_BOOKMARKS')
@@ -215,25 +215,26 @@ class VerticalControl(BoxLayout):
 
     def ex_set_all_bookmarks(self):
         ctx = _app_ctx.ctx
-        settings = ctx.settings
         height = ctx.lumaview.scope.get_current_position('Z')  # Get current z height in um
-        settings['bookmark']['z'] = height
-        settings['BF']['focus'] = height
-        settings['PC']['focus'] = height
-        settings['DF']['focus'] = height
-        settings['Blue']['focus'] = height
-        settings['Green']['focus'] = height
-        settings['Red']['focus'] = height
-        settings['Lumi']['focus'] = height
+        with ctx.settings_lock:
+            settings = ctx.settings
+            settings['bookmark']['z'] = height
+            settings['BF']['focus'] = height
+            settings['PC']['focus'] = height
+            settings['DF']['focus'] = height
+            settings['Blue']['focus'] = height
+            settings['Green']['focus'] = height
+            settings['Red']['focus'] = height
+            settings['Lumi']['focus'] = height
 
     def goto_bookmark(self):
         gui_logger.button('GOTO_Z_BOOKMARK')
         ctx = _app_ctx.ctx
         if ctx.protocol_running.is_set():
             return
-        settings = ctx.settings
         logger.info('[LVP Main  ] VerticalControl.goto_bookmark()')
-        pos = settings['bookmark']['z']
+        with ctx.settings_lock:
+            pos = ctx.settings['bookmark']['z']
         ctx.io_executor.put(IOTask(action=move_absolute_position, args=('Z', pos)))
 
     @debounce(1.0)
@@ -273,7 +274,8 @@ class VerticalControl(BoxLayout):
             # Update objective stored in settings
             objective_id = self.ids['objective_spinner2'].text
             objective = ctx.objective_helper.get_objective_info(objective_id=objective_id)
-            settings['objective_id'] = objective_id
+            with ctx.settings_lock:
+                settings['objective_id'] = objective_id
 
             # Update magnification UI info
             microscope_settings_id = ctx.motion_settings.ids['microscope_settings_id']
@@ -600,7 +602,8 @@ class VerticalControl(BoxLayout):
             selected_turret_id.text = f"{magnification}x"
 
             # Update settings
-            settings["turret_objectives"][selected_turret] = desired_objective_id
+            with _app_ctx.ctx.settings_lock:
+                settings["turret_objectives"][selected_turret] = desired_objective_id
 
         except Exception as e:
             logger.exception(f"SetTurretObjective] Error: {e}")
@@ -625,7 +628,8 @@ class VerticalControl(BoxLayout):
             selected_turret_id.text = str(selected_turret)
 
             # Update settings
-            settings["turret_objectives"][selected_turret] = None
+            with _app_ctx.ctx.settings_lock:
+                settings["turret_objectives"][selected_turret] = None
 
         except Exception as e:
             logger.exception(f"ResetTurretObjective] Error: {e}")
