@@ -2349,8 +2349,28 @@ class Lumascope():
         _api_log.info('zhome DONE')
 
     def xyhome(self):
-        """Home the XY axes (stage). Z axis and turret always home first."""
-        #if not self.motion: return
+        """Home the XY axes (stage). Z axis and turret always home first.
+
+        Silently no-ops when X or Y is not physically present (e.g. LS820
+        bench boards without an XY stage, or when no motor hardware is
+        connected at all and NullMotionBoard is in use). See issue #616 —
+        a user comment reported that every startup raised a "Homing Failed"
+        error popup on a Z-only unit because xyhome was called unconditionally.
+        """
+        try:
+            present = self.motion.detect_present_axes()
+        except Exception as e:
+            logger.info(
+                f"[SCOPE API ] xyhome skipped — motion board cannot report "
+                f"axes present ({e})"
+            )
+            return
+        if 'X' not in present or 'Y' not in present:
+            logger.info(
+                f"[SCOPE API ] xyhome skipped — X/Y not physically present "
+                f"(axes present: {present})"
+            )
+            return
         _api_log.info('xyhome START')
         for ax in ('X', 'Y', 'Z'):
             self._set_axis_state(ax, AxisState.HOMING)

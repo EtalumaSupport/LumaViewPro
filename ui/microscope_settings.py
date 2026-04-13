@@ -18,6 +18,7 @@ import modules.app_context as _app_ctx
 import modules.binning as binning
 import modules.common_utils as common_utils
 from modules import gui_logger
+from modules.config_helpers import get_safe_max_exposure
 from modules.config_ui_getters import get_binning_from_ui, get_current_frame_dimensions, get_selected_labware
 from modules.common_utils import CustomJSONizer
 from modules.path_utils import resolve_data_file
@@ -273,14 +274,9 @@ class MicroscopeSettings(BoxLayout):
             self.ids['sequenced_image_output_format_spinner'].text = settings['image_output_format']['sequenced']
             self.select_sequenced_image_output_format()
 
-            try:
-                # Model name and max exposure are now set during camera connect().
-                # Just read the already-computed max exposure here.
-                max_exposure = lumaview.scope.camera_max_exposure
-            except Exception as e:
-                logger.error(f"Error getting camera information (Camera may not be connected): {e}")
-                logger.warning(f"Maximum Exposure defaulted to 1000 ms")
-                max_exposure = 1000
+            # get_safe_max_exposure returns DEFAULT_MAX_EXPOSURE_MS when no
+            # camera is connected (camera cache defaults to 0.0). See #616.
+            max_exposure = get_safe_max_exposure(lumaview.scope)
 
             ctx.max_exposure = max_exposure
 

@@ -109,6 +109,10 @@ class NullMotionBoard:
     def has_xyhomed(self) -> bool: return True
     def has_thomed(self) -> bool: return True
 
+    def detect_present_axes(self) -> list:
+        """Null board has no physically present axes."""
+        return []
+
     # ------------------------------------------------------------------
     # Info
     # ------------------------------------------------------------------
