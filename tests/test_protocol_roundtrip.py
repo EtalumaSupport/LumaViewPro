@@ -1401,6 +1401,80 @@ class TestProtocolModification:
         assert proto.capture_root() == 'experiment_1'
 
 
+class TestProtocolNumStepsCache:
+    """Regression tests for Protocol.num_steps() caching.
+
+    Added after real-hardware profiling (2026-04-13) showed num_steps() was
+    called 1281 times during a 36-step protocol run — roughly 35× per step —
+    because executor/validation code paths repeatedly asked for the count.
+    The cache must be invalidated by every mutation path that can change the
+    step count; these tests pin the invariant so a future mutation site
+    added without going through _set_steps() is caught.
+    """
+
+    def test_cache_returns_correct_initial_count(self):
+        proto = _build_protocol([_make_step(name=f"s{i}") for i in range(7)])
+        assert proto.num_steps() == 7
+        assert proto.num_steps() == 7  # second call hits cache
+
+    def test_cache_invalidated_after_delete_step(self):
+        proto = _build_protocol([_make_step(name=f"s{i}") for i in range(5)])
+        assert proto.num_steps() == 5  # prime the cache
+        proto.delete_step(step_idx=2)
+        assert proto.num_steps() == 4
+
+    def test_cache_invalidated_after_optimize_ordering(self):
+        proto = _build_protocol([
+            _make_step(name="s0", x=10.0, y=20.0, z=5000.0),
+            _make_step(name="s1", x=10.0, y=20.0, z=4000.0),
+            _make_step(name="s2", x=15.0, y=25.0, z=5000.0),
+        ])
+        assert proto.num_steps() == 3
+        proto.optimize_step_ordering()
+        assert proto.num_steps() == 3  # count unchanged, but cache should be
+                                       # consistent with the new dataframe
+
+    def test_cache_independent_across_copy_for_execution(self):
+        proto = _build_protocol([_make_step(name=f"s{i}") for i in range(3)])
+        assert proto.num_steps() == 3  # prime cache on original
+        copy = proto.copy_for_execution()
+        # copy should compute its own count, not reuse original's cached value
+        assert copy.num_steps() == 3
+        # mutating the copy must not affect the original
+        copy.delete_step(step_idx=0)
+        assert copy.num_steps() == 2
+        assert proto.num_steps() == 3
+
+    def test_cache_invalidated_after_zstack_marker_round_trip(self):
+        """mark_zstack_starts_and_ends / remove_zstack_starts_and_ends add and
+        drop columns only (row count unchanged), but they go through _set_steps
+        so the cache is cleared. Verify both paths leave num_steps correct."""
+        proto = _build_protocol([
+            _make_step(name="s0", zstack_group_id=0, z=4900.0),
+            _make_step(name="s1", zstack_group_id=0, z=5000.0),
+            _make_step(name="s2", zstack_group_id=0, z=5100.0),
+        ])
+        assert proto.num_steps() == 3
+        proto.mark_zstack_starts_and_ends()
+        assert proto.num_steps() == 3
+        proto.remove_zstack_starts_and_ends()
+        assert proto.num_steps() == 3
+
+    def test_cache_attribute_exists_on_new_instances(self):
+        """Both __init__ and copy_for_execution must set _num_steps_cache.
+        A missing attribute would AttributeError on first num_steps() call."""
+        proto = _build_protocol([_make_step()])
+        assert hasattr(proto, "_num_steps_cache")
+        copy = proto.copy_for_execution()
+        assert hasattr(copy, "_num_steps_cache")
+
+    def test_repeated_num_steps_calls_are_identical(self):
+        """Smoke test: 100 back-to-back calls all return the same value."""
+        proto = _build_protocol([_make_step(name=f"s{i}") for i in range(42)])
+        counts = {proto.num_steps() for _ in range(100)}
+        assert counts == {42}
+
+
 class TestProtocolSaveLoadFieldLevel:
     """Verify every single field survives save/load at the field level."""
 

@@ -59,7 +59,12 @@ class Protocol:
         else:
             self._config = config
 
-        
+        # Cache for num_steps() — invalidated by _set_steps() and delete_step().
+        # num_steps was called 35× per step during real-HW protocol runs, so
+        # caching len(self._config['steps']) is a measurable win (M14 follow-up).
+        self._num_steps_cache: int | None = None
+
+
     @staticmethod
     def _build_z_height_map(values) -> dict:
             z_height_map = {}
@@ -107,6 +112,7 @@ class Protocol:
         new._config = new_config
         new._objective_loader = self._objective_loader  # shared, read-only
         new._tiling_config = self._tiling_config        # shared, read-only
+        new._num_steps_cache = None
         return new
 
     def to_file(self, file_path: pathlib.Path):   
@@ -173,8 +179,8 @@ class Protocol:
 
         # Re-combine into single dataframe
         df = pd.concat(grouped_list, ignore_index=True).reset_index(drop=True)
-        self._config['steps'] = df
-    
+        self._set_steps(df)
+
 
     def _create_empty_steps_df() -> pd.DataFrame:
         dtypes = np.dtype(
@@ -364,8 +370,22 @@ class Protocol:
         return errors
 
     def num_steps(self) -> int:
-        return len(self._config['steps'])
-    
+        if self._num_steps_cache is None:
+            self._num_steps_cache = len(self._config['steps'])
+        return self._num_steps_cache
+
+    def _set_steps(self, df: pd.DataFrame) -> None:
+        """Assign the steps DataFrame and invalidate the num_steps cache.
+
+        All code paths that replace self._config['steps'] should go through
+        this helper so the cache stays consistent. In-place mutations (e.g.
+        delete_step's drop(inplace=True)) must set self._num_steps_cache = None
+        explicitly.
+        """
+        self._config['steps'] = df
+        self._num_steps_cache = None
+
+
 
     def steps(self) -> pd.DataFrame:
         return self._config['steps']
@@ -391,7 +411,8 @@ class Protocol:
         
         self._config['steps'].drop(index=step_idx, axis=0, inplace=True)
         self._config['steps'].reset_index(drop=True, inplace=True)
-    
+        self._num_steps_cache = None
+
 
     def modify_labware(
         self,
@@ -563,8 +584,11 @@ class Protocol:
         line = line.astype({'Stim_Config': 'object'})
         line.at[pos_index, 'Stim_Config'] = step_dict['Stim_Config']
 
-        self._config['steps'] = pd.concat([self._config['steps'], line], ignore_index=False, axis=0)
-        self._config['steps'] = self._config['steps'].sort_index().reset_index(drop=True)
+        self._set_steps(
+            pd.concat([self._config['steps'], line], ignore_index=False, axis=0)
+            .sort_index()
+            .reset_index(drop=True)
+        )
 
         return step_name
     
@@ -729,7 +753,7 @@ class Protocol:
             
             tile_group_id += 1
 
-        self._config['steps'] = pd.DataFrame.from_dict(new_steps)
+        self._set_steps(pd.DataFrame.from_dict(new_steps))
 
         return status
  
@@ -812,9 +836,9 @@ class Protocol:
             
             zstack_group_id += 1
 
-        self._config['steps'] = pd.DataFrame.from_dict(new_steps)
+        self._set_steps(pd.DataFrame.from_dict(new_steps))
 
-    
+
     @classmethod
     def from_config(
         cls,
@@ -1481,13 +1505,13 @@ class Protocol:
         df['First Z'] = df['Z-Stack Group Index'].apply(lambda x: True if x==0 else False)
         df['Last Z'] = df.groupby(by=['Z-Stack Group ID'])['Z-Stack Group Index'].transform('max') == df['Z-Stack Group Index']
         df = df.drop(columns=['Z-Stack Group Index'])
-        self._config['steps'] = df
+        self._set_steps(df)
 
 
     def remove_zstack_starts_and_ends(self) -> None:
         df = self.steps()
         df = df.drop(columns=['First Z','Last Z'])
-        self._config['steps'] = df
+        self._set_steps(df)
 
 
     def has_zstacks(self) -> bool:
