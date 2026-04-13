@@ -21,15 +21,21 @@ _REQUIRED_DIMENSION_FIELDS = {'x': (int, float), 'y': (int, float)}
 
 
 def _validate_labware(labware: dict, filepath: str) -> None:
-    """Validate labware.json: check structure and required fields per entry."""
+    """Validate labware.json: check structure and required fields per entry.
+
+    Only 'Wellplate' entries require the full columns/rows/dimensions/spacing/
+    offset schema. Slide and Petri dish have simpler structures and are not
+    validated beyond type.
+    """
     if not isinstance(labware, dict):
         raise ValueError(f"labware.json at {filepath}: expected dict, got {type(labware).__name__}")
     for category, items in labware.items():
         if not isinstance(items, dict):
             logger.warning(f"[Labware   ] category '{category}' should be dict in {filepath}")
             continue
-        if category == 'Slide':
-            continue  # Slides only need x/y/z
+        # Only Wellplate category has the full schema — others have different shapes
+        if category != 'Wellplate':
+            continue
         for name, entry in items.items():
             if not isinstance(entry, dict):
                 logger.warning(f"[Labware   ] '{category}/{name}' should be dict in {filepath}")
@@ -94,16 +100,26 @@ class SlideLoader(LabwareLoader):
 class WellPlateLoader(LabwareLoader):
     """A class that stores and computes actions for wellplate labware"""
 
+    # Compatibility aliases for labware names that were renamed.
+    # Protocols saved with the old name still load correctly.
+    _LABWARE_ALIASES = {
+        "384 well Corning Spheroid Microplate": "384 well microplate",
+    }
+
     def __init__(self, *arg, source_path: str | pathlib.Path | None = None):
         super(WellPlateLoader, self).__init__(*arg, source_path=source_path)
-  
+
 
     def get_plate_list(self):
         return list(self.labware['Wellplate'].keys())
-    
+
 
     def get_plate(self, plate_key):
-        return labware.WellPlate(config=self.labware['Wellplate'][plate_key])
+        # Apply alias mapping for backwards compatibility
+        resolved_key = self._LABWARE_ALIASES.get(plate_key, plate_key)
+        if resolved_key != plate_key:
+            logger.info(f"[Labware   ] Aliased labware '{plate_key}' -> '{resolved_key}'")
+        return labware.WellPlate(config=self.labware['Wellplate'][resolved_key])
 
 
 class PitriDishLoader(LabwareLoader):

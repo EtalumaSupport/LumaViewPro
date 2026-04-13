@@ -1,10 +1,12 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """
 Tests for Protocol.validate_steps() — field-level validation of protocol steps.
+
+Uses the real ObjectiveLoader loading the real objectives.json, so objective
+names in test steps must match real entries in data/objectives.json.
 """
 import datetime
 import pathlib
-from unittest.mock import patch, MagicMock
 
 import numpy as np
 import pandas as pd
@@ -13,38 +15,51 @@ import pytest
 from modules.protocol import Protocol
 
 
+# Real objective names from data/objectives.json — must match for validation
+_VALID_OBJECTIVE = '4x Oly'
+_INVALID_OBJECTIVE = '100x Oil Imm Fake'
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _make_protocol(steps_data: list[dict], labware_id: str = '96-well') -> Protocol:
-    """Create a Protocol with given steps, mocking file-dependent constructors."""
-    with patch.object(Protocol, '__init__', lambda self, **kw: None):
-        p = Protocol.__new__(Protocol)
-        # Build the steps DataFrame
-        dtypes = np.dtype(
-            [
-                ("Name", str), ("X", float), ("Y", float), ("Z", float),
-                ("Auto_Focus", bool), ("Color", str), ("False_Color", bool),
-                ("Illumination", float), ("Gain", float), ("Auto_Gain", bool),
-                ("Exposure", float), ("Sum", int), ("Objective", str),
-                ("Well", str), ("Tile", str), ("Z-Slice", int),
-                ("Custom Step", bool), ("Tile Group ID", int),
-                ("Z-Stack Group ID", int), ("Acquire", str),
-                ("Video Config", object), ("Stim_Config", object),
-            ]
-        )
-        if steps_data:
-            df = pd.DataFrame(steps_data)
-        else:
-            df = pd.DataFrame(np.empty(0, dtype=dtypes))
-        p._config = {
-            'steps': df,
-            'period': datetime.timedelta(minutes=1),
-            'duration': datetime.timedelta(hours=1),
-            'labware_id': labware_id,
-        }
-        return p
+def _make_protocol(steps_data: list[dict], labware_id: str = '96 well microplate') -> Protocol:
+    """Create a Protocol with given steps.
+
+    Bypasses Protocol.__init__ because it requires a full valid config dict
+    with a loaded DataFrame — validate_steps() only needs _config, so we
+    set that directly. This is NOT a mock of Protocol's behavior; it just
+    skips the constructor's file-loading step.
+    """
+    p = Protocol.__new__(Protocol)
+    # Build the steps DataFrame
+    dtypes = np.dtype(
+        [
+            ("Name", str), ("X", float), ("Y", float), ("Z", float),
+            ("Auto_Focus", bool), ("Color", str), ("False_Color", bool),
+            ("Illumination", float), ("Gain", float), ("Auto_Gain", bool),
+            ("Exposure", float), ("Sum", int), ("Objective", str),
+            ("Well", str), ("Tile", str), ("Z-Slice", int),
+            ("Custom Step", bool), ("Tile Group ID", int),
+            ("Z-Stack Group ID", int), ("Acquire", str),
+            ("Video Config", object), ("Stim_Config", object),
+        ]
+    )
+    if steps_data:
+        df = pd.DataFrame(steps_data)
+    else:
+        df = pd.DataFrame(np.empty(0, dtype=dtypes))
+    p._config = {
+        'steps': df,
+        'period': datetime.timedelta(minutes=1),
+        'duration': datetime.timedelta(hours=1),
+        'labware_id': labware_id,
+    }
+    # Real ObjectiveLoader — reads data/objectives.json
+    from modules.objectives_loader import ObjectiveLoader
+    p._objective_loader = ObjectiveLoader()
+    return p
 
 
 def _valid_step(**overrides) -> dict:
@@ -60,7 +75,7 @@ def _valid_step(**overrides) -> dict:
         'Auto_Gain': False,
         'Exposure': 50.0,
         'Sum': 1,
-        'Objective': '4x Plan Apo',
+        'Objective': _VALID_OBJECTIVE,
         'Well': 'A1',
         'Tile': '',
         'Z-Slice': 0,
@@ -73,17 +88,6 @@ def _valid_step(**overrides) -> dict:
     }
     step.update(overrides)
     return step
-
-
-# Patch ObjectiveLoader so validate_steps doesn't need objectives.json
-@pytest.fixture(autouse=True)
-def _mock_objective_loader():
-    mock_loader = MagicMock()
-    mock_loader.get_objectives_list.return_value = [
-        '4x Plan Apo', '10x Plan Fluor', '20x Plan Apo', '40x Plan Apo',
-    ]
-    with patch('modules.protocol.ObjectiveLoader', return_value=mock_loader):
-        yield
 
 
 # ---------------------------------------------------------------------------
@@ -115,13 +119,13 @@ class TestValidateColor:
 
 class TestValidateObjective:
     def test_invalid_objective(self):
-        p = _make_protocol([_valid_step(Objective='100x Oil')])
+        p = _make_protocol([_valid_step(Objective=_INVALID_OBJECTIVE)])
         errors = p.validate_steps()
         assert len(errors) == 1
-        assert "Objective '100x Oil'" in errors[0]
+        assert f"Objective '{_INVALID_OBJECTIVE}'" in errors[0]
 
     def test_valid_objective(self):
-        p = _make_protocol([_valid_step(Objective='10x Plan Fluor')])
+        p = _make_protocol([_valid_step(Objective='10x Oly')])
         assert p.validate_steps() == []
 
 
@@ -257,15 +261,8 @@ _DEFAULT_AXIS_LIMITS = {
 }
 
 
-@pytest.fixture(autouse=True)
-def _mock_well_plate_loader():
-    """Mock WellPlateLoader so validate_for_run doesn't need labware files."""
-    mock_loader = MagicMock()
-    mock_loader.get_plate_list.return_value = [
-        '96-well', '24-well', '6-well',
-    ]
-    with patch('modules.labware_loader.WellPlateLoader', return_value=mock_loader):
-        yield
+# No WellPlateLoader fixture — tests use the real loader with real labware.json.
+# Labware IDs in test steps must match real entries in data/labware.json.
 
 
 class TestValidateForRunPositionBounds:
@@ -344,21 +341,13 @@ class TestValidateForRunNoLimits:
 
 
 class TestValidateForRunLabware:
-    @patch('modules.labware_loader.WellPlateLoader')
-    def test_invalid_labware(self, mock_loader_cls):
-        mock_loader = MagicMock()
-        mock_loader.get_plate_list.return_value = ['96-well', '24-well', '6-well']
-        mock_loader_cls.return_value = mock_loader
-        p = _make_protocol([_valid_step()], labware_id='384-well')
+    def test_invalid_labware(self):
+        p = _make_protocol([_valid_step()], labware_id='nonexistent plate')
         errors = p.validate_for_run(axis_limits=_DEFAULT_AXIS_LIMITS)
-        assert any("Labware '384-well' not found" in e for e in errors)
+        assert any("Labware 'nonexistent plate' not found" in e for e in errors)
 
-    @patch('modules.labware_loader.WellPlateLoader')
-    def test_valid_labware(self, mock_loader_cls):
-        mock_loader = MagicMock()
-        mock_loader.get_plate_list.return_value = ['96-well', '24-well', '6-well']
-        mock_loader_cls.return_value = mock_loader
-        p = _make_protocol([_valid_step()], labware_id='96-well')
+    def test_valid_labware(self):
+        p = _make_protocol([_valid_step()], labware_id='96 well microplate')
         errors = p.validate_for_run(axis_limits=_DEFAULT_AXIS_LIMITS)
         assert not any("Labware" in e for e in errors)
 
