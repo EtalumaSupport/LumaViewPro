@@ -168,17 +168,55 @@ class TestFixB2_ProgrammaticWidgetWriteWrapping:
             "_initializing=True must be set before the slider write"
         )
 
-    def test_update_camera_ui_wraps_widget_writes(self):
+    def test_update_camera_ui_is_text_only(self):
         """lumaviewpro._update_camera_ui (the camera listener handler) must
-        wrap slider value writes in layer_obj._initializing=True."""
+        only update text widgets, never slider.value.
+
+        Structural fix (4.1 session 13 follow-up to #617): the slider is
+        the user-input source of truth. The listener exists to display
+        the actual camera value in the readout text, not to push values
+        back into the slider — doing so was the root cause of the
+        handler-recursion feedback loop the `_initializing` flag was
+        papering over.
+        """
         source = LUMAVIEWPRO.read_text()
         idx = source.find("def _update_camera_ui")
         assert idx != -1, "_update_camera_ui not found"
-        # Function is ~3000 chars; slice large enough to catch the finally
+        # Function is ~3000 chars; slice large enough to catch the body
         body = source[idx:idx + 3500]
-        assert "layer_obj._initializing = True" in body, (
-            "_update_camera_ui must wrap slider writes in layer_obj._initializing=True (#617)"
+
+        # Text writes must still be present — this is the whole point of
+        # the listener.
+        assert "gain_text" in body, (
+            "_update_camera_ui must still update gain_text for #617 display"
         )
-        assert "layer_obj._initializing = False" in body, (
-            "_update_camera_ui must reset layer_obj._initializing"
+        assert "exp_text" in body, (
+            "_update_camera_ui must still update exp_text for #617 display"
+        )
+
+        # Must NOT write to slider.value — that path is the recursion root.
+        for forbidden in (
+            "gain_slider'].value =",
+            "exp_slider'].value =",
+            '"gain_slider"].value =',
+            '"exp_slider"].value =',
+        ):
+            assert forbidden not in body, (
+                f"_update_camera_ui must not assign to slider.value; found "
+                f"{forbidden!r} — this is the recursion root from #617"
+            )
+
+        # Must still respect _initializing set by other code paths
+        # (set_step_state, layer switches). We don't write our own, but
+        # we do early-return when someone else set it.
+        assert "if layer_obj._initializing:" in body, (
+            "_update_camera_ui must still early-return when another code "
+            "path has set layer_obj._initializing"
+        )
+
+        # Must NOT set _initializing itself anymore — no slider writes
+        # means no recursion to protect against.
+        assert "layer_obj._initializing = True" not in body, (
+            "_update_camera_ui should not set _initializing; text-only "
+            "updates do not trigger handler recursion"
         )

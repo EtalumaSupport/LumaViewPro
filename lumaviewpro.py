@@ -384,48 +384,41 @@ class LumaViewProApp(TooltipMixin, App):
                     return
                 if not layer_obj:
                     return
-                # Only update if the layer isn't initializing (avoid cascades)
+                # Respect an _initializing flag set by another code path
+                # (e.g. layer switch via set_step_state). Do not write our
+                # own; the text updates below do not trigger handlers.
                 if layer_obj._initializing:
                     return
 
+                # Text-only update: the slider is the user-input source of
+                # truth. The listener exists to show the user what value the
+                # camera is actually running at (after AF, auto-gain, REST
+                # API, etc.) in the readout text, but must never push a value
+                # back into the slider — that was the root cause of the
+                # handler-recursion feedback loop in #617. Setting .text
+                # programmatically does not fire on_text_validate (which is
+                # Enter-only) or on_focus (focus-only), so no wrap is needed.
                 settings = ctx.settings
-                # Wrap programmatic widget writes in _initializing so the
-                # slider's on_value handler does not re-enter and re-fire
-                # apply_settings (#617). The handler now early-returns on
-                # _initializing=True, so the guards below (rounded !=, etc.)
-                # are belt-and-suspenders.
-                layer_obj._initializing = True
-                try:
-                    if p == 'gain':
-                        # Round to slider precision to prevent feedback loop:
-                        # camera returns 1.000047, slider is at 1.0 — setting
-                        # 1.000047 triggers on_value, which without the early
-                        # return above would call apply_settings, which sets
-                        # camera again. Rounding prevents the mismatch.
-                        rounded = round(v, 1)
-                        # Only update if this layer's settings match the camera
-                        # value. If another layer changed the camera (composite,
-                        # AF restore), don't corrupt this layer's sliders. (#610)
-                        expected = settings[opened_layer]['gain']
-                        if abs(rounded - expected) > 0.5:
-                            return
-                        if layer_obj.ids['gain_slider'].value != rounded:
-                            layer_obj.ids['gain_slider'].value = rounded
-                        text = str(rounded)
-                        if layer_obj.ids['gain_text'].text != text:
-                            layer_obj.ids['gain_text'].text = text
-                    elif p == 'exposure':
-                        rounded = round(v, 2)
-                        expected = settings[opened_layer]['exp']
-                        if abs(rounded - expected) > 0.5:
-                            return
-                        if layer_obj.ids['exp_slider'].value != rounded:
-                            layer_obj.ids['exp_slider'].value = rounded
-                        text = str(rounded)
-                        if layer_obj.ids['exp_text'].text != text:
-                            layer_obj.ids['exp_text'].text = text
-                finally:
-                    layer_obj._initializing = False
+                if p == 'gain':
+                    rounded = round(v, 1)
+                    # Only update if this layer's configured value matches
+                    # what the camera reports. If another layer changed the
+                    # camera (composite, AF restore), don't display its
+                    # value in this layer's text field. (#610)
+                    expected = settings[opened_layer]['gain']
+                    if abs(rounded - expected) > 0.5:
+                        return
+                    text = str(rounded)
+                    if layer_obj.ids['gain_text'].text != text:
+                        layer_obj.ids['gain_text'].text = text
+                elif p == 'exposure':
+                    rounded = round(v, 2)
+                    expected = settings[opened_layer]['exp']
+                    if abs(rounded - expected) > 0.5:
+                        return
+                    text = str(rounded)
+                    if layer_obj.ids['exp_text'].text != text:
+                        layer_obj.ids['exp_text'].text = text
 
             Clock.schedule_once(_update_camera_ui, 0)
 
