@@ -86,7 +86,11 @@ class LayerControl(BoxLayout):
                     val = val[p]
             else:
                 val = settings[self.layer][settings_key]
-            self.ids[text_id].text = str(val)
+            self._initializing = True
+            try:
+                self.ids[text_id].text = str(val)
+            finally:
+                self._initializing = False
             return False
 
         clipped = cast(np.clip(raw, slider.min, slider.max))
@@ -101,9 +105,15 @@ class LayerControl(BoxLayout):
         else:
             settings[self.layer][settings_key] = clipped
 
-        # Update widgets
-        slider.value = float(clipped) if cast == float else int(clipped)
-        self.ids[text_id].text = str(clipped)
+        # Update widgets — wrapped in _initializing so the slider's
+        # on_value handler does not re-enter and double-fire apply_settings
+        # (#617). Settings are already written above.
+        self._initializing = True
+        try:
+            slider.value = float(clipped) if cast == float else int(clipped)
+            self.ids[text_id].text = str(clipped)
+        finally:
+            self._initializing = False
 
         if gui_log_name:
             gui_logger.slider(f'{gui_log_name}_{self.layer}', clipped)
@@ -168,19 +178,25 @@ class LayerControl(BoxLayout):
         protocol_running_global = _app_ctx.ctx.protocol_running
         if protocol_running_global.is_set():
             return
-        if not self._initializing:
-            logger.info('[LVP Main  ] LayerControl.ill_slider()')
+        # Early return on programmatic updates (#617): when another code
+        # path sets ill_slider.value directly (load_settings, ill_text,
+        # set_step_state, camera listener), on_value fires and re-enters
+        # here. Without this guard, the handler overwrites the caller's
+        # settings write and schedules a redundant apply_settings. Callers
+        # are responsible for writing settings explicitly when they use
+        # _initializing=True.
+        if self._initializing:
+            return
+        logger.info('[LVP Main  ] LayerControl.ill_slider()')
         illumination = round(self.ids['ill_slider'].value)  # Round to integer (step=1)
-        if not self._initializing:
-            gui_logger.slider(f'ILLUMINATION_{self.layer}', illumination)
+        gui_logger.slider(f'ILLUMINATION_{self.layer}', illumination)
         settings[self.layer]['ill'] = illumination
 
         # Update text only if changed to reduce ScrollView recalculations
         new_text = str(illumination)
         if self.ids['ill_text'].text != new_text:
             self.ids['ill_text'].text = new_text
-        if not self._initializing:
-            self.apply_ill_slider()
+        self.apply_ill_slider()
 
 
     def ill_text(self):
@@ -196,14 +212,24 @@ class LayerControl(BoxLayout):
         except Exception:
             logger.debug(f'[LVP Main  ] Invalid illumination input: {self.ids["ill_text"].text!r}')
             # Show current valid value so user knows input was rejected (M21)
-            self.ids['ill_text'].text = str(settings[self.layer]['ill'])
+            self._initializing = True
+            try:
+                self.ids['ill_text'].text = str(settings[self.layer]['ill'])
+            finally:
+                self._initializing = False
             return
 
         illumination = float(np.clip(ill_val, ill_min, ill_max))
-
         settings[self.layer]['ill'] = illumination
-        self.ids['ill_slider'].value = float(np.clip(illumination, ill_min, self.ids['ill_slider'].max))
-        self.ids['ill_text'].text = str(illumination)
+
+        # Wrap programmatic widget writes so on_value does not re-enter
+        # ill_slider and re-fire apply_settings (#617).
+        self._initializing = True
+        try:
+            self.ids['ill_slider'].value = float(np.clip(illumination, ill_min, self.ids['ill_slider'].max))
+            self.ids['ill_text'].text = str(illumination)
+        finally:
+            self._initializing = False
 
         self.apply_settings()
 
@@ -330,17 +356,18 @@ class LayerControl(BoxLayout):
         protocol_running_global = _app_ctx.ctx.protocol_running
         if protocol_running_global.is_set():
             return
-        if not self._initializing:
-            logger.info('[LVP Main  ] LayerControl.gain_slider()')
+        # See ill_slider — programmatic updates must not re-enter (#617).
+        if self._initializing:
+            return
+        logger.info('[LVP Main  ] LayerControl.gain_slider()')
         gain = round(self.ids['gain_slider'].value, 1)  # Round to 1 decimal (step=0.1)
-        if not self._initializing:
-            gui_logger.slider(f'GAIN_{self.layer}', gain)
+        gui_logger.slider(f'GAIN_{self.layer}', gain)
         settings[self.layer]['gain'] = gain
         # Update text only if changed to reduce ScrollView recalculations
         new_text = str(gain)
         if self.ids['gain_text'].text != new_text:
             self.ids['gain_text'].text = new_text
-        if not self.ids['gain_slider'].disabled and not self._initializing:
+        if not self.ids['gain_slider'].disabled:
             self.apply_gain_slider()
         ####
 
@@ -368,18 +395,19 @@ class LayerControl(BoxLayout):
         protocol_running_global = _app_ctx.ctx.protocol_running
         if protocol_running_global.is_set():
             return
-        if not self._initializing:
-            logger.info('[LVP Main  ] LayerControl.exp_slider()')
+        # See ill_slider — programmatic updates must not re-enter (#617).
+        if self._initializing:
+            return
+        logger.info('[LVP Main  ] LayerControl.exp_slider()')
         exposure = round(self.ids['exp_slider'].value, 2)  # Round to 2 decimals (step=0.01)
-        if not self._initializing:
-            gui_logger.slider(f'EXPOSURE_{self.layer}', exposure)
+        gui_logger.slider(f'EXPOSURE_{self.layer}', exposure)
         # exposure = 10 ** self.ids['exp_slider'].value # slider is log_10(ms)
         settings[self.layer]['exp'] = exposure        # exposure in ms
         # Update text only if changed to reduce ScrollView recalculations
         new_text = str(exposure)
         if self.ids['exp_text'].text != new_text:
             self.ids['exp_text'].text = new_text
-        if not self.ids['exp_slider'].disabled and not self._initializing:
+        if not self.ids['exp_slider'].disabled:
             self.apply_exp_slider()
 
     def exp_text(self):
@@ -741,18 +769,36 @@ class LayerControl(BoxLayout):
 
         def disable_leds_for_other_layers(dt=None):
             if self.ids['enable_led_btn'].state == 'down':
-                # Turn off other channels' hardware LEDs before updating
-                # buttons. Previously only changed button state with
-                # _suppressing_led_log blocking the hardware call — LEDs
-                # stayed physically on (#614).
+                # Only cycle the LED bus (leds_off + led_on) when another
+                # layer's LED is actually physically on. Without this check,
+                # every apply_settings on the current layer fires a redundant
+                # leds_off/led_on cycle, causing visible LED flicker on every
+                # slider move (#617). The guarded cycle still runs on real
+                # layer switches, preserving #614 semantics (one LED at a
+                # time at the hardware level).
                 if not protocol_running_global.is_set():
-                    from modules import scope_commands
-                    scope_commands.leds_off(ctx.scope, ctx.io_executor)
-                    # Re-enable this layer's LED (leds_off turned it off too)
-                    scope_commands.led_on(
-                        ctx.scope, ctx.io_executor, self.layer,
-                        settings[self.layer]['ill'],
-                    )
+                    any_other_on = False
+                    for layer in common_utils.get_layers():
+                        if layer == self.layer:
+                            continue
+                        try:
+                            state = ctx.scope.get_led_state(color=layer)
+                            if state.get('enabled', False):
+                                any_other_on = True
+                                break
+                        except Exception:
+                            # Defensive: if get_led_state fails for any
+                            # layer (e.g. null driver), don't block the
+                            # rest of apply_settings.
+                            pass
+                    if any_other_on:
+                        from modules import scope_commands
+                        scope_commands.leds_off(ctx.scope, ctx.io_executor)
+                        # Re-enable this layer's LED (leds_off turned it off too)
+                        scope_commands.led_on(
+                            ctx.scope, ctx.io_executor, self.layer,
+                            settings[self.layer]['ill'],
+                        )
                 # Update button states (visual only — hardware already handled)
                 LayerControl._suppressing_led_log = True
                 try:
