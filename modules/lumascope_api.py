@@ -2727,15 +2727,26 @@ class Lumascope():
                     'ramp': ramp,
                 }
 
-        self._set_axis_state(axis, AxisState.MOVING)
+        # Write the hardware target BEFORE transitioning the axis to MOVING.
+        # Previously the order was reversed: _set_axis_state(MOVING) cleared
+        # the arrival event and woke the motion monitor, then motion.move_abs_pos
+        # spent ~50ms on serial I/O (current_pos read + TARGET_W write) before
+        # the hardware actually received the new target. During that window
+        # the motion monitor could poll STATUS_R, observe the PRIOR move's
+        # still-valid position_reached bit, and falsely set the arrival
+        # event — causing wait_until_finished_moving to return before the
+        # new move even began. See issue #618. With this order, by the
+        # time the axis is marked MOVING the hardware XTARGET is already
+        # the new value, so position_reached is reliably False and the
+        # motion monitor polls until real arrival.
         try:
             self.motion.move_abs_pos(axis, pos, overshoot_enabled=overshoot_enabled, ignore_limits=ignore_limits)
         except Exception as e:
-            self._set_axis_state(axis, AxisState.IDLE)
             with self._move_profile_lock:
                 self._move_profile[axis] = None
             _api_log.error(f'move_abs {axis}={pos:.1f}um FAILED: {e}')
             raise
+        self._set_axis_state(axis, AxisState.MOVING)
         with self._pos_cache_lock:
             self._pos_cache[axis] = float(pos)
         self._fire_position_listeners(axis)
@@ -2767,13 +2778,14 @@ class Lumascope():
         if abs(um) > self.MOTOR_POSITION_LIMIT:
             raise ValueError(f"Distance {um} um exceeds safety limit of +/-{self.MOTOR_POSITION_LIMIT} um")
 
-        self._set_axis_state(axis, AxisState.MOVING)
+        # Write hardware target BEFORE transitioning axis to MOVING —
+        # same race fix as move_absolute_position (#618).
         try:
             self.motion.move_rel_pos(axis, um, overshoot_enabled=overshoot_enabled)
         except Exception as e:
-            self._set_axis_state(axis, AxisState.IDLE)
             _api_log.error(f'move_rel {axis}={um:+.1f}um FAILED: {e}')
             raise
+        self._set_axis_state(axis, AxisState.MOVING)
         with self._pos_cache_lock:
             self._pos_cache[axis] = self._pos_cache.get(axis, 0.0) + float(um)
         self._fire_position_listeners(axis)
