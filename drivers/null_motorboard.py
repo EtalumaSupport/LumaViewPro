@@ -103,10 +103,10 @@ class NullMotionBoard:
     # Homing (no-ops, report complete)
     # ------------------------------------------------------------------
     def zhome(self) -> bool: return True
-    def xyhome(self) -> bool: return True
+    def home(self) -> bool: return True
     def thome(self) -> bool: return True
     def has_turret(self) -> bool: return self._has_turret
-    def has_xyhomed(self) -> bool: return True
+    def has_homed(self) -> bool: return True
     def has_thomed(self) -> bool: return True
 
     def detect_present_axes(self) -> list:

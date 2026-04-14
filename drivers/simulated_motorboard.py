@@ -480,17 +480,21 @@ class SimulatedMotorBoard:
             return False
         return 'successful' in resp.lower() or 'complete' in resp.lower()
 
-    def xyhome(self):
+    def home(self):
         resp = self.exchange_command('HOME')
-        logger.info(f'[XYZ Sim   ] SimulatedMotorBoard.xyhome() -> {resp}')
+        logger.info(f'[XYZ Sim   ] SimulatedMotorBoard.home() -> {resp}')
         if resp is None:
             return False
         if 'XYZ home complete' in resp:
             self.initial_homing_complete = True
             return True
+        # Match real MotorBoard partial-home semantics so tests cover both.
+        if ('not present' in resp) and ('X' in resp or 'Y' in resp):
+            self.initial_homing_complete = True
+            return True
         return False
 
-    def has_xyhomed(self):
+    def has_homed(self):
         return self.initial_homing_complete
 
     def xycenter(self):

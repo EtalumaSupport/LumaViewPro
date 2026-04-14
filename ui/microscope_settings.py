@@ -114,10 +114,12 @@ class MicroscopeSettings(BoxLayout):
         ctx.scope_display.start()
 
         if not ctx.disable_homing:
-            # Note: If the scope has a turret, this also performs a T homing
+            # Home everything the board has — firmware homes Z, T, X, Y
+            # in the same routine; on Z-only boards the firmware homes
+            # what it has and reports the missing axes.
             task = IOTask(
                 move_home,
-                args=('XY')
+                args=('ALL',)
             )
             ctx.io_executor.put(task)
 

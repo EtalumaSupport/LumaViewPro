@@ -766,11 +766,11 @@ class TestAxisState:
         sim_scope.zhome()
         assert sim_scope.get_axis_state('Z') == AxisState.IDLE
 
-    def test_axis_state_homing_xyhome(self, sim_scope):
-        """After xyhome, X/Y/Z axes should be IDLE."""
+    def test_axis_state_homing_home(self, sim_scope):
+        """After home(), present axes should be IDLE."""
         from modules.lumascope_api import AxisState
-        sim_scope.xyhome()
-        for ax in ('X', 'Y', 'Z'):
+        sim_scope.home()
+        for ax in sim_scope.axes_present():
             assert sim_scope.get_axis_state(ax) == AxisState.IDLE
 
     def test_axis_state_homing_thome(self, sim_scope):
@@ -784,7 +784,7 @@ class TestAxisState:
         from modules.lumascope_api import AxisState
         # Home all axes to set them IDLE
         sim_scope.zhome()
-        sim_scope.xyhome()
+        sim_scope.home()
         assert not sim_scope.is_any_axis_moving()
 
     def test_is_any_axis_moving_true_when_moving(self, sim_scope):

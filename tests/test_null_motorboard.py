@@ -91,8 +91,8 @@ class TestNullMotionBoardStatus:
     def test_has_turret_false(self, board):
         assert board.has_turret() is False
 
-    def test_has_xyhomed_true(self, board):
-        assert board.has_xyhomed() is True
+    def test_has_homed_true(self, board):
+        assert board.has_homed() is True
 
     def test_has_thomed_true(self, board):
         assert board.has_thomed() is True
@@ -112,8 +112,8 @@ class TestNullMotionBoardHoming:
     def test_zhome(self, board):
         assert board.zhome() is True
 
-    def test_xyhome(self, board):
-        assert board.xyhome() is True
+    def test_home(self, board):
+        assert board.home() is True
 
     def test_thome(self, board):
         assert board.thome() is True

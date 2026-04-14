@@ -501,10 +501,14 @@ class LumaViewProApp(TooltipMixin, App):
             ), 0)
 
         if not disable_homing:
-            # Note: If the scope has a turret, this also performs a T homing
+            # Home everything the board has. Firmware homes Z, then T,
+            # then X/Y in the same routine, so on Z-only boards (LS820)
+            # the firmware homes Z and reports the missing X/Y; on full
+            # XYZ(T) scopes it homes all axes. Either way this is the
+            # unified startup home.
             task = IOTask(
                 move_home,
-                args=('XY')
+                args=('ALL',)
             )
             stage_executor.put(task)
 

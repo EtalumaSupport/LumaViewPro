@@ -185,7 +185,7 @@ class TestSimulatedMotorBoard:
         board = SimulatedMotorBoard()
         assert board.found is True
         assert board.is_connected()
-        assert board.has_xyhomed() is False
+        assert board.has_homed() is False
         assert board.has_turret() is False  # default model LS850 (no turret)
 
     def test_no_turret_model(self):
@@ -194,8 +194,8 @@ class TestSimulatedMotorBoard:
 
     def test_homing_xyz(self):
         board = SimulatedMotorBoard()
-        board.xyhome()
-        assert board.has_xyhomed() is True
+        board.home()
+        assert board.has_homed() is True
         assert board.current_pos('X') == 0
         assert board.current_pos('Y') == 0
         assert board.current_pos('Z') == 0
@@ -404,10 +404,10 @@ class TestSimulatedMotorBoard:
         result = board.zhome()
         assert result is True
 
-    def test_xyhome_returns_bool(self):
-        """xyhome() should return True on success."""
+    def test_home_returns_bool(self):
+        """home() should return True on success."""
         board = SimulatedMotorBoard()
-        result = board.xyhome()
+        result = board.home()
         assert result is True
 
     def test_thome_returns_bool(self):
@@ -468,8 +468,8 @@ class TestAllModels:
     @pytest.mark.parametrize('model', ALL_MODELS)
     def test_homing_works(self, model):
         board = SimulatedMotorBoard(model=model)
-        board.xyhome()
-        assert board.has_xyhomed() is True
+        board.home()
+        assert board.has_homed() is True
 
     @pytest.mark.parametrize('model', ALL_MODELS)
     def test_motorconfig_travel_limits(self, model):

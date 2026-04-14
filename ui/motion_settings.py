@@ -469,7 +469,7 @@ class XYStageControl(BoxLayout):
             logger.info('[LVP Main  ] XYStageControl.home()')
 
             if ctx.lumaview.scope.motor_connected: # motor controller is actively connected
-                ctx.io_executor.put(IOTask(move_home, kwargs={'axis':'XY'}))
+                ctx.io_executor.put(IOTask(move_home, kwargs={'axis':'ALL'}))
 
                 # Firmware seems to move the turret back to position 1 when performing XY homing
                 # Use this command to make sure the UI is in-sync

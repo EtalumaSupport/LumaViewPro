@@ -498,21 +498,40 @@ class MotorBoard(SerialBoard):
         ustep = int((usteps_per_mm * um) / 1000)
         return ustep
 
-    def xyhome(self):
-        """Home the stage (also homes objective first). Returns True on success."""
+    def home(self):
+        """Send HOME to firmware and home every axis the board has.
+
+        The firmware's xyzhome routine homes Z, then T, then attempts X/Y.
+        On a full XYZ(T) board, the response is 'XYZ home complete'. On a
+        Z-only board (LS820 bench), Z (and T if present) get homed first
+        and the firmware then returns 'ERROR: X not present' — the home
+        DID succeed for the axes the board has, so this counts as
+        success. Real failures (no response, hardware error, or partial
+        home aborted by Z/T error) return False.
+
+        Returns True on full or partial success, False on real failure.
+        """
         resp = self.exchange_command('HOME', timeout=30)
-        logger.info(f'[XYZ Class ] MotorBoard.xyhome() -> {resp}', extra={'force_error': True})
+        logger.info(f'[XYZ Class ] MotorBoard.home() -> {resp}', extra={'force_error': True})
         if resp is None:
-            logger.error('[XYZ Class ] xyhome(): no response (timeout or disconnect)')
+            logger.error('[XYZ Class ] home(): no response (timeout or disconnect)')
             return False
         if 'XYZ home complete' in resp:
             with self._state_lock:
                 self.initial_homing_complete = True
             return True
-        logger.error(f'[XYZ Class ] xyhome() failed: {resp}')
+        # Partial home: firmware homed Z (and T if present) before
+        # reporting that X or Y is not physically wired on this board.
+        # The reference position for the present axes is valid.
+        if ('not present' in resp) and ('X' in resp or 'Y' in resp):
+            logger.info(f'[XYZ Class ] partial home (X/Y not present on this board): {resp}')
+            with self._state_lock:
+                self.initial_homing_complete = True
+            return True
+        logger.error(f'[XYZ Class ] home() failed: {resp}')
         return False
 
-    def has_xyhomed(self):
+    def has_homed(self):
         with self._state_lock:
             return self.initial_homing_complete
 

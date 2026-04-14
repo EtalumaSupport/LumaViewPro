@@ -137,7 +137,7 @@ session.leds_off()
 ### Motion
 
 ```python
-session.move_home('XY')                  # Home XY (also homes Z, T)
+session.move_home('ALL')                 # Home everything the board has
 session.move_absolute('Z', 5000, wait_until_complete=True)
 session.move_relative('X', 500)
 ```
@@ -311,10 +311,10 @@ Axes: `X` (stage left-right), `Y` (stage front-back), `Z` (focus), `T` (turret)
 
 ```python
 # Homing (required before movement)
-scope.xyhome()                           # Home XY + Z + T
+scope.home()                             # Home everything the board has (Z, T, then X/Y)
 scope.zhome()                            # Home Z only
 scope.thome()                            # Home turret only
-scope.has_xyhomed()                      # True if XY homed
+scope.has_homed()                        # True if home() has succeeded at least once
 scope.has_thomed()                       # True if turret homed
 
 # Position queries (µm for XYZ, position 1-4 for T)
@@ -652,7 +652,7 @@ For controlling the hardware from any language without the Python drivers. Send 
 from modules.lumascope_api import Lumascope
 
 scope = Lumascope()
-scope.xyhome()
+scope.home()
 scope.wait_until_finished_moving()
 
 scope.set_objective('10x Oly')

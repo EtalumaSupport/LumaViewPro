@@ -444,7 +444,7 @@ class Stage(Widget):
         y_current = None
 
         try:
-            if scope.has_xyhomed():
+            if scope.has_homed():
                 # Position cache auto-refreshes on first read if stale (>80ms)
                 x_target = scope.get_target_position('X')
                 y_target = scope.get_target_position('Y')
