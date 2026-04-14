@@ -434,7 +434,7 @@ class Lumascope():
                 'frame_size': self.camera.get_frame_size() or {'width': 0, 'height': 0},
                 'max_frame_size': self.camera.get_max_frame_size() or {'width': 0, 'height': 0},
                 'min_frame_size': self.camera.get_min_frame_size() or {'width': 0, 'height': 0},
-                'max_exposure': self.camera.get_max_exposure() or 0.0,
+                'max_exposure': self.camera.get_max_exposure() or None,
                 'pixel_format': self.camera.get_pixel_format() if hasattr(self.camera, 'get_pixel_format') else None,
                 'binning': self.camera.get_binning_size() if hasattr(self.camera, 'get_binning_size') else 1,
             }
@@ -488,10 +488,17 @@ class Lumascope():
             return dict(self._camera_cache['min_frame_size'])
 
     @property
-    def camera_max_exposure(self) -> float:
-        """Maximum camera exposure time in ms (reads cache)."""
+    def camera_max_exposure(self):
+        """Maximum camera exposure time in ms, or None if no camera is connected.
+
+        Returns None (not a sentinel 0.0) so callers can distinguish
+        "camera missing" from a real driver value. See #616.
+        """
         with self._camera_cache_lock:
-            return self._camera_cache['max_exposure']
+            value = self._camera_cache.get('max_exposure')
+        if not value or value <= 0:
+            return None
+        return float(value)
 
     @property
     def camera_pixel_format(self) -> str:
@@ -861,28 +868,38 @@ class Lumascope():
             )
 
     def axes_present(self) -> list[str]:
-        """Get list of axis names known to this scope.
+        """Get list of axes physically present on this scope.
 
-        Built dynamically from the axis state dict (which is populated
-        from VALID_AXES at init, and could be extended for external axes).
+        Delegates to motion.detect_present_axes() (Rule 9) so that
+        LS820-style Z-only units report ['Z'] rather than the full
+        VALID_AXES set. Returns [] when no motion hardware is connected
+        (NullMotionBoard) or when the motion layer raises — callers
+        that need to iterate "all tracked axes regardless of hardware"
+        (e.g. wait_until_finished_moving) should read _arrival_events /
+        _axis_state directly instead.
 
         Returns:
-            list[str]: e.g. ['X', 'Y', 'Z', 'T']
+            list[str]: e.g. ['Z'], ['X', 'Y', 'Z'], or ['X', 'Y', 'Z', 'T']
         """
-        with self._axis_state_lock:
-            return list(self._axis_state.keys())
+        try:
+            return list(self.motion.detect_present_axes())
+        except Exception as e:
+            logger.warning(
+                f'[SCOPE API ] axes_present: motion.detect_present_axes '
+                f'failed ({e}); treating as no hardware'
+            )
+            return []
 
     def has_axis(self, axis: str) -> bool:
-        """Check if a given axis is present.
+        """Check if an axis is physically present on this scope.
 
         Args:
             axis: Axis name.
 
         Returns:
-            bool: True if axis exists in the state model.
+            bool: True if axis is reported present by the motion layer.
         """
-        with self._axis_state_lock:
-            return axis in self._axis_state
+        return axis in self.axes_present()
 
     def travel_limit_um(self, axis: str) -> float:
         """Get the travel limit for an axis in um.
@@ -2357,14 +2374,7 @@ class Lumascope():
         a user comment reported that every startup raised a "Homing Failed"
         error popup on a Z-only unit because xyhome was called unconditionally.
         """
-        try:
-            present = self.motion.detect_present_axes()
-        except Exception as e:
-            logger.info(
-                f"[SCOPE API ] xyhome skipped — motion board cannot report "
-                f"axes present ({e})"
-            )
-            return
+        present = self.axes_present()
         if 'X' not in present or 'Y' not in present:
             logger.info(
                 f"[SCOPE API ] xyhome skipped — X/Y not physically present "
@@ -2913,7 +2923,12 @@ class Lumascope():
             bool: True if all axes arrived, False if timed out.
         """
         deadline = time.monotonic() + timeout
-        for ax in self.axes_present():
+        # Iterate arrival events directly (not axes_present) so a transient
+        # motion.detect_present_axes() failure can never cause this to return
+        # True without actually waiting for the in-flight move. Events for
+        # non-moving axes are .set() by construction, so iterating all of
+        # VALID_AXES is safe even on partial-hardware scopes.
+        for ax in self._arrival_events:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 logger.warning(f'[SCOPE API ] wait_until_finished_moving timed out on axis {ax}')
@@ -3037,7 +3052,7 @@ class Lumascope():
             'frame_size': {'width': 0, 'height': 0},
             'max_frame_size': {'width': 0, 'height': 0},
             'min_frame_size': {'width': 0, 'height': 0},
-            'max_exposure': 0.0,
+            'max_exposure': None,
         }
 
         # State locks

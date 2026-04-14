@@ -814,9 +814,14 @@ class TestAxisState:
             assert sim_scope.get_axis_state(ax) == AxisState.UNKNOWN
 
     def test_axes_present(self, sim_scope):
-        """axes_present() returns the correct set of axes."""
+        """axes_present() delegates to motion.detect_present_axes() (Rule 9).
+
+        Default sim model LS850 has X/Y/Z and no turret, so the result
+        must match the motion layer rather than the full VALID_AXES set.
+        """
         axes = sim_scope.axes_present()
-        assert set(axes) == {'X', 'Y', 'Z', 'T'}
+        assert set(axes) == set(sim_scope.motion.detect_present_axes())
+        assert set(axes) == {'X', 'Y', 'Z'}  # LS850 default — no T
 
     def test_has_axis(self, sim_scope):
         """has_axis() returns correct values."""

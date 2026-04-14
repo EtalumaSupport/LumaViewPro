@@ -247,36 +247,10 @@ def block_wait_for_threads(futures: list, log_loc: str = "LVP") -> None:
 # Used by the REST API and any non-GUI context.
 # ---------------------------------------------------------------------------
 
+# Fallback exposure slider upper bound used when no camera is connected.
+# Lumascope.camera_max_exposure returns None in that case; callers pattern
+# is `scope.camera_max_exposure or DEFAULT_MAX_EXPOSURE_MS`. See #616.
 DEFAULT_MAX_EXPOSURE_MS = 1000.0
-
-
-def get_safe_max_exposure(scope) -> float:
-    """Read camera_max_exposure from the scope with a missing-camera fallback.
-
-    The Lumascope camera cache defaults `max_exposure` to 0.0 and only populates
-    it during `_populate_camera_cache()`, which early-returns when no camera is
-    connected. That makes `scope.camera_max_exposure == 0.0` indistinguishable
-    from "camera says 0 ms max" at a typed level, so callers that use the value
-    as an exposure-slider upper bound end up clamping stored exposures to 0 on
-    a no-camera startup (issue #616) — which then get saved back to disk on
-    shutdown and corrupt future sessions.
-
-    This helper collapses both failure modes (exception from property access,
-    and sentinel 0.0 from the uninitialised cache) into a single safe default
-    of DEFAULT_MAX_EXPOSURE_MS so callers never see 0.0.
-    """
-    try:
-        max_exposure = scope.camera_max_exposure
-        if not max_exposure or max_exposure <= 0:
-            raise ValueError(
-                f"camera_max_exposure={max_exposure}; camera may not be connected"
-            )
-        return float(max_exposure)
-    except Exception as e:
-        logger.warning(
-            f"Camera max_exposure unavailable ({e}); defaulting to {DEFAULT_MAX_EXPOSURE_MS} ms"
-        )
-        return DEFAULT_MAX_EXPOSURE_MS
 
 
 def get_binning_from_settings(settings: dict) -> int:
