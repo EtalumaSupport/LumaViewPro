@@ -48,6 +48,20 @@ class SerialBoard:
         self.firmware_version = None
         self.firmware_date = None
         self.firmware_responding = False
+        # True iff the board sent ZERO bytes across the entire connect
+        # sequence (drain steps + every detection attempt). Distinct
+        # from firmware_responding=False, which also covers pre-v3.0
+        # legacy boards that answer INFO with unparseable text. A
+        # silent board is hung (or the port/hub is stuck) and needs
+        # a hardware power cycle — see #619. Callers should check
+        # this before issuing commands; exchange_command fails fast.
+        self.firmware_silent = False
+        # Running total of non-empty bytes captured by
+        # _detect_firmware_version(). _reset_firmware() reads the
+        # delta to know whether each detection attempt saw any bytes,
+        # which is how it distinguishes "silent board" from "board
+        # that responded with garbage."
+        self._detect_response_bytes = 0
         self.driver = None
         self._last_error_log_time = 0.0
         self._error_log_interval = 2.0  # seconds between repeated error logs
@@ -173,25 +187,43 @@ class SerialBoard:
           - Raw REPL (Thonny left it here) — Ctrl-B to exit, then Ctrl-D
           - Boot output still arriving — drain before commands
           - Old firmware with WDT — Ctrl-D kills WDT timer, so skip it
+          - **Silent board (hung firmware / stuck USB hub)** — sends zero
+            bytes across everything. Skip destructive Ctrl-D recovery
+            and surface as a hard failure (#619).
 
-        Strategy: drain stale buffer, try version detection via INFO.
-        If that fails (board in REPL, Thonny, etc.), do recovery
-        with soft reset. If THAT fails (old firmware WDT killed by
-        Ctrl-D), retry with Ctrl-C only (no soft reset).
+        Strategy:
+          1. Drain stale buffer, try version detection.
+          2. If that fails but we saw SOME bytes (drain content or
+             partial INFO response), the board is doing something —
+             try full recovery with Ctrl-C/B/D soft reset.
+          3. If we've seen ZERO bytes, skip the soft reset path
+             entirely (it isn't going to help a board that can't even
+             echo garbage) and go straight to a gentle Ctrl-C retry.
+          4. If the board STILL hasn't sent any byte after all
+             retries, mark firmware_silent = True. connect() surfaces
+             this as a user-visible error.
 
-        Diagnostic logging (#619): every step is logged to serial.log
-        with per-step timing, bytes drained/written, and driver state.
-        When a board goes silent and we fall through to "legacy, no
-        version info," the log answers: was the port ever actually
-        silent, or did partial bytes arrive? Did each write succeed?
-        Which recovery step did what?
+        Diagnostic logging (#619 Phase A): every step is logged to
+        serial.log with per-step timing, bytes drained/written, and
+        driver state.
         """
         t_total_start = time.monotonic()
         _serial_log.info(f'{self._label} RESET begin')
+        # Reset per-attempt state so reconnect after a power cycle
+        # starts fresh instead of carrying over a stale "silent"
+        # verdict from the previous attempt.
+        self.firmware_silent = False
+        self._detect_response_bytes = 0
+        # Tracks whether the board has produced ANY bytes during the
+        # entire connect sequence. If this stays 0 through all
+        # detection attempts, we're dealing with a hung board and the
+        # Ctrl-D soft-reset path is not going to help.
+        bytes_ever_seen = 0
 
         # Step 1: Drain stale data from boot or previous session
         t0 = time.monotonic()
         drained = self._drain_serial()
+        bytes_ever_seen += drained
         _serial_log.info(
             f'{self._label} RESET step1 drain: {drained}B '
             f'in {(time.monotonic() - t0) * 1000:.0f}ms'
@@ -206,6 +238,7 @@ class SerialBoard:
         time.sleep(0.1)
         t0 = time.monotonic()
         drained = self._drain_serial()
+        bytes_ever_seen += drained
         _serial_log.info(
             f'{self._label} RESET step2 drain: {drained}B '
             f'in {(time.monotonic() - t0) * 1000:.0f}ms'
@@ -214,7 +247,9 @@ class SerialBoard:
         # Step 3: Try version detection — works if firmware is running
         _serial_log.info(f'{self._label} RESET step3 detect (in_waiting={self._safe_in_waiting()}B)')
         t0 = time.monotonic()
+        pre_bytes = self._detect_response_bytes
         self._detect_firmware_version()
+        bytes_ever_seen += max(0, self._detect_response_bytes - pre_bytes)
         _serial_log.info(
             f'{self._label} RESET step3 detect result: '
             f'responding={self.firmware_responding} '
@@ -228,50 +263,71 @@ class SerialBoard:
             )
             return  # Firmware running (version may or may not be parseable)
 
-        # Step 4: Firmware not responding — try full recovery with soft reset
-        # This handles: REPL prompt, raw REPL (Thonny), hung state
-        logger.info(f'{self._label} Firmware not responding — attempting recovery (with soft reset)')
-        _serial_log.info(f'{self._label} RESET step4 soft-reset recovery begin')
-        t0 = time.monotonic()
-        self._safe_write(b'\x03', context='RESET step4 Ctrl-C #1')
-        time.sleep(0.2)
-        self._safe_write(b'\x03', context='RESET step4 Ctrl-C #2')
-        time.sleep(0.2)
-        self._safe_write(b'\x02', context='RESET step4 Ctrl-B (raw REPL exit)')
-        time.sleep(0.2)
-        self._safe_write(b'\x04', context='RESET step4 Ctrl-D (soft reset)')
-        time.sleep(5.0)             # Wait for firmware to fully boot
-
-        # Drain all boot output (motor firmware prints SPI init, etc.)
-        drained = self._drain_serial()
-        _serial_log.info(
-            f'{self._label} RESET step4 drain after Ctrl-D+5s: {drained}B '
-            f'(elapsed {(time.monotonic() - t0) * 1000:.0f}ms)'
-        )
-
-        # Step 5: Retry version detection after recovery
-        _serial_log.info(f'{self._label} RESET step5 detect (in_waiting={self._safe_in_waiting()}B)')
-        t0 = time.monotonic()
-        self._detect_firmware_version()
-        _serial_log.info(
-            f'{self._label} RESET step5 detect result: '
-            f'responding={self.firmware_responding} '
-            f'version={self.firmware_version} '
-            f'in {(time.monotonic() - t0) * 1000:.0f}ms'
-        )
-        if self.firmware_responding:
+        # Step 4: Soft-reset recovery — ONLY if the board has shown
+        # signs of life. A board that sent zero bytes isn't going to
+        # react to Ctrl-D either. #619 showed that soft reset on a
+        # totally silent board just wastes 16+ seconds without
+        # recovering anything.
+        skip_soft_reset = (bytes_ever_seen == 0)
+        if skip_soft_reset:
             _serial_log.info(
-                f'{self._label} RESET done (step5 ok after soft reset) total='
-                f'{(time.monotonic() - t_total_start) * 1000:.0f}ms'
+                f'{self._label} RESET step4 SKIPPED (no bytes seen yet — '
+                f'Ctrl-D soft reset would not help a silent board)'
             )
-            return  # Recovery with soft reset worked
+            logger.info(
+                f'{self._label} Firmware not responding and board is silent'
+                f' — skipping soft reset, trying gentler recovery'
+            )
+        else:
+            # This handles: REPL prompt, raw REPL (Thonny), hung-but-responsive state
+            logger.info(f'{self._label} Firmware not responding — attempting recovery (with soft reset)')
+            _serial_log.info(f'{self._label} RESET step4 soft-reset recovery begin')
+            t0 = time.monotonic()
+            self._safe_write(b'\x03', context='RESET step4 Ctrl-C #1')
+            time.sleep(0.2)
+            self._safe_write(b'\x03', context='RESET step4 Ctrl-C #2')
+            time.sleep(0.2)
+            self._safe_write(b'\x02', context='RESET step4 Ctrl-B (raw REPL exit)')
+            time.sleep(0.2)
+            self._safe_write(b'\x04', context='RESET step4 Ctrl-D (soft reset)')
+            time.sleep(5.0)             # Wait for firmware to fully boot
 
-        # Step 6: Soft reset may have killed the WDT on old firmware
-        # (pre-v3.0.4 LED firmware has 8388ms WDT — Ctrl-D kills the
-        # Timer that feeds it, causing the board to reset mid-recovery).
-        # Try again with Ctrl-C only (interrupt without soft reset).
-        # This keeps the WDT timer alive while interrupting main.py.
-        logger.info(f'{self._label} Soft reset recovery failed — retrying without soft reset (WDT-safe)')
+            # Drain all boot output (motor firmware prints SPI init, etc.)
+            drained = self._drain_serial()
+            bytes_ever_seen += drained
+            _serial_log.info(
+                f'{self._label} RESET step4 drain after Ctrl-D+5s: {drained}B '
+                f'(elapsed {(time.monotonic() - t0) * 1000:.0f}ms)'
+            )
+
+            # Step 5: Retry version detection after recovery
+            _serial_log.info(f'{self._label} RESET step5 detect (in_waiting={self._safe_in_waiting()}B)')
+            t0 = time.monotonic()
+            pre_bytes = self._detect_response_bytes
+            self._detect_firmware_version()
+            bytes_ever_seen += max(0, self._detect_response_bytes - pre_bytes)
+            _serial_log.info(
+                f'{self._label} RESET step5 detect result: '
+                f'responding={self.firmware_responding} '
+                f'version={self.firmware_version} '
+                f'in {(time.monotonic() - t0) * 1000:.0f}ms'
+            )
+            if self.firmware_responding:
+                _serial_log.info(
+                    f'{self._label} RESET done (step5 ok after soft reset) total='
+                    f'{(time.monotonic() - t_total_start) * 1000:.0f}ms'
+                )
+                return  # Recovery with soft reset worked
+
+        # Step 6: Gentle Ctrl-C-only retry.
+        # Two use cases:
+        # (a) Soft reset in step 4 killed WDT on pre-v3.0.4 LED firmware
+        #     (Ctrl-D killed the Timer that feeds the 8388ms WDT, causing
+        #     board reset mid-recovery). Ctrl-C keeps the WDT alive.
+        # (b) Silent-board path (step 4 skipped) — try the gentlest
+        #     possible interrupt before giving up and declaring the
+        #     board hung.
+        logger.info(f'{self._label} Trying WDT-safe Ctrl-C recovery')
         _serial_log.info(f'{self._label} RESET step6 WDT-safe retry begin')
         t0 = time.monotonic()
         self._safe_write(b'\x03', context='RESET step6 Ctrl-C #1')
@@ -279,6 +335,7 @@ class SerialBoard:
         self._safe_write(b'\x03', context='RESET step6 Ctrl-C #2')
         time.sleep(0.5)
         drained = self._drain_serial()
+        bytes_ever_seen += drained
         _serial_log.info(
             f'{self._label} RESET step6 drain after Ctrl-C: {drained}B'
         )
@@ -287,6 +344,7 @@ class SerialBoard:
         self._safe_write(b'\n', context='RESET step6 blank newline')
         time.sleep(0.2)
         drained = self._drain_serial()
+        bytes_ever_seen += drained
         _serial_log.info(
             f'{self._label} RESET step6 drain after newline: {drained}B '
             f'(elapsed {(time.monotonic() - t0) * 1000:.0f}ms)'
@@ -294,17 +352,28 @@ class SerialBoard:
 
         _serial_log.info(f'{self._label} RESET step7 detect (in_waiting={self._safe_in_waiting()}B)')
         t0 = time.monotonic()
+        pre_bytes = self._detect_response_bytes
         self._detect_firmware_version()
+        bytes_ever_seen += max(0, self._detect_response_bytes - pre_bytes)
         _serial_log.info(
             f'{self._label} RESET step7 detect result: '
             f'responding={self.firmware_responding} '
             f'version={self.firmware_version} '
             f'in {(time.monotonic() - t0) * 1000:.0f}ms'
         )
+
+        # Final decision: if the board has not produced a single byte
+        # across the entire connect sequence, mark it silent so
+        # connect() can surface the error and exchange_command() can
+        # fail fast. See #619.
+        if not self.firmware_responding and bytes_ever_seen == 0:
+            self.firmware_silent = True
         _serial_log.info(
             f'{self._label} RESET done (final) total='
             f'{(time.monotonic() - t_total_start) * 1000:.0f}ms '
-            f'responding={self.firmware_responding}'
+            f'responding={self.firmware_responding} '
+            f'silent={self.firmware_silent} '
+            f'bytes_ever_seen={bytes_ever_seen}'
         )
 
     def _safe_write(self, data: bytes, context: str) -> int:
@@ -349,7 +418,14 @@ class SerialBoard:
     # Connection
     # ------------------------------------------------------------------
     def connect(self):
-        """Open serial connection, reset firmware, detect version."""
+        """Open serial connection, reset firmware, detect version.
+
+        On a genuinely silent board (zero bytes across entire connect
+        sequence — see #619), surfaces a user-visible error notification
+        rather than silently degrading to "legacy, no version info."
+        The legacy-no-version fallback is preserved for pre-v3.0 boards
+        that DO respond to INFO with unparseable bytes.
+        """
         with self._lock:
             try:
                 self._open_serial()
@@ -358,6 +434,23 @@ class SerialBoard:
                     logger.info(f'{self._label} Connected (firmware v{self.firmware_version})')
                 elif self.firmware_date is not None:
                     logger.info(f'{self._label} Connected (legacy firmware, date={self.firmware_date})')
+                elif self.firmware_silent:
+                    # Board detected on USB but sent zero bytes across
+                    # every drain + detection attempt. Not a legacy
+                    # firmware case — the firmware is hung or the USB
+                    # hub UART bridge is stuck. Needs a hardware power
+                    # cycle. See #619.
+                    logger.error(
+                        f'{self._label} Connected but board is SILENT — '
+                        f'zero bytes received during connect sequence'
+                    )
+                    notifications.error(
+                        "Hardware",
+                        f"{self._label.strip()} not responding",
+                        f"Board detected at {self.port} but sent no data. "
+                        f"Firmware may be hung — power cycle the board "
+                        f"and restart LumaViewPro."
+                    )
                 else:
                     logger.info(f'{self._label} Connected (legacy firmware, no version info)')
             except Exception as e:
@@ -441,6 +534,21 @@ class SerialBoard:
                 resp = '\n'.join(resp_lines)
             else:
                 resp = resp_lines or ''
+
+            # Accumulate non-empty response bytes so _reset_firmware
+            # can track whether any detection attempt ever saw output.
+            # Only non-empty lines count — empty strings from readline
+            # timeouts are what we're trying to detect as "silent."
+            # getattr default for the __new__ test-construction path.
+            prev = getattr(self, '_detect_response_bytes', 0)
+            if isinstance(resp_lines, list):
+                self._detect_response_bytes = prev + sum(
+                    len(ln) for ln in resp_lines if ln
+                )
+            elif resp_lines:
+                self._detect_response_bytes = prev + len(resp_lines)
+            else:
+                self._detect_response_bytes = prev
 
             # Check if we got any meaningful content (not just empty lines)
             resp_stripped = resp.strip()
@@ -547,6 +655,27 @@ class SerialBoard:
                 HOME (5-15s) or CALIBRATE (30-60s).
         """
         with self._lock:
+            # Fail fast on silent boards (#619). exchange_command()
+            # is called for version detection from inside
+            # _detect_firmware_version, so we explicitly allow INFO
+            # through — otherwise the silent flag becomes sticky and
+            # a future reconnect can never clear it. Every other
+            # command on a silent board is rejected immediately so
+            # the user sees failures at full speed instead of dozens
+            # of 3-second timeouts (the #619 symptom where LED
+            # commands kept "succeeding" with empty responses for
+            # minutes after the silent connect).
+            #
+            # getattr default is False so tests that construct boards
+            # via __new__ (bypassing __init__) don't trip on a missing
+            # attribute.
+            if getattr(self, 'firmware_silent', False) and command.strip().upper() != 'INFO':
+                _serial_log.warning(
+                    f'{self._label} {command} -> REJECTED (board silent, '
+                    f'power cycle required)'
+                )
+                return None
+
             if self.driver is None:
                 try:
                     logger.info(f'{self._label} Auto-reconnect triggered by {command}')
