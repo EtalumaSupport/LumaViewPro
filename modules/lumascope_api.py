@@ -2348,63 +2348,52 @@ class Lumascope():
                 "Z axis homing encountered an error. Position is unknown.")
         _api_log.info('zhome DONE')
 
-    def xyhome(self):
-        """Home the XY axes (stage). Z axis and turret always home first.
+    def home(self):
+        """Home every axis the motor board has.
 
-        Silently no-ops when X or Y is not physically present (e.g. LS820
-        bench boards without an XY stage, or when no motor hardware is
-        connected at all and NullMotionBoard is in use). See issue #616 —
-        a user comment reported that every startup raised a "Homing Failed"
-        error popup on a Z-only unit because xyhome was called unconditionally.
+        This is the unified "home everything" entry point used by
+        startup and the GUI Home button. The firmware's home routine
+        homes Z, then T, then X/Y — on a Z-only board (LS820) it homes
+        Z and reports the missing X/Y; on a full XYZ scope it homes
+        all three. The driver returns True for both cases (full and
+        partial), False only on real failure, so this method just
+        trusts the driver's verdict.
         """
-        try:
-            present = self.motion.detect_present_axes()
-        except Exception as e:
-            logger.info(
-                f"[SCOPE API ] xyhome skipped — motion board cannot report "
-                f"axes present ({e})"
-            )
-            return
-        if 'X' not in present or 'Y' not in present:
-            logger.info(
-                f"[SCOPE API ] xyhome skipped — X/Y not physically present "
-                f"(axes present: {present})"
-            )
-            return
-        _api_log.info('xyhome START')
-        for ax in ('X', 'Y', 'Z'):
+        present_axes = self.axes_present()
+        _api_log.info('home START')
+        for ax in present_axes:
             self._set_axis_state(ax, AxisState.HOMING)
         self.is_homing = True
         try:
             with self.reference_position_logger():
-                result = self.motion.xyhome()
+                result = self.motion.home()
             if result is False:
-                logger.error('[SCOPE API ] XY homing failed')
+                logger.error('[SCOPE API ] Homing failed')
                 notifications.error("Motion", "Homing Failed",
-                    "XY homing failed. Position is unknown.")
-                for ax in ('X', 'Y', 'Z'):
+                    "Homing failed. Position is unknown.")
+                for ax in present_axes:
                     self._set_axis_state(ax, AxisState.UNKNOWN)
                 return
-            for ax in ('X', 'Y', 'Z'):
+            for ax in present_axes:
                 self._set_axis_state(ax, AxisState.IDLE)
             self.refresh_position_cache()
         except Exception:
-            logger.exception('[SCOPE API ] XY homing exception')
-            for ax in ('X', 'Y', 'Z'):
+            logger.exception('[SCOPE API ] Homing exception')
+            for ax in present_axes:
                 self._set_axis_state(ax, AxisState.UNKNOWN)
             notifications.error("Motion", "Homing Error",
-                "XY homing encountered an error. Position is unknown.")
+                "Homing encountered an error. Position is unknown.")
         finally:
             self.is_homing = False
-        _api_log.info('xyhome DONE')
+        _api_log.info('home DONE')
 
-    def has_xyhomed(self):
-        """Check if the XY axes have been homed since startup.
+    def has_homed(self):
+        """Check if the scope has been homed since startup.
 
         Returns:
-            bool: True if XY homing has been performed.
+            bool: True if home() has succeeded at least once.
         """
-        return self.motion.has_xyhomed()
+        return self.motion.has_homed()
 
     def xycenter(self):
         """Move the XY stage to center position."""

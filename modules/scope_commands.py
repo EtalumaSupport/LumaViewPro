@@ -292,20 +292,24 @@ def move_relative(
 
 
 def move_home(scope, executor, axis, callback=None, cb_args=None):
-    """Home an axis via the executor.
+    """Home an axis (or the whole scope) via the executor.
 
     Args:
-        scope: Lumascope instance with .zhome(), .xyhome(), .thome()
+        scope: Lumascope instance with .zhome(), .home(), .thome()
         executor: SequentialIOExecutor for serial command dispatch
-        axis: Axis string ('Z', 'XY', 'T')
+        axis: Axis string. 'Z' or 'T' homes that single axis. 'ALL'
+            (or legacy 'XY') homes everything the board has via
+            scope.home() — the firmware homes Z and T first as part
+            of the same routine, so on full and partial-XY boards
+            this is the right "home everything at startup" call.
         callback: Optional callback invoked after homing completes
         cb_args: Optional positional arguments for callback
     """
     axis = axis.upper()
     if axis == 'Z':
         executor.put(IOTask(action=scope.zhome, callback=callback, cb_args=cb_args))
-    elif axis == 'XY':
-        executor.put(IOTask(action=scope.xyhome, callback=callback, cb_args=cb_args))
+    elif axis in ('ALL', 'XY'):
+        executor.put(IOTask(action=scope.home, callback=callback, cb_args=cb_args))
     elif axis == 'T':
         executor.put(IOTask(action=scope.thome, callback=callback, cb_args=cb_args))
     else:

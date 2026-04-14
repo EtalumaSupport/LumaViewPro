@@ -658,10 +658,10 @@ class TestMotorBoardCommands:
         board.zhome()
         board.driver.write.assert_called_with(b'ZHOME\n')
 
-    def test_xyhome_sends_home(self):
-        """xyhome() should send 'HOME\\n'."""
+    def test_home_sends_home(self):
+        """home() should send 'HOME\\n'."""
         board = self._make_board()
-        board.xyhome()
+        board.home()
         board.driver.write.assert_called_with(b'HOME\n')
 
     def test_thome_sends_thome(self):
@@ -742,29 +742,42 @@ class TestMotorBoardHoming:
     def test_initial_homing_false(self):
         """Board starts with homing not complete."""
         board = self._make_board()
-        assert board.has_xyhomed() is False
+        assert board.has_homed() is False
         assert board.has_thomed() is False
 
-    def test_xyhome_sets_flag_on_success(self):
-        """xyhome() should set initial_homing_complete when firmware confirms."""
+    def test_home_sets_flag_on_success(self):
+        """home() should set initial_homing_complete when firmware confirms."""
         board = self._make_board()
         board.driver.readline.return_value = b"XYZ home complete\n"
-        board.xyhome()
-        assert board.has_xyhomed() is True
+        board.home()
+        assert board.has_homed() is True
 
-    def test_xyhome_no_flag_on_failure(self):
-        """xyhome() should not set flag if response doesn't contain expected text."""
+    def test_home_sets_flag_on_partial_success(self):
+        """home() should set initial_homing_complete on partial home — the
+        firmware homed Z (and T if present) before reporting that X or Y
+        is not physically wired on this board (LS820 case, #618 follow-up)."""
+        board = self._make_board()
+        board.driver.readline.return_value = b"ERROR: X not present\n"
+        board.home()
+        assert board.has_homed() is True, (
+            "Partial home (Z homed before firmware reported missing X/Y) "
+            "must set the homed flag — Z is at its reference position"
+        )
+
+    def test_home_no_flag_on_real_failure(self):
+        """home() should not set flag for a real failure (timeout, hardware
+        error) — distinct from the LS820 partial-home case above."""
         board = self._make_board()
         board.driver.readline.return_value = b"ERROR: timeout\n"
-        board.xyhome()
-        assert board.has_xyhomed() is False
+        board.home()
+        assert board.has_homed() is False
 
-    def test_xyhome_no_flag_on_none(self):
-        """xyhome() should not set flag if response is None (disconnected)."""
+    def test_home_no_flag_on_none(self):
+        """home() should not set flag if response is None (disconnected)."""
         board = self._make_board()
         board.driver.write.side_effect = serial.SerialTimeoutException("timeout")
-        board.xyhome()
-        assert board.has_xyhomed() is False
+        board.home()
+        assert board.has_homed() is False
 
     def test_thome_sets_flag_on_success(self):
         """thome() should set initial_t_homing_complete when firmware confirms."""
@@ -780,11 +793,11 @@ class TestMotorBoardHoming:
         board.thome()
         assert board.has_thomed() is False
 
-    def test_has_thomed_true_after_xyhome(self):
-        """has_thomed() should return True if XY homing completed (it homes T too)."""
+    def test_has_thomed_true_after_home(self):
+        """has_thomed() should return True if home() completed (it homes T too)."""
         board = self._make_board()
         board.driver.readline.return_value = b"XYZ home complete\n"
-        board.xyhome()
+        board.home()
         assert board.has_thomed() is True
 
 
@@ -1610,12 +1623,12 @@ class TestMotorBoardStateLock:
         }
         return board
 
-    def test_xyhome_sets_homing_complete_under_lock(self):
-        """xyhome() should set initial_homing_complete under _state_lock."""
+    def test_home_sets_homing_complete_under_lock(self):
+        """home() should set initial_homing_complete under _state_lock."""
         board = self._make_board()
         board.exchange_command = MagicMock(return_value="XYZ home complete")
-        board.xyhome()
-        assert board.has_xyhomed() is True
+        board.home()
+        assert board.has_homed() is True
 
     def test_thome_sets_t_homing_complete_under_lock(self):
         """thome() should set initial_t_homing_complete under _state_lock."""
@@ -1664,14 +1677,14 @@ class TestMotorBoardStateLock:
         def do_home():
             try:
                 for _ in range(20):
-                    board.xyhome()
+                    board.home()
             except Exception as e:
                 errors.append(e)
 
         def check_homed():
             try:
                 for _ in range(20):
-                    board.has_xyhomed()
+                    board.has_homed()
                     board.has_thomed()
             except Exception as e:
                 errors.append(e)

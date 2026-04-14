@@ -101,7 +101,7 @@ def _make_mock_scope(led_available=True):
     scope.move_absolute_position = MagicMock()
     scope.move_relative_position = MagicMock()
     scope.zhome = MagicMock()
-    scope.xyhome = MagicMock()
+    scope.home = MagicMock()
     scope.thome = MagicMock()
     scope.get_current_position = MagicMock(return_value={'X': 1000, 'Y': 2000, 'Z': 500})
     return scope
@@ -477,12 +477,21 @@ class TestScopeCommandsMotion:
         task = executor.put.call_args[0][0]
         assert task.action == scope.zhome
 
-    def test_move_home_xy(self):
+    def test_move_home_all(self):
         scope = _make_mock_scope()
         executor = _make_mock_executor()
-        scope_commands.move_home(scope, executor, 'xy')  # lowercase should work
+        scope_commands.move_home(scope, executor, 'all')  # lowercase should work
         task = executor.put.call_args[0][0]
-        assert task.action == scope.xyhome
+        assert task.action == scope.home
+
+    def test_move_home_legacy_xy_alias(self):
+        """Legacy 'XY' axis label still dispatches to scope.home() so existing
+        callers keep working during the rename window."""
+        scope = _make_mock_scope()
+        executor = _make_mock_executor()
+        scope_commands.move_home(scope, executor, 'XY')
+        task = executor.put.call_args[0][0]
+        assert task.action == scope.home
 
     def test_move_home_turret(self):
         scope = _make_mock_scope()
