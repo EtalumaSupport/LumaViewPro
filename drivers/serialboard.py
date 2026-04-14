@@ -112,13 +112,40 @@ class SerialBoard:
                     write_timeout=self.write_timeout)
             else:
                 raise
+        # Log opened-port state so connect diagnostics are visible in serial.log
+        # even when nothing else gets logged (e.g. board goes silent before
+        # first response). Added for #619 — "LED board found but totally
+        # silent" needs a full diagnostic trail.
+        try:
+            _serial_log.info(
+                f'{self._label} OPEN port={self.port} baud={self.baudrate} '
+                f'timeout={self.timeout:.2f}s write_timeout={self.write_timeout:.2f}s '
+                f'in_waiting={self.driver.in_waiting}B'
+            )
+        except Exception as e:
+            _serial_log.info(f'{self._label} OPEN port={self.port} (state read failed: {e})')
 
     def _drain_serial(self):
-        """Drain all pending data from the serial buffer."""
+        """Drain all pending data from the serial buffer.
+
+        Returns the total number of bytes drained. Also logs what was
+        drained to serial.log when non-empty — when a board goes silent
+        (#619), knowing WHAT was in the buffer before we threw it away
+        is the difference between "stale response to the previous
+        command" (board was responding, we just missed it) and "USB
+        garbage / boot noise" (port is in a bad state).
+
+        The drained content is logged as repr, truncated to 200 chars
+        so boot-output floods don't balloon the log file.
+        """
+        total = 0
+        drained = bytearray()
         for _ in range(50):
             n = self.driver.in_waiting
             if n > 0:
-                self.driver.read(n)
+                chunk = self.driver.read(n)
+                total += len(chunk)
+                drained.extend(chunk)
                 time.sleep(0.05)
             else:
                 saved = self.driver.timeout
@@ -127,6 +154,15 @@ class SerialBoard:
                 self.driver.timeout = saved
                 if not leftover:
                     break
+                total += len(leftover)
+                drained.extend(leftover)
+        if total > 0:
+            content = bytes(drained)
+            snippet = repr(content[:200])
+            if len(content) > 200:
+                snippet = snippet[:-1] + f'...+{len(content) - 200}B)'
+            _serial_log.info(f'{self._label} DRAIN {total}B: {snippet}')
+        return total
 
     def _reset_firmware(self):
         """Ensure firmware is running and detect version.
@@ -142,42 +178,92 @@ class SerialBoard:
         If that fails (board in REPL, Thonny, etc.), do recovery
         with soft reset. If THAT fails (old firmware WDT killed by
         Ctrl-D), retry with Ctrl-C only (no soft reset).
+
+        Diagnostic logging (#619): every step is logged to serial.log
+        with per-step timing, bytes drained/written, and driver state.
+        When a board goes silent and we fall through to "legacy, no
+        version info," the log answers: was the port ever actually
+        silent, or did partial bytes arrive? Did each write succeed?
+        Which recovery step did what?
         """
+        t_total_start = time.monotonic()
+        _serial_log.info(f'{self._label} RESET begin')
+
         # Step 1: Drain stale data from boot or previous session
-        self._drain_serial()
+        t0 = time.monotonic()
+        drained = self._drain_serial()
+        _serial_log.info(
+            f'{self._label} RESET step1 drain: {drained}B '
+            f'in {(time.monotonic() - t0) * 1000:.0f}ms'
+        )
 
         # Step 2: Flush board's input buffer — USB CDC enumeration can
         # leave stale bytes (e.g. \x00) that arrive after our drain and
         # get prepended to the first real command. A blank newline makes
         # the board process (and reject) any partial garbage, clearing
         # its input state.
-        self.driver.write(b'\n')
+        self._safe_write(b'\n', context='RESET step2 wake newline')
         time.sleep(0.1)
-        self._drain_serial()
+        t0 = time.monotonic()
+        drained = self._drain_serial()
+        _serial_log.info(
+            f'{self._label} RESET step2 drain: {drained}B '
+            f'in {(time.monotonic() - t0) * 1000:.0f}ms'
+        )
 
         # Step 3: Try version detection — works if firmware is running
+        _serial_log.info(f'{self._label} RESET step3 detect (in_waiting={self._safe_in_waiting()}B)')
+        t0 = time.monotonic()
         self._detect_firmware_version()
+        _serial_log.info(
+            f'{self._label} RESET step3 detect result: '
+            f'responding={self.firmware_responding} '
+            f'version={self.firmware_version} '
+            f'in {(time.monotonic() - t0) * 1000:.0f}ms'
+        )
         if self.firmware_responding:
+            _serial_log.info(
+                f'{self._label} RESET done (step3 ok) total='
+                f'{(time.monotonic() - t_total_start) * 1000:.0f}ms'
+            )
             return  # Firmware running (version may or may not be parseable)
 
         # Step 4: Firmware not responding — try full recovery with soft reset
         # This handles: REPL prompt, raw REPL (Thonny), hung state
         logger.info(f'{self._label} Firmware not responding — attempting recovery (with soft reset)')
-        self.driver.write(b'\x03')  # Ctrl-C: interrupt
+        _serial_log.info(f'{self._label} RESET step4 soft-reset recovery begin')
+        t0 = time.monotonic()
+        self._safe_write(b'\x03', context='RESET step4 Ctrl-C #1')
         time.sleep(0.2)
-        self.driver.write(b'\x03')  # Ctrl-C again
+        self._safe_write(b'\x03', context='RESET step4 Ctrl-C #2')
         time.sleep(0.2)
-        self.driver.write(b'\x02')  # Ctrl-B: exit raw REPL (Thonny recovery)
+        self._safe_write(b'\x02', context='RESET step4 Ctrl-B (raw REPL exit)')
         time.sleep(0.2)
-        self.driver.write(b'\x04')  # Ctrl-D: soft reset → restarts main.py
+        self._safe_write(b'\x04', context='RESET step4 Ctrl-D (soft reset)')
         time.sleep(5.0)             # Wait for firmware to fully boot
 
         # Drain all boot output (motor firmware prints SPI init, etc.)
-        self._drain_serial()
+        drained = self._drain_serial()
+        _serial_log.info(
+            f'{self._label} RESET step4 drain after Ctrl-D+5s: {drained}B '
+            f'(elapsed {(time.monotonic() - t0) * 1000:.0f}ms)'
+        )
 
         # Step 5: Retry version detection after recovery
+        _serial_log.info(f'{self._label} RESET step5 detect (in_waiting={self._safe_in_waiting()}B)')
+        t0 = time.monotonic()
         self._detect_firmware_version()
+        _serial_log.info(
+            f'{self._label} RESET step5 detect result: '
+            f'responding={self.firmware_responding} '
+            f'version={self.firmware_version} '
+            f'in {(time.monotonic() - t0) * 1000:.0f}ms'
+        )
         if self.firmware_responding:
+            _serial_log.info(
+                f'{self._label} RESET done (step5 ok after soft reset) total='
+                f'{(time.monotonic() - t_total_start) * 1000:.0f}ms'
+            )
             return  # Recovery with soft reset worked
 
         # Step 6: Soft reset may have killed the WDT on old firmware
@@ -186,18 +272,78 @@ class SerialBoard:
         # Try again with Ctrl-C only (interrupt without soft reset).
         # This keeps the WDT timer alive while interrupting main.py.
         logger.info(f'{self._label} Soft reset recovery failed — retrying without soft reset (WDT-safe)')
-        self.driver.write(b'\x03')  # Ctrl-C: interrupt
+        _serial_log.info(f'{self._label} RESET step6 WDT-safe retry begin')
+        t0 = time.monotonic()
+        self._safe_write(b'\x03', context='RESET step6 Ctrl-C #1')
         time.sleep(0.2)
-        self.driver.write(b'\x03')  # Ctrl-C again
+        self._safe_write(b'\x03', context='RESET step6 Ctrl-C #2')
         time.sleep(0.5)
-        self._drain_serial()
+        drained = self._drain_serial()
+        _serial_log.info(
+            f'{self._label} RESET step6 drain after Ctrl-C: {drained}B'
+        )
 
         # Send a blank line to exit any partial REPL state, then try INFO
-        self.driver.write(b'\n')
+        self._safe_write(b'\n', context='RESET step6 blank newline')
         time.sleep(0.2)
-        self._drain_serial()
+        drained = self._drain_serial()
+        _serial_log.info(
+            f'{self._label} RESET step6 drain after newline: {drained}B '
+            f'(elapsed {(time.monotonic() - t0) * 1000:.0f}ms)'
+        )
 
+        _serial_log.info(f'{self._label} RESET step7 detect (in_waiting={self._safe_in_waiting()}B)')
+        t0 = time.monotonic()
         self._detect_firmware_version()
+        _serial_log.info(
+            f'{self._label} RESET step7 detect result: '
+            f'responding={self.firmware_responding} '
+            f'version={self.firmware_version} '
+            f'in {(time.monotonic() - t0) * 1000:.0f}ms'
+        )
+        _serial_log.info(
+            f'{self._label} RESET done (final) total='
+            f'{(time.monotonic() - t_total_start) * 1000:.0f}ms '
+            f'responding={self.firmware_responding}'
+        )
+
+    def _safe_write(self, data: bytes, context: str) -> int:
+        """Write raw bytes and log the outcome.
+
+        Used by _reset_firmware() so that every write during the
+        connect/recovery sequence shows up in serial.log with its byte
+        count, elapsed time, and any exception. When a board goes
+        silent (#619), this tells us whether our commands are even
+        reaching the OS-level serial driver — critical for telling
+        "board not responding" apart from "our write failed."
+
+        Returns the number of bytes written (0 on failure). Exceptions
+        are logged but not re-raised so the caller can continue its
+        recovery sequence.
+        """
+        t0 = time.monotonic()
+        try:
+            n = self.driver.write(data)
+            elapsed_ms = (time.monotonic() - t0) * 1000
+            _serial_log.info(
+                f'{self._label} WRITE {context}: {len(data)}B '
+                f'written={n} in {elapsed_ms:.0f}ms'
+            )
+            return n or len(data)
+        except Exception as e:
+            elapsed_ms = (time.monotonic() - t0) * 1000
+            _serial_log.error(
+                f'{self._label} WRITE {context}: {len(data)}B FAILED '
+                f'after {elapsed_ms:.0f}ms ({e})'
+            )
+            return 0
+
+    def _safe_in_waiting(self) -> int:
+        """Return driver.in_waiting with exception handling for logging."""
+        try:
+            return self.driver.in_waiting
+        except Exception:
+            return -1
 
     # ------------------------------------------------------------------
     # Connection
@@ -275,6 +421,15 @@ class SerialBoard:
             firmware_date: Parsed date string (e.g. "2024-02-01") or None
             firmware_responding: True if board sent a meaningful INFO response
         """
+        # Snapshot pre-INFO driver state so serial.log shows what the
+        # port looked like before we asked for version info. #619 —
+        # when the board falls through to "legacy, no version info"
+        # we need to know whether the port was truly silent or had
+        # partial/stale bytes waiting.
+        pre_in_waiting = self._safe_in_waiting()
+        _serial_log.info(
+            f'{self._label} DETECT begin (in_waiting={pre_in_waiting}B)'
+        )
         try:
             # Use a short timeout for version detection — we don't want
             # to block for the board's default timeout (could be 2-30s)
@@ -293,6 +448,14 @@ class SerialBoard:
                 self.firmware_version = None
                 self.firmware_responding = False
                 logger.info(f'{self._label} No response from INFO')
+                # Log full diagnostic snapshot so the failure case is
+                # debuggable from a user-uploaded log alone (#619).
+                _serial_log.warning(
+                    f'{self._label} DETECT empty-response: '
+                    f'pre_in_waiting={pre_in_waiting}B '
+                    f'post_in_waiting={self._safe_in_waiting()}B '
+                    f'raw={resp_lines!r}'
+                )
                 return
 
             # Board is responding — mark it even if we can't parse a version
