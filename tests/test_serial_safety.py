@@ -1775,6 +1775,116 @@ class TestSilentBoardHandling:
         board.driver.write.assert_not_called()
 
 
+class TestExchangeCommandStopOnEmpty:
+    """Regression for the motor INFO 2.5s wasted timeout.
+
+    _detect_firmware_version calls exchange_command('INFO',
+    response_numlines=6, timeout=0.5, stop_on_empty=True). The motor
+    firmware sends INFO as a single line but the reader was waiting
+    the full per-line timeout × 5 on all the empty subsequent lines,
+    wasting 2.5s on every healthy motor connect.
+
+    stop_on_empty=True breaks out of the readline loop once an empty
+    line arrives after non-empty content. Safe because neither motor
+    nor LED INFO contains intentional empty lines inside the content.
+    """
+
+    def _make_led_board(self):
+        board = LEDBoard.__new__(LEDBoard)
+        board.found = True
+        board._lock = threading.RLock()
+        board._label = '[LED Class ]'
+        board.port = '/dev/fake'
+        board.baudrate = 115200
+        board.bytesize = serial.EIGHTBITS
+        board.parity = serial.PARITY_NONE
+        board.stopbits = serial.STOPBITS_ONE
+        board.timeout = 0.1
+        board.write_timeout = 0.1
+        board.led_ma = {}
+        board._state_lock = threading.Lock()
+        board.firmware_version = None
+        board._last_error_log_time = 0.0
+        board._error_log_interval = 2.0
+        board._min_command_interval = 0.0
+        board._last_command_time = 0.0
+        board.driver = _make_mock_serial()
+        return board
+
+    def test_stop_on_empty_breaks_after_first_empty(self):
+        """Motor INFO case: one content line then empty lines — must
+        break on first empty line after content, not read all 6."""
+        board = self._make_led_board()
+        # Motor INFO reply style: one content line, then empty lines
+        # (which represent readline timeouts in the real driver).
+        board.driver.readline.side_effect = [
+            b"EL-0940-04 Integrated Mainboard Firmware: 2026-04-01 v3.0.9\r\n",
+            b"",  # empty — should break the loop
+            b"SHOULD_NOT_READ\r\n",  # must not reach this line
+            b"ALSO_SHOULD_NOT_READ\r\n",
+            b"ALSO_SHOULD_NOT_READ\r\n",
+            b"ALSO_SHOULD_NOT_READ\r\n",
+        ]
+        resp = board.exchange_command('INFO', response_numlines=6,
+                                      stop_on_empty=True)
+        assert isinstance(resp, list)
+        assert len(resp) == 6  # padded to requested length
+        assert 'v3.0.9' in resp[0]
+        # The break must prevent subsequent reads from the side_effect
+        # list. We assert this by checking the padding (empty strings)
+        # rather than counting readline calls (which include the echo
+        # handling that may consume additional entries).
+        assert all(ln == '' for ln in resp[1:]), (
+            f"stop_on_empty should break on first empty; got {resp}"
+        )
+
+    def test_stop_on_empty_reads_full_multiline_led_info(self):
+        """LED INFO case: all 6 lines have content — stop_on_empty
+        must NOT trigger because no empty line appears."""
+        board = self._make_led_board()
+        board.driver.readline.side_effect = [
+            b"Version:      EL-0940 Integrated Mainboard\r\n",
+            b"Firmware:     2026-04-01 v3.0.7\r\n",
+            b"Copyright:    Etaluma, Inc.\r\n",
+            b"Calibration:  Default\r\n",
+            b"Reset cause:  Power-on\r\n",
+            b"Heap free:    154512 bytes\r\n",
+        ]
+        resp = board.exchange_command('INFO', response_numlines=6,
+                                      stop_on_empty=True)
+        assert isinstance(resp, list)
+        assert len(resp) == 6
+        assert 'v3.0.7' in resp[1]
+        assert 'Heap free' in resp[5]
+        # All 6 lines present means the break was NOT taken — safe.
+
+    def test_stop_on_empty_without_any_content_reads_all(self):
+        """Silent board case: every line is empty — must read all 6
+        (the 'no content at all' signal is what Phase B's silent
+        detection relies on)."""
+        board = self._make_led_board()
+        board.driver.readline.side_effect = [b"", b"", b"", b"", b"", b""]
+        resp = board.exchange_command('INFO', response_numlines=6,
+                                      stop_on_empty=True)
+        assert isinstance(resp, list)
+        assert len(resp) == 6
+        assert all(ln == '' for ln in resp)
+        # Phase B's silent detection sees 6 empty lines and concludes
+        # "silent board" regardless of whether we break or not.
+
+    def test_default_behavior_unchanged(self):
+        """Regression: stop_on_empty defaults to False. Existing
+        single-line command callers (STATUS, LED0_100, etc.) must
+        get exactly their requested number of lines."""
+        board = self._make_led_board()
+        board.driver.readline.side_effect = [
+            b"RE: LED0_100\r\n",
+            b"LED 0 set to 100 mA.\r\n",
+        ]
+        resp = board.exchange_command('LED0_100')
+        assert resp == 'LED 0 set to 100 mA.'
+
+
 class TestMotorBoardStateLock:
     """Verify MotorBoard _state_lock protects state flags from concurrent access."""
 

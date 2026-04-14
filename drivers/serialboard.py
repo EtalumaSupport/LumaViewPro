@@ -528,8 +528,16 @@ class SerialBoard:
             # to block for the board's default timeout (could be 2-30s)
             # on each of the 6 readline() calls. 0.5s per line is enough
             # for USB CDC response delivery.
+            #
+            # stop_on_empty=True so we break out of the readline loop
+            # as soon as an empty line arrives after non-empty content.
+            # Motor INFO is single-line — without this, we waste 5 ×
+            # 0.5s = 2.5s on every motor connect waiting for lines
+            # that never come. LED INFO is multi-line with no empty
+            # lines inside the content, so this is also safe for LED.
             resp_lines = self.exchange_command('INFO', response_numlines=6,
-                                              timeout=0.5)
+                                              timeout=0.5,
+                                              stop_on_empty=True)
             if isinstance(resp_lines, list):
                 resp = '\n'.join(resp_lines)
             else:
@@ -640,7 +648,8 @@ class SerialBoard:
     # ------------------------------------------------------------------
     # Serial communication
     # ------------------------------------------------------------------
-    def exchange_command(self, command, response_numlines=1, timeout=None):
+    def exchange_command(self, command, response_numlines=1, timeout=None,
+                         stop_on_empty=False):
         """Send command and read response(s).
 
         Handles auto-reconnect, LED echo detection (RE: prefix),
@@ -653,6 +662,16 @@ class SerialBoard:
                 temporarily overrides the board's default timeout for
                 this call only. Useful for long-running commands like
                 HOME (5-15s) or CALIBRATE (30-60s).
+            stop_on_empty: If True, break out of the read loop as
+                soon as readline() returns an empty line AFTER at
+                least one non-empty line has been received. Used by
+                _detect_firmware_version to avoid waiting the full
+                per-line timeout on every subsequent line when the
+                motor board sends its INFO as a single line
+                (previously wasted 2.5s on every motor connect).
+                Safe because neither motor nor LED INFO responses
+                contain intentional empty lines in the middle of
+                their content.
         """
         with self._lock:
             # Fail fast on silent boards (#619). exchange_command()
@@ -716,6 +735,7 @@ class SerialBoard:
 
                 self.driver.write(stream)
                 resp_lines = []
+                saw_content = False
                 for _ in range(response_numlines):
                     line = self.driver.readline().decode("utf-8", "ignore").strip()
                     # Auto-detect and drain echoes:
@@ -724,6 +744,18 @@ class SerialBoard:
                     if line.startswith('RE:') or line.upper() == cmd_upper:
                         line = self.driver.readline().decode("utf-8", "ignore").strip()
                     resp_lines.append(line)
+                    if line:
+                        saw_content = True
+                    elif stop_on_empty and saw_content:
+                        # Motor INFO fix: stop reading once we've seen
+                        # at least one non-empty line and the next line
+                        # is empty (timeout). Saves ~2.5s per motor
+                        # connect. Pad resp_lines so response_numlines
+                        # callers that expect exactly N entries still
+                        # get a uniform-length list.
+                        while len(resp_lines) < response_numlines:
+                            resp_lines.append('')
+                        break
 
                 response = resp_lines[0] if response_numlines == 1 else resp_lines
 
