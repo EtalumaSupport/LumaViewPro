@@ -678,6 +678,23 @@ class LumaViewProApp(TooltipMixin, App):
 
         stage = Stage()
 
+        # Wire NotificationCenter to UI popups BEFORE any hardware init.
+        # MainDisplay() below constructs Lumascope → LED/motor boards →
+        # connect() → potentially fires notifications.error() for
+        # silent-board detection (#619 Phase B) or any other early
+        # hardware failure. If the listener is registered AFTER the
+        # hardware init, those early errors go to the log but never
+        # become user-visible popups. Register first, let LVP tell
+        # the user about startup problems.
+        from modules.notification_center import notifications, Severity
+
+        def _ui_notification_bridge(n):
+            from kivy.clock import Clock
+            from ui.notification_popup import show_notification_popup
+            Clock.schedule_once(lambda dt: show_notification_popup(title=n.title, message=n.message), 0)
+
+        notifications.add_listener(_ui_notification_bridge,
+            min_severity=Severity.DEBUG if ENGINEERING_MODE else Severity.WARNING)
 
         try:
             from kivy.core.window import Window
@@ -847,16 +864,12 @@ class LumaViewProApp(TooltipMixin, App):
         from lvp_logger import enable_engineering_logs
         enable_engineering_logs(ENGINEERING_MODE)
 
-        # Wire NotificationCenter to UI popups
-        from modules.notification_center import notifications, Severity
-
-        def _ui_notification_bridge(n):
-            from kivy.clock import Clock
-            from ui.notification_popup import show_notification_popup
-            Clock.schedule_once(lambda dt: show_notification_popup(title=n.title, message=n.message), 0)
-
-        notifications.add_listener(_ui_notification_bridge,
-            min_severity=Severity.DEBUG if ENGINEERING_MODE else Severity.WARNING)
+        # NotificationCenter → UI popup bridge was registered earlier in
+        # build(), BEFORE MainDisplay() / Lumascope() / hardware init,
+        # so silent-board notifications (#619 Phase B) or any other
+        # early hardware errors surface to the user as popups rather
+        # than being logged-only. See the "Wire NotificationCenter"
+        # block near the top of build().
 
         # CPU profiling — enabled via debug_mode in settings.json
         # On exit, dumps a .profile file to logs/profile/ that can be
