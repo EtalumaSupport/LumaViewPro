@@ -1590,6 +1590,191 @@ class TestSerialDesyncRecovery:
         assert successes > 15, f"Only {successes}/25 cycles succeeded — desync cascade?"
 
 
+class TestSilentBoardHandling:
+    """Regression tests for #619 Phase B — silent board detection.
+
+    A "silent" board sends zero bytes during the entire connect
+    sequence. Distinguished from a legacy (pre-v3.0) board that
+    responds to INFO with unparseable text but still echoes bytes.
+    Silent boards are hung firmware or a stuck USB hub and cannot
+    recover via Ctrl-D — they need a hardware power cycle.
+
+    The structural fix:
+    - _reset_firmware tracks bytes_ever_seen and skips the Ctrl-D
+      soft-reset recovery path when no bytes were captured
+    - _reset_firmware marks firmware_silent = True when all retries
+      produce zero bytes
+    - connect() surfaces firmware_silent via notifications.error
+      instead of silently degrading to "legacy, no version info"
+    - exchange_command() fails fast (returns None immediately)
+      when firmware_silent is True
+    """
+
+    def _make_silent_board(self):
+        """Build an LEDBoard whose serial driver returns zero bytes
+        for every read and reports in_waiting=0 forever. Simulates
+        the #619 hung-firmware scenario at the driver level."""
+        board = LEDBoard.__new__(LEDBoard)
+        board.found = True
+        board._lock = threading.RLock()
+        board._label = '[LED Class ]'
+        board.port = '/dev/fake_silent'
+        board.baudrate = 115200
+        board.bytesize = serial.EIGHTBITS
+        board.parity = serial.PARITY_NONE
+        board.stopbits = serial.STOPBITS_ONE
+        board.timeout = 0.01  # Keep test fast; we don't care about real timing
+        board.write_timeout = 0.01
+        board.led_ma = {'BF': -1, 'PC': -1, 'DF': -1,
+                        'Red': -1, 'Blue': -1, 'Green': -1}
+        board._state_lock = threading.Lock()
+        board.firmware_version = None
+        board.firmware_date = None
+        board.firmware_responding = False
+        board.firmware_silent = False
+        board._detect_response_bytes = 0
+        board._last_error_log_time = 0.0
+        board._error_log_interval = 2.0
+        board._min_command_interval = 0.0
+        board._last_command_time = 0.0
+        board._in_raw_repl = False
+        from drivers.serialboard import ProtocolVersion
+        board.protocol_version = ProtocolVersion.LEGACY
+        # Silent driver: every read is empty, in_waiting is always 0,
+        # writes succeed (bytes go into the void)
+        board.driver = _make_mock_serial()
+        board.driver.readline.return_value = b""
+        board.driver.read.return_value = b""
+        board.driver.in_waiting = 0
+        return board
+
+    def _make_responsive_legacy_board(self):
+        """Build an LEDBoard that responds to INFO with unparseable
+        bytes (old LED firmware that has no version string). This is
+        the case the silent-board path must NOT trigger on — it's a
+        genuinely legacy board, not a hung one."""
+        board = self._make_silent_board()
+        # readline returns SOMETHING (the legacy firmware's INFO reply)
+        # on the first few calls. Content doesn't need to be parseable,
+        # it just needs to be non-empty so _detect_response_bytes > 0.
+        import itertools
+        responses = itertools.cycle([
+            b"EL-0940 Mainboard\r\n",
+            b"No version\r\n",
+            b"\r\n",
+            b"\r\n",
+            b"\r\n",
+            b"\r\n",
+        ])
+        board.driver.readline.side_effect = lambda: next(responses)
+        return board
+
+    def test_silent_board_marks_firmware_silent_true(self):
+        """After _reset_firmware on a silent board, firmware_silent
+        must be True and firmware_responding must be False."""
+        board = self._make_silent_board()
+        board._reset_firmware()
+        assert board.firmware_silent is True
+        assert board.firmware_responding is False
+
+    def test_silent_board_skips_ctrl_d(self):
+        """The soft-reset recovery path writes b'\\x04' (Ctrl-D).
+        On a silent board, that write must never happen — Ctrl-D
+        cannot recover a board that isn't reading its input."""
+        board = self._make_silent_board()
+        board._reset_firmware()
+        all_writes = [call.args[0] for call in board.driver.write.call_args_list]
+        assert b'\x04' not in all_writes, (
+            f"Ctrl-D (b'\\x04') must not be sent to a silent board; "
+            f"writes were: {all_writes}"
+        )
+
+    def test_silent_board_exchange_command_fails_fast(self):
+        """After a silent _reset_firmware, exchange_command on any
+        non-INFO command must return None immediately without
+        touching the driver."""
+        board = self._make_silent_board()
+        board._reset_firmware()
+        assert board.firmware_silent is True
+
+        # Clear the write history so we only see calls after the reset.
+        board.driver.write.reset_mock()
+        board.driver.readline.reset_mock()
+
+        t0 = time.monotonic()
+        result = board.exchange_command('LEDS_OFF')
+        elapsed_ms = (time.monotonic() - t0) * 1000
+
+        assert result is None, "Silent board must return None from exchange_command"
+        assert elapsed_ms < 100, (
+            f"Silent board exchange must fail fast (<100ms), took {elapsed_ms:.0f}ms — "
+            f"suggests the timeout path was hit"
+        )
+        board.driver.write.assert_not_called()
+
+    def test_silent_board_exchange_allows_info(self):
+        """INFO is exempted from fail-fast so a reconnect attempt can
+        re-probe the board (e.g. after the user power-cycles it).
+        Otherwise firmware_silent becomes sticky."""
+        board = self._make_silent_board()
+        board.firmware_silent = True  # simulate prior silent connect
+
+        # INFO should still reach the driver. We don't care about the
+        # response — just that write was called.
+        board.driver.write.reset_mock()
+        board.exchange_command('INFO')
+        # At least one write happened (driver.write called with b'INFO\n')
+        assert board.driver.write.called, (
+            "INFO must be allowed through exchange_command even when "
+            "firmware_silent is True, so reconnect probes can clear the flag"
+        )
+
+    def test_responsive_legacy_board_does_not_trigger_silent(self):
+        """Pre-v3.0 LED boards respond to INFO with unparseable text
+        (no version string) but still echo bytes. They must take the
+        normal legacy path — firmware_silent must stay False."""
+        board = self._make_responsive_legacy_board()
+        board._reset_firmware()
+        assert board.firmware_silent is False, (
+            "A board that sent ANY bytes is not silent — it's legacy"
+        )
+
+    def test_silent_board_reset_clears_stale_silent_flag(self):
+        """After a power cycle, the user reconnects. _reset_firmware
+        must clear any stale silent flag at the start so a board
+        that now responds gets a fresh verdict."""
+        board = self._make_silent_board()
+        board.firmware_silent = True  # simulate carried-over stale flag
+        board._detect_response_bytes = 0
+
+        # Swap to a responsive driver mid-test (simulate power cycle)
+        import itertools
+        responses = itertools.cycle([
+            b"Firmware: 2026-03-18 v3.0.4\r\n",
+            b"\r\n", b"\r\n", b"\r\n", b"\r\n", b"\r\n",
+        ])
+        board.driver.readline.side_effect = lambda: next(responses)
+
+        board._reset_firmware()
+        assert board.firmware_silent is False, (
+            "_reset_firmware must clear stale firmware_silent at entry"
+        )
+
+    def test_silent_board_cannot_auto_reconnect_loop(self):
+        """Repeated exchange_command on a silent board must not loop
+        forever — each call returns None fast without calling
+        self.connect()."""
+        board = self._make_silent_board()
+        board.firmware_silent = True
+        board.driver.write.reset_mock()
+
+        for _ in range(10):
+            result = board.exchange_command('LEDS_OFF')
+            assert result is None
+
+        board.driver.write.assert_not_called()
+
+
 class TestMotorBoardStateLock:
     """Verify MotorBoard _state_lock protects state flags from concurrent access."""
 
