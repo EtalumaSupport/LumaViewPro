@@ -75,6 +75,12 @@ class LEDBoard(SerialBoard):
         """ Convert numerical channel to color name """
         return self._CH_TO_COLOR.get(channel, 'BF')
 
+    def available_channels(self):
+        return tuple(self._COLOR_TO_CH.values())
+
+    def available_colors(self):
+        return tuple(self._COLOR_TO_CH.keys())
+
     # interperet commands
     # ------------------------------------------
     # board status: 'STATUS' case insensitive

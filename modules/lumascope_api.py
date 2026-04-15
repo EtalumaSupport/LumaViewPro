@@ -55,7 +55,8 @@ class Lumascope():
 
     # --- Input validation constants ---
     LED_MAX_MA = 1000       # Maximum LED current in milliamps (matches firmware CH_MAX)
-    LED_VALID_CHANNELS = range(6)  # Channels 0-5 (Blue, Green, Red, BF, PC, DF)
+    # LED channel set comes from self.led.available_channels() — varies by
+    # hardware (RP2040 = 6, FX2/Lumaview Classic = 4).
     VALID_AXES = ('X', 'Y', 'Z', 'T')
     # Absolute position bounds (um) — generous outer limits; per-axis travel
     # limits are enforced by the motor board itself.
@@ -1337,8 +1338,9 @@ class Lumascope():
         if isinstance(channel, str):
             channel = self.color2ch(color=channel)
 
-        if channel not in self.LED_VALID_CHANNELS:
-            raise ValueError(f"LED channel must be 0-5, got {channel}")
+        valid_channels = self.led.available_channels()
+        if channel not in valid_channels:
+            raise ValueError(f"LED channel must be one of {valid_channels}, got {channel}")
         if not isinstance(mA, (int, float)) or mA < 0 or mA > self.LED_MAX_MA:
             raise ValueError(f"LED current must be 0-{self.LED_MAX_MA} mA, got {mA}")
 
@@ -1380,8 +1382,9 @@ class Lumascope():
         if isinstance(channel, str):
             channel = self.color2ch(color=channel)
 
-        if channel not in self.LED_VALID_CHANNELS:
-            raise ValueError(f"LED channel must be 0-5, got {channel}")
+        valid_channels = self.led.available_channels()
+        if channel not in valid_channels:
+            raise ValueError(f"LED channel must be one of {valid_channels}, got {channel}")
 
         # Skip if channel is already off
         color_name = self.ch2color(channel)
@@ -1423,8 +1426,9 @@ class Lumascope():
         if not self.led: return
         if isinstance(channel, str):
             channel = self.color2ch(color=channel)
-        if channel not in self.LED_VALID_CHANNELS:
-            raise ValueError(f"LED channel must be 0-5, got {channel}")
+        valid_channels = self.led.available_channels()
+        if channel not in valid_channels:
+            raise ValueError(f"LED channel must be one of {valid_channels}, got {channel}")
         if not isinstance(mA, (int, float)) or mA < 0 or mA > self.LED_MAX_MA:
             raise ValueError(f"LED current must be 0-{self.LED_MAX_MA} mA, got {mA}")
         with self._led_lock:
@@ -1446,8 +1450,9 @@ class Lumascope():
         if not self.led: return
         if isinstance(channel, str):
             channel = self.color2ch(color=channel)
-        if channel not in self.LED_VALID_CHANNELS:
-            raise ValueError(f"LED channel must be 0-5, got {channel}")
+        valid_channels = self.led.available_channels()
+        if channel not in valid_channels:
+            raise ValueError(f"LED channel must be one of {valid_channels}, got {channel}")
         with self._led_lock:
             self.led.led_off_fast(channel)
         self.frame_validity.invalidate('led')

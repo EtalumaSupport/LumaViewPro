@@ -414,3 +414,82 @@ class TestProtocolConformance:
         scope = Lumascope(simulate=True)
         assert isinstance(scope.motion, MotorBoardProtocol)
         assert isinstance(scope.led, LEDBoardProtocol)
+
+
+class TestLEDChannelDiscovery:
+    """Audit B3: LED channel set comes from the driver, not from a
+    hardcoded `range(6)` constant in the API. This is the gate for adding
+    the FX2 driver for Lumaview Classic, which has 4 channels not 6.
+
+    These tests verify:
+    1. Each LED implementation's available_channels()/available_colors()
+       are derived from its single source of truth (_COLOR_TO_CH).
+    2. The API uses the driver's value at validation time, not a class
+       constant — so swapping a 4-channel driver in works without
+       touching the API.
+    3. The error message reflects the actual valid range, not a stale
+       hardcoded "0-5" string.
+    """
+
+    def test_ledboard_available_channels_from_color_map(self):
+        from drivers.ledboard import LEDBoard
+        instance = LEDBoard.__new__(LEDBoard)
+        assert instance.available_channels() == tuple(LEDBoard._COLOR_TO_CH.values())
+        assert instance.available_colors() == tuple(LEDBoard._COLOR_TO_CH.keys())
+        assert len(instance.available_channels()) == 6
+
+    def test_simulated_ledboard_available_channels_from_color_map(self):
+        sim = SimulatedLEDBoard()
+        assert sim.available_channels() == tuple(SimulatedLEDBoard._COLOR_TO_CH.values())
+        assert len(sim.available_channels()) == 6
+
+    def test_null_ledboard_returns_six_channels_for_compat(self):
+        """NullLEDBoard returns 6 channels (same as RP2040) so callers on
+        a no-LED-hardware system get silent no-ops, not ValueErrors."""
+        null = NullLEDBoard()
+        assert len(null.available_channels()) == 6
+        assert null.available_channels() == (0, 1, 2, 3, 4, 5)
+
+    def test_api_validation_uses_driver_channel_set_not_hardcoded(self):
+        """The API must read the valid channel set from the driver. This
+        test injects a driver that reports a SHORTER channel set and
+        confirms the API rejects what would have been valid under the
+        old hardcoded `range(6)` rule."""
+        scope = Lumascope(simulate=True)
+
+        class FourChannelLED(SimulatedLEDBoard):
+            _COLOR_TO_CH = {'Blue': 0, 'Green': 1, 'Red': 2, 'BF': 3}
+            _CH_TO_COLOR = {v: k for k, v in _COLOR_TO_CH.items()}
+        scope.led = FourChannelLED()
+
+        scope.led_on(0, 100)  # Blue — valid on 4-channel driver
+        with pytest.raises(ValueError, match=r"LED channel must be one of"):
+            scope.led_on(5, 100)  # DF — out of range on 4-channel driver
+        with pytest.raises(ValueError, match=r"LED channel must be one of"):
+            scope.led_on(4, 100)  # PC — out of range too
+
+    def test_api_validation_error_message_reflects_actual_channels(self):
+        """Error messages must describe the actual valid range (the
+        audit's hardcoded 'must be 0-5' string was the symptom of the
+        underlying problem)."""
+        scope = Lumascope(simulate=True)
+
+        class TwoChannelLED(SimulatedLEDBoard):
+            _COLOR_TO_CH = {'BF': 0, 'Blue': 1}
+            _CH_TO_COLOR = {v: k for k, v in _COLOR_TO_CH.items()}
+        scope.led = TwoChannelLED()
+
+        try:
+            scope.led_on(3, 100)
+        except ValueError as e:
+            msg = str(e)
+            assert "(0, 1)" in msg, f"error message must list actual channels, got: {msg}"
+            assert "0-5" not in msg, f"error must not mention stale 0-5 range: {msg}"
+
+    def test_no_hardcoded_LED_VALID_CHANNELS_constant(self):
+        """The class-level `LED_VALID_CHANNELS = range(6)` constant has
+        been deleted in favor of `self.led.available_channels()`."""
+        assert not hasattr(Lumascope, 'LED_VALID_CHANNELS'), (
+            "Lumascope.LED_VALID_CHANNELS must be removed — call sites "
+            "now read from self.led.available_channels() per audit B3"
+        )

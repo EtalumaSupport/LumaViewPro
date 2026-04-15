@@ -25,6 +25,12 @@ class SimulatedLEDBoard:
     TIMING_FAST = {'delay': 0.001}      # 1ms minimum — nothing returns instantly
     TIMING_REALISTIC = {'delay': 0.012}  # ~12ms per exchange (1ms flush + 10ms write + 1ms read)
 
+    _COLOR_TO_CH = {
+        'Blue': 0, 'Green': 1, 'Red': 2,
+        'BF': 3, 'PC': 4, 'DF': 5,
+    }
+    _CH_TO_COLOR = {v: k for k, v in _COLOR_TO_CH.items()}
+
     def __init__(self, delay: float = 0.0, timing: str = 'fast',
                  firmware_version: str = '2.0.1',
                  protocol_version: str = 'legacy',  # v3.0 STUB: 'legacy' or 'v3'
@@ -170,10 +176,16 @@ class SimulatedLEDBoard:
     # Channel helpers
     # ------------------------------------------------------------------
     def color2ch(self, color):
-        return {'Blue': 0, 'Green': 1, 'Red': 2, 'BF': 3, 'PC': 4, 'DF': 5}.get(color, 3)
+        return self._COLOR_TO_CH.get(color, 3)
 
     def ch2color(self, channel):
-        return {0: 'Blue', 1: 'Green', 2: 'Red', 3: 'BF', 4: 'PC', 5: 'DF'}.get(channel, 'BF')
+        return self._CH_TO_COLOR.get(channel, 'BF')
+
+    def available_channels(self):
+        return tuple(self._COLOR_TO_CH.values())
+
+    def available_colors(self):
+        return tuple(self._COLOR_TO_CH.keys())
 
     # ------------------------------------------------------------------
     # LED control

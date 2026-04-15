@@ -28,15 +28,30 @@ class NullLEDBoard:
     directly (``driver``, ``found``, ``port``, etc.).
     """
 
+    _COLOR_TO_CH = {
+        'Blue': 0, 'Green': 1, 'Red': 2,
+        'BF': 3, 'PC': 4, 'DF': 5,
+    }
+    _CH_TO_COLOR = {v: k for k, v in _COLOR_TO_CH.items()}
+
     def __init__(self):
         self.driver = True  # truthy sentinel -- satisfies `not self.led.driver`
         self.found = False
         self.port = None
         self.is_v2 = False
         self._state_lock = threading.Lock()
-        self.led_ma = {color: -1 for color in ('BF', 'PC', 'DF', 'Red', 'Blue', 'Green')}
+        self.led_ma = {color: -1 for color in self._COLOR_TO_CH}
 
         logger.debug('[NULL LED  ] NullLEDBoard initialized (no LED hardware)')
+
+    def available_channels(self):
+        # Returns the same 6-channel range as a real RP2040 LED board so
+        # callers using the NullLEDBoard fallback see consistent ranges
+        # and silently no-op rather than raise ValueError on channel 0-5.
+        return tuple(self._COLOR_TO_CH.values())
+
+    def available_colors(self):
+        return tuple(self._COLOR_TO_CH.keys())
 
     # ------------------------------------------------------------------
     # Core LED methods (no-ops)
@@ -65,10 +80,10 @@ class NullLEDBoard:
     # Channel mapping
     # ------------------------------------------------------------------
     def color2ch(self, color):
-        return {'Blue': 0, 'Green': 1, 'Red': 2, 'BF': 3, 'PC': 4, 'DF': 5}.get(color, 3)
+        return self._COLOR_TO_CH.get(color, 3)
 
     def ch2color(self, channel):
-        return {0: 'Blue', 1: 'Green', 2: 'Red', 3: 'BF', 4: 'PC', 5: 'DF'}.get(channel, 'BF')
+        return self._CH_TO_COLOR.get(channel, 'BF')
 
     # ------------------------------------------------------------------
     # ADC / calibration (no-ops)
