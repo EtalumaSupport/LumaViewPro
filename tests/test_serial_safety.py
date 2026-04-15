@@ -1677,16 +1677,46 @@ class TestSilentBoardHandling:
         assert board.firmware_silent is True
         assert board.firmware_responding is False
 
-    def test_silent_board_skips_ctrl_d(self):
-        """The soft-reset recovery path writes b'\\x04' (Ctrl-D).
-        On a silent board, that write must never happen — Ctrl-D
-        cannot recover a board that isn't reading its input."""
+    def test_silent_board_still_attempts_ctrl_d_recovery(self):
+        """The soft-reset recovery path (step 4) must run even when
+        `bytes_ever_seen == 0`. Ctrl-D is the only way to wake up a
+        board that was just used by Thonny and left in raw REPL
+        state — in that state, MicroPython doesn't echo or execute
+        anything until Ctrl-D arrives, so the board looks silent to
+        drain + INFO detect but is actually alive.
+
+        History: an earlier version of `_reset_firmware()` skipped
+        step 4 entirely when `bytes_ever_seen == 0`, assuming a
+        silent board wouldn't respond to Ctrl-D either. That skip
+        was correct for the in-house bench brick case (board
+        genuinely hung, Ctrl-D did nothing) but wrong for the
+        Thonny-left-in-raw-REPL case (board alive, Ctrl-D is the
+        wake-up signal). Verified in-session 2026-04-14 on a real
+        LS850T test board after a Thonny connect/disconnect cycle:
+        LVP with the skip in place falsely flagged both boards as
+        silent and LVP couldn't recover them.
+
+        **The guiding principle: robust startup trumps 5 seconds
+        of optimization.** Always run the recovery sequence
+        before declaring a board silent.
+
+        This test asserts Ctrl-B (b'\\x02', exit raw REPL) and
+        Ctrl-D (b'\\x04', soft reset) are both written during the
+        recovery path, even on a silent board. It replaces the
+        earlier `test_silent_board_skips_ctrl_d` which pinned the
+        now-reverted optimization.
+        """
         board = self._make_silent_board()
         board._reset_firmware()
         all_writes = [call.args[0] for call in board.driver.write.call_args_list]
-        assert b'\x04' not in all_writes, (
-            f"Ctrl-D (b'\\x04') must not be sent to a silent board; "
-            f"writes were: {all_writes}"
+        assert b'\x04' in all_writes, (
+            f"Ctrl-D (b'\\x04') MUST be sent during recovery even "
+            f"on a silent board, to handle Thonny-left-in-raw-REPL "
+            f"state. Writes were: {all_writes}"
+        )
+        assert b'\x02' in all_writes, (
+            f"Ctrl-B (b'\\x02', raw REPL exit) must also be sent as "
+            f"part of the recovery sequence. Writes were: {all_writes}"
         )
 
     def test_silent_board_exchange_command_fails_fast(self):
