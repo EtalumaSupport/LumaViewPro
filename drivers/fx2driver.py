@@ -63,11 +63,13 @@ References
 
 from __future__ import annotations
 
+import atexit
 import math
 import os
 import sys
 import threading
 import time
+import weakref
 from collections import deque
 from datetime import datetime
 
@@ -852,6 +854,41 @@ class FX2Camera(Camera):
         # Camera base class calls self.connect() at the end of its init.
         super().__init__()
 
+        # Register an atexit hook to drain ISO streaming state before
+        # Python interpreter shutdown collects the libusb1 context.
+        # Background: any unhandled exception in user code while
+        # streaming triggers Python interpreter shutdown. Daemon threads
+        # (our usb_event_thread + grab_thread) keep running. Module-
+        # level globals get GC'd, including the libusb1 USBContext,
+        # which destroys its internal mutexes. The daemon event thread
+        # is still inside `handleEventsTimeout` — its next mutex lock
+        # hits a destroyed mutex and crashes Python with
+        # ``Assertion failed: pthread_mutex_destroy(mutex) == 0``
+        # in libusb1's ``usbi_mutex_destroy``. Reproduced 2026-04-15
+        # during Stage 3.5 hardware validation by a test script with
+        # a wrong-arity unpacking error.
+        #
+        # Fix: atexit hook calls ``stop_grabbing`` before any Python
+        # GC happens. atexit runs during normal interpreter shutdown
+        # in LIFO order. The weakref ensures the hook doesn't pin the
+        # camera object in memory — if user code releases its FX2Camera
+        # reference earlier, the camera can still be GC'd normally and
+        # the atexit hook becomes a no-op.
+        self_ref = weakref.ref(self)
+
+        def _atexit_drain():
+            inst = self_ref()
+            if inst is None:
+                return  # camera was already GC'd, nothing to drain
+            if not inst.is_grabbing():
+                return  # not streaming, libusb1 context not active
+            try:
+                inst.stop_grabbing()
+            except Exception:
+                pass  # swallow — interpreter shutdown is in progress
+
+        atexit.register(_atexit_drain)
+
     # -- Connection --------------------------------------------------------
 
     def connect(self) -> bool:
@@ -1148,7 +1185,21 @@ class FX2Camera(Camera):
         )
 
     def _stop_iso_streaming(self):
-        """Stop libusb1 ISO streaming and restore the pyusb handle."""
+        """Stop libusb1 ISO streaming and restore the pyusb handle.
+
+        Matches the LVC reference: cancel transfers, drain events for
+        ~2s on the main thread, join the event thread, send STOP, close
+        the handle. Hardware-validated at Stage 3.5.
+
+        **Known robustness gap (Stage 3.6 followup):** if user code on
+        the main thread raises an unhandled exception while streaming,
+        Python interpreter shutdown will GC the libusb1 context while
+        the daemon event thread is still inside handleEventsTimeout,
+        which crashes with a libusb1 native ``pthread_mutex_destroy``
+        assertion. The fix is an atexit hook (or context-manager
+        ``__exit__``) on FX2Camera that calls ``stop_grabbing`` before
+        the interpreter tears down threads. Tracked in TODO.
+        """
         for xfer in self._iso_transfers:
             try:
                 xfer.cancel()
