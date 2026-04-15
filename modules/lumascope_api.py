@@ -2347,6 +2347,7 @@ class Lumascope():
         #if not self.motion: return
         _api_log.info('zhome START')
         self._set_axis_state('Z', AxisState.HOMING)
+        self.frame_validity.invalidate('z_move')
         try:
             with self.reference_position_logger():
                 result = self.motion.zhome()
@@ -2380,6 +2381,12 @@ class Lumascope():
         _api_log.info('home START')
         for ax in present_axes:
             self._set_axis_state(ax, AxisState.HOMING)
+        if 'Z' in present_axes:
+            self.frame_validity.invalidate('z_move')
+        if 'X' in present_axes or 'Y' in present_axes:
+            self.frame_validity.invalidate('xy_move')
+        if 'T' in present_axes:
+            self.frame_validity.invalidate('turret')
         self.is_homing = True
         try:
             with self.reference_position_logger():
@@ -2451,6 +2458,7 @@ class Lumascope():
         with self.reference_position_logger():
             with self.safe_turret_mover():
                 self._set_axis_state('T', AxisState.HOMING)
+                self.frame_validity.invalidate('turret')
                 self.motion.thome()
         self._set_axis_state('T', AxisState.IDLE)
         self.refresh_position_cache()
