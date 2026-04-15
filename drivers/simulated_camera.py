@@ -18,8 +18,10 @@ from scipy.ndimage import uniform_filter
 
 from lvp_logger import logger
 from drivers.camera import Camera
+from drivers.registry import camera_registry
 
 
+@camera_registry.register('sim', priority=100, is_simulator=True)
 class SimulatedCamera(Camera):
 
     MODEL_NAME = 'SimulatedCamera-1920x1200'

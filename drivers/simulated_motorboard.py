@@ -19,8 +19,10 @@ import threading
 import time
 from lvp_logger import logger
 from modules.motorconfig import MotorConfig
+from drivers.registry import motor_registry
 
 
+@motor_registry.register('sim', priority=100, is_simulator=True)
 class SimulatedMotorBoard:
 
     # Axis speeds in usteps/sec (realistic values for Etaluma hardware)

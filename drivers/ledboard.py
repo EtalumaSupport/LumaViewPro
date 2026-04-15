@@ -6,8 +6,10 @@ import threading
 import time
 from lvp_logger import logger
 from drivers.serialboard import SerialBoard
+from drivers.registry import led_registry
 
 
+@led_registry.register('rp2040', priority=100)
 class LEDBoard(SerialBoard):
 
     #----------------------------------------------------------

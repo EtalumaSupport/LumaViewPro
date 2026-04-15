@@ -18,9 +18,12 @@ from __future__ import annotations
 import logging
 import threading
 
+from drivers.registry import led_registry
+
 logger = logging.getLogger('LVP.drivers.null_ledboard')
 
 
+@led_registry.register('null', priority=0)
 class NullLEDBoard:
     """No-op LED board that satisfies the full LEDBoard interface.
 

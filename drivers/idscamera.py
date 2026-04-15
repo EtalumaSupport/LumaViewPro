@@ -7,6 +7,7 @@ import ids_peak_ipl
 
 from lvp_logger import logger
 from drivers.camera import Camera, ImageHandlerBase
+from drivers.registry import camera_registry
 import threading
 
 # IDS Library.Close() shuts down the entire SDK (not per-device).
@@ -27,6 +28,7 @@ def _ids_library_cleanup():
 atexit.register(_ids_library_cleanup)
 
 
+@camera_registry.register('ids', priority=80)
 class IDSCamera(Camera):
     def __init__(self):
 

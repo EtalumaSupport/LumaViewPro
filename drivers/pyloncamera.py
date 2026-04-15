@@ -11,9 +11,11 @@ from lvp_logger import logger
 import queue
 
 from drivers.camera import Camera, ImageHandlerBase
+from drivers.registry import camera_registry
 from modules.notification_center import notifications
 
 
+@camera_registry.register('pylon', priority=100)
 class PylonCamera(Camera):
 
     def __init__(self, **kwargs):

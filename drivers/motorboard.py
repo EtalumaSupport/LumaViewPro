@@ -7,11 +7,13 @@ import time
 from lvp_logger import logger
 
 from drivers.serialboard import SerialBoard
+from drivers.registry import motor_registry
 from modules.exceptions import HardwareError
 from modules.motorconfig import MotorConfig
 from modules.notification_center import notifications
 
 
+@motor_registry.register('rp2040', priority=100)
 class MotorBoard(SerialBoard):
 
     #----------------------------------------------------------

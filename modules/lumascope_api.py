@@ -26,6 +26,7 @@ from drivers.simulated_ledboard import SimulatedLEDBoard
 from drivers.null_motorboard import NullMotionBoard
 from drivers.null_ledboard import NullLEDBoard
 from drivers.protocols import MotorBoardProtocol, LEDBoardProtocol
+from drivers.registry import motor_registry, led_registry, camera_registry
 from modules.scope_capabilities import ScopeCapabilities
 
 # Import additional libraries
@@ -70,12 +71,18 @@ class Lumascope():
     # limits are enforced by the motor board itself.
     MOTOR_POSITION_LIMIT = 1_000_000  # 1 meter in um
 
-    def __init__(self, simulate: bool = False, camera_type: str = "pylon"):
+    def __init__(self, simulate: bool = False, camera_type: str = 'auto'):
         """Initialize Microscope.
 
         Args:
             simulate: If True, use simulated hardware (no USB devices needed).
-            camera_type: Camera backend to use ("pylon" or "ids").
+            camera_type: Camera registry kind. 'auto' (default) tries the
+                registered real cameras in descending priority order
+                (Pylon → IDS today). Accepted explicit values: 'pylon',
+                'ids', 'sim', or any other key registered in
+                `drivers/registry.py::camera_registry`. Post-B2 this is
+                the only parameter the caller needs to steer driver
+                selection — motion and LED drivers always use 'auto'.
         """
         self._simulated = simulate
         self._coordinate_transformer = coord_transformations.CoordinateTransformer()
@@ -129,19 +136,23 @@ class Lumascope():
         # Constructed BEFORE the per-axis state dicts so we can size them
         # to the axes the hardware actually has (audit B4). Constructed
         # BEFORE the motion monitor thread so the thread always sees a
-        # valid `self.motion`.
-        self.motion: MotorBoardProtocol
-        try:
-            if simulate:
-                from modules.settings_init import settings
-                sim_model = settings.get('microscope', 'LS850') if settings else 'LS850'
-                self.motion = SimulatedMotorBoard(model=sim_model)
-                logger.info(f'[SCOPE API ] Using SIMULATED Motor Board (model={sim_model})')
-            else:
-                self.motion = MotorBoard()
-        except Exception:
-            self.motion = NullMotionBoard()
-            logger.exception('[SCOPE API ] Motion Board Not Initialized')
+        # valid `self.motion`. Driver selection goes through the motor
+        # registry (audit B2) — 'auto' tries real drivers in descending
+        # priority order and falls back to NullMotionBoard if all fail,
+        # so no manual try/except needed.
+        motor_kwargs: dict = {}
+        if simulate:
+            from modules.settings_init import settings
+            motor_kwargs['model'] = (settings.get('microscope', 'LS850')
+                                     if settings else 'LS850')
+        self.motion: MotorBoardProtocol = motor_registry.create(
+            'auto', simulate=simulate, **motor_kwargs
+        )
+        if simulate:
+            logger.info(
+                f'[SCOPE API ] Using SIMULATED Motor Board '
+                f'(model={motor_kwargs.get("model")})'
+            )
 
         # ----- Per-axis state dicts (sized to actual hardware) -----
         # NullMotionBoard.detect_present_axes() returns [], so a system
@@ -168,35 +179,31 @@ class Lumascope():
         self._motion_monitor_thread.start()
 
         # ----- LED Control Board -----
-        self.led: LEDBoardProtocol
-        try:
-            if simulate:
-                self.led = SimulatedLEDBoard()
-                logger.info('[SCOPE API ] Using SIMULATED LED Board')
-            else:
-                self.led = LEDBoard()
-        except Exception:
-            self.led = NullLEDBoard()
-            logger.exception('[SCOPE API ] LED Board Not Initialized')
+        # Same registry-based selection as motion (audit B2).
+        self.led: LEDBoardProtocol = led_registry.create('auto', simulate=simulate)
+        if simulate:
+            logger.info('[SCOPE API ] Using SIMULATED LED Board')
 
-        # Camera
-        self._image_buffer = None  # backing field for image_buffer property
-        self._frame_buffer = None  # Pre-allocated buffer for get_image_from_buffer
-        self.camera = None  # Set before try block so attribute always exists
+        # ----- Camera -----
+        # Driver selection via camera_registry (audit B2). `camera_type`
+        # accepts: 'auto' (tries pylon → ids by priority), 'pylon', 'ids',
+        # 'sim', or any other registered camera kind. Default 'auto' is
+        # the right choice for most callers; the pre-B2 default was
+        # "pylon" which skipped auto-detect — callers that rely on that
+        # continue to pass camera_type='pylon' explicitly.
+        self._image_buffer = None
+        self._frame_buffer = None
+        self.camera = None
+        camera_kwargs: dict = {}
+        if simulate:
+            camera_kwargs['z_position_func'] = lambda: self.motion.current_pos('Z')
         try:
+            self.camera: Camera = camera_registry.create(
+                camera_type, simulate=simulate, **camera_kwargs
+            )
             if simulate:
-                self.camera: Camera = SimulatedCamera(
-                    z_position_func=lambda: self.motion.current_pos('Z'),
-                )
                 self.camera.load_cycle_images()
                 logger.info('[SCOPE API ] Using SIMULATED Camera')
-            elif camera_type == "ids":
-                self.camera: Camera = IDSCamera()
-            elif camera_type == "pylon":
-                self.camera: Camera = PylonCamera()
-            else:
-                # Auto-detect: try IDS first, then Pylon
-                self.camera = self._autodetect_camera()
         except Exception:
             logger.exception('[SCOPE API ] Camera Board Not Initialized')
 
@@ -406,19 +413,6 @@ class Lumascope():
         self._motion_wake.set()  # unblock if sleeping
         if self._motion_monitor_thread.is_alive():
             self._motion_monitor_thread.join(timeout=1.0)
-
-    def _autodetect_camera(self) -> 'Camera':
-        """Try Pylon first, then IDS. Returns whichever connects."""
-        try:
-            cam = PylonCamera()
-            if cam.active:
-                logger.info('[SCOPE API ] Auto-detected Pylon camera')
-                return cam
-        except Exception:
-            logger.debug('[SCOPE API ] Pylon camera not found, trying IDS')
-        cam = IDSCamera()
-        logger.info('[SCOPE API ] Auto-detected IDS camera')
-        return cam
 
     def _load_camera_timing(self):
         """Load per-camera timing config if available.

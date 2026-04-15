@@ -19,11 +19,13 @@ import logging
 import pathlib
 import threading
 
+from drivers.registry import motor_registry
 from modules.motorconfig import MotorConfig
 
 logger = logging.getLogger('LVP.drivers.null_motorboard')
 
 
+@motor_registry.register('null', priority=0)
 class NullMotionBoard:
     """No-op motor board that satisfies the full MotorBoard interface.
 

@@ -17,8 +17,10 @@ Failure injection (for testing error recovery):
 import threading
 import time
 from lvp_logger import logger
+from drivers.registry import led_registry
 
 
+@led_registry.register('sim', priority=100, is_simulator=True)
 class SimulatedLEDBoard:
 
     TIMING_INSTANT = {'delay': 0.0}     # Zero delay — for unit tests only
