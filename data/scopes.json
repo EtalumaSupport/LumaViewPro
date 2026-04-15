@@ -70,5 +70,29 @@
             "Brightfield": true,
             "PhaseContrast": true
         }
+    },
+    "LS620": {
+        "Focus": false,
+        "XYStage": false,
+        "Turret": false,
+        "Layers": {
+            "Lumi": false,
+            "Fluorescence": true,
+            "Darkfield": false,
+            "Brightfield": true,
+            "PhaseContrast": true
+        }
+    },
+    "LS560": {
+        "Focus": false,
+        "XYStage": false,
+        "Turret": false,
+        "Layers": {
+            "Lumi": false,
+            "Fluorescence": true,
+            "Darkfield": false,
+            "Brightfield": true,
+            "PhaseContrast": true
+        }
     }
 }

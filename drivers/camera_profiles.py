@@ -220,6 +220,41 @@ _simulated = CameraProfile(
 )
 
 
+# Aptina MT9P031 — Lumascope Classic LS620 / LS560 / LS720 via Cypress FX2
+# Native sensor is 2592×1944 but the driver crops/centers a 1900×1900
+# window. Gain is hardcoded by driver math (0–42.1 dB). Max exposure is
+# MAX_EXPOSURE_ROWS (65535) × _ROW_TIME_MS (0.1124) = 7366 ms.
+# See drivers/fx2driver.py + LumaviewClassic/docs/DATASHEET_VERIFICATION.md.
+_MT9P031_LS620 = CameraProfile(
+    model_name='MT9P031-LS620',
+    sensor='Aptina MT9P031',
+    pixel_size_um=2.2,
+    shutter='rolling',
+    native_resolution={'width': 1900, 'height': 1900},
+    pixel_formats=['Mono8'],          # 12-bit sensor, FX2 streams top 8 bits
+    max_exposure_ms=7_366,            # 65535 rows × 0.1124 ms/row
+    binning_sizes=[1],                # driver doesn't wire up sensor binning
+    binning_modes=['Sum'],
+    alignment={'width': 4, 'height': 4},  # matches set_frame_size() step
+    gain=GainInfo(
+        analog_max_db=18.06,          # 8× analog = 20*log10(8) = 18.06 dB
+        has_digital=True,             # digital stage adds up to 16× more
+        gain_selector='All',
+        total_min_db=0.0,
+        total_max_db=42.1,            # audit-corrected per RR_A legal ranges
+    ),
+    has_auto_gain=False,              # no hardware AE/AG on MT9P031
+    has_auto_exposure=False,
+    has_temperature=False,
+    driver='fx2',
+    notes='Cypress FX2 USB + Aptina MT9P031 sensor. 4 LED channels via '
+          'I2C at 0x2A. No hardware auto gain/exposure. No binning. '
+          'Mono8 only (top 8 bits of 12-bit ADC). Exposure changes '
+          'have a 2-frame pipeline delay. Hardware-validated at 4.5 fps '
+          'on LS620 macOS (63/63 frames).',
+)
+
+
 # ---------------------------------------------------------------------------
 # Profile registry and lookup
 # ---------------------------------------------------------------------------
@@ -231,6 +266,10 @@ _PROFILES: list[tuple[str, CameraProfile]] = [
     ('U3-34L0XCP-M',            _U3_34L0XCP_M),   # spec sheet model
     ('U3-34LxXCP-M',            _U3_34L0XCP_M),   # as reported by SDK
     ('SimulatedCamera',         _simulated),
+    ('MT9P031',                 _MT9P031_LS620),  # FX2Camera sets model_name='MT9P031-LS620'
+    ('LS620',                   _MT9P031_LS620),  # explicit model-name match
+    ('LS560',                   _MT9P031_LS620),  # same sensor, same profile
+    ('LS720',                   _MT9P031_LS620),  # same sensor, same profile
 ]
 
 # Default profile for unknown cameras
