@@ -325,8 +325,17 @@ class TestFrameValidityDuringHoming:
     def test_home_marks_frame_invalid_z_only_board(self):
         """LS820: only Z present. home() must invalidate z_move only,
         not xy_move or turret (those sources aren't in motion)."""
+        from modules.scope_capabilities import ScopeCapabilities
         scope = Lumascope(simulate=True)
         scope.motion.detect_present_axes = lambda: ['Z']
+        # Rebuild the capability snapshot after patching the driver —
+        # post-B7, `axes_present()` reads from `capabilities.axes` (a
+        # frozen snapshot built at init), so the test needs to
+        # re-snapshot to reflect the patched motion.
+        scope.capabilities = ScopeCapabilities.from_drivers(
+            motion=scope.motion, led=scope.led, camera=scope.camera,
+            led_max_ma=Lumascope.LED_MAX_MA,
+        )
         captured = {}
 
         def fake_home(*args, **kwargs):
@@ -635,3 +644,137 @@ class TestPerAxisDictsFromDriver:
         )
         assert hasattr(Lumascope, '_VALID_AXIS_NAMES')
         assert tuple(Lumascope._VALID_AXIS_NAMES) == ('X', 'Y', 'Z', 'T')
+
+
+class TestScopeCapabilities:
+    """Audit B7: ScopeCapabilities is the single source of truth for
+    "what does this scope have" — a frozen snapshot built at init from
+    the three drivers. Pre-B7, capability questions were answered
+    piecemeal by `axes_present()`, `has_turret()`, ad-hoc isinstance
+    checks, and direct reads of `led.available_channels()` /
+    `camera.profile.*`. This is Rule 9 enforcement.
+
+    Runtime connection state (`motor_connected`, `led_connected`) stays
+    live on Lumascope — it deliberately isn't on the frozen dataclass
+    because disconnects need to reflect immediately.
+    """
+
+    def test_capabilities_built_at_init(self):
+        scope = Lumascope(simulate=True)
+        from modules.scope_capabilities import ScopeCapabilities
+        assert isinstance(scope.capabilities, ScopeCapabilities)
+
+    def test_ls850_default_sim_capabilities(self):
+        """Default sim is LS850: X/Y/Z, no turret, 6-channel LED."""
+        scope = Lumascope(simulate=True)
+        caps = scope.capabilities
+        assert caps.axes == ('X', 'Y', 'Z')
+        assert caps.has_focus is True
+        assert caps.has_xy_stage is True
+        assert caps.has_turret is False
+        assert len(caps.led_channels) == 6
+        assert caps.led_max_ma == Lumascope.LED_MAX_MA
+
+    def test_ls850t_capabilities_has_turret(self):
+        from drivers.simulated_motorboard import SimulatedMotorBoard
+        from modules.scope_capabilities import ScopeCapabilities
+        scope = Lumascope(simulate=True)
+        scope.motion = SimulatedMotorBoard(model='LS850T')
+        scope.capabilities = ScopeCapabilities.from_drivers(
+            motion=scope.motion, led=scope.led, camera=scope.camera,
+            led_max_ma=Lumascope.LED_MAX_MA,
+        )
+        assert scope.capabilities.axes == ('X', 'Y', 'Z', 'T')
+        assert scope.capabilities.has_turret is True
+        assert scope.capabilities.has_xy_stage is True
+
+    def test_z_only_sim_capabilities(self):
+        """LS820 / LVC LS620-style Z-only scope."""
+        from modules.scope_capabilities import ScopeCapabilities
+        scope = Lumascope(simulate=True)
+        scope.motion.detect_present_axes = lambda: ['Z']
+        scope.capabilities = ScopeCapabilities.from_drivers(
+            motion=scope.motion, led=scope.led, camera=scope.camera,
+            led_max_ma=Lumascope.LED_MAX_MA,
+        )
+        assert scope.capabilities.axes == ('Z',)
+        assert scope.capabilities.has_focus is True
+        assert scope.capabilities.has_xy_stage is False
+        assert scope.capabilities.has_turret is False
+
+    def test_null_motor_capabilities_empty_axes(self):
+        from modules.scope_capabilities import ScopeCapabilities
+        caps = ScopeCapabilities.from_drivers(
+            motion=NullMotionBoard(), led=NullLEDBoard(), camera=None,
+            led_max_ma=1000,
+        )
+        assert caps.axes == ()
+        assert caps.has_focus is False
+        assert caps.has_xy_stage is False
+        assert caps.has_turret is False
+
+    def test_null_led_still_reports_six_channels_for_compat(self):
+        """Per B3 compat: NullLEDBoard reports 6 channels so Rule 8
+        silent no-ops work on channels 0-5. Capabilities mirrors that."""
+        from modules.scope_capabilities import ScopeCapabilities
+        caps = ScopeCapabilities.from_drivers(
+            motion=NullMotionBoard(), led=NullLEDBoard(), camera=None,
+            led_max_ma=1000,
+        )
+        assert len(caps.led_channels) == 6
+        assert caps.led_channels == (0, 1, 2, 3, 4, 5)
+
+    def test_four_channel_led_capabilities(self):
+        """An FX2-style 4-channel LED driver propagates through."""
+        from modules.scope_capabilities import ScopeCapabilities
+
+        class FourChannelLED(SimulatedLEDBoard):
+            _COLOR_TO_CH = {'Blue': 0, 'Green': 1, 'Red': 2, 'BF': 3}
+            _CH_TO_COLOR = {v: k for k, v in _COLOR_TO_CH.items()}
+
+        caps = ScopeCapabilities.from_drivers(
+            motion=NullMotionBoard(), led=FourChannelLED(), camera=None,
+            led_max_ma=1000,
+        )
+        assert caps.led_channels == (0, 1, 2, 3)
+        assert set(caps.led_colors) == {'Blue', 'Green', 'Red', 'BF'}
+
+    def test_capabilities_is_frozen(self):
+        """The dataclass is frozen — any attempt to mutate a field
+        raises FrozenInstanceError. This enforces the "snapshot" contract."""
+        import dataclasses
+        scope = Lumascope(simulate=True)
+        with pytest.raises(dataclasses.FrozenInstanceError):
+            scope.capabilities.axes = ('X',)  # type: ignore[misc]
+
+    def test_backward_compat_methods_delegate_to_capabilities(self):
+        """The existing methods (`axes_present`, `has_turret`, `has_axis`)
+        must return values matching `scope.capabilities.*`. If they drift,
+        callers using the old methods see different answers than callers
+        using the new field — exactly the fragmentation B7 aims to retire."""
+        scope = Lumascope(simulate=True)
+        assert scope.axes_present() == list(scope.capabilities.axes)
+        assert scope.has_turret() == scope.capabilities.has_turret
+        assert scope.has_axis('Z') == ('Z' in scope.capabilities.axes)
+        assert scope.has_axis('Q') is False
+
+    def test_motor_connected_stays_live_not_in_capabilities(self):
+        """Runtime connection state must NOT be a field on capabilities —
+        it needs to reflect disconnects at runtime, which a frozen
+        snapshot can't do. Lumascope.motor_connected / led_connected
+        remain live properties."""
+        scope = Lumascope(simulate=True)
+        from modules.scope_capabilities import ScopeCapabilities
+        cap_fields = {f.name for f in dataclasses_fields(ScopeCapabilities)}
+        assert 'motor_connected' not in cap_fields
+        assert 'led_connected' not in cap_fields
+        assert 'camera_connected' not in cap_fields
+        # Runtime properties still work as they did
+        assert isinstance(scope.motor_connected, bool)
+        assert isinstance(scope.led_connected, bool)
+
+
+def dataclasses_fields(cls):
+    """Helper — imported late to keep the imports tidy."""
+    import dataclasses as _dc
+    return _dc.fields(cls)

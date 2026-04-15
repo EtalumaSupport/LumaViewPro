@@ -26,6 +26,7 @@ from drivers.simulated_ledboard import SimulatedLEDBoard
 from drivers.null_motorboard import NullMotionBoard
 from drivers.null_ledboard import NullLEDBoard
 from drivers.protocols import MotorBoardProtocol, LEDBoardProtocol
+from modules.scope_capabilities import ScopeCapabilities
 
 # Import additional libraries
 from lvp_logger import logger, version
@@ -198,6 +199,20 @@ class Lumascope():
                 self.camera = self._autodetect_camera()
         except Exception:
             logger.exception('[SCOPE API ] Camera Board Not Initialized')
+
+        # ----- ScopeCapabilities (audit B7) -----
+        # Single source of truth for "what does this scope have" — built
+        # once from the three drivers, frozen thereafter. Callers should
+        # prefer `scope.capabilities.*` over the wrapper methods below.
+        # Runtime connection state (`motor_connected`, `led_connected`)
+        # stays as live properties on Lumascope — those must reflect
+        # disconnects and can't be snapshotted.
+        self.capabilities = ScopeCapabilities.from_drivers(
+            motion=self.motion,
+            led=self.led,
+            camera=self.camera,
+            led_max_ma=self.LED_MAX_MA,
+        )
 
         # Notify if some (but not all) hardware is missing
         missing = []
@@ -891,36 +906,20 @@ class Lumascope():
     def axes_present(self) -> list[str]:
         """Get list of axes physically present on this scope.
 
-        Delegates to motion.detect_present_axes() (Rule 9) so that
-        LS820-style Z-only units report ['Z'] rather than the full
-        VALID_AXES set. Returns [] when no motion hardware is connected
-        (NullMotionBoard) or when the motion layer raises — callers
-        that need to iterate "all tracked axes regardless of hardware"
-        (e.g. wait_until_finished_moving) should read _arrival_events /
-        _axis_state directly instead.
+        Thin wrapper over `self.capabilities.axes`. New code should
+        prefer reading from `scope.capabilities.axes` directly.
 
         Returns:
             list[str]: e.g. ['Z'], ['X', 'Y', 'Z'], or ['X', 'Y', 'Z', 'T']
         """
-        try:
-            return list(self.motion.detect_present_axes())
-        except Exception as e:
-            logger.warning(
-                f'[SCOPE API ] axes_present: motion.detect_present_axes '
-                f'failed ({e}); treating as no hardware'
-            )
-            return []
+        return list(self.capabilities.axes)
 
     def has_axis(self, axis: str) -> bool:
         """Check if an axis is physically present on this scope.
 
-        Args:
-            axis: Axis name.
-
-        Returns:
-            bool: True if axis is reported present by the motion layer.
+        Thin wrapper over `self.capabilities.axes`.
         """
-        return axis in self.axes_present()
+        return axis in self.capabilities.axes
 
     def travel_limit_um(self, axis: str) -> float:
         """Get the travel limit for an axis in um.
@@ -2518,10 +2517,9 @@ class Lumascope():
     def has_turret(self) -> bool:
         """Check if the microscope has a turret axis.
 
-        Returns:
-            bool: True if a turret is present.
+        Thin wrapper over `self.capabilities.has_turret`.
         """
-        return self.motion.has_turret()
+        return self.capabilities.has_turret
 
 
     def refresh_position_cache(self):
@@ -3130,6 +3128,15 @@ class Lumascope():
         instance.camera = None
         instance._image_buffer = None
         instance._frame_buffer = None
+
+        # Build capabilities (audit B7) — diagnostic instances still need
+        # this so any code that reads `scope.capabilities.*` works.
+        instance.capabilities = ScopeCapabilities.from_drivers(
+            motion=instance.motion,
+            led=instance.led,
+            camera=None,
+            led_max_ma=cls.LED_MAX_MA,
+        )
 
         instance._motion_monitor_thread = threading.Thread(
             target=instance._motion_monitor_loop,
