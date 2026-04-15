@@ -595,10 +595,31 @@ class LayerControl(BoxLayout):
         ))
 
     def execute_save_focus(self):
+        # Stage 3.5+ pattern: hardware-touching executor actions wrap their
+        # body in try/except, log the full error to lumaviewpro.log (per
+        # the "all info in the production log" rule), and post a friendly
+        # user-facing notification. The exception itself is NOT re-raised
+        # because we're inside an executor task — re-raising would just
+        # log the same error twice (once here, once via the executor's
+        # default handler). See `feedback_logging_policy.md` and
+        # `project_lumaviewclassic_repo.md` in auto-memory.
         ctx = _app_ctx.ctx
         settings = ctx.settings
-        pos = ctx.scope.get_current_position('Z')
-        settings[self.layer]['focus'] = pos
+        try:
+            pos = ctx.scope.get_current_position('Z')
+            settings[self.layer]['focus'] = pos
+        except Exception as e:
+            logger.exception(
+                f'[LVP Main  ] save_focus failed for layer {self.layer}: {e}'
+            )
+            try:
+                from modules.notification_center import notifications
+                notifications.error(
+                    'Motion', 'Save focus failed',
+                    f"Couldn't read Z position: {e}",
+                )
+            except Exception:
+                pass
 
 
     def goto_focus(self):
@@ -610,10 +631,37 @@ class LayerControl(BoxLayout):
         ))
 
     def execute_goto_focus(self):
+        # See execute_save_focus comment for the pattern rationale.
         from ui.ui_helpers import move_absolute_position
         settings = _app_ctx.ctx.settings
-        pos = settings[self.layer]['focus']
-        move_absolute_position('Z', pos)  # set current z height in usteps
+        try:
+            pos = settings[self.layer]['focus']
+            move_absolute_position('Z', pos)  # set current z height in usteps
+        except KeyError:
+            logger.warning(
+                f'[LVP Main  ] goto_focus: no saved focus for layer {self.layer}'
+            )
+            try:
+                from modules.notification_center import notifications
+                notifications.warning(
+                    'Motion', 'No saved focus',
+                    f"Layer '{self.layer}' has no saved focus position. "
+                    f"Use SAVE first.",
+                )
+            except Exception:
+                pass
+        except Exception as e:
+            logger.exception(
+                f'[LVP Main  ] goto_focus failed for layer {self.layer}: {e}'
+            )
+            try:
+                from modules.notification_center import notifications
+                notifications.error(
+                    'Motion', 'Focus move failed',
+                    f"Couldn't move Z to saved focus: {e}",
+                )
+            except Exception:
+                pass
 
     _suppressing_led_log = False  # Class-level flag to prevent duplicate logging
 
@@ -644,14 +692,36 @@ class LayerControl(BoxLayout):
 
 
     def set_led_state(self, enabled: bool, illumination: float):
+        # Hardware-touching action. See execute_save_focus for the
+        # try/except + log + notify pattern rationale.
         ctx = _app_ctx.ctx
         io_executor = ctx.io_executor
-        channel = ctx.scope.color2ch(self.layer)
-        if not enabled:
-            scope_commands.led_off(ctx.scope, io_executor, channel)
-        else:
-            logger.info(f'[LVP Main  ] lumaview.scope.led_on(lumaview.scope.color2ch({self.layer}), {illumination})')
-            scope_commands.led_on(ctx.scope, io_executor, channel, illumination)
+        try:
+            channel = ctx.scope.color2ch(self.layer)
+            if not enabled:
+                scope_commands.led_off(ctx.scope, io_executor, channel)
+            else:
+                logger.info(
+                    f'[LVP Main  ] lumaview.scope.led_on('
+                    f'lumaview.scope.color2ch({self.layer}), {illumination})'
+                )
+                scope_commands.led_on(
+                    ctx.scope, io_executor, channel, illumination
+                )
+        except Exception as e:
+            logger.exception(
+                f'[LVP Main  ] set_led_state failed for layer '
+                f'{self.layer} (enabled={enabled}, illumination={illumination}): {e}'
+            )
+            try:
+                from modules.notification_center import notifications
+                notifications.error(
+                    'LED', f'{self.layer} LED command failed',
+                    f"Couldn't {'enable' if enabled else 'disable'} the "
+                    f"{self.layer} channel: {e}",
+                )
+            except Exception:
+                pass
 
     # update_led_toggle_ui() removed — LED observer handles UI sync.
     # See Phase 1 commit 96defe3.
@@ -786,11 +856,17 @@ class LayerControl(BoxLayout):
                             if state.get('enabled', False):
                                 any_other_on = True
                                 break
-                        except Exception:
+                        except Exception as e:
                             # Defensive: if get_led_state fails for any
-                            # layer (e.g. null driver), don't block the
-                            # rest of apply_settings.
-                            pass
+                            # layer (e.g. null driver, hardware fault),
+                            # don't block the rest of apply_settings.
+                            # Log so the failure is visible in the
+                            # production log per the "all info in the
+                            # log" rule (was previously silent pass).
+                            logger.warning(
+                                f'[LVP Main  ] get_led_state({layer}) '
+                                f'failed during disable_leds_for_other_layers: {e}'
+                            )
                     if any_other_on:
                         from modules import scope_commands
                         scope_commands.leds_off(ctx.scope, ctx.io_executor)
