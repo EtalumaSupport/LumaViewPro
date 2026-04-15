@@ -263,70 +263,109 @@ class SerialBoard:
             )
             return  # Firmware running (version may or may not be parseable)
 
-        # Step 4: Soft-reset recovery — ONLY if the board has shown
-        # signs of life. A board that sent zero bytes isn't going to
-        # react to Ctrl-D either. #619 showed that soft reset on a
-        # totally silent board just wastes 16+ seconds without
-        # recovering anything.
-        skip_soft_reset = (bytes_ever_seen == 0)
-        if skip_soft_reset:
-            _serial_log.info(
-                f'{self._label} RESET step4 SKIPPED (no bytes seen yet — '
-                f'Ctrl-D soft reset would not help a silent board)'
-            )
-            logger.info(
-                f'{self._label} Firmware not responding and board is silent'
-                f' — skipping soft reset, trying gentler recovery'
-            )
-        else:
-            # This handles: REPL prompt, raw REPL (Thonny), hung-but-responsive state
-            logger.info(f'{self._label} Firmware not responding — attempting recovery (with soft reset)')
-            _serial_log.info(f'{self._label} RESET step4 soft-reset recovery begin')
-            t0 = time.monotonic()
-            self._safe_write(b'\x03', context='RESET step4 Ctrl-C #1')
-            time.sleep(0.2)
-            self._safe_write(b'\x03', context='RESET step4 Ctrl-C #2')
-            time.sleep(0.2)
-            self._safe_write(b'\x02', context='RESET step4 Ctrl-B (raw REPL exit)')
-            time.sleep(0.2)
-            self._safe_write(b'\x04', context='RESET step4 Ctrl-D (soft reset)')
-            time.sleep(5.0)             # Wait for firmware to fully boot
+        # Step 4: Soft-reset recovery — always attempted.
+        #
+        # We send Ctrl-C / Ctrl-C / Ctrl-B / Ctrl-D regardless of
+        # whether any bytes have been seen so far. The reason
+        # matters and is not obvious — an earlier version of this
+        # code had a `skip_soft_reset = (bytes_ever_seen == 0)`
+        # optimization that bypassed step 4 when no bytes had been
+        # seen yet, on the theory "if the board sent nothing, Ctrl-D
+        # won't help either." That theory was wrong for an important
+        # case, and the skip optimization was reverted.
+        #
+        # Why we always send Ctrl-D (to recover from a MicroPython
+        # REPL state left behind by Thonny or similar tools):
+        #
+        # A board that appears silent to drain + first INFO detect
+        # is NOT necessarily a hung board. The most common benign
+        # case is **a board that was just used by Thonny and then
+        # disconnected**. Thonny drives MicroPython via raw REPL
+        # mode (entered with Ctrl-A), and depending on how the
+        # disconnect happened the board can be left in either
+        # friendly REPL (`>>>` prompt, idle) or raw REPL (silent,
+        # buffered). Either way our first INFO write doesn't reach
+        # main.py — the REPL just echoes it as input.
+        #
+        # Observed example (2026-04-14, LS850T bench after Thonny
+        # connect/disconnect cycle): step 4 drain after Ctrl-D
+        # captured 252 bytes containing `>>>` followed by
+        # `MPY: soft reboot` and the normal v3.0.9 INFO banner —
+        # proving the board was sitting at the friendly-REPL prompt
+        # and Ctrl-D triggered the soft reset that restarted
+        # main.py. The raw-REPL case produces no echo at all but
+        # the same Ctrl-D recovery applies.
+        #
+        # In both cases, `bytes_ever_seen` stays at 0 during steps
+        # 1-3 even though the board is perfectly alive and listening.
+        # Sending Ctrl-D is exactly what wakes either REPL state up:
+        # it tells MicroPython "soft-reset" → main.py restarts →
+        # normal operation resumes.
+        #
+        # The recovery sequence Ctrl-C / Ctrl-C / Ctrl-B / Ctrl-D
+        # handles multiple possible pre-startup states:
+        #
+        #   - Ctrl-C interrupts any in-flight REPL input
+        #   - Ctrl-B exits raw REPL back to friendly REPL
+        #   - Ctrl-D soft-resets MicroPython → restarts main.py
+        #
+        # On a board that's truly silent / hung (the in-house bench
+        # brick case from #619), this step still fires and costs
+        # ~5 extra seconds before we fall through to step 6 and
+        # the final silent verdict in step 7. That cost is worth
+        # it. Skipping Ctrl-D to save 5 seconds breaks Thonny-user
+        # workflows, which is a more common dev scenario than the
+        # truly-silent bench-brick case.
+        #
+        # **Guiding principle for the whole recovery path: be as
+        # robust as possible on startup. Try the cheap read-only
+        # path first (steps 1-3). If that fails, run the recovery
+        # fallback (this step) before declaring the board dead.**
+        logger.info(f'{self._label} Firmware not responding — attempting recovery (Ctrl-C/Ctrl-B/Ctrl-D)')
+        _serial_log.info(f'{self._label} RESET step4 soft-reset recovery begin')
+        t0 = time.monotonic()
+        self._safe_write(b'\x03', context='RESET step4 Ctrl-C #1')
+        time.sleep(0.2)
+        self._safe_write(b'\x03', context='RESET step4 Ctrl-C #2')
+        time.sleep(0.2)
+        self._safe_write(b'\x02', context='RESET step4 Ctrl-B (raw REPL exit)')
+        time.sleep(0.2)
+        self._safe_write(b'\x04', context='RESET step4 Ctrl-D (soft reset)')
+        time.sleep(5.0)             # Wait for firmware to fully boot
 
-            # Drain all boot output (motor firmware prints SPI init, etc.)
-            drained = self._drain_serial()
-            bytes_ever_seen += drained
-            _serial_log.info(
-                f'{self._label} RESET step4 drain after Ctrl-D+5s: {drained}B '
-                f'(elapsed {(time.monotonic() - t0) * 1000:.0f}ms)'
-            )
+        # Drain all boot output (motor firmware prints SPI init, etc.)
+        drained = self._drain_serial()
+        bytes_ever_seen += drained
+        _serial_log.info(
+            f'{self._label} RESET step4 drain after Ctrl-D+5s: {drained}B '
+            f'(elapsed {(time.monotonic() - t0) * 1000:.0f}ms)'
+        )
 
-            # Step 5: Retry version detection after recovery
-            _serial_log.info(f'{self._label} RESET step5 detect (in_waiting={self._safe_in_waiting()}B)')
-            t0 = time.monotonic()
-            pre_bytes = self._detect_response_bytes
-            self._detect_firmware_version()
-            bytes_ever_seen += max(0, self._detect_response_bytes - pre_bytes)
+        # Step 5: Retry version detection after recovery
+        _serial_log.info(f'{self._label} RESET step5 detect (in_waiting={self._safe_in_waiting()}B)')
+        t0 = time.monotonic()
+        pre_bytes = self._detect_response_bytes
+        self._detect_firmware_version()
+        bytes_ever_seen += max(0, self._detect_response_bytes - pre_bytes)
+        _serial_log.info(
+            f'{self._label} RESET step5 detect result: '
+            f'responding={self.firmware_responding} '
+            f'version={self.firmware_version} '
+            f'in {(time.monotonic() - t0) * 1000:.0f}ms'
+        )
+        if self.firmware_responding:
             _serial_log.info(
-                f'{self._label} RESET step5 detect result: '
-                f'responding={self.firmware_responding} '
-                f'version={self.firmware_version} '
-                f'in {(time.monotonic() - t0) * 1000:.0f}ms'
+                f'{self._label} RESET done (step5 ok after soft reset) total='
+                f'{(time.monotonic() - t_total_start) * 1000:.0f}ms'
             )
-            if self.firmware_responding:
-                _serial_log.info(
-                    f'{self._label} RESET done (step5 ok after soft reset) total='
-                    f'{(time.monotonic() - t_total_start) * 1000:.0f}ms'
-                )
-                return  # Recovery with soft reset worked
+            return  # Recovery with soft reset worked
 
         # Step 6: Gentle Ctrl-C-only retry.
-        # Two use cases:
-        # (a) Soft reset in step 4 killed WDT on pre-v3.0.4 LED firmware
-        #     (Ctrl-D killed the Timer that feeds the 8388ms WDT, causing
-        #     board reset mid-recovery). Ctrl-C keeps the WDT alive.
-        # (b) Silent-board path (step 4 skipped) — try the gentlest
-        #     possible interrupt before giving up and declaring the
-        #     board hung.
+        # Soft reset in step 4 can kill WDT on pre-v3.0.4 LED firmware
+        # (Ctrl-D kills the Timer that feeds the 8388ms WDT, causing
+        # board reset mid-recovery). Ctrl-C keeps the WDT alive and
+        # gives the board one more chance to recover before we give
+        # up and declare it silent.
         logger.info(f'{self._label} Trying WDT-safe Ctrl-C recovery')
         _serial_log.info(f'{self._label} RESET step6 WDT-safe retry begin')
         t0 = time.monotonic()
