@@ -256,3 +256,104 @@ class TestMotorBoardHomePartialResponse:
 
         assert board.home() is False
         assert board.initial_homing_complete is False
+
+
+class TestFrameValidityDuringHoming:
+    """Issue #609: the frame valid marker was showing green during homing
+    because zhome/home/thome never called frame_validity.invalidate().
+    The settle-check callback correctly rejects HOMING state, but only if
+    the source is actually in _pending — which requires invalidate().
+
+    These tests capture scope.frame_validity.is_valid at the moment the
+    motion driver method is executing (axis state is HOMING, motion is in
+    progress). They fail before the fix and pass after.
+    """
+
+    def test_zhome_marks_frame_invalid_during_motion(self):
+        scope = Lumascope(simulate=True)
+        captured = {}
+
+        def fake_zhome():
+            captured['is_valid'] = scope.frame_validity.is_valid
+            captured['z_state'] = scope.get_axis_state('Z')
+            captured['pending'] = dict(scope.frame_validity.pending_sources)
+            return True
+        scope.motion.zhome = fake_zhome
+
+        scope.zhome()
+
+        assert captured['z_state'] == AxisState.HOMING
+        assert 'z_move' in captured['pending'], (
+            "zhome() must invalidate 'z_move' so frame_validity "
+            "can consult the settle-check callback (#609)"
+        )
+        assert captured['is_valid'] is False, (
+            "frame_validity.is_valid must be False while Z is homing — "
+            "the frame valid marker should not be green during homing"
+        )
+
+    def test_home_marks_frame_invalid_during_motion_full_xyz(self):
+        scope = Lumascope(simulate=True)
+        present = scope.motion.detect_present_axes()
+        assert 'X' in present and 'Y' in present and 'Z' in present
+        captured = {}
+
+        original_home = scope.motion.home
+        def spy_home():
+            captured['is_valid'] = scope.frame_validity.is_valid
+            captured['pending'] = dict(scope.frame_validity.pending_sources)
+            captured['x_state'] = scope.get_axis_state('X')
+            captured['z_state'] = scope.get_axis_state('Z')
+            return original_home()
+        scope.motion.home = spy_home
+
+        scope.home()
+
+        assert captured['x_state'] == AxisState.HOMING
+        assert captured['z_state'] == AxisState.HOMING
+        assert 'xy_move' in captured['pending']
+        assert 'z_move' in captured['pending']
+        assert captured['is_valid'] is False, (
+            "frame_validity.is_valid must be False while XYZ are homing"
+        )
+
+    def test_home_marks_frame_invalid_z_only_board(self):
+        """LS820: only Z present. home() must invalidate z_move only,
+        not xy_move or turret (those sources aren't in motion)."""
+        scope = Lumascope(simulate=True)
+        scope.motion.detect_present_axes = lambda: ['Z']
+        captured = {}
+
+        def fake_home(*args, **kwargs):
+            captured['pending'] = dict(scope.frame_validity.pending_sources)
+            captured['is_valid'] = scope.frame_validity.is_valid
+            return True
+        scope.motion.home = fake_home
+
+        scope.home()
+
+        assert 'z_move' in captured['pending']
+        assert 'xy_move' not in captured['pending']
+        assert 'turret' not in captured['pending']
+        assert captured['is_valid'] is False
+
+    def test_thome_marks_frame_invalid_during_motion(self):
+        scope = Lumascope(simulate=True)
+        captured = {}
+
+        original_thome = scope.motion.thome
+        def spy_thome():
+            captured['is_valid'] = scope.frame_validity.is_valid
+            captured['t_state'] = scope.get_axis_state('T')
+            captured['pending'] = dict(scope.frame_validity.pending_sources)
+            return original_thome()
+        scope.motion.thome = spy_thome
+
+        scope.thome()
+
+        assert captured['t_state'] == AxisState.HOMING
+        assert 'turret' in captured['pending'], (
+            "thome() must invalidate 'turret' so the frame valid marker "
+            "goes red while the turret is rotating (#609)"
+        )
+        assert captured['is_valid'] is False
