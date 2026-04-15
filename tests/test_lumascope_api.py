@@ -44,6 +44,10 @@ import pytest
 from modules.lumascope_api import Lumascope, AxisState
 from modules.notification_center import notifications, Severity
 from drivers.null_motorboard import NullMotionBoard
+from drivers.null_ledboard import NullLEDBoard
+from drivers.simulated_motorboard import SimulatedMotorBoard
+from drivers.simulated_ledboard import SimulatedLEDBoard
+from drivers.protocols import MotorBoardProtocol, LEDBoardProtocol
 
 
 class TestNullMotionBoardCapabilities:
@@ -357,3 +361,56 @@ class TestFrameValidityDuringHoming:
             "goes red while the turret is rotating (#609)"
         )
         assert captured['is_valid'] is False
+
+
+class TestProtocolConformance:
+    """Audit B1: every motor and LED driver implementation must satisfy
+    the runtime-checkable Protocol in `drivers/protocols.py`. This guards
+    against silent drift — if anyone deletes a method from a driver, or
+    adds a new method to the Protocol without updating all implementations,
+    these tests fail at construction time instead of at the call site.
+
+    The Protocols use `@runtime_checkable`, so `isinstance(impl, Protocol)`
+    checks structural conformance (method names + arity match). It does
+    NOT check signature types, which is fine — that's mypy's job.
+
+    These tests also document which classes are part of the Protocol
+    contract. New driver implementations (e.g. the upcoming FX2 driver
+    for Lumaview Classic) get added here.
+    """
+
+    def test_motorboard_satisfies_protocol(self):
+        from drivers.motorboard import MotorBoard
+        # Use __new__ to skip __init__ — we only need the class to expose
+        # the Protocol's method set, not to actually open a serial port.
+        instance = MotorBoard.__new__(MotorBoard)
+        assert isinstance(instance, MotorBoardProtocol)
+
+    def test_simulated_motorboard_satisfies_protocol(self):
+        instance = SimulatedMotorBoard(model='LS850')
+        assert isinstance(instance, MotorBoardProtocol)
+
+    def test_null_motorboard_satisfies_protocol(self):
+        instance = NullMotionBoard()
+        assert isinstance(instance, MotorBoardProtocol)
+
+    def test_ledboard_satisfies_protocol(self):
+        from drivers.ledboard import LEDBoard
+        instance = LEDBoard.__new__(LEDBoard)
+        assert isinstance(instance, LEDBoardProtocol)
+
+    def test_simulated_ledboard_satisfies_protocol(self):
+        instance = SimulatedLEDBoard()
+        assert isinstance(instance, LEDBoardProtocol)
+
+    def test_null_ledboard_satisfies_protocol(self):
+        instance = NullLEDBoard()
+        assert isinstance(instance, LEDBoardProtocol)
+
+    def test_lumascope_attributes_satisfy_protocols(self):
+        """End-to-end: a constructed Lumascope's `motion` and `led`
+        attributes must satisfy the Protocols regardless of which concrete
+        implementation got selected (Sim / Null / real)."""
+        scope = Lumascope(simulate=True)
+        assert isinstance(scope.motion, MotorBoardProtocol)
+        assert isinstance(scope.led, LEDBoardProtocol)

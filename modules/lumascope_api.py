@@ -25,6 +25,7 @@ from drivers.simulated_motorboard import SimulatedMotorBoard
 from drivers.simulated_ledboard import SimulatedLEDBoard
 from drivers.null_motorboard import NullMotionBoard
 from drivers.null_ledboard import NullLEDBoard
+from drivers.protocols import MotorBoardProtocol, LEDBoardProtocol
 
 # Import additional libraries
 from lvp_logger import logger, version
@@ -141,6 +142,7 @@ class Lumascope():
         self._motion_monitor_thread.start()
 
         # LED Control Board
+        self.led: LEDBoardProtocol
         try:
             if simulate:
                 self.led = SimulatedLEDBoard()
@@ -152,6 +154,7 @@ class Lumascope():
             logger.exception('[SCOPE API ] LED Board Not Initialized')
 
         # Motion Control Board
+        self.motion: MotorBoardProtocol
         try:
             if simulate:
                 from modules.settings_init import settings
