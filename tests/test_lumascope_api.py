@@ -26,6 +26,7 @@ Issue #616 / #618 follow-up — the rename of `xyhome` to `home`:
 """
 
 import sys
+import threading
 from unittest.mock import MagicMock
 
 # Mock heavy deps before importing
@@ -342,9 +343,23 @@ class TestFrameValidityDuringHoming:
         assert captured['is_valid'] is False
 
     def test_thome_marks_frame_invalid_during_motion(self):
+        # Must use a turret-equipped sim (LS850T) since post-B4 the
+        # default LS850 sim has no T axis and `thome()` correctly
+        # no-ops there. The phantom-T behavior the original test relied
+        # on is gone.
+        from drivers.simulated_motorboard import SimulatedMotorBoard
         scope = Lumascope(simulate=True)
-        captured = {}
+        scope.motion = SimulatedMotorBoard(model='LS850T')
+        present = scope.motion.detect_present_axes()
+        assert 'T' in present
+        scope._pos_cache = {ax: 0.0 for ax in present}
+        scope._axis_state = {ax: AxisState.UNKNOWN for ax in present}
+        scope._arrival_events = {ax: threading.Event() for ax in present}
+        for ev in scope._arrival_events.values():
+            ev.set()
+        scope._move_profile = {ax: None for ax in present}
 
+        captured = {}
         original_thome = scope.motion.thome
         def spy_thome():
             captured['is_valid'] = scope.frame_validity.is_valid
@@ -493,3 +508,130 @@ class TestLEDChannelDiscovery:
             "Lumascope.LED_VALID_CHANNELS must be removed — call sites "
             "now read from self.led.available_channels() per audit B3"
         )
+
+
+class TestPerAxisDictsFromDriver:
+    """Audit B4: per-axis state dicts (_pos_cache, _axis_state,
+    _arrival_events, _move_profile) are sized at __init__ from
+    `motion.detect_present_axes()`, not from a hardcoded 4-axis tuple.
+
+    Tests cover:
+    1. Full XYZ scope (LS850 default sim) gets 3 keys per dict
+    2. Z-only scope (LS820-style) gets 1 key per dict
+    3. Null motor (no hardware at all) gets empty dicts
+    4. Rule 8 silent no-op: move_*_position on absent axes does NOT raise,
+       it returns silently — the API behaves the same on Null hardware
+       and on partial-hardware scopes
+    5. Input sanity validation rejects non-axis names like 'Q'
+    6. The misnamed `VALID_AXES` constant is gone; `_VALID_AXIS_NAMES` is
+       a private input-vocabulary tuple, not a capability query
+    """
+
+    def test_xyz_scope_dicts_have_xyz_keys(self):
+        scope = Lumascope(simulate=True)
+        present = set(scope.motion.detect_present_axes())
+        assert present == {'X', 'Y', 'Z'}, (
+            f"Default sim should be LS850 (XYZ no turret), got {present}"
+        )
+        assert set(scope._pos_cache.keys()) == present
+        assert set(scope._axis_state.keys()) == present
+        assert set(scope._arrival_events.keys()) == present
+        assert set(scope._move_profile.keys()) == present
+
+    def test_z_only_scope_dicts_have_only_z(self):
+        """Simulate an LS820 / LVC LS720-like Z-only scope."""
+        scope = Lumascope(simulate=True)
+        scope.motion.detect_present_axes = lambda: ['Z']
+        # Re-init the per-axis dicts to reflect the patched motion.
+        present = scope.motion.detect_present_axes()
+        scope._pos_cache = {ax: 0.0 for ax in present}
+        scope._axis_state = {ax: AxisState.UNKNOWN for ax in present}
+        scope._arrival_events = {ax: threading.Event() for ax in present}
+        for ev in scope._arrival_events.values():
+            ev.set()
+        scope._move_profile = {ax: None for ax in present}
+
+        assert set(scope._pos_cache.keys()) == {'Z'}
+        assert set(scope._axis_state.keys()) == {'Z'}
+        assert set(scope._arrival_events.keys()) == {'Z'}
+        assert set(scope._move_profile.keys()) == {'Z'}
+
+    def test_null_motor_yields_empty_dicts(self):
+        """A scope with no motor hardware (NullMotionBoard) should have
+        empty per-axis dicts — there's nothing to track."""
+        scope = Lumascope(simulate=True)
+        scope.motion = NullMotionBoard()
+        present = scope.motion.detect_present_axes()
+        scope._pos_cache = {ax: 0.0 for ax in present}
+        scope._axis_state = {ax: AxisState.UNKNOWN for ax in present}
+        scope._arrival_events = {ax: threading.Event() for ax in present}
+        scope._move_profile = {ax: None for ax in present}
+
+        assert scope._pos_cache == {}
+        assert scope._axis_state == {}
+        assert scope._arrival_events == {}
+        assert scope._move_profile == {}
+
+    def test_move_absolute_on_absent_axis_is_silent_noop_rule_8(self):
+        """Rule 8: API silently no-ops for absent axes. An LS820 user
+        calling move_absolute_position('X', 0) gets a silent no-op, not
+        a ValueError or HardwareError, regardless of whether they thought
+        to call has_axis() first."""
+        scope = Lumascope(simulate=True)
+        scope.motion.detect_present_axes = lambda: ['Z']
+        present = scope.motion.detect_present_axes()
+        scope._pos_cache = {ax: 0.0 for ax in present}
+        scope._axis_state = {ax: AxisState.UNKNOWN for ax in present}
+        scope._arrival_events = {ax: threading.Event() for ax in present}
+        for ev in scope._arrival_events.values():
+            ev.set()
+        scope._move_profile = {ax: None for ax in present}
+
+        scope.move_absolute_position('X', 100)
+        scope.move_absolute_position('Y', 100)
+        scope.move_absolute_position('T', 0)
+        assert 'X' not in scope._pos_cache
+        assert 'Y' not in scope._pos_cache
+        assert 'T' not in scope._pos_cache
+
+        scope.move_relative_position('X', 50)
+        assert 'X' not in scope._pos_cache
+
+    def test_move_on_null_motor_is_silent_noop_rule_8(self):
+        """Same Rule 8 contract on a system with NO motor hardware at
+        all (NullMotionBoard). Pre-B4 behavior was silent no-op via
+        VALID_AXES validation passing through to NullMotionBoard.move_abs_pos
+        no-op — this contract must be preserved."""
+        scope = Lumascope(simulate=True)
+        scope.motion = NullMotionBoard()
+        scope._pos_cache = {}
+        scope._axis_state = {}
+        scope._arrival_events = {}
+        scope._move_profile = {}
+
+        scope.move_absolute_position('Z', 100)
+        scope.move_absolute_position('X', 0)
+        scope.move_relative_position('Z', 10)
+
+    def test_move_with_invalid_axis_name_still_raises(self):
+        """Input sanity check still rejects non-axis names. _VALID_AXIS_NAMES
+        is the input vocabulary; axes_present() is the capability query."""
+        scope = Lumascope(simulate=True)
+        with pytest.raises(ValueError, match=r"Axis must be one of"):
+            scope.move_absolute_position('Q', 0)
+        with pytest.raises(ValueError, match=r"Axis must be one of"):
+            scope.move_relative_position('Q', 0)
+
+    def test_no_hardcoded_VALID_AXES_constant(self):
+        """The misnamed `VALID_AXES` class constant has been deleted.
+        It implied "what axes are available" but actually meant "what
+        axis names we accept as input" — which is now the private
+        `_VALID_AXIS_NAMES`."""
+        assert not hasattr(Lumascope, 'VALID_AXES'), (
+            "Lumascope.VALID_AXES must be removed — its name was misleading "
+            "(implied capability, meant vocabulary). Use axes_present() for "
+            "capability queries; _VALID_AXIS_NAMES is the private input "
+            "vocabulary tuple."
+        )
+        assert hasattr(Lumascope, '_VALID_AXIS_NAMES')
+        assert tuple(Lumascope._VALID_AXIS_NAMES) == ('X', 'Y', 'Z', 'T')

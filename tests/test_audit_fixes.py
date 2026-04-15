@@ -16,6 +16,7 @@ All mocking is done inside fixtures/test methods and cleaned up afterward.
 """
 
 import sys
+import threading
 from unittest.mock import MagicMock
 
 import pytest
@@ -773,11 +774,40 @@ class TestAxisState:
         for ax in sim_scope.axes_present():
             assert sim_scope.get_axis_state(ax) == AxisState.IDLE
 
-    def test_axis_state_homing_thome(self, sim_scope):
-        """After thome, T axis should be IDLE."""
+    def test_axis_state_homing_thome(self, _mock_heavy_deps):
+        """After thome on a turret-equipped scope, T axis should be IDLE.
+
+        Uses an LS850T sim explicitly instead of the default LS850
+        sim_scope fixture (which has no turret) — pre-B4 the test passed
+        on LS850 only because `_axis_state['T']` was a phantom key from
+        the hardcoded VALID_AXES tuple. Post-B4, T is correctly absent
+        on no-turret scopes and `thome()` is a Rule 8 silent no-op there.
+        """
+        from modules.lumascope_api import Lumascope, AxisState
+        from drivers.simulated_motorboard import SimulatedMotorBoard
+        scope = Lumascope(simulate=True)
+        scope.motion = SimulatedMotorBoard(model='LS850T')
+        present = scope.motion.detect_present_axes()
+        assert 'T' in present, "LS850T sim must report T present"
+        scope._pos_cache = {ax: 0.0 for ax in present}
+        scope._axis_state = {ax: AxisState.UNKNOWN for ax in present}
+        scope._arrival_events = {ax: threading.Event() for ax in present}
+        for ev in scope._arrival_events.values():
+            ev.set()
+        scope._move_profile = {ax: None for ax in present}
+
+        scope.thome()
+        assert scope.get_axis_state('T') == AxisState.IDLE
+
+    def test_thome_on_no_turret_scope_is_silent_noop(self, sim_scope):
+        """Audit B4 + Rule 8: calling thome() on a scope without a
+        turret (LS850 default sim) must not raise and must leave T in
+        UNKNOWN state — there is no phantom T axis to transition."""
         from modules.lumascope_api import AxisState
+        assert 'T' not in sim_scope.axes_present()
+        # Must not raise — Rule 8 silent no-op:
         sim_scope.thome()
-        assert sim_scope.get_axis_state('T') == AxisState.IDLE
+        assert sim_scope.get_axis_state('T') == AxisState.UNKNOWN
 
     def test_is_any_axis_moving_false_when_all_idle(self, sim_scope):
         """is_any_axis_moving() returns False when all axes are IDLE."""
@@ -817,7 +847,8 @@ class TestAxisState:
         """axes_present() delegates to motion.detect_present_axes() (Rule 9).
 
         Default sim model LS850 has X/Y/Z and no turret, so the result
-        must match the motion layer rather than the full VALID_AXES set.
+        must match the motion layer rather than a full 4-axis hardcoded
+        list.
         """
         axes = sim_scope.axes_present()
         assert set(axes) == set(sim_scope.motion.detect_present_axes())
@@ -976,7 +1007,8 @@ class TestB6_WriteMotorRegisterRemoved:
 
 
 class TestB5_GetCurrentPositionUsesAxesPresent:
-    """B5: get_current_position(axis=None) should use axes_present(), not VALID_AXES."""
+    """B5: get_current_position(axis=None) should use axes_present(), not
+    a hardcoded 4-axis list."""
 
     def test_returns_only_present_axes(self, _mock_heavy_deps):
         """get_current_position(None) should return dict keyed by present axes only."""
@@ -984,7 +1016,7 @@ class TestB5_GetCurrentPositionUsesAxesPresent:
         scope = Lumascope(simulate=True)
         result = scope.get_current_position(axis=None)
         assert set(result.keys()) == set(scope.axes_present()), \
-            "get_current_position(None) should use axes_present(), not hardcoded VALID_AXES"
+            "get_current_position(None) should use axes_present(), not a hardcoded axis list"
 
 
 class TestD2_LEDBoardStateCacheHelper:

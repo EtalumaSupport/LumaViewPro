@@ -57,7 +57,14 @@ class Lumascope():
     LED_MAX_MA = 1000       # Maximum LED current in milliamps (matches firmware CH_MAX)
     # LED channel set comes from self.led.available_channels() — varies by
     # hardware (RP2040 = 6, FX2/Lumaview Classic = 4).
-    VALID_AXES = ('X', 'Y', 'Z', 'T')
+    # Per-axis state dicts (_pos_cache, _axis_state, _arrival_events,
+    # _move_profile) are built from self.motion.detect_present_axes() at
+    # init — they reflect actual hardware. This `_VALID_AXIS_NAMES` tuple
+    # is the structural axis-name vocabulary used only for input sanity
+    # checks ("did the caller pass a real axis letter?"), not for
+    # capability queries. Use `axes_present()` for "what does this scope
+    # have?".
+    _VALID_AXIS_NAMES = ('X', 'Y', 'Z', 'T')
     # Absolute position bounds (um) — generous outer limits; per-axis travel
     # limits are enforced by the motor board itself.
     MOTOR_POSITION_LIMIT = 1_000_000  # 1 meter in um
@@ -73,24 +80,11 @@ class Lumascope():
         self._coordinate_transformer = coord_transformations.CoordinateTransformer()
         self._objectives_loader = objectives_loader.ObjectiveLoader()
 
-        # Position cache — push-based, not polled.
-        # Updated after every move command and after homing.
-        # The 10 Hz UI polling loops read from cache with zero serial I/O.
+        # Locks for the per-axis state dicts. The dicts themselves are
+        # built below, AFTER the motion driver is constructed, so they
+        # only contain the axes the hardware actually has.
         self._pos_cache_lock = threading.Lock()
-        self._pos_cache = {'X': 0.0, 'Y': 0.0, 'Z': 0.0, 'T': 0.0}
-
-        # Axis state — push-based, tracks UNKNOWN/IDLE/MOVING/HOMING per axis.
-        # Updated by move/home methods. Consumers read state instead of polling
-        # firmware via serial, eliminating 4+ serial round-trips per is_moving() call.
         self._axis_state_lock = threading.Lock()
-        self._axis_state = {'X': AxisState.UNKNOWN, 'Y': AxisState.UNKNOWN,
-                            'Z': AxisState.UNKNOWN, 'T': AxisState.UNKNOWN}
-
-        # Per-axis arrival events — set when axis transitions from MOVING to IDLE.
-        # Waiters call event.wait() instead of polling serial.
-        self._arrival_events = {ax: threading.Event() for ax in self.VALID_AXES}
-        for ev in self._arrival_events.values():
-            ev.set()  # Start as "arrived" (not moving)
 
         # Motion monitor wakeup — set when any axis starts MOVING, cleared when
         # all axes are back to IDLE. The monitor thread sleeps on this.
@@ -127,34 +121,14 @@ class Lumascope():
         self._camera_listeners_lock = threading.Lock()
         self._camera_listeners = []
 
-        # Motion profile for position prediction during moves.
-        # Stores ramp parameters + start time/pos so get_current_position()
-        # can return interpolated position during MOVING state.
+        # Lock for motion profile dict (built below, after motion driver init).
         self._move_profile_lock = threading.Lock()
-        self._move_profile = {ax: None for ax in self.VALID_AXES}
 
-        # Start the motion monitor thread (detects axis arrival via firmware query)
-        self._motion_monitor_stop = threading.Event()
-        self._motion_monitor_thread = threading.Thread(
-            target=self._motion_monitor_loop,
-            name='motion-monitor',
-            daemon=True,
-        )
-        self._motion_monitor_thread.start()
-
-        # LED Control Board
-        self.led: LEDBoardProtocol
-        try:
-            if simulate:
-                self.led = SimulatedLEDBoard()
-                logger.info('[SCOPE API ] Using SIMULATED LED Board')
-            else:
-                self.led = LEDBoard()
-        except Exception:
-            self.led = NullLEDBoard()
-            logger.exception('[SCOPE API ] LED Board Not Initialized')
-
-        # Motion Control Board
+        # ----- Motion Control Board -----
+        # Constructed BEFORE the per-axis state dicts so we can size them
+        # to the axes the hardware actually has (audit B4). Constructed
+        # BEFORE the motion monitor thread so the thread always sees a
+        # valid `self.motion`.
         self.motion: MotorBoardProtocol
         try:
             if simulate:
@@ -167,6 +141,42 @@ class Lumascope():
         except Exception:
             self.motion = NullMotionBoard()
             logger.exception('[SCOPE API ] Motion Board Not Initialized')
+
+        # ----- Per-axis state dicts (sized to actual hardware) -----
+        # NullMotionBoard.detect_present_axes() returns [], so a system
+        # with no motor hardware ends up with empty dicts. _set_axis_state
+        # and the move_*_position methods handle that case as a Rule 8
+        # silent no-op for absent axes.
+        present_axes = self.motion.detect_present_axes()
+        self._pos_cache = {ax: 0.0 for ax in present_axes}
+        self._axis_state = {ax: AxisState.UNKNOWN for ax in present_axes}
+        self._arrival_events = {ax: threading.Event() for ax in present_axes}
+        for ev in self._arrival_events.values():
+            ev.set()  # Start as "arrived" (not moving)
+        self._move_profile = {ax: None for ax in present_axes}
+
+        # ----- Motion monitor thread -----
+        # Started AFTER motion + per-axis dicts are populated so the
+        # thread never sees an inconsistent partial init state.
+        self._motion_monitor_stop = threading.Event()
+        self._motion_monitor_thread = threading.Thread(
+            target=self._motion_monitor_loop,
+            name='motion-monitor',
+            daemon=True,
+        )
+        self._motion_monitor_thread.start()
+
+        # ----- LED Control Board -----
+        self.led: LEDBoardProtocol
+        try:
+            if simulate:
+                self.led = SimulatedLEDBoard()
+                logger.info('[SCOPE API ] Using SIMULATED LED Board')
+            else:
+                self.led = LEDBoard()
+        except Exception:
+            self.led = NullLEDBoard()
+            logger.exception('[SCOPE API ] LED Board Not Initialized')
 
         # Camera
         self._image_buffer = None  # backing field for image_buffer property
@@ -839,7 +849,14 @@ class Lumascope():
         and wakes the motion monitor. When transitioning to IDLE, sets the
         arrival event so waiters unblock.  Fires position listeners on every
         transition.
+
+        Silently no-ops for axes that are not present on this hardware
+        (Rule 8). Per-axis dicts are sized to `motion.detect_present_axes()`
+        at init, so hardcoded callers like `xycenter()` (X/Y) and `thome()`
+        (T) automatically degrade to no-ops on scopes that lack those axes.
         """
+        if axis not in self._arrival_events:
+            return
         with self._axis_state_lock:
             self._axis_state[axis] = state
 
@@ -2704,12 +2721,19 @@ class Lumascope():
         Raises:
             ValueError: If axis is invalid or pos is not numeric / out of bounds.
         """
-        if axis not in self.VALID_AXES:
-            raise ValueError(f"Axis must be one of {self.VALID_AXES}, got {axis!r}")
+        if axis not in self._VALID_AXIS_NAMES:
+            raise ValueError(f"Axis must be one of {self._VALID_AXIS_NAMES}, got {axis!r}")
         if not isinstance(pos, (int, float)):
             raise ValueError(f"Position must be numeric, got {type(pos).__name__}")
         if abs(pos) > self.MOTOR_POSITION_LIMIT:
             raise ValueError(f"Position {pos} um exceeds safety limit of +/-{self.MOTOR_POSITION_LIMIT} um")
+
+        # Rule 8: silently no-op for axes that aren't present on this
+        # hardware. _arrival_events is sized to detect_present_axes() at
+        # init, so this is the canonical "is this axis trackable" check.
+        if axis not in self._arrival_events:
+            _api_log.debug(f'move_abs ignored: {axis} not present on this scope')
+            return
 
         # Store motion profile for position prediction before moving
         with self._pos_cache_lock:
@@ -2771,12 +2795,18 @@ class Lumascope():
         Raises:
             ValueError: If axis is invalid or um is not numeric / out of bounds.
         """
-        if axis not in self.VALID_AXES:
-            raise ValueError(f"Axis must be one of {self.VALID_AXES}, got {axis!r}")
+        if axis not in self._VALID_AXIS_NAMES:
+            raise ValueError(f"Axis must be one of {self._VALID_AXIS_NAMES}, got {axis!r}")
         if not isinstance(um, (int, float)):
             raise ValueError(f"Distance must be numeric, got {type(um).__name__}")
         if abs(um) > self.MOTOR_POSITION_LIMIT:
             raise ValueError(f"Distance {um} um exceeds safety limit of +/-{self.MOTOR_POSITION_LIMIT} um")
+
+        # Rule 8: silently no-op for axes that aren't present on this
+        # hardware. See move_absolute_position for the rationale.
+        if axis not in self._arrival_events:
+            _api_log.debug(f'move_rel ignored: {axis} not present on this scope')
+            return
 
         # Write hardware target BEFORE transitioning axis to MOVING —
         # same race fix as move_absolute_position (#618).
@@ -2936,10 +2966,12 @@ class Lumascope():
         """
         deadline = time.monotonic() + timeout
         # Iterate arrival events directly (not axes_present) so a transient
-        # motion.detect_present_axes() failure can never cause this to return
-        # True without actually waiting for the in-flight move. Events for
-        # non-moving axes are .set() by construction, so iterating all of
-        # VALID_AXES is safe even on partial-hardware scopes.
+        # motion.detect_present_axes() failure at call time can never cause
+        # this to return True without actually waiting for the in-flight
+        # move. _arrival_events was sized to detect_present_axes() at init
+        # and never changes shape thereafter, so iterating its keys is the
+        # canonical "every axis this scope can track" set. Events for
+        # non-moving axes are .set() by construction.
         for ax in self._arrival_events:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
@@ -3042,20 +3074,12 @@ class Lumascope():
         instance._objectives_loader = objectives_loader.ObjectiveLoader()
         instance._coordinate_transformer = coord_transformations.CoordinateTransformer()
 
-        # Threading infrastructure
+        # Threading infrastructure (locks first; per-axis dicts after motion init)
         instance._pos_cache_lock = threading.Lock()
-        instance._pos_cache = {'X': 0.0, 'Y': 0.0, 'Z': 0.0, 'T': 0.0}
         instance._axis_state_lock = threading.Lock()
-        instance._axis_state = {ax: AxisState.UNKNOWN for ax in cls.VALID_AXES}
-        instance._arrival_events = {ax: threading.Event() for ax in cls.VALID_AXES}
-        for ev in instance._arrival_events.values():
-            ev.set()
+        instance._move_profile_lock = threading.Lock()
         instance._motion_wake = threading.Event()
         instance._motion_monitor_stop = threading.Event()
-        instance._motion_monitor_thread = threading.Thread(
-            target=instance._motion_monitor_loop,
-            name='motion-monitor', daemon=True,
-        )
 
         # Camera cache
         instance._camera_cache_lock = threading.Lock()
@@ -3074,7 +3098,8 @@ class Lumascope():
         instance._objective = None
         instance._objective_id = None
 
-        # Connect boards
+        # Connect boards — motion before per-axis dicts so we can size them
+        # to the axes the hardware actually has (audit B4).
         try:
             instance.led = LEDBoard()
             if not instance.led.found:
@@ -3093,10 +3118,23 @@ class Lumascope():
             from drivers.null_motorboard import NullMotionBoard
             instance.motion = NullMotionBoard()
 
+        # Per-axis state dicts sized to detect_present_axes() (audit B4).
+        present_axes = instance.motion.detect_present_axes()
+        instance._pos_cache = {ax: 0.0 for ax in present_axes}
+        instance._axis_state = {ax: AxisState.UNKNOWN for ax in present_axes}
+        instance._arrival_events = {ax: threading.Event() for ax in present_axes}
+        for ev in instance._arrival_events.values():
+            ev.set()
+        instance._move_profile = {ax: None for ax in present_axes}
+
         instance.camera = None
         instance._image_buffer = None
         instance._frame_buffer = None
 
+        instance._motion_monitor_thread = threading.Thread(
+            target=instance._motion_monitor_loop,
+            name='motion-monitor', daemon=True,
+        )
         instance._motion_monitor_thread.start()
 
         logger.info('[SCOPE API ] Diagnostic scope created '
