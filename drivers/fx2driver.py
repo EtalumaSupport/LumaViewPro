@@ -889,6 +889,32 @@ class FX2Camera(Camera):
 
         atexit.register(_atexit_drain)
 
+    # -- Context manager support ------------------------------------------
+    # `with FX2Camera() as cam:` ensures stop_grabbing + disconnect run
+    # via __exit__ regardless of whether the body raises. This is the
+    # primary recommended cleanup pattern for ad-hoc scripts and tests
+    # — the atexit hook above is a safety net for code that doesn't use
+    # the context manager (e.g., long-lived LVP UI sessions where the
+    # camera is held by the Lumascope object for the lifetime of the
+    # app, not inside a `with` block).
+
+    def __enter__(self) -> 'FX2Camera':
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+        # Best-effort cleanup. Swallow exceptions in cleanup so the
+        # original exception (if any) propagates correctly.
+        try:
+            if self.is_grabbing():
+                self.stop_grabbing()
+        except Exception as e:
+            logger.warning('[FX2 Cam   ] __exit__ stop_grabbing failed: %s', e)
+        try:
+            self.disconnect()
+        except Exception as e:
+            logger.warning('[FX2 Cam   ] __exit__ disconnect failed: %s', e)
+        # Returning None / False propagates any exception from the with-body.
+
     # -- Connection --------------------------------------------------------
 
     def connect(self) -> bool:
