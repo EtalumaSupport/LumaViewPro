@@ -468,11 +468,11 @@ class TestFX2CameraProfile:
 
     def test_default_frame_size_is_1900x1900(self, fake_fx2_conn):
         cam = fx2driver.FX2Camera()
-        assert cam.get_frame_size() == {'Width': 1900, 'Height': 1900}
+        assert cam.get_frame_size() == {'width': 1900, 'height': 1900}
 
     def test_max_frame_size_is_1900x1900(self, fake_fx2_conn):
         cam = fx2driver.FX2Camera()
-        assert cam.get_max_frame_size() == {'Width': 1900, 'Height': 1900}
+        assert cam.get_max_frame_size() == {'width': 1900, 'height': 1900}
 
     def test_binning_returns_one(self, fake_fx2_conn):
         cam = fx2driver.FX2Camera()
@@ -572,23 +572,31 @@ class TestScopesJsonClassicModels:
         assert entry['XYStage'] is False
         assert entry['Turret'] is False
 
-    def test_ls620_has_fluorescence_bf_phase(self, scopes):
+    def test_ls620_has_fluorescence_bf(self, scopes):
+        """LS620 has BF and fluorescence but NO separate PC channel —
+        PC on this model is BF with a mechanically installed phase
+        slider, not a distinct illumination channel. Observed on
+        hardware 2026-04-16: clicking a PhaseContrast layer raised
+        `LED channel must be one of (0, 1, 2, 3), got -1` because
+        FX2LEDController's _COLOR_TO_CH has no 'PC' entry.
+        """
         layers = scopes['LS620']['Layers']
         assert layers['Fluorescence'] is True
         assert layers['Brightfield'] is True
-        assert layers['PhaseContrast'] is True
+        assert layers['PhaseContrast'] is False
         assert layers['Darkfield'] is False
         assert layers['Lumi'] is False
 
-    def test_ls560_has_fluorescence_bf_phase(self, scopes):
-        """LS560 has BF/Phase (one combined channel) + Green fluorescence.
-        scopes.json Layers dict is boolean per imaging mode — the "Green
-        only" limitation vs LS620's BGR is a future schema enhancement.
+    def test_ls560_has_fluorescence_bf(self, scopes):
+        """LS560 mirrors LS620 — BF + fluorescence (Green only; the
+        'Green only' limitation vs LS620's BGR is a future schema
+        enhancement) and no separate PC channel. Same rationale as
+        test_ls620_has_fluorescence_bf.
         """
         layers = scopes['LS560']['Layers']
         assert layers['Fluorescence'] is True
         assert layers['Brightfield'] is True
-        assert layers['PhaseContrast'] is True
+        assert layers['PhaseContrast'] is False
         assert layers['Darkfield'] is False
         assert layers['Lumi'] is False
 

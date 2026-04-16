@@ -1620,13 +1620,13 @@ class FX2Camera(Camera):
         )
 
     def get_frame_size(self):
-        return {'Width': self._width, 'Height': self._height}
+        return {'width': self._width, 'height': self._height}
 
     def get_min_frame_size(self):
-        return {'Width': self.FRAME_SIZE_MIN, 'Height': self.FRAME_SIZE_MIN}
+        return {'width': self.FRAME_SIZE_MIN, 'height': self.FRAME_SIZE_MIN}
 
     def get_max_frame_size(self):
-        return {'Width': IMG_WIDTH, 'Height': IMG_HEIGHT}
+        return {'width': IMG_WIDTH, 'height': IMG_HEIGHT}
 
     # -- Pixel format ------------------------------------------------------
 
