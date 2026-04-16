@@ -1799,19 +1799,16 @@ class FX2LEDController:
     def _led_write(self, channel: int, brightness: int):
         """Send the 3-byte I2C LED command: 0xFF, ASCII channel, brightness.
 
-        TEMP DIAGNOSTIC (AUDIT_FX2_RUNTIME.md Bug 2, 2026-04-15): each of
-        the 3 I2C writes is wrapped in try/except and the return value is
-        checked against the expected 1-byte write count. If any write
-        raises OR reports a short-write count, it gets logged at ERROR/
-        WARNING level. This tells us whether LED commands are actually
-        failing at the USB layer (and which byte in the 3-byte sequence)
-        or whether the wonkiness is coming from somewhere else entirely.
-        Remove after we have data.
-
         The FX2 firmware's I2C handler truncates writes longer than 3
         bytes, so we split into three single-byte writes with a 10 ms
         sleep between each. This matches the LVC reference that was
         hardware-validated on LS620 macOS.
+
+        Each byte is wrapped in try/except and the i2c_write return
+        value is checked against the expected 1-byte count. A silent
+        short-write would have masked Bug 2 in AUDIT_FX2_RUNTIME.md
+        (2026-04-15); propagating the return value catches it at the
+        driver layer instead.
 
         NOTE: the 3× 10 ms delays (30 ms total per LED command) are
         the known root cause of the slider-corruption effect documented
@@ -1824,15 +1821,6 @@ class FX2LEDController:
         between writes).
         """
         i2c_channel = _CH_TO_I2C.get(channel, channel)
-        # TEMP entry log (2026-04-15): confirms _led_write is actually
-        # being called. If LEDs aren't lighting up and we don't see
-        # these entries, the call is being gated upstream in
-        # Lumascope.led_on / FX2LEDController.led_on. Remove when LED
-        # investigation closes.
-        logger.info(
-            '[FX2 LED  ] TEMP _led_write ENTRY: ch=%d i2c_ch=0x%02x brightness=%d',
-            channel, i2c_channel, brightness,
-        )
         writes = [
             (0xFF, 'preamble'),
             (i2c_channel, 'channel'),
@@ -1843,15 +1831,15 @@ class FX2LEDController:
                 result = self._fx2.i2c_write(I2C_LED, [byte_val])
             except Exception as e:
                 logger.error(
-                    '[FX2 LED  ] TEMP i2c_write RAISED on %s byte=0x%02x '
+                    '[FX2 LED  ] i2c_write raised on %s byte=0x%02x '
                     '(ch=%d mA_equiv=%d): %s: %s',
                     label, byte_val, channel, brightness,
                     type(e).__name__, e,
                 )
-                raise  # preserve pre-instrumentation behavior
+                raise
             if result is not None and result != 1:
                 logger.warning(
-                    '[FX2 LED  ] TEMP short write on %s byte=0x%02x '
+                    '[FX2 LED  ] short write on %s byte=0x%02x '
                     '(ch=%d mA_equiv=%d): wrote %r of 1 byte expected',
                     label, byte_val, channel, brightness, result,
                 )
