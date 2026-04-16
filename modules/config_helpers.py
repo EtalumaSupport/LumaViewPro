@@ -204,13 +204,85 @@ def log_system_metrics(settings: dict):
     logger.info(
         f"[PROCESS METRICS] Process CPU Usage: {metrics['cpu_percent_python']:.1f}% | "
         f"Process RAM Usage: {metrics['ram_used_python_mb']:.1f} MB, "
-        f"{metrics['ram_used_python_percent']:.1f}%",
+        f"{metrics['ram_used_python_percent']:.1f}% | "
+        f"Private: {metrics.get('ram_private_mb', -1):.1f} MB",
         extra={'force_error': True},
     )
 
     extra_disks = common_utils.get_extra_disks_info(exclude_path=path)
     if extra_disks:
         logger.info(f"[EXTRA DISKS] {extra_disks}", extra={'force_error': True})
+
+    # --- Long-run stability metrics ---
+    # Each block is grep-able and logged with force_error so it lands in
+    # both lumaviewpro.log and lumaviewpro_errors.log. See
+    # docs/LOG_ANALYSIS_GUIDE.md "Resource Health" section for healthy
+    # vs unhealthy patterns.
+
+    # GDI / USER objects (Windows only). The #1 cause of "Windows feels
+    # slow after 24 hours" — process limit is 10k, desktop degrades at ~5k.
+    gdi = metrics.get('gdi_objects', -1)
+    if gdi >= 0:
+        logger.info(
+            f"[GDI METRICS] gdi={gdi} | user={metrics.get('user_objects', -1)}",
+            extra={'force_error': True},
+        )
+
+    # OS handles + open files count. Watch for steady upward trend.
+    handles = metrics.get('os_handles', -1)
+    open_files = metrics.get('open_files_count', -1)
+    if handles >= 0 or open_files >= 0:
+        logger.info(
+            f"[HANDLE METRICS] handles={handles} | open_files={open_files}",
+            extra={'force_error': True},
+        )
+
+    # Thread count. Should plateau ~20-25; growth means executor leak.
+    thread_count = metrics.get('thread_count', -1)
+    if thread_count >= 0:
+        thread_names = metrics.get('thread_names', [])
+        # Compact name summary: dedupe by stem (e.g. "ThreadPoolExecutor-3_4")
+        # so 8 executor pool threads collapse to one entry with count.
+        from collections import Counter
+        name_summary = Counter()
+        for n in thread_names:
+            stem = n.split('-')[0] if '-' in n else n
+            name_summary[stem] += 1
+        names_str = ', '.join(f"{k}={v}" for k, v in sorted(name_summary.items()))
+        logger.info(
+            f"[THREAD METRICS] count={thread_count} | {names_str}",
+            extra={'force_error': True},
+        )
+
+    # Python GC objects. Steady growth = closures or observers holding refs.
+    gc_objects = metrics.get('gc_objects', -1)
+    if gc_objects >= 0:
+        logger.info(
+            f"[GC METRICS] objects={gc_objects} | "
+            f"gen0={metrics.get('gc_gen0_collections', -1)} "
+            f"gen1={metrics.get('gc_gen1_collections', -1)} "
+            f"gen2={metrics.get('gc_gen2_collections', -1)}",
+            extra={'force_error': True},
+        )
+
+    # Swap pressure. "RAM looks low" doesn't catch page-file thrashing.
+    swap_pct = metrics.get('swap_percent', -1)
+    if swap_pct >= 0:
+        logger.info(
+            f"[SWAP METRICS] used={metrics.get('swap_used_gb', -1):.1f} GB "
+            f"({swap_pct:.1f}%)",
+            extra={'force_error': True},
+        )
+
+    # Per-process I/O bytes (cumulative). Distinguishes our writes from
+    # Windows Defender / Search Indexer scanning the same files.
+    io_read = metrics.get('io_read_mb', -1)
+    io_write = metrics.get('io_write_mb', -1)
+    if io_read >= 0 or io_write >= 0:
+        logger.info(
+            f"[PROCESS IO] read={io_read:.1f} MB | write={io_write:.1f} MB",
+            extra={'force_error': True},
+        )
 
 
 def focus_log(positions, values, focus_round: int, source_path: str) -> int:
