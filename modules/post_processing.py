@@ -94,9 +94,3 @@ class PostProcessing:
         except OSError as e:
             logger.error(f'[LVP Main  ] Failed to write results CSV: {e}')
 
-        """df = pandas.read_csv(results_file_path)
-        fig, ax = plt.subplots()
-        ax.plot([datetime.strptime(datetime_obj, '%c') for datetime_obj in df['time']], df['num_cells'])
-        ax.xaxis.set_major_formatter(ConciseDateFormatter(ax.xaxis.get_major_locator()))
-        plt.show()"""
-        

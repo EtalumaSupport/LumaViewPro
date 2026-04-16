@@ -647,7 +647,12 @@ class ScopeDisplay(Image):
         if generation != self._display_generation:
             return  # Stale callback from previous start/stop cycle
         size = (shape[1], shape[0])
-        self._bullseye_texture = Texture.create(size=size, colorfmt='rgb')
+        # Mirror the mono path's caching — only allocate a new GDI texture
+        # when the frame size changes; otherwise blit into the existing
+        # one. Pre-cache fix: at the 15 fps bullseye cap this leaked
+        # ~54k texture objects per hour.
+        if not hasattr(self, '_bullseye_texture') or self._bullseye_texture is None or self._bullseye_texture.size != size:
+            self._bullseye_texture = Texture.create(size=size, colorfmt='rgb')
         self._bullseye_texture.blit_buffer(image_bytes, colorfmt='rgb', bufferfmt='ubyte')
         self.texture = self._bullseye_texture
         self.canvas.ask_update()

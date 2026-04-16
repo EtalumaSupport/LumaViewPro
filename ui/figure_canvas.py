@@ -24,7 +24,13 @@ class FigureCanvasKivyAgg(KivyImage):
         self._canvas_agg.draw()
         w, h = self._canvas_agg.get_width_height()
         buf = self._canvas_agg.buffer_rgba()
-        texture = KivyTexture.create(size=(w, h), colorfmt='rgba')
-        texture.blit_buffer(bytes(buf), colorfmt='rgba', bufferfmt='ubyte')
-        texture.flip_vertical()
-        self.texture = texture
+        # Cache the texture by size; only allocate a new GDI handle when
+        # the figure dimensions change. Otherwise blit into the existing
+        # texture. Pre-cache fix: every draw() leaked a texture.
+        size = (w, h)
+        cached = getattr(self, '_kivy_texture', None)
+        if cached is None or cached.size != size:
+            self._kivy_texture = KivyTexture.create(size=size, colorfmt='rgba')
+            self._kivy_texture.flip_vertical()
+        self._kivy_texture.blit_buffer(bytes(buf), colorfmt='rgba', bufferfmt='ubyte')
+        self.texture = self._kivy_texture
