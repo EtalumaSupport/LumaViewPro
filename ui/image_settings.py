@@ -248,6 +248,7 @@ class ImageSettings(BoxLayout):
         if not ctx.initializing:
             self.accordion_collapse()
         self.set_layer_exposure_ranges()
+        self.set_layer_gain_ranges()
         self.enable_image_stats_if_needed()
 
 
@@ -283,6 +284,21 @@ class ImageSettings(BoxLayout):
             layer_obj.ids['exp_slider'].min = 1.0   # 1ms floor
             layer_obj.ids['exp_slider'].max = ctx.max_exposure
             layer_obj.ids['exp_slider'].step = 1.0   # Integer steps only
+
+    def set_layer_gain_ranges(self):
+        """Size each layer's gain slider to the connected camera's cap.
+
+        Parallel to set_layer_exposure_ranges. Pre-fix the gain slider
+        was hardcoded 0-48 dB in the kv regardless of camera — that
+        let LS620 users drag past the usable range and black out the
+        image. `ctx.max_gain` is populated from
+        Lumascope.camera_max_gain in load_settings (and the same
+        default-fallback pattern as exposure).
+        """
+        ctx = _app_ctx.ctx
+        for layer in common_utils.get_layers():
+            layer_obj = self.layer_lookup(layer=layer)
+            layer_obj.ids['gain_slider'].max = ctx.max_gain
 
 
     def assign_led_button_down_images(self):

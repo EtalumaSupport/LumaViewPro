@@ -324,6 +324,12 @@ def block_wait_for_threads(futures: list, log_loc: str = "LVP") -> None:
 # is `scope.camera_max_exposure or DEFAULT_MAX_EXPOSURE_MS`. See #616.
 DEFAULT_MAX_EXPOSURE_MS = 1000.0
 
+# Fallback gain slider upper bound used when no camera is connected.
+# Matches the legacy kv default (48 dB); the actual per-camera cap is
+# derived from profile.gain.total_max_db and flows through
+# Lumascope.camera_max_gain at connect time.
+DEFAULT_MAX_GAIN_DB = 48.0
+
 
 def get_binning_from_settings(settings: dict) -> int:
     """Read binning size from settings dict (no UI needed)."""

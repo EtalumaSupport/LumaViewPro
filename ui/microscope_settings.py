@@ -18,7 +18,7 @@ import modules.app_context as _app_ctx
 import modules.binning as binning
 import modules.common_utils as common_utils
 from modules import gui_logger
-from modules.config_helpers import DEFAULT_MAX_EXPOSURE_MS
+from modules.config_helpers import DEFAULT_MAX_EXPOSURE_MS, DEFAULT_MAX_GAIN_DB
 from modules.config_ui_getters import get_binning_from_ui, get_current_frame_dimensions, get_selected_labware
 from modules.common_utils import CustomJSONizer
 from modules.path_utils import resolve_data_file
@@ -305,6 +305,14 @@ class MicroscopeSettings(BoxLayout):
 
             ctx.max_exposure = max_exposure
 
+            # Parallel treatment for gain — see #gain-slider-clamp note.
+            # Pre-fix, the gain slider was hardcoded 0-48 dB in the kv,
+            # which let users overdrive LS620 past its usable range (the
+            # image went black at high gain). Pulling the cap from the
+            # camera profile keeps the slider honest per-camera.
+            max_gain = lumaview.scope.camera_max_gain or DEFAULT_MAX_GAIN_DB
+            ctx.max_gain = max_gain
+
             if not settings['video_as_frames']:
                 self.ids['video_recording_format_spinner'].text = 'mp4'
             else:
@@ -454,7 +462,13 @@ class MicroscopeSettings(BoxLayout):
                 if 'ill' in settings[layer]:
                     layer_obj.ids['ill_slider'].value = settings[layer]['ill']
 
-                layer_obj.ids['gain_slider'].value = settings[layer]['gain']
+                layer_obj.ids['gain_slider'].max = max_gain
+
+                if settings[layer]['gain'] <= max_gain:
+                    layer_obj.ids['gain_slider'].value = settings[layer]['gain']
+                else:
+                    layer_obj.ids['gain_slider'].value = max_gain
+                    settings[layer]['gain'] = max_gain
 
                 layer_obj.ids['exp_slider'].max = max_exposure
 

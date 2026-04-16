@@ -273,6 +273,23 @@ class Camera(ABC):
     def get_max_exposure(self):
         return self.max_exposure
 
+    @property
+    def max_gain(self) -> float:
+        """Maximum gain cap in dB.
+
+        Derived from `profile.gain.total_max_db` — the single source of
+        truth (Rule 2). The profile's value is the sensor-datasheet
+        ceiling by default and may be overwritten by
+        `_query_dynamic_capabilities()` at connect time (Pylon / IDS
+        live-query their SDK; FX2 hardcodes the MT9P031 value).
+        """
+        if self.profile and self.profile.gain and self.profile.gain.total_max_db is not None:
+            return float(self.profile.gain.total_max_db)
+        return 48.0  # legacy kv default — kept for cameras without a profile
+
+    def get_max_gain(self):
+        return self.max_gain
+
     @abstractmethod
     def set_max_acquisition_frame_rate(self, enabled: bool, fps: float=1.0):
         pass

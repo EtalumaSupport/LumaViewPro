@@ -332,6 +332,7 @@ class Lumascope():
             'max_frame_size': {'width': 0, 'height': 0},
             'min_frame_size': {'width': 0, 'height': 0},
             'max_exposure': 0.0,
+            'max_gain': 0.0,
             'pixel_format': None,
             'binning': 1,
         }
@@ -501,6 +502,7 @@ class Lumascope():
                 'max_frame_size': self.camera.get_max_frame_size() or {'width': 0, 'height': 0},
                 'min_frame_size': self.camera.get_min_frame_size() or {'width': 0, 'height': 0},
                 'max_exposure': self.camera.get_max_exposure() or None,
+                'max_gain': self.camera.get_max_gain() if hasattr(self.camera, 'get_max_gain') else None,
                 'pixel_format': self.camera.get_pixel_format() if hasattr(self.camera, 'get_pixel_format') else None,
                 'binning': self.camera.get_binning_size() if hasattr(self.camera, 'get_binning_size') else 1,
             }
@@ -563,6 +565,21 @@ class Lumascope():
         with self._camera_cache_lock:
             value = self._camera_cache.get('max_exposure')
         if not value or value <= 0:
+            return None
+        return float(value)
+
+    @property
+    def camera_max_gain(self):
+        """Maximum camera gain in dB, or None if no camera is connected.
+
+        Parallel to camera_max_exposure — lets the UI size the gain
+        slider to the connected camera's profile-declared cap instead
+        of a universal hardcoded 48 dB that can drive the image past
+        the sensor's usable range (observed on LS620 2026-04-16).
+        """
+        with self._camera_cache_lock:
+            value = self._camera_cache.get('max_gain')
+        if value is None or value <= 0:
             return None
         return float(value)
 
@@ -3163,6 +3180,7 @@ class Lumascope():
             'max_frame_size': {'width': 0, 'height': 0},
             'min_frame_size': {'width': 0, 'height': 0},
             'max_exposure': None,
+            'max_gain': None,
         }
 
         # State locks
