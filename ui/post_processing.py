@@ -583,8 +583,11 @@ class GraphingControls(BoxLayout):
             self.update_trendline()
 
     def initialize_graph(self):
-        if plt:
-            plt.clf()
+        # plt.clf() only clears the figure contents; the figure object
+        # itself (along with its GDI handle on Windows) leaks. Close the
+        # previous figure explicitly before allocating a new one.
+        if hasattr(self, 'fig') and self.fig is not None:
+            plt.close(self.fig)
         graphing_area = self.graphing_area
         self.fig, self.ax = plt.subplots()
         self.ax.scatter([], [])
@@ -881,7 +884,8 @@ class CellCountControls(BoxLayout):
     def set_preview_source(self, image) -> None:
         self._preview_source_image = image
         self._preview_image = image
-        self.ids['cell_count_image_id'].texture = image_utils_kivy.image_to_texture(image=image)
+        img_widget = self.ids['cell_count_image_id']
+        img_widget.texture = image_utils_kivy.image_to_texture(image=image, existing=img_widget.texture)
         self.update_filter_max(image=image)
         self._regenerate_image_preview()
 
@@ -916,7 +920,8 @@ class CellCountControls(BoxLayout):
 
         self._preview_image = image
 
-        _app_ctx.ctx.cell_count_content.ids['cell_count_image_id'].texture = image_utils_kivy.image_to_texture(image=image)
+        img_widget = _app_ctx.ctx.cell_count_content.ids['cell_count_image_id']
+        img_widget.texture = image_utils_kivy.image_to_texture(image=image, existing=img_widget.texture)
 
 
     def slider_adjustment_threshold(self):
