@@ -10,7 +10,6 @@ from lvp_logger import logger
 from drivers.serialboard import SerialBoard
 from modules.exceptions import HardwareError
 from modules.motorconfig import MotorConfig
-from modules.notification_center import notifications
 
 
 class MotorBoard(SerialBoard):
@@ -161,7 +160,6 @@ class MotorBoard(SerialBoard):
                     logger.critical(f'[XYZ Class ] MotorBoard.connect() failed 10 times, pausing thread logs')
                     lvp_logger.pause_thread()
                 logger.error(f'[XYZ Class ] MotorBoard.connect() failed: {e}')
-                notifications.error("Motor", "Motor Connection Failed", f"Cannot connect to motor controller: {e}")
 
 
     # v3.0 STUB: Motor command builders for JSON Lines protocol

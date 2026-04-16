@@ -946,3 +946,27 @@ class TestIssue606_TurretObjectiveValidation:
         method_body = source[idx:idx+2000]
         assert "turret" in method_body.lower(), \
             "_is_protocol_valid must check turret objective assignments (#606)"
+
+
+
+class TestRule1_MotorBoardNoNotifications:
+    """Rule 1: drivers must not fire user-facing notifications directly.
+    Notifications are the API layer's responsibility — it has scope
+    context to decide whether a driver failure is user-visible (LS820
+    expected motor) vs expected absence (LS620 has no motor)."""
+
+    def test_motorboard_does_not_import_notifications(self):
+        import pathlib
+        source = pathlib.Path("drivers/motorboard.py").read_text()
+        assert "from modules.notification_center import notifications" not in source, \
+            "MotorBoard must not import notifications — Rule 1 (call down, not up)"
+
+    def test_motorboard_does_not_call_notifications(self):
+        import pathlib
+        source = pathlib.Path("drivers/motorboard.py").read_text()
+        assert "notifications.error" not in source, \
+            "MotorBoard must not call notifications.error — Rule 1"
+        assert "notifications.warning" not in source, \
+            "MotorBoard must not call notifications.warning — Rule 1"
+        assert "notifications.info" not in source, \
+            "MotorBoard must not call notifications.info — Rule 1"
