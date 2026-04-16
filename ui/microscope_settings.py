@@ -811,6 +811,7 @@ class MicroscopeSettings(BoxLayout):
         image_settings.set_df_layer_control_visibility(visible=layers_config['Darkfield'])
         image_settings.set_lumi_layer_control_visibility(visible=layers_config['Lumi'])
         image_settings.set_fluoresence_layer_controls_visibility(visible=layers_config['Fluorescence'])
+        image_settings.set_phasecontrast_layer_control_visibility(visible=layers_config['PhaseContrast'])
 
         protocol_settings = ctx.motion_settings.ids['protocol_settings_id']
         protocol_settings.set_labware_selection_visibility(visible=selected_scope_config['XYStage'])

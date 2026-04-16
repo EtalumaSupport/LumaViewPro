@@ -85,6 +85,15 @@ class ImageSettings(BoxLayout):
         self._accordion_item_red_control = AccordionItemImageSettingsRedControl()
         self._accordion_item_green_control = AccordionItemImageSettingsGreenControl()
         self._accordion_item_blue_control = AccordionItemImageSettingsBlueControl()
+        # PC accordion item is defined inline in lumaviewpro.kv (unlike
+        # DF/Lumi/R/G/B which are Python class instances). Populated in
+        # _init_ui once self.ids is available. Visible-by-default here
+        # matches the kv starting state; set_phasecontrast_layer_control_visibility
+        # hides it for scopes that declare PhaseContrast=false
+        # (LS560/LS620 — PC on those scopes is BF with a mechanical
+        # phase slider, not a separate LED channel).
+        self._accordion_item_pc_control = None
+        self._accordion_item_pc_control_visible = True
         self._init_ui_retries = 0
         # Debounce accordion_collapse — Kivy fires multiple collapse events
         # when switching tabs (one per item). Trigger collapses them into one.
@@ -200,6 +209,42 @@ class ImageSettings(BoxLayout):
             self._accordion_item_df_control.collapse = True
             self._accordion_item_df_control_visible = False
             self.ids['accordion_id'].remove_widget(self._accordion_item_df_control)
+
+
+    def set_phasecontrast_layer_control_visibility(self, visible: bool) -> None:
+        if visible:
+            self._show_pc_layer_control()
+        else:
+            self._hide_pc_layer_control()
+
+
+    def _resolve_pc_accordion(self):
+        """Return the PC_accordion widget, resolving from self.ids on
+        first use. `set_ui_features_for_scope()` runs during
+        load_settings before the Clock-scheduled _init_ui fires, so a
+        ref captured only in _init_ui arrives too late for the initial
+        hide. Lazy resolution keeps both code paths correct.
+        """
+        if self._accordion_item_pc_control is None:
+            self._accordion_item_pc_control = self.ids.get('PC_accordion')
+        return self._accordion_item_pc_control
+
+    def _show_pc_layer_control(self):
+        widget = self._resolve_pc_accordion()
+        if widget is not None and not self._accordion_item_pc_control_visible:
+            self._accordion_item_pc_control_visible = True
+            self.ids['accordion_id'].add_widget(widget)
+
+
+    def _hide_pc_layer_control(self):
+        settings = _app_ctx.ctx.settings if _app_ctx.ctx else None
+        if settings and 'PC' in settings:
+            settings['PC']['acquire'] = None
+        widget = self._resolve_pc_accordion()
+        if widget is not None and self._accordion_item_pc_control_visible:
+            widget.collapse = True
+            self._accordion_item_pc_control_visible = False
+            self.ids['accordion_id'].remove_widget(widget)
 
 
     def set_fluoresence_layer_controls_visibility(self, visible: bool) -> None:
