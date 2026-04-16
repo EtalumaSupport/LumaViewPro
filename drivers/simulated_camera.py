@@ -197,11 +197,6 @@ class SimulatedCamera(Camera):
     # ------------------------------------------------------------------
     # Config
     # ------------------------------------------------------------------
-    def _get_max_exposure_models(self) -> dict:
-        return {
-            'SimulatedCamera-1920x1200': 10_000,  # 10 seconds max
-        }
-
     def init_camera_config(self):
         if not self.active:
             return

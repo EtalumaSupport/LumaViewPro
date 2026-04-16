@@ -1012,7 +1012,9 @@ class TestSimulatedCamera:
 
     def test_profile_sets_max_exposure(self):
         cam = SimulatedCamera()
-        assert cam.max_exposure == cam.profile.max_exposure_ms
+        # Camera.max_exposure is a property derived from profile.exposure_max_us.
+        # Single source of truth (Rule 2).
+        assert cam.max_exposure == cam.profile.exposure_max_us / 1000.0
 
     def test_profile_binning_sizes(self):
         cam = SimulatedCamera()
@@ -1065,13 +1067,13 @@ class TestCameraProfiles:
         assert p.pixel_size_um == 2.0
         assert p.shutter == 'rolling'
         assert p.driver == 'pylon'
-        assert p.max_exposure_ms == 1_000
+        assert p.exposure_max_us == 1_000_000
 
     def test_lookup_known_ace2_model(self):
         from drivers.camera_profiles import lookup_profile
         p = lookup_profile('a2A3536-31umBAS')
         assert p.sensor == 'Sony IMX676-AAMR1-C'
-        assert p.max_exposure_ms == 10_000
+        assert p.exposure_max_us == 10_000_000
         assert p.gain.analog_max_db == 30.0
         assert p.has_temperature is True
 
@@ -1088,7 +1090,7 @@ class TestCameraProfiles:
         assert p.has_auto_exposure is False
         assert 'Mono8' not in p.pixel_formats  # No native Mono8
         assert 'Mono10g40IDS' in p.pixel_formats
-        assert p.max_exposure_ms == 2_000
+        assert p.exposure_max_us == 2_000_000
 
     def test_lookup_simulated(self):
         from drivers.camera_profiles import lookup_profile
@@ -1101,7 +1103,7 @@ class TestCameraProfiles:
         p = lookup_profile('TotallyUnknownCamera-XYZ')
         assert p.model_name == 'TotallyUnknownCamera-XYZ'
         assert p.driver == 'unknown'
-        assert p.max_exposure_ms == 1_000
+        assert p.exposure_max_us == 1_000_000
         assert p.binning_sizes == [1]
 
     def test_lookup_none_returns_default(self):
@@ -1119,18 +1121,20 @@ class TestCameraProfiles:
         """Modifying a returned profile should not affect the registry."""
         from drivers.camera_profiles import lookup_profile
         p1 = lookup_profile('daA3840-45um')
-        p1.max_exposure_ms = 999
+        p1.exposure_max_us = 99_000
         p1.gain.total_min_db = -99.0
 
         p2 = lookup_profile('daA3840-45um')
-        assert p2.max_exposure_ms == 1_000
+        assert p2.exposure_max_us == 1_000_000
         assert p2.gain.total_min_db is None  # Not modified
 
     def test_dynamic_fields_initially_none(self):
         from drivers.camera_profiles import lookup_profile
         p = lookup_profile('daA3840-45um')
+        # exposure_max_us has a static default per profile entry; it's
+        # the single source of truth, overwritten dynamically only when
+        # the SDK / driver narrows it.
         assert p.exposure_min_us is None
-        assert p.exposure_max_us is None
         assert p.gain.total_min_db is None  # Pylon profiles don't preset these
         assert p.gain.total_max_db is None
 

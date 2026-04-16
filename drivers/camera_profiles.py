@@ -24,7 +24,7 @@ Adding a new camera model
      * IDS: vendor-specific names like Mono10g40IDS, Mono12g24IDS
      * Note whether Mono8 is natively supported — if not, software
        ConvertTo is required and cannot be skipped
-   - Maximum exposure time in ms      (max_exposure_ms)
+   - Maximum exposure time in µs      (exposure_max_us)
    - Binning support                  (binning_sizes, binning_modes)
      * Which factors: [1, 2] or [1, 2, 4]
      * Modes: Sum, Average, or both
@@ -43,9 +43,13 @@ Adding a new camera model
 2. CREATE THE PROFILE
    Add a CameraProfile instance in the "Known camera profiles" section
    below, following the existing examples. Use the datasheet values for
-   static fields. Leave dynamic fields (gain.total_min_db, total_max_db,
-   exposure_min_us, exposure_max_us) as None — they will be populated
-   at connect time by _query_dynamic_capabilities().
+   static fields. Set `exposure_max_us` to the sensor-datasheet ceiling
+   (in microseconds) — it's the single source of truth for the maximum
+   exposure cap. `_query_dynamic_capabilities()` may overwrite it at
+   connect time with an SDK-queried value or a driver-narrowed cap
+   (e.g. FX2's 178 ms safe-frame ceiling). Leave dynamic gain fields
+   (gain.total_min_db, total_max_db) and exposure_min_us as None —
+   they will be populated at connect time.
 
 3. REGISTER IT
    Add a (substring, profile) entry to the _PROFILES list. The substring
@@ -102,7 +106,6 @@ class CameraProfile:
     shutter: str = 'rolling'                # 'rolling' or 'global'
     native_resolution: dict = field(default_factory=dict)  # {'width': int, 'height': int}
     pixel_formats: list[str] = field(default_factory=list)
-    max_exposure_ms: int = 1_000
     binning_sizes: list[int] = field(default_factory=lambda: [1])
     binning_modes: list[str] = field(default_factory=lambda: ['Sum'])
     alignment: dict = field(default_factory=lambda: {'width': 4, 'height': 4})
@@ -113,9 +116,14 @@ class CameraProfile:
     driver: str = ''                        # 'pylon', 'ids', 'simulated'
     notes: str = ''
 
-    # --- Dynamic (populated at connect time from SDK) ---
-    exposure_min_us: float | None = None
+    # --- Exposure ceiling (microseconds) ---
+    # Single source of truth for the maximum exposure cap. Default it
+    # to the sensor-datasheet ceiling per profile entry below;
+    # _query_dynamic_capabilities() may overwrite it at connect time
+    # with an SDK-queried value or a driver-narrowed cap.
     exposure_max_us: float | None = None
+    # --- Other dynamic (populated at connect time from SDK) ---
+    exposure_min_us: float | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -130,7 +138,7 @@ _daA3840_45um = CameraProfile(
     shutter='rolling',
     native_resolution={'width': 3840, 'height': 2160},
     pixel_formats=['Mono8', 'Mono10', 'Mono10p', 'Mono12', 'Mono12p'],
-    max_exposure_ms=1_000,
+    exposure_max_us=1_000_000,
     binning_sizes=[1, 2, 4],
     binning_modes=['Sum', 'Average'],
     alignment={'width': 4, 'height': 4},
@@ -153,7 +161,7 @@ _a2A3536_31umBAS = CameraProfile(
     shutter='rolling',
     native_resolution={'width': 3536, 'height': 3552},
     pixel_formats=['Mono8', 'Mono10', 'Mono10p', 'Mono12', 'Mono12p'],
-    max_exposure_ms=10_000,
+    exposure_max_us=10_000_000,
     binning_sizes=[1, 2, 4],
     binning_modes=['Sum', 'Average'],
     alignment={'width': 4, 'height': 4},
@@ -176,7 +184,7 @@ _U3_34L0XCP_M = CameraProfile(
     shutter='rolling',
     native_resolution={'width': 3552, 'height': 3552},
     pixel_formats=['Mono10g40IDS', 'Mono12g24IDS'],  # No native Mono8
-    max_exposure_ms=2_000,
+    exposure_max_us=2_000_000,
     binning_sizes=[1, 2],           # Sensor 2x2 only, H+V joint
     binning_modes=['Sum'],
     alignment={'width': 48, 'height': 4},
@@ -202,7 +210,7 @@ _simulated = CameraProfile(
     shutter='global',
     native_resolution={'width': 1920, 'height': 1200},
     pixel_formats=['Mono8', 'Mono10', 'Mono12'],
-    max_exposure_ms=10_000,
+    exposure_max_us=10_000_000,
     binning_sizes=[1, 2, 4],
     binning_modes=['Sum'],
     alignment={'width': 48, 'height': 4},
@@ -232,7 +240,8 @@ _MT9P031_LS620 = CameraProfile(
     shutter='rolling',
     native_resolution={'width': 1900, 'height': 1900},
     pixel_formats=['Mono8'],          # 12-bit sensor, FX2 streams top 8 bits
-    max_exposure_ms=7_366,            # 65535 rows × 0.1124 ms/row
+    exposure_max_us=7_366_000,        # 65535 rows × 0.1124 ms/row × 1000 us/ms
+                                      # Driver narrows to 178 ms at connect.
     binning_sizes=[1],                # driver doesn't wire up sensor binning
     binning_modes=['Sum'],
     alignment={'width': 4, 'height': 4},  # matches set_frame_size() step
@@ -276,7 +285,7 @@ _PROFILES: list[tuple[str, CameraProfile]] = [
 _DEFAULT = CameraProfile(
     model_name='Unknown',
     pixel_formats=['Mono8'],
-    max_exposure_ms=1_000,
+    exposure_max_us=1_000_000,
     binning_sizes=[1],
     has_auto_gain=False,
     has_auto_exposure=False,

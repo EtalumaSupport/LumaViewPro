@@ -135,7 +135,8 @@ class ScopeCapabilities:
                 camera_supports_auto_exposure = bool(getattr(profile, 'has_auto_exposure', False))
                 camera_pixel_formats = tuple(getattr(profile, 'pixel_formats', ()) or ())
                 camera_binning_sizes = tuple(getattr(profile, 'binning_sizes', ()) or ())
-                camera_max_exposure_ms = int(getattr(profile, 'max_exposure_ms', 0) or 0)
+                exposure_max_us = getattr(profile, 'exposure_max_us', 0) or 0
+                camera_max_exposure_ms = int(exposure_max_us / 1000)
                 camera_pixel_size_um = float(getattr(profile, 'pixel_size_um', 0.0) or 0.0)
 
         return cls(

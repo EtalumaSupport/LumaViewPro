@@ -433,6 +433,22 @@ class TestFX2CameraProfile:
         assert cam.profile.exposure_min_us is not None
         assert cam.profile.exposure_max_us is not None
 
+    def test_max_exposure_picks_up_dynamic_178ms_cap(self, fake_fx2_conn):
+        """Camera.max_exposure must reflect the dynamic 178 ms cap, not
+        the static MT9P031 register max (~7,366 ms). The UI exposure
+        slider reads `ctx.max_exposure` (= camera.max_exposure) and was
+        previously letting users dial past the safe-frame ceiling
+        because Camera.max_exposure was a stored field set from a
+        separate static profile field. Rule 2 fix: collapsed to a
+        single source — `profile.exposure_max_us` — with
+        `Camera.max_exposure` a derived property reading from it."""
+        cam = fx2driver.FX2Camera()
+        # exposure_max_us is overwritten to 178_000 by _query_dynamic_capabilities
+        # (default from the profile entry is 7_366_000 = sensor register max).
+        assert cam.profile.exposure_max_us == 178_000
+        # max_exposure (in ms) is derived from exposure_max_us / 1000
+        assert cam.max_exposure == 178.0
+
     def test_pixel_format_is_mono8_only(self, fake_fx2_conn):
         cam = fx2driver.FX2Camera()
         assert cam.get_pixel_format() == 'Mono8'
@@ -492,13 +508,15 @@ class TestCameraProfileRegistration:
         assert profile.has_auto_exposure is False
 
     def test_max_exposure_matches_driver_constants(self):
-        """The profile's max_exposure_ms should match what the driver
-        exposes via MAX_EXPOSURE_ROWS × _ROW_TIME_MS.
+        """The profile's static exposure_max_us default should match the
+        sensor-register ceiling: MAX_EXPOSURE_ROWS × _ROW_TIME_MS.
+        (The driver narrows this to 178 ms at connect time — see
+        FX2Camera._query_dynamic_capabilities.)
         """
         profile = lookup_profile('LS620')
-        driver_max_ms = int(fx2driver.MAX_EXPOSURE_ROWS * fx2driver._ROW_TIME_MS)
-        # Allow 10 ms tolerance for rounding
-        assert abs(profile.max_exposure_ms - driver_max_ms) <= 10
+        driver_max_us = fx2driver.MAX_EXPOSURE_ROWS * fx2driver._ROW_TIME_MS * 1000
+        # Allow 10,000 µs (10 ms) tolerance for rounding
+        assert abs(profile.exposure_max_us - driver_max_us) <= 10_000
 
 
 # ---------------------------------------------------------------------------

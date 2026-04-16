@@ -79,12 +79,9 @@ class Camera(ABC):
         self.array = np.array([])
         self.cam_image_handler: ImageHandlerBase | None = None
         self.model_name = None
-        self.max_exposure = 100 # in ms
         self._device_removed = False
         self._device_serial = None
         self.profile: CameraProfile = CameraProfile()
-
-        self.max_exposure_dict = self._get_max_exposure_models()
 
         self.connect()
         # Registry contract: drivers signal "I couldn't find my hardware"
@@ -245,13 +242,14 @@ class Camera(ABC):
     def _load_profile(self):
         """Load the camera profile based on model_name.
 
-        Called by subclass connect() after model_name is known. Sets
-        self.profile and applies static values (max_exposure). Subclasses
-        should then call _query_dynamic_capabilities() to fill in SDK-
-        queried values like gain and exposure ranges.
+        Called by subclass connect() after model_name is known. Subclasses
+        should then call _query_dynamic_capabilities() to populate
+        SDK-queried fields (gain min/max, exposure min/max). Per Rule 2,
+        `profile.exposure_max_us` is the single source of truth for the
+        max-exposure cap — `Camera.max_exposure` is a derived property
+        that reads from it.
         """
         self.profile = lookup_profile(self.model_name)
-        self.max_exposure = self.profile.max_exposure_ms
         logger.info(f'[CAM Class ] Loaded profile: {self.profile.model_name} '
                      f'(sensor={self.profile.sensor}, driver={self.profile.driver})')
 
@@ -263,36 +261,23 @@ class Camera(ABC):
         """
         pass
 
-    def set_max_exposure_time(self):
-        # Legacy path — check profile first, fall back to max_exposure_dict
-        if self.profile and self.profile.max_exposure_ms:
-            self.max_exposure = self.profile.max_exposure_ms
-            logger.info(f"[CAM Class ] Max exposure set to {self.max_exposure} ms (from profile)")
-            return
+    @property
+    def max_exposure(self) -> float:
+        """Maximum exposure cap in milliseconds.
 
-        found_key = None
-        for key in self.max_exposure_dict.keys():
-            if self.model_name in key:
-                found_key = key
-                break
-
-        if found_key is None:
-            self.max_exposure = default_max_exposure
-            return
-
-        self.max_exposure = self.max_exposure_dict[found_key]
-        logger.info(f"[CAM Class ] Max exposure set to {self.max_exposure} ms")
+        Derived from `profile.exposure_max_us` — the single source of
+        truth (Rule 2). The profile's value is the sensor-datasheet
+        ceiling by default and may be overwritten by
+        `_query_dynamic_capabilities()` at connect time with an SDK-
+        queried or driver-narrowed cap (e.g. FX2's 178 ms safe-frame
+        ceiling).
+        """
+        if self.profile and self.profile.exposure_max_us:
+            return self.profile.exposure_max_us / 1000.0
+        return float(default_max_exposure)
 
     def get_max_exposure(self):
         return self.max_exposure
-
-    def _get_max_exposure_models(self) -> dict:
-        """Return a dict mapping model name substrings to max exposure (ms).
-
-        Subclasses should override to register their known models.
-        Deprecated — prefer camera_profiles.py instead.
-        """
-        return {}
 
     @abstractmethod
     def set_max_acquisition_frame_rate(self, enabled: bool, fps: float=1.0):

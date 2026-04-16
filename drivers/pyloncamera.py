@@ -30,13 +30,6 @@ class PylonCamera(Camera):
 
     # _mark_disconnected() inherited from Camera base class
 
-    def _get_max_exposure_models(self) -> dict:
-        # Legacy fallback — profiles are the primary source now
-        return {
-            "daA3840-45um": 1_000,
-            "a2A3536-31umBAS": 10_000,
-        }
-
     def _query_dynamic_capabilities(self):
         """Query Pylon SDK for gain/exposure ranges and merge into profile."""
         if not self.active:
