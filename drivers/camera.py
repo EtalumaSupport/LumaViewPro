@@ -140,12 +140,6 @@ class Camera(ABC):
             self._active = None
         if was_connected:
             logger.error('[CAM Class ] Camera disconnected')
-            try:
-                from modules.notification_center import notifications
-                notifications.error("Camera", "Camera Disconnected",
-                    "USB camera was removed. Reconnect and restart the app.")
-            except Exception:
-                pass  # Notification system may not be available during shutdown
 
     @abstractmethod
     def connect(self) -> bool:

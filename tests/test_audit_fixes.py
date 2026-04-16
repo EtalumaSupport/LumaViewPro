@@ -1167,3 +1167,69 @@ class TestRule1_MotorBoardNoNotifications:
             "MotorBoard must not call notifications.warning — Rule 1"
         assert "notifications.info" not in source, \
             "MotorBoard must not call notifications.info — Rule 1"
+
+
+class TestRule1_CameraNoNotifications:
+    """Rule 1: drivers must not fire user-facing notifications directly.
+    Camera disconnect notification is the API layer's responsibility
+    (lumascope_api.py fires it with scope context). Duplicates from
+    the driver layer just pop twice or at the wrong moment."""
+
+    def test_camera_base_does_not_import_notifications(self):
+        import pathlib
+        source = pathlib.Path("drivers/camera.py").read_text()
+        assert "from modules.notification_center import notifications" not in source, \
+            "drivers/camera.py must not import notifications — Rule 1"
+
+    def test_camera_base_does_not_call_notifications(self):
+        import pathlib
+        source = pathlib.Path("drivers/camera.py").read_text()
+        assert "notifications.error" not in source, \
+            "drivers/camera.py must not call notifications.error — Rule 1"
+        assert "notifications.warning" not in source
+        assert "notifications.info" not in source
+
+
+class TestRule1_PylonCameraNoNotifications:
+    """Rule 1: Pylon SDK removal callback (OnCameraDeviceRemoved) runs in
+    a native SDK thread. Before the Rule 1 cleanup it called
+    notifications.error from that thread, a secondary crash risk on top
+    of the layering violation. API-level detection in get_image handles
+    the user-facing notification on the main thread."""
+
+    def test_pyloncamera_does_not_import_notifications(self):
+        import pathlib
+        source = pathlib.Path("drivers/pyloncamera.py").read_text()
+        assert "from modules.notification_center import notifications" not in source, \
+            "drivers/pyloncamera.py must not import notifications — Rule 1"
+
+    def test_pyloncamera_does_not_call_notifications(self):
+        import pathlib
+        source = pathlib.Path("drivers/pyloncamera.py").read_text()
+        assert "notifications.error" not in source, \
+            "drivers/pyloncamera.py must not call notifications.error — Rule 1"
+        assert "notifications.warning" not in source
+        assert "notifications.info" not in source
+
+
+class TestRule1_SerialBoardNoNotifications:
+    """Rule 1: SerialBoard fires per-command timeout/exception notifications
+    that would spam on every dropped command during a transient
+    disconnect. Throttled logger calls are retained for diagnostic
+    records; user-facing notification is the API layer's job (it has
+    connection-state context and scope capabilities to decide whether a
+    given failure is user-visible)."""
+
+    def test_serialboard_does_not_import_notifications(self):
+        import pathlib
+        source = pathlib.Path("drivers/serialboard.py").read_text()
+        assert "from modules.notification_center import notifications" not in source, \
+            "drivers/serialboard.py must not import notifications — Rule 1"
+
+    def test_serialboard_does_not_call_notifications(self):
+        import pathlib
+        source = pathlib.Path("drivers/serialboard.py").read_text()
+        assert "notifications.error" not in source, \
+            "drivers/serialboard.py must not call notifications.error — Rule 1"
+        assert "notifications.warning" not in source
+        assert "notifications.info" not in source

@@ -12,7 +12,6 @@ import queue
 
 from drivers.camera import Camera, ImageHandlerBase
 from drivers.registry import camera_registry
-from modules.notification_center import notifications
 
 
 @camera_registry.register('pylon', priority=100)
@@ -100,7 +99,6 @@ class PylonCamera(Camera):
             )
         except Exception as e:
             logger.warning(f'[CAM Class ] start_grabbing ignored error: {e}')
-            notifications.error("Camera", "Camera Start Failed", f"Failed to start image capture: {e}")
 
     def is_grabbing(self):
         try:
@@ -845,9 +843,3 @@ class _CameraRemovalHandler(pylon.ConfigurationEventHandler):
         # Note: We do NOT set self._parent.active = False here to avoid race conditions.
         # The is_connected() checks will see _device_removed and handle cleanup safely.
         logger.error('[CAM Class ] Camera physically removed (Pylon SDK callback)')
-        try:
-            from modules.notification_center import notifications
-            notifications.error("Camera", "Camera Disconnected",
-                "USB camera was removed. Reconnect and restart the app.")
-        except Exception:
-            pass  # Notification system may not be available
