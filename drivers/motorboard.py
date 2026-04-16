@@ -10,7 +10,6 @@ from drivers.serialboard import SerialBoard
 from drivers.registry import motor_registry
 from modules.exceptions import HardwareError
 from modules.motorconfig import MotorConfig
-from modules.notification_center import notifications
 
 
 @motor_registry.register('rp2040', priority=100)
@@ -163,7 +162,6 @@ class MotorBoard(SerialBoard):
                     self._connect_log_suppressed = True
                 if not self._connect_log_suppressed:
                     logger.error(f'[XYZ Class ] MotorBoard.connect() failed: {e}')
-                    notifications.error("Motor", "Motor Connection Failed", f"Cannot connect to motor controller: {e}")
 
 
     # v3.0 STUB: Motor command builders for JSON Lines protocol
