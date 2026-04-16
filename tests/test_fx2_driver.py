@@ -55,6 +55,16 @@ def fake_fx2_conn(monkeypatch):
     install the fake getter, yield the MagicMock.
 
     Teardown: restore the real class state.
+
+    Also neutralizes the streaming-start paths. ``FX2Camera.__init__``
+    calls ``connect()`` → ``start_grabbing()`` → ``_start_iso_streaming``
+    which, under a MagicMock'd libusb1/winusb, records ~16 xfer
+    callbacks holding a bound-method ref back to the camera. The
+    MagicMock's call-args store makes that a cycle the GC can't break
+    (~210 MB leaked per FX2Camera() instance). Tests in this file
+    never exercise the streaming loop, so a no-op patch is safe here.
+    Any future test that DOES want to exercise streaming should use a
+    dedicated fixture that wires up a real-enough stream source.
     """
     fx2driver._FX2Connection._reset_for_test()
 
@@ -64,6 +74,8 @@ def fake_fx2_conn(monkeypatch):
         'get',
         classmethod(lambda cls: fake),
     )
+    monkeypatch.setattr(fx2driver.FX2Camera, 'start_grabbing', lambda self: None)
+    monkeypatch.setattr(fx2driver.FX2Camera, 'stop_grabbing', lambda self: None)
 
     yield fake
 
