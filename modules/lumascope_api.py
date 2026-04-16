@@ -125,6 +125,20 @@ class Lumascope():
         self._led_listeners_lock = threading.Lock()
         self._led_listeners = []
 
+        # LED state — API-level source of truth (Rule 2: "the API owns
+        # hardware state"). Completes the 2026-04-02 audit's design
+        # intent: the API was always supposed to own LED state, but the
+        # implementation only got as far as ownership + observers +
+        # save/restore. State queries (get_led_ma, led_enabled, etc.)
+        # still delegated to the driver — which worked for LEDBoard
+        # (has an internal led_ma dict) but broke for FX2LEDController
+        # (thin translator, returns sentinels). This dict is the
+        # primary store, analogous to _pos_cache for motor position.
+        # Updated inside led_on / led_off / leds_off; read by all
+        # state-query methods. See docs/AUDIT_LED_STATE_FX2.md.
+        self._led_state: dict[str, dict] = {}
+        # Each entry: color -> {'enabled': True, 'illumination': float, 'owner': str}
+
         # LED ownership tracking — prevents subsystems from turning off LEDs
         # they did not turn on.  Each led_on with an owner records who claimed
         # the channel.  led_off with a non-matching owner is a no-op.
@@ -814,6 +828,7 @@ class Lumascope():
                                if own == owner]
             for color in channels_to_off:
                 self._led_owners.pop(color, None)
+                self._led_state.pop(color, None)
         for color in channels_to_off:
             ch = self.color2ch(color)
             if ch is not None:
@@ -1281,62 +1296,86 @@ class Lumascope():
     def get_led_ma(self, color: str):
         """Get the current illumination level for an LED channel.
 
+        Reads from the API-level _led_state cache (Rule 2). Does NOT
+        delegate to the driver — see AUDIT_LED_STATE_FX2.md Bug 4.
+
         Args:
             color: Channel color name (e.g. "Blue", "Green", "Red", "BF").
 
         Returns:
-            float: Illumination in milliamps, or -1 if LED board unavailable.
+            float: Illumination in milliamps, or -1 if channel is off or
+                LED board unavailable.
         """
         if not self.led: return -1
-
-        return self.led.get_led_ma(color=color)
-
+        with self._led_owner_lock:
+            entry = self._led_state.get(color)
+            return entry['illumination'] if entry else -1.0
 
     def led_enabled(self, color: str) -> bool:
-        """Whether a specific LED channel is currently on (reads driver cache)."""
+        """Whether a specific LED channel is currently on.
+
+        Reads from the API-level _led_state cache (Rule 2). Pre-fix,
+        this delegated to the driver's get_led_state, which for
+        FX2LEDController always returned False — making led_off a
+        complete no-op (AUDIT_LED_STATE_FX2.md Bug 2).
+        """
         if not self.led:
             return False
-        state = self.led.get_led_state(color=color)
-        return state.get('enabled', False) if isinstance(state, dict) else False
+        with self._led_owner_lock:
+            return self._led_state.get(color) is not None
 
     def led_illumination(self, color: str) -> float:
-        """Current mA for an LED channel, or -1 if off (reads driver cache)."""
-        if not self.led:
-            return -1
-        return self.led.get_led_ma(color=color)
+        """Current mA for an LED channel, or -1 if off."""
+        return self.get_led_ma(color)
 
     @property
     def led_states(self) -> dict:
-        """Snapshot of all LED states {color: {enabled, illumination}} (reads driver cache)."""
+        """Snapshot of all LED states {color: {enabled, illumination}}."""
         if not self.led:
             return {}
-        return self.led.get_led_states()
+        with self._led_owner_lock:
+            return {
+                color: {'enabled': True, 'illumination': entry['illumination']}
+                for color, entry in self._led_state.items()
+            }
 
     def get_led_state(self, color: str):
         """Get the on/off state and illumination for an LED channel.
 
+        Reads from the API-level _led_state cache (Rule 2).
+
         Args:
             color: Channel color name (e.g. "Blue", "Green", "Red", "BF").
 
         Returns:
-            dict: LED state and illumination (mA), or empty dict if unavailable.
+            dict: {'enabled': bool, 'illumination': float}.
         """
         if not self.led:
             return {'enabled': False, 'illumination': -1}
-
-        return self.led.get_led_state(color=color)
-
+        with self._led_owner_lock:
+            entry = self._led_state.get(color)
+            if entry is None:
+                return {'enabled': False, 'illumination': -1}
+            return {'enabled': True, 'illumination': entry['illumination']}
 
     def get_led_states(self):
         """Get state and illumination for all LED channels.
 
-        Returns:
-            dict: Mapping of color to state/illumination dict, or empty dict if unavailable.
+        Returns states for ALL channels the driver supports (not just
+        currently-on channels).
         """
         if not self.led:
             return {}
-
-        return self.led.get_led_states()
+        all_colors = self.led.available_colors()
+        with self._led_owner_lock:
+            return {
+                color: (
+                    {'enabled': True, 'illumination': self._led_state[color]['illumination']}
+                    if color in self._led_state
+                    else {'enabled': False, 'illumination': -1}
+                )
+                for color in all_colors
+            }
 
 
     def led_on(self, channel, mA, block=False, owner: str = ''):
@@ -1378,12 +1417,19 @@ class Lumascope():
         self.frame_validity.invalidate('led')
         _api_log.info(f'led_on ch={channel} mA={mA} owner={owner!r}')
 
-        # Record ownership and notify listeners
+        # Update API-level state cache + ownership (Rule 2). Unconditional
+        # — empty owner ('') is recorded too, fixing AUDIT_LED_STATE_FX2.md
+        # Bug 3 where UI clicks were never tracked because of an `if owner:`
+        # gate that excluded empty strings.
         color_name = self.ch2color(channel)
         if color_name:
-            if owner:
-                with self._led_owner_lock:
-                    self._led_owners[color_name] = owner
+            with self._led_owner_lock:
+                self._led_state[color_name] = {
+                    'enabled': True,
+                    'illumination': float(mA),
+                    'owner': owner,
+                }
+                self._led_owners[color_name] = owner
             self._fire_led_listeners(color_name, True, float(mA), owner)
 
     def led_off(self, channel, owner: str = ''):
@@ -1407,7 +1453,11 @@ class Lumascope():
         if channel not in valid_channels:
             raise ValueError(f"LED channel must be one of {valid_channels}, got {channel}")
 
-        # Skip if channel is already off
+        # Skip if channel is already off. Now reads from the API-level
+        # _led_state cache, which is correct for both LEDBoard and FX2.
+        # Pre-fix this delegated to the driver's get_led_state, which for
+        # FX2 always returned False — making led_off a complete no-op
+        # (AUDIT_LED_STATE_FX2.md Bug 2).
         color_name = self.ch2color(channel)
         if color_name and not self.led_enabled(color_name):
             return
@@ -1415,23 +1465,23 @@ class Lumascope():
         # Check ownership — if caller specifies an owner, only allow if it matches
         if owner and color_name:
             with self._led_owner_lock:
-                current_owner = self._led_owners.get(color_name, '')
+                entry = self._led_state.get(color_name, {})
+                current_owner = entry.get('owner', '')
                 if current_owner and current_owner != owner:
                     _api_log.debug(f'led_off blocked: ch={channel} owner={owner!r} '
                                    f'but owned by {current_owner!r}')
                     return
-                self._led_owners.pop(color_name, None)
 
         with self._led_lock:
             self.led.led_off(channel)
         self.frame_validity.invalidate('led')
         _api_log.info(f'led_off ch={channel} owner={owner!r}')
 
+        # Clear from API-level state cache + ownership
         if color_name:
-            # Clear ownership if no owner specified (unconditional off)
-            if not owner:
-                with self._led_owner_lock:
-                    self._led_owners.pop(color_name, None)
+            with self._led_owner_lock:
+                self._led_state.pop(color_name, None)
+                self._led_owners.pop(color_name, None)
             self._fire_led_listeners(color_name, False, 0.0, owner)
 
     def led_on_fast(self, channel, mA):
@@ -1487,12 +1537,8 @@ class Lumascope():
         with self._led_lock:
             self.led.leds_off_fast()
         self.frame_validity.invalidate('led')
-        # Use the protocol's public capability query, not the driver's
-        # private state dict. LEDBoard happens to expose `led_ma`, but
-        # FX2LEDController is a thin translator (drops client-side state)
-        # and has no such attribute. Reaching into driver internals here
-        # was a Rule 1 / Rule 8 violation that fired the first time we
-        # ran a stateless LED driver through this code path (LS620, 2026-04-15).
+        with self._led_owner_lock:
+            self._led_state.clear()
         for color in self.led.available_colors():
             self._fire_led_listeners(color, False, 0.0, '')
 
@@ -1503,10 +1549,9 @@ class Lumascope():
             self.led.leds_off()
         with self._led_owner_lock:
             self._led_owners.clear()
+            self._led_state.clear()
         self.frame_validity.invalidate('led')
         _api_log.info('leds_off')
-        # See leds_off_fast() above — `available_colors()` is the public
-        # capability query; `self.led.led_ma` was driver-private state.
         for color in self.led.available_colors():
             self._fire_led_listeners(color, False, 0.0, '')
 
