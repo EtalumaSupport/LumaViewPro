@@ -1182,8 +1182,13 @@ class TestTimingModes:
         """In realistic mode, target_status returns False during move."""
         m = SimulatedMotorBoard(timing='realistic')
         m._homed['Z'] = True
-        # Move Z a significant distance
-        m.move_abs_pos('Z', 10000.0)
+        # 1000 usteps gives ~0.5 s expected duration with TMC ramp params —
+        # still proves "not instant" via the immediate-False check, while
+        # leaving ~10× headroom against the 5 s deadline. Pre-shrink the
+        # test used 10 000 usteps which produced ~4.7 s expected duration
+        # and only ~0.3 s of margin; under heavy concurrent test load
+        # (memory pressure, GC pauses) the deadline blew intermittently.
+        m.move_abs_pos('Z', 1000.0)
         # Should not have arrived yet
         assert m.target_status('Z') is False
         # Wait for move to complete
@@ -1192,7 +1197,7 @@ class TestTimingModes:
             time.sleep(0.01)
             if time.monotonic() > deadline:
                 raise TimeoutError("Motor never reached target")
-        assert m.current_pos('Z') == pytest.approx(10000.0, abs=1.0)
+        assert m.current_pos('Z') == pytest.approx(1000.0, abs=1.0)
 
     def test_motor_fast_move_brief_delay(self):
         """In fast mode, position updates instantly but target_status has ~3ms delay."""
