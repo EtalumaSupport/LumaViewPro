@@ -111,7 +111,16 @@ VR_I2C_READ = 0xB2
 VR_I2C_WRITE = 0xB3
 VR_I2C_MT9P031_READ = 0xB4    # Async MT9P031 register read (5s timeout OK)
 VR_INIT_GPIF = 0xB9
-VR_SENSOR_CLK_WRITE = 0xBA    # Clock-managed sensor register write
+# VR_IMAGE_SENSOR_CLK_MANAGED_WRITE (0xBA) was defined here as
+# VR_SENSOR_CLK_WRITE and used by sensor_reg_write. It switches IFCLK
+# to internal, does the I2C write, then switches back — which disrupts
+# ISO streaming because the GPIF pixel clock depends on IFCLK. Removed
+# 2026-04-15 after finding it was the root cause of visible image
+# corruption on every gain/exposure slider drag. LVC defines the same
+# constant in `I2C_Control.cs:52` but never calls it; LVC's production
+# path uses VR_I2C_WRITE (0xB3) for sensor writes via
+# `AptinaMT9P031_Control.WriteWord16 → I2C_Control.Write`. We now
+# match LVC. See docs/AUDIT_FX2_RUNTIME.md Bug 6.
 VR_SET_IFCLK_SRC = 0xBB
 VR_CODE_VERSION = 0xBC
 VR_START_STREAMING = 0xBD
@@ -307,6 +316,8 @@ class StreamStats:
             self._frame_times: deque = deque(maxlen=120)
             self._partial_count = 0
             self._partial_sizes: deque = deque(maxlen=32)
+            self._shifted_count = 0
+            self._shifted_sizes: deque = deque(maxlen=32)
             self._good_count = 0
             self._total_bytes = 0
             self._usb_errors = 0
@@ -322,9 +333,26 @@ class StreamStats:
             self._delimiters_seen += 1
 
     def record_partial_frame(self, size: int):
+        """Frame between two delimiters was undersized (bytes dropped before
+        next delimiter). Discarded by the grab loop."""
         with self._lock:
             self._partial_count += 1
             self._partial_sizes.append(size)
+            self._delimiters_seen += 1
+
+    def record_shifted_frame(self, size: int):
+        """Frame between two delimiters was the wrong size — either oversized
+        (likely a missed delimiter caused two frames to be concatenated, or a
+        false-positive delimiter elsewhere in pixel data inflated the buffer)
+        OR sized between `needed` and `expected` (off-by-some-rows, also wrong).
+        Distinct from `partial` because the failure mechanism is different: a
+        partial frame is lost bytes BEFORE the next delimiter; a shifted frame
+        is wrong-but-still-bigger-than-minimum, indicating the parser found
+        bytes from outside the intended frame. Both are discarded.
+        See docs/AUDIT_FX2_RUNTIME.md Fix 1 (2026-04-15)."""
+        with self._lock:
+            self._shifted_count += 1
+            self._shifted_sizes.append(size)
             self._delimiters_seen += 1
 
     def record_bytes(self, n: int):
@@ -355,12 +383,15 @@ class StreamStats:
             now = time.monotonic()
             elapsed = now - self._start_time
             recent_partials = list(self._partial_sizes)
+            recent_shifted = list(self._shifted_sizes)
         cur_fps, avg_fps = self.get_fps()
         return {
             'elapsed_s': round(elapsed, 1),
             'good_frames': self._good_count,
             'partial_frames': self._partial_count,
             'partial_sizes': recent_partials,
+            'shifted_frames': self._shifted_count,
+            'shifted_sizes': recent_shifted,
             'delimiters_seen': self._delimiters_seen,
             'total_MB': round(self._total_bytes / (1024 * 1024), 1),
             'throughput_MBps': round(self._total_bytes / (1024 * 1024) / elapsed, 2) if elapsed > 0 else 0,
@@ -665,25 +696,48 @@ class _FX2Connection:
             )
 
     def i2c_write(self, addr: int, data):
-        """Write bytes to the I2C bus via vendor request 0xB3."""
-        self.control_transfer_out(VR_I2C_WRITE, value=0, index=addr, data=bytes(data))
+        """Write bytes to the I2C bus via vendor request 0xB3.
+
+        Returns the result of the underlying control transfer (number of
+        bytes written from pyusb / libusb1). Callers that want to detect
+        short writes (e.g., LED command diagnostics) can compare to
+        `len(data)`. Pre-2026-04-15 this method discarded the result,
+        which masked silent short-write failures in `_led_write`.
+        """
+        return self.control_transfer_out(
+            VR_I2C_WRITE, value=0, index=addr, data=bytes(data)
+        )
 
     def i2c_read(self, addr: int, length: int):
         """Read bytes from the I2C bus via vendor request 0xB2."""
         return self.control_transfer_in(VR_I2C_READ, value=0, index=addr, length=length)
 
     def sensor_reg_write(self, reg: int, value: int):
-        """Write 16-bit value to MT9P031 register via clock-managed write (0xBA).
+        """Write 16-bit value to an MT9P031 register via VR_I2C_WRITE (0xB3).
 
-        The firmware switches IFCLK to internal, performs the I2C write, then
-        switches back to external IFCLK. This is required for any sensor
-        register that affects the pixel clock (PLL, window, exposure, etc.).
+        Wire format matches LVC exactly (`AptinaMT9P031_Control.cs::Write`):
+        3 bytes `[reg, high, low]` sent as a VR_I2C_WRITE control transfer
+        with `index = I2C_SENSOR` (0x5d). The FX2 firmware's `VR_I2C_WRITEb3`
+        handler (vendor_req_parse.c:129) parses `wIndexL` as the I2C address,
+        `wLengthL` as the byte count, truncates to 3 bytes max, and writes
+        the received payload to I2C without touching IFCLK.
+
+        WARNING — do NOT route sensor writes through 0xBA
+        (VR_IMAGE_SENSOR_CLK_MANAGED_WRITE). That variant switches IFCLK to
+        internal, does the I2C write, then switches back. The GPIF pixel
+        clock depends on IFCLK, so every 0xBA call disrupts streaming and
+        produces visible image corruption on the next ISO frame. Our Stage
+        3 port originally used 0xBA because the firmware comment for it
+        says "sensor clock managed write" — a misleading name. LVC defines
+        the constant but never calls it from any production code path; the
+        real production path is plain VR_I2C_WRITE (0xB3). Fixed
+        2026-04-15. See docs/AUDIT_FX2_RUNTIME.md Bug 6.
         """
         high = (value >> 8) & 0xFF
         low = value & 0xFF
         data = bytes([reg, high, low])
         self.control_transfer_out(
-            VR_SENSOR_CLK_WRITE, value=0, index=I2C_SENSOR, data=data
+            VR_I2C_WRITE, value=0, index=I2C_SENSOR, data=data
         )
 
     def sensor_reg_read(self, reg: int) -> int:
@@ -921,8 +975,16 @@ class FX2Camera(Camera):
         """Called by Camera base class during construction.
 
         Initializes the MT9P031 sensor, creates the frame handler, loads
-        the camera profile, and applies default exposure/gain via
-        ``init_camera_config()``.
+        the camera profile, applies default exposure/gain via
+        ``init_camera_config()``, and **starts ISO streaming**. The
+        start-grabbing-in-connect convention matches PylonCamera
+        (drivers/pyloncamera.py:191), IDSCamera (drivers/idscamera.py:76),
+        and SimulatedCamera (drivers/simulated_camera.py:176). LVP's
+        ScopeDisplay polls the camera assuming it's already grabbing; if
+        connect() returns without starting streaming, the live view stays
+        blank. This bug bit on the first LS620 GUI launch (2026-04-15) —
+        manual Stage 3.5 scripts didn't notice because they all called
+        cam.start_grabbing() explicitly.
         """
         self.model_name = 'MT9P031-LS620'
         self._init_sensor()
@@ -931,6 +993,7 @@ class FX2Camera(Camera):
         self._load_profile()
         self._query_dynamic_capabilities()
         self.init_camera_config()
+        self.start_grabbing()
         logger.info('[FX2 Cam   ] connected: %s', self.model_name)
         return True
 
@@ -956,7 +1019,21 @@ class FX2Camera(Camera):
             self.profile.gain.total_min_db = 0.0
             self.profile.gain.total_max_db = 42.1  # 128x, per audit-corrected math
             self.profile.exposure_min_us = _ROW_TIME_MS * 1000  # 1 row = 112.4 μs
-            self.profile.exposure_max_us = MAX_EXPOSURE_ROWS * _ROW_TIME_MS * 1000
+            # Cap exposure at the legacy LVC 178 ms value (matches what
+            # was known-safe in the original LumaviewClassic UI). The
+            # MT9P031 register itself supports up to MAX_EXPOSURE_ROWS ×
+            # row_time = 7,366 ms, BUT above the per-frame readout time
+            # (~214 ms at 1900 rows × 0.1124 ms/row) the sensor inserts
+            # vertical blanking rows to extend the frame period, which
+            # changes the bytes/sec rate mid-stream and desyncs the FX2
+            # frame parser. Visible as image corruption when the user
+            # drags the exposure slider above ~200 ms. Raising this
+            # requires fixing the frame parser to handle variable frame
+            # timing OR doing stop-grab / set / start-grab on every
+            # exposure change — both Stage 3.6+ work, both non-trivial.
+            # Hardware-validated 2026-04-15 on the first LS620 GUI run.
+            SAFE_EXPOSURE_MAX_MS = 178
+            self.profile.exposure_max_us = SAFE_EXPOSURE_MAX_MS * 1000
             logger.debug(
                 '[FX2 Cam   ] profile capabilities: gain 0.0-42.1 dB, '
                 'exposure %.3f-%.3f ms',
@@ -1033,7 +1110,18 @@ class FX2Camera(Camera):
         # Black level calibration
         fx2.sensor_reg_write(REG_BLC, 0x6000)        # lock green + red/blue BLC channels
         time.sleep(0.01)
-        fx2.sensor_reg_write(REG_READ_MODE2, 0x0040) # Row_BLC enabled (sensor default)
+        # Read Mode 2 bits we set:
+        #   bit  6 (0x0040) — Row_BLC enabled (sensor default)
+        #   bit 14 (0x4000) — Mirror_Column = horizontal flip. Per
+        #                     Linux kernel mt9p031.c register defs.
+        #                     LS620 optic path delivers a left/right-
+        #                     reversed view through the eyepiece vs the
+        #                     sensor's native readout; this bit corrects
+        #                     it at the sensor (free, no CPU cost,
+        #                     applies to live view + captures uniformly).
+        # If the image ends up upside down instead of mirrored, swap
+        # bit 14 → bit 15 (0x4000 → 0x8000) for Mirror_Row instead.
+        fx2.sensor_reg_write(REG_READ_MODE2, 0x4040)
         time.sleep(0.01)
         fx2.sensor_reg_write(REG_ROW_BLACK, 0x0000)  # black target = 0 (microscopy optimization)
         time.sleep(0.01)
@@ -1404,25 +1492,59 @@ class FX2Camera(Camera):
                 frame_data = buf[:idx]
                 buf = buf[idx + len(FRAME_DELIM):]
 
-                if len(frame_data) >= needed:
+                # Strict frame validation. The MT9P031 + FX2 GPIF emits
+                # frames with EXACTLY one extra row of stride padding
+                # beyond the math (`needed`). Measured 2026-04-15 on
+                # 175 samples of clean streaming: 173/175 (98.9%) were
+                # exactly `needed + stride` bytes, the other 2 were
+                # corrupt (1 partial, 1 oversized). The +stride extra
+                # is hardware-constant for fixed frame size; the
+                # `as_strided` block below silently truncates it.
+                #
+                # PRE-FIX (AUDIT_FX2_RUNTIME.md): the check was
+                # `len(frame_data) >= needed`, which silently accepted
+                # arbitrary oversized frames as "good" and reshaped
+                # them from a misaligned offset → visually corrupt
+                # frames flagged as good, no telemetry. Stage 3.5 Phase
+                # 8 missed this entirely because the partial-frame
+                # counter only fires on undersize.
+                #
+                # POST-FIX: strict equality on `expected`. Anything
+                # else is discarded, distinct shifted/partial counters
+                # give honest telemetry on which failure mode dominates.
+                # If frame size or readout config ever changes such
+                # that the +stride invariant breaks, the shifted
+                # counter will spike and we re-measure. See
+                # docs/AUDIT_FX2_RUNTIME.md Fix 1.
+                expected = needed + stride
+
+                if len(frame_data) == expected:
                     raw = np.frombuffer(frame_data, dtype=np.uint8)
                     remaining = raw[skip_first_row:]
-                    if len(remaining) >= h * stride:
-                        raw_2d = np.lib.stride_tricks.as_strided(
-                            remaining, shape=(h, stride), strides=(stride, 1)
-                        )
-                        image = raw_2d[:, :w].copy()
-                        self.cam_image_handler._store_frame(image, datetime.now())
-                        stats.record_good_frame()
+                    raw_2d = np.lib.stride_tricks.as_strided(
+                        remaining, shape=(h, stride), strides=(stride, 1)
+                    )
+                    image = raw_2d[:, :w].copy()
+                    self.cam_image_handler._store_frame(image, datetime.now())
+                    stats.record_good_frame()
 
-                        if not first_frame_logged:
-                            first_frame_logged = True
-                            logger.info(
-                                '[FX2 Cam   ] first frame: %dx%d, stride=%d, '
-                                '%d bytes, mean=%.1f',
-                                w, h, stride, len(frame_data), float(image.mean()),
-                            )
+                    if not first_frame_logged:
+                        first_frame_logged = True
+                        logger.info(
+                            '[FX2 Cam   ] first frame: %dx%d, stride=%d, '
+                            '%d bytes, mean=%.1f',
+                            w, h, stride, len(frame_data), float(image.mean()),
+                        )
+                elif len(frame_data) > needed:
+                    # Wrong size but bigger than minimum — either
+                    # oversized (missed delimiter, two frames glued)
+                    # or sized between `needed` and `expected`
+                    # (off-by-rows). Either way, the bytes are
+                    # misaligned and would render as garbage.
+                    stats.record_shifted_frame(len(frame_data))
                 elif len(frame_data) > 0:
+                    # Severely undersized — bytes dropped before the
+                    # next delimiter was found.
                     stats.record_partial_frame(len(frame_data))
 
             # Periodic stats logging.
@@ -1431,10 +1553,11 @@ class FX2Camera(Camera):
                 last_stats_log = now
                 s = stats.summary()
                 logger.info(
-                    '[FX2 Cam   ] stream: %.1f fps (avg %.2f), %d good / %d partial, '
+                    '[FX2 Cam   ] stream: %.1f fps (avg %.2f), '
+                    '%d good / %d partial / %d shifted, '
                     '%.1f MB/s, %d errors, %d timeouts',
                     s['fps_current'], s['fps_average'],
-                    s['good_frames'], s['partial_frames'],
+                    s['good_frames'], s['partial_frames'], s['shifted_frames'],
                     s['throughput_MBps'], s['usb_errors'], s['usb_timeouts'],
                 )
 
@@ -1676,6 +1799,15 @@ class FX2LEDController:
     def _led_write(self, channel: int, brightness: int):
         """Send the 3-byte I2C LED command: 0xFF, ASCII channel, brightness.
 
+        TEMP DIAGNOSTIC (AUDIT_FX2_RUNTIME.md Bug 2, 2026-04-15): each of
+        the 3 I2C writes is wrapped in try/except and the return value is
+        checked against the expected 1-byte write count. If any write
+        raises OR reports a short-write count, it gets logged at ERROR/
+        WARNING level. This tells us whether LED commands are actually
+        failing at the USB layer (and which byte in the 3-byte sequence)
+        or whether the wonkiness is coming from somewhere else entirely.
+        Remove after we have data.
+
         The FX2 firmware's I2C handler truncates writes longer than 3
         bytes, so we split into three single-byte writes with a 10 ms
         sleep between each. This matches the LVC reference that was
@@ -1692,12 +1824,38 @@ class FX2LEDController:
         between writes).
         """
         i2c_channel = _CH_TO_I2C.get(channel, channel)
-        self._fx2.i2c_write(I2C_LED, [0xFF])
-        time.sleep(0.01)
-        self._fx2.i2c_write(I2C_LED, [i2c_channel])
-        time.sleep(0.01)
-        self._fx2.i2c_write(I2C_LED, [brightness & 0xFF])
-        time.sleep(0.01)
+        # TEMP entry log (2026-04-15): confirms _led_write is actually
+        # being called. If LEDs aren't lighting up and we don't see
+        # these entries, the call is being gated upstream in
+        # Lumascope.led_on / FX2LEDController.led_on. Remove when LED
+        # investigation closes.
+        logger.info(
+            '[FX2 LED  ] TEMP _led_write ENTRY: ch=%d i2c_ch=0x%02x brightness=%d',
+            channel, i2c_channel, brightness,
+        )
+        writes = [
+            (0xFF, 'preamble'),
+            (i2c_channel, 'channel'),
+            (brightness & 0xFF, 'brightness'),
+        ]
+        for byte_val, label in writes:
+            try:
+                result = self._fx2.i2c_write(I2C_LED, [byte_val])
+            except Exception as e:
+                logger.error(
+                    '[FX2 LED  ] TEMP i2c_write RAISED on %s byte=0x%02x '
+                    '(ch=%d mA_equiv=%d): %s: %s',
+                    label, byte_val, channel, brightness,
+                    type(e).__name__, e,
+                )
+                raise  # preserve pre-instrumentation behavior
+            if result is not None and result != 1:
+                logger.warning(
+                    '[FX2 LED  ] TEMP short write on %s byte=0x%02x '
+                    '(ch=%d mA_equiv=%d): wrote %r of 1 byte expected',
+                    label, byte_val, channel, brightness, result,
+                )
+            time.sleep(0.01)
 
     def _ma_to_brightness(self, mA) -> int:
         """Convert mA to 0-255 brightness value."""
