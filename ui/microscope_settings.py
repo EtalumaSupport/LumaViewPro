@@ -102,7 +102,8 @@ class MicroscopeSettings(BoxLayout):
         labware_id, labware = get_selected_labware()
 
         # Single hardware initialization call
-        config = ScopeInitConfig.from_settings(settings, labware)
+        scope_config = self.scopes.get(settings.get('microscope'))
+        config = ScopeInitConfig.from_settings(settings, labware, scope_config=scope_config)
         lumaview.scope.initialize(config)
 
         ctx.sequenced_capture_executor.set_scope(lumaview.scope)
@@ -382,7 +383,8 @@ class MicroscopeSettings(BoxLayout):
             # scope.set_frame_size / set_binning_size / set_stage_offset /
             # set_turret_config / set_objective / set_scale_bar / set_acceleration_limit
             labware_id, labware = get_selected_labware()
-            config = ScopeInitConfig.from_settings(settings, labware)
+            scope_config = self.scopes.get(settings.get('microscope'))
+            config = ScopeInitConfig.from_settings(settings, labware, scope_config=scope_config)
             lumaview.scope.initialize(config)
 
             protocol_settings = ctx.motion_settings.ids['protocol_settings_id']

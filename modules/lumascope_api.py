@@ -246,14 +246,9 @@ class Lumascope():
             led_max_ma=self.LED_MAX_MA,
         )
 
-        # Notify if some (but not all) hardware is missing
-        missing = []
-        if isinstance(self.led, NullLEDBoard): missing.append("LED Board")
-        if isinstance(self.motion, NullMotionBoard): missing.append("Motor Controller")
-        if not hasattr(self, 'camera') or not getattr(self.camera, 'active', None): missing.append("Camera")
-        if missing and not simulate:
-            notifications.warning("Hardware", "Partial Hardware Detected",
-                f"Not connected: {', '.join(missing)}. Some features will be unavailable.")
+        # Partial-hardware notification deferred to initialize(config) —
+        # we need scope-config knowledge to distinguish "LS620 correctly
+        # has no motor" from "LS820 motor failed to connect."
 
         # Track whether any real hardware was found
         self._no_hardware = (
@@ -364,6 +359,7 @@ class Lumascope():
         Args:
             config: ScopeInitConfig instance with all scope-level settings.
         """
+        self._notify_partial_hardware(config)
         self.leds_off()
         self.set_labware(config.labware)
         if config.turret_config:
@@ -375,6 +371,28 @@ class Lumascope():
         self.set_scale_bar(enabled=config.scale_bar_enabled)
         self.set_acceleration_limit(val_pct=config.acceleration_pct)
         logger.info('[SCOPE API ] Scope initialized')
+
+    def _notify_partial_hardware(self, config) -> None:
+        """Warn user about missing hardware, filtered by scope expectations.
+
+        An LS620 with no motor is not a failure — its scopes.json says
+        Focus/XYStage/Turret are all false. Only warn for hardware the
+        scope was supposed to have. Simulators never warn.
+        """
+        if self._simulated:
+            return
+        missing = []
+        if config.expects_led and isinstance(self.led, NullLEDBoard):
+            missing.append("LED Board")
+        if config.expects_motion and isinstance(self.motion, NullMotionBoard):
+            missing.append("Motor Controller")
+        if not hasattr(self, 'camera') or not getattr(self.camera, 'active', None):
+            missing.append("Camera")
+        if missing:
+            notifications.warning(
+                "Hardware", "Partial Hardware Detected",
+                f"Not connected: {', '.join(missing)}. Some features will be unavailable.",
+            )
 
 
     # --- Motion monitor (Phase 1A) ---
