@@ -696,7 +696,15 @@ class LumaViewProApp(TooltipMixin, App):
             Window.minimum_height = 600
             Window.bind(on_resize=self._on_resize)
             Window.bind(on_request_close=self.on_request_close)
-            lumaview = MainDisplay(camera_type=settings['camera_type'], simulate=simulate_mode)
+            # camera_type='auto' lets the registry pick by priority
+            # (Pylon → IDS → FX2). The legacy `settings['camera_type']`
+            # field in current.json defaulted to "pylon", which forced
+            # registry.create() down the specific-name path with no
+            # fallthrough — so LS620 / LS560 / LS720 (FX2 hardware)
+            # could never come up via LVP startup. Discovered 2026-04-15
+            # on the first LS620 GUI launch. The settings field is now
+            # vestigial; the registry handles all driver selection.
+            lumaview = MainDisplay(camera_type='auto', simulate=simulate_mode)
             lumaview.scope.engineering_mode = ENGINEERING_MODE
             cell_count_content = CellCountControls()
             graphing_controls = GraphingControls()

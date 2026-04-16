@@ -180,12 +180,14 @@ class DriverRegistry:
         null_candidates = [e for e in candidates if e.priority == 0]
 
         last_error: Exception | None = None
+        found_false_names: list[str] = []
         for entry in real_candidates:
             try:
                 instance = entry.cls(**kwargs)
                 # Some drivers signal failure via a `.found` attribute
                 # instead of raising (SerialBoard pattern). Honor that.
                 if getattr(instance, 'found', True) is False:
+                    found_false_names.append(entry.cls.__name__)
                     logger.debug(
                         f'[registry] {self._kind}: {entry.cls.__name__} '
                         f'found=False, trying next candidate'
@@ -200,10 +202,20 @@ class DriverRegistry:
                 )
 
         # All real drivers exhausted — fall back to null if one is registered.
-        # Log at warning level with the last exception so the operator sees
-        # WHY the scope came up with NullMotionBoard / NullLEDBoard (pre-B2
-        # this was `logger.exception(...)` inside `Lumascope.__init__`, so
-        # we preserve that visibility here).
+        # Three distinct cases the operator needs to be able to tell apart:
+        #   1. last_error set                — at least one driver raised.
+        #      The exception is the smoking gun, log it with traceback.
+        #   2. found_false_names non-empty   — at least one driver instantiated
+        #      but reported `found=False` (SerialBoard with no port, FX2 with
+        #      no device). Name the drivers that were tried so the operator
+        #      can see WHICH hardware path was probed.
+        #   3. neither                       — registry actually empty for
+        #      this kind. Misconfiguration; the import that wires up the
+        #      driver is missing.
+        # Pre-fix the case-3 message used to fire for case-2 too, which made
+        # "no real drivers attempted (none registered)" look like an empty
+        # registry when actually `found=False` had been returned. Bit us
+        # 2026-04-15 chasing why FX2 wasn't in the picture.
         for entry in null_candidates:
             if last_error is not None:
                 logger.warning(
@@ -212,10 +224,19 @@ class DriverRegistry:
                     f'Last error: {type(last_error).__name__}: {last_error}',
                     exc_info=last_error,
                 )
+            elif found_false_names:
+                logger.warning(
+                    f'[registry] {self._kind}: all real drivers reported '
+                    f'found=False (no hardware detected). Tried: '
+                    f'{", ".join(found_false_names)}. '
+                    f'Falling back to {entry.cls.__name__}'
+                )
             else:
                 logger.info(
-                    f'[registry] {self._kind}: no real drivers attempted '
-                    f'(none registered), falling back to {entry.cls.__name__}'
+                    f'[registry] {self._kind}: registry is empty for this '
+                    f'kind (no real drivers registered — check that the '
+                    f'driver module is imported somewhere). Falling back '
+                    f'to {entry.cls.__name__}'
                 )
             return entry.cls()
 

@@ -19,6 +19,17 @@ try:
     from drivers.idscamera import IDSCamera
 except ImportError:
     IDSCamera = None
+# FX2 (Lumaview Classic LS560/LS620/LS720) — the import side-effect is
+# the entire point: it fires the @camera_registry.register('fx2') and
+# @led_registry.register('fx2') decorators inside the module. Nothing
+# in this file references fx2driver names directly; the registry
+# instantiates FX2Camera + FX2LEDController via 'auto' fallthrough when
+# Pylon/IDS aren't found. Wrapped in try/except so dev machines without
+# pyusb / libusb1 don't crash LVP at startup (matches IDS pattern above).
+try:
+    import drivers.fx2driver  # noqa: F401
+except ImportError:
+    pass
 from drivers.camera import Camera
 from drivers.simulated_camera import SimulatedCamera
 from drivers.simulated_motorboard import SimulatedMotorBoard
@@ -1476,7 +1487,13 @@ class Lumascope():
         with self._led_lock:
             self.led.leds_off_fast()
         self.frame_validity.invalidate('led')
-        for color in self.led.led_ma:
+        # Use the protocol's public capability query, not the driver's
+        # private state dict. LEDBoard happens to expose `led_ma`, but
+        # FX2LEDController is a thin translator (drops client-side state)
+        # and has no such attribute. Reaching into driver internals here
+        # was a Rule 1 / Rule 8 violation that fired the first time we
+        # ran a stateless LED driver through this code path (LS620, 2026-04-15).
+        for color in self.led.available_colors():
             self._fire_led_listeners(color, False, 0.0, '')
 
     def leds_off(self):
@@ -1488,7 +1505,9 @@ class Lumascope():
             self._led_owners.clear()
         self.frame_validity.invalidate('led')
         _api_log.info('leds_off')
-        for color in self.led.led_ma:
+        # See leds_off_fast() above — `available_colors()` is the public
+        # capability query; `self.led.led_ma` was driver-private state.
+        for color in self.led.available_colors():
             self._fire_led_listeners(color, False, 0.0, '')
 
     def get_led_status(self):

@@ -87,6 +87,18 @@ class Camera(ABC):
         self.max_exposure_dict = self._get_max_exposure_models()
 
         self.connect()
+        # Registry contract: drivers signal "I couldn't find my hardware"
+        # via `found=False`, and `drivers/registry.py::create('auto')` skips
+        # such instances and tries the next candidate. PylonCamera and
+        # IDSCamera both catch their connect-failure exception internally
+        # and set `self.active = None` without raising — without this line,
+        # the registry sees no exception and `getattr(instance, 'found', True)`
+        # defaults to True, so the broken Pylon instance is returned and
+        # FX2 (priority 80) never gets a turn. Discovered 2026-04-15 trying
+        # to bring up an LS620 through LVP for the first time. The
+        # `_active not in (False, None)` check matches `Camera.active`'s
+        # three-state semantics (False=initial, <obj>=connected, None=disconnected).
+        self.found = self._active not in (False, None)
 
     @property
     def active(self):
