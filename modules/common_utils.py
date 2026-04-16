@@ -344,35 +344,14 @@ def max_decimal_precision(parameter: str) -> int:
     return PRECISION_MAP.get(parameter, DEFAULT_PRECISION)
 
 
-import ctypes
-import gc
 import os
-import platform
-import threading
-
 import psutil
 
-_IS_WINDOWS = platform.system() == 'Windows'
-
-
 def system_metrics(path="/"):
-    """Return a one-shot snapshot of process and host resource state.
-
-    Used by `log_system_metrics()` (called hourly from `lumaviewpro.py`).
-    Failures on individual metrics return -1 / None / 0.0 so callers
-    can log "this metric isn't available on this platform" without the
-    whole snapshot blowing up.
-
-    Long-run leak detection: GDI/handle/thread/GC counts should plateau
-    in steady state. A steady upward trend across hourly snapshots
-    indicates a leak. See `docs/LOG_ANALYSIS_GUIDE.md` "Resource Health"
-    section for healthy/unhealthy patterns.
-    """
     proc = psutil.Process(os.getpid())
     disk = psutil.disk_usage(path)
-    vmem = psutil.virtual_memory()
 
-    metrics = {
+    return {
         # CPU
         "cpu_percent_total": psutil.cpu_percent(),
         "cpu_percent_python": proc.cpu_percent(),
@@ -380,121 +359,16 @@ def system_metrics(path="/"):
         "cpu_cores_physical": psutil.cpu_count(logical=False),
 
         # RAM
-        "ram_available_gb": vmem.available / 1e9,
-        "ram_percent_total": vmem.percent,
+        "ram_available_gb": psutil.virtual_memory().available / 1e9,
+        "ram_percent_total": psutil.virtual_memory().percent,
         "ram_used_python_percent": proc.memory_percent(),
         "ram_used_python_mb": proc.memory_info().rss / 1e6,
-        "ram_used_total_mb": vmem.used / 1e6,
+        "ram_used_total_mb": psutil.virtual_memory().used / 1e6,
 
         # Disk
         "disk_free_gb": disk.free / 1024**3,
         "disk_used_percent": disk.percent,
     }
-
-    # --- Private memory bytes (Windows-specific; falls back to RSS) ---
-    # Working Set / RSS underreports because Windows can trim it while the
-    # process still holds committed virtual memory. Private bytes is what
-    # Task Manager calls "Memory (private working set)" and is the actual
-    # leak indicator.
-    try:
-        mem = proc.memory_info()
-        private = getattr(mem, 'private', mem.rss)
-        metrics["ram_private_mb"] = private / 1e6
-    except Exception:
-        metrics["ram_private_mb"] = -1
-
-    # --- System swap (catches page-file pressure even when "RAM looks low") ---
-    try:
-        swap = psutil.swap_memory()
-        metrics["swap_percent"] = swap.percent
-        metrics["swap_used_gb"] = swap.used / 1e9
-    except Exception:
-        metrics["swap_percent"] = -1
-        metrics["swap_used_gb"] = -1
-
-    # --- OS handles (Windows) / file descriptors (POSIX) ---
-    # Windows caps process handles around 16M but typical apps run
-    # 500-2000. A steady climb of a few handles per minute is a leak
-    # of file/socket/thread handles. POSIX fds equivalent.
-    try:
-        if _IS_WINDOWS:
-            metrics["os_handles"] = proc.num_handles()
-        else:
-            metrics["os_handles"] = proc.num_fds()
-    except Exception:
-        metrics["os_handles"] = -1
-
-    # --- Open files count ---
-    # Most actionable diagnostic when handles climb: tells you exactly
-    # which files are leaked. We log only the count here; if it crosses
-    # a threshold, the operator can dump the list manually via
-    # `psutil.Process().open_files()`.
-    try:
-        metrics["open_files_count"] = len(proc.open_files())
-    except Exception:
-        metrics["open_files_count"] = -1
-
-    # --- Process I/O bytes (cumulative, per-process) ---
-    # Distinguishes "we wrote 50 GB this hour" from "Windows Defender did".
-    # Both bytes counters reset only when the process restarts.
-    try:
-        io = proc.io_counters()
-        metrics["io_read_mb"] = io.read_bytes / 1e6
-        metrics["io_write_mb"] = io.write_bytes / 1e6
-    except Exception:
-        metrics["io_read_mb"] = -1
-        metrics["io_write_mb"] = -1
-
-    # --- GDI / USER objects (Windows only — main long-run-stability concern) ---
-    # GDI is what causes Windows-wide slowdown after 24h+ runs. Every
-    # `Texture.create()` and unclosed matplotlib figure adds a GDI handle.
-    # Process limit is 10,000; Windows desktop degrades around 5,000.
-    if _IS_WINDOWS:
-        try:
-            GR_GDIOBJECTS = 0
-            GR_USEROBJECTS = 1
-            handle = ctypes.windll.kernel32.GetCurrentProcess()
-            metrics["gdi_objects"] = ctypes.windll.user32.GetGuiResources(
-                handle, GR_GDIOBJECTS
-            )
-            metrics["user_objects"] = ctypes.windll.user32.GetGuiResources(
-                handle, GR_USEROBJECTS
-            )
-        except Exception:
-            metrics["gdi_objects"] = -1
-            metrics["user_objects"] = -1
-    else:
-        metrics["gdi_objects"] = -1
-        metrics["user_objects"] = -1
-
-    # --- Thread count + names ---
-    # Should plateau within ~30s of startup at ~20-25 (8 executors * 2
-    # threads + camera + main + a few Kivy). Steady growth means an
-    # executor/handler is spawning without joining.
-    try:
-        metrics["thread_count"] = threading.active_count()
-        metrics["thread_names"] = sorted(t.name for t in threading.enumerate())
-    except Exception:
-        metrics["thread_count"] = -1
-        metrics["thread_names"] = []
-
-    # --- Python GC (catches reference-cycle / closure-capture leaks) ---
-    # `gc.get_objects()` is somewhat expensive (iterates all tracked
-    # objects) — fine at hourly cadence. Steady linear growth indicates
-    # accumulation, typically from observers/callbacks holding refs.
-    try:
-        metrics["gc_objects"] = len(gc.get_objects())
-        gc_stats = gc.get_stats()
-        metrics["gc_gen0_collections"] = gc_stats[0]['collections']
-        metrics["gc_gen1_collections"] = gc_stats[1]['collections']
-        metrics["gc_gen2_collections"] = gc_stats[2]['collections']
-    except Exception:
-        metrics["gc_objects"] = -1
-        metrics["gc_gen0_collections"] = -1
-        metrics["gc_gen1_collections"] = -1
-        metrics["gc_gen2_collections"] = -1
-
-    return metrics
 
 
 def check_disk_space(path="/") -> float:
