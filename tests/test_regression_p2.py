@@ -20,40 +20,9 @@ import numpy as np
 import pytest
 import serial
 
-# ---------------------------------------------------------------------------
-# Mock out heavy dependencies before importing modules under test
-# ---------------------------------------------------------------------------
-_mock_logger = MagicMock()
-_mock_logger.info = MagicMock()
-_mock_logger.debug = MagicMock()
-_mock_logger.error = MagicMock()
-_mock_logger.warning = MagicMock()
-_mock_logger.critical = MagicMock()
+# Heavy deps (lvp_logger, kivy, pypylon, ids_peak, ...) are mocked by
+# tests/conftest.py at module-import time. Test-specific mocks below.
 
-_mock_lvp_logger = MagicMock()
-_mock_lvp_logger.logger = _mock_logger
-_mock_lvp_logger.is_thread_paused = MagicMock(return_value=False)
-_mock_lvp_logger.unpause_thread = MagicMock()
-_mock_lvp_logger.pause_thread = MagicMock()
-
-sys.modules.setdefault('userpaths', MagicMock())
-sys.modules.setdefault('lvp_logger', _mock_lvp_logger)
-sys.modules.setdefault('requests', MagicMock())
-sys.modules.setdefault('requests.structures', MagicMock())
-sys.modules.setdefault('psutil', MagicMock())
-sys.modules.setdefault('kivy', MagicMock())
-sys.modules.setdefault('kivy.clock', MagicMock())
-
-# Mock camera hardware SDKs
-sys.modules.setdefault('pypylon', MagicMock())
-sys.modules.setdefault('pypylon.pylon', MagicMock())
-sys.modules.setdefault('pypylon.genicam', MagicMock())
-sys.modules.setdefault('ids_peak', MagicMock())
-sys.modules.setdefault('ids_peak.ids_peak', MagicMock())
-sys.modules.setdefault('ids_peak.ids_peak_ipl_extension', MagicMock())
-sys.modules.setdefault('ids_peak_ipl', MagicMock())
-
-# Mock settings_init
 _mock_settings_init = MagicMock()
 _mock_settings_init.settings = {
     'BF': {'autofocus': False},
@@ -108,9 +77,13 @@ def _make_serial_board():
 
 
 def _make_tiling_configs(tmp_path):
-    """Create minimal tiling configs file for Protocol."""
+    """Create minimal tiling configs file for Protocol.
+
+    Must satisfy modules.tiling_config.TilingConfig._validate_tiling: a
+    dict with a 'data' key (which itself must be a dict).
+    """
     configs_file = tmp_path / "tiling_configs.json"
-    configs_file.write_text('{}')
+    configs_file.write_text('{"metadata": {}, "data": {}}')
     return configs_file
 
 

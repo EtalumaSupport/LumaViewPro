@@ -9,31 +9,11 @@ Tests the 5 modules extracted from sequenced_capture_executor.py:
   - protocol_image_writer
 """
 
-import sys
 import threading
 from unittest.mock import MagicMock
 
-# ---------------------------------------------------------------------------
-# Mock heavy dependencies before any module imports
-# ---------------------------------------------------------------------------
-_mock_lvp_logger = MagicMock()
-_mock_lvp_logger.logger = MagicMock()
-_mock_lvp_logger.is_thread_paused = MagicMock(return_value=False)
-sys.modules.setdefault('userpaths', MagicMock())
-sys.modules.setdefault('lvp_logger', _mock_lvp_logger)
-sys.modules.setdefault('kivy', MagicMock())
-sys.modules.setdefault('kivy.clock', MagicMock())
-sys.modules.setdefault('kivy.base', MagicMock())
-sys.modules.setdefault('requests', MagicMock())
-sys.modules.setdefault('requests.structures', MagicMock())
-sys.modules.setdefault('psutil', MagicMock())
-sys.modules.setdefault('pypylon', MagicMock())
-sys.modules.setdefault('pypylon.pylon', MagicMock())
-sys.modules.setdefault('pypylon.genicam', MagicMock())
-sys.modules.setdefault('ids_peak', MagicMock())
-sys.modules.setdefault('ids_peak.ids_peak', MagicMock())
-sys.modules.setdefault('ids_peak.ids_peak_ipl_extension', MagicMock())
-sys.modules.setdefault('ids_peak_ipl', MagicMock())
+# Heavy deps (lvp_logger, kivy, pypylon, ids_peak, ...) are mocked by
+# tests/conftest.py at module-import time.
 
 import pytest
 

@@ -1,44 +1,75 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""Pytest configuration for LumaViewPro tests."""
-import sys
+"""Pytest configuration for LumaViewPro tests.
+
+Conftest is loaded by pytest before any test module is collected, so the
+mock installation here happens before any test file's imports. Test files
+can therefore import driver modules at module level without each one
+re-installing its own MagicMock deps.
+
+Hardware-test opt-in flags
+--------------------------
+    --run-hardware        firmware/serial board hardware (legacy flag)
+    --run-ids-hardware    real IDS Peak SDK + connected camera
+    --run-pylon-hardware  real Pylon SDK + connected camera
+
+When a hardware flag is set, the corresponding SDK is NOT mocked so the
+real module loads. Hardware tests are gated by markers (`ids_hardware`,
+`pylon_hardware`) — see `pytest_collection_modifyitems` below.
+"""
 import os
+import sys
 from unittest.mock import MagicMock
 
 import pytest
 
-# Add project root to path so 'from ledboard import LEDBoard' works
+
+# ---------------------------------------------------------------------------
+# Path setup — make `from drivers.x import Y` work from tests/
+# ---------------------------------------------------------------------------
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
 # ---------------------------------------------------------------------------
-# Shared pytest options
+# Hardware-flag detection (must run before mock install)
 # ---------------------------------------------------------------------------
-
-def pytest_addoption(parser):
-    """Register custom command-line options for hardware tests."""
-    try:
-        parser.addoption("--run-hardware", action="store_true",
-                         default=False, help="Run hardware serial tests")
-    except Exception:
-        pass  # option already registered by plugin or another conftest
+# pytest_addoption hasn't been called yet at conftest import time, so we
+# sniff sys.argv directly. Tolerant of `--flag` and `--flag=1` forms.
+def _flag_in_argv(name):
+    return any(a == name or a.startswith(f'{name}=') for a in sys.argv)
 
 
+_HARDWARE_FLAG_MOCKS = {
+    '--run-ids-hardware': [
+        'ids_peak',
+        'ids_peak.ids_peak',
+        'ids_peak.ids_peak_ipl_extension',
+        'ids_peak_ipl',
+    ],
+    '--run-pylon-hardware': [
+        'pypylon',
+        'pypylon.pylon',
+        'pypylon.genicam',
+    ],
+}
+_skip_mocks = set()
+for _flag, _mods in _HARDWARE_FLAG_MOCKS.items():
+    if _flag_in_argv(_flag):
+        _skip_mocks.update(_mods)
+
+
 # ---------------------------------------------------------------------------
-# Shared mock dependency installer
+# Centralized mock installation
 # ---------------------------------------------------------------------------
+# Test files used to duplicate this block at module level. Now they don't
+# have to — conftest installs the union before any test is collected.
+# Idempotent (uses setdefault) so files that still call install_mock_deps()
+# are no-ops.
 
 def install_mock_deps():
-    """Install mock modules for heavy dependencies (lvp_logger, kivy, etc.).
+    """Install MagicMock entries for heavy deps not present on dev machines.
 
-    Safe to call multiple times -- uses setdefault so existing entries
-    (from test files that mock at module level) are not overwritten.
-
-    NOTE: 8 test files currently duplicate this logic at module level
-    instead of using this function. New tests should use this function
-    via the _mock_heavy_deps fixture instead of duplicating.
-    See: test_integration.py, test_protocol_execution.py, test_scope_api.py,
-    test_simulators.py, test_regression_p2.py, test_serial_safety.py,
-    test_null_motorboard.py, test_notification_center.py
+    Idempotent. Skips SDK mocks when the corresponding --run-*-hardware
+    flag is set, so the real SDK can load.
     """
     mock_logger = MagicMock()
     mock_lvp_logger = MagicMock()
@@ -49,6 +80,7 @@ def install_mock_deps():
     mock_lvp_logger.pause_thread = MagicMock()
 
     deps = {
+        # General heavy deps
         'userpaths': MagicMock(),
         'lvp_logger': mock_lvp_logger,
         'requests': MagicMock(),
@@ -56,6 +88,13 @@ def install_mock_deps():
         'psutil': MagicMock(),
         'kivy': MagicMock(),
         'kivy.clock': MagicMock(),
+        'kivy.base': MagicMock(),
+        # FX2 / libusb (no hardware-test gate yet — always mocked)
+        'usb': MagicMock(),
+        'usb.core': MagicMock(),
+        'usb.util': MagicMock(),
+        'usb1': MagicMock(),
+        # Camera SDKs — skipped when their --run-*-hardware flag is set
         'pypylon': MagicMock(),
         'pypylon.pylon': MagicMock(),
         'pypylon.genicam': MagicMock(),
@@ -65,24 +104,71 @@ def install_mock_deps():
         'ids_peak_ipl': MagicMock(),
     }
     for name, mock_mod in deps.items():
+        if name in _skip_mocks:
+            continue
         sys.modules.setdefault(name, mock_mod)
 
 
+# Run at conftest import time — before any test file is collected.
+install_mock_deps()
+
+
 # ---------------------------------------------------------------------------
-# Shared simulator fixtures
+# Pytest hooks
+# ---------------------------------------------------------------------------
+
+def pytest_addoption(parser):
+    """Register hardware-test opt-in flags."""
+    def _safe(*args, **kwargs):
+        try:
+            parser.addoption(*args, **kwargs)
+        except (ValueError, Exception):
+            pass  # already registered by another plugin/conftest
+
+    _safe("--run-hardware", action="store_true", default=False,
+          help="Run hardware serial tests (firmware boards via SerialBoard)")
+    _safe("--run-ids-hardware", action="store_true", default=False,
+          help="Run IDS Peak hardware tests (real SDK + connected camera)")
+    _safe("--run-pylon-hardware", action="store_true", default=False,
+          help="Run Pylon hardware tests (real SDK + connected camera)")
+
+
+def pytest_configure(config):
+    """Register custom markers used by hardware tests."""
+    config.addinivalue_line(
+        "markers",
+        "ids_hardware: requires real IDS Peak SDK + connected camera "
+        "(only runs with --run-ids-hardware)",
+    )
+    config.addinivalue_line(
+        "markers",
+        "pylon_hardware: requires real Pylon SDK + connected camera "
+        "(only runs with --run-pylon-hardware)",
+    )
+
+
+def pytest_collection_modifyitems(config, items):
+    """Skip hardware-marked tests unless the matching opt-in flag is set."""
+    gates = [
+        ("ids_hardware",   "--run-ids-hardware"),
+        ("pylon_hardware", "--run-pylon-hardware"),
+    ]
+    for marker, flag in gates:
+        if config.getoption(flag, default=False):
+            continue
+        skip = pytest.mark.skip(reason=f"needs {flag}")
+        for item in items:
+            if marker in item.keywords:
+                item.add_marker(skip)
+
+
+# ---------------------------------------------------------------------------
+# Shared fixtures
 # ---------------------------------------------------------------------------
 
 @pytest.fixture
 def sim_scope():
-    """Create a Lumascope with simulated hardware in fast timing mode.
-
-    Requires that heavy deps (lvp_logger, kivy, etc.) are already mocked —
-    either by the test file's module-level sys.modules.setdefault calls,
-    or by calling install_mock_deps() first.
-
-    Yields the scope and disconnects on teardown.
-    """
-    install_mock_deps()
+    """Lumascope with simulated hardware in fast timing mode."""
     from modules.lumascope_api import Lumascope
     s = Lumascope(simulate=True)
     s.led.set_timing_mode('fast')

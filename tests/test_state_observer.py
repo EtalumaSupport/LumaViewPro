@@ -10,9 +10,7 @@ import time
 
 import pytest
 
-from tests.conftest import install_mock_deps
-
-install_mock_deps()
+# Heavy deps are mocked by tests/conftest.py at module-import time.
 
 from modules.lumascope_api import Lumascope
 

@@ -9,25 +9,13 @@ Uses mock objects — no hardware or Kivy needed.
 """
 
 import datetime
-import sys
 import threading
 from concurrent.futures import Future
 from unittest.mock import MagicMock, PropertyMock, call, patch
 
 import pytest
 
-# ---------------------------------------------------------------------------
-# Mock out heavy dependencies before importing modules under test
-# ---------------------------------------------------------------------------
-_mock_logger = MagicMock()
-_mock_lvp_logger = MagicMock()
-_mock_lvp_logger.logger = _mock_logger
-
-sys.modules.setdefault('userpaths', MagicMock())
-sys.modules.setdefault('lvp_logger', _mock_lvp_logger)
-sys.modules.setdefault('requests', MagicMock())
-sys.modules.setdefault('requests.structures', MagicMock())
-sys.modules.setdefault('psutil', MagicMock())
+# Heavy deps are mocked by tests/conftest.py at module-import time.
 
 import modules.config_helpers as config_helpers
 import modules.scope_commands as scope_commands

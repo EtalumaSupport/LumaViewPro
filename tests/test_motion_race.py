@@ -35,22 +35,12 @@ race. The fix resolves both #618 and the latent AF issue.
 
 import ast
 import pathlib
-import sys
 import threading
 from unittest.mock import MagicMock
 
 import pytest
 
-# Mock heavy deps before importing
-sys.modules.setdefault('userpaths', MagicMock())
-sys.modules.setdefault('requests', MagicMock())
-sys.modules.setdefault('requests.structures', MagicMock())
-_mock_lvp_logger = MagicMock()
-_mock_lvp_logger.logger = MagicMock()
-_mock_lvp_logger.is_thread_paused = MagicMock(return_value=False)
-_mock_lvp_logger.unpause_thread = MagicMock()
-_mock_lvp_logger.pause_thread = MagicMock()
-sys.modules.setdefault('lvp_logger', _mock_lvp_logger)
+# Heavy deps are mocked by tests/conftest.py at module-import time.
 
 
 REPO = pathlib.Path(__file__).parent.parent

@@ -11,37 +11,13 @@ Tests the fixes in ledboard.py and motorboard.py for:
 """
 
 import pytest
-import sys
 import threading
 import time
 from unittest.mock import MagicMock, patch, PropertyMock
 import serial
 
-# ---------------------------------------------------------------------------
-# Mock out heavy dependencies that aren't installed in test environment
-# ---------------------------------------------------------------------------
-# lvp_logger depends on userpaths; motorboard depends on requests
-# We mock these before importing ledboard/motorboard
+# Heavy deps are mocked by tests/conftest.py at module-import time.
 
-_mock_logger = MagicMock()
-_mock_logger.info = MagicMock()
-_mock_logger.debug = MagicMock()
-_mock_logger.error = MagicMock()
-_mock_logger.warning = MagicMock()
-_mock_logger.critical = MagicMock()
-
-_mock_lvp_logger = MagicMock()
-_mock_lvp_logger.logger = _mock_logger
-_mock_lvp_logger.is_thread_paused = MagicMock(return_value=False)
-_mock_lvp_logger.unpause_thread = MagicMock()
-_mock_lvp_logger.pause_thread = MagicMock()
-
-sys.modules.setdefault('userpaths', MagicMock())
-sys.modules.setdefault('lvp_logger', _mock_lvp_logger)
-sys.modules.setdefault('requests', MagicMock())
-sys.modules.setdefault('requests.structures', MagicMock())
-
-# Now safe to import
 import pathlib
 from drivers.ledboard import LEDBoard
 from drivers.motorboard import MotorBoard

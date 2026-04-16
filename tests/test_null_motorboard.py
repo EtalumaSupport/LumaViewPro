@@ -1,16 +1,10 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """Tests for NullMotionBoard — verifies interface compliance and no-op behavior."""
 
-import sys
 import threading
 from unittest.mock import MagicMock
 
-# Mock heavy deps
-sys.modules.setdefault('userpaths', MagicMock())
-_mock_lvp_logger = MagicMock()
-_mock_lvp_logger.logger = MagicMock()
-_mock_lvp_logger.is_thread_paused = MagicMock(return_value=False)
-sys.modules.setdefault('lvp_logger', _mock_lvp_logger)
+# Heavy deps are mocked by tests/conftest.py at module-import time.
 
 import pytest
 from drivers.null_motorboard import NullMotionBoard

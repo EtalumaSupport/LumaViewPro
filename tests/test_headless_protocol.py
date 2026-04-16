@@ -26,29 +26,10 @@ import numpy as np
 import pytest
 
 
-# ---------------------------------------------------------------------------
-# Mock non-GUI heavy dependencies (but NOT Kivy — we want to see if it loads)
-# ---------------------------------------------------------------------------
-_mock_logger = MagicMock()
-_mock_lvp_logger = MagicMock()
-_mock_lvp_logger.logger = _mock_logger
-_mock_lvp_logger.is_thread_paused = MagicMock(return_value=False)
-_mock_lvp_logger.unpause_thread = MagicMock()
-_mock_lvp_logger.pause_thread = MagicMock()
-
-sys.modules.setdefault('userpaths', MagicMock())
-sys.modules.setdefault('lvp_logger', _mock_lvp_logger)
-sys.modules.setdefault('requests', MagicMock())
-sys.modules.setdefault('requests.structures', MagicMock())
-sys.modules.setdefault('psutil', MagicMock())
-
-sys.modules.setdefault('pypylon', MagicMock())
-sys.modules.setdefault('pypylon.pylon', MagicMock())
-sys.modules.setdefault('pypylon.genicam', MagicMock())
-sys.modules.setdefault('ids_peak', MagicMock())
-sys.modules.setdefault('ids_peak.ids_peak', MagicMock())
-sys.modules.setdefault('ids_peak.ids_peak_ipl_extension', MagicMock())
-sys.modules.setdefault('ids_peak_ipl', MagicMock())
+# Heavy non-GUI deps (lvp_logger, pypylon, ids_peak, ...) are mocked by
+# tests/conftest.py at module-import time. The kivy mock from conftest
+# gets purged below — this test deliberately verifies the protocol chain
+# loads without any kivy module present.
 
 _mock_settings_init = MagicMock()
 _mock_settings_init.settings = {

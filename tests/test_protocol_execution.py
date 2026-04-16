@@ -20,32 +20,8 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pytest
 
-# ---------------------------------------------------------------------------
-# Mock out heavy dependencies before importing modules under test
-# ---------------------------------------------------------------------------
-_mock_logger = MagicMock()
-_mock_lvp_logger = MagicMock()
-_mock_lvp_logger.logger = _mock_logger
-_mock_lvp_logger.is_thread_paused = MagicMock(return_value=False)
-_mock_lvp_logger.unpause_thread = MagicMock()
-_mock_lvp_logger.pause_thread = MagicMock()
-
-sys.modules.setdefault('userpaths', MagicMock())
-sys.modules.setdefault('lvp_logger', _mock_lvp_logger)
-sys.modules.setdefault('requests', MagicMock())
-sys.modules.setdefault('requests.structures', MagicMock())
-sys.modules.setdefault('psutil', MagicMock())
-sys.modules.setdefault('kivy', MagicMock())
-sys.modules.setdefault('kivy.clock', MagicMock())
-
-# Mock camera hardware SDKs that aren't installed in the test environment
-sys.modules.setdefault('pypylon', MagicMock())
-sys.modules.setdefault('pypylon.pylon', MagicMock())
-sys.modules.setdefault('pypylon.genicam', MagicMock())
-sys.modules.setdefault('ids_peak', MagicMock())
-sys.modules.setdefault('ids_peak.ids_peak', MagicMock())
-sys.modules.setdefault('ids_peak.ids_peak_ipl_extension', MagicMock())
-sys.modules.setdefault('ids_peak_ipl', MagicMock())
+# Heavy deps (lvp_logger, kivy, pypylon, ids_peak, ...) are mocked by
+# tests/conftest.py at module-import time. Test-specific mocks below.
 
 # Mock settings_init before sequenced_capture_executor imports it
 _mock_settings_init = MagicMock()

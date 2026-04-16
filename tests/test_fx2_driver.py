@@ -25,30 +25,19 @@ without pyusb installed.
 from __future__ import annotations
 
 import json
-import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-# Install shared mock deps BEFORE importing the driver module — the
-# driver's `from lvp_logger import logger` would otherwise fail.
-from tests.conftest import install_mock_deps
-install_mock_deps()
+# Heavy deps (lvp_logger, kivy, usb, usb1, ...) are mocked by
+# tests/conftest.py at module-import time. The _FX2Connection.get()
+# monkeypatch in fixtures below ensures tests never touch real USB.
 
-# pyusb / libusb1 need their own mocks; conftest doesn't install them.
-# Use setdefault so if a dev machine DOES have pyusb installed, the
-# real import wins (but the tests still work via the _FX2Connection
-# mock, since they never actually call pyusb).
-sys.modules.setdefault('usb', MagicMock())
-sys.modules.setdefault('usb.core', MagicMock())
-sys.modules.setdefault('usb.util', MagicMock())
-sys.modules.setdefault('usb1', MagicMock())
+import pytest
 
-import pytest  # noqa: E402
-
-from drivers import fx2driver  # noqa: E402
-from drivers.registry import camera_registry, led_registry  # noqa: E402
-from drivers.protocols import LEDBoardProtocol  # noqa: E402
-from drivers.camera_profiles import lookup_profile  # noqa: E402
+from drivers import fx2driver
+from drivers.registry import camera_registry, led_registry
+from drivers.protocols import LEDBoardProtocol
+from drivers.camera_profiles import lookup_profile
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent

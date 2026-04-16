@@ -1,17 +1,11 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """Tests for the centralized notification system."""
 
-import sys
 import threading
 import time
 from unittest.mock import MagicMock
 
-# Mock heavy deps before importing
-sys.modules.setdefault('userpaths', MagicMock())
-_mock_lvp_logger = MagicMock()
-_mock_lvp_logger.logger = MagicMock()
-_mock_lvp_logger.is_thread_paused = MagicMock(return_value=False)
-sys.modules.setdefault('lvp_logger', _mock_lvp_logger)
+# Heavy deps are mocked by tests/conftest.py at module-import time.
 
 from modules.notification_center import NotificationCenter, Severity, Notification
 

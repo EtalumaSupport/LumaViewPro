@@ -20,24 +20,7 @@ import threading
 import statistics
 from unittest.mock import MagicMock
 
-# Mock heavy dependencies
-_mock_logger = MagicMock()
-_mock_logger.info = MagicMock()
-_mock_logger.debug = MagicMock()
-_mock_logger.error = MagicMock()
-_mock_logger.warning = MagicMock()
-_mock_logger.critical = MagicMock()
-
-_mock_lvp_logger = MagicMock()
-_mock_lvp_logger.logger = _mock_logger
-_mock_lvp_logger.is_thread_paused = MagicMock(return_value=False)
-_mock_lvp_logger.unpause_thread = MagicMock()
-_mock_lvp_logger.pause_thread = MagicMock()
-
-sys.modules.setdefault('userpaths', MagicMock())
-sys.modules.setdefault('lvp_logger', _mock_lvp_logger)
-sys.modules.setdefault('requests', MagicMock())
-sys.modules.setdefault('requests.structures', MagicMock())
+# Heavy deps are mocked by tests/conftest.py at module-import time.
 
 
 hardware = pytest.mark.skipif(
