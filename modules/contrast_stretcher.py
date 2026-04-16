@@ -1,5 +1,7 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 
+from collections import deque
+
 import numpy as np
 
 class ContrastStretcher:
@@ -14,9 +16,14 @@ class ContrastStretcher:
         self._bottom_pct = bottom_pct
         self._top_pct = top_pct
 
+        # deque(maxlen=window_len) is O(1) for both append and the
+        # implicit drop of the oldest entry once the window is full.
+        # Pre-deque code used a list with .pop(0), which is O(n) — fine
+        # at window_len=3 today, but this future-proofs against larger
+        # window sizes without changing semantics.
         self._data = {
-            'min': [0],
-            'range': [255],
+            'min': deque([0], maxlen=window_len),
+            'range': deque([255], maxlen=window_len),
         }
 
         self._lut = np.arange(256, dtype=np.uint8)
@@ -33,10 +40,6 @@ class ContrastStretcher:
 
         self._data['min'].append(min_val)
         self._data['range'].append(range_diff)
-
-        if len(self._data['min']) > self._window_len:
-            self._data['min'].pop(0)
-            self._data['range'].pop(0)
 
         min_val_avg = np.average(self._data['min'])
         range_val_avg = np.average(self._data['range'])
