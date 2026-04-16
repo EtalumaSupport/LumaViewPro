@@ -80,7 +80,7 @@
             "Fluorescence": true,
             "Darkfield": false,
             "Brightfield": true,
-            "PhaseContrast": true
+            "PhaseContrast": false
         }
     },
     "LS560": {
@@ -92,7 +92,7 @@
             "Fluorescence": true,
             "Darkfield": false,
             "Brightfield": true,
-            "PhaseContrast": true
+            "PhaseContrast": false
         }
     }
 }
