@@ -93,6 +93,17 @@ class PylonCamera(Camera):
     def start_grabbing(self):
         camera = self.active
         try:
+            # Cap the DMA buffer ring to 3. Pylon's default (10-25,
+            # depending on SDK version) pins ~16 MB per buffer of Windows
+            # kernel nonpaged pool at full-resolution Mono12, matching
+            # the observed ~228 MB startup spike that never releases.
+            # LatestImageOnly discards old frames anyway, so 3 buffers
+            # is plenty — two active + one rotating.
+            try:
+                camera.MaxNumBuffer.SetValue(3)
+            except Exception as e:
+                logger.warning(
+                    f'[CAM Class ] MaxNumBuffer cap failed: {e}')
             camera.StartGrabbing(
                 pylon.GrabStrategy_LatestImageOnly,
                 pylon.GrabLoop_ProvidedByInstantCamera
