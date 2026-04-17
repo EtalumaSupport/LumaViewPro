@@ -639,6 +639,14 @@ class LumaViewProApp(TooltipMixin, App):
                 pass
         logger.info(f'[LVP Main  ] Git: {_git_hash or "unknown"}')
         logger.info('[LVP Main  ] Run Time: ' + time.strftime("%Y %m %d %H:%M:%S"))
+        # Camera SDK versions — logged at startup so support logs carry
+        # them even when no camera is connected / the connect fails.
+        try:
+            from pypylon import pylon as _pylon
+            logger.info(
+                f'[LVP Main  ] Pylon SDK: {_pylon.GetPylonVersion()}')
+        except Exception as e:
+            logger.info(f'[LVP Main  ] Pylon SDK: unavailable ({e})')
         logger.info('[LVP Main  ] -----------------------------------------')
 
         self._lvp_lock = lvp_lock.LvpLock(lock_port=get_lvp_lock_port(source_path))

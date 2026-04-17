@@ -166,7 +166,15 @@ class PylonCamera(Camera):
 
                 try:
                     nm = camera.GetNodeMap()
-                    
+
+                    try:
+                        logger.info(
+                            f'[CAM Class ] Pylon SDK version: '
+                            f'{pylon.GetPylonVersion()}')
+                    except Exception as e:
+                        logger.warning(
+                            f'[CAM Class ] Could not read Pylon SDK version: {e}')
+
                     device_serial = nm.GetNode("DeviceSerialNumber").ToString()
                     logger.info(f'[CAM Class ] Camera Serial Number: {device_serial}')
 
