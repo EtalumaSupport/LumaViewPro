@@ -11,6 +11,7 @@ datas = [
     ('drivers', 'drivers'),
     ('docs/licenses', 'docs/licenses'),
     ('docs/LICENSE', 'docs'),
+    ('docs/THIRD_PARTY_NOTICES.md', 'docs'),
     ('version.txt', '.'),
     ('lvp_logger.py', '.'),
 ]

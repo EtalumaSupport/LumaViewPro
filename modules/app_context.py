@@ -1,4 +1,4 @@
-# Copyright Etaluma, Inc.
+# Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 import copy
 import threading
 from dataclasses import dataclass, field

@@ -1,0 +1,53 @@
+BSD 3-Clause "New" or "Revised" License (SPDX: BSD-3-Clause)
+
+The following third-party components bundled with LumaViewPro are distributed
+under the BSD 3-Clause License:
+
+  - NumPy (https://numpy.org/)
+  - SciPy (https://scipy.org/)
+  - pandas (https://pandas.pydata.org/)
+  - scikit-image (https://scikit-image.org/)
+  - tifffile (https://github.com/cgohlke/tifffile)
+  - imagecodecs (https://github.com/cgohlke/imagecodecs) — wrapper; bundled C codecs have their own licenses (see docs/licenses/)
+  - pyserial (https://github.com/pyserial/pyserial)
+  - psutil (https://github.com/giampaolo/psutil)
+  - pypylon (https://github.com/basler/pypylon) — Python wrapper only; the Basler Pylon SDK has its own proprietary license
+  - ids-peak (https://pypi.org/project/ids-peak/) — Python wrapper only; the IDS Peak SDK has its own proprietary license
+  - PyAV (https://github.com/PyAV-Org/PyAV) — Python wrapper; the bundled FFmpeg is LGPL-2.1 (see LICENSE.LGPL-2.1.txt)
+  - OpenBLAS (https://www.openblas.net/) — bundled with NumPy/SciPy wheels
+  - zstd (https://github.com/facebook/zstd) — bundled via imagecodecs
+  - OpenJPEG (https://www.openjpeg.org/) — bundled via imagecodecs
+  - c-blosc / c-blosc2 (https://github.com/Blosc/c-blosc) — bundled via imagecodecs
+  - Snappy (https://github.com/google/snappy) — bundled via imagecodecs
+  - JPEG XL / libjxl (https://github.com/libjxl/libjxl) — bundled via imagecodecs (if enabled)
+
+Individual copyright notices for each component are listed in
+docs/THIRD_PARTY_NOTICES.md.
+
+---
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+1. Redistributions of source code must retain the above copyright notice,
+   this list of conditions and the following disclaimer.
+
+2. Redistributions in binary form must reproduce the above copyright notice,
+   this list of conditions and the following disclaimer in the documentation
+   and/or other materials provided with the distribution.
+
+3. Neither the name of the copyright holder nor the names of its
+   contributors may be used to endorse or promote products derived from
+   this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE
+LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+POSSIBILITY OF SUCH DAMAGE.

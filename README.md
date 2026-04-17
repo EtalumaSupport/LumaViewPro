@@ -247,6 +247,11 @@ pip install -r requirements.txt
 
 ## License
 
-Copyright 2022-2026, Etaluma, Inc. MIT License. See [docs/LICENSE](docs/LICENSE) for details.
+Copyright 2023-2026, Etaluma, Inc. MIT License. See [docs/LICENSE](docs/LICENSE) for details.
 
-**Third-party dependencies:** LumaViewPro uses camera SDKs (Basler Pylon, IDS Peak) that have their own proprietary licenses and must be installed separately. The LGPL-licensed JPype1/pyimagej packages are optional (ImageJ integration only). All other dependencies are MIT/BSD/Apache-2.0 compatible.
+**Third-party dependencies:** LumaViewPro bundles and uses software under several licenses. Full per-library attribution, license texts, and upstream source pointers are in [docs/THIRD_PARTY_NOTICES.md](docs/THIRD_PARTY_NOTICES.md). Summary:
+
+- **Permissive (MIT / BSD / Apache-2.0):** Kivy, NumPy, SciPy, pandas, scikit-image, OpenCV, Matplotlib, xarray, tifffile, imagecodecs, pyserial, psutil, numba, and the ImageJ-integration packages (JPype1, pyimagej, scyjava, jgo) — all compatible with LVP's MIT license.
+- **LGPL-2.1 (FFmpeg via PyAV):** The video I/O path links dynamically against FFmpeg's LGPL-licensed shared libraries, which are bundled alongside the application. FFmpeg source is available at https://ffmpeg.org/download.html and the LGPL-2.1 text is at `docs/licenses/LICENSE.LGPL-2.1.txt`.
+- **Proprietary camera SDKs (Basler Pylon, IDS Peak):** Separately installed by the user or chained via the Windows installer; each surfaces its own EULA during install. The `pypylon` and `ids-peak` Python wrappers are BSD-3.
+- **Optional ImageJ runtime (Amazon Corretto JDK, Apache Maven):** Corretto is OpenJDK under GPLv2 with the Classpath Exception; Maven is Apache-2.0. Both are bundled only when the Windows Bundle installer is used.
