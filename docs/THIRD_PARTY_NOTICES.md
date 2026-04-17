@@ -5,7 +5,7 @@ LumaViewPro is distributed under the MIT License (see `docs/LICENSE`). It bundle
 This NOTICE file is maintained by Etaluma, Inc. in accordance with Apache-2.0 §4(d) and comparable attribution requirements from BSD, LGPL, and GPL-with-Classpath-Exception licenses that apply to bundled components.
 
 **Last updated**: 2026-04-17 (for LumaViewPro 4.0.0-beta)
-**How to regenerate**: On the Windows build machine, after `pip install -r requirements.txt`, run `pip-licenses --with-license-file --with-notice-file --format=markdown` to produce an authoritative per-wheel listing and reconcile with this file.
+**Regenerating**: If dependencies materially change, re-run `pip-licenses --with-license-file --with-notice-file --format=markdown` on the build venv after `pip install -r requirements.txt` and reconcile against this file. For 4.0.0-beta, this file was authored from the declared `requirements.txt` + PyInstaller spec and each declared dep's documented upstream license.
 
 ---
 
@@ -64,7 +64,7 @@ These ship inside the application folder after PyInstaller builds the Windows in
 
 | Binary | License | Upstream | How it's bundled |
 |---|---|---|---|
-| FFmpeg shared libraries (`avcodec`, `avformat`, `avutil`, `swscale`, `swresample`) | LGPL-2.1-or-later | https://ffmpeg.org/download.html | Dynamically linked from PyAV; DLLs live in the application's `av.libs/` folder (or equivalent) and are user-replaceable per LGPL §6. |
+| FFmpeg shared libraries (`avcodec`, `avformat`, `avutil`, `swscale`, `swresample`) | LGPL-2.1-or-later | https://ffmpeg.org/download.html | Dynamically linked from PyAV. LumaViewPro ships PyAV's stock PyPI wheels, whose FFmpeg binaries are built LGPL-only (no `--enable-gpl` components) per PyAV's upstream wheel build configuration. DLLs live in the application's `av.libs/` folder (or equivalent) and are user-replaceable per LGPL §6. |
 | SDL2 + SDL2_image / SDL2_mixer / SDL2_ttf | zlib license | https://www.libsdl.org/ | Bundled via `kivy_deps.sdl2` and included in the PyInstaller `.spec` via `Tree(sdl2.dep_bins)`. See `docs/licenses/LICENSE.*.txt` for each sub-component. |
 | GLEW | Modified BSD / MIT | http://glew.sourceforge.net/ | Bundled via `kivy_deps.glew`. |
 | OpenBLAS | BSD-3-Clause | https://www.openblas.net/ | Bundled inside NumPy/SciPy wheels. |
