@@ -1,18 +1,89 @@
 {
   "camera_model": "daA3840-45um",
-  "measured_date": "2026-03-20",
+  "measured_date": "2026-04-15",
   "skip_frames": {
     "led": 2,
     "gain": 2,
     "exposure": 3
   },
   "frame_intervals_ms": {
-    "1": 23.7,
-    "5": 23.7,
-    "10": 24.2,
-    "20": 23.2,
+    "1": 23.17,
+    "5": 23.72,
+    "10": 24.79,
+    "20": 23.17,
     "50": 50.1,
-    "100": 100.2,
-    "200": 200.4
+    "100": 101.31,
+    "200": 200.97
+  },
+  "af_z_move_drain_needed": false,
+  "af_min_drain_frames": 0,
+  "af_focus_score_noise_pct": 0.08,
+  "af_min_useful_exposure_ms": 50,
+  "af_max_useful_exposure_ms": 100,
+  "af_optimal_exposure_ms": 50,
+  "af_saturation_exposure_ms": 5,
+  "af_z_hysteresis_detected": false,
+  "af_min_roi_fraction": 0.25,
+  "af_binning_viable": true,
+  "led_warmup_drift_pct": {
+    "BF": 0.04
+  },
+  "dark_noise_stddev": {
+    "0dB": 0.02,
+    "5dB": 0.34,
+    "10dB": 0.6,
+    "15dB": 1.18,
+    "20dB": 2.2
+  },
+  "channel_crosstalk_detected": false,
+  "max_unsaturated_gain_dB": 10,
+  "max_unsaturated_exposure_ms": 100,
+  "z_settle_summary": {
+    "1": {
+      "focus_95_ms": 62.0,
+      "motor_arrived_ms": 62.0,
+      "savings_ms": 0
+    },
+    "5": {
+      "focus_95_ms": 109.0,
+      "motor_arrived_ms": 109.0,
+      "savings_ms": 0
+    },
+    "20": {
+      "focus_95_ms": 141.0,
+      "motor_arrived_ms": 141.0,
+      "savings_ms": 0
+    },
+    "100": {
+      "focus_95_ms": 156.0,
+      "motor_arrived_ms": 218.0,
+      "savings_ms": 62.0
+    },
+    "500": {
+      "focus_95_ms": 141.0,
+      "motor_arrived_ms": 484.0,
+      "savings_ms": 343.0
+    }
+  },
+  "af_focus_curve_fwhm_um": 94.303,
+  "af_focus_curve_dynamic_range": 0.37,
+  "af_focus_curve_symmetry": 1.0,
+  "z_backlash_um": 0.0,
+  "z_backlash_with_overshoot_um": 0.0,
+  "af_repeatability_std_um": 0.317,
+  "af_repeatability_max_spread_um": 0.943,
+  "af_repeatability_success_rate": 0.0,
+  "af_repeatability_mean_time_s": 5.3,
+  "af_measured_dof_um": 22.1,
+  "af_recommended_fine_step_um": 6.38,
+  "af_recommended_coarse_step_um": 0.42,
+  "af_recommended_range_um": 44.2,
+  "af_sensitivity_per_um": 147630.09,
+  "af_min_detectable_step_um": 6.38,
+  "af_gaussian_fit_shift_um": 0.256,
+  "af_current_params": {
+    "AF_min": 8.0,
+    "AF_max": 36.0,
+    "AF_range": 75.0
   }
 }
