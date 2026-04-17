@@ -639,14 +639,50 @@ class LumaViewProApp(TooltipMixin, App):
                 pass
         logger.info(f'[LVP Main  ] Git: {_git_hash or "unknown"}')
         logger.info('[LVP Main  ] Run Time: ' + time.strftime("%Y %m %d %H:%M:%S"))
-        # Camera SDK versions — logged at startup so support logs carry
-        # them even when no camera is connected / the connect fails.
+
+        # Host + OS + Python + key library versions. Logged every launch
+        # so support bundles always identify the exact environment that
+        # produced the log, without needing the tech-support-report
+        # bundle. Keep each line short; split to one fact per line for
+        # easy grep.
+        try:
+            import platform as _platform
+            logger.info(f'[LVP Main  ] Host: {_platform.node()}')
+            logger.info(f'[LVP Main  ] OS: {_platform.platform()}')
+        except Exception as e:
+            logger.info(f'[LVP Main  ] OS: unavailable ({e})')
+        logger.info(
+            f'[LVP Main  ] Python: {sys.version.split()[0]} '
+            f'({sys.executable})')
+        try:
+            import kivy as _kivy
+            logger.info(f'[LVP Main  ] Kivy: {_kivy.__version__}')
+        except Exception as e:
+            logger.info(f'[LVP Main  ] Kivy: unavailable ({e})')
+
+        # Camera SDKs — log both the Python binding version AND the
+        # underlying SDK runtime. Binding/SDK mismatch has bitten us
+        # before. Emit even when no camera is connected so support
+        # logs always carry the versions.
+        try:
+            import importlib.metadata as _imeta
+            _pypylon_binding = _imeta.version('pypylon')
+        except Exception:
+            _pypylon_binding = 'unknown'
         try:
             from pypylon import pylon as _pylon
             logger.info(
-                f'[LVP Main  ] Pylon SDK: {_pylon.GetPylonVersion()}')
+                f'[LVP Main  ] pypylon binding: {_pypylon_binding} / '
+                f'Pylon SDK: {_pylon.GetPylonVersion()}')
         except Exception as e:
             logger.info(f'[LVP Main  ] Pylon SDK: unavailable ({e})')
+        try:
+            import importlib.metadata as _imeta
+            _ids_ver = _imeta.version('ids_peak')
+            logger.info(f'[LVP Main  ] ids_peak: {_ids_ver}')
+        except Exception:
+            logger.info('[LVP Main  ] ids_peak: not installed')
+
         logger.info('[LVP Main  ] -----------------------------------------')
 
         self._lvp_lock = lvp_lock.LvpLock(lock_port=get_lvp_lock_port(source_path))
