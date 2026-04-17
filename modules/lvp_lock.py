@@ -14,7 +14,11 @@ class LvpLock:
         """
         self._lock_port = lock_port
         self._lock_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self._lock_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        # Do NOT set SO_REUSEADDR: on Windows this has SO_REUSEPORT semantics
+        # (allows live double-bind), which defeats the single-instance guard.
+        # Two LVPs would both succeed here, then trample each other's serial
+        # ports. See issue #559. Bind-only sockets release the port immediately
+        # on process exit (no TIME_WAIT concern since we never listen()).
 
 
     def lock(self) -> bool:
