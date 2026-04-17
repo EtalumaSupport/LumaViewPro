@@ -146,13 +146,16 @@
         id: motionsettings_id
         size_hint: None, None
         size: self.settings_width, root.height
-        pos: -self.settings_width+self.tab_width, 0
+        # Open by default — per Eric 2026-04-17. Toggle button state
+        # starts 'down' to match (kept in sync via motion_settings.py).
+        pos: 0, 0
 
     ImageSettings:
         id: imagesettings_id
         size_hint: None, None
         size: self.settings_width, root.height
-        pos: root.width-self.tab_width, 0
+        # Open by default — see MotionSettings note above.
+        pos: root.width-self.settings_width, 0
 
 
     # Camera Controls
@@ -354,6 +357,9 @@
         ToggleButton:
             id: toggle_motionsettings
             size_hint: 1, 1
+            # Start 'down' so the sidebar opens by default and the
+            # arrow icon points inward (closed-state direction).
+            state: 'down'
             background_normal: ''
             background_down: ''
             background_color: 0, 0, 0, 0
@@ -1904,6 +1910,8 @@
         ToggleButton:
             id: toggle_imagesettings
             size_hint: 1, 1
+            # Start 'down' so the sidebar opens by default.
+            state: 'down'
             background_normal: ''
             background_down: ''
             background_color: 0, 0, 0, 0
