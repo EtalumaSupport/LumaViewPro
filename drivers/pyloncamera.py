@@ -462,24 +462,42 @@ class PylonCamera(Camera):
 
     def grab_new_capture(self, timeout: float):
         """
-        Blocks for timeout waiting for new frame. Saves from to self.array when received
-        returns bool, ts
+        Drain any already-queued frames, then block up to `timeout`
+        waiting for a genuinely new one. Saves the array into
+        self.array when received. Returns (bool, ts).
+
+        Previously dropped only one queued frame, which meant
+        "force_new_capture" could still return a stale frame if the
+        consumer had fallen behind — queue held backlog, we'd pop the
+        oldest, then take the next-oldest. For AF / characterization
+        timing measurements we want the freshest frame possible, so
+        drain everything that's already captured before waiting.
         """
         if not self.cam_image_handler:
             return False, None
-        
+
         try:
-            try:
-                self.cam_image_handler._frame_queue.get_nowait()
-            except queue.Empty:
-                pass
-            result, image, image_ts = self.cam_image_handler._frame_queue.get(block=True, timeout=timeout)
+            # Drain all frames captured before this call — we only want
+            # the next one produced after we started waiting.
+            dropped = 0
+            while True:
+                try:
+                    self.cam_image_handler._frame_queue.get_nowait()
+                    dropped += 1
+                except queue.Empty:
+                    break
+            if dropped > 1:
+                logger.debug(
+                    f'[CAM Class ] grab_new_capture drained {dropped} stale frames')
+
+            result, image, image_ts = self.cam_image_handler._frame_queue.get(
+                block=True, timeout=timeout)
             if result is False:
                 return False, None
-            
+
             self.array = image
             return True, image_ts
-        
+
         except Exception as ex:
             logger.exception(f"Failed to grab image: {ex}")
             return False, None
