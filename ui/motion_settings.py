@@ -31,6 +31,14 @@ class MotionSettings(BoxLayout):
         logger.debug('[LVP Main  ] MotionSettings.__init__()')
         self._accordion_item_xystagecontrol = AccordionItemXyStageControl()
         self._accordion_item_xystagecontrol_visible = False
+        # Objective Control accordion is defined inline in lumaviewpro.kv
+        # (wrapping VerticalControl); its widget ref lives in self.ids and
+        # is resolved lazily on first show/hide. Visible-by-default here
+        # matches the kv starting state; set_objective_control_visibility
+        # hides it for scopes that declare Focus=false (LS560/LS620 — no
+        # motorised Z axis).
+        self._accordion_item_objective_control = None
+        self._accordion_item_objective_control_visible = True
         self._init_ui_retries = 0
         Clock.schedule_once(self._init_ui, 0)
 
@@ -116,6 +124,40 @@ class MotionSettings(BoxLayout):
         if self._accordion_item_xystagecontrol_visible:
             self._accordion_item_xystagecontrol_visible = False
             self.ids['motionsettings_accordion_id'].remove_widget(self._accordion_item_xystagecontrol)
+
+
+    def set_objective_control_visibility(self, visible: bool) -> None:
+        if visible:
+            self._show_objective_control()
+        else:
+            self._hide_objective_control()
+
+
+    def _resolve_objective_accordion(self):
+        """Return the Objective Control accordion widget, resolving from
+        self.ids on first use. `set_ui_features_for_scope()` runs during
+        load_settings; lazy resolution mirrors the PC accordion pattern
+        (LVP a0e2eb3) so the initial hide works before any eager ref
+        would be captured.
+        """
+        if self._accordion_item_objective_control is None:
+            self._accordion_item_objective_control = self.ids.get('objective_control_accordion_id')
+        return self._accordion_item_objective_control
+
+
+    def _show_objective_control(self):
+        widget = self._resolve_objective_accordion()
+        if widget is not None and not self._accordion_item_objective_control_visible:
+            self._accordion_item_objective_control_visible = True
+            self.ids['motionsettings_accordion_id'].add_widget(widget)
+
+
+    def _hide_objective_control(self):
+        widget = self._resolve_objective_accordion()
+        if widget is not None and self._accordion_item_objective_control_visible:
+            widget.collapse = True
+            self._accordion_item_objective_control_visible = False
+            self.ids['motionsettings_accordion_id'].remove_widget(widget)
 
 
     def set_turret_control_visibility(self, visible: bool) -> None:

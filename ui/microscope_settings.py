@@ -805,6 +805,7 @@ class MicroscopeSettings(BoxLayout):
         motion_settings.set_turret_control_visibility(visible=selected_scope_config['Turret'])
         motion_settings.set_xystage_control_visibility(visible=selected_scope_config['XYStage'])
         motion_settings.set_tiling_control_visibility(visible=selected_scope_config['XYStage'])
+        motion_settings.set_objective_control_visibility(visible=selected_scope_config['Focus'])
 
         image_settings = ctx.image_settings
         layers_config = selected_scope_config['Layers']
