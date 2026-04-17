@@ -1821,6 +1821,13 @@ class FX2LEDController:
         between writes).
         """
         i2c_channel = _CH_TO_I2C.get(channel, channel)
+        # TEMP diag: byte-level trace of FX2 LED I2C writes. Bench
+        # investigation of slider > ~150 mA failing to light LED on LS620.
+        # Revert together with the led_on diag below once data collected.
+        logger.info(
+            '[FX2 LED diag] _led_write ch=%d i2c_ch=0x%02X brightness=0x%02X',
+            channel, i2c_channel, brightness,
+        )
         writes = [
             (0xFF, 'preamble'),
             (i2c_channel, 'channel'),
@@ -1868,7 +1875,16 @@ class FX2LEDController:
     def led_on(self, channel: int, mA: int, block: bool = False, timeout: float = 5.0):
         if not self._enabled:
             return
-        self._led_write(channel, self._ma_to_brightness(mA))
+        brightness = self._ma_to_brightness(mA)
+        # TEMP diag: capture mA value + type at driver entry. Investigating
+        # slider > ~150 mA LED-dark report on LS620. Revert with the
+        # _led_write diag above.
+        logger.info(
+            '[FX2 LED diag] led_on ch=%d mA=%r type=%s -> brightness=%d (0x%02X)%s',
+            channel, mA, type(mA).__name__, brightness, brightness,
+            ' PREAMBLE-COLLISION' if brightness == 0xFF else '',
+        )
+        self._led_write(channel, brightness)
 
     def led_off(self, channel: int):
         self._led_write(channel, 0)
