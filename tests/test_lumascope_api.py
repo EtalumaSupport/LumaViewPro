@@ -321,7 +321,12 @@ class TestFrameValidityDuringHoming:
         """LS820: only Z present. home() must invalidate z_move only,
         not xy_move or turret (those sources aren't in motion)."""
         scope = Lumascope(simulate=True)
+        # Mock both paths: 4.1.0-dev delegates scope.axes_present() to
+        # motion.detect_present_axes() (session-13 refactor, LVP 3ac0a52);
+        # 4.0.0-beta returns hardcoded _axis_state keys. Setting both keeps
+        # this test portable across branches.
         scope.motion.detect_present_axes = lambda: ['Z']
+        scope.axes_present = lambda: ['Z']
         captured = {}
 
         def fake_home(*args, **kwargs):
