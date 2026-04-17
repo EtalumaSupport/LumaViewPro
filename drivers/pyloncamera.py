@@ -170,11 +170,42 @@ class PylonCamera(Camera):
                         logger.warning(
                             f'[CAM Class ] Could not read Pylon SDK version: {e}')
 
+                    # Transport + device class identify the kernel
+                    # driver stack Pylon is routing through — useful
+                    # when the runtime SDK says one thing but Device
+                    # Manager shows a stale WinUSB/USB3Vision driver.
+                    try:
+                        logger.info(
+                            f'[CAM Class ] Transport: {dev_info.GetTLType()} '
+                            f'/ DeviceClass: {dev_info.GetDeviceClass()}')
+                    except Exception as e:
+                        logger.debug(
+                            f'[CAM Class ] TLType/DeviceClass unavailable: {e}')
+
                     device_serial = nm.GetNode("DeviceSerialNumber").ToString()
                     logger.info(f'[CAM Class ] Camera Serial Number: {device_serial}')
 
                     firmware = nm.GetNode("DeviceFirmwareVersion").ToString()
                     logger.info(f'[CAM Class ] Camera Firmware Version: {firmware}')
+
+                    # Current pixel format + resolution + binning drive
+                    # the DMA buffer footprint — critical context for
+                    # memory / throughput analysis.
+                    try:
+                        pix = nm.GetNode("PixelFormat").ToString() \
+                            if nm.GetNode("PixelFormat") is not None else '?'
+                        w = camera.Width.GetValue() if hasattr(camera, 'Width') else '?'
+                        h = camera.Height.GetValue() if hasattr(camera, 'Height') else '?'
+                        bh = camera.BinningHorizontal.GetValue() \
+                            if hasattr(camera, 'BinningHorizontal') else 1
+                        bv = camera.BinningVertical.GetValue() \
+                            if hasattr(camera, 'BinningVertical') else 1
+                        logger.info(
+                            f'[CAM Class ] Pixel format: {pix}, '
+                            f'Resolution: {w}x{h}, Binning: {bh}x{bv}')
+                    except Exception as e:
+                        logger.debug(
+                            f'[CAM Class ] Pixel/resolution/binning unavailable: {e}')
 
                     temps = self.get_all_temperatures()
                     for name, temp in temps.items():
