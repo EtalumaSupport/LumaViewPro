@@ -1,4 +1,4 @@
-# Copyright Etaluma, Inc.
+# Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """Compatibility shim — ui_helpers has moved to ui/ui_helpers.py.
 
 This file re-exports everything so existing imports continue to work.

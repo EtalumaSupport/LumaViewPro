@@ -1,4 +1,4 @@
-# Copyright Etaluma, Inc.
+# Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """Minimal dummy class definitions for subprocess/worker compatibility.
 
 When lumaviewpro.py is imported as a module (not run as __main__),
