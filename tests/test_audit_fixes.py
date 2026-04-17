@@ -522,6 +522,31 @@ class TestLvpLock:
         # Socket should be closed — port property still works
         assert isinstance(lock.port, int)
 
+    def test_second_instance_blocked(self):
+        """Regression for #559: two LvpLock instances on the same port must conflict.
+
+        Without this guarantee, a second LumaViewPro launch silently tramples
+        the first's exclusive serial ports on Windows. The bug was an accidental
+        SO_REUSEADDR setsockopt — on Windows that has SO_REUSEPORT semantics
+        and explicitly allows live double-bind.
+        """
+        from modules.lvp_lock import LvpLock
+        import socket
+        # Grab a free port, then release it so we can bind it from LvpLock
+        with socket.socket() as s:
+            s.bind(('127.0.0.1', 0))
+            port = s.getsockname()[1]
+        with LvpLock(lock_port=port) as first:
+            assert first.lock() is True, "first lock should succeed"
+            second = LvpLock(lock_port=port)
+            try:
+                assert second.lock() is False, (
+                    "second lock on same port MUST fail — regression of #559 "
+                    "(SO_REUSEADDR reintroduced?)"
+                )
+            finally:
+                second.close()
+
 
 class TestSerialRateLimiting:
     """Verify serial command rate limiting infrastructure."""
