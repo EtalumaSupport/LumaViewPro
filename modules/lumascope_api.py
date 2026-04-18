@@ -3254,6 +3254,9 @@ class Lumascope():
             return None
         try:
             profile = self.camera.profile
+            exposure_min_us = getattr(profile, 'exposure_min_us', None)
+            exposure_min_ms = (exposure_min_us / 1000.0
+                                 if exposure_min_us is not None else None)
             return {
                 'model': profile.model_name,
                 'sensor': profile.sensor,
@@ -3262,6 +3265,8 @@ class Lumascope():
                 'resolution': profile.native_resolution,
                 'gain_min_db': profile.gain.total_min_db,
                 'gain_max_db': profile.gain.total_max_db,
+                'exposure_min_us': exposure_min_us,
+                'exposure_min_ms': exposure_min_ms,
                 'max_exposure_ms': self.camera_max_exposure,
                 'binning_sizes': profile.binning_sizes,
             }
