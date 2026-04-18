@@ -68,6 +68,20 @@ class NotificationCenter:
         self._listeners: list[tuple[Severity, callable]] = []
         self._dedup: dict[tuple[str, str], float] = {}
         self._dedup_window_s = dedup_window_s
+        # Shutdown suppression flag. When True, notifications still
+        # get LOGGED (so post-mortem diagnostics survive) but no
+        # listeners are invoked — prevents the 30+ error-notification
+        # flood during close that fires when queued IO tasks fail en
+        # masse after the motor/camera disconnects. Issue #622.
+        self._shutting_down = False
+
+    def set_shutting_down(self, value: bool = True) -> None:
+        """Toggle suppression of listener dispatch. Call from on_stop
+        BEFORE disconnecting hardware so teardown-induced task failures
+        don't spam popups/toasts on their way out. Logs still capture
+        everything."""
+        with self._lock:
+            self._shutting_down = bool(value)
 
     # ------------------------------------------------------------------
     # Producer API (any thread)
@@ -85,10 +99,12 @@ class NotificationCenter:
         # Always log at the matching level
         logger.log(int(severity), f"[{category}] {title}: {message}")
 
-        # Dedup check
+        # Dedup check + shutdown suppression
         key = (category, title)
         now = time.monotonic()
         with self._lock:
+            if self._shutting_down:
+                return  # logged above; listeners suppressed during close
             last = self._dedup.get(key, 0.0)
             if (now - last) < self._dedup_window_s:
                 return  # suppressed — already shown recently

@@ -983,6 +983,19 @@ class LumaViewProApp(TooltipMixin, App):
 
         logger.info('[LVP Main  ] LumaViewProApp.on_stop()')
 
+        # Suppress notification-listener dispatch for the rest of
+        # shutdown. Queued IO tasks fail one-by-one as hardware
+        # disconnects; without suppression the user sees a flood of
+        # 30+ error toasts on close (issue #622). Log messages still
+        # fire so post-mortem diagnostics remain intact.
+        try:
+            from modules.notification_center import notifications
+            notifications.set_shutting_down(True)
+        except Exception as e:
+            logger.warning(
+                f'[LVP Main  ] Failed to suppress notifications on '
+                f'shutdown: {e}')
+
         # Unschedule all recurring interval callbacks to prevent orphaned events
         try:
             Clock.unschedule(stage.draw_labware)

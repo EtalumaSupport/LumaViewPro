@@ -159,3 +159,39 @@ class TestNotificationCenter:
         nc.critical("A", "C", "m")
         severities = [n.severity for n in received]
         assert severities == [Severity.DEBUG, Severity.INFO, Severity.WARNING, Severity.ERROR, Severity.CRITICAL]
+
+
+class TestShutdownSuppression:
+    """Issue #622: during on_stop, queued IO tasks fail en masse as
+    hardware disconnects. The 30+ error notifications spam the user
+    on close. set_shutting_down(True) should silence listener dispatch
+    while still writing to the log."""
+
+    def test_shutting_down_blocks_listeners(self):
+        nc = NotificationCenter()
+        received = []
+        nc.add_listener(lambda n: received.append(n))
+        nc.set_shutting_down(True)
+        nc.error("Task", "IO Task Failed", "tmove failed")
+        nc.error("Task", "IO Task Failed", "get_xy_targets failed")
+        assert received == []
+
+    def test_shutting_down_still_logs(self, caplog):
+        nc = NotificationCenter()
+        nc.set_shutting_down(True)
+        with caplog.at_level('ERROR'):
+            nc.error("Task", "IO Task Failed", "tmove failed")
+        # Message landed in the log even though listeners didn't fire.
+        assert any('IO Task Failed' in rec.message
+                    for rec in caplog.records)
+
+    def test_reenable_restores_listeners(self):
+        nc = NotificationCenter()
+        received = []
+        nc.add_listener(lambda n: received.append(n))
+        nc.set_shutting_down(True)
+        nc.error("X", "Y", "z")
+        assert received == []
+        nc.set_shutting_down(False)
+        nc.error("X", "Y", "z")
+        assert len(received) == 1
