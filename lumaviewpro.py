@@ -664,9 +664,19 @@ class LumaViewProApp(TooltipMixin, App):
             _pypylon_binding = 'unknown'
         try:
             from pypylon import pylon as _pylon
+            # Prefer the dotted string (e.g. "10.2.1.0471") over the raw
+            # list form GetPylonVersion() returns — the list renders as
+            # `[10, 2, 1, 471]` in logs, which looks like a bug report
+            # waiting to happen. Fall back to a composed string if the
+            # helper isn't available on an older pypylon.
+            try:
+                _pylon_ver = _pylon.GetPylonVersionString()
+            except Exception:
+                _v = _pylon.GetPylonVersion()
+                _pylon_ver = '.'.join(str(x) for x in _v)
             logger.info(
                 f'[LVP Main  ] pypylon binding: {_pypylon_binding} / '
-                f'Pylon SDK: {_pylon.GetPylonVersion()}')
+                f'Pylon SDK: {_pylon_ver}')
         except Exception as e:
             logger.info(f'[LVP Main  ] Pylon SDK: unavailable ({e})')
         try:

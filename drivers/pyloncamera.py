@@ -163,9 +163,17 @@ class PylonCamera(Camera):
                     nm = camera.GetNodeMap()
 
                     try:
+                        # Prefer dotted-string form (GetPylonVersionString)
+                        # over the raw list GetPylonVersion returns —
+                        # see lumaviewpro.py for the same rationale.
+                        try:
+                            _ver_str = pylon.GetPylonVersionString()
+                        except Exception:
+                            _v = pylon.GetPylonVersion()
+                            _ver_str = '.'.join(str(x) for x in _v)
                         logger.info(
                             f'[CAM Class ] Pylon SDK version: '
-                            f'{pylon.GetPylonVersion()}')
+                            f'{_ver_str}')
                     except Exception as e:
                         logger.warning(
                             f'[CAM Class ] Could not read Pylon SDK version: {e}')
