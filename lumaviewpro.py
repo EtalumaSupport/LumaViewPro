@@ -683,6 +683,28 @@ class LumaViewProApp(TooltipMixin, App):
             error_msg = "Another instance of LVP may already be running. Exiting."
             logger.error(f'[LVP Lock ] {error_msg}')
             print(f"ERROR: {error_msg}", file=sys.stderr)
+            # Pop a modal native dialog BEFORE sys.exit so the user
+            # sees why this copy refused to start. Kivy's main loop
+            # isn't running yet at this point (still inside build()),
+            # so we use tkinter for a minimal pre-Kivy alert path
+            # that's already bundled with Python. Silently skip if
+            # tkinter is unavailable — the exit still happens.
+            try:
+                import tkinter
+                from tkinter import messagebox
+                _root = tkinter.Tk()
+                _root.withdraw()
+                messagebox.showerror(
+                    'LumaViewPro — already running',
+                    'Another copy of LumaViewPro is already running.\n\n'
+                    'This copy will now close. Switch to the existing '
+                    'window, or close the other instance first before '
+                    'launching again.')
+                _root.destroy()
+            except Exception as popup_err:
+                logger.warning(
+                    f'[LVP Lock ] Could not display already-running '
+                    f'popup: {popup_err}')
             sys.exit(1)
         
         global Window
