@@ -49,6 +49,7 @@ _api_log = _logging.getLogger('LVP.api')
 import modules.autofocus_functions as autofocus_functions
 import modules.common_utils as common_utils
 import modules.coord_transformations as coord_transformations
+from modules import profile_trace
 import modules.objectives_loader as objectives_loader
 import modules.image_utils as image_utils
 from modules.sequential_io_executor import SequentialIOExecutor, IOTask
@@ -435,19 +436,24 @@ class Lumascope():
                     break
 
                 # Query firmware for each MOVING axis
-                for ax in moving_axes:
-                    if self._motion_monitor_stop.is_set():
-                        break
-                    try:
-                        if self.motion.is_connected() and self.get_target_status(ax):
-                            # Axis has arrived — transition to IDLE
-                            self._set_axis_state(ax, AxisState.IDLE)
-                        else:
-                            # Still moving — fire position listener so UI
-                            # updates crosshair during motion (fixes #601)
-                            self._fire_position_listeners(ax)
-                    except Exception as e:
-                        logger.warning(f'[SCOPE API ] Motion monitor: target_status({ax}) failed: {e}')
+                with profile_trace.timer(
+                    "motion_trace.csv",
+                    "ts_ms,duration_ms,event,axis,detail",
+                    lambda: ["poll", ",".join(moving_axes), ""],
+                ):
+                    for ax in moving_axes:
+                        if self._motion_monitor_stop.is_set():
+                            break
+                        try:
+                            if self.motion.is_connected() and self.get_target_status(ax):
+                                # Axis has arrived — transition to IDLE
+                                self._set_axis_state(ax, AxisState.IDLE)
+                            else:
+                                # Still moving — fire position listener so UI
+                                # updates crosshair during motion (fixes #601)
+                                self._fire_position_listeners(ax)
+                        except Exception as e:
+                            logger.warning(f'[SCOPE API ] Motion monitor: target_status({ax}) failed: {e}')
 
                 time.sleep(self._MOTION_POLL_INTERVAL)
 
@@ -928,7 +934,14 @@ class Lumascope():
         if axis not in self._arrival_events:
             return
         with self._axis_state_lock:
+            old_state = self._axis_state.get(axis, AxisState.UNKNOWN)
             self._axis_state[axis] = state
+        if profile_trace.ENABLE_PROFILE_TRACE and old_state != state:
+            profile_trace.trace(
+                "motion_trace.csv",
+                "ts_ms,duration_ms,event,axis,detail",
+                [int(time.time() * 1000), 0, "transition", axis, f"{old_state}->{state}"],
+            )
 
         if state in (AxisState.MOVING, AxisState.HOMING):
             # Clear arrival event — axis is now in motion

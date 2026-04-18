@@ -30,6 +30,12 @@ defocused frame still produces a valid focus score:
 """
 
 import threading
+import time
+
+try:
+    from modules import profile_trace
+except ImportError:
+    profile_trace = None
 
 
 class FrameValidity:
@@ -88,6 +94,13 @@ class FrameValidity:
         skip = self.SKIP_FRAMES.get(source, self.DEFAULT_SKIP_FRAMES)
         with self._lock:
             self._pending[source] = self._frame_counter + skip
+            counter = self._frame_counter
+        if profile_trace is not None and profile_trace.ENABLE_PROFILE_TRACE:
+            profile_trace.trace(
+                "frame_validity_trace.csv",
+                "ts_ms,event,source,frame_counter,target_frame,pending_count",
+                [int(time.time() * 1000), "invalidate", source, counter, counter + skip, len(self._pending)],
+            )
 
     def count_frame(self):
         """Record that a frame was grabbed from the camera.
@@ -102,6 +115,14 @@ class FrameValidity:
                        if self._is_source_settled_unlocked(s, target)]
             for s in settled:
                 del self._pending[s]
+            counter = self._frame_counter
+            pending = len(self._pending)
+        if profile_trace is not None and profile_trace.ENABLE_PROFILE_TRACE and settled:
+            profile_trace.trace(
+                "frame_validity_trace.csv",
+                "ts_ms,event,source,frame_counter,target_frame,pending_count",
+                [int(time.time() * 1000), "settled", "+".join(settled), counter, counter, pending],
+            )
 
     def _is_source_settled_unlocked(self, source: str, target: int) -> bool:
         """Check if a source has settled. Must be called with _lock held."""

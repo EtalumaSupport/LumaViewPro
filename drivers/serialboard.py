@@ -28,6 +28,11 @@ from drivers.raw_repl import (
     verify_firmware_running as _verify_firmware_running,
 )
 
+try:
+    from modules import profile_trace
+except ImportError:
+    profile_trace = None
+
 
 class ProtocolVersion(Enum):
     LEGACY = "legacy"  # All pre-v3.0 firmware (including v2.0 dev builds)
@@ -680,6 +685,17 @@ class SerialBoard:
     # ------------------------------------------------------------------
     def exchange_command(self, command, response_numlines=1, timeout=None,
                          stop_on_empty=False):
+        if profile_trace is not None and profile_trace.ENABLE_PROFILE_TRACE:
+            with profile_trace.timer(
+                "serial_trace.csv",
+                "ts_ms,duration_ms,board,command,response_lines",
+                lambda: [self._label.strip("[] "), command.strip().replace(",", ";")[:40], response_numlines],
+            ):
+                return self._exchange_command_impl(command, response_numlines, timeout, stop_on_empty)
+        return self._exchange_command_impl(command, response_numlines, timeout, stop_on_empty)
+
+    def _exchange_command_impl(self, command, response_numlines=1, timeout=None,
+                                stop_on_empty=False):
         """Send command and read response(s).
 
         Handles auto-reconnect, LED echo detection (RE: prefix),
