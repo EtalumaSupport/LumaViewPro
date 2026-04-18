@@ -31,11 +31,65 @@ from modules.zstack_config import ZStackConfig
 logger = logging.getLogger('LVP.ui.microscope_settings')
 
 
+class _CoalescingApplier:
+    """One-at-a-time worker that keeps only the LATEST pending value.
+
+    Used by MicroscopeSettings.frame_size to prevent the camera_executor
+    queue from stacking up slow Pylon set_frame_size calls (issue #624).
+    On large frames each stop_grabbing/start_grabbing cycle blocks the
+    CAMERA_WORKER for ~11s; naive queueing of rapid user edits
+    (tabbing between width and height fields) produced multi-minute
+    backlogs that made the UI feel frozen.
+
+    Pattern:
+      - submit(value) stashes value in a single pending slot and
+        returns True only when the caller should enqueue the worker
+        task (i.e. no task already in flight).
+      - apply_pending(fn) drains the pending slot and calls fn(value)
+        for each value. Loops until pending is empty so late-arriving
+        updates during an apply() are picked up in the SAME task
+        rather than spawning a new one.
+    """
+
+    def __init__(self, name='coalescing_applier'):
+        self._name = name
+        self._pending = None
+        self._in_flight = False
+        self._lock = threading.Lock()
+
+    def submit(self, value):
+        with self._lock:
+            self._pending = value
+            if self._in_flight:
+                return False
+            self._in_flight = True
+            return True
+
+    def apply_pending(self, fn):
+        while True:
+            with self._lock:
+                val = self._pending
+                self._pending = None
+                if val is None:
+                    self._in_flight = False
+                    return
+            try:
+                fn(val)
+            except Exception as e:
+                logger.error(
+                    f'[{self._name}] apply failed for {val!r}: {e}',
+                    exc_info=True)
+
+
 class MicroscopeSettings(BoxLayout):
 
     def __init__(self, **kwargs):
         super(MicroscopeSettings, self).__init__(**kwargs)
         logger.debug('[LVP Main  ] MicroscopeSettings.__init__()')
+        # Coalesce rapid set_frame_size requests. See
+        # _CoalescingApplier + issue #624.
+        self._frame_size_applier = _CoalescingApplier(
+            name='frame_size')
 
         scopes_path = resolve_data_file("scopes.json")
         try:
@@ -932,11 +986,19 @@ class MicroscopeSettings(BoxLayout):
         self.ids['field_of_view_width_id'].text = str(round(fov_size['width'],0))
         self.ids['field_of_view_height_id'].text = str(round(fov_size['height'],0))
 
-        # Route through camera executor to prevent race with live view grab loop
-        ctx.camera_executor.put(IOTask(
-            action=lumaview.scope.set_frame_size,
-            args=(width, height)
-        ))
+        # Coalesce rapid frame_size() calls — see _CoalescingApplier
+        # + issue #624. The UI can fire this method several times in
+        # quick succession when the user tabs between width and height
+        # text fields (on_focus loss + on_text_validate both bound to
+        # the same handler), and Pylon's stop_grabbing/start_grabbing
+        # cycle takes ~11s on large frames, so naive queueing creates
+        # minute-scale UI freezes.
+        scope = lumaview.scope
+        if self._frame_size_applier.submit((width, height)):
+            ctx.camera_executor.put(IOTask(
+                action=self._frame_size_applier.apply_pending,
+                args=(lambda wh: scope.set_frame_size(*wh),),
+            ))
 
     def generate_support_report(self):
         """Show confirmation dialog, then generate a tech support report."""
