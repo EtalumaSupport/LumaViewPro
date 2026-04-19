@@ -492,8 +492,13 @@ class StimulationController:
                 return True
             if remaining > 0.003:
                 time.sleep(remaining - 0.002)
-            else:
-                time.sleep(0.0001)
+            # else: busy-wait the last <3ms. A time.sleep(100us) here yields
+            # the GIL and the OS scheduler can take 100us–20+ms to resume us,
+            # lengthening the next pulse by whatever it waits. Matters for
+            # OFF edges that are 10 ms after their ON: measured on 2026-04-19
+            # that a yielding spin produced pulse-width stddev 5.9 ms and
+            # worst-case 26.3 ms on a 10 ms target. Busy-waiting matches OG's
+            # approach and brings pulse-width stddev back to ~1 ms.
 
     def _dispatch_edge(self, edge: StimEdge) -> float:
         """Dispatch a single stim edge. Returns perf_counter timestamp after the call."""
