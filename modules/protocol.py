@@ -1,6 +1,7 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 
 import csv
+import ast
 import json
 import datetime
 import io
@@ -1417,25 +1418,36 @@ class Protocol:
             logger.info(f"Converting loaded protocol from {config['version']} to {cls.CURRENT_VERSION}")
 
         def _parse_config_per_row(row, column, default):
-            """Parse a JSON config string for a single row.
+            """Parse a config string for a single row.
 
             Returns the parsed dict, or a fresh deepcopy of default if that
             row's value is missing or corrupt.  Errors are logged with the
             step name so the bad row is easy to find.  If the value is already
             a dict (programmatic build), returns it as-is.
+
+            Accepts both JSON (current save format) and Python-repr dict
+            strings (legacy TSVs written via pandas default stringification
+            with single quotes + True/False).  json.loads is tried first;
+            ast.literal_eval handles the legacy case.
             """
             val = row[column]
             if isinstance(val, dict):
                 return val
             try:
                 return json.loads(val)
-            except Exception as ex:
-                step_name = row.get('Name', '?')
-                logger.error(
-                    f"Unable to parse {column} for step '{step_name}', "
-                    f"using default: {ex}"
-                )
-                return copy.deepcopy(default)
+            except Exception:
+                try:
+                    parsed = ast.literal_eval(val)
+                    if isinstance(parsed, dict):
+                        return parsed
+                    raise ValueError(f"not a dict: {type(parsed).__name__}")
+                except Exception as ex:
+                    step_name = row.get('Name', '?')
+                    logger.error(
+                        f"Unable to parse {column} for step '{step_name}', "
+                        f"using default: {ex}"
+                    )
+                    return copy.deepcopy(default)
 
         if (config['version'] == 2) and (cls.CURRENT_VERSION >= 4):
             protocol_df['Acquire'] = "image"

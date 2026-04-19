@@ -362,6 +362,59 @@ class TestRoundTripBasic:
         for ch in ("Red", "Green", "Blue"):
             assert step["Stim_Config"][ch]["enabled"] is False
 
+    def test_legacy_python_repr_tsv_parses(self, tmp_path):
+        """Legacy TSVs written with Python dict repr (single quotes, True/False)
+        must still load. Pandas' default CSV stringification produced this format
+        in older versions; json.loads rejects it. Before the fix, legacy TSVs
+        came back with DEFAULT_STIM_CONFIG (enabled=False, ill=100) on every
+        step instead of the saved stim values — stim ran but fired no pulses
+        because every channel was read as disabled.
+        """
+        stim_legacy = (
+            "{'Blue': {'enabled': False, 'illumination': 250.0, 'frequency': 1, "
+            "'pulse_width': 10, 'pulse_count': 1}, "
+            "'Green': {'enabled': True, 'illumination': 500.0, 'frequency': 0.8, "
+            "'pulse_width': 10, 'pulse_count': 10}, "
+            "'Red': {'enabled': False, 'illumination': 500.0, 'frequency': 1, "
+            "'pulse_width': 10, 'pulse_count': 1}}"
+        )
+        video_legacy = "{'duration': 8}"
+
+        tsv = tmp_path / "legacy.tsv"
+        tsv.write_text(
+            "LumaViewPro Protocol\n"
+            "Version\t5\n"
+            "Period\t30.0\n"
+            "Duration\t24.0\n"
+            "Labware\t96 well Corning\n"
+            "\n"
+            "Steps\n"
+            "Name\tX\tY\tZ\tAuto_Focus\tColor\tFalse_Color\tIllumination\tGain\t"
+            "Auto_Gain\tExposure\tSum\tObjective\tWell\tTile\tZ-Slice\t"
+            "Custom Step\tTile Group ID\tZ-Stack Group ID\tAcquire\t"
+            "Video Config\tStim_Config\tStep Index\n"
+            f"s0\t0\t0\t0\tFalse\tRed\tTrue\t500.0\t0.0\tFalse\t40.0\t1\t"
+            f"20x Oly\t\t\t-1\tTrue\t-1\t-1\tvideo\t{video_legacy}\t{stim_legacy}\t0\n"
+        )
+
+        proto = Protocol.from_file(
+            file_path=tsv,
+            tiling_configs_file_loc=TILING_CONFIGS,
+        )
+        assert proto is not None
+        step = proto.step(idx=0)
+
+        assert isinstance(step["Stim_Config"], dict)
+        assert step["Stim_Config"]["Green"]["enabled"] is True
+        assert step["Stim_Config"]["Green"]["illumination"] == 500.0
+        assert step["Stim_Config"]["Green"]["frequency"] == 0.8
+        assert step["Stim_Config"]["Green"]["pulse_count"] == 10
+        assert step["Stim_Config"]["Red"]["enabled"] is False
+        assert step["Stim_Config"]["Blue"]["enabled"] is False
+
+        assert isinstance(step["Video Config"], dict)
+        assert step["Video Config"]["duration"] == 8
+
 
 class TestRoundTripMultiStep:
     """Multi-step protocols survive round-trip."""
