@@ -523,6 +523,64 @@ class StimulationController:
         enabled_colors = [color for color, _ in self._active_channels]
         logger.info(f"[STIMULATOR] Starting merged scheduler for {enabled_colors}")
 
+        # Firmware-side STIM fast path (LED firmware v3.0.8+).
+        # Host-side pulse scheduling is unreliable below ~20 ms pulse width
+        # because the USB-UART bridge batches back-to-back fast-path writes
+        # (bench measurement 2026-04-20: host-scheduled 50 ms pulses physically
+        # collapsed to ~3 ms LED on-time). Firmware STIM runs the train inside
+        # the LED firmware with sub-microsecond accuracy — measured ~20 us
+        # per-pulse error vs ~47 ms on the host-edge path.
+        #
+        # Single-channel only: firmware STIM blocks the LED main loop for the
+        # train duration, so concurrent multi-channel STIMs would serialize
+        # rather than overlap. For multi-channel runs we fall back to the
+        # host-edge scheduler below, which the 4.1 merged-scheduler model
+        # already handles well across channels.
+        if (len(self._active_channels) == 1
+                and hasattr(self._scope, 'supports_firmware_stim')
+                and hasattr(self._scope, 'stim_pulse_train')
+                and self._scope.supports_firmware_stim()):
+            color, channel = self._active_channels[0]
+            stim_config = self._stim_configs[color]
+            frequency = stim_config['frequency']
+            pulse_width = stim_config['pulse_width']
+            pulse_count = stim_config['pulse_count']
+            illumination = stim_config['illumination']
+            if frequency > 0:
+                period_ms = int(round(1000.0 / float(frequency)))
+                width_ms = int(round(float(pulse_width)))
+                if width_ms >= period_ms:
+                    width_ms = max(1, int(period_ms * 0.9))
+                    logger.warning(
+                        f"[STIMULATOR] {color}: pulse_width clamped to {width_ms} ms "
+                        f"(must be < period {period_ms} ms)")
+                # Wait for the start gate (matches host-edge path semantics)
+                while not start_event.wait(timeout=0.05):
+                    if stop_event.is_set():
+                        logger.info(f"[STIMULATOR] {color} stop_event before firmware STIM start")
+                        return
+                if stop_event.is_set():
+                    return
+                logger.info(
+                    f"[STIMULATOR] {color} firmware STIM {int(round(illumination))} mA, "
+                    f"{width_ms} ms width, {period_ms} ms period, {int(pulse_count)} pulses")
+                try:
+                    ok = self._scope.stim_pulse_train(
+                        color=color,
+                        mA=illumination,
+                        pulse_width_ms=width_ms,
+                        period_ms=period_ms,
+                        pulse_count=int(pulse_count),
+                    )
+                    if ok:
+                        logger.info(f"[STIMULATOR] {color} firmware STIM complete")
+                        return
+                    logger.warning(
+                        f"[STIMULATOR] {color} firmware STIM failed; falling back to host-edge scheduler")
+                except Exception:
+                    logger.exception(
+                        f"[STIMULATOR] {color} firmware STIM raised; falling back to host-edge scheduler")
+
         time_period_set = False
         end_reason = "schedule_complete"
         executed_edges = 0

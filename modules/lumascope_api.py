@@ -1611,6 +1611,52 @@ class Lumascope():
         for color in self.led.available_colors():
             self._fire_led_listeners(color, False, 0.0, '')
 
+    def supports_firmware_stim(self):
+        """Return True if LED firmware supports the STIM pulse-train command (v3.0.8+).
+
+        Host-side pulse scheduling is unreliable below ~20 ms pulse width because
+        the USB-UART bridge batches back-to-back fast-path writes. Firmware-side
+        STIM runs the pulse train inside the LED firmware with sub-microsecond
+        accuracy, eliminating the bridge-batching problem entirely.
+        """
+        if not self.led:
+            return False
+        if not hasattr(self.led, 'supports_firmware_stim'):
+            return False
+        return self.led.supports_firmware_stim()
+
+    def stim_pulse_train(self, color, mA, pulse_width_ms, period_ms, pulse_count):
+        """Fire a pulse train using firmware-side STIM (v3.0.8+).
+
+        Args:
+            color: channel name (e.g. 'Green') or integer channel number.
+            mA: illumination current during pulses (must be > 0).
+            pulse_width_ms: ON duration per pulse.
+            period_ms: ON-to-ON interval (must be > pulse_width_ms).
+            pulse_count: number of pulses in the train.
+
+        Returns True on firmware confirmation, False on timeout / error /
+        firmware lacking STIM support. Blocks for approximately
+        (pulse_count * period_ms) plus command round-trip.
+        """
+        if not self.led:
+            return False
+        if isinstance(color, str):
+            channel = self.color2ch(color=color)
+        else:
+            channel = color
+        with self._led_lock:
+            ok = self.led.stim_pulse_train(
+                channel, mA, pulse_width_ms, period_ms, pulse_count)
+        if ok:
+            color_name = self.ch2color(channel) if not isinstance(color, str) else color
+            if color_name:
+                with self._led_owner_lock:
+                    self._led_state.pop(color_name, None)
+                self._fire_led_listeners(color_name, False, 0.0, '')
+            self.frame_validity.invalidate('led')
+        return ok
+
     def leds_off(self):
         """Turn off all LEDs (nuclear — ignores ownership, clears all owners)."""
         if not self.led: return

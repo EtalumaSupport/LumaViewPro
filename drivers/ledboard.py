@@ -254,6 +254,104 @@ class LEDBoard(SerialBoard):
         command = 'LEDS_OFF'
         self._write_command_fast(command)
 
+    def supports_firmware_stim(self):
+        """Probe firmware for STIM command support. Result cached after first call.
+
+        Host-side pulse scheduling is unreliable below ~20 ms pulse width because
+        the USB-UART bridge batches back-to-back fast-path writes — bench
+        measurement 2026-04-20 showed host-scheduled 50 ms pulses collapsing to
+        ~3 ms physical LED on-time. Firmware STIM (v3.0.8+) runs the train inside
+        the LED firmware with sub-microsecond pulse-edge accuracy via ticks_us
+        busy-wait, eliminating the bridge-batching problem entirely.
+
+        Probe sends 'STIM 0 0 1 2 1' (intentionally invalid mA=0). v3.0.8+ replies
+        with 'STIM: mA must be > 0' (parser recognized). Pre-v3.0.8 echoes the
+        command and returns 'Command not recognized'.
+        """
+        if hasattr(self, '_supports_stim_cached'):
+            return self._supports_stim_cached
+        with self._lock:
+            if self.driver is None:
+                return False
+            saved_timeout = self.driver.timeout
+            self.driver.timeout = 0.3
+            try:
+                self.driver.reset_input_buffer()
+                self.driver.write(b'STIM 0 0 1 2 1\n')
+                got_stim = False
+                deadline = time.monotonic() + 2.5
+                while time.monotonic() < deadline:
+                    line = self.driver.readline()
+                    if not line:
+                        continue
+                    s = line.decode('utf-8', 'ignore').strip()
+                    if 'Command not recognized' in s:
+                        got_stim = False
+                        break
+                    if s.startswith('STIM:') or s.startswith('STIM_DIAG:'):
+                        got_stim = True
+                        break
+                # Drain residual bytes so subsequent commands see a clean buffer
+                time.sleep(0.2)
+                if self.driver.in_waiting:
+                    self.driver.read(self.driver.in_waiting)
+            finally:
+                if self.driver is not None:
+                    self.driver.timeout = saved_timeout
+        self._supports_stim_cached = got_stim
+        logger.info(f'{self._label} firmware STIM support: {got_stim}')
+        return got_stim
+
+    def stim_pulse_train(self, channel, mA, pulse_width_ms, period_ms, pulse_count):
+        """Fire a pulse train via firmware-side STIM (v3.0.8+).
+
+        Returns True on firmware completion, False on timeout / firmware error
+        / lack of STIM support. Blocks for approximately
+        (pulse_count * period_ms) plus command round-trip. Caller should confirm
+        supports_firmware_stim() first.
+        """
+        cmd = 'STIM {} {} {} {} {}'.format(
+            int(channel), int(round(mA)), int(pulse_width_ms),
+            int(period_ms), int(pulse_count))
+        # Train duration + 3s margin for response RTT
+        timeout_s = (pulse_count * period_ms) / 1000.0 + 3.0
+
+        with self._lock:
+            if self.driver is None:
+                logger.error(f'{self._label} stim_pulse_train: not connected')
+                return False
+            saved_timeout = self.driver.timeout
+            self.driver.timeout = 0.5
+            try:
+                self.driver.reset_input_buffer()
+                self.driver.write(cmd.encode('utf-8') + b'\n')
+                deadline = time.monotonic() + timeout_s + 1.0
+                while time.monotonic() < deadline:
+                    line = self.driver.readline()
+                    if not line:
+                        continue
+                    s = line.decode('utf-8', 'ignore').strip()
+                    # Success: "STIM <ch> complete: ..."
+                    if s.startswith('STIM ') and 'complete' in s:
+                        logger.info(f'{self._label} stim_pulse_train({cmd}) OK: {s}')
+                        color = self.ch2color(channel=channel)
+                        if color:
+                            self._update_state_cache(color, -1)
+                        return True
+                    # Firmware-level error: "STIM: <reason>"
+                    if s.startswith('STIM:'):
+                        logger.warning(f'{self._label} stim_pulse_train firmware error: {s}')
+                        return False
+                    # Anything else (RE: echo, STIM_DIAG: progress, noise) — keep reading
+                logger.warning(f'{self._label} stim_pulse_train({cmd}) timed out')
+                return False
+            except Exception:
+                logger.exception(f'{self._label} stim_pulse_train exception')
+                return False
+            finally:
+                if self.driver is not None:
+                    self.driver.timeout = saved_timeout
+
     # ------------------------------------------------------------------
     # Engineering mode and diagnostics
     # ------------------------------------------------------------------
