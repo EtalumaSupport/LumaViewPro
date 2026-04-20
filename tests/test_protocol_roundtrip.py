@@ -415,6 +415,58 @@ class TestRoundTripBasic:
         assert isinstance(step["Video Config"], dict)
         assert step["Video Config"]["duration"] == 8
 
+    def test_legacy_video_config_without_fps_defaults(self, tmp_path):
+        """Legacy TSVs from older LVP versions stored Video Config with only
+        'duration' and no 'fps' key. Without defaults merged on load, validate_steps
+        reads fps=0 and blocks every video step with 'fps must be > 0'. The loader
+        must merge DEFAULT_VIDEO_CONFIG so missing keys fall back to current defaults.
+        """
+        stim_config = (
+            "{'Blue': {'enabled': False, 'illumination': 250.0, 'frequency': 1, "
+            "'pulse_width': 10, 'pulse_count': 1}, "
+            "'Green': {'enabled': True, 'illumination': 500.0, 'frequency': 0.8, "
+            "'pulse_width': 10, 'pulse_count': 10}, "
+            "'Red': {'enabled': False, 'illumination': 500.0, 'frequency': 1, "
+            "'pulse_width': 10, 'pulse_count': 1}}"
+        )
+        video_only_duration = "{'duration': 8}"
+
+        tsv = tmp_path / "legacy_no_fps.tsv"
+        tsv.write_text(
+            "LumaViewPro Protocol\n"
+            "Version\t5\n"
+            "Period\t30.0\n"
+            "Duration\t24.0\n"
+            "Labware\t96 well Corning\n"
+            "\n"
+            "Steps\n"
+            "Name\tX\tY\tZ\tAuto_Focus\tColor\tFalse_Color\tIllumination\tGain\t"
+            "Auto_Gain\tExposure\tSum\tObjective\tWell\tTile\tZ-Slice\t"
+            "Custom Step\tTile Group ID\tZ-Stack Group ID\tAcquire\t"
+            "Video Config\tStim_Config\tStep Index\n"
+            f"s0\t0\t0\t0\tFalse\tRed\tTrue\t500.0\t0.0\tFalse\t40.0\t1\t"
+            f"20x Oly\t\t\t-1\tTrue\t-1\t-1\tvideo\t{video_only_duration}\t{stim_config}\t0\n"
+        )
+
+        proto = Protocol.from_file(
+            file_path=tsv,
+            tiling_configs_file_loc=TILING_CONFIGS,
+        )
+        assert proto is not None
+        step = proto.step(idx=0)
+
+        vc = step["Video Config"]
+        assert isinstance(vc, dict)
+        assert vc["duration"] == 8, "loader must preserve stored duration"
+        assert "fps" in vc, "loader must merge default fps when missing"
+        assert vc["fps"] > 0, "defaulted fps must satisfy validate_steps"
+
+        errors = proto.validate_steps()
+        fps_errors = [e for e in errors if "Video Config fps" in e]
+        assert fps_errors == [], (
+            f"legacy-format Video Config must not produce fps errors; got {fps_errors}"
+        )
+
 
 class TestRoundTripMultiStep:
     """Multi-step protocols survive round-trip."""

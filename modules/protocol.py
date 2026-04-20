@@ -1457,9 +1457,16 @@ class Protocol:
                 for _ in range(len(protocol_df))
             ]
         else:
-            # Parse per-row so one corrupt row doesn't wipe all configs
+            # Parse per-row so one corrupt row doesn't wipe all configs.
+            # Merge DEFAULT_VIDEO_CONFIG so legacy TSVs that only stored a
+            # subset of fields (e.g. older saves with just 'duration') fall
+            # back to defaults for missing keys instead of failing validation
+            # on fps=0.
             protocol_df['Video Config'] = protocol_df.apply(
-                lambda row: _parse_config_per_row(row, 'Video Config', DEFAULT_VIDEO_CONFIG),
+                lambda row: {
+                    **DEFAULT_VIDEO_CONFIG,
+                    **_parse_config_per_row(row, 'Video Config', DEFAULT_VIDEO_CONFIG),
+                },
                 axis=1,
             )
 
