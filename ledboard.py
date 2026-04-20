@@ -325,18 +325,35 @@ class LEDBoard:
                 self.driver.write(b'STIM 0 0 1 2 1\n')
                 got_stim = False
                 import time as _t
-                deadline = _t.time() + 1.5
+                deadline = _t.time() + 2.5
                 while _t.time() < deadline:
                     line = self.driver.readline()
                     if not line:
-                        break
+                        continue  # readline timeout — keep waiting until deadline
                     s = line.decode('utf-8', 'ignore').strip()
-                    if s.startswith('STIM'):
-                        got_stim = True
-                        break
+                    # Distinguish v3.0.8+ ("STIM: mA must be > 0" or "STIM_DIAG:"
+                    # progress prints) from pre-v3.0.8 (which echoes the unknown
+                    # command and emits " : Command not recognized" suffix —
+                    # also starts with "STIM" because the firmware echoes
+                    # arguments). Detect the not-recognized case explicitly.
                     if 'Command not recognized' in s:
                         got_stim = False
                         break
+                    # v3.0.8 production firmware: "STIM: <error>" prefix.
+                    if s.startswith('STIM:'):
+                        got_stim = True
+                        break
+                    # v3.0.8 diag build: "STIM_DIAG: <progress>" prefix.
+                    if s.startswith('STIM_DIAG:'):
+                        got_stim = True
+                        break
+                    # Anything else (RE: echo, stale bytes, noise) — keep waiting.
+                # Drain anything still in transit so subsequent commands see
+                # a clean buffer (probe broke at first match; firmware may have
+                # more diag/error lines en route).
+                _t.sleep(0.2)
+                if self.driver.in_waiting:
+                    self.driver.read(self.driver.in_waiting)
                 self._supports_stim_cached = got_stim
                 logger.info('[LED Class ] firmware STIM support: %s', got_stim)
                 return got_stim
@@ -376,23 +393,32 @@ class LEDBoard:
                 _t.sleep(0.001)
                 self.driver.write(cmd.encode('utf-8') + b'\n')
 
+                # Use a short per-readline timeout inside an outer deadline loop.
+                # Never break on empty-read alone — the firmware is busy-waiting
+                # during the train and only prints the completion line at the end,
+                # so we expect long stretches of no data before the real response.
+                self.driver.timeout = 0.5
                 deadline = _t.time() + timeout_s + 1.0
                 while _t.time() < deadline:
                     line = self.driver.readline()
                     if not line:
-                        break
+                        continue
                     s = line.decode('utf-8', 'ignore').strip()
-                    if s.startswith('STIM') and 'complete' in s:
+                    # Success: "STIM <ch> complete: ..."
+                    if s.startswith('STIM ') and 'complete' in s:
                         logger.info('[LED Class ] stim_pulse_train(%s) OK: %s', cmd, s)
-                        # Update state cache: channel is OFF after train
                         color = self.ch2color(channel=channel)
                         if color:
                             self.led_ma[color] = -1
                         return True
-                    if s.startswith('STIM') and ':' in s and 'complete' not in s:
+                    # Firmware-level error: "STIM: <reason>" (note the colon
+                    # immediately after STIM with no channel; distinguishes
+                    # error lines from STIM_DIAG: progress prints).
+                    if s.startswith('STIM:'):
                         logger.warning('[LED Class ] stim_pulse_train firmware error: %s', s)
                         return False
-                    # echo or noise: keep reading
+                    # Anything else (RE: echo, STIM_DIAG: progress, unrelated
+                    # noise) — keep reading until completion or timeout.
                 logger.warning('[LED Class ] stim_pulse_train(%s) timed out', cmd)
                 return False
             except Exception:
