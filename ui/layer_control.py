@@ -1,5 +1,6 @@
 # Copyright Etaluma, Inc.
 import logging
+import os
 
 import numpy as np
 
@@ -23,6 +24,28 @@ BF_MAX_EXPOSURE_MS = 1000
 FLUORESCENCE_MIN_EXPOSURE_MS = 1.0
 SLIDER_DEBOUNCE_S = 0.1
 INIT_MAX_RETRIES = 50
+
+# ------------------------------------------------------------------
+# Rule 12 workaround: temporary diagnostic toggle for the "illumination
+# slider > ~150 mA silently fails to light LED on LS620 FX2" bench
+# investigation (Firmware TODO.md:63, 2026-04-16). Logs type + value at
+# the slider vs text entry points so the bench trace can show whether
+# the two code paths diverge here (int vs float) or further downstream.
+# Companion gates live in drivers/fx2driver.py (byte-level wire trace)
+# and modules/lumascope_api.py (cache-equality check).
+# Toggle by either:
+#   * export LVP_FX2_DEBUG_WIRE=1  (preferred, no file edit)
+#   * flip _FX2_DEBUG_WIRE = True  below
+# Remove together with fx2driver._FX2_DEBUG_WIRE after the
+# 2026-04-21 bench session confirms root cause.
+# ------------------------------------------------------------------
+_FX2_DEBUG_WIRE = False
+
+
+def _fx2_wire_debug_enabled() -> bool:
+    if _FX2_DEBUG_WIRE:
+        return True
+    return os.environ.get("LVP_FX2_DEBUG_WIRE") == "1"
 
 
 class LayerControl(BoxLayout):
@@ -189,6 +212,18 @@ class LayerControl(BoxLayout):
             return
         logger.info('[LVP Main  ] LayerControl.ill_slider()')
         illumination = round(self.ids['ill_slider'].value)  # Round to integer (step=1)
+        # Rule 12 workaround: slider-vs-text divergence trace for the
+        # > ~150 mA silent-fail bench investigation. See _FX2_DEBUG_WIRE
+        # block at top of this file. INFO level — this is a key
+        # divergence point (int from slider vs float from text).
+        if _fx2_wire_debug_enabled():
+            logger.info(
+                '[FX2 LED diag] ill_slider ENTRY layer=%s raw_value=%r '
+                'raw_type=%s -> illumination=%r type=%s source=slider',
+                self.layer, self.ids['ill_slider'].value,
+                type(self.ids['ill_slider'].value).__name__,
+                illumination, type(illumination).__name__,
+            )
         gui_logger.slider(f'ILLUMINATION_{self.layer}', illumination)
         settings[self.layer]['ill'] = illumination
 
@@ -220,6 +255,17 @@ class LayerControl(BoxLayout):
             return
 
         illumination = float(np.clip(ill_val, ill_min, ill_max))
+        # Rule 12 workaround: text-entry divergence trace for the
+        # > ~150 mA silent-fail bench investigation. See _FX2_DEBUG_WIRE
+        # block at top of this file. INFO level — this is the other key
+        # divergence point (float from text vs int from slider).
+        if _fx2_wire_debug_enabled():
+            logger.info(
+                '[FX2 LED diag] ill_text ENTRY layer=%s raw_text=%r '
+                'parsed_val=%r -> illumination=%r type=%s source=text',
+                self.layer, self.ids['ill_text'].text, ill_val,
+                illumination, type(illumination).__name__,
+            )
         settings[self.layer]['ill'] = illumination
 
         # Wrap programmatic widget writes so on_value does not re-enter

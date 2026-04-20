@@ -1456,6 +1456,27 @@ class Lumascope():
         color_name = self.ch2color(channel)
         if color_name:
             current_ma = self.get_led_ma(color_name)
+            # Rule 12 workaround: _led_state cache-equality trace for the
+            # slider > ~150 mA silent-fail bench investigation. Gated by
+            # LVP_FX2_DEBUG_WIRE env var to match drivers/fx2driver.py.
+            # Remove together with fx2driver._FX2_DEBUG_WIRE block after
+            # the 2026-04-21 bench session.
+            if os.environ.get("LVP_FX2_DEBUG_WIRE") == "1":
+                cached_entry = self._led_state.get(color_name)
+                is_enabled = self.led_enabled(color_name)
+                try:
+                    delta = (None if current_ma is None
+                             else abs(float(mA) - float(current_ma)))
+                except Exception:
+                    delta = 'ERR'
+                _api_log.info(
+                    '[FX2 LED diag] led_on cache-check color=%s '
+                    'new_mA=%r (type=%s) cached_mA=%r (type=%s) '
+                    'delta=%r enabled=%s cache_entry=%r',
+                    color_name, mA, type(mA).__name__,
+                    current_ma, type(current_ma).__name__,
+                    delta, is_enabled, cached_entry,
+                )
             if current_ma is not None and abs(float(mA) - float(current_ma)) < 0.01:
                 if self.led_enabled(color_name):
                     return

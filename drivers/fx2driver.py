@@ -1778,6 +1778,35 @@ class FX2LEDController:
     # controller.
     _MAX_MA = 200
 
+    # ------------------------------------------------------------------
+    # Rule 12 workaround: TEMPORARY byte-level wire trace for bench
+    # investigation of the "illumination slider > ~150 mA silently fails
+    # to light LED on LS620 FX2" report (Firmware TODO.md:63,
+    # 2026-04-16). Captures:
+    #   * LED-toggle entry at FX2LEDController.led_on (mA + type)
+    #   * mA→brightness conversion input/output
+    #   * Each of the 3 I2C bytes written (hex dump)
+    #   * PREAMBLE-COLLISION flag when brightness == 0xFF (Eric's hint
+    #     about _MAX_MA=200 clamping to the 0xFF I2C preamble byte at
+    #     mA ≥ 200)
+    # Companion gates live in modules/lumascope_api.py (cache-equality
+    # check) and ui/layer_control.py (slider vs text entry points).
+    # Toggle by either:
+    #   * export LVP_FX2_DEBUG_WIRE=1  (preferred, no file edit)
+    #   * flip _FX2_DEBUG_WIRE = True  below
+    # Remove this block + all call sites tagged "[FX2 LED diag]" after
+    # the Monday 2026-04-21 bench session confirms root cause for the
+    # slider-160 vs text-160 divergence. Not gated behind a feature
+    # flag because the fix will land with verification logs attached.
+    # ------------------------------------------------------------------
+    _FX2_DEBUG_WIRE = False
+
+    @classmethod
+    def _wire_debug_enabled(cls) -> bool:
+        if cls._FX2_DEBUG_WIRE:
+            return True
+        return os.environ.get("LVP_FX2_DEBUG_WIRE") == "1"
+
     def __init__(self, **kwargs):
         # Grab the singleton — raises if no FX2 hardware, registry
         # fallthrough handles that case cleanly.
@@ -1821,18 +1850,21 @@ class FX2LEDController:
         between writes).
         """
         i2c_channel = _CH_TO_I2C.get(channel, channel)
-        # TEMP diag: byte-level trace of FX2 LED I2C writes. Bench
-        # investigation of slider > ~150 mA failing to light LED on LS620.
-        # Revert together with the led_on diag below once data collected.
-        logger.info(
-            '[FX2 LED diag] _led_write ch=%d i2c_ch=0x%02X brightness=0x%02X',
-            channel, i2c_channel, brightness,
-        )
         writes = [
             (0xFF, 'preamble'),
             (i2c_channel, 'channel'),
             (brightness & 0xFF, 'brightness'),
         ]
+        # Rule 12 workaround: byte-level wire trace for the slider > ~150 mA
+        # silent-fail bench investigation. See _FX2_DEBUG_WIRE block above.
+        if self._wire_debug_enabled():
+            wire_hex = ' '.join(f'0x{b:02X}' for b, _ in writes)
+            logger.info(
+                '[FX2 LED diag] _led_write ch=%d i2c_ch=0x%02X '
+                'brightness=0x%02X wire=[%s]%s',
+                channel, i2c_channel, brightness, wire_hex,
+                ' PREAMBLE-COLLISION' if brightness == 0xFF else '',
+            )
         for byte_val, label in writes:
             try:
                 result = self._fx2.i2c_write(I2C_LED, [byte_val])
@@ -1854,7 +1886,16 @@ class FX2LEDController:
 
     def _ma_to_brightness(self, mA) -> int:
         """Convert mA to 0-255 brightness value."""
-        return max(0, min(255, round(float(mA) * 255.0 / self._MAX_MA)))
+        brightness = max(0, min(255, round(float(mA) * 255.0 / self._MAX_MA)))
+        # Rule 12 workaround: mA→byte conversion trace. See
+        # _FX2_DEBUG_WIRE block above.
+        if self._wire_debug_enabled():
+            logger.debug(
+                '[FX2 LED diag] _ma_to_brightness mA=%r type=%s -> '
+                'brightness=%d (0x%02X) _MAX_MA=%d',
+                mA, type(mA).__name__, brightness, brightness, self._MAX_MA,
+            )
+        return brightness
 
     # -- Channel discovery (B3) --------------------------------------------
 
@@ -1875,15 +1916,17 @@ class FX2LEDController:
     def led_on(self, channel: int, mA: int, block: bool = False, timeout: float = 5.0):
         if not self._enabled:
             return
+        # Rule 12 workaround: driver-entry trace (mA + type) for the
+        # slider > ~150 mA silent-fail bench investigation. See
+        # _FX2_DEBUG_WIRE block above. INFO level intentionally — this
+        # is one of the two key divergence points (int vs float entry).
+        if self._wire_debug_enabled():
+            logger.info(
+                '[FX2 LED diag] led_on ENTRY ch=%d mA=%r type=%s '
+                'block=%s',
+                channel, mA, type(mA).__name__, block,
+            )
         brightness = self._ma_to_brightness(mA)
-        # TEMP diag: capture mA value + type at driver entry. Investigating
-        # slider > ~150 mA LED-dark report on LS620. Revert with the
-        # _led_write diag above.
-        logger.info(
-            '[FX2 LED diag] led_on ch=%d mA=%r type=%s -> brightness=%d (0x%02X)%s',
-            channel, mA, type(mA).__name__, brightness, brightness,
-            ' PREAMBLE-COLLISION' if brightness == 0xFF else '',
-        )
         self._led_write(channel, brightness)
 
     def led_off(self, channel: int):
