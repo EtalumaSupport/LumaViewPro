@@ -8,7 +8,10 @@ from datetime import datetime
 
 class MemoryLeakProfiler:
     # 1. Configuration
-    INTERVAL = 900  # Take a snapshot every 15 minutes (900s)
+    # INTERVAL is dev/bench-facing; profiling.enabled gates this whole module.
+    # 60s gives a usable first report ~1 min into any protocol run; lengthen
+    # for multi-hour leak hunts.
+    INTERVAL = 60  # Take a snapshot every 60s
     TRACE_DEPTH = 25 # How many stack frames to record
     LOG_DIR = datetime.now().strftime("%Y%m%d_%H%M%S") + "_memory_logs"
 
