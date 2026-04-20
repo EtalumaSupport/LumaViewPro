@@ -412,7 +412,7 @@ class MicroscopeSettings(BoxLayout):
                     from modules.notification_center import notifications
                     notifications.warning("Turret", "No Turret Objectives Assigned",
                         "Turret positions have no objectives assigned. "
-                        "Please assign objectives in Vertical Control > Turret before running protocols.")
+                        "Please assign objectives in Objective Control > Turret before running protocols.")
                 elif objective_id not in assigned:
                     logger.warning(f"Startup objective {objective_id} not found in turret objectives ({turret_objectives}).")
 
@@ -908,7 +908,7 @@ class MicroscopeSettings(BoxLayout):
                     from modules.notification_center import notifications
                     notifications.warning("Objective", "Objective Not in Turret",
                         f"'{objective_id}' is not assigned to any turret position. "
-                        f"Assign it in Vertical Control > Turret before using.")
+                        f"Assign it in Objective Control > Turret before using.")
 
             objective = objective_helper.get_objective_info(objective_id=objective_id)
             settings['objective_id'] = objective_id

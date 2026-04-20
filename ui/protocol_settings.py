@@ -1116,7 +1116,7 @@ class ProtocolSettings(FloatLayout):
                     title="Turret Configuration Required",
                     message="Protocol uses objectives not assigned to turret positions.\n\n"
                         f"Assigned: {assigned if assigned else 'None'}\n\n"
-                        "Please assign objectives in Vertical Control > Turret before running."
+                        "Please assign objectives in Objective Control > Turret before running."
                 )
                 return False
 
