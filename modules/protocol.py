@@ -354,14 +354,18 @@ class Protocol:
                             f"{label}: {axis} position {pos} µm is outside travel limits "
                             f"({limits['min']}–{limits['max']} µm)")
 
-        # Validate labware exists
+        # Validate labware exists. Use is_known_plate() rather than plate_list
+        # membership so legacy/alias names (e.g. "384 well Corning Spheroid
+        # Microplate" -> "384 well microplate") are accepted here exactly as
+        # they are at runtime in get_plate(). Without this, validation
+        # hard-fails on names that would have run fine.
         labware_key = self.labware()
         if labware_key:
             try:
                 from modules import labware_loader
                 loader = labware_loader.WellPlateLoader()
-                plate_list = loader.get_plate_list()
-                if labware_key not in plate_list:
+                if not loader.is_known_plate(labware_key):
+                    plate_list = loader.get_plate_list()
                     errors.append(
                         f"Labware '{labware_key}' not found. "
                         f"Available: {', '.join(plate_list)}")

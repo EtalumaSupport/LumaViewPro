@@ -467,6 +467,52 @@ class TestRoundTripBasic:
             f"legacy-format Video Config must not produce fps errors; got {fps_errors}"
         )
 
+    def test_legacy_labware_alias_accepted_by_validator(self, tmp_path):
+        """Legacy TSVs save the pre-rename labware name "384 well Corning Spheroid
+        Microplate". The WellPlateLoader alias table resolves it to
+        "384 well microplate" at runtime (get_plate), so the protocol runs. But
+        validate_for_run() was checking plate_list membership directly, which
+        excludes aliases — so validation rejected names that runtime would
+        accept. This asymmetry blocked every legacy Corning protocol with
+        'Labware ... not found'. Validator must now accept any name that
+        resolves via the alias table.
+        """
+        tsv = tmp_path / "legacy_corning.tsv"
+        tsv.write_text(
+            "LumaViewPro Protocol\n"
+            "Version\t5\n"
+            "Period\t30.0\n"
+            "Duration\t24.0\n"
+            "Labware\t384 well Corning Spheroid Microplate\n"
+            "\n"
+            "Steps\n"
+            "Name\tX\tY\tZ\tAuto_Focus\tColor\tFalse_Color\tIllumination\tGain\t"
+            "Auto_Gain\tExposure\tSum\tObjective\tWell\tTile\tZ-Slice\t"
+            "Custom Step\tTile Group ID\tZ-Stack Group ID\tAcquire\t"
+            "Video Config\tStim_Config\tStep Index\n"
+            "s0\t0\t0\t0\tFalse\tBF\tFalse\t100.0\t0.0\tFalse\t40.0\t1\t"
+            "20x Oly\t\t\t-1\tTrue\t-1\t-1\timage\t{'fps': 5, 'duration': 5}\t"
+            "{'Blue': {'enabled': False, 'illumination': 100, 'frequency': 1, "
+            "'pulse_width': 10, 'pulse_count': 1}, 'Green': {'enabled': False, "
+            "'illumination': 100, 'frequency': 1, 'pulse_width': 10, "
+            "'pulse_count': 1}, 'Red': {'enabled': False, 'illumination': 100, "
+            "'frequency': 1, 'pulse_width': 10, 'pulse_count': 1}}\t0\n"
+        )
+
+        proto = Protocol.from_file(
+            file_path=tsv,
+            tiling_configs_file_loc=TILING_CONFIGS,
+        )
+        assert proto is not None
+        assert proto.labware() == "384 well Corning Spheroid Microplate"
+
+        errors = proto.validate_for_run()
+        labware_errors = [e for e in errors if "Labware" in e and "not found" in e]
+        assert labware_errors == [], (
+            f"alias-resolvable labware name must not produce validation errors; "
+            f"got {labware_errors}"
+        )
+
 
 class TestRoundTripMultiStep:
     """Multi-step protocols survive round-trip."""

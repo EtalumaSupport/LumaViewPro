@@ -114,6 +114,17 @@ class WellPlateLoader(LabwareLoader):
         return list(self.labware['Wellplate'].keys())
 
 
+    def is_known_plate(self, plate_key) -> bool:
+        """Return True if plate_key resolves to a known plate (directly or via alias).
+
+        Use this for validation so callers accept exactly what get_plate() accepts.
+        get_plate_list() returns only canonical keys and would reject legacy/alias
+        names that get_plate() would resolve correctly at runtime.
+        """
+        resolved_key = self._LABWARE_ALIASES.get(plate_key, plate_key)
+        return resolved_key in self.labware['Wellplate']
+
+
     def get_plate(self, plate_key):
         # Apply alias mapping for backwards compatibility
         resolved_key = self._LABWARE_ALIASES.get(plate_key, plate_key)
