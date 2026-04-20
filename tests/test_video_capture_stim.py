@@ -182,6 +182,136 @@ def test_scheduler_stop_exits_cleanly_and_turns_off_channels():
     assert ("off", 1, None) in scope.calls
 
 
+class TimestampingScope:
+    """FakeScope variant that records perf_counter timestamps of led_on/off_fast.
+
+    Used by the pulse-width-jitter regression test. The StimulationController
+    detects `led_on_fast`/`led_off_fast` via hasattr and prefers them, so
+    recording them here is equivalent to recording the scheduler's actual
+    edge dispatch times.
+    """
+
+    def __init__(self):
+        self.frame_validity = FakeFrameValidity()
+        self.events = []  # list of (action, channel, mA, t_perf)
+
+    def color2ch(self, color):
+        return {
+            "Blue": 0, "Green": 1, "Red": 2, "BF": 3, "PC": 4, "DF": 5,
+        }[color]
+
+    def led_on_fast(self, channel, mA):
+        self.events.append(("on", channel, mA, time.perf_counter()))
+
+    def led_off_fast(self, channel):
+        self.events.append(("off", channel, None, time.perf_counter()))
+
+    def led_on(self, channel, mA):
+        self.events.append(("on_slow", channel, mA, time.perf_counter()))
+
+    def led_off(self, channel):
+        self.events.append(("off_slow", channel, None, time.perf_counter()))
+
+
+@pytest.mark.timing_sensitive
+def test_scheduler_pulse_width_jitter_within_tolerance():
+    """Regression test for the stim scheduler spin-yield fix.
+
+    Guards against reintroducing `time.sleep(~100us)` (or any GIL-yielding
+    call) inside `StimulationController._wait_until`'s final pre-edge spin
+    window. A 100us sleep yields to the OS scheduler, whose wake-up latency
+    (100us to 20+ms on macOS/Linux desktops) inflates OFF-edge timing for
+    short pulses.
+
+    Historical measurement (dev bench, 10 pulses @ 0.8 Hz, 10 ms pulse width,
+    single channel):
+        yielding spin  -> pulse-width stddev 5.91 ms, worst-case err 16.27 ms
+        busy-wait spin -> pulse-width stddev 1.70 ms, worst-case err  3.88 ms
+
+    Thresholds below are intentionally well above the busy-wait numbers but
+    well below the yielding-spin numbers so the test distinguishes the two
+    regimes without being flaky on a lightly loaded dev machine. Gated
+    behind `--run-timing-sensitive` to keep CI/default runs deterministic.
+    """
+    scope = TimestampingScope()
+    scheduler = StimulationController(
+        scope,
+        {
+            "Green": {
+                "enabled": True,
+                "illumination": 500,
+                "frequency": 0.8,
+                "pulse_width": 10,   # ms — the regime the bug affected
+                "pulse_count": 10,
+            },
+        },
+    )
+
+    start_event = threading.Event()
+    stop_event = threading.Event()
+    thread = threading.Thread(
+        target=scheduler.run, args=(start_event, stop_event),
+        name="stim-scheduler-regression-test",
+    )
+    thread.start()
+    start_event.set()
+
+    # Schedule horizon: 10 pulses at 0.8 Hz = 9 * 1.25 s + 10 ms ~= 11.26 s.
+    # Allow a generous join margin.
+    thread.join(timeout=15.0)
+    assert not thread.is_alive(), "Scheduler thread did not exit in time"
+
+    green_ch = scope.color2ch("Green")
+    ons = [t for (a, c, _mA, t) in scope.events if a == "on" and c == green_ch]
+    offs = [t for (a, c, _mA, t) in scope.events if a == "off" and c == green_ch]
+    # Scheduler issues a final cleanup `led_off_fast` in its finally block, so
+    # OFF count is 10 (scheduled) + 1 (cleanup) = 11. Pair each ON with the
+    # first OFF after it.
+    assert len(ons) == 10, f"Expected 10 ON edges, got {len(ons)}"
+    assert len(offs) >= 10, f"Expected >=10 OFF edges, got {len(offs)}"
+
+    paired_offs = []
+    off_iter = iter(offs)
+    next_off = next(off_iter, None)
+    for on in ons:
+        while next_off is not None and next_off < on:
+            next_off = next(off_iter, None)
+        assert next_off is not None, (
+            f"Could not find a matching OFF edge for ON at {on}"
+        )
+        paired_offs.append(next_off)
+        next_off = next(off_iter, None)
+
+    pulse_widths_ms = [(off - on) * 1000.0 for on, off in zip(ons, paired_offs)]
+    widths = np.asarray(pulse_widths_ms, dtype=float)
+    stddev_ms = float(widths.std(ddof=0))
+    worst_err_ms = float(np.max(np.abs(widths - 10.0)))
+    mean_ms = float(widths.mean())
+
+    # One-run record: printed so the run log shows what this machine measured
+    # on the day the test was added (see DAILY_LOG 2026-04-19 / 2026-04-20).
+    print(
+        f"\n[pulse-width-jitter] n=10 target=10.0 ms "
+        f"mean={mean_ms:.3f} ms stddev={stddev_ms:.3f} ms "
+        f"worst_err={worst_err_ms:.3f} ms "
+        f"widths={[round(w, 3) for w in pulse_widths_ms]}"
+    )
+
+    # Thresholds: headline pass line from the post-bench TODO. A GIL-yielding
+    # spin produces stddev ~5.9 ms and worst-case ~16 ms, so these catch the
+    # regression with ~2x margin on the busy-wait baseline.
+    assert stddev_ms < 3.0, (
+        f"Pulse-width stddev {stddev_ms:.2f} ms exceeds 3.0 ms — suggests "
+        f"_wait_until's final spin is yielding the GIL (regression of the "
+        f"busy-wait fix). Widths: {pulse_widths_ms}"
+    )
+    assert worst_err_ms < 10.0, (
+        f"Worst-case pulse-width error {worst_err_ms:.2f} ms exceeds 10.0 ms "
+        f"— suggests _wait_until's final spin is yielding the GIL (regression "
+        f"of the busy-wait fix). Widths: {pulse_widths_ms}"
+    )
+
+
 def test_video_capture_session_creates_one_stim_thread(monkeypatch):
     created_threads = []
 

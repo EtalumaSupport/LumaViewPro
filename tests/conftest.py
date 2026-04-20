@@ -131,6 +131,8 @@ def pytest_addoption(parser):
           help="Run IDS Peak hardware tests (real SDK + connected camera)")
     _safe("--run-pylon-hardware", action="store_true", default=False,
           help="Run Pylon hardware tests (real SDK + connected camera)")
+    _safe("--run-timing-sensitive", action="store_true", default=False,
+          help="Run wall-clock timing-sensitive tests (can be flaky under load)")
 
 
 def pytest_configure(config):
@@ -145,13 +147,19 @@ def pytest_configure(config):
         "pylon_hardware: requires real Pylon SDK + connected camera "
         "(only runs with --run-pylon-hardware)",
     )
+    config.addinivalue_line(
+        "markers",
+        "timing_sensitive: measures wall-clock timing and can be flaky "
+        "under CI/load (only runs with --run-timing-sensitive)",
+    )
 
 
 def pytest_collection_modifyitems(config, items):
     """Skip hardware-marked tests unless the matching opt-in flag is set."""
     gates = [
-        ("ids_hardware",   "--run-ids-hardware"),
-        ("pylon_hardware", "--run-pylon-hardware"),
+        ("ids_hardware",    "--run-ids-hardware"),
+        ("pylon_hardware",  "--run-pylon-hardware"),
+        ("timing_sensitive", "--run-timing-sensitive"),
     ]
     for marker, flag in gates:
         if config.getoption(flag, default=False):
