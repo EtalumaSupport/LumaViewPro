@@ -900,6 +900,48 @@ class SequencedCaptureExecutor:
         pulse_width = stim_config['pulse_width']
         pulse_count = stim_config['pulse_count']
 
+        # Firmware-side STIM fast path (LED firmware v3.0.8+). Host-side pulse
+        # scheduling is unreliable at short pulse widths because the USB-UART
+        # bridge batches back-to-back writes — host intent of N ms inter-command
+        # gap collapses to ~3 ms at the firmware (measured 2026-04-20). Firmware
+        # STIM runs the train with sub-microsecond accuracy. Falls back to the
+        # host-edge path below if the firmware lacks support.
+        if (frequency > 0
+                and hasattr(self._scope, 'supports_firmware_stim')
+                and hasattr(self._scope, 'stim_pulse_train')
+                and self._scope.supports_firmware_stim()):
+            period_ms = int(round(1000.0 / float(frequency)))
+            width_ms = int(round(float(pulse_width)))
+            if width_ms >= period_ms:
+                # Firmware enforces width < period. Cap width to 90% of period
+                # to match host-side behavior on the same edge case.
+                width_ms = max(1, int(period_ms * 0.9))
+                logger.warning(
+                    f"[STIMULATOR] {color}: pulse_width clamped to {width_ms} ms "
+                    f"(must be < period {period_ms} ms)")
+            try:
+                start_event.wait()
+                if stop_event.is_set():
+                    logger.info(f"[STIMULATOR] {color} stop_event set before firmware STIM; aborting")
+                    return
+                logger.info(
+                    f"[STIMULATOR] {color} firmware STIM {int(round(illumination))} mA, "
+                    f"{width_ms} ms width, {period_ms} ms period, {int(pulse_count)} pulses")
+                ok = self._scope.stim_pulse_train(
+                    color=color,
+                    mA=illumination,
+                    pulse_width_ms=width_ms,
+                    period_ms=period_ms,
+                    pulse_count=int(pulse_count),
+                )
+                if ok:
+                    logger.info(f"[STIMULATOR] {color} firmware STIM complete")
+                    return
+                logger.warning(
+                    f"[STIMULATOR] {color} firmware STIM failed, falling back to host-edge scheduler")
+            except Exception:
+                logger.exception(f"[STIMULATOR] {color} firmware STIM raised; falling back to host")
+
         # Optional: reduce Windows timer quantum to 1 ms during stimulation
         time_period_set = False
         if sys.platform.startswith('win'):

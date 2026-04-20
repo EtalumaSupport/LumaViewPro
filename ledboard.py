@@ -300,4 +300,106 @@ class LEDBoard:
         command = 'LEDS_OFF'
         self._write_command_fast(command)
 
+    def supports_firmware_stim(self):
+        """Probe firmware for STIM command support. Result cached after first call.
+
+        Needed because host-side pulse scheduling is unreliable at short pulse
+        widths — the USB-UART bridge batches back-to-back writes so the firmware
+        sees ON/OFF ~3 ms apart regardless of host spacing (measured 2026-04-20).
+        Firmware-side STIM (v3.0.8+) runs the pulse train in firmware with
+        sub-microsecond timing accuracy.
+        """
+        if hasattr(self, '_supports_stim_cached'):
+            return self._supports_stim_cached
+        with self.com_lock:
+            if self.driver is False:
+                return False
+            # STIM 0 0 1 2 1 is intentionally invalid (mA=0) — the STIM parser
+            # rejects with "STIM: mA must be > 0". Pre-v3.0.8 firmware returns
+            # "Command not recognized". Either tells us whether STIM exists.
+            saved_timeout = self.driver.timeout
+            self.driver.timeout = 1.0
+            try:
+                self.driver.flushInput()
+                self.driver.flush()
+                self.driver.write(b'STIM 0 0 1 2 1\n')
+                got_stim = False
+                import time as _t
+                deadline = _t.time() + 1.5
+                while _t.time() < deadline:
+                    line = self.driver.readline()
+                    if not line:
+                        break
+                    s = line.decode('utf-8', 'ignore').strip()
+                    if s.startswith('STIM'):
+                        got_stim = True
+                        break
+                    if 'Command not recognized' in s:
+                        got_stim = False
+                        break
+                self._supports_stim_cached = got_stim
+                logger.info('[LED Class ] firmware STIM support: %s', got_stim)
+                return got_stim
+            except Exception:
+                logger.exception('[LED Class ] supports_firmware_stim probe failed')
+                self._supports_stim_cached = False
+                return False
+            finally:
+                if self.driver is not False:
+                    self.driver.timeout = saved_timeout
+
+    def stim_pulse_train(self, channel, mA, pulse_width_ms, period_ms, pulse_count):
+        """Fire a pulse train via firmware STIM command (v3.0.8+).
+
+        Returns True on firmware confirmation, False on timeout / error.
+        Blocks for approximately (pulse_count * period_ms) plus round-trip.
+        Caller should confirm supports_firmware_stim() first.
+        """
+        import time as _t
+        with self.com_lock:
+            if self.driver is False:
+                logger.error('[LED Class ] stim_pulse_train: not connected')
+                return False
+
+            cmd = 'STIM {} {} {} {} {}'.format(
+                int(channel), int(round(mA)), int(pulse_width_ms),
+                int(period_ms), int(pulse_count))
+
+            # Expected train duration + margin
+            timeout_s = (pulse_count * period_ms) / 1000.0 + 3.0
+            saved_timeout = self.driver.timeout
+            self.driver.timeout = max(timeout_s, 3.0)
+
+            try:
+                self.driver.flushInput()
+                self.driver.flush()
+                _t.sleep(0.001)
+                self.driver.write(cmd.encode('utf-8') + b'\n')
+
+                deadline = _t.time() + timeout_s + 1.0
+                while _t.time() < deadline:
+                    line = self.driver.readline()
+                    if not line:
+                        break
+                    s = line.decode('utf-8', 'ignore').strip()
+                    if s.startswith('STIM') and 'complete' in s:
+                        logger.info('[LED Class ] stim_pulse_train(%s) OK: %s', cmd, s)
+                        # Update state cache: channel is OFF after train
+                        color = self.ch2color(channel=channel)
+                        if color:
+                            self.led_ma[color] = -1
+                        return True
+                    if s.startswith('STIM') and ':' in s and 'complete' not in s:
+                        logger.warning('[LED Class ] stim_pulse_train firmware error: %s', s)
+                        return False
+                    # echo or noise: keep reading
+                logger.warning('[LED Class ] stim_pulse_train(%s) timed out', cmd)
+                return False
+            except Exception:
+                logger.exception('[LED Class ] stim_pulse_train exception')
+                return False
+            finally:
+                if self.driver is not False:
+                    self.driver.timeout = saved_timeout
+
 

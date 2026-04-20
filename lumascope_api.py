@@ -255,6 +255,42 @@ class Lumascope():
         if not self.led: return
         self.led.leds_off_fast()
 
+    def supports_firmware_stim(self):
+        """Return True if LED firmware supports the STIM pulse-train command (v3.0.8+).
+
+        Host-side pulse scheduling is unreliable at short pulse widths because
+        the USB-UART bridge batches writes (measured 2026-04-20: host-scheduled
+        50 ms pulses collapse to ~3 ms actual on-time at the firmware). When
+        firmware-side STIM is available it replaces the per-edge host loop with
+        a single command and sub-microsecond hardware timing.
+        """
+        if not self.led:
+            return False
+        return self.led.supports_firmware_stim()
+
+    def stim_pulse_train(self, color, mA, pulse_width_ms, period_ms, pulse_count):
+        """Fire a pulse train using firmware-side STIM (v3.0.8+).
+
+        Args:
+            color: channel name (e.g. 'Green') or integer channel number.
+            mA: illumination current during pulses (must be > 0).
+            pulse_width_ms: ON duration per pulse.
+            period_ms: ON-to-ON interval (must be > pulse_width_ms).
+            pulse_count: number of pulses in the train.
+
+        Returns True on firmware confirmation, False on timeout / error /
+        firmware lacking STIM support. Blocks for approximately
+        (pulse_count * period_ms) plus command round-trip.
+        """
+        if not self.led:
+            return False
+        if isinstance(color, str):
+            channel = self.color2ch(color=color)
+        else:
+            channel = color
+        return self.led.stim_pulse_train(
+            channel, mA, pulse_width_ms, period_ms, pulse_count)
+
     def leds_off(self):
         """ LED BOARD FUNCTIONS
         Turn off all LEDs """
