@@ -294,6 +294,38 @@ scope.ch2color(0)                         # 'Blue'
 
 **Safety limits** (enforced by firmware on RP2040 boards): per-channel max 1000 mA, board total max 3000 mA. FX2 boards have their own per-channel cap declared in the camera profile.
 
+#### Stimulation pulse trains — firmware-side timing (LED firmware v3.0.8+)
+
+For optogenetic stimulation, prefer `scope.stim_pulse_train()` over scheduling pulses with `led_on_fast` / `led_off_fast` from your own loop. Host-side scheduling at short pulse widths (< ~20 ms) is unreliable because the USB-UART bridge batches back-to-back fast-path writes — host-scheduled 50 ms pulses physically collapse to ~3 ms LED on-time. Firmware-side STIM runs the entire train inside the LED board with sub-microsecond pulse-edge accuracy (~20 µs per-pulse error measured across 5-25 ms widths and 0.5-6 Hz rates).
+
+```python
+# Always probe first — falls back to host scheduling on older firmware
+if scope.supports_firmware_stim():
+    ok = scope.stim_pulse_train(
+        color='Green',
+        mA=500,
+        pulse_width_ms=10,
+        period_ms=1000,    # ON-to-ON interval; period > pulse_width
+        pulse_count=10,
+    )
+    if not ok:
+        # Train didn't complete — log, optionally retry
+        ...
+else:
+    # Pre-v3.0.8 firmware: write your own loop with led_on_fast / led_off_fast
+    # Pulse widths < 20 ms will be unreliable on Windows under typical load.
+    ...
+```
+
+`stim_pulse_train` blocks the calling thread for approximately `pulse_count × period_ms` plus command round-trip (~20 ms). Returns `True` on firmware confirmation, `False` on timeout / firmware error / lack of STIM support. Updates the LED state cache to OFF on completion. Channel argument accepts color name or integer channel.
+
+Limitations:
+- Single-channel only. Concurrent multi-channel stim is not supported by the firmware command — you must call `stim_pulse_train` sequentially per channel, or fall back to host-side scheduling for parallel channels.
+- Firmware main loop blocks for the train duration; STOP and other commands are not serviced until the train completes. Treat `stim_pulse_train` as a single transaction and don't issue concurrent LED/motor commands.
+- Same `CH_MAX` (1000 mA) and `BOARD_MAX` (3000 mA) safety caps apply.
+
+`scope.supports_firmware_stim()` runs a one-shot capability probe on the LED board (~1.5 s the first time, cached after). Safe to call from setup code.
+
 #### State queries — read from the API, never the driver
 
 Lumascope holds the authoritative LED state in an internal cache. The API layer's `get_led_state()` / `led_enabled()` / `led_illumination()` read from that cache. **Never call the driver's state methods directly** — for FX2 scopes the driver is a pure command translator and its state queries return sentinels.
