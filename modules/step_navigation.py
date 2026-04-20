@@ -185,10 +185,13 @@ def go_to_step_update_ui(step):
     ctx.image_settings.ids['toggle_imagesettings'].state = 'down'
     ctx.image_settings.toggle_settings()
 
-    # Expand accordion to step's channel (skip during protocol to prevent memory leaks)
-    if not protocol_running_global.is_set():
-        accordion_item_obj = ctx.image_settings.accordion_item_lookup(layer=color)
-        accordion_item_obj.collapse = False
+    # Expand accordion to step's channel and collapse the others. Direct
+    # `collapse = False` on a single item doesn't propagate to siblings in
+    # Kivy's Accordion — only user clicks auto-collapse others — so stepping
+    # from Green -> Red left the Green panel visually expanded. set_expanded_layer
+    # iterates all layers and has its own protocol_running guard + ScrollView
+    # cleanup, so call it unconditionally.
+    ctx.image_settings.set_expanded_layer(layer=color)
 
     # Delegate all per-layer widget updates to LayerControl
     layer_obj.set_step_state(step)
