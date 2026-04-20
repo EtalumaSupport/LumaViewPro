@@ -942,8 +942,17 @@ class SerialBoard:
                     self.driver.timeout = saved_timeout
 
     def _write_command_fast(self, command: str):
-        """Write-only fast path: send command without reading a response."""
+        """Write-only fast path: send command without reading a response.
+
+        Emits a FAST entry to serial.log with lock-wait, write, and total
+        timing — the exchange_command path logs end-to-end duration, but the
+        fast path is exactly what stim uses and without this line every stim
+        write is invisible in serial.log. Also reports in_waiting at entry so
+        response backlog from prior fast-path writes shows up in the trace.
+        """
+        t_enter = time.monotonic()
         with self._lock:
+            t_lock = time.monotonic()
             if self.driver is None:
                 try:
                     self.connect()
@@ -953,7 +962,13 @@ class SerialBoard:
             if self.driver is None:
                 return
 
+            try:
+                in_waiting = self.driver.in_waiting
+            except Exception:
+                in_waiting = -1
+
             stream = command.encode('utf-8') + b"\n"
+            t_before_write = time.monotonic()
             try:
                 self.driver.write(stream)
             except Exception as e:
@@ -964,6 +979,17 @@ class SerialBoard:
                     logger.error(f'{self._label} _write_command_fast({command}) failed: {e}')
                     self._last_error_log_time = now
                 self._close_driver()
+                return
+
+            t_after_write = time.monotonic()
+            lock_wait_ms = (t_lock - t_enter) * 1000
+            write_ms = (t_after_write - t_before_write) * 1000
+            total_ms = (t_after_write - t_enter) * 1000
+            _serial_log.info(
+                f'{self._label} FAST {command}: {len(stream)}B '
+                f'in_waiting={in_waiting}B lock_wait={lock_wait_ms:.2f}ms '
+                f'write={write_ms:.2f}ms total={total_ms:.2f}ms'
+            )
 
     # ------------------------------------------------------------------
     # Raw REPL — file operations on board filesystem
