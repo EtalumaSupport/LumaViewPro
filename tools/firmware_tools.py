@@ -11,6 +11,8 @@ Usage:
     python -m tools.firmware_tools homing-test          # 50-cycle homing endurance
     python -m tools.firmware_tools homing-test --cycles 100 --axes Z T
     python -m tools.firmware_tools info                 # show board info
+    python -m tools.firmware_tools deploy --board motor --firmware path/to/main.py
+    python -m tools.firmware_tools deploy --board led   --firmware path/to/main.py
 """
 
 import argparse
@@ -428,6 +430,85 @@ def _print_homing_summary(results, axes):
 
 
 # ---------------------------------------------------------------------------
+# deploy — firmware update via Lumascope API (Phase 4E)
+# ---------------------------------------------------------------------------
+
+def cmd_deploy(args):
+    """Deploy firmware via Lumascope.update_*_firmware API methods.
+
+    Routes through modules.lumascope_api so GUI + CLI + automated tests
+    share the same entry point. Does not reach into drivers.firmware_
+    updater directly.
+    """
+    from modules.lumascope_api import Lumascope
+
+    method = args.method
+    board = args.board
+    fw_path = Path(args.firmware)
+
+    if not fw_path.is_file():
+        print(f'ERROR: firmware file not found: {fw_path}')
+        sys.exit(1)
+
+    if board == 'led' and method == 'uf2':
+        print('ERROR: LED board has no direct USB — UF2 path is not '
+              'supported. Use --method repl.')
+        sys.exit(1)
+
+    def _progress(stage, msg, fraction):
+        pct = int(fraction * 100)
+        print(f'  [{pct:3d}%] {stage.value}: {msg}')
+
+    print('Constructing diagnostic Lumascope (LED + motor, no camera)...')
+    # create_diagnostic is the no-camera __new__ path used by tech-support
+    # tooling; wires the full motion-monitor + Phase 4D event callbacks
+    # through the same code as __init__ without paying the camera init
+    # cost.
+    scope = Lumascope.create_diagnostic()
+
+    print(f'Deploying firmware to {board} board via {method} '
+          f'({fw_path.stat().st_size} bytes from {fw_path})...')
+
+    if board == 'motor':
+        if method == 'repl':
+            result = scope.update_motor_firmware(
+                str(fw_path), progress_callback=_progress,
+                skip_config_backup=args.skip_config_backup,
+                skip_post_test=args.skip_post_test,
+            )
+        else:  # uf2
+            result = scope.update_motor_firmware_uf2(
+                str(fw_path), progress_callback=_progress,
+                skip_config_backup=args.skip_config_backup,
+                skip_post_test=args.skip_post_test,
+            )
+    else:  # led
+        result = scope.update_led_firmware(
+            str(fw_path), progress_callback=_progress,
+            skip_config_backup=args.skip_config_backup,
+            skip_post_test=args.skip_post_test,
+        )
+
+    print()
+    print('=== UpdateResult ===')
+    print(f'  success:       {result.success}')
+    print(f'  board_type:    {result.board_type}')
+    print(f'  old_version:   {result.old_version}')
+    print(f'  new_version:   {result.new_version}')
+    print(f'  backup_path:   {result.config_backup_path}')
+    if result.error_stage is not None:
+        print(f'  error_stage:   {result.error_stage}')
+    if result.error_message:
+        print(f'  error_message: {result.error_message}')
+    if result.warnings:
+        print(f'  warnings:')
+        for w in result.warnings:
+            print(f'    - {w}')
+
+    sys.exit(0 if result.success else 2)
+
+
+# ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
 
@@ -461,6 +542,19 @@ def main():
                         dest='move_between',
                         help='Skip intermediate moves')
 
+    # deploy (Phase 4E)
+    p_deploy = sub.add_parser('deploy', help='Deploy firmware via Lumascope API')
+    p_deploy.add_argument('--board', choices=['motor', 'led'], required=True,
+                          help='Target board')
+    p_deploy.add_argument('--firmware', required=True,
+                          help='Path to main.py (repl) or UF2 file (uf2)')
+    p_deploy.add_argument('--method', choices=['repl', 'uf2'], default='repl',
+                          help='Deploy method (default: repl). UF2 is motor-only.')
+    p_deploy.add_argument('--skip-config-backup', action='store_true',
+                          help='Skip motorconfig/cal backup')
+    p_deploy.add_argument('--skip-post-test', action='store_true',
+                          help='Skip post-update verification')
+
     args = parser.parse_args()
     if args.command is None:
         parser.print_help()
@@ -471,6 +565,7 @@ def main():
         'backup': cmd_backup,
         'push-ini': cmd_push_ini,
         'homing-test': cmd_homing_test,
+        'deploy': cmd_deploy,
     }
     commands[args.command](args)
 

@@ -508,6 +508,224 @@ class Lumascope():
         if self._motion_monitor_thread.is_alive():
             self._motion_monitor_thread.join(timeout=1.0)
 
+    # --- Firmware update (Phase 4E) ---
+    #
+    # API-level orchestration of the production firmware_updater. Callers
+    # (CLI tool, GUI, engineering plugin, automated tests) go through one
+    # of the two methods below; none reach into drivers.firmware_updater
+    # directly. The API owns the scope's driver lifecycle — disconnecting
+    # the active driver before the deploy so firmware_updater can claim
+    # the port, replacing it with a Null driver so concurrent callers
+    # (including the motion monitor thread) safely no-op during the
+    # ~15-second deploy window, then rebuilding via the same registry
+    # path __init__ used and rewiring Phase 4D event callbacks.
+
+    def update_motor_firmware(self, firmware_path, progress_callback=None,
+                              skip_config_backup=False, skip_post_test=False):
+        """Deploy a new motor-board main.py via raw REPL.
+
+        Uses drivers.firmware_updater.deploy_firmware_file unchanged; this
+        wrapper coordinates Lumascope's own state (motion driver, FW4.0
+        event subsystem, motion monitor).
+
+        Args:
+            firmware_path: Path to main.py to deploy.
+            progress_callback: Optional (stage, message, fraction) callback.
+            skip_config_backup: Skip motorconfig.json + *.ini backup.
+            skip_post_test: Skip the post-update INFO/STATUS verification.
+
+        Returns:
+            UpdateResult from firmware_updater. Check result.success.
+        """
+        from drivers.firmware_updater import (
+            deploy_firmware_file, BoardType, UpdateResult, UpdateStage,
+        )
+
+        # Simulator short-circuit. A simulated Lumascope has no real serial
+        # port to hand off; we report success without touching anything.
+        if (getattr(self, '_simulated', False)
+                or isinstance(self.motion, NullMotionBoard)
+                or self.motion.__class__.__name__ == 'SimulatedMotorBoard'):
+            r = UpdateResult(success=True, board_type=BoardType.MOTOR)
+            r.old_version = 'simulated'
+            r.new_version = 'simulated'
+            logger.info('[SCOPE API ] update_motor_firmware: simulator short-circuit')
+            return r
+
+        # Quiesce: disable FW4.0 event push (if active), disconnect the
+        # real driver, swap in a Null so the motion monitor / any other
+        # caller harmlessly no-ops during the deploy.
+        if hasattr(self.motion, 'motion_events_off'):
+            try:
+                self.motion.motion_events_off()
+            except Exception as e:
+                logger.warning(f'[SCOPE API ] update_motor_firmware: motion_events_off failed: {e}')
+        try:
+            self.motion.disconnect()
+        except Exception as e:
+            logger.warning(f'[SCOPE API ] update_motor_firmware: motion.disconnect failed: {e}')
+        self.motion = NullMotionBoard()
+        self._motion_poll_interval = self._MOTION_POLL_INTERVAL
+
+        result = None
+        try:
+            result = deploy_firmware_file(
+                BoardType.MOTOR, firmware_path,
+                progress_callback=progress_callback,
+                skip_config_backup=skip_config_backup,
+                skip_post_test=skip_post_test,
+            )
+        finally:
+            # Reconnect the real driver through the same registry path
+            # __init__ used, then rewire Phase 4D event callbacks. Any
+            # failure (e.g., firmware didn't come back up cleanly) leaves
+            # the scope with a NullMotionBoard so it stays usable.
+            try:
+                self.motion = motor_registry.create('auto', simulate=False)
+                if hasattr(self.motion, 'set_arrived_callback'):
+                    self.motion.set_arrived_callback(self._on_axis_arrived)
+                if hasattr(self.motion, 'set_homed_callback'):
+                    self.motion.set_homed_callback(self._on_axis_homed)
+                if (hasattr(self.motion, 'motion_events_on')
+                        and hasattr(self.motion, 'has_feature')
+                        and self.motion.has_feature('events')):
+                    if self.motion.motion_events_on():
+                        self._motion_poll_interval = 0.5
+                # Capabilities may have changed (new firmware, new
+                # features). Rebuild so callers see the updated surface.
+                self.capabilities = ScopeCapabilities.from_drivers(
+                    motion=self.motion, led=self.led,
+                    camera=self.camera, led_max_ma=self.LED_MAX_MA,
+                )
+            except Exception as e:
+                logger.error(f'[SCOPE API ] update_motor_firmware: reconnect failed: {e}')
+                self.motion = NullMotionBoard()
+                if result is not None:
+                    result.warnings.append(f'Post-update reconnect failed: {e}')
+
+        return result
+
+    def update_motor_firmware_uf2(self, uf2_path, progress_callback=None,
+                                  skip_config_backup=False, skip_post_test=False):
+        """Deploy a full MicroPython + main.py UF2 to the motor board.
+
+        Uses the FWUPDATE → bootloader → UF2 copy path (firmware_updater.
+        update_firmware). Needed when the MicroPython runtime itself is
+        changing (e.g. 1.19 → 1.28), not just main.py. Motor only — the
+        LED board has no direct USB to the RP2040 and cannot UF2-flash
+        in the field.
+
+        Same scope-lifecycle coordination as update_motor_firmware: events
+        off, disconnect, deploy, reconnect, rewire Phase 4D callbacks,
+        rebuild capabilities.
+        """
+        from drivers.firmware_updater import (
+            update_firmware, BoardType, UpdateResult,
+        )
+
+        if (getattr(self, '_simulated', False)
+                or isinstance(self.motion, NullMotionBoard)
+                or self.motion.__class__.__name__ == 'SimulatedMotorBoard'):
+            r = UpdateResult(success=True, board_type=BoardType.MOTOR)
+            r.old_version = 'simulated'
+            r.new_version = 'simulated'
+            logger.info('[SCOPE API ] update_motor_firmware_uf2: simulator short-circuit')
+            return r
+
+        if hasattr(self.motion, 'motion_events_off'):
+            try:
+                self.motion.motion_events_off()
+            except Exception as e:
+                logger.warning(f'[SCOPE API ] update_motor_firmware_uf2: motion_events_off failed: {e}')
+        try:
+            self.motion.disconnect()
+        except Exception as e:
+            logger.warning(f'[SCOPE API ] update_motor_firmware_uf2: motion.disconnect failed: {e}')
+        self.motion = NullMotionBoard()
+        self._motion_poll_interval = self._MOTION_POLL_INTERVAL
+
+        result = None
+        try:
+            result = update_firmware(
+                BoardType.MOTOR, uf2_path,
+                progress_callback=progress_callback,
+                skip_config_backup=skip_config_backup,
+                skip_post_test=skip_post_test,
+            )
+        finally:
+            try:
+                self.motion = motor_registry.create('auto', simulate=False)
+                if hasattr(self.motion, 'set_arrived_callback'):
+                    self.motion.set_arrived_callback(self._on_axis_arrived)
+                if hasattr(self.motion, 'set_homed_callback'):
+                    self.motion.set_homed_callback(self._on_axis_homed)
+                if (hasattr(self.motion, 'motion_events_on')
+                        and hasattr(self.motion, 'has_feature')
+                        and self.motion.has_feature('events')):
+                    if self.motion.motion_events_on():
+                        self._motion_poll_interval = 0.5
+                self.capabilities = ScopeCapabilities.from_drivers(
+                    motion=self.motion, led=self.led,
+                    camera=self.camera, led_max_ma=self.LED_MAX_MA,
+                )
+            except Exception as e:
+                logger.error(f'[SCOPE API ] update_motor_firmware_uf2: reconnect failed: {e}')
+                self.motion = NullMotionBoard()
+                if result is not None:
+                    result.warnings.append(f'Post-update reconnect failed: {e}')
+
+        return result
+
+    def update_led_firmware(self, firmware_path, progress_callback=None,
+                            skip_config_backup=False, skip_post_test=False):
+        """Deploy a new LED-board main.py via raw REPL.
+
+        Same contract as update_motor_firmware, but for the LED board.
+        LED firmware has no event subsystem yet (deferred to FW4.1), so
+        no callback rewire — just driver-lifecycle coordination.
+        """
+        from drivers.firmware_updater import (
+            deploy_firmware_file, BoardType, UpdateResult, UpdateStage,
+        )
+
+        if (getattr(self, '_simulated', False)
+                or isinstance(self.led, NullLEDBoard)
+                or self.led.__class__.__name__ == 'SimulatedLEDBoard'):
+            r = UpdateResult(success=True, board_type=BoardType.LED)
+            r.old_version = 'simulated'
+            r.new_version = 'simulated'
+            logger.info('[SCOPE API ] update_led_firmware: simulator short-circuit')
+            return r
+
+        try:
+            self.led.disconnect()
+        except Exception as e:
+            logger.warning(f'[SCOPE API ] update_led_firmware: led.disconnect failed: {e}')
+        self.led = NullLEDBoard()
+
+        result = None
+        try:
+            result = deploy_firmware_file(
+                BoardType.LED, firmware_path,
+                progress_callback=progress_callback,
+                skip_config_backup=skip_config_backup,
+                skip_post_test=skip_post_test,
+            )
+        finally:
+            try:
+                self.led = led_registry.create('auto', simulate=False)
+                self.capabilities = ScopeCapabilities.from_drivers(
+                    motion=self.motion, led=self.led,
+                    camera=self.camera, led_max_ma=self.LED_MAX_MA,
+                )
+            except Exception as e:
+                logger.error(f'[SCOPE API ] update_led_firmware: reconnect failed: {e}')
+                self.led = NullLEDBoard()
+                if result is not None:
+                    result.warnings.append(f'Post-update reconnect failed: {e}')
+
+        return result
+
     def _load_camera_timing(self):
         """Load per-camera timing config if available.
 
