@@ -458,6 +458,11 @@ class ScopeDisplay(Image):
     def set_camera_disconnected_display(self):
         self.source = "./data/icons/camera_to_USB.png"
         self.camera_disconnected_display_set = True
+        # Drop the bullseye RGB scratch buffer so a reconnect at a
+        # different camera resolution doesn't retain the old allocation
+        # (swapping 2K→4K→2K otherwise leaks ~60 MB per cycle).
+        self._bullseye_rgb_buf = None
+        self._bullseye_buf_shape = None
         return
 
     def source_clear(self):
