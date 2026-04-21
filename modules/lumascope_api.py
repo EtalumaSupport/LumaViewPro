@@ -676,6 +676,79 @@ class Lumascope():
 
         return result
 
+    def factory_reset_motor(self, nuke_uf2_path, runtime_uf2_path,
+                            main_py_path, progress_callback=None,
+                            skip_post_test=False):
+        """Full factory-reset recovery for the motor board.
+
+        Use when motor firmware is broken in a way that blocks raw REPL
+        (e.g. a main.py that wraps stdout in machine.disable_irq, killing
+        Ctrl-C delivery). Chains nuke → runtime UF2 flash → main.py push
+        — three firmware_updater primitives — in one API call.
+
+        Motor only. LED boards have no direct USB, so their factory reset
+        needs physical BOOTSEL access.
+
+        Same scope-lifecycle coordination as update_motor_firmware_uf2:
+        events off, disconnect, run factory_reset_motor_board, reconnect,
+        rewire Phase 4D callbacks, rebuild capabilities.
+        """
+        from drivers.firmware_updater import (
+            factory_reset_motor_board, BoardType, UpdateResult,
+        )
+
+        if (getattr(self, '_simulated', False)
+                or isinstance(self.motion, NullMotionBoard)
+                or self.motion.__class__.__name__ == 'SimulatedMotorBoard'):
+            r = UpdateResult(success=True, board_type=BoardType.MOTOR)
+            r.old_version = 'simulated'
+            r.new_version = 'simulated'
+            logger.info('[SCOPE API ] factory_reset_motor: simulator short-circuit')
+            return r
+
+        if hasattr(self.motion, 'motion_events_off'):
+            try:
+                self.motion.motion_events_off()
+            except Exception as e:
+                logger.warning(f'[SCOPE API ] factory_reset_motor: motion_events_off failed: {e}')
+        try:
+            self.motion.disconnect()
+        except Exception as e:
+            logger.warning(f'[SCOPE API ] factory_reset_motor: motion.disconnect failed: {e}')
+        self.motion = NullMotionBoard()
+        self._motion_poll_interval = self._MOTION_POLL_INTERVAL
+
+        result = None
+        try:
+            result = factory_reset_motor_board(
+                nuke_uf2_path, runtime_uf2_path, main_py_path,
+                progress_callback=progress_callback,
+                skip_post_test=skip_post_test,
+            )
+        finally:
+            try:
+                self.motion = motor_registry.create('auto', simulate=False)
+                if hasattr(self.motion, 'set_arrived_callback'):
+                    self.motion.set_arrived_callback(self._on_axis_arrived)
+                if hasattr(self.motion, 'set_homed_callback'):
+                    self.motion.set_homed_callback(self._on_axis_homed)
+                if (hasattr(self.motion, 'motion_events_on')
+                        and hasattr(self.motion, 'has_feature')
+                        and self.motion.has_feature('events')):
+                    if self.motion.motion_events_on():
+                        self._motion_poll_interval = 0.5
+                self.capabilities = ScopeCapabilities.from_drivers(
+                    motion=self.motion, led=self.led,
+                    camera=self.camera, led_max_ma=self.LED_MAX_MA,
+                )
+            except Exception as e:
+                logger.error(f'[SCOPE API ] factory_reset_motor: reconnect failed: {e}')
+                self.motion = NullMotionBoard()
+                if result is not None:
+                    result.warnings.append(f'Post-reset reconnect failed: {e}')
+
+        return result
+
     def update_led_firmware(self, firmware_path, progress_callback=None,
                             skip_config_backup=False, skip_post_test=False):
         """Deploy a new LED-board main.py via raw REPL.

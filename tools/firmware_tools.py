@@ -13,6 +13,8 @@ Usage:
     python -m tools.firmware_tools info                 # show board info
     python -m tools.firmware_tools deploy --board motor --firmware path/to/main.py
     python -m tools.firmware_tools deploy --board led   --firmware path/to/main.py
+    python -m tools.firmware_tools factory-reset --nuke-uf2 flash_nuke.uf2 \\
+         --runtime-uf2 motor_runtime.uf2 --main-py path/to/main.py
 """
 
 import argparse
@@ -509,6 +511,65 @@ def cmd_deploy(args):
 
 
 # ---------------------------------------------------------------------------
+# factory-reset — motor-only full recovery via Lumascope API (Phase 4F)
+# ---------------------------------------------------------------------------
+
+def cmd_factory_reset(args):
+    """Factory-reset a motor board whose firmware blocks raw REPL.
+
+    Chains nuke -> runtime UF2 flash -> main.py push via the
+    Lumascope.factory_reset_motor API method.
+    """
+    from modules.lumascope_api import Lumascope
+
+    nuke_uf2 = Path(args.nuke_uf2)
+    runtime_uf2 = Path(args.runtime_uf2)
+    main_py = Path(args.main_py)
+
+    for p, label in ((nuke_uf2, 'nuke UF2'),
+                     (runtime_uf2, 'runtime UF2'),
+                     (main_py, 'main.py')):
+        if not p.is_file():
+            print(f'ERROR: {label} not found: {p}')
+            sys.exit(1)
+
+    def _progress(stage, msg, fraction):
+        pct = int(fraction * 100)
+        print(f'  [{pct:3d}%] {stage.value}: {msg}')
+
+    print('Constructing diagnostic Lumascope (LED + motor, no camera)...')
+    scope = Lumascope.create_diagnostic()
+
+    print(f'Factory resetting motor board:')
+    print(f'  nuke UF2:    {nuke_uf2}')
+    print(f'  runtime UF2: {runtime_uf2}')
+    print(f'  main.py:     {main_py}')
+    print()
+
+    result = scope.factory_reset_motor(
+        str(nuke_uf2), str(runtime_uf2), str(main_py),
+        progress_callback=_progress,
+        skip_post_test=args.skip_post_test,
+    )
+
+    print()
+    print('=== UpdateResult ===')
+    print(f'  success:       {result.success}')
+    print(f'  old_version:   {result.old_version}')
+    print(f'  new_version:   {result.new_version}')
+    if result.error_stage is not None:
+        print(f'  error_stage:   {result.error_stage}')
+    if result.error_message:
+        print(f'  error_message: {result.error_message}')
+    if result.warnings:
+        print(f'  warnings:')
+        for w in result.warnings:
+            print(f'    - {w}')
+
+    sys.exit(0 if result.success else 2)
+
+
+# ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
 
@@ -555,6 +616,19 @@ def main():
     p_deploy.add_argument('--skip-post-test', action='store_true',
                           help='Skip post-update verification')
 
+    # factory-reset (Phase 4F) — motor-only recovery when raw REPL is broken
+    p_reset = sub.add_parser(
+        'factory-reset',
+        help='Full motor-board recovery: nuke -> runtime UF2 -> main.py push')
+    p_reset.add_argument('--nuke-uf2', required=True,
+                         help='Path to flash_nuke_rp2040.uf2 (wipes all flash)')
+    p_reset.add_argument('--runtime-uf2', required=True,
+                         help='Path to a clean MicroPython UF2 for the motor')
+    p_reset.add_argument('--main-py', required=True,
+                         help='Path to main.py to restore after reflash')
+    p_reset.add_argument('--skip-post-test', action='store_true',
+                         help='Skip post-update verification')
+
     args = parser.parse_args()
     if args.command is None:
         parser.print_help()
@@ -566,6 +640,7 @@ def main():
         'push-ini': cmd_push_ini,
         'homing-test': cmd_homing_test,
         'deploy': cmd_deploy,
+        'factory-reset': cmd_factory_reset,
     }
     commands[args.command](args)
 

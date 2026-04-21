@@ -1181,6 +1181,166 @@ def nuke_board(
         return result
 
 
+def factory_reset_motor_board(
+    nuke_uf2_path,
+    runtime_uf2_path,
+    main_py_path,
+    progress_callback=None,
+    skip_post_test=False,
+):
+    """Full factory-reset recovery for a motor board whose firmware has
+    left it in an unrecoverable state (e.g. main.py that blocks raw REPL
+    entry via machine.disable_irq in the stdout path).
+
+    Sequence:
+      1. nuke_board(MOTOR, nuke_uf2)     — erase all flash incl. filesystem
+      2. copy runtime_uf2 to BOOTSEL     — flash a clean MicroPython runtime
+      3. wait for serial port to appear  — runtime boots with empty fs
+      4. deploy_firmware_file(main.py)   — push known-good main.py via raw REPL
+
+    Step 3+4 work because nuke clears the filesystem; no broken main.py
+    blocks raw REPL after the runtime reboots.
+
+    Motor-only — LED boards have no direct USB; factory reset there
+    requires physical BOOTSEL access.
+
+    Args:
+        nuke_uf2_path: Path to flash_nuke_rp2040.uf2 (or rp2350 variant).
+        runtime_uf2_path: Path to a clean MicroPython UF2 for the motor.
+        main_py_path: Path to the main.py to restore after reflash.
+        progress_callback: Optional (stage, message, fraction) callback.
+        skip_post_test: Skip the final deploy_firmware_file post-update
+            check.
+
+    Returns:
+        UpdateResult. success=True only if all three phases completed.
+    """
+    board_type = BoardType.MOTOR
+    config = BOARD_CONFIGS[board_type]
+    result = UpdateResult(success=False, board_type=board_type)
+
+    nuke_uf2_path = Path(nuke_uf2_path)
+    runtime_uf2_path = Path(runtime_uf2_path)
+    main_py_path = Path(main_py_path)
+
+    try:
+        for p, label in ((nuke_uf2_path, 'nuke UF2'),
+                         (runtime_uf2_path, 'runtime UF2'),
+                         (main_py_path, 'main.py')):
+            if not p.is_file():
+                raise UpdateError(
+                    f"{label} not found: {p}",
+                    stage=UpdateStage.PREFLIGHT,
+                )
+
+        # ---- Phase 1: Nuke flash ----
+        _report_progress(progress_callback, UpdateStage.PREFLIGHT,
+                         "Phase 1/3: nuking flash...", 0.0)
+        nuke_result = nuke_board(
+            board_type, nuke_uf2_path,
+            progress_callback=progress_callback,
+        )
+        if not nuke_result.success:
+            raise UpdateError(
+                f"Phase 1 (nuke) failed: {nuke_result.error_message}",
+                stage=nuke_result.error_stage or UpdateStage.FAILED,
+            )
+        result.old_version = 'nuked'
+
+        # After nuke the board is in BOOTSEL with empty flash. Copy the
+        # runtime UF2 directly without invoking update_firmware (which
+        # expects a serial-connected board + pre-flight BOOTSEL check
+        # that would now fail because we're already in BOOTSEL).
+
+        # ---- Phase 2: Flash runtime UF2 ----
+        _report_progress(progress_callback, UpdateStage.COPYING_UF2,
+                         "Phase 2/3: flashing runtime UF2...", 0.35)
+        bootsel_drive = _wait_for_bootsel_drive(
+            timeout=config.bootsel_timeout)
+        if bootsel_drive is None:
+            raise UpdateError(
+                "BOOTSEL drive not found after nuke — cannot flash "
+                "runtime UF2. Manual recovery required (hold BOOTSEL + "
+                "replug USB).",
+                stage=UpdateStage.WAITING_BOOTSEL,
+                recoverable=False,
+            )
+        dest = bootsel_drive / runtime_uf2_path.name
+        shutil.copy2(runtime_uf2_path, dest)
+        logger.info(f"Runtime UF2 copied to {bootsel_drive}")
+
+        # Wait for drive to disappear (UF2 accepted), then for the
+        # board's serial port to reappear (runtime boots + enumerates).
+        time.sleep(POST_UF2_SETTLE_TIME)
+        _wait_for_drive_disappear(bootsel_drive)
+
+        _report_progress(progress_callback, UpdateStage.WAITING_REBOOT,
+                         "Phase 2/3: waiting for runtime to boot...", 0.55)
+        time.sleep(POST_REBOOT_SETTLE_TIME)
+        new_port = _wait_for_serial_port(
+            config.vid, config.pid,
+            timeout=config.serial_reappear_timeout,
+        )
+        if new_port is None:
+            raise UpdateError(
+                f"Serial port did not reappear within "
+                f"{config.serial_reappear_timeout}s after runtime flash. "
+                f"The runtime UF2 may be invalid or the board may need "
+                f"power-cycling.",
+                stage=UpdateStage.WAITING_REBOOT,
+                recoverable=False,
+            )
+        time.sleep(POST_REBOOT_SETTLE_TIME)
+
+        # ---- Phase 3: Push main.py via raw REPL ----
+        _report_progress(progress_callback, UpdateStage.RESTORING_CONFIG,
+                         "Phase 3/3: pushing main.py via raw REPL...", 0.75)
+
+        # Filesystem is empty after nuke — no main.py is running, so
+        # raw REPL entry works trivially (no command-loop to bypass).
+        # deploy_firmware_file handles its own connection + backup +
+        # write + reboot + post-test.
+        repl_result = deploy_firmware_file(
+            board_type, main_py_path,
+            progress_callback=progress_callback,
+            skip_config_backup=True,   # nuked filesystem — nothing to back up
+            skip_post_test=skip_post_test,
+        )
+        if not repl_result.success:
+            raise UpdateError(
+                f"Phase 3 (deploy main.py) failed: "
+                f"{repl_result.error_message}",
+                stage=repl_result.error_stage or UpdateStage.FAILED,
+            )
+
+        result.success = True
+        result.new_version = repl_result.new_version
+        result.warnings.extend(nuke_result.warnings or [])
+        result.warnings.extend(repl_result.warnings or [])
+        _report_progress(progress_callback, UpdateStage.COMPLETE,
+                         "Factory reset complete", 1.0)
+        logger.info(
+            f"Motor factory reset successful: runtime={runtime_uf2_path.name}, "
+            f"main.py={main_py_path.name}, new_version={result.new_version}"
+        )
+        return result
+
+    except UpdateError as e:
+        result.error_message = str(e)
+        result.error_stage = e.stage
+        logger.error(f"Factory reset failed at {e.stage.value}: {e}")
+        _report_progress(progress_callback, UpdateStage.FAILED, str(e), 0.0)
+        return result
+
+    except Exception as e:
+        result.error_message = f"Unexpected error: {e}"
+        result.error_stage = UpdateStage.FAILED
+        logger.error(f"Factory reset unexpected error: {e}", exc_info=True)
+        _report_progress(progress_callback, UpdateStage.FAILED,
+                         f"Unexpected error: {e}", 0.0)
+        return result
+
+
 def deploy_firmware_file(
     board_type,
     firmware_path,

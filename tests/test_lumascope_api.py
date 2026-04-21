@@ -831,5 +831,22 @@ class TestFirmwareUpdateAPI:
             assert callable(getattr(scope, 'update_motor_firmware', None))
             assert callable(getattr(scope, 'update_motor_firmware_uf2', None))
             assert callable(getattr(scope, 'update_led_firmware', None))
+            # Phase 4F
+            assert callable(getattr(scope, 'factory_reset_motor', None))
+        finally:
+            scope.disconnect()
+
+    def test_factory_reset_motor_simulator_returns_success(self):
+        """Phase 4F: factory_reset_motor simulator short-circuit."""
+        scope = Lumascope(simulate=True)
+        try:
+            result = scope.factory_reset_motor(
+                '/does/not/matter/nuke.uf2',
+                '/does/not/matter/runtime.uf2',
+                '/does/not/matter/main.py',
+            )
+            assert result.success is True
+            assert result.board_type == BoardType.MOTOR
+            assert result.new_version == 'simulated'
         finally:
             scope.disconnect()
