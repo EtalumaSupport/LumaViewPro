@@ -471,15 +471,26 @@ class LayerControl(BoxLayout):
         except Exception:
             logger.debug(f'[LVP Main  ] Invalid exposure input: {self.ids["exp_text"].text!r}')
             # Show current valid value so user knows input was rejected (M21)
-            self.ids['exp_text'].text = str(settings[self.layer]['exp'])
+            self._initializing = True
+            try:
+                self.ids['exp_text'].text = str(settings[self.layer]['exp'])
+            finally:
+                self._initializing = False
             return
 
         exposure = float(np.clip(exp_val, exp_min, exp_max))
 
         settings[self.layer]['exp'] = exposure
-        self.ids['exp_slider'].value = float(np.clip(exposure, exp_min, self.ids['exp_slider'].max))
-        # self.ids['exp_slider'].value = float(np.log10(exposure)) # convert slider to log_10
-        self.ids['exp_text'].text = str(exposure)
+
+        # Wrap programmatic widget writes so on_value does not re-enter
+        # exp_slider and re-fire apply_exp_slider (#617).
+        self._initializing = True
+        try:
+            self.ids['exp_slider'].value = float(np.clip(exposure, exp_min, self.ids['exp_slider'].max))
+            # self.ids['exp_slider'].value = float(np.log10(exposure)) # convert slider to log_10
+            self.ids['exp_text'].text = str(exposure)
+        finally:
+            self._initializing = False
 
         self.apply_exp_slider()
 
