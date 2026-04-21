@@ -385,28 +385,29 @@ class LEDBoard:
             # Expected train duration + margin
             timeout_s = (pulse_count * period_ms) / 1000.0 + 3.0
             saved_timeout = self.driver.timeout
-            self.driver.timeout = max(timeout_s, 3.0)
+            # Single-phase timeout to match 4.1 firmware-stim glue
+            # (bench-proven 0/110 timeouts, 2026-04-20 stim9). Previous
+            # two-phase pattern (set to timeout_s then flip to 0.5)
+            # had no functional benefit and differed from 4.1 needlessly.
+            self.driver.timeout = 0.5
 
             try:
                 # Drop the pyserial driver.flush() + sleep(0.001) pattern
                 # used elsewhere on OG — under RLock on Windows VCP drivers
                 # it intermittently returned late and the STIM command bytes
-                # never reached the LED firmware. Symptom: LVP logged
-                # stim_pulse_train timed out at the deadline AND no pulses
-                # fired on the bench (2026-04-20 stim7.log, 2/15 commands).
-                # 4.1 firmware-stim glue uses just reset_input_buffer + write
-                # and has not reproduced the issue on the same firmware +
-                # hardware.
+                # never reached the LED firmware. 4.1 firmware-stim glue
+                # uses just reset_input_buffer + write, with monotonic-
+                # clock deadlines below; matching that pattern eliminated
+                # all bench-observed timeouts.
                 self.driver.flushInput()
                 self.driver.write(cmd.encode('utf-8') + b'\n')
 
-                # Use a short per-readline timeout inside an outer deadline loop.
-                # Never break on empty-read alone — the firmware is busy-waiting
-                # during the train and only prints the completion line at the end,
-                # so we expect long stretches of no data before the real response.
-                self.driver.timeout = 0.5
-                deadline = _t.time() + timeout_s + 1.0
-                while _t.time() < deadline:
+                # Deadline via monotonic clock (not _t.time()). Wall clock
+                # is subject to NTP sync jumps and system-sleep correction
+                # on Windows; monotonic is guaranteed non-decreasing. 4.1
+                # uses monotonic and reproduces zero timeouts.
+                deadline = _t.monotonic() + timeout_s + 1.0
+                while _t.monotonic() < deadline:
                     line = self.driver.readline()
                     if not line:
                         continue
