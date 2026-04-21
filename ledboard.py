@@ -388,9 +388,16 @@ class LEDBoard:
             self.driver.timeout = max(timeout_s, 3.0)
 
             try:
+                # Drop the pyserial driver.flush() + sleep(0.001) pattern
+                # used elsewhere on OG — under RLock on Windows VCP drivers
+                # it intermittently returned late and the STIM command bytes
+                # never reached the LED firmware. Symptom: LVP logged
+                # stim_pulse_train timed out at the deadline AND no pulses
+                # fired on the bench (2026-04-20 stim7.log, 2/15 commands).
+                # 4.1 firmware-stim glue uses just reset_input_buffer + write
+                # and has not reproduced the issue on the same firmware +
+                # hardware.
                 self.driver.flushInput()
-                self.driver.flush()
-                _t.sleep(0.001)
                 self.driver.write(cmd.encode('utf-8') + b'\n')
 
                 # Use a short per-readline timeout inside an outer deadline loop.
