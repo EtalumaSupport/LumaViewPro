@@ -2,9 +2,9 @@
 Kivy==2.3.1
 imagecodecs==2026.3.6
 matplotlib==3.10.8
-numpy==2.4.3
+numpy==2.4.4
 opencv-python-headless==4.13.0.92
-pandas==3.0.1
+pandas==3.0.2
 pypylon==4.2.0
 pyserial==3.5
 scikit-image==0.26.0

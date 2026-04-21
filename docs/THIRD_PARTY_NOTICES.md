@@ -15,10 +15,10 @@ This NOTICE file is maintained by Etaluma, Inc. in accordance with Apache-2.0 §
 |---|---|---|---|
 | Kivy | 2.3.1 | MIT | https://kivy.org/ |
 | kivy-deps (sdl2, glew) | bundled with Kivy | zlib / MIT (SDL2 family) | https://www.libsdl.org/ |
-| NumPy | 2.4.3 | BSD-3-Clause | https://numpy.org/ |
+| NumPy | 2.4.4 | BSD-3-Clause | https://numpy.org/ |
 | SciPy | 1.17.1 | BSD-3-Clause | https://scipy.org/ |
 | Matplotlib | 3.10.8 | Matplotlib License (PSF-based, BSD-compatible) | https://matplotlib.org/ |
-| pandas | 3.0.1 | BSD-3-Clause | https://pandas.pydata.org/ |
+| pandas | 3.0.2 | BSD-3-Clause | https://pandas.pydata.org/ |
 | scikit-image | 0.26.0 | BSD-3-Clause | https://scikit-image.org/ |
 | opencv-python-headless | 4.13.0.92 | Apache-2.0 | https://opencv.org/ |
 | tifffile | 2026.3.3 | BSD-3-Clause | https://github.com/cgohlke/tifffile |
