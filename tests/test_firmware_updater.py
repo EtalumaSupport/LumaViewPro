@@ -227,6 +227,49 @@ class TestSendFwupdateCommand:
             _send_fwupdate_command(board, cfg)
         board.disconnect.assert_called()
 
+    def test_fw40_two_step_sends_confirm(self):
+        """Phase 4G: FW4.0 two-step FWUPDATE detection.
+
+        FW4.0 firmware refuses to reboot on a bare FWUPDATE; it returns
+        a warning asking for 'FWUPDATE CONFIRM'. The helper must detect
+        this and send the follow-up. v3.0.x firmware reboots silently
+        on the first call and never emits this phrase, so a string-
+        detection approach is safe for both protocols.
+
+        Regression guard: without this fix, a FW4.0 motor board is
+        unrecoverable via FWUPDATE (observed on SN 11016 bench).
+        """
+        cfg = self._make_motor_config()
+        board = MagicMock()
+        # First call: FW4.0 warning. Second call: no response (board reboots).
+        board.exchange_command.side_effect = [
+            '{"ok":true,"cmd":"FWUPDATE","msg":"send FWUPDATE CONFIRM to reboot into UF2 bootloader"}',
+            None,
+        ]
+        _send_fwupdate_command(board, cfg)
+
+        assert board.exchange_command.call_count == 2
+        # First call: bare FWUPDATE
+        assert board.exchange_command.call_args_list[0].args[0] == 'FWUPDATE'
+        # Second call: CONFIRM follow-up
+        assert board.exchange_command.call_args_list[1].args[0] == 'FWUPDATE CONFIRM'
+        board.disconnect.assert_called()
+
+    def test_fw40_two_step_tolerates_confirm_timeout(self):
+        """If FWUPDATE CONFIRM raises (board already rebooting), the
+        helper treats it as success — no UpdateError, board still
+        disconnects."""
+        cfg = self._make_motor_config()
+        board = MagicMock()
+        board.exchange_command.side_effect = [
+            '{"ok":true,"cmd":"FWUPDATE","msg":"send FWUPDATE CONFIRM to reboot"}',
+            Exception("port disappeared"),  # board rebooting mid-write
+        ]
+        # Should not raise — CONFIRM timeout is expected on reboot
+        _send_fwupdate_command(board, cfg)
+        assert board.exchange_command.call_count == 2
+        board.disconnect.assert_called()
+
 
 # ---------------------------------------------------------------------------
 # 7-9. _backup_configs

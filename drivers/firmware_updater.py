@@ -485,6 +485,29 @@ def _send_fwupdate_command(board, board_config):
             if 'not recognized' in text.lower() or 'not found' in text.lower():
                 logger.info("FWUPDATE not supported — using raw REPL fallback")
                 _bootloader_via_raw_repl(board)
+
+            # FW4.0 two-step: firmware asks for explicit CONFIRM before
+            # actually rebooting. Response shape:
+            #   {"ok":true,"cmd":"FWUPDATE",
+            #    "msg":"send FWUPDATE CONFIRM to reboot into UF2 bootloader"}
+            # See docs/FW40_COMMAND_REFERENCE.md §5 (FWUPDATE).
+            # v3.0.x boards reboot silently on the first FWUPDATE and
+            # never emit this phrase, so string detection is safe to
+            # do unconditionally and keeps the helper protocol-agnostic
+            # (works even if FW4.0 INFO malformed → LVP protocol-version
+            # fell back to LEGACY, as observed on SN 11016 bench).
+            elif 'FWUPDATE CONFIRM' in text.upper():
+                logger.info(
+                    "FW4.0 two-step FWUPDATE detected — sending CONFIRM"
+                )
+                try:
+                    # No response expected — board reboots immediately.
+                    # A None / timeout here is success.
+                    board.exchange_command('FWUPDATE CONFIRM', timeout=3.0)
+                except Exception as e:
+                    logger.info(
+                        f"FWUPDATE CONFIRM no response (expected on reboot): {e}"
+                    )
         else:
             # No response — board may have already rebooted (expected)
             logger.info("No response from FWUPDATE — board may have rebooted")
