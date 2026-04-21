@@ -8,6 +8,7 @@ auto-reconnect and echo handling, and raw REPL file operations
 (config backup, firmware flash, INI updates).
 """
 
+import json
 import logging
 import re
 import time
@@ -35,8 +36,19 @@ except ImportError:
 
 
 class ProtocolVersion(Enum):
-    LEGACY = "legacy"  # All pre-v3.0 firmware (including v2.0 dev builds)
-    V3 = "v3"          # v3.0 JSON Lines protocol
+    LEGACY = "legacy"  # All pre-v3.0 firmware, plus every currently shipping
+                       # v3.0.x field unit. Treated as an equal-class permanent
+                       # driver lane per primary-session posture (2026-04-21) —
+                       # not a migration scaffold. Sealed or customer-opt-out
+                       # field units may stay on LEGACY indefinitely.
+    V3 = "v3"          # Historical stub for v3.0/v3.1 JSON Lines design. Never
+                       # shipped as firmware; retained to keep the detection
+                       # branch explicit and to avoid a schema change when
+                       # someone digs up old v3.1 test firmware.
+    V4 = "v4"          # FW4.0 JSON Lines protocol. Source of truth:
+                       # docs/FW40_COMMAND_REFERENCE.md in the Firmware repo.
+                       # Invariants R1-R4 (single emit_line, cmd XOR event,
+                       # optional id echo, one JSON line per read).
 
 
 class SerialBoard:
@@ -78,6 +90,25 @@ class SerialBoard:
         self.write_timeout = write_timeout
         self._in_raw_repl = False
         self.protocol_version = ProtocolVersion.LEGACY
+        # FW4.0 (V4) state — populated by _detect_firmware_version when the
+        # board answers INFO with JSON that advertises protocol >= 4.0.
+        # features[] is the authoritative capability signal; host code probes
+        # via has_feature(name) rather than comparing firmware_version strings.
+        self.features = []
+        # Unsolicited event sink. Callers install a callback to receive
+        # {"ok":true,"event":"...",...} lines parsed during exchange_json.
+        # LEGACY/V3 paths never call on_event — events only exist under V4.
+        self.on_event = None
+        # Monotonic command-id counter for V4 exchange_json. Reset on
+        # connect. The id is scoped per-session; firmware echoes it in the
+        # response so the host can correlate despite any push events that
+        # arrive in between. See FW40_COMMAND_REFERENCE §1c.
+        self._v4_id_counter = 0
+        # Holds JSON responses with `id` values that arrived out-of-order
+        # (e.g. a late reply to a previous command interleaved with the
+        # current command's request). Drained in exchange_json when the
+        # caller's id matches a stashed response.
+        self._v4_pending_by_id = {}
         if port is not None:
             self.port = port
             self.found = True
@@ -612,37 +643,87 @@ class SerialBoard:
             # Board is responding — mark it even if we can't parse a version
             self.firmware_responding = True
 
-            # v3.0 STUB: JSON Lines protocol detection
+            # JSON Lines protocol detection — both stub V3 and shipping V4.
+            # A `{` first byte is an opt-out of the legacy text protocol;
+            # the response body tells us which wire version (via "protocol"
+            # or fw_version major).
             if resp_stripped.startswith('{'):
-                self.protocol_version = ProtocolVersion.V3
-                logger.info(f'{self._label} Detected v3.0 JSON Lines protocol')
+                self._parse_json_info(resp_stripped)
             else:
                 self.protocol_version = ProtocolVersion.LEGACY
-
-            # Try to parse version number (v3.0+ firmware)
-            match = re.search(r'v(\d+\.\d+(?:\.\d+)?)', resp)
-            if match:
-                self.firmware_version = match.group(1)
-                logger.info(f'{self._label} Firmware version: {self.firmware_version}')
-            else:
-                self.firmware_version = None
-
-            # Try to parse firmware date (all firmware formats)
-            date_match = re.search(r'(\d{4}-\d{2}-\d{2})', resp)
-            if date_match:
-                self.firmware_date = date_match.group(1)
-                logger.info(f'{self._label} Firmware date: {self.firmware_date}')
-
-            if self.firmware_version:
-                logger.info(f'{self._label} Firmware v{self.firmware_version} detected')
-            else:
-                logger.info(f'{self._label} Legacy firmware (no version string, date={self.firmware_date})')
+                self.features = []
+                self._parse_legacy_info_text(resp)
 
         except Exception as e:
             logger.debug(f'{self._label} version detection failed: {e}')
             self.firmware_version = None
             self.firmware_responding = False
             self.protocol_version = ProtocolVersion.LEGACY
+            self.features = []
+
+    def _parse_json_info(self, resp_stripped):
+        """Parse INFO response body for V3 / V4. Robust to extra fields
+        (firmware may grow features over time without us needing a schema
+        bump here)."""
+        try:
+            # INFO might be multi-line if the board mixed legacy + JSON;
+            # take the first JSON object on the first `{...}` line.
+            first_line = resp_stripped.split('\n', 1)[0]
+            info = json.loads(first_line)
+        except Exception as e:
+            # JSON-ish but not parseable. Fall back to legacy text parsing
+            # so we don't misclassify a board whose output is corrupted.
+            logger.warning(f'{self._label} INFO started with {{ but JSON parse failed: {e}')
+            self.protocol_version = ProtocolVersion.LEGACY
+            self.features = []
+            self._parse_legacy_info_text(resp_stripped)
+            return
+
+        protocol_str = str(info.get('protocol', '')).strip()
+        fw_version = info.get('fw_version') or info.get('version')
+        if fw_version:
+            self.firmware_version = str(fw_version)
+        self.firmware_date = info.get('fw_date') or info.get('date') or None
+
+        # Version classification: protocol field is authoritative; fw_version
+        # major is the fallback. Unknown JSON → treat as V3 (stub path) so we
+        # at least capture the features array if present.
+        if protocol_str.startswith('4') or (fw_version and str(fw_version).startswith('4')):
+            self.protocol_version = ProtocolVersion.V4
+        else:
+            self.protocol_version = ProtocolVersion.V3
+
+        features = info.get('features')
+        if isinstance(features, list):
+            self.features = [str(f) for f in features]
+        else:
+            self.features = []
+
+        logger.info(
+            f'{self._label} Detected {self.protocol_version.value} protocol'
+            f' (fw={self.firmware_version}, features={self.features})'
+        )
+
+    def _parse_legacy_info_text(self, resp):
+        """Text-based INFO parsing for pre-FW4.0 firmware. Equal-class path
+        per primary-session posture (permanent support, not migration
+        scaffold)."""
+        match = re.search(r'v(\d+\.\d+(?:\.\d+)?)', resp)
+        if match:
+            self.firmware_version = match.group(1)
+        else:
+            self.firmware_version = None
+        date_match = re.search(r'(\d{4}-\d{2}-\d{2})', resp)
+        if date_match:
+            self.firmware_date = date_match.group(1)
+            logger.info(f'{self._label} Firmware date: {self.firmware_date}')
+        if self.firmware_version:
+            logger.info(f'{self._label} Firmware v{self.firmware_version} detected')
+        else:
+            logger.info(
+                f'{self._label} Legacy firmware (no version string, '
+                f'date={self.firmware_date})'
+            )
 
     def detect_firmware_version(self):
         """Re-detect firmware version from the connected board.
@@ -852,6 +933,211 @@ class SerialBoard:
                     self.driver.timeout = saved_timeout
 
             return None
+
+    # ------------------------------------------------------------------
+    # Capability probe + FW4.0 JSON-object command exchange.
+    #
+    # Per the 2026-04-21 primary-session posture:
+    #   - INFO.features is the authoritative capability signal on V4.
+    #     Host-side code probes via has_feature('stim'), NEVER compares
+    #     firmware_version >= "4.1".
+    #   - LEGACY dispatcher lane stays. Not a transitional fallback.
+    #     A FW4.0-capable host asks v3.0.x firmware via exchange_command()
+    #     and FW4.0 firmware via exchange_json() — two equal-class lanes.
+    # ------------------------------------------------------------------
+    def has_feature(self, name):
+        """True if the connected board advertises `name` in INFO.features.
+        Only meaningful for V4; returns False on LEGACY/V3."""
+        return name in self.features
+
+    def _next_v4_id(self):
+        """Monotonic command id for V4. Host-scoped; firmware echoes
+        verbatim in the response. Single-session counter is fine — id
+        collisions across reconnects don't matter because pending queues
+        are cleared on disconnect."""
+        # Called under self._lock from exchange_json, so no separate lock.
+        self._v4_id_counter += 1
+        return self._v4_id_counter
+
+    def exchange_json(self, payload, timeout=None):
+        """Send a V4 JSON-object command and return the matching response.
+
+        Args:
+            payload: dict — must contain at least {"cmd": "..."}. If `id`
+                is not present, one is auto-assigned and the caller's copy
+                of the dict is NOT modified (we serialize a shallow merge).
+                Other fields (ch, mA, axis, etc.) are passed through.
+            timeout: per-call read-timeout override in seconds.
+
+        Returns:
+            The response dict on success (always has "ok", usually "cmd"
+            echoes the request). None on timeout, disconnect, or JSON
+            parse error.
+
+        Event handling: unsolicited `{"event":"..."}` lines encountered
+        while waiting for the response are dispatched to self.on_event
+        (if set) and the read loop continues. This is the FW40 §6a
+        push-event consumer. Response and event lines are disambiguated
+        by R2 — exactly one of `cmd` or `event` per line.
+
+        Id demux: if the response id matches the caller's id we return it.
+        If the response has a different id (a late reply to a prior
+        command), it's stashed in _v4_pending_by_id; a later call whose id
+        matches drains it before issuing a new write.
+
+        LEGACY/V3 boards: this method returns None without writing.
+        Callers must gate via has_feature() or check protocol_version.
+        """
+        if self.protocol_version != ProtocolVersion.V4:
+            _serial_log.warning(
+                f'{self._label} exchange_json called on '
+                f'{self.protocol_version.value} board — refusing'
+            )
+            return None
+        if not isinstance(payload, dict) or 'cmd' not in payload:
+            raise ValueError('exchange_json payload must be a dict with "cmd"')
+
+        with self._lock:
+            if getattr(self, 'firmware_silent', False):
+                _serial_log.warning(
+                    f'{self._label} exchange_json {payload.get("cmd")} '
+                    f'-> REJECTED (board silent, power cycle required)'
+                )
+                return None
+
+            if self.driver is None:
+                try:
+                    logger.info(
+                        f'{self._label} Auto-reconnect triggered by '
+                        f'exchange_json {payload.get("cmd")}'
+                    )
+                    self.connect()
+                except Exception as e:
+                    _serial_log.error(
+                        f'{self._label} exchange_json RECONNECT FAILED: {e}'
+                    )
+                    return None
+            if self.driver is None:
+                return None
+
+            # Assign id if caller didn't.
+            out = dict(payload)
+            caller_id = out.get('id')
+            if caller_id is None:
+                caller_id = self._next_v4_id()
+                out['id'] = caller_id
+
+            # Did a previous call stash our response out-of-order? If so,
+            # drain and return without a round-trip.
+            stashed = self._v4_pending_by_id.pop(caller_id, None)
+            if stashed is not None:
+                return stashed
+
+            # Per-call timeout override.
+            saved_timeout = None
+            if timeout is not None:
+                saved_timeout = self.driver.timeout
+                self.driver.timeout = timeout
+
+            t_start = time.monotonic()
+            cmd_name = out.get('cmd')
+            try:
+                # Flush stale input before write. Any leftover lines are
+                # either stale responses (drop) or events (dispatch to
+                # on_event if JSON-valid) — the flush path calls the same
+                # event-aware parser as the read loop below.
+                stale = self.driver.in_waiting
+                if stale > 0:
+                    discarded = self.driver.read(stale)
+                    _serial_log.info(
+                        f'{self._label} FLUSH {stale}B before json cmd: '
+                        f'{discarded!r}'
+                    )
+
+                stream = (json.dumps(out) + '\n').encode('utf-8')
+                self.driver.write(stream)
+
+                # Read lines until we get a response with our id, dispatching
+                # events in between. Overall deadline = 2x line timeout by
+                # default so a chatty event stream doesn't starve the caller.
+                # Callers that want a hard deadline pass `timeout=`.
+                deadline = time.monotonic() + max(2.0, (timeout or self.driver.timeout) * 20)
+                while time.monotonic() < deadline:
+                    raw = self.driver.readline().decode('utf-8', 'ignore').strip()
+                    if not raw:
+                        continue
+                    try:
+                        msg = json.loads(raw)
+                    except Exception:
+                        # Non-JSON on a V4 board is an FW bug or line
+                        # corruption — log and keep reading.
+                        _serial_log.warning(
+                            f'{self._label} non-JSON on V4 wire: {raw!r}'
+                        )
+                        continue
+                    if not isinstance(msg, dict):
+                        continue
+
+                    if 'event' in msg:
+                        # R2: events never carry `cmd`; dispatch + continue.
+                        if callable(self.on_event):
+                            try:
+                                self.on_event(msg)
+                            except Exception as e:
+                                _serial_log.error(
+                                    f'{self._label} on_event handler raised: {e}'
+                                )
+                        continue
+
+                    msg_id = msg.get('id')
+                    if msg_id == caller_id:
+                        elapsed_ms = (time.monotonic() - t_start) * 1000
+                        _serial_log.info(
+                            f'{self._label} {cmd_name} id={caller_id} '
+                            f'-> ok={msg.get("ok")} ({elapsed_ms:.1f}ms)'
+                        )
+                        if msg.get('ok') is False:
+                            _serial_log.warning(
+                                f'{self._label} FIRMWARE ERR: {cmd_name} '
+                                f'-> {msg.get("err")} / {msg.get("msg")}'
+                            )
+                        return msg
+                    # Different id — stash for a future matching caller.
+                    if msg_id is not None:
+                        self._v4_pending_by_id[msg_id] = msg
+                        continue
+                    # No id on the response — treat as single-inflight match.
+                    # Firmware should always echo id when request had id, so
+                    # this branch is unexpected but safe.
+                    _serial_log.warning(
+                        f'{self._label} V4 response missing id: {raw!r}'
+                    )
+                    return msg
+
+                # Timed out.
+                elapsed_ms = (time.monotonic() - t_start) * 1000
+                _serial_log.warning(
+                    f'{self._label} exchange_json {cmd_name} id={caller_id} '
+                    f'-> TIMEOUT ({elapsed_ms:.1f}ms)'
+                )
+                return None
+
+            except serial.SerialTimeoutException:
+                elapsed_ms = (time.monotonic() - t_start) * 1000
+                _serial_log.warning(
+                    f'{self._label} exchange_json {cmd_name} '
+                    f'-> WRITE TIMEOUT ({elapsed_ms:.1f}ms)'
+                )
+                return None
+            except Exception as e:
+                _serial_log.error(
+                    f'{self._label} exchange_json {cmd_name} -> EXCEPTION: {e}'
+                )
+                self._close_driver()
+                return None
+            finally:
+                if saved_timeout is not None and self.driver is not None:
+                    self.driver.timeout = saved_timeout
 
     def exchange_multiline(self, command, timeout=60, end_markers=None):
         """Send command and read variable-length multi-line response.
