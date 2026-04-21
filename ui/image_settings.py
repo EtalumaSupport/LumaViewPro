@@ -440,6 +440,14 @@ class ImageSettings(BoxLayout):
         if ctx.settings.get('protocol_led_on', False):
             return
 
+        # Skip during protocol run: user clicking a different panel
+        # shouldn't override the layer the protocol is actively driving.
+        # set_expanded_layer() already bails for programmatic paths; this
+        # covers the user-click path so a mid-capture click doesn't kill
+        # the running-step LED or apply a different layer's settings.
+        if ctx.protocol_running.is_set():
+            return
+
         # turn off the camera update and all LEDs
         scope_leds_off()
 
