@@ -520,6 +520,23 @@ class Lumascope():
     # ~15-second deploy window, then rebuilding via the same registry
     # path __init__ used and rewiring Phase 4D event callbacks.
 
+    def _is_simulated_scope(self):
+        """True iff this Lumascope is in an explicit simulator mode.
+
+        Distinct from 'no hardware detected' (NullMotionBoard / NullLEDBoard)
+        because the firmware-update flow may legitimately run against a
+        board that's currently not serial-enumerated — e.g. a motor board
+        that's been manually placed into BOOTSEL for recovery. In that
+        case NullMotionBoard is installed (no serial enumeration) but we
+        DO want to proceed with the UF2 / factory-reset path against the
+        BOOTSEL drive. Only short-circuit on true simulator modes.
+        """
+        if getattr(self, '_simulated', False):
+            return True
+        if self.motion.__class__.__name__ == 'SimulatedMotorBoard':
+            return True
+        return False
+
     def update_motor_firmware(self, firmware_path, progress_callback=None,
                               skip_config_backup=False, skip_post_test=False):
         """Deploy a new motor-board main.py via raw REPL.
@@ -541,11 +558,7 @@ class Lumascope():
             deploy_firmware_file, BoardType, UpdateResult, UpdateStage,
         )
 
-        # Simulator short-circuit. A simulated Lumascope has no real serial
-        # port to hand off; we report success without touching anything.
-        if (getattr(self, '_simulated', False)
-                or isinstance(self.motion, NullMotionBoard)
-                or self.motion.__class__.__name__ == 'SimulatedMotorBoard'):
+        if self._is_simulated_scope():
             r = UpdateResult(success=True, board_type=BoardType.MOTOR)
             r.old_version = 'simulated'
             r.new_version = 'simulated'
@@ -623,9 +636,7 @@ class Lumascope():
             update_firmware, BoardType, UpdateResult,
         )
 
-        if (getattr(self, '_simulated', False)
-                or isinstance(self.motion, NullMotionBoard)
-                or self.motion.__class__.__name__ == 'SimulatedMotorBoard'):
+        if self._is_simulated_scope():
             r = UpdateResult(success=True, board_type=BoardType.MOTOR)
             r.old_version = 'simulated'
             r.new_version = 'simulated'
@@ -697,9 +708,7 @@ class Lumascope():
             factory_reset_motor_board, BoardType, UpdateResult,
         )
 
-        if (getattr(self, '_simulated', False)
-                or isinstance(self.motion, NullMotionBoard)
-                or self.motion.__class__.__name__ == 'SimulatedMotorBoard'):
+        if self._is_simulated_scope():
             r = UpdateResult(success=True, board_type=BoardType.MOTOR)
             r.old_version = 'simulated'
             r.new_version = 'simulated'
@@ -761,8 +770,10 @@ class Lumascope():
             deploy_firmware_file, BoardType, UpdateResult, UpdateStage,
         )
 
-        if (getattr(self, '_simulated', False)
-                or isinstance(self.led, NullLEDBoard)
+        # For LED, add a class-name check since _is_simulated_scope() only
+        # inspects the motor driver. A Lumascope with real motor + sim LED
+        # still needs the LED update to short-circuit on the sim LED.
+        if (self._is_simulated_scope()
                 or self.led.__class__.__name__ == 'SimulatedLEDBoard'):
             r = UpdateResult(success=True, board_type=BoardType.LED)
             r.old_version = 'simulated'
