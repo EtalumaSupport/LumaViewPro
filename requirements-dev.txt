@@ -5,3 +5,8 @@
 
 pytest==8.3.5
 pyinstaller==6.19.0
+
+# Profiling — see Firmware/docs/PROFILING_PRACTICE.md
+# py-spy: sampling profiler, attaches to live LVP process without restart,
+# low overhead so it can run for hours without warping timing data.
+py-spy>=0.4
