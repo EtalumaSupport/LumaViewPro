@@ -483,6 +483,50 @@ class LayerControl(BoxLayout):
 
         self.apply_exp_slider()
 
+    # Stim duration cap expressed as a pulse-count target: 300 pulses or 30 s,
+    # whichever is longer. Keeps the slider usable across the 0.2–6 Hz range
+    # without forcing low-frequency protocols into tiny pulse counts.
+    _STIM_DURATION_MAX_PULSES = 300
+    _STIM_DURATION_MIN_MAX_S = 30.0
+
+    def _apply_stim_duration(self, duration_s, frequency):
+        """Translate a duration-in-seconds slider value into the integer
+        pulse_count stored in settings, and update slider bounds to match.
+
+        The slider is labeled in seconds; pulse_count is derived as
+        floor(duration_s * frequency). Slider min = step = one period so
+        each tick equals one pulse. Slider max scales with frequency:
+        max(_STIM_DURATION_MIN_MAX_S, _STIM_DURATION_MAX_PULSES / freq).
+        Warn-logs fire on slider clamping and on floor-truncation larger
+        than half a period (user asked for more than we can deliver).
+        """
+        settings = _app_ctx.ctx.settings
+        dur_slider = self.ids['stim_pulse_count_slider']
+        freq = max(float(frequency), 0.001)
+        period_s = 1.0 / freq
+        dur_slider.min = round(period_s, 3)
+        dur_slider.step = round(period_s, 3)
+        dur_slider.max = round(max(self._STIM_DURATION_MIN_MAX_S,
+                                   self._STIM_DURATION_MAX_PULSES / freq), 3)
+        clamped_s = float(np.clip(duration_s, dur_slider.min, dur_slider.max))
+        if abs(clamped_s - float(duration_s)) > 1e-3:
+            logger.warning(
+                f"[LVP Main  ] {self.layer} stim duration {float(duration_s):.3f}s "
+                f"clamped to {clamped_s:.3f}s (bounds [{dur_slider.min}, {dur_slider.max}])")
+        duration_s = round(clamped_s, 3)
+        pulse_count = max(1, int(duration_s * freq))
+        delivered_s = pulse_count / freq
+        if duration_s - delivered_s > period_s * 0.5:
+            logger.warning(
+                f"[LVP Main  ] {self.layer} stim duration {duration_s:.3f}s "
+                f"truncated to {delivered_s:.3f}s ({pulse_count} pulses at {freq:.3f} Hz)")
+        dur_slider.value = duration_s
+        self.ids['stim_pulse_count_text'].text = str(duration_s)
+        try:
+            settings[self.layer]['stim_config']['pulse_count'] = pulse_count
+        except Exception as e:
+            logger.error(f"[LVP Main  ] LayerControl._apply_stim_duration() -> {e}")
+
     def stim_freq_slider(self):
         settings = _app_ctx.ctx.settings
         logger.info('[LVP Main  ] LayerControl.stim_freq_slider()')
@@ -492,17 +536,16 @@ class LayerControl(BoxLayout):
             settings[self.layer]['stim_config']['frequency'] = frequency
         except Exception as e:
             logger.error(f"[LVP Main  ] LayerControl.stim_freq_slider() -> {e}")
+        # Re-run the duration→pulse_count mapping since period_s changed.
+        self._apply_stim_duration(self.ids['stim_pulse_count_slider'].value, frequency)
         self.apply_settings()
 
     def stim_pulse_count_slider(self):
-        settings = _app_ctx.ctx.settings
         logger.info('[LVP Main  ] LayerControl.stim_pulse_count_slider()')
-        pulse_count = self.ids['stim_pulse_count_slider'].value
-        gui_logger.slider(f'STIM_PULSE_COUNT_{self.layer}', pulse_count)
-        try:
-            settings[self.layer]['stim_config']['pulse_count'] = pulse_count
-        except Exception as e:
-            logger.error(f"[LVP Main  ] LayerControl.stim_pulse_count_slider() -> {e}")
+        duration_s = self.ids['stim_pulse_count_slider'].value
+        frequency = _app_ctx.ctx.settings[self.layer]['stim_config']['frequency']
+        gui_logger.slider(f'STIM_DURATION_{self.layer}', duration_s)
+        self._apply_stim_duration(duration_s, frequency)
         self.apply_settings()
 
     def stim_pulse_width_slider(self):
@@ -522,15 +565,21 @@ class LayerControl(BoxLayout):
             'stim_freq_text', 'stim_freq_slider', 'frequency',
             settings_path='stim_config.frequency',
         ):
+            # Re-run duration→pulse_count mapping since period_s changed.
+            frequency = _app_ctx.ctx.settings[self.layer]['stim_config']['frequency']
+            self._apply_stim_duration(self.ids['stim_pulse_count_slider'].value, frequency)
             self.apply_settings()
 
     def stim_pulse_count_text(self):
         logger.info('[LVP Main  ] LayerControl.stim_pulse_count_text()')
-        if self._validate_and_apply_text_input(
-            'stim_pulse_count_text', 'stim_pulse_count_slider', 'pulse_count',
-            cast=int, settings_path='stim_config.pulse_count',
-        ):
-            self.apply_settings()
+        try:
+            duration_s = float(self.ids['stim_pulse_count_text'].text)
+        except (ValueError, TypeError) as e:
+            logger.debug(f'[LVP Main  ] Invalid stim duration input: {self.ids["stim_pulse_count_text"].text!r}')
+            return
+        frequency = _app_ctx.ctx.settings[self.layer]['stim_config']['frequency']
+        self._apply_stim_duration(duration_s, frequency)
+        self.apply_settings()
 
     def stim_pulse_width_text(self):
         logger.info('[LVP Main  ] LayerControl.stim_pulse_width_text()')
@@ -846,8 +895,11 @@ class LayerControl(BoxLayout):
                 self.ids['stim_freq_slider'].value = float(stim.get('frequency', 1))
                 self.ids['stim_pulse_width_text'].text = str(stim.get('pulse_width', 10))
                 self.ids['stim_pulse_width_slider'].value = float(stim.get('pulse_width', 10))
-                self.ids['stim_pulse_count_text'].text = str(stim.get('pulse_count', 1))
-                self.ids['stim_pulse_count_slider'].value = int(stim.get('pulse_count', 1))
+                # Settings store pulse_count (int); the slider + text box show
+                # duration in seconds. Convert on load so the UI matches.
+                _freq = float(stim.get('frequency', 1))
+                _duration_s = stim.get('pulse_count', 1) / max(_freq, 0.001)
+                self._apply_stim_duration(_duration_s, _freq)
 
             # Acquire type
             if 'Acquire' in step:

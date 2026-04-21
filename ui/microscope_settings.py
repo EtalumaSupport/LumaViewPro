@@ -584,8 +584,11 @@ class MicroscopeSettings(BoxLayout):
                     layer_obj.ids['stim_freq_slider'].value = float(stim_config['frequency'])
                     layer_obj.ids['stim_pulse_width_text'].text = str(stim_config['pulse_width'])
                     layer_obj.ids['stim_pulse_width_slider'].value = float(stim_config['pulse_width'])
-                    layer_obj.ids['stim_pulse_count_text'].text = str(stim_config['pulse_count'])
-                    layer_obj.ids['stim_pulse_count_slider'].value = int(stim_config['pulse_count'])
+                    # Stim duration slider shows seconds; settings store pulse_count.
+                    # Let LayerControl._apply_stim_duration handle the bounds + mapping.
+                    _freq = float(stim_config['frequency'])
+                    _duration_s = stim_config['pulse_count'] / max(_freq, 0.001)
+                    layer_obj._apply_stim_duration(_duration_s, _freq)
 
                     # Force hide until enabled
                     layer_obj.ids['stim_ill_box'].visible = False
