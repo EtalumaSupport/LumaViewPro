@@ -758,6 +758,120 @@ class Lumascope():
 
         return result
 
+    def restore_motor_configs(self, backup_dir, progress_callback=None,
+                              file_filter=None):
+        """Push config files from a local backup dir to the motor board.
+
+        Symmetric counterpart of the deploy_firmware_file backup stage.
+        Use after factory_reset_motor (the nuke wipes motorconfig.json +
+        INI files) or any time a board's per-unit configs need to be
+        restored or cloned from a known-good archive.
+
+        Wraps drivers.firmware_updater.restore_configs_from_backup with
+        the same driver-lifecycle coordination as update_motor_firmware:
+        events off, disconnect Lumascope's motor driver, run restore
+        (which opens its own SerialBoard session), reconnect + rewire
+        Phase 4D event callbacks.
+        """
+        from drivers.firmware_updater import (
+            restore_configs_from_backup, BoardType, UpdateResult,
+        )
+
+        if self._is_simulated_scope():
+            r = UpdateResult(success=True, board_type=BoardType.MOTOR)
+            r.old_version = 'simulated'
+            r.new_version = 'simulated'
+            logger.info('[SCOPE API ] restore_motor_configs: simulator short-circuit')
+            return r
+
+        if hasattr(self.motion, 'motion_events_off'):
+            try:
+                self.motion.motion_events_off()
+            except Exception as e:
+                logger.warning(f'[SCOPE API ] restore_motor_configs: motion_events_off failed: {e}')
+        try:
+            self.motion.disconnect()
+        except Exception as e:
+            logger.warning(f'[SCOPE API ] restore_motor_configs: motion.disconnect failed: {e}')
+        self.motion = NullMotionBoard()
+        self._motion_poll_interval = self._MOTION_POLL_INTERVAL
+
+        result = None
+        try:
+            result = restore_configs_from_backup(
+                BoardType.MOTOR, backup_dir,
+                progress_callback=progress_callback,
+                file_filter=file_filter,
+            )
+        finally:
+            try:
+                self.motion = motor_registry.create('auto', simulate=False)
+                if hasattr(self.motion, 'set_arrived_callback'):
+                    self.motion.set_arrived_callback(self._on_axis_arrived)
+                if hasattr(self.motion, 'set_homed_callback'):
+                    self.motion.set_homed_callback(self._on_axis_homed)
+                if (hasattr(self.motion, 'motion_events_on')
+                        and hasattr(self.motion, 'has_feature')
+                        and self.motion.has_feature('events')):
+                    if self.motion.motion_events_on():
+                        self._motion_poll_interval = 0.5
+                self.capabilities = ScopeCapabilities.from_drivers(
+                    motion=self.motion, led=self.led,
+                    camera=self.camera, led_max_ma=self.LED_MAX_MA,
+                )
+            except Exception as e:
+                logger.error(f'[SCOPE API ] restore_motor_configs: reconnect failed: {e}')
+                self.motion = NullMotionBoard()
+                if result is not None:
+                    result.warnings.append(f'Post-restore reconnect failed: {e}')
+
+        return result
+
+    def restore_led_configs(self, backup_dir, progress_callback=None,
+                            file_filter=None):
+        """Push LED config files (cal.json) from a backup dir to the LED
+        board. Same contract as restore_motor_configs, for BoardType.LED.
+        """
+        from drivers.firmware_updater import (
+            restore_configs_from_backup, BoardType, UpdateResult,
+        )
+
+        if (self._is_simulated_scope()
+                or self.led.__class__.__name__ == 'SimulatedLEDBoard'):
+            r = UpdateResult(success=True, board_type=BoardType.LED)
+            r.old_version = 'simulated'
+            r.new_version = 'simulated'
+            logger.info('[SCOPE API ] restore_led_configs: simulator short-circuit')
+            return r
+
+        try:
+            self.led.disconnect()
+        except Exception as e:
+            logger.warning(f'[SCOPE API ] restore_led_configs: led.disconnect failed: {e}')
+        self.led = NullLEDBoard()
+
+        result = None
+        try:
+            result = restore_configs_from_backup(
+                BoardType.LED, backup_dir,
+                progress_callback=progress_callback,
+                file_filter=file_filter,
+            )
+        finally:
+            try:
+                self.led = led_registry.create('auto', simulate=False)
+                self.capabilities = ScopeCapabilities.from_drivers(
+                    motion=self.motion, led=self.led,
+                    camera=self.camera, led_max_ma=self.LED_MAX_MA,
+                )
+            except Exception as e:
+                logger.error(f'[SCOPE API ] restore_led_configs: reconnect failed: {e}')
+                self.led = NullLEDBoard()
+                if result is not None:
+                    result.warnings.append(f'Post-restore reconnect failed: {e}')
+
+        return result
+
     def update_led_firmware(self, firmware_path, progress_callback=None,
                             skip_config_backup=False, skip_post_test=False):
         """Deploy a new LED-board main.py via raw REPL.

@@ -850,3 +850,34 @@ class TestFirmwareUpdateAPI:
             assert result.new_version == 'simulated'
         finally:
             scope.disconnect()
+
+    def test_restore_motor_configs_simulator_returns_success(self):
+        """Phase 4I: restore_motor_configs simulator short-circuit."""
+        scope = Lumascope(simulate=True)
+        try:
+            result = scope.restore_motor_configs('/does/not/matter/backup_dir')
+            assert result.success is True
+            assert result.board_type == BoardType.MOTOR
+            assert result.new_version == 'simulated'
+        finally:
+            scope.disconnect()
+
+    def test_restore_led_configs_simulator_returns_success(self):
+        """Phase 4I: restore_led_configs simulator short-circuit."""
+        scope = Lumascope(simulate=True)
+        try:
+            result = scope.restore_led_configs('/does/not/matter/backup_dir')
+            assert result.success is True
+            assert result.board_type == BoardType.LED
+            assert result.new_version == 'simulated'
+        finally:
+            scope.disconnect()
+
+    def test_restore_methods_exposed_as_public_api(self):
+        """Phase 4I: restore_* methods are public API."""
+        scope = Lumascope(simulate=True)
+        try:
+            assert callable(getattr(scope, 'restore_motor_configs', None))
+            assert callable(getattr(scope, 'restore_led_configs', None))
+        finally:
+            scope.disconnect()

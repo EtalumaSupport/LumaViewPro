@@ -1204,6 +1204,127 @@ def nuke_board(
         return result
 
 
+def restore_configs_from_backup(
+    board_type,
+    backup_dir,
+    progress_callback=None,
+    file_filter=None,
+):
+    """Restore config files from a local backup directory to a board.
+
+    Symmetric counterpart of _backup_configs(). Takes a directory (e.g.
+    one produced by an earlier deploy_firmware_file backup stage, or a
+    hand-picked per-unit config set from bench archives) and pushes each
+    config file that matches the board's BOARD_CONFIGS[board_type].
+    config_files list onto the board via raw REPL (SHA256-verified by
+    SerialBoard.repl_write_file).
+
+    Use cases:
+      - Re-provision a board after factory_reset_motor_board() nuked
+        the filesystem.
+      - Clone per-unit configs from a dev-bench board to a new production
+        unit during bring-up.
+      - Recover INI/motorconfig files from a backup after an operator
+        edit gone wrong.
+
+    Args:
+        board_type: BoardType.LED or BoardType.MOTOR
+        backup_dir: Directory containing backed-up config files. Only
+            files whose names appear in BOARD_CONFIGS[board_type].
+            config_files are considered (file_filter narrows further).
+        progress_callback: Optional (stage, message, fraction) callback.
+        file_filter: Optional list/set of filenames. If provided, only
+            files in this list are restored (subject to config_files
+            membership).
+
+    Returns:
+        UpdateResult. success=True iff every eligible file was pushed
+        and verified.
+    """
+    config = BOARD_CONFIGS[board_type]
+    backup_dir = Path(backup_dir)
+    result = UpdateResult(success=False, board_type=board_type)
+    result.config_backup_path = backup_dir
+
+    try:
+        _report_progress(progress_callback, UpdateStage.PREFLIGHT,
+                         f"Loading backup from {backup_dir}...", 0.0)
+
+        if not backup_dir.is_dir():
+            raise UpdateError(
+                f"Backup directory not found: {backup_dir}",
+                stage=UpdateStage.PREFLIGHT,
+            )
+
+        # Build {filename: bytes} dict from the backup directory.
+        # Only include files the BOARD_CONFIGS policy says belong on
+        # this board type — avoids pushing stray files (README, main.py,
+        # .bak files, etc.) that the backup directory may also hold.
+        config_files = set(config.config_files)
+        if file_filter is not None:
+            config_files &= set(file_filter)
+
+        config_data = {}
+        for name in sorted(config_files):
+            p = backup_dir / name
+            if not p.is_file():
+                logger.info(f"Skipping {name}: not present in backup")
+                continue
+            config_data[name] = p.read_bytes()
+
+        if not config_data:
+            raise UpdateError(
+                f"No matching config files found in {backup_dir}. "
+                f"Expected one or more of: {sorted(config.config_files)}",
+                stage=UpdateStage.PREFLIGHT,
+            )
+
+        logger.info(
+            f"Will restore {len(config_data)} file(s) to "
+            f"{config.label} board: {sorted(config_data.keys())}"
+        )
+
+        _report_progress(progress_callback, UpdateStage.CHECKING_VERSION,
+                         f"Connecting to {config.label} board...", 0.10)
+        board = _create_board(config)
+        try:
+            current_version = board.firmware_version or board.firmware_date
+            result.old_version = current_version
+            result.new_version = current_version  # restore doesn't change FW
+
+            # _restore_configs handles raw REPL + SHA256-verified writes.
+            _restore_configs(board, config, config_data, progress_callback)
+        finally:
+            try:
+                board.disconnect()
+            except Exception:
+                pass
+
+        result.success = True
+        _report_progress(progress_callback, UpdateStage.COMPLETE,
+                         f"Restored {len(config_data)} file(s)", 1.0)
+        logger.info(
+            f"Config restore successful: {len(config_data)} file(s) on "
+            f"{config.label} board"
+        )
+        return result
+
+    except UpdateError as e:
+        result.error_message = str(e)
+        result.error_stage = e.stage
+        logger.error(f"Config restore failed at {e.stage.value}: {e}")
+        _report_progress(progress_callback, UpdateStage.FAILED, str(e), 0.0)
+        return result
+
+    except Exception as e:
+        result.error_message = f"Unexpected error: {e}"
+        result.error_stage = UpdateStage.FAILED
+        logger.error(f"Config restore unexpected error: {e}", exc_info=True)
+        _report_progress(progress_callback, UpdateStage.FAILED,
+                         f"Unexpected error: {e}", 0.0)
+        return result
+
+
 def factory_reset_motor_board(
     nuke_uf2_path,
     runtime_uf2_path,

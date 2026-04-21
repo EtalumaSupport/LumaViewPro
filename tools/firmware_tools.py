@@ -15,6 +15,8 @@ Usage:
     python -m tools.firmware_tools deploy --board led   --firmware path/to/main.py
     python -m tools.firmware_tools factory-reset --nuke-uf2 flash_nuke.uf2 \\
          --runtime-uf2 motor_runtime.uf2 --main-py path/to/main.py
+    python -m tools.firmware_tools restore-configs --board motor \\
+         --backup-dir path/to/backup
 """
 
 import argparse
@@ -570,6 +572,67 @@ def cmd_factory_reset(args):
 
 
 # ---------------------------------------------------------------------------
+# restore-configs — push config backup to board via Lumascope API (Phase 4I)
+# ---------------------------------------------------------------------------
+
+def cmd_restore_configs(args):
+    """Restore per-unit configs from a backup directory to a board.
+
+    Symmetric counterpart of `backup` — writes motorconfig.json + INI
+    files (motor) or cal.json (LED) from a local directory onto the
+    board via raw REPL (SHA256-verified).
+    """
+    from modules.lumascope_api import Lumascope
+
+    backup_dir = Path(args.backup_dir)
+    if not backup_dir.is_dir():
+        print(f'ERROR: backup directory not found: {backup_dir}')
+        sys.exit(1)
+
+    file_filter = set(args.files) if args.files else None
+
+    def _progress(stage, msg, fraction):
+        pct = int(fraction * 100)
+        print(f'  [{pct:3d}%] {stage.value}: {msg}')
+
+    print('Constructing diagnostic Lumascope (LED + motor, no camera)...')
+    scope = Lumascope.create_diagnostic()
+
+    print(f'Restoring configs to {args.board} board:')
+    print(f'  backup dir: {backup_dir}')
+    if file_filter:
+        print(f'  filter:     {sorted(file_filter)}')
+    print()
+
+    if args.board == 'motor':
+        result = scope.restore_motor_configs(
+            str(backup_dir), progress_callback=_progress,
+            file_filter=file_filter,
+        )
+    else:
+        result = scope.restore_led_configs(
+            str(backup_dir), progress_callback=_progress,
+            file_filter=file_filter,
+        )
+
+    print()
+    print('=== UpdateResult ===')
+    print(f'  success:       {result.success}')
+    print(f'  board_type:    {result.board_type}')
+    print(f'  old_version:   {result.old_version}')
+    if result.error_stage is not None:
+        print(f'  error_stage:   {result.error_stage}')
+    if result.error_message:
+        print(f'  error_message: {result.error_message}')
+    if result.warnings:
+        print(f'  warnings:')
+        for w in result.warnings:
+            print(f'    - {w}')
+
+    sys.exit(0 if result.success else 2)
+
+
+# ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
 
@@ -629,6 +692,18 @@ def main():
     p_reset.add_argument('--skip-post-test', action='store_true',
                          help='Skip post-update verification')
 
+    # restore-configs (Phase 4I) — symmetric counterpart of `backup`
+    p_restore = sub.add_parser(
+        'restore-configs',
+        help='Restore per-unit config backup to a board via raw REPL')
+    p_restore.add_argument('--board', choices=['motor', 'led'], required=True,
+                           help='Target board')
+    p_restore.add_argument('--backup-dir', required=True,
+                           help='Directory containing backed-up config files')
+    p_restore.add_argument('--files', nargs='+', default=None,
+                           help='Optional subset of filenames to restore '
+                                '(default: all config files present in backup)')
+
     args = parser.parse_args()
     if args.command is None:
         parser.print_help()
@@ -641,6 +716,7 @@ def main():
         'homing-test': cmd_homing_test,
         'deploy': cmd_deploy,
         'factory-reset': cmd_factory_reset,
+        'restore-configs': cmd_restore_configs,
     }
     commands[args.command](args)
 
