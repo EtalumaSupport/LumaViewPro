@@ -5,9 +5,19 @@
 lvp_logger.py configures a standard python logger for LumaViewPro.
 '''
 
+import os
+
+# Suppress Kivy's own file/console logging before any Kivy import can fire.
+# LVP routes the `kivy` logger into its file_handler / error_handler below,
+# so Kivy diagnostics still land in the main LVP logs — just not in
+# ~/.kivy/logs/. The app entry point (lumaviewpro.py) sets the same vars,
+# but lvp_logger is imported earlier by most code paths (tests, scripts,
+# standalone imports), so set them here too.
+os.environ.setdefault("KIVY_NO_CONSOLELOG", "1")
+os.environ.setdefault("KIVY_NO_FILELOG", "1")
+
 import logging
 from logging.handlers import RotatingFileHandler
-import os
 import sys
 import ctypes
 import platformdirs

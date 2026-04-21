@@ -22,6 +22,12 @@ from unittest.mock import MagicMock
 
 import pytest
 
+# Keep Kivy from writing anything to ~/.kivy/logs/ during tests. App code
+# sets these in lumaviewpro.py + lvp_logger.py, but pytest may import Kivy
+# before either runs, so set them here as well.
+os.environ.setdefault("KIVY_NO_CONSOLELOG", "1")
+os.environ.setdefault("KIVY_NO_FILELOG", "1")
+
 
 # ---------------------------------------------------------------------------
 # Path setup — make `from drivers.x import Y` work from tests/

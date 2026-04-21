@@ -377,7 +377,7 @@ class SequencedCaptureExecutor:
         # Pre-run validation: check positions within axis limits
         try:
             axis_limits = {}
-            for axis in ('X', 'Y', 'Z'):
+            for axis in self._scope.capabilities.axes:
                 try:
                     axis_limits[axis] = self._scope.get_axis_limits(axis)
                 except Exception:

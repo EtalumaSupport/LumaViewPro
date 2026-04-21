@@ -4,8 +4,9 @@
 Verifies that the full protocol execution chain runs without Kivy.
 This test ensures Rule 15 (executors must be GUI-agnostic) holds at
 the import and runtime level:
-  1. No module under modules/ imports Kivy directly (except the
-     explicitly-named modules/image_utils_kivy.py).
+  1. No module under modules/ imports Kivy directly (image_utils_kivy
+     used to live there as an exception; it now lives at
+     ui/image_utils_kivy.py per Rule 15).
   2. A full protocol can be executed through SequencedCaptureExecutor
      without any Kivy module loaded in sys.modules.
   3. kivy_utils.schedule_ui() falls back to direct invocation when no

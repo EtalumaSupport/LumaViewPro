@@ -28,7 +28,7 @@ from modules.common_utils import CustomJSONizer
 import modules.zprojector as zprojector
 import modules.post_processing as post_processing
 import modules.image_utils as image_utils
-import modules.image_utils_kivy as image_utils_kivy
+import ui.image_utils_kivy as image_utils_kivy
 import modules.app_context as _app_ctx
 
 logger = logging.getLogger('LVP.ui.post_processing')

@@ -182,7 +182,7 @@ if __name__ == "__main__":
     from ui.notification_popup import show_notification_popup, show_confirmation_popup, show_confirmation_w_ack_popup
     from ui.rounded_buttons import RoundedButton, RoundedToggleButton
 
-    import modules.image_utils_kivy as image_utils_kivy
+    import ui.image_utils_kivy as image_utils_kivy
 
     # Module-level state — assigned in build(), accessed throughout app lifetime.
     # All are registered on AppContext after creation.
