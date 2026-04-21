@@ -746,19 +746,13 @@ class SerialBoard:
             return False
 
     def _build_command(self, cmd):
-        """Build command string for current protocol version."""
-        # v3.0 STUB: JSON command format
-        # if self.protocol_version == ProtocolVersion.V3:
-        #     import json
-        #     return json.dumps({"cmd": cmd}) + "\n"
+        """Build command string for legacy text protocol (v3.0.x and
+        earlier). FW4.0 JSON Lines commands go through exchange_json."""
         return cmd + "\n"
 
     def _parse_response(self, response):
-        """Parse response for current protocol version."""
-        # v3.0 STUB: JSON Lines response parsing
-        # if self.protocol_version == ProtocolVersion.V3:
-        #     import json
-        #     return json.loads(response)
+        """Parse response for legacy text protocol. FW4.0 JSON Lines
+        responses are parsed inside exchange_json."""
         return response
 
     # ------------------------------------------------------------------

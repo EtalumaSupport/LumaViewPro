@@ -165,6 +165,30 @@ class MotorBoard(SerialBoard):
                 out[ax] = resp[ax]
         return out
 
+    def _v4_home_wait(self, payload, total_timeout):
+        """Issue an async FW4.0 HOME command and block until STATUS
+        reports homing:false, preserving the sync True/False contract
+        of the legacy home methods. Returns (ok, result_str) where
+        ok=True on clean completion, False on firmware error/timeout.
+
+        Polls STATUS at 2 Hz. API-layer consumers subscribed to the
+        homed event callback get per-axis updates faster than this
+        poll; this wait is only for the driver method's sync return."""
+        resp = self.exchange_json(payload, timeout=5)
+        if resp is None:
+            return False, 'no response'
+        if resp.get('ok') is not True:
+            return False, resp.get('msg', str(resp))
+        deadline = time.monotonic() + total_timeout
+        while time.monotonic() < deadline:
+            time.sleep(0.5)
+            status = self.exchange_json({'cmd': 'STATUS'}, timeout=2)
+            if status is None:
+                continue
+            if not status.get('homing', False):
+                return True, status.get('result', 'OK')
+        return False, f'timed out after {total_timeout}s'
+
     def _rebuild_cached_values(self):
         """Recompute cached values from motorconfig.
 
@@ -280,14 +304,6 @@ class MotorBoard(SerialBoard):
                 if not self._connect_log_suppressed:
                     logger.error(f'[XYZ Class ] MotorBoard.connect() failed: {e}')
 
-
-    # v3.0 STUB: Motor command builders for JSON Lines protocol
-    # When v3.0 is active, commands will use structured JSON format:
-    #   {"cmd": "HOME", "axes": ["X", "Y", "Z"]}
-    #   {"cmd": "MOVE", "axis": "Z", "target": 12345}
-    #   {"cmd": "STATUS", "axis": "Z"}
-    #   {"cmd": "SPI", "axis": "Z", "addr": "0x6A", "payload": "0x00"}
-    # Currently all commands use the legacy text format.
 
     # Firmware 1-14-2023 commands include
     # 'QUIT'
@@ -441,6 +457,26 @@ class MotorBoard(SerialBoard):
         if self._accel_cache is not None and cache_key in self._accel_cache:
             return self._accel_cache[cache_key]
 
+        DEFAULT_ACCELERATION_LIMIT = 30000
+
+        if self._use_v4():
+            # FW4.0 routes through MOTOR_PARAM (structural, TMC-agnostic)
+            # instead of raw SPI_REG. Param name matches spec §4.
+            param_map = {'acceleration': 'AMAX', 'deceleration': 'DMAX'}
+            param = param_map[parameter]
+            resp = self.exchange_json({'cmd': 'MOTOR_PARAM', 'axis': axis,
+                                        'param': param})
+            if resp is None or resp.get('ok') is not True:
+                value = DEFAULT_ACCELERATION_LIMIT
+                logger.debug(f'[XYZ Class ] acceleration_limit({axis},{parameter}) V4 failed, using default {DEFAULT_ACCELERATION_LIMIT}: {resp}')
+            else:
+                value = int(resp.get('value', DEFAULT_ACCELERATION_LIMIT))
+                logger.info(f'[XYZ Class ] MotorBoard.acceleration_limit({axis},{parameter}) V4: {value}')
+            if self._accel_cache is None:
+                self._accel_cache = {}
+            self._accel_cache[cache_key] = value
+            return value
+
         parameter_map = {
             'acceleration': 'A',
             'deceleration': 'D'
@@ -448,7 +484,6 @@ class MotorBoard(SerialBoard):
 
         parameter_char = parameter_map[parameter]
         command = f"{parameter_char}MAX{axis}"
-        DEFAULT_ACCELERATION_LIMIT = 30000
         using_default = False
         try:
             resp = self.exchange_command(command)
@@ -520,6 +555,17 @@ class MotorBoard(SerialBoard):
         limit = self.acceleration_limit(axis=axis, parameter=parameter)
         setpoint = round(limit*(val_pct/100))
 
+        if self._use_v4():
+            param_map = {'acceleration': 'AMAX', 'deceleration': 'DMAX'}
+            resp = self.exchange_json({'cmd': 'MOTOR_PARAM', 'axis': axis,
+                                        'param': param_map[parameter],
+                                        'value': int(setpoint)})
+            if resp is None or resp.get('ok') is not True:
+                logger.warning(f'[XYZ Class ] set_acceleration_limit({axis},{parameter},{val_pct}%) V4 failed: {resp}')
+                return
+            logger.info(f'[XYZ Class ] MotorBoard.set_acceleration_limit({axis}, {parameter}, {val_pct}%) V4')
+            return
+
         SPI_ADDRS = {
             'X': {
                 'acceleration': 0x26,
@@ -550,6 +596,18 @@ class MotorBoard(SerialBoard):
     # SPI-direct related functions
     #----------------------------------------------------------
     def spi_read(self, axis: str, addr: int) -> str:
+        if self._use_v4():
+            # FW4.0 SPI_REG: firmware handles the read-dummy-payload detail
+            # internally and returns the register value as a hex string.
+            resp = self.exchange_json({'cmd': 'SPI_REG', 'axis': axis,
+                                        'addr': f'0x{addr:02x}'})
+            if resp is None or resp.get('ok') is not True:
+                logger.warning(f'[XYZ Class ] spi_read({axis}, 0x{addr:02x}) V4 failed: {resp}')
+                return None
+            value = resp.get('value')
+            logger.debug(f'[XYZ Class ] MotorBoard.spi_read({axis}, 0x{addr:02x}) V4 -> {value}')
+            return value
+
         # Add a dummy payload of "00" to the end in order for the firmware to not error out on a read.
         # It is expecting a payload.
         command = f"SPI{axis}0x{addr:02x}00"
@@ -570,6 +628,19 @@ class MotorBoard(SerialBoard):
             raise ValueError(f"Invalid axis {axis!r}")
         if not (0 <= addr <= 0x7F):
             raise ValueError(f"SPI address 0x{addr:02X} out of range [0x00-0x7F]")
+        if self._use_v4():
+            # FW4.0 SPI_REG with an int 'value' signals write; firmware
+            # applies the 0x80 write bit internally. Raw addr is passed
+            # (no host-side offset addition).
+            resp = self.exchange_json({'cmd': 'SPI_REG', 'axis': axis,
+                                        'addr': f'0x{addr:02x}',
+                                        'value': int(payload)})
+            if resp is None or resp.get('ok') is not True:
+                logger.warning(f'[XYZ Class ] spi_write({axis}, 0x{addr:02x}, {payload}) V4 failed: {resp}')
+                return None
+            logger.debug(f'[XYZ Class ] MotorBoard.spi_write({axis}, 0x{addr:02x}, {payload}) V4 -> {resp}')
+            return resp.get('value')
+
         WRITE_OFFSET = 0x80
         write_addr = addr + WRITE_OFFSET
         command = f"SPI{axis}0x{write_addr:02x}{int(payload)}"
@@ -632,6 +703,14 @@ class MotorBoard(SerialBoard):
 
     def zhome(self):
         """Home the objective. Returns True on success, False on failure."""
+        if self._use_v4():
+            ok, result = self._v4_home_wait({'cmd': 'HOME', 'axis': 'Z'},
+                                            total_timeout=15)
+            logger.info(f'[XYZ Class ] MotorBoard.zhome() V4 -> ok={ok} result={result}')
+            if not ok:
+                logger.error(f'[XYZ Class ] zhome() V4 failed: {result}')
+            return ok
+
         resp = self.exchange_command('ZHOME', timeout=15)
         logger.info(f'[XYZ Class ] MotorBoard.zhome() -> {resp}')
         if resp is None:
@@ -670,6 +749,26 @@ class MotorBoard(SerialBoard):
 
         Returns True on full or partial success, False on real failure.
         """
+        if self._use_v4():
+            ok, result = self._v4_home_wait({'cmd': 'HOME'}, total_timeout=30)
+            logger.info(f'[XYZ Class ] MotorBoard.home() V4 -> ok={ok} result={result}',
+                        extra={'force_error': True})
+            result_str = str(result)
+            if ok:
+                with self._state_lock:
+                    self.initial_homing_complete = True
+                return True
+            # Partial-home semantics match LEGACY: a "not present" report
+            # for X or Y still means the axes the board has were homed
+            # successfully.
+            if 'not present' in result_str.lower() and ('X' in result_str or 'Y' in result_str):
+                logger.info(f'[XYZ Class ] partial home V4 (X/Y not present): {result_str}')
+                with self._state_lock:
+                    self.initial_homing_complete = True
+                return True
+            logger.error(f'[XYZ Class ] home() V4 failed: {result_str}')
+            return False
+
         resp = self.exchange_command('HOME', timeout=30)
         logger.info(f'[XYZ Class ] MotorBoard.home() -> {resp}', extra={'force_error': True})
         if resp is None:
@@ -697,6 +796,14 @@ class MotorBoard(SerialBoard):
     def xycenter(self):
         """ Home the stage which also homes the objective first """
         logger.info('[XYZ Class ] MotorBoard.xycenter()')
+        if self._use_v4():
+            # HOME FULL per spec §4: home XYZ then move XY to center.
+            ok, result = self._v4_home_wait({'cmd': 'HOME', 'mode': 'FULL'},
+                                            total_timeout=30)
+            if not ok:
+                logger.warning(f'[XYZ Class ] xycenter() V4 failed: {result}')
+            return
+
         response = self.exchange_command('CENTER')
         if response is None:
             logger.warning('[XYZ Class ] xycenter() got no response')
@@ -729,6 +836,22 @@ class MotorBoard(SerialBoard):
 
     def thome(self):
         """Home the turret. Returns True on success."""
+        if self._use_v4():
+            ok, result = self._v4_home_wait({'cmd': 'HOME', 'axis': 'T'},
+                                            total_timeout=15)
+            logger.info(f'[XYZ Class ] MotorBoard.thome() V4 -> ok={ok} result={result}',
+                        extra={'force_error': True})
+            result_str = str(result)
+            if ok:
+                with self._state_lock:
+                    self.initial_t_homing_complete = True
+                return True
+            # "T not present" — board without a turret. Not a failure.
+            if 'not present' in result_str.lower():
+                return True
+            logger.error(f'[XYZ Class ] thome() V4 failed: {result_str}')
+            return False
+
         resp = self.exchange_command('THOME', timeout=15)
         logger.info(f'[XYZ Class ] MotorBoard.thome() -> {resp}', extra={'force_error': True})
         if resp is None:

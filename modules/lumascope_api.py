@@ -193,6 +193,26 @@ class Lumascope():
             ev.set()  # Start as "arrived" (not moving)
         self._move_profile = {ax: None for ax in present_axes}
 
+        # ----- FW4.0 motion-event subscribers -----
+        # On FW4.0 firmware, the motorboard emits arrived/homed push events
+        # on rising edge of (pos_reached AND vel_zero). Subscribing here
+        # lets the motion monitor drop its 50 Hz STATUS poll (which held
+        # SerialBoard._lock for ~32 ms per call — 1.80 s of contention per
+        # 36-step bench run per the 2026-04-13 profile) to a 2 Hz watchdog.
+        # On LEGACY v3.0.x boards, has_feature('events') is False and the
+        # monitor keeps the 50 Hz poll. Both lanes are equal-class.
+        self._motion_poll_interval = self._MOTION_POLL_INTERVAL
+        if hasattr(self.motion, 'set_arrived_callback'):
+            self.motion.set_arrived_callback(self._on_axis_arrived)
+        if hasattr(self.motion, 'set_homed_callback'):
+            self.motion.set_homed_callback(self._on_axis_homed)
+        if (hasattr(self.motion, 'motion_events_on')
+                and hasattr(self.motion, 'has_feature')
+                and self.motion.has_feature('events')):
+            if self.motion.motion_events_on():
+                self._motion_poll_interval = 0.5  # 2 Hz watchdog
+                logger.info('[SCOPE API ] FW4.0 motion events enabled; watchdog at 2 Hz')
+
         # ----- Motion monitor thread -----
         # Started AFTER motion + per-axis dicts are populated so the
         # thread never sees an inconsistent partial init state.
@@ -399,16 +419,40 @@ class Lumascope():
 
     # --- Motion monitor (Phase 1A) ---
 
-    _MOTION_POLL_INTERVAL = 0.02  # 50 Hz
+    _MOTION_POLL_INTERVAL = 0.02  # 50 Hz default (LEGACY v3.0.x boards)
+
+    def _on_axis_arrived(self, axis, pos):
+        """FW4.0 arrived-event callback (Phase 4D).
+
+        Fired from SerialBoard's read thread when firmware emits
+        {"event":"arrived",...} on rising edge of (pos_reached AND
+        vel_zero). Flips axis state to IDLE immediately, bypassing the
+        2 Hz STATUS watchdog. Must be fast — no blocking work inline.
+        """
+        if axis in self._axis_state:
+            self._set_axis_state(axis, AxisState.IDLE)
+
+    def _on_axis_homed(self, axis, pos):
+        """FW4.0 homed-event callback (Phase 4D).
+
+        Structurally identical to _on_axis_arrived — axis has reached
+        zero and is idle. Flip to IDLE.
+        """
+        if axis in self._axis_state:
+            self._set_axis_state(axis, AxisState.IDLE)
 
     def _motion_monitor_loop(self):
-        """Background thread: polls firmware for axis arrival at 50 Hz.
+        """Background thread: polls firmware for axis arrival.
 
         Sleeps on ``_motion_wake`` when all axes are IDLE. Wakes when any
         axis transitions to MOVING. Polls ``get_target_status()`` per
         MOVING axis and transitions them to IDLE on arrival. This is the
         single place where firmware target-status queries happen during
         normal operation — all other code reads the in-memory axis state.
+
+        On FW4.0 firmware (has_feature('events')), the arrived/homed push
+        events are the fast path and this poll drops to a 2 Hz watchdog
+        — see _motion_poll_interval init in __init__.
         """
         while not self._motion_monitor_stop.is_set():
             # Sleep until something starts moving (or shutdown)
@@ -429,7 +473,7 @@ class Lumascope():
                     # Also check overshoot — if overshoot is active,
                     # the monitor should keep running
                     if hasattr(self.motion, 'overshoot') and self.motion.overshoot:
-                        time.sleep(self._MOTION_POLL_INTERVAL)
+                        time.sleep(self._motion_poll_interval)
                         continue
                     # All axes arrived — go back to sleep
                     self._motion_wake.clear()
@@ -455,7 +499,7 @@ class Lumascope():
                         except Exception as e:
                             logger.warning(f'[SCOPE API ] Motion monitor: target_status({ax}) failed: {e}')
 
-                time.sleep(self._MOTION_POLL_INTERVAL)
+                time.sleep(self._motion_poll_interval)
 
     def _stop_motion_monitor(self):
         """Stop the motion monitor thread (called during disconnect)."""
@@ -3252,6 +3296,19 @@ class Lumascope():
         for ev in instance._arrival_events.values():
             ev.set()
         instance._move_profile = {ax: None for ax in present_axes}
+
+        # FW4.0 motion-event wiring — matches __init__ path. Drops poll to
+        # 2 Hz watchdog when events are active.
+        instance._motion_poll_interval = cls._MOTION_POLL_INTERVAL
+        if hasattr(instance.motion, 'set_arrived_callback'):
+            instance.motion.set_arrived_callback(instance._on_axis_arrived)
+        if hasattr(instance.motion, 'set_homed_callback'):
+            instance.motion.set_homed_callback(instance._on_axis_homed)
+        if (hasattr(instance.motion, 'motion_events_on')
+                and hasattr(instance.motion, 'has_feature')
+                and instance.motion.has_feature('events')):
+            if instance.motion.motion_events_on():
+                instance._motion_poll_interval = 0.5
 
         instance.camera = None
         instance._image_buffer = None
