@@ -270,6 +270,25 @@ class SimulatedLEDBoard:
         self._write_command_fast('LEDS_OFF')
 
     # ------------------------------------------------------------------
+    # Firmware-side STIM (parity with LEDBoard; v3.0.8+ feature)
+    # ------------------------------------------------------------------
+    def supports_firmware_stim(self) -> bool:
+        """Simulated firmware does not implement the STIM pulse-train command.
+
+        Returning False forces callers onto the host-edge fallback scheduler,
+        which is the right behavior for simulator tests — we're exercising
+        the LVP-side scheduler, not pretending the firmware is doing work.
+        """
+        return False
+
+    def stim_pulse_train(self, channel, mA, pulse_width_ms, period_ms, pulse_count):
+        """Not supported on the simulator. Callers must gate on
+        supports_firmware_stim() first."""
+        raise RuntimeError(
+            'SimulatedLEDBoard does not support firmware STIM; '
+            'use the host-edge scheduler fallback.')
+
+    # ------------------------------------------------------------------
     # Engineering mode and diagnostics (match LEDBoard API)
     # ------------------------------------------------------------------
     def enter_engineering_mode(self, timeout=5.0):
