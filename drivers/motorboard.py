@@ -6,7 +6,7 @@ import threading
 import time
 from lvp_logger import logger
 
-from drivers.serialboard import SerialBoard
+from drivers.serialboard import SerialBoard, ProtocolVersion
 from drivers.registry import motor_registry
 from modules.exceptions import HardwareError
 from modules.motorconfig import MotorConfig
@@ -27,6 +27,11 @@ class MotorBoard(SerialBoard):
         self._fullinfo = None
         self._connect_fails = 0
         self._connect_log_suppressed = False
+        # FW4.0 motion event subscribers — None until set_arrived_callback /
+        # set_homed_callback is called. The dispatcher installs itself on
+        # SerialBoard.on_event when either subscriber becomes non-None.
+        self._arrived_callback = None
+        self._homed_callback = None
 
         # Load hardware config (per-unit values from motorconfig.json, with defaults fallback)
         if motorconfig_defaults_file is None:
@@ -47,6 +52,118 @@ class MotorBoard(SerialBoard):
         self._initial_connect()
         # 3. Load per-unit config from board, rebuild cache with real values
         self._load_board_config()
+
+    # ------------------------------------------------------------------
+    # Dual-protocol dispatch (FW4.0 V4 + LEGACY v3.0.x).
+    # Both lanes are permanent per primary-session posture (2026-04-21).
+    # Callers never need to know which is active — legacy methods gain
+    # V4 branches internally, gated by _use_v4() which capability-probes
+    # via has_feature(). No "deprecated" framing; LEGACY stays equal-class
+    # for the life of the LVP 4.x series.
+    # ------------------------------------------------------------------
+    def _use_v4(self):
+        """True iff the connected board speaks FW4.0 AND advertises
+        positions (the baseline motor capability). Defensive getattr for
+        tests that construct MotorBoard via __new__."""
+        if getattr(self, 'protocol_version', None) != ProtocolVersion.V4:
+            return False
+        # 'positions' is the baseline — every FW4.0 motor firmware has it
+        # (see docs/FW40_COMMAND_REFERENCE.md §4). Using it as the gate
+        # means a partial-feature FW4.0 build still routes correctly.
+        return 'positions' in getattr(self, 'features', [])
+
+    # ------------------------------------------------------------------
+    # Motion event subsystem (FW4.0 EVENTS ON).
+    #
+    # The LVP motion-monitor previously polled STATUS at 50 Hz holding
+    # SerialBoard._lock — ~32 ms lock-held per call, observed as 1.80 s
+    # of contention on a 36-step bench run (2026-04-13 profile). FW4.0
+    # firmware emits {"event":"arrived","axis":X,"pos":N} on rising
+    # edge of (pos_reached AND vel_zero) at 50 Hz; subscribing here lets
+    # the API-layer motion monitor drop its poll to a 2 Hz watchdog.
+    #
+    # Callers install an arrived-event callback via set_arrived_callback;
+    # a homed-event callback via set_homed_callback. MotorBoard filters
+    # event messages from the SerialBoard on_event stream by event name
+    # and routes. Multiple subscribers are not supported (one callback
+    # each) — if that becomes a need, expand to a list.
+    # ------------------------------------------------------------------
+    def _on_event_dispatch(self, msg):
+        """Router installed on SerialBoard.on_event; filters events by
+        name and calls the appropriate subscriber. Runs on the
+        exchange_json read thread (same thread as the command caller)
+        so it must be quick — subscribers should enqueue to the API
+        layer's own thread, not do work inline here."""
+        evt = msg.get('event')
+        if evt == 'arrived':
+            cb = self._arrived_callback
+            if cb is not None:
+                try:
+                    cb(msg.get('axis'), msg.get('pos'))
+                except Exception as e:
+                    logger.error(f'[XYZ Class ] arrived callback raised: {e}')
+        elif evt == 'homed':
+            cb = self._homed_callback
+            if cb is not None:
+                try:
+                    cb(msg.get('axis'), msg.get('pos'))
+                except Exception as e:
+                    logger.error(f'[XYZ Class ] homed callback raised: {e}')
+
+    def set_arrived_callback(self, fn):
+        """Install a callback for 'arrived' events. fn(axis_str, pos_int).
+        Pass None to clear. Wiring on_event is idempotent — subsequent
+        calls just swap the subscriber, not re-install the dispatcher."""
+        self._arrived_callback = fn
+        self._install_event_dispatcher()
+
+    def set_homed_callback(self, fn):
+        """Install a callback for 'homed' events. fn(axis_str, pos_int)."""
+        self._homed_callback = fn
+        self._install_event_dispatcher()
+
+    def _install_event_dispatcher(self):
+        """Wire _on_event_dispatch onto the SerialBoard.on_event slot if
+        not already done. Idempotent."""
+        if self.on_event is not self._on_event_dispatch:
+            self.on_event = self._on_event_dispatch
+
+    def motion_events_on(self):
+        """Enable the firmware's 50 Hz arrived/homed push subsystem.
+        Returns True on success (V4 board acknowledged), False on LEGACY
+        (subsystem doesn't exist) or V4 communication failure.
+
+        Caller must have set an arrived/homed callback first (otherwise
+        events are emitted and dropped silently)."""
+        if not self._use_v4() or not self.has_feature('events'):
+            return False
+        self._install_event_dispatcher()
+        resp = self.exchange_json({'cmd': 'EVENTS', 'mode': 'ON'})
+        return resp is not None and resp.get('ok') is True
+
+    def motion_events_off(self):
+        """Disable firmware push events. The callback slot stays
+        installed — re-enabling works without re-registering."""
+        if not self._use_v4() or not self.has_feature('events'):
+            return False
+        resp = self.exchange_json({'cmd': 'EVENTS', 'mode': 'OFF'})
+        return resp is not None and resp.get('ok') is True
+
+    def positions_batch(self):
+        """Batch read of all present axis positions in a single round-trip.
+        FW4.0 only — replaces 4x current_pos_steps for the motion-monitor
+        path. Returns {'X': int, 'Y': int, 'Z': int, ...} or None on
+        LEGACY / failure. Omits axes that are not present."""
+        if not self._use_v4() or not self.has_feature('positions'):
+            return None
+        resp = self.exchange_json({'cmd': 'POSITIONS'})
+        if resp is None or resp.get('ok') is not True:
+            return None
+        out = {}
+        for ax in ('X', 'Y', 'Z', 'T'):
+            if ax in resp:
+                out[ax] = resp[ax]
+        return out
 
     def _rebuild_cached_values(self):
         """Recompute cached values from motorconfig.
@@ -189,6 +306,24 @@ class MotorBoard(SerialBoard):
     # Informational Functions
     #----------------------------------------------------------
     def fullinfo(self):
+        if self._use_v4():
+            # FW4.0 merged FULLINFO into INFO per the spec §5.
+            resp = self.exchange_json({'cmd': 'INFO'})
+            if resp is None or resp.get('ok') is not True:
+                logger.error('[XYZ Class ] INFO V4 returned None/error — board disconnected?')
+                return {"model": "unknown", "serial_number": "unknown"}
+            model = resp.get('model', 'unknown')
+            if isinstance(model, str) and model and model[-1] == 'T':
+                with self._state_lock:
+                    self._has_turret = True
+            serial_number = resp.get('serial', 'unknown')
+            return {
+                "model": model,
+                "serial_number": serial_number,
+                "_raw": resp,
+                "_info": resp,  # structured dict for V4 consumers
+            }
+
         info = self.exchange_command("FULLINFO")
         logger.info('[XYZ Class ] MotorBoard.fullinfo(): %s', info, extra={'force_error': True})
         if info is None:
@@ -226,6 +361,19 @@ class MotorBoard(SerialBoard):
         # Use cached fullinfo if available (set during connect)
         with self._state_lock:
             info = self._fullinfo
+
+        # V4 fast path: structured INFO.axes list.
+        if info is not None and isinstance(info.get('_info'), dict):
+            axes_list = info['_info'].get('axes')
+            if isinstance(axes_list, list):
+                return [ax for ax in axes_list if ax in ('X', 'Y', 'Z', 'T')]
+
+        # V4 live query if no cache.
+        if info is None and self._use_v4():
+            resp = self.exchange_json({'cmd': 'INFO'})
+            if resp is not None and isinstance(resp.get('axes'), list):
+                return [ax for ax in resp['axes'] if ax in ('X', 'Y', 'Z', 'T')]
+
         if info is not None:
             resp = info.get('_raw', '')
         else:
@@ -241,6 +389,11 @@ class MotorBoard(SerialBoard):
 
         Returns int or None on failure.
         """
+        if self._use_v4():
+            resp = self.exchange_json({'cmd': 'POS_READ', 'axis': axis})
+            if resp is None or resp.get('ok') is not True:
+                return None
+            return resp.get('position')
         try:
             response = self.exchange_command('ACTUAL_R' + axis)
             if response is None:
@@ -255,6 +408,12 @@ class MotorBoard(SerialBoard):
 
         Returns int or None on failure.
         """
+        if self._use_v4():
+            resp = self.exchange_json({'cmd': 'POS_READ', 'axis': axis})
+            if resp is None or resp.get('ok') is not True:
+                return None
+            # FW4.0 POS_READ returns both position (actual) and target.
+            return resp.get('target')
         try:
             response = self.exchange_command('TARGET_R' + axis)
             if response is None:
@@ -607,6 +766,21 @@ class MotorBoard(SerialBoard):
         """
         if axis not in ('X', 'Y', 'Z', 'T'):
             raise ValueError(f"Invalid axis {axis!r}")
+        if self._use_v4():
+            # FW4.0 POS_WRITE takes a 32-bit signed int — no two's-complement
+            # trick. Firmware range-checks -2**31 .. 2**31-1.
+            if steps > 0x7FFFFFFF:
+                # Caller already converted a negative number via the
+                # legacy-style two's-complement path above — re-sign it.
+                steps = steps - 0x100000000
+            if not (-2147483648 <= steps <= 2147483647):
+                raise ValueError(f"Steps {steps} out of 32-bit signed range for axis {axis}")
+            resp = self.exchange_json({'cmd': 'POS_WRITE', 'axis': axis,
+                                        'target': int(steps)})
+            if resp is None or resp.get('ok') is not True:
+                logger.warning(f'[XYZ Class ] move({axis}, {steps}) V4 no/bad response: {resp}')
+            return
+
         if steps < 0:
             steps += 0x100000000  # two's complement for firmware's unsigned integer format
         if steps > 0xFFFFFFFF:
@@ -725,7 +899,12 @@ class MotorBoard(SerialBoard):
     def home_status(self, axis):
         """ Return True if axis is in home position"""
 
-        # logger.info('[XYZ Class ] MotorBoard.home_status('+axis+')')
+        if self._use_v4():
+            resp = self.exchange_json({'cmd': 'LIMIT_SW', 'axis': axis})
+            if resp is None or resp.get('ok') is not True:
+                raise RuntimeError(f'LIMIT_SW {axis} failed: {resp}')
+            return bool(resp.get('homed'))
+
         try:
             data = int( self.exchange_command('STATUS_R' + axis) )
             bits = format(data, 'b').zfill(32)
@@ -739,7 +918,14 @@ class MotorBoard(SerialBoard):
     def target_status(self, axis):
         """ Return True if axis is at target position"""
 
-        # logger.info('[XYZ Class ] MotorBoard.target_status('+axis+')')
+        if self._use_v4():
+            # FW4.0 LIMIT_SW returns at_target = pos_reached AND vel_zero —
+            # the computed field the motion monitor actually wants.
+            resp = self.exchange_json({'cmd': 'LIMIT_SW', 'axis': axis})
+            if resp is None or resp.get('ok') is not True:
+                raise RuntimeError(f'LIMIT_SW {axis} failed: {resp}')
+            return bool(resp.get('at_target'))
+
         try:
             payload = 'STATUS_R' + axis
             response = self.exchange_command(payload)
@@ -758,6 +944,14 @@ class MotorBoard(SerialBoard):
     # Get all reference status register bits as 32 character string (32-> 0)
     def reference_status(self, axis):
         """ Get all reference status register bits as 32 character string (32-> 0) """
+        if self._use_v4():
+            resp = self.exchange_json({'cmd': 'LIMIT_SW', 'axis': axis})
+            if resp is None or resp.get('ok') is not True:
+                raise RuntimeError(f'LIMIT_SW {axis} failed: {resp}')
+            # Firmware already includes raw RAMP_STAT in the response for
+            # legacy consumers.
+            return resp.get('raw', 0)
+
         try:
 
             data = int( self.exchange_command('STATUS_R' + axis) )
@@ -777,6 +971,14 @@ class MotorBoard(SerialBoard):
             raise
 
     def limit_switch_status(self, axis):
+        if self._use_v4():
+            resp = self.exchange_json({'cmd': 'LIMIT_SW', 'axis': axis})
+            if resp is None or resp.get('ok') is not True:
+                logger.warning(f'[XYZ Class ] limit_switch_status({axis}) V4 failed: {resp}')
+                return -1, -1
+            return (1 if resp.get('left') else 0,
+                    1 if resp.get('right') else 0)
+
         try:
             resp = self.reference_status(axis=axis)
             resp_int = int(resp)
@@ -806,6 +1008,12 @@ class MotorBoard(SerialBoard):
         Firmware returns JSON (v3.0.5+) or Python dict repr (older).
         Returns parsed dict, or empty dict on failure.
         """
+        if self._use_v4():
+            resp = self.exchange_json({'cmd': 'CONFIG'})
+            if resp is None or resp.get('ok') is not True:
+                return {}
+            return resp.get('config', {}) or {}
+
         resp = self.exchange_command('CONFIG')
         if resp is None:
             return {}
@@ -823,18 +1031,36 @@ class MotorBoard(SerialBoard):
                 return {}
 
     def get_drvstat(self, axis=None):
-        """Send DRVSTAT and return parsed driver status.
+        """Send DRVSTAT / DRV_STATUS and return parsed driver status.
 
         Args:
             axis: Optional single axis ('X', 'Y', 'Z', 'T').
                 If None, returns status for all axes.
 
         Returns:
-            List of dicts, one per axis, with keys:
-                'axis', 'raw' (hex string), 'SG' (int), 'CS' (int),
-                and flag strings from firmware.
-            Returns empty list on failure.
+            List of dicts with per-axis fields. LEGACY keys: axis, raw,
+            SG, CS, plus flag strings. V4 keys: axis, raw, sg_result,
+            cs_actual, stall, ot, otpw, ola, olb, s2ga, s2gb. Both return
+            an empty list on failure.
         """
+        if self._use_v4():
+            payload = {'cmd': 'DRV_STATUS'}
+            if axis:
+                payload['axis'] = axis
+            resp = self.exchange_json(payload)
+            if resp is None or resp.get('ok') is not True:
+                return []
+            if axis:
+                # Single-axis response is flat; wrap to match list shape.
+                return [{k: v for k, v in resp.items() if k not in ('ok', 'cmd', 'id')}]
+            axes_dict = resp.get('axes', {})
+            out = []
+            for ax, d in axes_dict.items():
+                entry = {'axis': ax}
+                entry.update(d)
+                out.append(entry)
+            return out
+
         cmd = f'DRVSTAT_{axis}' if axis else 'DRVSTAT'
         resp = self.exchange_multiline(cmd, timeout=5, end_markers=['T:'])
         if resp is None:
@@ -866,12 +1092,21 @@ class MotorBoard(SerialBoard):
         return results
 
     def get_motordetect(self):
-        """Send MOTORDETECT and return parsed motor detection status.
+        """Send MOTOR_DETECT and return parsed motor detection status."""
+        if self._use_v4():
+            resp = self.exchange_json({'cmd': 'MOTOR_DETECT'})
+            if resp is None or resp.get('ok') is not True:
+                return []
+            axes_dict = resp.get('axes', {})
+            out = []
+            for ax, d in axes_dict.items():
+                out.append({
+                    'axis': ax,
+                    'detected': bool(d.get('present')),
+                    'configured': bool(d.get('configured')),
+                })
+            return out
 
-        Returns list of dicts, one per axis, with keys:
-            'axis', 'detected' (bool), 'configured' (bool), 'raw_line'.
-        Returns empty list on failure.
-        """
         resp = self.exchange_multiline('MOTORDETECT', timeout=5,
                                        end_markers=['T:'])
         if resp is None:
@@ -888,13 +1123,27 @@ class MotorBoard(SerialBoard):
         return results
 
     def get_current(self):
-        """Send CURRENT and return parsed motor current info.
+        """Send CURRENT and return parsed motor current info."""
+        if self._use_v4():
+            resp = self.exchange_json({'cmd': 'CURRENT'})
+            if resp is None or resp.get('ok') is not True:
+                return []
+            axes_dict = resp.get('axes', {})
+            out = []
+            for ax, d in axes_dict.items():
+                # Translate V4 field names to legacy upper-case for
+                # backward compatibility with existing callers.
+                out.append({
+                    'axis': ax,
+                    'CS_ACTUAL': d.get('cs_actual', 0),
+                    'IRUN': d.get('irun', 0),
+                    'IHOLD': d.get('ihold', 0),
+                    'SG_RESULT': d.get('sg_result', 0),
+                    'approx_mA': d.get('approx_mA', 0),
+                    'standstill': d.get('standstill', False),
+                })
+            return out
 
-        Returns list of dicts, one per axis, with keys:
-            'axis', 'CS_ACTUAL' (int), 'IRUN' (int), 'IHOLD' (int),
-            'SG_RESULT' (int), 'raw_line'.
-        Returns empty list on failure.
-        """
         resp = self.exchange_multiline('CURRENT', timeout=5,
                                        end_markers=['T:'])
         if resp is None:
@@ -914,10 +1163,20 @@ class MotorBoard(SerialBoard):
         return results
 
     def get_voltage(self):
-        """Send VOLTAGE and return parsed voltage info.
+        """Send VOLTAGE and return parsed voltage info."""
+        if self._use_v4():
+            resp = self.exchange_json({'cmd': 'VOLTAGE'})
+            if resp is None or resp.get('ok') is not True:
+                return {}
+            # Legacy callers expect e.g. "24V" key — translate names.
+            return {
+                '24V': resp.get('v24'),
+                '5V':  resp.get('v5'),
+                '3V3': resp.get('v3v3'),
+                '1V2': resp.get('v1v2'),
+                'raw': resp,
+            }
 
-        Returns dict with voltage readings, or empty dict on failure.
-        """
         resp = self.exchange_command('VOLTAGE', timeout=5)
         if resp is None:
             return {}
@@ -952,10 +1211,16 @@ class MotorBoard(SerialBoard):
         return False
 
     def read_status(self, axis):
-        """Read raw STATUS register value for axis.
+        """Read raw RAMP_STAT register value for axis.
 
         Returns int (32-bit register value), or None on failure.
         """
+        if self._use_v4():
+            resp = self.exchange_json({'cmd': 'LIMIT_SW', 'axis': axis})
+            if resp is None or resp.get('ok') is not True:
+                return None
+            return resp.get('raw')
+
         try:
             resp = self.exchange_command('STATUS_R' + axis)
             if resp is None:
@@ -966,12 +1231,18 @@ class MotorBoard(SerialBoard):
             return None
 
     def get_current_firmware(self):
-        """ Returns current version of firmware on Motorboard
-
-            :return the string
-                Etaluma Motor Controller Board <BOARD TYPE>
-                Firmware:     <DATE>
+        """ Returns current version of firmware on Motorboard. LEGACY
+        returns the raw text INFO line; V4 returns the structured INFO
+        dict. Callers that need both shapes should inspect the return
+        type or use fullinfo() for a stable dict shape.
         """
+        if self._use_v4():
+            resp = self.exchange_json({'cmd': 'INFO'})
+            if resp is None or resp.get('ok') is not True:
+                logger.info('[XYZ Class ] MotorBoard V4 not connected. Unable to check current firmware')
+                return
+            return resp
+
         response = self.exchange_command('INFO')
         if not response:
             logger.info('[XYZ Class ] MotorBoard not connected. Unable to check current firmware')
