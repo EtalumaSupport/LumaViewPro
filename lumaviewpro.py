@@ -515,8 +515,9 @@ def go_to_step(
                 stim_layer_obj.ids['stim_freq_slider'].value = float(stim_config['frequency'])
                 stim_layer_obj.ids['stim_pulse_width_text'].text = str(stim_config['pulse_width'])
                 stim_layer_obj.ids['stim_pulse_width_slider'].value = float(stim_config['pulse_width'])
-                stim_layer_obj.ids['stim_pulse_count_text'].text = str(stim_config['pulse_count'])
-                stim_layer_obj.ids['stim_pulse_count_slider'].value = int(stim_config['pulse_count'])
+                _freq = stim_config.get('frequency', 1)
+                _stim_duration_s = stim_config['pulse_count'] / max(float(_freq), 0.001)
+                stim_layer_obj._apply_stim_duration(_stim_duration_s, _freq)
 
     # acquire type
     settings[color]['acquire'] = step['Acquire']
@@ -6129,18 +6130,41 @@ class LayerControl(BoxLayout):
         settings[self.layer]['stim_config']['illumination'] = illumination
         self.apply_settings()
 
+    def _apply_stim_duration(self, duration_s, frequency):
+        """Clamp duration to [1 period, slider max], snap slider step to 1
+        period, store floor(duration * frequency) as pulse_count. The entered
+        duration is preserved on-screen; actual stim can be up to one full
+        period short of the display."""
+        dur_slider = self.ids['stim_pulse_count_slider']
+        freq = max(float(frequency), 0.001)
+        period_s = round(1.0 / freq, 3)
+        dur_slider.min = period_s
+        dur_slider.step = period_s
+        clamped_s = float(np.clip(duration_s, dur_slider.min, dur_slider.max))
+        if abs(clamped_s - float(duration_s)) > 1e-3:
+            logger.warning(
+                f"[LVP Main  ] {self.layer} stim duration {float(duration_s):.3f}s "
+                f"clamped to {clamped_s:.3f}s (bounds [{dur_slider.min}, {dur_slider.max}])")
+        duration_s = round(clamped_s, 3)
+        pulse_count = max(1, int(duration_s * freq))
+        dur_slider.value = duration_s
+        self.ids['stim_pulse_count_text'].text = str(duration_s)
+        settings[self.layer]['stim_config']['pulse_count'] = pulse_count
+
     def stim_freq_slider(self):
         logger.info('[LVP Main  ] LayerControl.stim_freq_slider()')
         frequency = self.ids['stim_freq_slider'].value
         settings[self.layer]['stim_config']['frequency'] = frequency
+        self._apply_stim_duration(self.ids['stim_pulse_count_slider'].value, frequency)
         self.apply_settings()
-    
+
     def stim_pulse_count_slider(self):
         logger.info('[LVP Main  ] LayerControl.stim_pulse_count_slider()')
-        pulse_count = self.ids['stim_pulse_count_slider'].value
-        settings[self.layer]['stim_config']['pulse_count'] = pulse_count
+        duration_s = self.ids['stim_pulse_count_slider'].value
+        frequency = settings[self.layer]['stim_config']['frequency']
+        self._apply_stim_duration(duration_s, frequency)
         self.apply_settings()
-    
+
     def stim_pulse_width_slider(self):
         logger.info('[LVP Main  ] LayerControl.stim_pulse_width_slider()')
         pulse_width = self.ids['stim_pulse_width_slider'].value
@@ -6165,26 +6189,20 @@ class LayerControl(BoxLayout):
         self.ids['stim_freq_text'].text = str(frequency)
         
         settings[self.layer]['stim_config']['frequency'] = frequency
+        self._apply_stim_duration(self.ids['stim_pulse_count_slider'].value, frequency)
         self.apply_settings()
-    
+
     def stim_pulse_count_text(self):
         logger.info('[LVP Main  ] LayerControl.stim_pulse_count_text()')
 
-        pulse_count_min = self.ids['stim_pulse_count_slider'].min
-        pulse_count_max = self.ids['stim_pulse_count_slider'].max
-
         try:
-            pulse_count = float(self.ids['stim_pulse_count_text'].text)
+            duration_s = float(self.ids['stim_pulse_count_text'].text)
         except Exception as e:
             logger.error(f"[LVP Main  ] LayerControl.stim_pulse_count_text() -> {e}")
             return
 
-        pulse_count = int(np.clip(pulse_count, pulse_count_min, pulse_count_max))
-
-        self.ids['stim_pulse_count_slider'].value = pulse_count
-        self.ids['stim_pulse_count_text'].text = str(pulse_count)
-
-        settings[self.layer]['stim_config']['pulse_count'] = pulse_count
+        frequency = settings[self.layer]['stim_config']['frequency']
+        self._apply_stim_duration(duration_s, frequency)
         self.apply_settings()
 
     def stim_pulse_width_text(self):

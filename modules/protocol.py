@@ -918,21 +918,21 @@ class Protocol:
                 "illumination": 100,
                 "frequency": 1,
                 "pulse_width": 10,
-                "pulse_count": 100,
+                "pulse_count": 5,
             },
             "Green": {
                 "enabled": False,
                 "illumination": 100,
                 "frequency": 1,
                 "pulse_width": 10,
-                "pulse_count": 100,
+                "pulse_count": 5,
             },
             "Blue": {
                 "enabled": False,
                 "illumination": 100,
                 "frequency": 1,
                 "pulse_width": 10,
-                "pulse_count": 100,
+                "pulse_count": 5,
             }
         }
 
