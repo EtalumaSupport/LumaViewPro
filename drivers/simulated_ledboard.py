@@ -334,3 +334,100 @@ class SimulatedLEDBoard:
 
     def verify_firmware_running(self, timeout=10):
         return 'Simulated firmware running'
+
+    # ------------------------------------------------------------------
+    # FW4.0 V4 surface — matches SerialBoard + LEDBoard Phase 4A/4B.
+    # The simulator stays protocol-agnostic for the legacy methods above
+    # (they continue to work regardless of self.protocol_version). These
+    # V4-specific methods return plausible responses so tests that exercise
+    # the V4 path via the simulator get realistic shape.
+    # Architecture Rule 11: every new real-board method must have a
+    # simulator stub in the same PR. The bench break on 2026-04-21 that
+    # this code exists to prevent: shipping a driver method without the
+    # parity stub + test_api_surface_matches_real guard catching it.
+    # ------------------------------------------------------------------
+    _DEFAULT_SIM_FEATURES = ['id', 'led', 'adc_read', 'selftest', 'calibrate',
+                             'status', 'stim', 'stim_multi', 'events',
+                             'i2c', 'diag', 'fwupdate']
+
+    @property
+    def features(self):
+        """FW4.0 INFO.features array. Simulator advertises the full FW4.0
+        LED capability set by default; tests that want a capability-
+        constrained simulator can set sim.features = [...] after
+        construction."""
+        if not hasattr(self, '_features_override'):
+            return list(self._DEFAULT_SIM_FEATURES)
+        return self._features_override
+
+    @features.setter
+    def features(self, value):
+        self._features_override = list(value) if value is not None else None
+
+    def has_feature(self, name):
+        return name in self.features
+
+    def exchange_json(self, payload, timeout=None):
+        """Simulated V4 command. Returns a plausible ok:True response
+        echoing the command and any id. Tests that need specific response
+        shapes for a command can subclass / monkey-patch this method."""
+        if not isinstance(payload, dict) or 'cmd' not in payload:
+            return None
+        cmd = payload.get('cmd')
+        resp = {'ok': True, 'cmd': cmd}
+        if 'id' in payload:
+            resp['id'] = payload['id']
+        # Echo commonly-expected fields so callers that destructure don't
+        # crash on KeyError. Real shape for a given command comes from
+        # firmware; simulator keeps it minimal.
+        for key in ('ch', 'mA', 'axis', 'raw', 'target'):
+            if key in payload:
+                resp[key] = payload[key]
+        if cmd == 'INFO':
+            resp.update({
+                'board': 'EL-0940 Integrated Mainboard',
+                'subsystem': 'LED',
+                'fw_version': '4.0.0',
+                'fw_date': '2026-04-21',
+                'protocol': '4.0',
+                'serial': 'SIM-LED',
+                'features': list(self.features),
+                'heap_free': 180000,
+            })
+        return resp
+
+    def firmware_stim(self, channel, mA, pulse_ms, period_ms, count):
+        """Start a firmware-owned single-channel pulse train (simulated).
+        Matches LEDBoard.firmware_stim on the real hardware — FW4.0 only."""
+        if not self.supports_firmware_stim():
+            return None
+        return {
+            'ok': True, 'cmd': 'STIM', 'ch': int(channel),
+            'status': 'RUNNING', 'pulse_us': int(pulse_ms * 1000),
+            'period_us': int(period_ms * 1000), 'count': int(count),
+        }
+
+    def firmware_stim_multi(self, channels):
+        """Start concurrent multi-channel pulse trains (simulated)."""
+        if not self.supports_firmware_stim() or not self.has_feature('stim_multi'):
+            return None
+        return {
+            'ok': True, 'cmd': 'STIM_MULTI', 'started': len(channels),
+            'status': 'RUNNING',
+            'channels': [c.get('ch') for c in channels if isinstance(c, dict)],
+        }
+
+    def firmware_stim_stop(self, channel='ALL'):
+        """Stop firmware STIM trains (simulated)."""
+        if not self.supports_firmware_stim():
+            return None
+        ch_out = 'ALL' if channel == 'ALL' else int(channel)
+        return {'ok': True, 'cmd': 'STIM_STOP', 'ch': ch_out,
+                'pulses_emitted': 0}
+
+    def supports_firmware_stim(self):
+        """Mirror LEDBoard.supports_firmware_stim: True iff the board
+        advertises the stim capability. Simulator defaults to True so
+        LVP's StimulationController exercises the firmware-side code
+        path during simulated testing."""
+        return self.has_feature('stim')
