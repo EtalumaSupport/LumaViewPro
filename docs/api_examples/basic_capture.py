@@ -25,7 +25,7 @@ _mock_lvp_logger.unpause_thread = MagicMock()
 _mock_lvp_logger.pause_thread = MagicMock()
 
 sys.modules.setdefault('lvp_logger', _mock_lvp_logger)
-sys.modules.setdefault('userpaths', MagicMock())
+sys.modules.setdefault('platformdirs', MagicMock())
 sys.modules.setdefault('requests', MagicMock())
 sys.modules.setdefault('requests.structures', MagicMock())
 sys.modules.setdefault('pypylon', MagicMock())

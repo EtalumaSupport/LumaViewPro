@@ -81,7 +81,7 @@ def install_mock_deps():
 
     deps = {
         # General heavy deps
-        'userpaths': MagicMock(),
+        'platformdirs': MagicMock(),
         'lvp_logger': mock_lvp_logger,
         'requests': MagicMock(),
         'requests.structures': MagicMock(),

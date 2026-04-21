@@ -59,9 +59,9 @@ def get_source_root(
     if not version:
         return script_root
 
-    import userpaths
+    import platformdirs
 
-    documents_dir = pathlib.Path(userpaths.get_my_documents())
+    documents_dir = pathlib.Path(platformdirs.user_documents_dir())
     return documents_dir / f"LumaViewPro {version}"
 
 

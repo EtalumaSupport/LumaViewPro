@@ -10,7 +10,7 @@ from logging.handlers import RotatingFileHandler
 import os
 import sys
 import ctypes
-import userpaths
+import platformdirs
 import threading
 
 global windows_machine 
@@ -53,7 +53,7 @@ except Exception as e:
 
 if windows_machine and lvp_installed:
 
-    documents_folder = userpaths.get_my_documents()
+    documents_folder = platformdirs.user_documents_dir()
     lvp_appdata = os.path.join(documents_folder, f"LumaViewPro {version}")
 
     # Do NOT os.chdir() here — it changes global CWD as a side effect of import.

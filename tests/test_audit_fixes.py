@@ -101,7 +101,7 @@ def _camera_sdk_mock_modules():
 
 
 def _common_mock_modules():
-    """Return a dict of commonly needed mock modules (lvp_logger, userpaths, etc).
+    """Return a dict of commonly needed mock modules (lvp_logger, platformdirs, etc).
 
     NOTE: cv2 is NOT mocked — it's a real installed package with no Kivy
     dependency. Mocking it causes test-ordering contamination: image_utils
@@ -109,7 +109,7 @@ def _common_mock_modules():
     can't fix the cached reference. This broke TestAddTimestampInPlace.
     """
     mods = {
-        'userpaths': MagicMock(),
+        'platformdirs': MagicMock(),
         'lvp_logger': _build_mock_logger(),
         'requests': MagicMock(),
         'requests.structures': MagicMock(),

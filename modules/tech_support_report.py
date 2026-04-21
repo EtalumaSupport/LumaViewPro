@@ -110,7 +110,7 @@ TMC5072_DIAG_REGISTERS = {
 
 
 # ---------------------------------------------------------------------------
-# Path helpers — mirrors userpaths.py conventions
+# Path helpers — mirrors platformdirs conventions
 # ---------------------------------------------------------------------------
 
 def _get_app_root():

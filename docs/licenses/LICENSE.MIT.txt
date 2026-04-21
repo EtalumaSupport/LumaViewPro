@@ -4,7 +4,7 @@ The following third-party components bundled with LumaViewPro are distributed
 under the MIT License:
 
   - Kivy (https://kivy.org/)
-  - userpaths (https://pypi.org/project/userpaths/)
+  - platformdirs (https://github.com/platformdirs/platformdirs)
   - Brotli (https://github.com/google/brotli) — bundled via imagecodecs wheel
   - pytest (development only)
 

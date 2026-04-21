@@ -69,8 +69,8 @@ def init_environment(main_file: str) -> AppEnvironment:
     # Determine source_path (data directory)
     if windows_machine and lvp_installed:
         _logger.info("Machine-Type - WINDOWS")
-        import userpaths
-        documents_folder = userpaths.get_my_documents()
+        import platformdirs
+        documents_folder = platformdirs.user_documents_dir()
         # Use base version (without hash) for folder name
         # version is already path-safe (no timestamp, no parens)
         lvp_appdata = os.path.join(documents_folder, f"LumaViewPro {version}")

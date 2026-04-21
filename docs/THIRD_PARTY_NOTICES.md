@@ -28,10 +28,10 @@ This NOTICE file is maintained by Etaluma, Inc. in accordance with Apache-2.0 §
 | psutil | 7.2.2 | BSD-3-Clause | https://github.com/giampaolo/psutil |
 | Numba | 0.64.0 | BSD-2-Clause | https://numba.pydata.org/ |
 | llvmlite (numba dep) | bundled with numba | BSD-2-Clause (wrapper); LLVM is Apache-2.0 with LLVM Exceptions | https://github.com/numba/llvmlite |
-| userpaths | 0.1.3 | MIT | https://pypi.org/project/userpaths/ |
+| platformdirs | 4.4.0 | MIT | https://github.com/platformdirs/platformdirs |
 | pypylon | 4.2.0 | BSD-3-Clause (Python wrapper only) | https://github.com/basler/pypylon |
 | ids-peak | 1.13.0.0.6 | BSD-3-Clause (Python wrapper only) | https://pypi.org/project/ids-peak/ |
-| PyAV (`av`) | ≥14.0.0 | BSD-3-Clause wrapper over LGPL-2.1 FFmpeg | https://github.com/PyAV-Org/PyAV |
+| PyAV (`av`) | 14.0.0 | BSD-3-Clause wrapper over LGPL-2.1 FFmpeg | https://github.com/PyAV-Org/PyAV |
 | JPype1 | 1.6.0 | Apache-2.0 | https://github.com/jpype-project/jpype |
 | pyimagej | 1.7.0 | Apache-2.0 | https://github.com/imagej/pyimagej |
 | scyjava | 1.12.2 | BSD-2-Clause | https://github.com/scijava/scyjava |
