@@ -508,7 +508,7 @@ class LayerControl(BoxLayout):
     def stim_pulse_count_slider(self):
         settings = _app_ctx.ctx.settings
         logger.info('[LVP Main  ] LayerControl.stim_pulse_count_slider()')
-        pulse_count = self.ids['stim_pulse_count_slider'].value
+        pulse_count = int(self.ids['stim_pulse_count_slider'].value)
         gui_logger.slider(f'STIM_PULSE_COUNT_{self.layer}', pulse_count)
         try:
             settings[self.layer]['stim_config']['pulse_count'] = pulse_count
@@ -519,7 +519,7 @@ class LayerControl(BoxLayout):
     def stim_pulse_width_slider(self):
         settings = _app_ctx.ctx.settings
         logger.info('[LVP Main  ] LayerControl.stim_pulse_width_slider()')
-        pulse_width = self.ids['stim_pulse_width_slider'].value
+        pulse_width = int(self.ids['stim_pulse_width_slider'].value)
         gui_logger.slider(f'STIM_PULSE_WIDTH_{self.layer}', pulse_width)
         try:
             settings[self.layer]['stim_config']['pulse_width'] = pulse_width
