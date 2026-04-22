@@ -772,3 +772,242 @@ class TestDeployFirmwareFileExtraFiles:
         assert names_in_order == ['fw40_framing.py', 'main.py'], (
             f'wrong write order: {names_in_order}'
         )
+
+
+class TestDeployFirmwareFileCompileMpy:
+    """compile_mpy=True — mpy-cross integration + .mpy pattern."""
+
+    def test_preflight_mpy_cross_missing(self, tmp_path):
+        """compile_mpy=True with no mpy-cross on PATH fails preflight."""
+        from drivers.firmware_updater import deploy_firmware_file
+        main_py = tmp_path / "main.py"
+        main_py.write_bytes(b'print("hi")\n')
+        with patch("drivers.firmware_updater._find_mpy_cross",
+                   return_value=None):
+            result = deploy_firmware_file(
+                BoardType.MOTOR, main_py, compile_mpy=True,
+            )
+        assert result.success is False
+        assert result.error_stage == UpdateStage.PREFLIGHT
+        assert "mpy-cross" in result.error_message
+
+    def test_firmware_remote_name_override(self, tmp_path):
+        """firmware_remote_name writes to the caller-chosen filename."""
+        from drivers.firmware_updater import deploy_firmware_file
+
+        main_py = tmp_path / "main.py"
+        main_py.write_bytes(b'import fw40_led\n')
+
+        board = MagicMock()
+        board.firmware_version = "4.0.0"
+        board.firmware_date = "2026-04-22"
+        board.enter_raw_repl.return_value = True
+        board.repl_write_file.return_value = True
+        board.detect_firmware_version = MagicMock()
+
+        with patch("drivers.firmware_updater._create_board",
+                   return_value=board), \
+             patch("drivers.firmware_updater._backup_configs",
+                   return_value={}), \
+             patch("drivers.firmware_updater._run_post_update_test",
+                   return_value=(True, "ok")), \
+             patch("drivers.firmware_updater.time.sleep"):
+            result = deploy_firmware_file(
+                BoardType.MOTOR,
+                main_py,
+                firmware_remote_name='main.py',
+                skip_config_backup=True,
+            )
+        assert result.success is True
+        names = [c.args[0] for c in board.repl_write_file.call_args_list]
+        assert names == ['main.py']
+
+    @patch("drivers.firmware_updater._mpy_cross_compile")
+    @patch("drivers.firmware_updater._find_mpy_cross")
+    def test_compile_mpy_compiles_firmware_and_extras(
+        self, mock_find, mock_compile, tmp_path,
+    ):
+        """compile_mpy=True runs mpy-cross on .py inputs; the deployed
+        bytes are the .mpy output, written under remote names verbatim
+        (so remote names should carry .mpy suffix when the caller intends
+        .mpy deployment — this is documented in the docstring)."""
+        from drivers.firmware_updater import deploy_firmware_file
+
+        mock_find.return_value = Path('/fake/mpy-cross')
+
+        main_py = tmp_path / "main.py"
+        main_py.write_bytes(b'import fw40_led\n' + b'# filler\n' * 5)
+        framing = tmp_path / "fw40_framing.py"
+        framing.write_bytes(b'# framing\n' + b'# filler\n' * 5)
+        fw_source = tmp_path / "fw40_led.py"
+        fw_source.write_bytes(b'# led firmware\n' + b'# filler\n' * 100)
+
+        # Simulate mpy-cross: create the .mpy output file each call.
+        def fake_compile(py_path, out_path, mpy_cross_path=None):
+            out_path = Path(out_path)
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+            out_path.write_bytes(b'MPY\x06\x00' + bytes(
+                f'compiled:{py_path.name}', 'utf-8'))
+            return True
+        mock_compile.side_effect = fake_compile
+
+        board = MagicMock()
+        board.firmware_version = "4.0.0"
+        board.firmware_date = "2026-04-22"
+        board.enter_raw_repl.return_value = True
+        board.repl_write_file.return_value = True
+        board.detect_firmware_version = MagicMock()
+
+        with patch("drivers.firmware_updater._create_board",
+                   return_value=board), \
+             patch("drivers.firmware_updater._backup_configs",
+                   return_value={}), \
+             patch("drivers.firmware_updater._run_post_update_test",
+                   return_value=(True, "ok")), \
+             patch("drivers.firmware_updater.time.sleep"):
+            result = deploy_firmware_file(
+                BoardType.MOTOR,
+                main_py,
+                extra_files=[
+                    (framing, 'fw40_framing.mpy'),
+                    (fw_source, 'fw40_led.mpy'),
+                ],
+                compile_mpy=True,
+                skip_config_backup=True,
+            )
+
+        assert result.success is True, result.error_message
+        # Only the two extras whose REMOTE name is .mpy compile. The
+        # firmware stub (remote='main.py') writes verbatim — that's the
+        # caller-intent rule that keeps the stub-import pattern working.
+        assert mock_compile.call_count == 2
+
+        names_in_order = [
+            c.args[0] for c in board.repl_write_file.call_args_list
+        ]
+        assert names_in_order == [
+            'fw40_framing.mpy', 'fw40_led.mpy', 'main.py',
+        ], f'wrong write order under compile_mpy: {names_in_order}'
+
+        # main.py (the stub source) went out verbatim — bytes start with
+        # 'import' text, not the 'MPY' magic.
+        main_write = board.repl_write_file.call_args_list[-1]
+        assert main_write.args[0] == 'main.py'
+        assert main_write.args[1].startswith(b'import fw40_led')
+
+        # fw40_led.mpy got compiled bytes (MPY magic).
+        led_write = board.repl_write_file.call_args_list[1]
+        assert led_write.args[0] == 'fw40_led.mpy'
+        assert led_write.args[1].startswith(b'MPY')
+
+
+class TestDeployFirmwareBundleFw40:
+    """deploy_firmware_bundle_fw40 — the 3-file stub+.mpy bundle for LED."""
+
+    @patch("drivers.firmware_updater._mpy_cross_compile")
+    @patch("drivers.firmware_updater._find_mpy_cross")
+    def test_led_bundle_writes_stub_and_two_mpy(
+        self, mock_find, mock_compile, tmp_path,
+    ):
+        """LED bundle: main.py stub → fw40_led.mpy + fw40_framing.mpy."""
+        from drivers.firmware_updater import deploy_firmware_bundle_fw40
+
+        mock_find.return_value = Path('/fake/mpy-cross')
+
+        led_source = tmp_path / "main.py"  # LVP stores LED firmware as main.py
+        led_source.write_bytes(b'# led firmware\n' + b'# filler\n' * 100)
+        framing = tmp_path / "fw40_framing.py"
+        framing.write_bytes(b'# framing\n' + b'# filler\n' * 5)
+
+        def fake_compile(py_path, out_path, mpy_cross_path=None):
+            out_path = Path(out_path)
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+            out_path.write_bytes(b'MPY\x06\x00')
+            return True
+        mock_compile.side_effect = fake_compile
+
+        board = MagicMock()
+        board.firmware_version = "4.0.0"
+        board.firmware_date = "2026-04-22"
+        board.enter_raw_repl.return_value = True
+        board.repl_write_file.return_value = True
+        board.detect_firmware_version = MagicMock()
+
+        with patch("drivers.firmware_updater._create_board",
+                   return_value=board), \
+             patch("drivers.firmware_updater._backup_configs",
+                   return_value={}), \
+             patch("drivers.firmware_updater._run_post_update_test",
+                   return_value=(True, "ok")), \
+             patch("drivers.firmware_updater.time.sleep"):
+            result = deploy_firmware_bundle_fw40(
+                BoardType.LED,
+                main_module_path=led_source,
+                framing_path=framing,
+                skip_config_backup=True,
+            )
+
+        assert result.success is True, result.error_message
+        names = [c.args[0] for c in board.repl_write_file.call_args_list]
+        assert names == [
+            'fw40_framing.mpy',
+            'fw40_led.mpy',
+            'main.py',
+        ], f'bundle write order wrong: {names}'
+
+        # main.py stub content is 'import fw40_led\n'.
+        main_write = board.repl_write_file.call_args_list[-1]
+        assert main_write.args[0] == 'main.py'
+        assert main_write.args[1] == b'import fw40_led\n'
+
+    @patch("drivers.firmware_updater._mpy_cross_compile")
+    @patch("drivers.firmware_updater._find_mpy_cross")
+    def test_motor_bundle_uses_fw40_motor_stem(
+        self, mock_find, mock_compile, tmp_path,
+    ):
+        """MOTOR bundle stub imports fw40_motor (not fw40_led)."""
+        from drivers.firmware_updater import deploy_firmware_bundle_fw40
+
+        mock_find.return_value = Path('/fake/mpy-cross')
+        motor_source = tmp_path / "main.py"
+        motor_source.write_bytes(b'# motor\n' + b'# filler\n' * 100)
+        framing = tmp_path / "fw40_framing.py"
+        framing.write_bytes(b'# framing\n' + b'# filler\n' * 5)
+
+        def fake_compile(py_path, out_path, mpy_cross_path=None):
+            out_path = Path(out_path)
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+            out_path.write_bytes(b'MPY\x06\x00')
+            return True
+        mock_compile.side_effect = fake_compile
+
+        board = MagicMock()
+        board.firmware_version = "4.0.0"
+        board.firmware_date = "2026-04-22"
+        board.enter_raw_repl.return_value = True
+        board.repl_write_file.return_value = True
+        board.detect_firmware_version = MagicMock()
+
+        with patch("drivers.firmware_updater._create_board",
+                   return_value=board), \
+             patch("drivers.firmware_updater._backup_configs",
+                   return_value={}), \
+             patch("drivers.firmware_updater._run_post_update_test",
+                   return_value=(True, "ok")), \
+             patch("drivers.firmware_updater.time.sleep"):
+            result = deploy_firmware_bundle_fw40(
+                BoardType.MOTOR,
+                main_module_path=motor_source,
+                framing_path=framing,
+                skip_config_backup=True,
+            )
+
+        assert result.success is True, result.error_message
+        names = [c.args[0] for c in board.repl_write_file.call_args_list]
+        assert names == [
+            'fw40_framing.mpy',
+            'fw40_motor.mpy',
+            'main.py',
+        ]
+        main_write = board.repl_write_file.call_args_list[-1]
+        assert main_write.args[1] == b'import fw40_motor\n'

@@ -383,6 +383,57 @@ def _find_picotool():
     return None
 
 
+def _find_mpy_cross():
+    """Locate the mpy-cross binary. Returns Path or None.
+
+    mpy-cross is shipped with the micropython PyPI package (usually at
+    $VIRTUAL_ENV/bin/mpy-cross or /usr/local/bin/mpy-cross).
+    """
+    import shutil as _shutil
+    found = _shutil.which('mpy-cross')
+    if found:
+        return Path(found)
+    return None
+
+
+def _mpy_cross_compile(py_path, out_path, mpy_cross_path=None):
+    """Compile `py_path` (a .py file) to `out_path` (a .mpy file) via
+    mpy-cross. Returns True on success, False on failure."""
+    import subprocess
+    if mpy_cross_path is None:
+        mpy_cross_path = _find_mpy_cross()
+    if mpy_cross_path is None:
+        raise UpdateError(
+            "mpy-cross not found on PATH. Install the micropython "
+            "PyPI package (pip install micropython) or set PATH to "
+            "include your mpy-cross binary. Required for compile_mpy=True.",
+            stage=UpdateStage.PREFLIGHT,
+        )
+
+    py_path = Path(py_path)
+    out_path = Path(out_path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        result = subprocess.run(
+            [str(mpy_cross_path), '-o', str(out_path), str(py_path)],
+            capture_output=True, text=True, timeout=30,
+        )
+    except subprocess.TimeoutExpired:
+        logger.error(f"mpy-cross timed out compiling {py_path}")
+        return False
+    if result.returncode != 0:
+        logger.error(
+            f"mpy-cross failed on {py_path}: {result.stderr.strip()}"
+        )
+        return False
+    logger.info(
+        f"mpy-cross: {py_path.name} "
+        f"({py_path.stat().st_size}B) -> "
+        f"{out_path.name} ({out_path.stat().st_size}B)"
+    )
+    return True
+
+
 def _flash_uf2_picotool(uf2_path, picotool_path=None, reboot=True):
     """Flash UF2 file using picotool (direct USB, no mass storage mount needed).
 
@@ -1533,6 +1584,86 @@ def restore_configs_from_backup(
         return result
 
 
+def deploy_firmware_bundle_fw40(
+    board_type,
+    main_module_path,
+    framing_path,
+    progress_callback=None,
+    backup_dir=None,
+    skip_config_backup=False,
+    skip_post_test=False,
+):
+    """Deploy the FW4.0 3-file bundle via raw REPL as precompiled .mpy.
+
+    The FW4.0 stub + .mpy pattern (release gate §2.4, FIRMWARE_PLAN.md
+    lines 340-375):
+
+        main.py           -- stub, content: `import fw40_led` (or fw40_motor)
+        fw40_led.mpy      -- precompiled LED firmware     (or fw40_motor.mpy)
+        fw40_framing.mpy  -- precompiled shared framing
+
+    MicroPython auto-selects `.mpy` over `.py` when both exist, and the
+    stub `main.py` triggers the import. This retires:
+      1. The MP 1.19 compile-OOM on LED's ~63KB main.py as plain .py
+         (confirmed 2026-04-22 bench: MemoryError allocating 63296
+         bytes — the reason this helper exists).
+      2. The source-exposure risk of shipping readable firmware to
+         sealed field units.
+      3. The per-import compile latency on boot.
+
+    On-device write order (same atomicity contract as deploy_firmware_file
+    with extra_files): fw40_framing.mpy → fw40_<module>.mpy → main.py
+    stub last. A partial failure leaves the old main.py + new
+    framing/module files, which boot a crash-visible state rather than
+    silently running the new main.py against a missing dependency.
+
+    Args:
+        board_type: BoardType.LED or BoardType.MOTOR.
+        main_module_path: Path to the firmware source .py (e.g.
+            'LED Controller/main.py'). The on-device import name is
+            derived from the MODULE stem, not the filename — for a
+            source named 'main.py' that must become 'fw40_led.mpy' on
+            device, use main_module_remote_stem to override. Default:
+            derive from board_type (LED → 'fw40_led', MOTOR → 'fw40_motor').
+        framing_path: Path to fw40_framing.py.
+        progress_callback, backup_dir, skip_config_backup, skip_post_test:
+            same as deploy_firmware_file.
+
+    Returns:
+        UpdateResult with success/failure details.
+    """
+    module_stem = {
+        BoardType.LED: 'fw40_led',
+        BoardType.MOTOR: 'fw40_motor',
+    }[board_type]
+    stub_content = f'import {module_stem}\n'.encode('utf-8')
+
+    import tempfile
+    stub_dir = Path(tempfile.mkdtemp(prefix='fw40_stub_'))
+    stub_main = stub_dir / 'main.py'
+    stub_main.write_bytes(stub_content)
+
+    # The stub is the firmware_path (written as main.py). The real
+    # firmware + framing are extra_files (.py inputs, compiled to .mpy
+    # by deploy_firmware_file when compile_mpy=True). This reuses
+    # deploy_firmware_file's preflight / backup / atomic-write
+    # machinery without any copy-paste.
+    return deploy_firmware_file(
+        board_type=board_type,
+        firmware_path=stub_main,
+        progress_callback=progress_callback,
+        backup_dir=backup_dir,
+        skip_config_backup=skip_config_backup,
+        skip_post_test=skip_post_test,
+        firmware_remote_name='main.py',  # stub IS main.py
+        compile_mpy=True,  # compile the extra_files below
+        extra_files=[
+            (Path(framing_path), 'fw40_framing.mpy'),
+            (Path(main_module_path), f'{module_stem}.mpy'),
+        ],
+    )
+
+
 def factory_reset_motor_board(
     nuke_uf2_path,
     runtime_uf2_path,
@@ -1701,6 +1832,8 @@ def deploy_firmware_file(
     skip_config_backup=False,
     skip_post_test=False,
     extra_files=None,
+    firmware_remote_name='main.py',
+    compile_mpy=False,
 ):
     """Deploy main.py (+ optional companion files) to a board via raw REPL.
 
@@ -1738,6 +1871,16 @@ def deploy_firmware_file(
             repl_write_file; any failure aborts the whole deploy before
             main.py is written, so we never leave the board in the
             'new main.py without its companion' state.
+        firmware_remote_name: Filename to write the firmware under on
+            the device. Defaults to 'main.py'. Set to e.g. 'fw40_led.mpy'
+            for the stub-import + .mpy pattern (release gate §2.4).
+        compile_mpy: If True, compile firmware_path and any .py entries
+            in extra_files via mpy-cross before deploying. Compiled .mpy
+            bytes are written under the caller-supplied remote names
+            verbatim — the caller is responsible for making sure the
+            remote name ends in .mpy (or makes sense as a .mpy import
+            target). Required for LED-side FW4.0 on MP 1.19: main.py
+            (~63KB) hits the on-device compile-OOM when sent as .py.
 
     Returns:
         UpdateResult with success/failure details.
@@ -1766,13 +1909,53 @@ def deploy_firmware_file(
                 stage=UpdateStage.PREFLIGHT,
             )
 
+        # mpy-cross preflight — must resolve before we touch the board.
+        mpy_cross_path = None
+        if compile_mpy:
+            mpy_cross_path = _find_mpy_cross()
+            if mpy_cross_path is None:
+                raise UpdateError(
+                    "compile_mpy=True but mpy-cross was not found on "
+                    "PATH. Install the micropython PyPI package or set "
+                    "PATH to include mpy-cross.",
+                    stage=UpdateStage.PREFLIGHT,
+                )
+            logger.info(f"mpy-cross found at {mpy_cross_path}")
+
         fw_data = firmware_path.read_bytes()
-        if len(fw_data) < 100:
+        if len(fw_data) < 10:
+            # Stubs may be tiny (e.g. "import fw40_led\n" is ~16 bytes).
+            # Hard floor at 10B guards against empty-file mishap.
             raise UpdateError(
                 f"Firmware file too small ({len(fw_data)} bytes)",
                 stage=UpdateStage.PREFLIGHT,
             )
         logger.info(f"Firmware file: {firmware_path.name} ({len(fw_data)} bytes)")
+
+        # Compile firmware_path only when compile_mpy=True AND the REMOTE
+        # name ends in .mpy. The remote name carries caller intent:
+        #   firmware_remote_name='main.py'         -> source deploy, no compile
+        #   firmware_remote_name='fw40_led.mpy'    -> compile .py source
+        # This lets deploy_firmware_bundle_fw40 send a stub main.py verbatim
+        # while compiling the module source to .mpy.
+        if (compile_mpy
+                and firmware_path.suffix == '.py'
+                and firmware_remote_name.endswith('.mpy')):
+            import tempfile
+            tmp_mpy = Path(tempfile.mkdtemp(prefix='fw40_mpy_')) / (
+                firmware_path.stem + '.mpy')
+            if not _mpy_cross_compile(firmware_path, tmp_mpy,
+                                      mpy_cross_path=mpy_cross_path):
+                raise UpdateError(
+                    f"mpy-cross failed on firmware_path {firmware_path}",
+                    stage=UpdateStage.PREFLIGHT,
+                )
+            fw_data = tmp_mpy.read_bytes()
+            logger.info(
+                f"Compiled firmware: {firmware_path.name} "
+                f"({firmware_path.stat().st_size}B) -> "
+                f"{tmp_mpy.name} ({len(fw_data)}B)"
+            )
 
         # Validate and read extra_files up-front so any missing file fails
         # preflight, not mid-deploy after we've already written something.
@@ -1785,7 +1968,27 @@ def deploy_firmware_file(
                         f"extra_files entry not found: {local_path}",
                         stage=UpdateStage.PREFLIGHT,
                     )
-                data = local_path.read_bytes()
+
+                # Compile .py entries whose remote name ends in .mpy.
+                # Same caller-intent rule as firmware_path above.
+                if (compile_mpy
+                        and local_path.suffix == '.py'
+                        and str(remote_name).endswith('.mpy')):
+                    import tempfile
+                    tmp_mpy = Path(tempfile.mkdtemp(prefix='fw40_mpy_')) / (
+                        local_path.stem + '.mpy')
+                    if not _mpy_cross_compile(
+                            local_path, tmp_mpy,
+                            mpy_cross_path=mpy_cross_path):
+                        raise UpdateError(
+                            f"mpy-cross failed on extra_files entry "
+                            f"{local_path}",
+                            stage=UpdateStage.PREFLIGHT,
+                        )
+                    data = tmp_mpy.read_bytes()
+                else:
+                    data = local_path.read_bytes()
+
                 if len(data) < 1:
                     raise UpdateError(
                         f"extra_files entry empty: {local_path}",
@@ -1850,12 +2053,16 @@ def deploy_firmware_file(
                 f"SHA256 verified)"
             )
 
-        if not board.repl_write_file('main.py', fw_data):
+        if not board.repl_write_file(firmware_remote_name, fw_data):
             raise UpdateError(
-                f"Failed to write main.py ({len(fw_data)} bytes)",
+                f"Failed to write {firmware_remote_name} "
+                f"({len(fw_data)} bytes)",
                 stage=UpdateStage.RESTORING_CONFIG,
             )
-        logger.info(f"Deployed main.py ({len(fw_data)} bytes, SHA256 verified)")
+        logger.info(
+            f"Deployed {firmware_remote_name} ({len(fw_data)} bytes, "
+            f"SHA256 verified)"
+        )
 
         # ---- Stage 5: Exit raw REPL and verify ----
         _report_progress(progress_callback, UpdateStage.VERIFYING_VERSION,
