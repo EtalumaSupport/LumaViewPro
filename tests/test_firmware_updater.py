@@ -614,3 +614,161 @@ class TestUpdateFirmwareTooSmallUf2:
         )
         assert result.success is False
         assert "too small" in result.error_message
+
+
+class TestFlashUf2Direct:
+    """flash_uf2_direct — for bricked boards already in BOOTSEL."""
+
+    def test_rejects_led(self, tmp_path):
+        """LED has has_direct_usb=False — direct UF2 flash impossible
+        through this path (requires TP96 + TP8/TP11 on the bench)."""
+        from drivers.firmware_updater import flash_uf2_direct
+        uf2 = tmp_path / "ledcon.uf2"
+        uf2.write_bytes(b'\x00' * 1024)
+        result = flash_uf2_direct(BoardType.LED, uf2)
+        assert result.success is False
+        assert result.error_stage == UpdateStage.PREFLIGHT
+        assert "no direct USB" in result.error_message
+
+    def test_rejects_missing_uf2(self, tmp_path):
+        from drivers.firmware_updater import flash_uf2_direct
+        result = flash_uf2_direct(
+            BoardType.MOTOR, tmp_path / "nonexistent.uf2")
+        assert result.success is False
+        assert result.error_stage == UpdateStage.PREFLIGHT
+        assert "not found" in result.error_message
+
+    def test_rejects_tiny_uf2(self, tmp_path):
+        from drivers.firmware_updater import flash_uf2_direct
+        uf2 = tmp_path / "mocon.uf2"
+        uf2.write_bytes(b'\x00' * 100)
+        result = flash_uf2_direct(BoardType.MOTOR, uf2)
+        assert result.success is False
+        assert result.error_stage == UpdateStage.PREFLIGHT
+        assert "too small" in result.error_message
+
+    @patch("drivers.firmware_updater.time.sleep")
+    @patch("drivers.firmware_updater._wait_for_bootsel_drive",
+           return_value=None)
+    @patch("drivers.firmware_updater._find_picotool", return_value=None)
+    def test_no_bootsel_no_picotool_errors(
+        self, mock_picotool, mock_wait_bootsel, mock_sleep, tmp_path,
+    ):
+        """If BOOTSEL drive never appears AND picotool isn't installed,
+        surface a clear recoverable error pointing at the pin short."""
+        from drivers.firmware_updater import flash_uf2_direct
+        uf2 = tmp_path / "mocon.uf2"
+        uf2.write_bytes(b'\x00' * 1024)
+        result = flash_uf2_direct(
+            BoardType.MOTOR, uf2, bootsel_timeout=0.01)
+        assert result.success is False
+        assert result.error_stage == UpdateStage.WAITING_BOOTSEL
+        assert "BOOTSEL pin" in result.error_message
+
+    @patch("drivers.firmware_updater.time.sleep")
+    @patch("drivers.firmware_updater._create_board")
+    @patch("drivers.firmware_updater._wait_for_serial_port")
+    @patch("drivers.firmware_updater._wait_for_drive_disappear",
+           return_value=True)
+    @patch("drivers.firmware_updater._wait_for_bootsel_drive")
+    @patch("drivers.firmware_updater.shutil.copy2")
+    def test_bootsel_drive_happy_path(
+        self, mock_copy, mock_wait_bootsel, mock_wait_disappear,
+        mock_wait_serial, mock_create_board, mock_sleep, tmp_path,
+    ):
+        """BOOTSEL drive present, copy OK, reboot OK, version read OK."""
+        from drivers.firmware_updater import flash_uf2_direct
+
+        bootsel_dir = tmp_path / "RPI-RP2"
+        bootsel_dir.mkdir()
+        mock_wait_bootsel.return_value = bootsel_dir
+        mock_wait_serial.return_value = "/dev/cu.usbmodem9999"
+        board = MagicMock()
+        board.firmware_version = "1.27.0"
+        board.firmware_date = None
+        mock_create_board.return_value = board
+
+        uf2 = tmp_path / "mocon.uf2"
+        uf2.write_bytes(b'\x00' * 1024)
+
+        result = flash_uf2_direct(BoardType.MOTOR, uf2)
+
+        assert result.success is True
+        assert mock_copy.call_count == 1
+        assert result.new_version == "1.27.0"
+        board.disconnect.assert_called_once()
+
+
+class TestDeployFirmwareFileExtraFiles:
+    """deploy_firmware_file extra_files parameter — companion file push."""
+
+    def test_preflight_missing_extra_file(self, tmp_path):
+        from drivers.firmware_updater import deploy_firmware_file
+        main_py = tmp_path / "main.py"
+        main_py.write_bytes(b'print("hi")\n' + b'# filler\n' * 20)
+        result = deploy_firmware_file(
+            BoardType.MOTOR,
+            main_py,
+            extra_files=[(tmp_path / "missing.py", "fw40_framing.py")],
+        )
+        assert result.success is False
+        assert result.error_stage == UpdateStage.PREFLIGHT
+        assert "extra_files entry not found" in result.error_message
+
+    def test_preflight_empty_extra_file(self, tmp_path):
+        from drivers.firmware_updater import deploy_firmware_file
+        main_py = tmp_path / "main.py"
+        main_py.write_bytes(b'print("hi")\n' + b'# filler\n' * 20)
+        empty = tmp_path / "empty.py"
+        empty.write_bytes(b'')
+        result = deploy_firmware_file(
+            BoardType.MOTOR,
+            main_py,
+            extra_files=[(empty, "fw40_framing.py")],
+        )
+        assert result.success is False
+        assert result.error_stage == UpdateStage.PREFLIGHT
+        assert "empty" in result.error_message
+
+    @patch("drivers.firmware_updater.time.sleep")
+    @patch("drivers.firmware_updater._run_post_update_test",
+           return_value=(True, "ok"))
+    @patch("drivers.firmware_updater._backup_configs", return_value={})
+    @patch("drivers.firmware_updater._create_board")
+    def test_companion_written_before_main_py(
+        self, mock_create_board, mock_backup, mock_post,
+        mock_sleep, tmp_path,
+    ):
+        """Ordering contract: extra_files are written BEFORE main.py so
+        a partial failure never leaves a new main.py that imports a
+        missing companion (the bricking case the docstring warns about).
+        """
+        from drivers.firmware_updater import deploy_firmware_file
+
+        main_py = tmp_path / "main.py"
+        main_py.write_bytes(b'import fw40_framing\n' + b'# filler\n' * 20)
+        framing = tmp_path / "fw40_framing.py"
+        framing.write_bytes(b'# framing module\n' + b'# filler\n' * 20)
+
+        board = MagicMock()
+        board.firmware_version = "4.0.0"
+        board.firmware_date = "2026-04-22"
+        board.enter_raw_repl.return_value = True
+        board.repl_write_file.return_value = True
+        board.detect_firmware_version = MagicMock()
+        mock_create_board.return_value = board
+
+        result = deploy_firmware_file(
+            BoardType.MOTOR,
+            main_py,
+            extra_files=[(framing, "fw40_framing.py")],
+            skip_config_backup=True,
+        )
+
+        assert result.success is True, result.error_message
+
+        write_calls = board.repl_write_file.call_args_list
+        names_in_order = [c.args[0] for c in write_calls]
+        assert names_in_order == ['fw40_framing.py', 'main.py'], (
+            f'wrong write order: {names_in_order}'
+        )

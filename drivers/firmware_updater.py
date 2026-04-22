@@ -1049,6 +1049,214 @@ def update_firmware(
         return result
 
 
+def flash_uf2_direct(
+    board_type,
+    uf2_path,
+    progress_callback=None,
+    bootsel_timeout=None,
+):
+    """Flash a UF2 to a board that is already in BOOTSEL mode.
+
+    Use this when the board is bricked / non-responsive and was
+    forced into BOOTSEL via physical means (BOOTSEL button short,
+    SWD), so the normal update_firmware() flow — which expects a
+    responsive board to back configs up and send FWUPDATE — cannot
+    run.
+
+    Flow:
+      1. Verify the board's `has_direct_usb` (LED cannot enter
+         BOOTSEL via software or hardware on a sealed unit; flashing
+         an LED UF2 requires TP96 + TP8/TP11 on the bench).
+      2. Detect the RPI-RP2 mass-storage drive (wait up to
+         `bootsel_timeout` for it to appear).
+      3. Copy the UF2. Fall back to picotool if drive detection
+         fails (same fallback path update_firmware uses).
+      4. Wait for drive to disappear (UF2 accepted), board to
+         re-enumerate on USB CDC, and INFO to succeed.
+      5. Report the new version.
+
+    Configs are NOT restored — the board was bricked before this
+    call, so there is nothing to back up, and the caller is
+    responsible for restoring configs afterward (typically via
+    `_restore_configs` against a previous `firmware_backups/`
+    snapshot, or via `deploy_firmware_file`'s backup/restore cycle
+    on a subsequent call).
+
+    Args:
+        board_type: BoardType.MOTOR (LED rejected — no BOOTSEL path).
+        uf2_path: UF2 file to flash (MicroPython runtime build).
+        progress_callback: Optional (stage, message, progress) callback.
+        bootsel_timeout: Seconds to wait for BOOTSEL drive to appear.
+            Defaults to the board's configured bootsel_timeout.
+
+    Returns:
+        UpdateResult with success/failure details. result.new_version
+        populated on success.
+    """
+    config = BOARD_CONFIGS[board_type]
+    uf2_path = Path(uf2_path)
+    result = UpdateResult(success=False, board_type=board_type)
+
+    if bootsel_timeout is None:
+        bootsel_timeout = config.bootsel_timeout
+
+    try:
+        # ---- Pre-flight ----
+        _report_progress(progress_callback, UpdateStage.PREFLIGHT,
+                         f"Preparing direct UF2 flash for "
+                         f"{config.label}...", 0.0)
+
+        if not config.has_direct_usb:
+            raise UpdateError(
+                f"{config.label} board has no direct USB to the RP2040 "
+                f"(UART only via USB hub). Direct UF2 flash via BOOTSEL "
+                f"requires physical access to TP96 / TP8 / TP11 and is "
+                f"out of scope for this method.",
+                stage=UpdateStage.PREFLIGHT,
+            )
+
+        if not uf2_path.is_file():
+            raise UpdateError(
+                f"UF2 file not found: {uf2_path}",
+                stage=UpdateStage.PREFLIGHT,
+            )
+        uf2_size = uf2_path.stat().st_size
+        if uf2_size < 512:
+            raise UpdateError(
+                f"UF2 file too small ({uf2_size} bytes) — likely "
+                f"corrupted",
+                stage=UpdateStage.PREFLIGHT,
+            )
+
+        target_version = _parse_uf2_version(uf2_path)
+        logger.info(
+            f"Direct-flash target: {uf2_path.name} "
+            f"(v{target_version})")
+
+        # ---- Wait for BOOTSEL drive ----
+        _report_progress(progress_callback, UpdateStage.WAITING_BOOTSEL,
+                         "Waiting for BOOTSEL drive "
+                         "(short BOOTSEL pin + power cycle)...", 0.10)
+        bootsel_drive = _wait_for_bootsel_drive(timeout=bootsel_timeout)
+
+        # ---- Flash ----
+        if bootsel_drive is not None:
+            _report_progress(progress_callback, UpdateStage.COPYING_UF2,
+                             f"Copying {uf2_path.name} to "
+                             f"{bootsel_drive}...", 0.30)
+            if platform.system() == 'Darwin':
+                _report_progress(
+                    progress_callback, UpdateStage.COPYING_UF2,
+                    "Note: macOS may show 'disk not ejected properly' — "
+                    "this is normal (board reboots after flashing).",
+                    0.30)
+            dest = bootsel_drive / uf2_path.name
+            shutil.copy2(uf2_path, dest)
+            logger.info(f"UF2 copied ({uf2_size} bytes)")
+
+            time.sleep(POST_UF2_SETTLE_TIME)
+            if not _wait_for_drive_disappear(bootsel_drive):
+                result.warnings.append(
+                    "BOOTSEL drive did not disappear after UF2 copy. "
+                    "The UF2 may not have been accepted.")
+        else:
+            # Same picotool fallback update_firmware uses.
+            logger.info("BOOTSEL drive not mounted — trying picotool")
+            _report_progress(progress_callback, UpdateStage.COPYING_UF2,
+                             "BOOTSEL drive not mounted; trying "
+                             "picotool...", 0.25)
+            picotool = _find_picotool()
+            if picotool is None:
+                raise UpdateError(
+                    f"BOOTSEL drive did not appear within "
+                    f"{bootsel_timeout}s and picotool is not installed. "
+                    f"Install picotool (brew install picotool) or verify "
+                    f"the BOOTSEL pin short is making good contact "
+                    f"during power-up.",
+                    stage=UpdateStage.WAITING_BOOTSEL,
+                    recoverable=False,
+                )
+            if not _flash_uf2_picotool(uf2_path, picotool_path=picotool,
+                                       reboot=True):
+                raise UpdateError(
+                    f"picotool failed to flash {uf2_path.name}. The "
+                    f"board may need another BOOTSEL + power-cycle.",
+                    stage=UpdateStage.COPYING_UF2,
+                    recoverable=False,
+                )
+
+        # ---- Wait for serial port ----
+        _report_progress(progress_callback, UpdateStage.WAITING_REBOOT,
+                         "Waiting for board to reboot on USB CDC...",
+                         0.60)
+        time.sleep(POST_REBOOT_SETTLE_TIME)
+
+        new_port = _wait_for_serial_port(
+            config.vid, config.pid,
+            timeout=config.serial_reappear_timeout,
+        )
+        if new_port is None:
+            bootsel_again = _detect_bootsel_drive()
+            if bootsel_again is not None:
+                raise UpdateError(
+                    f"Board returned to BOOTSEL instead of booting. "
+                    f"The UF2 may be invalid.",
+                    stage=UpdateStage.WAITING_REBOOT,
+                    recoverable=True,
+                )
+            raise UpdateError(
+                f"Serial port did not reappear within "
+                f"{config.serial_reappear_timeout}s. Power-cycle and "
+                f"retry.",
+                stage=UpdateStage.WAITING_REBOOT,
+                recoverable=False,
+            )
+        time.sleep(POST_REBOOT_SETTLE_TIME)
+
+        # ---- Verify version ----
+        _report_progress(progress_callback, UpdateStage.VERIFYING_VERSION,
+                         "Verifying new firmware version...", 0.85)
+        board = _create_board(config, port=new_port)
+        new_version = board.firmware_version or board.firmware_date
+        result.new_version = new_version
+        board.disconnect()
+        logger.info(f"Direct-flash complete: v{new_version}")
+
+        if new_version is None:
+            # Bare MP runtime with no main.py prints no INFO — expected
+            # after flashing mocon.uf2 to a freshly-nuked board.
+            result.warnings.append(
+                "No firmware version reported — expected after flashing "
+                "a bare runtime with no main.py. Deploy main.py via "
+                "deploy_firmware_file() next.")
+        elif target_version and new_version != target_version:
+            result.warnings.append(
+                f"Version mismatch: expected {target_version}, "
+                f"got {new_version}"
+            )
+
+        result.success = True
+        _report_progress(progress_callback, UpdateStage.COMPLETE,
+                         "Direct UF2 flash complete", 1.0)
+        return result
+
+    except UpdateError as e:
+        result.error_message = str(e)
+        result.error_stage = e.stage
+        logger.error(f"flash_uf2_direct failed at {e.stage.value}: {e}")
+        _report_progress(progress_callback, UpdateStage.FAILED,
+                         str(e), 0.0)
+        return result
+    except Exception as e:
+        result.error_message = f"Unexpected error: {e}"
+        result.error_stage = UpdateStage.FAILED
+        logger.error(
+            f"flash_uf2_direct unexpected error: {e}", exc_info=True)
+        _report_progress(progress_callback, UpdateStage.FAILED,
+                         f"Unexpected error: {e}", 0.0)
+        return result
+
+
 def nuke_board(
     board_type,
     nuke_uf2_path,
@@ -1492,8 +1700,9 @@ def deploy_firmware_file(
     backup_dir=None,
     skip_config_backup=False,
     skip_post_test=False,
+    extra_files=None,
 ):
-    """Deploy main.py to a board via raw REPL (no UF2, no BOOTSEL).
+    """Deploy main.py (+ optional companion files) to a board via raw REPL.
 
     This is the primary update method for LED boards (UART-only, no USB
     to the RP2040) and an alternative method for motor boards when only
@@ -1503,7 +1712,12 @@ def deploy_firmware_file(
     The sequence:
       1. Connect to the board via serial
       2. Back up config files via raw REPL
-      3. Write new main.py via raw REPL (SHA256 verified, atomic)
+      3. Write every `extra_files` entry first, then main.py last
+         (each SHA256 verified, atomic). main.py is last so a partial
+         failure leaves an old main.py + new framing — the new framing
+         may crash a pre-FW4.0 main.py on boot, which is visible and
+         recoverable; the reverse (new main.py needing framing that
+         isn't there) would brick.
       4. Soft reset to boot the new firmware
       5. Verify new firmware version
       6. Run post-update health check
@@ -1517,6 +1731,13 @@ def deploy_firmware_file(
         backup_dir: Where to save config backups
         skip_config_backup: Skip config backup
         skip_post_test: Skip post-update verification
+        extra_files: Optional list of (local_path, remote_filename)
+            companion files to deploy alongside main.py. FW4.0 requires
+            (fw40_framing.py, 'fw40_framing.py') because both main.py
+            files `import fw40_framing`. Each file is SHA256-verified by
+            repl_write_file; any failure aborts the whole deploy before
+            main.py is written, so we never leave the board in the
+            'new main.py without its companion' state.
 
     Returns:
         UpdateResult with success/failure details.
@@ -1552,6 +1773,29 @@ def deploy_firmware_file(
                 stage=UpdateStage.PREFLIGHT,
             )
         logger.info(f"Firmware file: {firmware_path.name} ({len(fw_data)} bytes)")
+
+        # Validate and read extra_files up-front so any missing file fails
+        # preflight, not mid-deploy after we've already written something.
+        extra_files_data = []  # list of (remote_name, bytes)
+        if extra_files:
+            for local_path, remote_name in extra_files:
+                local_path = Path(local_path)
+                if not local_path.is_file():
+                    raise UpdateError(
+                        f"extra_files entry not found: {local_path}",
+                        stage=UpdateStage.PREFLIGHT,
+                    )
+                data = local_path.read_bytes()
+                if len(data) < 1:
+                    raise UpdateError(
+                        f"extra_files entry empty: {local_path}",
+                        stage=UpdateStage.PREFLIGHT,
+                    )
+                extra_files_data.append((str(remote_name), data))
+                logger.info(
+                    f"Companion file: {local_path.name} -> "
+                    f"{remote_name} ({len(data)} bytes)"
+                )
 
         # ---- Stage 2: Connect ----
         _report_progress(progress_callback, UpdateStage.CHECKING_VERSION,
@@ -1589,6 +1833,21 @@ def deploy_firmware_file(
             raise UpdateError(
                 f"Failed to enter raw REPL for firmware deploy",
                 stage=UpdateStage.RESTORING_CONFIG,
+            )
+
+        # Companion files first — see docstring note on ordering: if a
+        # companion write fails, the old main.py still boots fine because
+        # main.py hasn't been replaced yet.
+        for remote_name, data in extra_files_data:
+            if not board.repl_write_file(remote_name, data):
+                raise UpdateError(
+                    f"Failed to write companion {remote_name} "
+                    f"({len(data)} bytes)",
+                    stage=UpdateStage.RESTORING_CONFIG,
+                )
+            logger.info(
+                f"Deployed {remote_name} ({len(data)} bytes, "
+                f"SHA256 verified)"
             )
 
         if not board.repl_write_file('main.py', fw_data):
