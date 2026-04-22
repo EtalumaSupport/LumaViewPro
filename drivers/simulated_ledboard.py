@@ -367,13 +367,34 @@ class SimulatedLEDBoard:
     def has_feature(self, name):
         return name in self.features
 
+    # LED V4 command surface — kept in lock-step with the @fw.command(...)
+    # decorators in LED Controller/main.py. When firmware grows a new cmd,
+    # add it here so the simulator keeps producing UNKNOWN_CMD for
+    # genuinely-unknown names (which id-echo release-gate tests rely on).
+    _V4_KNOWN_CMDS = frozenset({
+        'INFO', 'HEAP', 'STATUS', 'STOP',
+        'LED_SET', 'LED_OFF', 'LED_ENABLE', 'LED_DISABLE', 'LED_READ',
+        'DAC_RAW', 'ADC_READ', 'SELFTEST', 'CALIBRATE', 'CAL_SAVE',
+        'CAL_CLEAR', 'STIM', 'STIM_STOP',
+        'I2C_SCAN', 'I2C_READ', 'I2C_WRITE', 'DIAG', 'FWUPDATE',
+    })
+
     def exchange_json(self, payload, timeout=None):
         """Simulated V4 command. Returns a plausible ok:True response
         echoing the command and any id. Tests that need specific response
-        shapes for a command can subclass / monkey-patch this method."""
+        shapes for a command can subclass / monkey-patch this method.
+        Unknown cmd names produce the firmware UNKNOWN_CMD error envelope
+        (shape matches fw40_framing.handle_line) so id-echo-on-error paths
+        are exercised under the simulator."""
         if not isinstance(payload, dict) or 'cmd' not in payload:
             return None
         cmd = payload.get('cmd')
+        if cmd not in self._V4_KNOWN_CMDS:
+            resp = {'ok': False, 'cmd': cmd, 'err': 'UNKNOWN_CMD',
+                    'msg': 'unknown command'}
+            if 'id' in payload:
+                resp['id'] = payload['id']
+            return resp
         resp = {'ok': True, 'cmd': cmd}
         if 'id' in payload:
             resp['id'] = payload['id']

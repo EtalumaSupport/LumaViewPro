@@ -796,13 +796,32 @@ class SimulatedMotorBoard:
     def has_feature(self, name):
         return name in self.features
 
+    # Motor V4 command surface — kept in lock-step with the @fw.command(...)
+    # decorators in Motor Controller/Firmware/main.py. When firmware grows a
+    # new cmd, add it here so the simulator keeps producing UNKNOWN_CMD for
+    # genuinely-unknown names (which id-echo release-gate tests rely on).
+    _V4_KNOWN_CMDS = frozenset({
+        'INFO', 'HEAP', 'CONFIG', 'STATUS', 'EVENTS', 'HOME', 'STOP',
+        'POS_READ', 'POS_WRITE', 'POSITIONS', 'LIMIT_SW', 'DRV_STATUS',
+        'CURRENT', 'MOTOR_DETECT', 'MOTOR_PARAM', 'VOLTAGE', 'FAN',
+        'SPI_REG', 'FWUPDATE', 'DIAG',
+    })
+
     def exchange_json(self, payload, timeout=None):
         """Simulated V4 command. Returns plausible ok:True response
         echoing cmd and id; tests that need specific response shapes
-        monkey-patch this method."""
+        monkey-patch this method. Unknown cmd names produce the firmware
+        UNKNOWN_CMD error envelope (shape matches fw40_framing.handle_line)
+        so id-echo-on-error paths are exercised under the simulator."""
         if not isinstance(payload, dict) or 'cmd' not in payload:
             return None
         cmd = payload.get('cmd')
+        if cmd not in self._V4_KNOWN_CMDS:
+            resp = {'ok': False, 'cmd': cmd, 'err': 'UNKNOWN_CMD',
+                    'msg': 'unknown command'}
+            if 'id' in payload:
+                resp['id'] = payload['id']
+            return resp
         resp = {'ok': True, 'cmd': cmd}
         if 'id' in payload:
             resp['id'] = payload['id']
