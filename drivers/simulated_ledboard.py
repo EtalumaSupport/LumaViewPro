@@ -347,7 +347,7 @@ class SimulatedLEDBoard:
     # parity stub + test_api_surface_matches_real guard catching it.
     # ------------------------------------------------------------------
     _DEFAULT_SIM_FEATURES = ['id', 'led', 'adc_read', 'selftest', 'calibrate',
-                             'status', 'stim', 'stim_multi', 'events',
+                             'status', 'stim', 'events',
                              'i2c', 'diag', 'fwupdate']
 
     @property
@@ -405,16 +405,6 @@ class SimulatedLEDBoard:
             'ok': True, 'cmd': 'STIM', 'ch': int(channel),
             'status': 'RUNNING', 'pulse_us': int(pulse_ms * 1000),
             'period_us': int(period_ms * 1000), 'count': int(count),
-        }
-
-    def firmware_stim_multi(self, channels):
-        """Start concurrent multi-channel pulse trains (simulated)."""
-        if not self.supports_firmware_stim() or not self.has_feature('stim_multi'):
-            return None
-        return {
-            'ok': True, 'cmd': 'STIM_MULTI', 'started': len(channels),
-            'status': 'RUNNING',
-            'channels': [c.get('ch') for c in channels if isinstance(c, dict)],
         }
 
     def firmware_stim_stop(self, channel='ALL'):

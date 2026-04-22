@@ -516,8 +516,8 @@ class LEDBoard(SerialBoard):
     # edges on v3.0.x). The FW4.0 firmware-owned pulse timing retires
     # host-side scheduling for anything under ~20 ms pulse widths.
     #
-    # Callers must check has_feature('stim') / has_feature('stim_multi')
-    # before calling. On LEGACY boards these log a warning and return None.
+    # Callers must check has_feature('stim') before calling. On LEGACY
+    # boards these log a warning and return None.
     # ------------------------------------------------------------------
     def firmware_stim(self, channel, mA, pulse_ms, period_ms, count):
         """Start a firmware-owned single-channel pulse train. Returns the
@@ -535,15 +535,6 @@ class LEDBoard(SerialBoard):
             'period_ms': float(period_ms),
             'count': int(count),
         })
-
-    def firmware_stim_multi(self, channels):
-        """Start concurrent multi-channel pulse trains. Atomic — all
-        channels validate or none start. channels is a list of dicts
-        matching FW40_COMMAND_REFERENCE §3 STIM_MULTI schema."""
-        if not self._use_v4() or not self.has_feature('stim_multi'):
-            logger.warning('[LED Class ] firmware_stim_multi() called but stim_multi not advertised')
-            return None
-        return self.exchange_json({'cmd': 'STIM_MULTI', 'channels': channels})
 
     def firmware_stim_stop(self, channel='ALL'):
         """Stop one channel or all STIM trains. Self-heals off structurally."""
