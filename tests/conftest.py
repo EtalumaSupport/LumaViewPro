@@ -193,3 +193,63 @@ def sim_scope():
     yield s
     s.camera.stop_grabbing()
     s.disconnect()
+
+
+@pytest.fixture
+def board_with_fake_transport(monkeypatch):
+    """Factory — real SerialBoard wired to an in-memory FakeTransport.
+
+    Exercises the full production raw-REPL path (SerialBoard._lock,
+    enter/exit_raw_repl state machine, MpremoteSession.write_file's
+    atomic-`.tmp` + SHA-256 + `.bak` sequence) against a fake in-memory
+    filesystem — no pyserial, no device. Swaps in a base MpremoteSession
+    (not _ManagedSession) so exit uses the fake's transport.exit_raw_repl
+    instead of the pyserial-level _send_exit_sequence.
+
+    Returns a factory: `make(board_type, initial_files=None) -> (board, fake)`.
+    """
+    def _factory(board_type, initial_files=None):
+        from drivers.firmware_updater import BOARD_CONFIGS
+        from drivers.serialboard import SerialBoard
+        from drivers.mpremote_transport import MpremoteSession
+        from tests.fake_transport import FakeTransport
+
+        cfg = BOARD_CONFIGS[board_type]
+        board = SerialBoard(
+            vid=cfg.vid,
+            pid=cfg.pid,
+            label=cfg.board_type.name,
+            port='/dev/fake',
+        )
+        fake = FakeTransport(initial_files=initial_files or {})
+
+        # SerialBoard.enter_raw_repl calls _open_serial (if driver None)
+        # then _close_driver; exit_raw_repl reopens via _open_serial.
+        # Stub both to toggle a MagicMock driver so the non-None check
+        # passes without touching pyserial.
+        def _fake_open():
+            board.driver = MagicMock()
+        def _fake_close():
+            board.driver = None
+        monkeypatch.setattr(board, '_open_serial', _fake_open)
+        monkeypatch.setattr(board, '_close_driver', _fake_close)
+
+        # Redirect the mpremote session factory to wrap our FakeTransport.
+        def _make_session(device_path, baudrate=115200):
+            return MpremoteSession(fake)
+        monkeypatch.setattr(
+            'drivers.serialboard._create_mpremote_session', _make_session
+        )
+
+        # Post-exit firmware verification queries the live driver with
+        # INFO — that's a pyserial-level operation outside mpremote's
+        # abstraction (adapter docstring explicitly scopes it out).
+        # Default to "firmware responding"; individual tests can flip
+        # to None to exercise the failure path.
+        monkeypatch.setattr(
+            board, 'verify_firmware_running',
+            lambda timeout=10: 'ok'
+        )
+        return board, fake
+
+    return _factory

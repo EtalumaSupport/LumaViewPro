@@ -272,32 +272,24 @@ class TestSendFwupdateCommand:
 
 
 # ---------------------------------------------------------------------------
-# 7-9. _backup_configs
+# 7-9. _backup_configs — exercised against a real SerialBoard wired to an
+# in-memory FakeTransport via the `board_with_fake_transport` fixture, so
+# SerialBoard._lock, enter/exit_raw_repl, and MpremoteSession's read-with-
+# verify path all run for real.
 # ---------------------------------------------------------------------------
 
 class TestBackupConfigs:
-    def _make_board(self, files_on_board=None, file_contents=None,
-                    enter_repl_ok=True):
-        """Create a mock board with SerialBoard-compatible methods."""
-        board = MagicMock()
-        board.enter_raw_repl.return_value = enter_repl_ok
-        board.repl_list_files.return_value = files_on_board or []
-        if file_contents is not None:
-            board.repl_read_file.side_effect = file_contents
-        return board
-
-    def test_all_files_backed_up(self, tmp_path):
+    def test_all_files_backed_up(self, tmp_path, board_with_fake_transport):
         """All config files are read and saved to disk."""
         cfg = BOARD_CONFIGS[BoardType.MOTOR]
-        board = self._make_board(
-            files_on_board=['motorconfig.json', 'xymotorconfig.ini',
-                            'ztmotorconfig.ini', 'ztmotorconfig2.ini'],
-            file_contents=[
-                b'{"motor": 1}',
-                b'[xy]\nsteps=100',
-                b'[zt]\nsteps=200',
-                b'[zt2]\nsteps=300',
-            ],
+        board, fake = board_with_fake_transport(
+            BoardType.MOTOR,
+            initial_files={
+                'motorconfig.json': b'{"motor": 1}',
+                'xymotorconfig.ini': b'[xy]\nsteps=100',
+                'ztmotorconfig.ini': b'[zt]\nsteps=200',
+                'ztmotorconfig2.ini': b'[zt2]\nsteps=300',
+            },
         )
 
         result = _backup_configs(board, cfg, tmp_path)
@@ -312,36 +304,48 @@ class TestBackupConfigs:
         assert 'motorconfig.json' in manifest
         assert manifest['motorconfig.json']['size'] == len(b'{"motor": 1}')
 
-    def test_missing_file_skipped(self, tmp_path):
+    def test_missing_file_skipped(self, tmp_path, board_with_fake_transport):
         """File not present on board is skipped (not an error)."""
         cfg = BOARD_CONFIGS[BoardType.MOTOR]
-        board = self._make_board(
-            files_on_board=['motorconfig.json'],
-            file_contents=[b'{"motor": 1}'],
+        board, fake = board_with_fake_transport(
+            BoardType.MOTOR,
+            initial_files={'motorconfig.json': b'{"motor": 1}'},
         )
 
         result = _backup_configs(board, cfg, tmp_path)
 
-        assert len(result) == 1
-        assert 'motorconfig.json' in result
-        board.repl_read_file.assert_called_once()
+        assert set(result.keys()) == {'motorconfig.json'}
+        # Only the present file was read; the three *.ini files were
+        # never fetched. call_log captures every fs_readfile invocation.
+        read_names = [entry[1] for entry in fake.call_log
+                      if entry[0] == 'fs_readfile']
+        assert set(read_names) == {'motorconfig.json'}
 
-    def test_read_failure_raises(self, tmp_path):
-        """repl_read_file returning None raises UpdateError."""
+    def test_read_failure_raises(self, tmp_path, board_with_fake_transport):
+        """fs_readfile raising TransportError surfaces as UpdateError."""
+        from mpremote.transport import TransportError
         cfg = BOARD_CONFIGS[BoardType.LED]
-        board = self._make_board(
-            files_on_board=['cal.json'],
-            file_contents=[None],
+        # File appears on the board (list_files returns it) but read
+        # fails. MpremoteSession.read_file catches TransportError and
+        # returns None → _backup_configs raises UpdateError.
+        board, fake = board_with_fake_transport(
+            BoardType.LED,
+            initial_files={'cal.json': b'{"cal": "good"}'},
         )
+        fake.raise_on = {'fs_readfile': TransportError('simulated read failure')}
 
         with pytest.raises(UpdateError) as exc_info:
             _backup_configs(board, cfg, tmp_path)
         assert exc_info.value.stage == UpdateStage.BACKING_UP_CONFIG
 
-    def test_enter_repl_failure_raises(self, tmp_path):
-        """Failure to enter raw REPL raises UpdateError."""
+    def test_enter_repl_failure_raises(self, tmp_path, board_with_fake_transport):
+        """enter_raw_repl failure (TransportError) surfaces as UpdateError."""
+        from mpremote.transport import TransportError
         cfg = BOARD_CONFIGS[BoardType.LED]
-        board = self._make_board(enter_repl_ok=False)
+        board, fake = board_with_fake_transport(BoardType.LED)
+        # Raising from enter_raw_repl propagates through MpremoteSession.enter
+        # into SerialBoard.enter_raw_repl's except block, which returns False.
+        fake.raise_on = {'enter_raw_repl': TransportError('cannot enter REPL')}
 
         with pytest.raises(UpdateError) as exc_info:
             _backup_configs(board, cfg, tmp_path)
@@ -349,73 +353,75 @@ class TestBackupConfigs:
 
 
 # ---------------------------------------------------------------------------
-# 10-11. _restore_configs
+# 10-11. _restore_configs — same fixture. MpremoteSession.write_file's
+# atomic-`.tmp` + device-side SHA-256 verify + `.bak` rename sequence runs
+# for real; the fake stores bytes and computes real hashlib.sha256.
 # ---------------------------------------------------------------------------
 
 class TestRestoreConfigs:
-    def _make_board(self, files_on_board=None, file_contents=None,
-                    enter_repl_ok=True, write_ok=True):
-        """Create a mock board with SerialBoard-compatible methods."""
-        board = MagicMock()
-        board.enter_raw_repl.return_value = enter_repl_ok
-        board.repl_list_files.return_value = files_on_board or []
-        if file_contents is not None:
-            board.repl_read_file.side_effect = file_contents
-        else:
-            board.repl_read_file.return_value = None
-        board.repl_write_file.return_value = write_ok
-        return board
-
-    def test_surviving_file_skipped(self):
+    def test_surviving_file_skipped(self, board_with_fake_transport):
         """File that survived the update (matches backup) is not rewritten."""
         cfg = BOARD_CONFIGS[BoardType.MOTOR]
         data = b'{"motor": 1}'
-        board = self._make_board(
-            files_on_board=['motorconfig.json'],
-            file_contents=[data],
+        board, fake = board_with_fake_transport(
+            BoardType.MOTOR,
+            initial_files={'motorconfig.json': data},
         )
 
         result = _restore_configs(board, cfg, {'motorconfig.json': data})
 
         assert result is True
-        board.repl_write_file.assert_not_called()
+        # No fs_writefile call means nothing was rewritten.
+        assert not any(entry[0] == 'fs_writefile' for entry in fake.call_log)
 
-    def test_missing_file_written(self):
+    def test_missing_file_written(self, board_with_fake_transport):
         """File missing from board after update is restored."""
         cfg = BOARD_CONFIGS[BoardType.MOTOR]
         data = b'{"motor": 1}'
-        board = self._make_board(files_on_board=[])
+        board, fake = board_with_fake_transport(BoardType.MOTOR)  # empty FS
 
         result = _restore_configs(board, cfg, {'motorconfig.json': data})
 
         assert result is True
-        board.repl_write_file.assert_called_once()
+        # After atomic rename, the file should be on the fake's filesystem.
+        assert fake.files.get('motorconfig.json') == data
 
-    def test_changed_file_restored(self):
+    def test_changed_file_restored(self, board_with_fake_transport):
         """File that exists but differs from backup is overwritten."""
         cfg = BOARD_CONFIGS[BoardType.LED]
         backup_data = b'{"cal": "good"}'
-        board = self._make_board(
-            files_on_board=['cal.json'],
-            file_contents=[b'{"cal": "corrupted"}'],
+        board, fake = board_with_fake_transport(
+            BoardType.LED,
+            initial_files={'cal.json': b'{"cal": "corrupted"}'},
         )
 
         result = _restore_configs(board, cfg, {'cal.json': backup_data})
 
         assert result is True
-        board.repl_write_file.assert_called_once()
+        assert fake.files.get('cal.json') == backup_data
+        # Previous content rotated into .bak per MpremoteSession.write_file.
+        assert fake.files.get('cal.json.bak') == b'{"cal": "corrupted"}'
 
-    def test_write_failure_raises(self):
-        """repl_write_file returning False raises UpdateError."""
+    def test_write_failure_raises(self, board_with_fake_transport):
+        """Exhausted retries on fs_writefile surface as UpdateError."""
         cfg = BOARD_CONFIGS[BoardType.LED]
-        board = self._make_board(files_on_board=[], write_ok=False)
+        board, fake = board_with_fake_transport(BoardType.LED)  # empty FS
+        # MpremoteSession.write_file retries WRITE_VERIFY_RETRIES times
+        # (=3). fail_next_write=3 exhausts all attempts.
+        fake.fail_next_write = 3
 
         with pytest.raises(UpdateError) as exc_info:
             _restore_configs(board, cfg, {'cal.json': b'data'})
         assert exc_info.value.stage == UpdateStage.RESTORING_CONFIG
+        # File never landed on the device.
+        assert 'cal.json' not in fake.files
 
     def test_empty_config_data_returns_true(self):
-        """No config files to restore returns True immediately."""
+        """No config files to restore returns True immediately.
+
+        Uses MagicMock — this path short-circuits before touching the
+        board, so no transport setup is needed.
+        """
         cfg = BOARD_CONFIGS[BoardType.LED]
         board = MagicMock()
         assert _restore_configs(board, cfg, {}) is True
