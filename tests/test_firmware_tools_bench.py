@@ -16,6 +16,7 @@ from tools.firmware_tools import (
     _BENCH_DEFAULT_COMMANDS,
     _format_summary_table,
     _measure_latencies,
+    _run_load_loop,
     _summarize_latencies,
     _write_bench_csv,
 )
@@ -186,3 +187,52 @@ class TestBenchDefaults:
     def test_no_led_set_in_defaults(self):
         assert 'LED_SET' not in _BENCH_DEFAULT_COMMANDS['motor']
         assert 'LED_SET' not in _BENCH_DEFAULT_COMMANDS['led']
+
+
+# ---------------------------------------------------------------------------
+# _run_load_loop — reliability loop (release gate §2.3)
+# ---------------------------------------------------------------------------
+
+class TestRunLoadLoop:
+    def test_returns_load_specific_fields(self):
+        board = MagicMock()
+        # 0.2 s @ 10 Hz — ~2 iterations, actual count is timing-dependent
+        # on loaded machines. Real timing but short enough to not gate CI.
+        summary = _run_load_loop(board, 'INFO', duration_seconds=0.2, hz=10)
+        assert 'duration_s' in summary
+        assert 'actual_hz' in summary
+        assert 'target_hz' in summary
+        assert 'errors_per_hour' in summary
+        assert summary['target_hz'] == 10
+        # actual_hz <= target_hz because we don't catch-up-spin on overrun.
+        assert summary['actual_hz'] <= summary['target_hz'] + 0.5
+
+    def test_counts_errors_in_load_loop(self):
+        board = MagicMock()
+        board.exchange_command.side_effect = (
+            [RuntimeError('boom')] * 100 + [None] * 100
+        )
+        summary = _run_load_loop(board, 'INFO', duration_seconds=0.15, hz=50)
+        assert summary['errors'] >= 1
+        # errors_per_hour is a rate extrapolation
+        if summary['errors'] > 0:
+            assert summary['errors_per_hour'] > 0
+
+    def test_zero_duration_is_safe(self):
+        # A duration of 0 means "run no iterations"; must not div-by-zero
+        # or crash. Defensive guard in case a caller passes 0 by accident.
+        board = MagicMock()
+        summary = _run_load_loop(board, 'INFO', duration_seconds=0.0, hz=10)
+        assert summary['count'] == 0
+        assert summary['errors'] == 0
+        # duration_s may be microseconds, not literally 0 — just check the
+        # division didn't explode.
+        assert summary['errors_per_hour'] == 0.0
+
+    def test_board_called_with_load_command(self):
+        board = MagicMock()
+        _run_load_loop(board, 'STATUS', duration_seconds=0.15, hz=50)
+        # Every call should be with 'STATUS', not something else.
+        for call in board.exchange_command.call_args_list:
+            args, _ = call
+            assert args == ('STATUS',)

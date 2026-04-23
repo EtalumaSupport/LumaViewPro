@@ -656,6 +656,50 @@ def _write_bench_csv(path, rows):
             writer.writerow(row)
 
 
+def _run_load_loop(board, command, duration_seconds, hz):
+    """Run `command` at `hz` Hz against `board` for `duration_seconds`.
+
+    Release gate §2.3 reliability-under-load test. Returns the same
+    summary dict as `_summarize_latencies` plus three load-specific
+    fields: `duration_s` (actual wall-clock elapsed), `actual_hz`
+    (successes / duration), `errors_per_hour` (extrapolated error rate).
+
+    Scheduling: each iteration measures its own start, sends the
+    command, sleeps the remainder of `1.0 / hz` before the next
+    iteration. If an iteration overruns the tick budget, sleep is
+    skipped (no catch-up spin); actual_hz will come in below target_hz.
+    """
+    interval_s = 1.0 / hz
+    durations = []
+    t_start = time.perf_counter()
+    deadline = t_start + duration_seconds
+    while time.perf_counter() < deadline:
+        t_tick = time.perf_counter()
+        t0 = time.perf_counter_ns()
+        try:
+            board.exchange_command(command)
+        except Exception:
+            durations.append(None)
+        else:
+            t1 = time.perf_counter_ns()
+            durations.append((t1 - t0) / 1000.0)  # ns → µs
+        sleep_needed = interval_s - (time.perf_counter() - t_tick)
+        if sleep_needed > 0:
+            time.sleep(sleep_needed)
+
+    elapsed_s = time.perf_counter() - t_start
+    summary = _summarize_latencies(durations)
+    summary['duration_s'] = elapsed_s
+    summary['target_hz'] = hz
+    summary['actual_hz'] = (
+        summary['count'] / elapsed_s if elapsed_s > 0 else 0.0
+    )
+    summary['errors_per_hour'] = (
+        summary['errors'] * 3600.0 / elapsed_s if elapsed_s > 0 else 0.0
+    )
+    return summary
+
+
 def _format_summary_table(per_cmd_summary):
     """Format per-command summary dict as a plain-text aligned table."""
     hdr = ('command', 'count', 'err', 'mean_us', 'stddev',
@@ -742,6 +786,40 @@ def cmd_bench(args):
     if output_path:
         _write_bench_csv(output_path, all_rows)
         print(f'\nPer-iteration data written to {output_path}')
+
+    # Optional reliability loop (release gate §2.3 "Reliability under load").
+    if args.load_minutes is not None and args.load_minutes > 0:
+        load_cmd = args.load_command
+        load_hz = args.load_hz
+        duration_s = args.load_minutes * 60.0
+        print()
+        print(f'=== Reliability loop ===')
+        print(f'Command:  {load_cmd}')
+        print(f'Rate:     {load_hz:.1f} Hz target')
+        print(f'Duration: {args.load_minutes:.1f} min ({duration_s:.1f} s)')
+        print('  running... (Ctrl-C to abort)')
+
+        scope2 = Lumascope.create_diagnostic()
+        try:
+            if args.board == 'motor':
+                board2 = scope2.motion
+            else:
+                board2 = scope2.led
+            load_summary = _run_load_loop(board2, load_cmd, duration_s, load_hz)
+        finally:
+            scope2.disconnect()
+
+        print()
+        print(f'  count:            {load_summary["count"]}')
+        print(f'  errors:           {load_summary["errors"]}')
+        print(f'  errors/hour:      {load_summary["errors_per_hour"]:.1f}')
+        print(f'  duration (s):     {load_summary["duration_s"]:.2f}')
+        print(f'  target_hz:        {load_summary["target_hz"]:.2f}')
+        print(f'  actual_hz:        {load_summary["actual_hz"]:.2f}')
+        if load_summary['count'] > 0:
+            print(f'  mean (µs):        {load_summary["mean_us"]:.1f}')
+            print(f'  p50/p95/p99 (µs): {load_summary["p50_us"]:.1f} / '
+                  f'{load_summary["p95_us"]:.1f} / {load_summary["p99_us"]:.1f}')
 
 
 # ---------------------------------------------------------------------------
@@ -891,6 +969,20 @@ def main():
     p_bench.add_argument('--output', default=None,
                          help='Optional CSV output path for per-iteration '
                               'durations')
+    p_bench.add_argument('--load-minutes', type=float, default=None,
+                         help='If set, runs a reliability loop after the '
+                              'per-command benchmark: `--load-command` at '
+                              '`--load-hz` Hz for this many minutes. '
+                              'Release gate §2.3 requires 10 Hz × 5 min '
+                              'to compare FW4.0 vs v3.0.9 error rate under '
+                              'load.')
+    p_bench.add_argument('--load-command', default='INFO',
+                         help='Command to cycle during the reliability loop '
+                              '(default: INFO — read-only, present on both '
+                              'boards and both protocol versions).')
+    p_bench.add_argument('--load-hz', type=float, default=10.0,
+                         help='Target rate for the reliability loop '
+                              '(default: 10 Hz per release gate §2.3).')
 
     # restore-configs (Phase 4I) — symmetric counterpart of `backup`
     p_restore = sub.add_parser(
