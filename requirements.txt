@@ -7,6 +7,7 @@ opencv-python-headless==4.13.0.92
 pandas==3.0.2
 pypylon==4.2.0
 pyserial==3.5
+mpremote==1.28.0
 scikit-image==0.26.0
 scipy==1.17.1
 tifffile==2026.3.3
