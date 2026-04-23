@@ -69,6 +69,15 @@ class LEDBoard(SerialBoard):
                 self.led_ma[color] = -1
         logger.info('[LED Class ] LED state cache cleared on disconnect')
 
+    def _connect_bench_callables(self):
+        """Driver methods benched at connect-time (release gate §2.3).
+
+        `get_info` dispatches to v3.0.x multi-line INFO (drain-sleep
+        penalty) or FW4.0 JSON INFO (no drain), giving the core
+        cross-firmware latency comparison point for the LED board.
+        """
+        return [('get_info', self.get_info)]
+
     _COLOR_TO_CH = {
         'Blue': 0, 'Green': 1, 'Red': 2,
         'BF': 3, 'PC': 4, 'DF': 5,

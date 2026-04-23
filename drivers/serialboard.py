@@ -10,6 +10,7 @@ auto-reconnect and echo handling, and raw REPL file operations
 
 import json
 import logging
+import os
 import re
 import time
 import serial
@@ -116,6 +117,11 @@ class SerialBoard:
         # current command's request). Drained in exchange_json when the
         # caller's id matches a stashed response.
         self._v4_pending_by_id = {}
+        # Populated by _run_connect_latency_bench() at end of connect().
+        # {command: summary_dict} — see drivers/serial_latency.py. None
+        # when the bench is skipped (env var, no firmware version, or
+        # subclass opts out by returning an empty command tuple).
+        self.connect_latency_summary = None
         if port is not None:
             self.port = port
             self.found = True
@@ -526,9 +532,71 @@ class SerialBoard:
                     )
                 else:
                     logger.info(f'{self._label} Connected (legacy firmware, no version info)')
+                self._run_connect_latency_bench()
             except Exception as e:
                 self._close_driver()
                 logger.error(f'{self._label} connect() failed: {e}')
+
+    # ------------------------------------------------------------------
+    # Connect-time latency fingerprint
+    # ------------------------------------------------------------------
+    _CONNECT_BENCH_ITERATIONS = 20
+    _CONNECT_BENCH_WARMUP = 3
+
+    def _connect_bench_callables(self):
+        """Driver-method callables benched at connect. Override per subclass.
+
+        Returns a list of `(name, callable)` tuples. Each callable is
+        invoked zero-arg per iteration — typically a bound driver
+        method (`self.fullinfo`, `self.get_info`) that dispatches
+        v3.0.x vs FW4.0 internally. Benching at the driver-method
+        layer (not raw firmware commands) is what keeps the §2.3
+        comparison apples-to-apples across firmware versions.
+
+        Base class returns [] — null/intermediate subclasses opt out
+        silently. Concrete boards (MotorBoard, LEDBoard) override.
+        """
+        return []
+
+    def _run_connect_latency_bench(self):
+        """Fire a lightweight driver-method latency fingerprint.
+
+        Called once at the end of a successful connect(). Produces
+        release-gate §2.3 data as a byproduct of every connect, so
+        FW4.0-vs-v3.0.x comparison falls out of the log. Also
+        doubles as a per-unit health fingerprint — the tech support
+        report reads self.connect_latency_summary instead of
+        re-measuring.
+
+        Skipped when:
+          - env LVP_SKIP_CONNECT_BENCH=1 (tests, timing-sensitive tools)
+          - firmware_version is None (can't trust the board)
+          - subclass returns an empty callable list
+
+        Any exception is caught so bench can never break connect.
+        """
+        if os.environ.get('LVP_SKIP_CONNECT_BENCH') == '1':
+            return
+        if self.firmware_version is None:
+            return
+        named = self._connect_bench_callables()
+        if not named:
+            return
+        try:
+            from drivers import serial_latency
+            summary = serial_latency.measure_callable_latencies(
+                named,
+                iterations=self._CONNECT_BENCH_ITERATIONS,
+                warmup=self._CONNECT_BENCH_WARMUP,
+            )
+            self.connect_latency_summary = summary
+            logger.info(serial_latency.format_one_line(
+                self._label, self.firmware_version, summary
+            ))
+        except Exception as e:
+            logger.warning(
+                f'{self._label} connect-latency bench failed: {e}'
+            )
 
     def disconnect(self):
         """Close serial connection and clear cached state."""

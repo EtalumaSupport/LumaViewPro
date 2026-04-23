@@ -28,6 +28,13 @@ import pytest
 os.environ.setdefault("KIVY_NO_CONSOLELOG", "1")
 os.environ.setdefault("KIVY_NO_FILELOG", "1")
 
+# SerialBoard fires a per-command latency fingerprint at connect() (see
+# drivers/serial_latency.py). That adds ~0.5 s per connect which is
+# meaningful for tests that measure connect time or exercise many
+# reconnects. Opt out by default; tests that want to cover the bench
+# path unset this explicitly.
+os.environ.setdefault("LVP_SKIP_CONNECT_BENCH", "1")
+
 
 # ---------------------------------------------------------------------------
 # Path setup — make `from drivers.x import Y` work from tests/

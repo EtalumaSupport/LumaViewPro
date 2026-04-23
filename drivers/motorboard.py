@@ -263,6 +263,16 @@ class MotorBoard(SerialBoard):
         self._accel_cache = None
         logger.info('[XYZ Class ] Motor state cache cleared on disconnect')
 
+    def _connect_bench_callables(self):
+        """Driver methods benched at connect-time (release gate §2.3).
+
+        `fullinfo` is the one read-path that exists on both v3.0.x
+        (FULLINFO, drain-sleep penalty) and FW4.0 (INFO, no drain),
+        so its round-trip latency is the core cross-firmware
+        comparison point.
+        """
+        return [('fullinfo', self.fullinfo)]
+
     def connect(self):
         """ Try to connect to the motor controller based on the known VID/PID"""
         # Note: _lock is an RLock (from SerialBoard), so re-entrant acquisition

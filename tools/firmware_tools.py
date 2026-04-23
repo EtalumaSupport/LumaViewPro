@@ -22,7 +22,6 @@ Usage:
 import argparse
 import csv
 import json
-import math
 import os
 import sys
 import time
@@ -574,145 +573,61 @@ def cmd_factory_reset(args):
 
 
 # ---------------------------------------------------------------------------
-# bench — per-command round-trip latency measurement (release gate §2.3)
+# bench — driver-method round-trip latency measurement (release gate §2.3)
 # ---------------------------------------------------------------------------
-
-# FW4.0 read-only command sets per board. Each command is verified
-# present by grep:
-#   Motor Controller/Firmware/main.py: INFO, POS_READ, STATUS, LIMIT_SW
-#   LED Controller/main.py:             INFO, LED_READ, STATUS
-# (Legacy v3.0.x had FULLINFO on motor; FW4.0 collapses that into
-# INFO+STATUS, so we don't default-include it. Caller can still pass
-# --commands FULLINFO to benchmark a v3.0.x board.)
-_BENCH_DEFAULT_COMMANDS = {
-    'motor': ('INFO', 'POS_READ', 'STATUS', 'LIMIT_SW'),
-    'led':   ('INFO', 'LED_READ', 'STATUS'),
-}
+#
+# Benchmarks driver-level methods (e.g. MotorBoard.fullinfo, LEDBoard.get_info)
+# rather than raw firmware command strings. The driver dispatches v3.0.x vs
+# FW4.0 internally, so running the bench against v3.0.x firmware then against
+# FW4.0 firmware on the SAME hardware gives a directly comparable latency
+# delta — the core §2.3 "≥20 ms improvement" evidence.
+#
+# The raw-command path remains available via `--raw-commands X,Y` for ad-hoc
+# exploratory measurement (e.g. "is CALIBRATE slow?"). That mode requires
+# the caller to know which command strings exist on the firmware running.
 
 
-def _measure_latencies(board, command, iterations, warmup):
-    """Return list of per-iteration durations in microseconds.
+def _board_bench_callables(board_kind, board):
+    """Default driver-method bench set per board kind.
 
-    Failed iterations (exception or no response) are recorded as None
-    so the caller can distinguish error-count from latency stats.
+    Uses each board's `_connect_bench_callables()` so the CLI and the
+    connect-time fingerprint benchmark the exact same set — one source
+    of truth, no drift. A board that overrides the hook to add a
+    second method is covered everywhere automatically.
     """
-    for _ in range(warmup):
-        try:
-            board.exchange_command(command)
-        except Exception:
-            pass  # warmup errors ignored
-
-    durations = []
-    for _ in range(iterations):
-        t0 = time.perf_counter_ns()
-        try:
-            board.exchange_command(command)
-        except Exception:
-            durations.append(None)
-            continue
-        t1 = time.perf_counter_ns()
-        durations.append((t1 - t0) / 1000.0)  # ns → µs
-    return durations
-
-
-def _summarize_latencies(durations):
-    """Return summary stats dict for a list of durations (None = error)."""
-    valid = [d for d in durations if d is not None]
-    errors = len(durations) - len(valid)
-    if not valid:
-        return {'count': 0, 'errors': errors, 'mean_us': None,
-                'stddev_us': None, 'p50_us': None, 'p95_us': None,
-                'p99_us': None, 'min_us': None, 'max_us': None}
-    ordered = sorted(valid)
-    n = len(ordered)
-    mean = sum(ordered) / n
-    variance = sum((d - mean) ** 2 for d in ordered) / n
-    stddev = math.sqrt(variance)
-
-    def pct(p):
-        # Nearest-rank percentile — ceil(p * n / 100), 1-indexed.
-        k = max(1, int(math.ceil(p * n / 100.0)))
-        return ordered[min(k, n) - 1]
-
-    return {
-        'count': n, 'errors': errors,
-        'mean_us': mean, 'stddev_us': stddev,
-        'p50_us': pct(50), 'p95_us': pct(95), 'p99_us': pct(99),
-        'min_us': ordered[0], 'max_us': ordered[-1],
-    }
+    getter = getattr(board, '_connect_bench_callables', None)
+    if getter is None:
+        return []
+    return list(getter())
 
 
 def _write_bench_csv(path, rows):
     """Write per-iteration rows to CSV.
 
-    rows: iterable of (board, firmware_version, command, iteration,
+    rows: iterable of (board, firmware_version, method, iteration,
     duration_us). duration_us is None for failed iterations.
     """
     with open(path, 'w', newline='') as f:
         writer = csv.writer(f)
-        writer.writerow(['board', 'firmware_version', 'command',
+        writer.writerow(['board', 'firmware_version', 'method',
                          'iteration', 'duration_us'])
         for row in rows:
             writer.writerow(row)
 
 
-def _run_load_loop(board, command, duration_seconds, hz):
-    """Run `command` at `hz` Hz against `board` for `duration_seconds`.
-
-    Release gate §2.3 reliability-under-load test. Returns the same
-    summary dict as `_summarize_latencies` plus three load-specific
-    fields: `duration_s` (actual wall-clock elapsed), `actual_hz`
-    (successes / duration), `errors_per_hour` (extrapolated error rate).
-
-    Scheduling: each iteration measures its own start, sends the
-    command, sleeps the remainder of `1.0 / hz` before the next
-    iteration. If an iteration overruns the tick budget, sleep is
-    skipped (no catch-up spin); actual_hz will come in below target_hz.
-    """
-    interval_s = 1.0 / hz
-    durations = []
-    t_start = time.perf_counter()
-    deadline = t_start + duration_seconds
-    while time.perf_counter() < deadline:
-        t_tick = time.perf_counter()
-        t0 = time.perf_counter_ns()
-        try:
-            board.exchange_command(command)
-        except Exception:
-            durations.append(None)
-        else:
-            t1 = time.perf_counter_ns()
-            durations.append((t1 - t0) / 1000.0)  # ns → µs
-        sleep_needed = interval_s - (time.perf_counter() - t_tick)
-        if sleep_needed > 0:
-            time.sleep(sleep_needed)
-
-    elapsed_s = time.perf_counter() - t_start
-    summary = _summarize_latencies(durations)
-    summary['duration_s'] = elapsed_s
-    summary['target_hz'] = hz
-    summary['actual_hz'] = (
-        summary['count'] / elapsed_s if elapsed_s > 0 else 0.0
-    )
-    summary['errors_per_hour'] = (
-        summary['errors'] * 3600.0 / elapsed_s if elapsed_s > 0 else 0.0
-    )
-    return summary
-
-
-def _format_summary_table(per_cmd_summary):
-    """Format per-command summary dict as a plain-text aligned table."""
-    hdr = ('command', 'count', 'err', 'mean_us', 'stddev',
+def _format_summary_table(per_method_summary):
+    """Format per-method summary dict as a plain-text aligned table."""
+    hdr = ('method', 'count', 'err', 'mean_us', 'stddev',
            'p50', 'p95', 'p99', 'min', 'max')
     widths = [max(len(hdr[i]), 8) for i in range(len(hdr))]
-    for cmd, s in per_cmd_summary.items():
-        widths[0] = max(widths[0], len(cmd))
+    for name in per_method_summary:
+        widths[0] = max(widths[0], len(name))
     lines = ['  '.join(h.ljust(widths[i]) for i, h in enumerate(hdr))]
     lines.append('  '.join('-' * widths[i] for i in range(len(hdr))))
-    for cmd, s in per_cmd_summary.items():
+    for name, s in per_method_summary.items():
         def fmt(v):
             return '{:.1f}'.format(v) if isinstance(v, float) else str(v) if v is not None else '—'
-        row = (cmd, s['count'], s['errors'], fmt(s['mean_us']),
+        row = (name, s['count'], s['errors'], fmt(s['mean_us']),
                fmt(s['stddev_us']), fmt(s['p50_us']), fmt(s['p95_us']),
                fmt(s['p99_us']), fmt(s['min_us']), fmt(s['max_us']))
         lines.append('  '.join(str(row[i]).ljust(widths[i]) for i in range(len(row))))
@@ -720,68 +635,79 @@ def _format_summary_table(per_cmd_summary):
 
 
 def cmd_bench(args):
-    """Measure per-command round-trip latency on the connected board.
+    """Measure round-trip latency of driver methods on the connected board.
 
     Validates the release gate §2.3 protocol-latency thesis. Run once
     against v3.0.x, once against FW4.0, on the SAME hardware, to compare.
 
     Hardware-gated: requires a connected, responsive board.
     """
+    from drivers import serial_latency
     from modules.lumascope_api import Lumascope
 
-    if args.board == 'motor':
-        defaults = _BENCH_DEFAULT_COMMANDS['motor']
-    else:
-        defaults = _BENCH_DEFAULT_COMMANDS['led']
-    commands = tuple(args.commands.split(',')) if args.commands else defaults
+    output_path = Path(args.output) if args.output else None
     iterations = args.iterations
     warmup = args.warmup
-    output_path = Path(args.output) if args.output else None
 
     print('Constructing diagnostic Lumascope (LED + motor, no camera)...')
     scope = Lumascope.create_diagnostic()
 
-    if args.board == 'motor':
-        board = scope.motion
-    else:
-        board = scope.led
+    board = scope.motion if args.board == 'motor' else scope.led
 
     if not hasattr(board, 'is_connected') or not board.is_connected():
         print(f'ERROR: {args.board} board not connected / not responding')
         scope.disconnect()
         sys.exit(1)
 
+    # Build the callable set.
+    if args.raw_commands:
+        raw_cmds = tuple(c.strip() for c in args.raw_commands.split(',') if c.strip())
+        named = [(cmd, (lambda c=cmd: board.exchange_command(c))) for cmd in raw_cmds]
+        mode_label = f'raw commands [{", ".join(raw_cmds)}]'
+    else:
+        named = _board_bench_callables(args.board, board)
+        mode_label = f'driver methods [{", ".join(n for n, _ in named)}]'
+
+    if not named:
+        print(f'ERROR: no bench methods for {args.board} board')
+        scope.disconnect()
+        sys.exit(1)
+
     fw_version = getattr(board, 'firmware_version', None) or 'unknown'
     print(f'Benchmarking {args.board} board at firmware {fw_version}')
-    print(f'Commands: {", ".join(commands)}')
-    print(f'Warmup:    {warmup} iterations (discarded)')
-    print(f'Measured:  {iterations} iterations per command')
+    print(f'Mode:     {mode_label}')
+    print(f'Warmup:   {warmup} iterations (discarded)')
+    print(f'Measured: {iterations} iterations per method')
     if output_path:
         print(f'CSV output: {output_path}')
     print()
 
-    all_rows = []          # CSV rows
-    per_cmd = {}           # summary stats
+    all_rows = []
+    per_method = {}
 
     try:
-        for command in commands:
-            print(f'  measuring {command}... ', end='', flush=True)
-            durations = _measure_latencies(board, command, iterations, warmup)
-            summary = _summarize_latencies(durations)
-            per_cmd[command] = summary
-            for i, d in enumerate(durations):
-                all_rows.append((args.board, fw_version, command, i, d))
+        # One measurement pass: primitive returns both summaries and
+        # raw per-iteration durations when `return_durations=True`.
+        per_method, raw_by_name = serial_latency.measure_callable_latencies(
+            named, iterations=iterations, warmup=warmup,
+            return_durations=True,
+        )
+        for name, summary in per_method.items():
             if summary['count'] > 0:
-                print(f'mean={summary["mean_us"]:.1f}µs p95={summary["p95_us"]:.1f}µs '
+                print(f'  {name}: mean={summary["mean_us"]:.1f}µs '
+                      f'p95={summary["p95_us"]:.1f}µs '
                       f'errors={summary["errors"]}')
             else:
-                print(f'ALL FAILED ({summary["errors"]} errors)')
+                print(f'  {name}: ALL FAILED ({summary["errors"]} errors)')
+            if output_path:
+                for i, d in enumerate(raw_by_name[name]):
+                    all_rows.append((args.board, fw_version, name, i, d))
     finally:
         scope.disconnect()
 
     print()
     print('=== Summary (µs) ===')
-    print(_format_summary_table(per_cmd))
+    print(_format_summary_table(per_method))
 
     if output_path:
         _write_bench_csv(output_path, all_rows)
@@ -789,23 +715,27 @@ def cmd_bench(args):
 
     # Optional reliability loop (release gate §2.3 "Reliability under load").
     if args.load_minutes is not None and args.load_minutes > 0:
-        load_cmd = args.load_command
-        load_hz = args.load_hz
         duration_s = args.load_minutes * 60.0
         print()
         print(f'=== Reliability loop ===')
-        print(f'Command:  {load_cmd}')
-        print(f'Rate:     {load_hz:.1f} Hz target')
+        # Pick the first benched callable for the load target. Override
+        # via --raw-commands if you want to hammer a different command.
+        load_name, load_fn = named[0]
+        print(f'Target:   {load_name}')
+        print(f'Rate:     {args.load_hz:.1f} Hz target')
         print(f'Duration: {args.load_minutes:.1f} min ({duration_s:.1f} s)')
         print('  running... (Ctrl-C to abort)')
 
         scope2 = Lumascope.create_diagnostic()
         try:
-            if args.board == 'motor':
-                board2 = scope2.motion
-            else:
-                board2 = scope2.led
-            load_summary = _run_load_loop(board2, load_cmd, duration_s, load_hz)
+            board2 = scope2.motion if args.board == 'motor' else scope2.led
+            # Rebind the callable against the fresh scope's board.
+            named2 = _board_bench_callables(args.board, board2)
+            name_to_fn = dict(named2)
+            load_fn2 = name_to_fn.get(load_name, load_fn)
+            load_summary = serial_latency.run_load_loop(
+                load_fn2, duration_s, args.load_hz
+            )
         finally:
             scope2.disconnect()
 
@@ -947,39 +877,35 @@ def main():
     p_reset.add_argument('--skip-post-test', action='store_true',
                          help='Skip post-update verification')
 
-    # bench — per-command round-trip latency (release gate §2.3)
+    # bench — driver-method round-trip latency (release gate §2.3)
     p_bench = sub.add_parser(
         'bench',
-        help=('Measure per-command round-trip latency on the connected '
+        help=('Measure driver-method round-trip latency on the connected '
               'board. Run against v3.0.x and FW4.0 on the same hardware '
               'to validate the release gate §2.3 protocol-latency thesis.'))
     p_bench.add_argument('--board', choices=['motor', 'led'], required=True,
                          help='Target board')
     p_bench.add_argument('--iterations', type=int, default=1000,
-                         help='Measured iterations per command (default: 1000)')
+                         help='Measured iterations per method (default: 1000)')
     p_bench.add_argument('--warmup', type=int, default=50,
-                         help='Warmup iterations per command, discarded '
+                         help='Warmup iterations per method, discarded '
                               '(default: 50)')
-    p_bench.add_argument('--commands', default=None,
-                         help='Comma-separated command list. Defaults: '
-                              'motor=INFO,POS_READ,STATUS,LIMIT_SW; '
-                              'led=INFO,LED_READ,STATUS. '
-                              'Omit LED_SET from defaults — it writes DAC '
-                              'state; add explicitly if needed.')
+    p_bench.add_argument('--raw-commands', default=None,
+                         help='Comma-separated raw firmware command list. '
+                              'Escape hatch — bypasses the driver dispatcher '
+                              'and sends each string via exchange_command(). '
+                              'Use for ad-hoc measurement of a specific '
+                              'firmware command string. Caller is responsible '
+                              'for matching the firmware version running.')
     p_bench.add_argument('--output', default=None,
                          help='Optional CSV output path for per-iteration '
                               'durations')
     p_bench.add_argument('--load-minutes', type=float, default=None,
                          help='If set, runs a reliability loop after the '
-                              'per-command benchmark: `--load-command` at '
-                              '`--load-hz` Hz for this many minutes. '
-                              'Release gate §2.3 requires 10 Hz × 5 min '
-                              'to compare FW4.0 vs v3.0.9 error rate under '
-                              'load.')
-    p_bench.add_argument('--load-command', default='INFO',
-                         help='Command to cycle during the reliability loop '
-                              '(default: INFO — read-only, present on both '
-                              'boards and both protocol versions).')
+                              'bench: targets the first benched method at '
+                              '--load-hz for this many minutes. Release gate '
+                              '§2.3 requires 10 Hz × 5 min to compare FW4.0 '
+                              'vs v3.0.9 error rate under load.')
     p_bench.add_argument('--load-hz', type=float, default=10.0,
                          help='Target rate for the reliability loop '
                               '(default: 10 Hz per release gate §2.3).')
