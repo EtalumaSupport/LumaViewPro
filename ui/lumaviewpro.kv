@@ -320,6 +320,7 @@
 
         # MICROSCOPE SETTINGS
         AccordionItem:
+            id: microscope_settings_accordion_id
             title: 'Microscope Settings'
             collapse: False
 			on_collapse: root.accordion_collapse()
@@ -2533,6 +2534,121 @@
 					background_normal: './data/icons/ToggleL.png'
 					background_down: './data/icons/ToggleRW.png'
 					on_release: root.update_bullseye_state()
+
+			# Fan Control section — visibility + kind (HILO vs PWM) set at
+			# runtime via scope.fan_ui_kind() in
+			# microscope_settings._update_fan_ui_visibility(). Hidden by
+			# default; legacy firmware or scopes without fan stay hidden.
+			BoxLayout:
+				id: fan_section_id
+				orientation: 'vertical'
+				size_hint_y: None
+				height: '0dp'
+				opacity: 0
+				spacing: '3dp'
+
+				Label:
+					id: fan_section_heading_id
+					text: 'Fan Control'
+					size_hint_y: None
+					height: '0dp'
+					opacity: 0
+					font_size: '12sp'
+					halign: 'left'
+					valign: 'middle'
+					text_size: self.size
+
+				# HiLo row — three-state radio via grouped ToggleButtons.
+				BoxLayout:
+					id: fan_hilo_row_id
+					orientation: 'horizontal'
+					size_hint_y: None
+					height: '0dp'
+					opacity: 0
+					spacing: '5dp'
+					Label:
+						text: 'Speed'
+						tooltip_text: 'Fan speed: HI / LO / OFF'
+						size_hint_x: None
+						width: '80dp'
+						font_size: '12sp'
+					ToggleButton:
+						id: fan_hi_btn_id
+						text: 'HI'
+						group: 'fan_hilo'
+						font_size: '12sp'
+						on_release: root.set_fan_hilo_from_ui('HI')
+					ToggleButton:
+						id: fan_lo_btn_id
+						text: 'LO'
+						group: 'fan_hilo'
+						font_size: '12sp'
+						on_release: root.set_fan_hilo_from_ui('LO')
+					ToggleButton:
+						id: fan_off_btn_id
+						text: 'OFF'
+						group: 'fan_hilo'
+						font_size: '12sp'
+						on_release: root.set_fan_hilo_from_ui('OFF')
+
+				# PWM row — slider 0-100 % + numeric readout.
+				BoxLayout:
+					id: fan_pwm_row_id
+					orientation: 'horizontal'
+					size_hint_y: None
+					height: '0dp'
+					opacity: 0
+					spacing: '5dp'
+					Label:
+						text: 'PWM %'
+						tooltip_text: 'Fan duty cycle (0-100 %)'
+						size_hint_x: None
+						width: '80dp'
+						font_size: '12sp'
+					Slider:
+						id: fan_pwm_slider_id
+						min: 0
+						max: 100
+						step: 1
+						value: 50
+						cursor_size: '20dp','20dp'
+						cursor_image: './data/icons/slider_cursor.png'
+						track_width: dp(5)
+						value_track: True
+						value_track_width: dp(5)
+						on_touch_down: if self.collide_point(*args[1].pos): root.set_fan_pwm_drag(True)
+						on_touch_up: if self.collide_point(*args[1].pos): root.set_fan_pwm_from_ui(int(self.value))
+					TextInput:
+						id: fan_pwm_text_id
+						size_hint_x: None
+						width: '45dp'
+						multiline: False
+						font_size: '12sp'
+						padding: ['4dp', (self.height-self.line_height)/2]
+						halign: 'right'
+						readonly: True
+						text: format(int(fan_pwm_slider_id.value))
+
+				# RPM readout — shown when firmware reports tach_rpm.
+				BoxLayout:
+					id: fan_rpm_row_id
+					orientation: 'horizontal'
+					size_hint_y: None
+					height: '0dp'
+					opacity: 0
+					Label:
+						text: 'RPM'
+						tooltip_text: 'Tach reading, 5-sample trailing average'
+						size_hint_x: None
+						width: '80dp'
+						font_size: '12sp'
+					Label:
+						id: fan_rpm_label_id
+						text: '—'
+						font_size: '12sp'
+						halign: 'left'
+						valign: 'middle'
+						text_size: self.size
 
 			# Support Report
 			BoxLayout:
