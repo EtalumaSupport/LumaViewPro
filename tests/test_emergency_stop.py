@@ -141,6 +141,7 @@ class TestLumascopeEmergencyStop:
         s.motion = MagicMock() if with_motor else None
         s.led = MagicMock() if with_led else None
         s._led_owner_lock = threading.Lock()
+        s._led_listeners_lock = threading.Lock()  # hasattr guard uses this
         s._led_owners = {}
         s._led_state = {}
         s.frame_validity = MagicMock()
@@ -237,3 +238,31 @@ class TestLumascopeEmergencyStop:
         s = self._make_scope(with_motor=False, with_led=False)
         result = s.emergency_stop()
         assert result == {'motion': 'absent', 'led': 'absent'}
+
+    def test_diagnostic_mode_missing_ui_infra_does_not_contaminate_status(self):
+        """Lumascope.create_diagnostic builds a minimal scope without
+        frame_validity / _led_listeners_lock / _led_owner_lock. The
+        emergency_stop safety promise: firmware-side stops succeed
+        cleanly even when those API-side UI attrs are missing. Caught
+        on bench 2026-04-24 — diagnostic scope flipped LED to 'error'
+        because a listener-fire raised AttributeError after led.stop
+        actually succeeded.
+        """
+        import threading
+        from modules.lumascope_api import Lumascope
+        s = Lumascope.__new__(Lumascope)
+        s.motion = MagicMock()
+        s.led = MagicMock()
+        # INTENTIONALLY omit _led_owner_lock, _led_listeners_lock,
+        # frame_validity, _led_state, _led_owners — mirrors
+        # create_diagnostic's minimal init.
+        s.motion.stop = MagicMock(return_value={'ok': True, 'stopped': True,
+                                                'positions': None, 'response': None})
+        s.led.stop = MagicMock(return_value={'ok': True, 'stopped': True,
+                                             'response': None, 'note': None})
+        result = s.emergency_stop()
+        # Status reflects actual firmware-side success, not the missing
+        # UI plumbing.
+        assert result['motion']['stopped'] is True
+        assert result['led']['stopped'] is True
+        assert result['led'] != 'error'

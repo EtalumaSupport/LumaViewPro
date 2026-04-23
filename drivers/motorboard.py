@@ -349,6 +349,12 @@ class MotorBoard(SerialBoard):
                     self._fullinfo = info
 
                 logger.info('[XYZ Class ] Connected to motor controller')
+                # Fire the connect-time latency fingerprint — SerialBoard.connect
+                # has this call too, but MotorBoard.connect is an override that
+                # does not delegate up, so the hook has to fire here as well.
+                # Caught on bench 2026-04-24: SN 115 LED had a populated
+                # connect_latency_summary but motor stayed None.
+                self._run_connect_latency_bench()
             except Exception as e:
                 self._close_driver()
                 self._connect_fails += 1

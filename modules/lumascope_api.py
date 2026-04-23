@@ -2111,21 +2111,40 @@ class Lumascope():
                 result['motion'] = 'error'
 
         if self.led is not None:
+            # Step 1: the firmware-side stop. This is the safety-critical
+            # step — capture its result before any API-side UI plumbing
+            # so downstream AttributeError (e.g. in create_diagnostic
+            # mode where frame_validity / _led_listeners_lock may be
+            # absent) can't contaminate the stop-action status.
             try:
-                # Clear API-side LED state to match the firmware-side
-                # reset — same pattern as leds_off. Listeners fire so
-                # any UI reflection goes dark immediately.
-                led_result = self.led.stop() or 'error'
-                result['led'] = led_result
-                with self._led_owner_lock:
-                    self._led_owners.clear()
-                    self._led_state.clear()
-                self.frame_validity.invalidate('led')
-                for color in self.led.available_colors():
-                    self._fire_led_listeners(color, False, 0.0, '')
+                led_result = self.led.stop()
+                result['led'] = led_result if led_result else 'error'
             except Exception as e:
                 _api_log.error(f'emergency_stop: led.stop raised: {e}')
                 result['led'] = 'error'
+
+            # Step 2: API-side state + listener reflection. Best-effort —
+            # any failure here is logged but doesn't revert result['led'].
+            # Guarded with hasattr so Lumascope.create_diagnostic scopes
+            # (minimal init) don't trip on missing attributes.
+            if hasattr(self, '_led_owner_lock'):
+                try:
+                    with self._led_owner_lock:
+                        self._led_owners.clear()
+                        self._led_state.clear()
+                except Exception as e:
+                    _api_log.debug(f'emergency_stop: led state clear: {e}')
+            if hasattr(self, 'frame_validity'):
+                try:
+                    self.frame_validity.invalidate('led')
+                except Exception as e:
+                    _api_log.debug(f'emergency_stop: frame_validity: {e}')
+            if hasattr(self, '_led_listeners_lock'):
+                try:
+                    for color in self.led.available_colors():
+                        self._fire_led_listeners(color, False, 0.0, '')
+                except Exception as e:
+                    _api_log.debug(f'emergency_stop: fire_listeners: {e}')
 
         _api_log.warning(f'emergency_stop: motion={result["motion"]} led={result["led"]}')
         return result

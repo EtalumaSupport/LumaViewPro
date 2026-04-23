@@ -151,3 +151,83 @@ class TestSubclassOverrides:
     def test_base_class_returns_empty(self):
         b = SerialBoard.__new__(SerialBoard)
         assert b._connect_bench_callables() == []
+
+
+class TestMotorBoardConnectOverrideFiresHook:
+    """MotorBoard.connect() re-implements the connection sequence instead
+    of delegating to SerialBoard.connect(), so the connect-time latency
+    bench hook has to fire from the override too — not just the base
+    class. Caught on bench 2026-04-24: SN 115 LED summary populated,
+    motor summary stayed None.
+    """
+
+    def test_motorboard_connect_fires_bench_hook(self, monkeypatch):
+        import threading
+        from drivers.motorboard import MotorBoard
+
+        m = MotorBoard.__new__(MotorBoard)
+        # Minimal SerialBoard state needed for the override's `with
+        # self._lock:` + the sequence inside. Bypass __init__ entirely.
+        m._lock = threading.RLock()
+        m._state_lock = threading.Lock()
+        m.driver = None
+        m.port = '/dev/fake'
+        m._connect_fails = 0
+        m._connect_log_suppressed = False
+        m._fullinfo = None
+        m._CONNECT_BENCH_ITERATIONS = 5
+        m._CONNECT_BENCH_WARMUP = 1
+        m.connect_latency_summary = None
+
+        # Stub every sub-call the override makes: open_serial / driver
+        # close+reopen / _reset_firmware / fullinfo.
+        fake_driver = MagicMock()
+        fake_driver.is_open = True
+        def _open_serial():
+            m.driver = fake_driver
+        monkeypatch.setattr(m, '_open_serial', _open_serial)
+        monkeypatch.setattr(m, '_reset_firmware',
+                            lambda: setattr(m, 'firmware_version', '4.0.0'))
+        # fullinfo is the benched callable — must be a MagicMock that
+        # responds so the bench records successes, not errors.
+        m.fullinfo = MagicMock(return_value={'model': 'sim', 'serial_number': '0'})
+        monkeypatch.delenv('LVP_SKIP_CONNECT_BENCH', raising=False)
+
+        m.connect()
+
+        # The whole point: connect_latency_summary must be populated.
+        assert m.connect_latency_summary is not None, (
+            'MotorBoard.connect override skipped the connect-bench hook'
+        )
+        assert 'fullinfo' in m.connect_latency_summary
+        summary = m.connect_latency_summary['fullinfo']
+        assert summary['count'] == m._CONNECT_BENCH_ITERATIONS
+        assert summary['errors'] == 0
+
+    def test_motorboard_connect_respects_env_var(self, monkeypatch):
+        import threading
+        from drivers.motorboard import MotorBoard
+
+        m = MotorBoard.__new__(MotorBoard)
+        m._lock = threading.RLock()
+        m._state_lock = threading.Lock()
+        m.driver = None
+        m.port = '/dev/fake'
+        m._connect_fails = 0
+        m._connect_log_suppressed = False
+        m._fullinfo = None
+        m.connect_latency_summary = None
+
+        fake_driver = MagicMock()
+        fake_driver.is_open = True
+        monkeypatch.setattr(m, '_open_serial',
+                            lambda: setattr(m, 'driver', fake_driver))
+        monkeypatch.setattr(m, '_reset_firmware',
+                            lambda: setattr(m, 'firmware_version', '4.0.0'))
+        m.fullinfo = MagicMock(return_value={})
+        monkeypatch.setenv('LVP_SKIP_CONNECT_BENCH', '1')
+
+        m.connect()
+
+        # Env var opt-out honored by the override path too.
+        assert m.connect_latency_summary is None
