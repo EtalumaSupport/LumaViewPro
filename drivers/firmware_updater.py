@@ -1898,7 +1898,14 @@ def deploy_firmware_file(
          failure leaves an old main.py + new framing — the new framing
          may crash a pre-FW4.0 main.py on boot, which is visible and
          recoverable; the reverse (new main.py needing framing that
-         isn't there) would brick.
+         isn't there) would brick. Each file's write is atomic per-file
+         (`.tmp` + SHA-256 + rename + `.bak`, with 3× transient-error
+         retry). Cross-file atomicity is NOT guaranteed; if
+         `fw40_framing.mpy` commits and `main.mpy` then exhausts its
+         retries, the board boots with new framing + old main. This has
+         not been observed on bench post-mpremote (raw-paste window-
+         token flow control retires the exhaustion class); revisit with
+         a two-phase-commit design if bench surfaces it.
       4. Soft reset to boot the new firmware
       5. Verify new firmware version
       6. Run post-update health check
