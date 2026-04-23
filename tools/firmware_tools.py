@@ -682,7 +682,11 @@ def main():
     # factory-reset (Phase 4F) — motor-only recovery when raw REPL is broken
     p_reset = sub.add_parser(
         'factory-reset',
-        help='Full motor-board recovery: nuke -> runtime UF2 -> main.py push')
+        help=('Full motor-board recovery: nuke -> runtime UF2 -> main.py push. '
+              'Works from live firmware (sends FWUPDATE to enter BOOTSEL) OR from '
+              'an already-in-BOOTSEL board (hold BOOTSEL and power-cycle first if '
+              'firmware is wedged). Zero firmware-responsiveness assumed in the '
+              'BOOTSEL entry path.'))
     p_reset.add_argument('--nuke-uf2', required=True,
                          help='Path to flash_nuke_rp2040.uf2 (wipes all flash)')
     p_reset.add_argument('--runtime-uf2', required=True,
