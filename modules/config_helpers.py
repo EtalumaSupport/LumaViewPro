@@ -167,8 +167,17 @@ def get_current_plate_position(
 # System / logging helpers
 # ---------------------------------------------------------------------------
 
-def log_system_metrics(settings: dict):
-    """Log CPU, RAM, and disk metrics."""
+def log_system_metrics(settings: dict, scope=None):
+    """Log CPU, RAM, disk metrics plus optional firmware metrics.
+
+    Args:
+        settings: the LVP settings dict (for ``live_folder`` resolution).
+        scope: optional ``Lumascope`` handle. When present, emits an
+            extra ``[FIRMWARE METRICS]`` line with motor + LED firmware
+            version, fan status, and per-board connect-time latency
+            summaries. Callers that don't have a scope (startup before
+            session init, tests) can omit it safely.
+    """
     path = settings.get('live_folder', '.')
     # Resolve relative paths and handle missing directories gracefully.
     # On installed apps, live_folder may still be './capture' before
@@ -281,6 +290,83 @@ def log_system_metrics(settings: dict):
     if io_read >= 0 or io_write >= 0:
         logger.info(
             f"[PROCESS IO] read={io_read:.1f} MB | write={io_write:.1f} MB",
+            extra={'force_error': True},
+        )
+
+    # --- Firmware metrics (one-shot reads via scope API; no polling) ---
+    # Logged only when a scope handle is available. Motor + LED firmware
+    # versions, fan status, and per-board connect-latency summary. Each
+    # piece is individually try/excepted so a missing driver or null
+    # board never blocks the rest of the line.
+    if scope is not None:
+        _log_firmware_metrics(scope)
+
+
+def _log_firmware_metrics(scope):
+    """Emit a single ``[FIRMWARE METRICS]`` log line summarising the
+    firmware-visible health of the connected boards. See the caller in
+    ``log_system_metrics`` for context.
+    """
+    fields = []
+
+    def _fw_version(board):
+        return getattr(board, 'firmware_version', None) or '?'
+
+    try:
+        motion = getattr(scope, 'motion', None)
+        if motion is not None and getattr(motion, 'is_connected', lambda: False)():
+            fields.append(f"motor={_fw_version(motion)}")
+    except Exception:
+        pass
+
+    try:
+        led = getattr(scope, 'led', None)
+        if led is not None and getattr(led, 'is_connected', lambda: False)():
+            fields.append(f"led={_fw_version(led)}")
+    except Exception:
+        pass
+
+    try:
+        fan = scope.get_fan_status() if hasattr(scope, 'get_fan_status') else None
+        if fan:
+            mode = fan.get('mode')
+            state = fan.get('state')
+            pct = fan.get('fan_pct')
+            rpm = fan.get('tach_rpm')
+            parts = [f"mode={mode}"]
+            if state is not None:
+                parts.append(f"state={state}")
+            if pct is not None:
+                parts.append(f"pct={pct}")
+            if rpm is not None:
+                parts.append(f"rpm={rpm}")
+            fields.append("fan=[" + " ".join(parts) + "]")
+    except Exception:
+        pass
+
+    # Connect-time latency fingerprint (populated by SerialBoard.connect()
+    # via drivers/serial_latency.py). Per-board, per-method summary.
+    for board_attr, label in (('motion', 'motor'), ('led', 'led')):
+        try:
+            board = getattr(scope, board_attr, None)
+            if board is None:
+                continue
+            summary = getattr(board, 'connect_latency_summary', None)
+            if not summary:
+                continue
+            for name, s in summary.items():
+                mean_ms = s.get('mean_ms')
+                p95_ms = s.get('p95_ms')
+                if mean_ms is not None and p95_ms is not None:
+                    fields.append(
+                        f"{label}_{name}=mean{mean_ms:.1f}ms/p95{p95_ms:.1f}ms"
+                    )
+        except Exception:
+            pass
+
+    if fields:
+        logger.info(
+            "[FIRMWARE METRICS] " + " | ".join(fields),
             extra={'force_error': True},
         )
 

@@ -1,6 +1,7 @@
 #!/usr/bin/python3
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 
+import collections
 import contextlib
 import datetime
 import os
@@ -157,12 +158,29 @@ class Lumascope():
 
         # Fan change listeners — push-based for the Microscope Settings tab
         # tach-RPM readout. Each listener is called with the full fan-status
-        # dict ({'mode', 'state', 'fan_pct', 'tach_rpm', ...}) whenever a
-        # periodic poll fires (Stage 3) or a set_fan_* call lands. Fires
-        # from the poll thread, so listeners MUST schedule UI work via
+        # dict ({'mode', 'state', 'fan_pct', 'tach_rpm', 'tach_rpm_avg', ...})
+        # whenever a periodic poll fires (Stage 3) or a set_fan_* call lands.
+        # Fires from the poll thread, so listeners MUST schedule UI work via
         # Clock.schedule_once.
         self._fan_listeners_lock = threading.Lock()
         self._fan_listeners = []
+
+        # Fan polling thread (Stage 3) — runs only while at least one
+        # subscriber has opted in via enable_fan_polling(True, source=...).
+        # Each subscriber is identified by a `source` string for refcount
+        # semantics: the UI tab can enable/disable independently of any
+        # future perf-log subscriber without either stepping on the other.
+        # Firmware tach averages a 1-second hardware bucket; polling at
+        # 1 Hz gives one fresh value per tick. N=5 moving average is
+        # computed in LVP and surfaced as `tach_rpm_avg` on the status
+        # dict passed to listeners.
+        self._fan_monitor_lock = threading.Lock()
+        self._fan_poll_sources: set = set()
+        self._fan_poll_interval: float = 1.0
+        self._fan_monitor_stop = threading.Event()
+        self._fan_monitor_wake = threading.Event()
+        self._fan_monitor_thread = None
+        self._fan_rpm_history: collections.deque = collections.deque(maxlen=5)
 
         # Lock for motion profile dict (built below, after motion driver init).
         self._move_profile_lock = threading.Lock()
@@ -1525,6 +1543,9 @@ class Lumascope():
 
         # Stop the motion monitor before disconnecting the motor board
         self._stop_motion_monitor()
+        # Stop the fan monitor too — same reason: no stray polls against
+        # a disconnecting motor.
+        self._stop_fan_monitor()
 
         # Set all axes to UNKNOWN before disconnecting
         with self._axis_state_lock:
@@ -2285,11 +2306,18 @@ class Lumascope():
             except ValueError:
                 pass
 
-    def _fire_fan_listeners(self):
-        """Notify all fan listeners of the current fan status."""
+    def _fire_fan_listeners(self, status=None):
+        """Notify all fan listeners of the current fan status.
+
+        When ``status`` is None, fetches fresh via ``get_fan_status()``
+        — used by set_fan_hilo/pwm after a mutation. The polling loop
+        passes a pre-enriched status (with ``tach_rpm_avg``) to avoid
+        an extra firmware round-trip.
+        """
         if not hasattr(self, '_fan_listeners_lock'):
             return
-        status = self.get_fan_status()
+        if status is None:
+            status = self.get_fan_status()
         if status is None:
             return
         with self._fan_listeners_lock:
@@ -2299,6 +2327,114 @@ class Lumascope():
                 fn(status)
             except Exception as ex:
                 _api_log.debug(f'fan listener error: {ex}')
+
+    # ------------------------------------------------------------------
+    # Fan polling thread (Stage 3)
+    # ------------------------------------------------------------------
+
+    def enable_fan_polling(self, enabled, source):
+        """Enable or disable periodic fan polling for a given source.
+
+        Refcounted by ``source`` string: the poll thread runs while at
+        least one source has opted in, stops when the last source opts
+        out. Each subscriber owns only its own intent, so e.g. the
+        Microscope Settings tab and a perf-log consumer never clobber
+        each other.
+
+        Args:
+            enabled: True to enable, False to disable.
+            source: caller identifier, e.g. 'microscope_settings_tab'.
+
+        Silent no-op on ``create_diagnostic`` scopes (minimal init that
+        doesn't wire up the poll infra).
+        """
+        if not hasattr(self, '_fan_monitor_lock'):
+            return
+        with self._fan_monitor_lock:
+            if enabled:
+                self._fan_poll_sources.add(source)
+                if (self._fan_monitor_thread is None
+                        or not self._fan_monitor_thread.is_alive()):
+                    self._fan_monitor_stop.clear()
+                    self._fan_monitor_thread = threading.Thread(
+                        target=self._fan_monitor_loop,
+                        name='fan-monitor',
+                        daemon=True,
+                    )
+                    self._fan_monitor_thread.start()
+                # Wake the loop so the first tick fires immediately
+                # after enable, not after _fan_poll_interval seconds.
+                self._fan_monitor_wake.set()
+            else:
+                self._fan_poll_sources.discard(source)
+                if not self._fan_poll_sources:
+                    # Loop will see empty sources, drop out of the inner
+                    # tick loop, and block on _fan_monitor_wake until a
+                    # new subscriber re-enables.
+                    self._fan_monitor_wake.clear()
+
+    def set_fan_poll_interval(self, seconds):
+        """Set the fan polling cadence. Default 1.0 s (matches the
+        firmware's 1-second tach hardware bucket). Clamped to ≥0.1 s."""
+        if not hasattr(self, '_fan_monitor_lock'):
+            return
+        self._fan_poll_interval = max(0.1, float(seconds))
+
+    def _fan_monitor_loop(self):
+        """Background thread: polls fan status while at least one
+        subscriber is enabled. Fires fan listeners each tick with a
+        status dict enriched by an N=5 moving average of ``tach_rpm``
+        exposed as ``tach_rpm_avg``.
+
+        On legacy firmware or scopes with no fan, ``get_fan_status()``
+        returns None — the tick is a cheap no-op.
+        """
+        while not self._fan_monitor_stop.is_set():
+            # Sleep until enabled (or shutdown)
+            self._fan_monitor_wake.wait()
+            if self._fan_monitor_stop.is_set():
+                break
+
+            # Poll while any subscriber is enabled
+            while (self._fan_poll_sources
+                   and not self._fan_monitor_stop.is_set()):
+                try:
+                    status = self.get_fan_status()
+                except Exception as ex:
+                    logger.warning(
+                        f'[SCOPE API ] Fan monitor: poll failed: {ex}'
+                    )
+                    status = None
+
+                if status is not None:
+                    rpm = status.get('tach_rpm')
+                    if isinstance(rpm, (int, float)) and rpm >= 0:
+                        self._fan_rpm_history.append(rpm)
+                    if self._fan_rpm_history:
+                        status = dict(status)
+                        status['tach_rpm_avg'] = (
+                            sum(self._fan_rpm_history)
+                            / len(self._fan_rpm_history)
+                        )
+                    self._fire_fan_listeners(status=status)
+
+                # Interruptible sleep — wake + stop both short-circuit
+                if self._fan_monitor_stop.wait(self._fan_poll_interval):
+                    break
+
+            # All subscribers gone — clear history so a later re-enable
+            # starts fresh (last value from hours ago would be misleading).
+            self._fan_rpm_history.clear()
+
+    def _stop_fan_monitor(self):
+        """Stop the fan monitor thread (called during disconnect)."""
+        if not hasattr(self, '_fan_monitor_lock'):
+            return
+        self._fan_monitor_stop.set()
+        self._fan_monitor_wake.set()  # unblock if sleeping
+        if (self._fan_monitor_thread is not None
+                and self._fan_monitor_thread.is_alive()):
+            self._fan_monitor_thread.join(timeout=1.0)
 
     def get_led_status(self):
         """Get the LED board status register."""

@@ -544,7 +544,18 @@ class LumaViewProApp(TooltipMixin, App):
         # become visible across many samples. CPU cost is negligible: each
         # snapshot takes ~10-50 ms (gc.get_objects() dominates). See
         # docs/LOG_ANALYSIS_GUIDE.md "Resource Health".
-        Clock.schedule_interval(lambda dt: config_helpers.log_system_metrics(settings), 3600)   # Log metrics every hour
+        # Routes through scope_session so the firmware-metrics enrichment
+        # (motor/LED fw version, fan status, connect-latency summary)
+        # piggybacks on the same cadence. scope_session is ready before
+        # the first hourly tick fires. Falls back to the bare settings
+        # path if scope_session isn't wired yet (defensive; shouldn't
+        # happen in practice).
+        def _hourly_metrics_tick(_dt):
+            if scope_session is not None:
+                scope_session.log_system_metrics()
+            else:
+                config_helpers.log_system_metrics(settings)
+        Clock.schedule_interval(_hourly_metrics_tick, 3600)   # Log metrics every hour
 
         if lumaview.scope.camera_is_connected():
             lumaview.log_camera_temps()  # Log once on startup
