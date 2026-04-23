@@ -273,6 +273,50 @@ class MotorBoard(SerialBoard):
         """
         return [('fullinfo', self.fullinfo)]
 
+    def stop(self):
+        """Emergency-halt all motors — aborts async HOME and clamps targets.
+
+        FW4.0 (V4): STOP command. Firmware aborts any running async op
+        (HOME) via fw.async_set_abort(), then writes actual→target for
+        every present axis via the TMC5072 ramp controller (immediate
+        stop at current position).
+
+        LEGACY (v3.0.x): STOP command. Writes actual→target for all 4
+        axes via SPI (`motorstop()` in v3.0.x firmware). No async-op
+        abort path — v3.0.x homing was synchronous.
+
+        Returns a normalized dict so callers don't branch on protocol:
+            {'ok': bool, 'stopped': bool,
+             'positions': {axis: pos, ...} | None,
+             'response': raw_response_str | None}
+
+        `positions` is None on LEGACY (v3.0.x returns `'STOPPED'` with
+        no axis detail). Returns None on driver error.
+        """
+        if self._use_v4():
+            resp = self.exchange_json({'cmd': 'STOP'}, timeout=5)
+            if resp is None:
+                return None
+            return {
+                'ok': bool(resp.get('ok')),
+                'stopped': bool(resp.get('stopped')),
+                'positions': {
+                    ax: resp[ax] for ax in ('X', 'Y', 'Z', 'T')
+                    if ax in resp and isinstance(resp.get(ax), (int, float))
+                } or resp.get('positions'),
+                'response': None,
+            }
+
+        resp = self.exchange_command('STOP', timeout=5)
+        if resp is None:
+            return None
+        return {
+            'ok': True,
+            'stopped': 'STOPPED' in str(resp).upper(),
+            'positions': None,
+            'response': str(resp).strip(),
+        }
+
     def connect(self):
         """ Try to connect to the motor controller based on the known VID/PID"""
         # Note: _lock is an RLock (from SerialBoard), so re-entrant acquisition

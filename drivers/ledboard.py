@@ -78,6 +78,47 @@ class LEDBoard(SerialBoard):
         """
         return [('get_info', self.get_info)]
 
+    def stop(self):
+        """Emergency-halt all LED activity — aborts async ops + STIM + off.
+
+        FW4.0 (V4): STOP command. Firmware calls fw.async_set_abort()
+        (cancels SELFTEST/CALIBRATE), then _stim_clear_all() FIRST so
+        the Timer ISR can't re-drive the DAC, then _led_off_all(), then
+        restores channel enables for the next command sequence.
+
+        LEGACY (v3.0.x): no STOP command in firmware. v3.0.x has no
+        STIM capability (Timer-driven pulse ISR), so `leds_off()` is
+        the safe equivalent — there's no ISR to race. We degrade to
+        `self.leds_off()` and annotate the result so the caller can
+        see what actually happened.
+
+        Returns a normalized dict so callers don't branch on protocol:
+            {'ok': bool, 'stopped': bool,
+             'response': raw_response_str | None,
+             'note': str | None}
+
+        Returns None on driver error.
+        """
+        if self._use_v4():
+            resp = self.exchange_json({'cmd': 'STOP'}, timeout=5)
+            if resp is None:
+                return None
+            return {
+                'ok': bool(resp.get('ok')),
+                'stopped': bool(resp.get('stopped')),
+                'response': None,
+                'note': None,
+            }
+
+        # LEGACY: no STOP command; fall back to leds_off.
+        self.leds_off()
+        return {
+            'ok': True,
+            'stopped': True,
+            'response': None,
+            'note': 'LEGACY v3.0.x: degraded to leds_off (no STIM to abort)',
+        }
+
     _COLOR_TO_CH = {
         'Blue': 0, 'Green': 1, 'Red': 2,
         'BF': 3, 'PC': 4, 'DF': 5,

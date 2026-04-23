@@ -262,6 +262,18 @@ class SimulatedLEDBoard:
             self._channel_states[ch] = 0
         self.exchange_command('LEDS_OFF')
 
+    def stop(self):
+        """Simulated emergency-halt — mirrors LEDBoard.stop() shape.
+
+        Sim has no STIM Timer ISR, so this is effectively leds_off +
+        the normalized return shape.
+        """
+        self.leds_off()
+        return {
+            'ok': True, 'stopped': True,
+            'response': None, 'note': None,
+        }
+
     def leds_off_fast(self):
         for color in self.led_ma:
             self.led_ma[color] = -1

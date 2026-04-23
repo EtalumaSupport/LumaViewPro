@@ -482,6 +482,20 @@ class SimulatedMotorBoard:
             return False
         return 'successful' in resp.lower() or 'complete' in resp.lower()
 
+    def stop(self):
+        """Simulated emergency-halt — mirrors MotorBoard.stop() shape."""
+        self.exchange_command('STOP')
+        present = {
+            ax: getattr(self, 'actual_pos', {}).get(ax, 0)
+            for ax in ('X', 'Y', 'Z', 'T')
+            if ax in getattr(self, 'present_axes', ['X', 'Y', 'Z', 'T'])
+        }
+        return {
+            'ok': True, 'stopped': True,
+            'positions': present or None,
+            'response': 'STOPPED',
+        }
+
     def home(self):
         resp = self.exchange_command('HOME')
         logger.info(f'[XYZ Sim   ] SimulatedMotorBoard.home() -> {resp}')

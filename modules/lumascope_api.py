@@ -2084,6 +2084,52 @@ class Lumascope():
         for color in self.led.available_colors():
             self._fire_led_listeners(color, False, 0.0, '')
 
+    def emergency_stop(self):
+        """Emergency-halt all hardware activity — motion + LEDs.
+
+        Halts the motor (aborts any running HOME, clamps target to
+        actual for every present axis) AND stops the LED board
+        (aborts async LED ops, kills any running STIM Timer-ISR,
+        turns channels off). One call, everything safe.
+
+        Per-device no-op when a board is absent (Rule 8: API handles
+        missing hardware). Exceptions in either sub-call are logged
+        and the other half still runs — "stop everything I can" is
+        the safety promise.
+
+        Returns a dict summarizing what each side reported:
+            {'motion': <motor.stop result | None | 'absent' | 'error'>,
+             'led':    <led.stop result    | None | 'absent' | 'error'>}
+        """
+        result = {'motion': 'absent', 'led': 'absent'}
+
+        if self.motion is not None:
+            try:
+                result['motion'] = self.motion.stop() or 'error'
+            except Exception as e:
+                _api_log.error(f'emergency_stop: motion.stop raised: {e}')
+                result['motion'] = 'error'
+
+        if self.led is not None:
+            try:
+                # Clear API-side LED state to match the firmware-side
+                # reset — same pattern as leds_off. Listeners fire so
+                # any UI reflection goes dark immediately.
+                led_result = self.led.stop() or 'error'
+                result['led'] = led_result
+                with self._led_owner_lock:
+                    self._led_owners.clear()
+                    self._led_state.clear()
+                self.frame_validity.invalidate('led')
+                for color in self.led.available_colors():
+                    self._fire_led_listeners(color, False, 0.0, '')
+            except Exception as e:
+                _api_log.error(f'emergency_stop: led.stop raised: {e}')
+                result['led'] = 'error'
+
+        _api_log.warning(f'emergency_stop: motion={result["motion"]} led={result["led"]}')
+        return result
+
     def get_led_status(self):
         """Get the LED board status register."""
         if not self.led: return
