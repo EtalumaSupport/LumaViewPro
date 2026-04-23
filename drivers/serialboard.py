@@ -20,14 +20,16 @@ import threading
 
 _serial_log = logging.getLogger('LVP.serial')
 
+# raw_repl.py is retained as a reference/backup path (see
+# docs/MPREMOTE_MIGRATION_PLAN.md approval gate #6). Only
+# verify_firmware_running still delegates there — it operates on the
+# pyserial driver AFTER exit_raw_repl has restored it, outside the
+# Transport abstraction mpremote owns. Raw-REPL file I/O now goes
+# through drivers.mpremote_transport per plan §2 Phase 2.
 from drivers.raw_repl import (
-    enter_raw_repl as _enter_raw_repl,
-    exit_raw_repl as _exit_raw_repl,
-    list_files as _list_files,
-    read_file as _read_file,
-    write_file as _write_file,
     verify_firmware_running as _verify_firmware_running,
 )
+from drivers.mpremote_transport import create_session as _create_mpremote_session
 
 try:
     from modules import profile_trace
@@ -89,6 +91,11 @@ class SerialBoard:
         self.timeout = timeout
         self.write_timeout = write_timeout
         self._in_raw_repl = False
+        # mpremote-backed raw-REPL session. Non-None only between
+        # enter_raw_repl() and exit_raw_repl(). SerialTransport takes
+        # exclusive ownership of the device path, so self.driver is
+        # closed for the duration of the session and reopened on exit.
+        self._mpremote_session = None
         self.protocol_version = ProtocolVersion.LEGACY
         # FW4.0 (V4) state — populated by _detect_firmware_version when the
         # board answers INFO with JSON that advertises protocol >= 4.0.
@@ -1280,6 +1287,11 @@ class SerialBoard:
         While in raw REPL, normal commands (exchange_command) cannot be
         used. Call exit_raw_repl() when done to reboot the firmware.
 
+        Under the hood: closes the pyserial driver (mpremote's
+        SerialTransport takes exclusive ownership of the device path),
+        constructs an mpremote-backed session, and enters raw REPL.
+        exit_raw_repl reverses the sequence.
+
         Args:
             soft_reset: If True (default), soft-reset after entering raw REPL
                 for a clean MicroPython state. Set to False for old firmware
@@ -1288,27 +1300,72 @@ class SerialBoard:
         Returns True on success, False on failure.
         """
         with self._lock:
+            # Make sure we know the device path — _open_serial runs
+            # port discovery if self.port is None.
             if self.driver is None:
                 self._open_serial()
-            if _enter_raw_repl(self.driver, soft_reset=soft_reset):
-                self._in_raw_repl = True
-                logger.info(f'{self._label} Entered raw REPL')
-                return True
-            logger.error(f'{self._label} Failed to enter raw REPL')
-            return False
+            device_path = self.port
+            # Release the pyserial port so mpremote can take exclusive
+            # ownership. self.driver is restored in exit_raw_repl.
+            self._close_driver()
+
+            try:
+                session = _create_mpremote_session(
+                    device_path, baudrate=self.baudrate
+                )
+                session.enter(soft_reset=soft_reset)
+            except Exception as e:
+                logger.error(
+                    f'{self._label} enter_raw_repl failed: {e}'
+                )
+                # Restore application-mode driver so the board stays
+                # usable for exchange_command() callers.
+                try:
+                    self._open_serial()
+                except Exception as e2:
+                    logger.error(
+                        f'{self._label} enter_raw_repl recovery '
+                        f'_open_serial failed: {e2}'
+                    )
+                return False
+
+            self._mpremote_session = session
+            self._in_raw_repl = True
+            logger.info(f'{self._label} Entered raw REPL')
+            return True
 
     def exit_raw_repl(self):
         """Exit raw REPL and reboot firmware.
 
         After exit, the board reboots and firmware resumes. The serial
-        connection remains open — call exchange_command() normally after.
+        connection is reopened — call exchange_command() normally after.
         """
         with self._lock:
-            if self.driver is None:
-                return
-            _exit_raw_repl(self.driver)
+            session = self._mpremote_session
+            self._mpremote_session = None
             self._in_raw_repl = False
-            logger.info(f'{self._label} Exited raw REPL, firmware rebooting')
+
+            if session is None:
+                return
+
+            try:
+                session.exit()
+            except Exception as e:
+                logger.warning(
+                    f'{self._label} exit_raw_repl session.exit: {e}'
+                )
+
+            # Reopen the application-mode pyserial driver.
+            try:
+                self._open_serial()
+            except Exception as e:
+                logger.error(
+                    f'{self._label} exit_raw_repl _open_serial: {e}'
+                )
+
+            logger.info(
+                f'{self._label} Exited raw REPL, firmware rebooting'
+            )
 
     def repl_list_files(self):
         """List files on board filesystem (must be in raw REPL).
@@ -1316,10 +1373,10 @@ class SerialBoard:
         Returns list of filenames, or empty list on failure.
         """
         with self._lock:
-            if not self._in_raw_repl or self.driver is None:
+            if not self._in_raw_repl or self._mpremote_session is None:
                 logger.error(f'{self._label} repl_list_files: not in raw REPL')
                 return []
-            return _list_files(self.driver)
+            return self._mpremote_session.list_files()
 
     def repl_read_file(self, filename, verify=True):
         """Read a file from the board (must be in raw REPL).
@@ -1327,10 +1384,10 @@ class SerialBoard:
         Returns file contents as bytes, or None on failure.
         """
         with self._lock:
-            if not self._in_raw_repl or self.driver is None:
+            if not self._in_raw_repl or self._mpremote_session is None:
                 logger.error(f'{self._label} repl_read_file: not in raw REPL')
                 return None
-            return _read_file(self.driver, filename, verify=verify)
+            return self._mpremote_session.read_file(filename, verify=verify)
 
     def repl_write_file(self, filename, data):
         """Write a file to the board with SHA256 verification (must be in raw REPL).
@@ -1341,10 +1398,10 @@ class SerialBoard:
         Returns True on success, False on failure.
         """
         with self._lock:
-            if not self._in_raw_repl or self.driver is None:
+            if not self._in_raw_repl or self._mpremote_session is None:
                 logger.error(f'{self._label} repl_write_file: not in raw REPL')
                 return False
-            return _write_file(self.driver, filename, data)
+            return self._mpremote_session.write_file(filename, data)
 
     def repl_exec(self, code, timeout=10):
         """Execute arbitrary code in raw REPL (must be in raw REPL).
@@ -1352,11 +1409,10 @@ class SerialBoard:
         Returns (stdout, stderr) as bytes tuple, or None on error.
         """
         with self._lock:
-            if not self._in_raw_repl or self.driver is None:
+            if not self._in_raw_repl or self._mpremote_session is None:
                 logger.error(f'{self._label} repl_exec: not in raw REPL')
                 return None
-            from drivers.raw_repl import raw_exec as _raw_exec
-            return _raw_exec(self.driver, code, timeout=timeout)
+            return self._mpremote_session.raw_exec(code, timeout=timeout)
 
     def verify_firmware_running(self, timeout=10):
         """Verify firmware is responding after raw REPL exit.

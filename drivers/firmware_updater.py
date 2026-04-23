@@ -36,6 +36,7 @@ Safety invariants:
   - All file writes use temp-then-rename for atomicity
 """
 
+import contextlib
 import hashlib
 import json
 import logging
@@ -51,6 +52,11 @@ from typing import Callable, Dict, List, Optional, Tuple
 import serial.tools.list_ports as list_ports
 
 from drivers.serialboard import SerialBoard
+# mpremote exceptions surface through SerialBoard's raw-REPL methods
+# (drivers/mpremote_transport.py — plan §2 Phase 2). Wrap them in
+# UpdateError with the calling stage per analysis §2 R7 so callers see
+# consistent structured errors regardless of the transport backing.
+from mpremote.transport import TransportError, TransportExecError
 
 logger = logging.getLogger(__name__)
 
@@ -185,6 +191,39 @@ def _report_progress(callback, stage, message, progress):
             callback(stage, message, progress)
         except Exception as e:
             logger.error(f"Progress callback error ({callback!r}): {e}")
+
+
+@contextlib.contextmanager
+def _wrap_mpremote_errors(stage: "UpdateStage", context: str = ""):
+    """Translate mpremote Transport exceptions to UpdateError.
+
+    Raw-REPL file I/O now routes through ``drivers.mpremote_transport``,
+    which surfaces ``TransportError`` (link / protocol) and
+    ``TransportExecError`` (device-side Python traceback). Neither maps
+    cleanly onto ``UpdateResult.error_stage``, so callers wrap the
+    raw-REPL block in this context manager. Per analysis §2 R7,
+    ``TransportExecError.error_output`` (the device traceback) is
+    preserved in the ``UpdateError.message`` for field debugging.
+    """
+    try:
+        yield
+    except TransportExecError as e:
+        device_tb = (e.error_output or "").strip() if isinstance(
+            e.error_output, str
+        ) else (e.error_output or b"").decode("utf-8", errors="replace").strip()
+        msg_prefix = f"Device error during {context}" if context else "Device error"
+        raise UpdateError(
+            f"{msg_prefix}: {device_tb or e}",
+            stage=stage,
+        ) from e
+    except TransportError as e:
+        msg_prefix = (
+            f"Transport error during {context}" if context else "Transport error"
+        )
+        raise UpdateError(
+            f"{msg_prefix}: {e}",
+            stage=stage,
+        ) from e
 
 
 def _find_serial_port(vid, pid):
@@ -622,29 +661,32 @@ def _backup_configs(board, board_config, backup_dir, callback=None):
         )
 
     try:
-        # Discover what files are actually on the board
-        board_files = board.repl_list_files()
-        logger.info(f"Files on {board_config.label} board: {board_files}")
+        with _wrap_mpremote_errors(
+            UpdateStage.BACKING_UP_CONFIG, context="config backup"
+        ):
+            # Discover what files are actually on the board
+            board_files = board.repl_list_files()
+            logger.info(f"Files on {board_config.label} board: {board_files}")
 
-        for filename in board_config.config_files:
-            if filename not in board_files:
-                logger.info(f"Config file {filename} not on board — skipping")
-                continue
+            for filename in board_config.config_files:
+                if filename not in board_files:
+                    logger.info(f"Config file {filename} not on board — skipping")
+                    continue
 
-            _report_progress(
-                callback, UpdateStage.BACKING_UP_CONFIG,
-                f"Reading {filename}...", 0.14)
+                _report_progress(
+                    callback, UpdateStage.BACKING_UP_CONFIG,
+                    f"Reading {filename}...", 0.14)
 
-            data = board.repl_read_file(filename, verify=True)
-            if data is None:
-                raise UpdateError(
-                    f"Failed to read config file: {filename}. "
-                    f"Update aborted — config backup must succeed before flashing.",
-                    stage=UpdateStage.BACKING_UP_CONFIG,
-                )
+                data = board.repl_read_file(filename, verify=True)
+                if data is None:
+                    raise UpdateError(
+                        f"Failed to read config file: {filename}. "
+                        f"Update aborted — config backup must succeed before flashing.",
+                        stage=UpdateStage.BACKING_UP_CONFIG,
+                    )
 
-            configs[filename] = data
-            logger.info(f"Backed up {filename}: {len(data)} bytes")
+                configs[filename] = data
+                logger.info(f"Backed up {filename}: {len(data)} bytes")
 
     finally:
         board.exit_raw_repl()
@@ -702,32 +744,35 @@ def _restore_configs(board, board_config, config_data, callback=None):
         )
 
     try:
-        # Check which files need restoring
-        board_files = board.repl_list_files()
+        with _wrap_mpremote_errors(
+            UpdateStage.RESTORING_CONFIG, context="config restore"
+        ):
+            # Check which files need restoring
+            board_files = board.repl_list_files()
 
-        for filename, data in config_data.items():
-            if filename in board_files:
-                # File exists — check if it matches backup
-                existing = board.repl_read_file(filename, verify=True)
-                if existing == data:
-                    logger.info(
-                        f"{filename} survived update — skipping restore")
-                    continue
-                else:
-                    logger.warning(
-                        f"{filename} exists but differs from backup — "
-                        f"restoring from backup")
+            for filename, data in config_data.items():
+                if filename in board_files:
+                    # File exists — check if it matches backup
+                    existing = board.repl_read_file(filename, verify=True)
+                    if existing == data:
+                        logger.info(
+                            f"{filename} survived update — skipping restore")
+                        continue
+                    else:
+                        logger.warning(
+                            f"{filename} exists but differs from backup — "
+                            f"restoring from backup")
 
-            _report_progress(
-                callback, UpdateStage.RESTORING_CONFIG,
-                f"Restoring {filename}...", 0.85)
+                _report_progress(
+                    callback, UpdateStage.RESTORING_CONFIG,
+                    f"Restoring {filename}...", 0.85)
 
-            if not board.repl_write_file(filename, data):
-                raise UpdateError(
-                    f"Failed to restore config: {filename}. "
-                    f"Backup available on local disk.",
-                    stage=UpdateStage.RESTORING_CONFIG,
-                )
+                if not board.repl_write_file(filename, data):
+                    raise UpdateError(
+                        f"Failed to restore config: {filename}. "
+                        f"Backup available on local disk.",
+                        stage=UpdateStage.RESTORING_CONFIG,
+                    )
             logger.info(f"Restored {filename} ({len(data)} bytes)")
 
     finally:
@@ -2055,31 +2100,34 @@ def deploy_firmware_file(
                 stage=UpdateStage.RESTORING_CONFIG,
             )
 
-        # Companion files first — see docstring note on ordering: if a
-        # companion write fails, the old main.py still boots fine because
-        # main.py hasn't been replaced yet.
-        for remote_name, data in extra_files_data:
-            if not board.repl_write_file(remote_name, data):
+        with _wrap_mpremote_errors(
+            UpdateStage.RESTORING_CONFIG, context="firmware deploy"
+        ):
+            # Companion files first — see docstring note on ordering: if a
+            # companion write fails, the old main.py still boots fine because
+            # main.py hasn't been replaced yet.
+            for remote_name, data in extra_files_data:
+                if not board.repl_write_file(remote_name, data):
+                    raise UpdateError(
+                        f"Failed to write companion {remote_name} "
+                        f"({len(data)} bytes)",
+                        stage=UpdateStage.RESTORING_CONFIG,
+                    )
+                logger.info(
+                    f"Deployed {remote_name} ({len(data)} bytes, "
+                    f"SHA256 verified)"
+                )
+
+            if not board.repl_write_file(firmware_remote_name, fw_data):
                 raise UpdateError(
-                    f"Failed to write companion {remote_name} "
-                    f"({len(data)} bytes)",
+                    f"Failed to write {firmware_remote_name} "
+                    f"({len(fw_data)} bytes)",
                     stage=UpdateStage.RESTORING_CONFIG,
                 )
             logger.info(
-                f"Deployed {remote_name} ({len(data)} bytes, "
+                f"Deployed {firmware_remote_name} ({len(fw_data)} bytes, "
                 f"SHA256 verified)"
             )
-
-        if not board.repl_write_file(firmware_remote_name, fw_data):
-            raise UpdateError(
-                f"Failed to write {firmware_remote_name} "
-                f"({len(fw_data)} bytes)",
-                stage=UpdateStage.RESTORING_CONFIG,
-            )
-        logger.info(
-            f"Deployed {firmware_remote_name} ({len(fw_data)} bytes, "
-            f"SHA256 verified)"
-        )
 
         # ---- Stage 5: Exit raw REPL and verify ----
         _report_progress(progress_callback, UpdateStage.VERIFYING_VERSION,

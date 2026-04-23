@@ -7,6 +7,8 @@ so no real hardware or pyserial port is needed.
 
 import hashlib
 import logging
+from unittest.mock import MagicMock, call
+
 import pytest
 
 from mpremote.transport import TransportError, TransportExecError
@@ -14,7 +16,11 @@ from mpremote.transport import TransportError, TransportExecError
 from drivers.mpremote_transport import (
     MpremoteSession,
     WRITE_VERIFY_RETRIES,
+    _CTRL_B,
+    _CTRL_C,
+    _CTRL_D,
     _capture_stdout_to_logger,
+    _send_exit_sequence,
 )
 from tests.fake_transport import FakeTransport
 
@@ -276,6 +282,72 @@ class TestStdoutShim:
 # ---------------------------------------------------------------------------
 # Ordering / call-log regressions
 # ---------------------------------------------------------------------------
+
+class TestExitSequence:
+    """Full post-exit soft-reset sequence used by _ManagedSession.
+
+    mpremote's Transport.exit_raw_repl is Ctrl-B only. raw_repl.py did
+    Ctrl-C → Ctrl-B → Ctrl-D + boot wait + drain so the board resumed
+    main.py after exit. _send_exit_sequence reproduces that. All
+    SerialBoard callers depend on this contract.
+    """
+
+    def _build_mock_serial(self, pending_bytes=b""):
+        """Mock pyserial Serial that reports `pending_bytes` as buffered."""
+        m = MagicMock()
+        m.in_waiting = len(pending_bytes)
+        # Each read(n) consumes from the buffer, then reports empty.
+        buf = [pending_bytes]
+
+        def _read(n):
+            data = buf[0][:n]
+            buf[0] = buf[0][n:]
+            m.in_waiting = len(buf[0])
+            return data
+
+        m.read.side_effect = _read
+        return m
+
+    def test_writes_ctrl_c_b_d_in_order(self, monkeypatch):
+        # No-op sleep so the test runs instantly.
+        monkeypatch.setattr(
+            "drivers.mpremote_transport.time.sleep", lambda *_: None
+        )
+        ser = self._build_mock_serial()
+        _send_exit_sequence(ser, boot_wait=0)
+        # Expected write sequence: Ctrl-C, Ctrl-B, Ctrl-D.
+        writes = [c.args[0] for c in ser.write.call_args_list]
+        assert writes == [_CTRL_C, _CTRL_B, _CTRL_D]
+
+    def test_drains_pending_bytes(self, monkeypatch):
+        monkeypatch.setattr(
+            "drivers.mpremote_transport.time.sleep", lambda *_: None
+        )
+        ser = self._build_mock_serial(b"boot noise from firmware\n")
+        _send_exit_sequence(ser, boot_wait=0)
+        # read() should have been called at least once to drain.
+        assert ser.read.called
+        # After draining, in_waiting is 0.
+        assert ser.in_waiting == 0
+
+    def test_tolerates_write_exception(self, monkeypatch):
+        monkeypatch.setattr(
+            "drivers.mpremote_transport.time.sleep", lambda *_: None
+        )
+        ser = MagicMock()
+        ser.write.side_effect = OSError("port disappeared")
+        # Must not raise — best-effort exit.
+        _send_exit_sequence(ser, boot_wait=0)
+
+    def test_tolerates_drain_exception(self, monkeypatch):
+        monkeypatch.setattr(
+            "drivers.mpremote_transport.time.sleep", lambda *_: None
+        )
+        ser = MagicMock()
+        ser.in_waiting = 1
+        ser.read.side_effect = OSError("read failure")
+        _send_exit_sequence(ser, boot_wait=0)
+
 
 class TestCallOrdering:
     def test_write_call_sequence(self):

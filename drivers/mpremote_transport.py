@@ -48,6 +48,7 @@ import hashlib
 import io
 import logging
 import pathlib
+import time
 from typing import Optional
 
 from mpremote.transport import Transport, TransportError, TransportExecError
@@ -62,6 +63,58 @@ logger = logging.getLogger(__name__)
 DEFAULT_BAUDRATE = 115200
 WRITE_VERIFY_RETRIES = 3       # Attempts to write + verify a file
 READ_VERIFY_RETRIES = 2        # Read file twice and compare (corruption check)
+
+# Raw-REPL control bytes (mirror raw_repl.py for the exit sequence below).
+_CTRL_B = b"\x02"              # Exit raw REPL to friendly REPL
+_CTRL_C = b"\x03"              # Interrupt any running command
+_CTRL_D = b"\x04"              # Soft reset → restart main.py
+
+# Post-exit timing matches raw_repl.py so SerialBoard callers see the same
+# board state (live firmware, drained buffer) after exit_raw_repl.
+_POST_CTRL_C_DELAY = 0.2
+_POST_CTRL_B_DELAY = 0.2
+_POST_CTRL_D_DELAY = 3.0       # Time for firmware to boot after soft reset
+_DRAIN_ITER_LIMIT = 100
+_DRAIN_POLL_DELAY = 0.05
+
+
+def _send_exit_sequence(serial, boot_wait: float = _POST_CTRL_D_DELAY) -> None:
+    """Complete raw-REPL exit matching raw_repl.py semantics.
+
+    mpremote's ``SerialTransport.exit_raw_repl`` only sends Ctrl-B — the
+    board then sits at the friendly REPL prompt and never resumes
+    ``main.py``. This helper sends the full Ctrl-C → Ctrl-B → Ctrl-D
+    sequence + a boot-wait + buffer drain, so SerialBoard callers see
+    a live firmware on the next command.
+
+    Takes a pyserial-like object (``write``, ``read``, ``in_waiting``)
+    rather than a Transport so it's testable with a mock and reusable
+    from either mpremote's serial attribute or (in a hypothetical
+    future) a different transport backing.
+    """
+    try:
+        serial.write(_CTRL_C)
+        time.sleep(_POST_CTRL_C_DELAY)
+        serial.write(_CTRL_B)
+        time.sleep(_POST_CTRL_B_DELAY)
+        serial.write(_CTRL_D)
+        time.sleep(boot_wait)
+    except Exception as e:
+        logger.warning("exit sequence write error: %s", e)
+        return
+
+    # Drain startup output so the caller's next read is clean.
+    try:
+        iters = 0
+        while iters < _DRAIN_ITER_LIMIT:
+            n = serial.in_waiting
+            if n <= 0:
+                break
+            serial.read(n)
+            time.sleep(_DRAIN_POLL_DELAY)
+            iters += 1
+    except Exception as e:
+        logger.debug("exit sequence drain: %s", e)
 
 
 # ---------------------------------------------------------------------------
@@ -354,13 +407,43 @@ class _ManagedSession(MpremoteSession):
     """MpremoteSession that owns its transport (closes on exit).
 
     Returned by :func:`create_session` for the common case where the
-    caller wants a single end-to-end call. Tests that inject a
-    FakeTransport use the base :class:`MpremoteSession` so they can
-    inspect the transport after exit.
+    caller wants a single end-to-end call. Also runs the full raw-REPL
+    exit sequence (Ctrl-C → Ctrl-B → Ctrl-D + boot wait + drain) so
+    the board resumes ``main.py`` after exit — matching the contract
+    ``raw_repl.py`` established and SerialBoard's callers depend on.
+
+    Tests inject FakeTransport into the base :class:`MpremoteSession`
+    and use its simpler flag-flip exit; the full serial sequence is
+    tested separately via :func:`_send_exit_sequence`.
     """
 
     def exit(self) -> None:
-        super().exit()
+        if not self._in_raw_repl:
+            return
+        # Run the full exit sequence on the underlying pyserial port
+        # before closing. Skip the base MpremoteSession.exit() to
+        # avoid a duplicate Ctrl-B write via transport.exit_raw_repl().
+        try:
+            _send_exit_sequence(self.transport.serial)
+        except AttributeError:
+            # Transport without a .serial attribute (shouldn't happen
+            # for real SerialTransport, but guard for robustness).
+            logger.warning(
+                "_ManagedSession.exit: transport has no .serial attribute; "
+                "falling back to Transport.exit_raw_repl"
+            )
+            try:
+                self.transport.exit_raw_repl()
+            except TransportError as e:
+                logger.warning("exit_raw_repl fallback: %s", e)
+        finally:
+            self._in_raw_repl = False
+            # Keep mpremote's own state flag in sync.
+            try:
+                self.transport.in_raw_repl = False
+            except Exception:
+                pass
+
         try:
             self.transport.close()
         except Exception as e:
