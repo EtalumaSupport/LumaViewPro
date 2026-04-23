@@ -155,6 +155,15 @@ class Lumascope():
         self._camera_listeners_lock = threading.Lock()
         self._camera_listeners = []
 
+        # Fan change listeners — push-based for the Microscope Settings tab
+        # tach-RPM readout. Each listener is called with the full fan-status
+        # dict ({'mode', 'state', 'fan_pct', 'tach_rpm', ...}) whenever a
+        # periodic poll fires (Stage 3) or a set_fan_* call lands. Fires
+        # from the poll thread, so listeners MUST schedule UI work via
+        # Clock.schedule_once.
+        self._fan_listeners_lock = threading.Lock()
+        self._fan_listeners = []
+
         # Lock for motion profile dict (built below, after motion driver init).
         self._move_profile_lock = threading.Lock()
 
@@ -2148,6 +2157,148 @@ class Lumascope():
 
         _api_log.warning(f'emergency_stop: motion={result["motion"]} led={result["led"]}')
         return result
+
+    # ------------------------------------------------------------------
+    # Fan control (API wrappers over MotorBoard fan methods)
+    # ------------------------------------------------------------------
+    #
+    # UI-gating policy (decided 2026-04-24 bench):
+    #   - Only show fan UI when running FW4.0 on motor. Legacy firmware:
+    #     hide completely — `fan_ui_kind()` returns None.
+    #   - Within FW4.0, branch UI by hardware: PWM slider iff PWM fan
+    #     present; HiLo radio otherwise.
+    #
+    # The `fan_ui_kind()` probe encodes this policy so the Stage 4
+    # Microscope Settings tab does one check and doesn't re-derive the
+    # truth table. Shipped EL-0940 boards use HiLo; future boards may
+    # use PWM. Capability probe handles both.
+
+    def fan_ui_kind(self):
+        """Return the fan UI kind to render, or None to hide completely.
+
+        Composes two facts: is the motor running FW4.0 (V4 protocol),
+        and what fan hardware is present?
+
+        Returns:
+            'PWM'  — FW4.0 motor with a PWM fan. Show the PWM slider
+                     + tach RPM readout.
+            'HILO' — FW4.0 motor with a HiLo fan. Show HI/LO/OFF radio.
+            None   — legacy firmware OR no motor OR no fan hardware.
+                     Hide the fan UI section entirely.
+        """
+        if not self.motion:
+            return None
+        use_v4 = getattr(self.motion, '_use_v4', None)
+        if not callable(use_v4) or not use_v4():
+            return None
+        status = self.get_fan_status()
+        if not status:
+            return None
+        mode = status.get('mode')
+        if mode == 'PWM':
+            return 'PWM'
+        if mode == 'HILO':
+            return 'HILO'
+        return None
+
+    def get_fan_status(self):
+        """Current fan mode + state + (PWM) tach RPM.
+
+        Thin wrapper over `MotorBoard.get_fan_status()`. Silent no-op
+        on missing motor (Rule 8): returns None.
+        """
+        if not self.motion:
+            return None
+        getter = getattr(self.motion, 'get_fan_status', None)
+        if getter is None:
+            return None
+        return getter()
+
+    def set_fan_hilo(self, state):
+        """Set HiLo fan to HI / LO / OFF. Fires fan listeners on success.
+
+        Returns True on firmware-confirmed success, False otherwise.
+        Silent no-op when motor absent.
+        """
+        if not self.motion:
+            return False
+        setter = getattr(self.motion, 'set_fan_hilo', None)
+        if setter is None:
+            return False
+        ok = setter(state)
+        if ok:
+            self._fire_fan_listeners()
+        return ok
+
+    def set_fan_pwm(self, pct):
+        """Set PWM fan duty cycle 0-100%. Fires fan listeners on success.
+
+        Returns True on firmware-confirmed success, False otherwise.
+        Silent no-op when motor absent.
+        """
+        if not self.motion:
+            return False
+        setter = getattr(self.motion, 'set_fan_pwm', None)
+        if setter is None:
+            return False
+        ok = setter(pct)
+        if ok:
+            self._fire_fan_listeners()
+        return ok
+
+    def fan_supports_pwm(self):
+        """True iff the motor board reports a PWM fan."""
+        if not self.motion:
+            return False
+        probe = getattr(self.motion, 'fan_supports_pwm', None)
+        if probe is None:
+            return False
+        return bool(probe())
+
+    def add_fan_listener(self, listener):
+        """Register a callback for fan-status changes.
+
+        The listener is called with the full fan-status dict
+        (`{'mode', 'state', 'fan_pct', 'tach_rpm', ...}`) whenever a
+        periodic poll fires (Stage 3) or a `set_fan_*` call lands.
+        Fires from the thread that triggered the change, so listeners
+        MUST schedule UI work via ``Clock.schedule_once``.
+
+        Silent no-op on `create_diagnostic` scopes (minimal init that
+        doesn't wire up listener infra).
+
+        Args:
+            listener: ``callable(status: dict)``
+        """
+        if not hasattr(self, '_fan_listeners_lock'):
+            return
+        with self._fan_listeners_lock:
+            self._fan_listeners.append(listener)
+
+    def remove_fan_listener(self, listener):
+        """Unregister a fan listener. No-op on diagnostic scopes."""
+        if not hasattr(self, '_fan_listeners_lock'):
+            return
+        with self._fan_listeners_lock:
+            try:
+                self._fan_listeners.remove(listener)
+            except ValueError:
+                pass
+
+    def _fire_fan_listeners(self):
+        """Notify all fan listeners of the current fan status."""
+        if not hasattr(self, '_fan_listeners_lock'):
+            return
+        status = self.get_fan_status()
+        if status is None:
+            return
+        with self._fan_listeners_lock:
+            listeners = list(self._fan_listeners)
+        for fn in listeners:
+            try:
+                fn(status)
+            except Exception as ex:
+                _api_log.debug(f'fan listener error: {ex}')
 
     def get_led_status(self):
         """Get the LED board status register."""
