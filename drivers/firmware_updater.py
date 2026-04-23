@@ -1592,6 +1592,7 @@ def deploy_firmware_bundle_fw40(
     backup_dir=None,
     skip_config_backup=False,
     skip_post_test=False,
+    soft_reset=False,
 ):
     """Deploy the FW4.0 3-file bundle via raw REPL as precompiled .mpy.
 
@@ -1657,6 +1658,7 @@ def deploy_firmware_bundle_fw40(
         skip_post_test=skip_post_test,
         firmware_remote_name='main.py',  # stub IS main.py
         compile_mpy=True,  # compile the extra_files below
+        soft_reset=soft_reset,
         extra_files=[
             (Path(framing_path), 'fw40_framing.mpy'),
             (Path(main_module_path), f'{module_stem}.mpy'),
@@ -1834,6 +1836,7 @@ def deploy_firmware_file(
     extra_files=None,
     firmware_remote_name='main.py',
     compile_mpy=False,
+    soft_reset=False,
 ):
     """Deploy main.py (+ optional companion files) to a board via raw REPL.
 
@@ -1881,6 +1884,18 @@ def deploy_firmware_file(
             remote name ends in .mpy (or makes sense as a .mpy import
             target). Required for LED-side FW4.0 on MP 1.19: main.py
             (~63KB) hits the on-device compile-OOM when sent as .py.
+        soft_reset: If True, enter raw REPL via soft reset (Ctrl-D). Use
+            this when the board has no WDT and no user code to preserve
+            across the raw-REPL entry — e.g. a freshly-flashed bare MP
+            runtime, or a board whose firmware has already been
+            verified to not rely on a running Timer. Default is False
+            for safety with v3.0.x LED firmware (pre-WDT-removal) where
+            soft reset kills the WDT-feed Timer; leave False for that
+            path. Bench-confirmed 2026-04-22: MP 1.27.0 bare runtime
+            with soft_reset=False produces "Expected OK or \\x04 marker,
+            got b'i'" write failures because Ctrl-C leaks into the
+            interactive REPL mid-protocol; soft_reset=True avoids the
+            race cleanly.
 
     Returns:
         UpdateResult with success/failure details.
@@ -2028,11 +2043,13 @@ def deploy_firmware_file(
         _report_progress(progress_callback, UpdateStage.RESTORING_CONFIG,
                          "Deploying firmware file...", 0.40)
 
-        # soft_reset=False: old firmware may have WDT (8388ms). Soft reset
-        # kills the Timer that feeds WDT, leaving only ~8s before reset.
-        # UART writes (57KB at 115200) take ~9s — not enough time.
-        # Without soft reset, the Timer keeps feeding WDT during the write.
-        if not board.enter_raw_repl(soft_reset=False):
+        # Default soft_reset=False protects the v3.0.x LED WDT-feed Timer
+        # during a 57KB @ 115200 UART write. Callers with a WDT-free
+        # board (bare MP runtime, v3.0.4+ with WDT removed, or a post-
+        # flash blank filesystem) pass soft_reset=True to avoid the
+        # Ctrl-C-into-interactive-REPL race that breaks raw-paste writes
+        # on MP 1.27.0 bare runtime (bench-confirmed 2026-04-22).
+        if not board.enter_raw_repl(soft_reset=soft_reset):
             raise UpdateError(
                 f"Failed to enter raw REPL for firmware deploy",
                 stage=UpdateStage.RESTORING_CONFIG,

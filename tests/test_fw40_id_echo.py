@@ -309,6 +309,15 @@ class TestEventNoId:
 
     @hardware
     def test_motor_hw_arrived_event_omits_id(self, motor_hw):
+        """Events fire asynchronously on the wire, but `SerialBoard` is
+        synchronous — it only reads during `exchange_json()` and stops
+        when the matching response arrives. So a sleep-only poll loop
+        leaves the `arrived` event sitting unread in the serial buffer.
+
+        Fix: interleave `STATUS` round-trips in the poll loop. Each
+        STATUS call triggers a port read which dispatches any unsolicited
+        event lines to `on_event` before returning the STATUS response.
+        This matches real LVP usage (motion monitor polls STATUS too)."""
         events = []
         motor_hw.on_event = events.append
         try:
@@ -320,21 +329,39 @@ class TestEventNoId:
             assert resp is not None
             assert resp.get('id') == 500
 
-            # Trigger a small move so an `arrived` event fires.
+            # Capture Z position so we can ask for a small RELATIVE move
+            # that's guaranteed to produce motion (POS_WRITE to a
+            # coincident absolute target emits no `arrived` event).
+            pos_resp = motor_hw.exchange_json(
+                {'cmd': 'POS_READ', 'axis': 'Z', 'id': 502}
+            )
+            assert pos_resp is not None and pos_resp.get('ok') is True
+            z_now = int(pos_resp.get('pos', pos_resp.get('position', 0)))
+            z_target = z_now + 500  # small forward delta — few mm at worst
+
+            # Kick the move.
             motor_hw.exchange_json(
-                {'cmd': 'POS_WRITE', 'axis': 'Z', 'target': 1000, 'id': 501}
+                {'cmd': 'POS_WRITE', 'axis': 'Z', 'target': z_target,
+                 'id': 503}
             )
 
-            # Poll for the event (~2s max). Real firmware emits within
-            # ~100ms of stop-at-target.
-            deadline = time.monotonic() + 2.0
+            # Drain-by-polling. Each STATUS round-trip reads the port
+            # and dispatches any pending events to `on_event` before
+            # returning. Real firmware emits `arrived` within ~100 ms
+            # of stop-at-target; 3 s is comfortable margin for a
+            # ~500-step Z move.
+            deadline = time.monotonic() + 3.0
             while time.monotonic() < deadline:
+                motor_hw.exchange_json({'cmd': 'STATUS'})
                 if any(e.get('event') == 'arrived' for e in events):
                     break
                 time.sleep(0.05)
 
             arrived = [e for e in events if e.get('event') == 'arrived']
-            assert arrived, 'no arrived event received within 2s'
+            assert arrived, (
+                f'no arrived event received within 3s; '
+                f'events seen={events!r}'
+            )
             for ev in arrived:
                 assert 'id' not in ev, f'event carried id: {ev!r}'
         finally:
