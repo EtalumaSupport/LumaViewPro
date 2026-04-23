@@ -262,6 +262,9 @@ class SimulatedLEDBoard:
             self._channel_states[ch] = 0
         self.exchange_command('LEDS_OFF')
 
+    # Fan control lives on MotorBoard, not LEDBoard — these shims
+    # exist on SimulatedMotorBoard only. LEDBoard has no fan API.
+
     def stop(self):
         """Simulated emergency-halt — mirrors LEDBoard.stop() shape.
 

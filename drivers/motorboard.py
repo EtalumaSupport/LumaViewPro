@@ -1365,6 +1365,156 @@ class MotorBoard(SerialBoard):
                 result[key] = m.group(1)
         return result
 
+    # ------------------------------------------------------------------
+    # Fan control (HiLo discrete or PWM + RPM tach readback)
+    # ------------------------------------------------------------------
+    #
+    # EL-0940 rev 01-04 boards ship with a HiLo fan (BD00C0AWFP driver
+    # IC driven via FAN_HILOW GPIO); rev 05+ may ship with a PWM fan
+    # reading tach on FANTACH. Firmware auto-detects which hardware is
+    # present on both v3.0.x and FW4.0. The driver surfaces a
+    # capability probe (`fan_supports_pwm`) so callers can branch UI
+    # without hardcoding board rev.
+    #
+    # Normalized return shape for `get_fan_status`:
+    #   {'mode': 'HILO' | 'PWM' | 'NONE',
+    #    'state': 'HI' | 'LO' | 'OFF' | None,   # HiLo only
+    #    'fan_pct': int | None,                  # PWM only (0-100)
+    #    'tach_rpm': int | None,                 # PWM only
+    #    'raw': <firmware response, for debugging>}
+
+    def get_fan_status(self):
+        """Read fan mode + state + (PWM only) tach RPM.
+
+        V4: `exchange_json({'cmd': 'FAN'})` — firmware returns
+        mode/state/pct/tach_rpm in one shot.
+
+        LEGACY: fan info lives in FULLINFO (`FanCntl: HI/LO Speed:X`
+        or `FanCntl: PWM Speed: N% Tach: M RPM`). Parse from there,
+        prefer cached fullinfo if already populated (avoids an extra
+        serial round-trip every poll).
+
+        Returns dict per the module docstring above, or None on
+        driver error.
+        """
+        if self._use_v4():
+            resp = self.exchange_json({'cmd': 'FAN'})
+            if resp is None or resp.get('ok') is not True:
+                return None
+            mode = resp.get('fan') or resp.get('mode') or 'NONE'
+            out = {
+                'mode': str(mode).upper(),
+                'state': None,
+                'fan_pct': resp.get('fan_pct'),
+                'tach_rpm': resp.get('tach_rpm'),
+                'raw': resp,
+            }
+            # HiLo state lives in `fan` on FW4.0 when the board has a
+            # HiLo controller (fan_hilo.state() returns 'HI'|'LO'|'OFF').
+            if out['mode'] in ('HI', 'LO', 'OFF'):
+                out['state'] = out['mode']
+                out['mode'] = 'HILO'
+            return out
+
+        # LEGACY: parse FULLINFO. Prefer cached; only re-fetch if absent.
+        raw = None
+        with self._state_lock:
+            cached = self._fullinfo
+        if cached is not None:
+            raw = cached.get('_raw')
+        if not raw:
+            raw = self.exchange_command('FULLINFO', timeout=5) or ''
+        return self._parse_legacy_fan_fullinfo(raw)
+
+    @staticmethod
+    def _parse_legacy_fan_fullinfo(raw):
+        """Parse a v3.0.x FULLINFO response for fan info.
+
+        Firmware emits either:
+          `FanCntl: HI/LO   Speed:HI`   (discrete fan)
+          `FanCntl: PWM  Speed: 50% Tach: 2345 RPM`  (PWM fan)
+        Neither substring present → fan hardware not configured.
+        """
+        import re as _re
+        out = {'mode': 'NONE', 'state': None,
+               'fan_pct': None, 'tach_rpm': None, 'raw': raw}
+        if not raw:
+            return out
+        m_hilo = _re.search(r'FanCntl:\s*HI/LO\s+Speed:\s*(HI|LO|OFF)',
+                            raw, _re.IGNORECASE)
+        if m_hilo:
+            out['mode'] = 'HILO'
+            out['state'] = m_hilo.group(1).upper()
+            return out
+        m_pwm = _re.search(
+            r'FanCntl:\s*PWM\s+Speed:\s*(\d+)%\s+Tach:\s*(\d+)\s*RPM',
+            raw, _re.IGNORECASE)
+        if m_pwm:
+            out['mode'] = 'PWM'
+            out['fan_pct'] = int(m_pwm.group(1))
+            out['tach_rpm'] = int(m_pwm.group(2))
+        return out
+
+    def fan_supports_pwm(self):
+        """True iff the board has a PWM fan (with tach RPM readback).
+
+        Uses `get_fan_status()['mode']`. Result is not cached — the
+        caller should cache if polled frequently. Capability is
+        hardware-fixed per board, so one call at init is usually
+        enough.
+        """
+        status = self.get_fan_status()
+        if not status:
+            return False
+        return status.get('mode') == 'PWM'
+
+    def set_fan_hilo(self, state):
+        """Set HiLo fan to HI / LO / OFF.
+
+        Silent no-op (returns False) if the board doesn't have a HiLo
+        fan. Caller can check `get_fan_status()['mode']` first.
+
+        Returns True on firmware-confirmed success, False otherwise.
+        """
+        state_u = str(state).upper()
+        if state_u not in ('HI', 'LO', 'OFF'):
+            raise ValueError(f'state must be HI/LO/OFF, got {state!r}')
+
+        if self._use_v4():
+            resp = self.exchange_json({'cmd': 'FAN', 'mode': state_u})
+            return bool(resp and resp.get('ok') is True)
+
+        # LEGACY: FAN:HI / FAN:LO / FAN:OFF
+        resp = self.exchange_command(f'FAN:{state_u}', timeout=5)
+        if resp is None:
+            return False
+        return 'ERROR' not in str(resp).upper()
+
+    def set_fan_pwm(self, pct):
+        """Set PWM fan duty cycle 0-100%.
+
+        Silent no-op (returns False) if the board doesn't have a PWM
+        fan. Caller can check `fan_supports_pwm()` first.
+
+        Returns True on firmware-confirmed success, False otherwise.
+        """
+        try:
+            pct = int(pct)
+        except (TypeError, ValueError):
+            raise ValueError(f'pct must be int 0-100, got {pct!r}')
+        if not (0 <= pct <= 100):
+            raise ValueError(f'pct must be 0-100, got {pct}')
+
+        if self._use_v4():
+            resp = self.exchange_json({'cmd': 'FAN', 'mode': pct})
+            return bool(resp and resp.get('ok') is True)
+
+        # LEGACY: FANPWM:<pct>
+        resp = self.exchange_command(f'FANPWM:{pct}', timeout=5)
+        if resp is None:
+            return False
+        return 'ERROR' not in str(resp).upper()
+
     def wait_for_position(self, axis, timeout=5.0):
         """Wait until axis reaches target position.
 

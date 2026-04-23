@@ -482,6 +482,37 @@ class SimulatedMotorBoard:
             return False
         return 'successful' in resp.lower() or 'complete' in resp.lower()
 
+    # ------------------------------------------------------------------
+    # Fan control (simulates a HiLo-type fan; no PWM/tach in sim)
+    # ------------------------------------------------------------------
+    def get_fan_status(self):
+        return {
+            'mode': 'HILO',
+            'state': getattr(self, '_sim_fan_state', 'OFF'),
+            'fan_pct': None,
+            'tach_rpm': None,
+            'raw': None,
+        }
+
+    def fan_supports_pwm(self):
+        return False
+
+    def set_fan_hilo(self, state):
+        state_u = str(state).upper()
+        if state_u not in ('HI', 'LO', 'OFF'):
+            raise ValueError(f'state must be HI/LO/OFF, got {state!r}')
+        self._sim_fan_state = state_u
+        return True
+
+    def set_fan_pwm(self, pct):
+        try:
+            pct = int(pct)
+        except (TypeError, ValueError):
+            raise ValueError(f'pct must be int 0-100, got {pct!r}')
+        if not (0 <= pct <= 100):
+            raise ValueError(f'pct must be 0-100, got {pct}')
+        return False  # sim has no PWM fan
+
     def stop(self):
         """Simulated emergency-halt — mirrors MotorBoard.stop() shape."""
         self.exchange_command('STOP')
