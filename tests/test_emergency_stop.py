@@ -266,3 +266,101 @@ class TestLumascopeEmergencyStop:
         assert result['motion']['stopped'] is True
         assert result['led']['stopped'] is True
         assert result['led'] != 'error'
+
+
+# ---------------------------------------------------------------------------
+# Rule 14 — user-facing notifications on safety-critical failure paths
+# ---------------------------------------------------------------------------
+
+class TestEmergencyStopNotifications:
+    """AUDIT_RULE_14_NOTIFY A3 (2026-04-24): emergency_stop must surface a
+    user-facing critical notification on every path that returns 'error'
+    for motor or LED. Log-only invisibility was the highest-severity Rule
+    14 class — users need to know the stage or LEDs may still be active.
+    """
+
+    def _make_scope(self):
+        import threading
+        from modules.lumascope_api import Lumascope
+        s = Lumascope.__new__(Lumascope)
+        s.motion = MagicMock()
+        s.led = MagicMock()
+        s._led_owner_lock = threading.Lock()
+        s._led_listeners_lock = threading.Lock()
+        s._led_owners = {}
+        s._led_state = {}
+        s.frame_validity = MagicMock()
+        s._fire_led_listeners = MagicMock()
+        s.led.available_colors = MagicMock(return_value=['Blue'])
+        return s
+
+    def test_motion_exception_fires_critical_notification(self):
+        s = self._make_scope()
+        s.motion.stop = MagicMock(side_effect=RuntimeError('motor wedged'))
+        s.led.stop = MagicMock(return_value={'ok': True, 'stopped': True,
+                                             'response': None, 'note': None})
+        with patch('modules.lumascope_api.notifications') as mock_notif:
+            s.emergency_stop()
+            assert mock_notif.critical.called
+            call_args = [c for c in mock_notif.critical.call_args_list
+                         if 'motion' in c.args[1].lower()]
+            assert len(call_args) == 1, "expected one motion-safety notification"
+            assert call_args[0].args[0] == "Safety"
+            assert 'motor wedged' in call_args[0].args[2]
+
+    def test_led_exception_fires_critical_notification(self):
+        s = self._make_scope()
+        s.motion.stop = MagicMock(return_value={'ok': True, 'stopped': True,
+                                                'positions': None, 'response': None})
+        s.led.stop = MagicMock(side_effect=RuntimeError('led fried'))
+        with patch('modules.lumascope_api.notifications') as mock_notif:
+            s.emergency_stop()
+            assert mock_notif.critical.called
+            call_args = [c for c in mock_notif.critical.call_args_list
+                         if 'LED' in c.args[1]]
+            assert len(call_args) == 1, "expected one LED-safety notification"
+            assert call_args[0].args[0] == "Safety"
+            assert 'led fried' in call_args[0].args[2]
+
+    def test_motion_falsy_result_fires_critical_notification(self):
+        """motion.stop() returning None or falsy dict → safety-unconfirmed.
+        Firmware silence on a STOP is indistinguishable from a hung motor;
+        user needs to know to verify by eye / power-cycle.
+        """
+        s = self._make_scope()
+        s.motion.stop = MagicMock(return_value=None)
+        s.led.stop = MagicMock(return_value={'ok': True, 'stopped': True,
+                                             'response': None, 'note': None})
+        with patch('modules.lumascope_api.notifications') as mock_notif:
+            result = s.emergency_stop()
+            assert result['motion'] == 'error'
+            call_args = [c for c in mock_notif.critical.call_args_list
+                         if 'motion' in c.args[1].lower()
+                         and 'unconfirmed' in c.args[1].lower()]
+            assert len(call_args) == 1, "expected motion-unconfirmed notification"
+            assert call_args[0].args[0] == "Safety"
+
+    def test_led_falsy_result_fires_critical_notification(self):
+        s = self._make_scope()
+        s.motion.stop = MagicMock(return_value={'ok': True, 'stopped': True,
+                                                'positions': None, 'response': None})
+        s.led.stop = MagicMock(return_value=None)
+        with patch('modules.lumascope_api.notifications') as mock_notif:
+            result = s.emergency_stop()
+            assert result['led'] == 'error'
+            call_args = [c for c in mock_notif.critical.call_args_list
+                         if 'LED' in c.args[1] and 'Unconfirmed' in c.args[1]]
+            assert len(call_args) == 1, "expected LED-unconfirmed notification"
+            assert call_args[0].args[0] == "Safety"
+
+    def test_no_notification_on_success(self):
+        """Sanity: the happy path must not fire a Safety notification."""
+        s = self._make_scope()
+        s.motion.stop = MagicMock(return_value={'ok': True, 'stopped': True,
+                                                'positions': {'X': 0}, 'response': None})
+        s.led.stop = MagicMock(return_value={'ok': True, 'stopped': True,
+                                             'response': None, 'note': None})
+        with patch('modules.lumascope_api.notifications') as mock_notif:
+            s.emergency_stop()
+            assert not mock_notif.critical.called, \
+                "notifications.critical should not fire on successful stop"

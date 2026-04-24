@@ -2403,9 +2403,25 @@ class Lumascope():
 
         if self.motion is not None:
             try:
-                result['motion'] = self.motion.stop() or 'error'
+                stop_result = self.motion.stop()
+                if stop_result:
+                    result['motion'] = stop_result
+                else:
+                    _api_log.error(
+                        f'emergency_stop: motion.stop returned falsy: '
+                        f'{stop_result!r}')
+                    notifications.critical(
+                        "Safety", "Emergency Stop Unconfirmed (motion)",
+                        "Motor stop command returned no confirmation. "
+                        "Verify the stage has halted; power-cycle if "
+                        "motion continues.")
+                    result['motion'] = 'error'
             except Exception as e:
                 _api_log.error(f'emergency_stop: motion.stop raised: {e}')
+                notifications.critical(
+                    "Safety", "Emergency Stop Failed (motion)",
+                    f"Motor stop command failed: {e}. "
+                    f"Power-cycle the scope if motion continues.")
                 result['motion'] = 'error'
 
         if self.led is not None:
@@ -2416,9 +2432,25 @@ class Lumascope():
             # absent) can't contaminate the stop-action status.
             try:
                 led_result = self.led.stop()
-                result['led'] = led_result if led_result else 'error'
+                if led_result:
+                    result['led'] = led_result
+                else:
+                    _api_log.error(
+                        f'emergency_stop: led.stop returned falsy: '
+                        f'{led_result!r}')
+                    notifications.critical(
+                        "Safety", "Emergency Stop Unconfirmed (LED)",
+                        "LED stop command returned no confirmation. "
+                        "Manually disconnect LED power if illumination "
+                        "continues.")
+                    result['led'] = 'error'
             except Exception as e:
                 _api_log.error(f'emergency_stop: led.stop raised: {e}')
+                notifications.critical(
+                    "Safety", "Emergency Stop Failed (LED)",
+                    f"LED stop command failed: {e}. "
+                    f"Manually disconnect LED power if illumination "
+                    f"continues.")
                 result['led'] = 'error'
 
             # Step 2: API-side state + listener reflection. Best-effort —
