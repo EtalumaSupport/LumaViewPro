@@ -86,8 +86,18 @@ def fake_fx2_conn(monkeypatch):
 # Registry wiring
 # ---------------------------------------------------------------------------
 
+@pytest.mark.skipif(
+    not fx2driver._FX2_AVAILABLE,
+    reason="FX2 prerequisites (pyusb / libusb1) not installed — drivers "
+           "intentionally not registered (issue #635)",
+)
 class TestRegistryWiring:
-    """Verify FX2 is registered in both camera and LED registries."""
+    """Verify FX2 is registered in both camera and LED registries.
+
+    Skipped on systems missing pyusb (or libusb1 on macOS/Linux): per #635
+    the FX2 drivers refuse to register on installs where they cannot work,
+    so the registration assertion is meaningless there.
+    """
 
     def test_fx2_in_camera_registry(self):
         assert 'fx2' in camera_registry.registered_names()
@@ -102,6 +112,51 @@ class TestRegistryWiring:
     def test_led_entry_is_fx2_led_controller_class(self):
         cls = led_registry.get('fx2')
         assert cls is fx2driver.FX2LEDController
+
+
+class TestRegistryGatedOnPrereqs:
+    """Issue #635 regression: FX2 drivers must NOT register when pyusb/libusb1
+    are unavailable. Otherwise the registry attempts instantiation, raises
+    ImportError, and dumps a confusing traceback on every no-LVC install."""
+
+    def test_fx2_available_flag_matches_imports(self):
+        # _FX2_AVAILABLE is the gate; it must follow _HAS_USB and (win or _HAS_USB1).
+        import sys as _sys
+        expected = fx2driver._HAS_USB and (
+            _sys.platform == 'win32' or fx2driver._HAS_USB1
+        )
+        assert fx2driver._FX2_AVAILABLE == expected
+
+    def test_register_helper_returns_identity_when_unavailable(self, monkeypatch):
+        # Force the unavailable path and verify the helper is a no-op.
+        monkeypatch.setattr(fx2driver, '_FX2_AVAILABLE', False)
+        sentinel_registry = MagicMock()
+
+        decorator = fx2driver._register_if_fx2_available(
+            sentinel_registry, 'fx2', priority=80
+        )
+
+        class Dummy:
+            pass
+
+        result = decorator(Dummy)
+        assert result is Dummy
+        sentinel_registry.register.assert_not_called()
+
+    def test_register_helper_uses_real_registry_when_available(self, monkeypatch):
+        monkeypatch.setattr(fx2driver, '_FX2_AVAILABLE', True)
+        sentinel_registry = MagicMock()
+        sentinel_registry.register.return_value = lambda cls: cls
+
+        decorator = fx2driver._register_if_fx2_available(
+            sentinel_registry, 'fx2', priority=80
+        )
+
+        class Dummy:
+            pass
+
+        decorator(Dummy)
+        sentinel_registry.register.assert_called_once_with('fx2', priority=80)
 
 
 # ---------------------------------------------------------------------------

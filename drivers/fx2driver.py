@@ -97,6 +97,41 @@ except ImportError:
     _HAS_USB1 = False
 
 
+# FX2 (LumaviewClassic) drivers require pyusb on every platform, plus
+# libusb1 on macOS / Linux for ISO streaming. On systems missing those,
+# FX2 hardware fundamentally cannot be reached — registering the drivers
+# anyway causes the registry to attempt instantiation on every auto-detect
+# run, raise ImportError, and dump a confusing traceback (issue #635) on
+# systems that simply don't have LVC hardware. Skip-with-INFO-log is the
+# right classification: this driver class isn't applicable to this install.
+_FX2_AVAILABLE = _HAS_USB and (sys.platform == 'win32' or _HAS_USB1)
+if not _FX2_AVAILABLE:
+    if not _HAS_USB:
+        logger.info(
+            "[FX2 Driver] pyusb not installed — FX2 (LumaviewClassic) "
+            "drivers will not be registered. Install pyusb to enable "
+            "LVC hardware support: pip install pyusb"
+        )
+    elif not _HAS_USB1:
+        logger.info(
+            "[FX2 Driver] libusb1 not installed — FX2 (LumaviewClassic) "
+            "drivers will not be registered on macOS/Linux. Install "
+            "libusb1 (pip install libusb1) plus the native libusb to "
+            "enable LVC hardware support."
+        )
+
+
+def _register_if_fx2_available(registry, name, **kwargs):
+    """Register the decorated class only if FX2 prerequisites are met.
+
+    No-op (returns identity decorator) when pyusb/libusb1 unavailable so
+    the registry never sees FX2 as a candidate on non-LVC installs.
+    """
+    if _FX2_AVAILABLE:
+        return registry.register(name, **kwargs)
+    return lambda cls: cls
+
+
 # ---------------------------------------------------------------------------
 # USB constants
 # ---------------------------------------------------------------------------
@@ -850,7 +885,7 @@ class _FX2ImageHandler(ImageHandlerBase):
 # FX2Camera — Camera ABC implementation
 # ---------------------------------------------------------------------------
 
-@camera_registry.register('fx2', priority=80)
+@_register_if_fx2_available(camera_registry, 'fx2', priority=80)
 class FX2Camera(Camera):
     """Camera driver for Lumascope Classic (MT9P031 via FX2 USB).
 
@@ -1737,7 +1772,7 @@ class FX2Camera(Camera):
 # FX2LEDController — thin command translator, no state
 # ---------------------------------------------------------------------------
 
-@led_registry.register('fx2', priority=80)
+@_register_if_fx2_available(led_registry, 'fx2', priority=80)
 class FX2LEDController:
     """LED controller for Lumascope Classic via FX2 I2C at address 0x2A.
 
