@@ -91,6 +91,17 @@ class MicroscopeSettings(BoxLayout):
         self._frame_size_applier = _CoalescingApplier(
             name='frame_size')
 
+        # Fan UI (Stage 4). Current resolved kind ('PWM'|'HILO'|None) per
+        # fan_ui_kind(); populated by _update_fan_ui_visibility.
+        self._fan_ui_kind = None
+        # True while the user is actively dragging the PWM slider — so
+        # a firmware-status update doesn't overwrite the slider mid-drag.
+        self._fan_pwm_user_active = False
+        # set True exactly once after the fan listener is registered,
+        # so a scope reconnect (which calls _update_fan_ui_visibility
+        # again) doesn't stack duplicate listeners.
+        self._fan_listener_registered = False
+
         scopes_path = resolve_data_file("scopes.json")
         try:
             with open(scopes_path, "r") as read_file:
@@ -616,6 +627,176 @@ class MicroscopeSettings(BoxLayout):
         settings['separate_folder_per_channel'] = self._seperate_folder_per_channel
 
 
+    # ------------------------------------------------------------------
+    # Fan UI (Stage 4) — section visibility + widget wiring
+    # ------------------------------------------------------------------
+    # The fan UI is gated by scope.fan_ui_kind() which encodes the
+    # Stage 2 UI policy (legacy firmware hidden, FW4.0+PWM slider,
+    # FW4.0+HiLo radio). _update_fan_ui_visibility is called from
+    # set_ui_features_for_scope so a scope change re-resolves the kind.
+    # Periodic polling is gated separately in MotionSettings.accordion_collapse
+    # so the fan is polled only while the Microscope Settings tab is open.
+
+    _FAN_ROW_HEIGHT = '30dp'
+
+    def _update_fan_ui_visibility(self) -> None:
+        """Resolve fan_ui_kind() and show the matching controls.
+
+        Called from set_ui_features_for_scope() (load_settings + scope
+        change) and on scope reconnect. Safe to call many times.
+        """
+        try:
+            scope = _app_ctx.ctx.lumaview.scope
+        except AttributeError:
+            return
+
+        kind = None
+        try:
+            probe = getattr(scope, 'fan_ui_kind', None)
+            if callable(probe):
+                kind = probe()
+        except Exception as ex:
+            logger.debug(f'[LVP Main  ] fan_ui_kind probe failed: {ex}')
+            kind = None
+        self._fan_ui_kind = kind
+
+        section = self.ids.get('fan_section_id')
+        heading = self.ids.get('fan_section_heading_id')
+        hilo_row = self.ids.get('fan_hilo_row_id')
+        pwm_row = self.ids.get('fan_pwm_row_id')
+        rpm_row = self.ids.get('fan_rpm_row_id')
+        if section is None:
+            # kv not yet loaded (partial init); try again one tick later.
+            Clock.schedule_once(lambda _dt: self._update_fan_ui_visibility(), 0)
+            return
+
+        def _set_visible(widget, visible, height=self._FAN_ROW_HEIGHT):
+            if widget is None:
+                return
+            widget.opacity = 1 if visible else 0
+            widget.height = height if visible else '0dp'
+
+        if kind is None:
+            # Legacy firmware / no fan hardware — hide entire section.
+            _set_visible(section, False, height='0dp')
+            _set_visible(heading, False, height='0dp')
+            _set_visible(hilo_row, False)
+            _set_visible(pwm_row, False)
+            _set_visible(rpm_row, False)
+            return
+
+        # Section + heading visible for any supported kind.
+        _set_visible(heading, True, height='25dp')
+        _set_visible(hilo_row, kind == 'HILO')
+        _set_visible(pwm_row, kind == 'PWM')
+        # PWM fans expose tach; HILO fans on shipped EL-0940 boards
+        # don't have a tach line. Show the RPM row for PWM only.
+        _set_visible(rpm_row, kind == 'PWM')
+
+        # Resize the wrapper to the sum of visible children.
+        total = 25  # heading
+        if kind == 'HILO':
+            total += 30
+        if kind == 'PWM':
+            total += 30 + 30  # slider + rpm
+        _set_visible(section, True, height=f'{total + 5}dp')
+
+        # Pre-populate controls + register listener for push updates.
+        self._prime_fan_widgets_from_scope()
+        self._register_fan_listener_if_needed()
+
+    def _register_fan_listener_if_needed(self) -> None:
+        if self._fan_listener_registered:
+            return
+        try:
+            scope = _app_ctx.ctx.lumaview.scope
+            add = getattr(scope, 'add_fan_listener', None)
+            if callable(add):
+                add(self._on_fan_status)
+                self._fan_listener_registered = True
+        except Exception as ex:
+            logger.debug(f'[LVP Main  ] add_fan_listener failed: {ex}')
+
+    def _prime_fan_widgets_from_scope(self) -> None:
+        """Fill in controls with current firmware-reported state so the
+        UI is correct the moment the tab becomes visible (before the
+        first poll tick)."""
+        try:
+            scope = _app_ctx.ctx.lumaview.scope
+            status = scope.get_fan_status() if hasattr(scope, 'get_fan_status') else None
+        except Exception:
+            status = None
+        if status:
+            self._apply_fan_status_to_widgets(status)
+
+    def _on_fan_status(self, status) -> None:
+        """Fan listener callback. Fires from the poll thread — marshal
+        to the main thread before touching Kivy widgets."""
+        Clock.schedule_once(
+            lambda _dt: self._apply_fan_status_to_widgets(status), 0)
+
+    def _apply_fan_status_to_widgets(self, status) -> None:
+        if not status:
+            return
+        mode = status.get('mode')
+        state = status.get('state')
+        pct = status.get('fan_pct')
+        rpm_avg = status.get('tach_rpm_avg')
+        rpm_raw = status.get('tach_rpm')
+
+        # HILO: reflect firmware state in the radio.
+        if mode == 'HILO':
+            for btn_id, match in (('fan_hi_btn_id', 'HI'),
+                                  ('fan_lo_btn_id', 'LO'),
+                                  ('fan_off_btn_id', 'OFF')):
+                btn = self.ids.get(btn_id)
+                if btn is None:
+                    continue
+                btn.state = 'down' if state == match else 'normal'
+
+        # PWM: reflect firmware pct unless the user is actively dragging.
+        if mode == 'PWM' and not self._fan_pwm_user_active:
+            slider = self.ids.get('fan_pwm_slider_id')
+            if slider is not None and pct is not None:
+                try:
+                    slider.value = float(pct)
+                except Exception:
+                    pass
+
+        # RPM label: prefer the smoothed average, fall back to raw.
+        rpm_label = self.ids.get('fan_rpm_label_id')
+        if rpm_label is not None:
+            if rpm_avg is not None:
+                rpm_label.text = f'{int(round(rpm_avg))}'
+            elif isinstance(rpm_raw, (int, float)) and rpm_raw >= 0:
+                rpm_label.text = f'{int(rpm_raw)}'
+            else:
+                rpm_label.text = '—'
+
+    def set_fan_hilo_from_ui(self, state: str) -> None:
+        """HI/LO/OFF button handler — writes through to the motor board."""
+        try:
+            scope = _app_ctx.ctx.lumaview.scope
+            scope.set_fan_hilo(state)
+        except Exception as ex:
+            logger.warning(f'[LVP Main  ] set_fan_hilo({state}) failed: {ex}')
+
+    def set_fan_pwm_drag(self, active: bool) -> None:
+        """Called from the PWM slider's on_touch_down to suppress
+        firmware-driven slider updates for the duration of the drag.
+        Cleared implicitly when the next set_fan_pwm_from_ui arrives."""
+        self._fan_pwm_user_active = bool(active)
+
+    def set_fan_pwm_from_ui(self, value) -> None:
+        """PWM slider release handler — writes through to the motor board."""
+        self._fan_pwm_user_active = False
+        try:
+            pct = max(0, min(100, int(value)))
+            scope = _app_ctx.ctx.lumaview.scope
+            scope.set_fan_pwm(pct)
+        except Exception as ex:
+            logger.warning(f'[LVP Main  ] set_fan_pwm({value}) failed: {ex}')
+
     def update_bullseye_state(self):
         gui_logger.toggle('BULLSEYE', self.ids['enable_bullseye_btn_id'].state == 'down')
         if self.ids['enable_bullseye_btn_id'].state == 'down':
@@ -880,6 +1061,10 @@ class MicroscopeSettings(BoxLayout):
             ctx.motion_settings.ids['post_processing_id'].hide_stitch()
 
         ctx.stage.set_motion_capability(enabled=selected_scope_config['XYStage'])
+
+        # Fan UI kind depends on firmware version + fan hardware — resolved
+        # via scope.fan_ui_kind(). Hidden when returns None (legacy fw, no fan).
+        microscope_settings._update_fan_ui_visibility()
 
 
     def load_objectives(self):

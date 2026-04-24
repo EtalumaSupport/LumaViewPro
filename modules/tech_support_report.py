@@ -135,6 +135,24 @@ def _get_lvp_logs_dir():
     return logs_dir if logs_dir.is_dir() else None
 
 
+def _get_lvp_appdata_logs_dir():
+    """Return the installed-LVP appdata logs directory, or None.
+
+    Matches lvp_logger.py:84 — {documents}/LumaViewPro {version}/logs/
+    LVP_Log/ on Windows+installed builds, or source_root/logs/LVP_Log/
+    when running from source. FW4.0 field-upgrade JSONL (§13.X) lives
+    here and MUST be bundled into the tech-support ZIP so support can
+    diagnose customer upgrade failures — the source-tree logs/ path in
+    _get_lvp_logs_dir() is dev-install only.
+    """
+    try:
+        import lvp_logger
+        p = pathlib.Path(str(lvp_logger.log_dir))
+        return p if p.is_dir() else None
+    except Exception:
+        return None
+
+
 def _get_capture_dir():
     """Return the capture output directory (from settings.json or defaults)."""
     data_dir = _get_lvp_data_dir()
@@ -900,36 +918,40 @@ class FirmwareDiagnostics:
 
     # -- New hardware diagnostics --
 
-    def measure_serial_latency(self, board, command='INFO', iterations=SERIAL_LATENCY_ITERATIONS):
-        """Send a command N times and measure round-trip latency.
+    def measure_serial_latency(self, board, named_callables=None,
+                               iterations=SERIAL_LATENCY_ITERATIONS,
+                               warmup=3):
+        """Measure round-trip latency of one or more driver methods.
 
-        Returns dict with min/max/mean/std_dev in milliseconds, plus
-        the raw timings list.
+        Uses the shared latency primitive in `drivers/serial_latency.py`
+        so percentile math stays consistent with the connect-time
+        fingerprint and the `firmware_tools bench` CLI. Preferred form
+        is driver-method callables (version-aware via the driver
+        dispatcher); defaults to `board._connect_bench_callables()`
+        which every SerialBoard subclass provides.
+
+        Args:
+            board: SerialBoard subclass instance, or None.
+            named_callables: Optional list of `(name, callable)` tuples
+                (see `drivers/serial_latency.measure_callable_latencies`).
+                When omitted, uses `board._connect_bench_callables()`.
+            iterations, warmup: Iteration counts per callable.
+
+        Returns:
+            `{name: summary_dict}` per method (see `serial_latency._summarize`
+            for the dict shape), or `{'error': '...'}` on no board / no callables.
         """
         if board is None:
             return {'error': 'Board not connected'}
-        timings = []
-        errors = 0
-        for _ in range(iterations):
-            t0 = time.monotonic()
-            resp = self._cmd(board, command)
-            t1 = time.monotonic()
-            if resp and 'Error' not in resp and resp != 'None':
-                timings.append((t1 - t0) * 1000)  # ms
-            else:
-                errors += 1
-        if not timings:
-            return {'error': f'All {iterations} calls failed', 'errors': errors}
-        import statistics
-        return {
-            'iterations': iterations,
-            'errors': errors,
-            'min_ms': round(min(timings), 2),
-            'max_ms': round(max(timings), 2),
-            'mean_ms': round(statistics.mean(timings), 2),
-            'std_dev_ms': round(statistics.stdev(timings), 2) if len(timings) > 1 else 0,
-            'timings_ms': [round(t, 2) for t in timings],
-        }
+        if named_callables is None:
+            get_callables = getattr(board, '_connect_bench_callables', None)
+            named_callables = list(get_callables()) if get_callables else []
+        if not named_callables:
+            return {'error': 'No benchable driver methods for this board'}
+        from drivers import serial_latency
+        return serial_latency.measure_callable_latencies(
+            named_callables, iterations=iterations, warmup=warmup
+        )
 
     def read_tmc5072_registers(self):
         """Read key TMC5072 diagnostic registers via raw SPI commands.
@@ -1531,39 +1553,75 @@ class TechSupportReport:
                     f.write(f"raw={t.get('raw_response', '?')}\n")
 
     def _step_serial_latency(self, tmp):
-        """Measure serial round-trip latency on both boards."""
+        """Emit serial round-trip latency — per-method summary per board.
+
+        Prefers the board's `connect_latency_summary` (captured at
+        connect in `SerialBoard._run_connect_latency_bench`) so the
+        report reflects the same fingerprint the logs already have and
+        doesn't re-run measurement unnecessarily. Falls back to running
+        `measure_serial_latency` fresh if the summary is absent or the
+        connect bench was skipped (`LVP_SKIP_CONNECT_BENCH=1`).
+        """
         d = tmp / 'hardware_checks'
         d.mkdir(exist_ok=True)
 
-        # Run latency test once per board, write both text and JSON from same data
         results = {}
         for board, label in [(self.diag.led_board, 'LED'), (self.diag.motor_board, 'Motor')]:
-            results[label] = self.diag.measure_serial_latency(board, 'INFO')
+            if board is None:
+                results[label] = {'error': 'Board not connected'}
+                continue
+            summary = getattr(board, 'connect_latency_summary', None)
+            if summary:
+                results[label] = {
+                    'source': 'connect',
+                    'firmware_version': getattr(board, 'firmware_version', None),
+                    'per_method': summary,
+                }
+                continue
+            # No connect-time summary — run fresh.
+            per_method = self.diag.measure_serial_latency(board)
+            if 'error' in per_method:
+                results[label] = per_method
+            else:
+                results[label] = {
+                    'source': 'report',
+                    'firmware_version': getattr(board, 'firmware_version', None),
+                    'per_method': per_method,
+                }
 
         with open(d / 'serial_latency.txt', 'w') as f:
             f.write("Serial Round-Trip Latency\n" + "=" * 40 + "\n\n")
-            for label, latency in results.items():
-                f.write(f"--- {label} Board ({SERIAL_LATENCY_ITERATIONS}x INFO) ---\n")
-                if 'error' in latency:
-                    f.write(f"  Error: {latency['error']}\n\n")
-                else:
-                    f.write(f"  Min:     {latency['min_ms']:7.2f} ms\n")
-                    f.write(f"  Max:     {latency['max_ms']:7.2f} ms\n")
-                    f.write(f"  Mean:    {latency['mean_ms']:7.2f} ms\n")
-                    f.write(f"  Std dev: {latency['std_dev_ms']:7.2f} ms\n")
-                    f.write(f"  Errors:  {latency['errors']}\n\n")
-                    # Flag suspicious results
-                    if latency['max_ms'] > 100:
-                        f.write(f"  ** WARNING: max latency {latency['max_ms']}ms "
-                                f"— possible USB suspend or contention **\n\n")
-                    if latency['std_dev_ms'] > 20:
-                        f.write(f"  ** WARNING: high variance (std={latency['std_dev_ms']}ms) "
-                                f"— unstable USB connection **\n\n")
+            for label, result in results.items():
+                if 'error' in result:
+                    f.write(f"--- {label} Board ---\n  Error: {result['error']}\n\n")
+                    continue
+                fw = result.get('firmware_version') or 'unknown'
+                src = result.get('source', 'report')
+                f.write(f"--- {label} Board (fw={fw}, source={src}) ---\n")
+                for name, s in result['per_method'].items():
+                    if s['count'] == 0:
+                        f.write(f"  {name}: ALL FAILED ({s['errors']} errors)\n")
+                        continue
+                    mean_ms = s['mean_us'] / 1000.0
+                    p50_ms = s['p50_us'] / 1000.0
+                    p95_ms = s['p95_us'] / 1000.0
+                    p99_ms = s['p99_us'] / 1000.0
+                    max_ms = s['max_us'] / 1000.0
+                    std_ms = s['stddev_us'] / 1000.0
+                    f.write(f"  {name} ({s['count']}x, {s['errors']} err):\n")
+                    f.write(f"    mean={mean_ms:.2f}ms  stddev={std_ms:.2f}ms\n")
+                    f.write(f"    p50={p50_ms:.2f}ms  p95={p95_ms:.2f}ms  p99={p99_ms:.2f}ms\n")
+                    f.write(f"    max={max_ms:.2f}ms\n")
+                    if max_ms > 100:
+                        f.write(f"    ** WARNING: max latency {max_ms:.2f}ms — "
+                                f"possible USB suspend or contention **\n")
+                    if std_ms > 20:
+                        f.write(f"    ** WARNING: high variance (stddev={std_ms:.2f}ms) — "
+                                f"unstable USB connection **\n")
+                f.write("\n")
 
         with open(d / 'serial_latency.json', 'w') as f:
-            summary = {label: {k: v for k, v in lat.items() if k != 'timings_ms'}
-                       for label, lat in results.items()}
-            json.dump(summary, f, indent=2, default=str)
+            json.dump(results, f, indent=2, default=str)
 
     def _step_homing_test(self, tmp):
         """Home all axes and record results."""
@@ -1802,15 +1860,39 @@ class TechSupportReport:
             (dest / 'ERROR.txt').write_text(f"Copy failed: {e}\n")
 
     def _step_logs(self, tmp):
-        logs_dir = _get_lvp_logs_dir()
-        if not logs_dir or not logs_dir.is_dir():
-            return
         dest = tmp / 'logs'
-        try:
-            shutil.copytree(logs_dir, dest, dirs_exist_ok=True)
-        except Exception as e:
-            dest.mkdir(exist_ok=True)
-            (dest / 'ERROR.txt').write_text(f"Copy failed: {e}\n")
+        logs_dir = _get_lvp_logs_dir()
+        if logs_dir and logs_dir.is_dir():
+            try:
+                shutil.copytree(logs_dir, dest, dirs_exist_ok=True)
+            except Exception as e:
+                dest.mkdir(exist_ok=True)
+                (dest / 'ERROR.txt').write_text(f"Copy failed: {e}\n")
+
+        # §13.X.1 I6: pull in installed-LVP appdata logs so customer
+        # firmware_upgrade_*.jsonl telemetry reaches support even when
+        # the source-tree logs/ path above is the dev-install one.
+        # Copied into logs/LVP_Log/ to mirror the on-disk layout; a
+        # dev-install setup where logs_dir == appdata_logs_dir just
+        # results in idempotent copies (shutil.copy2 overwrites).
+        appdata_logs = _get_lvp_appdata_logs_dir()
+        if appdata_logs and appdata_logs.is_dir():
+            appdata_dest = dest / 'LVP_Log'
+            try:
+                appdata_dest.mkdir(parents=True, exist_ok=True)
+                for p in appdata_logs.iterdir():
+                    if not p.is_file():
+                        continue
+                    try:
+                        shutil.copy2(p, appdata_dest / p.name)
+                    except Exception as e:
+                        (appdata_dest / f'{p.name}_ERROR.txt').write_text(
+                            f'Copy failed: {e}\n')
+            except Exception as e:
+                appdata_dest = dest / 'LVP_Log'
+                appdata_dest.mkdir(parents=True, exist_ok=True)
+                (appdata_dest / 'ERROR.txt').write_text(
+                    f'Appdata bundle failed: {e}\n')
 
     def _step_backlash(self, tmp):
         capture_dir = _get_capture_dir()

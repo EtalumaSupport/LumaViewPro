@@ -181,7 +181,7 @@ class ScopeSession:
 
     def log_system_metrics(self):
         import modules.config_helpers as config_helpers
-        config_helpers.log_system_metrics(self.settings)
+        config_helpers.log_system_metrics(self.settings, scope=self.scope)
 
     # --- LED commands ---
 

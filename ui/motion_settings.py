@@ -73,6 +73,11 @@ class MotionSettings(BoxLayout):
         ctx = _app_ctx.ctx
         stage = ctx.stage
 
+        # Fan polling is gated on Microscope Settings tab visibility so
+        # legacy / no-fan scopes don't pay the cost, and cards that
+        # don't need a live RPM readout don't chatter the motor serial.
+        self._update_fan_polling_visibility()
+
         # Handles removing/adding the stage display depending on whether or not the accordion item is visible
         protocol_accordion_item = self.ids['motionsettings_protocol_accordion_id']
         protocol_stage_widget_parent = self.ids['protocol_settings_id'].ids['protocol_stage_holder_id']
@@ -105,6 +110,30 @@ class MotionSettings(BoxLayout):
         else:
             # Both closed - remove stage
             stage.remove_parent()
+
+
+    def _update_fan_polling_visibility(self) -> None:
+        """Enable/disable fan polling based on Microscope Settings tab
+        visibility. The accordion's ``collapse`` is False when the tab
+        is open.
+
+        Safe early and often — the Lumascope.enable_fan_polling is a
+        silent no-op when the fan infra isn't wired (create_diagnostic
+        scopes, legacy firmware without fan, etc.).
+        """
+        ctx = _app_ctx.ctx
+        accordion = self.ids.get('microscope_settings_accordion_id')
+        if accordion is None:
+            return
+        visible = not bool(accordion.collapse)
+        try:
+            scope = ctx.lumaview.scope
+            if hasattr(scope, 'enable_fan_polling'):
+                scope.enable_fan_polling(
+                    visible, source='microscope_settings_tab')
+        except Exception as ex:
+            logger.debug(
+                f'[LVP Main  ] enable_fan_polling({visible}) failed: {ex}')
 
 
     def set_xystage_control_visibility(self, visible: bool) -> None:

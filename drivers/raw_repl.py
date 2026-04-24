@@ -461,6 +461,7 @@ def write_file(serial_port, filename, data):
     for attempt in range(1, WRITE_VERIFY_RETRIES + 1):
         logger.info(f"Write attempt {attempt}/{WRITE_VERIFY_RETRIES}")
         old_timeout = serial_port.timeout
+        old_write_timeout = serial_port.write_timeout
 
         try:
             # Send helper script (uses raw paste mode if available)
@@ -479,6 +480,15 @@ def write_file(serial_port, filename, data):
                 logger.warning(f"Expected OK or \\x04 marker, got {marker!r}")
                 time.sleep(DELAY_BETWEEN_RETRIES)
                 continue
+
+            # Disable pyserial write_timeout during the raw-byte stream. Short
+            # caps (our upstream default is 2.0 s in firmware_updater.py) are
+            # tighter than the transient MP 1.19 TinyUSB CDC endpoint stalls on
+            # large files, causing 75 KB+ writes to abort mid-stream. All four
+            # upstream MicroPython host tools (mpremote, pyboard, rshell, Thonny)
+            # leave write_timeout unset. See docs/FILE_WRITE_SURVEY_2026-04-21.md
+            # in the Firmware repo for the comparison + rshell precedent.
+            serial_port.write_timeout = None
 
             # Stream raw binary data — no encoding overhead
             for i in range(0, file_size, 1024):
@@ -531,6 +541,7 @@ def write_file(serial_port, filename, data):
 
         finally:
             serial_port.timeout = old_timeout
+            serial_port.write_timeout = old_write_timeout
 
         if attempt < WRITE_VERIFY_RETRIES:
             time.sleep(DELAY_BETWEEN_RETRIES)

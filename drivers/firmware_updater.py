@@ -36,6 +36,7 @@ Safety invariants:
   - All file writes use temp-then-rename for atomicity
 """
 
+import contextlib
 import hashlib
 import json
 import logging
@@ -51,6 +52,11 @@ from typing import Callable, Dict, List, Optional, Tuple
 import serial.tools.list_ports as list_ports
 
 from drivers.serialboard import SerialBoard
+# mpremote exceptions surface through SerialBoard's raw-REPL methods
+# (drivers/mpremote_transport.py — plan §2 Phase 2). Wrap them in
+# UpdateError with the calling stage per analysis §2 R7 so callers see
+# consistent structured errors regardless of the transport backing.
+from mpremote.transport import TransportError, TransportExecError
 
 logger = logging.getLogger(__name__)
 
@@ -123,6 +129,37 @@ class UpdateResult:
     warnings: List[str] = field(default_factory=list)
 
 
+@dataclass
+class UpgradeResult:
+    """Result of an FW4.0 field upgrade (§13.X of FIRMWARE_PLAN.md).
+
+    Distinct from ``UpdateResult`` — the upgrade orchestrates a
+    per-run probe + backup + bundle-deploy + verify + telemetry
+    sequence, and carries more structured state for the LVP UI and
+    CLI exit code mapping.
+
+    LVP surfaces this in a popup; CLI maps ``exit_code`` to its
+    process exit. Both read the same error_code / error_message for
+    user-facing text. Fields are populated progressively as the run
+    advances — early-abort results may have many Nones.
+    """
+    success: bool
+    board_type: BoardType
+    exit_code: int
+    old_version: Optional[str] = None
+    new_version: Optional[str] = None
+    probe_classification: Optional[str] = None
+    config_backup_path: Optional[Path] = None
+    telemetry_log_path: Optional[Path] = None
+    overwritable_flags: Optional[Dict[str, int]] = None
+    files_written: List[str] = field(default_factory=list)
+    files_skipped_overwritable: List[str] = field(default_factory=list)
+    error_code: Optional[str] = None
+    error_message: Optional[str] = None
+    error_stage: Optional[UpdateStage] = None
+    warnings: List[str] = field(default_factory=list)
+
+
 # Progress callback: (stage, human-readable message, progress 0.0-1.0)
 ProgressCallback = Callable[[UpdateStage, str, float], None]
 
@@ -185,6 +222,39 @@ def _report_progress(callback, stage, message, progress):
             callback(stage, message, progress)
         except Exception as e:
             logger.error(f"Progress callback error ({callback!r}): {e}")
+
+
+@contextlib.contextmanager
+def _wrap_mpremote_errors(stage: "UpdateStage", context: str = ""):
+    """Translate mpremote Transport exceptions to UpdateError.
+
+    Raw-REPL file I/O now routes through ``drivers.mpremote_transport``,
+    which surfaces ``TransportError`` (link / protocol) and
+    ``TransportExecError`` (device-side Python traceback). Neither maps
+    cleanly onto ``UpdateResult.error_stage``, so callers wrap the
+    raw-REPL block in this context manager. Per analysis §2 R7,
+    ``TransportExecError.error_output`` (the device traceback) is
+    preserved in the ``UpdateError.message`` for field debugging.
+    """
+    try:
+        yield
+    except TransportExecError as e:
+        device_tb = (e.error_output or "").strip() if isinstance(
+            e.error_output, str
+        ) else (e.error_output or b"").decode("utf-8", errors="replace").strip()
+        msg_prefix = f"Device error during {context}" if context else "Device error"
+        raise UpdateError(
+            f"{msg_prefix}: {device_tb or e}",
+            stage=stage,
+        ) from e
+    except TransportError as e:
+        msg_prefix = (
+            f"Transport error during {context}" if context else "Transport error"
+        )
+        raise UpdateError(
+            f"{msg_prefix}: {e}",
+            stage=stage,
+        ) from e
 
 
 def _find_serial_port(vid, pid):
@@ -383,6 +453,57 @@ def _find_picotool():
     return None
 
 
+def _find_mpy_cross():
+    """Locate the mpy-cross binary. Returns Path or None.
+
+    mpy-cross is shipped with the micropython PyPI package (usually at
+    $VIRTUAL_ENV/bin/mpy-cross or /usr/local/bin/mpy-cross).
+    """
+    import shutil as _shutil
+    found = _shutil.which('mpy-cross')
+    if found:
+        return Path(found)
+    return None
+
+
+def _mpy_cross_compile(py_path, out_path, mpy_cross_path=None):
+    """Compile `py_path` (a .py file) to `out_path` (a .mpy file) via
+    mpy-cross. Returns True on success, False on failure."""
+    import subprocess
+    if mpy_cross_path is None:
+        mpy_cross_path = _find_mpy_cross()
+    if mpy_cross_path is None:
+        raise UpdateError(
+            "mpy-cross not found on PATH. Install the micropython "
+            "PyPI package (pip install micropython) or set PATH to "
+            "include your mpy-cross binary. Required for compile_mpy=True.",
+            stage=UpdateStage.PREFLIGHT,
+        )
+
+    py_path = Path(py_path)
+    out_path = Path(out_path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        result = subprocess.run(
+            [str(mpy_cross_path), '-o', str(out_path), str(py_path)],
+            capture_output=True, text=True, timeout=30,
+        )
+    except subprocess.TimeoutExpired:
+        logger.error(f"mpy-cross timed out compiling {py_path}")
+        return False
+    if result.returncode != 0:
+        logger.error(
+            f"mpy-cross failed on {py_path}: {result.stderr.strip()}"
+        )
+        return False
+    logger.info(
+        f"mpy-cross: {py_path.name} "
+        f"({py_path.stat().st_size}B) -> "
+        f"{out_path.name} ({out_path.stat().st_size}B)"
+    )
+    return True
+
+
 def _flash_uf2_picotool(uf2_path, picotool_path=None, reboot=True):
     """Flash UF2 file using picotool (direct USB, no mass storage mount needed).
 
@@ -485,6 +606,29 @@ def _send_fwupdate_command(board, board_config):
             if 'not recognized' in text.lower() or 'not found' in text.lower():
                 logger.info("FWUPDATE not supported — using raw REPL fallback")
                 _bootloader_via_raw_repl(board)
+
+            # FW4.0 two-step: firmware asks for explicit CONFIRM before
+            # actually rebooting. Response shape:
+            #   {"ok":true,"cmd":"FWUPDATE",
+            #    "msg":"send FWUPDATE CONFIRM to reboot into UF2 bootloader"}
+            # See docs/FW40_COMMAND_REFERENCE.md §5 (FWUPDATE).
+            # v3.0.x boards reboot silently on the first FWUPDATE and
+            # never emit this phrase, so string detection is safe to
+            # do unconditionally and keeps the helper protocol-agnostic
+            # (works even if FW4.0 INFO malformed → LVP protocol-version
+            # fell back to LEGACY, as observed on SN 11016 bench).
+            elif 'FWUPDATE CONFIRM' in text.upper():
+                logger.info(
+                    "FW4.0 two-step FWUPDATE detected — sending CONFIRM"
+                )
+                try:
+                    # No response expected — board reboots immediately.
+                    # A None / timeout here is success.
+                    board.exchange_command('FWUPDATE CONFIRM', timeout=3.0)
+                except Exception as e:
+                    logger.info(
+                        f"FWUPDATE CONFIRM no response (expected on reboot): {e}"
+                    )
         else:
             # No response — board may have already rebooted (expected)
             logger.info("No response from FWUPDATE — board may have rebooted")
@@ -548,29 +692,32 @@ def _backup_configs(board, board_config, backup_dir, callback=None):
         )
 
     try:
-        # Discover what files are actually on the board
-        board_files = board.repl_list_files()
-        logger.info(f"Files on {board_config.label} board: {board_files}")
+        with _wrap_mpremote_errors(
+            UpdateStage.BACKING_UP_CONFIG, context="config backup"
+        ):
+            # Discover what files are actually on the board
+            board_files = board.repl_list_files()
+            logger.info(f"Files on {board_config.label} board: {board_files}")
 
-        for filename in board_config.config_files:
-            if filename not in board_files:
-                logger.info(f"Config file {filename} not on board — skipping")
-                continue
+            for filename in board_config.config_files:
+                if filename not in board_files:
+                    logger.info(f"Config file {filename} not on board — skipping")
+                    continue
 
-            _report_progress(
-                callback, UpdateStage.BACKING_UP_CONFIG,
-                f"Reading {filename}...", 0.14)
+                _report_progress(
+                    callback, UpdateStage.BACKING_UP_CONFIG,
+                    f"Reading {filename}...", 0.14)
 
-            data = board.repl_read_file(filename, verify=True)
-            if data is None:
-                raise UpdateError(
-                    f"Failed to read config file: {filename}. "
-                    f"Update aborted — config backup must succeed before flashing.",
-                    stage=UpdateStage.BACKING_UP_CONFIG,
-                )
+                data = board.repl_read_file(filename, verify=True)
+                if data is None:
+                    raise UpdateError(
+                        f"Failed to read config file: {filename}. "
+                        f"Update aborted — config backup must succeed before flashing.",
+                        stage=UpdateStage.BACKING_UP_CONFIG,
+                    )
 
-            configs[filename] = data
-            logger.info(f"Backed up {filename}: {len(data)} bytes")
+                configs[filename] = data
+                logger.info(f"Backed up {filename}: {len(data)} bytes")
 
     finally:
         board.exit_raw_repl()
@@ -628,32 +775,35 @@ def _restore_configs(board, board_config, config_data, callback=None):
         )
 
     try:
-        # Check which files need restoring
-        board_files = board.repl_list_files()
+        with _wrap_mpremote_errors(
+            UpdateStage.RESTORING_CONFIG, context="config restore"
+        ):
+            # Check which files need restoring
+            board_files = board.repl_list_files()
 
-        for filename, data in config_data.items():
-            if filename in board_files:
-                # File exists — check if it matches backup
-                existing = board.repl_read_file(filename, verify=True)
-                if existing == data:
-                    logger.info(
-                        f"{filename} survived update — skipping restore")
-                    continue
-                else:
-                    logger.warning(
-                        f"{filename} exists but differs from backup — "
-                        f"restoring from backup")
+            for filename, data in config_data.items():
+                if filename in board_files:
+                    # File exists — check if it matches backup
+                    existing = board.repl_read_file(filename, verify=True)
+                    if existing == data:
+                        logger.info(
+                            f"{filename} survived update — skipping restore")
+                        continue
+                    else:
+                        logger.warning(
+                            f"{filename} exists but differs from backup — "
+                            f"restoring from backup")
 
-            _report_progress(
-                callback, UpdateStage.RESTORING_CONFIG,
-                f"Restoring {filename}...", 0.85)
+                _report_progress(
+                    callback, UpdateStage.RESTORING_CONFIG,
+                    f"Restoring {filename}...", 0.85)
 
-            if not board.repl_write_file(filename, data):
-                raise UpdateError(
-                    f"Failed to restore config: {filename}. "
-                    f"Backup available on local disk.",
-                    stage=UpdateStage.RESTORING_CONFIG,
-                )
+                if not board.repl_write_file(filename, data):
+                    raise UpdateError(
+                        f"Failed to restore config: {filename}. "
+                        f"Backup available on local disk.",
+                        stage=UpdateStage.RESTORING_CONFIG,
+                    )
             logger.info(f"Restored {filename} ({len(data)} bytes)")
 
     finally:
@@ -1026,6 +1176,214 @@ def update_firmware(
         return result
 
 
+def flash_uf2_direct(
+    board_type,
+    uf2_path,
+    progress_callback=None,
+    bootsel_timeout=None,
+):
+    """Flash a UF2 to a board that is already in BOOTSEL mode.
+
+    Use this when the board is bricked / non-responsive and was
+    forced into BOOTSEL via physical means (BOOTSEL button short,
+    SWD), so the normal update_firmware() flow — which expects a
+    responsive board to back configs up and send FWUPDATE — cannot
+    run.
+
+    Flow:
+      1. Verify the board's `has_direct_usb` (LED cannot enter
+         BOOTSEL via software or hardware on a sealed unit; flashing
+         an LED UF2 requires TP96 + TP8/TP11 on the bench).
+      2. Detect the RPI-RP2 mass-storage drive (wait up to
+         `bootsel_timeout` for it to appear).
+      3. Copy the UF2. Fall back to picotool if drive detection
+         fails (same fallback path update_firmware uses).
+      4. Wait for drive to disappear (UF2 accepted), board to
+         re-enumerate on USB CDC, and INFO to succeed.
+      5. Report the new version.
+
+    Configs are NOT restored — the board was bricked before this
+    call, so there is nothing to back up, and the caller is
+    responsible for restoring configs afterward (typically via
+    `_restore_configs` against a previous `firmware_backups/`
+    snapshot, or via `deploy_firmware_file`'s backup/restore cycle
+    on a subsequent call).
+
+    Args:
+        board_type: BoardType.MOTOR (LED rejected — no BOOTSEL path).
+        uf2_path: UF2 file to flash (MicroPython runtime build).
+        progress_callback: Optional (stage, message, progress) callback.
+        bootsel_timeout: Seconds to wait for BOOTSEL drive to appear.
+            Defaults to the board's configured bootsel_timeout.
+
+    Returns:
+        UpdateResult with success/failure details. result.new_version
+        populated on success.
+    """
+    config = BOARD_CONFIGS[board_type]
+    uf2_path = Path(uf2_path)
+    result = UpdateResult(success=False, board_type=board_type)
+
+    if bootsel_timeout is None:
+        bootsel_timeout = config.bootsel_timeout
+
+    try:
+        # ---- Pre-flight ----
+        _report_progress(progress_callback, UpdateStage.PREFLIGHT,
+                         f"Preparing direct UF2 flash for "
+                         f"{config.label}...", 0.0)
+
+        if not config.has_direct_usb:
+            raise UpdateError(
+                f"{config.label} board has no direct USB to the RP2040 "
+                f"(UART only via USB hub). Direct UF2 flash via BOOTSEL "
+                f"requires physical access to TP96 / TP8 / TP11 and is "
+                f"out of scope for this method.",
+                stage=UpdateStage.PREFLIGHT,
+            )
+
+        if not uf2_path.is_file():
+            raise UpdateError(
+                f"UF2 file not found: {uf2_path}",
+                stage=UpdateStage.PREFLIGHT,
+            )
+        uf2_size = uf2_path.stat().st_size
+        if uf2_size < 512:
+            raise UpdateError(
+                f"UF2 file too small ({uf2_size} bytes) — likely "
+                f"corrupted",
+                stage=UpdateStage.PREFLIGHT,
+            )
+
+        target_version = _parse_uf2_version(uf2_path)
+        logger.info(
+            f"Direct-flash target: {uf2_path.name} "
+            f"(v{target_version})")
+
+        # ---- Wait for BOOTSEL drive ----
+        _report_progress(progress_callback, UpdateStage.WAITING_BOOTSEL,
+                         "Waiting for BOOTSEL drive "
+                         "(short BOOTSEL pin + power cycle)...", 0.10)
+        bootsel_drive = _wait_for_bootsel_drive(timeout=bootsel_timeout)
+
+        # ---- Flash ----
+        if bootsel_drive is not None:
+            _report_progress(progress_callback, UpdateStage.COPYING_UF2,
+                             f"Copying {uf2_path.name} to "
+                             f"{bootsel_drive}...", 0.30)
+            if platform.system() == 'Darwin':
+                _report_progress(
+                    progress_callback, UpdateStage.COPYING_UF2,
+                    "Note: macOS may show 'disk not ejected properly' — "
+                    "this is normal (board reboots after flashing).",
+                    0.30)
+            dest = bootsel_drive / uf2_path.name
+            shutil.copy2(uf2_path, dest)
+            logger.info(f"UF2 copied ({uf2_size} bytes)")
+
+            time.sleep(POST_UF2_SETTLE_TIME)
+            if not _wait_for_drive_disappear(bootsel_drive):
+                result.warnings.append(
+                    "BOOTSEL drive did not disappear after UF2 copy. "
+                    "The UF2 may not have been accepted.")
+        else:
+            # Same picotool fallback update_firmware uses.
+            logger.info("BOOTSEL drive not mounted — trying picotool")
+            _report_progress(progress_callback, UpdateStage.COPYING_UF2,
+                             "BOOTSEL drive not mounted; trying "
+                             "picotool...", 0.25)
+            picotool = _find_picotool()
+            if picotool is None:
+                raise UpdateError(
+                    f"BOOTSEL drive did not appear within "
+                    f"{bootsel_timeout}s and picotool is not installed. "
+                    f"Install picotool (brew install picotool) or verify "
+                    f"the BOOTSEL pin short is making good contact "
+                    f"during power-up.",
+                    stage=UpdateStage.WAITING_BOOTSEL,
+                    recoverable=False,
+                )
+            if not _flash_uf2_picotool(uf2_path, picotool_path=picotool,
+                                       reboot=True):
+                raise UpdateError(
+                    f"picotool failed to flash {uf2_path.name}. The "
+                    f"board may need another BOOTSEL + power-cycle.",
+                    stage=UpdateStage.COPYING_UF2,
+                    recoverable=False,
+                )
+
+        # ---- Wait for serial port ----
+        _report_progress(progress_callback, UpdateStage.WAITING_REBOOT,
+                         "Waiting for board to reboot on USB CDC...",
+                         0.60)
+        time.sleep(POST_REBOOT_SETTLE_TIME)
+
+        new_port = _wait_for_serial_port(
+            config.vid, config.pid,
+            timeout=config.serial_reappear_timeout,
+        )
+        if new_port is None:
+            bootsel_again = _detect_bootsel_drive()
+            if bootsel_again is not None:
+                raise UpdateError(
+                    f"Board returned to BOOTSEL instead of booting. "
+                    f"The UF2 may be invalid.",
+                    stage=UpdateStage.WAITING_REBOOT,
+                    recoverable=True,
+                )
+            raise UpdateError(
+                f"Serial port did not reappear within "
+                f"{config.serial_reappear_timeout}s. Power-cycle and "
+                f"retry.",
+                stage=UpdateStage.WAITING_REBOOT,
+                recoverable=False,
+            )
+        time.sleep(POST_REBOOT_SETTLE_TIME)
+
+        # ---- Verify version ----
+        _report_progress(progress_callback, UpdateStage.VERIFYING_VERSION,
+                         "Verifying new firmware version...", 0.85)
+        board = _create_board(config, port=new_port)
+        new_version = board.firmware_version or board.firmware_date
+        result.new_version = new_version
+        board.disconnect()
+        logger.info(f"Direct-flash complete: v{new_version}")
+
+        if new_version is None:
+            # Bare MP runtime with no main.py prints no INFO — expected
+            # after flashing mocon.uf2 to a freshly-nuked board.
+            result.warnings.append(
+                "No firmware version reported — expected after flashing "
+                "a bare runtime with no main.py. Deploy main.py via "
+                "deploy_firmware_file() next.")
+        elif target_version and new_version != target_version:
+            result.warnings.append(
+                f"Version mismatch: expected {target_version}, "
+                f"got {new_version}"
+            )
+
+        result.success = True
+        _report_progress(progress_callback, UpdateStage.COMPLETE,
+                         "Direct UF2 flash complete", 1.0)
+        return result
+
+    except UpdateError as e:
+        result.error_message = str(e)
+        result.error_stage = e.stage
+        logger.error(f"flash_uf2_direct failed at {e.stage.value}: {e}")
+        _report_progress(progress_callback, UpdateStage.FAILED,
+                         str(e), 0.0)
+        return result
+    except Exception as e:
+        result.error_message = f"Unexpected error: {e}"
+        result.error_stage = UpdateStage.FAILED
+        logger.error(
+            f"flash_uf2_direct unexpected error: {e}", exc_info=True)
+        _report_progress(progress_callback, UpdateStage.FAILED,
+                         f"Unexpected error: {e}", 0.0)
+        return result
+
+
 def nuke_board(
     board_type,
     nuke_uf2_path,
@@ -1181,6 +1539,369 @@ def nuke_board(
         return result
 
 
+def restore_configs_from_backup(
+    board_type,
+    backup_dir,
+    progress_callback=None,
+    file_filter=None,
+):
+    """Restore config files from a local backup directory to a board.
+
+    Symmetric counterpart of _backup_configs(). Takes a directory (e.g.
+    one produced by an earlier deploy_firmware_file backup stage, or a
+    hand-picked per-unit config set from bench archives) and pushes each
+    config file that matches the board's BOARD_CONFIGS[board_type].
+    config_files list onto the board via raw REPL (SHA256-verified by
+    SerialBoard.repl_write_file).
+
+    Use cases:
+      - Re-provision a board after factory_reset_motor_board() nuked
+        the filesystem.
+      - Clone per-unit configs from a dev-bench board to a new production
+        unit during bring-up.
+      - Recover INI/motorconfig files from a backup after an operator
+        edit gone wrong.
+
+    Args:
+        board_type: BoardType.LED or BoardType.MOTOR
+        backup_dir: Directory containing backed-up config files. Only
+            files whose names appear in BOARD_CONFIGS[board_type].
+            config_files are considered (file_filter narrows further).
+        progress_callback: Optional (stage, message, fraction) callback.
+        file_filter: Optional list/set of filenames. If provided, only
+            files in this list are restored (subject to config_files
+            membership).
+
+    Returns:
+        UpdateResult. success=True iff every eligible file was pushed
+        and verified.
+    """
+    config = BOARD_CONFIGS[board_type]
+    backup_dir = Path(backup_dir)
+    result = UpdateResult(success=False, board_type=board_type)
+    result.config_backup_path = backup_dir
+
+    try:
+        _report_progress(progress_callback, UpdateStage.PREFLIGHT,
+                         f"Loading backup from {backup_dir}...", 0.0)
+
+        if not backup_dir.is_dir():
+            raise UpdateError(
+                f"Backup directory not found: {backup_dir}",
+                stage=UpdateStage.PREFLIGHT,
+            )
+
+        # Build {filename: bytes} dict from the backup directory.
+        # Only include files the BOARD_CONFIGS policy says belong on
+        # this board type — avoids pushing stray files (README, main.py,
+        # .bak files, etc.) that the backup directory may also hold.
+        config_files = set(config.config_files)
+        if file_filter is not None:
+            config_files &= set(file_filter)
+
+        config_data = {}
+        for name in sorted(config_files):
+            p = backup_dir / name
+            if not p.is_file():
+                logger.info(f"Skipping {name}: not present in backup")
+                continue
+            config_data[name] = p.read_bytes()
+
+        if not config_data:
+            raise UpdateError(
+                f"No matching config files found in {backup_dir}. "
+                f"Expected one or more of: {sorted(config.config_files)}",
+                stage=UpdateStage.PREFLIGHT,
+            )
+
+        logger.info(
+            f"Will restore {len(config_data)} file(s) to "
+            f"{config.label} board: {sorted(config_data.keys())}"
+        )
+
+        _report_progress(progress_callback, UpdateStage.CHECKING_VERSION,
+                         f"Connecting to {config.label} board...", 0.10)
+        board = _create_board(config)
+        try:
+            current_version = board.firmware_version or board.firmware_date
+            result.old_version = current_version
+            result.new_version = current_version  # restore doesn't change FW
+
+            # _restore_configs handles raw REPL + SHA256-verified writes.
+            _restore_configs(board, config, config_data, progress_callback)
+        finally:
+            try:
+                board.disconnect()
+            except Exception:
+                pass
+
+        result.success = True
+        _report_progress(progress_callback, UpdateStage.COMPLETE,
+                         f"Restored {len(config_data)} file(s)", 1.0)
+        logger.info(
+            f"Config restore successful: {len(config_data)} file(s) on "
+            f"{config.label} board"
+        )
+        return result
+
+    except UpdateError as e:
+        result.error_message = str(e)
+        result.error_stage = e.stage
+        logger.error(f"Config restore failed at {e.stage.value}: {e}")
+        _report_progress(progress_callback, UpdateStage.FAILED, str(e), 0.0)
+        return result
+
+    except Exception as e:
+        result.error_message = f"Unexpected error: {e}"
+        result.error_stage = UpdateStage.FAILED
+        logger.error(f"Config restore unexpected error: {e}", exc_info=True)
+        _report_progress(progress_callback, UpdateStage.FAILED,
+                         f"Unexpected error: {e}", 0.0)
+        return result
+
+
+def deploy_firmware_bundle_fw40(
+    board_type,
+    main_module_path,
+    framing_path,
+    progress_callback=None,
+    backup_dir=None,
+    skip_config_backup=False,
+    skip_post_test=False,
+    soft_reset=False,
+):
+    """Deploy the FW4.0 3-file bundle via raw REPL as precompiled .mpy.
+
+    The FW4.0 stub + .mpy pattern (release gate §2.4, FIRMWARE_PLAN.md
+    lines 340-375):
+
+        main.py           -- stub, content: `import fw40_led` (or fw40_motor)
+        fw40_led.mpy      -- precompiled LED firmware     (or fw40_motor.mpy)
+        fw40_framing.mpy  -- precompiled shared framing
+
+    MicroPython auto-selects `.mpy` over `.py` when both exist, and the
+    stub `main.py` triggers the import. This retires:
+      1. The MP 1.19 compile-OOM on LED's ~63KB main.py as plain .py
+         (confirmed 2026-04-22 bench: MemoryError allocating 63296
+         bytes — the reason this helper exists).
+      2. The source-exposure risk of shipping readable firmware to
+         sealed field units.
+      3. The per-import compile latency on boot.
+
+    On-device write order (same atomicity contract as deploy_firmware_file
+    with extra_files): fw40_framing.mpy → fw40_<module>.mpy → main.py
+    stub last. A partial failure leaves the old main.py + new
+    framing/module files, which boot a crash-visible state rather than
+    silently running the new main.py against a missing dependency.
+
+    Args:
+        board_type: BoardType.LED or BoardType.MOTOR.
+        main_module_path: Path to the firmware source .py (e.g.
+            'LED Controller/main.py'). The on-device import name is
+            derived from the MODULE stem, not the filename — for a
+            source named 'main.py' that must become 'fw40_led.mpy' on
+            device, use main_module_remote_stem to override. Default:
+            derive from board_type (LED → 'fw40_led', MOTOR → 'fw40_motor').
+        framing_path: Path to fw40_framing.py.
+        progress_callback, backup_dir, skip_config_backup, skip_post_test:
+            same as deploy_firmware_file.
+
+    Returns:
+        UpdateResult with success/failure details.
+    """
+    module_stem = {
+        BoardType.LED: 'fw40_led',
+        BoardType.MOTOR: 'fw40_motor',
+    }[board_type]
+    stub_content = f'import {module_stem}\n'.encode('utf-8')
+
+    import tempfile
+    stub_dir = Path(tempfile.mkdtemp(prefix='fw40_stub_'))
+    stub_main = stub_dir / 'main.py'
+    stub_main.write_bytes(stub_content)
+
+    # The stub is the firmware_path (written as main.py). The real
+    # firmware + framing are extra_files (.py inputs, compiled to .mpy
+    # by deploy_firmware_file when compile_mpy=True). This reuses
+    # deploy_firmware_file's preflight / backup / atomic-write
+    # machinery without any copy-paste.
+    return deploy_firmware_file(
+        board_type=board_type,
+        firmware_path=stub_main,
+        progress_callback=progress_callback,
+        backup_dir=backup_dir,
+        skip_config_backup=skip_config_backup,
+        skip_post_test=skip_post_test,
+        firmware_remote_name='main.py',  # stub IS main.py
+        compile_mpy=True,  # compile the extra_files below
+        soft_reset=soft_reset,
+        extra_files=[
+            (Path(framing_path), 'fw40_framing.mpy'),
+            (Path(main_module_path), f'{module_stem}.mpy'),
+        ],
+    )
+
+
+def factory_reset_motor_board(
+    nuke_uf2_path,
+    runtime_uf2_path,
+    main_py_path,
+    progress_callback=None,
+    skip_post_test=False,
+):
+    """Full factory-reset recovery for a motor board whose firmware has
+    left it in an unrecoverable state (e.g. main.py that blocks raw REPL
+    entry via machine.disable_irq in the stdout path).
+
+    Sequence:
+      1. nuke_board(MOTOR, nuke_uf2)     — erase all flash incl. filesystem
+      2. copy runtime_uf2 to BOOTSEL     — flash a clean MicroPython runtime
+      3. wait for serial port to appear  — runtime boots with empty fs
+      4. deploy_firmware_file(main.py)   — push known-good main.py via raw REPL
+
+    Step 3+4 work because nuke clears the filesystem; no broken main.py
+    blocks raw REPL after the runtime reboots.
+
+    Motor-only — LED boards have no direct USB; factory reset there
+    requires physical BOOTSEL access.
+
+    Args:
+        nuke_uf2_path: Path to flash_nuke_rp2040.uf2 (or rp2350 variant).
+        runtime_uf2_path: Path to a clean MicroPython UF2 for the motor.
+        main_py_path: Path to the main.py to restore after reflash.
+        progress_callback: Optional (stage, message, fraction) callback.
+        skip_post_test: Skip the final deploy_firmware_file post-update
+            check.
+
+    Returns:
+        UpdateResult. success=True only if all three phases completed.
+    """
+    board_type = BoardType.MOTOR
+    config = BOARD_CONFIGS[board_type]
+    result = UpdateResult(success=False, board_type=board_type)
+
+    nuke_uf2_path = Path(nuke_uf2_path)
+    runtime_uf2_path = Path(runtime_uf2_path)
+    main_py_path = Path(main_py_path)
+
+    try:
+        for p, label in ((nuke_uf2_path, 'nuke UF2'),
+                         (runtime_uf2_path, 'runtime UF2'),
+                         (main_py_path, 'main.py')):
+            if not p.is_file():
+                raise UpdateError(
+                    f"{label} not found: {p}",
+                    stage=UpdateStage.PREFLIGHT,
+                )
+
+        # ---- Phase 1: Nuke flash ----
+        _report_progress(progress_callback, UpdateStage.PREFLIGHT,
+                         "Phase 1/3: nuking flash...", 0.0)
+        nuke_result = nuke_board(
+            board_type, nuke_uf2_path,
+            progress_callback=progress_callback,
+        )
+        if not nuke_result.success:
+            raise UpdateError(
+                f"Phase 1 (nuke) failed: {nuke_result.error_message}",
+                stage=nuke_result.error_stage or UpdateStage.FAILED,
+            )
+        result.old_version = 'nuked'
+
+        # After nuke the board is in BOOTSEL with empty flash. Copy the
+        # runtime UF2 directly without invoking update_firmware (which
+        # expects a serial-connected board + pre-flight BOOTSEL check
+        # that would now fail because we're already in BOOTSEL).
+
+        # ---- Phase 2: Flash runtime UF2 ----
+        _report_progress(progress_callback, UpdateStage.COPYING_UF2,
+                         "Phase 2/3: flashing runtime UF2...", 0.35)
+        bootsel_drive = _wait_for_bootsel_drive(
+            timeout=config.bootsel_timeout)
+        if bootsel_drive is None:
+            raise UpdateError(
+                "BOOTSEL drive not found after nuke — cannot flash "
+                "runtime UF2. Manual recovery required (hold BOOTSEL + "
+                "replug USB).",
+                stage=UpdateStage.WAITING_BOOTSEL,
+                recoverable=False,
+            )
+        dest = bootsel_drive / runtime_uf2_path.name
+        shutil.copy2(runtime_uf2_path, dest)
+        logger.info(f"Runtime UF2 copied to {bootsel_drive}")
+
+        # Wait for drive to disappear (UF2 accepted), then for the
+        # board's serial port to reappear (runtime boots + enumerates).
+        time.sleep(POST_UF2_SETTLE_TIME)
+        _wait_for_drive_disappear(bootsel_drive)
+
+        _report_progress(progress_callback, UpdateStage.WAITING_REBOOT,
+                         "Phase 2/3: waiting for runtime to boot...", 0.55)
+        time.sleep(POST_REBOOT_SETTLE_TIME)
+        new_port = _wait_for_serial_port(
+            config.vid, config.pid,
+            timeout=config.serial_reappear_timeout,
+        )
+        if new_port is None:
+            raise UpdateError(
+                f"Serial port did not reappear within "
+                f"{config.serial_reappear_timeout}s after runtime flash. "
+                f"The runtime UF2 may be invalid or the board may need "
+                f"power-cycling.",
+                stage=UpdateStage.WAITING_REBOOT,
+                recoverable=False,
+            )
+        time.sleep(POST_REBOOT_SETTLE_TIME)
+
+        # ---- Phase 3: Push main.py via raw REPL ----
+        _report_progress(progress_callback, UpdateStage.RESTORING_CONFIG,
+                         "Phase 3/3: pushing main.py via raw REPL...", 0.75)
+
+        # Filesystem is empty after nuke — no main.py is running, so
+        # raw REPL entry works trivially (no command-loop to bypass).
+        # deploy_firmware_file handles its own connection + backup +
+        # write + reboot + post-test.
+        repl_result = deploy_firmware_file(
+            board_type, main_py_path,
+            progress_callback=progress_callback,
+            skip_config_backup=True,   # nuked filesystem — nothing to back up
+            skip_post_test=skip_post_test,
+        )
+        if not repl_result.success:
+            raise UpdateError(
+                f"Phase 3 (deploy main.py) failed: "
+                f"{repl_result.error_message}",
+                stage=repl_result.error_stage or UpdateStage.FAILED,
+            )
+
+        result.success = True
+        result.new_version = repl_result.new_version
+        result.warnings.extend(nuke_result.warnings or [])
+        result.warnings.extend(repl_result.warnings or [])
+        _report_progress(progress_callback, UpdateStage.COMPLETE,
+                         "Factory reset complete", 1.0)
+        logger.info(
+            f"Motor factory reset successful: runtime={runtime_uf2_path.name}, "
+            f"main.py={main_py_path.name}, new_version={result.new_version}"
+        )
+        return result
+
+    except UpdateError as e:
+        result.error_message = str(e)
+        result.error_stage = e.stage
+        logger.error(f"Factory reset failed at {e.stage.value}: {e}")
+        _report_progress(progress_callback, UpdateStage.FAILED, str(e), 0.0)
+        return result
+
+    except Exception as e:
+        result.error_message = f"Unexpected error: {e}"
+        result.error_stage = UpdateStage.FAILED
+        logger.error(f"Factory reset unexpected error: {e}", exc_info=True)
+        _report_progress(progress_callback, UpdateStage.FAILED,
+                         f"Unexpected error: {e}", 0.0)
+        return result
+
+
 def deploy_firmware_file(
     board_type,
     firmware_path,
@@ -1188,8 +1909,12 @@ def deploy_firmware_file(
     backup_dir=None,
     skip_config_backup=False,
     skip_post_test=False,
+    extra_files=None,
+    firmware_remote_name='main.py',
+    compile_mpy=False,
+    soft_reset=False,
 ):
-    """Deploy main.py to a board via raw REPL (no UF2, no BOOTSEL).
+    """Deploy main.py (+ optional companion files) to a board via raw REPL.
 
     This is the primary update method for LED boards (UART-only, no USB
     to the RP2040) and an alternative method for motor boards when only
@@ -1199,7 +1924,19 @@ def deploy_firmware_file(
     The sequence:
       1. Connect to the board via serial
       2. Back up config files via raw REPL
-      3. Write new main.py via raw REPL (SHA256 verified, atomic)
+      3. Write every `extra_files` entry first, then main.py last
+         (each SHA256 verified, atomic). main.py is last so a partial
+         failure leaves an old main.py + new framing — the new framing
+         may crash a pre-FW4.0 main.py on boot, which is visible and
+         recoverable; the reverse (new main.py needing framing that
+         isn't there) would brick. Each file's write is atomic per-file
+         (`.tmp` + SHA-256 + rename + `.bak`, with 3× transient-error
+         retry). Cross-file atomicity is NOT guaranteed; if
+         `fw40_framing.mpy` commits and `main.mpy` then exhausts its
+         retries, the board boots with new framing + old main. This has
+         not been observed on bench post-mpremote (raw-paste window-
+         token flow control retires the exhaustion class); revisit with
+         a two-phase-commit design if bench surfaces it.
       4. Soft reset to boot the new firmware
       5. Verify new firmware version
       6. Run post-update health check
@@ -1213,6 +1950,35 @@ def deploy_firmware_file(
         backup_dir: Where to save config backups
         skip_config_backup: Skip config backup
         skip_post_test: Skip post-update verification
+        extra_files: Optional list of (local_path, remote_filename)
+            companion files to deploy alongside main.py. FW4.0 requires
+            (fw40_framing.py, 'fw40_framing.py') because both main.py
+            files `import fw40_framing`. Each file is SHA256-verified by
+            repl_write_file; any failure aborts the whole deploy before
+            main.py is written, so we never leave the board in the
+            'new main.py without its companion' state.
+        firmware_remote_name: Filename to write the firmware under on
+            the device. Defaults to 'main.py'. Set to e.g. 'fw40_led.mpy'
+            for the stub-import + .mpy pattern (release gate §2.4).
+        compile_mpy: If True, compile firmware_path and any .py entries
+            in extra_files via mpy-cross before deploying. Compiled .mpy
+            bytes are written under the caller-supplied remote names
+            verbatim — the caller is responsible for making sure the
+            remote name ends in .mpy (or makes sense as a .mpy import
+            target). Required for LED-side FW4.0 on MP 1.19: main.py
+            (~63KB) hits the on-device compile-OOM when sent as .py.
+        soft_reset: If True, enter raw REPL via soft reset (Ctrl-D). Use
+            this when the board has no WDT and no user code to preserve
+            across the raw-REPL entry — e.g. a freshly-flashed bare MP
+            runtime, or a board whose firmware has already been
+            verified to not rely on a running Timer. Default is False
+            for safety with v3.0.x LED firmware (pre-WDT-removal) where
+            soft reset kills the WDT-feed Timer; leave False for that
+            path. Bench-confirmed 2026-04-22: MP 1.27.0 bare runtime
+            with soft_reset=False produces "Expected OK or \\x04 marker,
+            got b'i'" write failures because Ctrl-C leaks into the
+            interactive REPL mid-protocol; soft_reset=True avoids the
+            race cleanly.
 
     Returns:
         UpdateResult with success/failure details.
@@ -1241,13 +2007,96 @@ def deploy_firmware_file(
                 stage=UpdateStage.PREFLIGHT,
             )
 
+        # mpy-cross preflight — must resolve before we touch the board.
+        mpy_cross_path = None
+        if compile_mpy:
+            mpy_cross_path = _find_mpy_cross()
+            if mpy_cross_path is None:
+                raise UpdateError(
+                    "compile_mpy=True but mpy-cross was not found on "
+                    "PATH. Install the micropython PyPI package or set "
+                    "PATH to include mpy-cross.",
+                    stage=UpdateStage.PREFLIGHT,
+                )
+            logger.info(f"mpy-cross found at {mpy_cross_path}")
+
         fw_data = firmware_path.read_bytes()
-        if len(fw_data) < 100:
+        if len(fw_data) < 10:
+            # Stubs may be tiny (e.g. "import fw40_led\n" is ~16 bytes).
+            # Hard floor at 10B guards against empty-file mishap.
             raise UpdateError(
                 f"Firmware file too small ({len(fw_data)} bytes)",
                 stage=UpdateStage.PREFLIGHT,
             )
         logger.info(f"Firmware file: {firmware_path.name} ({len(fw_data)} bytes)")
+
+        # Compile firmware_path only when compile_mpy=True AND the REMOTE
+        # name ends in .mpy. The remote name carries caller intent:
+        #   firmware_remote_name='main.py'         -> source deploy, no compile
+        #   firmware_remote_name='fw40_led.mpy'    -> compile .py source
+        # This lets deploy_firmware_bundle_fw40 send a stub main.py verbatim
+        # while compiling the module source to .mpy.
+        if (compile_mpy
+                and firmware_path.suffix == '.py'
+                and firmware_remote_name.endswith('.mpy')):
+            import tempfile
+            tmp_mpy = Path(tempfile.mkdtemp(prefix='fw40_mpy_')) / (
+                firmware_path.stem + '.mpy')
+            if not _mpy_cross_compile(firmware_path, tmp_mpy,
+                                      mpy_cross_path=mpy_cross_path):
+                raise UpdateError(
+                    f"mpy-cross failed on firmware_path {firmware_path}",
+                    stage=UpdateStage.PREFLIGHT,
+                )
+            fw_data = tmp_mpy.read_bytes()
+            logger.info(
+                f"Compiled firmware: {firmware_path.name} "
+                f"({firmware_path.stat().st_size}B) -> "
+                f"{tmp_mpy.name} ({len(fw_data)}B)"
+            )
+
+        # Validate and read extra_files up-front so any missing file fails
+        # preflight, not mid-deploy after we've already written something.
+        extra_files_data = []  # list of (remote_name, bytes)
+        if extra_files:
+            for local_path, remote_name in extra_files:
+                local_path = Path(local_path)
+                if not local_path.is_file():
+                    raise UpdateError(
+                        f"extra_files entry not found: {local_path}",
+                        stage=UpdateStage.PREFLIGHT,
+                    )
+
+                # Compile .py entries whose remote name ends in .mpy.
+                # Same caller-intent rule as firmware_path above.
+                if (compile_mpy
+                        and local_path.suffix == '.py'
+                        and str(remote_name).endswith('.mpy')):
+                    import tempfile
+                    tmp_mpy = Path(tempfile.mkdtemp(prefix='fw40_mpy_')) / (
+                        local_path.stem + '.mpy')
+                    if not _mpy_cross_compile(
+                            local_path, tmp_mpy,
+                            mpy_cross_path=mpy_cross_path):
+                        raise UpdateError(
+                            f"mpy-cross failed on extra_files entry "
+                            f"{local_path}",
+                            stage=UpdateStage.PREFLIGHT,
+                        )
+                    data = tmp_mpy.read_bytes()
+                else:
+                    data = local_path.read_bytes()
+
+                if len(data) < 1:
+                    raise UpdateError(
+                        f"extra_files entry empty: {local_path}",
+                        stage=UpdateStage.PREFLIGHT,
+                    )
+                extra_files_data.append((str(remote_name), data))
+                logger.info(
+                    f"Companion file: {local_path.name} -> "
+                    f"{remote_name} ({len(data)} bytes)"
+                )
 
         # ---- Stage 2: Connect ----
         _report_progress(progress_callback, UpdateStage.CHECKING_VERSION,
@@ -1277,22 +2126,46 @@ def deploy_firmware_file(
         _report_progress(progress_callback, UpdateStage.RESTORING_CONFIG,
                          "Deploying firmware file...", 0.40)
 
-        # soft_reset=False: old firmware may have WDT (8388ms). Soft reset
-        # kills the Timer that feeds WDT, leaving only ~8s before reset.
-        # UART writes (57KB at 115200) take ~9s — not enough time.
-        # Without soft reset, the Timer keeps feeding WDT during the write.
-        if not board.enter_raw_repl(soft_reset=False):
+        # Default soft_reset=False protects the v3.0.x LED WDT-feed Timer
+        # during a 57KB @ 115200 UART write. Callers with a WDT-free
+        # board (bare MP runtime, v3.0.4+ with WDT removed, or a post-
+        # flash blank filesystem) pass soft_reset=True to avoid the
+        # Ctrl-C-into-interactive-REPL race that breaks raw-paste writes
+        # on MP 1.27.0 bare runtime (bench-confirmed 2026-04-22).
+        if not board.enter_raw_repl(soft_reset=soft_reset):
             raise UpdateError(
                 f"Failed to enter raw REPL for firmware deploy",
                 stage=UpdateStage.RESTORING_CONFIG,
             )
 
-        if not board.repl_write_file('main.py', fw_data):
-            raise UpdateError(
-                f"Failed to write main.py ({len(fw_data)} bytes)",
-                stage=UpdateStage.RESTORING_CONFIG,
+        with _wrap_mpremote_errors(
+            UpdateStage.RESTORING_CONFIG, context="firmware deploy"
+        ):
+            # Companion files first — see docstring note on ordering: if a
+            # companion write fails, the old main.py still boots fine because
+            # main.py hasn't been replaced yet.
+            for remote_name, data in extra_files_data:
+                if not board.repl_write_file(remote_name, data):
+                    raise UpdateError(
+                        f"Failed to write companion {remote_name} "
+                        f"({len(data)} bytes)",
+                        stage=UpdateStage.RESTORING_CONFIG,
+                    )
+                logger.info(
+                    f"Deployed {remote_name} ({len(data)} bytes, "
+                    f"SHA256 verified)"
+                )
+
+            if not board.repl_write_file(firmware_remote_name, fw_data):
+                raise UpdateError(
+                    f"Failed to write {firmware_remote_name} "
+                    f"({len(fw_data)} bytes)",
+                    stage=UpdateStage.RESTORING_CONFIG,
+                )
+            logger.info(
+                f"Deployed {firmware_remote_name} ({len(fw_data)} bytes, "
+                f"SHA256 verified)"
             )
-        logger.info(f"Deployed main.py ({len(fw_data)} bytes, SHA256 verified)")
 
         # ---- Stage 5: Exit raw REPL and verify ----
         _report_progress(progress_callback, UpdateStage.VERIFYING_VERSION,
@@ -1341,3 +2214,686 @@ def deploy_firmware_file(
         _report_progress(progress_callback, UpdateStage.FAILED,
                          f"Unexpected error: {e}", 0.0)
         return result
+
+
+# ---------------------------------------------------------------------------
+# FW4.0 Field Upgrade Tool — §13.X of FIRMWARE_PLAN.md
+# ---------------------------------------------------------------------------
+#
+# Orchestrates probe → backup → bundle-deploy → verify with telemetry per
+# run. Mandate: "IT CANNOT FAIL" (Eric 2026-04-23). Every failure is a
+# specific exit code + error_code; there is no silent half-upgrade (I1).
+# Primary caller is LVP (Lumascope.upgrade_board_fw40); CLI is secondary.
+
+UPGRADE_EXIT_OK = 0
+UPGRADE_EXIT_P0_SOURCE = 10
+UPGRADE_EXIT_P1_UNRESPONSIVE = 20
+UPGRADE_EXIT_P2_BACKUP = 30
+UPGRADE_EXIT_P2_OVERWRITABLE = 35
+UPGRADE_EXIT_P4_BUNDLE = 40
+UPGRADE_EXIT_P5_VERIFY = 50
+
+
+def _load_firmware_manifest(source_tree: Path,
+                            board_type: BoardType) -> Tuple[
+                                Optional[dict], Optional[str]]:
+    """Load + validate firmware_manifest.json for a board.
+
+    Returns (manifest_entry_dict, error_message). On error the dict is
+    None; error_message is a single human-readable line for the UI.
+    """
+    manifest_path = source_tree / 'firmware_manifest.json'
+    if not manifest_path.is_file():
+        return None, f"firmware_manifest.json not found at {manifest_path}"
+    try:
+        doc = json.loads(manifest_path.read_text())
+    except Exception as e:
+        return None, f"firmware_manifest.json is not valid JSON: {e}"
+
+    board_key = board_type.value  # 'led' or 'motor'
+    entry = doc.get(board_key)
+    if not isinstance(entry, dict):
+        return None, (
+            f"firmware_manifest.json missing '{board_key}' entry")
+    for required in ('fw_version', 'main', 'features'):
+        if required not in entry:
+            return None, (
+                f"firmware_manifest.json '{board_key}' entry missing "
+                f"'{required}'")
+
+    framing = doc.get('framing')
+    if not isinstance(framing, str):
+        return None, "firmware_manifest.json missing 'framing' path"
+
+    # Resolve paths relative to source_tree
+    main_path = source_tree / entry['main']
+    framing_path = source_tree / framing
+    if not main_path.is_file():
+        return None, f"manifest main path not on disk: {main_path}"
+    if not framing_path.is_file():
+        return None, f"manifest framing path not on disk: {framing_path}"
+
+    resolved = {
+        'fw_version': str(entry['fw_version']),
+        'features': list(entry.get('features', [])),
+        'main_path': main_path,
+        'framing_path': framing_path,
+    }
+    return resolved, None
+
+
+def _probe_board_state(board) -> str:
+    """Classify the connected board from SerialBoard's cached detection.
+
+    SerialBoard.connect() / _detect_firmware_version() populates
+    firmware_version, firmware_date, firmware_responding, protocol_version,
+    and features. We read those; no re-send of INFO here. For a board that
+    didn't parse INFO we fall back to a raw-REPL liveness probe.
+
+    Returns one of:
+        'fw40_current'       — V4 firmware, required feature set present
+        'fw40_partial'       — V4 firmware, missing expected features
+        'legacy_responsive'  — pre-4.0 firmware, INFO parseable
+        'legacy_unknown'     — responds but INFO not parseable, OR raw REPL alive
+        'unresponsive'       — no INFO, no raw REPL — treat as bricked
+    """
+    # Defensive reads: SerialBoard sets these as concrete types
+    # (str | None for firmware_version, bool for firmware_responding,
+    # ProtocolVersion enum for protocol_version, list[str] for features).
+    # MagicMock returns auto-Mocks for unset attrs; we isinstance-check
+    # so a test fixture that forgets to set one doesn't get misclassified.
+    proto = getattr(board, 'protocol_version', None)
+    proto_value = getattr(proto, 'value', None) if proto is not None else None
+    proto_str = proto_value.lower() if isinstance(proto_value, str) else ''
+
+    fw_raw = getattr(board, 'firmware_version', None)
+    fw = fw_raw if isinstance(fw_raw, str) and fw_raw else None
+
+    features_raw = getattr(board, 'features', None)
+    features = (
+        [f for f in features_raw if isinstance(f, str)]
+        if isinstance(features_raw, (list, tuple))
+        else [])
+
+    responding = getattr(board, 'firmware_responding', False) is True
+
+    if proto_str == 'v4':
+        if 'fw40_framing' in features:
+            return 'fw40_current'
+        return 'fw40_partial'
+
+    if responding and fw:
+        return 'legacy_responsive'
+
+    if responding:
+        return 'legacy_unknown'
+
+    # Last resort: does raw REPL answer? If yes the board is running
+    # SOME MicroPython — treat as legacy_unknown and let the permissive
+    # deploy path run. Per §13.X.9 Q2 (Eric 2026-04-23).
+    try:
+        if board.enter_raw_repl(soft_reset=False):
+            try:
+                stdout, _ = board.repl_exec("print('fw40-probe')")
+                if stdout and b'fw40-probe' in bytes(stdout):
+                    return 'legacy_unknown'
+            finally:
+                try:
+                    board.exit_raw_repl()
+                except Exception:
+                    pass
+    except Exception:
+        pass
+
+    return 'unresponsive'
+
+
+def _soft_reset_for_classification(classification: str) -> bool:
+    """Per §13.X.4 P4 — probe classification drives soft_reset choice.
+
+    Field-upgrade classifications map to soft_reset=False across the
+    board: pre-3.0 may have a WDT-feed Timer (killed by Ctrl-D), FW4.0
+    has a running main loop we don't need to tear down. ``bare_runtime``
+    (factory bring-up, post-MP-flash blank filesystem) is a separate
+    caller path and is not produced by this probe.
+    """
+    return False
+
+
+def _parse_overwritable_flags(
+        motorconfig_bytes: bytes) -> Optional[Dict[str, int]]:
+    """Extract the Overwritable sub-object from a motorconfig.json payload.
+
+    Returns None if the field is absent, unparseable, or malformed.
+    """
+    try:
+        doc = json.loads(motorconfig_bytes)
+    except Exception:
+        return None
+    ow = doc.get('Overwritable')
+    if not isinstance(ow, dict):
+        return None
+    flags = {}
+    for k in ('Main', 'IniFiles', 'uf2'):
+        v = ow.get(k)
+        if isinstance(v, bool):
+            flags[k] = int(v)
+        elif isinstance(v, (int, float)):
+            flags[k] = int(v)
+    return flags if flags else None
+
+
+def _get_upgrade_log_dir() -> Path:
+    """Return the directory where firmware_upgrade_*.jsonl is written.
+
+    Resolved lazily from ``lvp_logger.log_dir`` so monkeypatch works in
+    tests. Creates the directory if missing (matching lvp_logger's own
+    behavior for the main log dir).
+    """
+    import lvp_logger
+    p = Path(str(lvp_logger.log_dir))
+    p.mkdir(parents=True, exist_ok=True)
+    return p
+
+
+class _UpgradeTelemetry:
+    """JSON Lines writer for an upgrade run.
+
+    One object per step written incrementally (flush + fsync per line) so
+    a host crash preserves progress. Filename starts with a provisional
+    ``_inprogress`` suffix and is renamed to include the final exit code
+    when close() is called — matches §13.X.1 I6 path shape.
+    """
+
+    def __init__(self, board_type: BoardType):
+        ts = time.strftime('%Y%m%dT%H%M%S', time.localtime())
+        self.board = board_type.value
+        log_dir = _get_upgrade_log_dir()
+        self._in_progress_name = (
+            f'firmware_upgrade_{ts}_{self.board}_inprogress.jsonl')
+        self.path = log_dir / self._in_progress_name
+        self._ts_stem = ts
+        self._f = open(self.path, 'w', encoding='utf-8')
+
+    def write(self, step: str, outcome: str, **fields) -> None:
+        obj = {
+            'timestamp': time.strftime(
+                '%Y-%m-%dT%H:%M:%S', time.localtime()),
+            'board': self.board,
+            'step': step,
+            'outcome': outcome,
+        }
+        obj.update(fields)
+        self._f.write(json.dumps(obj) + '\n')
+        self._f.flush()
+        try:
+            import os
+            os.fsync(self._f.fileno())
+        except OSError:
+            # fsync is best-effort on some filesystems; never block the
+            # upgrade on the telemetry layer.
+            pass
+
+    def close(self, exit_code: int) -> Path:
+        try:
+            self._f.close()
+        except Exception:
+            pass
+        final_name = (
+            f'firmware_upgrade_{self._ts_stem}_{self.board}'
+            f'_{exit_code}.jsonl')
+        final_path = self.path.parent / final_name
+        try:
+            self.path.rename(final_path)
+            self.path = final_path
+        except OSError as e:
+            logger.warning(
+                f'Telemetry rename {self.path} -> {final_path} failed: {e}')
+        return self.path
+
+
+def upgrade_board_fw40_from_source(
+    board_type: BoardType,
+    source_tree: Path,
+    dry_run: bool = False,
+    respect_overwritable: bool = True,
+    port: Optional[str] = None,
+    timeout: float = 2.0,
+    progress_callback: Optional[ProgressCallback] = None,
+) -> UpgradeResult:
+    """Field-upgrade a pre-3.0 or FW4.0-partial board to FW4.0-current.
+
+    Per FIRMWARE_PLAN.md §13.X. Orchestrates:
+
+      P0  host-side source + manifest + mpy-cross validation
+      P1  board probe (no writes — classify state)
+      P2  mandatory verified config backup
+      P3  existing-firmware snapshot
+      P4  bundle write via ``deploy_firmware_bundle_fw40``
+      P5  reboot + JSON INFO verify (version + features)
+      P6  finalize + telemetry close
+
+    Every gate failure produces a specific ``UpgradeResult.exit_code``
+    (see UPGRADE_EXIT_* constants). No auto-rollback on P5 failure per
+    §13.X.5. Telemetry JSONL is written on both success and abort.
+
+    Args:
+        board_type: BoardType.MOTOR or BoardType.LED.
+        source_tree: Path to the Firmware-FW4.0 repo root (contains
+            firmware_manifest.json).
+        dry_run: If True, run P0 only and exit success without opening
+            a serial transport.
+        respect_overwritable: If True (default), Overwritable.Main=0
+            aborts firmware writes with exit code 35. If False, writes
+            proceed and a warning is recorded.
+        port, timeout: Optional overrides passed to _create_board.
+        progress_callback: Optional (stage, message, fraction) callback.
+
+    Returns:
+        UpgradeResult — always populated, even on abort.
+    """
+    source_tree = Path(source_tree)
+    result = UpgradeResult(
+        success=False, board_type=board_type,
+        exit_code=UPGRADE_EXIT_P0_SOURCE,
+    )
+    telemetry: Optional[_UpgradeTelemetry] = None
+
+    try:
+        # ---- P0 — host source validation ----
+        _report_progress(progress_callback, UpdateStage.PREFLIGHT,
+                         'Validating source tree...', 0.0)
+
+        manifest, err = _load_firmware_manifest(source_tree, board_type)
+        if manifest is None:
+            result.exit_code = UPGRADE_EXIT_P0_SOURCE
+            result.error_code = 'P0_MANIFEST_INVALID'
+            result.error_message = err
+            result.error_stage = UpdateStage.PREFLIGHT
+            return result
+
+        if _find_mpy_cross() is None:
+            result.exit_code = UPGRADE_EXIT_P0_SOURCE
+            result.error_code = 'P0_MPY_CROSS_MISSING'
+            result.error_message = (
+                'mpy-cross not found on PATH. Install the micropython '
+                'PyPI package or set PATH to include mpy-cross.')
+            result.error_stage = UpdateStage.PREFLIGHT
+            return result
+
+        # Telemetry opens AFTER we know preflight passed — failing P0 is
+        # a host-side misconfig, not useful field-log content.
+        telemetry = _UpgradeTelemetry(board_type)
+        result.telemetry_log_path = telemetry.path
+        telemetry.write(
+            'P0_source_validated', 'ok',
+            fw_version=manifest['fw_version'],
+            features=manifest['features'],
+            main_size=manifest['main_path'].stat().st_size,
+            framing_size=manifest['framing_path'].stat().st_size,
+        )
+
+        if dry_run:
+            telemetry.write('dry_run', 'ok')
+            result.success = True
+            result.exit_code = UPGRADE_EXIT_OK
+            result.telemetry_log_path = telemetry.close(UPGRADE_EXIT_OK)
+            _report_progress(progress_callback, UpdateStage.COMPLETE,
+                             'Dry run complete (P0 only).', 1.0)
+            return result
+
+        # ---- P1 — probe (transport open, read-only) ----
+        _report_progress(progress_callback, UpdateStage.CHECKING_VERSION,
+                         'Probing board...', 0.10)
+        config = BOARD_CONFIGS[board_type]
+        board = _create_board(config, port=port, timeout=timeout)
+        result.old_version = (
+            getattr(board, 'firmware_version', None)
+            or getattr(board, 'firmware_date', None))
+
+        classification = _probe_board_state(board)
+        result.probe_classification = classification
+        telemetry.write(
+            'P1_probe', 'ok', classification=classification,
+            old_version=result.old_version,
+        )
+
+        if classification == 'unresponsive':
+            try:
+                board.disconnect()
+            except Exception:
+                pass
+            result.exit_code = UPGRADE_EXIT_P1_UNRESPONSIVE
+            result.error_code = 'P1_UNRESPONSIVE'
+            result.error_message = (
+                f"{config.label} board not responding — reseat USB cable "
+                f"and retry; if persistent, contact support.")
+            result.error_stage = UpdateStage.CHECKING_VERSION
+            telemetry.write(
+                'P1_probe', 'abort', error_code=result.error_code)
+            result.telemetry_log_path = telemetry.close(result.exit_code)
+            return result
+
+        # fw40_current is an idempotent-pass shortcut — board already at
+        # target. We still run P5 verify so the caller knows the features
+        # list is complete; but skip the write if everything matches.
+        idempotent_pass = False
+        if classification == 'fw40_current':
+            current_features = set(
+                getattr(board, 'features', None) or [])
+            if current_features >= set(manifest['features']):
+                idempotent_pass = True
+                telemetry.write(
+                    'P1_idempotent', 'ok',
+                    features=sorted(current_features),
+                )
+
+        # ---- P2 — mandatory verified config backup ----
+        _report_progress(progress_callback, UpdateStage.BACKING_UP_CONFIG,
+                         'Backing up config files...', 0.20)
+        import datetime
+        ts = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+        backup_dir = (Path.home() / 'Documents' / 'Etaluma'
+                      / 'firmware_backups' / f'upgrade_{ts}_{config.label}')
+        result.config_backup_path = backup_dir
+
+        configs: Dict[str, bytes] = {}
+        try:
+            configs = _backup_with_reread_verify(
+                board, config, backup_dir, progress_callback)
+        except UpdateError as e:
+            result.exit_code = UPGRADE_EXIT_P2_BACKUP
+            result.error_code = (
+                'P2_BACKUP_MISMATCH'
+                if 'mismatch' in str(e).lower()
+                else 'P2_BACKUP_FAILED')
+            result.error_message = str(e)
+            result.error_stage = e.stage
+            telemetry.write(
+                'P2_backup', 'abort', error_code=result.error_code,
+                error_message=str(e),
+            )
+            try:
+                board.disconnect()
+            except Exception:
+                pass
+            result.telemetry_log_path = telemetry.close(result.exit_code)
+            return result
+
+        telemetry.write(
+            'P2_backup', 'ok',
+            files=list(configs.keys()),
+            sizes={k: len(v) for k, v in configs.items()},
+        )
+
+        # I5 — parse Overwritable + gate firmware write if Main=0
+        ow_flags = None
+        if 'motorconfig.json' in configs:
+            ow_flags = _parse_overwritable_flags(configs['motorconfig.json'])
+        result.overwritable_flags = ow_flags
+        if ow_flags is not None:
+            telemetry.write('P2_overwritable', 'ok', flags=ow_flags)
+
+        main_blocked = bool(
+            ow_flags and ow_flags.get('Main') == 0)
+        if main_blocked and respect_overwritable:
+            result.files_skipped_overwritable.append('main')
+            result.exit_code = UPGRADE_EXIT_P2_OVERWRITABLE
+            result.error_code = 'P2_OVERWRITABLE_BLOCKED'
+            result.error_message = (
+                'Overwritable.Main=0 on board motorconfig.json — '
+                'firmware write refused. Use --ignore-overwritable to '
+                'force.')
+            result.error_stage = UpdateStage.BACKING_UP_CONFIG
+            telemetry.write(
+                'P2_overwritable', 'abort',
+                error_code=result.error_code, blocked=['main'],
+            )
+            try:
+                board.disconnect()
+            except Exception:
+                pass
+            result.telemetry_log_path = telemetry.close(result.exit_code)
+            return result
+
+        if main_blocked and not respect_overwritable:
+            msg = (
+                'Overwritable.Main=0 bypassed by respect_overwritable='
+                'False — proceeding with firmware write.')
+            result.warnings.append(msg)
+            telemetry.write('P2_overwritable', 'bypass', warning=msg)
+
+        # P3 — existing-firmware snapshot. Best-effort, not a gate.
+        # For field boards the backed-up motorconfig + any main.py that
+        # existed on device is already in backup_dir (via repl_read_file
+        # during _backup_with_reread_verify). Explicit snapshot of the
+        # pre-upgrade main.py would require another raw-REPL round; defer
+        # to a future extension if bench shows value.
+
+        # Close the raw-REPL session cleanly before handing off to the
+        # bundle helper — it opens its own.
+        try:
+            board.exit_raw_repl()
+        except Exception:
+            pass
+        try:
+            board.disconnect()
+        except Exception:
+            pass
+
+        # ---- P4 — bundle write (unless idempotent-pass) ----
+        if idempotent_pass:
+            telemetry.write('P4_bundle', 'skipped_idempotent')
+            result.new_version = result.old_version
+        else:
+            _report_progress(progress_callback, UpdateStage.RESTORING_CONFIG,
+                             'Writing FW4.0 bundle...', 0.50)
+            soft_reset = _soft_reset_for_classification(classification)
+            bundle_result = deploy_firmware_bundle_fw40(
+                board_type=board_type,
+                main_module_path=manifest['main_path'],
+                framing_path=manifest['framing_path'],
+                progress_callback=progress_callback,
+                backup_dir=backup_dir,
+                skip_config_backup=True,  # P2 already did it
+                skip_post_test=True,      # P5 handles verify
+                soft_reset=soft_reset,
+            )
+            if not bundle_result.success:
+                result.exit_code = UPGRADE_EXIT_P4_BUNDLE
+                result.error_code = 'P4_BUNDLE_WRITE_FAILED'
+                result.error_message = (
+                    bundle_result.error_message
+                    or 'Bundle write failed')
+                result.error_stage = (
+                    bundle_result.error_stage or UpdateStage.FAILED)
+                telemetry.write(
+                    'P4_bundle', 'abort',
+                    error_code=result.error_code,
+                    error_message=result.error_message,
+                )
+                result.telemetry_log_path = telemetry.close(
+                    result.exit_code)
+                return result
+
+            result.new_version = bundle_result.new_version
+            result.files_written = [
+                'fw40_framing.mpy',
+                f'fw40_{board_type.value}.mpy',
+                'main.py',
+            ]
+            telemetry.write(
+                'P4_bundle', 'ok',
+                files_written=result.files_written,
+                soft_reset=soft_reset,
+                old_version=bundle_result.old_version,
+                new_version=bundle_result.new_version,
+            )
+
+        # ---- P5 — reboot + JSON INFO verify ----
+        _report_progress(progress_callback, UpdateStage.VERIFYING_VERSION,
+                         'Verifying new firmware...', 0.85)
+        verify_board = _create_board(config, port=port, timeout=timeout)
+        try:
+            verify_board.detect_firmware_version()
+            new_fw = getattr(verify_board, 'firmware_version', None)
+            new_features = set(
+                getattr(verify_board, 'features', None) or [])
+            result.new_version = new_fw or result.new_version
+
+            expected_version = manifest['fw_version']
+            expected_features = set(manifest['features'])
+
+            if str(new_fw or '') != str(expected_version):
+                result.exit_code = UPGRADE_EXIT_P5_VERIFY
+                result.error_code = 'P5_VERSION_MISMATCH'
+                result.error_message = (
+                    f"Post-flash version {new_fw!r} does not match "
+                    f"manifest {expected_version!r}. Original config "
+                    f"preserved; firmware flash incomplete. No "
+                    f"auto-rollback (§13.X.5).")
+                result.error_stage = UpdateStage.VERIFYING_VERSION
+                telemetry.write(
+                    'P5_verify', 'abort',
+                    error_code=result.error_code,
+                    expected=expected_version, actual=new_fw,
+                )
+                result.telemetry_log_path = telemetry.close(
+                    result.exit_code)
+                return result
+
+            missing = expected_features - new_features
+            if missing:
+                result.exit_code = UPGRADE_EXIT_P5_VERIFY
+                result.error_code = 'P5_FEATURES_MISSING'
+                result.error_message = (
+                    f"Post-flash firmware missing expected features: "
+                    f"{sorted(missing)}. Original config preserved. No "
+                    f"auto-rollback (§13.X.5).")
+                result.error_stage = UpdateStage.VERIFYING_VERSION
+                telemetry.write(
+                    'P5_verify', 'abort',
+                    error_code=result.error_code,
+                    expected=sorted(expected_features),
+                    actual=sorted(new_features),
+                    missing=sorted(missing),
+                )
+                result.telemetry_log_path = telemetry.close(
+                    result.exit_code)
+                return result
+
+            telemetry.write(
+                'P5_verify', 'ok',
+                fw_version=new_fw,
+                features=sorted(new_features),
+            )
+        finally:
+            try:
+                verify_board.disconnect()
+            except Exception:
+                pass
+
+        # ---- P6 — finalize ----
+        result.success = True
+        result.exit_code = UPGRADE_EXIT_OK
+        telemetry.write('P6_finalize', 'ok')
+        result.telemetry_log_path = telemetry.close(UPGRADE_EXIT_OK)
+        _report_progress(progress_callback, UpdateStage.COMPLETE,
+                         'Upgrade complete.', 1.0)
+        logger.info(
+            f"[UPGRADE] {config.label} {result.old_version} -> "
+            f"{result.new_version} success (telemetry={result.telemetry_log_path})")
+        return result
+
+    except Exception as e:
+        result.exit_code = result.exit_code or UPGRADE_EXIT_P0_SOURCE
+        result.error_message = f"Unexpected error: {e}"
+        result.error_stage = UpdateStage.FAILED
+        logger.error(f"Upgrade unexpected error: {e}", exc_info=True)
+        if telemetry is not None:
+            try:
+                telemetry.write(
+                    'unexpected_error', 'abort', error=str(e))
+                result.telemetry_log_path = telemetry.close(
+                    result.exit_code)
+            except Exception:
+                pass
+        _report_progress(progress_callback, UpdateStage.FAILED,
+                         f"Unexpected error: {e}", 0.0)
+        return result
+
+
+def _backup_with_reread_verify(
+    board,
+    board_config: BoardConfig,
+    backup_dir: Path,
+    progress_callback=None,
+) -> Dict[str, bytes]:
+    """P2 — read every config file via raw REPL, save to disk, then
+    re-read from board and byte-compare against the saved copy. Raises
+    UpdateError if any file mismatches or cannot be read.
+
+    Stronger than _backup_configs (which relies on per-read SHA256 only);
+    this closes the race where the device filesystem could be mutating
+    during the upgrade run.
+    """
+    if not board.enter_raw_repl():
+        raise UpdateError(
+            f"Failed to enter raw REPL for P2 backup",
+            stage=UpdateStage.BACKING_UP_CONFIG,
+        )
+    configs: Dict[str, bytes] = {}
+    try:
+        with _wrap_mpremote_errors(
+                UpdateStage.BACKING_UP_CONFIG, context="P2 backup"):
+            board_files = board.repl_list_files()
+            for filename in board_config.config_files:
+                if filename not in board_files:
+                    continue
+                _report_progress(
+                    progress_callback, UpdateStage.BACKING_UP_CONFIG,
+                    f"Reading {filename}...", 0.22)
+                data = board.repl_read_file(filename, verify=True)
+                if data is None:
+                    raise UpdateError(
+                        f"Failed to read {filename}",
+                        stage=UpdateStage.BACKING_UP_CONFIG,
+                    )
+                configs[filename] = data
+
+            # Re-read + byte-compare — I2 P2 gate
+            for filename, expected in configs.items():
+                _report_progress(
+                    progress_callback, UpdateStage.BACKING_UP_CONFIG,
+                    f"Re-verifying {filename}...", 0.26)
+                second = board.repl_read_file(filename, verify=True)
+                if second is None:
+                    raise UpdateError(
+                        f"Re-read of {filename} returned no data",
+                        stage=UpdateStage.BACKING_UP_CONFIG,
+                    )
+                if second != expected:
+                    raise UpdateError(
+                        f"P2 byte-compare mismatch on {filename} "
+                        f"(first={len(expected)}B second={len(second)}B)",
+                        stage=UpdateStage.BACKING_UP_CONFIG,
+                    )
+    finally:
+        try:
+            board.exit_raw_repl()
+        except Exception:
+            pass
+
+    # Persist to disk
+    backup_dir.mkdir(parents=True, exist_ok=True)
+    board_dir = backup_dir / board_config.board_type.value
+    board_dir.mkdir(exist_ok=True)
+    manifest = {}
+    for filename, data in configs.items():
+        local_path = board_dir / filename
+        local_path.write_bytes(data)
+        sha = hashlib.sha256(data).hexdigest()
+        manifest[filename] = {'size': len(data), 'sha256': sha}
+    (board_dir / 'backup_manifest.json').write_text(
+        json.dumps(manifest, indent=2))
+    return configs

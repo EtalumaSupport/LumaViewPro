@@ -482,6 +482,51 @@ class SimulatedMotorBoard:
             return False
         return 'successful' in resp.lower() or 'complete' in resp.lower()
 
+    # ------------------------------------------------------------------
+    # Fan control (simulates a HiLo-type fan; no PWM/tach in sim)
+    # ------------------------------------------------------------------
+    def get_fan_status(self):
+        return {
+            'mode': 'HILO',
+            'state': getattr(self, '_sim_fan_state', 'OFF'),
+            'fan_pct': None,
+            'tach_rpm': None,
+            'raw': None,
+        }
+
+    def fan_supports_pwm(self):
+        return False
+
+    def set_fan_hilo(self, state):
+        state_u = str(state).upper()
+        if state_u not in ('HI', 'LO', 'OFF'):
+            raise ValueError(f'state must be HI/LO/OFF, got {state!r}')
+        self._sim_fan_state = state_u
+        return True
+
+    def set_fan_pwm(self, pct):
+        try:
+            pct = int(pct)
+        except (TypeError, ValueError):
+            raise ValueError(f'pct must be int 0-100, got {pct!r}')
+        if not (0 <= pct <= 100):
+            raise ValueError(f'pct must be 0-100, got {pct}')
+        return False  # sim has no PWM fan
+
+    def stop(self):
+        """Simulated emergency-halt — mirrors MotorBoard.stop() shape."""
+        self.exchange_command('STOP')
+        present = {
+            ax: getattr(self, 'actual_pos', {}).get(ax, 0)
+            for ax in ('X', 'Y', 'Z', 'T')
+            if ax in getattr(self, 'present_axes', ['X', 'Y', 'Z', 'T'])
+        }
+        return {
+            'ok': True, 'stopped': True,
+            'positions': present or None,
+            'response': 'STOPPED',
+        }
+
     def home(self):
         resp = self.exchange_command('HOME')
         logger.info(f'[XYZ Sim   ] SimulatedMotorBoard.home() -> {resp}')
@@ -773,3 +818,110 @@ class SimulatedMotorBoard:
 
     def verify_firmware_running(self, timeout=10):
         return 'Simulated firmware running'
+
+    # ------------------------------------------------------------------
+    # FW4.0 V4 surface — matches SerialBoard + MotorBoard Phase 4A/4C.
+    # Architecture Rule 11: simulator parity ships with the real driver.
+    # ------------------------------------------------------------------
+    _DEFAULT_SIM_FEATURES = ['id', 'positions', 'drv_status', 'limit_sw',
+                             'motor_detect', 'voltage', 'current', 'status',
+                             'pos_write', 'motor_param', 'fan', 'stop',
+                             'spi_reg', 'fwupdate', 'home', 'events', 'diag']
+
+    @property
+    def features(self):
+        if not hasattr(self, '_features_override'):
+            return list(self._DEFAULT_SIM_FEATURES)
+        return self._features_override
+
+    @features.setter
+    def features(self, value):
+        self._features_override = list(value) if value is not None else None
+
+    def has_feature(self, name):
+        return name in self.features
+
+    # Motor V4 command surface — kept in lock-step with the @fw.command(...)
+    # decorators in Motor Controller/Firmware/main.py. When firmware grows a
+    # new cmd, add it here so the simulator keeps producing UNKNOWN_CMD for
+    # genuinely-unknown names (which id-echo release-gate tests rely on).
+    _V4_KNOWN_CMDS = frozenset({
+        'INFO', 'HEAP', 'CONFIG', 'STATUS', 'EVENTS', 'HOME', 'STOP',
+        'POS_READ', 'POS_WRITE', 'POSITIONS', 'LIMIT_SW', 'DRV_STATUS',
+        'CURRENT', 'MOTOR_DETECT', 'MOTOR_PARAM', 'VOLTAGE', 'FAN',
+        'SPI_REG', 'FWUPDATE', 'DIAG',
+    })
+
+    def exchange_json(self, payload, timeout=None):
+        """Simulated V4 command. Returns plausible ok:True response
+        echoing cmd and id; tests that need specific response shapes
+        monkey-patch this method. Unknown cmd names produce the firmware
+        UNKNOWN_CMD error envelope (shape matches fw40_framing.handle_line)
+        so id-echo-on-error paths are exercised under the simulator."""
+        if not isinstance(payload, dict) or 'cmd' not in payload:
+            return None
+        cmd = payload.get('cmd')
+        if cmd not in self._V4_KNOWN_CMDS:
+            resp = {'ok': False, 'cmd': cmd, 'err': 'UNKNOWN_CMD',
+                    'msg': 'unknown command'}
+            if 'id' in payload:
+                resp['id'] = payload['id']
+            return resp
+        resp = {'ok': True, 'cmd': cmd}
+        if 'id' in payload:
+            resp['id'] = payload['id']
+        for key in ('axis', 'target'):
+            if key in payload:
+                resp[key] = payload[key]
+        return resp
+
+    # Motion-event subsystem (FW4.0 EVENTS ON). Simulator state:
+    on_event = None  # SerialBoard-compatible slot; set by _install_event_dispatcher
+
+    def _on_event_dispatch(self, msg):
+        """Same router as real MotorBoard — filters by event name,
+        calls subscriber callback."""
+        evt = msg.get('event')
+        if evt == 'arrived' and getattr(self, '_arrived_callback', None) is not None:
+            try:
+                self._arrived_callback(msg.get('axis'), msg.get('pos'))
+            except Exception:
+                pass
+        elif evt == 'homed' and getattr(self, '_homed_callback', None) is not None:
+            try:
+                self._homed_callback(msg.get('axis'), msg.get('pos'))
+            except Exception:
+                pass
+
+    def set_arrived_callback(self, fn):
+        self._arrived_callback = fn
+        if self.on_event is not self._on_event_dispatch:
+            self.on_event = self._on_event_dispatch
+
+    def set_homed_callback(self, fn):
+        self._homed_callback = fn
+        if self.on_event is not self._on_event_dispatch:
+            self.on_event = self._on_event_dispatch
+
+    def motion_events_on(self):
+        """Simulator always succeeds — events are conceptually on."""
+        return True
+
+    def motion_events_off(self):
+        return True
+
+    def positions_batch(self):
+        """Batch position read. Returns dict of present axes → simulated
+        position. On the simulator, we don't track per-axis simulated
+        position deeply for this — return zeroes as a safe default; tests
+        needing richer simulation can monkey-patch or subclass."""
+        out = {}
+        for axis in ('X', 'Y', 'Z', 'T'):
+            if axis in getattr(self, 'axes', ['X', 'Y', 'Z', 'T']):
+                # Fall back to current_pos_steps if present.
+                try:
+                    pos = self.current_pos_steps(axis)
+                except Exception:
+                    pos = 0
+                out[axis] = pos if pos is not None else 0
+        return out

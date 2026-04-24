@@ -1,6 +1,7 @@
 #!/usr/bin/python3
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 
+import collections
 import contextlib
 import datetime
 import os
@@ -266,6 +267,32 @@ class Lumascope():
         self._camera_listeners_lock = threading.Lock()
         self._camera_listeners = []
 
+        # Fan change listeners — push-based for the Microscope Settings tab
+        # tach-RPM readout. Each listener is called with the full fan-status
+        # dict ({'mode', 'state', 'fan_pct', 'tach_rpm', 'tach_rpm_avg', ...})
+        # whenever a periodic poll fires (Stage 3) or a set_fan_* call lands.
+        # Fires from the poll thread, so listeners MUST schedule UI work via
+        # Clock.schedule_once.
+        self._fan_listeners_lock = threading.Lock()
+        self._fan_listeners = []
+
+        # Fan polling thread (Stage 3) — runs only while at least one
+        # subscriber has opted in via enable_fan_polling(True, source=...).
+        # Each subscriber is identified by a `source` string for refcount
+        # semantics: the UI tab can enable/disable independently of any
+        # future perf-log subscriber without either stepping on the other.
+        # Firmware tach averages a 1-second hardware bucket; polling at
+        # 1 Hz gives one fresh value per tick. N=5 moving average is
+        # computed in LVP and surfaced as `tach_rpm_avg` on the status
+        # dict passed to listeners.
+        self._fan_monitor_lock = threading.Lock()
+        self._fan_poll_sources: set = set()
+        self._fan_poll_interval: float = 1.0
+        self._fan_monitor_stop = threading.Event()
+        self._fan_monitor_wake = threading.Event()
+        self._fan_monitor_thread = None
+        self._fan_rpm_history: collections.deque = collections.deque(maxlen=5)
+
         # Lock for motion profile dict (built below, after motion driver init).
         self._move_profile_lock = threading.Lock()
 
@@ -303,6 +330,26 @@ class Lumascope():
         for ev in self._arrival_events.values():
             ev.set()  # Start as "arrived" (not moving)
         self._move_profile = {ax: None for ax in present_axes}
+
+        # ----- FW4.0 motion-event subscribers -----
+        # On FW4.0 firmware, the motorboard emits arrived/homed push events
+        # on rising edge of (pos_reached AND vel_zero). Subscribing here
+        # lets the motion monitor drop its 50 Hz STATUS poll (which held
+        # SerialBoard._lock for ~32 ms per call — 1.80 s of contention per
+        # 36-step bench run per the 2026-04-13 profile) to a 2 Hz watchdog.
+        # On LEGACY v3.0.x boards, has_feature('events') is False and the
+        # monitor keeps the 50 Hz poll. Both lanes are equal-class.
+        self._motion_poll_interval = self._MOTION_POLL_INTERVAL
+        if hasattr(self.motion, 'set_arrived_callback'):
+            self.motion.set_arrived_callback(self._on_axis_arrived)
+        if hasattr(self.motion, 'set_homed_callback'):
+            self.motion.set_homed_callback(self._on_axis_homed)
+        if (hasattr(self.motion, 'motion_events_on')
+                and hasattr(self.motion, 'has_feature')
+                and self.motion.has_feature('events')):
+            if self.motion.motion_events_on():
+                self._motion_poll_interval = 0.5  # 2 Hz watchdog
+                logger.info('[SCOPE API ] FW4.0 motion events enabled; watchdog at 2 Hz')
 
         # ----- Motion monitor thread -----
         # Started AFTER motion + per-axis dicts are populated so the
@@ -515,16 +562,40 @@ class Lumascope():
 
     # --- Motion monitor (Phase 1A) ---
 
-    _MOTION_POLL_INTERVAL = 0.02  # 50 Hz
+    _MOTION_POLL_INTERVAL = 0.02  # 50 Hz default (LEGACY v3.0.x boards)
+
+    def _on_axis_arrived(self, axis, pos):
+        """FW4.0 arrived-event callback (Phase 4D).
+
+        Fired from SerialBoard's read thread when firmware emits
+        {"event":"arrived",...} on rising edge of (pos_reached AND
+        vel_zero). Flips axis state to IDLE immediately, bypassing the
+        2 Hz STATUS watchdog. Must be fast — no blocking work inline.
+        """
+        if axis in self._axis_state:
+            self._set_axis_state(axis, AxisState.IDLE)
+
+    def _on_axis_homed(self, axis, pos):
+        """FW4.0 homed-event callback (Phase 4D).
+
+        Structurally identical to _on_axis_arrived — axis has reached
+        zero and is idle. Flip to IDLE.
+        """
+        if axis in self._axis_state:
+            self._set_axis_state(axis, AxisState.IDLE)
 
     def _motion_monitor_loop(self):
-        """Background thread: polls firmware for axis arrival at 50 Hz.
+        """Background thread: polls firmware for axis arrival.
 
         Sleeps on ``_motion_wake`` when all axes are IDLE. Wakes when any
         axis transitions to MOVING. Polls ``get_target_status()`` per
         MOVING axis and transitions them to IDLE on arrival. This is the
         single place where firmware target-status queries happen during
         normal operation — all other code reads the in-memory axis state.
+
+        On FW4.0 firmware (has_feature('events')), the arrived/homed push
+        events are the fast path and this poll drops to a 2 Hz watchdog
+        — see _motion_poll_interval init in __init__.
         """
         while not self._motion_monitor_stop.is_set():
             # Sleep until something starts moving (or shutdown)
@@ -545,7 +616,7 @@ class Lumascope():
                     # Also check overshoot — if overshoot is active,
                     # the monitor should keep running
                     if hasattr(self.motion, 'overshoot') and self.motion.overshoot:
-                        time.sleep(self._MOTION_POLL_INTERVAL)
+                        time.sleep(self._motion_poll_interval)
                         continue
                     # All axes arrived — go back to sleep
                     self._motion_wake.clear()
@@ -571,7 +642,7 @@ class Lumascope():
                         except Exception as e:
                             logger.warning(f'[SCOPE API ] Motion monitor: target_status({ax}) failed: {e}')
 
-                time.sleep(self._MOTION_POLL_INTERVAL)
+                time.sleep(self._motion_poll_interval)
 
     def _stop_motion_monitor(self):
         """Stop the motion monitor thread (called during disconnect)."""
@@ -579,6 +650,574 @@ class Lumascope():
         self._motion_wake.set()  # unblock if sleeping
         if self._motion_monitor_thread.is_alive():
             self._motion_monitor_thread.join(timeout=1.0)
+
+    # --- Firmware update (Phase 4E) ---
+    #
+    # API-level orchestration of the production firmware_updater. Callers
+    # (CLI tool, GUI, engineering plugin, automated tests) go through one
+    # of the two methods below; none reach into drivers.firmware_updater
+    # directly. The API owns the scope's driver lifecycle — disconnecting
+    # the active driver before the deploy so firmware_updater can claim
+    # the port, replacing it with a Null driver so concurrent callers
+    # (including the motion monitor thread) safely no-op during the
+    # ~15-second deploy window, then rebuilding via the same registry
+    # path __init__ used and rewiring Phase 4D event callbacks.
+
+    def _is_simulated_scope(self):
+        """True iff this Lumascope is in an explicit simulator mode.
+
+        Distinct from 'no hardware detected' (NullMotionBoard / NullLEDBoard)
+        because the firmware-update flow may legitimately run against a
+        board that's currently not serial-enumerated — e.g. a motor board
+        that's been manually placed into BOOTSEL for recovery. In that
+        case NullMotionBoard is installed (no serial enumeration) but we
+        DO want to proceed with the UF2 / factory-reset path against the
+        BOOTSEL drive. Only short-circuit on true simulator modes.
+        """
+        if getattr(self, '_simulated', False):
+            return True
+        if self.motion.__class__.__name__ == 'SimulatedMotorBoard':
+            return True
+        return False
+
+    def update_motor_firmware(self, firmware_path, progress_callback=None,
+                              skip_config_backup=False, skip_post_test=False):
+        """Deploy a new motor-board main.py via raw REPL.
+
+        Uses drivers.firmware_updater.deploy_firmware_file unchanged; this
+        wrapper coordinates Lumascope's own state (motion driver, FW4.0
+        event subsystem, motion monitor).
+
+        Args:
+            firmware_path: Path to main.py to deploy.
+            progress_callback: Optional (stage, message, fraction) callback.
+            skip_config_backup: Skip motorconfig.json + *.ini backup.
+            skip_post_test: Skip the post-update INFO/STATUS verification.
+
+        Returns:
+            UpdateResult from firmware_updater. Check result.success.
+        """
+        from drivers.firmware_updater import (
+            deploy_firmware_file, BoardType, UpdateResult, UpdateStage,
+        )
+
+        if self._is_simulated_scope():
+            r = UpdateResult(success=True, board_type=BoardType.MOTOR)
+            r.old_version = 'simulated'
+            r.new_version = 'simulated'
+            logger.info('[SCOPE API ] update_motor_firmware: simulator short-circuit')
+            return r
+
+        # Quiesce: disable FW4.0 event push (if active), disconnect the
+        # real driver, swap in a Null so the motion monitor / any other
+        # caller harmlessly no-ops during the deploy.
+        if hasattr(self.motion, 'motion_events_off'):
+            try:
+                self.motion.motion_events_off()
+            except Exception as e:
+                logger.warning(f'[SCOPE API ] update_motor_firmware: motion_events_off failed: {e}')
+        try:
+            self.motion.disconnect()
+        except Exception as e:
+            logger.warning(f'[SCOPE API ] update_motor_firmware: motion.disconnect failed: {e}')
+        self.motion = NullMotionBoard()
+        self._motion_poll_interval = self._MOTION_POLL_INTERVAL
+
+        result = None
+        try:
+            result = deploy_firmware_file(
+                BoardType.MOTOR, firmware_path,
+                progress_callback=progress_callback,
+                skip_config_backup=skip_config_backup,
+                skip_post_test=skip_post_test,
+            )
+        finally:
+            # Reconnect the real driver through the same registry path
+            # __init__ used, then rewire Phase 4D event callbacks. Any
+            # failure (e.g., firmware didn't come back up cleanly) leaves
+            # the scope with a NullMotionBoard so it stays usable.
+            try:
+                self.motion = motor_registry.create('auto', simulate=False)
+                if hasattr(self.motion, 'set_arrived_callback'):
+                    self.motion.set_arrived_callback(self._on_axis_arrived)
+                if hasattr(self.motion, 'set_homed_callback'):
+                    self.motion.set_homed_callback(self._on_axis_homed)
+                if (hasattr(self.motion, 'motion_events_on')
+                        and hasattr(self.motion, 'has_feature')
+                        and self.motion.has_feature('events')):
+                    if self.motion.motion_events_on():
+                        self._motion_poll_interval = 0.5
+                # Capabilities may have changed (new firmware, new
+                # features). Rebuild so callers see the updated surface.
+                self.capabilities = ScopeCapabilities.from_drivers(
+                    motion=self.motion, led=self.led,
+                    camera=self.camera, led_max_ma=self.LED_MAX_MA,
+                )
+            except Exception as e:
+                logger.error(f'[SCOPE API ] update_motor_firmware: reconnect failed: {e}')
+                self.motion = NullMotionBoard()
+                if result is not None:
+                    result.warnings.append(f'Post-update reconnect failed: {e}')
+
+        return result
+
+    def update_motor_firmware_uf2(self, uf2_path, progress_callback=None,
+                                  skip_config_backup=False, skip_post_test=False):
+        """Deploy a full MicroPython + main.py UF2 to the motor board.
+
+        Uses the FWUPDATE → bootloader → UF2 copy path (firmware_updater.
+        update_firmware). Needed when the MicroPython runtime itself is
+        changing (e.g. 1.19 → 1.28), not just main.py. Motor only — the
+        LED board has no direct USB to the RP2040 and cannot UF2-flash
+        in the field.
+
+        Same scope-lifecycle coordination as update_motor_firmware: events
+        off, disconnect, deploy, reconnect, rewire Phase 4D callbacks,
+        rebuild capabilities.
+        """
+        from drivers.firmware_updater import (
+            update_firmware, BoardType, UpdateResult,
+        )
+
+        if self._is_simulated_scope():
+            r = UpdateResult(success=True, board_type=BoardType.MOTOR)
+            r.old_version = 'simulated'
+            r.new_version = 'simulated'
+            logger.info('[SCOPE API ] update_motor_firmware_uf2: simulator short-circuit')
+            return r
+
+        if hasattr(self.motion, 'motion_events_off'):
+            try:
+                self.motion.motion_events_off()
+            except Exception as e:
+                logger.warning(f'[SCOPE API ] update_motor_firmware_uf2: motion_events_off failed: {e}')
+        try:
+            self.motion.disconnect()
+        except Exception as e:
+            logger.warning(f'[SCOPE API ] update_motor_firmware_uf2: motion.disconnect failed: {e}')
+        self.motion = NullMotionBoard()
+        self._motion_poll_interval = self._MOTION_POLL_INTERVAL
+
+        result = None
+        try:
+            result = update_firmware(
+                BoardType.MOTOR, uf2_path,
+                progress_callback=progress_callback,
+                skip_config_backup=skip_config_backup,
+                skip_post_test=skip_post_test,
+            )
+        finally:
+            try:
+                self.motion = motor_registry.create('auto', simulate=False)
+                if hasattr(self.motion, 'set_arrived_callback'):
+                    self.motion.set_arrived_callback(self._on_axis_arrived)
+                if hasattr(self.motion, 'set_homed_callback'):
+                    self.motion.set_homed_callback(self._on_axis_homed)
+                if (hasattr(self.motion, 'motion_events_on')
+                        and hasattr(self.motion, 'has_feature')
+                        and self.motion.has_feature('events')):
+                    if self.motion.motion_events_on():
+                        self._motion_poll_interval = 0.5
+                self.capabilities = ScopeCapabilities.from_drivers(
+                    motion=self.motion, led=self.led,
+                    camera=self.camera, led_max_ma=self.LED_MAX_MA,
+                )
+            except Exception as e:
+                logger.error(f'[SCOPE API ] update_motor_firmware_uf2: reconnect failed: {e}')
+                self.motion = NullMotionBoard()
+                if result is not None:
+                    result.warnings.append(f'Post-update reconnect failed: {e}')
+
+        return result
+
+    def factory_reset_motor(self, nuke_uf2_path, runtime_uf2_path,
+                            main_py_path, progress_callback=None,
+                            skip_post_test=False):
+        """Full factory-reset recovery for the motor board.
+
+        Use when motor firmware is broken in a way that blocks raw REPL
+        (e.g. a main.py that wraps stdout in machine.disable_irq, killing
+        Ctrl-C delivery). Chains nuke → runtime UF2 flash → main.py push
+        — three firmware_updater primitives — in one API call.
+
+        Motor only. LED boards have no direct USB, so their factory reset
+        needs physical BOOTSEL access.
+
+        Same scope-lifecycle coordination as update_motor_firmware_uf2:
+        events off, disconnect, run factory_reset_motor_board, reconnect,
+        rewire Phase 4D callbacks, rebuild capabilities.
+        """
+        from drivers.firmware_updater import (
+            factory_reset_motor_board, BoardType, UpdateResult,
+        )
+
+        if self._is_simulated_scope():
+            r = UpdateResult(success=True, board_type=BoardType.MOTOR)
+            r.old_version = 'simulated'
+            r.new_version = 'simulated'
+            logger.info('[SCOPE API ] factory_reset_motor: simulator short-circuit')
+            return r
+
+        if hasattr(self.motion, 'motion_events_off'):
+            try:
+                self.motion.motion_events_off()
+            except Exception as e:
+                logger.warning(f'[SCOPE API ] factory_reset_motor: motion_events_off failed: {e}')
+        try:
+            self.motion.disconnect()
+        except Exception as e:
+            logger.warning(f'[SCOPE API ] factory_reset_motor: motion.disconnect failed: {e}')
+        self.motion = NullMotionBoard()
+        self._motion_poll_interval = self._MOTION_POLL_INTERVAL
+
+        result = None
+        try:
+            result = factory_reset_motor_board(
+                nuke_uf2_path, runtime_uf2_path, main_py_path,
+                progress_callback=progress_callback,
+                skip_post_test=skip_post_test,
+            )
+        finally:
+            try:
+                self.motion = motor_registry.create('auto', simulate=False)
+                if hasattr(self.motion, 'set_arrived_callback'):
+                    self.motion.set_arrived_callback(self._on_axis_arrived)
+                if hasattr(self.motion, 'set_homed_callback'):
+                    self.motion.set_homed_callback(self._on_axis_homed)
+                if (hasattr(self.motion, 'motion_events_on')
+                        and hasattr(self.motion, 'has_feature')
+                        and self.motion.has_feature('events')):
+                    if self.motion.motion_events_on():
+                        self._motion_poll_interval = 0.5
+                self.capabilities = ScopeCapabilities.from_drivers(
+                    motion=self.motion, led=self.led,
+                    camera=self.camera, led_max_ma=self.LED_MAX_MA,
+                )
+            except Exception as e:
+                logger.error(f'[SCOPE API ] factory_reset_motor: reconnect failed: {e}')
+                self.motion = NullMotionBoard()
+                if result is not None:
+                    result.warnings.append(f'Post-reset reconnect failed: {e}')
+
+        return result
+
+    def restore_motor_configs(self, backup_dir, progress_callback=None,
+                              file_filter=None):
+        """Push config files from a local backup dir to the motor board.
+
+        Symmetric counterpart of the deploy_firmware_file backup stage.
+        Use after factory_reset_motor (the nuke wipes motorconfig.json +
+        INI files) or any time a board's per-unit configs need to be
+        restored or cloned from a known-good archive.
+
+        Wraps drivers.firmware_updater.restore_configs_from_backup with
+        the same driver-lifecycle coordination as update_motor_firmware:
+        events off, disconnect Lumascope's motor driver, run restore
+        (which opens its own SerialBoard session), reconnect + rewire
+        Phase 4D event callbacks.
+        """
+        from drivers.firmware_updater import (
+            restore_configs_from_backup, BoardType, UpdateResult,
+        )
+
+        if self._is_simulated_scope():
+            r = UpdateResult(success=True, board_type=BoardType.MOTOR)
+            r.old_version = 'simulated'
+            r.new_version = 'simulated'
+            logger.info('[SCOPE API ] restore_motor_configs: simulator short-circuit')
+            return r
+
+        if hasattr(self.motion, 'motion_events_off'):
+            try:
+                self.motion.motion_events_off()
+            except Exception as e:
+                logger.warning(f'[SCOPE API ] restore_motor_configs: motion_events_off failed: {e}')
+        try:
+            self.motion.disconnect()
+        except Exception as e:
+            logger.warning(f'[SCOPE API ] restore_motor_configs: motion.disconnect failed: {e}')
+        self.motion = NullMotionBoard()
+        self._motion_poll_interval = self._MOTION_POLL_INTERVAL
+
+        result = None
+        try:
+            result = restore_configs_from_backup(
+                BoardType.MOTOR, backup_dir,
+                progress_callback=progress_callback,
+                file_filter=file_filter,
+            )
+        finally:
+            try:
+                self.motion = motor_registry.create('auto', simulate=False)
+                if hasattr(self.motion, 'set_arrived_callback'):
+                    self.motion.set_arrived_callback(self._on_axis_arrived)
+                if hasattr(self.motion, 'set_homed_callback'):
+                    self.motion.set_homed_callback(self._on_axis_homed)
+                if (hasattr(self.motion, 'motion_events_on')
+                        and hasattr(self.motion, 'has_feature')
+                        and self.motion.has_feature('events')):
+                    if self.motion.motion_events_on():
+                        self._motion_poll_interval = 0.5
+                self.capabilities = ScopeCapabilities.from_drivers(
+                    motion=self.motion, led=self.led,
+                    camera=self.camera, led_max_ma=self.LED_MAX_MA,
+                )
+            except Exception as e:
+                logger.error(f'[SCOPE API ] restore_motor_configs: reconnect failed: {e}')
+                self.motion = NullMotionBoard()
+                if result is not None:
+                    result.warnings.append(f'Post-restore reconnect failed: {e}')
+
+        return result
+
+    def restore_led_configs(self, backup_dir, progress_callback=None,
+                            file_filter=None):
+        """Push LED config files (cal.json) from a backup dir to the LED
+        board. Same contract as restore_motor_configs, for BoardType.LED.
+        """
+        from drivers.firmware_updater import (
+            restore_configs_from_backup, BoardType, UpdateResult,
+        )
+
+        if (self._is_simulated_scope()
+                or self.led.__class__.__name__ == 'SimulatedLEDBoard'):
+            r = UpdateResult(success=True, board_type=BoardType.LED)
+            r.old_version = 'simulated'
+            r.new_version = 'simulated'
+            logger.info('[SCOPE API ] restore_led_configs: simulator short-circuit')
+            return r
+
+        try:
+            self.led.disconnect()
+        except Exception as e:
+            logger.warning(f'[SCOPE API ] restore_led_configs: led.disconnect failed: {e}')
+        self.led = NullLEDBoard()
+
+        result = None
+        try:
+            result = restore_configs_from_backup(
+                BoardType.LED, backup_dir,
+                progress_callback=progress_callback,
+                file_filter=file_filter,
+            )
+        finally:
+            try:
+                self.led = led_registry.create('auto', simulate=False)
+                self.capabilities = ScopeCapabilities.from_drivers(
+                    motion=self.motion, led=self.led,
+                    camera=self.camera, led_max_ma=self.LED_MAX_MA,
+                )
+            except Exception as e:
+                logger.error(f'[SCOPE API ] restore_led_configs: reconnect failed: {e}')
+                self.led = NullLEDBoard()
+                if result is not None:
+                    result.warnings.append(f'Post-restore reconnect failed: {e}')
+
+        return result
+
+    def update_led_firmware(self, firmware_path, progress_callback=None,
+                            skip_config_backup=False, skip_post_test=False):
+        """Deploy a new LED-board main.py via raw REPL.
+
+        Same contract as update_motor_firmware, but for the LED board.
+        LED firmware has no event subsystem yet (deferred to FW4.1), so
+        no callback rewire — just driver-lifecycle coordination.
+        """
+        from drivers.firmware_updater import (
+            deploy_firmware_file, BoardType, UpdateResult, UpdateStage,
+        )
+
+        # For LED, add a class-name check since _is_simulated_scope() only
+        # inspects the motor driver. A Lumascope with real motor + sim LED
+        # still needs the LED update to short-circuit on the sim LED.
+        if (self._is_simulated_scope()
+                or self.led.__class__.__name__ == 'SimulatedLEDBoard'):
+            r = UpdateResult(success=True, board_type=BoardType.LED)
+            r.old_version = 'simulated'
+            r.new_version = 'simulated'
+            logger.info('[SCOPE API ] update_led_firmware: simulator short-circuit')
+            return r
+
+        try:
+            self.led.disconnect()
+        except Exception as e:
+            logger.warning(f'[SCOPE API ] update_led_firmware: led.disconnect failed: {e}')
+        self.led = NullLEDBoard()
+
+        result = None
+        try:
+            result = deploy_firmware_file(
+                BoardType.LED, firmware_path,
+                progress_callback=progress_callback,
+                skip_config_backup=skip_config_backup,
+                skip_post_test=skip_post_test,
+            )
+        finally:
+            try:
+                self.led = led_registry.create('auto', simulate=False)
+                self.capabilities = ScopeCapabilities.from_drivers(
+                    motion=self.motion, led=self.led,
+                    camera=self.camera, led_max_ma=self.LED_MAX_MA,
+                )
+            except Exception as e:
+                logger.error(f'[SCOPE API ] update_led_firmware: reconnect failed: {e}')
+                self.led = NullLEDBoard()
+                if result is not None:
+                    result.warnings.append(f'Post-update reconnect failed: {e}')
+
+        return result
+
+    def upgrade_board_fw40(self, board, source_tree,
+                           dry_run=False, respect_overwritable=True,
+                           progress_callback=None):
+        """FW4.0 field-upgrade a board from a Firmware-FW4.0 source tree.
+
+        Primary caller is the LVP UI ("Update firmware" button). Delegates
+        to drivers.firmware_updater.upgrade_board_fw40_from_source per
+        FIRMWARE_PLAN.md §13.X, and wraps it with driver-lifecycle
+        coordination: the affected driver is disconnected and swapped for
+        a Null instance for the duration of the flash, then the real
+        driver is re-created through the same registry path __init__ uses
+        and Phase 4D event callbacks are rewired + capabilities rebuilt.
+
+        Eric 2026-04-23: "IT CANNOT FAIL." Every failure returns a
+        structured UpgradeResult with exit_code + error_code for the UI
+        to format. No auto-rollback on P5 verify failure (§13.X.5).
+
+        Args:
+            board: 'motor' or 'led' (string), or drivers.firmware_updater
+                .BoardType.
+            source_tree: Path to the Firmware-FW4.0 repo root (contains
+                firmware_manifest.json).
+            dry_run: If True, run P0 host validation only, no transport.
+            respect_overwritable: If True (default), motorconfig
+                Overwritable flags gate firmware writes. If False, writes
+                proceed with a logged warning recorded in the telemetry
+                JSONL.
+            progress_callback: Optional (stage, message, fraction)
+                callback.
+
+        Returns:
+            UpgradeResult. Check result.success and result.exit_code.
+        """
+        from drivers.firmware_updater import (
+            upgrade_board_fw40_from_source, BoardType, UpgradeResult,
+            UPGRADE_EXIT_OK,
+        )
+
+        # Normalize board arg
+        if isinstance(board, str):
+            board_str = board.lower()
+            if board_str == 'motor':
+                board_type = BoardType.MOTOR
+            elif board_str == 'led':
+                board_type = BoardType.LED
+            else:
+                return UpgradeResult(
+                    success=False, board_type=BoardType.MOTOR,
+                    exit_code=2, error_code='API_BAD_BOARD_ARG',
+                    error_message=(
+                        f"board must be 'motor' or 'led', got {board!r}"),
+                )
+        elif isinstance(board, BoardType):
+            board_type = board
+        else:
+            return UpgradeResult(
+                success=False, board_type=BoardType.MOTOR,
+                exit_code=2, error_code='API_BAD_BOARD_ARG',
+                error_message=(
+                    f"board must be 'motor'/'led' or BoardType, got "
+                    f"{type(board).__name__}"),
+            )
+
+        source_tree = pathlib.Path(source_tree)
+
+        # Simulator short-circuit. Per update_led_firmware the LED
+        # simulator check needs a class-name fallback: a scope with real
+        # motor + sim LED still needs the LED branch to no-op.
+        if self._is_simulated_scope() or (
+            board_type == BoardType.LED
+            and self.led.__class__.__name__ == 'SimulatedLEDBoard'
+        ):
+            logger.info(
+                '[SCOPE API ] upgrade_board_fw40: simulator short-circuit'
+                f' ({board_type.value})')
+            return UpgradeResult(
+                success=True, board_type=board_type,
+                exit_code=UPGRADE_EXIT_OK,
+                old_version='simulated', new_version='simulated',
+                probe_classification='simulated',
+            )
+
+        # --- Quiesce the affected driver ---
+        if board_type == BoardType.MOTOR:
+            if hasattr(self.motion, 'motion_events_off'):
+                try:
+                    self.motion.motion_events_off()
+                except Exception as e:
+                    logger.warning(
+                        f'[SCOPE API ] upgrade_board_fw40: '
+                        f'motion_events_off failed: {e}')
+            try:
+                self.motion.disconnect()
+            except Exception as e:
+                logger.warning(
+                    f'[SCOPE API ] upgrade_board_fw40: '
+                    f'motion.disconnect failed: {e}')
+            self.motion = NullMotionBoard()
+            self._motion_poll_interval = self._MOTION_POLL_INTERVAL
+        else:
+            try:
+                self.led.disconnect()
+            except Exception as e:
+                logger.warning(
+                    f'[SCOPE API ] upgrade_board_fw40: '
+                    f'led.disconnect failed: {e}')
+            self.led = NullLEDBoard()
+
+        result = None
+        try:
+            result = upgrade_board_fw40_from_source(
+                board_type, source_tree,
+                dry_run=dry_run,
+                respect_overwritable=respect_overwritable,
+                progress_callback=progress_callback,
+            )
+        finally:
+            try:
+                if board_type == BoardType.MOTOR:
+                    self.motion = motor_registry.create(
+                        'auto', simulate=False)
+                    if hasattr(self.motion, 'set_arrived_callback'):
+                        self.motion.set_arrived_callback(
+                            self._on_axis_arrived)
+                    if hasattr(self.motion, 'set_homed_callback'):
+                        self.motion.set_homed_callback(
+                            self._on_axis_homed)
+                    if (hasattr(self.motion, 'motion_events_on')
+                            and hasattr(self.motion, 'has_feature')
+                            and self.motion.has_feature('events')):
+                        if self.motion.motion_events_on():
+                            self._motion_poll_interval = 0.5
+                else:
+                    self.led = led_registry.create('auto', simulate=False)
+                self.capabilities = ScopeCapabilities.from_drivers(
+                    motion=self.motion, led=self.led,
+                    camera=self.camera, led_max_ma=self.LED_MAX_MA,
+                )
+            except Exception as e:
+                logger.error(
+                    f'[SCOPE API ] upgrade_board_fw40: '
+                    f'reconnect failed: {e}')
+                if board_type == BoardType.MOTOR:
+                    self.motion = NullMotionBoard()
+                else:
+                    self.led = NullLEDBoard()
+                if result is not None:
+                    result.warnings.append(
+                        f'Post-upgrade reconnect failed: {e}')
+
+        return result
 
     def _load_camera_timing(self):
         """Load per-camera timing config if available.
@@ -1172,6 +1811,9 @@ class Lumascope():
 
         # Stop the motion monitor before disconnecting the motor board
         self._stop_motion_monitor()
+        # Stop the fan monitor too — same reason: no stray polls against
+        # a disconnecting motor.
+        self._stop_fan_monitor()
 
         # Set all axes to UNKNOWN before disconnecting
         with self._axis_state_lock:
@@ -1739,6 +2381,328 @@ class Lumascope():
         _api_log.info('leds_off')
         for color in self.led.available_colors():
             self._fire_led_listeners(color, False, 0.0, '')
+
+    def emergency_stop(self):
+        """Emergency-halt all hardware activity — motion + LEDs.
+
+        Halts the motor (aborts any running HOME, clamps target to
+        actual for every present axis) AND stops the LED board
+        (aborts async LED ops, kills any running STIM Timer-ISR,
+        turns channels off). One call, everything safe.
+
+        Per-device no-op when a board is absent (Rule 8: API handles
+        missing hardware). Exceptions in either sub-call are logged
+        and the other half still runs — "stop everything I can" is
+        the safety promise.
+
+        Returns a dict summarizing what each side reported:
+            {'motion': <motor.stop result | None | 'absent' | 'error'>,
+             'led':    <led.stop result    | None | 'absent' | 'error'>}
+        """
+        result = {'motion': 'absent', 'led': 'absent'}
+
+        if self.motion is not None:
+            try:
+                result['motion'] = self.motion.stop() or 'error'
+            except Exception as e:
+                _api_log.error(f'emergency_stop: motion.stop raised: {e}')
+                result['motion'] = 'error'
+
+        if self.led is not None:
+            # Step 1: the firmware-side stop. This is the safety-critical
+            # step — capture its result before any API-side UI plumbing
+            # so downstream AttributeError (e.g. in create_diagnostic
+            # mode where frame_validity / _led_listeners_lock may be
+            # absent) can't contaminate the stop-action status.
+            try:
+                led_result = self.led.stop()
+                result['led'] = led_result if led_result else 'error'
+            except Exception as e:
+                _api_log.error(f'emergency_stop: led.stop raised: {e}')
+                result['led'] = 'error'
+
+            # Step 2: API-side state + listener reflection. Best-effort —
+            # any failure here is logged but doesn't revert result['led'].
+            # Guarded with hasattr so Lumascope.create_diagnostic scopes
+            # (minimal init) don't trip on missing attributes.
+            if hasattr(self, '_led_owner_lock'):
+                try:
+                    with self._led_owner_lock:
+                        self._led_owners.clear()
+                        self._led_state.clear()
+                except Exception as e:
+                    _api_log.debug(f'emergency_stop: led state clear: {e}')
+            if hasattr(self, 'frame_validity'):
+                try:
+                    self.frame_validity.invalidate('led')
+                except Exception as e:
+                    _api_log.debug(f'emergency_stop: frame_validity: {e}')
+            if hasattr(self, '_led_listeners_lock'):
+                try:
+                    for color in self.led.available_colors():
+                        self._fire_led_listeners(color, False, 0.0, '')
+                except Exception as e:
+                    _api_log.debug(f'emergency_stop: fire_listeners: {e}')
+
+        _api_log.warning(f'emergency_stop: motion={result["motion"]} led={result["led"]}')
+        return result
+
+    # ------------------------------------------------------------------
+    # Fan control (API wrappers over MotorBoard fan methods)
+    # ------------------------------------------------------------------
+    #
+    # UI-gating policy (decided 2026-04-24 bench):
+    #   - Only show fan UI when running FW4.0 on motor. Legacy firmware:
+    #     hide completely — `fan_ui_kind()` returns None.
+    #   - Within FW4.0, branch UI by hardware: PWM slider iff PWM fan
+    #     present; HiLo radio otherwise.
+    #
+    # The `fan_ui_kind()` probe encodes this policy so the Stage 4
+    # Microscope Settings tab does one check and doesn't re-derive the
+    # truth table. Shipped EL-0940 boards use HiLo; future boards may
+    # use PWM. Capability probe handles both.
+
+    def fan_ui_kind(self):
+        """Return the fan UI kind to render, or None to hide completely.
+
+        Composes two facts: is the motor running FW4.0 (V4 protocol),
+        and what fan hardware is present?
+
+        Returns:
+            'PWM'  — FW4.0 motor with a PWM fan. Show the PWM slider
+                     + tach RPM readout.
+            'HILO' — FW4.0 motor with a HiLo fan. Show HI/LO/OFF radio.
+            None   — legacy firmware OR no motor OR no fan hardware.
+                     Hide the fan UI section entirely.
+        """
+        if not self.motion:
+            return None
+        use_v4 = getattr(self.motion, '_use_v4', None)
+        if not callable(use_v4) or not use_v4():
+            return None
+        status = self.get_fan_status()
+        if not status:
+            return None
+        mode = status.get('mode')
+        if mode == 'PWM':
+            return 'PWM'
+        if mode == 'HILO':
+            return 'HILO'
+        return None
+
+    def get_fan_status(self):
+        """Current fan mode + state + (PWM) tach RPM.
+
+        Thin wrapper over `MotorBoard.get_fan_status()`. Silent no-op
+        on missing motor (Rule 8): returns None.
+        """
+        if not self.motion:
+            return None
+        getter = getattr(self.motion, 'get_fan_status', None)
+        if getter is None:
+            return None
+        return getter()
+
+    def set_fan_hilo(self, state):
+        """Set HiLo fan to HI / LO / OFF. Fires fan listeners on success.
+
+        Returns True on firmware-confirmed success, False otherwise.
+        Silent no-op when motor absent.
+        """
+        if not self.motion:
+            return False
+        setter = getattr(self.motion, 'set_fan_hilo', None)
+        if setter is None:
+            return False
+        ok = setter(state)
+        if ok:
+            self._fire_fan_listeners()
+        return ok
+
+    def set_fan_pwm(self, pct):
+        """Set PWM fan duty cycle 0-100%. Fires fan listeners on success.
+
+        Returns True on firmware-confirmed success, False otherwise.
+        Silent no-op when motor absent.
+        """
+        if not self.motion:
+            return False
+        setter = getattr(self.motion, 'set_fan_pwm', None)
+        if setter is None:
+            return False
+        ok = setter(pct)
+        if ok:
+            self._fire_fan_listeners()
+        return ok
+
+    def fan_supports_pwm(self):
+        """True iff the motor board reports a PWM fan."""
+        if not self.motion:
+            return False
+        probe = getattr(self.motion, 'fan_supports_pwm', None)
+        if probe is None:
+            return False
+        return bool(probe())
+
+    def add_fan_listener(self, listener):
+        """Register a callback for fan-status changes.
+
+        The listener is called with the full fan-status dict
+        (`{'mode', 'state', 'fan_pct', 'tach_rpm', ...}`) whenever a
+        periodic poll fires (Stage 3) or a `set_fan_*` call lands.
+        Fires from the thread that triggered the change, so listeners
+        MUST schedule UI work via ``Clock.schedule_once``.
+
+        Silent no-op on `create_diagnostic` scopes (minimal init that
+        doesn't wire up listener infra).
+
+        Args:
+            listener: ``callable(status: dict)``
+        """
+        if not hasattr(self, '_fan_listeners_lock'):
+            return
+        with self._fan_listeners_lock:
+            self._fan_listeners.append(listener)
+
+    def remove_fan_listener(self, listener):
+        """Unregister a fan listener. No-op on diagnostic scopes."""
+        if not hasattr(self, '_fan_listeners_lock'):
+            return
+        with self._fan_listeners_lock:
+            try:
+                self._fan_listeners.remove(listener)
+            except ValueError:
+                pass
+
+    def _fire_fan_listeners(self, status=None):
+        """Notify all fan listeners of the current fan status.
+
+        When ``status`` is None, fetches fresh via ``get_fan_status()``
+        — used by set_fan_hilo/pwm after a mutation. The polling loop
+        passes a pre-enriched status (with ``tach_rpm_avg``) to avoid
+        an extra firmware round-trip.
+        """
+        if not hasattr(self, '_fan_listeners_lock'):
+            return
+        if status is None:
+            status = self.get_fan_status()
+        if status is None:
+            return
+        with self._fan_listeners_lock:
+            listeners = list(self._fan_listeners)
+        for fn in listeners:
+            try:
+                fn(status)
+            except Exception as ex:
+                _api_log.debug(f'fan listener error: {ex}')
+
+    # ------------------------------------------------------------------
+    # Fan polling thread (Stage 3)
+    # ------------------------------------------------------------------
+
+    def enable_fan_polling(self, enabled, source):
+        """Enable or disable periodic fan polling for a given source.
+
+        Refcounted by ``source`` string: the poll thread runs while at
+        least one source has opted in, stops when the last source opts
+        out. Each subscriber owns only its own intent, so e.g. the
+        Microscope Settings tab and a perf-log consumer never clobber
+        each other.
+
+        Args:
+            enabled: True to enable, False to disable.
+            source: caller identifier, e.g. 'microscope_settings_tab'.
+
+        Silent no-op on ``create_diagnostic`` scopes (minimal init that
+        doesn't wire up the poll infra).
+        """
+        if not hasattr(self, '_fan_monitor_lock'):
+            return
+        with self._fan_monitor_lock:
+            if enabled:
+                self._fan_poll_sources.add(source)
+                if (self._fan_monitor_thread is None
+                        or not self._fan_monitor_thread.is_alive()):
+                    self._fan_monitor_stop.clear()
+                    self._fan_monitor_thread = threading.Thread(
+                        target=self._fan_monitor_loop,
+                        name='fan-monitor',
+                        daemon=True,
+                    )
+                    self._fan_monitor_thread.start()
+                # Wake the loop so the first tick fires immediately
+                # after enable, not after _fan_poll_interval seconds.
+                self._fan_monitor_wake.set()
+            else:
+                self._fan_poll_sources.discard(source)
+                if not self._fan_poll_sources:
+                    # Loop will see empty sources, drop out of the inner
+                    # tick loop, and block on _fan_monitor_wake until a
+                    # new subscriber re-enables.
+                    self._fan_monitor_wake.clear()
+
+    def set_fan_poll_interval(self, seconds):
+        """Set the fan polling cadence. Default 1.0 s (matches the
+        firmware's 1-second tach hardware bucket). Clamped to ≥0.1 s."""
+        if not hasattr(self, '_fan_monitor_lock'):
+            return
+        self._fan_poll_interval = max(0.1, float(seconds))
+
+    def _fan_monitor_loop(self):
+        """Background thread: polls fan status while at least one
+        subscriber is enabled. Fires fan listeners each tick with a
+        status dict enriched by an N=5 moving average of ``tach_rpm``
+        exposed as ``tach_rpm_avg``.
+
+        On legacy firmware or scopes with no fan, ``get_fan_status()``
+        returns None — the tick is a cheap no-op.
+        """
+        while not self._fan_monitor_stop.is_set():
+            # Sleep until enabled (or shutdown)
+            self._fan_monitor_wake.wait()
+            if self._fan_monitor_stop.is_set():
+                break
+
+            # Poll while any subscriber is enabled
+            while (self._fan_poll_sources
+                   and not self._fan_monitor_stop.is_set()):
+                try:
+                    status = self.get_fan_status()
+                except Exception as ex:
+                    logger.warning(
+                        f'[SCOPE API ] Fan monitor: poll failed: {ex}'
+                    )
+                    status = None
+
+                if status is not None:
+                    rpm = status.get('tach_rpm')
+                    if isinstance(rpm, (int, float)) and rpm >= 0:
+                        self._fan_rpm_history.append(rpm)
+                    if self._fan_rpm_history:
+                        status = dict(status)
+                        status['tach_rpm_avg'] = (
+                            sum(self._fan_rpm_history)
+                            / len(self._fan_rpm_history)
+                        )
+                    self._fire_fan_listeners(status=status)
+
+                # Interruptible sleep — wake + stop both short-circuit
+                if self._fan_monitor_stop.wait(self._fan_poll_interval):
+                    break
+
+            # All subscribers gone — clear history so a later re-enable
+            # starts fresh (last value from hours ago would be misleading).
+            self._fan_rpm_history.clear()
+
+    def _stop_fan_monitor(self):
+        """Stop the fan monitor thread (called during disconnect)."""
+        if not hasattr(self, '_fan_monitor_lock'):
+            return
+        self._fan_monitor_stop.set()
+        self._fan_monitor_wake.set()  # unblock if sleeping
+        if (self._fan_monitor_thread is not None
+                and self._fan_monitor_thread.is_alive()):
+            self._fan_monitor_thread.join(timeout=1.0)
 
     def get_led_status(self):
         """Get the LED board status register."""
@@ -3360,6 +4324,19 @@ class Lumascope():
         for ev in instance._arrival_events.values():
             ev.set()
         instance._move_profile = {ax: None for ax in present_axes}
+
+        # FW4.0 motion-event wiring — matches __init__ path. Drops poll to
+        # 2 Hz watchdog when events are active.
+        instance._motion_poll_interval = cls._MOTION_POLL_INTERVAL
+        if hasattr(instance.motion, 'set_arrived_callback'):
+            instance.motion.set_arrived_callback(instance._on_axis_arrived)
+        if hasattr(instance.motion, 'set_homed_callback'):
+            instance.motion.set_homed_callback(instance._on_axis_homed)
+        if (hasattr(instance.motion, 'motion_events_on')
+                and hasattr(instance.motion, 'has_feature')
+                and instance.motion.has_feature('events')):
+            if instance.motion.motion_events_on():
+                instance._motion_poll_interval = 0.5
 
         instance.camera = None
         instance._image_buffer = None

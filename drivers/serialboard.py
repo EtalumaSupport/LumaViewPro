@@ -8,7 +8,9 @@ auto-reconnect and echo handling, and raw REPL file operations
 (config backup, firmware flash, INI updates).
 """
 
+import json
 import logging
+import os
 import re
 import time
 import serial
@@ -20,14 +22,16 @@ import threading
 
 _serial_log = logging.getLogger('LVP.serial')
 
+# raw_repl.py is retained as a reference/backup path (see
+# docs/MPREMOTE_MIGRATION_PLAN.md approval gate #6). Only
+# verify_firmware_running still delegates there — it operates on the
+# pyserial driver AFTER exit_raw_repl has restored it, outside the
+# Transport abstraction mpremote owns. Raw-REPL file I/O now goes
+# through drivers.mpremote_transport per plan §2 Phase 2.
 from drivers.raw_repl import (
-    enter_raw_repl as _enter_raw_repl,
-    exit_raw_repl as _exit_raw_repl,
-    list_files as _list_files,
-    read_file as _read_file,
-    write_file as _write_file,
     verify_firmware_running as _verify_firmware_running,
 )
+from drivers.mpremote_transport import create_session as _create_mpremote_session
 
 try:
     from modules import profile_trace
@@ -36,8 +40,19 @@ except ImportError:
 
 
 class ProtocolVersion(Enum):
-    LEGACY = "legacy"  # All pre-v3.0 firmware (including v2.0 dev builds)
-    V3 = "v3"          # v3.0 JSON Lines protocol
+    LEGACY = "legacy"  # All pre-v3.0 firmware, plus every currently shipping
+                       # v3.0.x field unit. Treated as an equal-class permanent
+                       # driver lane per primary-session posture (2026-04-21) —
+                       # not a migration scaffold. Sealed or customer-opt-out
+                       # field units may stay on LEGACY indefinitely.
+    V3 = "v3"          # Historical stub for v3.0/v3.1 JSON Lines design. Never
+                       # shipped as firmware; retained to keep the detection
+                       # branch explicit and to avoid a schema change when
+                       # someone digs up old v3.1 test firmware.
+    V4 = "v4"          # FW4.0 JSON Lines protocol. Source of truth:
+                       # docs/FW40_COMMAND_REFERENCE.md in the Firmware repo.
+                       # Invariants R1-R4 (single emit_line, cmd XOR event,
+                       # optional id echo, one JSON line per read).
 
 
 class SerialBoard:
@@ -84,7 +99,36 @@ class SerialBoard:
         self.timeout = timeout
         self.write_timeout = write_timeout
         self._in_raw_repl = False
+        # mpremote-backed raw-REPL session. Non-None only between
+        # enter_raw_repl() and exit_raw_repl(). SerialTransport takes
+        # exclusive ownership of the device path, so self.driver is
+        # closed for the duration of the session and reopened on exit.
+        self._mpremote_session = None
         self.protocol_version = ProtocolVersion.LEGACY
+        # FW4.0 (V4) state — populated by _detect_firmware_version when the
+        # board answers INFO with JSON that advertises protocol >= 4.0.
+        # features[] is the authoritative capability signal; host code probes
+        # via has_feature(name) rather than comparing firmware_version strings.
+        self.features = []
+        # Unsolicited event sink. Callers install a callback to receive
+        # {"ok":true,"event":"...",...} lines parsed during exchange_json.
+        # LEGACY/V3 paths never call on_event — events only exist under V4.
+        self.on_event = None
+        # Monotonic command-id counter for V4 exchange_json. Reset on
+        # connect. The id is scoped per-session; firmware echoes it in the
+        # response so the host can correlate despite any push events that
+        # arrive in between. See FW40_COMMAND_REFERENCE §1c.
+        self._v4_id_counter = 0
+        # Holds JSON responses with `id` values that arrived out-of-order
+        # (e.g. a late reply to a previous command interleaved with the
+        # current command's request). Drained in exchange_json when the
+        # caller's id matches a stashed response.
+        self._v4_pending_by_id = {}
+        # Populated by _run_connect_latency_bench() at end of connect().
+        # {command: summary_dict} — see drivers/serial_latency.py. None
+        # when the bench is skipped (env var, no firmware version, or
+        # subclass opts out by returning an empty command tuple).
+        self.connect_latency_summary = None
         if port is not None:
             self.port = port
             self.found = True
@@ -495,9 +539,71 @@ class SerialBoard:
                     )
                 else:
                     logger.info(f'{self._label} Connected (legacy firmware, no version info)')
+                self._run_connect_latency_bench()
             except Exception as e:
                 self._close_driver()
                 logger.error(f'{self._label} connect() failed: {e}')
+
+    # ------------------------------------------------------------------
+    # Connect-time latency fingerprint
+    # ------------------------------------------------------------------
+    _CONNECT_BENCH_ITERATIONS = 20
+    _CONNECT_BENCH_WARMUP = 3
+
+    def _connect_bench_callables(self):
+        """Driver-method callables benched at connect. Override per subclass.
+
+        Returns a list of `(name, callable)` tuples. Each callable is
+        invoked zero-arg per iteration — typically a bound driver
+        method (`self.fullinfo`, `self.get_info`) that dispatches
+        v3.0.x vs FW4.0 internally. Benching at the driver-method
+        layer (not raw firmware commands) is what keeps the §2.3
+        comparison apples-to-apples across firmware versions.
+
+        Base class returns [] — null/intermediate subclasses opt out
+        silently. Concrete boards (MotorBoard, LEDBoard) override.
+        """
+        return []
+
+    def _run_connect_latency_bench(self):
+        """Fire a lightweight driver-method latency fingerprint.
+
+        Called once at the end of a successful connect(). Produces
+        release-gate §2.3 data as a byproduct of every connect, so
+        FW4.0-vs-v3.0.x comparison falls out of the log. Also
+        doubles as a per-unit health fingerprint — the tech support
+        report reads self.connect_latency_summary instead of
+        re-measuring.
+
+        Skipped when:
+          - env LVP_SKIP_CONNECT_BENCH=1 (tests, timing-sensitive tools)
+          - firmware_version is None (can't trust the board)
+          - subclass returns an empty callable list
+
+        Any exception is caught so bench can never break connect.
+        """
+        if os.environ.get('LVP_SKIP_CONNECT_BENCH') == '1':
+            return
+        if self.firmware_version is None:
+            return
+        named = self._connect_bench_callables()
+        if not named:
+            return
+        try:
+            from drivers import serial_latency
+            summary = serial_latency.measure_callable_latencies(
+                named,
+                iterations=self._CONNECT_BENCH_ITERATIONS,
+                warmup=self._CONNECT_BENCH_WARMUP,
+            )
+            self.connect_latency_summary = summary
+            logger.info(serial_latency.format_one_line(
+                self._label, self.firmware_version, summary
+            ))
+        except Exception as e:
+            logger.warning(
+                f'{self._label} connect-latency bench failed: {e}'
+            )
 
     def disconnect(self):
         """Close serial connection and clear cached state."""
@@ -619,37 +725,87 @@ class SerialBoard:
             # Board is responding — mark it even if we can't parse a version
             self.firmware_responding = True
 
-            # v3.0 STUB: JSON Lines protocol detection
+            # JSON Lines protocol detection — both stub V3 and shipping V4.
+            # A `{` first byte is an opt-out of the legacy text protocol;
+            # the response body tells us which wire version (via "protocol"
+            # or fw_version major).
             if resp_stripped.startswith('{'):
-                self.protocol_version = ProtocolVersion.V3
-                logger.info(f'{self._label} Detected v3.0 JSON Lines protocol')
+                self._parse_json_info(resp_stripped)
             else:
                 self.protocol_version = ProtocolVersion.LEGACY
-
-            # Try to parse version number (v3.0+ firmware)
-            match = re.search(r'v(\d+\.\d+(?:\.\d+)?)', resp)
-            if match:
-                self.firmware_version = match.group(1)
-                logger.info(f'{self._label} Firmware version: {self.firmware_version}')
-            else:
-                self.firmware_version = None
-
-            # Try to parse firmware date (all firmware formats)
-            date_match = re.search(r'(\d{4}-\d{2}-\d{2})', resp)
-            if date_match:
-                self.firmware_date = date_match.group(1)
-                logger.info(f'{self._label} Firmware date: {self.firmware_date}')
-
-            if self.firmware_version:
-                logger.info(f'{self._label} Firmware v{self.firmware_version} detected')
-            else:
-                logger.info(f'{self._label} Legacy firmware (no version string, date={self.firmware_date})')
+                self.features = []
+                self._parse_legacy_info_text(resp)
 
         except Exception as e:
             logger.debug(f'{self._label} version detection failed: {e}')
             self.firmware_version = None
             self.firmware_responding = False
             self.protocol_version = ProtocolVersion.LEGACY
+            self.features = []
+
+    def _parse_json_info(self, resp_stripped):
+        """Parse INFO response body for V3 / V4. Robust to extra fields
+        (firmware may grow features over time without us needing a schema
+        bump here)."""
+        try:
+            # INFO might be multi-line if the board mixed legacy + JSON;
+            # take the first JSON object on the first `{...}` line.
+            first_line = resp_stripped.split('\n', 1)[0]
+            info = json.loads(first_line)
+        except Exception as e:
+            # JSON-ish but not parseable. Fall back to legacy text parsing
+            # so we don't misclassify a board whose output is corrupted.
+            logger.warning(f'{self._label} INFO started with {{ but JSON parse failed: {e}')
+            self.protocol_version = ProtocolVersion.LEGACY
+            self.features = []
+            self._parse_legacy_info_text(resp_stripped)
+            return
+
+        protocol_str = str(info.get('protocol', '')).strip()
+        fw_version = info.get('fw_version') or info.get('version')
+        if fw_version:
+            self.firmware_version = str(fw_version)
+        self.firmware_date = info.get('fw_date') or info.get('date') or None
+
+        # Version classification: protocol field is authoritative; fw_version
+        # major is the fallback. Unknown JSON → treat as V3 (stub path) so we
+        # at least capture the features array if present.
+        if protocol_str.startswith('4') or (fw_version and str(fw_version).startswith('4')):
+            self.protocol_version = ProtocolVersion.V4
+        else:
+            self.protocol_version = ProtocolVersion.V3
+
+        features = info.get('features')
+        if isinstance(features, list):
+            self.features = [str(f) for f in features]
+        else:
+            self.features = []
+
+        logger.info(
+            f'{self._label} Detected {self.protocol_version.value} protocol'
+            f' (fw={self.firmware_version}, features={self.features})'
+        )
+
+    def _parse_legacy_info_text(self, resp):
+        """Text-based INFO parsing for pre-FW4.0 firmware. Equal-class path
+        per primary-session posture (permanent support, not migration
+        scaffold)."""
+        match = re.search(r'v(\d+\.\d+(?:\.\d+)?)', resp)
+        if match:
+            self.firmware_version = match.group(1)
+        else:
+            self.firmware_version = None
+        date_match = re.search(r'(\d{4}-\d{2}-\d{2})', resp)
+        if date_match:
+            self.firmware_date = date_match.group(1)
+            logger.info(f'{self._label} Firmware date: {self.firmware_date}')
+        if self.firmware_version:
+            logger.info(f'{self._label} Firmware v{self.firmware_version} detected')
+        else:
+            logger.info(
+                f'{self._label} Legacy firmware (no version string, '
+                f'date={self.firmware_date})'
+            )
 
     def detect_firmware_version(self):
         """Re-detect firmware version from the connected board.
@@ -672,19 +828,13 @@ class SerialBoard:
             return False
 
     def _build_command(self, cmd):
-        """Build command string for current protocol version."""
-        # v3.0 STUB: JSON command format
-        # if self.protocol_version == ProtocolVersion.V3:
-        #     import json
-        #     return json.dumps({"cmd": cmd}) + "\n"
+        """Build command string for legacy text protocol (v3.0.x and
+        earlier). FW4.0 JSON Lines commands go through exchange_json."""
         return cmd + "\n"
 
     def _parse_response(self, response):
-        """Parse response for current protocol version."""
-        # v3.0 STUB: JSON Lines response parsing
-        # if self.protocol_version == ProtocolVersion.V3:
-        #     import json
-        #     return json.loads(response)
+        """Parse response for legacy text protocol. FW4.0 JSON Lines
+        responses are parsed inside exchange_json."""
         return response
 
     # ------------------------------------------------------------------
@@ -875,6 +1025,211 @@ class SerialBoard:
 
             return None
 
+    # ------------------------------------------------------------------
+    # Capability probe + FW4.0 JSON-object command exchange.
+    #
+    # Per the 2026-04-21 primary-session posture:
+    #   - INFO.features is the authoritative capability signal on V4.
+    #     Host-side code probes via has_feature('stim'), NEVER compares
+    #     firmware_version >= "4.1".
+    #   - LEGACY dispatcher lane stays. Not a transitional fallback.
+    #     A FW4.0-capable host asks v3.0.x firmware via exchange_command()
+    #     and FW4.0 firmware via exchange_json() — two equal-class lanes.
+    # ------------------------------------------------------------------
+    def has_feature(self, name):
+        """True if the connected board advertises `name` in INFO.features.
+        Only meaningful for V4; returns False on LEGACY/V3."""
+        return name in self.features
+
+    def _next_v4_id(self):
+        """Monotonic command id for V4. Host-scoped; firmware echoes
+        verbatim in the response. Single-session counter is fine — id
+        collisions across reconnects don't matter because pending queues
+        are cleared on disconnect."""
+        # Called under self._lock from exchange_json, so no separate lock.
+        self._v4_id_counter += 1
+        return self._v4_id_counter
+
+    def exchange_json(self, payload, timeout=None):
+        """Send a V4 JSON-object command and return the matching response.
+
+        Args:
+            payload: dict — must contain at least {"cmd": "..."}. If `id`
+                is not present, one is auto-assigned and the caller's copy
+                of the dict is NOT modified (we serialize a shallow merge).
+                Other fields (ch, mA, axis, etc.) are passed through.
+            timeout: per-call read-timeout override in seconds.
+
+        Returns:
+            The response dict on success (always has "ok", usually "cmd"
+            echoes the request). None on timeout, disconnect, or JSON
+            parse error.
+
+        Event handling: unsolicited `{"event":"..."}` lines encountered
+        while waiting for the response are dispatched to self.on_event
+        (if set) and the read loop continues. This is the FW40 §6a
+        push-event consumer. Response and event lines are disambiguated
+        by R2 — exactly one of `cmd` or `event` per line.
+
+        Id demux: if the response id matches the caller's id we return it.
+        If the response has a different id (a late reply to a prior
+        command), it's stashed in _v4_pending_by_id; a later call whose id
+        matches drains it before issuing a new write.
+
+        LEGACY/V3 boards: this method returns None without writing.
+        Callers must gate via has_feature() or check protocol_version.
+        """
+        if self.protocol_version != ProtocolVersion.V4:
+            _serial_log.warning(
+                f'{self._label} exchange_json called on '
+                f'{self.protocol_version.value} board — refusing'
+            )
+            return None
+        if not isinstance(payload, dict) or 'cmd' not in payload:
+            raise ValueError('exchange_json payload must be a dict with "cmd"')
+
+        with self._lock:
+            if getattr(self, 'firmware_silent', False):
+                _serial_log.warning(
+                    f'{self._label} exchange_json {payload.get("cmd")} '
+                    f'-> REJECTED (board silent, power cycle required)'
+                )
+                return None
+
+            if self.driver is None:
+                try:
+                    logger.info(
+                        f'{self._label} Auto-reconnect triggered by '
+                        f'exchange_json {payload.get("cmd")}'
+                    )
+                    self.connect()
+                except Exception as e:
+                    _serial_log.error(
+                        f'{self._label} exchange_json RECONNECT FAILED: {e}'
+                    )
+                    return None
+            if self.driver is None:
+                return None
+
+            # Assign id if caller didn't.
+            out = dict(payload)
+            caller_id = out.get('id')
+            if caller_id is None:
+                caller_id = self._next_v4_id()
+                out['id'] = caller_id
+
+            # Did a previous call stash our response out-of-order? If so,
+            # drain and return without a round-trip.
+            stashed = self._v4_pending_by_id.pop(caller_id, None)
+            if stashed is not None:
+                return stashed
+
+            # Per-call timeout override.
+            saved_timeout = None
+            if timeout is not None:
+                saved_timeout = self.driver.timeout
+                self.driver.timeout = timeout
+
+            t_start = time.monotonic()
+            cmd_name = out.get('cmd')
+            try:
+                # Flush stale input before write. Any leftover lines are
+                # either stale responses (drop) or events (dispatch to
+                # on_event if JSON-valid) — the flush path calls the same
+                # event-aware parser as the read loop below.
+                stale = self.driver.in_waiting
+                if stale > 0:
+                    discarded = self.driver.read(stale)
+                    _serial_log.info(
+                        f'{self._label} FLUSH {stale}B before json cmd: '
+                        f'{discarded!r}'
+                    )
+
+                stream = (json.dumps(out) + '\n').encode('utf-8')
+                self.driver.write(stream)
+
+                # Read lines until we get a response with our id, dispatching
+                # events in between. Overall deadline = 2x line timeout by
+                # default so a chatty event stream doesn't starve the caller.
+                # Callers that want a hard deadline pass `timeout=`.
+                deadline = time.monotonic() + max(2.0, (timeout or self.driver.timeout) * 20)
+                while time.monotonic() < deadline:
+                    raw = self.driver.readline().decode('utf-8', 'ignore').strip()
+                    if not raw:
+                        continue
+                    try:
+                        msg = json.loads(raw)
+                    except Exception:
+                        # Non-JSON on a V4 board is an FW bug or line
+                        # corruption — log and keep reading.
+                        _serial_log.warning(
+                            f'{self._label} non-JSON on V4 wire: {raw!r}'
+                        )
+                        continue
+                    if not isinstance(msg, dict):
+                        continue
+
+                    if 'event' in msg:
+                        # R2: events never carry `cmd`; dispatch + continue.
+                        if callable(self.on_event):
+                            try:
+                                self.on_event(msg)
+                            except Exception as e:
+                                _serial_log.error(
+                                    f'{self._label} on_event handler raised: {e}'
+                                )
+                        continue
+
+                    msg_id = msg.get('id')
+                    if msg_id == caller_id:
+                        elapsed_ms = (time.monotonic() - t_start) * 1000
+                        _serial_log.info(
+                            f'{self._label} {cmd_name} id={caller_id} '
+                            f'-> ok={msg.get("ok")} ({elapsed_ms:.1f}ms)'
+                        )
+                        if msg.get('ok') is False:
+                            _serial_log.warning(
+                                f'{self._label} FIRMWARE ERR: {cmd_name} '
+                                f'-> {msg.get("err")} / {msg.get("msg")}'
+                            )
+                        return msg
+                    # Different id — stash for a future matching caller.
+                    if msg_id is not None:
+                        self._v4_pending_by_id[msg_id] = msg
+                        continue
+                    # No id on the response — treat as single-inflight match.
+                    # Firmware should always echo id when request had id, so
+                    # this branch is unexpected but safe.
+                    _serial_log.warning(
+                        f'{self._label} V4 response missing id: {raw!r}'
+                    )
+                    return msg
+
+                # Timed out.
+                elapsed_ms = (time.monotonic() - t_start) * 1000
+                _serial_log.warning(
+                    f'{self._label} exchange_json {cmd_name} id={caller_id} '
+                    f'-> TIMEOUT ({elapsed_ms:.1f}ms)'
+                )
+                return None
+
+            except serial.SerialTimeoutException:
+                elapsed_ms = (time.monotonic() - t_start) * 1000
+                _serial_log.warning(
+                    f'{self._label} exchange_json {cmd_name} '
+                    f'-> WRITE TIMEOUT ({elapsed_ms:.1f}ms)'
+                )
+                return None
+            except Exception as e:
+                _serial_log.error(
+                    f'{self._label} exchange_json {cmd_name} -> EXCEPTION: {e}'
+                )
+                self._close_driver()
+                return None
+            finally:
+                if saved_timeout is not None and self.driver is not None:
+                    self.driver.timeout = saved_timeout
+
     def exchange_multiline(self, command, timeout=60, end_markers=None):
         """Send command and read variable-length multi-line response.
 
@@ -1022,6 +1377,11 @@ class SerialBoard:
         While in raw REPL, normal commands (exchange_command) cannot be
         used. Call exit_raw_repl() when done to reboot the firmware.
 
+        Under the hood: closes the pyserial driver (mpremote's
+        SerialTransport takes exclusive ownership of the device path),
+        constructs an mpremote-backed session, and enters raw REPL.
+        exit_raw_repl reverses the sequence.
+
         Args:
             soft_reset: If True (default), soft-reset after entering raw REPL
                 for a clean MicroPython state. Set to False for old firmware
@@ -1030,27 +1390,72 @@ class SerialBoard:
         Returns True on success, False on failure.
         """
         with self._lock:
+            # Make sure we know the device path — _open_serial runs
+            # port discovery if self.port is None.
             if self.driver is None:
                 self._open_serial()
-            if _enter_raw_repl(self.driver, soft_reset=soft_reset):
-                self._in_raw_repl = True
-                logger.info(f'{self._label} Entered raw REPL')
-                return True
-            logger.error(f'{self._label} Failed to enter raw REPL')
-            return False
+            device_path = self.port
+            # Release the pyserial port so mpremote can take exclusive
+            # ownership. self.driver is restored in exit_raw_repl.
+            self._close_driver()
+
+            try:
+                session = _create_mpremote_session(
+                    device_path, baudrate=self.baudrate
+                )
+                session.enter(soft_reset=soft_reset)
+            except Exception as e:
+                logger.error(
+                    f'{self._label} enter_raw_repl failed: {e}'
+                )
+                # Restore application-mode driver so the board stays
+                # usable for exchange_command() callers.
+                try:
+                    self._open_serial()
+                except Exception as e2:
+                    logger.error(
+                        f'{self._label} enter_raw_repl recovery '
+                        f'_open_serial failed: {e2}'
+                    )
+                return False
+
+            self._mpremote_session = session
+            self._in_raw_repl = True
+            logger.info(f'{self._label} Entered raw REPL')
+            return True
 
     def exit_raw_repl(self):
         """Exit raw REPL and reboot firmware.
 
         After exit, the board reboots and firmware resumes. The serial
-        connection remains open — call exchange_command() normally after.
+        connection is reopened — call exchange_command() normally after.
         """
         with self._lock:
-            if self.driver is None:
-                return
-            _exit_raw_repl(self.driver)
+            session = self._mpremote_session
+            self._mpremote_session = None
             self._in_raw_repl = False
-            logger.info(f'{self._label} Exited raw REPL, firmware rebooting')
+
+            if session is None:
+                return
+
+            try:
+                session.exit()
+            except Exception as e:
+                logger.warning(
+                    f'{self._label} exit_raw_repl session.exit: {e}'
+                )
+
+            # Reopen the application-mode pyserial driver.
+            try:
+                self._open_serial()
+            except Exception as e:
+                logger.error(
+                    f'{self._label} exit_raw_repl _open_serial: {e}'
+                )
+
+            logger.info(
+                f'{self._label} Exited raw REPL, firmware rebooting'
+            )
 
     def repl_list_files(self):
         """List files on board filesystem (must be in raw REPL).
@@ -1058,10 +1463,10 @@ class SerialBoard:
         Returns list of filenames, or empty list on failure.
         """
         with self._lock:
-            if not self._in_raw_repl or self.driver is None:
+            if not self._in_raw_repl or self._mpremote_session is None:
                 logger.error(f'{self._label} repl_list_files: not in raw REPL')
                 return []
-            return _list_files(self.driver)
+            return self._mpremote_session.list_files()
 
     def repl_read_file(self, filename, verify=True):
         """Read a file from the board (must be in raw REPL).
@@ -1069,10 +1474,10 @@ class SerialBoard:
         Returns file contents as bytes, or None on failure.
         """
         with self._lock:
-            if not self._in_raw_repl or self.driver is None:
+            if not self._in_raw_repl or self._mpremote_session is None:
                 logger.error(f'{self._label} repl_read_file: not in raw REPL')
                 return None
-            return _read_file(self.driver, filename, verify=verify)
+            return self._mpremote_session.read_file(filename, verify=verify)
 
     def repl_write_file(self, filename, data):
         """Write a file to the board with SHA256 verification (must be in raw REPL).
@@ -1083,10 +1488,10 @@ class SerialBoard:
         Returns True on success, False on failure.
         """
         with self._lock:
-            if not self._in_raw_repl or self.driver is None:
+            if not self._in_raw_repl or self._mpremote_session is None:
                 logger.error(f'{self._label} repl_write_file: not in raw REPL')
                 return False
-            return _write_file(self.driver, filename, data)
+            return self._mpremote_session.write_file(filename, data)
 
     def repl_exec(self, code, timeout=10):
         """Execute arbitrary code in raw REPL (must be in raw REPL).
@@ -1094,11 +1499,10 @@ class SerialBoard:
         Returns (stdout, stderr) as bytes tuple, or None on error.
         """
         with self._lock:
-            if not self._in_raw_repl or self.driver is None:
+            if not self._in_raw_repl or self._mpremote_session is None:
                 logger.error(f'{self._label} repl_exec: not in raw REPL')
                 return None
-            from drivers.raw_repl import raw_exec as _raw_exec
-            return _raw_exec(self.driver, code, timeout=timeout)
+            return self._mpremote_session.raw_exec(code, timeout=timeout)
 
     def verify_firmware_running(self, timeout=10):
         """Verify firmware is responding after raw REPL exit.

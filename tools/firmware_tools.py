@@ -11,9 +11,16 @@ Usage:
     python -m tools.firmware_tools homing-test          # 50-cycle homing endurance
     python -m tools.firmware_tools homing-test --cycles 100 --axes Z T
     python -m tools.firmware_tools info                 # show board info
+    python -m tools.firmware_tools deploy --board motor --firmware path/to/main.py
+    python -m tools.firmware_tools deploy --board led   --firmware path/to/main.py
+    python -m tools.firmware_tools factory-reset --nuke-uf2 flash_nuke.uf2 \\
+         --runtime-uf2 motor_runtime.uf2 --main-py path/to/main.py
+    python -m tools.firmware_tools restore-configs --board motor \\
+         --backup-dir path/to/backup
 """
 
 import argparse
+import csv
 import json
 import os
 import sys
@@ -428,6 +435,461 @@ def _print_homing_summary(results, axes):
 
 
 # ---------------------------------------------------------------------------
+# deploy — firmware update via Lumascope API (Phase 4E)
+# ---------------------------------------------------------------------------
+
+def cmd_deploy(args):
+    """Deploy firmware via Lumascope.update_*_firmware API methods.
+
+    Routes through modules.lumascope_api so GUI + CLI + automated tests
+    share the same entry point. Does not reach into drivers.firmware_
+    updater directly.
+    """
+    from modules.lumascope_api import Lumascope
+
+    method = args.method
+    board = args.board
+    fw_path = Path(args.firmware)
+
+    if not fw_path.is_file():
+        print(f'ERROR: firmware file not found: {fw_path}')
+        sys.exit(1)
+
+    if board == 'led' and method == 'uf2':
+        print('ERROR: LED board has no direct USB — UF2 path is not '
+              'supported. Use --method repl.')
+        sys.exit(1)
+
+    def _progress(stage, msg, fraction):
+        pct = int(fraction * 100)
+        print(f'  [{pct:3d}%] {stage.value}: {msg}')
+
+    print('Constructing diagnostic Lumascope (LED + motor, no camera)...')
+    # create_diagnostic is the no-camera __new__ path used by tech-support
+    # tooling; wires the full motion-monitor + Phase 4D event callbacks
+    # through the same code as __init__ without paying the camera init
+    # cost.
+    scope = Lumascope.create_diagnostic()
+
+    print(f'Deploying firmware to {board} board via {method} '
+          f'({fw_path.stat().st_size} bytes from {fw_path})...')
+
+    if board == 'motor':
+        if method == 'repl':
+            result = scope.update_motor_firmware(
+                str(fw_path), progress_callback=_progress,
+                skip_config_backup=args.skip_config_backup,
+                skip_post_test=args.skip_post_test,
+            )
+        else:  # uf2
+            result = scope.update_motor_firmware_uf2(
+                str(fw_path), progress_callback=_progress,
+                skip_config_backup=args.skip_config_backup,
+                skip_post_test=args.skip_post_test,
+            )
+    else:  # led
+        result = scope.update_led_firmware(
+            str(fw_path), progress_callback=_progress,
+            skip_config_backup=args.skip_config_backup,
+            skip_post_test=args.skip_post_test,
+        )
+
+    print()
+    print('=== UpdateResult ===')
+    print(f'  success:       {result.success}')
+    print(f'  board_type:    {result.board_type}')
+    print(f'  old_version:   {result.old_version}')
+    print(f'  new_version:   {result.new_version}')
+    print(f'  backup_path:   {result.config_backup_path}')
+    if result.error_stage is not None:
+        print(f'  error_stage:   {result.error_stage}')
+    if result.error_message:
+        print(f'  error_message: {result.error_message}')
+    if result.warnings:
+        print(f'  warnings:')
+        for w in result.warnings:
+            print(f'    - {w}')
+
+    sys.exit(0 if result.success else 2)
+
+
+# ---------------------------------------------------------------------------
+# upgrade — FW4.0 field-upgrade via Lumascope API (FIRMWARE_PLAN §13.X)
+# ---------------------------------------------------------------------------
+
+def cmd_upgrade(args):
+    """Field-upgrade a board to FW4.0 via the bundled source tree.
+
+    Secondary interface to Lumascope.upgrade_board_fw40 (engineering,
+    factory, support debugging). LVP is the primary caller — §13.X.
+    Exit codes disjoint from other subcommands:
+        0   success
+        10  P0 host source validation failed
+        20  P1 probe classified board as unresponsive
+        30  P2 config backup failed
+        35  P2 Overwritable flag blocked the requested write
+        40  P4 bundle write failed
+        50  P5 post-flash verify failed
+        2   CLI argument error
+    """
+    from modules.lumascope_api import Lumascope
+
+    source_tree = Path(args.source)
+    if not source_tree.is_dir():
+        print(f'ERROR: --source path is not a directory: {source_tree}')
+        sys.exit(2)
+
+    def _progress(stage, msg, fraction):
+        pct = int(fraction * 100)
+        print(f'  [{pct:3d}%] {stage.value}: {msg}')
+
+    print('Constructing diagnostic Lumascope (LED + motor, no camera)...')
+    scope = Lumascope.create_diagnostic()
+
+    print(f'Upgrading {args.board} board from {source_tree} ...')
+    if args.dry_run:
+        print('  (--dry-run: P0 host validation only, no transport)')
+    if args.ignore_overwritable:
+        print('  (--ignore-overwritable: Overwritable flags bypassed)')
+
+    result = scope.upgrade_board_fw40(
+        args.board, source_tree,
+        dry_run=args.dry_run,
+        respect_overwritable=not args.ignore_overwritable,
+        progress_callback=_progress,
+    )
+
+    print()
+    print('=== UpgradeResult ===')
+    print(f'  success:          {result.success}')
+    print(f'  exit_code:        {result.exit_code}')
+    print(f'  board_type:       {result.board_type}')
+    print(f'  old_version:      {result.old_version}')
+    print(f'  new_version:      {result.new_version}')
+    print(f'  probe:            {result.probe_classification}')
+    print(f'  backup_path:      {result.config_backup_path}')
+    print(f'  telemetry:        {result.telemetry_log_path}')
+    if result.overwritable_flags:
+        print(f'  overwritable:     {result.overwritable_flags}')
+    if result.files_written:
+        print(f'  files_written:    {result.files_written}')
+    if result.files_skipped_overwritable:
+        print(f'  skipped (I5):     {result.files_skipped_overwritable}')
+    if result.error_code:
+        print(f'  error_code:       {result.error_code}')
+    if result.error_message:
+        print(f'  error_message:    {result.error_message}')
+    if result.error_stage is not None:
+        print(f'  error_stage:      {result.error_stage}')
+    if result.warnings:
+        print('  warnings:')
+        for w in result.warnings:
+            print(f'    - {w}')
+
+    sys.exit(result.exit_code)
+
+
+# ---------------------------------------------------------------------------
+# factory-reset — motor-only full recovery via Lumascope API (Phase 4F)
+# ---------------------------------------------------------------------------
+
+def cmd_factory_reset(args):
+    """Factory-reset a motor board whose firmware blocks raw REPL.
+
+    Chains nuke -> runtime UF2 flash -> main.py push via the
+    Lumascope.factory_reset_motor API method.
+    """
+    from modules.lumascope_api import Lumascope
+
+    nuke_uf2 = Path(args.nuke_uf2)
+    runtime_uf2 = Path(args.runtime_uf2)
+    main_py = Path(args.main_py)
+
+    for p, label in ((nuke_uf2, 'nuke UF2'),
+                     (runtime_uf2, 'runtime UF2'),
+                     (main_py, 'main.py')):
+        if not p.is_file():
+            print(f'ERROR: {label} not found: {p}')
+            sys.exit(1)
+
+    def _progress(stage, msg, fraction):
+        pct = int(fraction * 100)
+        print(f'  [{pct:3d}%] {stage.value}: {msg}')
+
+    print('Constructing diagnostic Lumascope (LED + motor, no camera)...')
+    scope = Lumascope.create_diagnostic()
+
+    print(f'Factory resetting motor board:')
+    print(f'  nuke UF2:    {nuke_uf2}')
+    print(f'  runtime UF2: {runtime_uf2}')
+    print(f'  main.py:     {main_py}')
+    print()
+
+    result = scope.factory_reset_motor(
+        str(nuke_uf2), str(runtime_uf2), str(main_py),
+        progress_callback=_progress,
+        skip_post_test=args.skip_post_test,
+    )
+
+    print()
+    print('=== UpdateResult ===')
+    print(f'  success:       {result.success}')
+    print(f'  old_version:   {result.old_version}')
+    print(f'  new_version:   {result.new_version}')
+    if result.error_stage is not None:
+        print(f'  error_stage:   {result.error_stage}')
+    if result.error_message:
+        print(f'  error_message: {result.error_message}')
+    if result.warnings:
+        print(f'  warnings:')
+        for w in result.warnings:
+            print(f'    - {w}')
+
+    sys.exit(0 if result.success else 2)
+
+
+# ---------------------------------------------------------------------------
+# bench — driver-method round-trip latency measurement (release gate §2.3)
+# ---------------------------------------------------------------------------
+#
+# Benchmarks driver-level methods (e.g. MotorBoard.fullinfo, LEDBoard.get_info)
+# rather than raw firmware command strings. The driver dispatches v3.0.x vs
+# FW4.0 internally, so running the bench against v3.0.x firmware then against
+# FW4.0 firmware on the SAME hardware gives a directly comparable latency
+# delta — the core §2.3 "≥20 ms improvement" evidence.
+#
+# The raw-command path remains available via `--raw-commands X,Y` for ad-hoc
+# exploratory measurement (e.g. "is CALIBRATE slow?"). That mode requires
+# the caller to know which command strings exist on the firmware running.
+
+
+def _board_bench_callables(board_kind, board):
+    """Default driver-method bench set per board kind.
+
+    Uses each board's `_connect_bench_callables()` so the CLI and the
+    connect-time fingerprint benchmark the exact same set — one source
+    of truth, no drift. A board that overrides the hook to add a
+    second method is covered everywhere automatically.
+    """
+    getter = getattr(board, '_connect_bench_callables', None)
+    if getter is None:
+        return []
+    return list(getter())
+
+
+def _write_bench_csv(path, rows):
+    """Write per-iteration rows to CSV.
+
+    rows: iterable of (board, firmware_version, method, iteration,
+    duration_us). duration_us is None for failed iterations.
+    """
+    with open(path, 'w', newline='') as f:
+        writer = csv.writer(f)
+        writer.writerow(['board', 'firmware_version', 'method',
+                         'iteration', 'duration_us'])
+        for row in rows:
+            writer.writerow(row)
+
+
+def _format_summary_table(per_method_summary):
+    """Format per-method summary dict as a plain-text aligned table."""
+    hdr = ('method', 'count', 'err', 'mean_us', 'stddev',
+           'p50', 'p95', 'p99', 'min', 'max')
+    widths = [max(len(hdr[i]), 8) for i in range(len(hdr))]
+    for name in per_method_summary:
+        widths[0] = max(widths[0], len(name))
+    lines = ['  '.join(h.ljust(widths[i]) for i, h in enumerate(hdr))]
+    lines.append('  '.join('-' * widths[i] for i in range(len(hdr))))
+    for name, s in per_method_summary.items():
+        def fmt(v):
+            return '{:.1f}'.format(v) if isinstance(v, float) else str(v) if v is not None else '—'
+        row = (name, s['count'], s['errors'], fmt(s['mean_us']),
+               fmt(s['stddev_us']), fmt(s['p50_us']), fmt(s['p95_us']),
+               fmt(s['p99_us']), fmt(s['min_us']), fmt(s['max_us']))
+        lines.append('  '.join(str(row[i]).ljust(widths[i]) for i in range(len(row))))
+    return '\n'.join(lines)
+
+
+def cmd_bench(args):
+    """Measure round-trip latency of driver methods on the connected board.
+
+    Validates the release gate §2.3 protocol-latency thesis. Run once
+    against v3.0.x, once against FW4.0, on the SAME hardware, to compare.
+
+    Hardware-gated: requires a connected, responsive board.
+    """
+    from drivers import serial_latency
+    from modules.lumascope_api import Lumascope
+
+    output_path = Path(args.output) if args.output else None
+    iterations = args.iterations
+    warmup = args.warmup
+
+    print('Constructing diagnostic Lumascope (LED + motor, no camera)...')
+    scope = Lumascope.create_diagnostic()
+
+    board = scope.motion if args.board == 'motor' else scope.led
+
+    if not hasattr(board, 'is_connected') or not board.is_connected():
+        print(f'ERROR: {args.board} board not connected / not responding')
+        scope.disconnect()
+        sys.exit(1)
+
+    # Build the callable set.
+    if args.raw_commands:
+        raw_cmds = tuple(c.strip() for c in args.raw_commands.split(',') if c.strip())
+        named = [(cmd, (lambda c=cmd: board.exchange_command(c))) for cmd in raw_cmds]
+        mode_label = f'raw commands [{", ".join(raw_cmds)}]'
+    else:
+        named = _board_bench_callables(args.board, board)
+        mode_label = f'driver methods [{", ".join(n for n, _ in named)}]'
+
+    if not named:
+        print(f'ERROR: no bench methods for {args.board} board')
+        scope.disconnect()
+        sys.exit(1)
+
+    fw_version = getattr(board, 'firmware_version', None) or 'unknown'
+    print(f'Benchmarking {args.board} board at firmware {fw_version}')
+    print(f'Mode:     {mode_label}')
+    print(f'Warmup:   {warmup} iterations (discarded)')
+    print(f'Measured: {iterations} iterations per method')
+    if output_path:
+        print(f'CSV output: {output_path}')
+    print()
+
+    all_rows = []
+    per_method = {}
+
+    try:
+        # One measurement pass: primitive returns both summaries and
+        # raw per-iteration durations when `return_durations=True`.
+        per_method, raw_by_name = serial_latency.measure_callable_latencies(
+            named, iterations=iterations, warmup=warmup,
+            return_durations=True,
+        )
+        for name, summary in per_method.items():
+            if summary['count'] > 0:
+                print(f'  {name}: mean={summary["mean_us"]:.1f}µs '
+                      f'p95={summary["p95_us"]:.1f}µs '
+                      f'errors={summary["errors"]}')
+            else:
+                print(f'  {name}: ALL FAILED ({summary["errors"]} errors)')
+            if output_path:
+                for i, d in enumerate(raw_by_name[name]):
+                    all_rows.append((args.board, fw_version, name, i, d))
+    finally:
+        scope.disconnect()
+
+    print()
+    print('=== Summary (µs) ===')
+    print(_format_summary_table(per_method))
+
+    if output_path:
+        _write_bench_csv(output_path, all_rows)
+        print(f'\nPer-iteration data written to {output_path}')
+
+    # Optional reliability loop (release gate §2.3 "Reliability under load").
+    if args.load_minutes is not None and args.load_minutes > 0:
+        duration_s = args.load_minutes * 60.0
+        print()
+        print(f'=== Reliability loop ===')
+        # Pick the first benched callable for the load target. Override
+        # via --raw-commands if you want to hammer a different command.
+        load_name, load_fn = named[0]
+        print(f'Target:   {load_name}')
+        print(f'Rate:     {args.load_hz:.1f} Hz target')
+        print(f'Duration: {args.load_minutes:.1f} min ({duration_s:.1f} s)')
+        print('  running... (Ctrl-C to abort)')
+
+        scope2 = Lumascope.create_diagnostic()
+        try:
+            board2 = scope2.motion if args.board == 'motor' else scope2.led
+            # Rebind the callable against the fresh scope's board.
+            named2 = _board_bench_callables(args.board, board2)
+            name_to_fn = dict(named2)
+            load_fn2 = name_to_fn.get(load_name, load_fn)
+            load_summary = serial_latency.run_load_loop(
+                load_fn2, duration_s, args.load_hz
+            )
+        finally:
+            scope2.disconnect()
+
+        print()
+        print(f'  count:            {load_summary["count"]}')
+        print(f'  errors:           {load_summary["errors"]}')
+        print(f'  errors/hour:      {load_summary["errors_per_hour"]:.1f}')
+        print(f'  duration (s):     {load_summary["duration_s"]:.2f}')
+        print(f'  target_hz:        {load_summary["target_hz"]:.2f}')
+        print(f'  actual_hz:        {load_summary["actual_hz"]:.2f}')
+        if load_summary['count'] > 0:
+            print(f'  mean (µs):        {load_summary["mean_us"]:.1f}')
+            print(f'  p50/p95/p99 (µs): {load_summary["p50_us"]:.1f} / '
+                  f'{load_summary["p95_us"]:.1f} / {load_summary["p99_us"]:.1f}')
+
+
+# ---------------------------------------------------------------------------
+# restore-configs — push config backup to board via Lumascope API (Phase 4I)
+# ---------------------------------------------------------------------------
+
+def cmd_restore_configs(args):
+    """Restore per-unit configs from a backup directory to a board.
+
+    Symmetric counterpart of `backup` — writes motorconfig.json + INI
+    files (motor) or cal.json (LED) from a local directory onto the
+    board via raw REPL (SHA256-verified).
+    """
+    from modules.lumascope_api import Lumascope
+
+    backup_dir = Path(args.backup_dir)
+    if not backup_dir.is_dir():
+        print(f'ERROR: backup directory not found: {backup_dir}')
+        sys.exit(1)
+
+    file_filter = set(args.files) if args.files else None
+
+    def _progress(stage, msg, fraction):
+        pct = int(fraction * 100)
+        print(f'  [{pct:3d}%] {stage.value}: {msg}')
+
+    print('Constructing diagnostic Lumascope (LED + motor, no camera)...')
+    scope = Lumascope.create_diagnostic()
+
+    print(f'Restoring configs to {args.board} board:')
+    print(f'  backup dir: {backup_dir}')
+    if file_filter:
+        print(f'  filter:     {sorted(file_filter)}')
+    print()
+
+    if args.board == 'motor':
+        result = scope.restore_motor_configs(
+            str(backup_dir), progress_callback=_progress,
+            file_filter=file_filter,
+        )
+    else:
+        result = scope.restore_led_configs(
+            str(backup_dir), progress_callback=_progress,
+            file_filter=file_filter,
+        )
+
+    print()
+    print('=== UpdateResult ===')
+    print(f'  success:       {result.success}')
+    print(f'  board_type:    {result.board_type}')
+    print(f'  old_version:   {result.old_version}')
+    if result.error_stage is not None:
+        print(f'  error_stage:   {result.error_stage}')
+    if result.error_message:
+        print(f'  error_message: {result.error_message}')
+    if result.warnings:
+        print(f'  warnings:')
+        for w in result.warnings:
+            print(f'    - {w}')
+
+    sys.exit(0 if result.success else 2)
+
+
+# ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
 
@@ -461,6 +923,104 @@ def main():
                         dest='move_between',
                         help='Skip intermediate moves')
 
+    # deploy (Phase 4E)
+    p_deploy = sub.add_parser('deploy', help='Deploy firmware via Lumascope API')
+    p_deploy.add_argument('--board', choices=['motor', 'led'], required=True,
+                          help='Target board')
+    p_deploy.add_argument('--firmware', required=True,
+                          help='Path to main.py (repl) or UF2 file (uf2)')
+    p_deploy.add_argument('--method', choices=['repl', 'uf2'], default='repl',
+                          help='Deploy method (default: repl). UF2 is motor-only.')
+    p_deploy.add_argument('--skip-config-backup', action='store_true',
+                          help='Skip motorconfig/cal backup')
+    p_deploy.add_argument('--skip-post-test', action='store_true',
+                          help='Skip post-update verification')
+
+    # upgrade — FW4.0 field-upgrade (FIRMWARE_PLAN §13.X)
+    p_upgrade = sub.add_parser(
+        'upgrade',
+        help=('Field-upgrade a board to FW4.0 from a Firmware-FW4.0 '
+              'source tree. Exit codes: 0 success, 10 P0 source, '
+              '20 P1 unresponsive, 30 P2 backup, 35 P2 Overwritable, '
+              '40 P4 bundle, 50 P5 verify, 2 CLI error.'))
+    p_upgrade.add_argument(
+        '--board', choices=['motor', 'led'], required=True,
+        help='Target board')
+    p_upgrade.add_argument(
+        '--source', required=True,
+        help='Path to Firmware-FW4.0 repo root (contains '
+             'firmware_manifest.json)')
+    p_upgrade.add_argument(
+        '--dry-run', action='store_true',
+        help='Run P0 host source validation only; do not open transport.')
+    p_upgrade.add_argument(
+        '--ignore-overwritable', action='store_true',
+        help='Bypass motorconfig.Overwritable flag checks. Proceeds '
+             'with firmware write and logs a warning in telemetry. '
+             'Engineering/factory escape hatch — do not use in field.')
+
+    # factory-reset (Phase 4F) — motor-only recovery when raw REPL is broken
+    p_reset = sub.add_parser(
+        'factory-reset',
+        help=('Full motor-board recovery: nuke -> runtime UF2 -> main.py push. '
+              'Works from live firmware (sends FWUPDATE to enter BOOTSEL) OR from '
+              'an already-in-BOOTSEL board (hold BOOTSEL and power-cycle first if '
+              'firmware is wedged). Zero firmware-responsiveness assumed in the '
+              'BOOTSEL entry path.'))
+    p_reset.add_argument('--nuke-uf2', required=True,
+                         help='Path to flash_nuke_rp2040.uf2 (wipes all flash)')
+    p_reset.add_argument('--runtime-uf2', required=True,
+                         help='Path to a clean MicroPython UF2 for the motor')
+    p_reset.add_argument('--main-py', required=True,
+                         help='Path to main.py to restore after reflash')
+    p_reset.add_argument('--skip-post-test', action='store_true',
+                         help='Skip post-update verification')
+
+    # bench — driver-method round-trip latency (release gate §2.3)
+    p_bench = sub.add_parser(
+        'bench',
+        help=('Measure driver-method round-trip latency on the connected '
+              'board. Run against v3.0.x and FW4.0 on the same hardware '
+              'to validate the release gate §2.3 protocol-latency thesis.'))
+    p_bench.add_argument('--board', choices=['motor', 'led'], required=True,
+                         help='Target board')
+    p_bench.add_argument('--iterations', type=int, default=1000,
+                         help='Measured iterations per method (default: 1000)')
+    p_bench.add_argument('--warmup', type=int, default=50,
+                         help='Warmup iterations per method, discarded '
+                              '(default: 50)')
+    p_bench.add_argument('--raw-commands', default=None,
+                         help='Comma-separated raw firmware command list. '
+                              'Escape hatch — bypasses the driver dispatcher '
+                              'and sends each string via exchange_command(). '
+                              'Use for ad-hoc measurement of a specific '
+                              'firmware command string. Caller is responsible '
+                              'for matching the firmware version running.')
+    p_bench.add_argument('--output', default=None,
+                         help='Optional CSV output path for per-iteration '
+                              'durations')
+    p_bench.add_argument('--load-minutes', type=float, default=None,
+                         help='If set, runs a reliability loop after the '
+                              'bench: targets the first benched method at '
+                              '--load-hz for this many minutes. Release gate '
+                              '§2.3 requires 10 Hz × 5 min to compare FW4.0 '
+                              'vs v3.0.9 error rate under load.')
+    p_bench.add_argument('--load-hz', type=float, default=10.0,
+                         help='Target rate for the reliability loop '
+                              '(default: 10 Hz per release gate §2.3).')
+
+    # restore-configs (Phase 4I) — symmetric counterpart of `backup`
+    p_restore = sub.add_parser(
+        'restore-configs',
+        help='Restore per-unit config backup to a board via raw REPL')
+    p_restore.add_argument('--board', choices=['motor', 'led'], required=True,
+                           help='Target board')
+    p_restore.add_argument('--backup-dir', required=True,
+                           help='Directory containing backed-up config files')
+    p_restore.add_argument('--files', nargs='+', default=None,
+                           help='Optional subset of filenames to restore '
+                                '(default: all config files present in backup)')
+
     args = parser.parse_args()
     if args.command is None:
         parser.print_help()
@@ -471,6 +1031,11 @@ def main():
         'backup': cmd_backup,
         'push-ini': cmd_push_ini,
         'homing-test': cmd_homing_test,
+        'deploy': cmd_deploy,
+        'upgrade': cmd_upgrade,
+        'factory-reset': cmd_factory_reset,
+        'restore-configs': cmd_restore_configs,
+        'bench': cmd_bench,
     }
     commands[args.command](args)
 

@@ -39,6 +39,7 @@ from drivers.null_ledboard import NullLEDBoard
 from drivers.simulated_motorboard import SimulatedMotorBoard
 from drivers.simulated_ledboard import SimulatedLEDBoard
 from drivers.protocols import MotorBoardProtocol, LEDBoardProtocol
+from drivers.firmware_updater import BoardType, UpdateResult
 
 
 class TestNullMotionBoardCapabilities:
@@ -768,3 +769,115 @@ def dataclasses_fields(cls):
     """Helper — imported late to keep the imports tidy."""
     import dataclasses as _dc
     return _dc.fields(cls)
+
+
+class TestFirmwareUpdateAPI:
+    """Phase 4E: Lumascope.update_*_firmware routes through the API layer
+    so CLI / GUI / engineering plugin / tests all share one entry point.
+
+    These tests exercise the simulator short-circuit path. Real-hardware
+    paths are covered by bench sessions; the production drivers inside
+    drivers.firmware_updater have their own unit tests.
+    """
+
+    def test_update_motor_firmware_simulator_returns_success(self):
+        scope = Lumascope(simulate=True)
+        try:
+            result = scope.update_motor_firmware('/does/not/matter.py')
+            assert result.success is True
+            assert result.board_type == BoardType.MOTOR
+            assert result.new_version == 'simulated'
+        finally:
+            scope.disconnect()
+
+    def test_update_motor_firmware_uf2_simulator_returns_success(self):
+        scope = Lumascope(simulate=True)
+        try:
+            result = scope.update_motor_firmware_uf2('/does/not/matter.uf2')
+            assert result.success is True
+            assert result.board_type == BoardType.MOTOR
+            assert result.new_version == 'simulated'
+        finally:
+            scope.disconnect()
+
+    def test_update_led_firmware_simulator_returns_success(self):
+        scope = Lumascope(simulate=True)
+        try:
+            result = scope.update_led_firmware('/does/not/matter.py')
+            assert result.success is True
+            assert result.board_type == BoardType.LED
+            assert result.new_version == 'simulated'
+        finally:
+            scope.disconnect()
+
+    def test_update_motor_firmware_does_not_touch_real_path_on_sim(self):
+        """Sim short-circuit must not invoke firmware_updater — confirm by
+        passing a non-existent path. If the real path were hit, the
+        deploy_firmware_file preflight would raise FileNotFoundError."""
+        scope = Lumascope(simulate=True)
+        try:
+            result = scope.update_motor_firmware('/nonexistent/path.py')
+            assert result.success is True
+            assert result.new_version == 'simulated'
+        finally:
+            scope.disconnect()
+
+    def test_update_methods_exposed_as_public_api(self):
+        """The three update methods are intentionally public — GUI and
+        engineering plugin call them. This guards against an accidental
+        underscore rename."""
+        scope = Lumascope(simulate=True)
+        try:
+            assert callable(getattr(scope, 'update_motor_firmware', None))
+            assert callable(getattr(scope, 'update_motor_firmware_uf2', None))
+            assert callable(getattr(scope, 'update_led_firmware', None))
+            # Phase 4F
+            assert callable(getattr(scope, 'factory_reset_motor', None))
+        finally:
+            scope.disconnect()
+
+    def test_factory_reset_motor_simulator_returns_success(self):
+        """Phase 4F: factory_reset_motor simulator short-circuit."""
+        scope = Lumascope(simulate=True)
+        try:
+            result = scope.factory_reset_motor(
+                '/does/not/matter/nuke.uf2',
+                '/does/not/matter/runtime.uf2',
+                '/does/not/matter/main.py',
+            )
+            assert result.success is True
+            assert result.board_type == BoardType.MOTOR
+            assert result.new_version == 'simulated'
+        finally:
+            scope.disconnect()
+
+    def test_restore_motor_configs_simulator_returns_success(self):
+        """Phase 4I: restore_motor_configs simulator short-circuit."""
+        scope = Lumascope(simulate=True)
+        try:
+            result = scope.restore_motor_configs('/does/not/matter/backup_dir')
+            assert result.success is True
+            assert result.board_type == BoardType.MOTOR
+            assert result.new_version == 'simulated'
+        finally:
+            scope.disconnect()
+
+    def test_restore_led_configs_simulator_returns_success(self):
+        """Phase 4I: restore_led_configs simulator short-circuit."""
+        scope = Lumascope(simulate=True)
+        try:
+            result = scope.restore_led_configs('/does/not/matter/backup_dir')
+            assert result.success is True
+            assert result.board_type == BoardType.LED
+            assert result.new_version == 'simulated'
+        finally:
+            scope.disconnect()
+
+    def test_restore_methods_exposed_as_public_api(self):
+        """Phase 4I: restore_* methods are public API."""
+        scope = Lumascope(simulate=True)
+        try:
+            assert callable(getattr(scope, 'restore_motor_configs', None))
+            assert callable(getattr(scope, 'restore_led_configs', None))
+        finally:
+            scope.disconnect()

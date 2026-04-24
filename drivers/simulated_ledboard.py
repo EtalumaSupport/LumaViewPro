@@ -262,6 +262,21 @@ class SimulatedLEDBoard:
             self._channel_states[ch] = 0
         self.exchange_command('LEDS_OFF')
 
+    # Fan control lives on MotorBoard, not LEDBoard — these shims
+    # exist on SimulatedMotorBoard only. LEDBoard has no fan API.
+
+    def stop(self):
+        """Simulated emergency-halt — mirrors LEDBoard.stop() shape.
+
+        Sim has no STIM Timer ISR, so this is effectively leds_off +
+        the normalized return shape.
+        """
+        self.leds_off()
+        return {
+            'ok': True, 'stopped': True,
+            'response': None, 'note': None,
+        }
+
     def leds_off_fast(self):
         for color in self.led_ma:
             self.led_ma[color] = -1
@@ -334,3 +349,111 @@ class SimulatedLEDBoard:
 
     def verify_firmware_running(self, timeout=10):
         return 'Simulated firmware running'
+
+    # ------------------------------------------------------------------
+    # FW4.0 V4 surface — matches SerialBoard + LEDBoard Phase 4A/4B.
+    # The simulator stays protocol-agnostic for the legacy methods above
+    # (they continue to work regardless of self.protocol_version). These
+    # V4-specific methods return plausible responses so tests that exercise
+    # the V4 path via the simulator get realistic shape.
+    # Architecture Rule 11: every new real-board method must have a
+    # simulator stub in the same PR. The bench break on 2026-04-21 that
+    # this code exists to prevent: shipping a driver method without the
+    # parity stub + test_api_surface_matches_real guard catching it.
+    # ------------------------------------------------------------------
+    _DEFAULT_SIM_FEATURES = ['id', 'led', 'adc_read', 'selftest', 'calibrate',
+                             'status', 'stim', 'events',
+                             'i2c', 'diag', 'fwupdate']
+
+    @property
+    def features(self):
+        """FW4.0 INFO.features array. Simulator advertises the full FW4.0
+        LED capability set by default; tests that want a capability-
+        constrained simulator can set sim.features = [...] after
+        construction."""
+        if not hasattr(self, '_features_override'):
+            return list(self._DEFAULT_SIM_FEATURES)
+        return self._features_override
+
+    @features.setter
+    def features(self, value):
+        self._features_override = list(value) if value is not None else None
+
+    def has_feature(self, name):
+        return name in self.features
+
+    # LED V4 command surface — kept in lock-step with the @fw.command(...)
+    # decorators in LED Controller/main.py. When firmware grows a new cmd,
+    # add it here so the simulator keeps producing UNKNOWN_CMD for
+    # genuinely-unknown names (which id-echo release-gate tests rely on).
+    _V4_KNOWN_CMDS = frozenset({
+        'INFO', 'HEAP', 'STATUS', 'STOP',
+        'LED_SET', 'LED_OFF', 'LED_ENABLE', 'LED_DISABLE', 'LED_READ',
+        'DAC_RAW', 'ADC_READ', 'SELFTEST', 'CALIBRATE', 'CAL_SAVE',
+        'CAL_CLEAR', 'STIM', 'STIM_STOP',
+        'I2C_SCAN', 'I2C_READ', 'I2C_WRITE', 'DIAG', 'FWUPDATE',
+    })
+
+    def exchange_json(self, payload, timeout=None):
+        """Simulated V4 command. Returns a plausible ok:True response
+        echoing the command and any id. Tests that need specific response
+        shapes for a command can subclass / monkey-patch this method.
+        Unknown cmd names produce the firmware UNKNOWN_CMD error envelope
+        (shape matches fw40_framing.handle_line) so id-echo-on-error paths
+        are exercised under the simulator."""
+        if not isinstance(payload, dict) or 'cmd' not in payload:
+            return None
+        cmd = payload.get('cmd')
+        if cmd not in self._V4_KNOWN_CMDS:
+            resp = {'ok': False, 'cmd': cmd, 'err': 'UNKNOWN_CMD',
+                    'msg': 'unknown command'}
+            if 'id' in payload:
+                resp['id'] = payload['id']
+            return resp
+        resp = {'ok': True, 'cmd': cmd}
+        if 'id' in payload:
+            resp['id'] = payload['id']
+        # Echo commonly-expected fields so callers that destructure don't
+        # crash on KeyError. Real shape for a given command comes from
+        # firmware; simulator keeps it minimal.
+        for key in ('ch', 'mA', 'axis', 'raw', 'target'):
+            if key in payload:
+                resp[key] = payload[key]
+        if cmd == 'INFO':
+            resp.update({
+                'board': 'EL-0940 Integrated Mainboard',
+                'subsystem': 'LED',
+                'fw_version': '4.0.0',
+                'fw_date': '2026-04-21',
+                'protocol': '4.0',
+                'serial': 'SIM-LED',
+                'features': list(self.features),
+                'heap_free': 180000,
+            })
+        return resp
+
+    def firmware_stim(self, channel, mA, pulse_ms, period_ms, count):
+        """Start a firmware-owned single-channel pulse train (simulated).
+        Matches LEDBoard.firmware_stim on the real hardware — FW4.0 only."""
+        if not self.supports_firmware_stim():
+            return None
+        return {
+            'ok': True, 'cmd': 'STIM', 'ch': int(channel),
+            'status': 'RUNNING', 'pulse_us': int(pulse_ms * 1000),
+            'period_us': int(period_ms * 1000), 'count': int(count),
+        }
+
+    def firmware_stim_stop(self, channel='ALL'):
+        """Stop firmware STIM trains (simulated)."""
+        if not self.supports_firmware_stim():
+            return None
+        ch_out = 'ALL' if channel == 'ALL' else int(channel)
+        return {'ok': True, 'cmd': 'STIM_STOP', 'ch': ch_out,
+                'pulses_emitted': 0}
+
+    def supports_firmware_stim(self):
+        """Mirror LEDBoard.supports_firmware_stim: True iff the board
+        advertises the stim capability. Simulator defaults to True so
+        LVP's StimulationController exercises the firmware-side code
+        path during simulated testing."""
+        return self.has_feature('stim')
