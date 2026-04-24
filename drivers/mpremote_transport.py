@@ -450,6 +450,69 @@ class _ManagedSession(MpremoteSession):
             logger.warning("transport.close: %s", e)
 
 
+# ---------------------------------------------------------------------------
+# UART-bridge write throttling — SN 7162-19 bench 2026-04-24 finding.
+#
+# LED RP2040 connects to the host USB via the USB7002 hub's integrated
+# UART-to-USB bridge (VID 0x0424 PID 0x704C), not via native USB CDC like the
+# motor (VID 0x2E8A PID 0x0005). That bridge has a ~16-byte hardware RX FIFO
+# with no flow control. mpremote's default raw-paste (128-byte windows, no
+# inter-chunk pacing) and plain raw REPL (256-byte chunks with 10 ms spacing)
+# both overrun the FIFO, dropping bytes and producing mangled source that the
+# device-side MP compiles into `SyntaxError` at fake line numbers.
+#
+# Bench experiment 2026-04-24: 8-byte host writes with 5 ms pause cleanly
+# deliver files of any size; continuous >16-byte writes fail deterministically
+# once the total exceeds the FIFO depth.
+#
+# Fix: wrap the underlying `serial.write` for LED-class ports so every host-
+# side write is chunked to 8 bytes with a 5 ms inter-chunk pause. Motor (USB
+# CDC) is untouched — deep host + device buffers, no throttling needed.
+# ---------------------------------------------------------------------------
+UART_BRIDGE_VID_PIDS = {
+    (0x0424, 0x704C),   # Microchip USB7002 internal UART bridge (EL-0940 LED)
+}
+_THROTTLE_CHUNK = 8
+_THROTTLE_DELAY = 0.005
+
+
+def _looks_like_uart_bridge(device_path: str) -> bool:
+    """True if `device_path`'s VID/PID matches a known UART bridge that needs
+    host-side write throttling."""
+    try:
+        from serial.tools import list_ports
+        for p in list_ports.comports():
+            if p.device == device_path and p.vid is not None:
+                return (p.vid, p.pid) in UART_BRIDGE_VID_PIDS
+    except Exception as e:
+        logger.debug("UART bridge detection failed for %s: %s", device_path, e)
+    return False
+
+
+def _wrap_throttled_write(serial_port, chunk=_THROTTLE_CHUNK, delay=_THROTTLE_DELAY):
+    """Monkey-patch `serial_port.write` to send in `chunk`-byte pieces with a
+    `delay`-second pause between each. Preserves the `len(data)` return
+    contract. Idempotent — calling twice does not re-wrap."""
+    if getattr(serial_port, "_etaluma_throttled", False):
+        return
+    original_write = serial_port.write
+
+    def _write(data):
+        n = len(data)
+        for i in range(0, n, chunk):
+            original_write(data[i : i + chunk])
+            if n - i > chunk:
+                time.sleep(delay)
+        return n
+
+    serial_port.write = _write
+    serial_port._etaluma_throttled = True
+    logger.info(
+        "mpremote: throttled write enabled on %s (chunk=%dB delay=%.1fms)",
+        getattr(serial_port, "port", "<?>"), chunk, delay * 1000
+    )
+
+
 def create_session(
     device_path: str, baudrate: int = DEFAULT_BAUDRATE
 ) -> MpremoteSession:
@@ -462,6 +525,15 @@ def create_session(
     Returns a session that owns the transport; `exit()` (or the
     context manager's `__exit__`) closes both the raw REPL and the
     underlying pyserial port.
+
+    For devices that sit behind the USB7002 UART bridge (LED boards),
+    this also wraps the underlying `serial.write` with an 8-byte /
+    5 ms-pause chunker — without it, mpremote's raw-paste and plain
+    raw REPL modes both fail deterministically on any command longer
+    than the bridge's ~16-byte RX FIFO. See the `UART_BRIDGE_VID_PIDS`
+    block above for the full rationale.
     """
     transport = SerialTransport(device_path, baudrate=baudrate)
+    if _looks_like_uart_bridge(device_path):
+        _wrap_throttled_write(transport.serial)
     return _ManagedSession(transport)
