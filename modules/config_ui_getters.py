@@ -164,22 +164,29 @@ def get_current_frame_dimensions() -> dict:
     return frame
 
 
-def get_selected_labware() -> tuple[str, labware.WellPlate]:
-    protocol_settings = _app_ctx.ctx.motion_settings.ids['protocol_settings_id']
-    labware_id = protocol_settings.ids['labware_spinner'].text
+def get_selected_labware() -> tuple[str | None, labware.WellPlate | None]:
+    """Read the currently-selected labware from the spinner UI.
+
+    Falls back to settings['protocol']['labware'] if the spinner text is empty
+    (e.g. before the spinner has been populated from settings on startup).
+
+    Returns (labware_id, wellplate_obj) on success, (None, None) on any failure.
+    Lookup + None-on-error logic is delegated to the tested headless helper
+    `config_helpers.get_selected_labware_from_settings`.
+    """
     try:
-        if len(labware_id) < 1:
-            labware_id = _app_ctx.ctx.settings['protocol']['labware']
-        try:
-            labware_obj = _app_ctx.ctx.wellplate_loader.get_plate(plate_key=labware_id)
-            return labware_id, labware_obj
-        except Exception as e:
-            logger.exception("LVP Main: Settings file issue. Replace file with a known working version")
-            logger.exception(e)
-    except Exception as e:
-        logger.exception(f"LVP Main: Labware could not be loaded: {e}")
-        logger.warning(f"Check to ensure labware {labware_id} is in the labware file")
+        protocol_settings = _app_ctx.ctx.motion_settings.ids['protocol_settings_id']
+        labware_id = protocol_settings.ids['labware_spinner'].text
+        if not labware_id:
+            labware_id = _app_ctx.ctx.settings.get('protocol', {}).get('labware', '')
+    except Exception:
+        logger.exception("LVP Main: Failed to read labware id from UI/settings")
         return None, None
+
+    return config_helpers.get_selected_labware_from_settings(
+        {'protocol': {'labware': labware_id}},
+        _app_ctx.ctx.wellplate_loader,
+    )
 
 
 # ---------------------------------------------------------------------------
