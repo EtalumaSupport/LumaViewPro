@@ -136,7 +136,12 @@ class ProtocolStepExecutor:
         if p._protocol_ended.is_set() or not p._scan_in_progress.is_set():
             return
 
-        if p._z_ui_update_func is not None:
+        # #563: if this step ran AF, the AF executor already scheduled the
+        # final Z UI update to best_focus_position. Do not overwrite with
+        # the pre-AF step['Z'].
+        if step.get('Auto_Focus') and p._autofocus_executor.complete():
+            pass  # skip — AF owns the UI for this step
+        elif p._z_ui_update_func is not None:
             _schedule_ui(lambda dt: p._z_ui_update_func(float(step['Z'])))
 
         # --- Pipeline timing instrumentation ---

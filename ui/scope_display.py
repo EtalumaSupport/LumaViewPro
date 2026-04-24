@@ -91,6 +91,7 @@ class ScopeDisplay(Image):
         self._perf_process_times = []
         self._perf_blit_schedule_times = []
         self._perf_blit_delays = []
+        self._debug_perf = None  # lazy-resolved from settings.debug_mode on first frame
 
 
         # Bullseye frame rate cap (15 FPS — CPU-intensive LUT rendering)
@@ -601,8 +602,13 @@ class ScopeDisplay(Image):
             g = generation
             Clock.schedule_once(lambda dt, b=image_bytes, s=image_shape, ts=t_blit_scheduled, gen=g: self.create_and_set_texture(b, s, ts, gen), 0)
 
-            # Performance instrumentation — only when DEBUG logging enabled
-            if logger.isEnabledFor(logging.DEBUG):
+            # Performance instrumentation — only when settings.debug_mode is True.
+            # lvp_logger.py:395 disables logging at DEBUG, so isEnabledFor(DEBUG) is
+            # always False — gate on the cached settings flag instead.
+            if self._debug_perf is None:
+                ctx = _app_ctx.ctx
+                self._debug_perf = bool(ctx is not None and ctx.settings.get('debug_mode', False))
+            if self._debug_perf:
                 self._perf_grab_times.append(t_grab_end - t_grab_start)
                 self._perf_process_times.append(t_process_end - t_process_start)
                 now_perf = time.monotonic()

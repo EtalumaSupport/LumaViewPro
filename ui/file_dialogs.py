@@ -186,19 +186,10 @@ class FolderChooseBTN(HoverBehavior, Button):
             "apply_stitching_to_folder",
             "apply_composite_gen_to_folder",
             "apply_video_gen_to_folder",
+            "apply_zprojection_to_folder",
         ):
             selected_path = pathlib.Path(settings['live_folder']) / "ProtocolData"
             if not selected_path.exists():
-                selected_path = pathlib.Path(settings['live_folder'])
-            selected_path = str(selected_path)
-        elif self.context in (
-            "apply_zprojection_to_folder",
-        ):
-            if ctx.last_save_folder is not None:
-                selected_path = pathlib.Path(ctx.last_save_folder)
-                if not selected_path.exists():
-                    selected_path = pathlib.Path(settings['live_folder'])
-            else:
                 selected_path = pathlib.Path(settings['live_folder'])
             selected_path = str(selected_path)
         else:
