@@ -129,6 +129,37 @@ class UpdateResult:
     warnings: List[str] = field(default_factory=list)
 
 
+@dataclass
+class UpgradeResult:
+    """Result of an FW4.0 field upgrade (§13.X of FIRMWARE_PLAN.md).
+
+    Distinct from ``UpdateResult`` — the upgrade orchestrates a
+    per-run probe + backup + bundle-deploy + verify + telemetry
+    sequence, and carries more structured state for the LVP UI and
+    CLI exit code mapping.
+
+    LVP surfaces this in a popup; CLI maps ``exit_code`` to its
+    process exit. Both read the same error_code / error_message for
+    user-facing text. Fields are populated progressively as the run
+    advances — early-abort results may have many Nones.
+    """
+    success: bool
+    board_type: BoardType
+    exit_code: int
+    old_version: Optional[str] = None
+    new_version: Optional[str] = None
+    probe_classification: Optional[str] = None
+    config_backup_path: Optional[Path] = None
+    telemetry_log_path: Optional[Path] = None
+    overwritable_flags: Optional[Dict[str, int]] = None
+    files_written: List[str] = field(default_factory=list)
+    files_skipped_overwritable: List[str] = field(default_factory=list)
+    error_code: Optional[str] = None
+    error_message: Optional[str] = None
+    error_stage: Optional[UpdateStage] = None
+    warnings: List[str] = field(default_factory=list)
+
+
 # Progress callback: (stage, human-readable message, progress 0.0-1.0)
 ProgressCallback = Callable[[UpdateStage, str, float], None]
 
@@ -2183,3 +2214,686 @@ def deploy_firmware_file(
         _report_progress(progress_callback, UpdateStage.FAILED,
                          f"Unexpected error: {e}", 0.0)
         return result
+
+
+# ---------------------------------------------------------------------------
+# FW4.0 Field Upgrade Tool — §13.X of FIRMWARE_PLAN.md
+# ---------------------------------------------------------------------------
+#
+# Orchestrates probe → backup → bundle-deploy → verify with telemetry per
+# run. Mandate: "IT CANNOT FAIL" (Eric 2026-04-23). Every failure is a
+# specific exit code + error_code; there is no silent half-upgrade (I1).
+# Primary caller is LVP (Lumascope.upgrade_board_fw40); CLI is secondary.
+
+UPGRADE_EXIT_OK = 0
+UPGRADE_EXIT_P0_SOURCE = 10
+UPGRADE_EXIT_P1_UNRESPONSIVE = 20
+UPGRADE_EXIT_P2_BACKUP = 30
+UPGRADE_EXIT_P2_OVERWRITABLE = 35
+UPGRADE_EXIT_P4_BUNDLE = 40
+UPGRADE_EXIT_P5_VERIFY = 50
+
+
+def _load_firmware_manifest(source_tree: Path,
+                            board_type: BoardType) -> Tuple[
+                                Optional[dict], Optional[str]]:
+    """Load + validate firmware_manifest.json for a board.
+
+    Returns (manifest_entry_dict, error_message). On error the dict is
+    None; error_message is a single human-readable line for the UI.
+    """
+    manifest_path = source_tree / 'firmware_manifest.json'
+    if not manifest_path.is_file():
+        return None, f"firmware_manifest.json not found at {manifest_path}"
+    try:
+        doc = json.loads(manifest_path.read_text())
+    except Exception as e:
+        return None, f"firmware_manifest.json is not valid JSON: {e}"
+
+    board_key = board_type.value  # 'led' or 'motor'
+    entry = doc.get(board_key)
+    if not isinstance(entry, dict):
+        return None, (
+            f"firmware_manifest.json missing '{board_key}' entry")
+    for required in ('fw_version', 'main', 'features'):
+        if required not in entry:
+            return None, (
+                f"firmware_manifest.json '{board_key}' entry missing "
+                f"'{required}'")
+
+    framing = doc.get('framing')
+    if not isinstance(framing, str):
+        return None, "firmware_manifest.json missing 'framing' path"
+
+    # Resolve paths relative to source_tree
+    main_path = source_tree / entry['main']
+    framing_path = source_tree / framing
+    if not main_path.is_file():
+        return None, f"manifest main path not on disk: {main_path}"
+    if not framing_path.is_file():
+        return None, f"manifest framing path not on disk: {framing_path}"
+
+    resolved = {
+        'fw_version': str(entry['fw_version']),
+        'features': list(entry.get('features', [])),
+        'main_path': main_path,
+        'framing_path': framing_path,
+    }
+    return resolved, None
+
+
+def _probe_board_state(board) -> str:
+    """Classify the connected board from SerialBoard's cached detection.
+
+    SerialBoard.connect() / _detect_firmware_version() populates
+    firmware_version, firmware_date, firmware_responding, protocol_version,
+    and features. We read those; no re-send of INFO here. For a board that
+    didn't parse INFO we fall back to a raw-REPL liveness probe.
+
+    Returns one of:
+        'fw40_current'       — V4 firmware, required feature set present
+        'fw40_partial'       — V4 firmware, missing expected features
+        'legacy_responsive'  — pre-4.0 firmware, INFO parseable
+        'legacy_unknown'     — responds but INFO not parseable, OR raw REPL alive
+        'unresponsive'       — no INFO, no raw REPL — treat as bricked
+    """
+    # Defensive reads: SerialBoard sets these as concrete types
+    # (str | None for firmware_version, bool for firmware_responding,
+    # ProtocolVersion enum for protocol_version, list[str] for features).
+    # MagicMock returns auto-Mocks for unset attrs; we isinstance-check
+    # so a test fixture that forgets to set one doesn't get misclassified.
+    proto = getattr(board, 'protocol_version', None)
+    proto_value = getattr(proto, 'value', None) if proto is not None else None
+    proto_str = proto_value.lower() if isinstance(proto_value, str) else ''
+
+    fw_raw = getattr(board, 'firmware_version', None)
+    fw = fw_raw if isinstance(fw_raw, str) and fw_raw else None
+
+    features_raw = getattr(board, 'features', None)
+    features = (
+        [f for f in features_raw if isinstance(f, str)]
+        if isinstance(features_raw, (list, tuple))
+        else [])
+
+    responding = getattr(board, 'firmware_responding', False) is True
+
+    if proto_str == 'v4':
+        if 'fw40_framing' in features:
+            return 'fw40_current'
+        return 'fw40_partial'
+
+    if responding and fw:
+        return 'legacy_responsive'
+
+    if responding:
+        return 'legacy_unknown'
+
+    # Last resort: does raw REPL answer? If yes the board is running
+    # SOME MicroPython — treat as legacy_unknown and let the permissive
+    # deploy path run. Per §13.X.9 Q2 (Eric 2026-04-23).
+    try:
+        if board.enter_raw_repl(soft_reset=False):
+            try:
+                stdout, _ = board.repl_exec("print('fw40-probe')")
+                if stdout and b'fw40-probe' in bytes(stdout):
+                    return 'legacy_unknown'
+            finally:
+                try:
+                    board.exit_raw_repl()
+                except Exception:
+                    pass
+    except Exception:
+        pass
+
+    return 'unresponsive'
+
+
+def _soft_reset_for_classification(classification: str) -> bool:
+    """Per §13.X.4 P4 — probe classification drives soft_reset choice.
+
+    Field-upgrade classifications map to soft_reset=False across the
+    board: pre-3.0 may have a WDT-feed Timer (killed by Ctrl-D), FW4.0
+    has a running main loop we don't need to tear down. ``bare_runtime``
+    (factory bring-up, post-MP-flash blank filesystem) is a separate
+    caller path and is not produced by this probe.
+    """
+    return False
+
+
+def _parse_overwritable_flags(
+        motorconfig_bytes: bytes) -> Optional[Dict[str, int]]:
+    """Extract the Overwritable sub-object from a motorconfig.json payload.
+
+    Returns None if the field is absent, unparseable, or malformed.
+    """
+    try:
+        doc = json.loads(motorconfig_bytes)
+    except Exception:
+        return None
+    ow = doc.get('Overwritable')
+    if not isinstance(ow, dict):
+        return None
+    flags = {}
+    for k in ('Main', 'IniFiles', 'uf2'):
+        v = ow.get(k)
+        if isinstance(v, bool):
+            flags[k] = int(v)
+        elif isinstance(v, (int, float)):
+            flags[k] = int(v)
+    return flags if flags else None
+
+
+def _get_upgrade_log_dir() -> Path:
+    """Return the directory where firmware_upgrade_*.jsonl is written.
+
+    Resolved lazily from ``lvp_logger.log_dir`` so monkeypatch works in
+    tests. Creates the directory if missing (matching lvp_logger's own
+    behavior for the main log dir).
+    """
+    import lvp_logger
+    p = Path(str(lvp_logger.log_dir))
+    p.mkdir(parents=True, exist_ok=True)
+    return p
+
+
+class _UpgradeTelemetry:
+    """JSON Lines writer for an upgrade run.
+
+    One object per step written incrementally (flush + fsync per line) so
+    a host crash preserves progress. Filename starts with a provisional
+    ``_inprogress`` suffix and is renamed to include the final exit code
+    when close() is called — matches §13.X.1 I6 path shape.
+    """
+
+    def __init__(self, board_type: BoardType):
+        ts = time.strftime('%Y%m%dT%H%M%S', time.localtime())
+        self.board = board_type.value
+        log_dir = _get_upgrade_log_dir()
+        self._in_progress_name = (
+            f'firmware_upgrade_{ts}_{self.board}_inprogress.jsonl')
+        self.path = log_dir / self._in_progress_name
+        self._ts_stem = ts
+        self._f = open(self.path, 'w', encoding='utf-8')
+
+    def write(self, step: str, outcome: str, **fields) -> None:
+        obj = {
+            'timestamp': time.strftime(
+                '%Y-%m-%dT%H:%M:%S', time.localtime()),
+            'board': self.board,
+            'step': step,
+            'outcome': outcome,
+        }
+        obj.update(fields)
+        self._f.write(json.dumps(obj) + '\n')
+        self._f.flush()
+        try:
+            import os
+            os.fsync(self._f.fileno())
+        except OSError:
+            # fsync is best-effort on some filesystems; never block the
+            # upgrade on the telemetry layer.
+            pass
+
+    def close(self, exit_code: int) -> Path:
+        try:
+            self._f.close()
+        except Exception:
+            pass
+        final_name = (
+            f'firmware_upgrade_{self._ts_stem}_{self.board}'
+            f'_{exit_code}.jsonl')
+        final_path = self.path.parent / final_name
+        try:
+            self.path.rename(final_path)
+            self.path = final_path
+        except OSError as e:
+            logger.warning(
+                f'Telemetry rename {self.path} -> {final_path} failed: {e}')
+        return self.path
+
+
+def upgrade_board_fw40_from_source(
+    board_type: BoardType,
+    source_tree: Path,
+    dry_run: bool = False,
+    respect_overwritable: bool = True,
+    port: Optional[str] = None,
+    timeout: float = 2.0,
+    progress_callback: Optional[ProgressCallback] = None,
+) -> UpgradeResult:
+    """Field-upgrade a pre-3.0 or FW4.0-partial board to FW4.0-current.
+
+    Per FIRMWARE_PLAN.md §13.X. Orchestrates:
+
+      P0  host-side source + manifest + mpy-cross validation
+      P1  board probe (no writes — classify state)
+      P2  mandatory verified config backup
+      P3  existing-firmware snapshot
+      P4  bundle write via ``deploy_firmware_bundle_fw40``
+      P5  reboot + JSON INFO verify (version + features)
+      P6  finalize + telemetry close
+
+    Every gate failure produces a specific ``UpgradeResult.exit_code``
+    (see UPGRADE_EXIT_* constants). No auto-rollback on P5 failure per
+    §13.X.5. Telemetry JSONL is written on both success and abort.
+
+    Args:
+        board_type: BoardType.MOTOR or BoardType.LED.
+        source_tree: Path to the Firmware-FW4.0 repo root (contains
+            firmware_manifest.json).
+        dry_run: If True, run P0 only and exit success without opening
+            a serial transport.
+        respect_overwritable: If True (default), Overwritable.Main=0
+            aborts firmware writes with exit code 35. If False, writes
+            proceed and a warning is recorded.
+        port, timeout: Optional overrides passed to _create_board.
+        progress_callback: Optional (stage, message, fraction) callback.
+
+    Returns:
+        UpgradeResult — always populated, even on abort.
+    """
+    source_tree = Path(source_tree)
+    result = UpgradeResult(
+        success=False, board_type=board_type,
+        exit_code=UPGRADE_EXIT_P0_SOURCE,
+    )
+    telemetry: Optional[_UpgradeTelemetry] = None
+
+    try:
+        # ---- P0 — host source validation ----
+        _report_progress(progress_callback, UpdateStage.PREFLIGHT,
+                         'Validating source tree...', 0.0)
+
+        manifest, err = _load_firmware_manifest(source_tree, board_type)
+        if manifest is None:
+            result.exit_code = UPGRADE_EXIT_P0_SOURCE
+            result.error_code = 'P0_MANIFEST_INVALID'
+            result.error_message = err
+            result.error_stage = UpdateStage.PREFLIGHT
+            return result
+
+        if _find_mpy_cross() is None:
+            result.exit_code = UPGRADE_EXIT_P0_SOURCE
+            result.error_code = 'P0_MPY_CROSS_MISSING'
+            result.error_message = (
+                'mpy-cross not found on PATH. Install the micropython '
+                'PyPI package or set PATH to include mpy-cross.')
+            result.error_stage = UpdateStage.PREFLIGHT
+            return result
+
+        # Telemetry opens AFTER we know preflight passed — failing P0 is
+        # a host-side misconfig, not useful field-log content.
+        telemetry = _UpgradeTelemetry(board_type)
+        result.telemetry_log_path = telemetry.path
+        telemetry.write(
+            'P0_source_validated', 'ok',
+            fw_version=manifest['fw_version'],
+            features=manifest['features'],
+            main_size=manifest['main_path'].stat().st_size,
+            framing_size=manifest['framing_path'].stat().st_size,
+        )
+
+        if dry_run:
+            telemetry.write('dry_run', 'ok')
+            result.success = True
+            result.exit_code = UPGRADE_EXIT_OK
+            result.telemetry_log_path = telemetry.close(UPGRADE_EXIT_OK)
+            _report_progress(progress_callback, UpdateStage.COMPLETE,
+                             'Dry run complete (P0 only).', 1.0)
+            return result
+
+        # ---- P1 — probe (transport open, read-only) ----
+        _report_progress(progress_callback, UpdateStage.CHECKING_VERSION,
+                         'Probing board...', 0.10)
+        config = BOARD_CONFIGS[board_type]
+        board = _create_board(config, port=port, timeout=timeout)
+        result.old_version = (
+            getattr(board, 'firmware_version', None)
+            or getattr(board, 'firmware_date', None))
+
+        classification = _probe_board_state(board)
+        result.probe_classification = classification
+        telemetry.write(
+            'P1_probe', 'ok', classification=classification,
+            old_version=result.old_version,
+        )
+
+        if classification == 'unresponsive':
+            try:
+                board.disconnect()
+            except Exception:
+                pass
+            result.exit_code = UPGRADE_EXIT_P1_UNRESPONSIVE
+            result.error_code = 'P1_UNRESPONSIVE'
+            result.error_message = (
+                f"{config.label} board not responding — reseat USB cable "
+                f"and retry; if persistent, contact support.")
+            result.error_stage = UpdateStage.CHECKING_VERSION
+            telemetry.write(
+                'P1_probe', 'abort', error_code=result.error_code)
+            result.telemetry_log_path = telemetry.close(result.exit_code)
+            return result
+
+        # fw40_current is an idempotent-pass shortcut — board already at
+        # target. We still run P5 verify so the caller knows the features
+        # list is complete; but skip the write if everything matches.
+        idempotent_pass = False
+        if classification == 'fw40_current':
+            current_features = set(
+                getattr(board, 'features', None) or [])
+            if current_features >= set(manifest['features']):
+                idempotent_pass = True
+                telemetry.write(
+                    'P1_idempotent', 'ok',
+                    features=sorted(current_features),
+                )
+
+        # ---- P2 — mandatory verified config backup ----
+        _report_progress(progress_callback, UpdateStage.BACKING_UP_CONFIG,
+                         'Backing up config files...', 0.20)
+        import datetime
+        ts = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+        backup_dir = (Path.home() / 'Documents' / 'Etaluma'
+                      / 'firmware_backups' / f'upgrade_{ts}_{config.label}')
+        result.config_backup_path = backup_dir
+
+        configs: Dict[str, bytes] = {}
+        try:
+            configs = _backup_with_reread_verify(
+                board, config, backup_dir, progress_callback)
+        except UpdateError as e:
+            result.exit_code = UPGRADE_EXIT_P2_BACKUP
+            result.error_code = (
+                'P2_BACKUP_MISMATCH'
+                if 'mismatch' in str(e).lower()
+                else 'P2_BACKUP_FAILED')
+            result.error_message = str(e)
+            result.error_stage = e.stage
+            telemetry.write(
+                'P2_backup', 'abort', error_code=result.error_code,
+                error_message=str(e),
+            )
+            try:
+                board.disconnect()
+            except Exception:
+                pass
+            result.telemetry_log_path = telemetry.close(result.exit_code)
+            return result
+
+        telemetry.write(
+            'P2_backup', 'ok',
+            files=list(configs.keys()),
+            sizes={k: len(v) for k, v in configs.items()},
+        )
+
+        # I5 — parse Overwritable + gate firmware write if Main=0
+        ow_flags = None
+        if 'motorconfig.json' in configs:
+            ow_flags = _parse_overwritable_flags(configs['motorconfig.json'])
+        result.overwritable_flags = ow_flags
+        if ow_flags is not None:
+            telemetry.write('P2_overwritable', 'ok', flags=ow_flags)
+
+        main_blocked = bool(
+            ow_flags and ow_flags.get('Main') == 0)
+        if main_blocked and respect_overwritable:
+            result.files_skipped_overwritable.append('main')
+            result.exit_code = UPGRADE_EXIT_P2_OVERWRITABLE
+            result.error_code = 'P2_OVERWRITABLE_BLOCKED'
+            result.error_message = (
+                'Overwritable.Main=0 on board motorconfig.json — '
+                'firmware write refused. Use --ignore-overwritable to '
+                'force.')
+            result.error_stage = UpdateStage.BACKING_UP_CONFIG
+            telemetry.write(
+                'P2_overwritable', 'abort',
+                error_code=result.error_code, blocked=['main'],
+            )
+            try:
+                board.disconnect()
+            except Exception:
+                pass
+            result.telemetry_log_path = telemetry.close(result.exit_code)
+            return result
+
+        if main_blocked and not respect_overwritable:
+            msg = (
+                'Overwritable.Main=0 bypassed by respect_overwritable='
+                'False — proceeding with firmware write.')
+            result.warnings.append(msg)
+            telemetry.write('P2_overwritable', 'bypass', warning=msg)
+
+        # P3 — existing-firmware snapshot. Best-effort, not a gate.
+        # For field boards the backed-up motorconfig + any main.py that
+        # existed on device is already in backup_dir (via repl_read_file
+        # during _backup_with_reread_verify). Explicit snapshot of the
+        # pre-upgrade main.py would require another raw-REPL round; defer
+        # to a future extension if bench shows value.
+
+        # Close the raw-REPL session cleanly before handing off to the
+        # bundle helper — it opens its own.
+        try:
+            board.exit_raw_repl()
+        except Exception:
+            pass
+        try:
+            board.disconnect()
+        except Exception:
+            pass
+
+        # ---- P4 — bundle write (unless idempotent-pass) ----
+        if idempotent_pass:
+            telemetry.write('P4_bundle', 'skipped_idempotent')
+            result.new_version = result.old_version
+        else:
+            _report_progress(progress_callback, UpdateStage.RESTORING_CONFIG,
+                             'Writing FW4.0 bundle...', 0.50)
+            soft_reset = _soft_reset_for_classification(classification)
+            bundle_result = deploy_firmware_bundle_fw40(
+                board_type=board_type,
+                main_module_path=manifest['main_path'],
+                framing_path=manifest['framing_path'],
+                progress_callback=progress_callback,
+                backup_dir=backup_dir,
+                skip_config_backup=True,  # P2 already did it
+                skip_post_test=True,      # P5 handles verify
+                soft_reset=soft_reset,
+            )
+            if not bundle_result.success:
+                result.exit_code = UPGRADE_EXIT_P4_BUNDLE
+                result.error_code = 'P4_BUNDLE_WRITE_FAILED'
+                result.error_message = (
+                    bundle_result.error_message
+                    or 'Bundle write failed')
+                result.error_stage = (
+                    bundle_result.error_stage or UpdateStage.FAILED)
+                telemetry.write(
+                    'P4_bundle', 'abort',
+                    error_code=result.error_code,
+                    error_message=result.error_message,
+                )
+                result.telemetry_log_path = telemetry.close(
+                    result.exit_code)
+                return result
+
+            result.new_version = bundle_result.new_version
+            result.files_written = [
+                'fw40_framing.mpy',
+                f'fw40_{board_type.value}.mpy',
+                'main.py',
+            ]
+            telemetry.write(
+                'P4_bundle', 'ok',
+                files_written=result.files_written,
+                soft_reset=soft_reset,
+                old_version=bundle_result.old_version,
+                new_version=bundle_result.new_version,
+            )
+
+        # ---- P5 — reboot + JSON INFO verify ----
+        _report_progress(progress_callback, UpdateStage.VERIFYING_VERSION,
+                         'Verifying new firmware...', 0.85)
+        verify_board = _create_board(config, port=port, timeout=timeout)
+        try:
+            verify_board.detect_firmware_version()
+            new_fw = getattr(verify_board, 'firmware_version', None)
+            new_features = set(
+                getattr(verify_board, 'features', None) or [])
+            result.new_version = new_fw or result.new_version
+
+            expected_version = manifest['fw_version']
+            expected_features = set(manifest['features'])
+
+            if str(new_fw or '') != str(expected_version):
+                result.exit_code = UPGRADE_EXIT_P5_VERIFY
+                result.error_code = 'P5_VERSION_MISMATCH'
+                result.error_message = (
+                    f"Post-flash version {new_fw!r} does not match "
+                    f"manifest {expected_version!r}. Original config "
+                    f"preserved; firmware flash incomplete. No "
+                    f"auto-rollback (§13.X.5).")
+                result.error_stage = UpdateStage.VERIFYING_VERSION
+                telemetry.write(
+                    'P5_verify', 'abort',
+                    error_code=result.error_code,
+                    expected=expected_version, actual=new_fw,
+                )
+                result.telemetry_log_path = telemetry.close(
+                    result.exit_code)
+                return result
+
+            missing = expected_features - new_features
+            if missing:
+                result.exit_code = UPGRADE_EXIT_P5_VERIFY
+                result.error_code = 'P5_FEATURES_MISSING'
+                result.error_message = (
+                    f"Post-flash firmware missing expected features: "
+                    f"{sorted(missing)}. Original config preserved. No "
+                    f"auto-rollback (§13.X.5).")
+                result.error_stage = UpdateStage.VERIFYING_VERSION
+                telemetry.write(
+                    'P5_verify', 'abort',
+                    error_code=result.error_code,
+                    expected=sorted(expected_features),
+                    actual=sorted(new_features),
+                    missing=sorted(missing),
+                )
+                result.telemetry_log_path = telemetry.close(
+                    result.exit_code)
+                return result
+
+            telemetry.write(
+                'P5_verify', 'ok',
+                fw_version=new_fw,
+                features=sorted(new_features),
+            )
+        finally:
+            try:
+                verify_board.disconnect()
+            except Exception:
+                pass
+
+        # ---- P6 — finalize ----
+        result.success = True
+        result.exit_code = UPGRADE_EXIT_OK
+        telemetry.write('P6_finalize', 'ok')
+        result.telemetry_log_path = telemetry.close(UPGRADE_EXIT_OK)
+        _report_progress(progress_callback, UpdateStage.COMPLETE,
+                         'Upgrade complete.', 1.0)
+        logger.info(
+            f"[UPGRADE] {config.label} {result.old_version} -> "
+            f"{result.new_version} success (telemetry={result.telemetry_log_path})")
+        return result
+
+    except Exception as e:
+        result.exit_code = result.exit_code or UPGRADE_EXIT_P0_SOURCE
+        result.error_message = f"Unexpected error: {e}"
+        result.error_stage = UpdateStage.FAILED
+        logger.error(f"Upgrade unexpected error: {e}", exc_info=True)
+        if telemetry is not None:
+            try:
+                telemetry.write(
+                    'unexpected_error', 'abort', error=str(e))
+                result.telemetry_log_path = telemetry.close(
+                    result.exit_code)
+            except Exception:
+                pass
+        _report_progress(progress_callback, UpdateStage.FAILED,
+                         f"Unexpected error: {e}", 0.0)
+        return result
+
+
+def _backup_with_reread_verify(
+    board,
+    board_config: BoardConfig,
+    backup_dir: Path,
+    progress_callback=None,
+) -> Dict[str, bytes]:
+    """P2 — read every config file via raw REPL, save to disk, then
+    re-read from board and byte-compare against the saved copy. Raises
+    UpdateError if any file mismatches or cannot be read.
+
+    Stronger than _backup_configs (which relies on per-read SHA256 only);
+    this closes the race where the device filesystem could be mutating
+    during the upgrade run.
+    """
+    if not board.enter_raw_repl():
+        raise UpdateError(
+            f"Failed to enter raw REPL for P2 backup",
+            stage=UpdateStage.BACKING_UP_CONFIG,
+        )
+    configs: Dict[str, bytes] = {}
+    try:
+        with _wrap_mpremote_errors(
+                UpdateStage.BACKING_UP_CONFIG, context="P2 backup"):
+            board_files = board.repl_list_files()
+            for filename in board_config.config_files:
+                if filename not in board_files:
+                    continue
+                _report_progress(
+                    progress_callback, UpdateStage.BACKING_UP_CONFIG,
+                    f"Reading {filename}...", 0.22)
+                data = board.repl_read_file(filename, verify=True)
+                if data is None:
+                    raise UpdateError(
+                        f"Failed to read {filename}",
+                        stage=UpdateStage.BACKING_UP_CONFIG,
+                    )
+                configs[filename] = data
+
+            # Re-read + byte-compare — I2 P2 gate
+            for filename, expected in configs.items():
+                _report_progress(
+                    progress_callback, UpdateStage.BACKING_UP_CONFIG,
+                    f"Re-verifying {filename}...", 0.26)
+                second = board.repl_read_file(filename, verify=True)
+                if second is None:
+                    raise UpdateError(
+                        f"Re-read of {filename} returned no data",
+                        stage=UpdateStage.BACKING_UP_CONFIG,
+                    )
+                if second != expected:
+                    raise UpdateError(
+                        f"P2 byte-compare mismatch on {filename} "
+                        f"(first={len(expected)}B second={len(second)}B)",
+                        stage=UpdateStage.BACKING_UP_CONFIG,
+                    )
+    finally:
+        try:
+            board.exit_raw_repl()
+        except Exception:
+            pass
+
+    # Persist to disk
+    backup_dir.mkdir(parents=True, exist_ok=True)
+    board_dir = backup_dir / board_config.board_type.value
+    board_dir.mkdir(exist_ok=True)
+    manifest = {}
+    for filename, data in configs.items():
+        local_path = board_dir / filename
+        local_path.write_bytes(data)
+        sha = hashlib.sha256(data).hexdigest()
+        manifest[filename] = {'size': len(data), 'sha256': sha}
+    (board_dir / 'backup_manifest.json').write_text(
+        json.dumps(manifest, indent=2))
+    return configs

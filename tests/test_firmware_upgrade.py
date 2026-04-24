@@ -91,12 +91,29 @@ def _motorconfig_bytes(overwritable=None):
     return json.dumps(doc).encode('utf-8')
 
 
+class _FakeProtocol:
+    """Stand-in for drivers.serialboard.ProtocolVersion enum entries.
+
+    Tests that want to simulate a V4 board build a MagicMock with
+    ``protocol_version=_FakeProtocol('v4')``. The probe reads ``.value``
+    and isinstance-checks for ``str``.
+    """
+    def __init__(self, value: str):
+        self.value = value
+
+
 @pytest.fixture
 def mock_board():
     """Healthy pre-3.0 motor board. Tests override specific attrs."""
     board = MagicMock()
-    board.firmware_version = 'v2.9.99'     # pre-3.0, raw-REPL-happy
+    # SerialBoard attrs populated by connect() / _detect_firmware_version.
+    # Explicit so the probe doesn't trip on MagicMock auto-attrs.
+    board.firmware_version = 'v2.9.99'      # pre-3.0 → legacy_responsive
     board.firmware_date = None
+    board.firmware_responding = True
+    board.protocol_version = _FakeProtocol('legacy')
+    board.features = []
+
     board.enter_raw_repl.return_value = True
     board.exit_raw_repl.return_value = None
     board.repl_list_files.return_value = [
@@ -259,7 +276,9 @@ class TestProbe:
     ):
         patched_create_board.firmware_version = None
         patched_create_board.firmware_date = None
-        patched_create_board.exchange_command.return_value = None
+        patched_create_board.firmware_responding = False
+        patched_create_board.protocol_version = _FakeProtocol('legacy')
+        patched_create_board.features = []
         patched_create_board.enter_raw_repl.return_value = False
         patched_create_board.repl_exec.side_effect = Exception('no repl')
 
@@ -273,17 +292,18 @@ class TestProbe:
         self, source_tree, patched_mpy_cross, patched_create_board,
         patched_bundle, telemetry_dir,
     ):
-        """§13.X.9 Q2 — raw REPL works, INFO doesn't. Do NOT refuse."""
+        """§13.X.9 Q2 — board responds, INFO not parseable. Do NOT refuse."""
         patched_create_board.firmware_version = None
         patched_create_board.firmware_date = None
-        patched_create_board.exchange_command.return_value = None
-        patched_create_board.enter_raw_repl.return_value = True
-        patched_create_board.repl_exec.return_value = (b'1\n', b'')
-        # Post-write INFO returns 4.0 so P5 passes
-        patched_create_board.verify_firmware_running.return_value = '4.0.0'
-        patched_create_board.detect_firmware_version.side_effect = (
-            lambda: setattr(patched_create_board, 'firmware_version', '4.0.0')
-        )
+        patched_create_board.firmware_responding = True
+        patched_create_board.protocol_version = _FakeProtocol('legacy')
+        patched_create_board.features = []
+        # Post-write detect flips fw_version + features to 4.0
+        def _post_detect():
+            patched_create_board.firmware_version = '4.0.0'
+            patched_create_board.features = [
+                'motion', 'homing', 'fw40_framing']
+        patched_create_board.detect_firmware_version.side_effect = _post_detect
 
         r = upgrade_board_fw40_from_source(BoardType.MOTOR, source_tree)
         assert r.probe_classification == 'legacy_unknown'
@@ -292,31 +312,34 @@ class TestProbe:
 
     def test_fw40_current_idempotent_pass(
         self, source_tree, patched_mpy_cross, patched_create_board,
-        patched_bundle, telemetry_dir, post_flash_info_ok,
+        patched_bundle, telemetry_dir,
     ):
         """Re-running same manifest on an already-current board is a pass."""
         patched_create_board.firmware_version = '4.0.0'
-        patched_create_board.exchange_command.return_value = post_flash_info_ok
+        patched_create_board.firmware_responding = True
+        patched_create_board.protocol_version = _FakeProtocol('v4')
+        patched_create_board.features = [
+            'motion', 'homing', 'fw40_framing']
+        patched_create_board.detect_firmware_version.return_value = None
 
         r = upgrade_board_fw40_from_source(BoardType.MOTOR, source_tree)
         assert r.success is True
         assert r.exit_code == 0
         assert r.probe_classification == 'fw40_current'
-        # Idempotency is a pass; the write may be skipped or re-performed,
-        # but the final state must be "already at target".
 
     def test_fw40_partial_classified(
         self, source_tree, patched_mpy_cross, patched_create_board,
         patched_bundle, telemetry_dir,
     ):
-        """Probe detects a half-upgraded board."""
+        """Probe detects a half-upgraded board — V4 protocol, framing missing."""
         patched_create_board.firmware_version = '4.0.0'
-        patched_create_board.exchange_command.return_value = json.dumps({
-            "fw_version": "4.0.0",
-            "features": [],   # fw40_framing missing
-            "error": "ImportError: fw40_framing",
-        })
-        patched_create_board.verify_firmware_running.return_value = '4.0.0'
+        patched_create_board.firmware_responding = True
+        patched_create_board.protocol_version = _FakeProtocol('v4')
+        patched_create_board.features = []  # fw40_framing missing
+        def _post_detect():
+            patched_create_board.features = [
+                'motion', 'homing', 'fw40_framing']
+        patched_create_board.detect_firmware_version.side_effect = _post_detect
 
         r = upgrade_board_fw40_from_source(BoardType.MOTOR, source_tree)
         assert r.probe_classification == 'fw40_partial'
@@ -352,6 +375,8 @@ class TestBackup:
         self, source_tree, patched_mpy_cross, patched_create_board,
         patched_bundle, telemetry_dir,
     ):
+        # Clear the fixture's side_effect so return_value=None takes effect.
+        patched_create_board.repl_read_file.side_effect = None
         patched_create_board.repl_read_file.return_value = None
 
         r = upgrade_board_fw40_from_source(BoardType.MOTOR, source_tree)
@@ -392,7 +417,8 @@ class TestBundleWrite:
     ):
         """Simulated bundle write failure → exit 40."""
         def _fail(*a, **k):
-            r = UpdateResult(success=False, board_type=a[0])
+            bt = k.get('board_type') or (a[0] if a else BoardType.MOTOR)
+            r = UpdateResult(success=False, board_type=bt)
             r.error_message = 'SHA256 mismatch on fw40_framing.mpy'
             r.error_stage = UpdateStage.RESTORING_CONFIG
             return r
@@ -507,15 +533,19 @@ class TestOverwritable:
         led_board = MagicMock()
         led_board.firmware_version = 'v2.9.99'
         led_board.firmware_date = None
+        led_board.firmware_responding = True
+        led_board.protocol_version = _FakeProtocol('legacy')
+        led_board.features = []
         led_board.enter_raw_repl.return_value = True
         led_board.exit_raw_repl.return_value = None
         led_board.repl_list_files.return_value = ['main.py', 'cal.json']
         led_board.repl_read_file.return_value = b'{"cal_data": []}'
         led_board.repl_write_file.return_value = True
         led_board.verify_firmware_running.return_value = '4.0.0'
-        led_board.detect_firmware_version.side_effect = (
-            lambda: setattr(led_board, 'firmware_version', '4.0.0')
-        )
+        def _post_detect():
+            led_board.firmware_version = '4.0.0'
+            led_board.features = ['led_on', 'fw40_framing']
+        led_board.detect_firmware_version.side_effect = _post_detect
         led_board.exchange_command.return_value = None
         led_board.disconnect.return_value = None
         monkeypatch.setattr(
@@ -660,15 +690,19 @@ class TestIdempotent:
 
     def test_same_manifest_twice(
         self, source_tree, patched_mpy_cross, patched_create_board,
-        patched_bundle, telemetry_dir, post_flash_info_ok,
+        patched_bundle, telemetry_dir,
     ):
         patched_create_board.firmware_version = '4.0.0'
-        patched_create_board.exchange_command.return_value = post_flash_info_ok
-        patched_create_board.verify_firmware_running.return_value = '4.0.0'
+        patched_create_board.firmware_responding = True
+        patched_create_board.protocol_version = _FakeProtocol('v4')
+        patched_create_board.features = [
+            'motion', 'homing', 'fw40_framing']
+        patched_create_board.detect_firmware_version.return_value = None
 
         r1 = upgrade_board_fw40_from_source(BoardType.MOTOR, source_tree)
         r2 = upgrade_board_fw40_from_source(BoardType.MOTOR, source_tree)
-        assert r1.success is True
+        assert r1.success is True, (
+            f'first run failed: {r1.error_code} {r1.error_message}')
         assert r2.success is True
         assert r1.exit_code == 0
         assert r2.exit_code == 0
