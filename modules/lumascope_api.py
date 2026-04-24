@@ -65,6 +65,112 @@ class AxisState:
     HOMING = 'homing'      # Homing sequence in progress
 
 
+# ---------------------------------------------------------------------------
+# Rule 14 helpers (notify on failure)
+#
+# #632/#539 introduced `_try_connect_board` to replace the silent
+# `try/except: NullBoard()` pattern that hid LED-side failures. The audit
+# (docs/AUDIT_RULE_14_NOTIFY_2026-04-24.md) flagged two places that still
+# needed this plus the camera path, and recommended hoisting the helpers
+# to module scope so they can be reused by `__init__`, `create_diagnostic`,
+# and any future connect path without duplicating the error-class routing.
+# Keep the module-scope helpers as the single source of truth; call sites
+# should be one-liners.
+# ---------------------------------------------------------------------------
+
+def _notify_board_failure(label, short, message):
+    """Surface a board-connect failure to the user via notification_center.
+
+    Safe to call from any thread. Falls back to a debug log if the
+    notification_center import fails (e.g. during very-early startup).
+    """
+    try:
+        from modules.notification_center import notifications
+        notifications.warning(label, f"{label} {short}", message)
+    except Exception as nx:
+        logger.debug(f'{label}: notification center unavailable: {nx}')
+
+
+def _try_connect_board(label, ctor, null_ctor):
+    """Construct a board, classify any failure, notify the user, fall back
+    to `null_ctor()` so callers don't crash on missing hardware.
+
+    The board constructor (LEDBoard / MotorBoard / ...) calls
+    SerialBoard.connect() internally, which catches its OWN exceptions and
+    logs without re-raising. That means a PermissionError on open leaves
+    `board.found=True` (port was discovered) but `board.driver=None` (open
+    failed) — we detect that here and surface it as a clear failure instead
+    of silently substituting Null*.
+
+    Rule 14: every case logs visibly and notifies the user with an
+    actionable, error-class-specific message.
+    """
+    try:
+        board = ctor()
+        if not getattr(board, 'found', False):
+            logger.error(f'{label}: not detected on USB')
+            _notify_board_failure(label, "not detected",
+                f"{label} not found on USB. Check USB cable and 24V power.")
+            return null_ctor()
+        if getattr(board, 'driver', None) is None:
+            logger.error(f'{label}: detected on {board.port} but driver failed to open '
+                         f'(port may be held by another program — Thonny, etc.)')
+            _notify_board_failure(label, "port in use or unreachable",
+                f"{label} detected on {board.port} but the port could not be opened. "
+                f"Close other programs holding the port (Thonny, serial monitors), "
+                f"then restart LVP.")
+            return null_ctor()
+        return board
+    except PermissionError as e:
+        logger.error(f'{label}: PermissionError opening port: {e}')
+        _notify_board_failure(label, "port in use",
+            f"{label} port is in use by another program (e.g. Thonny). "
+            f"Close the other program and restart LVP to reconnect.")
+        return null_ctor()
+    except FileNotFoundError as e:
+        logger.error(f'{label}: FileNotFoundError on port: {e}')
+        _notify_board_failure(label, "port not found",
+            f"{label} port disappeared during connect. Check USB cable.")
+        return null_ctor()
+    except Exception as e:
+        logger.error(f'{label}: connect failed: {type(e).__name__}: {e}', exc_info=True)
+        _notify_board_failure(label, "connect failed",
+            f"Could not connect to {label}: {type(e).__name__}: {e}")
+        return null_ctor()
+
+
+def _notify_camera_failure(exc):
+    """Rule 14 audit A1 — surface camera-init failure to the user.
+
+    The camera registry raises a variety of exception types depending on
+    which backend (pypylon, ids_peak, FX2, simulated). pypylon's
+    RuntimeException for "camera already open in another application"
+    is the high-frequency case that Pylon Viewer / a second LVP instance
+    produces and deserves a dedicated message.
+    """
+    exc_type = type(exc).__name__
+    # Don't import pypylon at module load (adds cold-start time on
+    # non-Pylon rigs). Match by type name string instead.
+    if exc_type in ('RuntimeException', 'GenericException', 'LogicalErrorException'):
+        title = "Camera in use"
+        body = (f"Camera appears to be open in another application "
+                f"(Pylon Viewer, another LVP instance, etc.). "
+                f"Close it and restart LVP. ({exc_type}: {exc})")
+    elif isinstance(exc, PermissionError):
+        title = "Camera port in use"
+        body = (f"Camera port is in use by another program. "
+                f"Close the other program and restart LVP. ({exc})")
+    elif isinstance(exc, FileNotFoundError):
+        title = "Camera not detected"
+        body = (f"Camera not found. Check USB cable and power. ({exc})")
+    else:
+        title = "Camera not initialized"
+        body = (f"Could not connect to camera: {exc_type}: {exc}. "
+                f"Check USB cable, power, and close other programs that "
+                f"may hold the camera.")
+    _notify_board_failure("Camera", title, body)
+
+
 class Lumascope():
 
     # --- Input validation constants ---
@@ -104,7 +210,12 @@ class Lumascope():
         # built below, AFTER the motion driver is constructed, so they
         # only contain the axes the hardware actually has.
         self._pos_cache_lock = threading.Lock()
-        self._axis_state_lock = threading.Lock()
+        # Threading audit §10.2 — TimedLock on the hot axis-state lock records
+        # contention to lock_trace.csv when LVP_PROFILE_TRACE=1. §4.5 of the
+        # threading audit flagged the invariant "never hold _axis_state_lock
+        # across a serial call" — trace reveals whether that invariant holds
+        # under real workloads.
+        self._axis_state_lock = profile_trace.TimedLock(threading.Lock(), name="lumascope._axis_state_lock")
 
         # Motion monitor wakeup — set when any axis starts MOVING, cleared when
         # all axes are back to IDLE. The monitor thread sleeps on this.
@@ -230,8 +341,12 @@ class Lumascope():
             if simulate:
                 self.camera.load_cycle_images()
                 logger.info('[SCOPE API ] Using SIMULATED Camera')
-        except Exception:
+        except Exception as _cam_exc:
             logger.exception('[SCOPE API ] Camera Board Not Initialized')
+            # Rule 14 A1: pre-fix code logged only; the user saw no popup and
+            # every camera-dependent UI action silently returned None/False.
+            # Same pattern #632/#539 fixed for the LED + motor boards.
+            _notify_camera_failure(_cam_exc)
 
         # ----- ScopeCapabilities (audit B7) -----
         # Single source of truth for "what does this scope have" — built
@@ -267,8 +382,9 @@ class Lumascope():
         # Per-device locks — each device communicates over a different port
         # and can operate independently. Split from the old global _hw_lock
         # to allow LED stim pulses during camera grabs and motor moves.
-        self._led_lock = threading.RLock()    # LED serial commands
-        self._cam_lock = threading.RLock()    # Camera grab/gain/exposure
+        # Threading audit §10.2 — both wrapped with TimedLock for contention tracing.
+        self._led_lock = profile_trace.TimedLock(threading.RLock(), name="lumascope._led_lock")
+        self._cam_lock = profile_trace.TimedLock(threading.RLock(), name="lumascope._cam_lock")
         # Global lock for multi-device atomic operations (e.g., LED on + capture + LED off).
         # Only used by acquire_exclusive() — individual methods use per-device locks.
         self._hw_lock = threading.RLock()
@@ -3201,7 +3317,8 @@ class Lumascope():
 
         # Threading infrastructure (locks first; per-axis dicts after motion init)
         instance._pos_cache_lock = threading.Lock()
-        instance._axis_state_lock = threading.Lock()
+        # Threading audit §10.2 — matches the __init__ path wrapping.
+        instance._axis_state_lock = profile_trace.TimedLock(threading.Lock(), name="lumascope._axis_state_lock.diag")
         instance._move_profile_lock = threading.Lock()
         instance._motion_wake = threading.Event()
         instance._motion_monitor_stop = threading.Event()
@@ -3227,62 +3344,11 @@ class Lumascope():
         # Connect boards — motion before per-axis dicts so we can size them
         # to the axes the hardware actually has (audit B4).
         #
-        # #632/#539 — surface board-connect failures clearly rather than
-        # silently substituting the Null* board. The pre-fix code dropped
-        # all exceptions and the LED side often had no log at all (LED
-        # could not be diagnosed remotely without a hardware power cycle).
-        # _try_connect_board logs visibly + sends a user-facing notification
-        # with an actionable, error-class-specific message before falling
-        # back to Null*.
+        # #632/#539 surfaced the original silent-swallow bug. The helpers
+        # are now at module scope (see top of file) so __init__,
+        # create_diagnostic, and future callers share one code path.
         from drivers.null_ledboard import NullLEDBoard
         from drivers.null_motorboard import NullMotionBoard
-
-        def _try_connect_board(label, ctor, null_ctor):
-            try:
-                board = ctor()
-                # Connect attempt may have caught its own exceptions internally
-                # and left driver=None despite found=True (port discovered, but
-                # PermissionError / FileNotFoundError on open). Treat any
-                # 'found-but-no-driver' case as a surfaced failure rather than
-                # a silent NullBoard fallback.
-                if not getattr(board, 'found', False):
-                    logger.error(f'{label}: not detected on USB')
-                    _notify_board_failure(label, "not detected",
-                        f"{label} not found on USB. Check USB cable and 24V power.")
-                    return null_ctor()
-                if getattr(board, 'driver', None) is None:
-                    logger.error(f'{label}: detected on {board.port} but driver failed to open '
-                                 f'(port may be held by another program — Thonny, etc.)')
-                    _notify_board_failure(label, "port in use or unreachable",
-                        f"{label} detected on {board.port} but the port could not be opened. "
-                        f"Close other programs holding the port (Thonny, serial monitors), "
-                        f"then restart LVP.")
-                    return null_ctor()
-                return board
-            except PermissionError as e:
-                logger.error(f'{label}: PermissionError opening port: {e}')
-                _notify_board_failure(label, "port in use",
-                    f"{label} port is in use by another program (e.g. Thonny). "
-                    f"Close the other program and restart LVP to reconnect.")
-                return null_ctor()
-            except FileNotFoundError as e:
-                logger.error(f'{label}: FileNotFoundError on port: {e}')
-                _notify_board_failure(label, "port not found",
-                    f"{label} port disappeared during connect. Check USB cable.")
-                return null_ctor()
-            except Exception as e:
-                logger.error(f'{label}: connect failed: {type(e).__name__}: {e}', exc_info=True)
-                _notify_board_failure(label, "connect failed",
-                    f"Could not connect to {label}: {type(e).__name__}: {e}")
-                return null_ctor()
-
-        def _notify_board_failure(label, short, message):
-            try:
-                from modules.notification_center import notifications
-                notifications.warning(label, f"{label} {short}", message)
-            except Exception as nx:
-                logger.debug(f'{label}: notification center unavailable: {nx}')
-
         instance.led = _try_connect_board('LED board', LEDBoard, NullLEDBoard)
         instance.motion = _try_connect_board('Motor board', MotorBoard, NullMotionBoard)
 

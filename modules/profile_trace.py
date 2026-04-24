@@ -134,5 +134,86 @@ class timer:
             trace(self.filename, self.header, [ts_ms, f"{dt_ms:.3f}", *extra])
 
 
+class TimedLock:
+    """Drop-in wrapper for threading.Lock / threading.RLock that records
+    acquire-wait + hold time per acquire-release cycle to `lock_trace.csv`
+    when LVP_PROFILE_TRACE=1 is set.
+
+    Threading audit §10.2 — validates SerialBoard._lock hold-time claim
+    (~32 ms per round-trip, documented at drivers/motorboard.py:79 from a
+    2026-04-13 bench run) across more sessions, and surfaces outliers.
+    Zero overhead when tracing is disabled — __enter__/__exit__ short-circuit
+    before time.perf_counter().
+
+    Thread-safe for RLock re-entry: uses a per-instance thread-local
+    stack of (t_wait_start, t_held_start) tuples so nested
+    `with self._rlock: ... with self._rlock: ...` correctly records
+    outer and inner acquire times independently instead of clobbering.
+
+    Usage (same as threading.Lock):
+        self._led_lock = TimedLock(threading.RLock(), name="led_lock")
+        with self._led_lock:
+            ...
+
+    Also supports acquire()/release() for code that uses them directly.
+    """
+    __slots__ = ("_lock", "_name", "_tls")
+
+    def __init__(self, lock, name):
+        self._lock = lock
+        self._name = name
+        self._tls = threading.local()
+
+    def _stack(self):
+        s = getattr(self._tls, "stack", None)
+        if s is None:
+            s = []
+            self._tls.stack = s
+        return s
+
+    def __enter__(self):
+        if ENABLE_PROFILE_TRACE:
+            t0 = time.perf_counter()
+            self._lock.acquire()
+            t1 = time.perf_counter()
+            self._stack().append((t0, t1))
+        else:
+            self._lock.acquire()
+        return self
+
+    def __exit__(self, *_):
+        if ENABLE_PROFILE_TRACE:
+            stack = self._stack()
+            if stack:
+                t0, t1 = stack.pop()
+                t2 = time.perf_counter()
+                acquire_wait_ms = (t1 - t0) * 1000.0
+                hold_ms = (t2 - t1) * 1000.0
+                ts_ms = int(time.time() * 1000)
+                thread_name = threading.current_thread().name
+                trace(
+                    "lock_trace.csv",
+                    "ts_ms,duration_ms,lock_name,thread,acquire_wait_ms,hold_ms",
+                    [ts_ms, f"{(acquire_wait_ms + hold_ms):.3f}", self._name,
+                     thread_name, f"{acquire_wait_ms:.3f}", f"{hold_ms:.3f}"],
+                )
+        self._lock.release()
+        return False
+
+    # Pass-through API for code that calls acquire()/release() directly.
+    # NOTE: these paths do NOT emit trace rows — only `with` context records
+    # (common case, keeps hot path simple). Code that needs tracing on
+    # explicit acquire/release can wrap the operation in `with self.lock:`.
+    def acquire(self, *a, **kw):
+        return self._lock.acquire(*a, **kw)
+
+    def release(self):
+        return self._lock.release()
+
+    @property
+    def name(self):
+        return self._name
+
+
 if os.environ.get("LVP_PROFILE_TRACE") == "1":
     enable()

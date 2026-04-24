@@ -10,9 +10,19 @@ import queue
 from collections.abc import Sequence
 from functools import partial
 from lvp_logger import logger, debug
+from modules import profile_trace
 from modules.notification_center import notifications
 import threading
 import time
+
+# Threading audit §10.1 — per-IOTask queue-wait + exec-time instrumentation.
+# Opt-in via LVP_PROFILE_TRACE=1 env var (same gate as serial_trace /
+# motion_trace / frame_validity_trace). Zero overhead when disabled — every
+# timestamp site is guarded by profile_trace.ENABLE_PROFILE_TRACE.
+_IOTASK_TRACE_HEADER = (
+    "ts_ms,duration_ms,executor,task_name,action,queue_kind,"
+    "queue_depth_at_enqueue,queue_wait_ms,exec_ms,exception"
+)
 
 
 """
@@ -223,6 +233,10 @@ class SequentialIOExecutor:
                 self.caller_futures[task] = fut
         else:
             fut = None
+        if profile_trace.ENABLE_PROFILE_TRACE:
+            task._t_enqueue = time.monotonic()
+            task._queue_depth_at_enqueue = self.queue.qsize() + (1 if self._running_task else 0)
+            task._queue_kind = "default"
         self.queue.put(task)
         task.set_name(self.executor_name)
         return fut
@@ -246,6 +260,10 @@ class SequentialIOExecutor:
                 self.caller_futures[task] = fut
         else:
             fut = None
+        if profile_trace.ENABLE_PROFILE_TRACE:
+            task._t_enqueue = time.monotonic()
+            task._queue_depth_at_enqueue = self.protocol_queue.qsize() + (1 if self._running_task else 0)
+            task._queue_kind = "protocol"
         self.protocol_queue.put(task)
         task.set_name(self.executor_name)
 
@@ -338,6 +356,8 @@ class SequentialIOExecutor:
                     else:
                         task = self.queue.get(block=True, timeout=0.2)
                         task.protocol = False
+                    if profile_trace.ENABLE_PROFILE_TRACE:
+                        task._t_dequeue = time.monotonic()
                 except queue.Empty:
                     if self.pending_shutdown:
                         return
@@ -406,6 +426,34 @@ class SequentialIOExecutor:
             notifications.error("Task", f"{self.name} Task Failed",
                 f"{getattr(task.action, '__name__', str(task.action))} failed: {exception}")
         self.last_task_done_monotonic = time.monotonic()
+
+        # Threading audit §10.1 — emit per-IOTask timing row when opt-in tracing
+        # is enabled. Fields answer "which lane starved?" (queue_wait_ms per lane
+        # per time bucket), "which actions are slow?" (exec_ms per action name),
+        # and "does queue depth correlate with wait?" (queue_depth_at_enqueue).
+        # See modules/profile_trace.py for the unified LVP_PROFILE_TRACE env gate.
+        if profile_trace.ENABLE_PROFILE_TRACE:
+            t_enqueue = getattr(task, "_t_enqueue", None)
+            t_dequeue = getattr(task, "_t_dequeue", None)
+            if t_enqueue is not None and t_dequeue is not None:
+                queue_wait_ms = (t_dequeue - t_enqueue) * 1000.0
+                exec_ms = (self.last_task_done_monotonic - t_dequeue) * 1000.0
+                profile_trace.trace(
+                    "iotask_trace.csv",
+                    _IOTASK_TRACE_HEADER,
+                    [
+                        int(time.time() * 1000),              # ts_ms
+                        f"{(queue_wait_ms + exec_ms):.3f}",   # duration_ms (total)
+                        self.name or "",                       # executor
+                        task.name or "",                       # task_name (worker thread name)
+                        getattr(task.action, "__name__", str(task.action))[:40],
+                        getattr(task, "_queue_kind", "default"),
+                        getattr(task, "_queue_depth_at_enqueue", -1),
+                        f"{queue_wait_ms:.3f}",
+                        f"{exec_ms:.3f}",
+                        type(exception).__name__ if exception is not None else "",
+                    ],
+                )
         with self._caller_futures_lock:
             caller_fut = self.caller_futures.pop(task, None)
         if caller_fut:

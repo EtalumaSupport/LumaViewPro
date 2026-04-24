@@ -15,6 +15,7 @@ import serial
 import serial.tools.list_ports as list_ports
 from enum import Enum
 from lvp_logger import logger
+from modules.profile_trace import TimedLock
 import threading
 
 _serial_log = logging.getLogger('LVP.serial')
@@ -42,7 +43,13 @@ class ProtocolVersion(Enum):
 class SerialBoard:
 
     def __init__(self, vid, pid, label, timeout=0.1, write_timeout=0.1, port=None):
-        self._lock = threading.RLock()
+        # Threading audit §10.2 — TimedLock records acquire-wait + hold time to
+        # lock_trace.csv when LVP_PROFILE_TRACE=1 is set (zero overhead when off).
+        # The label (`[LED Class ]` / `[XYZ Class ]`) makes per-board contention
+        # distinguishable in traces. Validates the 32 ms hold-time comment at
+        # drivers/motorboard.py:79 across more sessions and surfaces outliers.
+        _lock_label = (label or "SerialBoard").strip(" []") or "SerialBoard"
+        self._lock = TimedLock(threading.RLock(), name=f"SerialBoard._lock.{_lock_label}")
         self._vid = vid
         self._pid = pid
         self._label = label
