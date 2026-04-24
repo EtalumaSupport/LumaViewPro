@@ -892,12 +892,20 @@ class MicroscopeSettings(BoxLayout):
     def select_objective(self):
         try:
             objective_id = self.ids['objective_spinner'].text
+            ctx = _app_ctx.ctx
+            settings = ctx.settings
+
+            # #631: idempotent — if the spinner text matches current settings, no
+            # work to do. Defends against on_text firing for programmatic text
+            # writes (e.g. settings load, mirror-spinner sync) without redoing
+            # hardware calls or notifications.
+            if objective_id == settings.get('objective_id'):
+                return
+
             gui_logger.select('OBJECTIVE', objective_id)
             logger.info('[LVP Main  ] MicroscopeSettings.select_objective()')
-            ctx = _app_ctx.ctx
 
             lumaview = ctx.lumaview
-            settings = ctx.settings
             objective_helper = ctx.objective_helper
 
             # If turret is present, objective must be assigned to a turret position (#606)
@@ -907,8 +915,9 @@ class MicroscopeSettings(BoxLayout):
                 if assigned and objective_id not in assigned:
                     from modules.notification_center import notifications
                     notifications.warning("Objective", "Objective Not in Turret",
-                        f"'{objective_id}' is not assigned to any turret position. "
-                        f"Assign it in Objective Control > Turret before using.")
+                        f"[Objective] Cannot select '{objective_id}' — not assigned "
+                        f"to any turret position. Assign it in Objective Control > "
+                        f"Turret before using.")
 
             objective = objective_helper.get_objective_info(objective_id=objective_id)
             settings['objective_id'] = objective_id

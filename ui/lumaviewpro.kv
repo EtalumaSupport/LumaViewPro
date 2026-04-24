@@ -592,7 +592,10 @@
 	        text: 'Select'
 			font_size:'12sp'
 			option_cls: "SpinnerOption0"
-			text_autoupdate: True
+			# #631: text_autoupdate: True caused .values reassignment to reset
+			# .text to the alphabetically-first option, firing on_text with the
+			# wrong objective_id and tripping the misleading turret warning.
+			# Text is authoritatively driven by settings['objective_id'].
 	        on_release: root.load_objectives()
 	        on_text: root.select_objective()
 
@@ -1047,7 +1050,9 @@
 				option_cls: "SpinnerOption0"
 				size_hint_y: None
 				height: '30dp'
-				text_autoupdate: True
+				# #631 cluster: text_autoupdate caused select_labware to double-fire
+				# (logs showed "SELECT LABWARE 96 well microplate" twice). Text is
+				# driven by settings['protocol']['labware'].
 				on_text: root.select_labware()
 
 
@@ -1990,7 +1995,9 @@
 					text: 'Select'
 					font_size:'12sp'
 					option_cls: "SpinnerOption0"
-					text_autoupdate: True
+					# #631 cluster: text_autoupdate causes .values reassignment to
+					# reset .text to alphabetically-first, firing on_text with the
+					# wrong scope_id. Text is driven by settings['scope']['model'].
 					on_release: root.load_scopes()
 					on_text: root.select_scope()
 
@@ -2010,7 +2017,7 @@
 					text: 'Select'
 					font_size:'12sp'
 					option_cls: "SpinnerOption0"
-					text_autoupdate: True
+					# #631: see objective_spinner2 above for rationale.
 					on_release: root.load_objectives()
 					on_text: root.select_objective()
 
@@ -2260,7 +2267,7 @@
 					text: 'Select'
 					font_size:'12sp'
 					option_cls: "SpinnerOption0"
-					text_autoupdate: True
+					# #631 cluster: see scope_spinner / objective_spinner.
 					on_release: root.load_binning_sizes()
 					on_text: root.select_binning_size()
 

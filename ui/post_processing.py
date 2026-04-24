@@ -125,7 +125,7 @@ class ZProjectionControls(BoxLayout):
             # Run imagej initialization in a separate thread
             # Callback to finish zprojection when imagej is initialized
             from modules.imagej_helper import init_ij
-            _app_ctx.ctx.file_io_executor.put(IOTask(action=init_ij, callback=self.zprojection_with_imagej, cb_args=(popup, path)))
+            _app_ctx.ctx.file_io_executor.put(IOTask(action=init_ij, callback=self.zprojection_with_imagej, cb_args=(popup, path), pass_result=True))
             self.ij_buffer_event = Clock.schedule_interval(lambda dt: self.waiting_for_imagej(popup), self.ij_buffer_interval)
             return
 
@@ -150,12 +150,19 @@ class ZProjectionControls(BoxLayout):
 
         return
 
-    def zprojection_with_imagej(self, popup, path):
+    def zprojection_with_imagej(self, popup, path, result=None, exception=None):
         ctx = _app_ctx.ctx
         status_map = {
             True: "Success",
             False: "FAILED"
         }
+
+        # #628: init_ij returns the ImageJHelper. Stash it before the None-check
+        # below — without this the dispatcher dropped the result on the floor and
+        # the operator saw a misleading "Failed to initialize ImageJ" popup even
+        # though ImageJ initialized correctly.
+        if ctx.ij_helper is None and result is not None:
+            ctx.ij_helper = result
 
         if ctx.ij_helper is not None:
             self.ij_initialized = True
@@ -169,6 +176,11 @@ class ZProjectionControls(BoxLayout):
             self.ij_buffer_count = 0
 
         if ctx.ij_helper is None:
+            logger.error(
+                f"[Z-Projection] ij_helper is None after init_ij — "
+                f"result={result!r} exception={exception!r}. "
+                f"pass_result may be missing or init_ij returned None."
+            )
             popup.text = "Failed to initialize ImageJ. Please try again."
             Clock.schedule_once(lambda dt: popup.dismiss(), 5)
             return

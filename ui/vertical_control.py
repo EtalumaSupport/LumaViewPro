@@ -265,14 +265,19 @@ class VerticalControl(BoxLayout):
     def select_objective(self):
         try:
             ctx = _app_ctx.ctx
+            settings = ctx.settings
+            objective_id = self.ids['objective_spinner2'].text
+
+            # #631: idempotent — see microscope_settings.MicroscopeSettings.select_objective.
+            if objective_id == settings.get('objective_id'):
+                return
+
             # Only log objective changes from user interaction, not protocol
             if not ctx.protocol_running or not ctx.protocol_running.is_set():
-                gui_logger.select('OBJECTIVE', self.ids['objective_spinner2'].text)
+                gui_logger.select('OBJECTIVE', objective_id)
             logger.info('[LVP Main  ] VerticalControl.select_objective()')
-            settings = ctx.settings
 
             # Update objective stored in settings
-            objective_id = self.ids['objective_spinner2'].text
             objective = ctx.objective_helper.get_objective_info(objective_id=objective_id)
             with ctx.settings_lock:
                 settings['objective_id'] = objective_id
