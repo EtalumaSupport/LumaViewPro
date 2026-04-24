@@ -951,6 +951,158 @@ class Lumascope():
 
         return result
 
+    def upgrade_board_fw40(self, board, source_tree,
+                           dry_run=False, respect_overwritable=True,
+                           progress_callback=None):
+        """FW4.0 field-upgrade a board from a Firmware-FW4.0 source tree.
+
+        Primary caller is the LVP UI ("Update firmware" button). Delegates
+        to drivers.firmware_updater.upgrade_board_fw40_from_source per
+        FIRMWARE_PLAN.md §13.X, and wraps it with driver-lifecycle
+        coordination: the affected driver is disconnected and swapped for
+        a Null instance for the duration of the flash, then the real
+        driver is re-created through the same registry path __init__ uses
+        and Phase 4D event callbacks are rewired + capabilities rebuilt.
+
+        Eric 2026-04-23: "IT CANNOT FAIL." Every failure returns a
+        structured UpgradeResult with exit_code + error_code for the UI
+        to format. No auto-rollback on P5 verify failure (§13.X.5).
+
+        Args:
+            board: 'motor' or 'led' (string), or drivers.firmware_updater
+                .BoardType.
+            source_tree: Path to the Firmware-FW4.0 repo root (contains
+                firmware_manifest.json).
+            dry_run: If True, run P0 host validation only, no transport.
+            respect_overwritable: If True (default), motorconfig
+                Overwritable flags gate firmware writes. If False, writes
+                proceed with a logged warning recorded in the telemetry
+                JSONL.
+            progress_callback: Optional (stage, message, fraction)
+                callback.
+
+        Returns:
+            UpgradeResult. Check result.success and result.exit_code.
+        """
+        from drivers.firmware_updater import (
+            upgrade_board_fw40_from_source, BoardType, UpgradeResult,
+            UPGRADE_EXIT_OK,
+        )
+
+        # Normalize board arg
+        if isinstance(board, str):
+            board_str = board.lower()
+            if board_str == 'motor':
+                board_type = BoardType.MOTOR
+            elif board_str == 'led':
+                board_type = BoardType.LED
+            else:
+                return UpgradeResult(
+                    success=False, board_type=BoardType.MOTOR,
+                    exit_code=2, error_code='API_BAD_BOARD_ARG',
+                    error_message=(
+                        f"board must be 'motor' or 'led', got {board!r}"),
+                )
+        elif isinstance(board, BoardType):
+            board_type = board
+        else:
+            return UpgradeResult(
+                success=False, board_type=BoardType.MOTOR,
+                exit_code=2, error_code='API_BAD_BOARD_ARG',
+                error_message=(
+                    f"board must be 'motor'/'led' or BoardType, got "
+                    f"{type(board).__name__}"),
+            )
+
+        source_tree = pathlib.Path(source_tree)
+
+        # Simulator short-circuit. Per update_led_firmware the LED
+        # simulator check needs a class-name fallback: a scope with real
+        # motor + sim LED still needs the LED branch to no-op.
+        if self._is_simulated_scope() or (
+            board_type == BoardType.LED
+            and self.led.__class__.__name__ == 'SimulatedLEDBoard'
+        ):
+            logger.info(
+                '[SCOPE API ] upgrade_board_fw40: simulator short-circuit'
+                f' ({board_type.value})')
+            return UpgradeResult(
+                success=True, board_type=board_type,
+                exit_code=UPGRADE_EXIT_OK,
+                old_version='simulated', new_version='simulated',
+                probe_classification='simulated',
+            )
+
+        # --- Quiesce the affected driver ---
+        if board_type == BoardType.MOTOR:
+            if hasattr(self.motion, 'motion_events_off'):
+                try:
+                    self.motion.motion_events_off()
+                except Exception as e:
+                    logger.warning(
+                        f'[SCOPE API ] upgrade_board_fw40: '
+                        f'motion_events_off failed: {e}')
+            try:
+                self.motion.disconnect()
+            except Exception as e:
+                logger.warning(
+                    f'[SCOPE API ] upgrade_board_fw40: '
+                    f'motion.disconnect failed: {e}')
+            self.motion = NullMotionBoard()
+            self._motion_poll_interval = self._MOTION_POLL_INTERVAL
+        else:
+            try:
+                self.led.disconnect()
+            except Exception as e:
+                logger.warning(
+                    f'[SCOPE API ] upgrade_board_fw40: '
+                    f'led.disconnect failed: {e}')
+            self.led = NullLEDBoard()
+
+        result = None
+        try:
+            result = upgrade_board_fw40_from_source(
+                board_type, source_tree,
+                dry_run=dry_run,
+                respect_overwritable=respect_overwritable,
+                progress_callback=progress_callback,
+            )
+        finally:
+            try:
+                if board_type == BoardType.MOTOR:
+                    self.motion = motor_registry.create(
+                        'auto', simulate=False)
+                    if hasattr(self.motion, 'set_arrived_callback'):
+                        self.motion.set_arrived_callback(
+                            self._on_axis_arrived)
+                    if hasattr(self.motion, 'set_homed_callback'):
+                        self.motion.set_homed_callback(
+                            self._on_axis_homed)
+                    if (hasattr(self.motion, 'motion_events_on')
+                            and hasattr(self.motion, 'has_feature')
+                            and self.motion.has_feature('events')):
+                        if self.motion.motion_events_on():
+                            self._motion_poll_interval = 0.5
+                else:
+                    self.led = led_registry.create('auto', simulate=False)
+                self.capabilities = ScopeCapabilities.from_drivers(
+                    motion=self.motion, led=self.led,
+                    camera=self.camera, led_max_ma=self.LED_MAX_MA,
+                )
+            except Exception as e:
+                logger.error(
+                    f'[SCOPE API ] upgrade_board_fw40: '
+                    f'reconnect failed: {e}')
+                if board_type == BoardType.MOTOR:
+                    self.motion = NullMotionBoard()
+                else:
+                    self.led = NullLEDBoard()
+                if result is not None:
+                    result.warnings.append(
+                        f'Post-upgrade reconnect failed: {e}')
+
+        return result
+
     def _load_camera_timing(self):
         """Load per-camera timing config if available.
 

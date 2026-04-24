@@ -247,7 +247,7 @@ class TestPreflight:
         assert r.exit_code == 10
 
     def test_dry_run_no_transport(
-        self, source_tree, patched_mpy_cross, monkeypatch
+        self, source_tree, patched_mpy_cross, telemetry_dir, monkeypatch
     ):
         """--dry-run completes P0 only, never calls _create_board."""
         create_calls = []

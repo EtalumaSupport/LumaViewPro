@@ -514,6 +514,82 @@ def cmd_deploy(args):
 
 
 # ---------------------------------------------------------------------------
+# upgrade — FW4.0 field-upgrade via Lumascope API (FIRMWARE_PLAN §13.X)
+# ---------------------------------------------------------------------------
+
+def cmd_upgrade(args):
+    """Field-upgrade a board to FW4.0 via the bundled source tree.
+
+    Secondary interface to Lumascope.upgrade_board_fw40 (engineering,
+    factory, support debugging). LVP is the primary caller — §13.X.
+    Exit codes disjoint from other subcommands:
+        0   success
+        10  P0 host source validation failed
+        20  P1 probe classified board as unresponsive
+        30  P2 config backup failed
+        35  P2 Overwritable flag blocked the requested write
+        40  P4 bundle write failed
+        50  P5 post-flash verify failed
+        2   CLI argument error
+    """
+    from modules.lumascope_api import Lumascope
+
+    source_tree = Path(args.source)
+    if not source_tree.is_dir():
+        print(f'ERROR: --source path is not a directory: {source_tree}')
+        sys.exit(2)
+
+    def _progress(stage, msg, fraction):
+        pct = int(fraction * 100)
+        print(f'  [{pct:3d}%] {stage.value}: {msg}')
+
+    print('Constructing diagnostic Lumascope (LED + motor, no camera)...')
+    scope = Lumascope.create_diagnostic()
+
+    print(f'Upgrading {args.board} board from {source_tree} ...')
+    if args.dry_run:
+        print('  (--dry-run: P0 host validation only, no transport)')
+    if args.ignore_overwritable:
+        print('  (--ignore-overwritable: Overwritable flags bypassed)')
+
+    result = scope.upgrade_board_fw40(
+        args.board, source_tree,
+        dry_run=args.dry_run,
+        respect_overwritable=not args.ignore_overwritable,
+        progress_callback=_progress,
+    )
+
+    print()
+    print('=== UpgradeResult ===')
+    print(f'  success:          {result.success}')
+    print(f'  exit_code:        {result.exit_code}')
+    print(f'  board_type:       {result.board_type}')
+    print(f'  old_version:      {result.old_version}')
+    print(f'  new_version:      {result.new_version}')
+    print(f'  probe:            {result.probe_classification}')
+    print(f'  backup_path:      {result.config_backup_path}')
+    print(f'  telemetry:        {result.telemetry_log_path}')
+    if result.overwritable_flags:
+        print(f'  overwritable:     {result.overwritable_flags}')
+    if result.files_written:
+        print(f'  files_written:    {result.files_written}')
+    if result.files_skipped_overwritable:
+        print(f'  skipped (I5):     {result.files_skipped_overwritable}')
+    if result.error_code:
+        print(f'  error_code:       {result.error_code}')
+    if result.error_message:
+        print(f'  error_message:    {result.error_message}')
+    if result.error_stage is not None:
+        print(f'  error_stage:      {result.error_stage}')
+    if result.warnings:
+        print('  warnings:')
+        for w in result.warnings:
+            print(f'    - {w}')
+
+    sys.exit(result.exit_code)
+
+
+# ---------------------------------------------------------------------------
 # factory-reset — motor-only full recovery via Lumascope API (Phase 4F)
 # ---------------------------------------------------------------------------
 
@@ -860,6 +936,29 @@ def main():
     p_deploy.add_argument('--skip-post-test', action='store_true',
                           help='Skip post-update verification')
 
+    # upgrade — FW4.0 field-upgrade (FIRMWARE_PLAN §13.X)
+    p_upgrade = sub.add_parser(
+        'upgrade',
+        help=('Field-upgrade a board to FW4.0 from a Firmware-FW4.0 '
+              'source tree. Exit codes: 0 success, 10 P0 source, '
+              '20 P1 unresponsive, 30 P2 backup, 35 P2 Overwritable, '
+              '40 P4 bundle, 50 P5 verify, 2 CLI error.'))
+    p_upgrade.add_argument(
+        '--board', choices=['motor', 'led'], required=True,
+        help='Target board')
+    p_upgrade.add_argument(
+        '--source', required=True,
+        help='Path to Firmware-FW4.0 repo root (contains '
+             'firmware_manifest.json)')
+    p_upgrade.add_argument(
+        '--dry-run', action='store_true',
+        help='Run P0 host source validation only; do not open transport.')
+    p_upgrade.add_argument(
+        '--ignore-overwritable', action='store_true',
+        help='Bypass motorconfig.Overwritable flag checks. Proceeds '
+             'with firmware write and logs a warning in telemetry. '
+             'Engineering/factory escape hatch — do not use in field.')
+
     # factory-reset (Phase 4F) — motor-only recovery when raw REPL is broken
     p_reset = sub.add_parser(
         'factory-reset',
@@ -933,6 +1032,7 @@ def main():
         'push-ini': cmd_push_ini,
         'homing-test': cmd_homing_test,
         'deploy': cmd_deploy,
+        'upgrade': cmd_upgrade,
         'factory-reset': cmd_factory_reset,
         'restore-configs': cmd_restore_configs,
         'bench': cmd_bench,

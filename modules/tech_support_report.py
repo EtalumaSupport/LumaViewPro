@@ -135,6 +135,24 @@ def _get_lvp_logs_dir():
     return logs_dir if logs_dir.is_dir() else None
 
 
+def _get_lvp_appdata_logs_dir():
+    """Return the installed-LVP appdata logs directory, or None.
+
+    Matches lvp_logger.py:84 — {documents}/LumaViewPro {version}/logs/
+    LVP_Log/ on Windows+installed builds, or source_root/logs/LVP_Log/
+    when running from source. FW4.0 field-upgrade JSONL (§13.X) lives
+    here and MUST be bundled into the tech-support ZIP so support can
+    diagnose customer upgrade failures — the source-tree logs/ path in
+    _get_lvp_logs_dir() is dev-install only.
+    """
+    try:
+        import lvp_logger
+        p = pathlib.Path(str(lvp_logger.log_dir))
+        return p if p.is_dir() else None
+    except Exception:
+        return None
+
+
 def _get_capture_dir():
     """Return the capture output directory (from settings.json or defaults)."""
     data_dir = _get_lvp_data_dir()
@@ -1842,15 +1860,39 @@ class TechSupportReport:
             (dest / 'ERROR.txt').write_text(f"Copy failed: {e}\n")
 
     def _step_logs(self, tmp):
-        logs_dir = _get_lvp_logs_dir()
-        if not logs_dir or not logs_dir.is_dir():
-            return
         dest = tmp / 'logs'
-        try:
-            shutil.copytree(logs_dir, dest, dirs_exist_ok=True)
-        except Exception as e:
-            dest.mkdir(exist_ok=True)
-            (dest / 'ERROR.txt').write_text(f"Copy failed: {e}\n")
+        logs_dir = _get_lvp_logs_dir()
+        if logs_dir and logs_dir.is_dir():
+            try:
+                shutil.copytree(logs_dir, dest, dirs_exist_ok=True)
+            except Exception as e:
+                dest.mkdir(exist_ok=True)
+                (dest / 'ERROR.txt').write_text(f"Copy failed: {e}\n")
+
+        # §13.X.1 I6: pull in installed-LVP appdata logs so customer
+        # firmware_upgrade_*.jsonl telemetry reaches support even when
+        # the source-tree logs/ path above is the dev-install one.
+        # Copied into logs/LVP_Log/ to mirror the on-disk layout; a
+        # dev-install setup where logs_dir == appdata_logs_dir just
+        # results in idempotent copies (shutil.copy2 overwrites).
+        appdata_logs = _get_lvp_appdata_logs_dir()
+        if appdata_logs and appdata_logs.is_dir():
+            appdata_dest = dest / 'LVP_Log'
+            try:
+                appdata_dest.mkdir(parents=True, exist_ok=True)
+                for p in appdata_logs.iterdir():
+                    if not p.is_file():
+                        continue
+                    try:
+                        shutil.copy2(p, appdata_dest / p.name)
+                    except Exception as e:
+                        (appdata_dest / f'{p.name}_ERROR.txt').write_text(
+                            f'Copy failed: {e}\n')
+            except Exception as e:
+                appdata_dest = dest / 'LVP_Log'
+                appdata_dest.mkdir(parents=True, exist_ok=True)
+                (appdata_dest / 'ERROR.txt').write_text(
+                    f'Appdata bundle failed: {e}\n')
 
     def _step_backlash(self, tmp):
         capture_dir = _get_capture_dir()
