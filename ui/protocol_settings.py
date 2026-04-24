@@ -55,6 +55,7 @@ from ui.ui_helpers import (
     reset_title,
     set_last_save_folder,
     set_recording_title,
+    set_title_event_text,
     set_writing_title,
     update_autofocus_selection_after_protocol,
 )
@@ -1156,7 +1157,7 @@ class ProtocolSettings(FloatLayout):
 
             # Update window title
             version = ctx.version
-            Window.set_title(f"Lumaview Pro {version}   |   Writing protocol scan files to disk...")
+            set_title_event_text("Writing protocol scan files to disk...")
         else:
             # No files pending - proceed with normal reset
             live_histo_reverse()
@@ -1352,7 +1353,7 @@ class ProtocolSettings(FloatLayout):
             self.ids['run_autofocus_btn'].disabled = True
 
             # Update window title with custom message
-            Window.set_title(f"Lumaview Pro {version}   |   Writing protocol scan files to disk...")
+            set_title_event_text("Writing protocol scan files to disk...")
         else:
             # No files pending - proceed with normal reset
             protocol_running_global.clear()
@@ -1536,7 +1537,7 @@ class ProtocolSettings(FloatLayout):
             self.ids['run_autofocus_btn'].disabled = True
 
             # Update window title
-            Window.set_title(f"Lumaview Pro {version}   |   Writing protocol scan files to disk...")
+            set_title_event_text("Writing protocol scan files to disk...")
         else:
             # No files pending - proceed with normal reset
             protocol_running_global.clear()

@@ -166,39 +166,61 @@ def move_relative_position(
 def move_home(axis: str):
     ctx = _app_ctx.ctx
     axis = axis.upper()
-    _schedule_ui(lambda dt: Window.set_title(f"Lumaview Pro {ctx.version}   |   Homing, please wait..."), 0)
+    set_title_event_text("Homing, please wait...")
     scope_commands.move_home(ctx.scope, ctx.io_executor, axis, callback=move_home_cb, cb_args=(axis))
 
 
 # ============================================================================
 # Window Title Helpers
 # ============================================================================
+#
+# Single-owner title bar:
+# - shader.py::_update_status_bar is the ONLY caller of Window.set_title().
+# - Other callers set the event-suffix via set_title_event_text() — the next
+#   status-bar tick (~5 Hz) composes the final title with FPS + MB/s + suffix.
+# - This eliminates: (a) the FPS getting clobbered by event messages,
+#   (b) the LumaViewPro / Lumaview Pro spelling oscillation between tickers,
+#   (c) the ordering race where event messages briefly hide live FPS.
+# Canonical product spelling is `LumaViewPro` (matches the repo name).
+
+_title_event_text = None
+
+
+def get_title_event_text():
+    return _title_event_text
+
+
+def set_title_event_text(text):
+    """Set the suffix shown after the FPS/MB/s portion of the window title.
+    Pass None or '' to clear. Safe to call from any thread (single attribute
+    write on a module-level CPython str/None — atomic under GIL)."""
+    global _title_event_text
+    _title_event_text = text or None
+
 
 # Should only be called from main thread
 def set_recording_title(progress=None):
-    ctx = _app_ctx.ctx
     if progress is None:
-        Window.set_title(f"Lumaview Pro {ctx.version}   |   Recording Video...")
+        set_title_event_text("Recording Video...")
     else:
-        Window.set_title(f"Lumaview Pro {ctx.version}   |   Recording Video... {int(progress)}%")
+        set_title_event_text(f"Recording Video... {int(progress)}%")
+
 
 # Should only be called from main thread
 def set_writing_title(progress=None):
-    ctx = _app_ctx.ctx
     if progress is None:
-        Window.set_title(f"Lumaview Pro {ctx.version}   |   Writing Video...")
+        set_title_event_text("Writing Video...")
     else:
-        Window.set_title(f"Lumaview Pro {ctx.version}   |   Writing Video... {int(progress)}%")
+        set_title_event_text(f"Writing Video... {int(progress)}%")
+
 
 def reset_title():
-    ctx = _app_ctx.ctx
-    Window.set_title(f"Lumaview Pro {ctx.version}")
+    set_title_event_text(None)
 
 
 def move_home_cb(axis):
-    ctx = _app_ctx.ctx
     _handle_ui_update_for_axis(axis=axis)
-    Window.set_title(f"Lumaview Pro {ctx.version}")
+    set_title_event_text(None)
 
 
 # ============================================================================

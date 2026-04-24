@@ -742,11 +742,26 @@ class SerialBoard:
                 return None
 
             if self.driver is None:
+                # #539/#632: dedupe identical reconnect failures within a 2s
+                # window. Pre-fix this fired a fresh full-stack log per command
+                # while disconnected — measured at ~73 reconnect attempts/sec
+                # during a mid-AF USB yank, dwarfing the actual signal.
                 try:
                     logger.info(f'{self._label} Auto-reconnect triggered by {command}')
                     self.connect()
                 except Exception as e:
-                    _serial_log.error(f'{self._label} {command} -> RECONNECT FAILED: {e}')
+                    err_class = type(e).__name__
+                    now = time.monotonic()
+                    last_class = getattr(self, '_last_reconnect_err_class', None)
+                    last_time = getattr(self, '_last_reconnect_err_time', 0.0)
+                    if last_class == err_class and (now - last_time) < 2.0:
+                        # Same error class repeated within 2s — drop to debug;
+                        # the first occurrence already has the full stack.
+                        _serial_log.debug(f'{self._label} {command} -> RECONNECT FAILED: same {err_class}')
+                    else:
+                        _serial_log.error(f'{self._label} {command} -> RECONNECT FAILED: {e}')
+                        self._last_reconnect_err_class = err_class
+                        self._last_reconnect_err_time = now
                     return None
 
             if self.driver is None:

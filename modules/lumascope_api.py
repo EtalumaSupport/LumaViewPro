@@ -3226,23 +3226,65 @@ class Lumascope():
 
         # Connect boards — motion before per-axis dicts so we can size them
         # to the axes the hardware actually has (audit B4).
-        try:
-            instance.led = LEDBoard()
-            if not instance.led.found:
-                from drivers.null_ledboard import NullLEDBoard
-                instance.led = NullLEDBoard()
-        except Exception:
-            from drivers.null_ledboard import NullLEDBoard
-            instance.led = NullLEDBoard()
+        #
+        # #632/#539 — surface board-connect failures clearly rather than
+        # silently substituting the Null* board. The pre-fix code dropped
+        # all exceptions and the LED side often had no log at all (LED
+        # could not be diagnosed remotely without a hardware power cycle).
+        # _try_connect_board logs visibly + sends a user-facing notification
+        # with an actionable, error-class-specific message before falling
+        # back to Null*.
+        from drivers.null_ledboard import NullLEDBoard
+        from drivers.null_motorboard import NullMotionBoard
 
-        try:
-            instance.motion = MotorBoard()
-            if not instance.motion.found:
-                from drivers.null_motorboard import NullMotionBoard
-                instance.motion = NullMotionBoard()
-        except Exception:
-            from drivers.null_motorboard import NullMotionBoard
-            instance.motion = NullMotionBoard()
+        def _try_connect_board(label, ctor, null_ctor):
+            try:
+                board = ctor()
+                # Connect attempt may have caught its own exceptions internally
+                # and left driver=None despite found=True (port discovered, but
+                # PermissionError / FileNotFoundError on open). Treat any
+                # 'found-but-no-driver' case as a surfaced failure rather than
+                # a silent NullBoard fallback.
+                if not getattr(board, 'found', False):
+                    logger.error(f'{label}: not detected on USB')
+                    _notify_board_failure(label, "not detected",
+                        f"{label} not found on USB. Check USB cable and 24V power.")
+                    return null_ctor()
+                if getattr(board, 'driver', None) is None:
+                    logger.error(f'{label}: detected on {board.port} but driver failed to open '
+                                 f'(port may be held by another program — Thonny, etc.)')
+                    _notify_board_failure(label, "port in use or unreachable",
+                        f"{label} detected on {board.port} but the port could not be opened. "
+                        f"Close other programs holding the port (Thonny, serial monitors), "
+                        f"then restart LVP.")
+                    return null_ctor()
+                return board
+            except PermissionError as e:
+                logger.error(f'{label}: PermissionError opening port: {e}')
+                _notify_board_failure(label, "port in use",
+                    f"{label} port is in use by another program (e.g. Thonny). "
+                    f"Close the other program and restart LVP to reconnect.")
+                return null_ctor()
+            except FileNotFoundError as e:
+                logger.error(f'{label}: FileNotFoundError on port: {e}')
+                _notify_board_failure(label, "port not found",
+                    f"{label} port disappeared during connect. Check USB cable.")
+                return null_ctor()
+            except Exception as e:
+                logger.error(f'{label}: connect failed: {type(e).__name__}: {e}', exc_info=True)
+                _notify_board_failure(label, "connect failed",
+                    f"Could not connect to {label}: {type(e).__name__}: {e}")
+                return null_ctor()
+
+        def _notify_board_failure(label, short, message):
+            try:
+                from modules.notification_center import notifications
+                notifications.warning(label, f"{label} {short}", message)
+            except Exception as nx:
+                logger.debug(f'{label}: notification center unavailable: {nx}')
+
+        instance.led = _try_connect_board('LED board', LEDBoard, NullLEDBoard)
+        instance.motion = _try_connect_board('Motor board', MotorBoard, NullMotionBoard)
 
         # Per-axis state dicts sized to detect_present_axes() (audit B4).
         present_axes = instance.motion.detect_present_axes()

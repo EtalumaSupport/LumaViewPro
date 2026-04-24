@@ -288,18 +288,18 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
         self.recording_complete_event = Clock.schedule_once(self._enqueue_recording_complete, 0)
 
     def update_recording_title(self, dt=None):
-        """Update window title with recording elapsed time."""
+        """Update window title-bar event suffix with recording elapsed time."""
         if self.recording.is_set():
+            from ui.ui_helpers import set_title_event_text
             elapsed = time.time() - self.start_ts
-            from kivy.core.window import Window
-            Window.set_title(f"Lumaview Pro {_app_ctx.ctx.version}   |   Recording Manual Video: {elapsed:.1f}s")
+            set_title_event_text(f"Recording Manual Video: {elapsed:.1f}s")
 
     def update_writing_progress(self, dt=None):
-        """Update window title with video writing progress percentage."""
+        """Update window title-bar event suffix with video writing progress."""
         if self.video_writing_total_frames > 0:
+            from ui.ui_helpers import set_title_event_text
             progress_pct = (self.video_writing_progress / self.video_writing_total_frames) * 100
-            from kivy.core.window import Window
-            Window.set_title(f"Lumaview Pro {_app_ctx.ctx.version}   |   Writing Manual Video: {progress_pct:.0f}%")
+            set_title_event_text(f"Writing Manual Video: {progress_pct:.0f}%")
 
     def _enqueue_recording_complete(self, dt=None):
         """Enqueue recording finalization task on camera executor.
@@ -606,9 +606,9 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
             # Clear video writing state - new recordings can now start
             self.video_writing.clear()
 
-            # Reset window title
-            from kivy.core.window import Window
-            Window.set_title(f"Lumaview Pro {_app_ctx.ctx.version}")
+            # Clear the title-bar event suffix; status bar will show FPS only.
+            from ui.ui_helpers import set_title_event_text
+            set_title_event_text(None)
 
             logger.info("Manual-Video] Recording cleanup complete")
         except Exception as e:

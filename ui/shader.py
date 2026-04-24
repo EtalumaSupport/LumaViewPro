@@ -182,16 +182,23 @@ void main (void) {
                 self._scroll_last_time = now
 
                 if dt < self._scroll_inertia_window and dt > 0:
-                    # Scale up when scrolling fast (up to 5x)
-                    speed_factor = min(5.0, self._scroll_inertia_window / dt)
+                    # Scale up when scrolling fast (up to 2x — was 5x; at low mag
+                    # z_fine is already 25-50 µm and 5× drove 125-250 µm per tick
+                    # past the user's intent, esp at 4x/10x. 2× keeps the
+                    # "fast scroll = bigger step" feel without overshoot.
+                    speed_factor = min(2.0, self._scroll_inertia_window / dt)
                 else:
                     speed_factor = 1.0
 
+                # Replace, don't accumulate. Only the LAST tick's intent commits
+                # when the user stops — fast scrolling still produces a bigger
+                # move per tick (via speed_factor) but no leftover motion after
+                # the user stops, and sign flips become immediate.
                 delta = step_um * speed_factor
                 if touch.button == 'scrolldown':
-                    self._scroll_z_pending += delta
+                    self._scroll_z_pending = delta
                 elif touch.button == 'scrollup':
-                    self._scroll_z_pending -= delta
+                    self._scroll_z_pending = -delta
 
                 # Reset the debounce trigger — fires 50ms after last scroll event
                 self._scroll_z_trigger()
@@ -262,10 +269,12 @@ void main (void) {
 
 
     def _update_status_bar(self, dt):
-        """Periodic status bar update (~5 Hz).
+        """Periodic status bar update (~5 Hz). SOLE owner of Window.set_title().
 
-        FPS is shown in the window title bar (engineering mode only, throttled
-        to 1 Hz to avoid SDL2/Windows redraw overhead).
+        Composes: 'LumaViewPro {ver} — Capture: X | Display: Y FPS [ | Camera: Z MB/s ]
+        [ — {event_text} ]'. Other call sites push their event text into
+        ui_helpers.set_title_event_text() instead of writing the title directly,
+        which prevents FPS clobbering and product-name spelling oscillation.
         """
         try:
             ctx = _app_ctx.ctx
@@ -273,6 +282,7 @@ void main (void) {
                 return
 
             from kivy.core.window import Window
+            from ui.ui_helpers import get_title_event_text
             scope_display = self.ids.get('scope_display_id')
             if scope_display:
                 capture_fps = scope_display._capture_fps_value
@@ -280,7 +290,10 @@ void main (void) {
                 title = f'LumaViewPro {ctx.version} — Capture: {capture_fps:.0f} | Display: {display_fps:.0f} FPS'
                 if ctx.engineering_mode:
                     mbps = scope_display._camera_mbps
-                    title += f' | {mbps:.1f} MB/s'
+                    title += f' | Camera: {mbps:.1f} MB/s'
+                event_text = get_title_event_text()
+                if event_text:
+                    title += f'   —   {event_text}'
                 Window.set_title(title)
         except Exception as e:
             logger.debug(f'[LVP Main  ] Status bar update failed: {e}')

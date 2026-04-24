@@ -545,7 +545,12 @@ class ScopeDisplay(Image):
         elapsed = now - self._capture_fps_last_time
         if elapsed >= 1.0:
             self._capture_fps_value = self._capture_fps_count / elapsed
-            self._camera_mbps = (self._capture_fps_value * self._last_frame_nbytes) / (1024 * 1024)
+            # EMA smoothing (α=0.3) — without this the title bar bounces noisily
+            # because each 1-second window gets a fresh hard-assigned value
+            # (85 / 120 / 95 / 110 / 88 MB/s during a steady capture). EMA
+            # converges to the real average over 3-4 seconds.
+            new_mbps = (self._capture_fps_value * self._last_frame_nbytes) / (1024 * 1024)
+            self._camera_mbps = 0.3 * new_mbps + 0.7 * self._camera_mbps
             self._capture_fps_count = 0
             self._capture_fps_last_time = now
 
