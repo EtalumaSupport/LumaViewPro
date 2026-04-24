@@ -547,8 +547,14 @@ class SerialBoard:
     # ------------------------------------------------------------------
     # Connect-time latency fingerprint
     # ------------------------------------------------------------------
-    _CONNECT_BENCH_ITERATIONS = 20
-    _CONNECT_BENCH_WARMUP = 3
+    # One sample per connect as a health fingerprint — enough to capture
+    # "board is responsive and how long did INFO take" for diagnostics, not
+    # enough to overwhelm FW4.0 LED's RX buffer under rapid-fire (20-iter
+    # sweep was shipped in session 37 and pulled 2026-04-24 after SN 7162-19
+    # bench surfaced the RX overflow). Explicit release-gate §2.3
+    # characterization lives in `tools/firmware_tools bench` (1000-iter).
+    _CONNECT_BENCH_ITERATIONS = 1
+    _CONNECT_BENCH_WARMUP = 0
 
     def _connect_bench_callables(self):
         """Driver-method callables benched at connect. Override per subclass.
