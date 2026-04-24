@@ -709,6 +709,33 @@ class SerialBoard:
             # Check if we got any meaningful content (not just empty lines)
             resp_stripped = resp.strip()
             if not resp_stripped:
+                # Plain-text INFO silent. Fall back to JSON INFO — FW4.0
+                # LED (as of 2026-04-24) doesn't respond to legacy-text
+                # "INFO" while FW4.0 motor does. Until §2.2 protocol
+                # unification fully closes this gap in firmware, probe both
+                # paths here so the V4 dispatcher lights up regardless of
+                # which style the specific FW4.0 build accepts.
+                _serial_log.info(
+                    f'{self._label} DETECT text-INFO silent, trying JSON fallback'
+                )
+                try:
+                    json_info = self.exchange_json({'cmd': 'INFO'}, timeout=1.0)
+                except Exception as e:
+                    json_info = None
+                    _serial_log.info(
+                        f'{self._label} DETECT JSON fallback raised: {e}'
+                    )
+                if (json_info and isinstance(json_info, dict)
+                        and json_info.get('ok') is True):
+                    self.firmware_responding = True
+                    self._apply_json_info(json_info)
+                    _serial_log.info(
+                        f'{self._label} DETECT JSON fallback OK: '
+                        f'fw={self.firmware_version} '
+                        f'protocol={self.protocol_version.value}'
+                    )
+                    return
+                # Both paths silent — truly non-responsive.
                 self.firmware_version = None
                 self.firmware_responding = False
                 logger.info(f'{self._label} No response from INFO')
@@ -760,7 +787,14 @@ class SerialBoard:
             self.features = []
             self._parse_legacy_info_text(resp_stripped)
             return
+        self._apply_json_info(info)
 
+    def _apply_json_info(self, info):
+        """Apply a parsed INFO dict to driver state. Shared between
+        `_parse_json_info` (called from the text-INFO path when the response
+        body happens to be JSON) and the JSON-INFO fallback in
+        `detect_firmware_version` (for boards that don't accept legacy-text
+        INFO at all — LED FW4.0 as of 2026-04-24)."""
         protocol_str = str(info.get('protocol', '')).strip()
         fw_version = info.get('fw_version') or info.get('version')
         if fw_version:
