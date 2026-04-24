@@ -1045,14 +1045,17 @@
 				tooltip_text: 'Select Labware to be used in the Protocol'
 				sync_height: True
 				visible: True
-				text: 'New'
+				text: ''
 				font_size: '12sp'
 				option_cls: "SpinnerOption0"
 				size_hint_y: None
 				height: '30dp'
 				# #631 cluster: text_autoupdate caused select_labware to double-fire
 				# (logs showed "SELECT LABWARE 96 well microplate" twice). Text is
-				# driven by settings['protocol']['labware'].
+				# driven by settings['protocol']['labware']; #634 fix removed the
+				# 'New' KV default that bypassed the empty-text → settings fallback
+				# in get_selected_labware() and crashed first-run before
+				# select_labware() could populate the spinner.
 				on_text: root.select_labware()
 
 
