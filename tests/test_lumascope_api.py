@@ -67,6 +67,17 @@ class TestNullMotionBoardCapabilities:
         assert null.has_homed() is True
 
 
+@pytest.fixture(autouse=True)
+def _clear_notification_dedup():
+    """Reset notification dedup state between tests so multiple tests
+    that fire the same (category, title) within 10 s each see their
+    own listener-fire. Without this, NotificationCenter's 10 s dedup
+    window suppresses the second+ test's notification."""
+    notifications._dedup.clear()
+    yield
+    notifications._dedup.clear()
+
+
 class TestLumascopeHome:
     """#616 / #618 follow-up: Lumascope.home() must reach the firmware so
     the firmware can home every axis the board has, and must not emit a
@@ -82,18 +93,78 @@ class TestLumascopeHome:
         )
         return received
 
-    def test_home_with_null_motion_board_no_notification(self):
-        """home() on a scope with NullMotionBoard must not raise a
-        notification. NullMotionBoard.home() returns True, so this hits
-        the success branch with an empty axes_present list."""
+    def test_home_with_null_motion_board_notifies_motor_not_connected(self):
+        """home() on a scope with NullMotionBoard must surface a clear
+        Rule 14 'Motor Not Connected' notification.
+
+        Contract change 2026-04-25 (issue #632 cluster): the prior
+        contract was "silent no-op when motor is null." That left the
+        user in the dark when Thonny held the motor port — they'd click
+        Home and either nothing visible happened or, worse, they got
+        "Homing Failed" implying a homing-mechanics issue rather than
+        the actual cause (motor disconnected). The structural fix is to
+        short-circuit at the API layer with the right diagnostic, per
+        the hardware-absent audit
+        (`docs/AUDIT_HARDWARE_ABSENT_STRUCTURAL_2026-04-24.md`).
+        """
         received = self._capture_errors()
         scope = Lumascope(simulate=True)
         scope.motion = NullMotionBoard()
 
         scope.home()
 
-        assert received == [], (
-            f"home() on NullMotionBoard emitted unexpected notifications: {received}"
+        assert received, (
+            "home() on NullMotionBoard must notify 'Motor Not Connected' "
+            "rather than silently no-op. User needs to know why nothing "
+            "happened so they can fix the cause (port held, USB unplugged, etc.)."
+        )
+        assert any('Motor Not Connected' in n.title for n in received), (
+            f"expected 'Motor Not Connected' notification, got: "
+            f"{[n.title for n in received]}"
+        )
+
+    def test_home_short_circuits_on_disconnected_motor(self):
+        """home() must return immediately when motor is not connected —
+        no 30-second exchange_command timeout, no auto-reconnect retry
+        burning the IO_WORKER. Issue #632 'spinning beachball' — user
+        had to force-quit the app while home() was blocked."""
+        import time
+        received = self._capture_errors()
+        scope = Lumascope(simulate=True)
+        scope.motion = NullMotionBoard()
+
+        t0 = time.monotonic()
+        scope.home()
+        elapsed = time.monotonic() - t0
+
+        assert elapsed < 0.5, (
+            f"home() on disconnected motor took {elapsed:.2f}s — must be "
+            f"< 0.5s. Beachball regression."
+        )
+        assert received, (
+            "home() short-circuit must still fire the Rule 14 notification."
+        )
+
+    def test_thome_short_circuits_on_disconnected_motor(self):
+        """Same contract as home() — thome must fail-fast with a clear
+        notification rather than letting exchange_command burn its
+        15s timeout."""
+        import time
+        received = self._capture_errors()
+        scope = Lumascope(simulate=True)
+        scope.motion = NullMotionBoard()
+
+        t0 = time.monotonic()
+        scope.thome()
+        elapsed = time.monotonic() - t0
+
+        assert elapsed < 0.5, (
+            f"thome() on disconnected motor took {elapsed:.2f}s — must be "
+            f"< 0.5s."
+        )
+        assert any('Motor Not Connected' in n.title for n in received), (
+            f"thome() must notify 'Motor Not Connected', got: "
+            f"{[n.title for n in received]}"
         )
 
     def test_home_on_z_only_board_marks_z_idle(self):
@@ -166,6 +237,42 @@ class TestLumascopeHome:
         assert home_called, "home() on full XYZ hardware must call motion.home"
         for ax in ('X', 'Y', 'Z'):
             assert scope.get_axis_state(ax) == AxisState.IDLE
+
+
+class TestMotorBoardGetMicroscopeModelDisconnect:
+    """drivers/motorboard.py::get_microscope_model() must NOT raise when
+    the board is disconnected (self._fullinfo is None). Issue #632
+    crash 1: caller did `info['model']` against cached None, blew up
+    with TypeError 'NoneType is not subscriptable', killed the app's
+    settings-load on first launch with Thonny holding the motor port.
+    """
+
+    def test_returns_none_when_fullinfo_not_cached(self):
+        from drivers.motorboard import MotorBoard
+        board = MotorBoard.__new__(MotorBoard)
+        import threading
+        board._state_lock = threading.Lock()
+        board._fullinfo = None
+        # Must return None, must not raise. Caller (UI) treats None
+        # as "use saved settings" — safe path.
+        assert board.get_microscope_model() is None
+
+    def test_returns_model_from_cached_fullinfo(self):
+        from drivers.motorboard import MotorBoard
+        board = MotorBoard.__new__(MotorBoard)
+        import threading
+        board._state_lock = threading.Lock()
+        board._fullinfo = {'model': 'LS850', 'serial': '12074'}
+        assert board.get_microscope_model() == 'LS850'
+
+    def test_returns_none_when_model_key_missing(self):
+        # Defense-in-depth: malformed cache shouldn't crash either.
+        from drivers.motorboard import MotorBoard
+        board = MotorBoard.__new__(MotorBoard)
+        import threading
+        board._state_lock = threading.Lock()
+        board._fullinfo = {'serial': '12074'}  # no 'model' key
+        assert board.get_microscope_model() is None
 
 
 class TestMotorBoardHomePartialResponse:
