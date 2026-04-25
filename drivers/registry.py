@@ -181,6 +181,7 @@ class DriverRegistry:
 
         last_error: Exception | None = None
         found_false_names: list[str] = []
+        not_connected_names: list[str] = []
         for entry in real_candidates:
             try:
                 instance = entry.cls(**kwargs)
@@ -193,6 +194,42 @@ class DriverRegistry:
                         f'found=False, trying next candidate'
                     )
                     continue
+                # Found-but-not-connected — port discovered before open()
+                # raised (e.g. PermissionError because Thonny has the
+                # port). MotorBoard.connect() / LEDBoard.connect()
+                # swallow open() failures and leave self.driver = None,
+                # which means the constructor returns "successfully"
+                # with a half-broken instance. Without this check, that
+                # instance would be returned to the API layer and crash
+                # later (issue #632/#634 cluster: get_microscope_model
+                # indexes None info, home() burns its full 30s timeout
+                # on auto-reconnect, etc.). Reject the same way as
+                # found=False — fall through to null fallback.
+                if hasattr(instance, 'is_connected'):
+                    try:
+                        connected = instance.is_connected()
+                    except Exception as e:
+                        logger.debug(
+                            f'[registry] {self._kind}: {entry.cls.__name__} '
+                            f'is_connected() raised ({type(e).__name__}: {e}); '
+                            f'treating as not-connected'
+                        )
+                        connected = False
+                    if not connected:
+                        not_connected_names.append(entry.cls.__name__)
+                        logger.debug(
+                            f'[registry] {self._kind}: {entry.cls.__name__} '
+                            f'constructed but is_connected()=False (port held / '
+                            f'open failed), trying next candidate'
+                        )
+                        # Best-effort cleanup so we don't leave dangling
+                        # serial handles or background threads.
+                        try:
+                            if hasattr(instance, 'disconnect'):
+                                instance.disconnect()
+                        except Exception:
+                            pass
+                        continue
                 return instance
             except Exception as e:
                 last_error = e
@@ -223,6 +260,14 @@ class DriverRegistry:
                     f'falling back to {entry.cls.__name__}. '
                     f'Last error: {type(last_error).__name__}: {last_error}',
                     exc_info=last_error,
+                )
+            elif not_connected_names:
+                logger.warning(
+                    f'[registry] {self._kind}: all real drivers constructed '
+                    f'but reported is_connected()=False (port held by another '
+                    f'process, or open() failed). Tried: '
+                    f'{", ".join(not_connected_names)}. '
+                    f'Falling back to {entry.cls.__name__}'
                 )
             elif found_false_names:
                 logger.warning(
