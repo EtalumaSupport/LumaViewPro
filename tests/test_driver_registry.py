@@ -124,6 +124,86 @@ class TestDriverRegistryUnit:
         instance = reg.create('auto')
         assert isinstance(instance, Works)
 
+    def test_auto_skips_constructed_but_not_connected_drivers(self):
+        """Drivers whose __init__ succeeds but is_connected()=False are
+        skipped in auto mode and the registry falls through to the next
+        candidate (issue #632/#634 cluster: MotorBoard.connect() swallows
+        PermissionError and leaves self.driver=None; without this gate
+        the half-broken instance leaks to the API and crashes later).
+        """
+        reg = DriverRegistry('fake')
+
+        disconnect_called = []
+
+        @reg.register('disconnected', priority=100)
+        class Disconnected:
+            def __init__(self, **kw):
+                self.found = True
+            def is_connected(self) -> bool:
+                return False
+            def disconnect(self):
+                disconnect_called.append(True)
+
+        @reg.register('works', priority=50)
+        class Works:
+            def __init__(self, **kw):
+                self.found = True
+            def is_connected(self) -> bool:
+                return True
+
+        instance = reg.create('auto')
+        assert isinstance(instance, Works)
+        # Best-effort cleanup must run on the rejected candidate.
+        assert disconnect_called == [True]
+
+    def test_auto_falls_back_to_null_when_all_real_disconnected(self):
+        """When every real driver is found-but-not-connected (e.g. all
+        ports held by Thonny) the registry must reach the null fallback,
+        not return a half-broken real driver.
+        """
+        reg = DriverRegistry('fake')
+
+        @reg.register('disconnected', priority=100)
+        class Disconnected:
+            def __init__(self, **kw):
+                self.found = True
+            def is_connected(self) -> bool:
+                return False
+            def disconnect(self): pass
+
+        @reg.register('null', priority=0)
+        class Null:
+            def __init__(self, **kw): pass
+            def is_connected(self) -> bool:
+                return False
+
+        instance = reg.create('auto')
+        assert isinstance(instance, Null)
+
+    def test_auto_treats_is_connected_raise_as_not_connected(self):
+        """If is_connected() itself raises, treat as not-connected
+        rather than letting the exception abort the auto-create loop.
+        """
+        reg = DriverRegistry('fake')
+
+        @reg.register('flaky', priority=100)
+        class Flaky:
+            def __init__(self, **kw):
+                self.found = True
+            def is_connected(self) -> bool:
+                raise RuntimeError("driver state corrupted")
+            def disconnect(self): pass
+
+        @reg.register('works', priority=50)
+        class Works:
+            def __init__(self, **kw):
+                self.found = True
+            def is_connected(self) -> bool:
+                return True
+
+        instance = reg.create('auto')
+        assert isinstance(instance, Works)
+
     def test_simulate_mode_only_considers_simulators(self):
         reg = DriverRegistry('fake')
 
