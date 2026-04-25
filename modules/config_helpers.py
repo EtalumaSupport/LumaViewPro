@@ -375,23 +375,57 @@ def get_image_capture_config_from_settings(settings: dict) -> dict:
     }
 
 
+DEFAULT_LABWARE_ID = '96 well microplate'
+
+
 def get_selected_labware_from_settings(
     settings: dict,
     wellplate_loader,
 ) -> tuple[str, object]:
     """Read selected labware from settings dict (no UI needed).
 
-    Returns (labware_id, wellplate_object) or (None, None) on failure.
+    Always returns a valid (labware_id, wellplate_object) tuple. Per
+    Eric's 2026-04-25 directive: callers shouldn't have to deal with
+    None. If settings has no labware, or the requested labware doesn't
+    exist in the loader, fall back to the shipped default
+    (DEFAULT_LABWARE_ID) and finally to the first available plate.
+    Issue #634/#632 cluster: every site that consumed this return
+    treated None as a crash, so removing None from the contract retires
+    the cluster by construction.
+
+    The only way this raises is if the wellplate loader is empty (broken
+    install / labware.json missing) — that's a genuine fatal that the
+    caller cannot reasonably recover from.
     """
-    labware_id = settings.get('protocol', {}).get('labware', '')
-    if not labware_id:
-        return None, None
+    labware_id = settings.get('protocol', {}).get('labware', '') or DEFAULT_LABWARE_ID
     try:
         labware_obj = wellplate_loader.get_plate(plate_key=labware_id)
         return labware_id, labware_obj
     except Exception:
-        logger.warning(f"Could not load labware '{labware_id}'")
-        return None, None
+        logger.warning(
+            f"Could not load labware '{labware_id}', falling back to "
+            f"default '{DEFAULT_LABWARE_ID}'"
+        )
+    # First fallback: the shipped default.
+    if labware_id != DEFAULT_LABWARE_ID:
+        try:
+            labware_obj = wellplate_loader.get_plate(plate_key=DEFAULT_LABWARE_ID)
+            return DEFAULT_LABWARE_ID, labware_obj
+        except Exception:
+            logger.warning(
+                f"Default labware '{DEFAULT_LABWARE_ID}' also missing; "
+                f"falling back to first available plate"
+            )
+    # Second fallback: anything in the loader. If the loader is empty,
+    # this raises ValueError — at which point the install is broken.
+    available = wellplate_loader.get_plate_list()
+    if not available:
+        raise ValueError(
+            "wellplate_loader has no plates registered — labware.json "
+            "is missing or unreadable"
+        )
+    fallback_id = available[0]
+    return fallback_id, wellplate_loader.get_plate(plate_key=fallback_id)
 
 
 def get_zstack_params_from_settings(settings: dict) -> dict:
