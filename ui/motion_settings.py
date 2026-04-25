@@ -263,6 +263,15 @@ class XYStageControl(BoxLayout):
 
             # Convert from plate position to stage position
             _, labware = get_selected_labware()
+            # Periodic Clock-tick callback — short-circuit when no labware
+            # is selected. Without this guard, the coord transform would
+            # raise NoLabwareSelectedError on every tick (~1 Hz), filling
+            # the log with identical tracebacks (#634 cluster fallout —
+            # log showed 24x in one startup). Steady-state empty-selection
+            # is the default first-launch state; it's not a user-action
+            # error and shouldn't notify.
+            if labware is None:
+                return
             settings = ctx.settings
             coordinate_transformer = ctx.coordinate_transformer
             stage_x, stage_y = coordinate_transformer.stage_to_plate(

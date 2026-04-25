@@ -17,6 +17,31 @@ import modules.labware as lw
 logger = logging.getLogger('LVP.coord_transformations')
 
 
+class NoLabwareSelectedError(ValueError):
+    """Raised when a coord transform is called with no labware selected.
+
+    Per Rule 8 (`docs/CLAUDE.md`): the API boundary must reject invalid
+    inputs at the boundary, not crash deep inside `labware.get_dimensions()`.
+    Issue #634 fix made `get_selected_labware()` correctly return
+    `(None, None)` when no labware is selected; ~12 caller sites then
+    crashed with `AttributeError: 'NoneType' has no attribute
+    'get_dimensions'` because they never None-checked. This exception
+    is the structural answer: the boundary fails fast and informatively;
+    the executor's `_safe_callback` translates it into one user-facing
+    Rule 14 notification per failure class.
+    """
+
+
+def _require_labware(labware: lw.LabWare | None) -> lw.LabWare:
+    """Boundary check shared by every public transform method."""
+    if labware is None:
+        raise NoLabwareSelectedError(
+            "no labware selected — coordinate transforms require a wellplate; "
+            "select a labware in Protocol settings"
+        )
+    return labware
+
+
 class CoordinateTransformer:
 
     def stage_to_plate(
@@ -35,7 +60,11 @@ class CoordinateTransformer:
 
         Returns:
             (px, py): Plate position in mm.
+
+        Raises:
+            NoLabwareSelectedError: If labware is None.
         """
+        labware = _require_labware(labware)
         dim_max = labware.get_dimensions()
 
         px = dim_max['x'] - (stage_offset['x'] + sx) / 1000
@@ -62,7 +91,9 @@ class CoordinateTransformer:
 
         Raises:
             ValueError: If plate coordinates are out of labware bounds.
+            NoLabwareSelectedError: If labware is None.
         """
+        labware = _require_labware(labware)
         if not isinstance(px, (int, float)) or not isinstance(py, (int, float)):
             raise ValueError(f"Plate coordinates must be numeric, got ({type(px).__name__}, {type(py).__name__})")
 
@@ -98,7 +129,11 @@ class CoordinateTransformer:
 
         Returns:
             (pixel_x, pixel_y): Screen position in pixels.
+
+        Raises:
+            NoLabwareSelectedError: If labware is None.
         """
+        labware = _require_labware(labware)
         dim_max = labware.get_dimensions()
 
         pixel_x = px * scale_x
@@ -115,7 +150,15 @@ class CoordinateTransformer:
         scale_x: float,
         scale_y: float,
     ):
-        """Convert stage coordinates (um) to pixel coordinates (px)."""
+        """Convert stage coordinates (um) to pixel coordinates (px).
+
+        Raises:
+            NoLabwareSelectedError: If labware is None.
+        """
+        # _require_labware fires inside stage_to_plate and plate_to_pixel;
+        # explicit check here gives a single boundary point if the inner
+        # call signature ever changes.
+        labware = _require_labware(labware)
         px, py = self.stage_to_plate(
             labware=labware,
             stage_offset=stage_offset,
