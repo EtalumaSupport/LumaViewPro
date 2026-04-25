@@ -425,7 +425,15 @@ class MotorBoard(SerialBoard):
     def get_microscope_model(self):
         with self._state_lock:
             info = self._fullinfo
-        return info['model']
+        if info is None:
+            # Connection never completed (port held / open() failed) so
+            # FULLINFO was never cached. Defensive: the registry's
+            # is_connected() gate (commit a5f5eff) should keep callers
+            # from ever seeing a real MotorBoard with _fullinfo=None,
+            # but defense-in-depth per Rule 8 — driver methods must
+            # never raise on a disconnected instance.
+            return None
+        return info.get('model')
 
     def detect_present_axes(self):
         """Detect which axes are present on this board.

@@ -3640,6 +3640,23 @@ class Lumascope():
         partial), False only on real failure, so this method just
         trusts the driver's verdict.
         """
+        # Short-circuit on disconnected motor — without this, home()
+        # dispatches into the driver where exchange_command tries to
+        # auto-reconnect and burns its full timeout (~10 s). That was
+        # the user-perceived "spinning beachball" in #632. Fire ONE
+        # clean Rule 14 notification with the right cause, instead of
+        # the misleading "Homing Failed. Position is unknown" that
+        # implies a homing-mechanics problem.
+        if not self.motor_connected:
+            logger.warning('[SCOPE API ] home() called with motor not connected')
+            notifications.error(
+                "Motion",
+                "Motor Not Connected",
+                "Cannot home — motor controller is not connected. "
+                "Check the USB cable and that no other program "
+                "(Thonny, mpremote, etc.) is holding the port.",
+            )
+            return
         present_axes = self.axes_present()
         _api_log.info('home START')
         for ax in present_axes:
@@ -3711,8 +3728,20 @@ class Lumascope():
     def thome(self):
         """Home the turret axis. Moves Z to 0 during turret motion for safety."""
 
-        #if not self.motion:
-        #    return
+        # Short-circuit on disconnected motor — same rationale as
+        # home() above. Without this, thome dispatches into the driver
+        # where exchange_command burns its 15s timeout doing failed
+        # auto-reconnect attempts. Fire one clean Rule 14 notification.
+        if not self.motor_connected:
+            logger.warning('[SCOPE API ] thome() called with motor not connected')
+            notifications.error(
+                "Motion",
+                "Motor Not Connected",
+                "Cannot home turret — motor controller is not connected. "
+                "Check the USB cable and that no other program is "
+                "holding the port.",
+            )
+            return
 
         # Move turret — set HOMING after Z is safe, not before.
         # Setting T to HOMING clears its arrival event, which would block
