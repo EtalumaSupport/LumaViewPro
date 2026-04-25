@@ -81,6 +81,11 @@ class TestGetImageCaptureConfig:
 
 
 class TestGetSelectedLabware:
+    """get_selected_labware_from_settings ALWAYS returns a valid plate per
+    Eric's 2026-04-25 directive — never None. Falls back to the shipped
+    default, then to the first available plate, then raises only if the
+    loader is genuinely empty (broken install).
+    """
 
     def test_reads_labware(self):
         loader = MagicMock()
@@ -91,19 +96,57 @@ class TestGetSelectedLabware:
         assert labware_id == '96-well'
         assert obj is plate
 
-    def test_empty_labware(self):
+    def test_empty_settings_falls_back_to_default(self):
+        # No labware in settings → use DEFAULT_LABWARE_ID '96 well microplate'.
         loader = MagicMock()
+        plate = MagicMock()
+        loader.get_plate.return_value = plate
         labware_id, obj = get_selected_labware_from_settings({}, loader)
-        assert labware_id is None
-        assert obj is None
+        assert labware_id == '96 well microplate'
+        assert obj is plate
 
-    def test_loader_failure(self):
+    def test_loader_keyerror_falls_back_to_default(self):
+        # Settings has a labware id but loader doesn't recognize it →
+        # fall back to default.
         loader = MagicMock()
-        loader.get_plate.side_effect = KeyError('not found')
+        default_plate = MagicMock()
+        def fake_get_plate(plate_key=None):
+            if plate_key == 'nonexistent':
+                raise KeyError('not found')
+            return default_plate
+        loader.get_plate.side_effect = fake_get_plate
         settings = {'protocol': {'labware': 'nonexistent'}}
         labware_id, obj = get_selected_labware_from_settings(settings, loader)
-        assert labware_id is None
-        assert obj is None
+        assert labware_id == '96 well microplate'
+        assert obj is default_plate
+
+    def test_loader_keyerror_on_default_falls_back_to_first_available(self):
+        # Both requested AND default missing → fall back to first plate
+        # in the loader's list.
+        loader = MagicMock()
+        first_plate = MagicMock()
+        def fake_get_plate(plate_key=None):
+            if plate_key in ('requested-key', '96 well microplate'):
+                raise KeyError('not found')
+            return first_plate
+        loader.get_plate.side_effect = fake_get_plate
+        loader.get_plate_list.return_value = ['some-other-plate']
+        settings = {'protocol': {'labware': 'requested-key'}}
+        labware_id, obj = get_selected_labware_from_settings(settings, loader)
+        assert labware_id == 'some-other-plate'
+        assert obj is first_plate
+
+    def test_loader_completely_empty_raises_valueerror(self):
+        # Genuinely-broken install: labware.json missing entirely. The
+        # function must raise rather than return None — caller can't
+        # recover from a missing labware database.
+        loader = MagicMock()
+        loader.get_plate.side_effect = KeyError('not found')
+        loader.get_plate_list.return_value = []
+        settings = {'protocol': {'labware': 'anything'}}
+        import pytest
+        with pytest.raises(ValueError, match="no plates registered"):
+            get_selected_labware_from_settings(settings, loader)
 
 
 class TestGetZstackParams:

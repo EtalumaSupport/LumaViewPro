@@ -3,10 +3,12 @@
 Tests for UI-dependent config getters in modules/config_ui_getters.py.
 
 Headless equivalents in modules/config_helpers.py are tested in
-tests/test_headless_config.py. The UI variants must handle the same
-failure modes (missing/invalid labware id, missing loader) without
-crashing — issue #634 was caused by an inner-except missing-return
-that returned implicit None and broke tuple-unpacking callers.
+tests/test_headless_config.py. Per Eric's 2026-04-25 directive,
+get_selected_labware() ALWAYS returns a valid (labware_id, plate) tuple
+— never None — by falling back to the shipped default labware and then
+to the first available plate. Issue #634/#632 cluster: removing None
+from the contract retires the cluster of latent crash sites that
+consumed it without None-checking.
 """
 
 from unittest.mock import MagicMock
@@ -31,7 +33,7 @@ def _patch_ctx(monkeypatch, *, spinner_text: str, settings: dict, loader):
 
 
 class TestGetSelectedLabware:
-    """UI variant — get_selected_labware() reads spinner with settings fallback."""
+    """UI variant — always returns a valid (labware_id, plate) tuple."""
 
     def test_spinner_has_valid_labware(self, monkeypatch):
         loader = MagicMock()
@@ -61,60 +63,82 @@ class TestGetSelectedLabware:
         assert labware_id == '96 well microplate'
         assert obj is plate
 
-    def test_spinner_has_stale_default_returns_none(self, monkeypatch):
-        # Issue #634 regression: KV file shipped `text: 'New'` as the spinner
-        # default, so on first run before settings synced to UI the spinner
-        # text was 'New' which doesn't exist in labware.json. The buggy
-        # version returned implicit None instead of (None, None) — every
-        # caller that did `labware_id, _ = get_selected_labware()` then hit
-        # TypeError and crashed the app.
+    def test_spinner_has_stale_default_falls_back_to_default(self, monkeypatch):
+        # Issue #634 regression: KV file used to ship `text: 'New'` as the
+        # spinner default. On first run, the spinner read 'New' before
+        # settings synced to UI — and 'New' isn't a valid labware key.
+        # Per Eric's 2026-04-25 directive, the function now falls back
+        # cleanly to DEFAULT_LABWARE_ID rather than returning None.
         loader = MagicMock()
-        loader.get_plate.side_effect = KeyError('New')
-        _patch_ctx(monkeypatch,
-                   spinner_text='New',
-                   settings={'protocol': {'labware': '96 well microplate'}},
-                   loader=loader)
-
-        from modules.config_ui_getters import get_selected_labware
-        result = get_selected_labware()
-        # Must be a 2-tuple even on failure — callers tuple-unpack.
-        assert result == (None, None)
-
-    def test_spinner_empty_and_settings_missing_returns_none(self, monkeypatch):
-        loader = MagicMock()
-        loader.get_plate.side_effect = KeyError('')
-        _patch_ctx(monkeypatch,
-                   spinner_text='',
-                   settings={},
-                   loader=loader)
-
-        from modules.config_ui_getters import get_selected_labware
-        result = get_selected_labware()
-        assert result == (None, None)
-
-    def test_loader_keyerror_returns_none(self, monkeypatch):
-        loader = MagicMock()
-        loader.get_plate.side_effect = KeyError('nonexistent plate')
-        _patch_ctx(monkeypatch,
-                   spinner_text='nonexistent plate',
-                   settings={'protocol': {'labware': 'nonexistent plate'}},
-                   loader=loader)
-
-        from modules.config_ui_getters import get_selected_labware
-        result = get_selected_labware()
-        assert result == (None, None)
-
-    def test_caller_tuple_unpack_does_not_crash_on_failure(self, monkeypatch):
-        # Direct check of the crash chain from #634: every caller does
-        # `labware_id, _ = get_selected_labware()`. That must not raise.
-        loader = MagicMock()
-        loader.get_plate.side_effect = KeyError('New')
+        default_plate = MagicMock()
+        def fake_get_plate(plate_key=None):
+            if plate_key == 'New':
+                raise KeyError('New')
+            return default_plate
+        loader.get_plate.side_effect = fake_get_plate
         _patch_ctx(monkeypatch,
                    spinner_text='New',
                    settings={'protocol': {'labware': 'New'}},
                    loader=loader)
 
         from modules.config_ui_getters import get_selected_labware
-        # Must not raise TypeError ('cannot unpack non-iterable NoneType').
+        labware_id, obj = get_selected_labware()
+        # Falls back to '96 well microplate' (DEFAULT_LABWARE_ID).
+        assert labware_id == '96 well microplate'
+        assert obj is default_plate
+
+    def test_spinner_empty_and_settings_missing_uses_default(self, monkeypatch):
+        loader = MagicMock()
+        default_plate = MagicMock()
+        loader.get_plate.return_value = default_plate
+        _patch_ctx(monkeypatch,
+                   spinner_text='',
+                   settings={},
+                   loader=loader)
+
+        from modules.config_ui_getters import get_selected_labware
+        labware_id, obj = get_selected_labware()
+        assert labware_id == '96 well microplate'
+        assert obj is default_plate
+
+    def test_loader_keyerror_falls_back_to_first_available(self, monkeypatch):
+        # Both requested AND default missing → fall back to first plate
+        # in loader.get_plate_list().
+        loader = MagicMock()
+        first_plate = MagicMock()
+        def fake_get_plate(plate_key=None):
+            if plate_key in ('nonexistent plate', '96 well microplate'):
+                raise KeyError('not found')
+            return first_plate
+        loader.get_plate.side_effect = fake_get_plate
+        loader.get_plate_list.return_value = ['some-other-plate']
+        _patch_ctx(monkeypatch,
+                   spinner_text='nonexistent plate',
+                   settings={'protocol': {'labware': 'nonexistent plate'}},
+                   loader=loader)
+
+        from modules.config_ui_getters import get_selected_labware
+        labware_id, obj = get_selected_labware()
+        assert labware_id == 'some-other-plate'
+        assert obj is first_plate
+
+    def test_caller_tuple_unpack_does_not_crash_on_any_input(self, monkeypatch):
+        # The original #634 crash chain was `labware_id, _ = get_selected_labware()`
+        # blowing up on TypeError. With the always-valid contract, this
+        # path is impossible — labware_id is always a non-None string.
+        loader = MagicMock()
+        default_plate = MagicMock()
+        def fake_get_plate(plate_key=None):
+            if plate_key == 'New':
+                raise KeyError('New')
+            return default_plate
+        loader.get_plate.side_effect = fake_get_plate
+        _patch_ctx(monkeypatch,
+                   spinner_text='New',
+                   settings={'protocol': {'labware': 'New'}},
+                   loader=loader)
+
+        from modules.config_ui_getters import get_selected_labware
         labware_id, _ = get_selected_labware()
-        assert labware_id is None
+        assert isinstance(labware_id, str)
+        assert labware_id  # non-empty
