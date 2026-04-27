@@ -874,8 +874,18 @@ def _run_post_update_test(board, board_config):
             # v3.5: LED_ENABLE / LED_DISABLE replace LEDS_ENT / LEDS_ENF.
             # Two-line ack (RE: + OK); exchange_command auto-drains the
             # echo so resp is the OK line.
-            r = board.exchange_command('LED_ENABLE ALL', timeout=2.0)
-            r2 = board.exchange_command('LED_DISABLE ALL', timeout=2.0)
+            #
+            # Order matters: v3.5 firmware's LED_DISABLE ALL sets
+            # enabled[ch]=False for every channel, which blocks subsequent
+            # LED_SET with 'ch X is disabled'. v3.0.x's LEDS_ENT/LEDS_ENF
+            # didn't gate LED_SET this way, so the old order
+            # ENABLE→DISABLE was harmless on legacy firmware. On v3.5 we
+            # exercise DISABLE first then ENABLE so the board ends in an
+            # immediately-usable state. Bench-found 2026-04-27 (SN
+            # 7162-19) — board was left disabled after deploy and silently
+            # rejected every LED_SET until LED_ENABLE ALL was sent.
+            r = board.exchange_command('LED_DISABLE ALL', timeout=2.0)
+            r2 = board.exchange_command('LED_ENABLE ALL', timeout=2.0)
             if (r or '') != 'OK' or (r2 or '') != 'OK':
                 issues.append(
                     f"LED enable/disable did not return OK: "
