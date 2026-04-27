@@ -96,26 +96,29 @@ class TestLedStop:
         l = LEDBoard.__new__(LEDBoard)
         return l
 
-    def test_v4_returns_normalized_dict(self):
+    def test_v35_returns_normalized_dict(self):
         l = self._make_led()
-        l._use_v4 = MagicMock(return_value=True)
-        l.exchange_json = MagicMock(return_value={'ok': True, 'stopped': True})
+        l._use_v35 = MagicMock(return_value=True)
+        # v3.5 STOP returns single-line 'STOPPED' (after RE: STOP echo,
+        # which exchange_command auto-drains). exchange_command returns
+        # the post-echo line.
+        l.exchange_command = MagicMock(return_value='STOPPED')
         result = l.stop()
         assert result == {
             'ok': True, 'stopped': True,
-            'response': None, 'note': None,
+            'response': 'STOPPED', 'note': None,
         }
-        l.exchange_json.assert_called_once_with({'cmd': 'STOP'}, timeout=5)
+        l.exchange_command.assert_called_once_with('STOP', timeout=5)
 
-    def test_v4_none_returns_none(self):
+    def test_v35_none_returns_none(self):
         l = self._make_led()
-        l._use_v4 = MagicMock(return_value=True)
-        l.exchange_json = MagicMock(return_value=None)
+        l._use_v35 = MagicMock(return_value=True)
+        l.exchange_command = MagicMock(return_value=None)
         assert l.stop() is None
 
     def test_legacy_degrades_to_leds_off(self):
         l = self._make_led()
-        l._use_v4 = MagicMock(return_value=False)
+        l._use_v35 = MagicMock(return_value=False)
         l.leds_off = MagicMock()
         result = l.stop()
         l.leds_off.assert_called_once()

@@ -11,6 +11,12 @@ from drivers.registry import led_registry
 
 @led_registry.register('rp2040', priority=100)
 class LEDBoard(SerialBoard):
+    """LED controller (U50) driver — supports both protocol lanes:
+    v3.0.x text (60 sealed field units, indefinite support) and v3.5
+    short-text (new bench/factory units after the (A) decision). Per
+    FIRMWARE_PROTOCOL.md §6 the two command sets share zero spellings;
+    this class branches per detected protocol version.
+    """
 
     #----------------------------------------------------------
     # Initialize connection through microcontroller
@@ -37,10 +43,18 @@ class LEDBoard(SerialBoard):
         # Safety: immediately turn off all LEDs after connecting.
         # Old crashed LED firmware (pre-v3.0.4) can leave all LEDs stuck on
         # at full current (~500mA × 6 channels = 3A), causing thermal damage
-        # to the board (measured 62°C). New v3.0.4+ firmware initializes LEDs
-        # off on boot, but this guard protects against old firmware and
-        # interrupted previous sessions.
+        # to the board (measured 62°C). New v3.0.4+/v3.5 firmware initializes
+        # LEDs off on boot, but this guard protects against old firmware
+        # and interrupted previous sessions.
         self._safety_leds_off()
+
+    def _accepts_json_info_fallback(self):
+        """LED never speaks JSON on either v3.0.x or v3.5 — per the (A)
+        decision the UART-bridge 16 B FIFO budget forces text framing on
+        the LED controller forever (until RP2350 single-chip retires the
+        bridge). Suppress the JSON-INFO fallback to skip the 1 s timeout
+        on a wedged LED board, where the fallback would never recover."""
+        return False
 
     def _safety_leds_off(self):
         """Turn off all LEDs immediately after connect (thermal safety).
@@ -48,16 +62,10 @@ class LEDBoard(SerialBoard):
         Uses fire-and-forget write to minimize delay. If the board doesn't
         respond, this is a best-effort attempt — the board may be in a
         state where it can't process commands.
-
-        Both LEGACY and V4 paths covered. On FW4.0 this goes through
-        exchange_json with a short timeout so the call doesn't block
-        connect() if the board is slow to respond.
         """
         try:
-            if self.protocol_version == ProtocolVersion.V4:
-                self.exchange_json({'cmd': 'LED_OFF', 'ch': 'ALL'}, timeout=0.5)
-            else:
-                self._write_command_fast('LEDS_OFF')
+            command = self._build_leds_off_cmd()
+            self._write_command_fast(command)
             logger.info('[LED Class ] Safety LEDS_OFF sent on connect')
         except Exception as e:
             logger.warning(f'[LED Class ] Safety LEDS_OFF failed: {e}')
@@ -72,25 +80,44 @@ class LEDBoard(SerialBoard):
     def _connect_bench_callables(self):
         """Driver methods benched at connect-time (release gate §2.3).
 
-        `get_info` dispatches to v3.0.x multi-line INFO (drain-sleep
-        penalty) or FW4.0 JSON INFO (no drain), giving the core
-        cross-firmware latency comparison point for the LED board.
+        `get_info` dispatches to v3.0.x multi-line INFO or v3.5 single-
+        line INFO, giving the core cross-firmware latency comparison
+        point for the LED board.
         """
         return [('get_info', self.get_info)]
 
+    # ------------------------------------------------------------------
+    # Protocol detection
+    # ------------------------------------------------------------------
+    def _use_v35(self):
+        """True iff the connected board speaks v3.5 short-text protocol
+        AND advertises the `led` capability. Capability-probe is preferred
+        over version-string comparison (FIRMWARE_PROTOCOL.md §1).
+
+        Defensive getattr() matches the firmware_silent pattern in
+        SerialBoard — tests construct LEDBoard via __new__ (bypassing
+        __init__) and set only the fields they need. protocol_version is
+        set in SerialBoard.__init__; if it hasn't run, assume LEGACY.
+        """
+        if getattr(self, 'protocol_version', None) != ProtocolVersion.V35:
+            return False
+        return 'led' in getattr(self, 'features', [])
+
+    # ------------------------------------------------------------------
+    # Emergency-halt
+    # ------------------------------------------------------------------
     def stop(self):
         """Emergency-halt all LED activity — aborts async ops + STIM + off.
 
-        FW4.0 (V4): STOP command. Firmware calls fw.async_set_abort()
-        (cancels SELFTEST/CALIBRATE), then _stim_clear_all() FIRST so
-        the Timer ISR can't re-drive the DAC, then _led_off_all(), then
-        restores channel enables for the next command sequence.
+        v3.5: real `STOP` command. Firmware aborts SELFTEST/CALIBRATE,
+        clears STIM trains FIRST so the Timer ISR can't re-drive the DAC,
+        then drives all channels to dark, restores enables for the next
+        command sequence. Returns single-line `STOPPED`.
 
-        LEGACY (v3.0.x): no STOP command in firmware. v3.0.x has no
-        STIM capability (Timer-driven pulse ISR), so `leds_off()` is
-        the safe equivalent — there's no ISR to race. We degrade to
-        `self.leds_off()` and annotate the result so the caller can
-        see what actually happened.
+        LEGACY (v3.0.x): no STOP command in firmware. v3.0.x has no STIM
+        capability, so `leds_off()` is the safe equivalent — there's no
+        ISR to race. Degrades to `self.leds_off()` and annotates the
+        result so the caller can see what actually happened.
 
         Returns a normalized dict so callers don't branch on protocol:
             {'ok': bool, 'stopped': bool,
@@ -99,14 +126,14 @@ class LEDBoard(SerialBoard):
 
         Returns None on driver error.
         """
-        if self._use_v4():
-            resp = self.exchange_json({'cmd': 'STOP'}, timeout=5)
+        if self._use_v35():
+            resp = self.exchange_command('STOP', timeout=5)
             if resp is None:
                 return None
             return {
-                'ok': bool(resp.get('ok')),
-                'stopped': bool(resp.get('stopped')),
-                'response': None,
+                'ok': 'STOPPED' in (resp or ''),
+                'stopped': 'STOPPED' in (resp or ''),
+                'response': resp,
                 'note': None,
             }
 
@@ -119,6 +146,9 @@ class LEDBoard(SerialBoard):
             'note': 'LEGACY v3.0.x: degraded to leds_off (no STIM to abort)',
         }
 
+    # ------------------------------------------------------------------
+    # Color / channel mapping
+    # ------------------------------------------------------------------
     _COLOR_TO_CH = {
         'Blue': 0, 'Green': 1, 'Red': 2,
         'BF': 3, 'PC': 4, 'DF': 5,
@@ -127,11 +157,11 @@ class LEDBoard(SerialBoard):
     _CH_TO_COLOR = {v: k for k, v in _COLOR_TO_CH.items()}
 
     def color2ch(self, color):
-        """ Convert color name to numerical channel """
+        """Convert color name to numerical channel."""
         return self._COLOR_TO_CH.get(color, 3)
 
     def ch2color(self, channel):
-        """ Convert numerical channel to color name """
+        """Convert numerical channel to color name."""
         return self._CH_TO_COLOR.get(channel, 'BF')
 
     def available_channels(self):
@@ -140,62 +170,30 @@ class LEDBoard(SerialBoard):
     def available_colors(self):
         return tuple(self._COLOR_TO_CH.keys())
 
-    # interperet commands
-    # ------------------------------------------
-    # board status: 'STATUS' case insensitive
-    # LED enable:   'LED' channel '_ENT' where channel is numbers 0 through 5, or S (plural/all)
-    # LED disable:  'LED' channel '_ENF' where channel is numbers 0 through 5, or S (plural/all)
-    # LED on:       'LED' channel '_MA' where channel is numbers 0 through 5, or S (plural/all)
-    #                and MA is numerical representation of mA
-    # LED off:      'LED' channel '_OFF' where channel is numbers 0 through 5, or S (plural/all)
-
     # ------------------------------------------------------------------
-    # Dual-protocol dispatch.
-    # LEGACY (pre-FW4.0 firmware): existing text commands (LED_, LEDS_OFF,
-    #   LED0_100, ...). Permanent support lane per primary-session posture
-    #   (2026-04-21) — sealed field units may stay on this forever.
-    # V4 (FW4.0 firmware): JSON-object commands over exchange_json, gated
-    #   by has_feature('led'). Enables optional id correlation + future
-    #   push-event integration.
-    # Both paths are first-class; don't remove one in favor of the other.
+    # Bulk enable / disable
     # ------------------------------------------------------------------
-    def _use_v4(self):
-        """True iff the connected board speaks FW4.0 AND advertises led.
-        Capability-probe (features[]) is preferred over version-string
-        comparison per primary-session guidance.
-
-        Defensive getattr() matches the firmware_silent pattern in
-        SerialBoard — tests construct LEDBoard via __new__ (bypassing
-        __init__) and set only the fields they need. protocol_version is
-        set in SerialBoard.__init__; if it hasn't run, assume LEGACY."""
-        if getattr(self, 'protocol_version', None) != ProtocolVersion.V4:
-            return False
-        return 'led' in getattr(self, 'features', [])
-
     def leds_enable(self):
-        if self._use_v4():
-            resp = self.exchange_json({'cmd': 'LED_ENABLE', 'ch': 'ALL'})
-            if resp is None or resp.get('ok') is not True:
-                logger.warning('[LED Class ] leds_enable() V4 path no/bad response')
+        if self._use_v35():
+            resp = self.exchange_command('LED_ENABLE ALL')
+            if resp is None:
+                logger.warning('[LED Class ] leds_enable() v3.5 no response')
             return
-        command = 'LEDS_ENT'
-        response = self.exchange_command(command)
+        response = self.exchange_command('LEDS_ENT')
         if response is None:
             logger.warning('[LED Class ] leds_enable() got no response')
 
     def leds_disable(self):
-        if self._use_v4():
-            resp = self.exchange_json({'cmd': 'LED_DISABLE', 'ch': 'ALL'})
-            if resp is not None and resp.get('ok') is True:
+        if self._use_v35():
+            resp = self.exchange_command('LED_DISABLE ALL')
+            if resp is not None:
                 with self._state_lock:
                     for color in self.led_ma:
                         self.led_ma[color] = -1
             else:
-                logger.warning('[LED Class ] leds_disable() V4 path no/bad response')
+                logger.warning('[LED Class ] leds_disable() v3.5 no response')
             return
-        command = 'LEDS_ENF'
-        response = self.exchange_command(command)
-
+        response = self.exchange_command('LEDS_ENF')
         if response is not None:
             with self._state_lock:
                 for color in self.led_ma:
@@ -203,39 +201,92 @@ class LEDBoard(SerialBoard):
         else:
             logger.warning('[LED Class ] leds_disable() got no response')
 
+    # ------------------------------------------------------------------
+    # Status / wait
+    # ------------------------------------------------------------------
     def get_status(self):
         """Query board async-op state + active STIM channels.
 
-        FW4.0 (V4): real STATUS command — returns {idle, op?, elapsed_ms?,
-        stim?[], ...}. Host uses this to watch HOME/CALIBRATE/SELFTEST
-        progress and STIM pulse counts.
+        v3.5: real STATUS command — single-line `STATUS idle=<0|1>
+        op=<NONE|SELFTEST|CALIBRATE> elapsed_ms=<N>
+        stim=<ch:emit/target,...|->`. Returns parsed dict.
 
         LEGACY: not implemented in v3.0.x LED firmware. Returns None.
-        This was documented as "do not use" in the v3.0.x driver; on FW4.0
-        the command exists and works, so callers can now probe via
-        has_feature('status') before calling.
+        Callers can probe via has_feature('status') before calling.
         """
-        if self._use_v4() and self.has_feature('status'):
-            return self.exchange_json({'cmd': 'STATUS'})
-        return None
+        if not self._use_v35() or not self.has_feature('status'):
+            return None
+        resp = self.exchange_command('STATUS')
+        if resp is None:
+            return None
+        return self._parse_v35_status_line(resp)
+
+    @staticmethod
+    def _parse_v35_status_line(line):
+        """Parse `STATUS idle=N op=X elapsed_ms=N stim=spec` to dict.
+
+        stim spec is `ch:emit/target,ch:emit/target` or `-` for none.
+        Each entry yields {'ch':int, 'pulses_emitted':int,
+        'pulses_remaining':int, 'count_target':int}.
+        """
+        if not line or not line.startswith('STATUS '):
+            return None
+        result = {}
+        for token in line.split()[1:]:
+            if '=' not in token:
+                continue
+            k, v = token.split('=', 1)
+            result[k] = v
+        if 'idle' in result:
+            result['idle'] = result['idle'] == '1'
+        if 'elapsed_ms' in result:
+            try:
+                result['elapsed_ms'] = int(result['elapsed_ms'])
+            except ValueError:
+                pass
+        stim_raw = result.get('stim', '-')
+        if stim_raw == '-':
+            result['stim'] = []
+        else:
+            stim_list = []
+            for entry in stim_raw.split(','):
+                if ':' in entry and '/' in entry:
+                    ch_part, rest = entry.split(':', 1)
+                    em_part, tgt_part = rest.split('/', 1)
+                    try:
+                        em = int(em_part)
+                        tgt = int(tgt_part)
+                        stim_list.append({
+                            'ch': int(ch_part),
+                            'pulses_emitted': em,
+                            'pulses_remaining': max(0, tgt - em),
+                            'count_target': tgt,
+                        })
+                    except ValueError:
+                        pass
+            result['stim'] = stim_list
+        return result
 
     def wait_until_on(self, timeout: float = 5.0):
         """Poll STATUS until any running async op completes or times out.
 
         LEGACY: returns immediately (STATUS not implemented in v3.0.x).
-        V4: polls STATUS every 100 ms until idle==True or timeout.
+        v3.5: polls STATUS every 100 ms until idle==True or timeout.
         """
-        if not self._use_v4() or not self.has_feature('status'):
+        if not self._use_v35() or not self.has_feature('status'):
             return
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
-            resp = self.exchange_json({'cmd': 'STATUS'})
-            if resp is None:
+            status = self.get_status()
+            if status is None:
                 return
-            if resp.get('idle') is True:
+            if status.get('idle') is True:
                 return
             time.sleep(0.1)
 
+    # ------------------------------------------------------------------
+    # Cached state accessors
+    # ------------------------------------------------------------------
     def get_led_ma(self, color):
         with self._state_lock:
             return self.led_ma.get(color, -1)
@@ -259,24 +310,42 @@ class LEDBoard(SerialBoard):
                         for color, mA in self.led_ma.items()}
         return snapshot
 
-    # Safety limits — defense-in-depth validation at driver level.
-    # The API layer (lumascope_api.py) also validates, but the driver
-    # must enforce independently in case of direct calls.
+    # ------------------------------------------------------------------
+    # Per-channel control. Safety limits are defense-in-depth at driver
+    # level — the API layer (lumascope_api.py) also validates, but the
+    # driver enforces independently in case of direct calls.
+    # ------------------------------------------------------------------
     _MAX_CHANNEL = 5
     _MAX_MA = 1000  # Firmware CH_MAX — absolute hardware limit
 
-    def _validate_and_build_led_cmd(self, channel, mA):
-        """Validate channel/mA and return (color, command) string.
-
-        Shared by led_on() and led_on_fast() to eliminate duplicate validation.
-        """
+    def _validate_led_args(self, channel, mA):
         if not (0 <= int(channel) <= self._MAX_CHANNEL):
-            raise ValueError(f"LED channel {channel} out of range [0-{self._MAX_CHANNEL}]")
+            raise ValueError(
+                f"LED channel {channel} out of range [0-{self._MAX_CHANNEL}]")
         if not (0 <= int(mA) <= self._MAX_MA):
-            raise ValueError(f"LED current {mA} mA out of safe range [0-{self._MAX_MA}]")
+            raise ValueError(
+                f"LED current {mA} mA out of safe range [0-{self._MAX_MA}]")
+
+    def _build_led_on_cmd(self, channel, mA):
+        """Validate args; return (color, command_string) for active protocol."""
+        self._validate_led_args(channel, mA)
         color = self.ch2color(channel=channel)
-        command = 'LED' + str(int(channel)) + '_' + str(int(mA))
-        return color, command
+        if self._use_v35():
+            cmd = f'LED_SET {int(channel)} {int(mA)}'
+        else:
+            cmd = f'LED{int(channel)}_{int(mA)}'
+        return color, cmd
+
+    def _build_led_off_cmd(self, channel):
+        color = self.ch2color(channel=channel)
+        if self._use_v35():
+            cmd = f'LED_OFF {int(channel)}'
+        else:
+            cmd = f'LED{int(channel)}_OFF'
+        return color, cmd
+
+    def _build_leds_off_cmd(self):
+        return 'LED_OFF ALL' if self._use_v35() else 'LEDS_OFF'
 
     def _update_state_cache(self, color: str, mA):
         """Update the cached LED state under lock."""
@@ -284,113 +353,94 @@ class LEDBoard(SerialBoard):
             self.led_ma[color] = mA
 
     def led_on(self, channel, mA, block=False, timeout: float = 5.0):
-        """
-        Turn on LED at channel number at mA power
-        If block=True, verify correct callback before returning (with timeout)
-        """
-        color, command = self._validate_and_build_led_cmd(channel, mA)
+        """Turn on LED at channel number at mA power.
 
-        if self._use_v4():
-            # FW4.0 LED_SET is self-healing — every call asserts enable pin
-            # and writes DAC (firmware _set_led_state). block= is a no-op
-            # on V4 because the response carries the commanded mA, so the
-            # caller doesn't need to re-poll to verify.
-            resp = self.exchange_json({'cmd': 'LED_SET', 'ch': int(channel), 'mA': float(mA)})
-            if resp is not None and resp.get('ok') is True:
-                self._update_state_cache(color, mA)
-            else:
-                logger.warning(f'[LED Class ] led_on(ch={channel}, mA={mA}) V4 no/bad response: {resp}')
-            return
-
+        If block=True, verify correct callback before returning (with
+        timeout). The block= contract is preserved across protocols.
+        """
+        color, command = self._build_led_on_cmd(channel, mA)
         response = self.exchange_command(command)
 
         if response is not None:
             self._update_state_cache(color, mA)
         else:
-            logger.warning(f'[LED Class ] led_on(ch={channel}, mA={mA}) got no response')
-
-        def check_each_substr(substrings, result):
-            for sub_str in substrings:
-                if sub_str not in result:
-                    return False
-            return True
+            logger.warning(
+                f'[LED Class ] led_on(ch={channel}, mA={mA}) got no response')
 
         if block:
+            if self._use_v35():
+                # v3.5: response is the post-RE: status line (`OK` on
+                # success). `OK` in the response confirms commit; no need
+                # to substring-match the channel/mA again.
+                if 'OK' in (response or ''):
+                    return
+                deadline = time.monotonic() + timeout
+                while response is None or 'OK' not in (response or ''):
+                    if time.monotonic() > deadline:
+                        logger.warning(
+                            f'[LED Class ] led_on(ch={channel}, mA={mA}, '
+                            f'block=True) timed out after {timeout}s')
+                        break
+                    time.sleep(0.01)
+                    response = self.exchange_command(command)
+                    if response is not None:
+                        self._update_state_cache(color, mA)
+                return
+
+            # v3.0.x: legacy substring-verify behavior (preserves the
+            # original block= contract for sealed field units).
+            def _check_each_substr(substrings, result):
+                for sub_str in substrings:
+                    if sub_str not in result:
+                        return False
+                return True
+
             deadline = time.monotonic() + timeout
-            while response is None or (command not in response and not check_each_substr(['LED', str(int(channel)), str(int(mA))], response)):
+            while response is None or (
+                    command not in response and not _check_each_substr(
+                        ['LED', str(int(channel)), str(int(mA))], response)):
                 if time.monotonic() > deadline:
-                    logger.warning(f'[LED Class ] led_on(ch={channel}, mA={mA}, block=True) timed out after {timeout}s')
+                    logger.warning(
+                        f'[LED Class ] led_on(ch={channel}, mA={mA}, '
+                        f'block=True) timed out after {timeout}s')
                     break
-                time.sleep(0.01)  # Prevent busy-wait CPU burn
+                time.sleep(0.01)
                 response = self.exchange_command(command)
                 if response is not None:
                     self._update_state_cache(color, mA)
 
     def led_off(self, channel):
-        """ Turn off LED at channel number """
-        color = self.ch2color(channel=channel)
-
-        if self._use_v4():
-            resp = self.exchange_json({'cmd': 'LED_OFF', 'ch': int(channel)})
-            if resp is not None and resp.get('ok') is True:
-                self._update_state_cache(color, -1)
-            else:
-                logger.warning(f'[LED Class ] led_off(ch={channel}) V4 no/bad response: {resp}')
-            return
-
-        command = 'LED' + str(int(channel)) + '_OFF'
+        """Turn off LED at channel number."""
+        color, command = self._build_led_off_cmd(channel)
         response = self.exchange_command(command)
 
         if response is not None:
             self._update_state_cache(color, -1)
         else:
-            logger.warning(f'[LED Class ] led_off(ch={channel}) got no response')
+            logger.warning(
+                f'[LED Class ] led_off(ch={channel}) got no response')
 
     def led_on_fast(self, channel, mA):
         """Fast write-only version of led_on for time-critical toggling.
-        V4 uses exchange_json with a short timeout; LEGACY uses the write-
-        only fast path for lowest possible host-side latency. On FW4.0
-        the bench measurement (2026-04-20) showed host-side scheduling is
-        unreliable below ~20 ms pulse width, which is why STIM moved into
-        firmware — this fast path stays for non-stim use cases (short
-        flash during capture, warm-up pulses, etc.)."""
-        color, command = self._validate_and_build_led_cmd(channel, mA)
+
+        Bench (2026-04-20) showed host-side scheduling is unreliable
+        below ~20 ms pulse width, which is why STIM moved into firmware
+        — this fast path stays for non-stim use cases (short flash
+        during capture, warm-up pulses).
+        """
+        color, command = self._build_led_on_cmd(channel, mA)
         self._update_state_cache(color, mA)
-
-        if self._use_v4():
-            # Timeout kept small — caller is optimizing for throughput, not
-            # retry semantics. Response discarded but events still flushed.
-            self.exchange_json({'cmd': 'LED_SET', 'ch': int(channel), 'mA': float(mA)},
-                               timeout=0.5)
-            return
-
         self._write_command_fast(command)
 
     def led_off_fast(self, channel):
         """Fast write-only version of led_off for time-critical toggling."""
-        color = self.ch2color(channel=channel)
+        color, command = self._build_led_off_cmd(channel)
         self._update_state_cache(color, -1)
-        command = 'LED' + str(int(channel)) + '_OFF'
-
-        if self._use_v4():
-            self.exchange_json({'cmd': 'LED_OFF', 'ch': int(channel)}, timeout=0.5)
-            return
-
         self._write_command_fast(command)
 
     def leds_off(self):
-        """ Turn off all LEDs """
-        if self._use_v4():
-            resp = self.exchange_json({'cmd': 'LED_OFF', 'ch': 'ALL'})
-            if resp is not None and resp.get('ok') is True:
-                with self._state_lock:
-                    for color in self.led_ma:
-                        self.led_ma[color] = -1
-            else:
-                logger.warning(f'[LED Class ] leds_off() V4 no/bad response: {resp}')
-            return
-
-        command = 'LEDS_OFF'
+        """Turn off all LEDs."""
+        command = self._build_leds_off_cmd()
         response = self.exchange_command(command)
 
         if response is not None:
@@ -405,27 +455,22 @@ class LEDBoard(SerialBoard):
         with self._state_lock:
             for color in self.led_ma:
                 self.led_ma[color] = -1
-
-        if self._use_v4():
-            self.exchange_json({'cmd': 'LED_OFF', 'ch': 'ALL'}, timeout=0.5)
-            return
-
-        command = 'LEDS_OFF'
-        self._write_command_fast(command)
+        self._write_command_fast(self._build_leds_off_cmd())
 
     # ------------------------------------------------------------------
-    # Engineering mode and diagnostics
+    # Engineering mode (v3.0.x only — removed in v3.5 per
+    # FIRMWARE_PROTOCOL.md §3 and primary-session decision 2026-04-21:
+    # accident prevention moves to UI layer, not modal firmware state).
     # ------------------------------------------------------------------
     def enter_engineering_mode(self, timeout=5.0):
-        """Enter engineering mode on LEGACY firmware. FW4.0 killed the
-        concept of modal engineering mode (primary-session decision
-        2026-04-21 — accident prevention moves to UI layer). On V4 this
-        returns True immediately without a wire command; host UI is
-        responsible for gating destructive operations (CALIBRATE, DAC_RAW
-        etc.) behind a user confirmation before issuing the command.
+        """Enter engineering mode on LEGACY firmware. v3.5 returns True
+        immediately without a wire command; host UI is responsible for
+        gating destructive operations behind user confirmation.
         """
-        if self._use_v4():
-            logger.info('[LED Class ] enter_engineering_mode() no-op on V4 (engineering mode removed)')
+        if self._use_v35():
+            logger.info(
+                '[LED Class ] enter_engineering_mode() no-op on v3.5 '
+                '(engineering mode removed)')
             return True
 
         resp = self.exchange_multiline(
@@ -435,13 +480,12 @@ class LEDBoard(SerialBoard):
             logger.warning('[LED Class ] enter_engineering_mode(): no response')
             return False
         if 'Y/N' not in resp.upper():
-            logger.warning(f'[LED Class ] enter_engineering_mode(): no Y/N prompt in: {resp!r}')
+            logger.warning(
+                f'[LED Class ] enter_engineering_mode(): no Y/N prompt in: {resp!r}')
             return False
-        # Confirm with Y
         confirm_resp = self.exchange_multiline(
             'Y', timeout=timeout,
             end_markers=['FACTORY', 'Engineering', 'RAW', 'ADC'])
-        # Drain any remaining help text
         time.sleep(0.5)
         with self._lock:
             if self.driver is not None:
@@ -452,12 +496,11 @@ class LEDBoard(SerialBoard):
         return True
 
     def exit_engineering_mode(self):
-        """Exit engineering mode on LEGACY. No-op on V4."""
-        if self._use_v4():
+        """Exit engineering mode back to safe mode (Q command). No-op on v3.5."""
+        if self._use_v35():
             return None
         resp = self.exchange_command('Q', timeout=3)
         time.sleep(0.3)
-        # Drain any remaining output
         with self._lock:
             if self.driver is not None:
                 stale = self.driver.in_waiting
@@ -466,25 +509,23 @@ class LEDBoard(SerialBoard):
         logger.info('[LED Class ] Exited engineering mode')
         return resp
 
+    # ------------------------------------------------------------------
+    # SELFTEST
+    # ------------------------------------------------------------------
     def selftest(self, timeout=180):
-        """Run LED SELFTEST and return parsed results.
+        """Run LED SELFTEST and return parsed result lines.
 
-        LEGACY path: multi-line text response scraped for per-channel
-        ramp results.
+        v3.5: multi-line streaming, ends `SELFTEST_DONE tested=N
+        skipped=M aborted=<0|1> slow=<0|1>`.
+        v3.0.x: multi-line text scraped for per-channel ramp results,
+        ends `Complete`/`COMPLETE`/`DONE`/`ERROR`.
 
-        V4 path: exchange_json returns a structured dict:
-            {"ok": True, "channels": [{"ch":N,"present":bool,"levels":[...]},...],
-             "channels_tested": N, "channels_skipped": M, ...}
-        We return the structured response directly on V4 — callers that
-        care about the old line-list format can format it themselves.
-        Runtime 10-30s on fast, 60-120s on slow; honor the caller timeout.
+        Returns list of result line strings; empty list on failure.
         """
-        if self._use_v4():
-            return self.exchange_json({'cmd': 'SELFTEST'}, timeout=timeout)
-
+        end_markers = (['SELFTEST_DONE'] if self._use_v35()
+                       else ['Complete', 'COMPLETE', 'DONE', 'ERROR'])
         resp = self.exchange_multiline(
-            'SELFTEST', timeout=timeout,
-            end_markers=['Complete', 'COMPLETE', 'DONE', 'ERROR'])
+            'SELFTEST', timeout=timeout, end_markers=end_markers)
         if resp is None:
             logger.warning('[LED Class ] selftest(): no response')
             return []
@@ -492,16 +533,24 @@ class LEDBoard(SerialBoard):
         logger.info(f'[LED Class ] selftest(): {len(lines)} lines')
         return lines
 
+    # ------------------------------------------------------------------
+    # INFO
+    # ------------------------------------------------------------------
     def get_info(self):
-        """Return a dict describing firmware identity + capabilities.
+        """Send INFO and return parsed dict.
 
-        LEGACY: parses the multi-line text response for version/date.
-        V4: returns the structured INFO dict directly — includes
-            features[] for capability probing, serial/chip_id, heap_free,
-            reset_cause, boot_log[].
+        v3.5: parse single-line `INFO ver=X date=Y sub=LED proto=3.5
+        serial=Z cal=N reset=R heap=N adc=ok:0xN ref=V features=a,b,c`.
+        v3.0.x: parse multi-line text response for version/date.
+
+        Returns dict with at minimum 'raw' (full response). v3.5 path
+        adds 'version', 'date', 'cal_status', 'features' (list),
+        'sub'/'proto'/'serial'/'reset'/'heap'/'adc'/'ref' fields. Empty
+        dict on failure.
         """
-        if self._use_v4():
-            return self.exchange_json({'cmd': 'INFO'}) or {}
+        if self._use_v35():
+            resp = self.exchange_command('INFO', timeout=2)
+            return self._parse_v35_info_dict(resp) if resp else {}
 
         resp = self.exchange_command('INFO', response_numlines=6, timeout=2)
         if resp is None:
@@ -511,92 +560,170 @@ class LEDBoard(SerialBoard):
         else:
             raw = resp
         result = {'raw': raw}
-        # Parse version
-        import re as _re
-        ver_match = _re.search(r'v(\d+\.\d+(?:\.\d+)?)', raw)
+        ver_match = re.search(r'v(\d+\.\d+(?:\.\d+)?)', raw)
         if ver_match:
             result['version'] = ver_match.group(1)
-        date_match = _re.search(r'(\d{4}-\d{2}-\d{2})', raw)
+        date_match = re.search(r'(\d{4}-\d{2}-\d{2})', raw)
         if date_match:
             result['date'] = date_match.group(1)
         if 'Cal:' in raw or 'Calibrated' in raw:
             result['cal_status'] = 'calibrated' if 'Calibrated' in raw else 'default'
         return result
 
-    def read_led_current(self, channel):
-        """Read measured LED current (mA) via I_SENS ADC.
+    @staticmethod
+    def _parse_v35_info_dict(line):
+        """v3.5 single-line INFO → dict.
 
-        LEGACY: requires v2.0+ firmware in engineering mode. Parses the
-        LEDREAD<ch> multi-line text response.
-        V4: exchange_json LED_READ returns {"mA": float, "v_sens": ...,
-            "v_ledk": ...}; no engineering-mode gating on FW4.0.
-        Returns measured current in mA, or None on error/unsupported.
+        Tokenizer-style parse matching the firmware-side emitter in
+        `Firmware-FW4.0/LED Controller/main.py:_handle_info`. Order is
+        canonical and stable but the parser is not order-sensitive.
         """
-        if self._use_v4():
-            resp = self.exchange_json({'cmd': 'LED_READ', 'ch': int(channel)})
-            if resp is not None and resp.get('ok') is True:
-                return resp.get('mA')
+        if not line:
+            return {}
+        if not line.startswith('INFO '):
+            return {'raw': line}
+        result = {'raw': line}
+        for token in line.split()[1:]:
+            if '=' in token:
+                k, v = token.split('=', 1)
+                result[k] = v
+        # Normalize commonly-used keys to legacy parser names so
+        # downstream consumers see a uniform schema across protocols.
+        if 'ver' in result:
+            result['version'] = result['ver']
+        if 'cal' in result:
+            result['cal_status'] = (
+                'calibrated' if result['cal'] == '1' else 'default')
+        if 'features' in result and isinstance(result['features'], str):
+            result['features'] = [f for f in result['features'].split(',') if f]
+        return result
+
+    # ------------------------------------------------------------------
+    # LED current readback
+    # ------------------------------------------------------------------
+    def read_led_current(self, channel):
+        """Read measured LED current (mA) from ADC feedback.
+
+        v3.5: `LED_READ <ch>` → single-line `LED_READ ch=N mA=X
+        v_sens=Y v_ledk=Z`. No engineering-mode gating.
+        v3.0.x: requires v2.0+ firmware in engineering mode; multi-line
+        text response with `I_SENS` line carrying the mA value.
+
+        Returns measured current in mA (float), or None on
+        error/unsupported.
+        """
+        if self._use_v35() and self.has_feature('led'):
+            resp = self.exchange_command(f'LED_READ {int(channel)}')
+            if not resp:
+                return None
+            for token in resp.split():
+                if token.startswith('mA='):
+                    try:
+                        return float(token.split('=', 1)[1])
+                    except ValueError:
+                        return None
             return None
 
         if not self.is_v2:
             return None
         command = f'LEDREAD{int(channel)}'
         try:
-            # Firmware sends: echo (handled by exchange_command), I_SENS line, LED_K line
+            # Firmware sends: echo (handled by exchange_command),
+            # I_SENS line, LED_K line.
             lines = self.exchange_command(command, response_numlines=3)
             if lines is None:
                 return None
-            # Parse I_SENS line: "LED0 I_SENS  (AIN14): 1.2800V  ->   200.1 mA"
             for line in lines:
                 if 'I_SENS' in line and 'mA' in line:
                     m = re.search(r'([\d.]+)\s*mA', line)
                     if m:
                         return float(m.group(1))
         except Exception as e:
-            logger.error(f'[LED Class ] read_led_current({channel}) failed: {e}')
+            logger.error(
+                f'[LED Class ] read_led_current({channel}) failed: {e}')
         return None
 
     # ------------------------------------------------------------------
-    # FW4.0-only helpers for firmware-side STIM pulse trains.
+    # Firmware-side STIM pulse trains (v3.5+ only).
     #
-    # These methods are NEW in FW4.0 — no LEGACY equivalent. v3.0.x
-    # firmware's "STIM" stopgap was the 2026-04-20 bench fix on the
-    # v3.0.8-firmware-stim branch and is not exposed through this driver
-    # (host-side stim controller runs through led_on_fast / led_off_fast
-    # edges on v3.0.x). The FW4.0 firmware-owned pulse timing retires
-    # host-side scheduling for anything under ~20 ms pulse widths.
+    # No v3.0.x equivalent. v3.0.x firmware's "STIM" stopgap was the
+    # 2026-04-20 bench fix on the v3.0.8-firmware-stim branch and is not
+    # exposed through this driver (host-side stim runs through
+    # led_on_fast / led_off_fast edges on v3.0.x). The v3.5 firmware-
+    # owned pulse timing retires host-side scheduling for anything
+    # under ~20 ms pulse widths.
     #
-    # Callers must check has_feature('stim') before calling. On LEGACY
-    # boards these log a warning and return None.
+    # Callers must check supports_firmware_stim() before calling. On
+    # LEGACY boards these log a warning and return None.
     # ------------------------------------------------------------------
     def firmware_stim(self, channel, mA, pulse_ms, period_ms, count):
-        """Start a firmware-owned single-channel pulse train. Returns the
-        RUNNING response ({"ok":True,"ch":N,"status":"RUNNING",...}) on
-        success; None on LEGACY or failure. Poll STATUS for count progress
-        or subscribe to on_event for the stim_done completion event."""
-        if not self._use_v4() or not self.has_feature('stim'):
-            logger.warning('[LED Class ] firmware_stim() called but stim feature not advertised')
+        """Start a firmware-owned single-channel pulse train.
+
+        v3.5 wire: `STIM <ch> <mA> <pulse_ms> <period_ms> <count>` →
+        single-line `STIM_RUN ch=N pulse_us=X period_us=Y count=Z`
+        (after `RE: STIM` echo).
+
+        Returns dict with parsed `kind`/`ch`/`pulse_us`/`period_us`/
+        `count` fields on success, None on LEGACY/failure. Poll
+        get_status() for count progress (events deferred to FW4.1 per
+        FIRMWARE_PROTOCOL.md §3.6).
+        """
+        if not self.supports_firmware_stim():
+            logger.warning(
+                '[LED Class ] firmware_stim() called but stim feature '
+                'not advertised')
             return None
-        return self.exchange_json({
-            'cmd': 'STIM',
-            'ch': int(channel),
-            'mA': float(mA),
-            'pulse_ms': float(pulse_ms),
-            'period_ms': float(period_ms),
-            'count': int(count),
-        })
+        cmd = (f'STIM {int(channel)} {float(mA)} {float(pulse_ms)} '
+               f'{float(period_ms)} {int(count)}')
+        resp = self.exchange_command(cmd, timeout=2)
+        if not resp:
+            return None
+        return self._parse_kv_line(resp)
 
     def firmware_stim_stop(self, channel='ALL'):
-        """Stop one channel or all STIM trains. Self-heals off structurally."""
-        if not self._use_v4() or not self.has_feature('stim'):
-            logger.warning('[LED Class ] firmware_stim_stop() called but stim not advertised')
+        """Stop one channel or all STIM trains.
+
+        v3.5 wire: `STIM_STOP <ch|ALL>`. Single channel → single-line
+        `STIM_STOPPED ch=N pulses=M`. ALL with multiple active channels
+        → multi-line, ends `END_STIM_STOP`.
+        """
+        if not self.supports_firmware_stim():
+            logger.warning(
+                '[LED Class ] firmware_stim_stop() called but stim '
+                'not advertised')
             return None
-        ch_arg = 'ALL' if channel == 'ALL' else int(channel)
-        return self.exchange_json({'cmd': 'STIM_STOP', 'ch': ch_arg})
+        ch_arg = 'ALL' if channel == 'ALL' else str(int(channel))
+        if ch_arg == 'ALL':
+            return self.exchange_multiline(
+                f'STIM_STOP {ch_arg}', timeout=5,
+                end_markers=['END_STIM_STOP', 'STIM_STOPPED'])
+        return self.exchange_command(f'STIM_STOP {ch_arg}', timeout=5)
 
     def supports_firmware_stim(self):
         """True iff the connected firmware advertises the stim capability
-        (FW4.0+). Mirrors the v3.0.8-firmware-stim probe method used by
-        LVP's StimulationController to decide host-side vs firmware-side
-        stim on a per-protocol basis."""
-        return self._use_v4() and self.has_feature('stim')
+        (v3.5+). Mirrors the v3.0.8-firmware-stim probe used by LVP's
+        StimulationController to decide host-side vs firmware-side stim
+        on a per-protocol basis."""
+        return self._use_v35() and self.has_feature('stim')
+
+    # ------------------------------------------------------------------
+    # Generic v3.5 key=val response parser
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _parse_kv_line(line):
+        """`KIND field1=val1 field2=val2 ...` → dict.
+
+        Leading word becomes `kind`. Used for STIM_RUN / STIM_STOPPED /
+        any single-line key=val response shape.
+        """
+        if not line:
+            return {}
+        tokens = line.split()
+        if not tokens:
+            return {}
+        result = {'kind': tokens[0]}
+        for token in tokens[1:]:
+            if '=' in token:
+                k, v = token.split('=', 1)
+                result[k] = v
+        return result

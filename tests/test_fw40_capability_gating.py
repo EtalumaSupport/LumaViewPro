@@ -90,48 +90,62 @@ class TestLedCapabilityGating:
 
     def test_legacy_blocks_firmware_stim(self):
         board = _make_led(ProtocolVersion.LEGACY, [])
-        assert board._use_v4() is False
+        assert board._use_v35() is False
         assert board.supports_firmware_stim() is False
         assert board.firmware_stim(0, 100, 10, 20, 5) is None
 
-    def test_v4_without_led_baseline_falls_through(self):
-        """V4 + features=['stim'] but no 'led' baseline → _use_v4() False.
+    def test_v35_without_led_baseline_falls_through(self):
+        """V35 + features=['stim'] but no 'led' baseline → _use_v35() False.
         Stim-without-led doesn't make physical sense, but the test proves
         the baseline gate fires regardless of other features."""
-        board = _make_led(ProtocolVersion.V4, ['stim'])
-        assert board._use_v4() is False
+        board = _make_led(ProtocolVersion.V35, ['stim'])
+        assert board._use_v35() is False
         assert board.supports_firmware_stim() is False
 
-    def test_v4_led_baseline_without_stim_blocks_firmware_stim(self):
-        board = _make_led(ProtocolVersion.V4, ['led'])
-        assert board._use_v4() is True
+    def test_v35_led_baseline_without_stim_blocks_firmware_stim(self):
+        board = _make_led(ProtocolVersion.V35, ['led'])
+        assert board._use_v35() is True
         assert board.has_feature('stim') is False
         assert board.supports_firmware_stim() is False
         assert board.firmware_stim(0, 100, 10, 20, 5) is None
         assert board.firmware_stim_stop() is None
 
-    def test_v4_with_stim_routes_through_exchange_json(self):
-        board = _make_led(ProtocolVersion.V4, ['led', 'stim'])
+    def test_v35_with_stim_routes_through_exchange_command(self):
+        board = _make_led(ProtocolVersion.V35, ['led', 'stim'])
         assert board.supports_firmware_stim() is True
 
-        fake = _FakeExchange(response={
-            'ok': True, 'cmd': 'STIM', 'ch': 0, 'status': 'RUNNING',
-        })
-        board.exchange_json = fake
+        # v3.5 wire: 'STIM 0 100.0 10.0 20.0 5' → 'STIM_RUN ch=0
+        # pulse_us=10000 period_us=20000 count=5' (post-RE: echo, which
+        # exchange_command auto-drains).
+        fake = _FakeExchange(response='STIM_RUN ch=0 pulse_us=10000 period_us=20000 count=5')
+        board.exchange_command = fake
 
         resp = board.firmware_stim(channel=0, mA=100, pulse_ms=10,
                                    period_ms=20, count=5)
         assert resp is not None
-        assert resp.get('status') == 'RUNNING'
+        assert resp.get('kind') == 'STIM_RUN'
+        assert resp.get('ch') == '0'
+        assert resp.get('pulse_us') == '10000'
+        assert resp.get('period_us') == '20000'
+        assert resp.get('count') == '5'
 
         assert len(fake.calls) == 1
-        sent = fake.calls[0]
-        assert sent['cmd'] == 'STIM'
-        assert sent['ch'] == 0
-        assert sent['mA'] == 100.0
-        assert sent['pulse_ms'] == 10.0
-        assert sent['period_ms'] == 20.0
-        assert sent['count'] == 5
+        # _FakeExchange records (args, kwargs) tuples — exchange_command
+        # is called positionally with the command string.
+        call = fake.calls[0]
+        if isinstance(call, dict):
+            sent = call.get('cmd', '')
+        else:
+            sent = call
+        assert sent.startswith('STIM ')
+        # Tokenized command shape: 'STIM <ch> <mA> <pulse_ms> <period_ms> <count>'
+        toks = sent.split()
+        assert toks[0] == 'STIM'
+        assert toks[1] == '0'
+        assert float(toks[2]) == 100.0
+        assert float(toks[3]) == 10.0
+        assert float(toks[4]) == 20.0
+        assert toks[5] == '5'
 
 
 # ---------------------------------------------------------------------------

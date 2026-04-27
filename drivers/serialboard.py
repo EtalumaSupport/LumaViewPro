@@ -49,10 +49,17 @@ class ProtocolVersion(Enum):
                        # shipped as firmware; retained to keep the detection
                        # branch explicit and to avoid a schema change when
                        # someone digs up old v3.1 test firmware.
-    V4 = "v4"          # FW4.0 JSON Lines protocol. Source of truth:
-                       # docs/FW40_COMMAND_REFERENCE.md in the Firmware repo.
+    V4 = "v4"          # FW4.0 JSON Lines protocol — motor controller (U51)
+                       # only. Per the (A) decision the LED controller (U50)
+                       # never shipped V4 — the UART-bridge 16 B FIFO budget
+                       # forces short-text framing on LED. Source of truth:
+                       # docs/FIRMWARE_PROTOCOL.md §2 (motor JSON).
                        # Invariants R1-R4 (single emit_line, cmd XOR event,
                        # optional id echo, one JSON line per read).
+    V35 = "v35"        # LED v3.5.0 short-text protocol — LED controller
+                       # (U50) only. Single-line key=val INFO, multi-line
+                       # streaming with END_<CMD> terminators, no JSON.
+                       # Source of truth: docs/FIRMWARE_PROTOCOL.md §3.
 
 
 class SerialBoard:
@@ -715,32 +722,31 @@ class SerialBoard:
             # Check if we got any meaningful content (not just empty lines)
             resp_stripped = resp.strip()
             if not resp_stripped:
-                # Plain-text INFO silent. Fall back to JSON INFO — FW4.0
-                # LED (as of 2026-04-24) doesn't respond to legacy-text
-                # "INFO" while FW4.0 motor does. Until §2.2 protocol
-                # unification fully closes this gap in firmware, probe both
-                # paths here so the V4 dispatcher lights up regardless of
-                # which style the specific FW4.0 build accepts.
-                _serial_log.info(
-                    f'{self._label} DETECT text-INFO silent, trying JSON fallback'
-                )
-                try:
-                    json_info = self.exchange_json({'cmd': 'INFO'}, timeout=1.0)
-                except Exception as e:
-                    json_info = None
+                # Plain-text INFO silent. JSON-INFO fallback exists for
+                # motor FW4.0 (which speaks JSON only); LED v3.5 always
+                # responds to text-INFO so the fallback is gated to motor-
+                # eligible boards via _accepts_json_info_fallback().
+                if self._accepts_json_info_fallback():
                     _serial_log.info(
-                        f'{self._label} DETECT JSON fallback raised: {e}'
+                        f'{self._label} DETECT text-INFO silent, trying JSON fallback'
                     )
-                if (json_info and isinstance(json_info, dict)
-                        and json_info.get('ok') is True):
-                    self.firmware_responding = True
-                    self._apply_json_info(json_info)
-                    _serial_log.info(
-                        f'{self._label} DETECT JSON fallback OK: '
-                        f'fw={self.firmware_version} '
-                        f'protocol={self.protocol_version.value}'
-                    )
-                    return
+                    try:
+                        json_info = self.exchange_json({'cmd': 'INFO'}, timeout=1.0)
+                    except Exception as e:
+                        json_info = None
+                        _serial_log.info(
+                            f'{self._label} DETECT JSON fallback raised: {e}'
+                        )
+                    if (json_info and isinstance(json_info, dict)
+                            and json_info.get('ok') is True):
+                        self.firmware_responding = True
+                        self._apply_json_info(json_info)
+                        _serial_log.info(
+                            f'{self._label} DETECT JSON fallback OK: '
+                            f'fw={self.firmware_version} '
+                            f'protocol={self.protocol_version.value}'
+                        )
+                        return
                 # Both paths silent — truly non-responsive.
                 self.firmware_version = None
                 self.firmware_responding = False
@@ -758,12 +764,15 @@ class SerialBoard:
             # Board is responding — mark it even if we can't parse a version
             self.firmware_responding = True
 
-            # JSON Lines protocol detection — both stub V3 and shipping V4.
-            # A `{` first byte is an opt-out of the legacy text protocol;
-            # the response body tells us which wire version (via "protocol"
-            # or fw_version major).
+            # Detection precedence:
+            #  - '{' first byte → JSON Lines (motor FW4.0 V4 / stub V3).
+            #  - 'INFO ' prefix with 'proto=3.5' → LED v3.5 single-line.
+            #  - otherwise → LEGACY (v3.0.x text on either board).
             if resp_stripped.startswith('{'):
                 self._parse_json_info(resp_stripped)
+            elif (resp_stripped.startswith('INFO ')
+                    and 'proto=3.5' in resp_stripped):
+                self._parse_v35_info_line(resp_stripped)
             else:
                 self.protocol_version = ProtocolVersion.LEGACY
                 self.features = []
@@ -824,6 +833,44 @@ class SerialBoard:
         logger.info(
             f'{self._label} Detected {self.protocol_version.value} protocol'
             f' (fw={self.firmware_version}, features={self.features})'
+        )
+
+    def _accepts_json_info_fallback(self):
+        """Subclass override hook. Default True (motor speaks JSON on FW4.0
+        and benefits from the fallback when text-INFO is silent). LEDBoard
+        overrides to False — LED v3.5 always responds to text-INFO, so the
+        fallback would only ever fire on a wedged LED board, where it adds
+        a 1-second timeout to no useful effect."""
+        return True
+
+    def _parse_v35_info_line(self, line):
+        """Parse v3.5 LED single-line INFO. Format documented in
+        docs/FIRMWARE_PROTOCOL.md §3.4:
+
+            INFO ver=3.5.0 date=2026-04-27 sub=LED proto=3.5 \\
+                 serial=AABBCCDDEEFF0011 cal=1 reset=POWER_ON heap=82000 \\
+                 adc=ok:0x30D5 ref=5.012 \\
+                 features=led,adc_read,selftest,calibrate,...
+
+        Tokenizer-style parse: split on whitespace, then per-token split
+        on `=`. Order is canonical but the parser is not order-sensitive.
+        """
+        self.protocol_version = ProtocolVersion.V35
+        fields = {}
+        for token in line.split()[1:]:  # skip leading 'INFO'
+            if '=' in token:
+                k, v = token.split('=', 1)
+                fields[k] = v
+        self.firmware_version = fields.get('ver')
+        self.firmware_date = fields.get('date')
+        feats = fields.get('features', '')
+        if feats:
+            self.features = [f for f in feats.split(',') if f]
+        else:
+            self.features = []
+        logger.info(
+            f'{self._label} Detected v3.5 protocol '
+            f'(fw={self.firmware_version}, features={self.features})'
         )
 
     def _parse_legacy_info_text(self, resp):
@@ -1021,7 +1068,15 @@ class SerialBoard:
                 # Old firmware (pre-v3.0) sends multi-line INFO/STATUS even
                 # when we only requested 1 line. Without this drain, leftover
                 # lines pollute the next command's response.
-                time.sleep(0.02)  # Brief pause for remaining lines to arrive
+                #
+                # Drain reduced 20 ms → 5 ms with v3.5 LED protocol
+                # (2026-04-27): both v3.0.x and v3.5 have deterministic
+                # terminators (RE: echo + content + END_<CMD> or self-
+                # terminating data line), so the historical 20 ms headroom
+                # for stragglers is no longer needed. RP2350 future drops
+                # this to 0 ms by switching to read-until-terminator framing
+                # in this method.
+                time.sleep(0.005)
                 remaining = self.driver.in_waiting
                 if remaining > 0:
                     self.driver.read(remaining)
