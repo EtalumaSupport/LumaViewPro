@@ -35,7 +35,7 @@ class SimulatedLEDBoard:
 
     def __init__(self, delay: float = 0.0, timing: str = 'fast',
                  firmware_version: str = '2.0.1',
-                 protocol_version: str = 'legacy',  # v3.0 STUB: 'legacy' or 'v3'
+                 protocol_version: str = 'legacy',  # 'legacy' / 'v3' / 'v35'
                  fail_after: int | None = None,
                  fail_on: set | None = None,
                  **kwargs):
@@ -142,9 +142,98 @@ class SimulatedLEDBoard:
                 return None
 
             self._sim_delay()
-            response = f"RE: {command}"
+            # v3.5 protocol_version emits short-text responses matching
+            # the firmware's _emit_response shapes (FIRMWARE_PROTOCOL.md
+            # §3.1 R1'/R2'). Real driver's exchange_command auto-drains
+            # 'RE: <cmd>' echoes, so the simulator returns the post-echo
+            # status line — same as what the production driver receives.
+            if getattr(self, 'protocol_version', 'legacy') == 'v35':
+                response = self._v35_response(command)
+            else:
+                response = f"RE: {command}"
             logger.debug(f'[LED Sim   ] exchange_command({command}) -> {response}')
             return response
+
+    def _v35_response(self, command):
+        """Produce a v3.5 short-text response for the given command.
+        Mirrors the firmware-side dispatcher in
+        Firmware-FW4.0/LED Controller/main.py:_emit_response. Tests can
+        override this on a per-instance basis if a specific shape is
+        needed."""
+        c = (command or '').strip()
+        head = c.split(' ', 1)[0].upper() if c else ''
+        rest = c.split(' ', 1)[1] if ' ' in c else ''
+
+        # Two-line ack commands: real driver auto-drains 'RE: <cmd>',
+        # so we return the status line.
+        TWO_LINE_OK = {'LED_SET', 'LED_OFF', 'LED_ENABLE', 'LED_DISABLE',
+                       'DAC_RAW', 'CAL_SAVE', 'CAL_CLEAR', 'EVENTS'}
+        if head in TWO_LINE_OK:
+            if head == 'CAL_SAVE':
+                return 'OK saved'
+            if head == 'CAL_CLEAR':
+                return 'OK cleared'
+            return 'OK'
+
+        if head == 'STOP':
+            return 'STOPPED'
+
+        if head == 'STATUS':
+            return 'STATUS idle=1 op=NONE elapsed_ms=0 stim=-'
+
+        if head == 'HEAP':
+            return 'HEAP free=180000 alloc=20000'
+
+        if head == 'INFO':
+            feats = ','.join(self.features)
+            return (f'INFO ver={self.firmware_version} date=2026-04-27 '
+                    f'sub=LED proto=3.5 serial=SIM-LED cal=0 '
+                    f'reset=POWER_ON heap=180000 adc=ok:0x30D5 '
+                    f'features={feats}')
+
+        if head == 'LED_READ':
+            # Single-channel: 'LED_READ <ch>' → single line.
+            try:
+                ch = int(rest.strip().split()[0]) if rest.strip() else 0
+            except (ValueError, IndexError):
+                ch = 0
+            mA = float(self._channel_states.get(ch, 0))
+            return (f'LED_READ ch={ch} mA={mA:.3f} '
+                    f'v_sens={mA*0.00684:.4f} v_ledk=0.5000')
+
+        if head == 'STIM':
+            # 'STIM <ch> <mA> <pulse_ms> <period_ms> <count>'
+            parts = rest.split()
+            try:
+                ch = int(parts[0])
+                pulse_us = int(float(parts[2]) * 1000)
+                period_us = int(float(parts[3]) * 1000)
+                count = int(parts[4])
+            except (IndexError, ValueError):
+                ch, pulse_us, period_us, count = 0, 1000, 2000, 1
+            return (f'STIM_RUN ch={ch} pulse_us={pulse_us} '
+                    f'period_us={period_us} count={count}')
+
+        if head == 'STIM_STOP':
+            ch_arg = rest.strip().upper() or 'ALL'
+            if ch_arg == 'ALL':
+                return 'STIM_STOPPED count=0'
+            try:
+                ch = int(ch_arg)
+            except ValueError:
+                ch = 0
+            return f'STIM_STOPPED ch={ch} pulses=0'
+
+        if head == 'I2C_READ':
+            return 'I2C_READ addr=0x20 reg=0x00 data=0x00'
+
+        if head == 'I2C_WRITE':
+            return 'OK written bytes=1'
+
+        # Default: echo. Tests don't depend on this shape for unknown
+        # cmds; real firmware would emit ERR UNKNOWN_CMD which the
+        # production driver returns as the post-echo line.
+        return f'ERR UNKNOWN_CMD unknown command'
 
     def exchange_multiline(self, command, timeout=60, end_markers=None):
         """Simulated multi-line response."""
@@ -361,9 +450,16 @@ class SimulatedLEDBoard:
     # this code exists to prevent: shipping a driver method without the
     # parity stub + test_api_surface_matches_real guard catching it.
     # ------------------------------------------------------------------
-    _DEFAULT_SIM_FEATURES = ['id', 'led', 'adc_read', 'selftest', 'calibrate',
+    # Default features array. Matches the v3.5 LED firmware (no `id` —
+    # LED v3.5 dropped id-echo per FIRMWARE_PROTOCOL.md §3.1 R3'; +
+    # `chip_check` and `boot_log` added in v3.5). Kept as the default so
+    # real-board parity tests that snapshot features[] work without
+    # per-test setup. Tests that need a constrained simulator can set
+    # `sim.features = [...]` after construction.
+    _DEFAULT_SIM_FEATURES = ['led', 'adc_read', 'selftest', 'calibrate',
                              'status', 'stim', 'events',
-                             'i2c', 'diag', 'fwupdate']
+                             'i2c', 'diag', 'fwupdate',
+                             'chip_check', 'boot_log']
 
     @property
     def features(self):
