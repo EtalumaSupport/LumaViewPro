@@ -828,38 +828,91 @@ def _restore_configs(board, board_config, config_data, callback=None):
 def _run_post_update_test(board, board_config):
     """Run abbreviated health check after firmware update.
 
+    Recognizes all three INFO response shapes:
+      - LEGACY (2024/2025 firmware): multi-line text, contains
+        'Etaluma' / 'EL-09' / 'Firmware'.
+      - v3.5 LED short-text: single line starting with 'INFO ' with
+        'sub=LED' and 'proto=3.5'. Per FIRMWARE_PROTOCOL.md §3.4.
+      - FW4.0 motor JSON: line starting with '{' containing
+        '"cmd":"INFO"' or '"subsystem":"MOTOR"'. Per FIRMWARE_PROTOCOL.md §2.6.
+
     Returns (passed: bool, details: str).
     """
     issues = []
 
-    # Test 1: INFO command
+    # Test 1: INFO command. Use response_numlines=6 to handle the
+    # LEGACY multi-line case; v3.5 single-line and FW4.0 JSON are
+    # caught on the first line.
     resp = board.exchange_command('INFO', response_numlines=6, timeout=2.0)
     if resp is None:
         issues.append("INFO command returned no response")
     else:
         text = '\n'.join(resp) if isinstance(resp, list) else str(resp)
-        if 'Etaluma' not in text and 'EL-09' not in text and 'Firmware' not in text:
+        first_line = text.lstrip().split('\n', 1)[0]
+        recognized = (
+            # LEGACY 2024/2025 multi-line text
+            'Etaluma' in text or 'EL-09' in text or 'Firmware' in text
+            # v3.5 LED single-line
+            or (first_line.startswith('INFO ') and 'proto=3.5' in first_line)
+            # FW4.0 motor JSON
+            or (first_line.startswith('{') and (
+                '"subsystem"' in first_line or '"cmd":"INFO"' in first_line
+                or '"cmd": "INFO"' in first_line))
+        )
+        if not recognized:
             issues.append(f"INFO response unexpected: {text.strip()[:100]}")
 
-    # Test 2: Board-specific command
+    # Test 2: Board-specific command. Branch on the protocol the board
+    # advertised post-update — the connect-time detector populates
+    # `protocol_version` so we use it here rather than re-scraping the
+    # INFO text.
+    proto_value = getattr(getattr(board, 'protocol_version', None),
+                          'value', '') or ''
+
     if board_config.board_type == BoardType.LED:
-        # Verify LED enable/disable works
-        r = board.exchange_command('LEDS_ENT', timeout=2.0)
-        r2 = board.exchange_command('LEDS_ENF', timeout=2.0)
-        r_str = str(r or '')
-        r2_str = str(r2 or '')
-        if 'Error' in r_str or 'Error' in r2_str:
-            issues.append(f"LED enable/disable error: {r_str} / {r2_str}")
+        if proto_value == 'v35':
+            # v3.5: LED_ENABLE / LED_DISABLE replace LEDS_ENT / LEDS_ENF.
+            # Two-line ack (RE: + OK); exchange_command auto-drains the
+            # echo so resp is the OK line.
+            r = board.exchange_command('LED_ENABLE ALL', timeout=2.0)
+            r2 = board.exchange_command('LED_DISABLE ALL', timeout=2.0)
+            if (r or '') != 'OK' or (r2 or '') != 'OK':
+                issues.append(
+                    f"LED enable/disable did not return OK: "
+                    f"{r!r} / {r2!r}")
+        else:
+            # LEGACY 2024/2025 firmware (or pre-v3.5 dev firmware).
+            r = board.exchange_command('LEDS_ENT', timeout=2.0)
+            r2 = board.exchange_command('LEDS_ENF', timeout=2.0)
+            r_str = str(r or '')
+            r2_str = str(r2 or '')
+            if 'Error' in r_str or 'Error' in r2_str:
+                issues.append(
+                    f"LED enable/disable error: {r_str} / {r2_str}")
 
     elif board_config.board_type == BoardType.MOTOR:
-        # Verify FULLINFO works
-        r = board.exchange_command('FULLINFO', response_numlines=6, timeout=2.0)
-        r_str = '\n'.join(r) if isinstance(r, list) else str(r or '')
-        if not r_str.strip():
-            issues.append("FULLINFO returned empty response")
-        elif 'not recognized' in r_str.lower():
-            # Old firmware may not have FULLINFO — not a failure
-            logger.info("FULLINFO not recognized (old firmware format)")
+        if proto_value == 'v4':
+            # FW4.0 motor JSON path. Use exchange_json so the response
+            # is parsed as a dict; the legacy text-FULLINFO would
+            # produce UNKNOWN_CMD on FW4.0 firmware.
+            try:
+                resp_json = board.exchange_json({'cmd': 'INFO'}, timeout=2.0)
+            except Exception as e:
+                resp_json = None
+                issues.append(f"FW4.0 motor INFO JSON exchange raised: {e}")
+            if resp_json is None or not isinstance(resp_json, dict):
+                issues.append("FW4.0 motor INFO returned no/invalid JSON")
+            elif resp_json.get('ok') is not True:
+                issues.append(
+                    f"FW4.0 motor INFO not ok: {resp_json}")
+        else:
+            # LEGACY motor firmware (pre-v3.0).
+            r = board.exchange_command('FULLINFO', response_numlines=6, timeout=2.0)
+            r_str = '\n'.join(r) if isinstance(r, list) else str(r or '')
+            if not r_str.strip():
+                issues.append("FULLINFO returned empty response")
+            elif 'not recognized' in r_str.lower():
+                logger.info("FULLINFO not recognized (old firmware format)")
 
     if issues:
         detail = "; ".join(issues)

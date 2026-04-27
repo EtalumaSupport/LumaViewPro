@@ -59,13 +59,22 @@ class LEDBoard(SerialBoard):
     def _safety_leds_off(self):
         """Turn off all LEDs immediately after connect (thermal safety).
 
-        Uses fire-and-forget write to minimize delay. If the board doesn't
-        respond, this is a best-effort attempt — the board may be in a
-        state where it can't process commands.
+        Uses synchronous `exchange_command` rather than fire-and-forget
+        because v3.5's two-line ack (`RE: LED_OFF` + `OK`) leaves
+        residue in the serial buffer that races the next caller's INFO/
+        STATUS/etc. Bench-confirmed 2026-04-27 (SN 7162-19): fire-and-
+        forget LED_OFF caused get_info() to return 'OK' on the first call
+        post-connect. v3.0.x had a 1-line LEDS_OFF response so the race
+        was tighter and rarely hit; v3.5's strict framing makes the race
+        deterministic.
+
+        Best-effort: if the board doesn't respond within 0.5 s, log and
+        continue. The board may be in a state where it can't process
+        commands; the safety call is a defense-in-depth, not load-bearing.
         """
         try:
             command = self._build_leds_off_cmd()
-            self._write_command_fast(command)
+            self.exchange_command(command, timeout=0.5)
             logger.info('[LED Class ] Safety LEDS_OFF sent on connect')
         except Exception as e:
             logger.warning(f'[LED Class ] Safety LEDS_OFF failed: {e}')
