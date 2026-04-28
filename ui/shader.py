@@ -272,6 +272,7 @@ void main (void) {
         """Periodic status bar update (~5 Hz). SOLE owner of Window.set_title().
 
         Composes: 'LumaViewPro {ver} — Capture: X | Display: Y FPS [ | Camera: Z MB/s ]
+        [ | Pixel: (px, py) | Plate: (sx, sy) mm ]
         [ — {event_text} ]'. Other call sites push their event text into
         ui_helpers.set_title_event_text() instead of writing the title directly,
         which prevents FPS clobbering and product-name spelling oscillation.
@@ -291,6 +292,39 @@ void main (void) {
                 if ctx.engineering_mode:
                     mbps = scope_display._camera_mbps
                     title += f' | Camera: {mbps:.1f} MB/s'
+
+                # Cursor XY readouts — pixel + plate coords when mouse
+                # hovers the live view. Restored after d423d3c's
+                # single-owner pattern dropped them. (#638)
+                if self._mouse_over_image:
+                    title += f'   |   Pixel: ({self._mouse_pixel_x}, {self._mouse_pixel_y})'
+                    try:
+                        from modules.config_ui_getters import (
+                            get_current_objective_info,
+                            get_binning_from_ui,
+                            get_selected_labware,
+                        )
+                        _, objective = get_current_objective_info()
+                        pixel_size_um = common_utils.get_pixel_size(
+                            focal_length=objective['focal_length'],
+                            binning_size=get_binning_from_ui(),
+                        )
+                        tex_w, tex_h = scope_display.texture_size
+                        dx_um = (self._mouse_pixel_x - tex_w / 2) * pixel_size_um
+                        dy_um = (self._mouse_pixel_y - tex_h / 2) * pixel_size_um
+                        if ctx.lumaview.scope.motion.driver:
+                            pos = ctx.lumaview.scope.get_current_position(axis=None)
+                            _, labware = get_selected_labware()
+                            px, py = ctx.coordinate_transformer.stage_to_plate(
+                                labware=labware,
+                                stage_offset=ctx.settings['stage_offset'],
+                                sx=pos['X'] + dx_um,
+                                sy=pos['Y'] - dy_um,
+                            )
+                            title += f'   |   Plate: ({px:.2f}, {py:.2f}) mm'
+                    except Exception:
+                        pass
+
                 event_text = get_title_event_text()
                 if event_text:
                     title += f'   —   {event_text}'
