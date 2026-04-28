@@ -1,155 +1,200 @@
 # LumaViewPro Build Instructions
 
-**Updated:** 2026-03-31
+These instructions describe the Windows release package build driven by
+`build.ps1`. The script clones the selected branch from GitHub, creates or
+reuses a build virtual environment, packages LumaViewPro with PyInstaller, then
+builds WiX installer outputs.
 
-## One-Time Setup (Windows)
+## Outputs
 
-### 1. Install prerequisites
-- **Python 3.12+**
-- **Git** (in PATH)
-- **WiX Toolset v5**: `dotnet tool install --global wix --version 5.0.2`
-  - Then add UI extension: `wix extension add -g WixToolset.UI.wixext`
-  - Note: WiX 6.0.2 broke the UI extension (no Install Complete dialog). Use v5.
-- **.NET SDK** (required for WiX)
+All build outputs are written under `exe_artifacts\LumaViewPro-<version>\` next
+to `build.ps1`.
 
-### 2. Create the build folder
-Pick any location; the build script runs relative to itself, with no hardcoded paths.
+| Output | Purpose | Ship to customers? |
+|--------|---------|--------------------|
+| `LumaViewPro-<version>.msi` | Standalone LumaViewPro installer. It has minimal install UI and installs the LVP application folder, Start Menu shortcut, environment variables, bundled Apache Maven folder, and app files. | Usually no. Use for internal testing, debugging, or cases where prerequisites are already handled separately. |
+| `LumaViewPro-<version>-setup.exe` | Main customer installer. This is the WiX Bundle with the full installer UI. It runs the LVP MSI and also includes the Basler Pylon USB driver installer and Amazon Corretto Java SDK installer in one install flow. | Yes. This is the primary file to ship when building a release package. |
+
+The `-setup.exe` bundle is only created when both dependency MSIs are present:
+
+- Basler Pylon USB Camera Driver MSI
+- Amazon Corretto 8 JDK Windows x64 MSI
+
+Apache Maven is not a separate MSI. The build script copies the
+`apache-maven-3.9.8\` folder into the LumaViewPro install directory, and the
+LVP MSI adds Maven's `bin` folder to PATH.
+
+## One-Time Setup
+
+### 1. Install Tools
+
+- Python 3.12 or newer
+- Git, available in PATH
+- .NET SDK, required by WiX
+- WiX Toolset v6. This is the supported and working WiX version for this
+  build script:
 
 ```powershell
-mkdir D:\Builds\LumaViewPro
-mkdir D:\Builds\LumaViewPro\dependencies
+dotnet tool install --global wix
 ```
 
-### 3. Add dependencies
-Download and place these in your build folder's `dependencies\`:
+Do not downgrade to WiX v5 to chase installer UI issues. In this build flow the
+standalone MSI intentionally has minimal UI, and the customer-facing install UI
+lives in the WiX Bundle `-setup.exe`.
 
-**Required:**
-- `apache-maven-*\` — Extract from the Apache Maven binary zip (any version). Bundled into the installed app for ImageJ support. The build script detects the folder name automatically.
+`build.ps1` manages its own build virtual environment and installs
+`requirements-dev.txt`. Do not install PyInstaller globally for this build.
 
-**Optional (for Bundle installer):**
-- `pylon_USB_Camera_Driver.msi` — Basler Pylon USB Camera Driver MSI
-- `amazon-corretto-8-xxx-jdk.msi` — Amazon Corretto 8 JDK Windows x64 MSI
+### 2. Create A Build Folder
 
-If the Pylon or Corretto MSIs are missing, the Bundle installer is skipped but the standalone MSI still builds.
-
-### 4. Get the build script
+Use a simple local path outside OneDrive. The build script can run from any
+folder, but long or synced paths are more likely to cause Windows build issues.
 
 ```powershell
-cd D:\Builds\LumaViewPro
-git clone --depth 1 --branch 4.0.0-beta https://github.com/EtalumaSupport/LumaViewPro.git _getscript
+mkdir C:\Users\user\LVP\appBuild
+mkdir C:\Users\user\LVP\appBuild\dependencies
+```
+
+### 3. Add Build Dependencies
+
+Put these files/folders in `dependencies\` next to `build.ps1`:
+
+```text
+dependencies\
+|-- README.md
+|-- apache-maven-3.9.8\
+|-- pylon_USB_Camera_Driver.msi
+`-- amazon-corretto-8-xxx-jdk.msi
+```
+
+Required for the standalone MSI:
+
+- `apache-maven-3.9.8\` extracted from the Apache Maven binary zip
+
+Required for the customer `-setup.exe` bundle:
+
+- `pylon_USB_Camera_Driver.msi`
+- `amazon-corretto-8-xxx-jdk.msi`
+
+If Pylon or Corretto are missing, the build still creates the standalone MSI but
+skips the customer `-setup.exe` bundle.
+
+### 4. Copy The Build Script
+
+From your build folder, clone the branch that contains the build script version
+you want, then copy `build.ps1` and the dependency README out of the clone:
+
+```powershell
+cd C:\Users\dovyd\LVP\appBuild
+git clone --depth 1 --branch 4.1.0-dev-exe https://github.com/EtalumaSupport/LumaViewPro.git _getscript
 copy _getscript\scripts\appBuild\build.ps1 .\build.ps1
+copy _getscript\scripts\appBuild\dependencies\README.md .\dependencies\README.md
 rmdir _getscript -Recurse -Force
 ```
 
-Your folder should look like:
+Use the branch name that should supply the build script. The build script itself
+also clones a branch during packaging, so official builds must be made from
+committed and pushed code.
 
-```text
-D:\Builds\LumaViewPro\
-|-- build.ps1
-`-- dependencies\
-    |-- apache-maven-3.9.8\   (or any version)
-    |-- pylon_USB_Camera_Driver.msi      (optional)
-    `-- amazon-corretto-8-xxx-jdk.msi    (optional)
-```
+Important: build-system changes must be committed before testing the package
+flow. There are two separate copies involved:
 
-## Building a Package
+- The `build.ps1` you run is the copy in the external build folder.
+- During packaging, that script clones the selected branch and uses the WiX
+  files and PyInstaller spec from the cloned branch.
+
+If a fix to `build.ps1`, `build_exe\wix\*.wxs`, or
+`config\lumaviewpro_win_release.spec` only exists as an uncommitted IDE change,
+the package build will not see it. Commit the build-system change to the branch,
+refresh the external `build.ps1` copy if that file changed, then build that same
+branch.
+
+## Building A Package
+
+Run:
 
 ```powershell
-cd D:\Builds\LumaViewPro
+cd C:\Users\dovyd\LVP\appBuild
 .\build.ps1
 ```
 
-The script:
-1. Prompts for package type (`Dev` or `Release`). Dev reuses cached `buildvenv`; Release recreates from scratch.
-2. Shows available branches — select one (e.g., `4.0.0-beta`)
-3. Clones the selected branch from GitHub
-4. Reads the version from `version.txt` (e.g., `4.0.0-beta3`)
-5. Creates/reuses `buildvenv` and installs `requirements.txt` + `requirements-dev.txt`
-6. Builds the EXE with PyInstaller 6.19
-7. Copies Apache Maven into the install directory
-8. Builds the MSI with WiX (includes Install Complete dialog via WixUI_Minimal)
-9. Builds the Bundle installer if Pylon and Corretto MSIs are present
-10. Cleans up temp files
+The script asks for:
 
-### Output
-All output is created next to `build.ps1`:
+1. Build directory: normally keep the current folder.
+2. Package type:
+   - `Dev` reuses cached `buildvenv` for faster repeat builds.
+   - `Release` deletes and recreates `buildvenv` for a clean package.
+3. Branch to build, for example `4.1.0-dev-exe`, `4.0.0-beta`, or `main`.
+
+The selected branch is cloned fresh from GitHub. Local uncommitted changes are
+not included in the package, including local edits to the WiX files or
+PyInstaller spec.
+
+The script then:
+
+1. Reads the version from `version.txt`.
+2. Installs build dependencies into `buildvenv`.
+3. Builds the app folder with PyInstaller.
+4. Copies Apache Maven into the app install folder.
+5. Builds `LumaViewPro-<version>.msi`.
+6. Builds `LumaViewPro-<version>-setup.exe` if Pylon and Corretto are present.
+7. Removes temporary clone/build files.
+
+Example output:
 
 ```text
-D:\Builds\LumaViewPro\exe_artifacts\LumaViewPro-4.0.0-beta3\
-|-- LumaViewPro-4.0.0-beta3.msi          (standalone installer)
-`-- LumaViewPro-4.0.0-beta3-setup.exe    (bundle with Pylon + Corretto)
+C:\Users\dovyd\LVP\appBuild\exe_artifacts\LumaViewPro-4.1.0-dev\
+|-- LumaViewPro-4.1.0-dev.msi
+`-- LumaViewPro-4.1.0-dev-setup.exe
 ```
 
-Previous builds are preserved in `exe_artifacts\` and are not auto-deleted.
+Previous completed packages are preserved in `exe_artifacts\`.
 
-## Before Each Build
+## Release Checklist
 
-The version in `version.txt` determines the build name. To bump the version:
+Before a customer build:
 
-1. Edit `version.txt` line 1 in the repo (e.g., `4.0.0-beta4`)
-2. Commit and push
-3. Run `.\build.ps1`
+1. Confirm `version.txt` has the release version testers should see.
+2. Commit and push the branch to be packaged.
+3. Confirm `dependencies\` contains Maven, Pylon, and Corretto.
+4. Run `.\build.ps1` and choose `Release`.
+5. Verify both output files exist.
+6. Ship `LumaViewPro-<version>-setup.exe`.
+7. Keep the `.msi` for internal testing or troubleshooting.
 
-The beta number should increase with each EXE build so testers can identify which build they are running. The pre-commit hook automatically updates the timestamp on line 2.
+## Updating The Build Script
 
-## Key Dependencies
+If `build.ps1` changes in the repo, refresh the copy in your build folder:
 
-The build installs these automatically via pip:
+```powershell
+git clone --depth 1 --branch 4.1.0-dev-exe https://github.com/EtalumaSupport/LumaViewPro.git _getscript
+copy _getscript\scripts\appBuild\build.ps1 .\build.ps1 -Force
+copy _getscript\scripts\appBuild\dependencies\README.md .\dependencies\README.md -Force
+rmdir _getscript -Recurse -Force
+```
 
-| Package | Purpose |
-|---------|---------|
-| PyInstaller 6.19 | EXE packaging |
-| av (PyAV) | H.264/MP4 video encoding |
-| Kivy 2.3.1 | GUI framework |
-| numpy, scipy, scikit-image | Image processing |
-| opencv-python-headless | Image/video processing (no GUI) |
-| pypylon, ids-peak | Camera SDKs |
-
-## WiX Installer Details
-
-The installer uses WiX v5 with three .wxs files:
-- `Package.wxs` — MSI definition, shortcuts, environment variables, Install Complete dialog
-- `Folders.wxs` — Directory structure
-- `Bundle.wxs` — All-in-one setup.exe wrapping LVP + Pylon + Corretto
-
-The build script passes dynamic variables to WiX:
-- `ProductName` — from version.txt (e.g., "LumaViewPro 4.0.0-beta3")
-- `Version` — numeric portion (e.g., "4.0.0")
-- `MavenFolderName` — detected from dependencies/ (e.g., "apache-maven-3.9.8")
-- `InstallFolderDir` — PyInstaller output directory
-
-Bundle installs in order: Corretto → Pylon → LumaViewPro.
+Use the branch that contains the desired build script.
 
 ## Troubleshooting
 
 | Error | Fix |
 |-------|-----|
-| `wix not found` | Run `dotnet tool install --global wix --version 5.0.2`, then restart PowerShell |
-| `UI extension error` | Run `wix extension add -g WixToolset.UI.wixext` |
-| `python not found` | Install Python 3.12+ and make sure it is available through `py`, `python`, or `python3` |
-| `git clone failed` | Check that the branch exists and that the machine has network access |
-| `pip install failed` | Check internet access; use `Release` package type to force clean venv |
-| `PyInstaller failed` | Re-run after dependency install succeeds |
-| `Apache Maven not found` | Download Maven and extract to `dependencies\apache-maven-*\` |
-| `Bundle skipped` | Put the Pylon and Corretto MSIs in `dependencies\` |
-| `Permission denied` | Close any running LumaViewPro instance; try PowerShell as Administrator |
+| `wix not found` | Install WiX v6 with `dotnet tool install --global wix`, then restart PowerShell. |
+| WiX `WixUI` or UI extension errors | This build should not require `WixToolset.UI.wixext` for the standalone MSI. Make sure the branch being packaged uses the restored minimal-UI `Package.wxs`; the full install UI belongs to the `-setup.exe` bundle. |
+| `python not found` | Install Python 3.12+ and make sure `py`, `python`, or `python3` is available. |
+| `git clone failed` | Check network access and confirm the selected branch exists on GitHub. |
+| `pip install failed` | Check internet access and package pins. Try a `Release` build to recreate `buildvenv`. |
+| `PyInstaller failed` | Fix dependency install errors first, then rerun the build. |
+| `Apache Maven not found` | Extract Maven to `dependencies\apache-maven-3.9.8\`. |
+| `Bundle skipped` | Add both Pylon and Corretto MSIs to `dependencies\`. The MSI will still build, but the customer `-setup.exe` will not. |
+| `Permission denied` | Close running LumaViewPro instances and use a local non-OneDrive build folder. If needed, run PowerShell as Administrator. |
 
-## Updating the Build Script
+## Notes
 
-If `build.ps1` has been updated in the repo, re-grab it:
+- The build script uses paths relative to the folder containing `build.ps1`.
+- The selected build root is remembered in `.build_config` next to `build.ps1`.
+- The build script accepts parameters, for example:
 
 ```powershell
-git clone --depth 1 --branch 4.0.0-beta https://github.com/EtalumaSupport/LumaViewPro.git _getscript
-copy _getscript\scripts\appBuild\build.ps1 .\build.ps1 -Force
-rmdir _getscript -Recurse -Force
+.\build.ps1 -Branch 4.1.0-dev-exe -BuildType Release
 ```
-
-There is no separate `update_build_script.ps1` — just re-clone and copy.
-
-## Future: Code Signing
-
-Once Etaluma has code signing certificates:
-- Windows: `signtool sign` on EXE, MSI, and Bundle after build
-- macOS: `codesign` + `xcrun notarytool` + `xcrun stapler staple`
-
-This eliminates SmartScreen/Gatekeeper warnings for end users.
