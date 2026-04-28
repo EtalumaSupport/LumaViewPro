@@ -435,6 +435,14 @@ class LumaViewProApp(TooltipMixin, App):
             if ctx is not None:
                 ctx.ready = True
 
+                # Sync Z slider to actual motor position. Without this the
+                # .kv hardcodes obj_position.value=0 and the first user
+                # click snaps Z to 0 regardless of where the motor is. (#639)
+                try:
+                    _handle_ui_update_for_axis('Z')
+                except Exception as e:
+                    logger.warning(f'[INIT      ] Z slider sync failed: {e}')
+
                 # Log initial per-channel settings for debugging
                 try:
                     settings = ctx.settings
