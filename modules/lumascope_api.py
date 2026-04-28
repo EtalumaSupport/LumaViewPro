@@ -3018,6 +3018,22 @@ class Lumascope():
             while os.path.exists(path):
                 path = self.get_next_save_path(path)
 
+        elif tail_id_mode == "if_collision":
+            # Write-time defense for duplicate step Names (#636). Use the
+            # plain filename when no file exists; only add a numeric
+            # suffix on actual collision. Keeps happy-path filenames
+            # unchanged for well-formed protocols.
+            base_path = save_folder / f"{file_root}{append}{file_extension}"
+            if not os.path.exists(base_path):
+                path = base_path
+            else:
+                n = 1
+                while True:
+                    path = save_folder / f"{file_root}{append}_{n:06d}{file_extension}"
+                    if not os.path.exists(path):
+                        break
+                    n += 1
+
         elif tail_id_mode is None:
             filename =  f"{file_root}{append}{file_extension}"
             path = save_folder / filename

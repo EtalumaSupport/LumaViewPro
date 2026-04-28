@@ -365,7 +365,11 @@ class ProtocolImageWriter:
                     file_root=None,
                     append=name,
                     color=use_color,
-                    tail_id_mode=None,
+                    # Defense-in-depth against duplicate step Names that
+                    # slip past load-time validation (#636). Plain
+                    # filename when no file exists; numeric suffix only
+                    # on actual collision.
+                    tail_id_mode="if_collision",
                     output_format=output_format,
                     true_color=step['Color'],
                     x=step['X'],

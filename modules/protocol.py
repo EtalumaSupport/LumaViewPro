@@ -1516,6 +1516,35 @@ class Protocol:
                 f"{MAX_STEP_COUNT:,}. File may be corrupt."
             )
 
+        # Reject protocols where multiple steps share the same
+        # filename-determining tuple (Name, Well, Tile, Z-Slice,
+        # Tile Group ID). When this happens at runtime the image
+        # writer collapses the colliding rows into one filename and
+        # the later writes silently overwrite the earlier ones (#636).
+        # Tile Group ID is included so legitimately-tiled protocols
+        # are not rejected.
+        if len(protocol_df) > 1:
+            key_cols = [c for c in ('Name', 'Well', 'Tile', 'Z-Slice',
+                                    'Tile Group ID')
+                        if c in protocol_df.columns]
+            if len(key_cols) >= 2:
+                dup_mask = protocol_df.duplicated(subset=key_cols, keep=False)
+                if dup_mask.any():
+                    dups = protocol_df.loc[dup_mask, key_cols].copy()
+                    dups['Row'] = dups.index + 1  # 1-based for user
+                    sample = dups.head(6).to_string(index=False)
+                    extra = (
+                        f"\n  ... and {len(dups) - 6} more rows"
+                        if len(dups) > 6 else ""
+                    )
+                    raise ValueError(
+                        f"Protocol has {len(dups)} steps with duplicate "
+                        f"({', '.join(key_cols)}) — image writes would "
+                        f"overwrite each other. Edit the protocol so each "
+                        f"step has a unique combination, then reload.\n"
+                        f"\nDuplicates:\n{sample}{extra}"
+                    )
+
         return cls(
             tiling_configs_file_loc=tiling_configs_file_loc,
             config=config
