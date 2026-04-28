@@ -32,6 +32,7 @@ from pathlib import Path
 _LVP_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_LVP_ROOT))
 
+from drivers.ledboard import LEDBoard
 from drivers.motorboard import MotorBoard
 from drivers.serialboard import SerialBoard
 
@@ -73,16 +74,50 @@ def _connect_serial_board(vid=0x2E8A, pid=0x0005, label='[Tool]',
 # ---------------------------------------------------------------------------
 
 def cmd_info(args):
-    """Show board info via FULLINFO."""
-    board = _connect_motor_board()
+    """Show motor + LED board info via production driver methods.
+
+    Routes through MotorBoard.fullinfo() and LEDBoard.get_info(), each
+    of which dispatches per detected protocol (FW4.0 vs v3.0.x for
+    motor; v3.5 vs v3.0.x for LED). Per Architecture Rule 22.
+    """
+    motor = _connect_motor_board()
     try:
-        resp = board.exchange_command('FULLINFO', response_numlines=1)
-        if resp:
-            print(resp)
-        else:
-            print('ERROR: No response from FULLINFO')
+        info = motor.fullinfo()
+        proto = 'FW4.0' if motor._use_v4() else 'v3.0.x'
+        print('=== Motor board ===')
+        print(f'  protocol: {proto}')
+        print(f'  model:    {info.get("model", "unknown")}')
+        print(f'  serial:   {info.get("serial_number", "unknown")}')
+        raw = info.get('_raw')
+        if raw is not None:
+            print(f'  raw:      {raw}')
     finally:
-        board.disconnect()
+        motor.disconnect()
+
+    print()
+
+    led = LEDBoard()
+    try:
+        led_info = led.get_info()
+        proto = 'v3.5' if led._use_v35() else 'v3.0.x'
+        print('=== LED board ===')
+        print(f'  protocol: {proto}')
+        if 'version' in led_info:
+            print(f'  version:  {led_info["version"]}')
+        if 'date' in led_info:
+            print(f'  date:     {led_info["date"]}')
+        if 'cal_status' in led_info:
+            print(f'  cal:      {led_info["cal_status"]}')
+        feats = led_info.get('features')
+        if feats:
+            if isinstance(feats, list):
+                feats = ','.join(feats)
+            print(f'  features: {feats}')
+        raw = led_info.get('raw')
+        if raw is not None:
+            print(f'  raw:      {raw}')
+    finally:
+        led.disconnect()
 
 
 # ---------------------------------------------------------------------------
@@ -202,54 +237,56 @@ def _get_position_steps(board, axis):
 
 
 def _wait_for_stop(board, axis, timeout=30):
-    """Wait until axis reports position_reached (bit 9 of STATUS)."""
+    """Wait until axis reports at_target. Routes through MotorBoard.target_status()
+    which dispatches FW4.0 LIMIT_SW vs v3.0.x STATUS_R bit-22."""
     t0 = time.monotonic()
     while time.monotonic() - t0 < timeout:
-        resp = board.exchange_command(f'STATUS_R{axis}')
-        if resp is None:
-            time.sleep(0.1)
-            continue
         try:
-            status = int(resp)
-        except ValueError:
-            time.sleep(0.1)
-            continue
-        if status & 0x200:  # bit 9 = position_reached
-            return True
+            if board.target_status(axis):
+                return True
+        except Exception:
+            pass
         time.sleep(0.1)
     return False
 
 
 def _move_to_step(board, axis, position, timeout=30):
-    """Move axis to absolute step position and wait."""
-    board.exchange_command(f'TARGET_W{axis}{position}')
+    """Move axis to absolute step position and wait. Routes through
+    MotorBoard.move() which dispatches FW4.0 POS_WRITE vs v3.0.x TARGET_W."""
+    board.move(axis, position)
     return _wait_for_stop(board, axis, timeout)
 
 
 def _home_single(board, axis, timeout=30):
-    """Home a single axis. Returns (success, response, duration_ms)."""
-    cmd = f'{axis}HOME'
+    """Home a single axis. Returns (success, message, duration_ms).
+
+    Routes through MotorBoard.home_axis() which dispatches per axis +
+    per protocol. X/Y collapse to XY-group on FW4.0 / full HOME on
+    v3.0.x — neither protocol supports X-only or Y-only homing.
+    """
     t0 = time.monotonic()
-    resp = board.exchange_command(cmd)
+    try:
+        ok = board.home_axis(axis)
+        msg = f'home_axis({axis}) returned {ok}'
+    except Exception as e:
+        ok = False
+        msg = f'home_axis({axis}) raised: {e}'
     dt = (time.monotonic() - t0) * 1000
-    if resp is None:
-        return False, 'No response', dt
-    ok = ('successful' in resp.lower() or 'complete' in resp.lower())
-    return ok, resp.strip(), dt
+    return ok, msg, dt
 
 
 def _home_all(board, timeout=300):
-    """HOME command (homes all axes). Returns (success, response, duration_ms)."""
-    # HOME can take 60s+ for all axes. MotorBoard has 30s timeout which is
-    # sufficient since the firmware sends the response when done.
+    """Home all axes via MotorBoard.home() (dispatches FW4.0 vs v3.0.x).
+    Returns (success, message, duration_ms)."""
     t0 = time.monotonic()
-    resp = board.exchange_command('HOME')
+    try:
+        ok = board.home()
+        msg = f'home() returned {ok}'
+    except Exception as e:
+        ok = False
+        msg = f'home() raised: {e}'
     dt = (time.monotonic() - t0) * 1000
-    if resp is None:
-        return False, 'No response (timeout?)', dt
-    ok = ('successful' in resp.lower() or 'complete' in resp.lower()
-          or 'not present' in resp.lower())
-    return ok, resp.strip(), dt
+    return ok, msg, dt
 
 
 def cmd_homing_test(args):
@@ -653,14 +690,15 @@ def cmd_factory_reset(args):
 # ---------------------------------------------------------------------------
 #
 # Benchmarks driver-level methods (e.g. MotorBoard.fullinfo, LEDBoard.get_info)
-# rather than raw firmware command strings. The driver dispatches v3.0.x vs
-# FW4.0 internally, so running the bench against v3.0.x firmware then against
-# FW4.0 firmware on the SAME hardware gives a directly comparable latency
-# delta — the core §2.3 "≥20 ms improvement" evidence.
+# only. The driver dispatches v3.0.x vs FW4.0 internally, so running the
+# bench against v3.0.x firmware then against FW4.0 firmware on the SAME
+# hardware gives a directly comparable latency delta — the core §2.3 "≥20 ms
+# improvement" evidence.
 #
-# The raw-command path remains available via `--raw-commands X,Y` for ad-hoc
-# exploratory measurement (e.g. "is CALIBRATE slow?"). That mode requires
-# the caller to know which command strings exist on the firmware running.
+# Per Architecture Rule 22, no raw-command escape hatch: every wire command
+# must route through a driver method that handles protocol dispatch. To
+# benchmark a specific command, expose it as a driver method (and add it
+# to `_connect_bench_callables()`).
 
 
 def _board_bench_callables(board_kind, board):
@@ -735,14 +773,9 @@ def cmd_bench(args):
         scope.disconnect()
         sys.exit(1)
 
-    # Build the callable set.
-    if args.raw_commands:
-        raw_cmds = tuple(c.strip() for c in args.raw_commands.split(',') if c.strip())
-        named = [(cmd, (lambda c=cmd: board.exchange_command(c))) for cmd in raw_cmds]
-        mode_label = f'raw commands [{", ".join(raw_cmds)}]'
-    else:
-        named = _board_bench_callables(args.board, board)
-        mode_label = f'driver methods [{", ".join(n for n, _ in named)}]'
+    # Build the callable set — driver methods only, per Rule 22.
+    named = _board_bench_callables(args.board, board)
+    mode_label = f'driver methods [{", ".join(n for n, _ in named)}]'
 
     if not named:
         print(f'ERROR: no bench methods for {args.board} board')
@@ -794,8 +827,7 @@ def cmd_bench(args):
         duration_s = args.load_minutes * 60.0
         print()
         print(f'=== Reliability loop ===')
-        # Pick the first benched callable for the load target. Override
-        # via --raw-commands if you want to hammer a different command.
+        # Pick the first benched callable for the load target.
         load_name, load_fn = named[0]
         print(f'Target:   {load_name}')
         print(f'Rate:     {args.load_hz:.1f} Hz target')
@@ -1274,13 +1306,6 @@ def main():
     p_bench.add_argument('--warmup', type=int, default=50,
                          help='Warmup iterations per method, discarded '
                               '(default: 50)')
-    p_bench.add_argument('--raw-commands', default=None,
-                         help='Comma-separated raw firmware command list. '
-                              'Escape hatch — bypasses the driver dispatcher '
-                              'and sends each string via exchange_command(). '
-                              'Use for ad-hoc measurement of a specific '
-                              'firmware command string. Caller is responsible '
-                              'for matching the firmware version running.')
     p_bench.add_argument('--output', default=None,
                          help='Optional CSV output path for per-iteration '
                               'durations')

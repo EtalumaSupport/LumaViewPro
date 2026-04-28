@@ -6,10 +6,9 @@ The primitive is shared across three consumers:
   - `tools/firmware_tools.py bench` (release-gate campaign CLI)
   - `FirmwareDiagnostics.measure_serial_latency` (tech-support report)
 
-Driver methods are the preferred callables so the v3.0.x / FW4.0
-dispatch happens inside the driver — the measurement is then
-cross-firmware-comparable by construction. Raw-command form remains
-as an ad-hoc escape hatch.
+Only driver-method callables are accepted: the v3.0.x / FW4.0 dispatch
+happens inside the driver, so measurements are cross-firmware-comparable
+by construction. Per Architecture Rule 22, no raw-command form exists.
 """
 import csv
 import math
@@ -21,7 +20,6 @@ from drivers.serial_latency import (
     _summarize,
     format_one_line,
     measure_callable_latencies,
-    measure_command_latencies,
     run_load_loop,
 )
 from tools.firmware_tools import (
@@ -148,32 +146,6 @@ class TestMeasureCallableLatencies:
         assert raw['m'][3] is not None
         assert summaries['m']['errors'] == 2
         assert summaries['m']['count'] == 2
-
-
-# ---------------------------------------------------------------------------
-# measure_command_latencies — raw-command escape hatch
-# ---------------------------------------------------------------------------
-
-class TestMeasureCommandLatencies:
-    def test_sends_each_command_through_exchange_command(self):
-        board = MagicMock()
-        summaries = measure_command_latencies(
-            board, ['INFO', 'STATUS'], iterations=3, warmup=1
-        )
-        # 2 commands × (3 measured + 1 warmup) = 8 calls
-        assert board.exchange_command.call_count == 8
-        sent = [call_args.args[0] for call_args in board.exchange_command.call_args_list]
-        assert sent.count('INFO') == 4
-        assert sent.count('STATUS') == 4
-        assert set(summaries.keys()) == {'INFO', 'STATUS'}
-
-    def test_return_durations_for_raw_commands(self):
-        board = MagicMock()
-        summaries, raw = measure_command_latencies(
-            board, ['INFO'], iterations=5, warmup=0,
-            return_durations=True,
-        )
-        assert len(raw['INFO']) == 5
 
 
 # ---------------------------------------------------------------------------

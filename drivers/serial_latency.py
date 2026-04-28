@@ -7,21 +7,17 @@ Shared primitive used by SerialBoard (connect-time fingerprint),
 Pure functions — no Kivy, no Lumascope, no module-layer imports.
 Sits in drivers/ so the three consumers above can all import down.
 
-Two entry points:
+Single entry point: `measure_callable_latencies(named_callables,
+iterations, warmup)`. Benchmarks driver-level methods (e.g.
+`motor.fullinfo`). The driver dispatches v3.0.x vs FW4.0 internally,
+so the measurement is cross-firmware-comparable by construction.
+The release-gate §2.3 FW4.0-vs-v3.0.x comparison works because the
+same driver call hits the drain-sleep path on v3.0.x and the
+event-driven path on FW4.0.
 
-- `measure_callable_latencies(named_callables, iterations, warmup)`
-  Benchmarks driver-level methods (e.g. `motor.fullinfo`). The driver
-  dispatches v3.0.x vs FW4.0 internally, so the measurement is
-  cross-firmware-comparable by construction. This is the preferred
-  form — the release-gate §2.3 FW4.0-vs-v3.0.x comparison works
-  because the same driver call hits the drain-sleep path on v3.0.x
-  and the event-driven path on FW4.0. Use for all normal benching.
-
-- `measure_command_latencies(board, commands, iterations, warmup)`
-  Ad-hoc escape hatch for benching a raw firmware command string
-  via `board.exchange_command(cmd)`. Not version-aware — the caller
-  must know what command exists on the firmware the board is
-  running. Use only for exploratory / one-off measurement.
+Per Architecture Rule 22, no raw-command escape hatch exists — every
+wire command must route through a driver method. To bench a specific
+command, expose it as a driver method and pass the bound method here.
 
 See docs/FW40_RELEASE_GATE.md §2.3 for the motivating thesis: FW4.0
 drops the v3.0.x post-response drain sleep, so round-trip latency on
@@ -70,30 +66,6 @@ def measure_callable_latencies(named_callables, iterations=20, warmup=3,
     if return_durations:
         return summaries, raw_by_name
     return summaries
-
-
-def measure_command_latencies(board, commands, iterations=20, warmup=3,
-                              return_durations=False):
-    """Measure per-command round-trip latency via `board.exchange_command`.
-
-    Raw-command escape hatch. Prefer `measure_callable_latencies` for
-    anything that needs to work across firmware versions.
-
-    Args:
-        board: Anything with `exchange_command(str) -> str`.
-        commands: Iterable of command strings to benchmark.
-        iterations, warmup, return_durations: See
-            `measure_callable_latencies`.
-
-    Returns:
-        Same shape as `measure_callable_latencies` but keyed by
-        command string.
-    """
-    named = [(cmd, (lambda c=cmd: board.exchange_command(c))) for cmd in commands]
-    return measure_callable_latencies(
-        named, iterations=iterations, warmup=warmup,
-        return_durations=return_durations,
-    )
 
 
 def _measure_callable(fn, iterations, warmup):

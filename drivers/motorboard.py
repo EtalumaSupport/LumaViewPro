@@ -804,6 +804,34 @@ class MotorBoard(SerialBoard):
         ustep = int((usteps_per_mm * um) / 1000)
         return ustep
 
+    def home_axis(self, axis):
+        """Home a single axis. Returns True on success, False on failure.
+
+        Dispatcher for per-axis home requests:
+          Z → zhome()
+          T → thome()
+          X or Y → XY group home (FW4.0 'HOME XY' / v3.0.x full HOME).
+
+        Neither protocol supports X-only or Y-only homing — the firmware
+        always pairs X+Y because the hardware does too. Callers asking
+        for X or Y get the closest available primitive: 'HOME XY' on
+        FW4.0 (no Z/T touched) and full HOME on v3.0.x (Z+T+XY, since
+        v3.0.x has no XYHOME).
+        """
+        if axis not in ('X', 'Y', 'Z', 'T'):
+            raise ValueError(f'Invalid axis {axis!r}')
+        if axis == 'Z':
+            return self.zhome()
+        if axis == 'T':
+            return self.thome()
+        # X or Y → XY group
+        if self._use_v4():
+            ok, _result = self._v4_home_wait({'cmd': 'HOME', 'axis': 'XY'},
+                                             total_timeout=30)
+            return ok
+        # v3.0.x has no XYHOME; fall through to full HOME.
+        return self.home()
+
     def home(self):
         """Send HOME to firmware and home every axis the board has.
 
