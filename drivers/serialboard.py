@@ -946,18 +946,22 @@ class SerialBoard:
     # Serial communication
     # ------------------------------------------------------------------
     def exchange_command(self, command, response_numlines=1, timeout=None,
-                         stop_on_empty=False):
+                         stop_on_empty=False, return_timing=False):
         if profile_trace is not None and profile_trace.ENABLE_PROFILE_TRACE:
             with profile_trace.timer(
                 "serial_trace.csv",
                 "ts_ms,duration_ms,board,command,response_lines",
                 lambda: [self._label.strip("[] "), command.strip().replace(",", ";")[:40], response_numlines],
             ):
-                return self._exchange_command_impl(command, response_numlines, timeout, stop_on_empty)
-        return self._exchange_command_impl(command, response_numlines, timeout, stop_on_empty)
+                return self._exchange_command_impl(
+                    command, response_numlines, timeout, stop_on_empty,
+                    return_timing=return_timing)
+        return self._exchange_command_impl(
+            command, response_numlines, timeout, stop_on_empty,
+            return_timing=return_timing)
 
     def _exchange_command_impl(self, command, response_numlines=1, timeout=None,
-                                stop_on_empty=False):
+                                stop_on_empty=False, return_timing=False):
         """Send command and read response(s).
 
         Handles auto-reconnect, LED echo detection (RE: prefix),
@@ -980,7 +984,18 @@ class SerialBoard:
                 Safe because neither motor nor LED INFO responses
                 contain intentional empty lines in the middle of
                 their content.
+            return_timing: If True, return ``(response, wire_seconds)``
+                where ``wire_seconds`` is the elapsed time from the
+                first ``driver.write`` byte to the last useful
+                ``readline`` return — excludes lock-acquire wait,
+                FLUSH, post-response drain. Used by reliability-soak
+                to separate wire RTT from API duration. None on error
+                paths (no wire activity occurred).
         """
+        # Sentinel for early-return / error paths so callers using
+        # return_timing=True can still tuple-unpack safely.
+        _none = (None, None) if return_timing else None
+
         with self._lock:
             # Fail fast on silent boards (#619). exchange_command()
             # is called for version detection from inside
@@ -1001,7 +1016,7 @@ class SerialBoard:
                     f'{self._label} {command} -> REJECTED (board silent, '
                     f'power cycle required)'
                 )
-                return None
+                return _none
 
             if self.driver is None:
                 # #539/#632: dedupe identical reconnect failures within a 2s
@@ -1024,10 +1039,10 @@ class SerialBoard:
                         _serial_log.error(f'{self._label} {command} -> RECONNECT FAILED: {e}')
                         self._last_reconnect_err_class = err_class
                         self._last_reconnect_err_time = now
-                    return None
+                    return _none
 
             if self.driver is None:
-                return None
+                return _none
 
             # Rate limiting: enforce minimum interval between commands
             min_interval = getattr(self, '_min_command_interval', 0)
@@ -1056,6 +1071,7 @@ class SerialBoard:
                     discarded = self.driver.read(stale)
                     _serial_log.info(f'{self._label} FLUSH {stale}B: {discarded!r}')
 
+                t_write_start = time.monotonic()
                 self.driver.write(stream)
                 resp_lines = []
                 saw_content = False
@@ -1079,6 +1095,8 @@ class SerialBoard:
                         while len(resp_lines) < response_numlines:
                             resp_lines.append('')
                         break
+                t_read_end = time.monotonic()
+                wire_seconds = t_read_end - t_write_start
 
                 response = resp_lines[0] if response_numlines == 1 else resp_lines
 
@@ -1115,6 +1133,8 @@ class SerialBoard:
                 if 'ERROR' in resp_str or 'FAIL' in resp_str or 'exceeds safe' in resp_str:
                     _serial_log.warning(f'{self._label} FIRMWARE ERROR: {command} -> {response}')
 
+                if return_timing:
+                    return response, wire_seconds
                 return response
 
             except serial.SerialTimeoutException:
@@ -1140,7 +1160,7 @@ class SerialBoard:
                 if saved_timeout is not None and self.driver is not None:
                     self.driver.timeout = saved_timeout
 
-            return None
+            return _none
 
     # ------------------------------------------------------------------
     # Capability probe + FW4.0 JSON-object command exchange.

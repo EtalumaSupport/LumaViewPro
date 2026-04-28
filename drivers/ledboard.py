@@ -75,7 +75,7 @@ class LEDBoard(SerialBoard):
     # pyserial inter_byte_timeout=0.05 (host-side gap tolerance), this
     # makes the read path deterministic regardless of hub scheduling.
     # ------------------------------------------------------------------
-    def _exchange_v35(self, command, timeout=2.0):
+    def _exchange_v35(self, command, timeout=2.0, return_timing=False):
         """Send `command` and read until the first non-RE: terminator
         line. Per spec §3.1 R2' the firmware emits exactly one
         terminator per command (single-line self-terminating, or
@@ -84,8 +84,14 @@ class LEDBoard(SerialBoard):
         directly, not this method).
 
         Returns the terminator line as a string, or None on timeout /
-        driver error.
+        driver error. When ``return_timing=True``, returns
+        ``(terminator_line, wire_seconds)`` where ``wire_seconds`` is
+        the elapsed time from the first ``driver.write`` byte to the
+        ``readline`` return that produced the terminator (excludes
+        lock-acquire wait, pre-write stale flush, post-terminator
+        straggler probe). Used by reliability-soak.
         """
+        _none = (None, None) if return_timing else None
         with self._lock:
             if self.driver is None:
                 try:
@@ -93,9 +99,9 @@ class LEDBoard(SerialBoard):
                     self.connect()
                 except Exception as e:
                     logger.error(f'{self._label} {command} -> RECONNECT FAILED: {e}')
-                    return None
+                    return _none
             if self.driver is None:
-                return None
+                return _none
 
             cmd_upper = command.strip().upper()
             stream = command.encode('utf-8') + b'\n'
@@ -119,6 +125,7 @@ class LEDBoard(SerialBoard):
                     _serial_log_warn(
                         f'{self._label} v3.5 pre-write stale={stale}B: {discarded!r}')
 
+                t_write_start = time.monotonic()
                 self.driver.write(stream)
 
                 while time.monotonic() - t_start < timeout:
@@ -131,6 +138,7 @@ class LEDBoard(SerialBoard):
                         # RE: echo, drain and read next line.
                         continue
                     # First non-RE: line is the terminator (spec R2').
+                    wire_seconds = time.monotonic() - t_write_start
                     # Zero-sleep in_waiting check for stragglers (event
                     # lines, late-arriving bytes from a wedged firmware,
                     # etc.). Should be 0 in healthy state.
@@ -140,25 +148,27 @@ class LEDBoard(SerialBoard):
                         logger.warning(
                             f'{self._label} v3.5 unexpected post-terminator '
                             f'bytes after {cmd_upper}: {extra!r}')
+                    if return_timing:
+                        return line, wire_seconds
                     return line
 
                 # Total wall-clock timeout.
                 logger.warning(
                     f'{self._label} v3.5 exchange({command}) timeout '
                     f'after {timeout}s')
-                return None
+                return _none
 
             except Exception as e:
                 logger.error(
                     f'{self._label} v3.5 exchange({command}) exception: {e}')
                 self._close_driver()
-                return None
+                return _none
 
             finally:
                 self.driver.timeout = saved_timeout
 
     def exchange_command(self, command, response_numlines=1, timeout=None,
-                         stop_on_empty=False):
+                         stop_on_empty=False, return_timing=False):
         """Override: route v3.5 single-call commands through the
         terminator-based read path. Multi-line commands (LED_READ ALL,
         ADC_READ all, SELFTEST, CALIBRATE, DIAG, CHIP_CHECK, BOOT_LOG,
@@ -167,16 +177,22 @@ class LEDBoard(SerialBoard):
         terminator-based read.
 
         v3.0.x path falls through to the base class behavior unchanged.
+
+        ``return_timing=True`` returns ``(response, wire_seconds)`` from
+        either path (v3.5 measures write→terminator-read; legacy
+        measures write→last-readline). Diagnostic use only.
         """
         if (self._use_v35()
                 and response_numlines == 1
                 and not stop_on_empty
                 and getattr(self, 'firmware_silent', False) is not True):
             v35_timeout = timeout if timeout is not None else 2.0
-            return self._exchange_v35(command, timeout=v35_timeout)
+            return self._exchange_v35(
+                command, timeout=v35_timeout, return_timing=return_timing)
         return super().exchange_command(
             command, response_numlines=response_numlines,
-            timeout=timeout, stop_on_empty=stop_on_empty)
+            timeout=timeout, stop_on_empty=stop_on_empty,
+            return_timing=return_timing)
 
     def _safety_leds_off(self):
         """Turn off all LEDs immediately after connect (thermal safety).
