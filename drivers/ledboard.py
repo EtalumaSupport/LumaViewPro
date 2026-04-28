@@ -56,6 +56,145 @@ class LEDBoard(SerialBoard):
         on a wedged LED board, where the fallback would never recover."""
         return False
 
+    # ------------------------------------------------------------------
+    # v3.5 terminator-based exchange — reliability fix for the FIFO
+    # bridge's occasional late-byte transmission.
+    #
+    # Bench data (2026-04-27, SN 7162-19): ~1-2% of alternating LED_SET /
+    # LED_OFF iterations on v3.5 firmware showed framing desync — most
+    # commonly an LED_OFF response read as a single 'R' character (host
+    # readline timed out mid-transmission of 'RE: LED_OFF'). The 20 ms
+    # post-response drain in serialboard.exchange_command is a
+    # time-based heuristic; a 5 ms experiment showed the cushion isn't
+    # the root cause, occasional late-arriving bytes are.
+    #
+    # Fix shape (Eric 2026-04-27): trust line CONTENT, not line count.
+    # Read lines until the first non-empty non-RE: line (the spec §3.1
+    # R2' terminator), then check in_waiting once with NO sleep — should
+    # be 0 in healthy state, log+drain otherwise. Combined with
+    # pyserial inter_byte_timeout=0.05 (host-side gap tolerance), this
+    # makes the read path deterministic regardless of hub scheduling.
+    # ------------------------------------------------------------------
+    _V35_INTER_BYTE_TIMEOUT = 0.05  # seconds — readline returns when no
+                                     # byte for this duration OR \n arrives.
+                                     # Resets on each byte received, so
+                                     # mid-transmission stalls don't break
+                                     # frame.
+
+    def _exchange_v35(self, command, timeout=2.0):
+        """Send `command` and read until the first non-RE: terminator
+        line. Per spec §3.1 R2' the firmware emits exactly one
+        terminator per command (single-line self-terminating, or
+        two-line ack with RE: + status, or multi-line streaming with
+        END_<CMD> — for multi-line, callers should use exchange_multiline
+        directly, not this method).
+
+        Returns the terminator line as a string, or None on timeout /
+        driver error.
+        """
+        with self._lock:
+            if self.driver is None:
+                try:
+                    logger.info(f'{self._label} Auto-reconnect triggered by {command}')
+                    self.connect()
+                except Exception as e:
+                    logger.error(f'{self._label} {command} -> RECONNECT FAILED: {e}')
+                    return None
+            if self.driver is None:
+                return None
+
+            cmd_upper = command.strip().upper()
+            stream = command.encode('utf-8') + b'\n'
+
+            # Save and configure timeouts. Per-readline timeout is small
+            # so we loop quickly when no data; total wall-clock budget is
+            # `timeout`. inter_byte_timeout lets readline tolerate gaps
+            # within a line that exceed our per-call timeout.
+            saved_timeout = self.driver.timeout
+            saved_inter = getattr(self.driver, 'inter_byte_timeout', None)
+            self.driver.timeout = 0.2
+            try:
+                self.driver.inter_byte_timeout = self._V35_INTER_BYTE_TIMEOUT
+            except (ValueError, AttributeError):
+                # Some serial backends reject setting inter_byte_timeout
+                # — non-fatal, fall back to plain readline timeout.
+                pass
+
+            t_start = time.monotonic()
+            try:
+                # Flush stale bytes from any previous response that may
+                # have arrived after exchange_command's drain.
+                stale = self.driver.in_waiting
+                if stale > 0:
+                    discarded = self.driver.read(stale)
+                    _serial_log_warn = logger.warning if stale > 16 else logger.debug
+                    _serial_log_warn(
+                        f'{self._label} v3.5 pre-write stale={stale}B: {discarded!r}')
+
+                self.driver.write(stream)
+
+                while time.monotonic() - t_start < timeout:
+                    line = self.driver.readline().decode('utf-8', 'ignore').strip()
+                    if not line:
+                        # Per-readline timeout fired (no \n). Check total
+                        # budget; loop continues if we still have time.
+                        continue
+                    if line.startswith('RE:') or line.upper() == cmd_upper:
+                        # RE: echo, drain and read next line.
+                        continue
+                    # First non-RE: line is the terminator (spec R2').
+                    # Zero-sleep in_waiting check for stragglers (event
+                    # lines, late-arriving bytes from a wedged firmware,
+                    # etc.). Should be 0 in healthy state.
+                    stragglers = self.driver.in_waiting
+                    if stragglers > 0:
+                        extra = self.driver.read(stragglers)
+                        logger.warning(
+                            f'{self._label} v3.5 unexpected post-terminator '
+                            f'bytes after {cmd_upper}: {extra!r}')
+                    return line
+
+                # Total wall-clock timeout.
+                logger.warning(
+                    f'{self._label} v3.5 exchange({command}) timeout '
+                    f'after {timeout}s')
+                return None
+
+            except Exception as e:
+                logger.error(
+                    f'{self._label} v3.5 exchange({command}) exception: {e}')
+                self._close_driver()
+                return None
+
+            finally:
+                self.driver.timeout = saved_timeout
+                if saved_inter is not None:
+                    try:
+                        self.driver.inter_byte_timeout = saved_inter
+                    except (ValueError, AttributeError):
+                        pass
+
+    def exchange_command(self, command, response_numlines=1, timeout=None,
+                         stop_on_empty=False):
+        """Override: route v3.5 single-call commands through the
+        terminator-based read path. Multi-line commands (LED_READ ALL,
+        ADC_READ all, SELFTEST, CALIBRATE, DIAG, CHIP_CHECK, BOOT_LOG,
+        STIM_STOP ALL with multiple active) should call
+        exchange_multiline directly — that path already does
+        terminator-based read.
+
+        v3.0.x path falls through to the base class behavior unchanged.
+        """
+        if (self._use_v35()
+                and response_numlines == 1
+                and not stop_on_empty
+                and getattr(self, 'firmware_silent', False) is not True):
+            v35_timeout = timeout if timeout is not None else 2.0
+            return self._exchange_v35(command, timeout=v35_timeout)
+        return super().exchange_command(
+            command, response_numlines=response_numlines,
+            timeout=timeout, stop_on_empty=stop_on_empty)
+
     def _safety_leds_off(self):
         """Turn off all LEDs immediately after connect (thermal safety).
 
