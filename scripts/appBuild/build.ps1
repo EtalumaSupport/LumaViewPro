@@ -310,11 +310,10 @@ if (-not (Test-Path $installer_icon)) {
 }
 
 # Copy Maven if available
-$maven_name = ""
 if ($maven_dir) {
     $maven_name = Split-Path $maven_dir -Leaf
     Copy-Item $maven_dir -Destination "$install\$maven_name" -Recurse -Force
-    Write-Host "Maven copied to install directory ($maven_name)"
+    Write-Host "Maven copied to install directory"
 }
 
 # ---------------------------------------------------------------------------
@@ -330,13 +329,11 @@ $msi = Join-Path $output_dir "$product.msi"
 
 Write-Host "Building MSI..."
 & $wix_exe build -arch x64 `
-    -ext WixToolset.UI.wixext `
     -d "InstallFolderDir=$install" `
     -d "InstallerAssetsDir=$installer_assets_dir" `
     -d "ProjectDir=$wix_dir\" `
     -d "ProductName=$product" `
     -d "Version=$wix_ver" `
-    -d "MavenFolderName=$maven_name" `
     -out $msi `
     Package.wxs Folders.wxs
 
