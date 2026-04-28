@@ -1069,14 +1069,18 @@ class SerialBoard:
                 # when we only requested 1 line. Without this drain, leftover
                 # lines pollute the next command's response.
                 #
-                # Drain reduced 20 ms → 5 ms with v3.5 LED protocol
-                # (2026-04-27): both v3.0.x and v3.5 have deterministic
-                # terminators (RE: echo + content + END_<CMD> or self-
-                # terminating data line), so the historical 20 ms headroom
-                # for stragglers is no longer needed. RP2350 future drops
-                # this to 0 ms by switching to read-until-terminator framing
-                # in this method.
-                time.sleep(0.005)
+                # 20 ms is load-bearing on the LED UART-bridge path. Brief
+                # 5 ms experiment 2026-04-27 produced 5 errors in 300
+                # alternating LED_SET / LED_OFF iterations (1.7% error
+                # rate, one LED_OFF response read as a single 'R' char —
+                # host reading mid-transmission). The bridge's firmware→
+                # host transmission isn't atomic per response; 5 ms
+                # cushion wasn't enough for the next command's drain
+                # check to wait out a still-in-flight prior response. The
+                # RP2350 single-chip path retires this drain entirely via
+                # read-until-terminator framing; until then, 20 ms.
+                # Reliability > speed (per Eric 2026-04-27).
+                time.sleep(0.020)
                 remaining = self.driver.in_waiting
                 if remaining > 0:
                     self.driver.read(remaining)
