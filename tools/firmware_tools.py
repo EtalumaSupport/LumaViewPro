@@ -829,6 +829,168 @@ def cmd_bench(args):
 
 
 # ---------------------------------------------------------------------------
+# reliability-soak — host↔board comm health gate (tech-support / QC bringup)
+# ---------------------------------------------------------------------------
+
+def cmd_reliability_soak(args):
+    """Run an alternating-LED-command soak + RTT histogram against the
+    LED board and report PASS/FAIL.
+
+    Intended uses:
+      - QC mainboard bringup gate before signing off a board.
+      - tech-support report supplement when a customer reports flaky LED
+        behavior — gives objective host↔board comm-layer health vs.
+        application-layer hypotheses.
+      - regression check after any driver / firmware change that touches
+        the serial framing path.
+
+    Tests run:
+      1. Pair soak: N × (LED_SET ch=0 50mA + LED_OFF ch=0). Detects
+         framing desync, partial-line reads, late-byte drops.
+      2. (optional) Multi-channel cycle: M × ch 0-5 LED_SET/LED_OFF.
+         Stresses dispatcher under broader command surface.
+      3. Per-command RTT histogram: 200 samples each of LED_SET,
+         LED_OFF, STATUS, HEAP, LED_READ <ch>, INFO.
+      4. Heap delta probe: HEAP free before/after the soak. Detects
+         per-command memory leak.
+
+    PASS criteria (default):
+      - errors == 0 across all command pairs
+      - heap_delta < 1024 bytes (no leak)
+      - p99 RTT(LED_SET) < 100 ms (framing healthy)
+
+    Exits 0 on PASS, 1 on FAIL. Detailed report printed to stdout.
+    """
+    import time
+    import statistics
+    from drivers.ledboard import LEDBoard
+
+    print('[reliability-soak] Connecting to LED board...')
+    try:
+        board = LEDBoard()
+    except Exception as e:
+        print(f'[reliability-soak] Connect failed: {e}')
+        sys.exit(1)
+
+    print(f'[reliability-soak] protocol={board.protocol_version.value} '
+          f'fw={board.firmware_version} '
+          f'features={len(board.features)}')
+
+    if not board.firmware_responding:
+        print('[reliability-soak] FAIL: board not responding to INFO')
+        sys.exit(1)
+
+    issues = []
+
+    def heap():
+        r = board.exchange_command('HEAP', timeout=2)
+        if not r:
+            return None
+        for tok in r.split():
+            if tok.startswith('free='):
+                try:
+                    return int(tok.split('=', 1)[1])
+                except ValueError:
+                    return None
+        return None
+
+    heap_pre = heap()
+    print(f'[reliability-soak] heap_pre={heap_pre}')
+
+    # Ensure channels are enabled for LED_SET commands.
+    board.exchange_command('LED_ENABLE ALL', timeout=2)
+
+    # ---- Test 1: pair soak ----
+    n = args.iters
+    print(f'[reliability-soak] Test 1: {n}× LED_SET/LED_OFF ch=0 (~{n*0.04:.0f}s)')
+    err_t1 = 0
+    slow_t1 = 0
+    times_t1 = []
+    t_start = time.monotonic()
+    for i in range(n):
+        t = time.monotonic()
+        r1 = board.exchange_command('LED_SET 0 50')
+        r2 = board.exchange_command('LED_OFF 0')
+        dt = (time.monotonic() - t) * 1000
+        times_t1.append(dt)
+        if r1 != 'OK' or r2 != 'OK':
+            err_t1 += 1
+        if dt > args.slow_threshold_ms:
+            slow_t1 += 1
+    elapsed_t1 = time.monotonic() - t_start
+    times_t1.sort()
+    print(f'  done {elapsed_t1:.1f}s err={err_t1}/{n} slow(>{args.slow_threshold_ms}ms)={slow_t1}'
+          f'  pair RTT p50={times_t1[n//2]:.1f} mean={statistics.mean(times_t1):.1f} '
+          f'p99={times_t1[int(n*0.99)]:.1f} max={times_t1[-1]:.1f}ms')
+    if err_t1 > 0:
+        issues.append(f'Test 1 errors: {err_t1}/{n}')
+
+    # ---- Test 2: multi-channel cycle (optional) ----
+    if args.multi_channel:
+        m = args.multi_iters
+        print(f'[reliability-soak] Test 2: {m}× cycle ch 0-5 ({m*12} cmds)')
+        err_t2 = 0
+        t_start = time.monotonic()
+        for _ in range(m):
+            for ch in range(6):
+                r1 = board.exchange_command(f'LED_SET {ch} 50')
+                r2 = board.exchange_command(f'LED_OFF {ch}')
+                if r1 != 'OK' or r2 != 'OK':
+                    err_t2 += 1
+        elapsed_t2 = time.monotonic() - t_start
+        print(f'  done {elapsed_t2:.1f}s err={err_t2}/{m*12}')
+        if err_t2 > 0:
+            issues.append(f'Test 2 errors: {err_t2}/{m*12}')
+
+    # ---- Test 3: per-command RTT ----
+    if args.rtt_histogram:
+        print(f'[reliability-soak] Test 3: per-command RTT (200 samples each)')
+
+        def bench(cmd, samples=200):
+            s = []
+            for _ in range(samples):
+                t = time.monotonic()
+                board.exchange_command(cmd, timeout=2)
+                s.append((time.monotonic() - t) * 1000)
+            s.sort()
+            return s[samples // 2], statistics.mean(s), s[int(samples * 0.99)]
+
+        for cmd in ['LED_SET 0 50', 'LED_OFF 0', 'STATUS', 'HEAP',
+                    'LED_READ 0', 'INFO']:
+            p50, mn, p99 = bench(cmd)
+            print(f'  {cmd:<18s}  p50={p50:6.2f}  mean={mn:6.2f}  p99={p99:6.2f} ms')
+
+    # ---- Test 4: heap delta ----
+    board.exchange_command('LED_OFF ALL')
+    heap_post = heap()
+    if heap_pre is not None and heap_post is not None:
+        delta = heap_post - heap_pre
+        print(f'[reliability-soak] heap_post={heap_post} delta={delta}')
+        if delta < -args.heap_leak_threshold_bytes:
+            issues.append(f'heap leak: {-delta} bytes lost')
+    else:
+        print(f'[reliability-soak] heap probe failed pre={heap_pre} post={heap_post}')
+
+    # ---- Pass/fail criteria ----
+    p99_t1 = times_t1[int(n * 0.99)]
+    if p99_t1 > args.p99_threshold_ms:
+        issues.append(f'pair RTT p99 too slow: {p99_t1:.1f}ms > {args.p99_threshold_ms}ms')
+
+    print()
+    print('=' * 60)
+    if issues:
+        print('RESULT: FAIL')
+        for iss in issues:
+            print(f'  - {iss}')
+        print('=' * 60)
+        sys.exit(1)
+    else:
+        print('RESULT: PASS')
+        print('=' * 60)
+        sys.exit(0)
+
+
+# ---------------------------------------------------------------------------
 # restore-configs — push config backup to board via Lumascope API (Phase 4I)
 # ---------------------------------------------------------------------------
 
@@ -1021,6 +1183,40 @@ def main():
                            help='Optional subset of filenames to restore '
                                 '(default: all config files present in backup)')
 
+    # reliability-soak — host↔board comm health gate
+    p_soak = sub.add_parser(
+        'reliability-soak',
+        help=('Run an alternating-LED-command soak + RTT histogram '
+              'against the LED board and report PASS/FAIL. Intended '
+              'for tech-support, QC bringup, regression checks.'))
+    p_soak.add_argument(
+        '--iters', type=int, default=1000,
+        help='Pair-soak iterations (default: 1000)')
+    p_soak.add_argument(
+        '--multi-channel', action='store_true', default=True,
+        help='Run multi-channel cycle test (default: True)')
+    p_soak.add_argument(
+        '--no-multi-channel', action='store_false', dest='multi_channel',
+        help='Skip multi-channel cycle test')
+    p_soak.add_argument(
+        '--multi-iters', type=int, default=100,
+        help='Multi-channel cycle iterations (default: 100; 12 cmds each)')
+    p_soak.add_argument(
+        '--rtt-histogram', action='store_true', default=True,
+        help='Run per-command RTT histogram (default: True)')
+    p_soak.add_argument(
+        '--no-rtt-histogram', action='store_false', dest='rtt_histogram',
+        help='Skip RTT histogram')
+    p_soak.add_argument(
+        '--slow-threshold-ms', type=int, default=200,
+        help='Per-pair RTT to count as slow (default: 200ms)')
+    p_soak.add_argument(
+        '--p99-threshold-ms', type=int, default=100,
+        help='Pair-RTT p99 PASS/FAIL threshold (default: 100ms)')
+    p_soak.add_argument(
+        '--heap-leak-threshold-bytes', type=int, default=1024,
+        help='Heap shrink to count as leak (default: 1024B)')
+
     args = parser.parse_args()
     if args.command is None:
         parser.print_help()
@@ -1036,6 +1232,7 @@ def main():
         'factory-reset': cmd_factory_reset,
         'restore-configs': cmd_restore_configs,
         'bench': cmd_bench,
+        'reliability-soak': cmd_reliability_soak,
     }
     commands[args.command](args)
 
