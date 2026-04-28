@@ -1187,7 +1187,7 @@ class SerialBoard:
         self._v4_id_counter += 1
         return self._v4_id_counter
 
-    def exchange_json(self, payload, timeout=None):
+    def exchange_json(self, payload, timeout=None, return_timing=False):
         """Send a V4 JSON-object command and return the matching response.
 
         Args:
@@ -1196,11 +1196,20 @@ class SerialBoard:
                 of the dict is NOT modified (we serialize a shallow merge).
                 Other fields (ch, mA, axis, etc.) are passed through.
             timeout: per-call read-timeout override in seconds.
+            return_timing: when True, returns ``(response, wire_seconds)``
+                where ``wire_seconds`` is the elapsed time from the first
+                ``driver.write`` byte to the ``readline`` return that
+                matched the caller's id (excludes lock-acquire wait,
+                pre-write stale flush, event-dispatch overhead). Used by
+                reliability-soak. On error / early-return paths, callers
+                using the kwarg get ``(None, None)`` so tuple-unpacking
+                does not crash.
 
         Returns:
             The response dict on success (always has "ok", usually "cmd"
             echoes the request). None on timeout, disconnect, or JSON
-            parse error.
+            parse error. ``(response, wire_seconds)`` when
+            ``return_timing=True``.
 
         Event handling: unsolicited `{"event":"..."}` lines encountered
         while waiting for the response are dispatched to self.on_event
@@ -1216,12 +1225,13 @@ class SerialBoard:
         LEGACY/V3 boards: this method returns None without writing.
         Callers must gate via has_feature() or check protocol_version.
         """
+        _none = (None, None) if return_timing else None
         if self.protocol_version != ProtocolVersion.V4:
             _serial_log.warning(
                 f'{self._label} exchange_json called on '
                 f'{self.protocol_version.value} board — refusing'
             )
-            return None
+            return _none
         if not isinstance(payload, dict) or 'cmd' not in payload:
             raise ValueError('exchange_json payload must be a dict with "cmd"')
 
@@ -1231,7 +1241,7 @@ class SerialBoard:
                     f'{self._label} exchange_json {payload.get("cmd")} '
                     f'-> REJECTED (board silent, power cycle required)'
                 )
-                return None
+                return _none
 
             if self.driver is None:
                 try:
@@ -1244,9 +1254,9 @@ class SerialBoard:
                     _serial_log.error(
                         f'{self._label} exchange_json RECONNECT FAILED: {e}'
                     )
-                    return None
+                    return _none
             if self.driver is None:
-                return None
+                return _none
 
             # Assign id if caller didn't.
             out = dict(payload)
@@ -1259,6 +1269,10 @@ class SerialBoard:
             # drain and return without a round-trip.
             stashed = self._v4_pending_by_id.pop(caller_id, None)
             if stashed is not None:
+                if return_timing:
+                    # No wire round-trip — caller asked for timing of a
+                    # zero-wire-time stash drain. Report 0.0 (truthful).
+                    return stashed, 0.0
                 return stashed
 
             # Per-call timeout override.
@@ -1283,6 +1297,7 @@ class SerialBoard:
                     )
 
                 stream = (json.dumps(out) + '\n').encode('utf-8')
+                t_write_start = time.monotonic()
                 self.driver.write(stream)
 
                 # Read lines until we get a response with our id, dispatching
@@ -1319,6 +1334,7 @@ class SerialBoard:
 
                     msg_id = msg.get('id')
                     if msg_id == caller_id:
+                        wire_seconds = time.monotonic() - t_write_start
                         elapsed_ms = (time.monotonic() - t_start) * 1000
                         _serial_log.info(
                             f'{self._label} {cmd_name} id={caller_id} '
@@ -1329,6 +1345,8 @@ class SerialBoard:
                                 f'{self._label} FIRMWARE ERR: {cmd_name} '
                                 f'-> {msg.get("err")} / {msg.get("msg")}'
                             )
+                        if return_timing:
+                            return msg, wire_seconds
                         return msg
                     # Different id — stash for a future matching caller.
                     if msg_id is not None:
@@ -1340,6 +1358,9 @@ class SerialBoard:
                     _serial_log.warning(
                         f'{self._label} V4 response missing id: {raw!r}'
                     )
+                    if return_timing:
+                        wire_seconds = time.monotonic() - t_write_start
+                        return msg, wire_seconds
                     return msg
 
                 # Timed out.
@@ -1348,7 +1369,7 @@ class SerialBoard:
                     f'{self._label} exchange_json {cmd_name} id={caller_id} '
                     f'-> TIMEOUT ({elapsed_ms:.1f}ms)'
                 )
-                return None
+                return _none
 
             except serial.SerialTimeoutException:
                 elapsed_ms = (time.monotonic() - t_start) * 1000
@@ -1356,13 +1377,13 @@ class SerialBoard:
                     f'{self._label} exchange_json {cmd_name} '
                     f'-> WRITE TIMEOUT ({elapsed_ms:.1f}ms)'
                 )
-                return None
+                return _none
             except Exception as e:
                 _serial_log.error(
                     f'{self._label} exchange_json {cmd_name} -> EXCEPTION: {e}'
                 )
                 self._close_driver()
-                return None
+                return _none
             finally:
                 if saved_timeout is not None and self.driver is not None:
                     self.driver.timeout = saved_timeout

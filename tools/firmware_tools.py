@@ -865,34 +865,48 @@ def cmd_bench(args):
 # ---------------------------------------------------------------------------
 
 def cmd_reliability_soak(args):
-    """Run an alternating-LED-command soak + RTT histogram against the
-    LED board and report PASS/FAIL.
+    """Run a comm-layer soak + RTT histogram against either LED or motor
+    board and report PASS/FAIL.
 
     Intended uses:
       - QC mainboard bringup gate before signing off a board.
-      - tech-support report supplement when a customer reports flaky LED
+      - tech-support report supplement when a customer reports flaky
         behavior — gives objective host↔board comm-layer health vs.
         application-layer hypotheses.
       - regression check after any driver / firmware change that touches
         the serial framing path.
 
-    Tests run:
-      1. Pair soak: N × (LED_SET ch=0 50mA + LED_OFF ch=0). Detects
-         framing desync, partial-line reads, late-byte drops.
+    LED tests:
+      1. Pair soak: N × (LED_SET ch=0 50mA + LED_OFF ch=0).
       2. (optional) Multi-channel cycle: M × ch 0-5 LED_SET/LED_OFF.
-         Stresses dispatcher under broader command surface.
-      3. Per-command RTT histogram: 200 samples each of LED_SET,
-         LED_OFF, STATUS, HEAP, LED_READ <ch>, INFO.
-      4. Heap delta probe: HEAP free before/after the soak. Detects
-         per-command memory leak.
+      3. Per-command RTT histogram (200 samples): LED_SET, LED_OFF,
+         STATUS, HEAP, LED_READ <ch>, INFO.
+      4. Heap delta probe (v3.5 only).
+
+    Motor tests (read-only — never issues motion):
+      1. Pair soak: N × (POS_READ X + LIMIT_SW X) — stresses the
+         dispatcher with two short reads per pair.
+      2. (optional) Multi-axis cycle: M × (POS_READ + LIMIT_SW) ×
+         present_axes.
+      3. Per-command RTT histogram: INFO, POS_READ X, LIMIT_SW X,
+         DRVSTAT X (FW4.0) or ACTUAL_R X / STATUS_R X (legacy).
+      4. Heap delta probe (FW4.0 only — INFO heap_free).
 
     PASS criteria (default):
       - errors == 0 across all command pairs
       - heap_delta < 1024 bytes (no leak)
-      - p99 RTT(LED_SET) < 100 ms (framing healthy)
+      - p99 pair RTT < 100 ms
 
     Exits 0 on PASS, 1 on FAIL. Detailed report printed to stdout.
     """
+    if args.board == 'motor':
+        _soak_motor(args)
+    else:
+        _soak_led(args)
+
+
+def _soak_led(args):
+    """LED reliability soak. See cmd_reliability_soak for the test set."""
     import time
     import statistics
     from drivers.ledboard import LEDBoard
@@ -1053,6 +1067,233 @@ def cmd_reliability_soak(args):
         if delta < -args.heap_leak_threshold_bytes:
             issues.append(f'heap leak: {-delta} bytes lost')
     elif is_v35:
+        print(f'[reliability-soak] heap probe failed pre={heap_pre} post={heap_post}')
+    else:
+        print('[reliability-soak] heap probe: skipped (legacy firmware)')
+
+    # ---- Pass/fail criteria ----
+    p99_t1 = times_t1_api[int(n * 0.99)]
+    if p99_t1 > args.p99_threshold_ms:
+        issues.append(f'pair RTT p99 too slow: {p99_t1:.1f}ms > {args.p99_threshold_ms}ms')
+
+    print()
+    print('=' * 60)
+    if issues:
+        print('RESULT: FAIL')
+        for iss in issues:
+            print(f'  - {iss}')
+        print('=' * 60)
+        sys.exit(1)
+    else:
+        print('RESULT: PASS')
+        print('=' * 60)
+        sys.exit(0)
+
+
+def _soak_motor(args):
+    """Motor reliability soak — read-only command set; never issues motion.
+
+    Uses driver methods that dispatch FW4.0 vs v3.0.x internally
+    (current_pos_steps, target_status, fullinfo). For the WIRE-column
+    diagnostic, drops to exchange_command / exchange_json directly with
+    return_timing=True — same pattern as the LED soak.
+    """
+    import time
+    import statistics
+
+    print('[reliability-soak] Connecting to motor board...')
+    try:
+        board = _connect_motor_board()
+    except SystemExit:
+        raise
+    except Exception as e:
+        print(f'[reliability-soak] Connect failed: {e}')
+        sys.exit(1)
+
+    is_v4 = board._use_v4()
+    proto = board.protocol_version.value
+    print(f'[reliability-soak] protocol={proto} '
+          f'fw={board.firmware_version} '
+          f'features={len(board.features)}')
+
+    if not board.firmware_responding:
+        print('[reliability-soak] FAIL: board not responding to INFO')
+        sys.exit(1)
+
+    # Detect axes once via cached fullinfo. Used for multi-axis test.
+    present_axes = board.detect_present_axes() or ['X', 'Y', 'Z', 'T']
+    print(f'[reliability-soak] present axes: {present_axes}')
+
+    issues = []
+
+    def _pos_read(axis, return_timing=False):
+        """One position-read round-trip with optional wire timing.
+
+        FW4.0 → exchange_json POS_READ. Legacy → exchange_command ACTUAL_R<axis>.
+        Both already FW4.0/legacy-aware via the chosen primitive.
+        """
+        if is_v4:
+            return board.exchange_json(
+                {'cmd': 'POS_READ', 'axis': axis},
+                return_timing=return_timing,
+            )
+        return board.exchange_command(
+            f'ACTUAL_R{axis}', return_timing=return_timing,
+        )
+
+    def _limit_sw(axis, return_timing=False):
+        """One limit-switch / status read."""
+        if is_v4:
+            return board.exchange_json(
+                {'cmd': 'LIMIT_SW', 'axis': axis},
+                return_timing=return_timing,
+            )
+        return board.exchange_command(
+            f'STATUS_R{axis}', return_timing=return_timing,
+        )
+
+    def _ok_v4(resp):
+        return isinstance(resp, dict) and resp.get('ok') is True
+
+    def _ok_legacy(resp):
+        if resp is None:
+            return False
+        s = str(resp).upper()
+        return not any(t in s for t in (
+            'ERROR', 'INVALID', 'COMMAND NOT RECOGNIZED', 'FAIL'))
+
+    _ok = _ok_v4 if is_v4 else _ok_legacy
+
+    def heap():
+        """FW4.0 motor INFO carries heap_free. Legacy has no equivalent."""
+        if not is_v4:
+            return None
+        resp = board.exchange_json({'cmd': 'INFO'}, timeout=2)
+        if isinstance(resp, dict):
+            return resp.get('heap_free')
+        return None
+
+    heap_pre = heap()
+    if heap_pre is not None:
+        print(f'[reliability-soak] heap_pre={heap_pre}')
+    else:
+        print('[reliability-soak] heap probe: skipped (legacy firmware)')
+
+    pair_axis = present_axes[0] if present_axes else 'X'
+
+    # ---- Test 1: pair soak (POS_READ + LIMIT_SW on first present axis) ----
+    n = args.iters
+    print(f'[reliability-soak] Test 1: {n}× POS_READ {pair_axis} + LIMIT_SW {pair_axis}')
+    err_t1 = 0
+    slow_t1 = 0
+    times_t1_api = []
+    times_t1_wire = []
+    t_start = time.monotonic()
+    for _ in range(n):
+        t = time.monotonic()
+        r1, w1 = _pos_read(pair_axis, return_timing=True)
+        r2, w2 = _limit_sw(pair_axis, return_timing=True)
+        dt = (time.monotonic() - t) * 1000
+        times_t1_api.append(dt)
+        times_t1_wire.append(((w1 or 0.0) + (w2 or 0.0)) * 1000)
+        if not _ok(r1) or not _ok(r2):
+            err_t1 += 1
+        if dt > args.slow_threshold_ms:
+            slow_t1 += 1
+    elapsed_t1 = time.monotonic() - t_start
+    times_t1_api.sort()
+    times_t1_wire.sort()
+    print(f'  done {elapsed_t1:.1f}s err={err_t1}/{n} '
+          f'slow(>{args.slow_threshold_ms}ms)={slow_t1}')
+    print(f'  pair API   p50={times_t1_api[n//2]:6.2f} mean={statistics.mean(times_t1_api):6.2f} '
+          f'p99={times_t1_api[int(n*0.99)]:6.2f} max={times_t1_api[-1]:6.2f} ms')
+    print(f'  pair WIRE  p50={times_t1_wire[n//2]:6.2f} mean={statistics.mean(times_t1_wire):6.2f} '
+          f'p99={times_t1_wire[int(n*0.99)]:6.2f} max={times_t1_wire[-1]:6.2f} ms')
+    if err_t1 > 0:
+        issues.append(f'Test 1 errors: {err_t1}/{n}')
+
+    # ---- Test 2: multi-axis cycle ----
+    if args.multi_channel:
+        m = args.multi_iters
+        cmds_per_cycle = 2 * len(present_axes)
+        total_cmds = m * cmds_per_cycle
+        print(f'[reliability-soak] Test 2: {m}× cycle {present_axes} '
+              f'({total_cmds} cmds)')
+        err_t2 = 0
+        t_start = time.monotonic()
+        for _ in range(m):
+            for axis in present_axes:
+                r1 = _pos_read(axis)
+                r2 = _limit_sw(axis)
+                if not _ok(r1) or not _ok(r2):
+                    err_t2 += 1
+        elapsed_t2 = time.monotonic() - t_start
+        print(f'  done {elapsed_t2:.1f}s err={err_t2}/{total_cmds}')
+        if err_t2 > 0:
+            issues.append(f'Test 2 errors: {err_t2}/{total_cmds}')
+
+    # ---- Test 3: per-command RTT histogram ----
+    if args.rtt_histogram:
+        print(f'[reliability-soak] Test 3: per-command RTT (200 samples each)')
+
+        def bench_callable(fn, samples=200):
+            s_api = []
+            s_wire = []
+            for _ in range(samples):
+                t = time.monotonic()
+                resp_w = fn()
+                # fn returns (resp, wire) when caller asked for timing.
+                _, w = resp_w if isinstance(resp_w, tuple) else (resp_w, None)
+                s_api.append((time.monotonic() - t) * 1000)
+                s_wire.append((w or 0.0) * 1000)
+            s_api.sort()
+            s_wire.sort()
+            return (s_api[samples // 2], statistics.mean(s_api),
+                    s_api[int(samples * 0.99)],
+                    s_wire[samples // 2], statistics.mean(s_wire),
+                    s_wire[int(samples * 0.99)])
+
+        # Histogram set: INFO + per-axis position + per-axis limit/status.
+        # FW4.0 also exposes DRVSTAT for driver-status reads. Legacy
+        # restricts to commands the motor firmware actually answers.
+        if is_v4:
+            histo = [
+                ('INFO', lambda: board.exchange_json(
+                    {'cmd': 'INFO'}, return_timing=True)),
+                (f'POS_READ {pair_axis}', lambda: board.exchange_json(
+                    {'cmd': 'POS_READ', 'axis': pair_axis},
+                    return_timing=True)),
+                (f'LIMIT_SW {pair_axis}', lambda: board.exchange_json(
+                    {'cmd': 'LIMIT_SW', 'axis': pair_axis},
+                    return_timing=True)),
+                (f'DRV_STATUS {pair_axis}', lambda: board.exchange_json(
+                    {'cmd': 'DRV_STATUS', 'axis': pair_axis},
+                    return_timing=True)),
+            ]
+        else:
+            histo = [
+                ('FULLINFO', lambda: board.exchange_command(
+                    'FULLINFO', return_timing=True)),
+                (f'ACTUAL_R{pair_axis}', lambda: board.exchange_command(
+                    f'ACTUAL_R{pair_axis}', return_timing=True)),
+                (f'STATUS_R{pair_axis}', lambda: board.exchange_command(
+                    f'STATUS_R{pair_axis}', return_timing=True)),
+            ]
+
+        print(f'  {"CMD":<22s}   API_p50  API_mean  API_p99   WIRE_p50  WIRE_mean WIRE_p99')
+        for name, fn in histo:
+            p50a, mna, p99a, p50w, mnw, p99w = bench_callable(fn)
+            print(f'  {name:<22s}  {p50a:7.2f}  {mna:8.2f}  {p99a:7.2f}   '
+                  f'{p50w:7.2f}  {mnw:8.2f}  {p99w:7.2f} ms')
+
+    # ---- Test 4: heap delta ----
+    heap_post = heap()
+    if heap_pre is not None and heap_post is not None:
+        delta = heap_post - heap_pre
+        print(f'[reliability-soak] heap_post={heap_post} delta={delta}')
+        if delta < -args.heap_leak_threshold_bytes:
+            issues.append(f'heap leak: {-delta} bytes lost')
+    elif is_v4:
         print(f'[reliability-soak] heap probe failed pre={heap_pre} post={heap_post}')
     else:
         print('[reliability-soak] heap probe: skipped (legacy firmware)')
@@ -1357,21 +1598,25 @@ def main():
     # reliability-soak — host↔board comm health gate
     p_soak = sub.add_parser(
         'reliability-soak',
-        help=('Run an alternating-LED-command soak + RTT histogram '
-              'against the LED board and report PASS/FAIL. Intended '
-              'for tech-support, QC bringup, regression checks.'))
+        help=('Run a comm-layer soak + RTT histogram against either LED '
+              'or motor board and report PASS/FAIL. Intended for tech-'
+              'support, QC bringup, regression checks. Motor soak is '
+              'read-only (POS_READ + LIMIT_SW); never issues motion.'))
+    p_soak.add_argument(
+        '--board', choices=['led', 'motor'], default='led',
+        help='Target board (default: led)')
     p_soak.add_argument(
         '--iters', type=int, default=1000,
         help='Pair-soak iterations (default: 1000)')
     p_soak.add_argument(
         '--multi-channel', action='store_true', default=True,
-        help='Run multi-channel cycle test (default: True)')
+        help='Run multi-channel/multi-axis cycle test (default: True)')
     p_soak.add_argument(
         '--no-multi-channel', action='store_false', dest='multi_channel',
-        help='Skip multi-channel cycle test')
+        help='Skip multi-channel/multi-axis cycle test')
     p_soak.add_argument(
         '--multi-iters', type=int, default=100,
-        help='Multi-channel cycle iterations (default: 100; 12 cmds each)')
+        help='Multi-channel/multi-axis cycle iterations (default: 100)')
     p_soak.add_argument(
         '--rtt-histogram', action='store_true', default=True,
         help='Run per-command RTT histogram (default: True)')
