@@ -43,6 +43,7 @@ import logging
 import platform
 import re
 import shutil
+import subprocess
 import time
 from dataclasses import dataclass, field
 from enum import Enum
@@ -68,6 +69,11 @@ logger = logging.getLogger(__name__)
 class BoardType(Enum):
     LED = "led"
     MOTOR = "motor"
+    DEV_RP2350 = "dev_rp2350"  # Generic RP2350 dev board (Pi Pico 2, Seeed XIAO,
+                               # etc.) used for Rev 06 firmware development +
+                               # simulator-mode bring-up. Pre-flash VID/PID is
+                               # whatever firmware is running; post-flash VID/PID
+                               # is what the ETALUMA_RP2350 UF2 sets.
 
 
 class UpdateStage(Enum):
@@ -197,7 +203,40 @@ BOARD_CONFIGS = {
         bootsel_timeout=30.0,
         serial_reappear_timeout=30.0,
     ),
+    BoardType.DEV_RP2350: BoardConfig(
+        board_type=BoardType.DEV_RP2350,
+        # Post-flash VID/PID for boards running the ETALUMA_RP2350 UF2.
+        # MicroPython on RP2350 defaults to 0x2E8A:0x000A; if the board def
+        # overrides MICROPY_HW_USB_VID/PID, update here to match.
+        vid=0x2E8A,
+        pid=0x000A,
+        label="RP2350 dev",
+        line_ending=b'\r\n',  # standard MicroPython REPL line ending
+        config_files=[],       # un-firmware'd dev boards have no Etaluma configs
+        uf2_prefix='micropython-1.28.0-rp2350',
+        has_direct_usb=True,
+        bootsel_timeout=30.0,
+        serial_reappear_timeout=30.0,
+    ),
 }
+
+# ---------------------------------------------------------------------------
+# Pre-flash dev board discovery
+# ---------------------------------------------------------------------------
+# RP2350 dev boards run unknown firmware before we flash our UF2. The board
+# could be: Raspberry Pi Pico 2 (MicroPython, CircuitPython, or factory empty),
+# Seeed XIAO RP2350 (Seeed factory firmware or whatever was last flashed),
+# any other RP2350-class board. We can't pin one VID/PID for discovery; we
+# scan a curated list of known dev-board pre-flash IDs.
+#
+# Each entry: (vid, pid, human-readable label).
+KNOWN_DEV_RP2350_PRE_FLASH = [
+    (0x2E8A, 0x0009, 'Raspberry Pi Pico 2 (CircuitPython / unflashed)'),
+    (0x2E8A, 0x000A, 'Raspberry Pi Pico 2 (MicroPython default)'),
+    (0x2886, 0x0058, 'Seeed XIAO RP2350'),
+    (0x2886, 0x0057, 'Seeed XIAO RP2350 (alt)'),
+    (0x239A, 0x80F4, 'Adafruit board (CircuitPython on RP2350)'),
+]
 
 # ---------------------------------------------------------------------------
 # Timing constants — conservative for field reliability
@@ -347,20 +386,26 @@ def _detect_bootsel_drive():
         return None
 
 
+# BOOTSEL volume names by chip family. RP2040 mounts as 'RPI-RP2'; RP2350
+# mounts as 'RP2350'. Both expose INFO_UF2.TXT as the proof-of-genuine marker.
+BOOTSEL_VOLUME_NAMES = ('RPI-RP2', 'RP2350')
+
+
 def _detect_bootsel_macos():
-    """macOS: check /Volumes/RPI-RP2."""
-    rpi_path = Path('/Volumes/RPI-RP2')
-    if rpi_path.is_dir():
-        # Verify it's a real RP2040 BOOTSEL by checking for INFO_UF2.TXT
-        info_file = rpi_path / 'INFO_UF2.TXT'
-        if info_file.exists():
-            logger.info(f"BOOTSEL drive found: {rpi_path}")
-            return rpi_path
+    """macOS: check /Volumes/<name> for each known BOOTSEL volume name."""
+    for name in BOOTSEL_VOLUME_NAMES:
+        rpi_path = Path('/Volumes') / name
+        if rpi_path.is_dir():
+            # Verify it's a real RP2040/RP2350 BOOTSEL by checking for INFO_UF2.TXT
+            info_file = rpi_path / 'INFO_UF2.TXT'
+            if info_file.exists():
+                logger.info(f"BOOTSEL drive found: {rpi_path}")
+                return rpi_path
     return None
 
 
 def _detect_bootsel_windows():
-    """Windows: scan drive letters for volume label 'RPI-RP2'."""
+    """Windows: scan drive letters for any known BOOTSEL volume label."""
     try:
         import ctypes
         kernel32 = ctypes.windll.kernel32
@@ -369,7 +414,7 @@ def _detect_bootsel_windows():
             drive = f'{letter}:\\'
             result = kernel32.GetVolumeInformationW(
                 drive, buf, 256, None, None, None, None, 0)
-            if result and buf.value == 'RPI-RP2':
+            if result and buf.value in BOOTSEL_VOLUME_NAMES:
                 drive_path = Path(drive)
                 info_file = drive_path / 'INFO_UF2.TXT'
                 if info_file.exists():
@@ -381,14 +426,17 @@ def _detect_bootsel_windows():
 
 
 def _detect_bootsel_linux():
-    """Linux: check common mount points for RPI-RP2."""
+    """Linux: check common mount points for any known BOOTSEL volume name."""
     import os
-    candidates = [
-        Path(f'/media/{os.getenv("USER", "")}/RPI-RP2'),
-        Path('/media/RPI-RP2'),
-        Path('/mnt/RPI-RP2'),
-        Path('/run/media/' + os.getenv("USER", "") + '/RPI-RP2'),
-    ]
+    user = os.getenv("USER", "")
+    candidates = []
+    for name in BOOTSEL_VOLUME_NAMES:
+        candidates.extend([
+            Path(f'/media/{user}/{name}'),
+            Path(f'/media/{name}'),
+            Path(f'/mnt/{name}'),
+            Path(f'/run/media/{user}/{name}'),
+        ])
     for path in candidates:
         if path.is_dir():
             info_file = path / 'INFO_UF2.TXT'
@@ -1237,6 +1285,315 @@ def update_firmware(
         _report_progress(progress_callback, UpdateStage.FAILED,
                          f"Unexpected error: {e}", 0.0)
         return result
+
+
+# ---------------------------------------------------------------------------
+# Dev-board flashing — bare RP2350 dev boards (Pi Pico 2, Seeed XIAO, etc.)
+# running unknown firmware before our UF2 is loaded.
+# ---------------------------------------------------------------------------
+
+def _find_dev_rp2350_pre_flash_port():
+    """Scan for any known RP2350 dev board running unknown firmware.
+
+    Pre-flash, the board could be running CircuitPython, MicroPython defaults,
+    Seeed factory firmware, etc. — none of which has Etaluma's VID/PID. We
+    match against KNOWN_DEV_RP2350_PRE_FLASH for any port that is plausibly
+    a dev-board we want to flash.
+
+    Returns (port_device, vid, pid, label) tuple, or None if nothing matches.
+    """
+    for port in list_ports.comports():
+        for vid, pid, label in KNOWN_DEV_RP2350_PRE_FLASH:
+            if port.vid == vid and port.pid == pid:
+                logger.info(
+                    f"Found dev RP2350 board: {label} at {port.device} "
+                    f"(VID=0x{vid:04X} PID=0x{pid:04X})"
+                )
+                return (port.device, vid, pid, label)
+    return None
+
+
+def _reboot_dev_board_to_bootsel(port=None):
+    """Reboot a running RP2350 dev board into BOOTSEL mode via picotool.
+
+    picotool's `reboot -u -f` sends a USB control transfer to the board's
+    pico-sdk-based stdio interface, triggering reset_usb_boot(). Works on
+    any firmware built on pico-sdk (CircuitPython, MicroPython, factory
+    test images) that exposes the reset interface — which is the default
+    for pico-sdk USB stdio.
+
+    Args:
+        port: Optional explicit serial port. If None, picotool will pick
+              the first matching board it sees.
+
+    Returns True if picotool reported success, False otherwise.
+    """
+    picotool_path = _find_picotool()
+    if picotool_path is None:
+        logger.warning(
+            "picotool not found — cannot reboot dev board to BOOTSEL "
+            "without physical button access. "
+            "Install with: brew install picotool"
+        )
+        return False
+
+    # picotool reboot flags:
+    #   -u: leave the board in USB BOOTSEL mode (don't auto-restart firmware)
+    #   -f: force - skip the "are you sure" interactive prompt
+    cmd = [picotool_path, 'reboot', '-u', '-f']
+    if port is not None:
+        # picotool can target by serial port on some platforms, but the more
+        # portable path is to let it auto-discover. We log the port for
+        # diagnostics but don't pass it to picotool.
+        logger.info(f"Asking picotool to reboot board on {port} into BOOTSEL")
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True,
+                                timeout=10)
+    except subprocess.TimeoutExpired:
+        logger.error("picotool reboot timed out")
+        return False
+    except Exception as e:
+        logger.error(f"picotool reboot error: {e}")
+        return False
+    if result.returncode != 0:
+        logger.warning(
+            f"picotool reboot failed (rc={result.returncode}): "
+            f"{result.stderr.strip()}"
+        )
+        return False
+    logger.info("picotool reboot: board entering BOOTSEL")
+    return True
+
+
+def flash_dev_board(
+    uf2_path,
+    port=None,
+    progress_callback=None,
+    probe_script=None,
+    bootsel_timeout=None,
+):
+    """Flash a UF2 to a bare RP2350 dev board (Pi Pico 2, Seeed XIAO, etc.).
+
+    Strip-down of update_firmware() for un-firmware'd dev boards. Skips:
+      * Etaluma firmware version check (no Etaluma firmware running)
+      * Config backup (no Etaluma configs on disk)
+      * FWUPDATE command (no Etaluma command surface)
+
+    Keeps:
+      * BOOTSEL drive detection + UF2 mass-storage copy
+      * picotool fallback if drive doesn't mount
+      * Drive-disappear wait + serial-reappear wait
+      * Optional probe-script exec via raw REPL after flash
+
+    Args:
+        uf2_path: Path to UF2 file (typically ETALUMA_RP2350 build).
+        port: Optional explicit serial port path. If None, auto-discovers
+              any known dev board via KNOWN_DEV_RP2350_PRE_FLASH.
+        progress_callback: Optional (stage, message, progress) callback.
+        probe_script: Optional path to a MicroPython script to exec on
+              the device after flash via raw REPL. Output is logged at INFO.
+        bootsel_timeout: Override bootsel_timeout from BOARD_CONFIGS.
+
+    Returns:
+        UpdateResult with success/failure details. result.new_version is
+        always None for dev boards (no Etaluma firmware to version).
+    """
+    config = BOARD_CONFIGS[BoardType.DEV_RP2350]
+    uf2_path = Path(uf2_path)
+    result = UpdateResult(success=False, board_type=BoardType.DEV_RP2350)
+    if bootsel_timeout is None:
+        bootsel_timeout = config.bootsel_timeout
+
+    try:
+        # ---- Stage 1: Pre-flight ----
+        _report_progress(progress_callback, UpdateStage.PREFLIGHT,
+                         "Checking UF2 file...", 0.0)
+        if not uf2_path.is_file():
+            raise UpdateError(
+                f"UF2 file not found: {uf2_path}",
+                stage=UpdateStage.PREFLIGHT,
+            )
+        uf2_size = uf2_path.stat().st_size
+        if uf2_size < 512:
+            raise UpdateError(
+                f"UF2 file too small ({uf2_size} bytes) — likely corrupted",
+                stage=UpdateStage.PREFLIGHT,
+            )
+
+        # ---- Stage 2: Get the board into BOOTSEL ----
+        # Three paths, in order of preference:
+        # (a) Already in BOOTSEL — drive is mounted, just copy the UF2
+        # (b) Running firmware on a serial port — picotool reboot to BOOTSEL
+        # (c) picotool can flash directly via libusb if the board is in
+        #     BOOTSEL but the host hasn't auto-mounted the drive
+        _report_progress(progress_callback, UpdateStage.WAITING_BOOTSEL,
+                         "Looking for board in BOOTSEL or run mode...", 0.05)
+
+        bootsel_drive = _detect_bootsel_drive()
+        if bootsel_drive is None:
+            # Not in BOOTSEL yet — try picotool reboot to push it there.
+            if port is None:
+                discovered = _find_dev_rp2350_pre_flash_port()
+                if discovered is not None:
+                    port = discovered[0]
+                    logger.info(
+                        f"Auto-discovered dev board at {port} ({discovered[3]})"
+                    )
+            if port is not None:
+                _report_progress(progress_callback, UpdateStage.SENDING_FWUPDATE,
+                                 f"Rebooting {port} to BOOTSEL via picotool...",
+                                 0.10)
+                ok = _reboot_dev_board_to_bootsel(port=port)
+                if not ok:
+                    raise UpdateError(
+                        f"Could not reboot dev board into BOOTSEL via picotool. "
+                        f"The running firmware may not expose the pico-sdk USB "
+                        f"reset interface. Press the BOOT button (or short "
+                        f"BOOT pin to GND) while replugging USB, then re-run.",
+                        stage=UpdateStage.SENDING_FWUPDATE,
+                    )
+                # Wait for BOOTSEL drive to mount after the reboot.
+                _report_progress(progress_callback, UpdateStage.WAITING_BOOTSEL,
+                                 "Waiting for BOOTSEL drive...", 0.20)
+                bootsel_drive = _wait_for_bootsel_drive(timeout=bootsel_timeout)
+            else:
+                # No serial port found and no BOOTSEL drive. Wait a bit in
+                # case the user is mid-press of the BOOT button.
+                _report_progress(progress_callback, UpdateStage.WAITING_BOOTSEL,
+                                 "No board found — waiting for BOOTSEL...",
+                                 0.10)
+                bootsel_drive = _wait_for_bootsel_drive(timeout=bootsel_timeout)
+
+        # ---- Stage 3: Copy UF2 ----
+        if bootsel_drive is not None:
+            _report_progress(progress_callback, UpdateStage.COPYING_UF2,
+                             f"Copying {uf2_path.name} to board...", 0.40)
+            dest = bootsel_drive / uf2_path.name
+            shutil.copy2(uf2_path, dest)
+            logger.info(f"UF2 copied: {uf2_path} -> {dest}")
+            time.sleep(POST_UF2_SETTLE_TIME)
+            if not _wait_for_drive_disappear(bootsel_drive):
+                result.warnings.append(
+                    "BOOTSEL drive did not disappear after UF2 copy. "
+                    "The UF2 may not have been accepted."
+                )
+        else:
+            # picotool fallback — direct libusb flash of a board in BOOTSEL
+            # whose mass storage hasn't auto-mounted.
+            picotool = _find_picotool()
+            if picotool is None:
+                raise UpdateError(
+                    f"BOOTSEL drive not mounted and picotool not installed. "
+                    f"Install picotool (brew install picotool) and try again, "
+                    f"or hold BOOT and replug USB.",
+                    stage=UpdateStage.WAITING_BOOTSEL,
+                )
+            _report_progress(progress_callback, UpdateStage.COPYING_UF2,
+                             "Flashing UF2 via picotool...", 0.40)
+            ok = _flash_uf2_picotool(uf2_path, picotool_path=picotool,
+                                     reboot=True)
+            if not ok:
+                raise UpdateError(
+                    f"picotool failed to flash {uf2_path.name}.",
+                    stage=UpdateStage.COPYING_UF2,
+                )
+
+        # ---- Stage 4: Wait for serial port to reappear ----
+        _report_progress(progress_callback, UpdateStage.WAITING_REBOOT,
+                         "Waiting for board to reboot on new firmware...",
+                         0.65)
+        time.sleep(POST_REBOOT_SETTLE_TIME)
+        new_port = _wait_for_serial_port(
+            config.vid, config.pid,
+            timeout=config.serial_reappear_timeout,
+        )
+        if new_port is None:
+            # The post-flash VID/PID in BOARD_CONFIGS[DEV_RP2350] may not match
+            # what the new UF2 actually exposes. Look for any new MP-class port.
+            discovered = _find_dev_rp2350_pre_flash_port()
+            if discovered is not None:
+                new_port = discovered[0]
+                logger.info(
+                    f"Board re-enumerated at {new_port} (VID/PID may not "
+                    f"match BOARD_CONFIGS post-flash defaults — that's OK; "
+                    f"update BOARD_CONFIGS[DEV_RP2350].vid/pid to match if "
+                    f"flashing the same UF2 family routinely)"
+                )
+            else:
+                raise UpdateError(
+                    f"Board did not re-enumerate within "
+                    f"{config.serial_reappear_timeout}s. The UF2 may be "
+                    f"invalid or the board may have stayed in BOOTSEL.",
+                    stage=UpdateStage.WAITING_REBOOT,
+                )
+
+        time.sleep(POST_REBOOT_SETTLE_TIME)
+
+        # ---- Stage 5 (optional): Run probe script via raw REPL ----
+        if probe_script is not None:
+            probe_path = Path(probe_script)
+            if not probe_path.is_file():
+                result.warnings.append(
+                    f"Probe script not found: {probe_path} — skipping"
+                )
+            else:
+                _report_progress(progress_callback, UpdateStage.POST_UPDATE_TEST,
+                                 f"Running probe {probe_path.name}...", 0.85)
+                probe_output = _run_dev_board_probe(new_port, probe_path)
+                logger.info(
+                    f"Probe output ({probe_path.name}):\n{probe_output}"
+                )
+                # Stash the probe output in result.warnings so callers see
+                # it via the standard UpdateResult surface. Not actually a
+                # warning — but we don't have a dedicated 'output' field.
+                result.warnings.append(
+                    f"Probe output captured ({len(probe_output)} chars)"
+                )
+
+        result.success = True
+        _report_progress(progress_callback, UpdateStage.COMPLETE,
+                         f"Dev board flashed at {new_port}", 1.0)
+        return result
+
+    except UpdateError as e:
+        result.error_message = str(e)
+        result.error_stage = e.stage
+        logger.error(f"Dev board flash failed at {e.stage}: {e}")
+        _report_progress(progress_callback, UpdateStage.FAILED,
+                         str(e), 0.0)
+        return result
+    except Exception as e:
+        result.error_message = f"Unexpected error: {e}"
+        result.error_stage = UpdateStage.FAILED
+        logger.error(f"Dev board flash unexpected error: {e}", exc_info=True)
+        _report_progress(progress_callback, UpdateStage.FAILED,
+                         f"Unexpected error: {e}", 0.0)
+        return result
+
+
+def _run_dev_board_probe(port, probe_path):
+    """Exec a MicroPython probe script on a freshly-flashed dev board via
+    raw REPL. Returns captured stdout as a string.
+
+    Uses the production raw-REPL transport (drivers.mpremote_transport) for
+    parity with how update_firmware does config backups. No bespoke serial
+    code per Architecture Rule 22.
+    """
+    # Late import to keep flash_dev_board's hot path light.
+    from drivers.mpremote_transport import create_session
+
+    script_text = probe_path.read_text()
+    with create_session(port) as session:
+        result = session.raw_exec(script_text, timeout=30)
+    if result is None:
+        logger.warning(f"Probe {probe_path.name}: raw_exec returned None")
+        return ""
+    stdout_bytes, stderr_bytes = result
+    stdout = stdout_bytes.decode('utf-8', errors='replace') if stdout_bytes else ""
+    stderr = stderr_bytes.decode('utf-8', errors='replace') if stderr_bytes else ""
+    if stderr.strip():
+        logger.warning(f"Probe {probe_path.name} stderr:\n{stderr}")
+    return stdout
 
 
 def flash_uf2_direct(

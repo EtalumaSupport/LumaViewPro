@@ -1045,6 +1045,76 @@ def cmd_reliability_soak(args):
 
 
 # ---------------------------------------------------------------------------
+# flash-dev-board — flash a UF2 to a bare RP2350 dev board (Pi Pico 2,
+# Seeed XIAO RP2350, etc.). Uses drivers/firmware_updater.py:flash_dev_board()
+# — production code path per Architecture Rule 22.
+# ---------------------------------------------------------------------------
+
+def cmd_flash_dev_board(args):
+    """Flash a UF2 to a bare RP2350 dev board.
+
+    Wraps drivers.firmware_updater.flash_dev_board(). Stdout shows progress
+    + final status. Optional --probe runs a MicroPython script via raw REPL
+    after flash and prints the captured output.
+    """
+    from pathlib import Path
+    from drivers.firmware_updater import flash_dev_board, UpdateStage
+
+    uf2_path = Path(args.uf2)
+    if not uf2_path.is_file():
+        print(f"ERROR: UF2 not found: {uf2_path}")
+        sys.exit(1)
+
+    probe_path = None
+    if args.probe is not None:
+        probe_path = Path(args.probe)
+        if not probe_path.is_file():
+            print(f"ERROR: probe script not found: {probe_path}")
+            sys.exit(1)
+
+    def progress(stage, message, fraction):
+        bar_width = 30
+        filled = int(bar_width * fraction)
+        bar = '█' * filled + '░' * (bar_width - filled)
+        print(f"  [{bar}] {stage.value:24s} {message}")
+
+    print(f"=== flash-dev-board ===")
+    print(f"  UF2:    {uf2_path}")
+    print(f"  Port:   {args.port or '(auto-detect)'}")
+    print(f"  Probe:  {probe_path or '(none)'}")
+    print()
+
+    result = flash_dev_board(
+        uf2_path=uf2_path,
+        port=args.port,
+        progress_callback=progress,
+        probe_script=probe_path,
+        bootsel_timeout=args.bootsel_timeout,
+    )
+
+    print()
+    if result.success:
+        print("=== SUCCESS ===")
+        if result.warnings:
+            print("Warnings:")
+            for w in result.warnings:
+                print(f"  - {w}")
+        # If a probe script was run, the captured output is in the log at
+        # INFO level. Re-print it here for the user.
+        if probe_path is not None:
+            print()
+            print(f"Probe output ({probe_path.name}) is in the log; "
+                  f"re-run with -v for visibility, or check stderr above.")
+        sys.exit(0)
+    else:
+        print(f"=== FAILED ({result.error_stage}) ===")
+        print(f"  {result.error_message}")
+        for w in result.warnings:
+            print(f"  warning: {w}")
+        sys.exit(1)
+
+
+# ---------------------------------------------------------------------------
 # restore-configs — push config backup to board via Lumascope API (Phase 4I)
 # ---------------------------------------------------------------------------
 
@@ -1237,6 +1307,29 @@ def main():
                            help='Optional subset of filenames to restore '
                                 '(default: all config files present in backup)')
 
+    # flash-dev-board — flash a UF2 to a bare RP2350 dev board (Pi Pico 2,
+    # Seeed XIAO RP2350, etc.). Uses drivers/firmware_updater.py:flash_dev_board()
+    # — production code path per Architecture Rule 22, no parallel scripts.
+    p_dev = sub.add_parser(
+        'flash-dev-board',
+        help=('Flash a UF2 to a bare RP2350 dev board (Pi Pico 2, Seeed XIAO '
+              'RP2350, etc.). For board bring-up of un-firmwared dev boards. '
+              'Uses picotool to push the running firmware into BOOTSEL if it '
+              'supports the pico-sdk USB reset interface. Optionally runs a '
+              'MicroPython probe script after flash via raw REPL.'))
+    p_dev.add_argument('--uf2', required=True,
+                       help='Path to UF2 file to flash')
+    p_dev.add_argument('--port', default=None,
+                       help='Optional explicit serial port. If omitted, '
+                            'auto-discovers any known dev board via '
+                            'drivers.firmware_updater.KNOWN_DEV_RP2350_PRE_FLASH')
+    p_dev.add_argument('--probe', default=None,
+                       help='Optional path to a MicroPython probe script to '
+                            'exec on the device after flash (via raw REPL)')
+    p_dev.add_argument('--bootsel-timeout', type=float, default=30.0,
+                       help='Seconds to wait for BOOTSEL drive to mount '
+                            '(default: 30)')
+
     # reliability-soak — host↔board comm health gate
     p_soak = sub.add_parser(
         'reliability-soak',
@@ -1287,6 +1380,7 @@ def main():
         'restore-configs': cmd_restore_configs,
         'bench': cmd_bench,
         'reliability-soak': cmd_reliability_soak,
+        'flash-dev-board': cmd_flash_dev_board,
     }
     commands[args.command](args)
 

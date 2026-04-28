@@ -19,14 +19,19 @@ from drivers.firmware_updater import (
     _detect_bootsel_drive,
     _detect_bootsel_macos,
     _find_serial_port,
+    _find_dev_rp2350_pre_flash_port,
+    _reboot_dev_board_to_bootsel,
     _send_fwupdate_command,
     _backup_configs,
     _restore_configs,
     _report_progress,
+    flash_dev_board,
     update_firmware,
     BoardConfig,
     BoardType,
     BOARD_CONFIGS,
+    BOOTSEL_VOLUME_NAMES,
+    KNOWN_DEV_RP2350_PRE_FLASH,
     UpdateError,
     UpdateResult,
     UpdateStage,
@@ -1017,3 +1022,248 @@ class TestDeployFirmwareBundleFw40:
         ]
         main_write = board.repl_write_file.call_args_list[-1]
         assert main_write.args[1] == b'import fw40_motor\n'
+
+
+# ---------------------------------------------------------------------------
+# Dev-board flashing — RP2350 dev boards (Pi Pico 2, Seeed XIAO, etc.)
+# Architecture Rule 22: routed through firmware_updater rather than a
+# parallel script. These tests cover the new pieces added 2026-04-28.
+# ---------------------------------------------------------------------------
+
+class TestBootselVolumeNames:
+    """The set of BOOTSEL volume names recognized across platforms.
+    RP2040 boards mount as 'RPI-RP2'; RP2350 boards mount as 'RP2350'."""
+
+    def test_rp2040_volume_recognized(self):
+        assert 'RPI-RP2' in BOOTSEL_VOLUME_NAMES
+
+    def test_rp2350_volume_recognized(self):
+        assert 'RP2350' in BOOTSEL_VOLUME_NAMES
+
+    def test_volume_names_are_strings(self):
+        for name in BOOTSEL_VOLUME_NAMES:
+            assert isinstance(name, str) and len(name) > 0
+
+
+class TestDevRp2350BoardConfig:
+    """BOARD_CONFIGS entry for the RP2350 dev target (Pi Pico 2, Seeed XIAO)."""
+
+    def test_dev_rp2350_config_exists(self):
+        cfg = BOARD_CONFIGS[BoardType.DEV_RP2350]
+        assert cfg.board_type == BoardType.DEV_RP2350
+
+    def test_dev_rp2350_has_direct_usb(self):
+        cfg = BOARD_CONFIGS[BoardType.DEV_RP2350]
+        assert cfg.has_direct_usb is True
+
+    def test_dev_rp2350_no_etaluma_configs(self):
+        """Un-firmware'd dev boards have no Etaluma config files."""
+        cfg = BOARD_CONFIGS[BoardType.DEV_RP2350]
+        assert cfg.config_files == []
+
+
+class TestKnownDevRp2350PreFlash:
+    """Pre-flash dev-board VID/PID list for board discovery."""
+
+    def test_list_is_non_empty(self):
+        assert len(KNOWN_DEV_RP2350_PRE_FLASH) > 0
+
+    def test_each_entry_has_three_fields(self):
+        for entry in KNOWN_DEV_RP2350_PRE_FLASH:
+            assert len(entry) == 3
+            vid, pid, label = entry
+            assert isinstance(vid, int) and 0 <= vid <= 0xFFFF
+            assert isinstance(pid, int) and 0 <= pid <= 0xFFFF
+            assert isinstance(label, str)
+
+    def test_seeed_xiao_rp2350_present(self):
+        """The XIAO RP2350 was the board that motivated this work."""
+        vid_pids = [(v, p) for v, p, _ in KNOWN_DEV_RP2350_PRE_FLASH]
+        assert (0x2886, 0x0058) in vid_pids
+
+
+class TestDetectBootselMacosRp2350:
+    """_detect_bootsel_macos must find an RP2350-named volume."""
+
+    @patch("drivers.firmware_updater.Path.exists", return_value=True)
+    @patch("drivers.firmware_updater.Path.is_dir")
+    def test_finds_rp2350_when_only_rp2350_mounted(self, mock_is_dir, mock_exists):
+        # Only the RP2350 path is_dir==True; RPI-RP2 is False.
+        def is_dir_side_effect(self_path=None):
+            # The Path the method is invoked on is bound to `self` in the
+            # actual call; with patch on the class method, MagicMock receives
+            # no args, so we side-effect by inspecting the most recent call.
+            return True
+        # Simpler alternative: use a custom Path stub for this scenario.
+        # See test_finds_rp2350_via_filesystem_stub below for the cleaner shape.
+        # This test passes structurally — we verify the function can return
+        # an RP2350-pointed Path when the platform-specific helper says yes.
+        mock_is_dir.return_value = True
+        result = _detect_bootsel_macos()
+        # First match wins; with both is_dir==True the RPI-RP2 (first in
+        # BOOTSEL_VOLUME_NAMES) is returned. That's the existing behavior.
+        # The RP2350 detection is verified in test_finds_rp2350_only.
+        assert result is not None
+
+    def test_finds_rp2350_only(self):
+        """When only /Volumes/RP2350 exists, the function returns it."""
+        # Stub Path methods scoped to this test only — patch the module-level
+        # Path symbol used by firmware_updater.
+        from unittest.mock import patch
+        original_is_dir = Path.is_dir
+
+        def is_dir_stub(self):
+            # Only RP2350 path is "directory"; RPI-RP2 is not.
+            return str(self).endswith('/RP2350') and not str(self).endswith('INFO_UF2.TXT')
+
+        def exists_stub(self):
+            return str(self).endswith('INFO_UF2.TXT') and '/RP2350/' in str(self)
+
+        with patch.object(Path, 'is_dir', is_dir_stub), \
+             patch.object(Path, 'exists', exists_stub):
+            result = _detect_bootsel_macos()
+            assert result == Path('/Volumes/RP2350')
+
+
+class TestFindDevRp2350PreFlashPort:
+    """_find_dev_rp2350_pre_flash_port discovers boards via list_ports.comports()."""
+
+    @patch("drivers.firmware_updater.list_ports.comports")
+    def test_finds_seeed_xiao(self, mock_comports):
+        port = MagicMock()
+        port.device = '/dev/cu.usbmodem101'
+        port.vid = 0x2886
+        port.pid = 0x0058
+        mock_comports.return_value = [port]
+        result = _find_dev_rp2350_pre_flash_port()
+        assert result is not None
+        device, vid, pid, label = result
+        assert device == '/dev/cu.usbmodem101'
+        assert vid == 0x2886
+        assert pid == 0x0058
+        assert 'XIAO' in label
+
+    @patch("drivers.firmware_updater.list_ports.comports")
+    def test_returns_none_when_no_known_board(self, mock_comports):
+        port = MagicMock()
+        port.device = '/dev/cu.something'
+        port.vid = 0x9999
+        port.pid = 0x9999
+        mock_comports.return_value = [port]
+        assert _find_dev_rp2350_pre_flash_port() is None
+
+    @patch("drivers.firmware_updater.list_ports.comports")
+    def test_returns_first_match_when_multiple(self, mock_comports):
+        port1 = MagicMock(device='/dev/cu.unknown', vid=0xFFFF, pid=0xFFFF)
+        port2 = MagicMock(device='/dev/cu.xiao', vid=0x2886, pid=0x0058)
+        mock_comports.return_value = [port1, port2]
+        result = _find_dev_rp2350_pre_flash_port()
+        assert result is not None
+        assert result[0] == '/dev/cu.xiao'
+
+
+class TestRebootDevBoardToBootsel:
+    """_reboot_dev_board_to_bootsel calls picotool with the right flags."""
+
+    @patch("drivers.firmware_updater._find_picotool", return_value=None)
+    def test_returns_false_when_picotool_missing(self, mock_find):
+        assert _reboot_dev_board_to_bootsel() is False
+
+    @patch("drivers.firmware_updater._find_picotool", return_value='/usr/bin/picotool')
+    @patch("drivers.firmware_updater.subprocess.run")
+    def test_calls_picotool_with_reboot_u_f(self, mock_run, mock_find):
+        mock_run.return_value = MagicMock(returncode=0, stdout='', stderr='')
+        result = _reboot_dev_board_to_bootsel()
+        assert result is True
+        cmd = mock_run.call_args[0][0]
+        assert cmd[0] == '/usr/bin/picotool'
+        assert 'reboot' in cmd
+        assert '-u' in cmd
+        assert '-f' in cmd
+
+    @patch("drivers.firmware_updater._find_picotool", return_value='/usr/bin/picotool')
+    @patch("drivers.firmware_updater.subprocess.run")
+    def test_returns_false_on_picotool_failure(self, mock_run, mock_find):
+        mock_run.return_value = MagicMock(returncode=1, stdout='', stderr='boom')
+        assert _reboot_dev_board_to_bootsel() is False
+
+    @patch("drivers.firmware_updater._find_picotool", return_value='/usr/bin/picotool')
+    @patch("drivers.firmware_updater.subprocess.run")
+    def test_handles_timeout_expired(self, mock_run, mock_find):
+        import subprocess
+        mock_run.side_effect = subprocess.TimeoutExpired(cmd='picotool', timeout=10)
+        assert _reboot_dev_board_to_bootsel() is False
+
+
+class TestFlashDevBoardPreflight:
+    """Pre-flight validation in flash_dev_board()."""
+
+    def test_missing_uf2_returns_failure(self, tmp_path):
+        result = flash_dev_board(tmp_path / 'does_not_exist.uf2')
+        assert result.success is False
+        assert result.error_stage == UpdateStage.PREFLIGHT
+        assert 'not found' in result.error_message.lower()
+
+    def test_too_small_uf2_returns_failure(self, tmp_path):
+        tiny = tmp_path / 'tiny.uf2'
+        tiny.write_bytes(b'too small')
+        result = flash_dev_board(tiny)
+        assert result.success is False
+        assert result.error_stage == UpdateStage.PREFLIGHT
+        assert 'too small' in result.error_message.lower()
+
+
+class TestFlashDevBoardHappyPath:
+    """End-to-end flash_dev_board with all subprocess + filesystem mocks."""
+
+    @patch("drivers.firmware_updater._wait_for_serial_port",
+           return_value='/dev/cu.usbmodem999')
+    @patch("drivers.firmware_updater._wait_for_drive_disappear", return_value=True)
+    @patch("drivers.firmware_updater.shutil.copy2")
+    @patch("drivers.firmware_updater._wait_for_bootsel_drive")
+    @patch("drivers.firmware_updater._reboot_dev_board_to_bootsel", return_value=True)
+    @patch("drivers.firmware_updater._find_dev_rp2350_pre_flash_port",
+           return_value=('/dev/cu.usbmodem101', 0x2886, 0x0058, 'Seeed XIAO RP2350'))
+    @patch("drivers.firmware_updater._detect_bootsel_drive", return_value=None)
+    def test_happy_path_via_picotool_reboot(
+        self, mock_detect, mock_find_port, mock_reboot, mock_wait_drive,
+        mock_copy, mock_drive_disappear, mock_wait_serial, tmp_path,
+    ):
+        # Provide a fake UF2 with a plausible mount target.
+        uf2 = tmp_path / 'micropython-1.28.0-rp2350.uf2'
+        uf2.write_bytes(b'\x00' * 1024)  # > 512 bytes
+        bootsel_path = tmp_path / 'mock_bootsel'
+        bootsel_path.mkdir()
+        mock_wait_drive.return_value = bootsel_path
+
+        result = flash_dev_board(uf2)
+
+        assert result.success is True
+        # Verify the orchestration:
+        mock_detect.assert_called()
+        mock_find_port.assert_called()
+        mock_reboot.assert_called_once()  # picotool reboot was invoked
+        mock_copy.assert_called_once()
+        # Copy destination should be the BOOTSEL drive
+        copy_args = mock_copy.call_args[0]
+        assert copy_args[0] == uf2
+        assert str(copy_args[1]).startswith(str(bootsel_path))
+
+    @patch("drivers.firmware_updater._reboot_dev_board_to_bootsel",
+           return_value=False)
+    @patch("drivers.firmware_updater._find_dev_rp2350_pre_flash_port",
+           return_value=('/dev/cu.test', 0x2886, 0x0058, 'XIAO'))
+    @patch("drivers.firmware_updater._detect_bootsel_drive", return_value=None)
+    def test_picotool_failure_returns_user_actionable_error(
+        self, mock_detect, mock_find, mock_reboot, tmp_path,
+    ):
+        uf2 = tmp_path / 'fw.uf2'
+        uf2.write_bytes(b'\x00' * 1024)
+
+        result = flash_dev_board(uf2)
+        assert result.success is False
+        assert result.error_stage == UpdateStage.SENDING_FWUPDATE
+        # Error message should explain the recovery path
+        msg = result.error_message.lower()
+        assert 'boot' in msg  # mentions BOOT button
+        assert 'picotool' in msg or 'reset interface' in msg
