@@ -75,12 +75,6 @@ class LEDBoard(SerialBoard):
     # pyserial inter_byte_timeout=0.05 (host-side gap tolerance), this
     # makes the read path deterministic regardless of hub scheduling.
     # ------------------------------------------------------------------
-    _V35_INTER_BYTE_TIMEOUT = 0.05  # seconds — readline returns when no
-                                     # byte for this duration OR \n arrives.
-                                     # Resets on each byte received, so
-                                     # mid-transmission stalls don't break
-                                     # frame.
-
     def _exchange_v35(self, command, timeout=2.0):
         """Send `command` and read until the first non-RE: terminator
         line. Per spec §3.1 R2' the firmware emits exactly one
@@ -106,19 +100,13 @@ class LEDBoard(SerialBoard):
             cmd_upper = command.strip().upper()
             stream = command.encode('utf-8') + b'\n'
 
-            # Save and configure timeouts. Per-readline timeout is small
-            # so we loop quickly when no data; total wall-clock budget is
-            # `timeout`. inter_byte_timeout lets readline tolerate gaps
-            # within a line that exceed our per-call timeout.
+            # Per-readline timeout is small so we loop quickly when no
+            # data arrives; total wall-clock budget is `timeout`.
+            # inter_byte_timeout (set at SerialBoard base layer, ~50 ms)
+            # makes readline tolerate inter-byte gaps so we get whole
+            # lines instead of partials.
             saved_timeout = self.driver.timeout
-            saved_inter = getattr(self.driver, 'inter_byte_timeout', None)
             self.driver.timeout = 0.2
-            try:
-                self.driver.inter_byte_timeout = self._V35_INTER_BYTE_TIMEOUT
-            except (ValueError, AttributeError):
-                # Some serial backends reject setting inter_byte_timeout
-                # — non-fatal, fall back to plain readline timeout.
-                pass
 
             t_start = time.monotonic()
             try:
@@ -168,11 +156,6 @@ class LEDBoard(SerialBoard):
 
             finally:
                 self.driver.timeout = saved_timeout
-                if saved_inter is not None:
-                    try:
-                        self.driver.inter_byte_timeout = saved_inter
-                    except (ValueError, AttributeError):
-                        pass
 
     def exchange_command(self, command, response_numlines=1, timeout=None,
                          stop_on_empty=False):

@@ -105,6 +105,22 @@ class SerialBoard:
         self.stopbits = serial.STOPBITS_ONE
         self.timeout = timeout
         self.write_timeout = write_timeout
+        # Inter-byte timeout — pyserial gap-tolerance setting.
+        # Without this, readline() returns whatever bytes it has when
+        # `timeout` elapses from start of read, even mid-line. With it
+        # set, readline waits up to `inter_byte_timeout` AFTER each
+        # received byte; rapid-bytes-then-silence triggers return
+        # immediately, mid-line stalls don't break frame.
+        # Bench finding 2026-04-27 (SN 7162-19): 1-2% of alternating
+        # LED_SET / LED_OFF iterations on v3.5 produced 'R' single-char
+        # readline failures (host saw first byte of 'RE: LED_OFF',
+        # then timeout fired before remainder arrived). 50 ms gap
+        # tolerance absorbs the bridge's worst observed inter-byte
+        # delay; combined with terminator-based read in subclasses
+        # the failure mode is eliminated. Applies to all paths
+        # (LED v3.0.x / LED v3.5 / motor LEGACY / motor V4) — pure
+        # gap-tolerance, no protocol assumption.
+        self.inter_byte_timeout = 0.05
         self._in_raw_repl = False
         # mpremote-backed raw-REPL session. Non-None only between
         # enter_raw_repl() and exit_raw_repl(). SerialTransport takes
@@ -167,7 +183,8 @@ class SerialBoard:
                 parity=self.parity,
                 stopbits=self.stopbits,
                 timeout=self.timeout,
-                write_timeout=self.write_timeout)
+                write_timeout=self.write_timeout,
+                inter_byte_timeout=self.inter_byte_timeout)
         except serial.SerialException:
             # M29: Port may have changed (different USB port) — re-scan.
             logger.info(f'{self._label} Port {self.port} failed, re-scanning...')
@@ -184,7 +201,8 @@ class SerialBoard:
                     parity=self.parity,
                     stopbits=self.stopbits,
                     timeout=self.timeout,
-                    write_timeout=self.write_timeout)
+                    write_timeout=self.write_timeout,
+                    inter_byte_timeout=self.inter_byte_timeout)
             else:
                 raise
         # Log opened-port state so connect diagnostics are visible in serial.log
