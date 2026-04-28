@@ -872,7 +872,9 @@ def cmd_reliability_soak(args):
         print(f'[reliability-soak] Connect failed: {e}')
         sys.exit(1)
 
-    print(f'[reliability-soak] protocol={board.protocol_version.value} '
+    is_v35 = board._use_v35()
+    proto = board.protocol_version.value
+    print(f'[reliability-soak] protocol={proto} '
           f'fw={board.firmware_version} '
           f'features={len(board.features)}')
 
@@ -882,7 +884,20 @@ def cmd_reliability_soak(args):
 
     issues = []
 
+    # Protocol-agnostic framing-health check. v3.5 returns 'OK', legacy
+    # returns the command echo; both should be free of error tokens.
+    def _ok(r):
+        if r is None:
+            return False
+        s = str(r).upper()
+        return not any(t in s for t in (
+            'ERROR', 'INVALID', 'COMMAND NOT RECOGNIZED', 'FAIL'))
+
     def heap():
+        # HEAP is v3.5-only. Legacy LED firmware has no HEAP command, so
+        # the leak probe is unavailable on configurations A and B.
+        if not is_v35:
+            return None
         r = board.exchange_command('HEAP', timeout=2)
         if not r:
             return None
@@ -895,33 +910,52 @@ def cmd_reliability_soak(args):
         return None
 
     heap_pre = heap()
-    print(f'[reliability-soak] heap_pre={heap_pre}')
+    if heap_pre is not None:
+        print(f'[reliability-soak] heap_pre={heap_pre}')
+    else:
+        print('[reliability-soak] heap probe: skipped (legacy firmware)')
 
-    # Ensure channels are enabled for LED_SET commands.
-    board.exchange_command('LED_ENABLE ALL', timeout=2)
+    # Build per-protocol wire strings via the driver's helpers — keeps
+    # all wire-spelling decisions in the driver layer. Without this the
+    # tool hardcoded v3.5 strings ('LED_SET 0 50' etc.), which legacy
+    # firmware parses as channel '_' and rejects, producing 100% errors
+    # on configurations A/B (audit F1, 2026-04-27).
+    _, set_cmd_ch0 = board._build_led_on_cmd(channel=0, mA=50)
+    _, off_cmd_ch0 = board._build_led_off_cmd(channel=0)
+
+    # Ensure channels are enabled.
+    enable_cmd = 'LED_ENABLE ALL' if is_v35 else 'LEDS_ENT'
+    board.exchange_command(enable_cmd, timeout=2)
 
     # ---- Test 1: pair soak ----
     n = args.iters
     print(f'[reliability-soak] Test 1: {n}× LED_SET/LED_OFF ch=0 (~{n*0.04:.0f}s)')
     err_t1 = 0
     slow_t1 = 0
-    times_t1 = []
+    times_t1_api = []   # outer wall-clock (includes lock + drain + log)
+    times_t1_wire = []  # inner wire-only (write→last-readline)
     t_start = time.monotonic()
     for i in range(n):
         t = time.monotonic()
-        r1 = board.exchange_command('LED_SET 0 50')
-        r2 = board.exchange_command('LED_OFF 0')
+        r1, w1 = board.exchange_command(set_cmd_ch0, return_timing=True)
+        r2, w2 = board.exchange_command(off_cmd_ch0, return_timing=True)
         dt = (time.monotonic() - t) * 1000
-        times_t1.append(dt)
-        if r1 != 'OK' or r2 != 'OK':
+        times_t1_api.append(dt)
+        wire_pair_ms = ((w1 or 0.0) + (w2 or 0.0)) * 1000
+        times_t1_wire.append(wire_pair_ms)
+        if not _ok(r1) or not _ok(r2):
             err_t1 += 1
         if dt > args.slow_threshold_ms:
             slow_t1 += 1
     elapsed_t1 = time.monotonic() - t_start
-    times_t1.sort()
-    print(f'  done {elapsed_t1:.1f}s err={err_t1}/{n} slow(>{args.slow_threshold_ms}ms)={slow_t1}'
-          f'  pair RTT p50={times_t1[n//2]:.1f} mean={statistics.mean(times_t1):.1f} '
-          f'p99={times_t1[int(n*0.99)]:.1f} max={times_t1[-1]:.1f}ms')
+    times_t1_api.sort()
+    times_t1_wire.sort()
+    print(f'  done {elapsed_t1:.1f}s err={err_t1}/{n} '
+          f'slow(>{args.slow_threshold_ms}ms)={slow_t1}')
+    print(f'  pair API   p50={times_t1_api[n//2]:6.2f} mean={statistics.mean(times_t1_api):6.2f} '
+          f'p99={times_t1_api[int(n*0.99)]:6.2f} max={times_t1_api[-1]:6.2f} ms')
+    print(f'  pair WIRE  p50={times_t1_wire[n//2]:6.2f} mean={statistics.mean(times_t1_wire):6.2f} '
+          f'p99={times_t1_wire[int(n*0.99)]:6.2f} max={times_t1_wire[-1]:6.2f} ms')
     if err_t1 > 0:
         issues.append(f'Test 1 errors: {err_t1}/{n}')
 
@@ -933,9 +967,11 @@ def cmd_reliability_soak(args):
         t_start = time.monotonic()
         for _ in range(m):
             for ch in range(6):
-                r1 = board.exchange_command(f'LED_SET {ch} 50')
-                r2 = board.exchange_command(f'LED_OFF {ch}')
-                if r1 != 'OK' or r2 != 'OK':
+                _, set_cmd = board._build_led_on_cmd(channel=ch, mA=50)
+                _, off_cmd = board._build_led_off_cmd(channel=ch)
+                r1 = board.exchange_command(set_cmd)
+                r2 = board.exchange_command(off_cmd)
+                if not _ok(r1) or not _ok(r2):
                     err_t2 += 1
         elapsed_t2 = time.monotonic() - t_start
         print(f'  done {elapsed_t2:.1f}s err={err_t2}/{m*12}')
@@ -947,32 +983,50 @@ def cmd_reliability_soak(args):
         print(f'[reliability-soak] Test 3: per-command RTT (200 samples each)')
 
         def bench(cmd, samples=200):
-            s = []
+            s_api = []
+            s_wire = []
             for _ in range(samples):
                 t = time.monotonic()
-                board.exchange_command(cmd, timeout=2)
-                s.append((time.monotonic() - t) * 1000)
-            s.sort()
-            return s[samples // 2], statistics.mean(s), s[int(samples * 0.99)]
+                _, w = board.exchange_command(
+                    cmd, timeout=2, return_timing=True)
+                s_api.append((time.monotonic() - t) * 1000)
+                s_wire.append((w or 0.0) * 1000)
+            s_api.sort()
+            s_wire.sort()
+            return (s_api[samples // 2], statistics.mean(s_api), s_api[int(samples * 0.99)],
+                    s_wire[samples // 2], statistics.mean(s_wire), s_wire[int(samples * 0.99)])
 
-        for cmd in ['LED_SET 0 50', 'LED_OFF 0', 'STATUS', 'HEAP',
-                    'LED_READ 0', 'INFO']:
-            p50, mn, p99 = bench(cmd)
-            print(f'  {cmd:<18s}  p50={p50:6.2f}  mean={mn:6.2f}  p99={p99:6.2f} ms')
+        # Histogram commands: v3.5 has STATUS/HEAP/LED_READ; legacy has
+        # none of those (LEDREAD requires engineering mode and is not
+        # entered here, audit F14). Restrict to commands the firmware
+        # actually answers, by protocol.
+        if is_v35:
+            histo_cmds = [set_cmd_ch0, off_cmd_ch0,
+                          'STATUS', 'HEAP', 'LED_READ 0', 'INFO']
+        else:
+            histo_cmds = [set_cmd_ch0, off_cmd_ch0, 'INFO']
+
+        print(f'  {"CMD":<18s}   API_p50  API_mean  API_p99   WIRE_p50  WIRE_mean WIRE_p99')
+        for cmd in histo_cmds:
+            p50a, mna, p99a, p50w, mnw, p99w = bench(cmd)
+            print(f'  {cmd:<18s}  {p50a:7.2f}  {mna:8.2f}  {p99a:7.2f}   '
+                  f'{p50w:7.2f}  {mnw:8.2f}  {p99w:7.2f} ms')
 
     # ---- Test 4: heap delta ----
-    board.exchange_command('LED_OFF ALL')
+    board.exchange_command(board._build_leds_off_cmd())
     heap_post = heap()
     if heap_pre is not None and heap_post is not None:
         delta = heap_post - heap_pre
         print(f'[reliability-soak] heap_post={heap_post} delta={delta}')
         if delta < -args.heap_leak_threshold_bytes:
             issues.append(f'heap leak: {-delta} bytes lost')
-    else:
+    elif is_v35:
         print(f'[reliability-soak] heap probe failed pre={heap_pre} post={heap_post}')
+    else:
+        print('[reliability-soak] heap probe: skipped (legacy firmware)')
 
     # ---- Pass/fail criteria ----
-    p99_t1 = times_t1[int(n * 0.99)]
+    p99_t1 = times_t1_api[int(n * 0.99)]
     if p99_t1 > args.p99_threshold_ms:
         issues.append(f'pair RTT p99 too slow: {p99_t1:.1f}ms > {args.p99_threshold_ms}ms')
 
