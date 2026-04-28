@@ -133,6 +133,9 @@ class UpdateResult:
     error_message: Optional[str] = None
     error_stage: Optional[UpdateStage] = None
     warnings: List[str] = field(default_factory=list)
+    # For BoardType.DEV_RP2350 only: stdout captured from the optional
+    # post-flash probe script. None if no probe was run.
+    probe_output: Optional[str] = None
 
 
 @dataclass
@@ -206,10 +209,14 @@ BOARD_CONFIGS = {
     BoardType.DEV_RP2350: BoardConfig(
         board_type=BoardType.DEV_RP2350,
         # Post-flash VID/PID for boards running the ETALUMA_RP2350 UF2.
-        # MicroPython on RP2350 defaults to 0x2E8A:0x000A; if the board def
-        # overrides MICROPY_HW_USB_VID/PID, update here to match.
+        # MicroPython 1.28's stock RPI_PICO2 board (which our ETALUMA_RP2350
+        # build inherits from) uses the same 0x2E8A:0x0005 as RP2040 — bench-
+        # verified 2026-04-28 against a Pi Pico 2 running MP 1.28. NOTE this
+        # collides with BoardType.MOTOR's VID/PID; discrimination relies on
+        # the USB string descriptors ("LumaScope RP2350 simulator" vs
+        # "LumaScope Motor Controller") rather than VID/PID alone.
         vid=0x2E8A,
-        pid=0x000A,
+        pid=0x0005,
         label="RP2350 dev",
         line_ending=b'\r\n',  # standard MicroPython REPL line ending
         config_files=[],       # un-firmware'd dev boards have no Etaluma configs
@@ -231,8 +238,9 @@ BOARD_CONFIGS = {
 #
 # Each entry: (vid, pid, human-readable label).
 KNOWN_DEV_RP2350_PRE_FLASH = [
+    (0x2E8A, 0x0005, 'Raspberry Pi RP2 board (MicroPython, both RP2040 and RP2350)'),
     (0x2E8A, 0x0009, 'Raspberry Pi Pico 2 (CircuitPython / unflashed)'),
-    (0x2E8A, 0x000A, 'Raspberry Pi Pico 2 (MicroPython default)'),
+    (0x2E8A, 0x000A, 'Raspberry Pi Pico 2 (MicroPython alt)'),
     (0x2886, 0x0058, 'Seeed XIAO RP2350'),
     (0x2886, 0x0057, 'Seeed XIAO RP2350 (alt)'),
     (0x239A, 0x80F4, 'Adafruit board (CircuitPython on RP2350)'),
@@ -1313,14 +1321,85 @@ def _find_dev_rp2350_pre_flash_port():
     return None
 
 
+def _reboot_dev_board_via_mp_repl(port):
+    """Reboot a running MicroPython firmware to BOOTSEL via raw REPL.
+
+    Standard MicroPython path — works on any board running stock MP that
+    exposes raw REPL (which is the default). Enters raw REPL via the
+    production drivers/mpremote_transport (create_session + raw_exec),
+    then sends ``import machine; machine.bootloader()``. The board reboots
+    into BOOTSEL immediately; the ensuing TransportError on disconnect is
+    expected and treated as success.
+
+    Returns True on success, False if raw REPL could not be entered (i.e.
+    the running firmware isn't MicroPython, or REPL is suppressed).
+    """
+    # Late import — same pattern as _run_dev_board_probe.
+    from drivers.mpremote_transport import create_session
+    from mpremote.transport import TransportError, TransportExecError
+
+    logger.info(
+        f"Trying MicroPython raw REPL machine.bootloader() on {port}"
+    )
+    try:
+        session = create_session(port)
+    except Exception as e:
+        logger.warning(f"create_session({port}) failed: {e}")
+        return False
+
+    try:
+        try:
+            session.enter(soft_reset=False)
+        except TransportError as e:
+            logger.warning(f"raw REPL not available on {port}: {e}")
+            return False
+
+        # Send machine.bootloader() — the board reboots IMMEDIATELY, which
+        # makes raw_exec error out (no completion ack possible on a USB
+        # device that vanished mid-command). That's the success signal.
+        # The error type varies: TransportError (mpremote-level), OSError
+        # ([Errno 6] Device not configured on macOS, [Errno 5] on Linux),
+        # or serial.SerialException — all map to "USB disconnected", which
+        # is exactly what we want.
+        try:
+            session.raw_exec('import machine\nmachine.bootloader()', timeout=5)
+            # If we got here without an error, the device may not be MP —
+            # but we sent the command, so give it the benefit of the doubt.
+            logger.info("machine.bootloader() sent — assuming BOOTSEL entry")
+            return True
+        except (TransportError, TransportExecError, OSError) as e:
+            # Disconnect after machine.bootloader() is the expected path.
+            logger.info(
+                f"machine.bootloader() disconnected as expected: "
+                f"{type(e).__name__}: {e}"
+            )
+            return True
+        except Exception as e:
+            # Any other failure during raw_exec also implies the board
+            # disconnected mid-command. Log at INFO (not warning) since
+            # this is the success path for boards that reboot fast.
+            logger.info(
+                f"machine.bootloader() raised {type(e).__name__} "
+                f"(treating as expected disconnect): {e}"
+            )
+            return True
+    finally:
+        # Best-effort cleanup. The session may already be dead.
+        try:
+            session.exit()
+        except Exception:
+            pass
+
+
 def _reboot_dev_board_to_bootsel(port=None):
     """Reboot a running RP2350 dev board into BOOTSEL mode via picotool.
 
     picotool's `reboot -u -f` sends a USB control transfer to the board's
     pico-sdk-based stdio interface, triggering reset_usb_boot(). Works on
-    any firmware built on pico-sdk (CircuitPython, MicroPython, factory
-    test images) that exposes the reset interface — which is the default
-    for pico-sdk USB stdio.
+    any firmware built on pico-sdk (CircuitPython factory builds, some
+    Seeed factory firmware, demo images) that exposes the reset interface.
+    Does NOT work on stock MicroPython — MP uses raw REPL +
+    machine.bootloader() instead. See _reboot_dev_board_via_mp_repl.
 
     Args:
         port: Optional explicit serial port. If None, picotool will pick
@@ -1440,16 +1519,33 @@ def flash_dev_board(
                         f"Auto-discovered dev board at {port} ({discovered[3]})"
                     )
             if port is not None:
+                # Try paths in order of likelihood for our dev-board mix:
+                # (a) MicroPython raw REPL machine.bootloader() — works for
+                #     anything running stock MP (CircuitPython, our own
+                #     post-flash MP 1.28, etc.). The most common case.
+                # (b) picotool reboot -u -f — works for pico-sdk-based
+                #     firmware that exposes the USB reset interface
+                #     (CircuitPython, factory test images). Does NOT work
+                #     on MicroPython.
+                # (c) physical BOOTSEL — last resort if neither path works.
                 _report_progress(progress_callback, UpdateStage.SENDING_FWUPDATE,
-                                 f"Rebooting {port} to BOOTSEL via picotool...",
+                                 f"Trying MicroPython raw REPL on {port}...",
                                  0.10)
-                ok = _reboot_dev_board_to_bootsel(port=port)
+                ok = _reboot_dev_board_via_mp_repl(port=port)
+                if not ok:
+                    _report_progress(progress_callback,
+                                     UpdateStage.SENDING_FWUPDATE,
+                                     f"Trying picotool reboot on {port}...",
+                                     0.12)
+                    ok = _reboot_dev_board_to_bootsel(port=port)
                 if not ok:
                     raise UpdateError(
-                        f"Could not reboot dev board into BOOTSEL via picotool. "
-                        f"The running firmware may not expose the pico-sdk USB "
-                        f"reset interface. Press the BOOT button (or short "
-                        f"BOOT pin to GND) while replugging USB, then re-run.",
+                        f"Could not reboot dev board into BOOTSEL. "
+                        f"Tried MicroPython raw REPL and picotool — neither "
+                        f"worked on {port}. The running firmware may not "
+                        f"expose either path. Press the BOOT button (or "
+                        f"short BOOT pin to GND) while replugging USB, "
+                        f"then re-run.",
                         stage=UpdateStage.SENDING_FWUPDATE,
                     )
                 # Wait for BOOTSEL drive to mount after the reboot.
@@ -1543,12 +1639,9 @@ def flash_dev_board(
                 logger.info(
                     f"Probe output ({probe_path.name}):\n{probe_output}"
                 )
-                # Stash the probe output in result.warnings so callers see
-                # it via the standard UpdateResult surface. Not actually a
-                # warning — but we don't have a dedicated 'output' field.
-                result.warnings.append(
-                    f"Probe output captured ({len(probe_output)} chars)"
-                )
+                # Surface the captured probe stdout on the UpdateResult so
+                # CLI / GUI callers can render it without grepping the log.
+                result.probe_output = probe_output
 
         result.success = True
         _report_progress(progress_callback, UpdateStage.COMPLETE,

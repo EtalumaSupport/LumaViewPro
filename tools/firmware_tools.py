@@ -1099,12 +1099,11 @@ def cmd_flash_dev_board(args):
             print("Warnings:")
             for w in result.warnings:
                 print(f"  - {w}")
-        # If a probe script was run, the captured output is in the log at
-        # INFO level. Re-print it here for the user.
-        if probe_path is not None:
+        if result.probe_output:
             print()
-            print(f"Probe output ({probe_path.name}) is in the log; "
-                  f"re-run with -v for visibility, or check stderr above.")
+            print(f"=== Probe output ({probe_path.name}) ===")
+            print(result.probe_output)
+            print(f"=== end probe ({len(result.probe_output)} chars) ===")
         sys.exit(0)
     else:
         print(f"=== FAILED ({result.error_stage}) ===")
