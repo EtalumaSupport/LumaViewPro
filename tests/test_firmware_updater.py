@@ -1130,36 +1130,89 @@ class TestFindDevRp2350PreFlashPort:
 
     @patch("drivers.firmware_updater.list_ports.comports")
     def test_finds_seeed_xiao(self, mock_comports):
-        port = MagicMock()
+        port = MagicMock(spec=['device', 'vid', 'pid', 'serial_number'])
         port.device = '/dev/cu.usbmodem101'
         port.vid = 0x2886
         port.pid = 0x0058
+        port.serial_number = 'ABCD'
         mock_comports.return_value = [port]
         result = _find_dev_rp2350_pre_flash_port()
         assert result is not None
-        device, vid, pid, label = result
-        assert device == '/dev/cu.usbmodem101'
-        assert vid == 0x2886
-        assert pid == 0x0058
-        assert 'XIAO' in label
+        assert result['repl_port'] == '/dev/cu.usbmodem101'
+        assert result['app_port'] is None  # single CDC, no composite
+        assert result['vid'] == 0x2886
+        assert result['pid'] == 0x0058
+        assert 'XIAO' in result['label']
 
     @patch("drivers.firmware_updater.list_ports.comports")
     def test_returns_none_when_no_known_board(self, mock_comports):
-        port = MagicMock()
+        port = MagicMock(spec=['device', 'vid', 'pid', 'serial_number'])
         port.device = '/dev/cu.something'
         port.vid = 0x9999
         port.pid = 0x9999
+        port.serial_number = None
         mock_comports.return_value = [port]
         assert _find_dev_rp2350_pre_flash_port() is None
 
     @patch("drivers.firmware_updater.list_ports.comports")
-    def test_returns_first_match_when_multiple(self, mock_comports):
-        port1 = MagicMock(device='/dev/cu.unknown', vid=0xFFFF, pid=0xFFFF)
-        port2 = MagicMock(device='/dev/cu.xiao', vid=0x2886, pid=0x0058)
-        mock_comports.return_value = [port1, port2]
+    def test_returns_known_match_when_unknown_also_present(self, mock_comports):
+        unknown = MagicMock(spec=['device', 'vid', 'pid', 'serial_number'])
+        unknown.device = '/dev/cu.unknown'
+        unknown.vid = 0xFFFF
+        unknown.pid = 0xFFFF
+        unknown.serial_number = None
+        xiao = MagicMock(spec=['device', 'vid', 'pid', 'serial_number'])
+        xiao.device = '/dev/cu.xiao'
+        xiao.vid = 0x2886
+        xiao.pid = 0x0058
+        xiao.serial_number = 'XYZ'
+        mock_comports.return_value = [unknown, xiao]
         result = _find_dev_rp2350_pre_flash_port()
         assert result is not None
-        assert result[0] == '/dev/cu.xiao'
+        assert result['repl_port'] == '/dev/cu.xiao'
+
+    @patch("drivers.firmware_updater.list_ports.comports")
+    def test_composite_device_returns_repl_and_app_ports(self, mock_comports):
+        """Two CDC interfaces under the same composite device: REPL = lower-
+        numbered port (interface 0 by USB CDC convention), App = higher."""
+        repl_intf = MagicMock(spec=['device', 'vid', 'pid', 'serial_number'])
+        repl_intf.device = '/dev/cu.usbmodem1101'
+        repl_intf.vid = 0x2E8A
+        repl_intf.pid = 0x0005
+        repl_intf.serial_number = '0fbb6fbd5b33c455'
+        app_intf = MagicMock(spec=['device', 'vid', 'pid', 'serial_number'])
+        app_intf.device = '/dev/cu.usbmodem1103'
+        app_intf.vid = 0x2E8A
+        app_intf.pid = 0x0005
+        app_intf.serial_number = '0fbb6fbd5b33c455'  # same serial = same device
+        mock_comports.return_value = [repl_intf, app_intf]
+        result = _find_dev_rp2350_pre_flash_port()
+        assert result is not None
+        assert result['repl_port'] == '/dev/cu.usbmodem1101'
+        assert result['app_port'] == '/dev/cu.usbmodem1103'
+        assert result['serial'] == '0fbb6fbd5b33c455'
+
+    @patch("drivers.firmware_updater.list_ports.comports")
+    def test_composite_repl_chosen_regardless_of_enumeration_order(self, mock_comports):
+        """If list_ports returns the App port FIRST, sort still picks REPL
+        as the lower-numbered device path."""
+        app_intf = MagicMock(spec=['device', 'vid', 'pid', 'serial_number'])
+        app_intf.device = '/dev/cu.usbmodem1103'
+        app_intf.vid = 0x2E8A
+        app_intf.pid = 0x0005
+        app_intf.serial_number = 'ABC123'
+        repl_intf = MagicMock(spec=['device', 'vid', 'pid', 'serial_number'])
+        repl_intf.device = '/dev/cu.usbmodem1101'
+        repl_intf.vid = 0x2E8A
+        repl_intf.pid = 0x0005
+        repl_intf.serial_number = 'ABC123'
+        # Note: App port listed BEFORE REPL — auto-discovery must still
+        # pick REPL via lexicographic sort.
+        mock_comports.return_value = [app_intf, repl_intf]
+        result = _find_dev_rp2350_pre_flash_port()
+        assert result is not None
+        assert result['repl_port'] == '/dev/cu.usbmodem1101'
+        assert result['app_port'] == '/dev/cu.usbmodem1103'
 
 
 class TestRebootDevBoardToBootsel:
@@ -1223,7 +1276,11 @@ class TestFlashDevBoardHappyPath:
     @patch("drivers.firmware_updater._wait_for_bootsel_drive")
     @patch("drivers.firmware_updater._reboot_dev_board_to_bootsel", return_value=True)
     @patch("drivers.firmware_updater._find_dev_rp2350_pre_flash_port",
-           return_value=('/dev/cu.usbmodem101', 0x2886, 0x0058, 'Seeed XIAO RP2350'))
+           return_value={'repl_port': '/dev/cu.usbmodem101',
+                         'app_port': None,
+                         'vid': 0x2886, 'pid': 0x0058,
+                         'label': 'Seeed XIAO RP2350',
+                         'serial': 'XYZ'})
     @patch("drivers.firmware_updater._detect_bootsel_drive", return_value=None)
     def test_happy_path_via_picotool_reboot(
         self, mock_detect, mock_find_port, mock_reboot, mock_wait_drive,
@@ -1252,7 +1309,11 @@ class TestFlashDevBoardHappyPath:
     @patch("drivers.firmware_updater._reboot_dev_board_to_bootsel",
            return_value=False)
     @patch("drivers.firmware_updater._find_dev_rp2350_pre_flash_port",
-           return_value=('/dev/cu.test', 0x2886, 0x0058, 'XIAO'))
+           return_value={'repl_port': '/dev/cu.test',
+                         'app_port': None,
+                         'vid': 0x2886, 'pid': 0x0058,
+                         'label': 'XIAO',
+                         'serial': 'TST'})
     @patch("drivers.firmware_updater._detect_bootsel_drive", return_value=None)
     def test_picotool_failure_returns_user_actionable_error(
         self, mock_detect, mock_find, mock_reboot, tmp_path,

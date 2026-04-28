@@ -1308,17 +1308,55 @@ def _find_dev_rp2350_pre_flash_port():
     match against KNOWN_DEV_RP2350_PRE_FLASH for any port that is plausibly
     a dev-board we want to flash.
 
-    Returns (port_device, vid, pid, label) tuple, or None if nothing matches.
+    Composite USB devices (e.g. RP2350 running our composite App+REPL CDC
+    firmware) expose TWO CDC interfaces under the same VID/PID + serial.
+    USB protocol convention: interface 0 = REPL (lower-numbered host port),
+    interface 1 = App. The OS assigns /dev/cu.usbmodem* numbers in interface
+    order, so sorting matching ports alphabetically/numerically and taking
+    the FIRST is reliably the REPL CDC. The repl_port is what we use for
+    bootloader-entry (raw REPL machine.bootloader() or picotool reboot);
+    the app_port is what main.py owns for application traffic.
+
+    Returns dict with keys (repl_port, app_port, vid, pid, label, serial),
+    or None if nothing matches. `app_port` is None if only one CDC was
+    found for this device — non-composite firmware running on the board.
     """
+    # Group matching ports by USB serial number. Two ports with the same
+    # serial belong to the same composite device.
+    matches_by_serial = {}
     for port in list_ports.comports():
         for vid, pid, label in KNOWN_DEV_RP2350_PRE_FLASH:
             if port.vid == vid and port.pid == pid:
-                logger.info(
-                    f"Found dev RP2350 board: {label} at {port.device} "
-                    f"(VID=0x{vid:04X} PID=0x{pid:04X})"
-                )
-                return (port.device, vid, pid, label)
-    return None
+                key = port.serial_number or f"{vid:04X}:{pid:04X}"
+                matches_by_serial.setdefault(key, []).append((port, vid, pid, label))
+                break
+
+    if not matches_by_serial:
+        return None
+
+    # Pick the first device that matched (any of them — they're all flashable).
+    serial, port_entries = next(iter(matches_by_serial.items()))
+    # Sort by device path — lower-numbered port = lower interface index =
+    # REPL (interface 0) under USB CDC convention. macOS uses cu.usbmodemNNNN
+    # where NNNN sorts numerically; Linux uses /dev/ttyACMn which also sorts
+    # numerically; Windows COMn likewise. Alphabetic sort is correct on all.
+    port_entries.sort(key=lambda entry: entry[0].device)
+    repl_port = port_entries[0][0].device
+    app_port = port_entries[1][0].device if len(port_entries) > 1 else None
+    _, vid, pid, label = port_entries[0]
+    logger.info(
+        f"Found dev RP2350 board: {label} (VID=0x{vid:04X} PID=0x{pid:04X}) "
+        f"REPL={repl_port} App={app_port or '(none — single CDC)'} "
+        f"serial={serial}"
+    )
+    return {
+        'repl_port': repl_port,
+        'app_port': app_port,
+        'vid': vid,
+        'pid': pid,
+        'label': label,
+        'serial': serial,
+    }
 
 
 def _reboot_dev_board_via_mp_repl(port):
@@ -1514,9 +1552,12 @@ def flash_dev_board(
             if port is None:
                 discovered = _find_dev_rp2350_pre_flash_port()
                 if discovered is not None:
-                    port = discovered[0]
+                    # Always reboot via the REPL port — App port runs the
+                    # application command dispatcher, not raw REPL.
+                    port = discovered['repl_port']
                     logger.info(
-                        f"Auto-discovered dev board at {port} ({discovered[3]})"
+                        f"Auto-discovered dev board: REPL at {port} "
+                        f"({discovered['label']})"
                     )
             if port is not None:
                 # Try paths in order of likelihood for our dev-board mix:
@@ -1608,11 +1649,13 @@ def flash_dev_board(
             # what the new UF2 actually exposes. Look for any new MP-class port.
             discovered = _find_dev_rp2350_pre_flash_port()
             if discovered is not None:
-                new_port = discovered[0]
+                new_port = discovered['repl_port']
                 logger.info(
-                    f"Board re-enumerated at {new_port} (VID/PID may not "
-                    f"match BOARD_CONFIGS post-flash defaults — that's OK; "
-                    f"update BOARD_CONFIGS[DEV_RP2350].vid/pid to match if "
+                    f"Board re-enumerated: REPL at {new_port} "
+                    f"App at {discovered['app_port'] or '(none)'} "
+                    f"(VID/PID may not match BOARD_CONFIGS post-flash "
+                    f"defaults — that's OK; update "
+                    f"BOARD_CONFIGS[DEV_RP2350].vid/pid to match if "
                     f"flashing the same UF2 family routinely)"
                 )
             else:
