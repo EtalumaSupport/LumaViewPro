@@ -128,24 +128,42 @@ When both are present, the bundle chains an `ExePackage` that runs
 missing, the bundle is built without IDS Peak (IDS cameras still need a
 manual driver install on customer machines).
 
-#### FX2 WinUSB INF (LVC cameras: LS560 / LS620 / LS720)
+#### FX2 WinUSB Driver (LVC cameras: LS560 / LS620 / LS720)
 
 ```text
 dependencies\fx2\
-`-- LumaScope_WinUSB.inf            # ~2 KB text file
+|-- LumaScope_WinUSB.inf            # ~2 KB text file
+`-- libusb-1.0.dll                  # ~150 KB native library
 ```
 
-Source the INF from the LumaviewClassic repo
-(`old_source/lumascope/LumaScope_WinUSB.inf`). Binds inbox `WinUSB.sys`
-to the FX2 VID/PID `0x04B4:0x8613` / `0x04B4:0xEA17` so `pyusb` can open
-the device without Zadig.
+Two files together enable end-to-end FX2 support:
 
-When present, the LVP MSI installs the INF to
-`<InstallFolder>\drivers\fx2\` and runs `pnputil /add-driver <inf> /install`
-during the `InstallFiles` phase (deferred, runs as SYSTEM, errors ignored).
+- **`LumaScope_WinUSB.inf`** — sourced from the LumaviewClassic repo
+  (`old_source/lumascope/LumaScope_WinUSB.inf`). Binds inbox `WinUSB.sys`
+  to the FX2 VID/PID `0x04B4:0x8613` / `0x04B4:0xEA17` so `pyusb` can
+  open the device without Zadig. When present, the LVP MSI installs it
+  to `<InstallFolder>\drivers\fx2\` and runs
+  `pnputil /add-driver <inf> /install` during `InstallFiles` (deferred,
+  runs as SYSTEM, errors ignored).
 
-When absent, the MSI is built without an FX2 install step. LVC users will
-still need Zadig or a manual `pnputil` invocation to bind WinUSB.
+- **`libusb-1.0.dll`** — the native USB library that pyusb's `libusb1`
+  backend loads via `ctypes` on Windows. Without it, the bundled LVP
+  exe can't talk to FX2 hardware even after the WinUSB driver is bound.
+  Download from
+  [github.com/libusb/libusb/releases](https://github.com/libusb/libusb/releases)
+  and copy the `VS2019/MS64/dll/libusb-1.0.dll` (or equivalent
+  Windows-x64 build) into `dependencies\fx2\`. PyInstaller bundles it
+  next to `lumaviewpro.exe` when present.
+
+When either file is absent, the build still succeeds but FX2 cameras
+won't work on the resulting installer:
+
+| INF | DLL | Result |
+|---|---|---|
+| ✓ | ✓ | Full FX2 support — driver auto-installed, app can talk to camera |
+| ✗ | ✓ | App has FX2 libraries but customer must install driver via Zadig |
+| ✓ | ✗ | Driver installed but bundled app fails at first FX2 access |
+| ✗ | ✗ | FX2 unsupported (current 4.0.0-beta default) |
 
 ### 4. Copy The Build Script
 

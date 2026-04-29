@@ -110,6 +110,7 @@ Set-Location $build_dir
 if (-not $Branch) {
     $branches = @(
         "4.0.0-beta"
+        "4.1.0-dev"
         "main"
     )
     Write-Host "`nAvailable branches:"
@@ -176,17 +177,27 @@ if ($ids_files) {
     }
 }
 
-# FX2 WinUSB INF for LVC (LS560/LS620/LS720) FX2 USB driver. Tiny text file,
-# binds inbox WinUSB.sys to the FX2 VID/PID. When present, the LVP MSI
-# installs the INF via pnputil at install time so pyusb finds the device
-# without Zadig. See BUILD_INSTRUCTIONS.md > Optional Dependencies.
+# FX2 WinUSB INF + native libusb-1.0.dll for LVC (LS560/LS620/LS720)
+# cameras. Two files needed for end-to-end FX2 support:
+#   1. LumaScope_WinUSB.inf — binds inbox WinUSB.sys to the FX2 VID/PID;
+#      installed by pnputil custom action in Package.wxs.
+#   2. libusb-1.0.dll — pyusb's libusb1 backend on Windows; loaded by
+#      ctypes inside the bundled LVP exe. Without it, pyusb fails to
+#      find a USB backend and the FX2 driver silently no-ops.
+# See BUILD_INSTRUCTIONS.md > Optional Dependencies.
 $fx2_inf = ""
+$fx2_libusb_dll = ""
 $fx2_dir = Join-Path $deps "fx2"
 if (Test-Path $fx2_dir) {
     $fx2_files = Get-ChildItem -Path $fx2_dir -Filter "*WinUSB*.inf" -ErrorAction SilentlyContinue
     if ($fx2_files) {
         $fx2_inf = $fx2_files[0].FullName
         Write-Host "Found FX2 WinUSB INF: $fx2_inf"
+    }
+    $fx2_dll_files = Get-ChildItem -Path $fx2_dir -Filter "libusb-1.0.dll" -ErrorAction SilentlyContinue
+    if ($fx2_dll_files) {
+        $fx2_libusb_dll = $fx2_dll_files[0].FullName
+        Write-Host "Found FX2 libusb-1.0.dll: $fx2_libusb_dll"
     }
 }
 
@@ -195,6 +206,7 @@ if (-not $corretto_msi) { Write-Host "No Corretto MSI in dependencies\ - bundle 
 if (-not $maven_dir) { Write-Host "Warning: Apache Maven not found in dependencies\ - ImageJ will not work in installed app" }
 if (-not $ids_peak_exe) { Write-Host "No IDS Peak runtime in dependencies\ - IDS cameras will need manual driver install on customer machines" }
 if (-not $fx2_inf) { Write-Host "No FX2 WinUSB INF in dependencies\fx2\ - LVC FX2 driver will need manual install (Zadig)" }
+if (-not $fx2_libusb_dll) { Write-Host "No FX2 libusb-1.0.dll in dependencies\fx2\ - bundled LVP will not be able to talk to FX2 cameras even if WinUSB driver is installed" }
 
 # ---------------------------------------------------------------------------
 # Check tools
@@ -361,8 +373,20 @@ if ($spec_contents -notmatch 'contents_directory\s*=\s*[''"]\.[''"]') {
 Copy-Item $spec ".\lumaviewpro.spec"
 
 Write-Host "Building executable..."
+# Hand the FX2 libusb DLL path to the PyInstaller spec via env var. The
+# spec checks $env:FX2_LIBUSB_DLL and conditionally adds the binary to
+# the Analysis. Empty/unset -> spec skips bundling, FX2 stays unsupported
+# in the resulting exe.
+if ($fx2_libusb_dll) {
+    $env:FX2_LIBUSB_DLL = $fx2_libusb_dll
+    Write-Host "Bundling FX2 libusb-1.0.dll: $fx2_libusb_dll"
+} else {
+    $env:FX2_LIBUSB_DLL = ""
+}
 & $venv_python -m PyInstaller --log-level WARN .\lumaviewpro.spec
-if ($LASTEXITCODE -ne 0) { Write-Host "ERROR: PyInstaller failed"; Set-Location $build_dir; Exit 1 }
+$pyi_exit = $LASTEXITCODE
+$env:FX2_LIBUSB_DLL = $null
+if ($pyi_exit -ne 0) { Write-Host "ERROR: PyInstaller failed"; Set-Location $build_dir; Exit 1 }
 
 # Create install directory
 $install = ".\dist\$product"
