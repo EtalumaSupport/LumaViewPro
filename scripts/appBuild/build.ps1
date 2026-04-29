@@ -161,7 +161,28 @@ if (-not $maven_dir) { Write-Host "Warning: Apache Maven not found in dependenci
 # Check tools
 # ---------------------------------------------------------------------------
 Write-Host "`nChecking tools..."
-try { $v = & wix --version 2>&1; Write-Host "  WiX: $v" } catch { Write-Host "ERROR: WiX not found. Run: dotnet tool install --global wix"; Exit 1 }
+try { $wix_version_raw = & wix --version 2>&1; Write-Host "  WiX: $wix_version_raw" } catch { Write-Host "ERROR: WiX not found. Run: dotnet tool install --global wix --version 6.0.0"; Exit 1 }
+
+# Refuse WiX v7+: Bundle.wxs is authored for the v4-v6 WixToolset.Bal.wixext
+# API. v7 restructured WixStdBA and added a required scope field in the
+# Burn-BA plan protocol; bundles built with v7 still produce a -setup.exe
+# but fail at customer install with 0x80070057 "Failed to read plan scope
+# of BAEnginePlan args". Catch the wrong WiX up front, before the build
+# wastes 5+ minutes producing a broken bundle.
+$wix_major = $null
+if ($wix_version_raw -match '^\s*(\d+)\.') { $wix_major = [int]$matches[1] }
+if ($null -ne $wix_major -and $wix_major -ge 7) {
+    Write-Host ""
+    Write-Host "ERROR: WiX $wix_version_raw is not supported by this build."
+    Write-Host "  This build's Bundle.wxs requires WiX v6.x."
+    Write-Host "  Downgrade with:"
+    Write-Host "    dotnet tool uninstall --global wix"
+    Write-Host "    dotnet tool install --global wix --version 6.0.0"
+    Write-Host "    wix extension remove --global WixToolset.Bal.wixext"
+    Write-Host "  See scripts\appBuild\BUILD_INSTRUCTIONS.md for details."
+    Exit 1
+}
+
 try { $v = & git --version 2>&1; Write-Host "  Git: $v" } catch { Write-Host "ERROR: Git not found"; Exit 1 }
 
 $python = Get-BuildPython
