@@ -254,8 +254,30 @@ $ver_raw = (Get-Content "$clone\version.txt" -TotalCount 1).Trim()
 if ($ver_raw -match '^\S+') { $version = $matches[0] } else { Write-Host "ERROR: Can't parse version.txt"; Exit 1 }
 
 $product = "LumaViewPro-$version"
-$wix_ver = $version
-if ($version -match '^(\d+\.\d+\.\d+)') { $wix_ver = $matches[1] }
+
+# Build a 4-part Major.Minor.Patch.Revision installer version. WiX Bundle
+# ProductVersion + MSI ProductVersion are what Windows Installer compares to
+# decide upgrade-vs-no-op. Without a unique 4th component every beta gets
+# version "4.0.0" and beta3 -> beta6 is invisible to the upgrade engine
+# (related-bundle Detect doesn't fire). Encoding rules:
+#
+#   X.Y.Z-betaN     -> X.Y.Z.N    (beta number in revision slot)
+#   X.Y.Z           -> X.Y.Z.99   (release > any beta in same series)
+#   X.Y.Z-<other>   -> X.Y.Z.0    (dev/rc/etc — lowest, never shipped)
+#
+# When the next major series (4.1.0) starts shipping, X.Y.Z.99 of the older
+# series stays below 4.1.0.* automatically, so no transition logic needed.
+if ($version -match '^(\d+\.\d+\.\d+)-beta(\d+)$') {
+    $wix_ver = "$($matches[1]).$($matches[2])"
+} elseif ($version -match '^(\d+\.\d+\.\d+)$') {
+    $wix_ver = "$($matches[1]).99"
+} elseif ($version -match '^(\d+\.\d+\.\d+)-') {
+    $wix_ver = "$($matches[1]).0"
+} else {
+    Write-Host "ERROR: Can't derive installer version from version.txt: $version"
+    Exit 1
+}
+Write-Host "Installer version (4-part): $wix_ver"
 
 Write-Host "`n======================================="
 Write-Host "  Building $product"

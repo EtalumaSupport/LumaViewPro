@@ -54,6 +54,23 @@
 			  <RegistryValue Root="HKCU" Key="Software\Etaluma\LumaViewPro" Name="installed" Type="integer" Value="1" KeyPath="yes"/>
 		  </Component>
 	  </DirectoryRef>
+
+	  <!-- Desktop shortcut. KeyPath has to be the registry value (not the
+	       shortcut itself) because non-advertised shortcuts can't be
+	       KeyPaths. RemoveFolder is unnecessary — the desktop is a system
+	       folder, not one we created. -->
+	  <StandardDirectory Id="DesktopFolder">
+		  <Component Id="ApplicationDesktopShortcut" Guid="d9f1c4e2-7a8b-4e1f-9c3a-5b6d8e2f1a4c">
+			  <Shortcut Id="DesktopShortcut"
+						Name="$(var.ProductName)"
+						Description="Etaluma LumaViewPro"
+						Target="[INSTALLFOLDER]lumaviewpro.exe"
+						WorkingDirectory="INSTALLFOLDER"
+						Icon="icon.ico"
+						IconIndex="0"/>
+			  <RegistryValue Root="HKCU" Key="Software\Etaluma\LumaViewPro" Name="DesktopShortcut" Type="integer" Value="1" KeyPath="yes"/>
+		  </Component>
+	  </StandardDirectory>
 	  
 	  <Component Id="pathComponentMaven" Guid="a096f34d-64fb-48af-ac95-1f24648ce759" KeyPath="yes">
 		  <CreateFolder />
