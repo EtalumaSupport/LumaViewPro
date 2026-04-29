@@ -42,9 +42,9 @@
 
     <Chain>
 		<MsiPackage Id="LVP"
-					SourceFile="$(var.LVPMsiDir)"  
+					SourceFile="$(var.LVPMsiDir)"
 					Vital="yes"/>
-		
+
 		<MsiPackage Id="PylonDriver"
 					Permanent="yes"
 					SourceFile="$(var.PylonDriverDir)"/>
@@ -52,6 +52,22 @@
 		<MsiPackage Id="AmazonCorretto8"
 					SourceFile="$(var.CorretoMsiDir)"
 					Vital="yes"/>
+
+		<!--
+		  Optional: IDS Peak runtime (USB3 transport layer + drivers for IDS
+		  cameras). InstallShield .exe needs a recorded setup.iss for silent
+		  install. The build script defines IDSPeakExe + IDSPeakSetupIss only
+		  when both files are present in dependencies\; absence -> this
+		  package is simply not part of the chain.
+		-->
+		<?ifdef IDSPeakExe ?>
+		<ExePackage Id="IDSPeakRuntime"
+					SourceFile="$(var.IDSPeakExe)"
+					Permanent="yes"
+					PerMachine="yes"
+					InstallCommand='/s /f1"$(var.IDSPeakSetupIss)"'
+					DetectCondition="0" />
+		<?endif ?>
     </Chain>
   </Bundle>
 </Wix>

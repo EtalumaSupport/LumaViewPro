@@ -75,6 +75,42 @@
 			Value="GpuPreference=2;"
 			Action="write" />
 	  </Component>
-	  
+
+	  <!--
+	    Optional: FX2 WinUSB driver for LVC cameras (LS560/LS620/LS720).
+	    Install the INF to a known subfolder and run pnputil /add-driver
+	    after files are laid down. The build script defines Fx2InfPath only
+	    when an INF is present in dependencies\fx2\; absence -> this entire
+	    block is preprocessed out and the MSI has no FX2 install action.
+
+	    NOTE: pnputil requires admin. The MSI already runs elevated, so the
+	    deferred action runs as SYSTEM. Errors are ignored (Return="ignore")
+	    so a missing driver-install doesn't block the rest of LVP setup.
+	  -->
+	  <?ifdef Fx2InfPath ?>
+	  <DirectoryRef Id="INSTALLFOLDER">
+	    <Directory Id="Fx2DriverDir" Name="drivers">
+	      <Directory Id="Fx2DriverSubDir" Name="fx2">
+	        <Component Id="Fx2WinUSBInfFile" Guid="3a7b5f48-9e2a-4d1c-bf67-2ca1d8fe9e10">
+	          <File Id="Fx2WinUSBInf"
+	                Source="$(var.Fx2InfPath)"
+	                KeyPath="yes" />
+	        </Component>
+	      </Directory>
+	    </Directory>
+	  </DirectoryRef>
+
+	  <CustomAction Id="InstallFx2Driver"
+	                Directory="Fx2DriverSubDir"
+	                ExeCommand="[System64Folder]pnputil.exe /add-driver &quot;[#Fx2WinUSBInf]&quot; /install"
+	                Execute="deferred"
+	                Impersonate="no"
+	                Return="ignore" />
+
+	  <InstallExecuteSequence>
+	    <Custom Action="InstallFx2Driver" After="InstallFiles" Condition="NOT REMOVE" />
+	  </InstallExecuteSequence>
+	  <?endif ?>
+
   </Package>
 </Wix>

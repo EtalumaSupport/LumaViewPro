@@ -153,9 +153,48 @@ if ($corretto_files) { $corretto_msi = $corretto_files[0].FullName; Write-Host "
 $maven_files = Get-ChildItem -Path $deps -Directory -Filter "apache-maven*" -ErrorAction SilentlyContinue
 if ($maven_files) { $maven_dir = $maven_files[0].FullName; Write-Host "Found Maven: $maven_dir" }
 
+# ---------------------------------------------------------------------------
+# Optional dependencies — bundle uses them when present, skips silently when
+# absent. Drop the matching files into dependencies\ to enable.
+# ---------------------------------------------------------------------------
+
+# IDS Peak runtime (USB3 transport layer for IDS cameras). InstallShield
+# .exe — needs a recorded setup.iss for silent install. See
+# BUILD_INSTRUCTIONS.md > Optional Dependencies.
+$ids_peak_exe = ""
+$ids_peak_iss = ""
+$ids_files = Get-ChildItem -Path $deps -Filter "ids_peak_*.exe" -ErrorAction SilentlyContinue
+if ($ids_files) {
+    $ids_iss_files = Get-ChildItem -Path $deps -Filter "setup.iss" -ErrorAction SilentlyContinue
+    if ($ids_iss_files) {
+        $ids_peak_exe = $ids_files[0].FullName
+        $ids_peak_iss = $ids_iss_files[0].FullName
+        Write-Host "Found IDS Peak: $ids_peak_exe"
+        Write-Host "Found IDS Peak setup.iss: $ids_peak_iss"
+    } else {
+        Write-Host "Found IDS Peak EXE but no setup.iss in dependencies\ - IDS Peak will NOT be bundled (silent install needs both)"
+    }
+}
+
+# FX2 WinUSB INF for LVC (LS560/LS620/LS720) FX2 USB driver. Tiny text file,
+# binds inbox WinUSB.sys to the FX2 VID/PID. When present, the LVP MSI
+# installs the INF via pnputil at install time so pyusb finds the device
+# without Zadig. See BUILD_INSTRUCTIONS.md > Optional Dependencies.
+$fx2_inf = ""
+$fx2_dir = Join-Path $deps "fx2"
+if (Test-Path $fx2_dir) {
+    $fx2_files = Get-ChildItem -Path $fx2_dir -Filter "*WinUSB*.inf" -ErrorAction SilentlyContinue
+    if ($fx2_files) {
+        $fx2_inf = $fx2_files[0].FullName
+        Write-Host "Found FX2 WinUSB INF: $fx2_inf"
+    }
+}
+
 if (-not $pylon_msi) { Write-Host "No Pylon MSI in dependencies\ - bundle will be skipped" }
 if (-not $corretto_msi) { Write-Host "No Corretto MSI in dependencies\ - bundle will be skipped" }
 if (-not $maven_dir) { Write-Host "Warning: Apache Maven not found in dependencies\ - ImageJ will not work in installed app" }
+if (-not $ids_peak_exe) { Write-Host "No IDS Peak runtime in dependencies\ - IDS cameras will need manual driver install on customer machines" }
+if (-not $fx2_inf) { Write-Host "No FX2 WinUSB INF in dependencies\fx2\ - LVC FX2 driver will need manual install (Zadig)" }
 
 # ---------------------------------------------------------------------------
 # Check tools
@@ -349,14 +388,22 @@ New-Item $output_dir -ItemType Directory -Force | Out-Null
 $msi = Join-Path $output_dir "$product.msi"
 
 Write-Host "Building MSI..."
-& $wix_exe build -arch x64 `
-    -d "InstallFolderDir=$install" `
-    -d "InstallerAssetsDir=$installer_assets_dir" `
-    -d "ProjectDir=$wix_dir\" `
-    -d "ProductName=$product" `
-    -d "Version=$wix_ver" `
-    -out $msi `
-    Package.wxs Folders.wxs
+$msi_args = @(
+    'build', '-arch', 'x64',
+    '-d', "InstallFolderDir=$install",
+    '-d', "InstallerAssetsDir=$installer_assets_dir",
+    '-d', "ProjectDir=$wix_dir\",
+    '-d', "ProductName=$product",
+    '-d', "Version=$wix_ver"
+)
+# Pass optional FX2 INF path. Package.wxs gates the FX2 driver-install
+# component on this define being set, so absence -> no FX2 install action
+# in the MSI.
+if ($fx2_inf) {
+    $msi_args += @('-d', "Fx2InfPath=$fx2_inf")
+}
+$msi_args += @('-out', $msi, 'Package.wxs', 'Folders.wxs')
+& $wix_exe @msi_args
 
 if ($LASTEXITCODE -ne 0) { Write-Host "ERROR: MSI build failed"; Set-Location $build_dir; Exit 1 }
 Write-Host "MSI: $msi"
@@ -377,17 +424,27 @@ if ($pylon_msi -and $corretto_msi) {
     else { & wix extension add -g WixToolset.Bal.wixext 2>&1 | Out-Null; $ext = "WixToolset.Bal.wixext" }
 
     Write-Host "Building bundle..."
-    & $wix_exe build -arch x64 `
-        -ext $ext `
-        -d "LVPInstallFolderDir=$install" `
-        -d "InstallerAssetsDir=$installer_assets_dir" `
-        -d "LVPMsiDir=$msi" `
-        -d "PylonDriverDir=$pylon_msi" `
-        -d "CorretoMsiDir=$corretto_msi" `
-        -d "ProductName=$product" `
-        -d "ProductVersion=$wix_ver" `
-        -out $bundle `
-        Bundle.wxs
+    $bundle_args = @(
+        'build', '-arch', 'x64',
+        '-ext', $ext,
+        '-d', "LVPInstallFolderDir=$install",
+        '-d', "InstallerAssetsDir=$installer_assets_dir",
+        '-d', "LVPMsiDir=$msi",
+        '-d', "PylonDriverDir=$pylon_msi",
+        '-d', "CorretoMsiDir=$corretto_msi",
+        '-d', "ProductName=$product",
+        '-d', "ProductVersion=$wix_ver"
+    )
+    # Pass optional IDS Peak runtime EXE + setup.iss. Bundle.wxs gates the
+    # IDS Peak ExePackage on these defines, so absence -> not chained.
+    if ($ids_peak_exe -and $ids_peak_iss) {
+        $bundle_args += @(
+            '-d', "IDSPeakExe=$ids_peak_exe",
+            '-d', "IDSPeakSetupIss=$ids_peak_iss"
+        )
+    }
+    $bundle_args += @('-out', $bundle, 'Bundle.wxs')
+    & $wix_exe @bundle_args
 
     if ($LASTEXITCODE -ne 0) {
         Write-Host "Warning: Bundle build failed"

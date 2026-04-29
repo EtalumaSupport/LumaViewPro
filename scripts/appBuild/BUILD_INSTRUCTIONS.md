@@ -98,6 +98,55 @@ Required for the customer `-setup.exe` bundle:
 If Pylon or Corretto are missing, the build still creates the standalone MSI but
 skips the customer `-setup.exe` bundle.
 
+### Optional Dependencies
+
+The build script also auto-detects these. If absent, the build skips the
+relevant component silently — no failure. Drop them into `dependencies\` to
+enable.
+
+#### IDS Peak Runtime (USB3 driver for IDS cameras)
+
+```text
+dependencies\
+|-- ids_peak_<version>.exe          # InstallShield runtime installer (~26 MB)
+`-- setup.iss                        # Recorded silent-install response file
+```
+
+`ids_peak_*.exe` is the **Runtime** variant from
+en.ids-imaging.com/download-peak.html (free MyIDS account required;
+mirror to your build artefact store, do not rely on download at build time).
+Pick a runtime version that matches the `ids-peak` PyPI binding pinned in
+`requirements.txt` — IDS hard-couples Python binding genericAPI major.minor
+to the runtime's. As of writing, `ids-peak==1.13.0.0.6` needs runtime 2.18+.
+
+`setup.iss` must be recorded once with `ids_peak_<version>.exe /r` on a
+Windows host that has a successful interactive install of that exact runtime
+version. Commit the resulting file alongside the EXE in `dependencies\`.
+
+When both are present, the bundle chains an `ExePackage` that runs
+`ids_peak_<version>.exe /s /f1"setup.iss"` per machine. When either is
+missing, the bundle is built without IDS Peak (IDS cameras still need a
+manual driver install on customer machines).
+
+#### FX2 WinUSB INF (LVC cameras: LS560 / LS620 / LS720)
+
+```text
+dependencies\fx2\
+`-- LumaScope_WinUSB.inf            # ~2 KB text file
+```
+
+Source the INF from the LumaviewClassic repo
+(`old_source/lumascope/LumaScope_WinUSB.inf`). Binds inbox `WinUSB.sys`
+to the FX2 VID/PID `0x04B4:0x8613` / `0x04B4:0xEA17` so `pyusb` can open
+the device without Zadig.
+
+When present, the LVP MSI installs the INF to
+`<InstallFolder>\drivers\fx2\` and runs `pnputil /add-driver <inf> /install`
+during the `InstallFiles` phase (deferred, runs as SYSTEM, errors ignored).
+
+When absent, the MSI is built without an FX2 install step. LVC users will
+still need Zadig or a manual `pnputil` invocation to bind WinUSB.
+
 ### 4. Copy The Build Script
 
 From your build folder, clone the branch that contains the build script version
