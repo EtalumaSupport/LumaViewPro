@@ -23,6 +23,15 @@ av==14.0.0
 # the build log clean. Wheel bundles libenchant.dll on Windows; ~2-4 MB.
 pyenchant==3.2.2
 
+# FX2 (LVC LS560/LS620/LS720) USB driver bindings. Both packages are
+# gated at runtime by drivers/fx2driver.py:_FX2_AVAILABLE — present
+# without FX2 hardware, the driver no-ops with a single INFO log. The
+# native libusb-1.0.dll must also be bundled at build time (see the
+# PyInstaller spec); without it pyusb fails to load its libusb1
+# backend on Windows.
+pyusb==1.3.1
+libusb1==3.3.1
+
 # Packages related to Java support
 # scyjava is imported directly by modules/imagej_helper.py and must stay
 # explicitly pinned. jgo + JPype1 are pure transitives of pyimagej/scyjava

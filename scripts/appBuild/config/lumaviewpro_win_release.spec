@@ -27,12 +27,35 @@ hiddenimports = [
     'imagecodecs._shared',
     'skimage.measure',
     'win32timezone',
+    # FX2 (LVC) USB driver imports — pyusb + libusb1 dynamic submodules
+    # that PyInstaller can't follow statically. Listed unconditionally
+    # because drivers/fx2driver.py guards their import with try/except
+    # (_FX2_AVAILABLE flag), so absence of the libraries at install
+    # time degrades to "FX2 not available" rather than a crash.
+    'usb',
+    'usb.core',
+    'usb.util',
+    'usb.backend.libusb1',
+    'usb1',
 ]
+
+# Optional libusb-1.0.dll (FX2 USB I/O on Windows). Sourced by
+# build.ps1 from dependencies\fx2\libusb-1.0.dll and passed via the
+# FX2_LIBUSB_DLL env var. When unset/missing, FX2 cameras silently
+# stay unsupported on the installed app — pyusb can't load its
+# libusb1 backend without the native DLL on Windows. Bundling at the
+# install root puts it in PyInstaller's _MEIPASS search path so
+# ctypes.cdll.LoadLibrary("libusb-1.0.dll") inside pyusb finds it.
+import os as _os
+binaries = []
+_fx2_dll = _os.environ.get('FX2_LIBUSB_DLL', '').strip()
+if _fx2_dll and _os.path.exists(_fx2_dll):
+    binaries.append((_fx2_dll, '.'))
 
 a = Analysis(
     ['lumaviewpro.py'],
     pathex=['.'],
-    binaries=[],
+    binaries=binaries,
     datas=datas,
     hiddenimports=hiddenimports,
     hookspath=[],
