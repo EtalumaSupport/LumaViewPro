@@ -110,9 +110,12 @@ void main (void) {
         self._track_keys = ['ctrl', 'shift']
         self._active_key_presses = set()
 
-        # Status bar: mouse position tracking (throttled to ~5 Hz)
-        # 1 Hz update — throttled to minimize Window.set_title() overhead on SDL2/Windows
-        self._status_bar_trigger = Clock.create_trigger(self._update_status_bar, 1.0, interval=True)
+        # Status bar update interval. Drives FPS readout AND cursor
+        # XY/Plate readouts in the window title (#638 follow-up: 1 Hz
+        # was too sluggish for stage-position feedback during motion).
+        # 10 Hz keeps cursor XY responsive without saturating
+        # Window.set_title() on SDL2/Windows.
+        self._status_bar_trigger = Clock.create_trigger(self._update_status_bar, 0.1, interval=True)
         self._status_bar_trigger()
         self._mouse_pixel_x = -1
         self._mouse_pixel_y = -1
