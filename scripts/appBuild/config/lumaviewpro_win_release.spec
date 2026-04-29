@@ -38,7 +38,13 @@ a = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=[],
+    excludes=[
+        # Kivy optional deps LVP doesn't use. Listing them here suppresses
+        # the build-time WARNING noise from PyInstaller's Kivy hooks and
+        # keeps the bundle slightly smaller.
+        'enchant',         # Kivy TextInput spell-check — never enabled
+        'kivy.lib.gstplayer',   # Kivy GStreamer video provider — LVP uses Pylon/IDS
+    ],
     noarchive=False,
 )
 pyz = PYZ(a.pure, a.zipped_data)
