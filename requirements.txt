@@ -17,6 +17,11 @@ ids-peak==1.13.0.0.6
 numba==0.64.0
 psutil==7.2.2
 av==14.0.0
+# Kivy's kivy.core.spelling provider tries to import this on every import.
+# We don't use spell-checking, but missing pyenchant logs CRITICAL at every
+# Kivy startup (and during PyInstaller analysis), so we install it to keep
+# the build log clean. Wheel bundles libenchant.dll on Windows; ~2-4 MB.
+pyenchant==3.2.2
 
 # Packages related to Java support
 # scyjava is imported directly by modules/imagej_helper.py and must stay

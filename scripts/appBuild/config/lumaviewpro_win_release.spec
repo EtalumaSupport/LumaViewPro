@@ -42,7 +42,11 @@ a = Analysis(
         # Kivy optional deps LVP doesn't use. Listing them here suppresses
         # the build-time WARNING noise from PyInstaller's Kivy hooks and
         # keeps the bundle slightly smaller.
-        'enchant',         # Kivy TextInput spell-check — never enabled
+        # NOTE: 'enchant' is intentionally NOT excluded. Kivy's
+        # kivy.core.spelling probes for it at import time; if absent, Kivy
+        # logs CRITICAL during PyInstaller analysis and at runtime startup.
+        # We install pyenchant via requirements.txt so the import succeeds
+        # and the log stays clean.
         'kivy.lib.gstplayer',   # Kivy GStreamer video provider — LVP uses Pylon/IDS
     ],
     noarchive=False,
