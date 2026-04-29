@@ -12,13 +12,13 @@ to `build.ps1`.
 
 | Output | Purpose | Ship to customers? |
 |--------|---------|--------------------|
-| `LumaViewPro-<version>.msi` | Standalone LumaViewPro installer. It has minimal install UI and installs the LVP application folder, Start Menu shortcut, environment variables, bundled Apache Maven folder, and app files. | Usually no. Use for internal testing, debugging, or cases where prerequisites are already handled separately. |
-| `LumaViewPro-<version>-setup.exe` | Main customer installer. This is the WiX Bundle with the full installer UI. It runs the LVP MSI and also includes the Basler Pylon USB driver installer and Amazon Corretto Java SDK installer in one install flow. | Yes. This is the primary file to ship when building a release package. |
+| `LumaViewPro-<version>.msi` | Standalone LumaViewPro installer. It has minimal install UI and installs the LVP application folder, Start Menu shortcut, Desktop shortcut, environment variables, bundled Apache Maven folder, and app files. | Usually no. Use for internal testing, debugging, or cases where prerequisites are already handled separately. |
+| `LumaViewPro-<version>-setup.exe` | Main customer installer. This is the WiX Bundle with the full installer UI. It runs the LVP MSI and also chains the Basler Pylon USB driver installer, the Amazon Corretto Java SDK installer, and (when present) the IDS Peak runtime installer in one install flow. | Yes. This is the primary file to ship when building a release package. |
 
-The `-setup.exe` bundle is only created when both dependency MSIs are present:
-
-- Basler Pylon USB Camera Driver MSI
-- Amazon Corretto 8 JDK Windows x64 MSI
+The `-setup.exe` bundle is only created when both **required** dependency MSIs
+are present: Basler Pylon USB Camera Driver MSI and Amazon Corretto 8 JDK
+Windows x64 MSI. Optional dependencies (IDS Peak, FX2 driver) are silently
+skipped when their files are absent.
 
 Apache Maven is not a separate MSI. The build script copies the
 `apache-maven-3.9.8\` folder into the LumaViewPro install directory, and the
@@ -66,41 +66,73 @@ the WiX Bundle `-setup.exe`. v6 is the only supported lane.
 
 ### 2. Create A Build Folder
 
-Use a simple local path outside OneDrive. The build script can run from any
-folder, but long or synced paths are more likely to cause Windows build issues.
+Use **`C:\LVP\appbuild`**. Avoid placing the build folder under your user
+profile (`C:\Users\<user>\...`):
+
+- A username with spaces (e.g. `Etaluma Microscope`) breaks several build
+  steps that don't quote the path correctly — observed when this layout was
+  tried previously.
+- OneDrive-synced paths under the user profile cause Windows file-locking
+  errors during PyInstaller and WiX runs.
+- Long paths (`Documents\Projects\...`) trip `MAX_PATH` in some tools.
+
+Create the folder once:
 
 ```powershell
-mkdir C:\Users\user\LVP\appBuild
-mkdir C:\Users\user\LVP\appBuild\dependencies
+mkdir C:\LVP\appbuild
+mkdir C:\LVP\appbuild\dependencies
 ```
 
 ### 3. Add Build Dependencies
 
-Put these files/folders in `dependencies\` next to `build.ps1`:
+All build inputs go in **`C:\LVP\appbuild\dependencies\`** next to `build.ps1`.
+Layout when fully populated:
 
 ```text
 dependencies\
-|-- README.md
-|-- apache-maven-3.9.8\
-|-- pylon_USB_Camera_Driver.msi
-`-- amazon-corretto-8-xxx-jdk.msi
+|-- README.md                            # ships with the build script
+|-- apache-maven-3.9.8\                  # required for ImageJ
+|-- pylon_USB_Camera_Driver.msi          # required for the bundle
+|-- amazon-corretto-8-xxx-jdk.msi        # required for the bundle
+|-- ids_peak_<version>.exe               # optional — IDS cameras
+|-- setup.iss                            # optional — paired with ids_peak EXE
+`-- fx2\
+    |-- LumaScope_WinUSB.inf             # optional — LVC FX2 driver bind
+    `-- libusb-1.0.dll                   # optional — pyusb backend on Windows
 ```
 
-Required for the standalone MSI:
+#### Where each dependency comes from
 
-- `apache-maven-3.9.8\` extracted from the Apache Maven binary zip
+| File | Source | Notes |
+|------|--------|-------|
+| `apache-maven-3.9.8\` | [maven.apache.org/download.cgi](https://maven.apache.org/download.cgi) → `apache-maven-3.9.8-bin.zip` | Extract the `apache-maven-3.9.8` folder directly into `dependencies\`. Anonymous download. |
+| `pylon_USB_Camera_Driver.msi` | [baslerweb.com/en/downloads/software-downloads](https://www.baslerweb.com/en/downloads/software-downloads/) | Free MyBasler account required. Pick the standalone USB driver MSI (not the full Pylon SDK installer). |
+| `amazon-corretto-8-xxx-jdk.msi` | [aws.amazon.com/corretto/](https://aws.amazon.com/corretto/) → Corretto 8 → Windows x64 MSI | Anonymous direct download. |
+| `ids_peak_<version>.exe` | [en.ids-imaging.com/download-peak.html](https://en.ids-imaging.com/download-peak.html) → Runtime variant (~26 MB) | Free MyIDS account required. Pick a runtime version that matches the `ids-peak` PyPI binding pinned in `requirements.txt` (`1.13.0.0.6` → runtime ≥ 2.18). |
+| `setup.iss` | Generated locally, once per IDS Peak runtime version | Run `ids_peak_<version>.exe /r` on a Windows host with a clean install of that exact runtime; it records your interactive choices into `%WINDIR%\setup.iss`. Copy that file into `dependencies\` next to the EXE. |
+| `fx2\LumaScope_WinUSB.inf` | LumaviewClassic repo, `old_source/lumascope/LumaScope_WinUSB.inf` | ~2 KB text file. Copy as-is. |
+| `fx2\libusb-1.0.dll` | [github.com/libusb/libusb/releases](https://github.com/libusb/libusb/releases) → `libusb-1.0.<ver>.7z` (or `.zip`) → `VS2019/MS64/dll/libusb-1.0.dll` | Anonymous direct download. ~150 KB. Use the x64 VS2019 build; do not use the MinGW or x86 variants. |
 
-Required for the customer `-setup.exe` bundle:
+Keep a local mirror of every account-gated download (Pylon, IDS Peak) in
+your build artefact store. Do not depend on being logged into MyBasler /
+MyIDS at build time.
+
+#### Required for the standalone MSI
+
+- `apache-maven-3.9.8\` — without this, ImageJ won't run in the installed
+  app, but the MSI still builds.
+
+#### Required for the `-setup.exe` bundle
 
 - `pylon_USB_Camera_Driver.msi`
 - `amazon-corretto-8-xxx-jdk.msi`
 
-If Pylon or Corretto are missing, the build still creates the standalone MSI but
-skips the customer `-setup.exe` bundle.
+If either of these is missing, the build still creates the standalone MSI
+but skips the customer `-setup.exe` bundle.
 
 ### Optional Dependencies
 
-The build script also auto-detects these. If absent, the build skips the
+The build script auto-detects these. If absent, the build skips the
 relevant component silently — no failure. Drop them into `dependencies\` to
 enable.
 
@@ -112,21 +144,25 @@ dependencies\
 `-- setup.iss                        # Recorded silent-install response file
 ```
 
-`ids_peak_*.exe` is the **Runtime** variant from
-en.ids-imaging.com/download-peak.html (free MyIDS account required;
-mirror to your build artefact store, do not rely on download at build time).
-Pick a runtime version that matches the `ids-peak` PyPI binding pinned in
-`requirements.txt` — IDS hard-couples Python binding genericAPI major.minor
-to the runtime's. As of writing, `ids-peak==1.13.0.0.6` needs runtime 2.18+.
+`ids_peak_*.exe` is the **Runtime** variant, not the full IDS peak
+Comprehensive package. It contains drivers + GenTL transport layers only —
+no Cockpit, no IPL Viewer, no SDK headers.
 
-`setup.iss` must be recorded once with `ids_peak_<version>.exe /r` on a
-Windows host that has a successful interactive install of that exact runtime
-version. Commit the resulting file alongside the EXE in `dependencies\`.
+`setup.iss` must be recorded once per runtime version. On a clean Windows
+host, run `ids_peak_<version>.exe /r` and step through the interactive
+installer. It writes `%WINDIR%\setup.iss` capturing every choice. Copy that
+file alongside the EXE in `dependencies\`. Re-record whenever you bump the
+runtime version or change install options.
 
 When both are present, the bundle chains an `ExePackage` that runs
 `ids_peak_<version>.exe /s /f1"setup.iss"` per machine. When either is
 missing, the bundle is built without IDS Peak (IDS cameras still need a
 manual driver install on customer machines).
+
+**Version pairing constraint:** IDS hard-couples the Python binding's
+`genericAPI` major.minor to the runtime's. Mismatched runtime/binding
+versions fail silently at camera enumeration. Confirm against the runtime's
+`readme.html` shipped inside the EXE before locking in a pair.
 
 #### FX2 WinUSB Driver (LVC cameras: LS560 / LS620 / LS720)
 
@@ -136,24 +172,21 @@ dependencies\fx2\
 `-- libusb-1.0.dll                  # ~150 KB native library
 ```
 
-Two files together enable end-to-end FX2 support:
+Two files together enable end-to-end FX2 support. Both are
+build-time-optional and runtime-decoupled — `drivers/fx2driver.py` gates
+its imports with `_FX2_AVAILABLE`, so absence degrades to "FX2 not
+supported" rather than a crash.
 
-- **`LumaScope_WinUSB.inf`** — sourced from the LumaviewClassic repo
-  (`old_source/lumascope/LumaScope_WinUSB.inf`). Binds inbox `WinUSB.sys`
-  to the FX2 VID/PID `0x04B4:0x8613` / `0x04B4:0xEA17` so `pyusb` can
-  open the device without Zadig. When present, the LVP MSI installs it
-  to `<InstallFolder>\drivers\fx2\` and runs
-  `pnputil /add-driver <inf> /install` during `InstallFiles` (deferred,
-  runs as SYSTEM, errors ignored).
+- **`LumaScope_WinUSB.inf`** — binds inbox `WinUSB.sys` to the FX2 VID/PID
+  `0x04B4:0x8613` / `0x04B4:0xEA17` so `pyusb` can open the device without
+  Zadig. When present, the LVP MSI installs it to
+  `<InstallFolder>\drivers\fx2\` and runs `pnputil /add-driver <inf> /install`
+  during `InstallFiles` (deferred, runs as SYSTEM, errors ignored).
 
 - **`libusb-1.0.dll`** — the native USB library that pyusb's `libusb1`
-  backend loads via `ctypes` on Windows. Without it, the bundled LVP
-  exe can't talk to FX2 hardware even after the WinUSB driver is bound.
-  Download from
-  [github.com/libusb/libusb/releases](https://github.com/libusb/libusb/releases)
-  and copy the `VS2019/MS64/dll/libusb-1.0.dll` (or equivalent
-  Windows-x64 build) into `dependencies\fx2\`. PyInstaller bundles it
-  next to `lumaviewpro.exe` when present.
+  backend loads via `ctypes` on Windows. PyInstaller bundles it next to
+  `lumaviewpro.exe` so `ctypes.cdll.LoadLibrary("libusb-1.0.dll")` finds
+  it inside the installed app.
 
 When either file is absent, the build still succeeds but FX2 cameras
 won't work on the resulting installer:
@@ -167,40 +200,42 @@ won't work on the resulting installer:
 
 ### 4. Copy The Build Script
 
-From your build folder, clone the branch that contains the build script version
-you want, then copy `build.ps1` and the dependency README out of the clone:
+From your build folder, clone the branch that contains the build script
+version you want, then copy `build.ps1` and the dependency README out of
+the clone:
 
 ```powershell
-cd C:\Users\dovyd\LVP\appBuild
-git clone --depth 1 --branch 4.1.0-dev-exe https://github.com/EtalumaSupport/LumaViewPro.git _getscript
+cd C:\LVP\appbuild
+git clone --depth 1 --branch 4.0.0-beta https://github.com/EtalumaSupport/LumaViewPro.git _getscript
 copy _getscript\scripts\appBuild\build.ps1 .\build.ps1
 copy _getscript\scripts\appBuild\dependencies\README.md .\dependencies\README.md
 rmdir _getscript -Recurse -Force
 ```
 
-Use the branch name that should supply the build script. The build script itself
-also clones a branch during packaging, so official builds must be made from
-committed and pushed code.
+Use the branch name that should supply the build script. The build script
+itself also clones a branch during packaging, so official builds must be
+made from committed and pushed code.
 
-Important: build-system changes must be committed before testing the package
-flow. There are two separate copies involved:
+**Important: build-system changes must be committed before testing the
+package flow.** There are two separate copies involved:
 
-- The `build.ps1` you run is the copy in the external build folder.
-- During packaging, that script clones the selected branch and uses the WiX
-  files and PyInstaller spec from the cloned branch.
+- The `build.ps1` you run is the copy in the external build folder
+  (`C:\LVP\appbuild\build.ps1`).
+- During packaging, that script clones the selected branch and uses the
+  WiX files and PyInstaller spec from the cloned branch.
 
 If a fix to `build.ps1`, `build_exe\wix\*.wxs`, or
-`config\lumaviewpro_win_release.spec` only exists as an uncommitted IDE change,
-the package build will not see it. Commit the build-system change to the branch,
-refresh the external `build.ps1` copy if that file changed, then build that same
-branch.
+`config\lumaviewpro_win_release.spec` only exists as an uncommitted IDE
+change, the package build will not see it. Commit the build-system change
+to the branch, refresh the external `build.ps1` copy if that file changed,
+then build that same branch.
 
 ## Building A Package
 
 Run:
 
 ```powershell
-cd C:\Users\dovyd\LVP\appBuild
+cd C:\LVP\appbuild
 .\build.ps1
 ```
 
@@ -210,28 +245,37 @@ The script asks for:
 2. Package type:
    - `Dev` reuses cached `buildvenv` for faster repeat builds.
    - `Release` deletes and recreates `buildvenv` for a clean package.
-3. Branch to build, for example `4.1.0-dev-exe`, `4.0.0-beta`, or `main`.
+3. Branch to build. The interactive picker offers:
+   - `[1] 4.0.0-beta` — current shipping beta line
+   - `[2] 4.1.0-dev` — active development
+   - `[3] main` — release
+   - `[0] Enter custom branch` — anything else by name
 
-The selected branch is cloned fresh from GitHub. Local uncommitted changes are
-not included in the package, including local edits to the WiX files or
-PyInstaller spec.
+The selected branch is cloned fresh from GitHub. Local uncommitted changes
+are not included in the package, including local edits to the WiX files
+or PyInstaller spec.
 
 The script then:
 
-1. Reads the version from `version.txt`.
+1. Reads the version from `version.txt` and derives a 4-part installer
+   version (e.g. `4.0.0-beta6` → `4.0.0.6`) so beta-to-beta upgrades are
+   visible to Windows Installer / Burn.
 2. Installs build dependencies into `buildvenv`.
-3. Builds the app folder with PyInstaller.
+3. Builds the app folder with PyInstaller. Bundles `libusb-1.0.dll` if
+   present in `dependencies\fx2\`.
 4. Copies Apache Maven into the app install folder.
-5. Builds `LumaViewPro-<version>.msi`.
-6. Builds `LumaViewPro-<version>-setup.exe` if Pylon and Corretto are present.
+5. Builds `LumaViewPro-<version>.msi`. Adds an FX2 driver-install
+   custom action if `LumaScope_WinUSB.inf` is present.
+6. Builds `LumaViewPro-<version>-setup.exe` if Pylon and Corretto are
+   present. Chains the IDS Peak runtime EXE if its files are present.
 7. Removes temporary clone/build files.
 
 Example output:
 
 ```text
-C:\Users\dovyd\LVP\appBuild\exe_artifacts\LumaViewPro-4.1.0-dev\
-|-- LumaViewPro-4.1.0-dev.msi
-`-- LumaViewPro-4.1.0-dev-setup.exe
+C:\LVP\appbuild\exe_artifacts\LumaViewPro-4.0.0-beta6\
+|-- LumaViewPro-4.0.0-beta6.msi
+`-- LumaViewPro-4.0.0-beta6-setup.exe
 ```
 
 Previous completed packages are preserved in `exe_artifacts\`.
@@ -242,7 +286,9 @@ Before a customer build:
 
 1. Confirm `version.txt` has the release version testers should see.
 2. Commit and push the branch to be packaged.
-3. Confirm `dependencies\` contains Maven, Pylon, and Corretto.
+3. Confirm `dependencies\` contains Maven, Pylon, and Corretto. Confirm
+   any optional dependencies you intend to ship (IDS Peak, FX2 INF + DLL)
+   are also present.
 4. Run `.\build.ps1` and choose `Release`.
 5. Verify both output files exist.
 6. Ship `LumaViewPro-<version>-setup.exe`.
@@ -253,7 +299,8 @@ Before a customer build:
 If `build.ps1` changes in the repo, refresh the copy in your build folder:
 
 ```powershell
-git clone --depth 1 --branch 4.1.0-dev-exe https://github.com/EtalumaSupport/LumaViewPro.git _getscript
+cd C:\LVP\appbuild
+git clone --depth 1 --branch 4.0.0-beta https://github.com/EtalumaSupport/LumaViewPro.git _getscript
 copy _getscript\scripts\appBuild\build.ps1 .\build.ps1 -Force
 copy _getscript\scripts\appBuild\dependencies\README.md .\dependencies\README.md -Force
 rmdir _getscript -Recurse -Force
@@ -273,9 +320,12 @@ Use the branch that contains the desired build script.
 | `git clone failed` | Check network access and confirm the selected branch exists on GitHub. |
 | `pip install failed` | Check internet access and package pins. Try a `Release` build to recreate `buildvenv`. |
 | `PyInstaller failed` | Fix dependency install errors first, then rerun the build. |
-| `Apache Maven not found` | Extract Maven to `dependencies\apache-maven-3.9.8\`. |
+| `Apache Maven not found` | Extract Maven into `dependencies\apache-maven-3.9.8\`. |
 | `Bundle skipped` | Add both Pylon and Corretto MSIs to `dependencies\`. The MSI will still build, but the customer `-setup.exe` will not. |
-| `Permission denied` | Close running LumaViewPro instances and use a local non-OneDrive build folder. If needed, run PowerShell as Administrator. |
+| Beta-to-beta upgrade leaves the older beta installed alongside the newer one | Both betas were built before the 4-part version derivation landed (commit `2c8805f`). One-shot fix: uninstall the old beta manually via Settings → Apps. From that build forward, the bundle's related-bundle Detect handles the swap automatically. |
+| New build doesn't replace the old beta install — installer says "already installed" | The MSI's `MajorUpgrade` only compares the first 3 parts of `ProductVersion`. Always install via the `-setup.exe` bundle (which compares all 4 parts), not the standalone MSI. |
+| `Permission denied` during PyInstaller or MSI build | Close any running LumaViewPro instance (including the previous `-setup.exe`'s installer-modify dialog). Use `C:\LVP\appbuild\` instead of OneDrive-synced paths. |
+| Path-with-spaces errors in the build log (e.g. `C:\Users\Etaluma Microscope\...`) | You're building from your user profile. Move the build to `C:\LVP\appbuild\` per One-Time Setup §2. |
 
 ## Notes
 
@@ -284,5 +334,5 @@ Use the branch that contains the desired build script.
 - The build script accepts parameters, for example:
 
 ```powershell
-.\build.ps1 -Branch 4.1.0-dev-exe -BuildType Release
+.\build.ps1 -Branch 4.1.0-dev -BuildType Release
 ```
