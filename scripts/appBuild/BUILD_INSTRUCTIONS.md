@@ -31,16 +31,35 @@ LVP MSI adds Maven's `bin` folder to PATH.
 - Python 3.12 or newer
 - Git, available in PATH
 - .NET SDK, required by WiX
-- WiX Toolset v6. This is the supported and working WiX version for this
-  build script:
+- WiX Toolset v6 — pinned. **Do not use WiX v7.** This build's `Bundle.wxs`
+  is authored for the v4–v6 `WixToolset.Bal.wixext` API; v7 restructured
+  `WixStdBA` and the Burn ↔ BootstrapperApplication protocol added a
+  required `scope` field, so `-setup.exe` bundles built against v7 fail at
+  runtime with `0x80070057: Failed to read plan scope of BAEnginePlan args`
+  the moment the user clicks Install. Install the pinned version:
 
 ```powershell
-dotnet tool install --global wix
+dotnet tool install --global wix --version 6.0.0
+wix --version    # confirm 6.x — must NOT be 7.x
 ```
 
-Do not downgrade to WiX v5 to chase installer UI issues. In this build flow the
-standalone MSI intentionally has minimal UI, and the customer-facing install UI
-lives in the WiX Bundle `-setup.exe`.
+If you already have a newer version installed (for example v7 from
+`dotnet tool install --global wix` without a version pin), downgrade:
+
+```powershell
+dotnet tool uninstall --global wix
+dotnet tool install --global wix --version 6.0.0
+wix extension remove --global WixToolset.Bal.wixext   # clear v7 BAL cache
+wix --version
+```
+
+The build script auto-installs `WixToolset.Bal.wixext` to match whatever
+`wix` it finds, so once `wix` is back on v6 the bundle build picks up the
+matching v6 BAL automatically.
+
+Do not downgrade to WiX v5 either. In this build flow the standalone MSI
+intentionally has minimal UI, and the customer-facing install UI lives in
+the WiX Bundle `-setup.exe`. v6 is the only supported lane.
 
 `build.ps1` manages its own build virtual environment and installs
 `requirements-dev.txt`. Do not install PyInstaller globally for this build.
@@ -179,7 +198,9 @@ Use the branch that contains the desired build script.
 
 | Error | Fix |
 |-------|-----|
-| `wix not found` | Install WiX v6 with `dotnet tool install --global wix`, then restart PowerShell. |
+| `wix not found` | Install WiX v6 with `dotnet tool install --global wix --version 6.0.0`, then restart PowerShell. |
+| `wix --version` reports `7.x.x` (or build aborts with "WiX 7 is not supported") | Downgrade per the One-Time Setup section. v7 changed the BootstrapperApplication API and produces bundles that fail at runtime with `0x80070057`. |
+| Bundle `-setup.exe` fails at runtime with `0x80070057: Failed to read plan scope of BAEnginePlan args` (or `Failed to load splash screen bitmap`) | The bundle was built against WiX v7. Confirm `wix --version` shows 6.x, then rebuild. |
 | WiX `WixUI` or UI extension errors | This build should not require `WixToolset.UI.wixext` for the standalone MSI. Make sure the branch being packaged uses the restored minimal-UI `Package.wxs`; the full install UI belongs to the `-setup.exe` bundle. |
 | `python not found` | Install Python 3.12+ and make sure `py`, `python`, or `python3` is available. |
 | `git clone failed` | Check network access and confirm the selected branch exists on GitHub. |
