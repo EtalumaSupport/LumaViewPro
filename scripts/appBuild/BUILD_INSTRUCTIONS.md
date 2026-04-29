@@ -110,8 +110,8 @@ dependencies\
 | `amazon-corretto-8-xxx-jdk.msi` | [aws.amazon.com/corretto/](https://aws.amazon.com/corretto/) → Corretto 8 → Windows x64 MSI | Anonymous direct download. |
 | `ids_peak_<version>.exe` | [en.ids-imaging.com/download-peak.html](https://en.ids-imaging.com/download-peak.html) → Runtime variant (~26 MB) | Free MyIDS account required. Pick a runtime version that matches the `ids-peak` PyPI binding pinned in `requirements.txt` (`1.13.0.0.6` → runtime ≥ 2.18). |
 | `setup.iss` | Generated locally, once per IDS Peak runtime version | Run `ids_peak_<version>.exe /r` on a Windows host with a clean install of that exact runtime; it records your interactive choices into `%WINDIR%\setup.iss`. Copy that file into `dependencies\` next to the EXE. |
-| `fx2\LumaScope_WinUSB.inf` | LumaviewClassic repo, `old_source/lumascope/LumaScope_WinUSB.inf` | ~2 KB text file. Copy as-is. |
-| `fx2\libusb-1.0.dll` | [github.com/libusb/libusb/releases](https://github.com/libusb/libusb/releases) → `libusb-1.0.<ver>.7z` (or `.zip`) → `VS2019/MS64/dll/libusb-1.0.dll` | Anonymous direct download. ~150 KB. Use the x64 VS2019 build; do not use the MinGW or x86 variants. |
+| `fx2\LumaScope_WinUSB.inf` | Firmware repo, `fx2_firmware/build_deps/LumaScope_WinUSB.inf` | ~2 KB text file. Copy as-is. |
+| `fx2\libusb-1.0.dll` | Firmware repo, `fx2_firmware/build_deps/libusb-1.0.dll` | x64 build, ~150 KB. Pinned to libusb v1.0.29 (VS2019/MS64). To upgrade, replace the file in the Firmware repo and update `fx2_firmware/build_deps/README.md`. |
 
 Keep a local mirror of every account-gated download (Pylon, IDS Peak) in
 your build artefact store. Do not depend on being logged into MyBasler /
