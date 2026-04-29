@@ -69,6 +69,7 @@ def go_to_step(
             step_objective_id = step["Objective"]
             turret_pos = ctx.scope.get_turret_position_for_objective_id(
                 objective_id=step_objective_id,
+                persisted_position=settings.get('turret_position'),
             )
 
             if turret_pos is None:
