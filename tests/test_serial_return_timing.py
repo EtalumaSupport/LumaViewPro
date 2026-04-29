@@ -80,6 +80,33 @@ def test_serialboard_exchange_json_accepts_return_timing():
     assert 'def exchange_json(self, payload, timeout=None, return_timing=False)' in src
 
 
+def test_drain_gated_on_response_numlines():
+    """Audit F2 (validated 2026-04-28): the 20 ms post-response drain
+    must only fire when response_numlines > 1. Saves ~40 ms per
+    legacy-path pair on response_numlines==1 single-line commands.
+
+    Source-inspection: the drain block in _exchange_command_impl must
+    be gated by `if response_numlines > 1:`."""
+    src = _read_source('drivers/serialboard.py')
+    impl_start = src.find('def _exchange_command_impl(')
+    assert impl_start != -1
+    next_def = src.find('\n    def ', impl_start + 1)
+    body = src[impl_start:next_def]
+
+    drain_marker = 'time.sleep(0.020)'
+    drain_idx = body.find(drain_marker)
+    assert drain_idx != -1, (
+        f'_exchange_command_impl drain sleep ({drain_marker}) not found — '
+        f'either the drain was removed entirely or the constant changed.'
+    )
+    # The 200 chars preceding the drain sleep must contain the gate.
+    preceding = body[max(0, drain_idx - 200):drain_idx]
+    assert 'response_numlines > 1' in preceding, (
+        'Drain sleep must be gated by `if response_numlines > 1:` per '
+        'Audit F2. response_numlines == 1 paths skip the drain.'
+    )
+
+
 def test_exchange_json_returns_tuple_on_early_paths():
     """exchange_json early-return paths (wrong-protocol, silent board,
     driver=None, timeout, exception) must return ``(None, None)`` when

@@ -1105,21 +1105,35 @@ class SerialBoard:
                 # when we only requested 1 line. Without this drain, leftover
                 # lines pollute the next command's response.
                 #
-                # 20 ms is load-bearing on the LED UART-bridge path. Brief
-                # 5 ms experiment 2026-04-27 produced 5 errors in 300
-                # alternating LED_SET / LED_OFF iterations (1.7% error
-                # rate, one LED_OFF response read as a single 'R' char —
-                # host reading mid-transmission). The bridge's firmware→
-                # host transmission isn't atomic per response; 5 ms
-                # cushion wasn't enough for the next command's drain
-                # check to wait out a still-in-flight prior response. The
-                # RP2350 single-chip path retires this drain entirely via
-                # read-until-terminator framing; until then, 20 ms.
-                # Reliability > speed (per Eric 2026-04-27).
-                time.sleep(0.020)
-                remaining = self.driver.in_waiting
-                if remaining > 0:
-                    self.driver.read(remaining)
+                # Audit F2 (2026-04-27, validated 2026-04-28): the drain is
+                # only load-bearing for response_numlines > 1 paths. On
+                # response_numlines == 1 (LED legacy LED0_*, motor legacy
+                # ACTUAL_R / STATUS_R, anything single-line-self-terminating)
+                # the firmware emits exactly one line; there are no
+                # stragglers to absorb. Bench-confirmed: A/B/C reliability
+                # soak 2026-04-28 ran 0 errors / 1000 pair iters on legacy
+                # LED firmware AND legacy motor firmware with the drain
+                # active — the drain is purely overhead on those paths.
+                # Saves ~20 ms per single-line command (~40 ms per typical
+                # set+off pair) on legacy paths. v3.5 LED short-circuits
+                # this whole impl via _exchange_v35; FW4.0 motor uses
+                # exchange_json (different code path entirely). The
+                # multi-line callers (legacy FULLINFO, IDS-mode bench
+                # commands, etc.) keep the original 20 ms drain — the
+                # straggler-line concern is real for them.
+                #
+                # The earlier drain-cut attempt (5 ms in commit 2fdf47f →
+                # reverted in 90d9d76) failed because it kept the drain
+                # but shortened it; the new approach skips the drain
+                # entirely on response_numlines==1, which is structurally
+                # safer (the failure mode that bit us was a single-line
+                # response read as 'R', and that path is now protected by
+                # inter_byte_timeout=0.05 — see __init__).
+                if response_numlines > 1:
+                    time.sleep(0.020)
+                    remaining = self.driver.in_waiting
+                    if remaining > 0:
+                        self.driver.read(remaining)
 
                 elapsed_ms = (time.monotonic() - t_start) * 1000
 
