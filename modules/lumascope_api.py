@@ -1316,20 +1316,44 @@ class Lumascope():
         """
         return self._turret_config
 
-    def get_turret_position_for_objective_id(self, objective_id: str, prefer_current: bool = True) -> int | None:
+    def get_turret_position_for_objective_id(
+        self,
+        objective_id: str,
+        prefer_current: bool = True,
+        persisted_position: int | None = None,
+    ) -> int | None:
         """Find the turret position holding a given objective.
 
-        When multiple positions hold the same objective, prefers the current
-        turret position to avoid unnecessary moves (#488).
+        Lookup ranking when multiple positions hold the same objective (#488):
+            1. Persisted position from settings, if it matches objective_id
+               and is provided by the caller. Honors the user's most
+               recent explicit choice — survives restarts and post-home
+               situations where the current physical position is an
+               artifact of the home routine (T zeros to 1), not user
+               intent.
+            2. Current physical T position, if it matches objective_id.
+               Catches the case where the user has already rotated to a
+               matching slot in this session and no persisted hint exists.
+            3. First-match dict iteration (lowest position with the
+               objective). Used when neither hint is available — preserves
+               today's fallback behavior.
 
         Args:
             objective_id: Objective identifier to search for.
-            prefer_current: If True (default), return the current turret
-                position when it already holds the requested objective.
+            prefer_current: If True (default), check the current physical
+                turret position when persisted_position is unavailable
+                or doesn't match.
+            persisted_position: Caller-supplied hint, typically
+                ``settings.get('turret_position')``. None disables this
+                tier of the lookup.
 
         Returns:
             int | None: Turret position (1-4), or None if not found.
         """
+        if persisted_position is not None:
+            if self._turret_config.get(persisted_position) == objective_id:
+                return persisted_position
+
         if prefer_current:
             try:
                 current_pos = self.get_current_position(axis='T')

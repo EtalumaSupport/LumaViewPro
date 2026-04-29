@@ -665,6 +665,12 @@ class VerticalControl(BoxLayout):
             else:
                 ctx.lumaview.scope.tmove(position=selected_position)
 
+            # Persist user's explicit turret choice so the next session
+            # (or any post-home lookup) prefers this position when the
+            # objective at this slot is duplicated elsewhere on the
+            # turret. (#488)
+            settings['turret_position'] = selected_position
+
             for available_position in range(1,5):
                 if selected_position == available_position:
                     state = 'down'
@@ -702,6 +708,13 @@ class VerticalControl(BoxLayout):
 
     def update_turret_gui(self, turret_position):
         settings = _app_ctx.ctx.settings
+        # Persist the position the turret physically ended up at — this
+        # is called after every protocol-driven or step-navigation T
+        # move, so the persisted value tracks reality across moves. (#488)
+        try:
+            settings['turret_position'] = int(turret_position)
+        except (TypeError, ValueError):
+            pass
         for available_position in range(1,5):
             if turret_position == available_position:
                 state = 'down'

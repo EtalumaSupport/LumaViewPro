@@ -181,13 +181,17 @@ class MicroscopeSettings(BoxLayout):
 
         if lumaview.scope.has_turret():
             objective_id = settings['objective_id']
-            turret_position = lumaview.scope.get_turret_position_for_objective_id(objective_id=objective_id)
+            turret_position = lumaview.scope.get_turret_position_for_objective_id(
+                objective_id=objective_id,
+                persisted_position=settings.get('turret_position'),
+            )
 
             if turret_position is None:
                 DEFAULT_POSITION = 1
                 logger.info(f"Turret position for set objective {objective_id} not in turret objectives configuration. Setting to position {DEFAULT_POSITION}")
                 turret_position = DEFAULT_POSITION
 
+            settings['turret_position'] = turret_position
             ctx.io_executor.put(IOTask(
                 move_absolute_position,
                 kwargs= {
