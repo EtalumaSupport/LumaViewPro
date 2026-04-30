@@ -2271,8 +2271,10 @@ class Lumascope():
             str: Path to the saved file.
         """
 
-        if (common_utils.check_disk_space() < 1024):  # Check for at least 1 GB of free space
-            logger.error(f"[SCOPE API ] Disk space < 1 GB. Image unlikely to save correctly.")
+        # PIW-2: removed redundant `check_disk_space("/")` warn — checked the wrong
+        # path (root, not save_folder), only logged, and protocol_image_writer.py
+        # already aborts on save-folder space exhaustion. Actual write failures
+        # surface through the try/except below.
 
         image_data = self.prepare_image_for_saving(
             array=array,
@@ -2367,9 +2369,8 @@ class Lumascope():
             str | None: Path to saved file, or None on failure.
         """
 
-        if (common_utils.check_disk_space() < 1024):  # Check for at least 1 GB of free space
-            logger.error(f"[SCOPE API ] Disk space < 1 GB. Image unlikely to save correctly.")
-            
+        # PIW-2: removed redundant `check_disk_space("/")` warn — see save_image() above.
+
         array = self.get_image(
             force_to_8bit=force_to_8bit,
             earliest_image_ts=earliest_image_ts,

@@ -1800,3 +1800,43 @@ class TestPIW1_NoTheatricalDelCapturedImage:
         assert "del captured_image" not in src, (
             "PIW-1: theatrical `del captured_image` should be removed — IOTask kwargs holds the ref."
         )
+
+
+class TestPIW2_DisksUsageDeduped:
+    """PIW-2: per-save disk-space check was redundant between
+    `lumascope_api.save_image` / `save_live_image` (both called
+    `common_utils.check_disk_space()` defaulting to "/", logged-only,
+    non-actionable) and `protocol_image_writer._write_capture` (checks the
+    actual save_folder, aborts the protocol on insufficient space).
+
+    The lumascope_api checks (a) checked the wrong path — root filesystem,
+    not the save folder — and (b) only logged at error level without aborting
+    or notifying. The existing try/except in save_image already catches
+    write failures via OSError and surfaces a user notification.
+
+    Fix: remove the redundant lumascope_api checks. Keep the useful
+    protocol_image_writer check at line 350.
+    """
+
+    def test_lumascope_api_disk_check_removed(self):
+        from pathlib import Path
+        src = (Path(__file__).resolve().parent.parent / "modules" / "lumascope_api.py").read_text()
+        # The exact pattern of the redundant warn-only check.
+        assert "if (common_utils.check_disk_space() < 1024):" not in src, (
+            "PIW-2: redundant per-save check_disk_space call should be removed from lumascope_api."
+        )
+        # 'Disk space < 1 GB' was the warn string, also gone.
+        assert "Disk space < 1 GB. Image unlikely to save correctly." not in src, (
+            "PIW-2: corresponding warn log should be removed."
+        )
+
+    def test_protocol_image_writer_disk_check_kept(self):
+        from pathlib import Path
+        src = (Path(__file__).resolve().parent.parent / "modules" / "protocol_image_writer.py").read_text()
+        # The useful check (correct path + abort on exhaustion) must remain.
+        assert "shutil.disk_usage(str(save_folder)).free" in src, (
+            "PIW-2: protocol_image_writer's save-folder disk check should be kept (it's the useful one)."
+        )
+        assert "self._protocol_ended.set()" in src, (
+            "PIW-2: protocol_image_writer's abort-on-low-disk path should still be present."
+        )
