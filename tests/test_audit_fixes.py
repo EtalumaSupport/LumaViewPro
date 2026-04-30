@@ -1260,6 +1260,56 @@ class TestRule1_SerialBoardNoNotifications:
         assert "notifications.info" not in source
 
 
+class TestIssue643_LumiLS820PlateViewInProtocol:
+    """#643: On XYStage=False scopes (Lumi, LS820) the plate view + crosshair
+    re-appeared in the protocol accordion when opened, despite
+    set_ui_features_for_scope having called stage.remove_parent() at config
+    load. Cause: accordion_collapse() in motion_settings.py unconditionally
+    re-added the stage widget to whichever accordion was open, with no
+    capability check.
+
+    Fix: gate accordion_collapse on selected_scope_config['XYStage'] (the
+    same source set_ui_features_for_scope uses). When False, call
+    stage.remove_parent() and return early.
+    """
+
+    def test_accordion_collapse_checks_xystage_capability(self):
+        """accordion_collapse must consult selected_scope_config['XYStage']
+        before re-attaching the stage widget."""
+        import pathlib
+        source = pathlib.Path("ui/motion_settings.py").read_text()
+        # Find the accordion_collapse method body
+        idx = source.find("def accordion_collapse")
+        assert idx >= 0, "accordion_collapse method not found in ui/motion_settings.py"
+        # Take a slice large enough to cover the method body
+        body = source[idx:idx + 3000]
+        assert "XYStage" in body, (
+            "accordion_collapse must check XYStage capability (issue #643) — "
+            "without this guard, Lumi/LS820 protocol accordion re-shows the "
+            "plate view + crosshair."
+        )
+        assert "remove_parent" in body, (
+            "accordion_collapse must call stage.remove_parent() on the "
+            "XYStage=False path (issue #643)."
+        )
+
+    def test_lumi_and_ls820_have_xystage_false(self):
+        """Sanity: scopes.json must declare Lumi and LS820 as XYStage=False
+        for the issue #643 guard to actually apply."""
+        import json, pathlib
+        scopes = json.loads(pathlib.Path("data/scopes.json").read_text())
+        assert "Lumi" in scopes, "Lumi scope config missing from data/scopes.json"
+        assert "LS820" in scopes, "LS820 scope config missing from data/scopes.json"
+        assert scopes["Lumi"]["XYStage"] is False, (
+            "data/scopes.json: Lumi must be XYStage=False for issue #643 guard "
+            "to suppress plate view"
+        )
+        assert scopes["LS820"]["XYStage"] is False, (
+            "data/scopes.json: LS820 must be XYStage=False for issue #643 guard "
+            "to suppress plate view"
+        )
+
+
 class TestIssue642_FilesCompleteCallbackRace:
     """#642: protocol_complete_callback was wiped by protocol_end() before
     the dispatch loop could fire it, causing files_complete to never fire
