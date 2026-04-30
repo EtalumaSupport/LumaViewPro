@@ -1872,7 +1872,7 @@ class Lumascope():
                     time.sleep(0.05)
                     continue
 
-                if all_ones_check and np.all(tmp == np.iinfo(tmp.dtype).max):
+                if all_ones_check and not np.any(tmp != np.iinfo(tmp.dtype).max):
                     # Saturated frame — retry once to confirm, then accept.
                     # Saturated images are valid data (exposure/illumination
                     # too high), not a camera error. Don't loop until timeout.

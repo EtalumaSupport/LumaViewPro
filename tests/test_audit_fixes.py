@@ -1437,3 +1437,55 @@ class TestIssue642_FilesCompleteCallbackRace:
             )
         finally:
             ex.shutdown(wait=True)
+
+
+class TestAOC1_SaturationCheckShortCircuit:
+    """AOC-1: lumascope_api.get_image saturation check uses
+    `not np.any(tmp != max)` (short-circuit) instead of `np.all(tmp == max)`.
+
+    Both forms allocate a bool array, but `np.any` short-circuits on the
+    first True at the C level — for the common (non-saturated) case, the
+    first non-max pixel exits the reduction immediately. Equivalence over
+    saturated / non-saturated / single-pixel-different / all-zero arrays.
+    """
+
+    def test_source_uses_not_any_form(self):
+        from pathlib import Path
+        src = (Path(__file__).resolve().parent.parent / "modules" / "lumascope_api.py").read_text()
+        assert "not np.any(tmp != np.iinfo(tmp.dtype).max)" in src, (
+            "AOC-1: get_image() saturation check should use the short-circuit "
+            "`not np.any(tmp != max)` form."
+        )
+        assert "np.all(tmp == np.iinfo(tmp.dtype).max)" not in src, (
+            "AOC-1: old `np.all(tmp == max)` form should be replaced."
+        )
+
+    def test_logical_equivalence_uint8(self):
+        import numpy as np
+        max_val = np.iinfo(np.uint8).max
+        cases = [
+            np.full((100, 100), max_val, dtype=np.uint8),  # saturated
+            np.zeros((100, 100), dtype=np.uint8),  # all zero
+            np.full((100, 100), max_val // 2, dtype=np.uint8),  # half-max
+            np.full((100, 100), max_val, dtype=np.uint8),  # saturated except one px
+        ]
+        cases[3][50, 50] = max_val - 1  # near-saturated
+        for arr in cases:
+            old = bool(np.all(arr == np.iinfo(arr.dtype).max))
+            new = not np.any(arr != np.iinfo(arr.dtype).max)
+            assert old == new, f"Logical mismatch on uint8 case: old={old}, new={new}"
+
+    def test_logical_equivalence_uint16(self):
+        import numpy as np
+        max_val = np.iinfo(np.uint16).max
+        cases = [
+            np.full((100, 100), max_val, dtype=np.uint16),  # saturated
+            np.zeros((100, 100), dtype=np.uint16),  # all zero
+            np.full((100, 100), max_val // 2, dtype=np.uint16),  # half-max
+            np.full((100, 100), max_val, dtype=np.uint16),  # saturated except one px
+        ]
+        cases[3][50, 50] = max_val - 1  # near-saturated
+        for arr in cases:
+            old = bool(np.all(arr == np.iinfo(arr.dtype).max))
+            new = not np.any(arr != np.iinfo(arr.dtype).max)
+            assert old == new, f"Logical mismatch on uint16 case: old={old}, new={new}"
