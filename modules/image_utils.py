@@ -274,20 +274,23 @@ def write_tiff(
         color: str,
         video_frame: bool = False,
         extratags: list = None,
+        use_false_color_16bit: bool | None = None,
 ):
     if extratags is None:
         extratags = []
 
     # Convert 16-bit fluorescence to 3-channel RGB for false color in all viewers.
     # This increases file size ~3x but provides color in Windows Preview and FIJI.
-    # Reads from user settings; defaults to off if settings unavailable.
+    # Caller may pass the resolved bool to skip the per-save settings_lock acquire
+    # (PIW-3); falls back to a one-shot lock read when None for ad-hoc callers.
     if (data.dtype == np.uint16
             and not is_color_image(data)
             and color in common_utils.get_image_layers()):
         try:
-            from modules import app_context as _app_ctx
-            with _app_ctx.ctx.settings_lock:
-                use_false_color_16bit = _app_ctx.ctx.settings.get('false_color_16bit', False)
+            if use_false_color_16bit is None:
+                from modules import app_context as _app_ctx
+                with _app_ctx.ctx.settings_lock:
+                    use_false_color_16bit = _app_ctx.ctx.settings.get('false_color_16bit', False)
             if use_false_color_16bit:
                 data = add_false_color(data, color)
                 # IMPORTANT: add_false_color() returns BGR (OpenCV convention

@@ -2245,7 +2245,8 @@ class Lumascope():
         true_color: str = 'BF',
         x=None,
         y=None,
-        z=None
+        z=None,
+        use_false_color_16bit: bool | None = None,
     ):
         """Save an image array to a TIFF file with metadata.
 
@@ -2299,6 +2300,7 @@ class Lumascope():
                 metadata=metadata,
                 ome=ome,
                 color=color,
+                use_false_color_16bit=use_false_color_16bit,
             )
 
             logger.info(f'[SCOPE API ] Saving Image to {file_loc}')
@@ -3779,7 +3781,8 @@ class Lumascope():
         true_color: str = 'BF',
         x=None, y=None, z=None,
         objective=None, labware=None, stage_offset=None, coordinate_transformer=None,
-        binning_size=None, exposure_time_ms=None, gain_db=None, illumination_ma=None
+        binning_size=None, exposure_time_ms=None, gain_db=None, illumination_ma=None,
+        use_false_color_16bit: bool | None = None,
     ):
         """CAMERA FUNCTIONS
         save image (as array) to file - static version that doesn't require Lumascope instance
@@ -3835,7 +3838,8 @@ class Lumascope():
                 file_loc=file_loc,
                 metadata=metadata,
                 ome=ome,
-                color=color
+                color=color,
+                use_false_color_16bit=use_false_color_16bit,
             )
 
             logger.info(f'[SCOPE API ] Saving Image to {file_loc}')

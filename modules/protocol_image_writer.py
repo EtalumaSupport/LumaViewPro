@@ -54,6 +54,8 @@ class ProtocolImageWriter:
         is_run_in_progress_fn,
         stim_profiling: bool = False,
         run_dir: pathlib.Path | None = None,
+        # PIW-3: cached settings, read once at run start to avoid per-save lock acquires
+        false_color_16bit: bool = False,
     ):
         self._scope = scope
         self._callbacks = callbacks
@@ -67,6 +69,7 @@ class ProtocolImageWriter:
         self._is_run_in_progress = is_run_in_progress_fn
         self._stim_profiling = stim_profiling
         self._run_dir = run_dir
+        self._false_color_16bit = false_color_16bit
         self._consecutive_capture_failures = 0
         self._MAX_CONSECUTIVE_CAPTURE_FAILURES = 3
 
@@ -374,7 +377,8 @@ class ProtocolImageWriter:
                     true_color=step['Color'],
                     x=step['X'],
                     y=step['Y'],
-                    z=step['Z']
+                    z=step['Z'],
+                    use_false_color_16bit=self._false_color_16bit,
                 )
 
                 del captured_image

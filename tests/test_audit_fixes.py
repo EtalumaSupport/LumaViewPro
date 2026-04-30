@@ -1534,3 +1534,68 @@ class TestAOC2_RetrySaturationCheckOutsideCamLock:
         assert idx_init < idx_lock < idx_retry_grab, (
             "AOC-2: retry_frame should be initialized BEFORE the with cam_lock block."
         )
+
+
+class TestPIW3_FalseColor16bitCachedAtRunStart:
+    """PIW-3: image_utils.write_tiff used to acquire `_app_ctx.ctx.settings_lock`
+    on every TIFF save to read the `false_color_16bit` flag. Same Rule 14 / Rule 2
+    family as PP-7 in the post-processing audit. The setting is read-mostly during
+    a protocol run; per-save acquisition is wasteful and contends with GUI thread
+    settings updates.
+
+    Fix: thread an `use_false_color_16bit` parameter through write_tiff /
+    save_image / save_image_static / ProtocolImageWriter, read once in
+    sequenced_capture_executor at run start, and pass through. write_tiff
+    falls back to the lock-read path when `use_false_color_16bit=None`,
+    preserving behavior for ad-hoc callers.
+    """
+
+    def test_write_tiff_accepts_use_false_color_16bit_param(self):
+        from pathlib import Path
+        src = (Path(__file__).resolve().parent.parent / "modules" / "image_utils.py").read_text()
+        assert "use_false_color_16bit: bool | None = None" in src, (
+            "PIW-3: write_tiff() should accept use_false_color_16bit param."
+        )
+        # The lock acquire should be gated on use_false_color_16bit being None.
+        assert "if use_false_color_16bit is None:" in src, (
+            "PIW-3: settings_lock should be acquired only when caller did not supply the resolved bool."
+        )
+
+    def test_save_image_threads_param_to_write_tiff(self):
+        from pathlib import Path
+        src = (Path(__file__).resolve().parent.parent / "modules" / "lumascope_api.py").read_text()
+        # Both save_image() (instance method) and save_image_static() must accept the param.
+        assert src.count("use_false_color_16bit: bool | None = None") >= 2, (
+            "PIW-3: save_image and save_image_static should both accept use_false_color_16bit."
+        )
+        # Both should pass it through to write_tiff. Count the kwarg passes; expect >= 2.
+        assert src.count("use_false_color_16bit=use_false_color_16bit") >= 2, (
+            "PIW-3: save_image and save_image_static should pass the param to write_tiff."
+        )
+
+    def test_protocol_image_writer_caches_at_init(self):
+        from pathlib import Path
+        src = (Path(__file__).resolve().parent.parent / "modules" / "protocol_image_writer.py").read_text()
+        assert "false_color_16bit: bool = False" in src, (
+            "PIW-3: ProtocolImageWriter.__init__ should accept false_color_16bit."
+        )
+        assert "self._false_color_16bit = false_color_16bit" in src, (
+            "PIW-3: ProtocolImageWriter should cache false_color_16bit on self."
+        )
+        assert "use_false_color_16bit=self._false_color_16bit" in src, (
+            "PIW-3: ProtocolImageWriter should pass the cached value to save_image."
+        )
+
+    def test_sequenced_capture_executor_reads_once_at_run_start(self):
+        from pathlib import Path
+        src = (Path(__file__).resolve().parent.parent / "modules" / "sequenced_capture_executor.py").read_text()
+        # The read must happen under the settings_lock and pass through to the writer.
+        assert "with ctx.settings_lock:" in src, (
+            "PIW-3: false_color_16bit read should be guarded by settings_lock."
+        )
+        assert "false_color_16bit = ctx.settings.get('false_color_16bit', False)" in src, (
+            "PIW-3: expected single read of false_color_16bit from settings."
+        )
+        assert "false_color_16bit=false_color_16bit" in src, (
+            "PIW-3: cached value should be passed to ProtocolImageWriter."
+        )
