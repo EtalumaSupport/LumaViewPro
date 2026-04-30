@@ -1260,6 +1260,52 @@ class TestRule1_SerialBoardNoNotifications:
         assert "notifications.info" not in source
 
 
+class TestIssue637_DrawerCloseSaturation:
+    """#637: Closing the right-side LED settings drawer caused the image to
+    saturate. Reproduction:
+      1. Maximized image, PC LED ON, bullseye/crosshairs ON
+      2. Hit right arrow to close drawer
+      3. Image went all red (saturated)
+      4. Reopen drawer, PC still selected, image returned to normal after
+         cycling LED off/on
+
+    Root cause: Kivy's Accordion auto-expands a different item when the
+    active one collapses (default behavior — at least one item must stay
+    expanded). When the user closed the drawer, Kivy auto-expanded another
+    layer's accordion item (e.g. DF) behind the scenes. ImageSettings's
+    on-collapse handler fired and called apply_settings() on that newly-
+    expanded layer, applying its camera exposure (e.g. DF 30 ms vs PC 5 ms)
+    while the user's actual LED was still on. 6x longer exposure with the
+    same LED on saturated the image.
+
+    Fix: drawer open/close must not send anything to camera/LEDs. Skip
+    _do_accordion_collapse's apply_settings loop when the drawer toggle
+    button is in 'normal' state (drawer closed).
+    """
+
+    def test_do_accordion_collapse_skips_when_drawer_closed(self):
+        """_do_accordion_collapse must check toggle_imagesettings state
+        before applying any layer settings."""
+        import pathlib
+        source = pathlib.Path("ui/image_settings.py").read_text()
+        idx = source.find("def _do_accordion_collapse")
+        assert idx >= 0, "_do_accordion_collapse not found in ui/image_settings.py"
+        # Slice to just this method's body — find the next `def ` at the
+        # same indent level. _do_accordion_collapse lives in a class so
+        # subsequent methods use 4-space indent: '\n    def '.
+        next_def = source.find("\n    def ", idx + 1)
+        body = source[idx:next_def] if next_def > 0 else source[idx:]
+        assert "toggle_imagesettings" in body, (
+            "_do_accordion_collapse must check toggle_imagesettings state "
+            "(issue #637) - without this guard, drawer close triggers "
+            "apply_settings on a Kivy auto-expanded layer, saturating image."
+        )
+        assert "'normal'" in body or '"normal"' in body, (
+            "_do_accordion_collapse must compare toggle_imagesettings.state "
+            "to 'normal' (drawer-closed sentinel) per issue #637 fix."
+        )
+
+
 class TestIssue643_LumiLS820PlateViewInProtocol:
     """#643: On XYStage=False scopes (Lumi, LS820) the plate view + crosshair
     re-appeared in the protocol accordion when opened, despite
