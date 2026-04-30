@@ -2249,6 +2249,8 @@ class Lumascope():
         z=None,
         use_false_color_16bit: bool | None = None,
         out_12to16: np.ndarray | None = None,
+        false_color_buf: np.ndarray | None = None,
+        rgb_buf: np.ndarray | None = None,
     ):
         """Save an image array to a TIFF file with metadata.
 
@@ -2304,6 +2306,8 @@ class Lumascope():
                 ome=ome,
                 color=color,
                 use_false_color_16bit=use_false_color_16bit,
+                false_color_buf=false_color_buf,
+                rgb_buf=rgb_buf,
             )
 
             logger.info(f'[SCOPE API ] Saving Image to {file_loc}')

@@ -72,10 +72,12 @@ class ProtocolImageWriter:
         self._stim_profiling = stim_profiling
         self._run_dir = run_dir
         self._false_color_16bit = false_color_16bit
-        # PIW-5: per-run reusable buffer for convert_12bit_to_16bit. Allocated
-        # lazily on first uint16 save; re-allocated only on shape/dtype change.
+        # PIW-5 / PF-3 / PIW-6: per-run reusable buffers for the save path.
+        # Allocated lazily on first matching save; re-allocated on shape/dtype change.
         # file_io_executor runs single-threaded, so reuse across saves is safe.
-        self._convert_buf_12to16 = None
+        self._convert_buf_12to16 = None  # PIW-5: 2D uint16, eliminates image.copy() in convert
+        self._false_color_buf = None     # PF-3: 3D uint16 BGR, output of add_false_color
+        self._rgb_buf = None             # PIW-6: 3D uint16 RGB, output of cv2.cvtColor
         self._consecutive_capture_failures = 0
         self._MAX_CONSECUTIVE_CAPTURE_FAILURES = 3
 
@@ -86,6 +88,20 @@ class ProtocolImageWriter:
                 or self._convert_buf_12to16.dtype != array.dtype):
             self._convert_buf_12to16 = np.empty(array.shape, dtype=array.dtype)
         return self._convert_buf_12to16
+
+    def _get_false_color_bufs(self, array_2d):
+        """Get-or-allocate the (H, W, 3) BGR + RGB buffers for the false-color save path.
+
+        Both buffers share shape (H, W, 3) and array_2d.dtype. Returned as a tuple
+        (false_color_buf, rgb_buf). Re-allocated together on shape/dtype change.
+        """
+        target_shape = (array_2d.shape[0], array_2d.shape[1], 3)
+        if (self._false_color_buf is None
+                or self._false_color_buf.shape != target_shape
+                or self._false_color_buf.dtype != array_2d.dtype):
+            self._false_color_buf = np.empty(target_shape, dtype=array_2d.dtype)
+            self._rgb_buf = np.empty(target_shape, dtype=array_2d.dtype)
+        return self._false_color_buf, self._rgb_buf
 
     def capture(
         self,
@@ -377,9 +393,16 @@ class ProtocolImageWriter:
                     return
 
                 # PIW-5: pass per-run convert buffer for uint16 saves.
-                out_12to16 = (self._get_convert_buf_12to16(captured_image)
-                              if hasattr(captured_image, 'dtype') and captured_image.dtype == np.uint16
-                              else None)
+                # PF-3 / PIW-6: pass per-run false-color + RGB buffers when the
+                # protocol enables false-color and the capture is uint16 2D.
+                is_uint16_2d = (hasattr(captured_image, 'dtype')
+                                and captured_image.dtype == np.uint16
+                                and getattr(captured_image, 'ndim', 0) == 2)
+                out_12to16 = self._get_convert_buf_12to16(captured_image) if is_uint16_2d else None
+                if self._false_color_16bit and is_uint16_2d:
+                    false_color_buf, rgb_buf = self._get_false_color_bufs(captured_image)
+                else:
+                    false_color_buf, rgb_buf = None, None
                 capture_result = self._scope.save_image(
                     array=captured_image,
                     save_folder=save_folder,
@@ -398,6 +421,8 @@ class ProtocolImageWriter:
                     z=step['Z'],
                     use_false_color_16bit=self._false_color_16bit,
                     out_12to16=out_12to16,
+                    false_color_buf=false_color_buf,
+                    rgb_buf=rgb_buf,
                 )
 
                 del captured_image

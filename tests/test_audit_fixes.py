@@ -1669,3 +1669,115 @@ class TestPIW5_Convert12to16OutBuffer:
         assert "convert_12bit_to_16bit(array, out=out_12to16)" in src, (
             "PIW-5: prepare_image_for_saving should pass out_12to16 to the convert call."
         )
+
+
+class TestPIW6_PF3_FalseColorRgbPreallocated:
+    """PIW-6 + PF-3 (combined): retire allocations on the false-color save path.
+
+    Before:
+      - add_false_color allocates (H, W, 3) BGR per save (~36 MB uint16)        — PF-3
+      - data[:, :, ::-1] returns a stride-reversed VIEW; tifffile silently
+        calls np.ascontiguousarray on write (~36 MB uint16 alloc)               — PIW-6
+
+    After:
+      - add_false_color(data, color, output=false_color_buf) reuses caller buf  — PF-3
+      - cv2.cvtColor(bgr, COLOR_BGR2RGB, dst=rgb_buf) writes in-place           — PIW-6
+
+    ProtocolImageWriter holds both buffers per run, lazy-allocated together
+    on first uint16 2D save when false-color is enabled. Mismatched shape/dtype
+    re-allocates on demand. file_io_executor runs single-threaded so reuse
+    across sequential saves is safe.
+
+    The cv2.cvtColor approach is more idiomatic in a cv2-based pipeline than
+    the previous numpy stride-reversal + ascontiguousarray pattern.
+    """
+
+    def test_write_tiff_uses_cv2_cvtColor_into_rgb_buf(self):
+        from pathlib import Path
+        src = (Path(__file__).resolve().parent.parent / "modules" / "image_utils.py").read_text()
+        # Old form (as code, not as comment-reference) gone.
+        assert "data = data[:, :, ::-1]" not in src, (
+            "PIW-6: old stride-reversed-view BGR->RGB assignment should be replaced."
+        )
+        # New form: cv2.cvtColor with dst kwarg.
+        assert "cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB, dst=rgb_buf)" in src, (
+            "PIW-6: BGR->RGB should use cv2.cvtColor with dst=rgb_buf for in-place conversion."
+        )
+        # Fallback path when no rgb_buf supplied.
+        assert "cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)" in src, (
+            "PIW-6: fallback path should still call cv2.cvtColor for ad-hoc callers."
+        )
+        # add_false_color is called with the output buffer.
+        assert "add_false_color(data, color, output=false_color_buf)" in src, (
+            "PF-3: add_false_color should be called with output=false_color_buf."
+        )
+
+    def test_write_tiff_signature_includes_buffers(self):
+        from pathlib import Path
+        src = (Path(__file__).resolve().parent.parent / "modules" / "image_utils.py").read_text()
+        assert "false_color_buf: np.ndarray | None = None" in src, (
+            "PF-3: write_tiff should accept false_color_buf param."
+        )
+        assert "rgb_buf: np.ndarray | None = None" in src, (
+            "PIW-6: write_tiff should accept rgb_buf param."
+        )
+
+    def test_protocol_image_writer_holds_both_buffers(self):
+        from pathlib import Path
+        src = (Path(__file__).resolve().parent.parent / "modules" / "protocol_image_writer.py").read_text()
+        assert "self._false_color_buf = None" in src, (
+            "PF-3: ProtocolImageWriter should initialize false_color_buf to None."
+        )
+        assert "self._rgb_buf = None" in src, (
+            "PIW-6: ProtocolImageWriter should initialize rgb_buf to None."
+        )
+        assert "_get_false_color_bufs" in src, (
+            "PF-3 + PIW-6: helper that returns (false_color_buf, rgb_buf) tuple should exist."
+        )
+        # Buffers only allocated when false-color is enabled AND capture is uint16 2D.
+        assert "if self._false_color_16bit and is_uint16_2d:" in src, (
+            "PF-3 + PIW-6: buffer allocation should be gated on false_color_16bit AND uint16 2D."
+        )
+        # Both buffers passed to save_image.
+        assert "false_color_buf=false_color_buf" in src, (
+            "PF-3: false_color_buf should be passed to save_image."
+        )
+        assert "rgb_buf=rgb_buf" in src, (
+            "PIW-6: rgb_buf should be passed to save_image."
+        )
+
+    def test_save_image_threads_buffers_to_write_tiff(self):
+        from pathlib import Path
+        src = (Path(__file__).resolve().parent.parent / "modules" / "lumascope_api.py").read_text()
+        assert "false_color_buf: np.ndarray | None = None" in src, (
+            "PF-3: save_image should accept false_color_buf."
+        )
+        assert "rgb_buf: np.ndarray | None = None" in src, (
+            "PIW-6: save_image should accept rgb_buf."
+        )
+
+    def test_add_false_color_uses_output_buffer(self):
+        """Functional: add_false_color writes into the supplied output buffer."""
+        import numpy as np
+        from modules.image_utils import add_false_color
+        src = np.full((4, 4), 100, dtype=np.uint16)
+        buf = np.full((4, 4, 3), 999, dtype=np.uint16)
+        result = add_false_color(src, 'Blue', output=buf)
+        assert result is buf, "PF-3: add_false_color should return the supplied buffer."
+        np.testing.assert_array_equal(result[:, :, 0], src)
+        assert np.all(result[:, :, 1] == 0), "PF-3: green channel should be zeroed."
+        assert np.all(result[:, :, 2] == 0), "PF-3: red channel should be zeroed."
+
+    def test_cv2_cvtColor_dst_writes_in_place(self):
+        """Functional: cv2.cvtColor with dst= writes BGR->RGB in-place."""
+        import numpy as np
+        import cv2
+        bgr = np.zeros((2, 3, 3), dtype=np.uint16)
+        bgr[:, :, 0] = 1
+        bgr[:, :, 1] = 2
+        bgr[:, :, 2] = 3
+        rgb_buf = np.empty_like(bgr)
+        cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB, dst=rgb_buf)
+        assert np.all(rgb_buf[:, :, 0] == 3), "cv2.cvtColor: R channel"
+        assert np.all(rgb_buf[:, :, 1] == 2), "cv2.cvtColor: G channel"
+        assert np.all(rgb_buf[:, :, 2] == 1), "cv2.cvtColor: B channel"
