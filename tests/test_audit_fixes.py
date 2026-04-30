@@ -1258,3 +1258,86 @@ class TestRule1_SerialBoardNoNotifications:
             "drivers/serialboard.py must not call notifications.error — Rule 1"
         assert "notifications.warning" not in source
         assert "notifications.info" not in source
+
+
+class TestIssue642_FilesCompleteCallbackRace:
+    """#642: protocol_complete_callback was wiped by protocol_end() before
+    the dispatch loop could fire it, causing files_complete to never fire
+    when a protocol aborted with an empty queue (e.g. pre-scan disk-space
+    abort). UI consequence: button stuck at "Writing Files... (0)" disabled,
+    user must quit the app.
+
+    Root cause: dispatch loop in sequential_io_executor.py called
+    self.protocol_end() (which clears self.protocol_complete_callback)
+    BEFORE reading the callback to fire it. Race wiped the reference.
+
+    Fix: capture callback BEFORE protocol_end() in the dispatch loop's
+    drain branch. protocol_end() retains its callback-clear behavior for
+    the "premature end" path where callers invoke it directly.
+    """
+
+    def test_complete_callback_fires_when_protocol_finishes_with_empty_queue(self):
+        """Pre-scan abort scenario: protocol_finish set, queue never had tasks."""
+        from modules.sequential_io_executor import SequentialIOExecutor
+        import time
+
+        ex = SequentialIOExecutor(name="TEST_642_EMPTY")
+        ex.start()
+        try:
+            fired = []
+            ex.protocol_start()
+            ex.set_protocol_complete_callback(callback=lambda: fired.append(True))
+            ex.protocol_finish_then_end()
+
+            # Dispatch loop polls protocol_queue with 0.2 s timeout. After timeout,
+            # it sees queue empty + protocol_finish set, fires the callback path.
+            # 1.0 s is ample margin (5x the poll interval).
+            deadline = time.monotonic() + 1.0
+            while time.monotonic() < deadline and not fired:
+                time.sleep(0.05)
+
+            assert fired, (
+                "files_complete callback did not fire after protocol_finish_then_end "
+                "on empty queue. Pre-fix bug: protocol_end() in the dispatch loop "
+                "wiped the callback before it could be fired (issue #642)."
+            )
+        finally:
+            ex.shutdown(wait=True)
+
+    def test_complete_callback_fires_after_queued_tasks_drain(self):
+        """Normal completion: protocol_start, queue task(s), wait for task to run,
+        then protocol_finish_then_end, verify callback fires after queue drains."""
+        from modules.sequential_io_executor import SequentialIOExecutor, IOTask
+        import time
+
+        ex = SequentialIOExecutor(name="TEST_642_DRAIN")
+        ex.start()
+        try:
+            fired = []
+            task_ran = []
+            ex.protocol_start()
+            ex.protocol_put(IOTask(action=lambda: task_ran.append(True)))
+
+            # Wait for task to be picked up + executed before signaling finish.
+            # If we call protocol_finish_then_end before the dispatcher pulls
+            # the task, the dispatcher's queue.Empty branch fires first and
+            # ends the protocol with the task still in queue (test artifact,
+            # not the bug we're testing).
+            deadline = time.monotonic() + 2.0
+            while time.monotonic() < deadline and not task_ran:
+                time.sleep(0.05)
+            assert task_ran, "Queued task did not execute within 2 s."
+
+            ex.set_protocol_complete_callback(callback=lambda: fired.append(True))
+            ex.protocol_finish_then_end()
+
+            deadline = time.monotonic() + 2.0
+            while time.monotonic() < deadline and not fired:
+                time.sleep(0.05)
+
+            assert fired, (
+                "files_complete callback did not fire after queue drained "
+                "via protocol_finish_then_end (issue #642)."
+            )
+        finally:
+            ex.shutdown(wait=True)

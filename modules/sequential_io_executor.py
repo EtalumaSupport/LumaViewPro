@@ -362,9 +362,15 @@ class SequentialIOExecutor:
                     if self.pending_shutdown:
                         return
                     if self.protocol_finish.is_set():
-                        self.protocol_end()
-                        self.protocol_finish.clear()
-                        # Trigger completion callback if registered
+                        # Capture callback BEFORE protocol_end() — protocol_end
+                        # clears self.protocol_complete_callback for the
+                        # "premature end" path (e.g. caller invokes protocol_end
+                        # directly without going through finish-then-end). The
+                        # normal-drain path here also calls protocol_end, so
+                        # without capturing first, the callback gets wiped
+                        # before we can fire it. Caused issue #642 where
+                        # files_complete never fired on disk-space abort →
+                        # button stuck at "Writing Files... (0)" disabled.
                         with self._callback_lock:
                             _cb = self.protocol_complete_callback
                             _cb_args = self.protocol_complete_cb_args
@@ -372,6 +378,8 @@ class SequentialIOExecutor:
                             self.protocol_complete_callback = None
                             self.protocol_complete_cb_args = ()
                             self.protocol_complete_cb_kwargs = {}
+                        self.protocol_end()
+                        self.protocol_finish.clear()
                         if _cb is not None:
                             self._ui_dispatch(
                                 lambda dt: _cb(*_cb_args, **_cb_kwargs), 0
