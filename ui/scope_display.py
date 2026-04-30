@@ -81,6 +81,15 @@ class ScopeDisplay(Image):
         self._camera_mbps = 0.0
         self._last_frame_nbytes = 0
 
+        # Frame-interval rolling histogram for P50/P95/P99 (TEMPORARY 2026-04-30,
+        # buffer-churn investigation). Sized to ~60 s at typical 15-30 fps.
+        # Worker thread appends; metrics-log thread reads via
+        # `frame_interval_percentiles_ms()`. deque.append is atomic in CPython
+        # so no lock needed for occasional snapshot reads.
+        from collections import deque
+        self._frame_interval_history = deque(maxlen=2000)
+        self._last_frame_pull_time = None
+
         # Engineering stats timing (2x per second)
         self._eng_stats_last_time = 0.0
 
@@ -389,6 +398,26 @@ class ScopeDisplay(Image):
         np.take(ScopeDisplay._bullseye_lut, image, axis=0, out=self._bullseye_rgb_buf)
         return self._bullseye_rgb_buf
 
+    def frame_interval_percentiles_ms(self):
+        """Return P50/P95/P99 frame interval in ms over the rolling history.
+
+        TEMPORARY 2026-04-30 — buffer-churn investigation. Used by
+        log_system_metrics() to detect consumer stalls. Returns dict with
+        keys p50/p95/p99/n; empty dict if no samples yet.
+        """
+        history = list(self._frame_interval_history)
+        n = len(history)
+        if n == 0:
+            return {}
+        history.sort()
+        return {
+            'p50': history[n // 2],
+            'p95': history[min(n - 1, int(n * 0.95))],
+            'p99': history[min(n - 1, int(n * 0.99))],
+            'max': history[-1],
+            'n': n,
+        }
+
 
     def _pull_next_frame(self, dt=0):
         """Pull-based display loop entry point. Called on main thread.
@@ -402,6 +431,15 @@ class ScopeDisplay(Image):
             return
 
         self._cycle_start_time = time.monotonic()
+
+        # Frame-interval recording (TEMPORARY 2026-04-30, buffer-churn investigation).
+        # _pull_next_frame is called once per display cycle on the main thread,
+        # so the interval between calls is the wall-clock period between
+        # rendered frames (or scheduled-but-not-yet-rendered).
+        if self._last_frame_pull_time is not None:
+            interval_ms = (self._cycle_start_time - self._last_frame_pull_time) * 1000.0
+            self._frame_interval_history.append(interval_ms)
+        self._last_frame_pull_time = self._cycle_start_time
 
         ctx = _app_ctx.ctx
         if ctx is None:

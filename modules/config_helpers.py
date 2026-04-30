@@ -274,13 +274,32 @@ def log_system_metrics(settings: dict):
             extra={'force_error': True},
         )
 
-    # Per-process I/O bytes (cumulative). Distinguishes our writes from
-    # Windows Defender / Search Indexer scanning the same files.
+    # Per-process I/O bytes (cumulative + per-second rates).
+    # Cumulative distinguishes "we wrote 50 GB this hour" from "Windows Defender did".
+    # Rates (TEMPORARY 2026-04-30) give the steady-state save rate to compare
+    # against camera_data_rate in [BUFFER METRICS] and Defender's read rate.
     io_read = metrics.get('io_read_mb', -1)
     io_write = metrics.get('io_write_mb', -1)
+    io_read_rate = metrics.get('io_read_mbps', -1)
+    io_write_rate = metrics.get('io_write_mbps', -1)
     if io_read >= 0 or io_write >= 0:
+        rate_str = ''
+        if io_read_rate >= 0 or io_write_rate >= 0:
+            rate_str = (f" | read_rate={io_read_rate:.2f} MB/s"
+                        f" | write_rate={io_write_rate:.2f} MB/s")
         logger.info(
-            f"[PROCESS IO] read={io_read:.1f} MB | write={io_write:.1f} MB",
+            f"[PROCESS IO] read={io_read:.1f} MB | write={io_write:.1f} MB{rate_str}",
+            extra={'force_error': True},
+        )
+
+    # Page-fault rate (TEMPORARY 2026-04-30).
+    # Sustained > 1000 pf/sec on a desktop = real memory pressure (paging).
+    # If pf/sec stays low while standby grows, slowdown is not real paging.
+    pf_total = metrics.get('page_faults_total')
+    pf_rate = metrics.get('page_faults_per_sec')
+    if pf_total is not None or pf_rate is not None:
+        logger.info(
+            f"[PAGE FAULTS] total={pf_total} | rate={pf_rate:.1f}/s",
             extra={'force_error': True},
         )
 
@@ -350,6 +369,111 @@ def log_system_metrics(settings: dict):
             )
         except Exception as e:
             logger.debug(f'[BUFFER METRICS] unavailable: {e}')
+
+        # Frame-interval percentiles (TEMPORARY 2026-04-30) — consumer-stall
+        # detection. Spikes in p99/max correlate with main-thread congestion
+        # or worker-thread blocks. After the buffer-reuse fix, p99 should
+        # tighten as lock-hold times shrink.
+        try:
+            if hasattr(sd, 'frame_interval_percentiles_ms'):
+                pcts = sd.frame_interval_percentiles_ms()
+                if pcts:
+                    logger.info(
+                        f"[FRAME INTERVAL] "
+                        f"p50={pcts['p50']:.1f} ms | "
+                        f"p95={pcts['p95']:.1f} ms | "
+                        f"p99={pcts['p99']:.1f} ms | "
+                        f"max={pcts['max']:.1f} ms | "
+                        f"n={pcts['n']}",
+                        extra={'force_error': True},
+                    )
+        except Exception as e:
+            logger.debug(f'[FRAME INTERVAL] unavailable: {e}')
+
+    # --- Defender (MsMpEng.exe) metrics (TEMPORARY 2026-04-30) ---
+    # Direct signal on the "Defender memory-maps every TIFF write" hypothesis.
+    # If defender_io_read_mbps tracks our io_write_mbps × ~1, that's the
+    # smoking gun. defender_private_mb growing alongside standby_total_mb
+    # is also implicating.
+    defender_private = metrics.get('defender_private_mb')
+    if defender_private is not None:
+        defender_rss = metrics.get('defender_rss_mb', -1)
+        defender_read = metrics.get('defender_io_read_mb_total', -1)
+        defender_read_rate = metrics.get('defender_io_read_mbps', -1)
+        logger.info(
+            f"[DEFENDER METRICS] private={defender_private:.0f} MB | "
+            f"rss={defender_rss:.0f} MB | "
+            f"io_read_total={defender_read:.0f} MB | "
+            f"io_read_rate={defender_read_rate:.2f} MB/s",
+            extra={'force_error': True},
+        )
+
+    # --- GC pressure (TEMPORARY 2026-04-30) ---
+    # gc_count = current uncollected objects per generation (depth).
+    # gc_genN_collections (existing [GC METRICS] block) = collections-since-start
+    # (rate). Both together separate "lots of churn but clean steady state"
+    # from "real generation-2 leak."
+    g0 = metrics.get('gc_count_gen0')
+    g1 = metrics.get('gc_count_gen1')
+    g2 = metrics.get('gc_count_gen2')
+    if g0 is not None and g1 is not None and g2 is not None:
+        logger.info(
+            f"[GC PRESSURE] gen0_depth={g0} | gen1_depth={g1} | gen2_depth={g2}",
+            extra={'force_error': True},
+        )
+
+    # --- Queue depth (TEMPORARY 2026-04-30) ---
+    # F-2 from AUDIT_LVP_PERF_2026-04-30.md: protocol_queue is unbounded with
+    # advisory-only depth warning. Monotonic queue growth = save can't keep up,
+    # frames pile up retaining 16-48 MB each. This is the most direct
+    # mechanism for the 18-20 hr slowdown if Defender ISN'T the cause.
+    try:
+        ctx = _app_ctx.ctx if _app_ctx.ctx is not None else None
+    except Exception:
+        ctx = None
+    if ctx is not None:
+        queue_parts = []
+        # Walk known executors. Each may use a queue.Queue (qsize) or a
+        # ThreadPoolExecutor (_work_queue.qsize). Both expose qsize().
+        for name in ('sequenced_capture_executor', 'autofocus_executor',
+                     'protocol_executor', 'io_executor', 'camera_executor',
+                     'file_io_executor', 'autofocus_thread_executor',
+                     'scope_display_thread_executor', 'reset_executor'):
+            try:
+                exe = getattr(ctx, name, None)
+                if exe is None:
+                    continue
+                wq = getattr(exe, '_work_queue', None) or getattr(exe, 'queue', None)
+                if wq is None and hasattr(exe, 'qsize'):
+                    wq = exe
+                if wq is not None and hasattr(wq, 'qsize'):
+                    queue_parts.append(f"{name}={wq.qsize()}")
+            except Exception:
+                continue
+        if queue_parts:
+            logger.info(
+                f"[QUEUE METRICS] {' | '.join(queue_parts)}",
+                extra={'force_error': True},
+            )
+
+    # --- tracemalloc top-N (TEMPORARY 2026-04-30, env-flag gated) ---
+    # Off by default. Enable with LVP_TRACEMALLOC=1 env var. Adds 10-30%
+    # process memory overhead so reserved for targeted runs. When on,
+    # logs top-5 allocators by current size — direct pre/post verification
+    # that audited buffer-reuse sites no longer allocate on hot path.
+    try:
+        from modules import common_utils as _cu  # noqa: WPS433
+        tm = _cu.query_tracemalloc_top_n(n=5)
+        if tm:
+            for i, entry in enumerate(tm, 1):
+                logger.info(
+                    f"[TRACEMALLOC] #{i} {entry['size_kb']:.0f} KB "
+                    f"(count={entry['count']}) at "
+                    f"{entry['file']}:{entry['line']}",
+                    extra={'force_error': True},
+                )
+    except Exception:
+        pass
 
 
 def focus_log(positions, values, focus_round: int, source_path: str) -> int:

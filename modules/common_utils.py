@@ -492,6 +492,141 @@ def query_windows_perf_counters():
     return _pdh_counters_singleton.query()
 
 
+# ---------------------------------------------------------------------------
+# Rate-tracker for cumulative counters — TEMPORARY INSTRUMENTATION (2026-04-30)
+#
+# Several metrics we want (page faults/sec, IO write/sec, MsMpEng read/sec)
+# come from cumulative counters. Cache the last value+timestamp and compute
+# a delta-rate on each call. Per-key state.
+# ---------------------------------------------------------------------------
+
+import time as _time
+
+_rate_state = {}  # {key: (last_value, last_ts)}
+
+
+def _delta_rate(key, current_value, now=None):
+    """Return per-second rate for a cumulative counter. Returns 0.0 on first
+    call or if time delta is too small to be meaningful."""
+    if now is None:
+        now = _time.monotonic()
+    prev = _rate_state.get(key)
+    _rate_state[key] = (current_value, now)
+    if prev is None:
+        return 0.0
+    last_value, last_ts = prev
+    dt = now - last_ts
+    if dt < 0.5:  # avoid divide-by-near-zero on rapid back-to-back calls
+        return 0.0
+    return (current_value - last_value) / dt
+
+
+# ---------------------------------------------------------------------------
+# Defender (MsMpEng.exe) metrics — TEMPORARY INSTRUMENTATION (2026-04-30)
+#
+# Direct signal on the "Defender memory-maps every TIFF write" hypothesis.
+# If MsMpEng's IO read rate climbs proportional to our save rate, that's
+# the smoking gun for Defender being on the slowdown's critical path.
+#
+# Cache the PID across calls (psutil.process_iter is expensive). Re-resolve
+# only if the cached PID has died.
+# ---------------------------------------------------------------------------
+
+_defender_pid_cache = {'pid': None, 'process': None}
+
+
+def query_defender_metrics():
+    """Return MsMpEng.exe metrics dict, or {} if not running / not Windows.
+
+    Cumulative IO read MB is included; the caller is expected to also call
+    _delta_rate for the per-sec rate.
+    """
+    if not _IS_WINDOWS:
+        return {}
+
+    proc = _defender_pid_cache.get('process')
+    try:
+        if proc is None or not proc.is_running():
+            for p in psutil.process_iter(['pid', 'name']):
+                try:
+                    if p.info['name'] and p.info['name'].lower() == 'msmpeng.exe':
+                        proc = psutil.Process(p.info['pid'])
+                        _defender_pid_cache['pid'] = proc.pid
+                        _defender_pid_cache['process'] = proc
+                        break
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    continue
+            else:
+                _defender_pid_cache['pid'] = None
+                _defender_pid_cache['process'] = None
+                return {}
+    except Exception:
+        return {}
+
+    try:
+        mem = proc.memory_info()
+        out = {
+            'defender_private_mb': getattr(mem, 'private', mem.rss) / (1024 * 1024),
+            'defender_rss_mb': mem.rss / (1024 * 1024),
+        }
+        try:
+            io = proc.io_counters()
+            out['defender_io_read_mb_total'] = io.read_bytes / (1024 * 1024)
+            out['defender_io_read_mbps'] = _delta_rate(
+                'defender_io_read', io.read_bytes
+            ) / (1024 * 1024)
+        except (psutil.AccessDenied, AttributeError):
+            pass
+        return out
+    except (psutil.NoSuchProcess, psutil.AccessDenied):
+        _defender_pid_cache['pid'] = None
+        _defender_pid_cache['process'] = None
+        return {}
+    except Exception:
+        return {}
+
+
+# ---------------------------------------------------------------------------
+# tracemalloc top-N allocators — TEMPORARY INSTRUMENTATION (2026-04-30)
+#
+# Off by default. Enable via env var LVP_TRACEMALLOC=1. When on, tracemalloc
+# is started at first call and a snapshot is taken; top-N allocators are
+# returned. Overhead: ~10-30% process memory. Use only when needed.
+# ---------------------------------------------------------------------------
+
+_tracemalloc_started = False
+
+
+def query_tracemalloc_top_n(n=5):
+    """Return list of top-N allocators by current size, or [] if disabled.
+
+    Enable via env var LVP_TRACEMALLOC=1.
+    """
+    if os.environ.get('LVP_TRACEMALLOC', '0') != '1':
+        return []
+    global _tracemalloc_started
+    try:
+        import tracemalloc
+        if not _tracemalloc_started:
+            tracemalloc.start(20)  # 20 frames of context
+            _tracemalloc_started = True
+            return []  # first call has no baseline
+        snap = tracemalloc.take_snapshot()
+        stats = snap.statistics('lineno')
+        out = []
+        for s in stats[:n]:
+            frame = s.traceback[0]
+            out.append({
+                'file': frame.filename,
+                'line': frame.lineno,
+                'size_kb': s.size / 1024,
+                'count': s.count,
+            })
+        return out
+    except Exception:
+        return []
+
+
 def system_metrics(path="/"):
     """Return a one-shot snapshot of process and host resource state.
 
@@ -571,16 +706,37 @@ def system_metrics(path="/"):
     except Exception:
         metrics["open_files_count"] = -1
 
-    # --- Process I/O bytes (cumulative, per-process) ---
+    # --- Process I/O bytes (cumulative + rates, per-process) ---
     # Distinguishes "we wrote 50 GB this hour" from "Windows Defender did".
     # Both bytes counters reset only when the process restarts.
+    # Rates added 2026-04-30 (TEMPORARY) — at 60 s sampling interval, the
+    # rate gives MB/sec of TIFF writes; cross-reference with Defender IO
+    # read rate to confirm "Defender mmaps every TIFF" hypothesis.
     try:
         io = proc.io_counters()
         metrics["io_read_mb"] = io.read_bytes / 1e6
         metrics["io_write_mb"] = io.write_bytes / 1e6
+        metrics["io_read_mbps"] = _delta_rate('proc_io_read', io.read_bytes) / 1e6
+        metrics["io_write_mbps"] = _delta_rate('proc_io_write', io.write_bytes) / 1e6
     except Exception:
         metrics["io_read_mb"] = -1
         metrics["io_write_mb"] = -1
+        metrics["io_read_mbps"] = -1
+        metrics["io_write_mbps"] = -1
+
+    # --- Page faults (rate) — TEMPORARY 2026-04-30 ---
+    # Sustained > 1000 pf/sec on a desktop = real memory pressure (paging
+    # working set in/out). Useful as a sanity signal — if pf/sec stays low
+    # while standby grows, the slowdown is allocator/standby-cache, not
+    # real paging. If pf/sec spikes during slow state, real paging.
+    try:
+        mem = proc.memory_info()
+        pf = getattr(mem, 'pfaults', None) or getattr(mem, 'num_page_faults', None)
+        if pf is not None:
+            metrics['page_faults_total'] = pf
+            metrics['page_faults_per_sec'] = _delta_rate('page_faults', pf)
+    except Exception:
+        pass
 
     # --- GDI / USER objects (Windows only — main long-run-stability concern) ---
     # GDI is what causes Windows-wide slowdown after 24h+ runs. Every
@@ -638,6 +794,27 @@ def system_metrics(path="/"):
         pdh = query_windows_perf_counters()
         for k, v in pdh.items():
             metrics[f'pdh_{k}'] = v
+    except Exception:
+        pass
+
+    # --- Defender (MsMpEng.exe) metrics (TEMPORARY 2026-04-30) ---
+    try:
+        for k, v in query_defender_metrics().items():
+            metrics[k] = v
+    except Exception:
+        pass
+
+    # --- Live GC depth (uncollected objects per generation) (TEMPORARY 2026-04-30) ---
+    # Existing gc_genN_collections counts collections-since-start (a counter).
+    # gc.get_count() is the CURRENT depth — pairs with the counter to show
+    # both rate (collections/min) and steady-state pressure (depth growing
+    # = generation 2 leaks).
+    try:
+        c = gc.get_count()
+        if len(c) >= 3:
+            metrics['gc_count_gen0'] = c[0]
+            metrics['gc_count_gen1'] = c[1]
+            metrics['gc_count_gen2'] = c[2]
     except Exception:
         pass
 
