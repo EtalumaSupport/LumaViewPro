@@ -53,8 +53,6 @@ if __name__ == "__main__":
     #---------------------Directory Initialization-----------------------------#
     ############################################################################
 
-    cpu_pool = None
-    use_multiprocessing = False
     live_view_fps = 30
     ij_helper = None
 
@@ -97,8 +95,6 @@ if __name__ == "__main__":
         sys.exit(1)
 
     import modules.profiling_utils as profiling_utils
-
-    from concurrent.futures import ProcessPoolExecutor
 
     import modules.common_utils as common_utils
     import modules.labware as labware
@@ -210,31 +206,6 @@ if __name__ == "__main__":
     reset_executor = None
     scope_session = None
     ctx = None
-
-    if use_multiprocessing:
-        import multiprocessing
-        multiprocessing.freeze_support()
-        multiprocessing.set_start_method('spawn', force=True)
-
-        # Import existing writer for process pool
-        from modules.sequenced_capture_writer import write_capture, worker_initializer, _noop
-
-        from lvp_logger import lvp_appdata as lvp_appdata_logger
-
-        # Create ProcessPoolExecutor with worker initializer
-        cpu_pool = ProcessPoolExecutor(
-            max_workers=num_cores-1,
-            initializer=worker_initializer,
-            initargs=(lvp_appdata_logger,)
-        )
-
-        # Warm up the pool
-        futures = [cpu_pool.submit(_noop, i) for i in range(num_cores-1)]
-
-        for f in futures:
-            f.result()
-
-        logger.info("LVP Main] All processes warmup complete")
 
 else:
     # Subprocess/worker compatibility — Kivy not available
@@ -604,14 +575,6 @@ class LumaViewProApp(TooltipMixin, App):
 
         # stage_executor and turret_executor are aliases for io_executor (already shut down above)
 
-        if cpu_pool is not None:
-            # Use a thread with timeout to prevent blocking forever on shutdown
-            t = threading.Thread(target=lambda: cpu_pool.shutdown(wait=True), daemon=True)
-            t.start()
-            t.join(timeout=5.0)
-            if t.is_alive():
-                logger.warning('[LVP Main  ] cpu_pool.shutdown timed out after 5s')
-
         if reset_executor is not None:
             reset_executor.shutdown(wait=False)
 
@@ -879,7 +842,6 @@ class LumaViewProApp(TooltipMixin, App):
             camera_executor=camera_executor,
             autofocus_io_executor=autofocus_thread_executor,
             z_ui_update_func=_handle_autofocus_ui,
-            cpu_pool=cpu_pool if use_multiprocessing else None
         )
 
         # Create AppContext — central service registry

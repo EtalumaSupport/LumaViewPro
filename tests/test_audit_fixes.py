@@ -594,25 +594,6 @@ class TestSerialDebugTruncation:
         assert not resp_repr.endswith('...')
 
 
-class TestWorkerLogPermissions:
-    """Verify worker log files get restricted permissions."""
-
-    def test_log_file_permissions(self, tmp_path):
-        """Worker log files should be owner-only (0o600)."""
-        import os
-        import sys
-        if sys.platform == 'win32':
-            pytest.skip('chmod not meaningful on Windows')
-
-        from modules.sequenced_capture_writer import setup_worker_logger
-        logger = setup_worker_logger(log_dir=str(tmp_path))
-        # Find the log file
-        log_files = list(tmp_path.glob('*.log'))
-        assert len(log_files) == 1
-        mode = oct(log_files[0].stat().st_mode & 0o777)
-        assert mode == '0o600'
-
-
 class TestTechSupportPrivacyNotice:
     """Verify tech support report includes privacy notice."""
 
@@ -1941,4 +1922,55 @@ class TestPF5_ImageBufferRetired:
         )
         assert "image = image_utils.convert_12bit_to_8bit(image)" in src, (
             "PF-5: 8-bit convert step should bind to local `image`."
+        )
+
+
+class TestPF1_CpuPoolRetired:
+    """PF-1: cpu_pool / use_multiprocessing infrastructure was dead.
+    use_multiprocessing was hardcoded False, so the ProcessPoolExecutor
+    construction at lumaviewpro.py:214-237 never ran. The
+    sequenced_capture_writer.py module was only imported from that dead
+    block — the entire module was unreachable. The cpu_pool param threaded
+    through SequencedCaptureExecutor.__init__ was always None.
+
+    Per IMAGE_PROCESSING_ARCHITECTURE_2026-04-30.md: do NOT pre-build a
+    replacement pool — modules/postprocessing/ and modules/live_processing/
+    will be built greenfield when their first feature lands.
+
+    Fix: deleted modules/sequenced_capture_writer.py entirely. Removed
+    cpu_pool / use_multiprocessing from lumaviewpro.py (declarations,
+    init block, shutdown block, executor kwarg). Removed cpu_pool param
+    from SequencedCaptureExecutor.__init__ + the now-unused
+    ProcessPoolExecutor import. Removed the test that exercised the dead
+    setup_worker_logger function.
+    """
+
+    def test_sequenced_capture_writer_module_deleted(self):
+        from pathlib import Path
+        path = Path(__file__).resolve().parent.parent / "modules" / "sequenced_capture_writer.py"
+        assert not path.exists(), (
+            "PF-1: modules/sequenced_capture_writer.py should be deleted (dead module)."
+        )
+
+    def test_lumaviewpro_no_cpu_pool_or_use_multiprocessing(self):
+        from pathlib import Path
+        src = (Path(__file__).resolve().parent.parent / "lumaviewpro.py").read_text()
+        assert "cpu_pool" not in src, (
+            "PF-1: all cpu_pool references should be removed from lumaviewpro.py."
+        )
+        assert "use_multiprocessing" not in src, (
+            "PF-1: all use_multiprocessing references should be removed from lumaviewpro.py."
+        )
+        assert "from concurrent.futures import ProcessPoolExecutor" not in src, (
+            "PF-1: unused ProcessPoolExecutor import should be removed from lumaviewpro.py."
+        )
+
+    def test_executor_no_cpu_pool_param(self):
+        from pathlib import Path
+        src = (Path(__file__).resolve().parent.parent / "modules" / "sequenced_capture_executor.py").read_text()
+        assert "cpu_pool" not in src, (
+            "PF-1: cpu_pool should be removed from SequencedCaptureExecutor."
+        )
+        assert "from concurrent.futures import ProcessPoolExecutor" not in src, (
+            "PF-1: unused ProcessPoolExecutor import should be removed from sequenced_capture_executor.py."
         )

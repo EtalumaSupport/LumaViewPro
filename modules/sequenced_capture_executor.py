@@ -32,7 +32,6 @@ from modules.protocol_execution_record import ProtocolExecutionRecord
 
 from modules.sequential_io_executor import SequentialIOExecutor, IOTask
 from lvp_logger import logger
-from concurrent.futures import ProcessPoolExecutor
 import threading
 
 import modules.app_context as _app_ctx
@@ -81,7 +80,6 @@ class SequencedCaptureExecutor:
         autofocus_io_executor: SequentialIOExecutor,
         autofocus_executor: AutofocusExecutor | None = None,
         z_ui_update_func: typing.Callable | None = None,
-        cpu_pool: ProcessPoolExecutor | None = None,
     ):
         self._coordinate_transformer = coord_transformations.CoordinateTransformer()
         self._wellplate_loader = labware_loader.WellPlateLoader()
@@ -97,7 +95,6 @@ class SequencedCaptureExecutor:
         self._run_in_progress_event = threading.Event()  # GIL-free safe replacement for _run_in_progress bool
         self._cleanup_lock = threading.Lock()
         self._run_lock = threading.Lock()
-        self._cpu_pool = cpu_pool
         self._video_write_finished = threading.Event()
         self._video_write_finished.set()
         self._grease_redistribution_event = threading.Event()
