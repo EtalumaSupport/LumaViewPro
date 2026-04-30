@@ -1840,3 +1840,54 @@ class TestPIW2_DisksUsageDeduped:
         assert "self._protocol_ended.set()" in src, (
             "PIW-2: protocol_image_writer's abort-on-low-disk path should still be present."
         )
+
+
+class TestPF2_FileIoExecutorClearedOnAbort:
+    """PF-2: on hardware-disconnect / abort cleanup, file_io_executor's
+    pending queue was NOT cleared — only io_executor and protocol_executor
+    were. Queued IOTasks hold captured_image references; on a slow drain
+    these can pin GB of memory and lock the next protocol-start until the
+    drain completes.
+
+    Distinct from normal completion, where draining is correct (writes user
+    data to disk). The discriminator is `ProtocolState.ERROR` at cleanup
+    entry — that's an abort path; anything else (COMPLETING, IDLE) is
+    normal end.
+
+    Fix: capture is_aborted from initial state BEFORE the COMPLETING
+    transition, then call file_io_executor.clear_protocol_pending() in the
+    aborted branch alongside the existing io/protocol clear calls. Drain
+    path is unchanged for normal completion.
+    """
+
+    def test_initial_state_captured_before_completing_transition(self):
+        from pathlib import Path
+        src = (Path(__file__).resolve().parent.parent / "modules" / "protocol_cleanup.py").read_text()
+        # The capture must precede the COMPLETING transition so ERROR vs other states
+        # is distinguishable.
+        idx_capture = src.find("is_aborted = (get_state_fn() == ProtocolState.ERROR)")
+        idx_transition = src.find("set_state_fn(ProtocolState.COMPLETING)")
+        assert idx_capture != -1, (
+            "PF-2: cleanup should capture is_aborted from initial state."
+        )
+        assert idx_capture < idx_transition, (
+            "PF-2: is_aborted must be captured BEFORE the COMPLETING state transition."
+        )
+
+    def test_file_io_cleared_on_abort_only(self):
+        from pathlib import Path
+        src = (Path(__file__).resolve().parent.parent / "modules" / "protocol_cleanup.py").read_text()
+        # The abort-branch clear is gated on is_aborted.
+        assert "if is_aborted:" in src, (
+            "PF-2: file_io clear should be gated on is_aborted."
+        )
+        assert "file_io_executor.clear_protocol_pending()" in src, (
+            "PF-2: cleanup should clear file_io_executor's pending queue on abort."
+        )
+        # Existing unconditional clears for the other executors must still be present.
+        assert "io_executor.clear_protocol_pending()" in src, (
+            "PF-2: io_executor.clear_protocol_pending should still be called unconditionally."
+        )
+        assert "protocol_executor.clear_protocol_pending()" in src, (
+            "PF-2: protocol_executor.clear_protocol_pending should still be called unconditionally."
+        )

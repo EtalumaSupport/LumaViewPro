@@ -64,6 +64,13 @@ def run_cleanup(
 
     Called from ``SequencedCaptureExecutor._cleanup_inner()``.
     """
+    # PF-2: capture initial state BEFORE the COMPLETING transition below so we
+    # can distinguish abort (ERROR) from normal end. On abort (e.g. hardware
+    # disconnect), file_io_executor's pending queue is cleared along with the
+    # other executors — otherwise queued frames stay pinned in memory while
+    # they slowly drain to disk, which can lock the next protocol-start.
+    is_aborted = (get_state_fn() == ProtocolState.ERROR)
+
     # Transition to COMPLETING (or stay in ERROR if that's how we got here)
     if get_state_fn() not in (ProtocolState.COMPLETING, ProtocolState.ERROR, ProtocolState.IDLE):
         set_state_fn(ProtocolState.COMPLETING)
@@ -157,6 +164,13 @@ def run_cleanup(
 
     io_executor.clear_protocol_pending()
     protocol_executor.clear_protocol_pending()
+    if is_aborted:
+        # PF-2: drop pending writes on abort. Drain (the COMPLETING-path default)
+        # would write everything queued to disk before releasing memory — fine on
+        # normal completion, but on disconnect/error the user wants control back
+        # without waiting for many GB of frames to slowly drain.
+        file_io_executor.clear_protocol_pending()
+        logger.info(f"[{logger_name}] Cleanup: file_io_executor pending cleared (aborted)")
 
     with run_lock:
         set_run_in_progress_fn(False)
