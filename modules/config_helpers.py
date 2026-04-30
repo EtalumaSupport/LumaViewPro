@@ -284,6 +284,73 @@ def log_system_metrics(settings: dict):
             extra={'force_error': True},
         )
 
+    # --- Windows PDH counters (TEMPORARY 2026-04-30) ---
+    # Buffer-churn investigation. Standby cache + nonpaged pool are the
+    # specific signals we need. Remove this block when the buffer-reuse
+    # fixes ship and standby trend is verified flat.
+    #
+    # Standby split: Normal + Reserve + Core = total standby cache.
+    #   - Standby growing while RAM available stays high → mapped-file
+    #     accumulation (the slowdown signal).
+    #   - Nonpaged pool growing → kernel-side leak (Pylon DMA, drivers).
+    #   - System cache (\Memory\Cache Bytes) is the file-system cache —
+    #     overlaps with standby on Windows; track both for cross-check.
+    pdh_keys = ['pdh_standby_normal_bytes', 'pdh_standby_reserve_bytes',
+                'pdh_standby_core_bytes', 'pdh_pool_nonpaged_bytes',
+                'pdh_pool_paged_bytes', 'pdh_system_cache_bytes',
+                'pdh_modified_page_bytes', 'pdh_free_zero_bytes',
+                'pdh_available_bytes', 'pdh_commit_bytes',
+                'pdh_commit_limit_bytes']
+    if any(k in metrics for k in pdh_keys):
+        def _mb(key):
+            v = metrics.get(key)
+            return f"{v / (1024*1024):.0f}" if v is not None else 'NA'
+        standby_total_mb = (
+            metrics.get('pdh_standby_normal_bytes', 0)
+            + metrics.get('pdh_standby_reserve_bytes', 0)
+            + metrics.get('pdh_standby_core_bytes', 0)
+        ) / (1024 * 1024)
+        logger.info(
+            f"[PDH METRICS] standby_total={standby_total_mb:.0f} MB "
+            f"(normal={_mb('pdh_standby_normal_bytes')} "
+            f"reserve={_mb('pdh_standby_reserve_bytes')} "
+            f"core={_mb('pdh_standby_core_bytes')}) | "
+            f"nonpaged_pool={_mb('pdh_pool_nonpaged_bytes')} MB | "
+            f"paged_pool={_mb('pdh_pool_paged_bytes')} MB | "
+            f"sys_cache={_mb('pdh_system_cache_bytes')} MB | "
+            f"modified={_mb('pdh_modified_page_bytes')} MB | "
+            f"free_zero={_mb('pdh_free_zero_bytes')} MB | "
+            f"available={_mb('pdh_available_bytes')} MB | "
+            f"commit={_mb('pdh_commit_bytes')}/{_mb('pdh_commit_limit_bytes')} MB",
+            extra={'force_error': True},
+        )
+
+    # --- Buffer-churn signals from the live capture path (TEMPORARY 2026-04-30) ---
+    # capture_fps × frame_nbytes = MB/sec the camera produces. Each frame
+    # currently allocates ~3 fresh OS-level buffers (camera copy, 12→8 LUT,
+    # tobytes()). The standby-cache growth in [PDH METRICS] should track
+    # this product roughly.
+    try:
+        from modules import app_context as _app_ctx  # noqa: WPS433
+        sd = _app_ctx.ctx.scope_display if _app_ctx.ctx is not None else None
+    except Exception:
+        sd = None
+    if sd is not None:
+        try:
+            capture_fps = float(getattr(sd, '_capture_fps_value', 0.0) or 0.0)
+            display_fps = float(getattr(sd, '_display_fps_value', 0.0) or 0.0)
+            camera_mbps = float(getattr(sd, '_camera_mbps', 0.0) or 0.0)
+            frame_nbytes = int(getattr(sd, '_last_frame_nbytes', 0) or 0)
+            logger.info(
+                f"[BUFFER METRICS] capture_fps={capture_fps:.1f} | "
+                f"display_fps={display_fps:.1f} | "
+                f"camera_data_rate={camera_mbps:.1f} MB/s | "
+                f"frame_size={frame_nbytes / 1024:.0f} KB",
+                extra={'force_error': True},
+            )
+        except Exception as e:
+            logger.debug(f'[BUFFER METRICS] unavailable: {e}')
+
 
 def focus_log(positions, values, focus_round: int, source_path: str) -> int:
     """Log autofocus positions and scores to file. Returns incremented focus_round."""

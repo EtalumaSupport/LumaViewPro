@@ -355,6 +355,143 @@ import psutil
 _IS_WINDOWS = platform.system() == 'Windows'
 
 
+# ---------------------------------------------------------------------------
+# Windows perf-counter query (PDH) — TEMPORARY INSTRUMENTATION (2026-04-30)
+#
+# Added on branch `perf-instrumentation-4.0.0-beta` to capture standby cache
+# growth, nonpaged pool, and system file cache as part of the buffer-churn
+# investigation. These counters are NOT in psutil. The PDH layer ("\Memory\..."
+# perf-counter paths) is the same data PowerShell `Get-Counter` returns.
+#
+# Lifetime: this entire `_PdhCountersOnce` helper plus the PDH fields injected
+# into `system_metrics()` are temporary. Remove once the buffer-reuse fixes
+# land and the standby-cache trend is verified flat.
+#
+# Performance: PdhCollectQueryData is one syscall per counter, ~1 ms total.
+# Safe to call once per minute.
+# ---------------------------------------------------------------------------
+
+class _PdhCountersOnce:
+    """Lazy-initialized PDH query for a fixed set of counters.
+
+    Opens the PDH query on first call, caches the counter handles, and
+    re-collects on each subsequent call. On any failure, marks itself
+    disabled so subsequent calls return {} without retry overhead.
+    """
+
+    # Counter paths — match `Get-Counter` PowerShell paths exactly.
+    # `\Memory\Available Bytes` is what Windows considers "available" — equals
+    # standby + free + zero pages. Useful as a sanity check against the breakdown.
+    _COUNTERS = {
+        'standby_normal_bytes':   r'\Memory\Standby Cache Normal Priority Bytes',
+        'standby_reserve_bytes':  r'\Memory\Standby Cache Reserve Bytes',
+        'standby_core_bytes':     r'\Memory\Standby Cache Core Bytes',
+        'pool_nonpaged_bytes':    r'\Memory\Pool Nonpaged Bytes',
+        'pool_paged_bytes':       r'\Memory\Pool Paged Bytes',
+        'system_cache_bytes':     r'\Memory\Cache Bytes',
+        'modified_page_bytes':    r'\Memory\Modified Page List Bytes',
+        'free_zero_bytes':        r'\Memory\Free & Zero Page List Bytes',
+        'available_bytes':        r'\Memory\Available Bytes',
+        'commit_bytes':           r'\Memory\Committed Bytes',
+        'commit_limit_bytes':     r'\Memory\Commit Limit',
+    }
+
+    # PDH return codes / format flags (winperf.h)
+    _PDH_FMT_DOUBLE = 0x00000200
+    _ERROR_SUCCESS = 0
+
+    def __init__(self):
+        self._initialized = False
+        self._disabled = False
+        self._query = None
+        self._handles = {}  # name -> counter handle
+
+    def _init(self):
+        try:
+            pdh = ctypes.WinDLL('pdh')
+            self._pdh = pdh
+
+            self._PdhOpenQueryW = pdh.PdhOpenQueryW
+            self._PdhAddCounterW = pdh.PdhAddCounterW
+            self._PdhCollectQueryData = pdh.PdhCollectQueryData
+            self._PdhGetFormattedCounterValue = pdh.PdhGetFormattedCounterValue
+
+            class _PDH_FMT_COUNTERVALUE(ctypes.Structure):
+                _fields_ = [
+                    ('CStatus', ctypes.c_ulong),
+                    ('doubleValue', ctypes.c_double),
+                ]
+            self._PDH_FMT_COUNTERVALUE = _PDH_FMT_COUNTERVALUE
+
+            query = ctypes.c_void_p()
+            ret = self._PdhOpenQueryW(None, 0, ctypes.byref(query))
+            if ret != self._ERROR_SUCCESS:
+                raise OSError(f'PdhOpenQueryW failed: 0x{ret:08x}')
+            self._query = query
+
+            for name, path in self._COUNTERS.items():
+                handle = ctypes.c_void_p()
+                ret = self._PdhAddCounterW(query, path, 0, ctypes.byref(handle))
+                if ret != self._ERROR_SUCCESS:
+                    # Some counters (e.g. Standby Cache Core) may be absent
+                    # on older Windows builds — mark this one missing and
+                    # continue. PdhCollectQueryData still works on the rest.
+                    continue
+                self._handles[name] = handle
+
+            # First collect "primes" the counters; second collect gives real
+            # values. Some counters (rate-based) need 2 samples — for the byte
+            # counters we use, a single collect is enough.
+            self._PdhCollectQueryData(query)
+
+            self._initialized = True
+        except Exception:
+            self._disabled = True
+
+    def query(self):
+        """Return {field: bytes_value} for all counters that are working.
+
+        Returns {} if PDH unavailable or initialization failed.
+        """
+        if self._disabled:
+            return {}
+        if not self._initialized:
+            self._init()
+            if self._disabled:
+                return {}
+
+        try:
+            ret = self._PdhCollectQueryData(self._query)
+            if ret != self._ERROR_SUCCESS:
+                return {}
+
+            out = {}
+            for name, handle in self._handles.items():
+                value = self._PDH_FMT_COUNTERVALUE()
+                ret = self._PdhGetFormattedCounterValue(
+                    handle, self._PDH_FMT_DOUBLE, None, ctypes.byref(value)
+                )
+                if ret == self._ERROR_SUCCESS:
+                    out[name] = float(value.doubleValue)
+            return out
+        except Exception:
+            return {}
+
+
+_pdh_counters_singleton = _PdhCountersOnce() if _IS_WINDOWS else None
+
+
+def query_windows_perf_counters():
+    """One-shot snapshot of selected Windows memory perf counters.
+
+    Returns dict mapping field name to bytes value. Returns {} on non-Windows
+    or if PDH is unavailable. TEMPORARY — see `_PdhCountersOnce` docstring.
+    """
+    if _pdh_counters_singleton is None:
+        return {}
+    return _pdh_counters_singleton.query()
+
+
 def system_metrics(path="/"):
     """Return a one-shot snapshot of process and host resource state.
 
@@ -493,6 +630,16 @@ def system_metrics(path="/"):
         metrics["gc_gen0_collections"] = -1
         metrics["gc_gen1_collections"] = -1
         metrics["gc_gen2_collections"] = -1
+
+    # --- Windows PDH memory counters (TEMPORARY 2026-04-30) ---
+    # Buffer-churn investigation. Standby cache + nonpaged pool are the
+    # specific signals we need. See `_PdhCountersOnce` for removal plan.
+    try:
+        pdh = query_windows_perf_counters()
+        for k, v in pdh.items():
+            metrics[f'pdh_{k}'] = v
+    except Exception:
+        pass
 
     return metrics
 

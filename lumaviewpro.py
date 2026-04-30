@@ -550,13 +550,15 @@ class LumaViewProApp(TooltipMixin, App):
 
         config_helpers.log_system_metrics(settings)  # Log once on startup
 
-        # Log resource metrics hourly (was 4h). Hourly gives 24 data points
-        # per day for trend detection vs 6 — important because the long-run
-        # leak symptoms we're hunting (GDI/handle climb, memory growth) only
-        # become visible across many samples. CPU cost is negligible: each
-        # snapshot takes ~10-50 ms (gc.get_objects() dominates). See
-        # docs/LOG_ANALYSIS_GUIDE.md "Resource Health".
-        Clock.schedule_interval(lambda dt: config_helpers.log_system_metrics(settings), 3600)   # Log metrics every hour
+        # Log resource metrics every minute. TEMPORARY 2026-04-30 — was hourly,
+        # bumped to 60 s for the buffer-churn investigation on branch
+        # `perf-instrumentation-4.0.0-beta`. Restore to 3600 before merging
+        # the buffer-reuse fix to `4.0.0-beta`. The added [PDH METRICS] +
+        # [BUFFER METRICS] blocks (`config_helpers.log_system_metrics`) need
+        # this cadence to capture the slowdown's onset within a single
+        # session. CPU cost per snapshot ~10-50 ms (gc.get_objects() dominates).
+        # See docs/LOG_ANALYSIS_GUIDE.md "Resource Health".
+        Clock.schedule_interval(lambda dt: config_helpers.log_system_metrics(settings), 60)   # TEMPORARY: every 1 min for buffer-churn investigation
 
         if lumaview.scope.camera_is_connected():
             lumaview.log_camera_temps()  # Log once on startup
