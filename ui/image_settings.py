@@ -448,6 +448,16 @@ class ImageSettings(BoxLayout):
         if ctx.protocol_running.is_set():
             return
 
+        # Issue #637: opening/closing the drawer must not send anything to
+        # the camera or LEDs. Kivy's accordion auto-expands a different
+        # item when the active one collapses (default Accordion behavior),
+        # so a drawer-close event would otherwise trigger apply_settings
+        # for whichever item Kivy auto-expanded — applying that layer's
+        # exposure/gain to the camera while the user's LED was still on a
+        # different channel. Saturated-image symptom in #637.
+        if self.ids['toggle_imagesettings'].state == 'normal':
+            return
+
         # turn off the camera update and all LEDs
         scope_leds_off()
 
