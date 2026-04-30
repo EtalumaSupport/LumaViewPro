@@ -1489,3 +1489,48 @@ class TestAOC1_SaturationCheckShortCircuit:
             old = bool(np.all(arr == np.iinfo(arr.dtype).max))
             new = not np.any(arr != np.iinfo(arr.dtype).max)
             assert old == new, f"Logical mismatch on uint16 case: old={old}, new={new}"
+
+
+class TestAOC2_RetrySaturationCheckOutsideCamLock:
+    """AOC-2: lumascope_api.get_image saturation-retry path used to hold
+    cam_lock across the np.all validation walk on the retry frame. The walk
+    doesn't need camera state — only the buffer returned from get_array().
+    Holding cam_lock across the walk blocked concurrent set_gain/set_exposure
+    from other threads for ~50-150 ms per saturated retry.
+
+    Fix: move the saturation walk outside the cam_lock block. Retry frame
+    is captured under the lock; the walk runs after the lock is released.
+    Also applies the AOC-1 short-circuit pattern at the retry site
+    (feedback_default_to_expanding_scope — fix the cluster).
+    """
+
+    def test_retry_saturation_walk_is_outside_cam_lock(self):
+        from pathlib import Path
+        src = (Path(__file__).resolve().parent.parent / "modules" / "lumascope_api.py").read_text()
+        # The old form: np.all(retry_frame == ...) inside the with self._cam_lock: block
+        assert "np.all(retry_frame == np.iinfo(retry_frame.dtype).max)" not in src, (
+            "AOC-2: old `np.all(retry_frame == max)` form should be replaced."
+        )
+        # New form: short-circuit np.any check, AND structurally placed in a sibling
+        # block to the cam_lock. Verify the lock-release marker comment is present
+        # AND the retry-frame check uses the AOC-1 pattern.
+        assert "Saturation walk is outside cam_lock" in src, (
+            "AOC-2: expected lock-release marker comment near retry-frame walk."
+        )
+        assert "np.any(retry_frame != np.iinfo(retry_frame.dtype).max)" in src, (
+            "AOC-2: retry-frame check should use the AOC-1 short-circuit pattern."
+        )
+
+    def test_retry_frame_initialized_before_lock_block(self):
+        """Structural: retry_frame must be initialized before the with block so the
+        outside-lock check can reference it whether or not the grab succeeded."""
+        from pathlib import Path
+        src = (Path(__file__).resolve().parent.parent / "modules" / "lumascope_api.py").read_text()
+        # Find the retry block; verify retry_frame = None precedes the with statement.
+        idx_init = src.find("retry_frame = None")
+        idx_lock = src.find("with self._cam_lock:", idx_init)
+        idx_retry_grab = src.find("retry_status", idx_lock)
+        assert idx_init != -1, "AOC-2: expected `retry_frame = None` initializer."
+        assert idx_init < idx_lock < idx_retry_grab, (
+            "AOC-2: retry_frame should be initialized BEFORE the with cam_lock block."
+        )

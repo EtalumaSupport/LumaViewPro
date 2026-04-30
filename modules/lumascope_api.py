@@ -1876,15 +1876,19 @@ class Lumascope():
                     # Saturated frame — retry once to confirm, then accept.
                     # Saturated images are valid data (exposure/illumination
                     # too high), not a camera error. Don't loop until timeout.
+                    retry_frame = None
                     with self._cam_lock:
                         retry_status, _ = self.camera.grab_new_capture(new_capture_timeout) if force_new_capture else self.camera.grab()
                         if retry_status:
                             self.frame_validity.count_frame()
                             retry_frame = self.camera.get_array()
-                            if not np.all(retry_frame == np.iinfo(retry_frame.dtype).max):
-                                tmp = retry_frame  # retry was OK, use it
-                            else:
-                                logger.debug("[SCOPE API ] get_image: saturated frame confirmed on retry")
+                    # Saturation walk is outside cam_lock — no camera state needed,
+                    # and the walk would otherwise block concurrent set_gain/set_exposure.
+                    if retry_frame is not None:
+                        if np.any(retry_frame != np.iinfo(retry_frame.dtype).max):
+                            tmp = retry_frame  # retry was OK, use it
+                        else:
+                            logger.debug("[SCOPE API ] get_image: saturated frame confirmed on retry")
 
                 # Accept the frame
                 if earliest_image_ts is None:
