@@ -1781,3 +1781,22 @@ class TestPIW6_PF3_FalseColorRgbPreallocated:
         assert np.all(rgb_buf[:, :, 0] == 3), "cv2.cvtColor: R channel"
         assert np.all(rgb_buf[:, :, 1] == 2), "cv2.cvtColor: G channel"
         assert np.all(rgb_buf[:, :, 2] == 1), "cv2.cvtColor: B channel"
+
+
+class TestPIW1_NoTheatricalDelCapturedImage:
+    """PIW-1: write_capture had `del captured_image` after save_image() completes.
+    The line is theatrical — captured_image is passed as a kwarg in the IOTask
+    queued at protocol_image_writer.py:303 (`"captured_image": captured_image`).
+    The IOTask.kwargs dict holds the reference until the task completes, so the
+    local `del` only releases a local binding — actual memory reclaim happens
+    when the IOTask is freed after task completion, regardless.
+
+    Misleading "memory free" gesture; remove the line.
+    """
+
+    def test_del_captured_image_line_removed(self):
+        from pathlib import Path
+        src = (Path(__file__).resolve().parent.parent / "modules" / "protocol_image_writer.py").read_text()
+        assert "del captured_image" not in src, (
+            "PIW-1: theatrical `del captured_image` should be removed — IOTask kwargs holds the ref."
+        )

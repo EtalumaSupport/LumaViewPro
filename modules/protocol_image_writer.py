@@ -425,8 +425,6 @@ class ProtocolImageWriter:
                     rgb_buf=rgb_buf,
                 )
 
-                del captured_image
-
             if capture_result is None:
                 capture_result_filepath_name = "unsaved"
             elif isinstance(capture_result, dict):
