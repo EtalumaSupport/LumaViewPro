@@ -1599,3 +1599,73 @@ class TestPIW3_FalseColor16bitCachedAtRunStart:
         assert "false_color_16bit=false_color_16bit" in src, (
             "PIW-3: cached value should be passed to ProtocolImageWriter."
         )
+
+
+class TestPIW5_Convert12to16OutBuffer:
+    """PIW-5: convert_12bit_to_16bit() allocated a fresh ndarray on every save
+    via image.copy() (~24 MB pulse for protocol-scale images). Same family as
+    F-3 — fresh allocations on the hot save path.
+
+    Fix: add `out=None` parameter; when caller supplies a buffer with matching
+    shape and dtype, reuse it via np.copyto. Plumb a per-run reusable buffer
+    through ProtocolImageWriter -> save_image -> prepare_image_for_saving ->
+    convert_12bit_to_16bit. file_io_executor runs single-threaded so reuse
+    across sequential saves is safe; mismatched shape/dtype falls back to
+    allocation.
+    """
+
+    def test_convert_function_accepts_out_param(self):
+        import numpy as np
+        from modules.image_utils import convert_12bit_to_16bit
+
+        # Functional: shape/dtype-matched out buffer is reused; result is *= 16 of input.
+        src = np.array([[1, 2], [3, 4]], dtype=np.uint16)
+        buf = np.zeros((2, 2), dtype=np.uint16)
+        result = convert_12bit_to_16bit(src, out=buf)
+        assert result is buf, "PIW-5: convert should return the supplied out buffer."
+        np.testing.assert_array_equal(result, src * 16)
+
+        # Mismatched shape: falls back to fresh allocation, no error.
+        bad_buf = np.zeros((3, 3), dtype=np.uint16)
+        result2 = convert_12bit_to_16bit(src, out=bad_buf)
+        assert result2 is not bad_buf, "PIW-5: shape-mismatch should fall back to fresh alloc."
+        np.testing.assert_array_equal(result2, src * 16)
+
+        # No out param: original behavior preserved.
+        result3 = convert_12bit_to_16bit(src)
+        assert result3 is not src, "PIW-5: no-out path should still allocate a fresh array."
+        np.testing.assert_array_equal(result3, src * 16)
+
+    def test_protocol_image_writer_holds_reusable_buffer(self):
+        from pathlib import Path
+        src = (Path(__file__).resolve().parent.parent / "modules" / "protocol_image_writer.py").read_text()
+        assert "self._convert_buf_12to16 = None" in src, (
+            "PIW-5: ProtocolImageWriter should initialize the convert buffer to None."
+        )
+        assert "_get_convert_buf_12to16" in src, (
+            "PIW-5: ProtocolImageWriter should have a buffer-getter helper."
+        )
+        # Shape/dtype guard: the helper must re-allocate on shape change.
+        assert "self._convert_buf_12to16.shape != array.shape" in src, (
+            "PIW-5: buffer helper must re-allocate when input shape changes."
+        )
+        # Save-call site passes the buffer.
+        assert "out_12to16=out_12to16" in src, (
+            "PIW-5: _write_capture should pass the convert buffer to save_image."
+        )
+
+    def test_save_image_threads_out_12to16_to_prepare(self):
+        from pathlib import Path
+        src = (Path(__file__).resolve().parent.parent / "modules" / "lumascope_api.py").read_text()
+        # save_image accepts the param.
+        assert "out_12to16: np.ndarray | None = None" in src, (
+            "PIW-5: save_image / prepare_image_for_saving should accept out_12to16."
+        )
+        # save_image passes to prepare_image_for_saving.
+        assert "out_12to16=out_12to16" in src, (
+            "PIW-5: save_image should pass out_12to16 to prepare_image_for_saving."
+        )
+        # prepare_image_for_saving passes to convert_12bit_to_16bit.
+        assert "convert_12bit_to_16bit(array, out=out_12to16)" in src, (
+            "PIW-5: prepare_image_for_saving should pass out_12to16 to the convert call."
+        )

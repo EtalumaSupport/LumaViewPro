@@ -14,6 +14,8 @@ import pathlib
 import threading
 from typing import TYPE_CHECKING
 
+import numpy as np
+
 from lvp_logger import logger
 
 import modules.common_utils as common_utils
@@ -70,8 +72,20 @@ class ProtocolImageWriter:
         self._stim_profiling = stim_profiling
         self._run_dir = run_dir
         self._false_color_16bit = false_color_16bit
+        # PIW-5: per-run reusable buffer for convert_12bit_to_16bit. Allocated
+        # lazily on first uint16 save; re-allocated only on shape/dtype change.
+        # file_io_executor runs single-threaded, so reuse across saves is safe.
+        self._convert_buf_12to16 = None
         self._consecutive_capture_failures = 0
         self._MAX_CONSECUTIVE_CAPTURE_FAILURES = 3
+
+    def _get_convert_buf_12to16(self, array):
+        """Get-or-allocate the 12->16 conversion buffer matching array's shape/dtype."""
+        if (self._convert_buf_12to16 is None
+                or self._convert_buf_12to16.shape != array.shape
+                or self._convert_buf_12to16.dtype != array.dtype):
+            self._convert_buf_12to16 = np.empty(array.shape, dtype=array.dtype)
+        return self._convert_buf_12to16
 
     def capture(
         self,
@@ -362,6 +376,10 @@ class ProtocolImageWriter:
                         )
                     return
 
+                # PIW-5: pass per-run convert buffer for uint16 saves.
+                out_12to16 = (self._get_convert_buf_12to16(captured_image)
+                              if hasattr(captured_image, 'dtype') and captured_image.dtype == np.uint16
+                              else None)
                 capture_result = self._scope.save_image(
                     array=captured_image,
                     save_folder=save_folder,
@@ -379,6 +397,7 @@ class ProtocolImageWriter:
                     y=step['Y'],
                     z=step['Z'],
                     use_false_color_16bit=self._false_color_16bit,
+                    out_12to16=out_12to16,
                 )
 
                 del captured_image

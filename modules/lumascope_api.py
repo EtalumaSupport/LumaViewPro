@@ -2187,7 +2187,8 @@ class Lumascope():
         true_color: str,
         x,
         y,
-        z
+        z,
+        out_12to16: np.ndarray | None = None,
     ):
         """Prepare an image array and metadata for saving to disk.
 
@@ -2213,7 +2214,7 @@ class Lumascope():
         metadata = self.generate_image_metadata(color=true_color, x=x, y=y, z=z)
 
         if array.dtype == np.uint16:
-            array = image_utils.convert_12bit_to_16bit(array)
+            array = image_utils.convert_12bit_to_16bit(array, out=out_12to16)
 
         array = np.flip(array, 0)
 
@@ -2247,6 +2248,7 @@ class Lumascope():
         y=None,
         z=None,
         use_false_color_16bit: bool | None = None,
+        out_12to16: np.ndarray | None = None,
     ):
         """Save an image array to a TIFF file with metadata.
 
@@ -2281,7 +2283,8 @@ class Lumascope():
             true_color=true_color,
             x=x,
             y=y,
-            z=z
+            z=z,
+            out_12to16=out_12to16,
         )
 
         image = image_data['image']

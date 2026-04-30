@@ -178,11 +178,17 @@ def convert_12bit_to_8bit(image):
     return _LUT_12_TO_8[image]
 
 
-def convert_12bit_to_16bit(image):
+def convert_12bit_to_16bit(image, out=None):
     if image.dtype == 'uint8':
         return image
 
-    new_image = image.copy()
+    # PIW-5: caller-supplied out buffer eliminates the per-save image.copy() (~24 MB).
+    # Mismatched shape/dtype falls back to fresh allocation rather than failing.
+    if out is not None and out.shape == image.shape and out.dtype == image.dtype:
+        np.copyto(out, image)
+        new_image = out
+    else:
+        new_image = image.copy()
     new_image *= 16
     return new_image
 
