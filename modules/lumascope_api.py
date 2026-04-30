@@ -328,7 +328,7 @@ class Lumascope():
         # the right choice for most callers; the pre-B2 default was
         # "pylon" which skipped auto-detect — callers that rely on that
         # continue to pass camera_type='pylon' explicitly.
-        self._image_buffer = None
+        # PF-5: _image_buffer retired — get_image() chains via a local variable.
         self._frame_buffer = None
         self.camera = None
         camera_kwargs: dict = {}
@@ -760,16 +760,6 @@ class Lumascope():
             self._focusing_event.set()
         else:
             self._focusing_event.clear()
-
-    @property
-    def image_buffer(self):
-        with self._state_lock:
-            return self._image_buffer
-
-    @image_buffer.setter
-    def image_buffer(self, value):
-        with self._state_lock:
-            self._image_buffer = value
 
     @property
     def capture_return(self):
@@ -1914,12 +1904,14 @@ class Lumascope():
 
                 time.sleep(sum_delay_s)
 
-        # Add the images together
+        # PF-5: chain via a local variable instead of self.image_buffer. The
+        # old field was a permanent shadow copy of the latest get_image result,
+        # only ever read by get_image itself — Rule 2 violation that pinned a
+        # frame indefinitely between calls. The _state_lock around per-write
+        # didn't actually serialize concurrent get_image calls anyway (chained
+        # writes from different threads could still interleave).
         if sum_count == 1:
-            if len(tmp_buffer) < 1:
-                self.image_buffer = tmp
-            else:
-                self.image_buffer = tmp_buffer[0]
+            image = tmp if len(tmp_buffer) < 1 else tmp_buffer[0]
         else:
             orig_dtype = tmp_buffer[0].dtype
             max_value = np.iinfo(orig_dtype).max
@@ -1928,24 +1920,24 @@ class Lumascope():
             for img in tmp_buffer:
                 combined += img
 
-            self.image_buffer = np.clip(combined, None, max_value).astype(orig_dtype)
+            image = np.clip(combined, None, max_value).astype(orig_dtype)
 
         use_scale_bar = self._scale_bar['enabled']
         if self._objective is None:
             use_scale_bar = False
 
         if use_scale_bar:
-            self.image_buffer = image_utils.add_scale_bar(
-                image=self.image_buffer,
+            image = image_utils.add_scale_bar(
+                image=image,
                 objective=self._objective,
                 binning_size=self._binning_size,
                 color=self._scale_bar.get('color'),
             )
 
-        if force_to_8bit and self.image_buffer.dtype != np.uint8:
-            self.image_buffer = image_utils.convert_12bit_to_8bit(self.image_buffer)
+        if force_to_8bit and image.dtype != np.uint8:
+            image = image_utils.convert_12bit_to_8bit(image)
 
-        return self.image_buffer
+        return image
 
     def get_image_from_buffer(
         self,
@@ -3445,7 +3437,6 @@ class Lumascope():
         instance._move_profile = {ax: None for ax in present_axes}
 
         instance.camera = None
-        instance._image_buffer = None
         instance._frame_buffer = None
 
         # Build capabilities (audit B7) — diagnostic instances still need

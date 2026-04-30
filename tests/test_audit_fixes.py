@@ -1891,3 +1891,54 @@ class TestPF2_FileIoExecutorClearedOnAbort:
         assert "protocol_executor.clear_protocol_pending()" in src, (
             "PF-2: protocol_executor.clear_protocol_pending should still be called unconditionally."
         )
+
+
+class TestPF5_ImageBufferRetired:
+    """PF-5: Lumascope.image_buffer was a permanent shadow copy of the latest
+    get_image() result — Rule 2 violation. Only ever read by get_image() itself
+    (for chaining sum/scale-bar/8-bit-convert ops), never by external callers.
+    Pinned one frame indefinitely between calls. The _state_lock around per-
+    write didn't actually serialize concurrent get_image calls — chained
+    writes from different threads could still interleave.
+
+    Fix: chain through a local variable in get_image(). Remove the
+    image_buffer property + setter, the _image_buffer attribute, and its
+    initialization in __init__ + diagnostic-instance setup.
+    """
+
+    def test_image_buffer_property_removed(self):
+        from pathlib import Path
+        src = (Path(__file__).resolve().parent.parent / "modules" / "lumascope_api.py").read_text()
+        # Property declaration gone.
+        assert "def image_buffer(self):" not in src, (
+            "PF-5: image_buffer property getter should be removed."
+        )
+        assert "@image_buffer.setter" not in src, (
+            "PF-5: image_buffer property setter should be removed."
+        )
+        # Assignments to self.image_buffer (as code, not in comments) gone.
+        assert "self.image_buffer = " not in src, (
+            "PF-5: all self.image_buffer assignments should be retired in favor of a local variable."
+        )
+
+    def test_image_buffer_attribute_removed(self):
+        from pathlib import Path
+        src = (Path(__file__).resolve().parent.parent / "modules" / "lumascope_api.py").read_text()
+        # The internal _image_buffer attribute init gone.
+        assert "self._image_buffer = None" not in src, (
+            "PF-5: self._image_buffer initialization should be removed."
+        )
+        assert "instance._image_buffer = None" not in src, (
+            "PF-5: diagnostic-instance _image_buffer initialization should also be removed."
+        )
+
+    def test_get_image_returns_local_variable(self):
+        from pathlib import Path
+        src = (Path(__file__).resolve().parent.parent / "modules" / "lumascope_api.py").read_text()
+        # The chain must use a local `image` variable.
+        assert "image = image_utils.add_scale_bar(" in src, (
+            "PF-5: scale-bar step should bind to local `image` instead of self.image_buffer."
+        )
+        assert "image = image_utils.convert_12bit_to_8bit(image)" in src, (
+            "PF-5: 8-bit convert step should bind to local `image`."
+        )
