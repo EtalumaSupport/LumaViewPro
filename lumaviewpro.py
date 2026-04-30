@@ -548,6 +548,7 @@ class LumaViewProApp(TooltipMixin, App):
         # Objective and LEDs already set by scope.initialize() in load_settings().
         # BF apply_settings will be called by complete_initialization() → accordion_collapse().
 
+        config_helpers.log_environment_once()  # TEMPORARY 2026-04-30 — fingerprint env once
         config_helpers.log_system_metrics(settings)  # Log once on startup
 
         # Log resource metrics every minute. TEMPORARY 2026-04-30 — was hourly,

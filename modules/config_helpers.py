@@ -11,6 +11,8 @@ import datetime
 import os
 import pathlib
 
+import psutil
+
 from lvp_logger import logger
 import modules.common_utils as common_utils
 
@@ -167,6 +169,70 @@ def get_current_plate_position(
 # System / logging helpers
 # ---------------------------------------------------------------------------
 
+def log_environment_once():
+    """Log fixed environment fingerprint — system boot time, uptime, OS build,
+    Pylon SDK version, Defender state. TEMPORARY 2026-04-30 — added for the
+    perf-investigation Stage 0 checklist (`docs/LVP_PERF_TEST_PLAN_2026-04-30.md`).
+
+    Call once at startup before the periodic log_system_metrics schedule.
+    The 632h-uptime Dell in the perf-bundle was already in memory exhaustion
+    at test start; without recording boot time, that contamination is
+    invisible in post-hoc log analysis.
+    """
+    import datetime as _dt
+    import platform as _platform
+
+    try:
+        boot_ts = psutil.boot_time()
+        boot_dt = _dt.datetime.fromtimestamp(boot_ts).isoformat(timespec='seconds')
+        uptime_hr = (_dt.datetime.now().timestamp() - boot_ts) / 3600.0
+    except Exception:
+        boot_dt = 'NA'
+        uptime_hr = -1
+
+    try:
+        os_release = _platform.platform()
+    except Exception:
+        os_release = 'NA'
+
+    try:
+        ncores = psutil.cpu_count(logical=True)
+    except Exception:
+        ncores = -1
+
+    pylon_ver = 'NA'
+    try:
+        from pypylon import pylon as _pylon
+        pylon_ver = getattr(_pylon, '__version__', 'NA')
+    except Exception:
+        pass
+
+    defender_state = 'NA'
+    if common_utils._IS_WINDOWS:
+        try:
+            import subprocess as _sub
+            out = _sub.check_output(
+                ['powershell', '-Command',
+                 '(Get-MpComputerStatus | '
+                 'Select-Object -Property RealTimeProtectionEnabled,'
+                 'AntivirusSignatureLastUpdated,'
+                 'QuickScanStartTime | ConvertTo-Json -Compress)'],
+                stderr=_sub.DEVNULL,
+                creationflags=0x08000000,  # CREATE_NO_WINDOW
+                timeout=15,
+            ).decode('utf-8', errors='ignore').strip()
+            defender_state = out or 'NA'
+        except Exception:
+            pass
+
+    logger.info(
+        f"[ENV METRICS] boot={boot_dt} | uptime_hr={uptime_hr:.1f} | "
+        f"os={os_release} | cores={ncores} | pylon={pylon_ver} | "
+        f"defender={defender_state}",
+        extra={'force_error': True},
+    )
+
+
 def log_system_metrics(settings: dict):
     """Log CPU, RAM, and disk metrics."""
     path = settings.get('live_folder', '.')
@@ -190,10 +256,21 @@ def log_system_metrics(settings: dict):
             extra={'force_error': True},
         )
 
+    # System uptime per-tick (TEMPORARY 2026-04-30) — pairs with [ENV METRICS]
+    # boot timestamp logged once at startup. Lets post-hoc log analysis tag
+    # each tick with "system has been up for N hours" to filter out runs
+    # contaminated by long-uptime memory exhaustion.
+    try:
+        import time as _time
+        uptime_hr = (_time.time() - psutil.boot_time()) / 3600.0
+        uptime_str = f" | uptime_hr={uptime_hr:.1f}"
+    except Exception:
+        uptime_str = ""
+
     logger.info(
         f"[SYSTEM METRICS] CPU Usage: {metrics['cpu_percent_total']:.1f}% | "
         f"RAM Available: {metrics['ram_available_gb']:.1f} GB | "
-        f"RAM Usage: {metrics['ram_percent_total']:.1f}%",
+        f"RAM Usage: {metrics['ram_percent_total']:.1f}%{uptime_str}",
         extra={'force_error': True},
     )
     logger.info(
