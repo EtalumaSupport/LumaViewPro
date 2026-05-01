@@ -102,9 +102,24 @@ class PylonCamera(Camera):
     def _start_stats_poller(self):
         if profile_trace is None or not profile_trace.ENABLE_PROFILE_TRACE:
             return
+        # Smoke 1 surfaced a 4.6-min gap in poller output that aligned with
+        # rapid stop/start_grabbing cycles. Cause: prior code returned early
+        # if existing.is_alive(); during the window between _stop_stats_poller
+        # setting the event and the daemon thread actually exiting, a fresh
+        # start_grabbing would skip starting a new poller. The old thread
+        # then exits on its (already-set) event leaving NO poller running.
+        # Fix: actively join the prior thread (with bounded timeout) before
+        # starting a new one. Idempotent if no prior poller.
         existing = getattr(self, '_stats_poller_thread', None)
+        existing_ev = getattr(self, '_stats_poller_stop', None)
         if existing is not None and existing.is_alive():
-            return
+            if existing_ev is not None:
+                existing_ev.set()
+            existing.join(timeout=10.0)
+            if existing.is_alive():
+                logger.warning(
+                    '[INSTR PYLON ] prior stats poller did not exit within 10s; '
+                    'starting new one anyway (CSV may briefly contain rows from both)')
         self._stats_poller_stop = threading.Event()
         t = threading.Thread(
             target=self._stats_poller_loop,
