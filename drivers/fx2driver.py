@@ -76,6 +76,10 @@ from datetime import datetime
 import numpy as np
 
 from lvp_logger import logger
+try:
+    from lvp_logger import camera_logger as _cam_log
+except ImportError:
+    _cam_log = None
 from drivers.camera import Camera, ImageHandlerBase
 from drivers.registry import camera_registry, led_registry
 
@@ -1171,7 +1175,9 @@ class FX2Camera(Camera):
 
     def start_grabbing(self):
         if self._grabbing:
+            if _cam_log is not None: _cam_log.info('fx2 start_grabbing SKIPPED: already grabbing')
             return
+        if _cam_log is not None: _cam_log.info('fx2 start_grabbing')
         self.stream_stats.reset()
         self._grabbing = True  # set BEFORE starting threads that check it
         self._use_winusb_iso = False
@@ -1180,13 +1186,16 @@ class FX2Camera(Camera):
         if sys.platform == 'win32':
             # Windows: WinUSB native ISO API (not libusb1).
             self._use_winusb_iso = True
+            if _cam_log is not None: _cam_log.info('fx2 path=winusb_iso')
             self._start_winusb_iso_streaming()
         elif _HAS_USB1:
             # macOS / Linux: libusb1 async ISO.
             self._use_iso = True
+            if _cam_log is not None: _cam_log.info('fx2 path=libusb1_iso')
             self._start_iso_streaming()
         else:
             # Fallback: bulk transfers. ~0.7 fps, useful only for bring-up.
+            if _cam_log is not None: _cam_log.info('fx2 path=bulk_fallback')
             self._start_bulk_streaming()
 
         self._grab_thread = threading.Thread(target=self._grab_loop, daemon=True)
@@ -1311,7 +1320,9 @@ class FX2Camera(Camera):
 
     def stop_grabbing(self):
         if not self._grabbing:
+            if _cam_log is not None: _cam_log.info('fx2 stop_grabbing SKIPPED: not grabbing')
             return
+        if _cam_log is not None: _cam_log.info('fx2 stop_grabbing')
         self._grabbing = False
 
         if self._use_winusb_iso:
@@ -1709,6 +1720,7 @@ class FX2Camera(Camera):
             ),
         )
         self._exposure_rows = rows
+        if _cam_log is not None: _cam_log.info(f'fx2 sensor_reg_write(REG_EXPOSURE={REG_EXPOSURE:#x}, rows={rows}) (={target_ms}ms)')
         self._fx2.sensor_reg_write(REG_EXPOSURE, rows)
 
     def get_exposure_t(self):
@@ -1724,6 +1736,7 @@ class FX2Camera(Camera):
         db = max(0.0, min(42.1, float(g)))
         reg = _gain_db_to_register(db)
         self._gain_reg = reg
+        if _cam_log is not None: _cam_log.info(f'fx2 sensor_reg_write(REG_GLOBAL_GAIN={REG_GLOBAL_GAIN:#x}, reg={reg:#x}) (={db}dB)')
         self._fx2.sensor_reg_write(REG_GLOBAL_GAIN, reg)
 
     def get_gain(self):

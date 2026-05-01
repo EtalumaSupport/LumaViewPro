@@ -13,6 +13,11 @@ import queue
 from drivers.camera import Camera, ImageHandlerBase
 from drivers.registry import camera_registry
 
+try:
+    from lvp_logger import camera_logger as _cam_log
+except ImportError:
+    _cam_log = None
+
 
 @camera_registry.register('pylon', priority=100)
 class PylonCamera(Camera):
@@ -84,9 +89,11 @@ class PylonCamera(Camera):
 
     def stop_grabbing(self):
         camera = self.active
+        if _cam_log is not None: _cam_log.info('pylon StopGrabbing()')
         try:
             camera.StopGrabbing()
         except Exception as e:
+            if _cam_log is not None: _cam_log.warning(f'pylon StopGrabbing FAILED: {e}')
             logger.warning(f'[CAM Class ] stop_grabbing ignored error: {e}')
 
 
@@ -101,14 +108,18 @@ class PylonCamera(Camera):
             # is plenty — two active + one rotating.
             try:
                 camera.MaxNumBuffer.SetValue(3)
+                if _cam_log is not None: _cam_log.info('pylon MaxNumBuffer.SetValue(3)')
             except Exception as e:
+                if _cam_log is not None: _cam_log.warning(f'pylon MaxNumBuffer cap FAILED: {e}')
                 logger.warning(
                     f'[CAM Class ] MaxNumBuffer cap failed: {e}')
+            if _cam_log is not None: _cam_log.info('pylon StartGrabbing(LatestImageOnly, ProvidedByInstantCamera)')
             camera.StartGrabbing(
                 pylon.GrabStrategy_LatestImageOnly,
                 pylon.GrabLoop_ProvidedByInstantCamera
             )
         except Exception as e:
+            if _cam_log is not None: _cam_log.warning(f'pylon StartGrabbing FAILED: {e}')
             logger.warning(f'[CAM Class ] start_grabbing ignored error: {e}')
 
     def is_grabbing(self):
@@ -351,14 +362,17 @@ class PylonCamera(Camera):
             return False
 
         try:
+            if _cam_log is not None: _cam_log.info(f'pylon PixelFormat.SetValue({pixel_format!r}) (geometry-realloc)')
             with self.update_camera_config():
                 self.active.PixelFormat.SetValue(pixel_format)
             return True
         except genicam.RuntimeException as e:
+            if _cam_log is not None: _cam_log.error(f'pylon PixelFormat.SetValue({pixel_format!r}) FAILED: {e}')
             logger.error(f'[CAM Class ] Camera communication error during set_pixel_format({pixel_format}): {e}')
             self._mark_disconnected()
             return False
         except Exception as e:
+            if _cam_log is not None: _cam_log.error(f'pylon PixelFormat.SetValue({pixel_format!r}) FAILED: {e}')
             logger.exception(f'[CAM Class ] Unexpected error in set_pixel_format: {e}')
             return False
  
@@ -400,6 +414,7 @@ class PylonCamera(Camera):
 
         try:
             logger.debug(f"[CAM Class ] Binning {self.get_binning_size()} -> {size}, frame {self.get_frame_size()}")
+            if _cam_log is not None: _cam_log.info(f'pylon BinningVertical/Horizontal.SetValue({size}) Sum (geometry-realloc)')
             with self.update_camera_config():
                 self.active.BinningVertical.SetValue(size)
                 self.active.BinningVerticalMode.SetValue('Sum')
@@ -470,12 +485,15 @@ class PylonCamera(Camera):
 
     def update_auto_gain_target_brightness(self, auto_target_brightness: float):
         try:
+            if _cam_log is not None: _cam_log.info(f'pylon AutoTargetBrightness.SetValue({auto_target_brightness:.3f})')
             with self.update_camera_config():
                 self.active.AutoTargetBrightness.SetValue(auto_target_brightness)
         except genicam.RuntimeException as e:
+            if _cam_log is not None: _cam_log.error(f'pylon AutoTargetBrightness.SetValue({auto_target_brightness}) FAILED: {e}')
             logger.error(f'[CAM Class ] Camera communication error during update_auto_gain_target_brightness({auto_target_brightness}): {e}')
             self._mark_disconnected()
         except Exception as e:
+            if _cam_log is not None: _cam_log.error(f'pylon AutoTargetBrightness.SetValue({auto_target_brightness}) FAILED: {e}')
             logger.exception(f'[CAM Class ] Unexpected error in update_auto_gain_target_brightness: {e}')
 
 
@@ -490,6 +508,7 @@ class PylonCamera(Camera):
             if max_gain is None:
                 max_gain = self.active.AutoGainUpperLimit.Max
 
+            if _cam_log is not None: _cam_log.info(f'pylon AutoGainLowerLimit.SetValue({min_gain}) AutoGainUpperLimit.SetValue({max_gain})')
             with self.update_camera_config():
                 self.active.AutoGainLowerLimit.SetValue(min_gain)
                 self.active.AutoGainUpperLimit.SetValue(max_gain)
@@ -556,6 +575,7 @@ class PylonCamera(Camera):
             width = int(min(int(w), camera.Width.Max)/4)*4
             height = int(min(int(h), camera.Height.Max)/4)*4
 
+            if _cam_log is not None: _cam_log.info(f'pylon Width.SetValue({width}) Height.SetValue({height}) BslCenterX/Y.Execute() (geometry-realloc)')
             with self.update_camera_config():
                 camera.Width.SetValue(width)
                 camera.Height.SetValue(height)
@@ -659,16 +679,20 @@ class PylonCamera(Camera):
     def gain(self, gain):
         """ Set gain value in the camera hardware"""
         if self.active is None:
+            if _cam_log is not None: _cam_log.warning(f'pylon Gain.SetValue({gain}) SKIPPED: active=None')
             logger.warning(f'[CAM Class ] Cannot set gain {gain}: camera inactive')
             return
 
         try:
+            if _cam_log is not None: _cam_log.info(f'pylon Gain.SetValue({float(gain):.3f})')
             self.active.Gain.SetValue(float(gain))
             logger.info(f'[CAM Class ] Gain set to {gain}')
         except genicam.RuntimeException as e:
+            if _cam_log is not None: _cam_log.error(f'pylon Gain.SetValue({gain}) FAILED: {e}')
             logger.error(f'[CAM Class ] Camera communication error during gain({gain}): {e}')
             self._mark_disconnected()
         except Exception as e:
+            if _cam_log is not None: _cam_log.error(f'pylon Gain.SetValue({gain}) FAILED: {e}')
             logger.exception(f'[CAM Class ] Unexpected error in gain: {e}')
 
 
@@ -687,14 +711,17 @@ class PylonCamera(Camera):
             return
 
         try:
+            if _cam_log is not None: _cam_log.info(f'pylon auto_gain(state={state}, target={target_brightness}, min={min_gain}, max={max_gain})')
             if state:
                 self.update_auto_gain_target_brightness(auto_target_brightness=target_brightness)
                 self.update_auto_gain_min_max(min_gain=min_gain, max_gain=max_gain)
                 self.active.GainAuto.SetValue('Continuous') # 'Off' 'Once' 'Continuous'
                 self.active.ExposureAuto.SetValue('Continuous') # 'Off' 'Once' 'Continuous'
+                if _cam_log is not None: _cam_log.info('pylon GainAuto.SetValue(Continuous) ExposureAuto.SetValue(Continuous)')
             else:
                 self.active.GainAuto.SetValue('Off')
                 self.active.ExposureAuto.SetValue('Off')
+                if _cam_log is not None: _cam_log.info('pylon GainAuto.SetValue(Off) ExposureAuto.SetValue(Off)')
             logger.info(f'[CAM Class ] Auto gain {"enabled" if state else "disabled"}')
         except genicam.RuntimeException as e:
             logger.error(f'[CAM Class ] Auto gain({state}) failed: {e}')
@@ -736,18 +763,23 @@ class PylonCamera(Camera):
     def exposure_t(self, t):
         """ Set exposure time in the camera hardware t (msec)"""
         if self.active is None:
+            if _cam_log is not None: _cam_log.warning(f'pylon ExposureTime.SetValue({t}ms) SKIPPED: active=None')
             logger.warning(f'[CAM Class ] Cannot set exposure {t}ms: camera inactive')
             return
 
         if t > self.max_exposure:
+            if _cam_log is not None: _cam_log.warning(f'pylon ExposureTime.SetValue({t}ms) SKIPPED: exceeds max {self.max_exposure}ms')
             logger.warning(f'[CAM Class ] Exposure {t}ms exceeds max ({self.max_exposure}ms)')
             return
 
         # Pylon takes time in microseconds, so pass t*1000 to convert to us
         try:
-            self.active.ExposureTime.SetValue(max(float(t)*1000, self.active.ExposureTime.Min))
+            us_value = max(float(t)*1000, self.active.ExposureTime.Min)
+            if _cam_log is not None: _cam_log.info(f'pylon ExposureTime.SetValue({us_value:.0f}us) (={t}ms)')
+            self.active.ExposureTime.SetValue(us_value)
             logger.info(f'[CAM Class ] Exposure set to {t}ms')
         except genicam.RuntimeException as e:
+            if _cam_log is not None: _cam_log.error(f'pylon ExposureTime.SetValue({t}ms) FAILED: {e}')
             logger.error(f'[CAM Class ] Camera communication error during exposure_t({t}ms): {e}')
             self._mark_disconnected()
         except Exception as e:

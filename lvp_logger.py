@@ -93,6 +93,7 @@ REST_API_LOG_FILE = os.path.join(log_dir, 'lumaviewpro_rest_api.log')
 SERIAL_LOG_FILE = os.path.join(log_dir, 'serial.log')
 AUTOFOCUS_LOG_FILE = os.path.join(log_dir, 'autofocus.log')
 API_LOG_FILE = os.path.join(log_dir, 'api.log')
+CAMERA_LOG_FILE = os.path.join(log_dir, 'camera.log')
 GUI_LOG_FILE = os.path.join(log_dir, 'gui_interactions.log')
 
 # CustomFormatter class enables change in log format depending on log level 
@@ -262,6 +263,40 @@ serial_file_handler.addFilter(ThreadPauseFilter())
 serial_logger.addHandler(serial_file_handler)
 # Also send serial errors/warnings to the errors log
 serial_logger.addHandler(error_file_handler)
+
+# Camera log — dedicated file for all camera SDK command traffic with
+# timing. Same shape as serial.log but for Pylon / IDS / FX2 / simulator
+# camera drivers. Captures every meaningful SDK call (Gain, ExposureTime,
+# StartGrabbing, StopGrabbing, PixelFormat, Binning, Width/Height, etc).
+# Per-frame callback events are NOT logged here — they're in the per-frame
+# pylon_callback_trace.csv when LVP_PROFILE_TRACE is enabled. Always-on
+# (not engineering-gated) to match serial.log behavior.
+camera_logger = logging.getLogger('LVP.camera')
+camera_logger.setLevel(logging.INFO)
+camera_logger.propagate = False  # Keep camera traffic out of the main log
+
+class CameraFormatter(logging.Formatter):
+    """Compact format for camera log: timestamp [thread] message."""
+    def __init__(self):
+        super().__init__(
+            fmt='%(asctime)s.%(msecs)03d [%(threadName)s] %(message)s',
+            datefmt='%H:%M:%S',
+        )
+
+camera_file_handler = RotatingFileHandler(
+    CAMERA_LOG_FILE,
+    mode='a',
+    maxBytes=20*1024*1024,
+    backupCount=5,
+    encoding=None,
+    delay=False,
+)
+camera_file_handler.namer = lambda name: name.replace('.log', '') + '.log'
+camera_file_handler.setFormatter(CameraFormatter())
+camera_file_handler.addFilter(ThreadPauseFilter())
+camera_logger.addHandler(camera_file_handler)
+# Also send camera errors/warnings to the errors log
+camera_logger.addHandler(error_file_handler)
 
 # Autofocus log — dedicated file for AF sweep data, scores, timing.
 # Engineering mode only — handler attached via enable_engineering_logs().
