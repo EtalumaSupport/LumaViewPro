@@ -3,6 +3,7 @@
 import datetime
 import os
 import threading
+import time
 
 import numpy as np
 from pypylon import pylon, genicam
@@ -12,6 +13,11 @@ import queue
 
 from drivers.camera import Camera, ImageHandlerBase
 from drivers.registry import camera_registry
+
+try:
+    from modules import profile_trace
+except ImportError:
+    profile_trace = None
 
 
 @camera_registry.register('pylon', priority=100)
@@ -824,6 +830,14 @@ class ImageHandler(pylon.ImageEventHandler):
         self._parent = parent_cam
 
     def OnImageGrabbed(self, camera, grabResult):
+        # N1 (STALL-1 H2): per-callback duration trace. Gated on
+        # profile_trace.ENABLE_PROFILE_TRACE — zero overhead when disabled.
+        # See docs/STALL1_INSTRUMENTATION_EXPERIMENT.md (Firmware repo) §4 N1.
+        _trace_enabled = (profile_trace is not None
+                          and profile_trace.ENABLE_PROFILE_TRACE)
+        _t0 = time.perf_counter() if _trace_enabled else None
+        _outcome = "unknown"
+        _frame_bytes = 0
         try:
             # Set thread name for dummy threads
             if "Dummy" in threading.current_thread().name:
@@ -832,12 +846,14 @@ class ImageHandler(pylon.ImageEventHandler):
             # Check if parent camera was removed before processing
             if self._parent._device_removed:
                 logger.debug('[CAM Class ] OnImageGrabbed called but device already marked as removed, ignoring')
+                _outcome = "early_return_removed"
                 return
 
             # Check if parent camera is still active
             if self._parent.active is None:
                 logger.debug('[CAM Class ] OnImageGrabbed called but camera is inactive, ignoring')
                 self._parent._device_removed = True
+                _outcome = "early_return_inactive"
                 return
 
             if not self._frame_queue.empty():
@@ -852,6 +868,7 @@ class ImageHandler(pylon.ImageEventHandler):
             except Exception as e:
                 logger.warning(f'[CAM Class ] GrabSucceeded() failed: {e}, assuming device removed')
                 self._parent._mark_disconnected()
+                _outcome = "exception_grabsucceeded"
                 return
 
             if grab_succeeded:
@@ -860,13 +877,17 @@ class ImageHandler(pylon.ImageEventHandler):
                     # to decouple from buffer lifetime before it's requeued
                     img = grabResult.GetArray().copy()
                     ts = datetime.datetime.now()
+                    _frame_bytes = img.nbytes
                     self._base._store_frame(img, ts)
                     self._frame_queue.put((True, img, ts))
+                    _outcome = "success_grabbed"
                 except Exception as e:
                     logger.warning(f'[CAM Class ] GetArray() failed: {e}, marking device as removed')
                     self._parent._mark_disconnected()
                     self._base._record_failure()
+                    _outcome = "exception_getarray"
             else:
+                _outcome = "success_no_grab"
                 should_stop = self._base._record_failure()
                 if should_stop:
                     try:
@@ -877,7 +898,17 @@ class ImageHandler(pylon.ImageEventHandler):
                     except Exception:
                         pass
         except Exception as e:
+            _outcome = "exception_outer"
             logger.exception(e)
+        finally:
+            if _trace_enabled and _t0 is not None:
+                _dt_ms = (time.perf_counter() - _t0) * 1000.0
+                profile_trace.trace(
+                    "pylon_callback_trace.csv",
+                    "ts_ms,duration_ms,thread_name,outcome,frame_bytes",
+                    [int(time.time() * 1000), f"{_dt_ms:.3f}",
+                     threading.current_thread().name, _outcome, _frame_bytes],
+                )
 
     def reset(self):
         """Clear frame buffer, queue, and failure counter."""
