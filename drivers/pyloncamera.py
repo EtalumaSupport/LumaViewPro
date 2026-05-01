@@ -88,7 +88,119 @@ class PylonCamera(Camera):
 
     # __del__() inherited from Camera base class
 
+    # N3+N4 (STALL-1 H1+H6 + H3): periodic Pylon SDK statistics + thread-count
+    # daemon poller. No-op when profile_trace is disabled (env var
+    # LVP_PROFILE_TRACE unset). See docs/STALL1_INSTRUMENTATION_EXPERIMENT.md
+    # (Firmware repo) §4 N3 + N4.
+    _STATS_POLLER_INTERVAL_S = 5.0
+    _STATS_NODE_NAMES = (
+        'Statistic_Total_Buffer_Count',
+        'Statistic_Failed_Buffer_Count',
+        'Statistic_Buffer_Underrun_Count',
+    )
+
+    def _start_stats_poller(self):
+        if profile_trace is None or not profile_trace.ENABLE_PROFILE_TRACE:
+            return
+        existing = getattr(self, '_stats_poller_thread', None)
+        if existing is not None and existing.is_alive():
+            return
+        self._stats_poller_stop = threading.Event()
+        t = threading.Thread(
+            target=self._stats_poller_loop,
+            name="PylonStatsPoller",
+            daemon=True,
+        )
+        self._stats_poller_thread = t
+        t.start()
+
+    def _stop_stats_poller(self):
+        ev = getattr(self, '_stats_poller_stop', None)
+        if ev is not None:
+            ev.set()
+        self._stats_poller_thread = None
+
+    def _stats_poller_loop(self):
+        # One-shot self-validation dump: which Statistic_* nodes exist on
+        # this StreamGrabber? Logged once per poller start so the doc's
+        # documented node names can be checked against actual API.
+        try:
+            cam = self.active
+            sg = cam.StreamGrabber if cam is not None else None
+            if sg is not None:
+                stat_nodes = sorted(
+                    n for n in dir(sg) if 'tatistic' in n.lower())
+                logger.info(
+                    f'[INSTR PYLON ] StreamGrabber stat nodes: {stat_nodes}')
+            else:
+                logger.warning(
+                    '[INSTR PYLON ] start: active camera is None, no stat dump')
+        except Exception as e:
+            logger.warning(
+                f'[INSTR PYLON ] start: stat-node dump failed: {e}')
+
+        ev = self._stats_poller_stop
+        while not ev.wait(self._STATS_POLLER_INTERVAL_S):
+            ts_ms = int(time.time() * 1000)
+            # --- Pylon SDK statistics (N3) ---
+            stats = {}
+            rfr = None
+            try:
+                cam = self.active
+                sg = cam.StreamGrabber if cam is not None else None
+                if sg is not None:
+                    for name in self._STATS_NODE_NAMES:
+                        try:
+                            node = getattr(sg, name, None)
+                            stats[name] = node.GetValue() if node is not None else None
+                        except Exception:
+                            stats[name] = None
+                if cam is not None:
+                    try:
+                        rfr = cam.ResultingFrameRate.GetValue()
+                    except Exception:
+                        rfr = None
+            except Exception as e:
+                logger.debug(f'[INSTR PYLON ] stats poll error: {e}')
+
+            # Buffer_Underrun_Count is the load-bearing single bit per the
+            # experiment doc — log on its own line with prominent marker.
+            underrun = stats.get('Statistic_Buffer_Underrun_Count')
+            if underrun is not None:
+                logger.info(
+                    f'[INSTR UNDERRUN] Buffer_Underrun_Count={underrun}')
+
+            profile_trace.trace(
+                "pylon_stats_trace.csv",
+                "ts_ms,total_buffer_count,failed_buffer_count,"
+                "buffer_underrun_count,resulting_fps",
+                [ts_ms,
+                 stats.get('Statistic_Total_Buffer_Count'),
+                 stats.get('Statistic_Failed_Buffer_Count'),
+                 stats.get('Statistic_Buffer_Underrun_Count'),
+                 f"{rfr:.3f}" if rfr is not None else None],
+            )
+
+            # --- Thread counts (N4) ---
+            try:
+                threads = threading.enumerate()
+                n_pylon_grab = sum(
+                    1 for t in threads if t.name.startswith('PylonImageGrab'))
+                n_dummy = sum(
+                    1 for t in threads if t.name.startswith('Dummy'))
+                n_total = len(threads)
+                profile_trace.trace(
+                    "pylon_threads_trace.csv",
+                    "ts_ms,pylon_image_grab_count,dummy_count,total_thread_count",
+                    [ts_ms, n_pylon_grab, n_dummy, n_total],
+                )
+            except Exception as e:
+                logger.debug(f'[INSTR PYLON ] thread-count poll error: {e}')
+
     def stop_grabbing(self):
+        # N3+N4: stop the stats poller before tearing down the grab loop.
+        # No-op when poller wasn't started (LVP_PROFILE_TRACE unset).
+        self._stop_stats_poller()
         camera = self.active
         try:
             camera.StopGrabbing()
@@ -114,6 +226,9 @@ class PylonCamera(Camera):
                 pylon.GrabStrategy_LatestImageOnly,
                 pylon.GrabLoop_ProvidedByInstantCamera
             )
+            # N3+N4 (STALL-1): start periodic Pylon stats + thread-count poller.
+            # No-op when LVP_PROFILE_TRACE is unset.
+            self._start_stats_poller()
         except Exception as e:
             logger.warning(f'[CAM Class ] start_grabbing ignored error: {e}')
 
