@@ -180,58 +180,65 @@ class PylonCamera(Camera):
         return ''
 
     def _stats_poller_loop(self):
-        # One-shot self-validation dump at poller start. Walks both:
-        # (1) dir(StreamGrabber) — may miss GenICam params accessed via
-        #     __getattr__ magic but is cheap.
-        # (2) NodeMap features matching "tatistic"/"nderrun"/"nderflow"/
-        #     "issing"/"esync" — the authoritative source per Basler docs.
-        # Smoke 1 showed dir() returned [] but getattr-by-name still
-        # worked for Statistic_Total_/Failed_Buffer_Count, so we need
-        # both views to know which names are actually accessible.
-        try:
-            cam = self.active
-            sg = cam.StreamGrabber if cam is not None else None
-            if sg is not None:
-                # View 1: dir()
-                dir_nodes = sorted(
-                    n for n in dir(sg) if 'tatistic' in n.lower())
-                logger.info(
-                    f'[INSTR PYLON ] StreamGrabber dir() stat-like: {dir_nodes}')
-
-                # View 2: NodeMap walk (authoritative)
-                try:
-                    nm = sg.GetNodeMap()
-                    all_features = []
-                    try:
-                        # nm.GetNodes() returns iterable of all nodes
-                        for nd in nm.GetNodes():
-                            try:
-                                nname = nd.GetNode().GetName()
-                            except Exception:
-                                try:
-                                    nname = nd.GetName()
-                                except Exception:
-                                    continue
-                            low = nname.lower()
-                            if any(t in low for t in
-                                   ('tatistic', 'nderrun', 'nderflow',
-                                    'issing', 'esync', 'ailed', 'otal_buf')):
-                                all_features.append(nname)
-                    except Exception as e2:
-                        logger.debug(
-                            f'[INSTR PYLON ] NodeMap iteration error: {e2}')
+        # One-shot self-validation dump at poller start.
+        # Smoke 2 showed this was running on EVERY poller start (each
+        # start_grabbing triggers a new poller), and during LVP init
+        # there are multiple stop/start cycles from update_camera_config
+        # wrapping pixel-format / frame-size / binning setters in
+        # init_camera_config(). Each NodeMap walk costs ~5-10 sec when
+        # it fails (Pylon SS 10.x USB grabber doesn't expose GetNodeMap
+        # as expected — fails with "Node not existing"). 5 restarts
+        # during init = ~20s extra startup time observed in smoke 2.
+        # Fix: cache validation on the camera instance — run once per
+        # LVP session, not per poller start.
+        if not getattr(self, '_pylon_self_validation_done', False):
+            try:
+                cam = self.active
+                sg = cam.StreamGrabber if cam is not None else None
+                if sg is not None:
+                    # View 1: dir()
+                    dir_nodes = sorted(
+                        n for n in dir(sg) if 'tatistic' in n.lower())
                     logger.info(
-                        f'[INSTR PYLON ] StreamGrabber NodeMap stat-like: '
-                        f'{sorted(set(all_features))}')
-                except Exception as e:
+                        f'[INSTR PYLON ] StreamGrabber dir() stat-like: {dir_nodes}')
+
+                    # View 2: NodeMap walk (authoritative)
+                    try:
+                        nm = sg.GetNodeMap()
+                        all_features = []
+                        try:
+                            for nd in nm.GetNodes():
+                                try:
+                                    nname = nd.GetNode().GetName()
+                                except Exception:
+                                    try:
+                                        nname = nd.GetName()
+                                    except Exception:
+                                        continue
+                                low = nname.lower()
+                                if any(t in low for t in
+                                       ('tatistic', 'nderrun', 'nderflow',
+                                        'issing', 'esync', 'ailed', 'otal_buf')):
+                                    all_features.append(nname)
+                        except Exception as e2:
+                            logger.debug(
+                                f'[INSTR PYLON ] NodeMap iteration error: {e2}')
+                        logger.info(
+                            f'[INSTR PYLON ] StreamGrabber NodeMap stat-like: '
+                            f'{sorted(set(all_features))}')
+                    except Exception as e:
+                        logger.warning(
+                            f'[INSTR PYLON ] NodeMap walk failed: {e}')
+                else:
                     logger.warning(
-                        f'[INSTR PYLON ] NodeMap walk failed: {e}')
-            else:
+                        '[INSTR PYLON ] start: active camera is None, no stat dump')
+            except Exception as e:
                 logger.warning(
-                    '[INSTR PYLON ] start: active camera is None, no stat dump')
-        except Exception as e:
-            logger.warning(
-                f'[INSTR PYLON ] start: stat-node dump failed: {e}')
+                    f'[INSTR PYLON ] start: stat-node dump failed: {e}')
+            finally:
+                # Mark done regardless of success/failure — don't retry
+                # the failing walk on every restart.
+                self._pylon_self_validation_done = True
 
         ev = self._stats_poller_stop
         while not ev.wait(self._STATS_POLLER_INTERVAL_S):
