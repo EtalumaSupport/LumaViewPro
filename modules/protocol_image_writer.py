@@ -113,8 +113,17 @@ class ProtocolImageWriter:
                           and profile_trace.ENABLE_PROFILE_TRACE)
         _proto_t0 = time.perf_counter() if _trace_enabled else None
         _proto_outcome = "unknown"
-        _proto_step_name = step.get('Name', '?') if isinstance(step, dict) else '?'
-        _proto_color = step.get('Color', '?') if isinstance(step, dict) else '?'
+        # step is dict-like (supports .get) but not always a dict subclass —
+        # smoke 1 showed isinstance(step, dict) returned False even though
+        # step.get('Name', '?') works fine (the existing CAPTURE DIAG line
+        # at protocol_image_writer.py:114 uses the same pattern). Drop the
+        # isinstance gate; rely on try/except.
+        try:
+            _proto_step_name = step.get('Name', '?')
+            _proto_color = step.get('Color', '?')
+        except Exception:
+            _proto_step_name = '?'
+            _proto_color = '?'
         if _trace_enabled:
             logger.info(
                 f"[PROTO STATE] capture_start step={_proto_step_name} "
