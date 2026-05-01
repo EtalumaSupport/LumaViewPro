@@ -521,34 +521,57 @@ class PylonCamera(Camera):
         timing measurements we want the freshest frame possible, so
         drain everything that's already captured before waiting.
         """
-        if not self.cam_image_handler:
-            return False, None
-
+        # N2 (STALL-1 H1 vs H2 separator): per-grab duration trace.
+        # See docs/STALL1_INSTRUMENTATION_EXPERIMENT.md (Firmware repo) §4 N2.
+        _trace_enabled = (profile_trace is not None
+                          and profile_trace.ENABLE_PROFILE_TRACE)
+        _t0 = time.perf_counter() if _trace_enabled else None
+        _outcome = "unknown"
+        dropped = 0
         try:
-            # Drain all frames captured before this call — we only want
-            # the next one produced after we started waiting.
-            dropped = 0
-            while True:
-                try:
-                    self.cam_image_handler._frame_queue.get_nowait()
-                    dropped += 1
-                except queue.Empty:
-                    break
-            if dropped > 1:
-                logger.debug(
-                    f'[CAM Class ] grab_new_capture drained {dropped} stale frames')
-
-            result, image, image_ts = self.cam_image_handler._frame_queue.get(
-                block=True, timeout=timeout)
-            if result is False:
+            if not self.cam_image_handler:
+                _outcome = "no_handler"
                 return False, None
 
-            self.array = image
-            return True, image_ts
+            try:
+                # Drain all frames captured before this call — we only want
+                # the next one produced after we started waiting.
+                while True:
+                    try:
+                        self.cam_image_handler._frame_queue.get_nowait()
+                        dropped += 1
+                    except queue.Empty:
+                        break
+                if dropped > 1:
+                    logger.debug(
+                        f'[CAM Class ] grab_new_capture drained {dropped} stale frames')
 
-        except Exception as ex:
-            logger.exception(f"Failed to grab image: {ex}")
-            return False, None
+                result, image, image_ts = self.cam_image_handler._frame_queue.get(
+                    block=True, timeout=timeout)
+                if result is False:
+                    _outcome = "result_false"
+                    return False, None
+
+                self.array = image
+                _outcome = "success"
+                return True, image_ts
+
+            except Exception as ex:
+                # queue.Empty inherits from Exception — both timeout and other
+                # errors are caught here, matching pre-N2 behavior. Outcome
+                # classification distinguishes them in the trace row.
+                _outcome = "timeout" if isinstance(ex, queue.Empty) else "exception"
+                logger.exception(f"Failed to grab image: {ex}")
+                return False, None
+        finally:
+            if _trace_enabled and _t0 is not None:
+                _dt_ms = (time.perf_counter() - _t0) * 1000.0
+                profile_trace.trace(
+                    "pylon_grab_trace.csv",
+                    "ts_ms,duration_ms,dropped_count,outcome,timeout_s",
+                    [int(time.time() * 1000), f"{_dt_ms:.3f}",
+                     dropped, _outcome, f"{timeout:.3f}"],
+                )
         
 
     def set_frame_size(self, w, h):
