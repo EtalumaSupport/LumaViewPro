@@ -155,7 +155,13 @@ class Camera(ABC):
 
     @contextlib.contextmanager
     def update_camera_config(self):
+        try:
+            from lvp_logger import camera_logger as _cam_log
+        except Exception:
+            _cam_log = None
         was_grabbing = self.is_grabbing()
+        if _cam_log is not None:
+            _cam_log.info(f'update_camera_config:enter was_grabbing={was_grabbing}')
 
         if was_grabbing:
             self.stop_grabbing()
@@ -165,6 +171,8 @@ class Camera(ABC):
         finally:
             if was_grabbing:
                 self.start_grabbing()
+            if _cam_log is not None:
+                _cam_log.info(f'update_camera_config:exit restarted={was_grabbing}')
 
     @abstractmethod
     def init_camera_config(self):

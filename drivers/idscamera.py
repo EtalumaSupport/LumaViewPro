@@ -6,6 +6,10 @@ from ids_peak import ids_peak_ipl_extension
 import ids_peak_ipl
 
 from lvp_logger import logger
+try:
+    from lvp_logger import camera_logger as _cam_log
+except ImportError:
+    _cam_log = None
 from drivers.camera import Camera, ImageHandlerBase
 from drivers.registry import camera_registry
 import threading
@@ -206,6 +210,7 @@ class IDSCamera(Camera):
         return self.data_stream.IsGrabbing()
 
     def stop_grabbing(self):
+        if _cam_log is not None: _cam_log.info('ids AcquisitionStop + StopAcquisition + Flush + RevokeBuffers')
         try:
             if self.cam_image_handler:
                 self.cam_image_handler.stop()
@@ -218,9 +223,11 @@ class IDSCamera(Camera):
             for buffer in self.data_stream.AnnouncedBuffers():
                 self.data_stream.RevokeBuffer(buffer)
         except Exception as e:
+            if _cam_log is not None: _cam_log.warning(f'ids stop_grabbing FAILED: {e}')
             logger.warning(f'[CAM Class ] stop_grabbing ignored error: {e}')
 
     def start_grabbing(self):
+        if _cam_log is not None: _cam_log.info('ids start_grabbing: alloc buffers + StartAcquisition + AcquisitionStart')
         try:
             # Allocate buffers — minimum + 3 extra to prevent starvation during
             # frame conversion. With only min (2-3), the camera runs out of
@@ -357,13 +364,16 @@ class IDSCamera(Camera):
         # IDS allows changing exposure while acquisition is running —
         # no need for update_camera_config() stop/start cycle.
         try:
-            self.remote_nodemap.FindNode("ExposureTime").SetValue(float(t)*1000)
+            us_value = float(t)*1000
+            if _cam_log is not None: _cam_log.info(f'ids ExposureTime.SetValue({us_value:.0f}us) (={t}ms)')
+            self.remote_nodemap.FindNode("ExposureTime").SetValue(us_value)
             self._last_exposure_ms = float(t)
             # Update grab timeout so long exposures don't cause perpetual timeouts
             if self.cam_image_handler:
                 self.cam_image_handler.timeout_ms = max(2000, int(t * 2 + 500))
             logger.info(f'[CAM Class ] Exposure set to {t}ms')
         except Exception as e:
+            if _cam_log is not None: _cam_log.error(f'ids ExposureTime.SetValue({t}ms) FAILED: {e}')
             logger.error(f'[CAM Class ] Exposure set failed (likely out of bounds): {e}')
 
     def get_exposure_t(self):
@@ -508,14 +518,17 @@ class IDSCamera(Camera):
 
     def gain(self, gain):
         if not self.active:
+            if _cam_log is not None: _cam_log.warning(f'ids Gain.SetValue({gain}) SKIPPED: active=None')
             logger.warning(f'[CAM Class ] Cannot set gain {gain}: camera inactive')
             return
 
         try:
+            if _cam_log is not None: _cam_log.info(f'ids GainSelector=AnalogAll Gain.SetValue({float(gain):.3f})')
             self.remote_nodemap.FindNode("GainSelector").SetCurrentEntry("AnalogAll")
             self.remote_nodemap.FindNode("Gain").SetValue(gain)
             logger.info(f'[CAM Class ] Gain set to {gain}')
         except Exception as e:
+            if _cam_log is not None: _cam_log.error(f'ids Gain.SetValue({gain}) FAILED: {e}')
             logger.error(f'[CAM Class ] Gain set failed (likely out of bounds): {e}')
             return
 
