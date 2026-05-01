@@ -215,5 +215,11 @@ class TimedLock:
         return self._name
 
 
-if os.environ.get("LVP_PROFILE_TRACE") == "1":
+# perf-instrumentation-4.0.0-beta branch: instrumentation defaults to ON
+# for the STALL-1 diagnostic run (no env var needed). The cherry-pick of
+# the N1-N5 tracers to 4.0.0-beta will restore the explicit env-var gate
+# (`os.environ.get("LVP_PROFILE_TRACE") == "1"`) so production stays
+# default-off. To disable on THIS branch (e.g., for a comparison run),
+# set LVP_PROFILE_TRACE=0 explicitly in the environment.
+if os.environ.get("LVP_PROFILE_TRACE", "1") != "0":
     enable()
