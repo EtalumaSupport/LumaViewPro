@@ -93,10 +93,23 @@ class PylonCamera(Camera):
     # LVP_PROFILE_TRACE unset). See docs/STALL1_INSTRUMENTATION_EXPERIMENT.md
     # (Firmware repo) §4 N3 + N4.
     _STATS_POLLER_INTERVAL_S = 5.0
+    # Smoke 1 confirmed Statistic_Total_Buffer_Count and
+    # Statistic_Failed_Buffer_Count work via getattr on StreamGrabber for
+    # pypylon 4.2.0 / Pylon SS 10.2.1.471 USB transport, but
+    # Statistic_Buffer_Underrun_Count returned None. The node may live
+    # under a different name on USB transport vs GigE. Try multiple
+    # candidates per Basler header conventions; the first non-None wins.
+    _UNDERRUN_NODE_CANDIDATES = (
+        'Statistic_Buffer_Underrun_Count',  # original guess (works on GigE)
+        'Statistic_Underrun_Count',         # alternate
+        'Statistic_Buffer_Underflow_Count', # alternate naming
+        'Statistic_Underflow_Count',        # alternate
+        'Statistic_Missing_Frames',         # USB-specific possibility
+        'Statistic_Resync_Count',           # USB-specific possibility
+    )
     _STATS_NODE_NAMES = (
         'Statistic_Total_Buffer_Count',
         'Statistic_Failed_Buffer_Count',
-        'Statistic_Buffer_Underrun_Count',
     )
 
     def _start_stats_poller(self):
@@ -135,18 +148,79 @@ class PylonCamera(Camera):
             ev.set()
         self._stats_poller_thread = None
 
+    def _resolve_underrun_node_name(self, sg):
+        """Return the first underrun-class candidate name that returns a non-None value.
+
+        Caches the result in self._underrun_node_name_cache after first
+        success so subsequent polls don't re-probe.
+        """
+        cached = getattr(self, '_underrun_node_name_cache', None)
+        if cached is not None:
+            return cached
+        for name in self._UNDERRUN_NODE_CANDIDATES:
+            try:
+                node = getattr(sg, name, None)
+                if node is not None:
+                    val = node.GetValue()
+                    if val is not None:
+                        self._underrun_node_name_cache = name
+                        logger.info(
+                            f'[INSTR PYLON ] Underrun node resolved: {name}={val}')
+                        return name
+            except Exception:
+                continue
+        # None of the candidates worked; cache the negative result so we
+        # don't repeatedly probe.
+        self._underrun_node_name_cache = ''
+        return ''
+
     def _stats_poller_loop(self):
-        # One-shot self-validation dump: which Statistic_* nodes exist on
-        # this StreamGrabber? Logged once per poller start so the doc's
-        # documented node names can be checked against actual API.
+        # One-shot self-validation dump at poller start. Walks both:
+        # (1) dir(StreamGrabber) — may miss GenICam params accessed via
+        #     __getattr__ magic but is cheap.
+        # (2) NodeMap features matching "tatistic"/"nderrun"/"nderflow"/
+        #     "issing"/"esync" — the authoritative source per Basler docs.
+        # Smoke 1 showed dir() returned [] but getattr-by-name still
+        # worked for Statistic_Total_/Failed_Buffer_Count, so we need
+        # both views to know which names are actually accessible.
         try:
             cam = self.active
             sg = cam.StreamGrabber if cam is not None else None
             if sg is not None:
-                stat_nodes = sorted(
+                # View 1: dir()
+                dir_nodes = sorted(
                     n for n in dir(sg) if 'tatistic' in n.lower())
                 logger.info(
-                    f'[INSTR PYLON ] StreamGrabber stat nodes: {stat_nodes}')
+                    f'[INSTR PYLON ] StreamGrabber dir() stat-like: {dir_nodes}')
+
+                # View 2: NodeMap walk (authoritative)
+                try:
+                    nm = sg.GetNodeMap()
+                    all_features = []
+                    try:
+                        # nm.GetNodes() returns iterable of all nodes
+                        for nd in nm.GetNodes():
+                            try:
+                                nname = nd.GetNode().GetName()
+                            except Exception:
+                                try:
+                                    nname = nd.GetName()
+                                except Exception:
+                                    continue
+                            low = nname.lower()
+                            if any(t in low for t in
+                                   ('tatistic', 'nderrun', 'nderflow',
+                                    'issing', 'esync', 'ailed', 'otal_buf')):
+                                all_features.append(nname)
+                    except Exception as e2:
+                        logger.debug(
+                            f'[INSTR PYLON ] NodeMap iteration error: {e2}')
+                    logger.info(
+                        f'[INSTR PYLON ] StreamGrabber NodeMap stat-like: '
+                        f'{sorted(set(all_features))}')
+                except Exception as e:
+                    logger.warning(
+                        f'[INSTR PYLON ] NodeMap walk failed: {e}')
             else:
                 logger.warning(
                     '[INSTR PYLON ] start: active camera is None, no stat dump')
@@ -160,6 +234,8 @@ class PylonCamera(Camera):
             # --- Pylon SDK statistics (N3) ---
             stats = {}
             rfr = None
+            underrun_value = None
+            underrun_name = ''
             try:
                 cam = self.active
                 sg = cam.StreamGrabber if cam is not None else None
@@ -170,6 +246,14 @@ class PylonCamera(Camera):
                             stats[name] = node.GetValue() if node is not None else None
                         except Exception:
                             stats[name] = None
+                    # Resolve underrun node name on first successful poll;
+                    # cached thereafter.
+                    underrun_name = self._resolve_underrun_node_name(sg)
+                    if underrun_name:
+                        try:
+                            underrun_value = getattr(sg, underrun_name).GetValue()
+                        except Exception:
+                            underrun_value = None
                 if cam is not None:
                     try:
                         rfr = cam.ResultingFrameRate.GetValue()
@@ -178,21 +262,22 @@ class PylonCamera(Camera):
             except Exception as e:
                 logger.debug(f'[INSTR PYLON ] stats poll error: {e}')
 
-            # Buffer_Underrun_Count is the load-bearing single bit per the
-            # experiment doc — log on its own line with prominent marker.
-            underrun = stats.get('Statistic_Buffer_Underrun_Count')
-            if underrun is not None:
+            # Underrun is the load-bearing single bit per the experiment doc
+            # — log on its own line with prominent marker, including which
+            # GenICam node provided the value.
+            if underrun_value is not None:
                 logger.info(
-                    f'[INSTR UNDERRUN] Buffer_Underrun_Count={underrun}')
+                    f'[INSTR UNDERRUN] {underrun_name}={underrun_value}')
 
             profile_trace.trace(
                 "pylon_stats_trace.csv",
                 "ts_ms,total_buffer_count,failed_buffer_count,"
-                "buffer_underrun_count,resulting_fps",
+                "underrun_node_name,underrun_value,resulting_fps",
                 [ts_ms,
                  stats.get('Statistic_Total_Buffer_Count'),
                  stats.get('Statistic_Failed_Buffer_Count'),
-                 stats.get('Statistic_Buffer_Underrun_Count'),
+                 underrun_name,
+                 underrun_value,
                  f"{rfr:.3f}" if rfr is not None else None],
             )
 
