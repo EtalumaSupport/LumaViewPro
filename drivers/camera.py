@@ -82,6 +82,10 @@ class Camera(ABC):
         self._device_removed = False
         self._device_serial = None
         self.profile: CameraProfile = CameraProfile()
+        # Re-entrancy depth for ``update_camera_config()`` (CAM-4).
+        # Protected by ``_state_lock``; only the outermost level
+        # toggles the grab loop.
+        self._update_config_depth = 0
 
         self.connect()
         # Registry contract: drivers signal "I couldn't find my hardware"
@@ -155,15 +159,39 @@ class Camera(ABC):
 
     @contextlib.contextmanager
     def update_camera_config(self):
-        was_grabbing = self.is_grabbing()
+        """Re-entrant guard around the camera grab loop.
 
-        if was_grabbing:
-            self.stop_grabbing()
+        Only the OUTERMOST invocation calls ``stop_grabbing()`` /
+        ``start_grabbing()``; nested calls are no-ops. CAM-4: previously
+        this method always read ``is_grabbing()`` and, when nested,
+        relied on the outer call having already stopped the loop so the
+        inner call's ``was_grabbing`` came back False. That worked but
+        was fragile — any race between the outer ``stop_grabbing`` and
+        the inner ``is_grabbing`` query (or any future change that lets
+        the loop re-enter the ``True`` state mid-section) would have
+        caused double stop/start. Depth tracking makes the invariant
+        explicit. ``smoke 3 camera.log`` 2026-04-30 captured exactly
+        the nested-init pattern this fix targets.
 
+        Holds ``_state_lock`` only while incrementing/decrementing the
+        depth counter. The yielded section runs WITHOUT the lock so the
+        caller is free to call other camera methods that take it.
+        """
+        with self._state_lock:
+            self._update_config_depth += 1
+            depth = self._update_config_depth
+        was_grabbing = False
         try:
+            if depth == 1:
+                was_grabbing = self.is_grabbing()
+                if was_grabbing:
+                    self.stop_grabbing()
             yield
         finally:
-            if was_grabbing:
+            with self._state_lock:
+                self._update_config_depth -= 1
+                end_depth = self._update_config_depth
+            if end_depth == 0 and was_grabbing:
                 self.start_grabbing()
 
     @abstractmethod
