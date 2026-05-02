@@ -1110,12 +1110,20 @@ class Lumascope():
         """
         ex = self._require_executor(self._io_executor, 'move_home_async')
         a = axis.upper()
+        # Homing legitimately takes 10-60+ seconds depending on travel
+        # distance and starting position — well above the 5 sec default
+        # slow-task threshold. Bump to 120s; only a true stall warrants
+        # a warning here.
+        HOME_THRESHOLD = 120.0
         if a == 'Z':
-            ex.put(IOTask(action=self.zhome, callback=callback, cb_args=cb_args))
+            ex.put(IOTask(action=self.zhome, callback=callback, cb_args=cb_args,
+                          slow_task_threshold_sec=HOME_THRESHOLD))
         elif a in ('ALL', 'XY'):
-            ex.put(IOTask(action=self.home, callback=callback, cb_args=cb_args))
+            ex.put(IOTask(action=self.home, callback=callback, cb_args=cb_args,
+                          slow_task_threshold_sec=HOME_THRESHOLD))
         elif a == 'T':
-            ex.put(IOTask(action=self.thome, callback=callback, cb_args=cb_args))
+            ex.put(IOTask(action=self.thome, callback=callback, cb_args=cb_args,
+                          slow_task_threshold_sec=HOME_THRESHOLD))
         else:
             logger.warning(f'[SCOPE API ] Unknown home axis: {axis}')
 

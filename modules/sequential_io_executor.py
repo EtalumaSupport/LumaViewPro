@@ -44,7 +44,16 @@ IOTask
     executor.enqueue(task)
 """
 class IOTask:
-        def __init__(self, action, args=None, kwargs=None, callback=None, cb_args=None, cb_kwargs=None, pass_result=False):
+        # Default threshold beyond which a task triggers the "Slow task"
+        # WARNING log line. Tasks that legitimately take longer than this
+        # (protocol run_loop, full homing, AF scans, etc.) should override
+        # via the `slow_task_threshold_sec` __init__ kwarg so the warning
+        # only fires when something actually unusual happens.
+        DEFAULT_SLOW_TASK_THRESHOLD_SEC = 5.0
+
+        def __init__(self, action, args=None, kwargs=None, callback=None,
+                     cb_args=None, cb_kwargs=None, pass_result=False,
+                     slow_task_threshold_sec=None):
             self.action = action
             self._ui_dispatch = None  # Set by executor when task is dispatched
             if args is None:
@@ -59,8 +68,13 @@ class IOTask:
             self.callback = callback
             self.protocol = None
             self.name = ""
-            
-            
+
+            # Per-task slow threshold. None → use class default at run-time
+            # (allows the class default to be tuned without per-instance
+            # surprises). Pass an explicit float to override (e.g. 30.0
+            # for tasks expected to take up to ~30 sec under normal load).
+            self.slow_task_threshold_sec = slow_task_threshold_sec
+
             if cb_args is None:
                 self.cb_args = ()
             # if it’s a sequence (list, tuple, etc) but not a string
@@ -80,9 +94,12 @@ class IOTask:
                 t_start = time.monotonic()
                 res = self.action(*self.args, **self.kwargs)
                 elapsed = time.monotonic() - t_start
-                if elapsed > 5.0:
+                threshold = (self.slow_task_threshold_sec
+                             if self.slow_task_threshold_sec is not None
+                             else self.DEFAULT_SLOW_TASK_THRESHOLD_SEC)
+                if elapsed > threshold:
                     action_name = getattr(self.action, '__name__', str(self.action))
-                    logger.warning(f"[IOTask    ] Slow task ({elapsed:.1f}s): {action_name} on {self.name}")
+                    logger.warning(f"[IOTask    ] Slow task ({elapsed:.1f}s, threshold {threshold:.1f}s): {action_name} on {self.name}")
                 return res, None
             except Exception as e:
                 logger.error(f"Uncaught Thread Exception in {self.name} Worker: {e}", exc_info=True)
