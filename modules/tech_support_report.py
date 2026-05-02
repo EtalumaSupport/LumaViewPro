@@ -574,100 +574,37 @@ def validate_motorconfig(config_data, source_label=''):
 class CameraBandwidthTest:
     """Stress-test USB camera bandwidth.
 
-    Captures ``num_frames`` at full resolution, 12-bit (or whatever the
-    camera is configured for), as fast as possible. Measures throughput,
-    counts dropped/None frames, checks frame size consistency.
-
-    Camera-independent: works through the abstract Camera interface
-    (``get_image()``).
+    Thin wrapper around ``Lumascope.run_camera_bandwidth_test()`` for
+    backward compat with existing report-generation call sites. The actual
+    test loop lives at the API layer (LAYER-D / LV-23) so the bandwidth
+    numbers reflect the production capture path.
     """
 
-    def __init__(self, camera, num_frames=BANDWIDTH_TEST_FRAMES):
-        self.camera = camera
+    def __init__(self, scope, num_frames=BANDWIDTH_TEST_FRAMES):
+        self.scope = scope
         self.num_frames = num_frames
 
     def run(self, progress_callback=None):
         """Run test. Returns results dict."""
-        results = {
-            'num_frames_requested': self.num_frames,
-            'num_frames_received': 0,
-            'num_frames_none': 0,
-            'num_frames_error': 0,
-            'total_bytes': 0,
-            'elapsed_seconds': 0,
-            'mb_per_second': 0.0,
-            'fps_actual': 0.0,
-            'frame_sizes': [],
-            'errors': [],
-            'passed': True,
-        }
-
-        # Grab camera info before test
-        try:
-            if hasattr(self.camera, 'get_image_width') and hasattr(self.camera, 'get_image_height'):
-                results['resolution'] = (
-                    f"{self.camera.get_image_width()}x{self.camera.get_image_height()}")
-            if hasattr(self.camera, 'get_pixel_format'):
-                results['pixel_format'] = str(self.camera.get_pixel_format())
-            if hasattr(self.camera, 'get_frame_rate'):
-                results['configured_fps'] = self.camera.get_frame_rate()
-        except Exception:
-            pass
-
-        frame_size_set = set()
-        start = time.monotonic()
-
-        for i in range(self.num_frames):
-            if progress_callback and i % 250 == 0:
-                progress_callback(int(100 * i / self.num_frames),
-                                  f"Frame {i}/{self.num_frames}")
-            try:
-                frame = self.camera.get_image()
-                if frame is None:
-                    results['num_frames_none'] += 1
-                else:
-                    results['num_frames_received'] += 1
-                    nbytes = getattr(frame, 'nbytes', None) or len(frame)
-                    results['total_bytes'] += nbytes
-                    frame_size_set.add(nbytes)
-            except Exception as e:
-                results['num_frames_error'] += 1
-                if len(results['errors']) < 20:
-                    results['errors'].append(f"Frame {i}: {type(e).__name__}: {e}")
-
-            # Hard timeout
-            if time.monotonic() - start > BANDWIDTH_TEST_TIMEOUT_S:
-                results['errors'].append(
-                    f"Timeout at frame {i} after {BANDWIDTH_TEST_TIMEOUT_S}s")
-                results['passed'] = False
-                break
-
-        elapsed = time.monotonic() - start
-        results['elapsed_seconds'] = round(elapsed, 2)
-
-        if elapsed > 0:
-            results['mb_per_second'] = round(
-                results['total_bytes'] / (1024 * 1024) / elapsed, 2)
-            results['fps_actual'] = round(
-                results['num_frames_received'] / elapsed, 1)
-
-        results['frame_sizes'] = sorted(frame_size_set)
-
-        # Pass/fail criteria
-        if results['num_frames_none'] > 0:
-            results['passed'] = False
-            results['errors'].append(
-                f"{results['num_frames_none']} frames returned None — "
-                f"possible USB disconnect or bandwidth issue")
-        if results['num_frames_error'] > 0:
-            results['passed'] = False
-        if len(frame_size_set) > 1:
-            results['passed'] = False
-            results['errors'].append(
-                f"Inconsistent frame sizes: {sorted(frame_size_set)} — "
-                f"possible data corruption or config change during test")
-
-        return results
+        if self.scope is None:
+            return {
+                'num_frames_requested': self.num_frames,
+                'num_frames_received': 0,
+                'num_frames_none': 0,
+                'num_frames_error': 0,
+                'total_bytes': 0,
+                'elapsed_seconds': 0,
+                'mb_per_second': 0.0,
+                'fps_actual': 0.0,
+                'frame_sizes': [],
+                'errors': ['No scope available'],
+                'passed': False,
+            }
+        return self.scope.run_camera_bandwidth_test(
+            num_frames=self.num_frames,
+            timeout_s=BANDWIDTH_TEST_TIMEOUT_S,
+            progress_cb=progress_callback,
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -675,12 +612,22 @@ class CameraBandwidthTest:
 # ---------------------------------------------------------------------------
 
 class FirmwareDiagnostics:
-    """Talks to LED and motor boards to collect diagnostic data."""
+    """Talks to LED and motor boards to collect diagnostic data.
+
+    All serial I/O is routed through the Lumascope API
+    (``send_diagnostic_command`` / ``send_diagnostic_command_multiline``)
+    so the API layer owns Rule-13 logging and Rule-14 error visibility.
+    Driver objects are NOT held on this class (LAYER-D / LV-32 / LV-40).
+    """
+
+    # Bench code that historically invoked this class without a scope
+    # (e.g. command-line tools) can still call ``connect_standalone()``
+    # to set ``self._scope``. The ``self.led_board`` / ``self.motor_board``
+    # convenience attributes are intentionally absent — diagnostics call
+    # ``self._cmd('led', ...)`` / ``self._cmd('motor', ...)`` instead.
 
     def __init__(self, scope=None):
         self._scope = scope
-        self.led_board = getattr(scope, 'led', None) if scope else None
-        self.motor_board = getattr(scope, 'motion', None) if scope else None
 
     def connect_standalone(self):
         """Auto-detect and connect to boards (standalone mode).
@@ -690,36 +637,60 @@ class FirmwareDiagnostics:
         """
         try:
             from modules.lumascope_api import Lumascope
-            scope = Lumascope.create_diagnostic()
-            self._scope = scope
-            self.led_board = scope.led
-            self.motor_board = scope.motion
+            self._scope = Lumascope.create_diagnostic()
         except Exception as e:
             logger.warning(f"Diagnostic scope creation failed: {e}")
             self._scope = None
-            self.led_board = None
-            self.motor_board = None
+
+    @property
+    def scope(self):
+        return self._scope
+
+    @property
+    def led_board(self):
+        """Backward-compat accessor — prefer ``self._cmd('led', ...)``.
+
+        Tech-support code that needs raw-REPL access (a separate cluster
+        outside LAYER-D) still requires the underlying board handle. New
+        diagnostic code MUST go through ``send_diagnostic_command``.
+        """
+        return getattr(self._scope, 'led', None) if self._scope else None
+
+    @property
+    def motor_board(self):
+        """Backward-compat accessor — prefer ``self._cmd('motor', ...)``.
+
+        See ``led_board`` docstring.
+        """
+        return getattr(self._scope, 'motion', None) if self._scope else None
 
     def _led_ok(self):
-        return self.led_board is not None and getattr(self.led_board, 'found', False)
+        if not self._scope:
+            return False
+        board = getattr(self._scope, 'led', None)
+        return board is not None and getattr(board, 'found', False)
 
     def _motor_ok(self):
-        return self.motor_board is not None and getattr(self.motor_board, 'found', False)
+        if not self._scope:
+            return False
+        board = getattr(self._scope, 'motion', None)
+        return board is not None and getattr(board, 'found', False)
 
     def _enter_engineering(self):
         """Enter LED engineering mode (send FACTORY + Y confirmation).
 
-        Uses the production driver's exchange_command() for all serial I/O.
+        Routes through the API's ``send_diagnostic_command`` (Rule 13).
         """
         if not self._led_ok():
             return False
-        board = self.led_board
         try:
             # Send FACTORY — firmware echoes prompt and waits for Y/N
-            board.exchange_command('FACTORY', response_numlines=1, timeout=5)
+            self._scope.send_diagnostic_command(
+                'led', 'FACTORY', response_numlines=1, timeout=5)
             time.sleep(0.3)
             # Send Y confirmation — firmware enters engineering mode
-            resp = board.exchange_command('Y', response_numlines=1, timeout=5)
+            self._scope.send_diagnostic_command(
+                'led', 'Y', response_numlines=1, timeout=5)
             return True
         except Exception as e:
             logger.warning(f"Enter engineering mode failed: {e}")
@@ -729,35 +700,57 @@ class FirmwareDiagnostics:
         """Exit LED engineering mode (send Q)."""
         if not self._led_ok():
             return
-        self._cmd(self.led_board, 'Q')
+        self._cmd('led', 'Q')
 
-    def _cmd(self, board, command, timeout=None):
+    def _cmd(self, target, command, timeout=None):
         """Send command and return response string, or error string.
 
-        Uses the production driver's exchange_command() which supports
-        per-call timeout natively.
-        """
-        if board is None:
-            return 'Board not connected'
-        try:
-            return board.exchange_command(command, timeout=timeout) or 'None'
-        except Exception as e:
-            return f'Error: {e}'
+        Args:
+            target: 'led' or 'motor' (or, for backward compat, a board
+                object — used by older call sites; routed back to the
+                target string by introspection).
+            command: Firmware command string.
+            timeout: Per-call serial timeout in seconds.
 
-    def _read_multiline(self, board, command, timeout=60, end_markers=None):
-        """Send command and read multi-line response (for SELFTEST etc.).
-
-        Uses the production driver's exchange_multiline() for all serial I/O.
+        Returns:
+            str: Response, ``'Board not connected'``, or ``'Error: ...'``.
         """
-        if board is None:
+        target_str = self._target_str(target)
+        if target_str is None:
             return 'Board not connected'
-        if end_markers is None:
-            end_markers = ['PASS', 'FAIL', 'COMPLETE', 'DONE', 'ERROR']
-        try:
-            result = board.exchange_multiline(command, timeout=timeout, end_markers=end_markers)
-            return result or 'No response'
-        except Exception as e:
-            return f'Error: {e}'
+        if self._scope is None:
+            return 'Board not connected'
+        return self._scope.send_diagnostic_command(
+            target_str, command, timeout=timeout)
+
+    def _read_multiline(self, target, command, timeout=60, end_markers=None):
+        """Send command and read multi-line response (for SELFTEST etc.)."""
+        target_str = self._target_str(target)
+        if target_str is None:
+            return 'Board not connected'
+        if self._scope is None:
+            return 'Board not connected'
+        return self._scope.send_diagnostic_command_multiline(
+            target_str, command, timeout=timeout, end_markers=end_markers)
+
+    def _target_str(self, target):
+        """Resolve a target (string or board object) to 'led' / 'motor'.
+
+        Older call sites passed ``self.led_board`` or ``self.motor_board``
+        as the first argument. Map those back to the canonical string.
+        """
+        if isinstance(target, str):
+            return target
+        if target is None:
+            return None
+        # Board object — match by identity to the API's references.
+        if self._scope is None:
+            return None
+        if target is getattr(self._scope, 'led', None):
+            return 'led'
+        if target is getattr(self._scope, 'motion', None):
+            return 'motor'
+        return None
 
     # -- High-level collectors --
 
@@ -1162,6 +1155,73 @@ class FirmwareDiagnostics:
 
 
 # ---------------------------------------------------------------------------
+# Standalone-mode diagnostic-scope shim
+# ---------------------------------------------------------------------------
+
+class _BoardOnlyDiagnosticScope:
+    """Minimal scope-shaped wrapper around explicit driver-board handles.
+
+    Used only by the legacy standalone CLI path of TechSupportReport
+    (no live Lumascope, but caller has already opened raw boards).
+    Mirrors the slice of the Lumascope API that
+    ``FirmwareDiagnostics`` needs: ``.led``, ``.motion``, plus
+    ``send_diagnostic_command`` / ``send_diagnostic_command_multiline``
+    that delegate to the boards via the same exchange_command API the
+    full Lumascope uses. Importing the full Lumascope class for this
+    case would be heavier than the wrapper.
+    """
+
+    def __init__(self, led_board=None, motor_board=None):
+        self.led = led_board
+        self.motion = motor_board
+
+    def _board(self, target):
+        target = target.lower() if isinstance(target, str) else target
+        if target == 'led':
+            return self.led
+        if target in ('motor', 'motion'):
+            return self.motion
+        raise ValueError(
+            f"_BoardOnlyDiagnosticScope: unknown target {target!r}")
+
+    def send_diagnostic_command(self, target, command, *,
+                                response_numlines=None, timeout=None):
+        try:
+            board = self._board(target)
+        except ValueError as e:
+            return f'Error: {e}'
+        if board is None or not getattr(board, 'found', False):
+            return 'Board not connected'
+        try:
+            kwargs = {}
+            if response_numlines is not None:
+                kwargs['response_numlines'] = response_numlines
+            if timeout is not None:
+                kwargs['timeout'] = timeout
+            resp = board.exchange_command(command, **kwargs)
+            return resp if resp is not None else 'None'
+        except Exception as e:
+            return f'Error: {e}'
+
+    def send_diagnostic_command_multiline(self, target, command, *,
+                                          timeout=60, end_markers=None):
+        try:
+            board = self._board(target)
+        except ValueError as e:
+            return f'Error: {e}'
+        if board is None or not getattr(board, 'found', False):
+            return 'Board not connected'
+        if end_markers is None:
+            end_markers = ['PASS', 'FAIL', 'COMPLETE', 'DONE', 'ERROR']
+        try:
+            result = board.exchange_multiline(
+                command, timeout=timeout, end_markers=end_markers)
+            return result if result else 'No response'
+        except Exception as e:
+            return f'Error: {e}'
+
+
+# ---------------------------------------------------------------------------
 # Main Report Generator
 # ---------------------------------------------------------------------------
 
@@ -1180,17 +1240,16 @@ class TechSupportReport:
         else:
             self.scope = None
 
-        # FirmwareDiagnostics owns the board references.  In integrated
-        # mode it extracts them from scope; standalone callers pass raw
-        # boards only when no scope is available.
+        # FirmwareDiagnostics routes all serial I/O through the
+        # Lumascope API (LAYER-D / LV-23, LV-24, LV-32, LV-40). In
+        # integrated mode it inherits the live scope; standalone callers
+        # either pass explicit boards (wrapped in a minimal scope shim
+        # below) or call ``diag.connect_standalone()`` later.
         if self.scope is not None:
             self.diag = FirmwareDiagnostics(scope=self.scope)
         elif led_board is not None or motor_board is not None:
-            # Standalone with explicit boards (no scope)
-            diag = FirmwareDiagnostics()
-            diag.led_board = led_board
-            diag.motor_board = motor_board
-            self.diag = diag
+            self.diag = FirmwareDiagnostics(
+                scope=_BoardOnlyDiagnosticScope(led_board, motor_board))
         else:
             # No scope, no boards — standalone will call diag.connect_standalone()
             self.diag = FirmwareDiagnostics()
@@ -1198,10 +1257,21 @@ class TechSupportReport:
         self._cancelled = False
         self._meta = {}
 
-    @property
-    def _camera(self):
-        """Get camera through scope API (returns None if unavailable)."""
-        return getattr(self.scope, 'camera', None)
+    def _camera_active(self) -> bool:
+        """True if a connected camera is reachable through the API.
+
+        Replaces the old ``self._camera is not None`` check. Goes through
+        the scope's diagnostic snapshot rather than reaching for the
+        driver handle directly (LAYER-D / LV-32).
+        """
+        if self.scope is None:
+            return False
+        try:
+            return bool(
+                self.scope.get_camera_diagnostic_info().get('connected', False)
+            )
+        except Exception:
+            return False
 
     def cancel(self):
         self._cancelled = True
@@ -1317,7 +1387,7 @@ class TechSupportReport:
             self._check_cancel()
 
             # 19. Bandwidth test (optional)  (80-94%)
-            if include_bw and self._camera is not None:
+            if include_bw and self._camera_active():
                 cb(81, "Running camera bandwidth test (this takes a while)...")
                 self._step_bandwidth(tmp, cb)
                 self._check_cancel()
@@ -1587,43 +1657,36 @@ class TechSupportReport:
             json.dump(homing, f, indent=2, default=str)
 
     def _step_camera_diagnostics(self, tmp):
-        """Read camera sensor temperature and basic info."""
+        """Read camera sensor temperature and basic info via the API."""
         d = tmp / 'camera_info'
         d.mkdir()
 
-        camera = self._camera
-        if camera is None:
+        if not self._camera_active():
             (d / 'no_camera.txt').write_text("No camera available.\n")
             return
 
-        info = {}
-        # Try to read standard camera properties
-        for attr in ['get_image_width', 'get_image_height', 'get_pixel_format',
-                     'get_frame_rate', 'get_gain', 'get_exposure',
-                     'get_temperature', 'get_sensor_temperature',
-                     'get_device_temperature']:
-            if hasattr(camera, attr):
-                try:
-                    info[attr] = getattr(camera, attr)()
-                except Exception as e:
-                    info[attr] = f'Error: {e}'
+        api_info = self.scope.get_camera_diagnostic_info()
 
-        # Read all temperature sensors through the camera driver API
-        try:
-            temps = camera.get_all_temperatures()
-            for name, temp_c in temps.items():
-                info[f'Temperature_{name}'] = temp_c
-        except Exception as e:
-            info['Temperature'] = f'Error: {e}'
+        # Flatten temperatures into the top-level info block so the
+        # output file format matches the historical layout (one
+        # 'Temperature_<name>' entry per sensor) downstream consumers
+        # may rely on.
+        info: dict = {}
+        for key in ('model', 'resolution', 'pixel_format', 'gain',
+                    'exposure_ms', 'max_gain', 'max_exposure_ms'):
+            if key in api_info:
+                info[key] = api_info[key]
+        for name, temp_c in (api_info.get('temperatures') or {}).items():
+            info[f'Temperature_{name}'] = temp_c
 
         with open(d / 'camera_info.txt', 'w') as f:
             f.write("Camera Information\n" + "=" * 40 + "\n\n")
-            f.write(f"Camera type: {type(camera).__name__}\n\n")
+            f.write(f"Camera model: {api_info.get('model', '?')}\n\n")
             for key, val in info.items():
                 label = key.replace('get_', '').replace('_', ' ').title()
                 f.write(f"  {label}: {val}\n")
                 # Flag hot cameras
-                if 'temp' in key.lower() and isinstance(val, (int, float)):
+                if 'temperature' in key.lower() and isinstance(val, (int, float)):
                     if val > 60:
                         f.write(f"    ** WARNING: sensor temperature {val}°C "
                                 f"is high — check cooling/ventilation **\n")
@@ -1914,7 +1977,7 @@ class TechSupportReport:
         def bw_cb(pct, msg):
             cb(81 + int(pct * 0.13), f"Bandwidth: {msg}")
 
-        bw = CameraBandwidthTest(self._camera)
+        bw = CameraBandwidthTest(self.scope)
         results = bw.run(progress_callback=bw_cb)
 
         with open(d / 'results.json', 'w') as f:
