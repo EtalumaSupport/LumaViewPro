@@ -84,6 +84,10 @@ class ScopeSession:
             camera_executor=camera_executor,
             io_executor=io_executor,
         )
+        # LAYER-I: register source_path for scope.load_protocol /
+        # create_protocol — falls back to current working dir for the
+        # rare ScopeSession path that doesn't pass source_path.
+        scope.register_source_path(source_path)
 
         # Optional helpers — import and construct if available
         wellplate_loader = None
@@ -153,6 +157,8 @@ class ScopeSession:
             camera_executor=camera_executor,
             io_executor=io_executor,
         )
+        # LAYER-I: register source_path (defaults to "." in headless).
+        scope.register_source_path(source_path)
 
         return cls(
             settings=settings,

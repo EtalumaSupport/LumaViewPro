@@ -25,7 +25,6 @@ from modules.config_ui_getters import (
     get_zstack_positions,
     is_image_saving_enabled,
 )
-from modules.protocol import Protocol
 from modules.sequenced_capture_executor import SequencedCaptureRunMode
 from modules.tiling_config import TilingConfig
 from ui.ui_helpers import (
@@ -190,10 +189,7 @@ class ZStack(FloatLayout):
                 'stim_config': get_stim_configs(),
             }
 
-            zstack_sequence = Protocol.from_config(
-                input_config=config,
-                tiling_configs_file_loc=pathlib.Path(ctx.source_path) / "data" / "tiling.json"
-            )
+            zstack_sequence = ctx.scope.create_protocol(input_config=config)
 
             autogain_settings = get_auto_gain_settings()
 

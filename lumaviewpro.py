@@ -109,7 +109,6 @@ if __name__ == "__main__":
     import modules.labware_loader as labware_loader
     import modules.lvp_lock as lvp_lock
     import modules.objectives_loader as objectives_loader
-    from modules.protocol import Protocol
     from modules.sequenced_capture_executor import SequencedCaptureExecutor
     from modules.sequential_io_executor import IOTask, SequentialIOExecutor
     import modules.config_helpers as config_helpers
@@ -866,6 +865,10 @@ class LumaViewProApp(TooltipMixin, App):
             file_io_executor=file_io_executor,
             autofocus_io_executor=autofocus_thread_executor,
         )
+        # LAYER-I: register source_path so scope.load_protocol /
+        # create_protocol can resolve data/tiling.json without callers
+        # passing the path.
+        lumaview.scope.register_source_path(source_path)
         #ij_helper = imagej_helper.ImageJHelper()
 
         autofocus_executor = AutofocusExecutor(

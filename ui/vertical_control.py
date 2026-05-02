@@ -20,7 +20,6 @@ from modules.config_ui_getters import (
 )
 from modules import gui_logger
 from modules.debounce import debounce
-from modules.protocol import Protocol
 from modules.sequenced_capture_executor import SequencedCaptureRunMode
 from modules.sequential_io_executor import IOTask
 from modules.tiling_config import TilingConfig
@@ -518,10 +517,7 @@ class VerticalControl(BoxLayout):
             'stim_config': get_stim_configs(),
         }
 
-        autofocus_sequence = Protocol.from_config(
-            input_config=config,
-            tiling_configs_file_loc=pathlib.Path(ctx.source_path) / "data" / "tiling.json",
-        )
+        autofocus_sequence = ctx.scope.create_protocol(input_config=config)
 
         autogain_settings = get_auto_gain_settings()
 

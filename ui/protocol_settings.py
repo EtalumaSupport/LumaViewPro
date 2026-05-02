@@ -38,7 +38,6 @@ from modules.config_ui_getters import (
     is_image_saving_enabled,
 )
 from modules.path_utils import get_source_root
-from modules.protocol import Protocol
 from modules.sequenced_capture_executor import SequencedCaptureRunMode
 from modules.sequential_io_executor import IOTask
 from modules.step_navigation import go_to_step
@@ -171,9 +170,8 @@ class ProtocolSettings(FloatLayout):
                 settings['protocol']['filepath']=''
 
                 protocol_config = get_sequenced_capture_config_from_ui()
-                self._protocol = Protocol.create_empty(
-                    config=protocol_config,
-                    tiling_configs_file_loc=pathlib.Path(source_path) / "data" / "tiling.json",
+                self._protocol = ctx.scope.create_protocol(
+                    empty_config=protocol_config,
                 )
 
         except Exception:
@@ -181,10 +179,9 @@ class ProtocolSettings(FloatLayout):
             filepath=''
             settings['protocol']['filepath']=''
             protocol_config = get_sequenced_capture_config_from_ui()
-            self._protocol = Protocol.create_empty(
-                    config=protocol_config,
-                    tiling_configs_file_loc=pathlib.Path(source_path) / "data" / "tiling.json",
-                )
+            self._protocol = ctx.scope.create_protocol(
+                empty_config=protocol_config,
+            )
 
 
         self.select_labware()
@@ -231,7 +228,8 @@ class ProtocolSettings(FloatLayout):
 
 
     def step_name_validation(self, text: str):
-        cleaned_str = Protocol.sanitize_step_name(input=text)
+        ctx = _app_ctx.ctx
+        cleaned_str = ctx.scope.sanitize_step_name(text)
 
         if hasattr(self, '_protocol') and (self._protocol is not None) and (self._protocol.num_steps() > 0 and self.curr_step >= 0):
             self._protocol.modify_name(
@@ -244,7 +242,8 @@ class ProtocolSettings(FloatLayout):
 
     def update_capture_root(self, text: str):
         # Sanitize and store capture root on protocol to avoid invalid path chars
-        sanitized = Protocol.sanitize_step_name(input=text)
+        ctx = _app_ctx.ctx
+        sanitized = ctx.scope.sanitize_step_name(text)
         self.ids['capture_root'].text = sanitized
         if hasattr(self, '_protocol') and (self._protocol is not None):
             self._protocol.modify_capture_root(capture_root=sanitized)
@@ -418,12 +417,8 @@ class ProtocolSettings(FloatLayout):
             return
 
         config = get_sequenced_capture_config_from_ui()
-        source_path = ctx.source_path
         try:
-            protocol = Protocol.from_config(
-                input_config=config,
-                tiling_configs_file_loc=pathlib.Path(source_path) / "data" / "tiling.json"
-            )
+            protocol = ctx.scope.create_protocol(input_config=config)
         except Exception as e:
             logger.error(f'[LVP Main  ] Protocol creation failed: {e}')
             from ui.notification_popup import show_notification_popup
@@ -535,10 +530,7 @@ class ProtocolSettings(FloatLayout):
             raise FileNotFoundError(f"Protocol not found at {filepath}")
 
         try:
-            protocol = Protocol.from_file(
-                file_path=filepath,
-                tiling_configs_file_loc=pathlib.Path(source_path) / "data" / "tiling.json",
-            )
+            protocol = ctx.scope.load_protocol(file_path=filepath)
         except IOError:
             return False
 
@@ -556,10 +548,7 @@ class ProtocolSettings(FloatLayout):
             error_msg = f"Warning: Selected protocol had no steps. Empty protocol loaded."
             protocol_config = get_sequenced_capture_config_from_ui()
 
-            protocol = Protocol.create_empty(
-                config=protocol_config,
-                tiling_configs_file_loc=pathlib.Path(source_path) / "data" / "tiling.json",
-            )
+            protocol = ctx.scope.create_protocol(empty_config=protocol_config)
 
         if protocol is None:
             logger.error(f"Unable to load protocol at {filepath}")
