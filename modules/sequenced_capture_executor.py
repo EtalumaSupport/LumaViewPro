@@ -478,8 +478,16 @@ class SequencedCaptureExecutor:
         # Not IO
         self._scope.update_auto_gain_target_brightness(self._autogain_settings['target_brightness'])
 
-        # Start the main run loop which manages all scan timing and execution
-        self.protocol_executor.protocol_put(IOTask(action=self._run_loop_executor.run_loop))
+        # Start the main run loop which manages all scan timing and execution.
+        # `slow_task_threshold_sec=None` -> use the higher long-running default;
+        # protocol runs commonly take minutes-to-hours, far above the 5 sec
+        # default threshold that's appropriate for individual hardware tasks.
+        # 24h (86400 sec) effectively disables the warning for the run loop —
+        # if a single protocol exceeds 24 hours something genuinely is wrong.
+        self.protocol_executor.protocol_put(IOTask(
+            action=self._run_loop_executor.run_loop,
+            slow_task_threshold_sec=86400.0,
+        ))
     
     def run_in_progress(self) -> bool:
         with self._run_lock:
