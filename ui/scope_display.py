@@ -126,6 +126,14 @@ class ScopeDisplay(Image):
         self._last_frame_ts = None  # Camera timestamp of last displayed frame
         self._min_frame_interval = 1.0 / 30  # derived from fps setting
 
+        # DISPLAY-1: monotonic deadline until which the most-recent saved
+        # protocol image must remain on screen. 0 = no hold active.
+        # Bumped by hold_protocol_saved_image() when a protocol step
+        # finishes capturing; cleared automatically when the deadline
+        # passes. _pull_next_frame() short-circuits while it's set.
+        self._protocol_hold_until = 0.0
+        self._PROTOCOL_HOLD_MS = 500
+
         # Crosshair canvas overlay (drawn on top of texture, not into pixels)
         self._crosshair_group = InstructionGroup()
         self.canvas.after.add(self._crosshair_group)
@@ -432,6 +440,26 @@ class ScopeDisplay(Image):
 
         self._cycle_start_time = time.monotonic()
 
+        # DISPLAY-1: hold the most recently saved protocol image on
+        # screen for at least PROTOCOL_HOLD_MS so the user can see what
+        # was just captured before the live preview overwrites it. The
+        # next protocol save bumps the hold window forward, so the
+        # display still tracks the latest save in real time — this is
+        # NOT a delay added to the pipeline, just a "minimum visible
+        # time" floor on the most-recent saved frame. The frame-interval
+        # recording below treats the hold-skipped cycles as "no frame
+        # rendered" — the next ``_pull_next_frame`` after the hold window
+        # is the one that records an interval against ``_last_frame_pull_time``.
+        hold_until = self._protocol_hold_until
+        if hold_until > 0.0:
+            remaining = hold_until - time.monotonic()
+            if remaining > 0:
+                Clock.schedule_once(self._pull_next_frame, remaining)
+                return
+            # Hold window elapsed; clear the marker so we don't keep
+            # checking until the next protocol save.
+            self._protocol_hold_until = 0.0
+
         # Frame-interval recording (TEMPORARY 2026-04-30, buffer-churn investigation).
         # _pull_next_frame is called once per display cycle on the main thread,
         # so the interval between calls is the wall-clock period between
@@ -729,6 +757,47 @@ class ScopeDisplay(Image):
         self.canvas.ask_update()
         self._count_display_fps()
         self._schedule_next()
+
+    def hold_protocol_saved_image(self, image):
+        """DISPLAY-1: show the most-recent protocol-saved image and hold it.
+
+        Called from the protocol-image-writer thread immediately after a
+        step finishes capturing. Pushes the captured frame to the
+        display texture (so the user sees the actual saved frame, not
+        a stale live grab) and bumps the hold deadline to ``now +
+        PROTOCOL_HOLD_MS`` so the live preview's pull loop pauses long
+        enough for the save to be visible. The next protocol save bumps
+        the deadline forward again — there's no added delay anywhere,
+        only a minimum-visible-time floor on the most-recent saved
+        frame.
+
+        Args:
+            image: numpy.ndarray, the captured frame in either 8-bit or
+                12-bit grayscale (matching what was saved). The display
+                is luminance-only; if the array is wider than 8 bits,
+                we convert with the same LUT the live path uses.
+        """
+        if image is None or getattr(image, 'size', 0) == 0:
+            return
+        try:
+            from kivy.clock import Clock as _Clock
+            import modules.image_utils as _image_utils
+
+            arr = image
+            if arr.dtype != np.uint8:
+                arr = _image_utils.convert_12bit_to_8bit(arr)
+            shape = arr.shape
+            data = arr.tobytes()
+            gen = self._display_generation
+            now = time.monotonic()
+            self._protocol_hold_until = now + (self._PROTOCOL_HOLD_MS / 1000.0)
+            _Clock.schedule_once(
+                lambda dt, b=data, s=shape, g=gen:
+                    self.create_and_set_texture(b, s, generation=g),
+                0,
+            )
+        except Exception as e:
+            logger.warning(f'[LVP Main  ] hold_protocol_saved_image failed: {e}')
 
     def _count_display_fps(self):
         """Track actual rendered frame rate (called on main thread after blit).
