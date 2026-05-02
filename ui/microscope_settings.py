@@ -244,10 +244,59 @@ class MicroscopeSettings(BoxLayout):
 
 
     def set_acceleration_limit(self, val_pct: int):
+        """Apply acceleration limit (writes settings + dispatches motor command).
+
+        MOT-1: motor serial write goes through ``io_executor`` instead of
+        running synchronously on MainThread. The slider's ``on_value`` event
+        can fire at up to 60 Hz on a smooth drag — without the executor route,
+        every tick blocks the UI on a serial write. Settings dict is still
+        updated synchronously so other UI code reading the slider sees the
+        committed value immediately.
+
+        The 100 ms ``Clock.create_trigger`` debounce coalesces rapid slider
+        ticks into one motor write per debounce window, matching the
+        ``_CoalescingApplier`` pattern used for ``frame_size`` and
+        ``apply_settings``. Final settle of the slider always lands on the
+        last value the user picked. Layer-audit Cluster A LV-7. Sourced from
+        ``docs/AUDIT_LAYER_VIOLATIONS_2026-05-01.md``.
+        """
         ctx = _app_ctx.ctx
         with ctx.settings_lock:
             ctx.settings['motion']['acceleration_max_pct'] = val_pct
-        ctx.lumaview.scope.set_acceleration_limit(val_pct=val_pct)
+        # Stash the most recent value; the trigger reads it when it fires.
+        self._pending_acceleration_pct = int(val_pct)
+        if self._acceleration_dispatch_trigger is None:
+            self._acceleration_dispatch_trigger = Clock.create_trigger(
+                lambda dt: self._dispatch_acceleration_to_motor(),
+                self._ACCELERATION_DEBOUNCE_S,
+            )
+        self._acceleration_dispatch_trigger()
+
+
+    _ACCELERATION_DEBOUNCE_S = 0.10
+    _acceleration_dispatch_trigger = None
+    _pending_acceleration_pct = None
+
+    def _dispatch_acceleration_to_motor(self):
+        """Send the most-recent acceleration value to the motor on IO_WORKER.
+
+        Reads ``self._pending_acceleration_pct`` (latest stash from
+        ``set_acceleration_limit``) and submits an IOTask through
+        ``io_executor``. If the slider moved again while the trigger was
+        pending, only the latest value reaches the motor — no queued
+        command burst. See MOT-1 docstring on ``set_acceleration_limit``.
+        """
+        ctx = _app_ctx.ctx
+        if ctx is None or self._pending_acceleration_pct is None:
+            return
+        val_pct = self._pending_acceleration_pct
+        scope = ctx.lumaview.scope if ctx.lumaview else None
+        if scope is None:
+            return
+        ctx.io_executor.put(IOTask(
+            action=scope.set_acceleration_limit,
+            kwargs={'val_pct': val_pct},
+        ))
 
 
     def set_acceleration_control_visibility(self, visible):

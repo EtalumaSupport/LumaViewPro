@@ -310,7 +310,17 @@ class ProtocolStepExecutor:
     # ------------------------------------------------------------------
 
     def default_move(self, px=None, py=None, z=None):
-        """Move to plate coordinates, converting to stage coordinates."""
+        """Move to plate coordinates, converting to stage coordinates.
+
+        Threading-cleanup: the previous implementation called
+        ``scope.move_absolute_position`` directly from PROTOCOL_WORKER,
+        which made motor serial writes from this thread interleave with
+        any IO_WORKER-queued motor command (UI sliders, manual moves)
+        mid-step. AUDIT_THREADING.md C3 / AUDIT_SUMMARY.md C2. Now each
+        axis move is submitted through ``io_executor.protocol_put`` and
+        the protocol thread waits on the future, so all motor I/O is
+        serialized to one worker.
+        """
         p = self._p
         labware = p._wellplate_loader.get_plate(plate_key=p._protocol.labware())
 
@@ -322,21 +332,48 @@ class ProtocolStepExecutor:
                 py=py,
             )
 
-            p._scope.move_absolute_position('X', sx)
+            self._move_axis_through_io('X', sx)
             p._target_x_pos = sx
             if p._callbacks.move_position:
                 _schedule_ui(lambda dt: p._callbacks.move_position('X'), 0)
 
-            p._scope.move_absolute_position('Y', sy)
+            self._move_axis_through_io('Y', sy)
             p._target_y_pos = sy
             if p._callbacks.move_position:
                 _schedule_ui(lambda dt: p._callbacks.move_position('Y'), 0)
 
             if z is not None:
-                p._scope.move_absolute_position('Z', z)
+                self._move_axis_through_io('Z', z)
                 p._target_z_pos = z
                 if p._callbacks.move_position:
                     _schedule_ui(lambda dt: p._callbacks.move_position('Z'), 0)
+
+    def _move_axis_through_io(self, axis: str, pos, *,
+                               wait_until_complete: bool = False,
+                               overshoot_enabled: bool = False,
+                               timeout: float = 60.0):
+        """Submit a single-axis move to io_executor and wait for completion.
+
+        Used by ``default_move`` and ``_grease_redist_w_pos`` to keep
+        motor writes off PROTOCOL_WORKER. Falls back to a direct call if
+        the executor isn't available (early init / standalone tests).
+        """
+        p = self._p
+        kwargs = {
+            'axis': axis,
+            'pos': pos,
+            'wait_until_complete': wait_until_complete,
+            'overshoot_enabled': overshoot_enabled,
+        }
+        if p._io_executor is None:
+            p._scope.move_absolute_position(**kwargs)
+            return
+        fut = p._io_executor.protocol_put(
+            IOTask(action=p._scope.move_absolute_position, kwargs=kwargs),
+            return_future=True,
+        )
+        if fut:
+            fut.result(timeout=timeout)
 
     def go_to_step(self, step_idx: int):
         """Move to the position for a given protocol step."""
@@ -369,18 +406,23 @@ class ProtocolStepExecutor:
         p = self._p
         axis = 'Z'
         _t_start = time.monotonic()
+        # get_current_position is a cache read (LAYER-L pinned that as a
+        # zero-serial-IO accessor); safe to call directly from any thread
+        # that needs the live z position.
         z_orig = p._scope.get_current_position(axis=axis)
-        p._scope.move_absolute_position(
-            axis=axis, pos=0,
+        self._move_axis_through_io(
+            axis, 0,
             wait_until_complete=True, overshoot_enabled=True,
+            timeout=120.0,
         )
 
         if p._callbacks.move_position:
             _schedule_ui(lambda dt, a=axis: p._callbacks.move_position(a))
 
-        p._scope.move_absolute_position(
-            axis=axis, pos=z_orig,
+        self._move_axis_through_io(
+            axis, z_orig,
             wait_until_complete=True, overshoot_enabled=True,
+            timeout=120.0,
         )
 
         if p._callbacks.move_position:
