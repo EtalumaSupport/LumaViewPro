@@ -259,6 +259,21 @@ class ProtocolImageWriter:
                 self._consecutive_capture_failures = 0  # Reset on success
                 logger.info(f"Protocol Image Captured: {name}")
 
+                # DISPLAY-1: hold the captured image on screen for at
+                # least 500 ms so the user can see the saved frame
+                # before the live preview overwrites it. NOT a delay —
+                # the next protocol save bumps the hold deadline
+                # forward, so display tracks the most-recent saved
+                # frame in real time. Best-effort; missing scope_display
+                # (early init / standalone tools) is fine.
+                try:
+                    import modules.app_context as _app_ctx
+                    ctx = _app_ctx.ctx
+                    if ctx is not None and getattr(ctx, 'scope_display', None) is not None:
+                        ctx.scope_display.hold_protocol_saved_image(captured_image)
+                except Exception as _e:
+                    logger.debug(f'[PROTOCOL] hold_protocol_saved_image failed: {_e}')
+
                 self._file_io_executor.protocol_put(IOTask(
                     action=self.write_capture,
                     kwargs={
