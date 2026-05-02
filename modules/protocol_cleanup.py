@@ -115,8 +115,40 @@ def run_cleanup(
         logger.error(f"[PROTOCOL] Error restoring autofocus states during cleanup: {ex}")
 
     # --- Restore camera gain and exposure ---
+    # PROTO-CLEAN-1: dispatch the gain/exposure SDK calls through
+    # camera_executor (CAMERA_WORKER) instead of running on MainThread.
+    # Pylon's set_gain / set_exposure_time take noticeable time on real
+    # hardware — running on MainThread blocked the UI for the duration
+    # of protocol stop. Submit-and-wait so cleanup still serializes:
+    # the next steps (return-to-position, executor end) need camera
+    # state restored before they run, otherwise live preview after stop
+    # could briefly use protocol gain/exposure.
+    #
+    # Cleanup runs while ``protocol_running`` is still set, so we use
+    # ``protocol_put`` (which accepts during a running protocol) rather
+    # than ``put`` (which rejects until protocol_end fires).
     try:
-        scope.restore_camera_state(saved_camera_state)
+        if saved_camera_state:
+            tag = saved_camera_state.get('tag', '?')
+            logger.info(
+                f"[{logger_name}] Cleanup: restoring camera state "
+                f"tag={tag} (via CAMERA_WORKER)"
+            )
+            fut = camera_executor.protocol_put(
+                IOTask(
+                    action=scope.restore_camera_state,
+                    args=(saved_camera_state,),
+                ),
+                return_future=True,
+            )
+            if fut is not None:
+                fut.result(timeout=5)
+            else:
+                # Executor disabled / protocol already ended — fall back to
+                # a direct call so state is still restored. Real-hardware
+                # path normally hits the executor branch above; this branch
+                # mostly covers tests / shutdown races.
+                scope.restore_camera_state(saved_camera_state)
     except Exception as ex:
         logger.error(f"[PROTOCOL] Error restoring camera gain/exposure during cleanup: {ex}")
 

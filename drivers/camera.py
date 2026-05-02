@@ -74,6 +74,14 @@ class Camera(ABC):
     def __init__(self):
         self._state_lock = threading.Lock()
         self._array_lock = threading.Lock()
+        # CAM-3: serializes the entire stop/yield/start critical section
+        # of update_camera_config() so two threads can't both be inside it
+        # at once. update_camera_config() can yield arbitrarily long
+        # configuration work (set_pixel_format, set_frame_size,
+        # init_camera_config), so this is a separate lock from
+        # _state_lock — _state_lock holds for ms, _lifecycle_lock can
+        # hold for seconds.
+        self._lifecycle_lock = threading.RLock()
         self._active = False
         self.error_report_count = 0
         self.array = np.array([])
@@ -155,16 +163,27 @@ class Camera(ABC):
 
     @contextlib.contextmanager
     def update_camera_config(self):
-        was_grabbing = self.is_grabbing()
+        """Cross-thread-safe guard around the camera grab loop.
 
-        if was_grabbing:
-            self.stop_grabbing()
-
-        try:
-            yield
-        finally:
+        CAM-3: ``_lifecycle_lock`` is an RLock held for the full
+        stop/yield/start critical section so two threads can't both be
+        mutating the grab loop simultaneously. RLock semantics also
+        cover the nested-from-same-thread case (CAM-4) — counting
+        acquisitions instead of relying on ``is_grabbing()`` returning
+        ``False`` mid-section. Smoke 3 camera.log 2026-04-30 captured
+        both failure modes: MainThread + CAMERA_WORKER concurrent
+        entries (CAM-3) and ``init_camera_config`` wrapping
+        ``set_pixel_format`` (CAM-4).
+        """
+        with self._lifecycle_lock:
+            was_grabbing = self.is_grabbing()
             if was_grabbing:
-                self.start_grabbing()
+                self.stop_grabbing()
+            try:
+                yield
+            finally:
+                if was_grabbing:
+                    self.start_grabbing()
 
     @abstractmethod
     def init_camera_config(self):
