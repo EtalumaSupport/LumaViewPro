@@ -154,7 +154,8 @@ def _mock_heavy_deps(monkeypatch):
 # ===========================================================================
 # 1. Domain exceptions — no mocks needed, pure Python module
 # ===========================================================================
-from modules.exceptions import HardwareError, ProtocolError, ConfigError, CaptureError
+from drivers.exceptions import HardwareError
+from modules.exceptions import ProtocolError, ConfigError, CaptureError
 
 
 class TestDomainExceptions:

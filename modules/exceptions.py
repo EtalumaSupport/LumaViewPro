@@ -1,11 +1,9 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 
-"""Domain-specific exception classes for LumaViewPro."""
+"""Module/API-layer exception classes (raised from modules/, caught at UI).
 
-
-class HardwareError(Exception):
-    """Hardware communication or configuration failure (motor, LED, camera)."""
-    pass
+For driver-layer hardware exceptions (HardwareError), see drivers/exceptions.py.
+"""
 
 
 class ProtocolError(Exception):
