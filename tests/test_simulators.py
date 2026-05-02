@@ -1055,6 +1055,93 @@ class TestSimulatedCamera:
         # Grabbing must be restored despite the exception
         assert cam.is_grabbing() is True
 
+    # -- update_camera_config re-entrancy (CAM-4) --
+
+    def test_update_camera_config_reentrant_single_stop_start(self):
+        """Nested update_camera_config must stop+start exactly once.
+
+        Regression test for CAM-4: previously the abstract context
+        manager always read is_grabbing() and trusted the outer call to
+        have already stopped before the inner call queried. Depth
+        tracking now makes the invariant explicit — only the outermost
+        invocation toggles the grab loop.
+        """
+        cam = SimulatedCamera()
+        stop_calls = []
+        start_calls = []
+        orig_stop = cam.stop_grabbing
+        orig_start = cam.start_grabbing
+
+        def counting_stop():
+            stop_calls.append(True)
+            orig_stop()
+
+        def counting_start():
+            start_calls.append(True)
+            orig_start()
+
+        cam.stop_grabbing = counting_stop
+        cam.start_grabbing = counting_start
+
+        assert cam.is_grabbing() is True
+        with cam.update_camera_config():
+            assert cam.is_grabbing() is False
+            with cam.update_camera_config():
+                # Inner level must NOT call stop_grabbing again — would
+                # be a no-op anyway (already stopped) but the invariant
+                # is "only outer level toggles".
+                assert cam.is_grabbing() is False
+                with cam.update_camera_config():
+                    assert cam.is_grabbing() is False
+        assert cam.is_grabbing() is True
+
+        assert len(stop_calls) == 1, \
+            f"expected exactly 1 stop, got {len(stop_calls)}"
+        assert len(start_calls) == 1, \
+            f"expected exactly 1 start, got {len(start_calls)}"
+
+    def test_update_camera_config_reentrant_inner_exception(self):
+        """If an inner level raises, the outer level still restarts."""
+        cam = SimulatedCamera()
+        assert cam.is_grabbing() is True
+        with pytest.raises(ValueError):
+            with cam.update_camera_config():
+                assert cam.is_grabbing() is False
+                with cam.update_camera_config():
+                    raise ValueError("inner failure")
+        assert cam.is_grabbing() is True
+
+    def test_update_camera_config_reentrant_when_not_grabbing(self):
+        """Nested call when grabbing was already stopped is a no-op."""
+        cam = SimulatedCamera()
+        cam.stop_grabbing()
+        assert cam.is_grabbing() is False
+
+        stop_calls = []
+        start_calls = []
+        orig_stop = cam.stop_grabbing
+        orig_start = cam.start_grabbing
+
+        def counting_stop():
+            stop_calls.append(True)
+            orig_stop()
+
+        def counting_start():
+            start_calls.append(True)
+            orig_start()
+
+        cam.stop_grabbing = counting_stop
+        cam.start_grabbing = counting_start
+
+        with cam.update_camera_config():
+            with cam.update_camera_config():
+                pass
+
+        # Was not grabbing on entry; must not start anything.
+        assert len(stop_calls) == 0
+        assert len(start_calls) == 0
+        assert cam.is_grabbing() is False
+
 
 class TestCameraProfiles:
     """Tests for drivers/camera_profiles.py lookup and defaults."""
