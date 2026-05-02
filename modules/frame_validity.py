@@ -33,7 +33,7 @@ import threading
 import time
 
 try:
-    from modules import profile_trace
+    from lib import profile_trace
 except ImportError:
     profile_trace = None
 

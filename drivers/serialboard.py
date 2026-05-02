@@ -15,7 +15,7 @@ import serial
 import serial.tools.list_ports as list_ports
 from enum import Enum
 from lvp_logger import logger
-from modules.profile_trace import TimedLock
+from lib.profile_trace import TimedLock
 import threading
 
 _serial_log = logging.getLogger('LVP.serial')
@@ -30,7 +30,7 @@ from drivers.raw_repl import (
 )
 
 try:
-    from modules import profile_trace
+    from lib import profile_trace
 except ImportError:
     profile_trace = None
 

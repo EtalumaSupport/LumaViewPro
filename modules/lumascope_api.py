@@ -49,7 +49,7 @@ _api_log = _logging.getLogger('LVP.api')
 import modules.autofocus_functions as autofocus_functions
 import modules.common_utils as common_utils
 import modules.coord_transformations as coord_transformations
-from modules import profile_trace
+from lib import profile_trace
 import modules.objectives_loader as objectives_loader
 import modules.image_utils as image_utils
 from modules.sequential_io_executor import SequentialIOExecutor, IOTask

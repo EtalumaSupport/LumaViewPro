@@ -12,7 +12,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import pytest
 
-from modules import profile_trace
+from lib import profile_trace
 
 
 @pytest.fixture(autouse=True)

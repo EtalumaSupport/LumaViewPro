@@ -10,7 +10,7 @@ import queue
 from collections.abc import Sequence
 from functools import partial
 from lvp_logger import logger, debug
-from modules import profile_trace
+from lib import profile_trace
 from modules.notification_center import notifications
 import threading
 import time
