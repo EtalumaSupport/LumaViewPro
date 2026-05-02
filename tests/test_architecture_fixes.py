@@ -1,16 +1,22 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """
-Tests for architecture audit fixes (2026-03-12).
+Tests for architecture audit fixes (2026-03-12, expanded 2026-05-02 LAYER-G).
 
 Covers:
-  1. Layer violation fixes — modules/ no longer hard-depends on ui/
+  1. Layer violation fixes — full directory scan per Architecture Rule 1
+     (Firmware/docs/CLAUDE.md): lower layers must not import upward.
+       - modules/*.py must not import from ui/
+       - drivers/*.py must not import from modules/ or ui/
+       - lib/*.py must not import from drivers/, modules/, or ui/
   2. config_getters → config_ui_getters rename
   3. stitch_algorithms.py cleanup (feature_stitch, color_transfer, crop_to_content)
   4. Dead code removal (position_stitcher removed from stitcher.py)
   5. Tiny file consolidation — enums/classes merged into parent modules
 """
 
+import glob
 import importlib
+import os
 import sys
 import types
 
@@ -20,58 +26,158 @@ import pytest
 
 
 # ---------------------------------------------------------------------------
-# 1. Layer violation: modules/ must not hard-import from ui/
+# 1. Layer violations — Architecture Rule 1: only call/import down one level
 # ---------------------------------------------------------------------------
 
-class TestLayerViolations:
-    """Verify modules/ files don't have hard (top-level) imports from ui/."""
+_REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 
-    def _check_no_toplevel_ui_import(self, module_path):
-        """Read a module file and check no top-level 'from ui.' imports exist."""
-        with open(module_path) as f:
-            lines = f.readlines()
 
-        violations = []
-        in_string = False
-        for i, line in enumerate(lines, 1):
-            stripped = line.strip()
-            # Skip comments
-            if stripped.startswith('#'):
-                continue
-            # Track triple-quote strings (rough heuristic)
-            if '"""' in stripped or "'''" in stripped:
-                count = stripped.count('"""') + stripped.count("'''")
-                if count % 2 == 1:
-                    in_string = not in_string
-                continue
-            if in_string:
-                continue
-            # Skip indented lines (inside functions/classes = deferred import)
-            if line[0] in (' ', '\t'):
-                continue
-            # Check for top-level ui imports
-            if 'from ui.' in stripped or 'import ui.' in stripped:
+def _list_py_files(subdir):
+    """Return sorted list of *.py files in <repo>/<subdir>/, excluding dunder
+    files like __init__.py.
+    """
+    pattern = os.path.join(_REPO_ROOT, subdir, '*.py')
+    return sorted(
+        p for p in glob.glob(pattern)
+        if not os.path.basename(p).startswith('__')
+    )
+
+
+def _check_no_toplevel_imports(module_path, forbidden_prefixes):
+    """Read a source file and return [(line_no, line)] for top-level
+    `from <prefix>...` or `import <prefix>...` imports where <prefix> is in
+    forbidden_prefixes (e.g. ('ui.',) or ('modules.', 'ui.')).
+
+    Skips: comments, indented imports (deferred inside functions/methods),
+    and lines inside triple-quoted strings (rough heuristic).
+    """
+    with open(module_path) as f:
+        lines = f.readlines()
+
+    violations = []
+    in_string = False
+    for i, line in enumerate(lines, 1):
+        stripped = line.strip()
+        if stripped.startswith('#'):
+            continue
+        if '"""' in stripped or "'''" in stripped:
+            count = stripped.count('"""') + stripped.count("'''")
+            if count % 2 == 1:
+                in_string = not in_string
+            continue
+        if in_string:
+            continue
+        # Skip indented lines (inside functions/classes = deferred import)
+        if line and line[0] in (' ', '\t'):
+            continue
+        for prefix in forbidden_prefixes:
+            if (f'from {prefix}' in stripped or
+                    f'import {prefix}' in stripped):
                 violations.append((i, stripped))
+                break
+    return violations
 
-        return violations
 
-    def test_config_ui_getters_no_toplevel_ui_import(self):
-        import os
-        path = os.path.join(os.path.dirname(__file__), '..', 'modules', 'config_ui_getters.py')
-        violations = self._check_no_toplevel_ui_import(path)
-        assert not violations, f"Top-level ui/ imports found: {violations}"
+# Files with known layer violations awaiting their structural fix.
+# Each entry: filename -> (audit-cluster-or-LAYER-id, reason).
+# When the structural fix lands, the file either disappears (e.g. shim
+# deleted) or its imports change (xfail flips to xpass and the entry
+# can be removed).
+_KNOWN_MODULE_VIOLATIONS = {
+    'ui_helpers.py': (
+        "W-4 / LAYER-A'",
+        "Compatibility shim re-exporting from ui/ui_helpers.py. "
+        "Retires when LAYER-A' (consolidate scope_commands + promote "
+        "move_absolute_position to Lumascope API) lands; the shim file "
+        "is then deleted entirely.",
+    ),
+}
 
-    def test_step_navigation_no_toplevel_ui_import(self):
-        import os
-        path = os.path.join(os.path.dirname(__file__), '..', 'modules', 'step_navigation.py')
-        violations = self._check_no_toplevel_ui_import(path)
-        assert not violations, f"Top-level ui/ imports found: {violations}"
 
-    def test_tech_support_report_no_toplevel_ui_import(self):
-        import os
-        path = os.path.join(os.path.dirname(__file__), '..', 'modules', 'tech_support_report.py')
-        violations = self._check_no_toplevel_ui_import(path)
-        assert not violations, f"Top-level ui/ imports found: {violations}"
+def _parametrized_with_known_violations(paths, known):
+    """Build a parametrize list, attaching xfail(strict=False) marks to
+    files in `known`. xfail flips to xpass when the violation is fixed
+    elsewhere — non-strict so it doesn't fail the run; the file is
+    expected to disappear from `paths` once the structural fix lands.
+    """
+    out = []
+    for p in paths:
+        name = os.path.basename(p)
+        if name in known:
+            cluster_id, reason = known[name]
+            out.append(pytest.param(
+                p,
+                id=name,
+                marks=pytest.mark.xfail(
+                    strict=False,
+                    reason=f"{cluster_id}: {reason}",
+                ),
+            ))
+        else:
+            out.append(pytest.param(p, id=name))
+    return out
+
+
+_MODULES_FILES = _list_py_files('modules')
+_DRIVERS_FILES = _list_py_files('drivers')
+_LIB_FILES = _list_py_files('lib')
+
+
+class TestLayerViolations:
+    """Verify every source file respects Architecture Rule 1.
+
+    Lower layers must not import upward. Higher layers may import down.
+    Test parametrized over each *.py file in modules/, drivers/, lib/ —
+    new files added under those directories are checked automatically.
+    """
+
+    @pytest.mark.parametrize(
+        'module_path',
+        _parametrized_with_known_violations(
+            _MODULES_FILES, _KNOWN_MODULE_VIOLATIONS,
+        ),
+    )
+    def test_modules_no_toplevel_ui_import(self, module_path):
+        """modules/ must not import from ui/ (Rule 1: modules below ui)."""
+        violations = _check_no_toplevel_imports(module_path, ('ui.',))
+        assert not violations, (
+            f"{os.path.basename(module_path)}: top-level ui/ imports found: "
+            f"{violations}"
+        )
+
+    @pytest.mark.parametrize(
+        'driver_path',
+        _DRIVERS_FILES,
+        ids=lambda p: os.path.basename(p),
+    )
+    def test_drivers_no_toplevel_modules_or_ui_import(self, driver_path):
+        """drivers/ must not import from modules/ or ui/ (Rule 1: drivers
+        are below both). Shared utilities go in lib/ (e.g. lib/profile_trace).
+        """
+        violations = _check_no_toplevel_imports(
+            driver_path, ('modules.', 'ui.'),
+        )
+        assert not violations, (
+            f"{os.path.basename(driver_path)}: top-level modules/ or ui/ "
+            f"imports found: {violations}"
+        )
+
+    @pytest.mark.parametrize(
+        'lib_path',
+        _LIB_FILES,
+        ids=lambda p: os.path.basename(p),
+    )
+    def test_lib_no_toplevel_drivers_modules_or_ui_import(self, lib_path):
+        """lib/ must be cross-layer-shared and dependency-free relative to
+        drivers/, modules/, ui/. lib/ can only import stdlib + same-layer.
+        """
+        violations = _check_no_toplevel_imports(
+            lib_path, ('drivers.', 'modules.', 'ui.'),
+        )
+        assert not violations, (
+            f"{os.path.basename(lib_path)}: top-level drivers/, modules/, "
+            f"or ui/ imports found: {violations}"
+        )
 
 
 # ---------------------------------------------------------------------------
