@@ -5,7 +5,7 @@ ScopeSession — GUI-independent state container for a microscope session.
 Consolidates the shared state that was previously scattered across module-level
 globals in lumaviewpro.py.  LumaViewPro, the REST API, and standalone scripts
 can each create (or share) a ScopeSession instance and pass it to the
-functions in config_helpers and scope_commands.
+functions in config_helpers and Lumascope's executor-backed command API.
 
 Usage
 -----
@@ -196,39 +196,30 @@ class ScopeSession:
         import modules.config_helpers as config_helpers
         config_helpers.log_system_metrics(self.settings)
 
-    # --- LED commands ---
+    # --- LED commands (thin shims around Lumascope's executor-backed API) ---
 
     def leds_off(self, callback=None):
-        import modules.scope_commands as scope_commands
-        scope_commands.leds_off(self.scope, self.io_executor, callback=callback)
+        self.scope.leds_off_async(callback=callback)
 
     def led_on(self, channel, illumination, callback=None, cb_kwargs=None):
-        import modules.scope_commands as scope_commands
-        scope_commands.led_on(
-            self.scope, self.io_executor, channel, illumination,
-            callback=callback, cb_kwargs=cb_kwargs,
+        self.scope.led_on_async(
+            channel, illumination, callback=callback, cb_kwargs=cb_kwargs,
         )
 
     def led_off(self, channel, callback=None, cb_kwargs=None):
-        import modules.scope_commands as scope_commands
-        scope_commands.led_off(
-            self.scope, self.io_executor, channel,
-            callback=callback, cb_kwargs=cb_kwargs,
+        self.scope.led_off_async(
+            channel, callback=callback, cb_kwargs=cb_kwargs,
         )
 
     def led_on_sync(self, channel, illumination, timeout=5):
-        import modules.scope_commands as scope_commands
-        scope_commands.led_on_sync(
-            self.scope, self.io_executor, channel, illumination, timeout=timeout,
-        )
+        self.scope.led_on_sync(channel, illumination, timeout=timeout)
 
     # --- Motion commands ---
 
     def move_absolute(self, axis, pos, wait_until_complete=False,
                       overshoot_enabled=True, callback=None, cb_kwargs=None):
-        import modules.scope_commands as scope_commands
-        scope_commands.move_absolute(
-            self.scope, self.io_executor, axis, pos,
+        self.scope.move_absolute_async(
+            axis, pos,
             wait_until_complete=wait_until_complete,
             overshoot_enabled=overshoot_enabled,
             callback=callback, cb_kwargs=cb_kwargs,
@@ -236,19 +227,16 @@ class ScopeSession:
 
     def move_relative(self, axis, um, wait_until_complete=False,
                       overshoot_enabled=True, callback=None, cb_kwargs=None):
-        import modules.scope_commands as scope_commands
-        scope_commands.move_relative(
-            self.scope, self.io_executor, axis, um,
+        self.scope.move_relative_async(
+            axis, um,
             wait_until_complete=wait_until_complete,
             overshoot_enabled=overshoot_enabled,
             callback=callback, cb_kwargs=cb_kwargs,
         )
 
     def move_home(self, axis, callback=None, cb_args=None):
-        import modules.scope_commands as scope_commands
-        scope_commands.move_home(
-            self.scope, self.io_executor, axis,
-            callback=callback, cb_args=cb_args,
+        self.scope.move_home_async(
+            axis, callback=callback, cb_args=cb_args,
         )
 
     # ------------------------------------------------------------------

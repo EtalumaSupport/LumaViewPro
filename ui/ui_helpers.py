@@ -15,7 +15,6 @@ from modules.kivy_utils import schedule_ui as _schedule_ui
 
 import modules.app_context as _app_ctx
 import modules.common_utils as common_utils
-import modules.scope_commands as scope_commands
 import modules.config_helpers as config_helpers
 from modules.sequential_io_executor import IOTask
 
@@ -69,7 +68,7 @@ def scope_leds_off(no_callback: bool = False):
     # LED observer handles UI button sync — no manual callback needed.
     # The no_callback parameter is kept for API compatibility but is now
     # effectively always True (observer replaces the callback).
-    scope_commands.leds_off(ctx.scope, ctx.io_executor)
+    ctx.scope.leds_off_async()
 
 
 # ============================================================================
@@ -100,7 +99,13 @@ def _handle_autofocus_ui(pos: float):
     ctx.motion_settings.ids['verticalcontrol_id'].update_autofocus_gui(pos=pos)
 
 
-# Wrapper function when moving to update UI position
+# Wrapper function when moving to update UI position.
+# `protocol=True` is the on-protocol-thread case: caller is already
+# running on the io_executor / protocol thread, so it must call the
+# scope primitive directly (re-submitting to the same executor would
+# deadlock). `protocol=False` is the UI-thread case: dispatches via
+# the API's async path. Two distinct call contexts; one canonical
+# call pattern per context (Rule 2).
 def move_absolute_position(
     axis: str,
     pos: float,
@@ -110,17 +115,11 @@ def move_absolute_position(
     vertical_control: bool = False
 ):
     ctx = _app_ctx.ctx
-    io_executor = ctx.io_executor
-
-    if protocol:
-        put_func = io_executor.protocol_put
-    else:
-        put_func = io_executor.put
 
     if axis == 'T':
         # Turret moves go through the GUI widget which manages homing and objective settings
         if not protocol:
-            io_executor.put(IOTask(
+            ctx.io_executor.put(IOTask(
                 action=ctx.motion_settings.ids['verticalcontrol_id'].turret_select,
                 kwargs={'selected_position': pos},
                 callback=_handle_ui_update_for_axis,
@@ -130,14 +129,17 @@ def move_absolute_position(
             ctx.motion_settings.ids['verticalcontrol_id'].turret_select(selected_position=pos, protocol=True)
     else:
         if not protocol:
-            scope_commands.move_absolute(
-                ctx.scope, io_executor, axis, pos,
+            ctx.scope.move_absolute_async(
+                axis, pos,
                 wait_until_complete=wait_until_complete,
                 overshoot_enabled=overshoot_enabled,
                 callback=_handle_ui_update_for_axis,
                 cb_kwargs={'axis': axis},
             )
         else:
+            # Already running on the io_executor (protocol thread) —
+            # call the scope primitive directly. Submitting to the
+            # same executor would deadlock.
             ctx.scope.move_absolute_position(
                 axis=axis, pos=pos,
                 wait_until_complete=wait_until_complete,
@@ -154,8 +156,8 @@ def move_relative_position(
     overshoot_enabled: bool = True
 ):
     ctx = _app_ctx.ctx
-    scope_commands.move_relative(
-        ctx.scope, ctx.io_executor, axis, um,
+    ctx.scope.move_relative_async(
+        axis, um,
         wait_until_complete=wait_until_complete,
         overshoot_enabled=overshoot_enabled,
         callback=_handle_ui_update_for_axis,
@@ -167,7 +169,7 @@ def move_home(axis: str):
     ctx = _app_ctx.ctx
     axis = axis.upper()
     set_title_event_text("Homing, please wait...")
-    scope_commands.move_home(ctx.scope, ctx.io_executor, axis, callback=move_home_cb, cb_args=(axis))
+    ctx.scope.move_home_async(axis, callback=move_home_cb, cb_args=(axis))
 
 
 # ============================================================================

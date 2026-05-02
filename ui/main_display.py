@@ -20,7 +20,6 @@ import modules.app_context as _app_ctx
 import modules.common_utils as common_utils
 from modules import gui_logger
 import modules.image_utils as image_utils
-import modules.scope_commands as scope_commands
 from modules.sequential_io_executor import IOTask
 from ui.ui_helpers import set_last_save_folder
 from ui.composite_capture import CompositeCapture
@@ -64,7 +63,6 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
 
             ctx = _app_ctx.ctx
             settings = ctx.settings
-            io_executor = ctx.io_executor
 
             scope_display = self.ids['viewer_id'].ids['scope_display_id']
             if not self.scope.camera_active:
@@ -75,7 +73,7 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
                 scope_display.stop()
                 if self.scope.led_connected:
                     self._pause_led_snapshot = self.scope.save_led_state('camera_pause')
-                    scope_commands.leds_off(self.scope, io_executor)
+                    self.scope.leds_off_async()
                     # LED observer handles UI button sync
             else:
                 if self._pause_led_snapshot:

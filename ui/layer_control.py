@@ -12,7 +12,6 @@ from kivy.uix.scrollview import ScrollView
 import modules.app_context as _app_ctx
 import modules.common_utils as common_utils
 from modules import gui_logger
-import modules.scope_commands as scope_commands
 from modules.sequential_io_executor import IOTask
 
 logger = logging.getLogger('LVP.ui.layer_control')
@@ -752,19 +751,16 @@ class LayerControl(BoxLayout):
         # Hardware-touching action. See execute_save_focus for the
         # try/except + log + notify pattern rationale.
         ctx = _app_ctx.ctx
-        io_executor = ctx.io_executor
         try:
             channel = ctx.scope.color2ch(self.layer)
             if not enabled:
-                scope_commands.led_off(ctx.scope, io_executor, channel)
+                ctx.scope.led_off_async(channel)
             else:
                 logger.info(
                     f'[LVP Main  ] lumaview.scope.led_on('
                     f'lumaview.scope.color2ch({self.layer}), {illumination})'
                 )
-                scope_commands.led_on(
-                    ctx.scope, io_executor, channel, illumination
-                )
+                ctx.scope.led_on_async(channel, illumination)
         except Exception as e:
             logger.exception(
                 f'[LVP Main  ] set_led_state failed for layer '
@@ -925,12 +921,10 @@ class LayerControl(BoxLayout):
                                 f'failed during disable_leds_for_other_layers: {e}'
                             )
                     if any_other_on:
-                        from modules import scope_commands
-                        scope_commands.leds_off(ctx.scope, ctx.io_executor)
+                        ctx.scope.leds_off_async()
                         # Re-enable this layer's LED (leds_off turned it off too)
-                        scope_commands.led_on(
-                            ctx.scope, ctx.io_executor, self.layer,
-                            settings[self.layer]['ill'],
+                        ctx.scope.led_on_async(
+                            self.layer, settings[self.layer]['ill'],
                         )
                 # Update button states (visual only — hardware already handled)
                 LayerControl._suppressing_led_log = True

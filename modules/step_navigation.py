@@ -13,7 +13,6 @@ from modules.kivy_utils import schedule_ui as _schedule_ui
 
 import modules.app_context as _app_ctx
 import modules.common_utils as common_utils
-import modules.scope_commands as scope_commands
 from modules.sequential_io_executor import IOTask
 
 logger = logging.getLogger('LVP.modules.step_navigation')
@@ -27,7 +26,10 @@ def go_to_step(
     called_from_protocol: bool = True
 ):
     from modules.config_ui_getters import get_selected_labware
-    from modules.ui_helpers import move_absolute_position
+    # Deferred import: ui/ui_helpers.move_absolute_position wraps the
+    # API call with UI update callbacks. step_navigation still reaches
+    # upward here — tracked as part of LAYER-H/LV-13 follow-up.
+    from ui.ui_helpers import move_absolute_position
     from modules.notification_center import notifications
 
     ctx = _app_ctx.ctx
@@ -148,8 +150,8 @@ def go_to_step(
         if not called_from_protocol and settings['protocol_led_on']:
             # Turn off previous channel before switching — one LED at a time,
             # same pattern as composite capture and protocol capture (#605).
-            scope_commands.leds_off(ctx.scope, io_executor)
-            scope_commands.led_on(ctx.scope, io_executor, color, step['Illumination'])
+            ctx.scope.leds_off_async()
+            ctx.scope.led_on_async(color, step['Illumination'])
             _schedule_ui(lambda dt: temp(), 0)
         else:
             layer_obj.apply_settings(ignore_auto_gain=ignore_auto_gain, protocol=True)

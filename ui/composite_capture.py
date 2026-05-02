@@ -20,7 +20,6 @@ import modules.common_utils as common_utils
 from modules import gui_logger
 from modules.composite_builder import build_composite
 import modules.image_utils as image_utils
-import modules.scope_commands as scope_commands
 from modules.sequential_io_executor import IOTask
 from ui.ui_helpers import (
     live_histo_off, live_histo_reverse, set_last_save_folder,
@@ -299,8 +298,6 @@ class CompositeCapture(FloatLayout):
         """Inner worker — actual composite capture logic."""
         ctx = _app_ctx.ctx
         settings = ctx.settings
-        io_executor = ctx.io_executor
-        camera_executor = ctx.camera_executor
 
         # Snapshot settings at entry for thread safety — avoids seeing partial
         # updates from the UI thread during the capture sequence.
@@ -337,35 +334,32 @@ class CompositeCapture(FloatLayout):
 
                 if z_stage_present:
                     focus_pos = layer_settings[trans_layer]['focus']
-                    scope_commands.move_absolute_sync(
-                        ctx.scope, io_executor, 'Z', focus_pos,
-                        wait_until_complete=True,
+                    ctx.scope.move_absolute_sync(
+                        'Z', focus_pos, wait_until_complete=True,
                     )
 
                 gain = layer_settings[trans_layer]['gain']
-                scope_commands.set_gain_sync(ctx.scope, camera_executor, gain)
+                ctx.scope.set_gain_sync(gain)
                 exposure = layer_settings[trans_layer]['exp']
-                scope_commands.set_exposure_sync(ctx.scope, camera_executor, exposure)
+                ctx.scope.set_exposure_sync(exposure)
                 illumination = layer_settings[trans_layer]['ill']
 
-                scope_commands.led_on_sync(
-                    ctx.scope, io_executor,
+                ctx.scope.led_on_sync(
                     ctx.scope.color2ch(trans_layer), illumination,
                 )
 
                 transmitted_image = np.array(
-                    scope_commands.capture_and_wait_sync(
-                        ctx.scope, camera_executor,
+                    ctx.scope.capture_and_wait_sync(
                         force_to_8bit=not use_full_pixel_depth,
                     ),
                     dtype=dtype,
                 )
-                scope_commands.leds_off_sync(ctx.scope, io_executor)
+                ctx.scope.leds_off_sync()
 
                 # Can only use one transmitted channel per composite
                 break
 
-        scope_commands.leds_off_sync(ctx.scope, io_executor)
+        ctx.scope.leds_off_sync()
 
         # Capture fluorescence and luminescence channels
         for layer in (*common_utils.get_fluorescence_layers(), *common_utils.get_luminescence_layers()):
@@ -375,15 +369,14 @@ class CompositeCapture(FloatLayout):
 
                 if z_stage_present:
                     focus_pos = layer_settings[layer]['focus']
-                    scope_commands.move_absolute_sync(
-                        ctx.scope, io_executor, 'Z', focus_pos,
-                        wait_until_complete=True,
+                    ctx.scope.move_absolute_sync(
+                        'Z', focus_pos, wait_until_complete=True,
                     )
 
                 gain = layer_settings[layer]['gain']
-                scope_commands.set_gain_sync(ctx.scope, camera_executor, gain)
+                ctx.scope.set_gain_sync(gain)
                 exposure = layer_settings[layer]['exp']
-                scope_commands.set_exposure_sync(ctx.scope, camera_executor, exposure)
+                ctx.scope.set_exposure_sync(exposure)
                 sum_count = layer_settings[layer]['sum']
                 sum_iteration_callback = ctx.scope_display.update_scopedisplay
 
@@ -394,23 +387,21 @@ class CompositeCapture(FloatLayout):
 
                 # Luminescence channels don't use an LED
                 if layer not in common_utils.get_transmitted_layers():
-                    scope_commands.led_on_sync(
-                        ctx.scope, io_executor,
+                    ctx.scope.led_on_sync(
                         ctx.scope.color2ch(layer), illumination,
                     )
 
-                img_gray = scope_commands.capture_and_wait_sync(
-                    ctx.scope, camera_executor,
+                img_gray = ctx.scope.capture_and_wait_sync(
                     force_to_8bit=not use_full_pixel_depth,
                     sum_count=sum_count,
                     sum_delay_s=exposure/1000,
                     sum_iteration_callback=sum_iteration_callback,
                 )
-                scope_commands.leds_off_sync(ctx.scope, io_executor)
+                ctx.scope.leds_off_sync()
 
                 channel_images[layer] = np.array(img_gray)
 
-            scope_commands.leds_off_sync(ctx.scope, io_executor)
+            ctx.scope.leds_off_sync()
 
             # Unschedule histogram on main thread — widget access must not happen from worker
             def _unschedule_histo(dt, layer_name=layer):
