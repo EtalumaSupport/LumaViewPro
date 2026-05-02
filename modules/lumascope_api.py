@@ -3703,6 +3703,297 @@ class Lumascope():
             logger.debug(f'[SCOPE API ] get_camera_temperatures failed: {e}')
             return {}
 
+    # ------------------------------------------------------------------
+    # Diagnostic API (LAYER-D / LV-23, LV-24, LV-32, LV-40)
+    # Tech-support / bring-up / bench tools route diagnostics through
+    # these methods so the API layer owns Rule-13 logging and Rule-14
+    # error visibility. Modules MUST NOT call `self.camera.get_image()`,
+    # `scope.led.exchange_command()`, etc. directly — see audit doc
+    # `docs/AUDIT_LAYER_VIOLATIONS_2026-05-01.md` Cluster D.
+    # ------------------------------------------------------------------
+
+    def get_camera_diagnostic_info(self) -> dict:
+        """Read-only snapshot of camera state for diagnostics.
+
+        Returns the values that ``modules/tech_support_report.py`` and
+        bench tools used to read directly off the driver. Each field is
+        independently guarded so partial driver support yields a partial
+        dict rather than an exception.
+
+        Returns:
+            dict: Camera diagnostic snapshot. Keys may include
+                'model', 'resolution', 'pixel_format', 'gain', 'exposure_ms',
+                'max_gain', 'max_exposure_ms', 'temperatures', plus per-key
+                error strings for fields the driver couldn't supply.
+                Returns ``{'connected': False}`` if the camera is inactive.
+        """
+        if not self.camera or not self.camera.active:
+            return {'connected': False}
+
+        info: dict = {'connected': True}
+
+        def _try(key, fn):
+            try:
+                info[key] = fn()
+            except Exception as e:
+                info[key] = f'Error: {e}'
+
+        _try('model', lambda: self.camera.get_model_name())
+        _try('pixel_format', lambda: self.camera.get_pixel_format())
+
+        try:
+            fs = self.camera.get_frame_size()
+            info['resolution'] = f"{fs.get('width', '?')}x{fs.get('height', '?')}"
+            info['frame_size'] = fs
+        except Exception as e:
+            info['resolution'] = f'Error: {e}'
+
+        _try('gain', lambda: self.get_gain())
+        _try('exposure_ms', lambda: self.get_exposure_time())
+        _try('max_gain', lambda: self.camera.get_max_gain())
+        _try('max_exposure_ms', lambda: self.camera.get_max_exposure())
+
+        info['temperatures'] = self.get_camera_temperatures()
+        return info
+
+    def run_camera_bandwidth_test(
+        self,
+        num_frames: int,
+        *,
+        timeout_s: float = 60.0,
+        progress_cb=None,
+    ) -> dict:
+        """Run an N-frame camera throughput test through the production capture path.
+
+        Routes every frame grab through ``Lumascope.get_image()`` so the
+        bandwidth numbers reflect what protocol/preview capture actually
+        sees. Bypassing this method (calling ``self.camera.get_image()``
+        directly) is a Rule-1 layer violation and the resulting numbers
+        are not comparable to production capture.
+
+        Args:
+            num_frames: Total frames to grab.
+            timeout_s: Hard wall-clock cutoff in seconds; the test stops
+                early and marks ``passed=False`` if exceeded.
+            progress_cb: Optional ``callback(percent_int, message_str)``
+                called every 250 frames.
+
+        Returns:
+            dict: Same shape as the legacy ``CameraBandwidthTest.run()`` —
+                num_frames_requested, num_frames_received, num_frames_none,
+                num_frames_error, total_bytes, elapsed_seconds,
+                mb_per_second, fps_actual, frame_sizes, errors, passed.
+        """
+        results = {
+            'num_frames_requested': int(num_frames),
+            'num_frames_received': 0,
+            'num_frames_none': 0,
+            'num_frames_error': 0,
+            'total_bytes': 0,
+            'elapsed_seconds': 0,
+            'mb_per_second': 0.0,
+            'fps_actual': 0.0,
+            'frame_sizes': [],
+            'errors': [],
+            'passed': True,
+        }
+
+        # Annotate with current camera state — same fields the legacy
+        # tech-support test attached to its result dict.
+        cam_info = self.get_camera_diagnostic_info()
+        if cam_info.get('connected'):
+            for key in ('resolution', 'pixel_format'):
+                if key in cam_info:
+                    results[key] = cam_info[key]
+
+        if not self.camera or not self.camera.active:
+            results['passed'] = False
+            results['errors'].append('Camera not active')
+            return results
+
+        frame_size_set = set()
+        start = time.monotonic()
+        for i in range(int(num_frames)):
+            if progress_cb and i % 250 == 0:
+                try:
+                    progress_cb(int(100 * i / max(num_frames, 1)),
+                                f"Frame {i}/{num_frames}")
+                except Exception:
+                    pass
+            try:
+                # force_to_8bit=False keeps native depth so frame size
+                # reflects the actual bytes the SDK delivered.
+                frame = self.get_image(force_to_8bit=False, force_new_capture=True)
+                if frame is None or frame is False:
+                    results['num_frames_none'] += 1
+                else:
+                    results['num_frames_received'] += 1
+                    nbytes = getattr(frame, 'nbytes', None) or len(frame)
+                    results['total_bytes'] += nbytes
+                    frame_size_set.add(int(nbytes))
+            except Exception as e:
+                results['num_frames_error'] += 1
+                if len(results['errors']) < 20:
+                    results['errors'].append(
+                        f"Frame {i}: {type(e).__name__}: {e}")
+
+            if time.monotonic() - start > timeout_s:
+                results['errors'].append(
+                    f"Timeout at frame {i} after {timeout_s}s")
+                results['passed'] = False
+                break
+
+        elapsed = time.monotonic() - start
+        results['elapsed_seconds'] = round(elapsed, 2)
+        if elapsed > 0:
+            results['mb_per_second'] = round(
+                results['total_bytes'] / (1024 * 1024) / elapsed, 2)
+            results['fps_actual'] = round(
+                results['num_frames_received'] / elapsed, 1)
+        results['frame_sizes'] = sorted(frame_size_set)
+
+        if results['num_frames_none'] > 0:
+            results['passed'] = False
+            results['errors'].append(
+                f"{results['num_frames_none']} frames returned None — "
+                f"possible USB disconnect or bandwidth issue")
+        if results['num_frames_error'] > 0:
+            results['passed'] = False
+        if len(frame_size_set) > 1:
+            results['passed'] = False
+            results['errors'].append(
+                f"Inconsistent frame sizes: {sorted(frame_size_set)} — "
+                f"possible data corruption or config change during test")
+
+        logger.info(
+            f"[SCOPE API ] run_camera_bandwidth_test: {results['num_frames_received']}/{num_frames} "
+            f"frames in {results['elapsed_seconds']}s "
+            f"({results['mb_per_second']} MB/s, {results['fps_actual']} fps), "
+            f"passed={results['passed']}"
+        )
+        return results
+
+    def _diagnostic_target_board(self, target: str):
+        """Resolve a diagnostic-target string ('led' | 'motor') to a driver board.
+
+        Internal helper for ``send_diagnostic_command*``. Raises
+        ``ValueError`` for an unknown target so a typo in tech-support
+        code fails loudly rather than silently picking the wrong board.
+        """
+        target = target.lower() if isinstance(target, str) else target
+        if target == 'led':
+            return self.led
+        if target in ('motor', 'motion'):
+            return self.motion
+        raise ValueError(
+            f"send_diagnostic_command: unknown target {target!r} "
+            f"(expected 'led' or 'motor')")
+
+    def send_diagnostic_command(
+        self,
+        target: str,
+        command: str,
+        *,
+        response_numlines: int | None = None,
+        timeout: float | None = None,
+    ) -> str:
+        """Send a single firmware diagnostic command and return the response.
+
+        Wraps the driver's ``exchange_command`` with API-layer logging
+        (Rule 13). Diagnostic clients (tech-support report, bench tools)
+        MUST go through this method instead of reaching the driver directly
+        (LV-24 / LV-32 / LV-40).
+
+        Args:
+            target: 'led' or 'motor'.
+            command: Firmware command string (e.g. ``'INFO'``, ``'FACTORY'``).
+            response_numlines: Forwarded to driver; how many response lines
+                to read before returning (driver-specific default if None).
+            timeout: Per-call serial timeout in seconds, or None for the
+                driver's default.
+
+        Returns:
+            str: Response from the board, ``'Board not connected'`` if the
+                target board is None/inactive, or ``'Error: <msg>'`` if the
+                exchange raised.
+        """
+        try:
+            board = self._diagnostic_target_board(target)
+        except ValueError as e:
+            logger.warning(f'[SCOPE API ] send_diagnostic_command: {e}')
+            return f'Error: {e}'
+
+        if board is None or not getattr(board, 'found', False):
+            return 'Board not connected'
+
+        logger.debug(
+            f'[SCOPE API ] send_diagnostic_command(target={target}, command={command!r}, '
+            f'response_numlines={response_numlines}, timeout={timeout})'
+        )
+        try:
+            kwargs = {}
+            if response_numlines is not None:
+                kwargs['response_numlines'] = response_numlines
+            if timeout is not None:
+                kwargs['timeout'] = timeout
+            resp = board.exchange_command(command, **kwargs)
+            return resp if resp is not None else 'None'
+        except Exception as e:
+            logger.warning(
+                f'[SCOPE API ] send_diagnostic_command({target}, {command!r}) failed: {e}'
+            )
+            return f'Error: {e}'
+
+    def send_diagnostic_command_multiline(
+        self,
+        target: str,
+        command: str,
+        *,
+        timeout: float = 60,
+        end_markers: list[str] | None = None,
+    ):
+        """Send a firmware diagnostic command expected to return multiple lines.
+
+        For SELFTEST, INFO with multi-line output, etc. Wraps the driver's
+        ``exchange_multiline`` with API-layer logging.
+
+        Args:
+            target: 'led' or 'motor'.
+            command: Firmware command string.
+            timeout: Total timeout in seconds.
+            end_markers: Substrings marking end-of-response. Default
+                ``['PASS', 'FAIL', 'COMPLETE', 'DONE', 'ERROR']``.
+
+        Returns:
+            Response (driver-defined; typically str or list[str]),
+            ``'Board not connected'``, or ``'Error: <msg>'``.
+        """
+        try:
+            board = self._diagnostic_target_board(target)
+        except ValueError as e:
+            logger.warning(f'[SCOPE API ] send_diagnostic_command_multiline: {e}')
+            return f'Error: {e}'
+
+        if board is None or not getattr(board, 'found', False):
+            return 'Board not connected'
+
+        if end_markers is None:
+            end_markers = ['PASS', 'FAIL', 'COMPLETE', 'DONE', 'ERROR']
+
+        logger.debug(
+            f'[SCOPE API ] send_diagnostic_command_multiline(target={target}, '
+            f'command={command!r}, timeout={timeout}, end_markers={end_markers})'
+        )
+        try:
+            result = board.exchange_multiline(
+                command, timeout=timeout, end_markers=end_markers)
+            return result if result else 'No response'
+        except Exception as e:
+            logger.warning(
+                f'[SCOPE API ] send_diagnostic_command_multiline({target}, {command!r}) failed: {e}'
+            )
+            return f'Error: {e}'
+
     @classmethod
     def create_diagnostic(cls):
         """Create a minimal Lumascope for diagnostics (no camera init).
