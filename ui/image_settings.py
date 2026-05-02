@@ -74,6 +74,12 @@ class ImageSettings(BoxLayout):
     settings_width = dp(300)
     tab_width = dp(30)
 
+    # Canonical top-to-bottom display order for the right-side accordion.
+    # Used by _resort_accordion() so live scope-model transitions
+    # (LS620 → LS850 etc.) place re-added layer accordions in the right
+    # spot instead of pinning them to the bottom (UI-1, 2026-05-02).
+    _LAYER_DISPLAY_ORDER = ('BF', 'PC', 'DF', 'Blue', 'Green', 'Red', 'Lumi')
+
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         logger.debug('[LVP Main  ] ImageSettings.__init__()')
@@ -176,6 +182,7 @@ class ImageSettings(BoxLayout):
         if not self._accordion_item_lumi_control_visible:
             self._accordion_item_lumi_control_visible = True
             self.ids['accordion_id'].add_widget(self._accordion_item_lumi_control, 0)
+            self._resort_accordion()
 
 
     def _hide_lumi_layer_control(self):
@@ -199,6 +206,7 @@ class ImageSettings(BoxLayout):
         if not self._accordion_item_df_control_visible:
             self._accordion_item_df_control_visible = True
             self.ids['accordion_id'].add_widget(self._accordion_item_df_control, 0)
+            self._resort_accordion()
 
 
     def _hide_df_layer_control(self):
@@ -234,6 +242,7 @@ class ImageSettings(BoxLayout):
         if widget is not None and not self._accordion_item_pc_control_visible:
             self._accordion_item_pc_control_visible = True
             self.ids['accordion_id'].add_widget(widget)
+            self._resort_accordion()
 
 
     def _hide_pc_layer_control(self):
@@ -260,6 +269,7 @@ class ImageSettings(BoxLayout):
             self.ids['accordion_id'].add_widget(self._accordion_item_blue_control, 0)
             self.ids['accordion_id'].add_widget(self._accordion_item_green_control, 0)
             self.ids['accordion_id'].add_widget(self._accordion_item_red_control, 0)
+            self._resort_accordion()
 
 
     def _hide_fluorescence_layer_controls(self):
@@ -277,6 +287,58 @@ class ImageSettings(BoxLayout):
             self.ids['accordion_id'].remove_widget(self._accordion_item_blue_control)
             self.ids['accordion_id'].remove_widget(self._accordion_item_green_control)
             self.ids['accordion_id'].remove_widget(self._accordion_item_red_control)
+
+
+    def _resort_accordion(self):
+        """Rebuild the accordion children list in canonical layer order.
+
+        Live scope-model transitions (LS620 → LS850, etc.) re-add
+        previously hidden layer-control widgets via add_widget(...,0),
+        which appends to the children list and ends up at the BOTTOM of
+        the visible accordion regardless of canonical order. After every
+        ``_show_*`` call we re-sort so the order matches
+        ``_LAYER_DISPLAY_ORDER`` regardless of insertion sequence.
+
+        Kivy renders the children list bottom-to-top, so we walk the
+        canonical order in REVERSE and re-add each currently-visible
+        widget. AccordionItem state (``collapse``, internal anim) lives
+        on the widget instance, so remove + re-add preserves it.
+        """
+        accordion = self.ids.get('accordion_id') if hasattr(self, 'ids') else None
+        if accordion is None:
+            return
+
+        widget_for_layer = {
+            'BF':    self.ids.get('BF_accordion'),
+            'PC':    self._resolve_pc_accordion(),
+            'DF':    self._accordion_item_df_control,
+            'Blue':  self._accordion_item_blue_control,
+            'Green': self._accordion_item_green_control,
+            'Red':   self._accordion_item_red_control,
+            'Lumi':  self._accordion_item_lumi_control,
+        }
+        flu_visible = self._accordion_item_fluorescence_control_visible
+        visible_for_layer = {
+            'BF':    True,
+            'PC':    self._accordion_item_pc_control_visible,
+            'DF':    self._accordion_item_df_control_visible,
+            'Blue':  flu_visible,
+            'Green': flu_visible,
+            'Red':   flu_visible,
+            'Lumi':  self._accordion_item_lumi_control_visible,
+        }
+
+        for layer in self._LAYER_DISPLAY_ORDER:
+            widget = widget_for_layer.get(layer)
+            if widget is not None and widget.parent is accordion:
+                accordion.remove_widget(widget)
+
+        for layer in reversed(self._LAYER_DISPLAY_ORDER):
+            if not visible_for_layer.get(layer, False):
+                continue
+            widget = widget_for_layer.get(layer)
+            if widget is not None:
+                accordion.add_widget(widget)
 
 
     def _init_ui(self, dt=0):
