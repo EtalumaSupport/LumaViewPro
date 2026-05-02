@@ -865,7 +865,8 @@ class LumaViewProApp(TooltipMixin, App):
             io_executor=io_executor,
             file_io_executor=file_io_executor,
             autofocus_executor=autofocus_thread_executor,
-            use_kivy_clock=True,
+            clock_unschedule_fn=Clock.unschedule,
+            clock_schedule_interval_fn=Clock.schedule_interval,
             ui_update_func=_handle_autofocus_ui
         )
 

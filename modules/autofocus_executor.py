@@ -1,7 +1,6 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 
 import datetime
-import importlib
 import logging
 import pathlib
 import time
@@ -36,11 +35,15 @@ class AutofocusExecutor:
         io_executor: SequentialIOExecutor,
         file_io_executor: SequentialIOExecutor,
         autofocus_executor: SequentialIOExecutor,
-        use_kivy_clock: bool = False,
+        clock_unschedule_fn: typing.Callable | None = None,
+        clock_schedule_interval_fn: typing.Callable | None = None,
         ui_update_func = None
     ):
+        # Callback inversion (Architecture Rule 1, LV-31): caller passes
+        # the Kivy Clock primitives; this executor never imports kivy.
+        # Headless callers pass None — schedule_interval raises and
+        # unschedule is a no-op (the executor is then driven directly).
         self._scope = scope
-        self._use_kivy_clock = use_kivy_clock
         self._camera_executor = camera_executor
         self._io_executor = io_executor
         self._file_io_executor = file_io_executor
@@ -49,10 +52,8 @@ class AutofocusExecutor:
         self.ui_update_func = ui_update_func
 
         self._af_in_progress = threading.Event()
-        self._kivy_clock_module = None
-
-        if self._use_kivy_clock:
-            self._kivy_clock_module = importlib.import_module('kivy.clock')
+        self._clock_unschedule_fn = clock_unschedule_fn
+        self._clock_schedule_interval_fn = clock_schedule_interval_fn
 
         self._reset_state()
 
@@ -64,8 +65,10 @@ class AutofocusExecutor:
 
 
     def reset(self):
-        if self._use_kivy_clock and self._kivy_clock_module and hasattr(self, '_iterator_scheduled') and self._iterator_scheduled is not None:
-            self._kivy_clock_module.Clock.unschedule(self._iterator_scheduled)
+        if (self._clock_unschedule_fn is not None
+                and hasattr(self, '_iterator_scheduled')
+                and self._iterator_scheduled is not None):
+            self._clock_unschedule_fn(self._iterator_scheduled)
             self._iterator_scheduled = None
         # M20: Ensure precision mode is off on reset (e.g. after cancel)
         try:
@@ -83,23 +86,31 @@ class AutofocusExecutor:
         func: typing.Callable,
         interval_sec: float
     ):
-        if self._use_kivy_clock:
+        if self._clock_schedule_interval_fn is not None:
             # Create wrapper method to avoid lambda closure
             def wrapper(dt):
                 self._autofocus_executor.protocol_put(IOTask(action=func))
-            return self._kivy_clock_module.Clock.schedule_interval(wrapper, interval_sec)
+            return self._clock_schedule_interval_fn(wrapper, interval_sec)
         else:
-            raise NotImplementedError(f"Not implemented for support outside Kivy")
+            raise NotImplementedError(
+                "AutofocusExecutor was constructed without "
+                "clock_schedule_interval_fn; cannot schedule "
+                "interval-driven AF (headless mode)"
+            )
 
 
     def _unschedule_func(
         self,
         func: typing.Callable,
     ):
-        if self._use_kivy_clock:
-            self._kivy_clock_module.Clock.unschedule(func)
+        if self._clock_unschedule_fn is not None:
+            self._clock_unschedule_fn(func)
         else:
-            raise NotImplementedError(f"Not implemented for support outside Kivy")
+            raise NotImplementedError(
+                "AutofocusExecutor was constructed without "
+                "clock_unschedule_fn; cannot unschedule "
+                "interval-driven AF (headless mode)"
+            )
 
 
     def _calculate_params(self):
@@ -370,10 +381,8 @@ class AutofocusExecutor:
             focus_score = autofocus_functions.focus_function(image=image)
             current_pos = round(self._scope.get_current_position('Z'), common_utils.max_decimal_precision('z'))
 
-            if self._use_kivy_clock:
-                self._kivy_clock_module.Clock.schedule_once(lambda dt: self.ui_update_func(pos=current_pos), 0)
-            elif self.ui_update_func:
-                self.ui_update_func(pos=current_pos)
+            if self.ui_update_func is not None:
+                _schedule_ui(lambda dt: self.ui_update_func(pos=current_pos), 0)
 
             self._af_data_pass.append(
                 {
@@ -462,9 +471,9 @@ class AutofocusExecutor:
             best_focus_position = self._find_best(df=df)
 
             if self._last_pass:
-                if self._use_kivy_clock:
+                if self._clock_unschedule_fn is not None:
                     try:
-                        self._kivy_clock_module.Clock.unschedule(self._iterator_scheduled)
+                        self._clock_unschedule_fn(self._iterator_scheduled)
                     except Exception:
                         logger.warning("[AF] Failed to unschedule Kivy Clock iterator", exc_info=True)
 
@@ -482,10 +491,8 @@ class AutofocusExecutor:
                 # End protocol AFTER final move to prevent race condition (#563)
                 self._autofocus_executor.protocol_end()
                 self._autofocus_executor.clear_protocol_pending()
-                if self._use_kivy_clock:
-                    self._kivy_clock_module.Clock.schedule_once(lambda dt: self.ui_update_func(pos=float(best_focus_position)), 0)
-                elif self.ui_update_func:
-                    self.ui_update_func(pos=float(best_focus_position))
+                if self.ui_update_func is not None:
+                    _schedule_ui(lambda dt: self.ui_update_func(pos=float(best_focus_position)), 0)
 
                 if self._save_results_to_file:
                     # Push file/plot work off the UI thread using the file IO executor
@@ -702,8 +709,8 @@ class AutofocusExecutor:
         self._autofocus_executor.protocol_end()
         self._autofocus_executor.clear_protocol_pending()
         try:
-            if self._use_kivy_clock:
-                self._kivy_clock_module.Clock.unschedule(self._iterator_scheduled)
+            if self._clock_unschedule_fn is not None:
+                self._clock_unschedule_fn(self._iterator_scheduled)
         except Exception:
             logger.warning("[AF] Failed to unschedule Kivy Clock iterator during stop", exc_info=True)
 

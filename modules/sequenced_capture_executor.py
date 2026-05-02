@@ -104,13 +104,15 @@ class SequencedCaptureExecutor:
         self._grease_redistribution_event.set()
 
         if autofocus_executor is None:
+            # No clock_*_fn — fallback path for headless / test usage.
+            # _schedule_interval_func will raise if anyone tries to
+            # use the interval-driven AF path; that's intentional.
             self._autofocus_executor = AutofocusExecutor(
                 scope=scope,
                 camera_executor=camera_executor,
                 io_executor=io_executor,
                 file_io_executor=file_io_executor,
                 autofocus_executor=autofocus_io_executor,
-                use_kivy_clock=False,
             )
         else:
             self._autofocus_executor = autofocus_executor

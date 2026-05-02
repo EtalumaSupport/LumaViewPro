@@ -275,7 +275,6 @@ def af_executor(scope, executors):
         io_executor=executors['io'],
         file_io_executor=executors['file_io'],
         autofocus_executor=executors['autofocus'],
-        use_kivy_clock=False,
     )
 
     exc = SequencedCaptureExecutor(
@@ -527,7 +526,6 @@ class TestIntegrationAutofocus:
             io_executor=executors['io'],
             file_io_executor=executors['file_io'],
             autofocus_executor=executors['autofocus'],
-            use_kivy_clock=False,
         )
 
         # Simulate the multi-channel scenario: camera is at Green settings
@@ -758,12 +756,14 @@ class TestHeadlessSession:
             runner.shutdown()
             session.shutdown_executors()
 
-    def test_protocol_runner_use_kivy_clock_false(self):
-        """ProtocolRunner's SequencedCaptureExecutor should default to use_kivy_clock=False."""
+    def test_protocol_runner_no_kivy_clock_callbacks(self):
+        """ProtocolRunner's SequencedCaptureExecutor should default to
+        no Kivy Clock callbacks (LV-31 / LAYER-E callback inversion)."""
         session = ScopeSession.create_headless()
         runner = session.create_protocol_runner()
         af = runner.sequenced_capture_executor._autofocus_executor
-        assert af._use_kivy_clock is False
+        assert af._clock_unschedule_fn is None
+        assert af._clock_schedule_interval_fn is None
 
 
 class TestRestAPIPrep:
