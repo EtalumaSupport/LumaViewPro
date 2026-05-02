@@ -113,9 +113,29 @@ class ProtocolImageWriter:
 
         if not step['Auto_Gain']:
             logger.info(f"[CAPTURE DIAG] Applying step camera settings: gain={step['Gain']}, exp={step['Exposure']}")
-            with self._scope.update_camera_config():
-                self._scope.set_gain(step['Gain'])
-                self._scope.set_exposure_time(step['Exposure'])
+            # STALL-1 fix (cherry-picked from perf-instrumentation-4.0.0-beta
+            # `5e336f4`, applied manually due to diagnostic-context drift):
+            # removed the `with self._scope.update_camera_config():` wrapper
+            # that was here. update_camera_config() does StopGrabbing +
+            # StartGrabbing, which Pylon SDK only requires for buffer-geometry
+            # changes (Width/Height/PixelFormat/Binning/Offset) — NOT for Gain
+            # or ExposureTime, which are live-updateable. The wrapper was
+            # paying a full grab-loop teardown+rebuild per protocol step,
+            # producing ~11s per-step duration during 12-bit protocol runs
+            # (camera delivering ~1 fps instead of ~50 fps despite LVP-side
+            # processing being fast).
+            #
+            # AF code already sets gain/exposure without a wrapper
+            # (modules/autofocus_executor.py:200,202). This change brings
+            # protocol behavior in line with AF.
+            #
+            # If a "Node is locked while streaming" GenICam exception fires
+            # here, that means Gain or ExposureTime is locked on the current
+            # SDK/firmware combo — revert this change and add a
+            # `requires_buffer_realloc=True` audit. Per Basler convention
+            # both should be live-changeable.
+            self._scope.set_gain(step['Gain'])
+            self._scope.set_exposure_time(step['Exposure'])
         else:
             logger.warning(f"[CAPTURE DIAG] SKIPPING camera settings — Auto_Gain is truthy: {_ag!r}")
 
