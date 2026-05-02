@@ -942,7 +942,7 @@ class LayerControl(BoxLayout):
         if protocol_running_global.is_set():
             # Protocol actively running — capture() handles camera settings
             # per-step. Don't apply here to avoid duplicate commands (#587/#588).
-            logger.info(
+            logger.debug(
                 f"[APPLY_SETTINGS DIAG] {self.layer} — early return "
                 f"(protocol running). Camera settings NOT applied."
             )
@@ -952,7 +952,7 @@ class LayerControl(BoxLayout):
         if protocol and not settings.get('protocol_led_on', False):
             # Protocol preview mode with LEDs OFF — no need to apply camera
             # settings since there's nothing to display.
-            logger.info(
+            logger.debug(
                 f"[APPLY_SETTINGS DIAG] {self.layer} — early return "
                 f"(protocol preview, LEDs off). Camera settings NOT applied."
             )

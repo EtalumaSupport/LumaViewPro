@@ -138,7 +138,7 @@ class ProtocolImageWriter:
             _ag = step['Auto_Gain']
             _curr_gain = self._scope.get_gain()
             _curr_exp = self._scope.get_exposure_time()
-            logger.info(
+            logger.debug(
                 f"[CAPTURE DIAG] step={step.get('Name','?')} color={step['Color']} "
                 f"Auto_Gain={_ag!r} (type={type(_ag).__name__}) "
                 f"step_gain={step['Gain']} step_exp={step['Exposure']} "
@@ -146,7 +146,7 @@ class ProtocolImageWriter:
             )
 
             if not step['Auto_Gain']:
-                logger.info(f"[CAPTURE DIAG] Applying step camera settings: gain={step['Gain']}, exp={step['Exposure']}")
+                logger.debug(f"[CAPTURE DIAG] Applying step camera settings: gain={step['Gain']}, exp={step['Exposure']}")
                 # STALL-1 fix: removed the `with self._scope.update_camera_config():`
                 # wrapper that was here. update_camera_config() does StopGrabbing +
                 # StartGrabbing, which Pylon SDK only requires for buffer-geometry
