@@ -355,6 +355,278 @@ import psutil
 _IS_WINDOWS = platform.system() == 'Windows'
 
 
+# ---------------------------------------------------------------------------
+# Windows perf-counter query (PDH) — TEMPORARY INSTRUMENTATION (2026-04-30)
+#
+# Added on branch `perf-instrumentation-4.0.0-beta` to capture standby cache
+# growth, nonpaged pool, and system file cache as part of the buffer-churn
+# investigation. These counters are NOT in psutil. The PDH layer ("\Memory\..."
+# perf-counter paths) is the same data PowerShell `Get-Counter` returns.
+#
+# Lifetime: this entire `_PdhCountersOnce` helper plus the PDH fields injected
+# into `system_metrics()` are temporary. Remove once the buffer-reuse fixes
+# land and the standby-cache trend is verified flat.
+#
+# Performance: PdhCollectQueryData is one syscall per counter, ~1 ms total.
+# Safe to call once per minute.
+# ---------------------------------------------------------------------------
+
+class _PdhCountersOnce:
+    """Lazy-initialized PDH query for a fixed set of counters.
+
+    Opens the PDH query on first call, caches the counter handles, and
+    re-collects on each subsequent call. On any failure, marks itself
+    disabled so subsequent calls return {} without retry overhead.
+    """
+
+    # Counter paths — match `Get-Counter` PowerShell paths exactly.
+    # `\Memory\Available Bytes` is what Windows considers "available" — equals
+    # standby + free + zero pages. Useful as a sanity check against the breakdown.
+    _COUNTERS = {
+        'standby_normal_bytes':   r'\Memory\Standby Cache Normal Priority Bytes',
+        'standby_reserve_bytes':  r'\Memory\Standby Cache Reserve Bytes',
+        'standby_core_bytes':     r'\Memory\Standby Cache Core Bytes',
+        'pool_nonpaged_bytes':    r'\Memory\Pool Nonpaged Bytes',
+        'pool_paged_bytes':       r'\Memory\Pool Paged Bytes',
+        'system_cache_bytes':     r'\Memory\Cache Bytes',
+        'modified_page_bytes':    r'\Memory\Modified Page List Bytes',
+        'free_zero_bytes':        r'\Memory\Free & Zero Page List Bytes',
+        'available_bytes':        r'\Memory\Available Bytes',
+        'commit_bytes':           r'\Memory\Committed Bytes',
+        'commit_limit_bytes':     r'\Memory\Commit Limit',
+    }
+
+    # PDH return codes / format flags (winperf.h)
+    _PDH_FMT_DOUBLE = 0x00000200
+    _ERROR_SUCCESS = 0
+
+    def __init__(self):
+        self._initialized = False
+        self._disabled = False
+        self._query = None
+        self._handles = {}  # name -> counter handle
+
+    def _init(self):
+        try:
+            pdh = ctypes.WinDLL('pdh')
+            self._pdh = pdh
+
+            self._PdhOpenQueryW = pdh.PdhOpenQueryW
+            self._PdhAddCounterW = pdh.PdhAddCounterW
+            self._PdhCollectQueryData = pdh.PdhCollectQueryData
+            self._PdhGetFormattedCounterValue = pdh.PdhGetFormattedCounterValue
+
+            class _PDH_FMT_COUNTERVALUE(ctypes.Structure):
+                _fields_ = [
+                    ('CStatus', ctypes.c_ulong),
+                    ('doubleValue', ctypes.c_double),
+                ]
+            self._PDH_FMT_COUNTERVALUE = _PDH_FMT_COUNTERVALUE
+
+            query = ctypes.c_void_p()
+            ret = self._PdhOpenQueryW(None, 0, ctypes.byref(query))
+            if ret != self._ERROR_SUCCESS:
+                raise OSError(f'PdhOpenQueryW failed: 0x{ret:08x}')
+            self._query = query
+
+            for name, path in self._COUNTERS.items():
+                handle = ctypes.c_void_p()
+                ret = self._PdhAddCounterW(query, path, 0, ctypes.byref(handle))
+                if ret != self._ERROR_SUCCESS:
+                    # Some counters (e.g. Standby Cache Core) may be absent
+                    # on older Windows builds — mark this one missing and
+                    # continue. PdhCollectQueryData still works on the rest.
+                    continue
+                self._handles[name] = handle
+
+            # First collect "primes" the counters; second collect gives real
+            # values. Some counters (rate-based) need 2 samples — for the byte
+            # counters we use, a single collect is enough.
+            self._PdhCollectQueryData(query)
+
+            self._initialized = True
+        except Exception:
+            self._disabled = True
+
+    def query(self):
+        """Return {field: bytes_value} for all counters that are working.
+
+        Returns {} if PDH unavailable or initialization failed.
+        """
+        if self._disabled:
+            return {}
+        if not self._initialized:
+            self._init()
+            if self._disabled:
+                return {}
+
+        try:
+            ret = self._PdhCollectQueryData(self._query)
+            if ret != self._ERROR_SUCCESS:
+                return {}
+
+            out = {}
+            for name, handle in self._handles.items():
+                value = self._PDH_FMT_COUNTERVALUE()
+                ret = self._PdhGetFormattedCounterValue(
+                    handle, self._PDH_FMT_DOUBLE, None, ctypes.byref(value)
+                )
+                if ret == self._ERROR_SUCCESS:
+                    out[name] = float(value.doubleValue)
+            return out
+        except Exception:
+            return {}
+
+
+_pdh_counters_singleton = _PdhCountersOnce() if _IS_WINDOWS else None
+
+
+def query_windows_perf_counters():
+    """One-shot snapshot of selected Windows memory perf counters.
+
+    Returns dict mapping field name to bytes value. Returns {} on non-Windows
+    or if PDH is unavailable. TEMPORARY — see `_PdhCountersOnce` docstring.
+    """
+    if _pdh_counters_singleton is None:
+        return {}
+    return _pdh_counters_singleton.query()
+
+
+# ---------------------------------------------------------------------------
+# Rate-tracker for cumulative counters — TEMPORARY INSTRUMENTATION (2026-04-30)
+#
+# Several metrics we want (page faults/sec, IO write/sec, MsMpEng read/sec)
+# come from cumulative counters. Cache the last value+timestamp and compute
+# a delta-rate on each call. Per-key state.
+# ---------------------------------------------------------------------------
+
+import time as _time
+
+_rate_state = {}  # {key: (last_value, last_ts)}
+
+
+def _delta_rate(key, current_value, now=None):
+    """Return per-second rate for a cumulative counter. Returns 0.0 on first
+    call or if time delta is too small to be meaningful."""
+    if now is None:
+        now = _time.monotonic()
+    prev = _rate_state.get(key)
+    _rate_state[key] = (current_value, now)
+    if prev is None:
+        return 0.0
+    last_value, last_ts = prev
+    dt = now - last_ts
+    if dt < 0.5:  # avoid divide-by-near-zero on rapid back-to-back calls
+        return 0.0
+    return (current_value - last_value) / dt
+
+
+# ---------------------------------------------------------------------------
+# Defender (MsMpEng.exe) metrics — TEMPORARY INSTRUMENTATION (2026-04-30)
+#
+# Direct signal on the "Defender memory-maps every TIFF write" hypothesis.
+# If MsMpEng's IO read rate climbs proportional to our save rate, that's
+# the smoking gun for Defender being on the slowdown's critical path.
+#
+# Cache the PID across calls (psutil.process_iter is expensive). Re-resolve
+# only if the cached PID has died.
+# ---------------------------------------------------------------------------
+
+_defender_pid_cache = {'pid': None, 'process': None}
+
+
+def query_defender_metrics():
+    """Return MsMpEng.exe metrics dict, or {} if not running / not Windows.
+
+    Cumulative IO read MB is included; the caller is expected to also call
+    _delta_rate for the per-sec rate.
+    """
+    if not _IS_WINDOWS:
+        return {}
+
+    proc = _defender_pid_cache.get('process')
+    try:
+        if proc is None or not proc.is_running():
+            for p in psutil.process_iter(['pid', 'name']):
+                try:
+                    if p.info['name'] and p.info['name'].lower() == 'msmpeng.exe':
+                        proc = psutil.Process(p.info['pid'])
+                        _defender_pid_cache['pid'] = proc.pid
+                        _defender_pid_cache['process'] = proc
+                        break
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    continue
+            else:
+                _defender_pid_cache['pid'] = None
+                _defender_pid_cache['process'] = None
+                return {}
+    except Exception:
+        return {}
+
+    try:
+        mem = proc.memory_info()
+        out = {
+            'defender_private_mb': getattr(mem, 'private', mem.rss) / (1024 * 1024),
+            'defender_rss_mb': mem.rss / (1024 * 1024),
+        }
+        try:
+            io = proc.io_counters()
+            out['defender_io_read_mb_total'] = io.read_bytes / (1024 * 1024)
+            out['defender_io_read_mbps'] = _delta_rate(
+                'defender_io_read', io.read_bytes
+            ) / (1024 * 1024)
+        except (psutil.AccessDenied, AttributeError):
+            pass
+        return out
+    except (psutil.NoSuchProcess, psutil.AccessDenied):
+        _defender_pid_cache['pid'] = None
+        _defender_pid_cache['process'] = None
+        return {}
+    except Exception:
+        return {}
+
+
+# ---------------------------------------------------------------------------
+# tracemalloc top-N allocators — TEMPORARY INSTRUMENTATION (2026-04-30)
+#
+# Off by default. Enable via env var LVP_TRACEMALLOC=1. When on, tracemalloc
+# is started at first call and a snapshot is taken; top-N allocators are
+# returned. Overhead: ~10-30% process memory. Use only when needed.
+# ---------------------------------------------------------------------------
+
+_tracemalloc_started = False
+
+
+def query_tracemalloc_top_n(n=5):
+    """Return list of top-N allocators by current size, or [] if disabled.
+
+    Enable via env var LVP_TRACEMALLOC=1.
+    """
+    if os.environ.get('LVP_TRACEMALLOC', '0') != '1':
+        return []
+    global _tracemalloc_started
+    try:
+        import tracemalloc
+        if not _tracemalloc_started:
+            tracemalloc.start(20)  # 20 frames of context
+            _tracemalloc_started = True
+            return []  # first call has no baseline
+        snap = tracemalloc.take_snapshot()
+        stats = snap.statistics('lineno')
+        out = []
+        for s in stats[:n]:
+            frame = s.traceback[0]
+            out.append({
+                'file': frame.filename,
+                'line': frame.lineno,
+                'size_kb': s.size / 1024,
+                'count': s.count,
+            })
+        return out
+    except Exception:
+        return []
+
+
 def system_metrics(path="/"):
     """Return a one-shot snapshot of process and host resource state.
 
@@ -434,16 +706,37 @@ def system_metrics(path="/"):
     except Exception:
         metrics["open_files_count"] = -1
 
-    # --- Process I/O bytes (cumulative, per-process) ---
+    # --- Process I/O bytes (cumulative + rates, per-process) ---
     # Distinguishes "we wrote 50 GB this hour" from "Windows Defender did".
     # Both bytes counters reset only when the process restarts.
+    # Rates added 2026-04-30 (TEMPORARY) — at 60 s sampling interval, the
+    # rate gives MB/sec of TIFF writes; cross-reference with Defender IO
+    # read rate to confirm "Defender mmaps every TIFF" hypothesis.
     try:
         io = proc.io_counters()
         metrics["io_read_mb"] = io.read_bytes / 1e6
         metrics["io_write_mb"] = io.write_bytes / 1e6
+        metrics["io_read_mbps"] = _delta_rate('proc_io_read', io.read_bytes) / 1e6
+        metrics["io_write_mbps"] = _delta_rate('proc_io_write', io.write_bytes) / 1e6
     except Exception:
         metrics["io_read_mb"] = -1
         metrics["io_write_mb"] = -1
+        metrics["io_read_mbps"] = -1
+        metrics["io_write_mbps"] = -1
+
+    # --- Page faults (rate) — TEMPORARY 2026-04-30 ---
+    # Sustained > 1000 pf/sec on a desktop = real memory pressure (paging
+    # working set in/out). Useful as a sanity signal — if pf/sec stays low
+    # while standby grows, the slowdown is allocator/standby-cache, not
+    # real paging. If pf/sec spikes during slow state, real paging.
+    try:
+        mem = proc.memory_info()
+        pf = getattr(mem, 'pfaults', None) or getattr(mem, 'num_page_faults', None)
+        if pf is not None:
+            metrics['page_faults_total'] = pf
+            metrics['page_faults_per_sec'] = _delta_rate('page_faults', pf)
+    except Exception:
+        pass
 
     # --- GDI / USER objects (Windows only — main long-run-stability concern) ---
     # GDI is what causes Windows-wide slowdown after 24h+ runs. Every
@@ -493,6 +786,37 @@ def system_metrics(path="/"):
         metrics["gc_gen0_collections"] = -1
         metrics["gc_gen1_collections"] = -1
         metrics["gc_gen2_collections"] = -1
+
+    # --- Windows PDH memory counters (TEMPORARY 2026-04-30) ---
+    # Buffer-churn investigation. Standby cache + nonpaged pool are the
+    # specific signals we need. See `_PdhCountersOnce` for removal plan.
+    try:
+        pdh = query_windows_perf_counters()
+        for k, v in pdh.items():
+            metrics[f'pdh_{k}'] = v
+    except Exception:
+        pass
+
+    # --- Defender (MsMpEng.exe) metrics (TEMPORARY 2026-04-30) ---
+    try:
+        for k, v in query_defender_metrics().items():
+            metrics[k] = v
+    except Exception:
+        pass
+
+    # --- Live GC depth (uncollected objects per generation) (TEMPORARY 2026-04-30) ---
+    # Existing gc_genN_collections counts collections-since-start (a counter).
+    # gc.get_count() is the CURRENT depth — pairs with the counter to show
+    # both rate (collections/min) and steady-state pressure (depth growing
+    # = generation 2 leaks).
+    try:
+        c = gc.get_count()
+        if len(c) >= 3:
+            metrics['gc_count_gen0'] = c[0]
+            metrics['gc_count_gen1'] = c[1]
+            metrics['gc_count_gen2'] = c[2]
+    except Exception:
+        pass
 
     return metrics
 

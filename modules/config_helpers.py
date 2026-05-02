@@ -11,6 +11,8 @@ import datetime
 import os
 import pathlib
 
+import psutil
+
 from lvp_logger import logger
 import modules.common_utils as common_utils
 
@@ -167,6 +169,70 @@ def get_current_plate_position(
 # System / logging helpers
 # ---------------------------------------------------------------------------
 
+def log_environment_once():
+    """Log fixed environment fingerprint — system boot time, uptime, OS build,
+    Pylon SDK version, Defender state. TEMPORARY 2026-04-30 — added for the
+    perf-investigation Stage 0 checklist (`docs/LVP_PERF_TEST_PLAN_2026-04-30.md`).
+
+    Call once at startup before the periodic log_system_metrics schedule.
+    The 632h-uptime Dell in the perf-bundle was already in memory exhaustion
+    at test start; without recording boot time, that contamination is
+    invisible in post-hoc log analysis.
+    """
+    import datetime as _dt
+    import platform as _platform
+
+    try:
+        boot_ts = psutil.boot_time()
+        boot_dt = _dt.datetime.fromtimestamp(boot_ts).isoformat(timespec='seconds')
+        uptime_hr = (_dt.datetime.now().timestamp() - boot_ts) / 3600.0
+    except Exception:
+        boot_dt = 'NA'
+        uptime_hr = -1
+
+    try:
+        os_release = _platform.platform()
+    except Exception:
+        os_release = 'NA'
+
+    try:
+        ncores = psutil.cpu_count(logical=True)
+    except Exception:
+        ncores = -1
+
+    pylon_ver = 'NA'
+    try:
+        from pypylon import pylon as _pylon
+        pylon_ver = getattr(_pylon, '__version__', 'NA')
+    except Exception:
+        pass
+
+    defender_state = 'NA'
+    if common_utils._IS_WINDOWS:
+        try:
+            import subprocess as _sub
+            out = _sub.check_output(
+                ['powershell', '-Command',
+                 '(Get-MpComputerStatus | '
+                 'Select-Object -Property RealTimeProtectionEnabled,'
+                 'AntivirusSignatureLastUpdated,'
+                 'QuickScanStartTime | ConvertTo-Json -Compress)'],
+                stderr=_sub.DEVNULL,
+                creationflags=0x08000000,  # CREATE_NO_WINDOW
+                timeout=15,
+            ).decode('utf-8', errors='ignore').strip()
+            defender_state = out or 'NA'
+        except Exception:
+            pass
+
+    logger.info(
+        f"[ENV METRICS] boot={boot_dt} | uptime_hr={uptime_hr:.1f} | "
+        f"os={os_release} | cores={ncores} | pylon={pylon_ver} | "
+        f"defender={defender_state}",
+        extra={'force_error': True},
+    )
+
+
 def log_system_metrics(settings: dict):
     """Log CPU, RAM, and disk metrics."""
     path = settings.get('live_folder', '.')
@@ -190,10 +256,21 @@ def log_system_metrics(settings: dict):
             extra={'force_error': True},
         )
 
+    # System uptime per-tick (TEMPORARY 2026-04-30) — pairs with [ENV METRICS]
+    # boot timestamp logged once at startup. Lets post-hoc log analysis tag
+    # each tick with "system has been up for N hours" to filter out runs
+    # contaminated by long-uptime memory exhaustion.
+    try:
+        import time as _time
+        uptime_hr = (_time.time() - psutil.boot_time()) / 3600.0
+        uptime_str = f" | uptime_hr={uptime_hr:.1f}"
+    except Exception:
+        uptime_str = ""
+
     logger.info(
         f"[SYSTEM METRICS] CPU Usage: {metrics['cpu_percent_total']:.1f}% | "
         f"RAM Available: {metrics['ram_available_gb']:.1f} GB | "
-        f"RAM Usage: {metrics['ram_percent_total']:.1f}%",
+        f"RAM Usage: {metrics['ram_percent_total']:.1f}%{uptime_str}",
         extra={'force_error': True},
     )
     logger.info(
@@ -274,15 +351,206 @@ def log_system_metrics(settings: dict):
             extra={'force_error': True},
         )
 
-    # Per-process I/O bytes (cumulative). Distinguishes our writes from
-    # Windows Defender / Search Indexer scanning the same files.
+    # Per-process I/O bytes (cumulative + per-second rates).
+    # Cumulative distinguishes "we wrote 50 GB this hour" from "Windows Defender did".
+    # Rates (TEMPORARY 2026-04-30) give the steady-state save rate to compare
+    # against camera_data_rate in [BUFFER METRICS] and Defender's read rate.
     io_read = metrics.get('io_read_mb', -1)
     io_write = metrics.get('io_write_mb', -1)
+    io_read_rate = metrics.get('io_read_mbps', -1)
+    io_write_rate = metrics.get('io_write_mbps', -1)
     if io_read >= 0 or io_write >= 0:
+        rate_str = ''
+        if io_read_rate >= 0 or io_write_rate >= 0:
+            rate_str = (f" | read_rate={io_read_rate:.2f} MB/s"
+                        f" | write_rate={io_write_rate:.2f} MB/s")
         logger.info(
-            f"[PROCESS IO] read={io_read:.1f} MB | write={io_write:.1f} MB",
+            f"[PROCESS IO] read={io_read:.1f} MB | write={io_write:.1f} MB{rate_str}",
             extra={'force_error': True},
         )
+
+    # Page-fault rate (TEMPORARY 2026-04-30).
+    # Sustained > 1000 pf/sec on a desktop = real memory pressure (paging).
+    # If pf/sec stays low while standby grows, slowdown is not real paging.
+    pf_total = metrics.get('page_faults_total')
+    pf_rate = metrics.get('page_faults_per_sec')
+    if pf_total is not None or pf_rate is not None:
+        logger.info(
+            f"[PAGE FAULTS] total={pf_total} | rate={pf_rate:.1f}/s",
+            extra={'force_error': True},
+        )
+
+    # --- Windows PDH counters (TEMPORARY 2026-04-30) ---
+    # Buffer-churn investigation. Standby cache + nonpaged pool are the
+    # specific signals we need. Remove this block when the buffer-reuse
+    # fixes ship and standby trend is verified flat.
+    #
+    # Standby split: Normal + Reserve + Core = total standby cache.
+    #   - Standby growing while RAM available stays high → mapped-file
+    #     accumulation (the slowdown signal).
+    #   - Nonpaged pool growing → kernel-side leak (Pylon DMA, drivers).
+    #   - System cache (\Memory\Cache Bytes) is the file-system cache —
+    #     overlaps with standby on Windows; track both for cross-check.
+    pdh_keys = ['pdh_standby_normal_bytes', 'pdh_standby_reserve_bytes',
+                'pdh_standby_core_bytes', 'pdh_pool_nonpaged_bytes',
+                'pdh_pool_paged_bytes', 'pdh_system_cache_bytes',
+                'pdh_modified_page_bytes', 'pdh_free_zero_bytes',
+                'pdh_available_bytes', 'pdh_commit_bytes',
+                'pdh_commit_limit_bytes']
+    if any(k in metrics for k in pdh_keys):
+        def _mb(key):
+            v = metrics.get(key)
+            return f"{v / (1024*1024):.0f}" if v is not None else 'NA'
+        standby_total_mb = (
+            metrics.get('pdh_standby_normal_bytes', 0)
+            + metrics.get('pdh_standby_reserve_bytes', 0)
+            + metrics.get('pdh_standby_core_bytes', 0)
+        ) / (1024 * 1024)
+        logger.info(
+            f"[PDH METRICS] standby_total={standby_total_mb:.0f} MB "
+            f"(normal={_mb('pdh_standby_normal_bytes')} "
+            f"reserve={_mb('pdh_standby_reserve_bytes')} "
+            f"core={_mb('pdh_standby_core_bytes')}) | "
+            f"nonpaged_pool={_mb('pdh_pool_nonpaged_bytes')} MB | "
+            f"paged_pool={_mb('pdh_pool_paged_bytes')} MB | "
+            f"sys_cache={_mb('pdh_system_cache_bytes')} MB | "
+            f"modified={_mb('pdh_modified_page_bytes')} MB | "
+            f"free_zero={_mb('pdh_free_zero_bytes')} MB | "
+            f"available={_mb('pdh_available_bytes')} MB | "
+            f"commit={_mb('pdh_commit_bytes')}/{_mb('pdh_commit_limit_bytes')} MB",
+            extra={'force_error': True},
+        )
+
+    # --- Buffer-churn signals from the live capture path (TEMPORARY 2026-04-30) ---
+    # capture_fps × frame_nbytes = MB/sec the camera produces. Each frame
+    # currently allocates ~3 fresh OS-level buffers (camera copy, 12→8 LUT,
+    # tobytes()). The standby-cache growth in [PDH METRICS] should track
+    # this product roughly.
+    try:
+        from modules import app_context as _app_ctx  # noqa: WPS433
+        sd = _app_ctx.ctx.scope_display if _app_ctx.ctx is not None else None
+    except Exception:
+        sd = None
+    if sd is not None:
+        try:
+            capture_fps = float(getattr(sd, '_capture_fps_value', 0.0) or 0.0)
+            display_fps = float(getattr(sd, '_display_fps_value', 0.0) or 0.0)
+            camera_mbps = float(getattr(sd, '_camera_mbps', 0.0) or 0.0)
+            frame_nbytes = int(getattr(sd, '_last_frame_nbytes', 0) or 0)
+            logger.info(
+                f"[BUFFER METRICS] capture_fps={capture_fps:.1f} | "
+                f"display_fps={display_fps:.1f} | "
+                f"camera_data_rate={camera_mbps:.1f} MB/s | "
+                f"frame_size={frame_nbytes / 1024:.0f} KB",
+                extra={'force_error': True},
+            )
+        except Exception as e:
+            logger.debug(f'[BUFFER METRICS] unavailable: {e}')
+
+        # Frame-interval percentiles (TEMPORARY 2026-04-30) — consumer-stall
+        # detection. Spikes in p99/max correlate with main-thread congestion
+        # or worker-thread blocks. After the buffer-reuse fix, p99 should
+        # tighten as lock-hold times shrink.
+        try:
+            if hasattr(sd, 'frame_interval_percentiles_ms'):
+                pcts = sd.frame_interval_percentiles_ms()
+                if pcts:
+                    logger.info(
+                        f"[FRAME INTERVAL] "
+                        f"p50={pcts['p50']:.1f} ms | "
+                        f"p95={pcts['p95']:.1f} ms | "
+                        f"p99={pcts['p99']:.1f} ms | "
+                        f"max={pcts['max']:.1f} ms | "
+                        f"n={pcts['n']}",
+                        extra={'force_error': True},
+                    )
+        except Exception as e:
+            logger.debug(f'[FRAME INTERVAL] unavailable: {e}')
+
+    # --- Defender (MsMpEng.exe) metrics (TEMPORARY 2026-04-30) ---
+    # Direct signal on the "Defender memory-maps every TIFF write" hypothesis.
+    # If defender_io_read_mbps tracks our io_write_mbps × ~1, that's the
+    # smoking gun. defender_private_mb growing alongside standby_total_mb
+    # is also implicating.
+    defender_private = metrics.get('defender_private_mb')
+    if defender_private is not None:
+        defender_rss = metrics.get('defender_rss_mb', -1)
+        defender_read = metrics.get('defender_io_read_mb_total', -1)
+        defender_read_rate = metrics.get('defender_io_read_mbps', -1)
+        logger.info(
+            f"[DEFENDER METRICS] private={defender_private:.0f} MB | "
+            f"rss={defender_rss:.0f} MB | "
+            f"io_read_total={defender_read:.0f} MB | "
+            f"io_read_rate={defender_read_rate:.2f} MB/s",
+            extra={'force_error': True},
+        )
+
+    # --- GC pressure (TEMPORARY 2026-04-30) ---
+    # gc_count = current uncollected objects per generation (depth).
+    # gc_genN_collections (existing [GC METRICS] block) = collections-since-start
+    # (rate). Both together separate "lots of churn but clean steady state"
+    # from "real generation-2 leak."
+    g0 = metrics.get('gc_count_gen0')
+    g1 = metrics.get('gc_count_gen1')
+    g2 = metrics.get('gc_count_gen2')
+    if g0 is not None and g1 is not None and g2 is not None:
+        logger.info(
+            f"[GC PRESSURE] gen0_depth={g0} | gen1_depth={g1} | gen2_depth={g2}",
+            extra={'force_error': True},
+        )
+
+    # --- Queue depth (TEMPORARY 2026-04-30) ---
+    # F-2 from AUDIT_LVP_PERF_2026-04-30.md: protocol_queue is unbounded with
+    # advisory-only depth warning. Monotonic queue growth = save can't keep up,
+    # frames pile up retaining 16-48 MB each. This is the most direct
+    # mechanism for the 18-20 hr slowdown if Defender ISN'T the cause.
+    try:
+        ctx = _app_ctx.ctx if _app_ctx.ctx is not None else None
+    except Exception:
+        ctx = None
+    if ctx is not None:
+        queue_parts = []
+        # Walk known executors. Each may use a queue.Queue (qsize) or a
+        # ThreadPoolExecutor (_work_queue.qsize). Both expose qsize().
+        for name in ('sequenced_capture_executor', 'autofocus_executor',
+                     'protocol_executor', 'io_executor', 'camera_executor',
+                     'file_io_executor', 'autofocus_thread_executor',
+                     'scope_display_thread_executor', 'reset_executor'):
+            try:
+                exe = getattr(ctx, name, None)
+                if exe is None:
+                    continue
+                wq = getattr(exe, '_work_queue', None) or getattr(exe, 'queue', None)
+                if wq is None and hasattr(exe, 'qsize'):
+                    wq = exe
+                if wq is not None and hasattr(wq, 'qsize'):
+                    queue_parts.append(f"{name}={wq.qsize()}")
+            except Exception:
+                continue
+        if queue_parts:
+            logger.info(
+                f"[QUEUE METRICS] {' | '.join(queue_parts)}",
+                extra={'force_error': True},
+            )
+
+    # --- tracemalloc top-N (TEMPORARY 2026-04-30, env-flag gated) ---
+    # Off by default. Enable with LVP_TRACEMALLOC=1 env var. Adds 10-30%
+    # process memory overhead so reserved for targeted runs. When on,
+    # logs top-5 allocators by current size — direct pre/post verification
+    # that audited buffer-reuse sites no longer allocate on hot path.
+    try:
+        from modules import common_utils as _cu  # noqa: WPS433
+        tm = _cu.query_tracemalloc_top_n(n=5)
+        if tm:
+            for i, entry in enumerate(tm, 1):
+                logger.info(
+                    f"[TRACEMALLOC] #{i} {entry['size_kb']:.0f} KB "
+                    f"(count={entry['count']}) at "
+                    f"{entry['file']}:{entry['line']}",
+                    extra={'force_error': True},
+                )
+    except Exception:
+        pass
 
 
 def focus_log(positions, values, focus_round: int, source_path: str) -> int:

@@ -12,6 +12,7 @@ from __future__ import annotations
 import datetime
 import pathlib
 import threading
+import time
 from typing import TYPE_CHECKING
 
 from lvp_logger import logger
@@ -20,6 +21,11 @@ import modules.common_utils as common_utils
 from modules.protocol import Protocol
 from modules.video_capture import VideoCaptureSession, write_video
 from modules.sequential_io_executor import IOTask
+
+try:
+    from modules import profile_trace
+except ImportError:
+    profile_trace = None
 
 if TYPE_CHECKING:
     from modules.lumascope_api import Lumascope
@@ -98,169 +104,168 @@ class ProtocolImageWriter:
         if not self._protocol_executor.is_protocol_running():
             return
 
-        is_video = step['Acquire'] == "video"
-
-        # #610 diagnostic: trace camera settings decision at each capture
-        _ag = step['Auto_Gain']
-        _curr_gain = self._scope.get_gain()
-        _curr_exp = self._scope.get_exposure_time()
-        logger.info(
-            f"[CAPTURE DIAG] step={step.get('Name','?')} color={step['Color']} "
-            f"Auto_Gain={_ag!r} (type={type(_ag).__name__}) "
-            f"step_gain={step['Gain']} step_exp={step['Exposure']} "
-            f"camera_gain={_curr_gain} camera_exp={_curr_exp}"
-        )
-
-        if not step['Auto_Gain']:
-            logger.info(f"[CAPTURE DIAG] Applying step camera settings: gain={step['Gain']}, exp={step['Exposure']}")
-            # STALL-1 fix (cherry-picked from perf-instrumentation-4.0.0-beta
-            # `5e336f4`, applied manually due to diagnostic-context drift):
-            # removed the `with self._scope.update_camera_config():` wrapper
-            # that was here. update_camera_config() does StopGrabbing +
-            # StartGrabbing, which Pylon SDK only requires for buffer-geometry
-            # changes (Width/Height/PixelFormat/Binning/Offset) — NOT for Gain
-            # or ExposureTime, which are live-updateable. The wrapper was
-            # paying a full grab-loop teardown+rebuild per protocol step,
-            # producing ~11s per-step duration during 12-bit protocol runs
-            # (camera delivering ~1 fps instead of ~50 fps despite LVP-side
-            # processing being fast).
-            #
-            # AF code already sets gain/exposure without a wrapper
-            # (modules/autofocus_executor.py:200,202). This change brings
-            # protocol behavior in line with AF.
-            #
-            # If a "Node is locked while streaming" GenICam exception fires
-            # here, that means Gain or ExposureTime is locked on the current
-            # SDK/firmware combo — revert this change and add a
-            # `requires_buffer_realloc=True` audit. Per Basler convention
-            # both should be live-changeable.
-            self._scope.set_gain(step['Gain'])
-            self._scope.set_exposure_time(step['Exposure'])
-        else:
-            logger.warning(f"[CAPTURE DIAG] SKIPPING camera settings — Auto_Gain is truthy: {_ag!r}")
-
-        # Objective short name for filename
-        objective_short_name = None
-        if self._scope.has_turret():
-            obj_info = self._scope.get_objective_info(objective_id=step["Objective"])
-            if obj_info is not None:
-                objective_short_name = obj_info.get('short_name')
-            else:
-                logger.warning(
-                    f"[PROTOCOL] Turret available but no objective info for ID "
-                    f"'{step['Objective']}' — using None for filename"
-                )
-
-        # Build base name from protocol's custom root + step name
+        # N5 (STALL-1 H5 disambiguator): proto-state trace.
+        # See docs/STALL1_INSTRUMENTATION_EXPERIMENT.md (Firmware repo) §4 N5.
+        # Wraps capture body in try/finally — single row per capture invocation
+        # captures duration + outcome + step identity, regardless of return path.
+        # Disambiguates "real stall" vs "between-step pause" in the timeline.
+        _trace_enabled = (profile_trace is not None
+                          and profile_trace.ENABLE_PROFILE_TRACE)
+        _proto_t0 = time.perf_counter() if _trace_enabled else None
+        _proto_outcome = "unknown"
+        # step is dict-like (supports .get) but not always a dict subclass —
+        # smoke 1 showed isinstance(step, dict) returned False even though
+        # step.get('Name', '?') works fine (the existing CAPTURE DIAG line
+        # at protocol_image_writer.py:114 uses the same pattern). Drop the
+        # isinstance gate; rely on try/except.
         try:
-            capture_root = protocol.capture_root()
+            _proto_step_name = step.get('Name', '?')
+            _proto_color = step.get('Color', '?')
         except Exception:
-            capture_root = ''
+            _proto_step_name = '?'
+            _proto_color = '?'
+        if _trace_enabled:
+            logger.info(
+                f"[PROTO STATE] capture_start step={_proto_step_name} "
+                f"color={_proto_color} curr_step={curr_step} "
+                f"scan_count={scan_count}"
+            )
 
-        if capture_root not in (None, ''):
-            combined_prefix = f"{capture_root}_{step['Name']}"
-        else:
-            combined_prefix = step['Name']
+        try:
+            is_video = step['Acquire'] == "video"
 
-        # In engineering mode, include turret position in filename
-        turret_pos = None
-        if self._scope.engineering_mode and self._scope.has_turret():
+            # #610 diagnostic: trace camera settings decision at each capture
+            _ag = step['Auto_Gain']
+            _curr_gain = self._scope.get_gain()
+            _curr_exp = self._scope.get_exposure_time()
+            logger.info(
+                f"[CAPTURE DIAG] step={step.get('Name','?')} color={step['Color']} "
+                f"Auto_Gain={_ag!r} (type={type(_ag).__name__}) "
+                f"step_gain={step['Gain']} step_exp={step['Exposure']} "
+                f"camera_gain={_curr_gain} camera_exp={_curr_exp}"
+            )
+
+            if not step['Auto_Gain']:
+                logger.info(f"[CAPTURE DIAG] Applying step camera settings: gain={step['Gain']}, exp={step['Exposure']}")
+                # STALL-1 fix: removed the `with self._scope.update_camera_config():`
+                # wrapper that was here. update_camera_config() does StopGrabbing +
+                # StartGrabbing, which Pylon SDK only requires for buffer-geometry
+                # changes (Width/Height/PixelFormat/Binning/Offset) — NOT for Gain
+                # or ExposureTime, which are live-updateable. The wrapper was
+                # paying a full grab-loop teardown+rebuild per protocol step,
+                # producing the observed ~11s per-step duration during 12-bit
+                # protocol runs (camera delivering ~1 fps instead of ~50 fps,
+                # despite LVP-side processing being fast).
+                #
+                # AF code already sets gain/exposure without a wrapper
+                # (modules/autofocus_executor.py:200,202). This change brings
+                # protocol behavior in line with AF.
+                #
+                # If a "Node is locked while streaming" GenICam exception fires
+                # here, that means Gain or ExposureTime is locked on the current
+                # SDK/firmware combo — revert this change and add a
+                # `requires_buffer_realloc=True` audit. Per Basler convention
+                # both should be live-changeable.
+                self._scope.set_gain(step['Gain'])
+                self._scope.set_exposure_time(step['Exposure'])
+            else:
+                logger.warning(f"[CAPTURE DIAG] SKIPPING camera settings — Auto_Gain is truthy: {_ag!r}")
+
+            # Objective short name for filename
+            objective_short_name = None
+            if self._scope.has_turret():
+                obj_info = self._scope.get_objective_info(objective_id=step["Objective"])
+                if obj_info is not None:
+                    objective_short_name = obj_info.get('short_name')
+                else:
+                    logger.warning(
+                        f"[PROTOCOL] Turret available but no objective info for ID "
+                        f"'{step['Objective']}' — using None for filename"
+                    )
+
+            # Build base name from protocol's custom root + step name
             try:
-                turret_pos = int(self._scope.get_current_position('T'))
+                capture_root = protocol.capture_root()
+            except Exception:
+                capture_root = ''
+
+            if capture_root not in (None, ''):
+                combined_prefix = f"{capture_root}_{step['Name']}"
+            else:
+                combined_prefix = step['Name']
+
+            # In engineering mode, include turret position in filename
+            turret_pos = None
+            if self._scope.engineering_mode and self._scope.has_turret():
+                try:
+                    turret_pos = int(self._scope.get_current_position('T'))
+                except Exception:
+                    pass
+
+            name = common_utils.generate_default_step_name(
+                well_label=step['Well'],
+                color=step['Color'],
+                z_height_idx=step['Z-Slice'],
+                scan_count=scan_count,
+                custom_name_prefix=combined_prefix,
+                objective_short_name=objective_short_name,
+                tile_label=step['Tile'],
+                video=is_video,
+                turret_position=turret_pos,
+            )
+            # Ensure the filename base has no invalid path characters
+            try:
+                name = Protocol.sanitize_step_name(input=name)
             except Exception:
                 pass
 
-        name = common_utils.generate_default_step_name(
-            well_label=step['Well'],
-            color=step['Color'],
-            z_height_idx=step['Z-Slice'],
-            scan_count=scan_count,
-            custom_name_prefix=combined_prefix,
-            objective_short_name=objective_short_name,
-            tile_label=step['Tile'],
-            video=is_video,
-            turret_position=turret_pos,
-        )
-        # Ensure the filename base has no invalid path characters
-        try:
-            name = Protocol.sanitize_step_name(input=name)
-        except Exception:
-            pass
-
-        # Illuminate
-        if self._scope.led_connected:
-            self._led_on(color=step['Color'], illumination=step['Illumination'], block=True)
-            logger.info(f"[{self.LOGGER_NAME} ] scope.led_on({step['Color']}, {step['Illumination']})")
-        else:
-            logger.warning('LED controller not available.')
-
-        sum_iteration_callback = None
-        use_color = step['Color'] if step['False_Color'] else 'BF'
-
-        if enable_image_saving:
-            use_full_pixel_depth = image_capture_config['use_full_pixel_depth']
-
-            if is_video:
-                session = VideoCaptureSession(
-                    scope=self._scope,
-                    step=step,
-                    autogain_settings=autogain_settings,
-                    is_protocol_running_fn=self._protocol_executor.is_protocol_running,
-                    callbacks=self._callbacks.to_dict(),
-                    leds_off_fn=self._leds_off,
-                    stim_profiling=self._stim_profiling,
-                    run_dir=self._run_dir,
-                )
-                video_result = session.capture()
-
-                if video_result is None:
-                    # Cancelled or zero frames — skip write
-                    self._video_write_finished.set()
-                    self._leds_off()
-                    return
-
-                self._leds_off()
-
-                self._file_io_executor.protocol_put(IOTask(
-                    action=self.write_capture,
-                    kwargs={
-                        "is_video": is_video,
-                        "video_as_frames": video_as_frames,
-                        "video_result": video_result,
-                        "save_folder": save_folder,
-                        "use_color": use_color,
-                        "name": name,
-                        "output_format": output_format,
-                        "step": step,
-                        "captured_image": None,
-                        "step_index": curr_step,
-                        "scan_count": scan_count,
-                        "capture_time": datetime.datetime.now(),
-                        "enable_image_saving": enable_image_saving,
-                        "separate_folder_per_channel": separate_folder_per_channel,
-                    }
-                ))
-                return  # Video: leds_off already called at line 181
-
+            # Illuminate
+            if self._scope.led_connected:
+                self._led_on(color=step['Color'], illumination=step['Illumination'], block=True)
+                logger.info(f"[{self.LOGGER_NAME} ] scope.led_on({step['Color']}, {step['Illumination']})")
             else:
-                # Frame validity drains stale frames, then grabs a valid one
-                captured_image = self._scope.capture_and_wait(
-                    force_to_8bit=not use_full_pixel_depth,
-                    all_ones_check=True,
-                    timeout=datetime.timedelta(seconds=1.0),
-                    sum_count=sum_count,
-                    sum_delay_s=step["Exposure"] / 1000,
-                    sum_iteration_callback=sum_iteration_callback,
-                )
+                logger.warning('LED controller not available.')
 
-                if captured_image is False:
-                    self._consecutive_capture_failures += 1
-                    logger.error(f"[PROTOCOL] Capture failed for step {curr_step} ({step.get('Name', '?')}), scan {scan_count} — camera inactive or frame drain failed (failure {self._consecutive_capture_failures}/{self._MAX_CONSECUTIVE_CAPTURE_FAILURES})")
-                    # Still record the step with "capture_failed" so the record isn't silently missing
+            sum_iteration_callback = None
+            use_color = step['Color'] if step['False_Color'] else 'BF'
+
+            if enable_image_saving:
+                use_full_pixel_depth = image_capture_config['use_full_pixel_depth']
+
+                if is_video:
+                    session = VideoCaptureSession(
+                        scope=self._scope,
+                        step=step,
+                        autogain_settings=autogain_settings,
+                        is_protocol_running_fn=self._protocol_executor.is_protocol_running,
+                        callbacks=self._callbacks.to_dict(),
+                        leds_off_fn=self._leds_off,
+                        stim_profiling=self._stim_profiling,
+                        run_dir=self._run_dir,
+                    )
+                    video_result = session.capture()
+
+                    if video_result is None:
+                        # Cancelled or zero frames — skip write
+                        self._video_write_finished.set()
+                        self._leds_off()
+                        _proto_outcome = "video_cancelled"
+                        return
+
+                    self._leds_off()
+
                     self._file_io_executor.protocol_put(IOTask(
                         action=self.write_capture,
                         kwargs={
+                            "is_video": is_video,
+                            "video_as_frames": video_as_frames,
+                            "video_result": video_result,
+                            "save_folder": save_folder,
+                            "use_color": use_color,
+                            "name": name,
+                            "output_format": output_format,
                             "step": step,
+                            "captured_image": None,
                             "step_index": curr_step,
                             "scan_count": scan_count,
                             "capture_time": datetime.datetime.now(),
@@ -268,46 +273,96 @@ class ProtocolImageWriter:
                             "separate_folder_per_channel": separate_folder_per_channel,
                         }
                     ))
-                    self._leds_off()
-                    if self._consecutive_capture_failures >= self._MAX_CONSECUTIVE_CAPTURE_FAILURES:
-                        from modules.notification_center import notifications
-                        notifications.critical("Protocol", "Camera Failure",
-                            f"Camera failed {self._consecutive_capture_failures} consecutive captures. Aborting protocol.")
-                        self._protocol_ended.set()
-                    return
+                    _proto_outcome = "video_success"
+                    return  # Video: leds_off already called at line 181
 
-                self._consecutive_capture_failures = 0  # Reset on success
-                logger.info(f"Protocol Image Captured: {name}")
+                else:
+                    # Frame validity drains stale frames, then grabs a valid one
+                    captured_image = self._scope.capture_and_wait(
+                        force_to_8bit=not use_full_pixel_depth,
+                        all_ones_check=True,
+                        timeout=datetime.timedelta(seconds=1.0),
+                        sum_count=sum_count,
+                        sum_delay_s=step["Exposure"] / 1000,
+                        sum_iteration_callback=sum_iteration_callback,
+                    )
 
+                    if captured_image is False:
+                        self._consecutive_capture_failures += 1
+                        logger.error(f"[PROTOCOL] Capture failed for step {curr_step} ({step.get('Name', '?')}), scan {scan_count} — camera inactive or frame drain failed (failure {self._consecutive_capture_failures}/{self._MAX_CONSECUTIVE_CAPTURE_FAILURES})")
+                        # Still record the step with "capture_failed" so the record isn't silently missing
+                        self._file_io_executor.protocol_put(IOTask(
+                            action=self.write_capture,
+                            kwargs={
+                                "step": step,
+                                "step_index": curr_step,
+                                "scan_count": scan_count,
+                                "capture_time": datetime.datetime.now(),
+                                "enable_image_saving": enable_image_saving,
+                                "separate_folder_per_channel": separate_folder_per_channel,
+                            }
+                        ))
+                        self._leds_off()
+                        if self._consecutive_capture_failures >= self._MAX_CONSECUTIVE_CAPTURE_FAILURES:
+                            from modules.notification_center import notifications
+                            notifications.critical("Protocol", "Camera Failure",
+                                f"Camera failed {self._consecutive_capture_failures} consecutive captures. Aborting protocol.")
+                            self._protocol_ended.set()
+                        _proto_outcome = "capture_failed"
+                        return
+
+                    self._consecutive_capture_failures = 0  # Reset on success
+                    logger.info(f"Protocol Image Captured: {name}")
+
+                    self._file_io_executor.protocol_put(IOTask(
+                        action=self.write_capture,
+                        kwargs={
+                            "save_folder": save_folder,
+                            "use_color": use_color,
+                            "name": name,
+                            "output_format": output_format,
+                            "step": step,
+                            "captured_image": captured_image,
+                            "step_index": curr_step,
+                            "scan_count": scan_count,
+                            "capture_time": datetime.datetime.now(),
+                            "enable_image_saving": enable_image_saving,
+                            "separate_folder_per_channel": separate_folder_per_channel,
+                        }
+                    ))
+                    _proto_outcome = "success"
+
+            else:
                 self._file_io_executor.protocol_put(IOTask(
                     action=self.write_capture,
                     kwargs={
-                        "save_folder": save_folder,
-                        "use_color": use_color,
-                        "name": name,
-                        "output_format": output_format,
                         "step": step,
-                        "captured_image": captured_image,
-                        "step_index": curr_step,
-                        "scan_count": scan_count,
-                        "capture_time": datetime.datetime.now(),
                         "enable_image_saving": enable_image_saving,
                         "separate_folder_per_channel": separate_folder_per_channel,
                     }
                 ))
+                _proto_outcome = "not_saving"
 
-        else:
-            self._file_io_executor.protocol_put(IOTask(
-                action=self.write_capture,
-                kwargs={
-                    "step": step,
-                    "enable_image_saving": enable_image_saving,
-                    "separate_folder_per_channel": separate_folder_per_channel,
-                }
-            ))
-
-        if not keep_led_on:
-            self._leds_off()
+            if not keep_led_on:
+                self._leds_off()
+        except Exception:
+            _proto_outcome = "exception"
+            raise
+        finally:
+            if _trace_enabled and _proto_t0 is not None:
+                _proto_dt_ms = (time.perf_counter() - _proto_t0) * 1000.0
+                logger.info(
+                    f"[PROTO STATE] capture_end step={_proto_step_name} "
+                    f"outcome={_proto_outcome} dt_ms={_proto_dt_ms:.1f}"
+                )
+                profile_trace.trace(
+                    "proto_state_trace.csv",
+                    "ts_ms,duration_ms,step_name,color,curr_step,"
+                    "scan_count,outcome",
+                    [int(time.time() * 1000), f"{_proto_dt_ms:.3f}",
+                     _proto_step_name, _proto_color, curr_step,
+                     scan_count, _proto_outcome],
+                )
 
     def write_capture(
         self,

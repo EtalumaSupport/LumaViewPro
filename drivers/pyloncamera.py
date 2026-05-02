@@ -3,6 +3,7 @@
 import datetime
 import os
 import threading
+import time
 
 import numpy as np
 from pypylon import pylon, genicam
@@ -12,6 +13,11 @@ import queue
 
 from drivers.camera import Camera, ImageHandlerBase
 from drivers.registry import camera_registry
+
+try:
+    from lib import profile_trace
+except ImportError:
+    profile_trace = None
 
 try:
     from lvp_logger import camera_logger as _cam_log
@@ -87,7 +93,226 @@ class PylonCamera(Camera):
 
     # __del__() inherited from Camera base class
 
+    # N3+N4 (STALL-1 H1+H6 + H3): periodic Pylon SDK statistics + thread-count
+    # daemon poller. No-op when profile_trace is disabled (env var
+    # LVP_PROFILE_TRACE unset). See docs/STALL1_INSTRUMENTATION_EXPERIMENT.md
+    # (Firmware repo) §4 N3 + N4.
+    _STATS_POLLER_INTERVAL_S = 5.0
+    # Smoke 1 confirmed Statistic_Total_Buffer_Count and
+    # Statistic_Failed_Buffer_Count work via getattr on StreamGrabber for
+    # pypylon 4.2.0 / Pylon SS 10.2.1.471 USB transport, but
+    # Statistic_Buffer_Underrun_Count returned None. The node may live
+    # under a different name on USB transport vs GigE. Try multiple
+    # candidates per Basler header conventions; the first non-None wins.
+    _UNDERRUN_NODE_CANDIDATES = (
+        'Statistic_Buffer_Underrun_Count',  # original guess (works on GigE)
+        'Statistic_Underrun_Count',         # alternate
+        'Statistic_Buffer_Underflow_Count', # alternate naming
+        'Statistic_Underflow_Count',        # alternate
+        'Statistic_Missing_Frames',         # USB-specific possibility
+        'Statistic_Resync_Count',           # USB-specific possibility
+    )
+    _STATS_NODE_NAMES = (
+        'Statistic_Total_Buffer_Count',
+        'Statistic_Failed_Buffer_Count',
+    )
+
+    def _start_stats_poller(self):
+        if profile_trace is None or not profile_trace.ENABLE_PROFILE_TRACE:
+            return
+        # Smoke 1 surfaced a 4.6-min gap in poller output that aligned with
+        # rapid stop/start_grabbing cycles. Cause: prior code returned early
+        # if existing.is_alive(); during the window between _stop_stats_poller
+        # setting the event and the daemon thread actually exiting, a fresh
+        # start_grabbing would skip starting a new poller. The old thread
+        # then exits on its (already-set) event leaving NO poller running.
+        # Fix: actively join the prior thread (with bounded timeout) before
+        # starting a new one. Idempotent if no prior poller.
+        existing = getattr(self, '_stats_poller_thread', None)
+        existing_ev = getattr(self, '_stats_poller_stop', None)
+        if existing is not None and existing.is_alive():
+            if existing_ev is not None:
+                existing_ev.set()
+            existing.join(timeout=10.0)
+            if existing.is_alive():
+                logger.warning(
+                    '[INSTR PYLON ] prior stats poller did not exit within 10s; '
+                    'starting new one anyway (CSV may briefly contain rows from both)')
+        self._stats_poller_stop = threading.Event()
+        t = threading.Thread(
+            target=self._stats_poller_loop,
+            name="PylonStatsPoller",
+            daemon=True,
+        )
+        self._stats_poller_thread = t
+        t.start()
+
+    def _stop_stats_poller(self):
+        ev = getattr(self, '_stats_poller_stop', None)
+        if ev is not None:
+            ev.set()
+        self._stats_poller_thread = None
+
+    def _resolve_underrun_node_name(self, sg):
+        """Return the first underrun-class candidate name that returns a non-None value.
+
+        Caches the result in self._underrun_node_name_cache after first
+        success so subsequent polls don't re-probe.
+        """
+        cached = getattr(self, '_underrun_node_name_cache', None)
+        if cached is not None:
+            return cached
+        for name in self._UNDERRUN_NODE_CANDIDATES:
+            try:
+                node = getattr(sg, name, None)
+                if node is not None:
+                    val = node.GetValue()
+                    if val is not None:
+                        self._underrun_node_name_cache = name
+                        logger.info(
+                            f'[INSTR PYLON ] Underrun node resolved: {name}={val}')
+                        return name
+            except Exception:
+                continue
+        # None of the candidates worked; cache the negative result so we
+        # don't repeatedly probe.
+        self._underrun_node_name_cache = ''
+        return ''
+
+    def _stats_poller_loop(self):
+        # One-shot self-validation dump at poller start.
+        # Smoke 2 showed this was running on EVERY poller start (each
+        # start_grabbing triggers a new poller), and during LVP init
+        # there are multiple stop/start cycles from update_camera_config
+        # wrapping pixel-format / frame-size / binning setters in
+        # init_camera_config(). Each NodeMap walk costs ~5-10 sec when
+        # it fails (Pylon SS 10.x USB grabber doesn't expose GetNodeMap
+        # as expected — fails with "Node not existing"). 5 restarts
+        # during init = ~20s extra startup time observed in smoke 2.
+        # Fix: cache validation on the camera instance — run once per
+        # LVP session, not per poller start.
+        if not getattr(self, '_pylon_self_validation_done', False):
+            try:
+                cam = self.active
+                sg = cam.StreamGrabber if cam is not None else None
+                if sg is not None:
+                    # View 1: dir()
+                    dir_nodes = sorted(
+                        n for n in dir(sg) if 'tatistic' in n.lower())
+                    logger.info(
+                        f'[INSTR PYLON ] StreamGrabber dir() stat-like: {dir_nodes}')
+
+                    # View 2: NodeMap walk (authoritative)
+                    try:
+                        nm = sg.GetNodeMap()
+                        all_features = []
+                        try:
+                            for nd in nm.GetNodes():
+                                try:
+                                    nname = nd.GetNode().GetName()
+                                except Exception:
+                                    try:
+                                        nname = nd.GetName()
+                                    except Exception:
+                                        continue
+                                low = nname.lower()
+                                if any(t in low for t in
+                                       ('tatistic', 'nderrun', 'nderflow',
+                                        'issing', 'esync', 'ailed', 'otal_buf')):
+                                    all_features.append(nname)
+                        except Exception as e2:
+                            logger.debug(
+                                f'[INSTR PYLON ] NodeMap iteration error: {e2}')
+                        logger.info(
+                            f'[INSTR PYLON ] StreamGrabber NodeMap stat-like: '
+                            f'{sorted(set(all_features))}')
+                    except Exception as e:
+                        logger.warning(
+                            f'[INSTR PYLON ] NodeMap walk failed: {e}')
+                else:
+                    logger.warning(
+                        '[INSTR PYLON ] start: active camera is None, no stat dump')
+            except Exception as e:
+                logger.warning(
+                    f'[INSTR PYLON ] start: stat-node dump failed: {e}')
+            finally:
+                # Mark done regardless of success/failure — don't retry
+                # the failing walk on every restart.
+                self._pylon_self_validation_done = True
+
+        ev = self._stats_poller_stop
+        while not ev.wait(self._STATS_POLLER_INTERVAL_S):
+            ts_ms = int(time.time() * 1000)
+            # --- Pylon SDK statistics (N3) ---
+            stats = {}
+            rfr = None
+            underrun_value = None
+            underrun_name = ''
+            try:
+                cam = self.active
+                sg = cam.StreamGrabber if cam is not None else None
+                if sg is not None:
+                    for name in self._STATS_NODE_NAMES:
+                        try:
+                            node = getattr(sg, name, None)
+                            stats[name] = node.GetValue() if node is not None else None
+                        except Exception:
+                            stats[name] = None
+                    # Resolve underrun node name on first successful poll;
+                    # cached thereafter.
+                    underrun_name = self._resolve_underrun_node_name(sg)
+                    if underrun_name:
+                        try:
+                            underrun_value = getattr(sg, underrun_name).GetValue()
+                        except Exception:
+                            underrun_value = None
+                if cam is not None:
+                    try:
+                        rfr = cam.ResultingFrameRate.GetValue()
+                    except Exception:
+                        rfr = None
+            except Exception as e:
+                logger.debug(f'[INSTR PYLON ] stats poll error: {e}')
+
+            # Underrun is the load-bearing single bit per the experiment doc
+            # — log on its own line with prominent marker, including which
+            # GenICam node provided the value.
+            if underrun_value is not None:
+                logger.info(
+                    f'[INSTR UNDERRUN] {underrun_name}={underrun_value}')
+
+            profile_trace.trace(
+                "pylon_stats_trace.csv",
+                "ts_ms,total_buffer_count,failed_buffer_count,"
+                "underrun_node_name,underrun_value,resulting_fps",
+                [ts_ms,
+                 stats.get('Statistic_Total_Buffer_Count'),
+                 stats.get('Statistic_Failed_Buffer_Count'),
+                 underrun_name,
+                 underrun_value,
+                 f"{rfr:.3f}" if rfr is not None else None],
+            )
+
+            # --- Thread counts (N4) ---
+            try:
+                threads = threading.enumerate()
+                n_pylon_grab = sum(
+                    1 for t in threads if t.name.startswith('PylonImageGrab'))
+                n_dummy = sum(
+                    1 for t in threads if t.name.startswith('Dummy'))
+                n_total = len(threads)
+                profile_trace.trace(
+                    "pylon_threads_trace.csv",
+                    "ts_ms,pylon_image_grab_count,dummy_count,total_thread_count",
+                    [ts_ms, n_pylon_grab, n_dummy, n_total],
+                )
+            except Exception as e:
+                logger.debug(f'[INSTR PYLON ] thread-count poll error: {e}')
+
     def stop_grabbing(self):
+        # N3+N4: stop the stats poller before tearing down the grab loop.
+        # No-op when poller wasn't started (LVP_PROFILE_TRACE unset).
+        self._stop_stats_poller()
         camera = self.active
         if _cam_log is not None: _cam_log.info('pylon StopGrabbing()')
         try:
@@ -118,6 +343,9 @@ class PylonCamera(Camera):
                 pylon.GrabStrategy_LatestImageOnly,
                 pylon.GrabLoop_ProvidedByInstantCamera
             )
+            # N3+N4 (STALL-1): start periodic Pylon stats + thread-count poller.
+            # No-op when LVP_PROFILE_TRACE is unset.
+            self._start_stats_poller()
         except Exception as e:
             if _cam_log is not None: _cam_log.warning(f'pylon StartGrabbing FAILED: {e}')
             logger.warning(f'[CAM Class ] start_grabbing ignored error: {e}')
@@ -534,34 +762,57 @@ class PylonCamera(Camera):
         timing measurements we want the freshest frame possible, so
         drain everything that's already captured before waiting.
         """
-        if not self.cam_image_handler:
-            return False, None
-
+        # N2 (STALL-1 H1 vs H2 separator): per-grab duration trace.
+        # See docs/STALL1_INSTRUMENTATION_EXPERIMENT.md (Firmware repo) §4 N2.
+        _trace_enabled = (profile_trace is not None
+                          and profile_trace.ENABLE_PROFILE_TRACE)
+        _t0 = time.perf_counter() if _trace_enabled else None
+        _outcome = "unknown"
+        dropped = 0
         try:
-            # Drain all frames captured before this call — we only want
-            # the next one produced after we started waiting.
-            dropped = 0
-            while True:
-                try:
-                    self.cam_image_handler._frame_queue.get_nowait()
-                    dropped += 1
-                except queue.Empty:
-                    break
-            if dropped > 1:
-                logger.debug(
-                    f'[CAM Class ] grab_new_capture drained {dropped} stale frames')
-
-            result, image, image_ts = self.cam_image_handler._frame_queue.get(
-                block=True, timeout=timeout)
-            if result is False:
+            if not self.cam_image_handler:
+                _outcome = "no_handler"
                 return False, None
 
-            self.array = image
-            return True, image_ts
+            try:
+                # Drain all frames captured before this call — we only want
+                # the next one produced after we started waiting.
+                while True:
+                    try:
+                        self.cam_image_handler._frame_queue.get_nowait()
+                        dropped += 1
+                    except queue.Empty:
+                        break
+                if dropped > 1:
+                    logger.debug(
+                        f'[CAM Class ] grab_new_capture drained {dropped} stale frames')
 
-        except Exception as ex:
-            logger.exception(f"Failed to grab image: {ex}")
-            return False, None
+                result, image, image_ts = self.cam_image_handler._frame_queue.get(
+                    block=True, timeout=timeout)
+                if result is False:
+                    _outcome = "result_false"
+                    return False, None
+
+                self.array = image
+                _outcome = "success"
+                return True, image_ts
+
+            except Exception as ex:
+                # queue.Empty inherits from Exception — both timeout and other
+                # errors are caught here, matching pre-N2 behavior. Outcome
+                # classification distinguishes them in the trace row.
+                _outcome = "timeout" if isinstance(ex, queue.Empty) else "exception"
+                logger.exception(f"Failed to grab image: {ex}")
+                return False, None
+        finally:
+            if _trace_enabled and _t0 is not None:
+                _dt_ms = (time.perf_counter() - _t0) * 1000.0
+                profile_trace.trace(
+                    "pylon_grab_trace.csv",
+                    "ts_ms,duration_ms,dropped_count,outcome,timeout_s",
+                    [int(time.time() * 1000), f"{_dt_ms:.3f}",
+                     dropped, _outcome, f"{timeout:.3f}"],
+                )
         
 
     def set_frame_size(self, w, h):
@@ -856,6 +1107,14 @@ class ImageHandler(pylon.ImageEventHandler):
         self._parent = parent_cam
 
     def OnImageGrabbed(self, camera, grabResult):
+        # N1 (STALL-1 H2): per-callback duration trace. Gated on
+        # profile_trace.ENABLE_PROFILE_TRACE — zero overhead when disabled.
+        # See docs/STALL1_INSTRUMENTATION_EXPERIMENT.md (Firmware repo) §4 N1.
+        _trace_enabled = (profile_trace is not None
+                          and profile_trace.ENABLE_PROFILE_TRACE)
+        _t0 = time.perf_counter() if _trace_enabled else None
+        _outcome = "unknown"
+        _frame_bytes = 0
         try:
             # Set thread name for dummy threads
             if "Dummy" in threading.current_thread().name:
@@ -864,12 +1123,14 @@ class ImageHandler(pylon.ImageEventHandler):
             # Check if parent camera was removed before processing
             if self._parent._device_removed:
                 logger.debug('[CAM Class ] OnImageGrabbed called but device already marked as removed, ignoring')
+                _outcome = "early_return_removed"
                 return
 
             # Check if parent camera is still active
             if self._parent.active is None:
                 logger.debug('[CAM Class ] OnImageGrabbed called but camera is inactive, ignoring')
                 self._parent._device_removed = True
+                _outcome = "early_return_inactive"
                 return
 
             if not self._frame_queue.empty():
@@ -884,6 +1145,7 @@ class ImageHandler(pylon.ImageEventHandler):
             except Exception as e:
                 logger.warning(f'[CAM Class ] GrabSucceeded() failed: {e}, assuming device removed')
                 self._parent._mark_disconnected()
+                _outcome = "exception_grabsucceeded"
                 return
 
             if grab_succeeded:
@@ -892,13 +1154,17 @@ class ImageHandler(pylon.ImageEventHandler):
                     # to decouple from buffer lifetime before it's requeued
                     img = grabResult.GetArray().copy()
                     ts = datetime.datetime.now()
+                    _frame_bytes = img.nbytes
                     self._base._store_frame(img, ts)
                     self._frame_queue.put((True, img, ts))
+                    _outcome = "success_grabbed"
                 except Exception as e:
                     logger.warning(f'[CAM Class ] GetArray() failed: {e}, marking device as removed')
                     self._parent._mark_disconnected()
                     self._base._record_failure()
+                    _outcome = "exception_getarray"
             else:
+                _outcome = "success_no_grab"
                 should_stop = self._base._record_failure()
                 if should_stop:
                     try:
@@ -909,7 +1175,17 @@ class ImageHandler(pylon.ImageEventHandler):
                     except Exception:
                         pass
         except Exception as e:
+            _outcome = "exception_outer"
             logger.exception(e)
+        finally:
+            if _trace_enabled and _t0 is not None:
+                _dt_ms = (time.perf_counter() - _t0) * 1000.0
+                profile_trace.trace(
+                    "pylon_callback_trace.csv",
+                    "ts_ms,duration_ms,thread_name,outcome,frame_bytes",
+                    [int(time.time() * 1000), f"{_dt_ms:.3f}",
+                     threading.current_thread().name, _outcome, _frame_bytes],
+                )
 
     def reset(self):
         """Clear frame buffer, queue, and failure counter."""

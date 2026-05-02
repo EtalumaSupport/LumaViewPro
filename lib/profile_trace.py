@@ -215,5 +215,13 @@ class TimedLock:
         return self._name
 
 
+# Production default: instrumentation OFF unless LVP_PROFILE_TRACE=1 is
+# set explicitly in the environment. The perf-instrumentation-4.0.0-beta
+# branch flipped this to default-ON for the STALL-1 diagnostic run; the
+# merge into the layer-audit chain restores the explicit env-var gate so
+# production carries the tracer infrastructure for opt-in use without
+# the always-on file-write overhead. To enable: set LVP_PROFILE_TRACE=1
+# (any non-empty non-"0" value works in shell-script practice — exact
+# match required here for clarity).
 if os.environ.get("LVP_PROFILE_TRACE") == "1":
     enable()
