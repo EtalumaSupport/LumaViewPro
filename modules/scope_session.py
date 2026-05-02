@@ -78,6 +78,13 @@ class ScopeSession:
         if camera_executor is None:
             camera_executor = SequentialIOExecutor(name="CAMERA")
 
+        # LAYER-A': register executors on the scope so scope.X_async /
+        # scope.X_sync can dispatch without callers passing executor handles.
+        scope.register_executors(
+            camera_executor=camera_executor,
+            io_executor=io_executor,
+        )
+
         # Optional helpers — import and construct if available
         wellplate_loader = None
         coordinate_transformer = None
@@ -140,6 +147,12 @@ class ScopeSession:
 
         io_executor = SequentialIOExecutor(name="IO")
         camera_executor = SequentialIOExecutor(name="CAMERA")
+
+        # LAYER-A': register executors on the scope (headless session).
+        scope.register_executors(
+            camera_executor=camera_executor,
+            io_executor=io_executor,
+        )
 
         return cls(
             settings=settings,

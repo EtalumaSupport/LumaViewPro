@@ -857,6 +857,15 @@ class LumaViewProApp(TooltipMixin, App):
         scope_display_thread_executor.start()
         # stage_executor and turret_executor are aliases for io_executor (already started above)
         reset_executor.start()
+
+        # LAYER-A': register executors so scope.X_async / scope.X_sync
+        # methods can dispatch without callers passing executor handles.
+        lumaview.scope.register_executors(
+            camera_executor=camera_executor,
+            io_executor=io_executor,
+            file_io_executor=file_io_executor,
+            autofocus_io_executor=autofocus_thread_executor,
+        )
         #ij_helper = imagej_helper.ImageJHelper()
 
         autofocus_executor = AutofocusExecutor(
