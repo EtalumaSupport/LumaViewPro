@@ -20,6 +20,15 @@ class FakeScope:
         self.frame_validity = FakeFrameValidity()
         self.calls = []
 
+    # LAYER-F: production code now reads frame validity through the
+    # Lumascope API rather than reaching into self.frame_validity
+    # directly. Mirror the delegating accessors here.
+    def frames_until_valid(self):
+        return self.frame_validity.frames_until_valid()
+
+    def count_frame(self):
+        self.frame_validity.count_frame()
+
     def color2ch(self, color):
         return {
             "Blue": 0,
@@ -194,6 +203,15 @@ class TimestampingScope:
     def __init__(self):
         self.frame_validity = FakeFrameValidity()
         self.events = []  # list of (action, channel, mA, t_perf)
+
+    # LAYER-F: production code now reads frame validity through the
+    # Lumascope API rather than reaching into self.frame_validity
+    # directly. Mirror the delegating accessors here.
+    def frames_until_valid(self):
+        return self.frame_validity.frames_until_valid()
+
+    def count_frame(self):
+        self.frame_validity.count_frame()
 
     def color2ch(self, color):
         return {
