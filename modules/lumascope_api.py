@@ -409,6 +409,17 @@ class Lumascope():
         self._stage_offset = None         # The stage offset for the microscope
         self._last_turret_position = None # Stores the last known turret position
         self.engineering_mode = False      # Set by UI to enable engineering features
+
+        # LAYER-A' executor handles. Registered post-construction via
+        # register_executors() so that tests using `Lumascope(simulate=True)`
+        # can construct without needing real executors. Methods that
+        # submit IOTasks (led_on_async, move_absolute_async, etc.) will
+        # raise RuntimeError if executors aren't registered.
+        self._camera_executor = None
+        self._io_executor = None
+        self._file_io_executor = None
+        self._autofocus_io_executor = None
+
         self.frame_validity = FrameValidity()
         # Register motion settle check — frame validity won't clear motion
         # sources until the axis has physically stopped moving.
@@ -826,6 +837,206 @@ class Lumascope():
         """Record that a frame was grabbed from the camera. Delegates
         to frame_validity (no driver call)."""
         self.frame_validity.count_frame()
+
+    # --- Executor-backed command API (LAYER-A' / Rule 2) ---
+    #
+    # Single canonical path for hardware operations that need executor
+    # dispatch: caller invokes scope.X_async(...) or scope.X_sync(...);
+    # Lumascope picks the right executor internally. Replaces the older
+    # modules/scope_commands.py helper functions where the caller had
+    # to pass an executor on every call (parallel-paths anti-pattern).
+
+    def register_executors(self, *, camera_executor=None, io_executor=None,
+                           file_io_executor=None, autofocus_io_executor=None):
+        """Register the executor handles used by the X_async / X_sync
+        command methods. Call once at startup after the executors are
+        constructed. Tests that don't drive the executor-backed API
+        can skip this — those methods raise RuntimeError if invoked
+        without executors registered.
+        """
+        self._camera_executor = camera_executor
+        self._io_executor = io_executor
+        self._file_io_executor = file_io_executor
+        self._autofocus_io_executor = autofocus_io_executor
+
+    def _require_executor(self, executor, name):
+        if executor is None:
+            raise RuntimeError(
+                f"Lumascope.{name} requires register_executors() to have "
+                f"been called with the relevant executor handle."
+            )
+        return executor
+
+    # --- LED command API ---
+
+    def leds_off_async(self, *, callback=None):
+        """Submit `leds_off` to the io_executor. No-op if LED disconnected."""
+        if not self.led_connected:
+            logger.warning('[SCOPE API ] LED controller not available.')
+            return
+        ex = self._require_executor(self._io_executor, 'leds_off_async')
+        ex.put(IOTask(action=self.leds_off, callback=callback))
+        logger.info('[SCOPE API ] leds_off_async()')
+
+    def led_on_async(self, channel, illumination, *, callback=None,
+                     cb_kwargs=None, owner: str = ''):
+        """Submit `led_on(channel, illumination)` to the io_executor."""
+        if not self.led_connected:
+            logger.warning('[SCOPE API ] LED controller not available.')
+            return
+        kwargs = {'owner': owner} if owner else {}
+        ex = self._require_executor(self._io_executor, 'led_on_async')
+        ex.put(IOTask(
+            action=self.led_on,
+            args=(channel, illumination),
+            kwargs=kwargs,
+            callback=callback,
+            cb_kwargs=cb_kwargs,
+        ))
+
+    def led_off_async(self, channel, *, callback=None, cb_kwargs=None,
+                      owner: str = ''):
+        """Submit `led_off(channel)` to the io_executor."""
+        if not self.led_connected:
+            logger.warning('[SCOPE API ] LED controller not available.')
+            return
+        kwargs = {'channel': channel}
+        if owner:
+            kwargs['owner'] = owner
+        ex = self._require_executor(self._io_executor, 'led_off_async')
+        ex.put(IOTask(
+            action=self.led_off,
+            kwargs=kwargs,
+            callback=callback,
+            cb_kwargs=cb_kwargs,
+        ))
+
+    def led_on_sync(self, channel, illumination, *, timeout=5,
+                    owner: str = ''):
+        """Run `led_on` through the io_executor and block until done."""
+        if not self.led_connected:
+            logger.warning('[SCOPE API ] LED controller not available.')
+            return
+        kwargs = {'owner': owner} if owner else {}
+        ex = self._require_executor(self._io_executor, 'led_on_sync')
+        task = IOTask(action=self.led_on, args=(channel, illumination),
+                      kwargs=kwargs)
+        fut = ex.put(task, return_future=True)
+        if fut:
+            fut.result(timeout=timeout)
+
+    def leds_off_sync(self, *, timeout=5):
+        """Run `leds_off` through the io_executor and block until done."""
+        if not self.led_connected:
+            logger.warning('[SCOPE API ] LED controller not available.')
+            return
+        ex = self._require_executor(self._io_executor, 'leds_off_sync')
+        task = IOTask(action=self.leds_off)
+        fut = ex.put(task, return_future=True)
+        if fut:
+            fut.result(timeout=timeout)
+
+    # --- Camera command API ---
+
+    def set_gain_sync(self, gain, *, timeout=5):
+        """Run `set_gain` through the camera_executor and block until done."""
+        ex = self._require_executor(self._camera_executor, 'set_gain_sync')
+        task = IOTask(action=self.set_gain, args=(gain,))
+        fut = ex.put(task, return_future=True)
+        if fut:
+            fut.result(timeout=timeout)
+
+    def set_exposure_sync(self, exposure, *, timeout=5):
+        """Run `set_exposure_time` through the camera_executor and block."""
+        ex = self._require_executor(self._camera_executor, 'set_exposure_sync')
+        task = IOTask(action=self.set_exposure_time, args=(exposure,))
+        fut = ex.put(task, return_future=True)
+        if fut:
+            fut.result(timeout=timeout)
+
+    def capture_and_wait_sync(self, *, timeout=30, **kwargs):
+        """Run `capture_and_wait` through the camera_executor and block.
+        Returns the captured image array, or None on failure.
+        """
+        ex = self._require_executor(self._camera_executor, 'capture_and_wait_sync')
+        task = IOTask(action=self.capture_and_wait, kwargs=kwargs)
+        fut = ex.put(task, return_future=True)
+        if fut:
+            return fut.result(timeout=timeout)
+        return None
+
+    # --- Motion command API ---
+
+    def move_absolute_async(self, axis, pos, *, wait_until_complete=False,
+                            overshoot_enabled=True, callback=None,
+                            cb_kwargs=None):
+        """Submit `move_absolute_position` to the io_executor."""
+        ex = self._require_executor(self._io_executor, 'move_absolute_async')
+        ex.put(IOTask(
+            action=self.move_absolute_position,
+            kwargs={
+                'axis': axis,
+                'pos': pos,
+                'wait_until_complete': wait_until_complete,
+                'overshoot_enabled': overshoot_enabled,
+            },
+            callback=callback,
+            cb_kwargs=cb_kwargs,
+        ))
+
+    def move_absolute_sync(self, axis, pos, *, wait_until_complete=True,
+                           overshoot_enabled=True, timeout=30):
+        """Run `move_absolute_position` through the io_executor and
+        block until both the IOTask completes and (when
+        `wait_until_complete`) the stage has physically arrived."""
+        ex = self._require_executor(self._io_executor, 'move_absolute_sync')
+        task = IOTask(
+            action=self.move_absolute_position,
+            kwargs={
+                'axis': axis,
+                'pos': pos,
+                'wait_until_complete': wait_until_complete,
+                'overshoot_enabled': overshoot_enabled,
+            },
+        )
+        fut = ex.put(task, return_future=True)
+        if fut:
+            fut.result(timeout=timeout)
+
+    def move_relative_async(self, axis, um, *, wait_until_complete=False,
+                            overshoot_enabled=True, callback=None,
+                            cb_kwargs=None):
+        """Submit `move_relative_position` to the io_executor."""
+        ex = self._require_executor(self._io_executor, 'move_relative_async')
+        ex.put(IOTask(
+            action=self.move_relative_position,
+            kwargs={
+                'axis': axis,
+                'um': um,
+                'wait_until_complete': wait_until_complete,
+                'overshoot_enabled': overshoot_enabled,
+            },
+            callback=callback,
+            cb_kwargs=cb_kwargs,
+        ))
+
+    def move_home_async(self, axis, *, callback=None, cb_args=None):
+        """Home an axis (or the whole scope) via the io_executor.
+
+        axis: 'Z' or 'T' homes that single axis. 'ALL' (or legacy 'XY')
+            homes everything the board has via self.home() — firmware
+            homes Z and T first as part of the same routine.
+        """
+        ex = self._require_executor(self._io_executor, 'move_home_async')
+        a = axis.upper()
+        if a == 'Z':
+            ex.put(IOTask(action=self.zhome, callback=callback, cb_args=cb_args))
+        elif a in ('ALL', 'XY'):
+            ex.put(IOTask(action=self.home, callback=callback, cb_args=cb_args))
+        elif a == 'T':
+            ex.put(IOTask(action=self.thome, callback=callback, cb_args=cb_args))
+        else:
+            logger.warning(f'[SCOPE API ] Unknown home axis: {axis}')
 
     # --- Axis state accessors (zero serial I/O) ---
 
