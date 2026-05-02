@@ -497,7 +497,7 @@ class TestMotorConfigDefaults:
         assert f.is_file()
 
     def test_defaults_load(self):
-        from modules.motorconfig import MotorConfig
+        from drivers.motorconfig import MotorConfig
         import pathlib
         mc = MotorConfig(defaults_file=pathlib.Path('data/motorconfig_defaults.json'))
         assert mc.model() in ('LS850', 'LS850T')
@@ -509,7 +509,7 @@ class TestMotorConfigDefaults:
         assert mc.pixel_size() == 2.0
 
     def test_update_from_board_overrides(self):
-        from modules.motorconfig import MotorConfig
+        from drivers.motorconfig import MotorConfig
         import pathlib
         mc = MotorConfig(defaults_file=pathlib.Path('data/motorconfig_defaults.json'))
         mc.update_from_board({'Axis Travel Limit': {'Z': 20}})
@@ -518,7 +518,7 @@ class TestMotorConfigDefaults:
         assert mc.travel_limit_mm('X') == 120
 
     def test_missing_section_returns_default(self):
-        from modules.motorconfig import MotorConfig
+        from drivers.motorconfig import MotorConfig
         import pathlib
         mc = MotorConfig(defaults_file=pathlib.Path('data/motorconfig_defaults.json'))
         # Non-existent section should return default without crashing
@@ -526,7 +526,7 @@ class TestMotorConfigDefaults:
         assert val == 42
 
     def test_optics_fallback(self):
-        from modules.motorconfig import MotorConfig
+        from drivers.motorconfig import MotorConfig
         import pathlib
         # Create a config without Optics section
         mc = MotorConfig.__new__(MotorConfig)

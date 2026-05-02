@@ -21,7 +21,7 @@ import serial
 import pathlib
 from drivers.ledboard import LEDBoard
 from drivers.motorboard import MotorBoard
-from modules.motorconfig import MotorConfig
+from drivers.motorconfig import MotorConfig
 
 _MOTORCONFIG_DEFAULTS = pathlib.Path("data/motorconfig_defaults.json")
 

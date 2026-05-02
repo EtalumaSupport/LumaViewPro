@@ -20,7 +20,7 @@ import pathlib
 import threading
 
 from drivers.registry import motor_registry
-from modules.motorconfig import MotorConfig
+from drivers.motorconfig import MotorConfig
 
 logger = logging.getLogger('LVP.drivers.null_motorboard')
 

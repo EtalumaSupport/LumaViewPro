@@ -18,7 +18,7 @@ import pathlib
 import threading
 import time
 from lvp_logger import logger
-from modules.motorconfig import MotorConfig
+from drivers.motorconfig import MotorConfig
 from drivers.registry import motor_registry
 
 

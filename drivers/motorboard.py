@@ -9,7 +9,7 @@ from lvp_logger import logger
 from drivers.serialboard import SerialBoard
 from drivers.registry import motor_registry
 from modules.exceptions import HardwareError
-from modules.motorconfig import MotorConfig
+from drivers.motorconfig import MotorConfig
 
 
 @motor_registry.register('rp2040', priority=100)
