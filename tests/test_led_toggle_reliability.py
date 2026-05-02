@@ -8,11 +8,15 @@ Two root causes were identified and fixed in the same commit:
 
 Fix A — `disable_leds_for_other_layers` overreach:
   Commit f8951a5 (Fix #614) made disable_leds_for_other_layers() call
-  scope_commands.leds_off() + led_on() on every apply_settings, to ensure
+  scope.leds_off_async() + led_on_async() on every apply_settings, to ensure
   only one LED is physically on when switching channels. That was correct
   for layer switches but wrong for slider-only moves on the active layer,
   which fire apply_settings many times per drag. Result: visible LED
   flicker (off→on) every time the user moves any slider.
+
+  (Originally written as scope_commands.leds_off() / led_on(); migrated
+  to scope.leds_off_async() / scope.led_on_async() in LAYER-A' 2026-05-02
+  when modules/scope_commands.py was consolidated into the Lumascope API.)
 
   Fix: guard the leds_off/led_on cycle with a "is any other layer actually
   on?" check. When only the current layer is lit, skip the bus cycle — the
@@ -88,11 +92,11 @@ class TestFixA_DisableLedsForOtherLayersGuard:
         # Assert the conditional structure: "if any_other_on:" appears before
         # the leds_off call.
         any_on_pos = body.find("if any_other_on:")
-        leds_off_pos = body.find("scope_commands.leds_off")
+        leds_off_pos = body.find("leds_off_async")
         assert any_on_pos != -1, "Missing `if any_other_on:` guard"
-        assert leds_off_pos != -1, "Missing scope_commands.leds_off call"
+        assert leds_off_pos != -1, "Missing leds_off_async call"
         assert any_on_pos < leds_off_pos, (
-            "any_other_on check must come before leds_off call (#617 Fix A)"
+            "any_other_on check must come before leds_off_async call (#617 Fix A)"
         )
 
     def test_disable_leds_preserves_614_semantics(self):
@@ -102,12 +106,13 @@ class TestFixA_DisableLedsForOtherLayersGuard:
         source = LAYER_CONTROL.read_text()
         idx = source.find("def disable_leds_for_other_layers")
         body = source[idx:idx + 2500]
-        # Both commands must still be present inside the function
-        assert "scope_commands.leds_off(ctx.scope, ctx.io_executor)" in body, (
-            "leds_off call removed — #614 fix for layer-switch cleanup lost"
+        # Both commands must still be present inside the function (post
+        # LAYER-A' migration to scope.X_async).
+        assert "ctx.scope.leds_off_async()" in body, (
+            "leds_off_async call removed — #614 fix for layer-switch cleanup lost"
         )
-        assert "scope_commands.led_on(" in body, (
-            "led_on call for current layer removed — #614 fix broken"
+        assert "ctx.scope.led_on_async(" in body, (
+            "led_on_async call for current layer removed — #614 fix broken"
         )
 
 

@@ -84,13 +84,10 @@ def _check_no_toplevel_imports(module_path, forbidden_prefixes):
 # deleted) or its imports change (xfail flips to xpass and the entry
 # can be removed).
 _KNOWN_MODULE_VIOLATIONS = {
-    'ui_helpers.py': (
-        "W-4 / LAYER-A'",
-        "Compatibility shim re-exporting from ui/ui_helpers.py. "
-        "Retires when LAYER-A' (consolidate scope_commands + promote "
-        "move_absolute_position to Lumascope API) lands; the shim file "
-        "is then deleted entirely.",
-    ),
+    # Empty: modules/ui_helpers.py shim retired in LAYER-A' (deleted
+    # along with modules/scope_commands.py). Add new entries here when
+    # an audit surfaces a known-violating file with a stated retire-by
+    # gate.
 }
 
 
