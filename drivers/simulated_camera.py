@@ -20,6 +20,14 @@ from lvp_logger import logger
 from drivers.camera import Camera
 from drivers.registry import camera_registry
 
+# camera.log hookup: simulator records the same per-driver SDK-call
+# trace that real drivers (pyloncamera/idscamera/fx2driver) write, so
+# sim-mode runs produce a populated logs/camera.log for verification.
+try:
+    from lvp_logger import camera_logger as _cam_log
+except ImportError:
+    _cam_log = None
+
 
 @camera_registry.register('sim', priority=100, is_simulator=True)
 class SimulatedCamera(Camera):
@@ -175,6 +183,7 @@ class SimulatedCamera(Camera):
             self.init_camera_config()
             self._grabbing = True
 
+            if _cam_log is not None: _cam_log.info(f'sim Connected: {self.model_name} ({self._device_serial})')
             logger.info(f'[CAM Sim   ] Connected: {self.model_name} ({self._device_serial})')
             return True
 
@@ -183,6 +192,7 @@ class SimulatedCamera(Camera):
             if self.active:
                 self._grabbing = False
                 self.active = None
+                if _cam_log is not None: _cam_log.info('sim Disconnected')
                 logger.info('[CAM Sim   ] Disconnected')
                 return True
             return False
@@ -214,11 +224,13 @@ class SimulatedCamera(Camera):
     def start_grabbing(self):
         with self._lock:
             self._grabbing = True
+            if _cam_log is not None: _cam_log.info('sim start_grabbing')
             logger.info('[CAM Sim   ] start_grabbing')
 
     def stop_grabbing(self):
         with self._lock:
             self._grabbing = False
+            if _cam_log is not None: _cam_log.info('sim stop_grabbing')
             logger.info('[CAM Sim   ] stop_grabbing')
 
     # ------------------------------------------------------------------
@@ -228,6 +240,7 @@ class SimulatedCamera(Camera):
         with self._lock:
             self._width = max(48, min(4096, int(w / 48) * 48))
             self._height = max(4, min(4096, int(h / 4) * 4))
+            if _cam_log is not None: _cam_log.info(f'sim set_frame_size({self._width}x{self._height})')
 
     def get_min_frame_size(self) -> dict:
         return {'width': 48, 'height': 4}
@@ -243,10 +256,12 @@ class SimulatedCamera(Camera):
     # ------------------------------------------------------------------
     def set_pixel_format(self, pixel_format: str) -> bool:
         if pixel_format not in self.PIXEL_FORMATS:
+            if _cam_log is not None: _cam_log.error(f'sim set_pixel_format({pixel_format}) UNSUPPORTED')
             logger.error(f'[CAM Sim   ] Unsupported pixel format: {pixel_format}')
             return False
         with self._lock:
             self._pixel_format = pixel_format
+            if _cam_log is not None: _cam_log.info(f'sim set_pixel_format({pixel_format})')
         return True
 
     def get_pixel_format(self) -> str:
@@ -263,10 +278,12 @@ class SimulatedCamera(Camera):
         if not self.active:
             return
         if t > self.max_exposure:
+            if _cam_log is not None: _cam_log.warning(f'sim ExposureTime.SetValue({t}ms) CLAMPED max={self.max_exposure}ms')
             logger.warning(f'[CAM Sim   ] Exposure {t}ms exceeds max ({self.max_exposure}ms)')
             return
         with self._lock:
             self._exposure_us = float(t) * 1000.0
+            if _cam_log is not None: _cam_log.info(f'sim ExposureTime.SetValue({float(t) * 1000.0:.0f}us) (={t}ms)')
             logger.info(f'[CAM Sim   ] Exposure set to {t}ms')
 
     def get_exposure_t(self):
@@ -299,16 +316,19 @@ class SimulatedCamera(Camera):
             self._frame_rate_limit_enabled = enabled
             if enabled:
                 self._frame_rate_target = fps
+            if _cam_log is not None: _cam_log.info(f'sim set_max_acquisition_frame_rate(enabled={enabled}, fps={fps})')
 
     # ------------------------------------------------------------------
     # Binning
     # ------------------------------------------------------------------
     def set_binning_size(self, size: int) -> bool:
         if size < 1 or size > 4:
+            if _cam_log is not None: _cam_log.error(f'sim set_binning_size({size}) UNSUPPORTED')
             logger.error(f'[CAM Sim   ] Unsupported bin size: {size}')
             return False
         with self._lock:
             self._binning = size
+            if _cam_log is not None: _cam_log.info(f'sim set_binning_size({size})')
         return True
 
     def get_binning_size(self) -> int:
@@ -542,6 +562,7 @@ class SimulatedCamera(Camera):
             return
         with self._lock:
             self._gain = float(gain)
+            if _cam_log is not None: _cam_log.info(f'sim Gain.SetValue({float(gain):.3f})')
             logger.info(f'[CAM Sim   ] Gain set to {gain}')
 
     def init_auto_gain_focus(
@@ -576,6 +597,7 @@ class SimulatedCamera(Camera):
                     self._auto_gain_max = max_gain
                 # Simulate convergence: set gain to mid-range
                 self._gain = (self._auto_gain_min + self._auto_gain_max) / 2.0
+            if _cam_log is not None: _cam_log.info(f'sim auto_gain(state={state}, target={target_brightness}, min={min_gain}, max={max_gain})')
         return True
 
     def auto_gain_once(
