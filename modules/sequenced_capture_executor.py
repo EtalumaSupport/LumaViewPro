@@ -32,7 +32,6 @@ from modules.protocol_execution_record import ProtocolExecutionRecord
 
 from modules.sequential_io_executor import SequentialIOExecutor, IOTask
 from lvp_logger import logger
-from concurrent.futures import ProcessPoolExecutor
 import threading
 
 import modules.app_context as _app_ctx
@@ -81,7 +80,6 @@ class SequencedCaptureExecutor:
         autofocus_io_executor: SequentialIOExecutor,
         autofocus_executor: AutofocusExecutor | None = None,
         z_ui_update_func: typing.Callable | None = None,
-        cpu_pool: ProcessPoolExecutor | None = None,
     ):
         self._coordinate_transformer = coord_transformations.CoordinateTransformer()
         self._wellplate_loader = labware_loader.WellPlateLoader()
@@ -97,7 +95,6 @@ class SequencedCaptureExecutor:
         self._run_in_progress_event = threading.Event()  # GIL-free safe replacement for _run_in_progress bool
         self._cleanup_lock = threading.Lock()
         self._run_lock = threading.Lock()
-        self._cpu_pool = cpu_pool
         self._video_write_finished = threading.Event()
         self._video_write_finished.set()
         self._grease_redistribution_event = threading.Event()
@@ -451,6 +448,14 @@ class SequencedCaptureExecutor:
         ctx = _app_ctx.ctx
         stim_profiling = (ctx.settings.get('profiling', {}).get('stim_profiling', False)
                           if ctx is not None else False)
+        # PIW-3: read once per run under settings_lock to avoid per-save lock acquires
+        # in image_utils.write_tiff. Mid-run UI changes intentionally do not retro-affect
+        # an in-flight protocol — saves use the value as of run-start.
+        if ctx is not None:
+            with ctx.settings_lock:
+                false_color_16bit = ctx.settings.get('false_color_16bit', False)
+        else:
+            false_color_16bit = False
 
         self._image_writer = ProtocolImageWriter(
             scope=self._scope,
@@ -465,6 +470,7 @@ class SequencedCaptureExecutor:
             is_run_in_progress_fn=lambda: self._run_in_progress_event.is_set(),
             stim_profiling=stim_profiling,
             run_dir=self._run_dir,
+            false_color_16bit=false_color_16bit,
         )
 
         self._run_trigger_source = run_trigger_source

@@ -328,7 +328,7 @@ class Lumascope():
         # the right choice for most callers; the pre-B2 default was
         # "pylon" which skipped auto-detect — callers that rely on that
         # continue to pass camera_type='pylon' explicitly.
-        self._image_buffer = None
+        # PF-5: _image_buffer retired — get_image() chains via a local variable.
         self._frame_buffer = None
         self.camera = None
         camera_kwargs: dict = {}
@@ -776,16 +776,6 @@ class Lumascope():
             self._focusing_event.set()
         else:
             self._focusing_event.clear()
-
-    @property
-    def image_buffer(self):
-        with self._state_lock:
-            return self._image_buffer
-
-    @image_buffer.setter
-    def image_buffer(self, value):
-        with self._state_lock:
-            self._image_buffer = value
 
     @property
     def capture_return(self):
@@ -2202,19 +2192,23 @@ class Lumascope():
                     time.sleep(0.05)
                     continue
 
-                if all_ones_check and np.all(tmp == np.iinfo(tmp.dtype).max):
+                if all_ones_check and not np.any(tmp != np.iinfo(tmp.dtype).max):
                     # Saturated frame — retry once to confirm, then accept.
                     # Saturated images are valid data (exposure/illumination
                     # too high), not a camera error. Don't loop until timeout.
+                    retry_frame = None
                     with self._cam_lock:
                         retry_status, _ = self.camera.grab_new_capture(new_capture_timeout) if force_new_capture else self.camera.grab()
                         if retry_status:
                             self.frame_validity.count_frame()
                             retry_frame = self.camera.get_array()
-                            if not np.all(retry_frame == np.iinfo(retry_frame.dtype).max):
-                                tmp = retry_frame  # retry was OK, use it
-                            else:
-                                logger.debug("[SCOPE API ] get_image: saturated frame confirmed on retry")
+                    # Saturation walk is outside cam_lock — no camera state needed,
+                    # and the walk would otherwise block concurrent set_gain/set_exposure.
+                    if retry_frame is not None:
+                        if np.any(retry_frame != np.iinfo(retry_frame.dtype).max):
+                            tmp = retry_frame  # retry was OK, use it
+                        else:
+                            logger.debug("[SCOPE API ] get_image: saturated frame confirmed on retry")
 
                 # Accept the frame
                 if earliest_image_ts is None:
@@ -2240,12 +2234,14 @@ class Lumascope():
 
                 time.sleep(sum_delay_s)
 
-        # Add the images together
+        # PF-5: chain via a local variable instead of self.image_buffer. The
+        # old field was a permanent shadow copy of the latest get_image result,
+        # only ever read by get_image itself — Rule 2 violation that pinned a
+        # frame indefinitely between calls. The _state_lock around per-write
+        # didn't actually serialize concurrent get_image calls anyway (chained
+        # writes from different threads could still interleave).
         if sum_count == 1:
-            if len(tmp_buffer) < 1:
-                self.image_buffer = tmp
-            else:
-                self.image_buffer = tmp_buffer[0]
+            image = tmp if len(tmp_buffer) < 1 else tmp_buffer[0]
         else:
             orig_dtype = tmp_buffer[0].dtype
             max_value = np.iinfo(orig_dtype).max
@@ -2254,24 +2250,24 @@ class Lumascope():
             for img in tmp_buffer:
                 combined += img
 
-            self.image_buffer = np.clip(combined, None, max_value).astype(orig_dtype)
+            image = np.clip(combined, None, max_value).astype(orig_dtype)
 
         use_scale_bar = self._scale_bar['enabled']
         if self._objective is None:
             use_scale_bar = False
 
         if use_scale_bar:
-            self.image_buffer = image_utils.add_scale_bar(
-                image=self.image_buffer,
+            image = image_utils.add_scale_bar(
+                image=image,
                 objective=self._objective,
                 binning_size=self._binning_size,
                 color=self._scale_bar.get('color'),
             )
 
-        if force_to_8bit and self.image_buffer.dtype != np.uint8:
-            self.image_buffer = image_utils.convert_12bit_to_8bit(self.image_buffer)
+        if force_to_8bit and image.dtype != np.uint8:
+            image = image_utils.convert_12bit_to_8bit(image)
 
-        return self.image_buffer
+        return image
 
     def get_image_from_buffer(
         self,
@@ -2513,7 +2509,8 @@ class Lumascope():
         true_color: str,
         x,
         y,
-        z
+        z,
+        out_12to16: np.ndarray | None = None,
     ):
         """Prepare an image array and metadata for saving to disk.
 
@@ -2539,7 +2536,7 @@ class Lumascope():
         metadata = self.generate_image_metadata(color=true_color, x=x, y=y, z=z)
 
         if array.dtype == np.uint16:
-            array = image_utils.convert_12bit_to_16bit(array)
+            array = image_utils.convert_12bit_to_16bit(array, out=out_12to16)
 
         array = np.flip(array, 0)
 
@@ -2571,7 +2568,11 @@ class Lumascope():
         true_color: str = 'BF',
         x=None,
         y=None,
-        z=None
+        z=None,
+        use_false_color_16bit: bool | None = None,
+        out_12to16: np.ndarray | None = None,
+        false_color_buf: np.ndarray | None = None,
+        rgb_buf: np.ndarray | None = None,
     ):
         """Save an image array to a TIFF file with metadata.
 
@@ -2592,8 +2593,10 @@ class Lumascope():
             str: Path to the saved file.
         """
 
-        if (common_utils.check_disk_space() < 1024):  # Check for at least 1 GB of free space
-            logger.error(f"[SCOPE API ] Disk space < 1 GB. Image unlikely to save correctly.")
+        # PIW-2: removed redundant `check_disk_space("/")` warn — checked the wrong
+        # path (root, not save_folder), only logged, and protocol_image_writer.py
+        # already aborts on save-folder space exhaustion. Actual write failures
+        # surface through the try/except below.
 
         image_data = self.prepare_image_for_saving(
             array=array,
@@ -2606,7 +2609,8 @@ class Lumascope():
             true_color=true_color,
             x=x,
             y=y,
-            z=z
+            z=z,
+            out_12to16=out_12to16,
         )
 
         image = image_data['image']
@@ -2625,6 +2629,9 @@ class Lumascope():
                 metadata=metadata,
                 ome=ome,
                 color=color,
+                use_false_color_16bit=use_false_color_16bit,
+                false_color_buf=false_color_buf,
+                rgb_buf=rgb_buf,
             )
 
             logger.info(f'[SCOPE API ] Saving Image to {file_loc}')
@@ -2684,9 +2691,8 @@ class Lumascope():
             str | None: Path to saved file, or None on failure.
         """
 
-        if (common_utils.check_disk_space() < 1024):  # Check for at least 1 GB of free space
-            logger.error(f"[SCOPE API ] Disk space < 1 GB. Image unlikely to save correctly.")
-            
+        # PIW-2: removed redundant `check_disk_space("/")` warn — see save_image() above.
+
         array = self.get_image(
             force_to_8bit=force_to_8bit,
             earliest_image_ts=earliest_image_ts,
@@ -3761,7 +3767,6 @@ class Lumascope():
         instance._move_profile = {ax: None for ax in present_axes}
 
         instance.camera = None
-        instance._image_buffer = None
         instance._frame_buffer = None
 
         # Build capabilities (audit B7) — diagnostic instances still need
@@ -4105,7 +4110,8 @@ class Lumascope():
         true_color: str = 'BF',
         x=None, y=None, z=None,
         objective=None, labware=None, stage_offset=None, coordinate_transformer=None,
-        binning_size=None, exposure_time_ms=None, gain_db=None, illumination_ma=None
+        binning_size=None, exposure_time_ms=None, gain_db=None, illumination_ma=None,
+        use_false_color_16bit: bool | None = None,
     ):
         """CAMERA FUNCTIONS
         save image (as array) to file - static version that doesn't require Lumascope instance
@@ -4161,7 +4167,8 @@ class Lumascope():
                 file_loc=file_loc,
                 metadata=metadata,
                 ome=ome,
-                color=color
+                color=color,
+                use_false_color_16bit=use_false_color_16bit,
             )
 
             logger.info(f'[SCOPE API ] Saving Image to {file_loc}')

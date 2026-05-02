@@ -595,25 +595,6 @@ class TestSerialDebugTruncation:
         assert not resp_repr.endswith('...')
 
 
-class TestWorkerLogPermissions:
-    """Verify worker log files get restricted permissions."""
-
-    def test_log_file_permissions(self, tmp_path):
-        """Worker log files should be owner-only (0o600)."""
-        import os
-        import sys
-        if sys.platform == 'win32':
-            pytest.skip('chmod not meaningful on Windows')
-
-        from modules.sequenced_capture_writer import setup_worker_logger
-        logger = setup_worker_logger(log_dir=str(tmp_path))
-        # Find the log file
-        log_files = list(tmp_path.glob('*.log'))
-        assert len(log_files) == 1
-        mode = oct(log_files[0].stat().st_mode & 0o777)
-        assert mode == '0o600'
-
-
 class TestTechSupportPrivacyNotice:
     """Verify tech support report includes privacy notice."""
 
@@ -1438,3 +1419,559 @@ class TestIssue642_FilesCompleteCallbackRace:
             )
         finally:
             ex.shutdown(wait=True)
+
+
+class TestAOC1_SaturationCheckShortCircuit:
+    """AOC-1: lumascope_api.get_image saturation check uses
+    `not np.any(tmp != max)` (short-circuit) instead of `np.all(tmp == max)`.
+
+    Both forms allocate a bool array, but `np.any` short-circuits on the
+    first True at the C level — for the common (non-saturated) case, the
+    first non-max pixel exits the reduction immediately. Equivalence over
+    saturated / non-saturated / single-pixel-different / all-zero arrays.
+    """
+
+    def test_source_uses_not_any_form(self):
+        from pathlib import Path
+        src = (Path(__file__).resolve().parent.parent / "modules" / "lumascope_api.py").read_text()
+        assert "not np.any(tmp != np.iinfo(tmp.dtype).max)" in src, (
+            "AOC-1: get_image() saturation check should use the short-circuit "
+            "`not np.any(tmp != max)` form."
+        )
+        assert "np.all(tmp == np.iinfo(tmp.dtype).max)" not in src, (
+            "AOC-1: old `np.all(tmp == max)` form should be replaced."
+        )
+
+    def test_logical_equivalence_uint8(self):
+        import numpy as np
+        max_val = np.iinfo(np.uint8).max
+        cases = [
+            np.full((100, 100), max_val, dtype=np.uint8),  # saturated
+            np.zeros((100, 100), dtype=np.uint8),  # all zero
+            np.full((100, 100), max_val // 2, dtype=np.uint8),  # half-max
+            np.full((100, 100), max_val, dtype=np.uint8),  # saturated except one px
+        ]
+        cases[3][50, 50] = max_val - 1  # near-saturated
+        for arr in cases:
+            old = bool(np.all(arr == np.iinfo(arr.dtype).max))
+            new = not np.any(arr != np.iinfo(arr.dtype).max)
+            assert old == new, f"Logical mismatch on uint8 case: old={old}, new={new}"
+
+    def test_logical_equivalence_uint16(self):
+        import numpy as np
+        max_val = np.iinfo(np.uint16).max
+        cases = [
+            np.full((100, 100), max_val, dtype=np.uint16),  # saturated
+            np.zeros((100, 100), dtype=np.uint16),  # all zero
+            np.full((100, 100), max_val // 2, dtype=np.uint16),  # half-max
+            np.full((100, 100), max_val, dtype=np.uint16),  # saturated except one px
+        ]
+        cases[3][50, 50] = max_val - 1  # near-saturated
+        for arr in cases:
+            old = bool(np.all(arr == np.iinfo(arr.dtype).max))
+            new = not np.any(arr != np.iinfo(arr.dtype).max)
+            assert old == new, f"Logical mismatch on uint16 case: old={old}, new={new}"
+
+
+class TestAOC2_RetrySaturationCheckOutsideCamLock:
+    """AOC-2: lumascope_api.get_image saturation-retry path used to hold
+    cam_lock across the np.all validation walk on the retry frame. The walk
+    doesn't need camera state — only the buffer returned from get_array().
+    Holding cam_lock across the walk blocked concurrent set_gain/set_exposure
+    from other threads for ~50-150 ms per saturated retry.
+
+    Fix: move the saturation walk outside the cam_lock block. Retry frame
+    is captured under the lock; the walk runs after the lock is released.
+    Also applies the AOC-1 short-circuit pattern at the retry site
+    (feedback_default_to_expanding_scope — fix the cluster).
+    """
+
+    def test_retry_saturation_walk_is_outside_cam_lock(self):
+        from pathlib import Path
+        src = (Path(__file__).resolve().parent.parent / "modules" / "lumascope_api.py").read_text()
+        # The old form: np.all(retry_frame == ...) inside the with self._cam_lock: block
+        assert "np.all(retry_frame == np.iinfo(retry_frame.dtype).max)" not in src, (
+            "AOC-2: old `np.all(retry_frame == max)` form should be replaced."
+        )
+        # New form: short-circuit np.any check, AND structurally placed in a sibling
+        # block to the cam_lock. Verify the lock-release marker comment is present
+        # AND the retry-frame check uses the AOC-1 pattern.
+        assert "Saturation walk is outside cam_lock" in src, (
+            "AOC-2: expected lock-release marker comment near retry-frame walk."
+        )
+        assert "np.any(retry_frame != np.iinfo(retry_frame.dtype).max)" in src, (
+            "AOC-2: retry-frame check should use the AOC-1 short-circuit pattern."
+        )
+
+    def test_retry_frame_initialized_before_lock_block(self):
+        """Structural: retry_frame must be initialized before the with block so the
+        outside-lock check can reference it whether or not the grab succeeded."""
+        from pathlib import Path
+        src = (Path(__file__).resolve().parent.parent / "modules" / "lumascope_api.py").read_text()
+        # Find the retry block; verify retry_frame = None precedes the with statement.
+        idx_init = src.find("retry_frame = None")
+        idx_lock = src.find("with self._cam_lock:", idx_init)
+        idx_retry_grab = src.find("retry_status", idx_lock)
+        assert idx_init != -1, "AOC-2: expected `retry_frame = None` initializer."
+        assert idx_init < idx_lock < idx_retry_grab, (
+            "AOC-2: retry_frame should be initialized BEFORE the with cam_lock block."
+        )
+
+
+class TestPIW3_FalseColor16bitCachedAtRunStart:
+    """PIW-3: image_utils.write_tiff used to acquire `_app_ctx.ctx.settings_lock`
+    on every TIFF save to read the `false_color_16bit` flag. Same Rule 14 / Rule 2
+    family as PP-7 in the post-processing audit. The setting is read-mostly during
+    a protocol run; per-save acquisition is wasteful and contends with GUI thread
+    settings updates.
+
+    Fix: thread an `use_false_color_16bit` parameter through write_tiff /
+    save_image / save_image_static / ProtocolImageWriter, read once in
+    sequenced_capture_executor at run start, and pass through. write_tiff
+    falls back to the lock-read path when `use_false_color_16bit=None`,
+    preserving behavior for ad-hoc callers.
+    """
+
+    def test_write_tiff_accepts_use_false_color_16bit_param(self):
+        from pathlib import Path
+        src = (Path(__file__).resolve().parent.parent / "modules" / "image_utils.py").read_text()
+        assert "use_false_color_16bit: bool | None = None" in src, (
+            "PIW-3: write_tiff() should accept use_false_color_16bit param."
+        )
+        # The lock acquire should be gated on use_false_color_16bit being None.
+        assert "if use_false_color_16bit is None:" in src, (
+            "PIW-3: settings_lock should be acquired only when caller did not supply the resolved bool."
+        )
+
+    def test_save_image_threads_param_to_write_tiff(self):
+        from pathlib import Path
+        src = (Path(__file__).resolve().parent.parent / "modules" / "lumascope_api.py").read_text()
+        # Both save_image() (instance method) and save_image_static() must accept the param.
+        assert src.count("use_false_color_16bit: bool | None = None") >= 2, (
+            "PIW-3: save_image and save_image_static should both accept use_false_color_16bit."
+        )
+        # Both should pass it through to write_tiff. Count the kwarg passes; expect >= 2.
+        assert src.count("use_false_color_16bit=use_false_color_16bit") >= 2, (
+            "PIW-3: save_image and save_image_static should pass the param to write_tiff."
+        )
+
+    def test_protocol_image_writer_caches_at_init(self):
+        from pathlib import Path
+        src = (Path(__file__).resolve().parent.parent / "modules" / "protocol_image_writer.py").read_text()
+        assert "false_color_16bit: bool = False" in src, (
+            "PIW-3: ProtocolImageWriter.__init__ should accept false_color_16bit."
+        )
+        assert "self._false_color_16bit = false_color_16bit" in src, (
+            "PIW-3: ProtocolImageWriter should cache false_color_16bit on self."
+        )
+        assert "use_false_color_16bit=self._false_color_16bit" in src, (
+            "PIW-3: ProtocolImageWriter should pass the cached value to save_image."
+        )
+
+    def test_sequenced_capture_executor_reads_once_at_run_start(self):
+        from pathlib import Path
+        src = (Path(__file__).resolve().parent.parent / "modules" / "sequenced_capture_executor.py").read_text()
+        # The read must happen under the settings_lock and pass through to the writer.
+        assert "with ctx.settings_lock:" in src, (
+            "PIW-3: false_color_16bit read should be guarded by settings_lock."
+        )
+        assert "false_color_16bit = ctx.settings.get('false_color_16bit', False)" in src, (
+            "PIW-3: expected single read of false_color_16bit from settings."
+        )
+        assert "false_color_16bit=false_color_16bit" in src, (
+            "PIW-3: cached value should be passed to ProtocolImageWriter."
+        )
+
+
+class TestPIW5_Convert12to16OutBuffer:
+    """PIW-5: convert_12bit_to_16bit() allocated a fresh ndarray on every save
+    via image.copy() (~24 MB pulse for protocol-scale images). Same family as
+    F-3 — fresh allocations on the hot save path.
+
+    Fix: add `out=None` parameter; when caller supplies a buffer with matching
+    shape and dtype, reuse it via np.copyto. Plumb a per-run reusable buffer
+    through ProtocolImageWriter -> save_image -> prepare_image_for_saving ->
+    convert_12bit_to_16bit. file_io_executor runs single-threaded so reuse
+    across sequential saves is safe; mismatched shape/dtype falls back to
+    allocation.
+    """
+
+    def test_convert_function_accepts_out_param(self):
+        import numpy as np
+        from modules.image_utils import convert_12bit_to_16bit
+
+        # Functional: shape/dtype-matched out buffer is reused; result is *= 16 of input.
+        src = np.array([[1, 2], [3, 4]], dtype=np.uint16)
+        buf = np.zeros((2, 2), dtype=np.uint16)
+        result = convert_12bit_to_16bit(src, out=buf)
+        assert result is buf, "PIW-5: convert should return the supplied out buffer."
+        np.testing.assert_array_equal(result, src * 16)
+
+        # Mismatched shape: falls back to fresh allocation, no error.
+        bad_buf = np.zeros((3, 3), dtype=np.uint16)
+        result2 = convert_12bit_to_16bit(src, out=bad_buf)
+        assert result2 is not bad_buf, "PIW-5: shape-mismatch should fall back to fresh alloc."
+        np.testing.assert_array_equal(result2, src * 16)
+
+        # No out param: original behavior preserved.
+        result3 = convert_12bit_to_16bit(src)
+        assert result3 is not src, "PIW-5: no-out path should still allocate a fresh array."
+        np.testing.assert_array_equal(result3, src * 16)
+
+    def test_protocol_image_writer_holds_reusable_buffer(self):
+        from pathlib import Path
+        src = (Path(__file__).resolve().parent.parent / "modules" / "protocol_image_writer.py").read_text()
+        assert "self._convert_buf_12to16 = None" in src, (
+            "PIW-5: ProtocolImageWriter should initialize the convert buffer to None."
+        )
+        assert "_get_convert_buf_12to16" in src, (
+            "PIW-5: ProtocolImageWriter should have a buffer-getter helper."
+        )
+        # Shape/dtype guard: the helper must re-allocate on shape change.
+        assert "self._convert_buf_12to16.shape != array.shape" in src, (
+            "PIW-5: buffer helper must re-allocate when input shape changes."
+        )
+        # Save-call site passes the buffer.
+        assert "out_12to16=out_12to16" in src, (
+            "PIW-5: _write_capture should pass the convert buffer to save_image."
+        )
+
+    def test_save_image_threads_out_12to16_to_prepare(self):
+        from pathlib import Path
+        src = (Path(__file__).resolve().parent.parent / "modules" / "lumascope_api.py").read_text()
+        # save_image accepts the param.
+        assert "out_12to16: np.ndarray | None = None" in src, (
+            "PIW-5: save_image / prepare_image_for_saving should accept out_12to16."
+        )
+        # save_image passes to prepare_image_for_saving.
+        assert "out_12to16=out_12to16" in src, (
+            "PIW-5: save_image should pass out_12to16 to prepare_image_for_saving."
+        )
+        # prepare_image_for_saving passes to convert_12bit_to_16bit.
+        assert "convert_12bit_to_16bit(array, out=out_12to16)" in src, (
+            "PIW-5: prepare_image_for_saving should pass out_12to16 to the convert call."
+        )
+
+
+class TestPIW6_PF3_FalseColorRgbPreallocated:
+    """PIW-6 + PF-3 (combined): retire allocations on the false-color save path.
+
+    Before:
+      - add_false_color allocates (H, W, 3) BGR per save (~36 MB uint16)        — PF-3
+      - data[:, :, ::-1] returns a stride-reversed VIEW; tifffile silently
+        calls np.ascontiguousarray on write (~36 MB uint16 alloc)               — PIW-6
+
+    After:
+      - add_false_color(data, color, output=false_color_buf) reuses caller buf  — PF-3
+      - cv2.cvtColor(bgr, COLOR_BGR2RGB, dst=rgb_buf) writes in-place           — PIW-6
+
+    ProtocolImageWriter holds both buffers per run, lazy-allocated together
+    on first uint16 2D save when false-color is enabled. Mismatched shape/dtype
+    re-allocates on demand. file_io_executor runs single-threaded so reuse
+    across sequential saves is safe.
+
+    The cv2.cvtColor approach is more idiomatic in a cv2-based pipeline than
+    the previous numpy stride-reversal + ascontiguousarray pattern.
+    """
+
+    def test_write_tiff_uses_cv2_cvtColor_into_rgb_buf(self):
+        from pathlib import Path
+        src = (Path(__file__).resolve().parent.parent / "modules" / "image_utils.py").read_text()
+        # Old form (as code, not as comment-reference) gone.
+        assert "data = data[:, :, ::-1]" not in src, (
+            "PIW-6: old stride-reversed-view BGR->RGB assignment should be replaced."
+        )
+        # New form: cv2.cvtColor with dst kwarg.
+        assert "cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB, dst=rgb_buf)" in src, (
+            "PIW-6: BGR->RGB should use cv2.cvtColor with dst=rgb_buf for in-place conversion."
+        )
+        # Fallback path when no rgb_buf supplied.
+        assert "cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)" in src, (
+            "PIW-6: fallback path should still call cv2.cvtColor for ad-hoc callers."
+        )
+        # add_false_color is called with the output buffer.
+        assert "add_false_color(data, color, output=false_color_buf)" in src, (
+            "PF-3: add_false_color should be called with output=false_color_buf."
+        )
+
+    def test_write_tiff_signature_includes_buffers(self):
+        from pathlib import Path
+        src = (Path(__file__).resolve().parent.parent / "modules" / "image_utils.py").read_text()
+        assert "false_color_buf: np.ndarray | None = None" in src, (
+            "PF-3: write_tiff should accept false_color_buf param."
+        )
+        assert "rgb_buf: np.ndarray | None = None" in src, (
+            "PIW-6: write_tiff should accept rgb_buf param."
+        )
+
+    def test_protocol_image_writer_holds_both_buffers(self):
+        from pathlib import Path
+        src = (Path(__file__).resolve().parent.parent / "modules" / "protocol_image_writer.py").read_text()
+        assert "self._false_color_buf = None" in src, (
+            "PF-3: ProtocolImageWriter should initialize false_color_buf to None."
+        )
+        assert "self._rgb_buf = None" in src, (
+            "PIW-6: ProtocolImageWriter should initialize rgb_buf to None."
+        )
+        assert "_get_false_color_bufs" in src, (
+            "PF-3 + PIW-6: helper that returns (false_color_buf, rgb_buf) tuple should exist."
+        )
+        # Buffers only allocated when false-color is enabled AND capture is uint16 2D.
+        assert "if self._false_color_16bit and is_uint16_2d:" in src, (
+            "PF-3 + PIW-6: buffer allocation should be gated on false_color_16bit AND uint16 2D."
+        )
+        # Both buffers passed to save_image.
+        assert "false_color_buf=false_color_buf" in src, (
+            "PF-3: false_color_buf should be passed to save_image."
+        )
+        assert "rgb_buf=rgb_buf" in src, (
+            "PIW-6: rgb_buf should be passed to save_image."
+        )
+
+    def test_save_image_threads_buffers_to_write_tiff(self):
+        from pathlib import Path
+        src = (Path(__file__).resolve().parent.parent / "modules" / "lumascope_api.py").read_text()
+        assert "false_color_buf: np.ndarray | None = None" in src, (
+            "PF-3: save_image should accept false_color_buf."
+        )
+        assert "rgb_buf: np.ndarray | None = None" in src, (
+            "PIW-6: save_image should accept rgb_buf."
+        )
+
+    def test_add_false_color_uses_output_buffer(self):
+        """Functional: add_false_color writes into the supplied output buffer."""
+        import numpy as np
+        from modules.image_utils import add_false_color
+        src = np.full((4, 4), 100, dtype=np.uint16)
+        buf = np.full((4, 4, 3), 999, dtype=np.uint16)
+        result = add_false_color(src, 'Blue', output=buf)
+        assert result is buf, "PF-3: add_false_color should return the supplied buffer."
+        np.testing.assert_array_equal(result[:, :, 0], src)
+        assert np.all(result[:, :, 1] == 0), "PF-3: green channel should be zeroed."
+        assert np.all(result[:, :, 2] == 0), "PF-3: red channel should be zeroed."
+
+    def test_cv2_cvtColor_dst_writes_in_place(self):
+        """Functional: cv2.cvtColor with dst= writes BGR->RGB in-place."""
+        import numpy as np
+        import cv2
+        bgr = np.zeros((2, 3, 3), dtype=np.uint16)
+        bgr[:, :, 0] = 1
+        bgr[:, :, 1] = 2
+        bgr[:, :, 2] = 3
+        rgb_buf = np.empty_like(bgr)
+        cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB, dst=rgb_buf)
+        assert np.all(rgb_buf[:, :, 0] == 3), "cv2.cvtColor: R channel"
+        assert np.all(rgb_buf[:, :, 1] == 2), "cv2.cvtColor: G channel"
+        assert np.all(rgb_buf[:, :, 2] == 1), "cv2.cvtColor: B channel"
+
+
+class TestPIW1_NoTheatricalDelCapturedImage:
+    """PIW-1: write_capture had `del captured_image` after save_image() completes.
+    The line is theatrical — captured_image is passed as a kwarg in the IOTask
+    queued at protocol_image_writer.py:303 (`"captured_image": captured_image`).
+    The IOTask.kwargs dict holds the reference until the task completes, so the
+    local `del` only releases a local binding — actual memory reclaim happens
+    when the IOTask is freed after task completion, regardless.
+
+    Misleading "memory free" gesture; remove the line.
+    """
+
+    def test_del_captured_image_line_removed(self):
+        from pathlib import Path
+        src = (Path(__file__).resolve().parent.parent / "modules" / "protocol_image_writer.py").read_text()
+        assert "del captured_image" not in src, (
+            "PIW-1: theatrical `del captured_image` should be removed — IOTask kwargs holds the ref."
+        )
+
+
+class TestPIW2_DisksUsageDeduped:
+    """PIW-2: per-save disk-space check was redundant between
+    `lumascope_api.save_image` / `save_live_image` (both called
+    `common_utils.check_disk_space()` defaulting to "/", logged-only,
+    non-actionable) and `protocol_image_writer._write_capture` (checks the
+    actual save_folder, aborts the protocol on insufficient space).
+
+    The lumascope_api checks (a) checked the wrong path — root filesystem,
+    not the save folder — and (b) only logged at error level without aborting
+    or notifying. The existing try/except in save_image already catches
+    write failures via OSError and surfaces a user notification.
+
+    Fix: remove the redundant lumascope_api checks. Keep the useful
+    protocol_image_writer check at line 350.
+    """
+
+    def test_lumascope_api_disk_check_removed(self):
+        from pathlib import Path
+        src = (Path(__file__).resolve().parent.parent / "modules" / "lumascope_api.py").read_text()
+        # The exact pattern of the redundant warn-only check.
+        assert "if (common_utils.check_disk_space() < 1024):" not in src, (
+            "PIW-2: redundant per-save check_disk_space call should be removed from lumascope_api."
+        )
+        # 'Disk space < 1 GB' was the warn string, also gone.
+        assert "Disk space < 1 GB. Image unlikely to save correctly." not in src, (
+            "PIW-2: corresponding warn log should be removed."
+        )
+
+    def test_protocol_image_writer_disk_check_kept(self):
+        from pathlib import Path
+        src = (Path(__file__).resolve().parent.parent / "modules" / "protocol_image_writer.py").read_text()
+        # The useful check (correct path + abort on exhaustion) must remain.
+        assert "shutil.disk_usage(str(save_folder)).free" in src, (
+            "PIW-2: protocol_image_writer's save-folder disk check should be kept (it's the useful one)."
+        )
+        assert "self._protocol_ended.set()" in src, (
+            "PIW-2: protocol_image_writer's abort-on-low-disk path should still be present."
+        )
+
+
+class TestPF2_FileIoExecutorClearedOnAbort:
+    """PF-2: on hardware-disconnect / abort cleanup, file_io_executor's
+    pending queue was NOT cleared — only io_executor and protocol_executor
+    were. Queued IOTasks hold captured_image references; on a slow drain
+    these can pin GB of memory and lock the next protocol-start until the
+    drain completes.
+
+    Distinct from normal completion, where draining is correct (writes user
+    data to disk). The discriminator is `ProtocolState.ERROR` at cleanup
+    entry — that's an abort path; anything else (COMPLETING, IDLE) is
+    normal end.
+
+    Fix: capture is_aborted from initial state BEFORE the COMPLETING
+    transition, then call file_io_executor.clear_protocol_pending() in the
+    aborted branch alongside the existing io/protocol clear calls. Drain
+    path is unchanged for normal completion.
+    """
+
+    def test_initial_state_captured_before_completing_transition(self):
+        from pathlib import Path
+        src = (Path(__file__).resolve().parent.parent / "modules" / "protocol_cleanup.py").read_text()
+        # The capture must precede the COMPLETING transition so ERROR vs other states
+        # is distinguishable.
+        idx_capture = src.find("is_aborted = (get_state_fn() == ProtocolState.ERROR)")
+        idx_transition = src.find("set_state_fn(ProtocolState.COMPLETING)")
+        assert idx_capture != -1, (
+            "PF-2: cleanup should capture is_aborted from initial state."
+        )
+        assert idx_capture < idx_transition, (
+            "PF-2: is_aborted must be captured BEFORE the COMPLETING state transition."
+        )
+
+    def test_file_io_cleared_on_abort_only(self):
+        from pathlib import Path
+        src = (Path(__file__).resolve().parent.parent / "modules" / "protocol_cleanup.py").read_text()
+        # The abort-branch clear is gated on is_aborted.
+        assert "if is_aborted:" in src, (
+            "PF-2: file_io clear should be gated on is_aborted."
+        )
+        assert "file_io_executor.clear_protocol_pending()" in src, (
+            "PF-2: cleanup should clear file_io_executor's pending queue on abort."
+        )
+        # Existing unconditional clears for the other executors must still be present.
+        assert "io_executor.clear_protocol_pending()" in src, (
+            "PF-2: io_executor.clear_protocol_pending should still be called unconditionally."
+        )
+        assert "protocol_executor.clear_protocol_pending()" in src, (
+            "PF-2: protocol_executor.clear_protocol_pending should still be called unconditionally."
+        )
+
+
+class TestPF5_ImageBufferRetired:
+    """PF-5: Lumascope.image_buffer was a permanent shadow copy of the latest
+    get_image() result — Rule 2 violation. Only ever read by get_image() itself
+    (for chaining sum/scale-bar/8-bit-convert ops), never by external callers.
+    Pinned one frame indefinitely between calls. The _state_lock around per-
+    write didn't actually serialize concurrent get_image calls — chained
+    writes from different threads could still interleave.
+
+    Fix: chain through a local variable in get_image(). Remove the
+    image_buffer property + setter, the _image_buffer attribute, and its
+    initialization in __init__ + diagnostic-instance setup.
+    """
+
+    def test_image_buffer_property_removed(self):
+        from pathlib import Path
+        src = (Path(__file__).resolve().parent.parent / "modules" / "lumascope_api.py").read_text()
+        # Property declaration gone.
+        assert "def image_buffer(self):" not in src, (
+            "PF-5: image_buffer property getter should be removed."
+        )
+        assert "@image_buffer.setter" not in src, (
+            "PF-5: image_buffer property setter should be removed."
+        )
+        # Assignments to self.image_buffer (as code, not in comments) gone.
+        assert "self.image_buffer = " not in src, (
+            "PF-5: all self.image_buffer assignments should be retired in favor of a local variable."
+        )
+
+    def test_image_buffer_attribute_removed(self):
+        from pathlib import Path
+        src = (Path(__file__).resolve().parent.parent / "modules" / "lumascope_api.py").read_text()
+        # The internal _image_buffer attribute init gone.
+        assert "self._image_buffer = None" not in src, (
+            "PF-5: self._image_buffer initialization should be removed."
+        )
+        assert "instance._image_buffer = None" not in src, (
+            "PF-5: diagnostic-instance _image_buffer initialization should also be removed."
+        )
+
+    def test_get_image_returns_local_variable(self):
+        from pathlib import Path
+        src = (Path(__file__).resolve().parent.parent / "modules" / "lumascope_api.py").read_text()
+        # The chain must use a local `image` variable.
+        assert "image = image_utils.add_scale_bar(" in src, (
+            "PF-5: scale-bar step should bind to local `image` instead of self.image_buffer."
+        )
+        assert "image = image_utils.convert_12bit_to_8bit(image)" in src, (
+            "PF-5: 8-bit convert step should bind to local `image`."
+        )
+
+
+class TestPF1_CpuPoolRetired:
+    """PF-1: cpu_pool / use_multiprocessing infrastructure was dead.
+    use_multiprocessing was hardcoded False, so the ProcessPoolExecutor
+    construction at lumaviewpro.py:214-237 never ran. The
+    sequenced_capture_writer.py module was only imported from that dead
+    block — the entire module was unreachable. The cpu_pool param threaded
+    through SequencedCaptureExecutor.__init__ was always None.
+
+    Per IMAGE_PROCESSING_ARCHITECTURE_2026-04-30.md: do NOT pre-build a
+    replacement pool — modules/postprocessing/ and modules/live_processing/
+    will be built greenfield when their first feature lands.
+
+    Fix: deleted modules/sequenced_capture_writer.py entirely. Removed
+    cpu_pool / use_multiprocessing from lumaviewpro.py (declarations,
+    init block, shutdown block, executor kwarg). Removed cpu_pool param
+    from SequencedCaptureExecutor.__init__ + the now-unused
+    ProcessPoolExecutor import. Removed the test that exercised the dead
+    setup_worker_logger function.
+    """
+
+    def test_sequenced_capture_writer_module_deleted(self):
+        from pathlib import Path
+        path = Path(__file__).resolve().parent.parent / "modules" / "sequenced_capture_writer.py"
+        assert not path.exists(), (
+            "PF-1: modules/sequenced_capture_writer.py should be deleted (dead module)."
+        )
+
+    def test_lumaviewpro_no_cpu_pool_or_use_multiprocessing(self):
+        from pathlib import Path
+        src = (Path(__file__).resolve().parent.parent / "lumaviewpro.py").read_text()
+        assert "cpu_pool" not in src, (
+            "PF-1: all cpu_pool references should be removed from lumaviewpro.py."
+        )
+        assert "use_multiprocessing" not in src, (
+            "PF-1: all use_multiprocessing references should be removed from lumaviewpro.py."
+        )
+        assert "from concurrent.futures import ProcessPoolExecutor" not in src, (
+            "PF-1: unused ProcessPoolExecutor import should be removed from lumaviewpro.py."
+        )
+
+    def test_executor_no_cpu_pool_param(self):
+        from pathlib import Path
+        src = (Path(__file__).resolve().parent.parent / "modules" / "sequenced_capture_executor.py").read_text()
+        assert "cpu_pool" not in src, (
+            "PF-1: cpu_pool should be removed from SequencedCaptureExecutor."
+        )
+        assert "from concurrent.futures import ProcessPoolExecutor" not in src, (
+            "PF-1: unused ProcessPoolExecutor import should be removed from sequenced_capture_executor.py."
+        )

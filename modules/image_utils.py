@@ -178,11 +178,17 @@ def convert_12bit_to_8bit(image):
     return _LUT_12_TO_8[image]
 
 
-def convert_12bit_to_16bit(image):
+def convert_12bit_to_16bit(image, out=None):
     if image.dtype == 'uint8':
         return image
 
-    new_image = image.copy()
+    # PIW-5: caller-supplied out buffer eliminates the per-save image.copy() (~24 MB).
+    # Mismatched shape/dtype falls back to fresh allocation rather than failing.
+    if out is not None and out.shape == image.shape and out.dtype == image.dtype:
+        np.copyto(out, image)
+        new_image = out
+    else:
+        new_image = image.copy()
     new_image *= 16
     return new_image
 
@@ -274,27 +280,42 @@ def write_tiff(
         color: str,
         video_frame: bool = False,
         extratags: list = None,
+        use_false_color_16bit: bool | None = None,
+        false_color_buf: np.ndarray | None = None,
+        rgb_buf: np.ndarray | None = None,
 ):
     if extratags is None:
         extratags = []
 
     # Convert 16-bit fluorescence to 3-channel RGB for false color in all viewers.
     # This increases file size ~3x but provides color in Windows Preview and FIJI.
-    # Reads from user settings; defaults to off if settings unavailable.
+    # Caller may pass the resolved bool to skip the per-save settings_lock acquire
+    # (PIW-3); falls back to a one-shot lock read when None for ad-hoc callers.
+    # PF-3: caller-supplied false_color_buf reuses the BGR output of add_false_color.
+    # PIW-6: caller-supplied rgb_buf receives cv2.cvtColor's BGR->RGB output, retiring
+    # the silent ~36 MB ascontiguousarray allocation that tifffile would otherwise do
+    # on the non-contiguous `data[:, :, ::-1]` stride-reversed view.
     if (data.dtype == np.uint16
             and not is_color_image(data)
             and color in common_utils.get_image_layers()):
         try:
-            from modules import app_context as _app_ctx
-            with _app_ctx.ctx.settings_lock:
-                use_false_color_16bit = _app_ctx.ctx.settings.get('false_color_16bit', False)
+            if use_false_color_16bit is None:
+                from modules import app_context as _app_ctx
+                with _app_ctx.ctx.settings_lock:
+                    use_false_color_16bit = _app_ctx.ctx.settings.get('false_color_16bit', False)
             if use_false_color_16bit:
-                data = add_false_color(data, color)
-                # IMPORTANT: add_false_color() returns BGR (OpenCV convention
-                # used throughout the app), but tifffile.imwrite() expects RGB.
-                # This is the ONLY place we convert — all other code paths use
-                # BGR internally. The [::-1] creates a view (no memory copy).
-                data = data[:, :, ::-1]  # BGR → RGB at tifffile save boundary
+                bgr = add_false_color(data, color, output=false_color_buf)
+                # tifffile expects RGB; convert via cv2.cvtColor (idiomatic for a
+                # cv2-based pipeline) into the caller's pre-allocated rgb_buf when
+                # available, falling back to fresh allocation otherwise.
+                expected_shape = (data.shape[0], data.shape[1], 3)
+                if (rgb_buf is not None
+                        and rgb_buf.shape == expected_shape
+                        and rgb_buf.dtype == data.dtype):
+                    cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB, dst=rgb_buf)
+                    data = rgb_buf
+                else:
+                    data = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
         except Exception:
             pass
 
