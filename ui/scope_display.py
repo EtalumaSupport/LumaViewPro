@@ -511,7 +511,7 @@ class ScopeDisplay(Image):
 
         # Update scale bar color based on active channel (black for transmitted, white for fluorescence)
         if active_layer is not None:
-            ctx.scope.set_scale_bar(enabled=ctx.scope.scale_bar_config['enabled'], color=active_layer)
+            ctx.scope.set_scale_bar(enabled=ctx.scope.scale_bar_enabled, color=active_layer)
 
         # Likely not an IO call as image will be stored in buffer
         t_grab_start = time.monotonic()
@@ -565,7 +565,7 @@ class ScopeDisplay(Image):
         t_eng_stats = 0
         if ctx.engineering_mode:
             # Frame validity indicator: update every frame (lightweight canvas op)
-            fv_valid = ctx.scope.frame_validity.is_valid
+            fv_valid = ctx.scope.frame_is_valid
             Clock.schedule_once(lambda dt, v=fv_valid: self._update_validity_dot(v), 0)
 
             # Engineering stats: 2x per second (time-based, not frame-based)

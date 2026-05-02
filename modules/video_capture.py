@@ -71,9 +71,9 @@ class VideoCaptureSession:
         step = self._step
 
         # Drain stale frames before video capture starts
-        while self._scope.frame_validity.frames_until_valid() > 0:
+        while self._scope.frames_until_valid() > 0:
             self._scope.get_image(force_new_capture=True)
-            self._scope.frame_validity.count_frame()
+            self._scope.count_frame()
         # Additional settle for auto-gain first frame
         time.sleep(max(step['Exposure'] / 1000, 0.05))
 

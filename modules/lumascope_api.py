@@ -797,6 +797,36 @@ class Lumascope():
         with self._state_lock:
             return dict(self._scale_bar)
 
+    @property
+    def scale_bar_enabled(self) -> bool:
+        """Whether the scale bar overlay is enabled."""
+        with self._state_lock:
+            return bool(self._scale_bar.get('enabled', False))
+
+    # --- Frame validity accessors (per LAYER-F / Rule 1) ---
+    # External callers must use these instead of reaching through
+    # `self.frame_validity.X` directly. The frame_validity attribute
+    # remains accessible for tests that need to introspect pending state.
+
+    @property
+    def frame_is_valid(self) -> bool:
+        """True if all pending hardware state changes have settled
+        (frame_validity is the SSOT — see modules/frame_validity.py)."""
+        return self.frame_validity.is_valid
+
+    def frames_until_valid(self, exclude_sources: tuple = ()) -> int:
+        """Number of frames that must be grabbed before the next valid
+        frame. Returns 0 if already valid. Delegates to frame_validity.
+        """
+        return self.frame_validity.frames_until_valid(
+            exclude_sources=exclude_sources,
+        )
+
+    def count_frame(self):
+        """Record that a frame was grabbed from the camera. Delegates
+        to frame_validity (no driver call)."""
+        self.frame_validity.count_frame()
+
     # --- Axis state accessors (zero serial I/O) ---
 
     def get_axis_state(self, axis: str) -> str:
