@@ -364,6 +364,19 @@ class SimulatedMotorBoard:
             axis = cmd[len('DRVSTAT_'):]
             return f'{axis}: DRV_STATUS=0x80000000 (standstill)'
 
+        # Fan speed setter — `FAN:<value>` (real firmware accepts a duty
+        # cycle 0-100). Tech-support pulses it 50 → 0 to verify the
+        # tachometer responds; sim just acks. (Read side is FANSPEED.)
+        if cmd.startswith('FAN:'):
+            return f'FAN OK ({cmd[4:]})'
+
+        # Emergency stop. Real firmware halts all motion and resets
+        # target=actual on every axis; sim mirrors that.
+        if cmd == 'STOP':
+            for ax in ('X', 'Y', 'Z', 'T'):
+                self._target[ax] = self._actual[ax]
+            return 'STOP OK'
+
         return f'ERROR: unknown command {cmd}'
 
     def _update_actual(self, axis):
