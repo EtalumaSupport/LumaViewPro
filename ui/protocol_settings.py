@@ -292,6 +292,28 @@ class ProtocolSettings(FloatLayout):
 
         if not visible:
             labware_spinner.text = 'Center Plate'
+        else:
+            # UI-1 follow-up (plate-spinner): when re-enabling labware
+            # selection after a scope switch (e.g., LS620 → LS850), the
+            # spinner widget is re-enabled but the dropdown values are
+            # still locked to ['Center Plate'] from the prior
+            # select_labware('Center Plate') call. User can click the
+            # spinner but has no other choices. Restore the full plate
+            # list and the saved labware. Bug surfaced 2026-05-03 in
+            # sim; UI-1 TODO entry called this out as the "plate-
+            # selection blocking on scope change" follow-up.
+            ctx = _app_ctx.ctx
+            saved_labware = ctx.settings.get('protocol', {}).get('labware')
+            wellplate_loader = ctx.wellplate_loader
+            try:
+                labware_spinner.values = wellplate_loader.get_plate_list()
+                if saved_labware and saved_labware in labware_spinner.values:
+                    labware_spinner.text = saved_labware
+            except Exception as e:
+                logger.warning(
+                    f"[LVP Main  ] Failed to restore labware list on "
+                    f"scope switch: {e}"
+                )
 
 
     def set_show_protocol_step_locations_visibility(self, visible: bool) -> None:
