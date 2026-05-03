@@ -14,12 +14,18 @@ Failure injection (for testing error recovery):
   fail_on={'ZHOME'} — return None for specific commands (simulates timeout)
 """
 
+import logging
 import pathlib
 import threading
 import time
 from lvp_logger import logger
 from drivers.motorconfig import MotorConfig
 from drivers.registry import motor_registry
+
+# SIM-SERIAL-LOG: emit the same serial.log line shape that the real
+# SerialBoard does (`{label} {command} -> {resp} ({elapsed_ms}ms)`).
+# See drivers/simulated_ledboard.py for rationale.
+_serial_log = logging.getLogger('LVP.serial')
 
 
 @motor_registry.register('sim', priority=100, is_simulator=True)
@@ -201,6 +207,7 @@ class SimulatedMotorBoard:
 
     def exchange_command(self, command, response_numlines=1, timeout=None):
         with self.thread_lock:
+            t_start = time.monotonic()
             if self.driver is None:
                 try:
                     self.connect()
@@ -215,17 +222,30 @@ class SimulatedMotorBoard:
                 logger.warning(f'[XYZ Sim   ] INJECTED FAILURE: disconnect after {self._fail_after} commands')
                 self.driver = None
                 self.found = False
+                _serial_log.warning(
+                    f'[XYZ Sim] {command} -> INJECTED DISCONNECT '
+                    f'({(time.monotonic() - t_start) * 1000:.1f}ms)'
+                )
                 return None
 
             # Failure injection: fail on specific commands
             cmd_word = command.strip().split()[0] if command else ''
             if cmd_word in self._fail_on:
                 logger.warning(f'[XYZ Sim   ] INJECTED FAILURE: timeout on {cmd_word}')
+                _serial_log.warning(
+                    f'[XYZ Sim] {command} -> INJECTED TIMEOUT '
+                    f'({(time.monotonic() - t_start) * 1000:.1f}ms)'
+                )
                 return None
 
             self._sim_delay(command)
             response = self._handle_command(command)
+            elapsed_ms = (time.monotonic() - t_start) * 1000
             logger.debug(f'[XYZ Sim   ] exchange_command({command}) -> {response}')
+            resp_repr = repr(response)
+            if len(resp_repr) > 200:
+                resp_repr = resp_repr[:200] + '...'
+            _serial_log.info(f'[XYZ Sim] {command} -> {resp_repr} ({elapsed_ms:.1f}ms)')
             if response_numlines == 1:
                 return response
             return [response]

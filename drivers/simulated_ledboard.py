@@ -14,10 +14,18 @@ Failure injection (for testing error recovery):
   fail_on={'LEDS_ENT'} — return None for specific commands (simulates timeout)
 """
 
+import logging
 import threading
 import time
 from lvp_logger import logger
 from drivers.registry import led_registry
+
+# SIM-SERIAL-LOG: emit the same serial.log line shape that the real
+# SerialBoard does (`{label} {command} -> {resp} ({elapsed_ms}ms)`).
+# Without this, sim runs leave serial.log empty and the operator can't
+# inspect "what is LVP actually sending? are there duplicates? what's
+# the timing?" — which is the whole reason for running in sim mode.
+_serial_log = logging.getLogger('LVP.serial')
 
 
 @led_registry.register('sim', priority=100, is_simulator=True)
@@ -119,6 +127,7 @@ class SimulatedLEDBoard:
 
     def exchange_command(self, command, response_numlines=1, timeout=None):
         with self._lock:
+            t_start = time.monotonic()
             if self.driver is None:
                 try:
                     self.connect()
@@ -133,17 +142,30 @@ class SimulatedLEDBoard:
                 logger.warning(f'[LED Sim   ] INJECTED FAILURE: disconnect after {self._fail_after} commands')
                 self.driver = None
                 self.found = False
+                _serial_log.warning(
+                    f'[LED Sim] {command} -> INJECTED DISCONNECT '
+                    f'({(time.monotonic() - t_start) * 1000:.1f}ms)'
+                )
                 return None
 
             # Failure injection: fail on specific commands
             cmd_word = command.strip().split('_')[0] if command else ''
             if command.strip() in self._fail_on:
                 logger.warning(f'[LED Sim   ] INJECTED FAILURE: timeout on {command.strip()}')
+                _serial_log.warning(
+                    f'[LED Sim] {command} -> INJECTED TIMEOUT '
+                    f'({(time.monotonic() - t_start) * 1000:.1f}ms)'
+                )
                 return None
 
             self._sim_delay()
             response = f"RE: {command}"
+            elapsed_ms = (time.monotonic() - t_start) * 1000
             logger.debug(f'[LED Sim   ] exchange_command({command}) -> {response}')
+            resp_repr = repr(response)
+            if len(resp_repr) > 200:
+                resp_repr = resp_repr[:200] + '...'
+            _serial_log.info(f'[LED Sim] {command} -> {resp_repr} ({elapsed_ms:.1f}ms)')
             return response
 
     def exchange_multiline(self, command, timeout=60, end_markers=None):
@@ -152,6 +174,7 @@ class SimulatedLEDBoard:
 
     def _write_command_fast(self, command: str):
         with self._lock:
+            t_start = time.monotonic()
             if self.driver is None:
                 try:
                     self.connect()
@@ -166,10 +189,17 @@ class SimulatedLEDBoard:
                 logger.warning(f'[LED Sim   ] INJECTED FAILURE: disconnect after {self._fail_after} commands')
                 self.driver = None
                 self.found = False
+                _serial_log.warning(
+                    f'[LED Sim] {command} -> INJECTED DISCONNECT (write_fast) '
+                    f'({(time.monotonic() - t_start) * 1000:.1f}ms)'
+                )
                 return
 
             # No delay on fast path
+            elapsed_ms = (time.monotonic() - t_start) * 1000
             logger.debug(f'[LED Sim   ] _write_command_fast({command})')
+            # SIM-SERIAL-LOG: write-only path → mark as TX with no response
+            _serial_log.info(f'[LED Sim] {command} -> TX (write_fast, {elapsed_ms:.1f}ms)')
 
     def _close_driver(self):
         self.driver = None
