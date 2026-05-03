@@ -771,7 +771,20 @@ class FirmwareDiagnostics:
         return self._cmd(self.motor_board, 'INFO')
 
     def get_motor_fullinfo(self):
-        return self._cmd(self.motor_board, 'FULLINFO')
+        """Fetch motor-board FULLINFO with per-instance cache.
+
+        FULLINFO is a static, multi-line dump of model/serial/firmware/
+        homing status — it doesn't change during a tech-support run.
+        Pre-cache fix, the first sim run at 2026-05-03 showed FULLINFO
+        firing twice ~2 ms apart during a single report generation:
+        once via ``get_serial_number()`` (called for the report
+        filename) and once via ``_step_motor_diagnostics()`` (called
+        for the report body). Caching avoids the duplicate serial round
+        trip and slightly speeds up tech-support runs.
+        """
+        if not hasattr(self, '_cached_motor_fullinfo'):
+            self._cached_motor_fullinfo = self._cmd(self.motor_board, 'FULLINFO')
+        return self._cached_motor_fullinfo
 
     def get_serial_number(self):
         """Extract serial number from FULLINFO.
