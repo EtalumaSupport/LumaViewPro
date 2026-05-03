@@ -64,6 +64,7 @@ References
 from __future__ import annotations
 
 import atexit
+import logging
 import math
 import os
 import sys
@@ -78,6 +79,25 @@ import numpy as np
 from lvp_logger import logger
 from drivers.camera import Camera, ImageHandlerBase
 from drivers.registry import camera_registry, led_registry
+
+# Wire-level logging for the FX2 (LumaviewClassic LS560/620/720) USB
+# control-transfer + I2C path. Without this, every i2c_write to set LED
+# brightness, every objective turret move, every sensor register write
+# happens with zero serial.log trace — invisible from the supported
+# debug surface. Adds the same `serial.log` line shape SerialBoard uses
+# (`{label} {op} -> {result} ({elapsed_ms}ms)`), so a single grep on
+# `serial.log` covers RP2040 LED + RP2040 motor + sim + FX2 in one
+# place.
+_serial_log = logging.getLogger('LVP.serial')
+
+# Vendor-request integer → human-readable name. Populated lazily after
+# the VR_* constants below are defined.
+_VR_NAMES: dict[int, str] = {}
+
+
+def _vr_name(req: int) -> str:
+    """Return a human-readable name for a vendor request, or hex fallback."""
+    return _VR_NAMES.get(req, f'VR_0x{req:02X}')
 
 try:
     import usb.core
@@ -160,6 +180,25 @@ VR_SET_IFCLK_SRC = 0xBB
 VR_CODE_VERSION = 0xBC
 VR_START_STREAMING = 0xBD
 VR_STOP_STREAMING = 0xBE
+
+# Populate _VR_NAMES once constants are defined (used by serial.log
+# emission below for human-readable trace lines).
+_VR_NAMES.update({
+    VR_ANCHOR_DLD:        'VR_ANCHOR_DLD',
+    VR_I2C_READ:          'VR_I2C_READ',
+    VR_I2C_WRITE:         'VR_I2C_WRITE',
+    VR_I2C_MT9P031_READ:  'VR_I2C_MT9P031_READ',
+    VR_INIT_GPIF:         'VR_INIT_GPIF',
+    VR_SET_IFCLK_SRC:     'VR_SET_IFCLK_SRC',
+    VR_CODE_VERSION:      'VR_CODE_VERSION',
+    VR_START_STREAMING:   'VR_START_STREAMING',
+    VR_STOP_STREAMING:    'VR_STOP_STREAMING',
+})
+
+# Vendor requests that the i2c_write / i2c_read wrappers route through
+# control_transfer_*. Logged at the i2c_* layer (with addr/data); the
+# control_transfer_* layer skips them to avoid double-emission.
+_I2C_VR_REQUESTS = frozenset({VR_I2C_READ, VR_I2C_WRITE})
 
 # I2C addresses
 I2C_SENSOR = 0x5D   # MT9P031 image sensor
@@ -695,18 +734,40 @@ class _FX2Connection:
         on Windows), or the pyusb handle otherwise. Callers don't need
         to care which path is active.
         """
-        with self._lock:
-            if self._iso_handle_for_ctrl is not None:
-                return self._iso_handle_for_ctrl.controlWrite(
-                    0x40, request, value, index, data, timeout=timeout
+        t_start = time.monotonic()
+        try:
+            with self._lock:
+                if self._iso_handle_for_ctrl is not None:
+                    result = self._iso_handle_for_ctrl.controlWrite(
+                        0x40, request, value, index, data, timeout=timeout
+                    )
+                elif self._winusb_reader_for_ctrl is not None:
+                    result = self._winusb_reader_for_ctrl.device.control_transfer(
+                        0x40, request, value, index, data=data
+                    )
+                else:
+                    result = self._dev.ctrl_transfer(
+                        0x40, request, value, index, data, timeout=timeout
+                    )
+        except Exception as e:
+            elapsed_ms = (time.monotonic() - t_start) * 1000
+            if request not in _I2C_VR_REQUESTS:
+                _serial_log.error(
+                    f'[FX2] {_vr_name(request)} OUT value=0x{value:04X} '
+                    f'index=0x{index:04X} len={len(data)} -> EXCEPTION: '
+                    f'{type(e).__name__}: {e} ({elapsed_ms:.1f}ms)'
                 )
-            if self._winusb_reader_for_ctrl is not None:
-                return self._winusb_reader_for_ctrl.device.control_transfer(
-                    0x40, request, value, index, data=data
-                )
-            return self._dev.ctrl_transfer(
-                0x40, request, value, index, data, timeout=timeout
+            raise
+        elapsed_ms = (time.monotonic() - t_start) * 1000
+        # Skip log emission for I2C ops — the i2c_write wrapper logs
+        # with richer detail (addr + data bytes).
+        if request not in _I2C_VR_REQUESTS:
+            _serial_log.info(
+                f'[FX2] {_vr_name(request)} OUT value=0x{value:04X} '
+                f'index=0x{index:04X} len={len(data)} -> result={result} '
+                f'({elapsed_ms:.1f}ms)'
             )
+        return result
 
     def control_transfer_in(
         self,
@@ -717,18 +778,43 @@ class _FX2Connection:
         timeout: int = 5000,
     ):
         """Thread-safe vendor IN control transfer (same routing as OUT)."""
-        with self._lock:
-            if self._iso_handle_for_ctrl is not None:
-                return self._iso_handle_for_ctrl.controlRead(
-                    0xC0, request, value, index, length, timeout=timeout
+        t_start = time.monotonic()
+        try:
+            with self._lock:
+                if self._iso_handle_for_ctrl is not None:
+                    result = self._iso_handle_for_ctrl.controlRead(
+                        0xC0, request, value, index, length, timeout=timeout
+                    )
+                elif self._winusb_reader_for_ctrl is not None:
+                    result = self._winusb_reader_for_ctrl.device.control_transfer(
+                        0xC0, request, value, index, length=length
+                    )
+                else:
+                    result = self._dev.ctrl_transfer(
+                        0xC0, request, value, index, length, timeout=timeout
+                    )
+        except Exception as e:
+            elapsed_ms = (time.monotonic() - t_start) * 1000
+            if request not in _I2C_VR_REQUESTS:
+                _serial_log.error(
+                    f'[FX2] {_vr_name(request)} IN value=0x{value:04X} '
+                    f'index=0x{index:04X} length={length} -> EXCEPTION: '
+                    f'{type(e).__name__}: {e} ({elapsed_ms:.1f}ms)'
                 )
-            if self._winusb_reader_for_ctrl is not None:
-                return self._winusb_reader_for_ctrl.device.control_transfer(
-                    0xC0, request, value, index, length=length
-                )
-            return self._dev.ctrl_transfer(
-                0xC0, request, value, index, length, timeout=timeout
+            raise
+        elapsed_ms = (time.monotonic() - t_start) * 1000
+        if request not in _I2C_VR_REQUESTS:
+            # Truncate large reads (sensor reg reads are 2 bytes; a long
+            # response would overflow the line).
+            result_repr = repr(bytes(result)) if result is not None else 'None'
+            if len(result_repr) > 200:
+                result_repr = result_repr[:200] + '...'
+            _serial_log.info(
+                f'[FX2] {_vr_name(request)} IN value=0x{value:04X} '
+                f'index=0x{index:04X} length={length} -> {result_repr} '
+                f'({elapsed_ms:.1f}ms)'
             )
+        return result
 
     def i2c_write(self, addr: int, data):
         """Write bytes to the I2C bus via vendor request 0xB3.
@@ -739,13 +825,46 @@ class _FX2Connection:
         `len(data)`. Pre-2026-04-15 this method discarded the result,
         which masked silent short-write failures in `_led_write`.
         """
-        return self.control_transfer_out(
-            VR_I2C_WRITE, value=0, index=addr, data=bytes(data)
+        t_start = time.monotonic()
+        try:
+            result = self.control_transfer_out(
+                VR_I2C_WRITE, value=0, index=addr, data=bytes(data)
+            )
+        except Exception as e:
+            elapsed_ms = (time.monotonic() - t_start) * 1000
+            _serial_log.error(
+                f'[FX2 I2C] WRITE addr=0x{addr:02X} data={bytes(data)!r} '
+                f'-> EXCEPTION: {type(e).__name__}: {e} ({elapsed_ms:.1f}ms)'
+            )
+            raise
+        elapsed_ms = (time.monotonic() - t_start) * 1000
+        _serial_log.info(
+            f'[FX2 I2C] WRITE addr=0x{addr:02X} data={bytes(data)!r} '
+            f'-> result={result} ({elapsed_ms:.1f}ms)'
         )
+        return result
 
     def i2c_read(self, addr: int, length: int):
         """Read bytes from the I2C bus via vendor request 0xB2."""
-        return self.control_transfer_in(VR_I2C_READ, value=0, index=addr, length=length)
+        t_start = time.monotonic()
+        try:
+            result = self.control_transfer_in(VR_I2C_READ, value=0, index=addr, length=length)
+        except Exception as e:
+            elapsed_ms = (time.monotonic() - t_start) * 1000
+            _serial_log.error(
+                f'[FX2 I2C] READ addr=0x{addr:02X} length={length} -> '
+                f'EXCEPTION: {type(e).__name__}: {e} ({elapsed_ms:.1f}ms)'
+            )
+            raise
+        elapsed_ms = (time.monotonic() - t_start) * 1000
+        result_repr = repr(bytes(result)) if result is not None else 'None'
+        if len(result_repr) > 200:
+            result_repr = result_repr[:200] + '...'
+        _serial_log.info(
+            f'[FX2 I2C] READ addr=0x{addr:02X} length={length} -> '
+            f'{result_repr} ({elapsed_ms:.1f}ms)'
+        )
+        return result
 
     def sensor_reg_write(self, reg: int, value: int):
         """Write 16-bit value to an MT9P031 register via VR_I2C_WRITE (0xB3).
