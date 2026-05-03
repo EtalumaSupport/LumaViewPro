@@ -226,17 +226,28 @@ class MotionSettings(BoxLayout):
         # ``etaluma_engineering`` plugin tab, registered at runtime
         # AFTER kv build). Untracked items belong at the BOTTOM of the
         # display per Eric 2026-05-03 — they're auxiliary surfaces, not
-        # primary navigation. Without this preserve-and-append step my
-        # earlier resort left them at children[-1] = top of display.
-        tracked_ids = {id(w) for w in widget_for_layer.values() if w is not None}
+        # primary navigation.
+        #
+        # Kivy gotcha (caught 2026-05-03 via runtime diagnostic): the
+        # ``self.ids.get('foo_id')`` lookup returns a Kivy ``WeakProxy``
+        # — ``id(weakproxy) != id(real_widget)``. So a tracked-set keyed
+        # on Python ``id()`` matched ONLY widgets that were stored
+        # directly as instance attributes (xystage), and the four
+        # kv-id-resolved widgets (microscope / objective / protocol /
+        # postproc) were misclassified as untracked. They got re-added
+        # in their pre-resort order at children index 0, which moved
+        # XY Stage Control to the top instead of leaving it in slot 2.
+        # Fix: compare via ``widget.uid`` — Kivy's stable per-widget
+        # integer that proxies correctly through WeakProxy.
+        tracked_uids = {w.uid for w in widget_for_layer.values() if w is not None}
         # Capture untracked widgets in their pre-resort order — they
         # render in REVERSE children order, so children[0] is the
         # bottom-most in the display today.
         untracked_in_display_order = [
             w for w in list(reversed(accordion.children))
-            if id(w) not in tracked_ids
+            if w.uid not in tracked_uids
         ]
-        present_tracked = [w for w in list(accordion.children) if id(w) in tracked_ids]
+        present_tracked = [w for w in list(accordion.children) if w.uid in tracked_uids]
         for widget in present_tracked:
             accordion.remove_widget(widget)
         for widget in untracked_in_display_order:
@@ -276,6 +287,7 @@ class MotionSettings(BoxLayout):
                 except Exception:
                     pass
             accordion.add_widget(widget, 0)
+
 
 
     def set_turret_control_visibility(self, visible: bool) -> None:

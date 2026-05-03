@@ -333,8 +333,16 @@ class ImageSettings(BoxLayout):
         # Kivy's parent attribute can lag the children list during
         # add_widget calls inside the same event tick. Membership in
         # ``accordion.children`` is the ground truth.
-        tracked_widgets = {id(w) for w in widget_for_layer.values() if w is not None}
-        present = [w for w in list(accordion.children) if id(w) in tracked_widgets]
+        #
+        # Compare via ``widget.uid`` rather than Python ``id()`` because
+        # ``self.ids.get(...)`` returns a Kivy WeakProxy whose Python id
+        # differs from the underlying widget's id. Today all the
+        # right-side widgets are python instance refs (no kv ids in
+        # ``widget_for_layer``) so id() happens to work, but the left-
+        # side resort hit this exact trap 2026-05-03 — using uid is the
+        # defensive choice.
+        tracked_uids = {w.uid for w in widget_for_layer.values() if w is not None}
+        present = [w for w in list(accordion.children) if w.uid in tracked_uids]
         for widget in present:
             accordion.remove_widget(widget)
 
