@@ -26,6 +26,17 @@ class MotionSettings(BoxLayout):
     settings_width = dp(300)
     tab_width = dp(30)
 
+    # Canonical top-to-bottom display order for the LEFT-side accordion.
+    # Mirrors the right-side _LAYER_DISPLAY_ORDER pattern in
+    # ui/image_settings.py. Used by _resort_accordion() so live
+    # scope-model transitions (LS850 ↔ LS820 ↔ LS620, etc.) keep the
+    # accordion items in canonical order regardless of which were
+    # hidden / re-shown along the way (UI-1 left-side follow-up,
+    # 2026-05-03).
+    _LAYER_DISPLAY_ORDER = (
+        'microscope', 'objective', 'xystage', 'protocol', 'postproc',
+    )
+
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         logger.debug('[LVP Main  ] MotionSettings.__init__()')
@@ -133,6 +144,7 @@ class MotionSettings(BoxLayout):
         if not self._accordion_item_xystagecontrol_visible:
             self._accordion_item_xystagecontrol_visible = True
             self.ids['motionsettings_accordion_id'].add_widget(self._accordion_item_xystagecontrol, 2)
+            self._resort_accordion()
 
 
     def _hide_xystage_control(self):
@@ -165,6 +177,7 @@ class MotionSettings(BoxLayout):
         if widget is not None and not self._accordion_item_objective_control_visible:
             self._accordion_item_objective_control_visible = True
             self.ids['motionsettings_accordion_id'].add_widget(widget)
+            self._resort_accordion()
 
 
     def _hide_objective_control(self):
@@ -173,6 +186,62 @@ class MotionSettings(BoxLayout):
             widget.collapse = True
             self._accordion_item_objective_control_visible = False
             self.ids['motionsettings_accordion_id'].remove_widget(widget)
+
+
+    def _resort_accordion(self):
+        """Rebuild the left-side accordion children list in canonical order.
+
+        Mirrors ui/image_settings.ImageSettings._resort_accordion. Live
+        scope-model transitions (LS850 ↔ LS620 ↔ LS820) re-add
+        previously hidden accordion items via add_widget — and after
+        multiple switches the children list ends up out of canonical
+        order (e.g. Objective Control re-shown ends up at the bottom
+        instead of below Microscope Settings). Called from every
+        ``_show_*`` path after the add_widget call. Walks
+        ``_LAYER_DISPLAY_ORDER`` forward — Kivy renders children[0]
+        last (= bottom), so the first canonical layer added ends up
+        at children[-1] = TOP of the visual accordion.
+        """
+        accordion = self.ids.get('motionsettings_accordion_id') if hasattr(self, 'ids') else None
+        if accordion is None:
+            return
+
+        widget_for_layer = {
+            'microscope': self.ids.get('motionsettings_microscope_accordion_id'),
+            'objective':  self._resolve_objective_accordion(),
+            'xystage':    self._accordion_item_xystagecontrol,
+            'protocol':   self.ids.get('motionsettings_protocol_accordion_id'),
+            'postproc':   self.ids.get('motionsettings_postprocessing_accordion_id'),
+        }
+        visible_for_layer = {
+            'microscope': True,  # always visible (kv-defined)
+            'objective':  self._accordion_item_objective_control_visible,
+            'xystage':    self._accordion_item_xystagecontrol_visible,
+            'protocol':   True,  # always visible (kv-defined)
+            'postproc':   True,  # always visible (kv-defined)
+        }
+
+        # Remove all tracked widgets currently in the accordion. Walk
+        # accordion.children directly by id-membership — Kivy's parent
+        # attribute can lag children list during a single event tick
+        # (this exact mismatch was the right-side UI-1 follow-up bug).
+        tracked_ids = {id(w) for w in widget_for_layer.values() if w is not None}
+        present = [w for w in list(accordion.children) if id(w) in tracked_ids]
+        for widget in present:
+            accordion.remove_widget(widget)
+
+        for layer in self._LAYER_DISPLAY_ORDER:
+            if not visible_for_layer.get(layer, False):
+                continue
+            widget = widget_for_layer.get(layer)
+            if widget is None:
+                continue
+            if widget.parent is not None:
+                try:
+                    widget.parent.remove_widget(widget)
+                except Exception:
+                    pass
+            accordion.add_widget(widget)
 
 
     def set_turret_control_visibility(self, visible: bool) -> None:
