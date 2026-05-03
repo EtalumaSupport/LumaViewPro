@@ -328,17 +328,37 @@ class ImageSettings(BoxLayout):
             'Lumi':  self._accordion_item_lumi_control_visible,
         }
 
-        for layer in self._LAYER_DISPLAY_ORDER:
-            widget = widget_for_layer.get(layer)
-            if widget is not None and widget.parent is accordion:
-                accordion.remove_widget(widget)
+        # Walk the live children list directly and remove any widget we
+        # track. ``widget.parent is accordion`` was unreliable here —
+        # Kivy's parent attribute can lag the children list during
+        # add_widget calls inside the same event tick. Membership in
+        # ``accordion.children`` is the ground truth.
+        tracked_widgets = {id(w) for w in widget_for_layer.values() if w is not None}
+        present = [w for w in list(accordion.children) if id(w) in tracked_widgets]
+        for widget in present:
+            accordion.remove_widget(widget)
 
-        for layer in reversed(self._LAYER_DISPLAY_ORDER):
+        # Walk forward through canonical order. ``add_widget`` with no
+        # index prepends to the children list; the accordion renders
+        # children in reverse order (children[0] is drawn last → bottom),
+        # so the FIRST canonical layer added ends up at the bottom of
+        # the children list and at the TOP of the visual accordion. The
+        # final iteration (Lumi) lands at children[0] → bottom of display.
+        for layer in self._LAYER_DISPLAY_ORDER:
             if not visible_for_layer.get(layer, False):
                 continue
             widget = widget_for_layer.get(layer)
-            if widget is not None:
-                accordion.add_widget(widget)
+            if widget is None:
+                continue
+            # Defensive: if a widget still has a parent (e.g. transient
+            # state during animation), detach it before adding so kivy
+            # doesn't raise "already has a parent".
+            if widget.parent is not None:
+                try:
+                    widget.parent.remove_widget(widget)
+                except Exception:
+                    pass
+            accordion.add_widget(widget)
 
 
     def _init_ui(self, dt=0):
