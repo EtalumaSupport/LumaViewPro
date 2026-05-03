@@ -341,6 +341,29 @@ class SimulatedMotorBoard:
         if cmd.startswith('AMAX') or cmd.startswith('DMAX'):
             return '30000'
 
+        # Tech-support diagnostic commands. The Python-level helpers
+        # (get_voltage / get_current / get_motordetect / read_status)
+        # already return realistic shapes — but tech_support_report
+        # talks to the board via raw exchange_command (LV-24 layer), so
+        # the raw-text branches need to mirror the same content.
+        if cmd == 'VOLTAGE':
+            return '24V=OK 5V=N/A 3V3=N/A 1V2=N/A'
+        if cmd == 'FANSPEED':
+            return 'FANSPEED 1500 RPM'
+        if cmd == 'MOTORDETECT':
+            return ('X: detected=True configured=True\n'
+                    'Y: detected=True configured=True\n'
+                    'Z: detected=True configured=True\n'
+                    'T: detected=True configured=True')
+        if cmd == 'CURRENT':
+            return ('X: CS_ACTUAL=0 IRUN=10 IHOLD=3 SG_RESULT=0\n'
+                    'Y: CS_ACTUAL=0 IRUN=10 IHOLD=3 SG_RESULT=0\n'
+                    'Z: CS_ACTUAL=0 IRUN=17 IHOLD=4 SG_RESULT=0\n'
+                    'T: CS_ACTUAL=0 IRUN=5  IHOLD=7 SG_RESULT=0')
+        if cmd.startswith('DRVSTAT_'):
+            axis = cmd[len('DRVSTAT_'):]
+            return f'{axis}: DRV_STATUS=0x80000000 (standstill)'
+
         return f'ERROR: unknown command {cmd}'
 
     def _update_actual(self, axis):
