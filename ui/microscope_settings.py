@@ -603,8 +603,37 @@ class MicroscopeSettings(BoxLayout):
 
                     layer_obj.update_stim_controls_visibility()
 
-        except Exception:
-            logger.exception('[LVP Main  ] Incompatible JSON file for Microscope Settings')
+        except json.JSONDecodeError as e:
+            # Real "incompatible JSON" — file content can't be parsed.
+            logger.error(
+                f"[LVP Main  ] load_settings: JSON parse error in {filename}: {e}"
+            )
+        except FileNotFoundError as e:
+            logger.error(
+                f"[LVP Main  ] load_settings: settings file missing: {e}"
+            )
+        except Exception as e:
+            # LOG-3 / UI-LOAD-1: this used to log "Incompatible JSON file
+            # for Microscope Settings" for ANY exception during load. Per
+            # CLAUDE.md Rule 20, the message must name the actual failure
+            # mode — kivy widget exceptions, attribute errors, etc. were
+            # being misattributed to the JSON file. Bit us 2026-05-03
+            # debugging the UI-1 follow-up: the wrapped wording sent the
+            # operator to the JSON file when the bug was in widget code,
+            # AND the swallow let execution continue into a second crash
+            # in set_ui_features_for_scope below.
+            logger.exception(
+                f"[LVP Main  ] load_settings failed in {filename}: "
+                f"{type(e).__name__}: {e}"
+            )
+            # Re-raise so the caller (LumaViewProApp.build) sees the
+            # failure and we don't silently degrade through the rest of
+            # the build path. Without this, a kivy WidgetException in the
+            # accordion-widget tree was caught and swallowed, then the
+            # next call to set_ui_features_for_scope hit the same bug
+            # uncaught — a misleading "double-crash with first one
+            # hidden" pattern.
+            raise
 
         self.set_ui_features_for_scope()
 
