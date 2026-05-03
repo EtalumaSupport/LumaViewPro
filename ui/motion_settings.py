@@ -221,15 +221,36 @@ class MotionSettings(BoxLayout):
             'postproc':   True,  # always visible (kv-defined)
         }
 
-        # Remove all tracked widgets currently in the accordion. Walk
-        # accordion.children directly by id-membership — Kivy's parent
-        # attribute can lag children list during a single event tick
-        # (this exact mismatch was the right-side UI-1 follow-up bug).
+        # Snapshot current children. Anything that's NOT in the
+        # canonical-order map is an untracked accordion item (e.g. the
+        # ``etaluma_engineering`` plugin tab, registered at runtime
+        # AFTER kv build). Untracked items belong at the BOTTOM of the
+        # display per Eric 2026-05-03 — they're auxiliary surfaces, not
+        # primary navigation. Without this preserve-and-append step my
+        # earlier resort left them at children[-1] = top of display.
         tracked_ids = {id(w) for w in widget_for_layer.values() if w is not None}
-        present = [w for w in list(accordion.children) if id(w) in tracked_ids]
-        for widget in present:
+        # Capture untracked widgets in their pre-resort order — they
+        # render in REVERSE children order, so children[0] is the
+        # bottom-most in the display today.
+        untracked_in_display_order = [
+            w for w in list(reversed(accordion.children))
+            if id(w) not in tracked_ids
+        ]
+        present_tracked = [w for w in list(accordion.children) if id(w) in tracked_ids]
+        for widget in present_tracked:
             accordion.remove_widget(widget)
+        for widget in untracked_in_display_order:
+            try:
+                accordion.remove_widget(widget)
+            except Exception:
+                pass
 
+        # Re-add tracked widgets first in canonical order. Each
+        # ``add_widget`` (no index) PREPENDS to children — Kivy
+        # renders children[0] LAST (= bottom). So forward iteration
+        # over canonical order lands the FIRST canonical layer
+        # (microscope) at children[-1] = visual top, and the LAST
+        # canonical layer (postproc) at children[0] = visual bottom.
         for layer in self._LAYER_DISPLAY_ORDER:
             if not visible_for_layer.get(layer, False):
                 continue
@@ -242,6 +263,19 @@ class MotionSettings(BoxLayout):
                 except Exception:
                     pass
             accordion.add_widget(widget)
+
+        # Append untracked widgets at the bottom of the display.
+        # ``add_widget(w, 0)`` inserts at children index 0 → renders
+        # LAST = bottom. We process untracked items in their original
+        # display order, so the first untracked one ends up just below
+        # 'postproc' and any subsequent untracked items below that.
+        for widget in untracked_in_display_order:
+            if widget.parent is not None:
+                try:
+                    widget.parent.remove_widget(widget)
+                except Exception:
+                    pass
+            accordion.add_widget(widget, 0)
 
 
     def set_turret_control_visibility(self, visible: bool) -> None:
