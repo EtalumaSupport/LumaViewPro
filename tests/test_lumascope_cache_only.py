@@ -48,8 +48,14 @@ def scope_with_io_traps():
 
     Reading any property declared cache-only must NOT touch the trapped
     methods.
+
+    register_atexit=False — the trapped exchange_command would otherwise
+    raise AssertionError when LVP-A-7's atexit-registered
+    _emergency_shutdown -> disconnect -> stop_motion fires at pytest
+    interpreter exit. The trap is the whole point of the fixture; we
+    just want it scoped to the test, not to interpreter teardown.
     """
-    scope = lumascope_api.Lumascope(simulate=True)
+    scope = lumascope_api.Lumascope(simulate=True, register_atexit=False)
 
     # Trap motor-board serial-equivalent methods.
     if hasattr(scope.motion, 'exchange_command'):
