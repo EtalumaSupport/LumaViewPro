@@ -1005,6 +1005,21 @@ class LumaViewProApp(TooltipMixin, App):
 
         ctx.motion_settings.ids['protocol_settings_id'].cancel_all_protocols()
 
+        # SHUTDOWN-RACE-1: stop the scope-display pull loop and drop any
+        # already-queued display tasks BEFORE the executor cascade. Without
+        # this the 30 fps pull loop keeps submitting update_scopedisplay_thread
+        # tasks while ctx.scope / hardware is being torn down; queued tasks
+        # then fire against a half-disconnected scope and produce 100-150
+        # empty-message exceptions in the shutdown log.
+        try:
+            if ctx.scope_display is not None:
+                ctx.scope_display.stop()
+            if scope_display_thread_executor is not None and \
+                    hasattr(scope_display_thread_executor, 'clear_pending'):
+                scope_display_thread_executor.clear_pending()
+        except Exception as e:
+            logger.warning(f'[LVP Main  ] scope_display stop during shutdown failed: {e}')
+
         self.shutdown_threads()
 
 

@@ -554,6 +554,12 @@ class ScopeDisplay(Image):
     def update_scopedisplay_thread(self, active_layer, active_layer_config, open_layer, dispatch_time=0, generation=0):
         ctx = _app_ctx.ctx
 
+        # SHUTDOWN-RACE-1: tasks already queued when on_stop fires can
+        # dequeue here after ctx / ctx.scope has been torn down. Early-
+        # return rather than NPE through camera_is_connected().
+        if ctx is None or ctx.scope is None:
+            return
+
         # Drop stale callbacks from a previous start()/stop() cycle
         if generation != self._display_generation:
             return
