@@ -3643,6 +3643,17 @@ class Lumascope():
         Returns:
             str | None: Model string, or None if motion board inactive.
         """
+        # LV-6 PROBE: log every call so we can determine whether the
+        # MainThread invocation from ui/microscope_settings.py:328 in
+        # load_settings() goes to the wire or hits a driver-side cache.
+        # If wire-bound, this is part of the MainThread-blocking startup
+        # cluster (CAM-2 / Cluster A). If cached, decide-not-to-fix.
+        # Remove this probe after the disposition is recorded.
+        try:
+            tname = threading.current_thread().name
+            logger.info(f"[LV-6 DIAG] get_microscope_model() called from thread={tname}")
+        except Exception:
+            pass
         return self.motion.get_microscope_model()
 
     def get_motor_info(self) -> dict:
