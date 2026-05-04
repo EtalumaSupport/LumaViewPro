@@ -3873,6 +3873,197 @@ class Lumascope():
         )
         return results
 
+    def run_grab_lifecycle_benchmark(
+        self,
+        num_cycles: int = 100,
+        inter_cycle_delay_ms: float = 0.0,
+        vary_settings: bool = False,
+        *,
+        slow_threshold_s: float = 3.0,
+        progress_cb=None,
+    ) -> dict:
+        """Characterize stop_grabbing/start_grabbing latency under back-to-back cycling.
+
+        CAM-1 step (0a) — empirical floor for the SDK's "minimum safe
+        interval between StopGrabbing and the next StartGrabbing" instead
+        of relying on Basler-published numbers. Typical case is 130-150 ms;
+        the pathological ~11 s case has been observed when StopGrabbing
+        fires within ~275 ms of a prior StartGrabbing before the camera
+        produces a frame. Sweeping ``inter_cycle_delay_ms`` through
+        0/50/100/200/500/1000 ms across runs reveals the smallest delay
+        that yields ZERO slow cycles.
+
+        Stays inside the API: drops to ``self.camera.stop_grabbing`` /
+        ``start_grabbing`` directly, which is a Rule-1 downward call from
+        the API into its driver — same pattern as ``set_frame_size`` etc.
+
+        Args:
+            num_cycles: Stop/start cycles to perform.
+            inter_cycle_delay_ms: Sleep between StopGrabbing and the next
+                StartGrabbing (and any settings churn).
+            vary_settings: When True, alternate gain (1.0 ↔ 4.0) and
+                exposure (10 ms ↔ 50 ms) between cycles to reproduce the
+                per-step protocol pattern that caused STALL-1.
+            slow_threshold_s: Cycle wall-time considered "slow" — counted
+                separately so the operator sees how often the pathological
+                case fires under the chosen delay.
+            progress_cb: Optional ``callback(percent_int, message_str)``
+                called every 10 cycles.
+
+        Returns:
+            dict with: num_cycles, inter_cycle_delay_ms, vary_settings,
+                slow_threshold_s, slow_cycle_count, slow_cycles (list of
+                {idx, cycle_s, stop_s, start_s}), cycle_p50/p95/p99,
+                stop_p50/p95/p99, start_p50/p95/p99, total_elapsed_s,
+                camera_model, pylon_version, errors, written_to.
+        """
+        results = {
+            'num_cycles': int(num_cycles),
+            'inter_cycle_delay_ms': float(inter_cycle_delay_ms),
+            'vary_settings': bool(vary_settings),
+            'slow_threshold_s': float(slow_threshold_s),
+            'slow_cycle_count': 0,
+            'slow_cycles': [],
+            'cycle_p50_s': 0.0, 'cycle_p95_s': 0.0, 'cycle_p99_s': 0.0,
+            'stop_p50_s': 0.0,  'stop_p95_s': 0.0,  'stop_p99_s': 0.0,
+            'start_p50_s': 0.0, 'start_p95_s': 0.0, 'start_p99_s': 0.0,
+            'total_elapsed_s': 0.0,
+            'camera_model': None,
+            'pylon_version': None,
+            'errors': [],
+            'written_to': None,
+        }
+
+        if not self.camera or not self.camera.active:
+            results['errors'].append('Camera not active')
+            return results
+
+        cam_info = self.get_camera_diagnostic_info()
+        results['camera_model'] = cam_info.get('model')
+        results['pylon_version'] = cam_info.get('sdk_version') or cam_info.get('pylon_version')
+
+        cycle_times, stop_times, start_times = [], [], []
+        delay_s = max(0.0, float(inter_cycle_delay_ms) / 1000.0)
+
+        # Snapshot current settings so we can restore even when vary_settings
+        # is on — the benchmark must not leave the camera in an arbitrary state.
+        original_gain = getattr(self.camera, 'gain', None)
+        original_exposure = getattr(self.camera, 'exposure_time', None)
+
+        t_overall_start = time.monotonic()
+        for i in range(int(num_cycles)):
+            if progress_cb and i % 10 == 0:
+                try:
+                    progress_cb(int(100 * i / max(num_cycles, 1)),
+                                f"Cycle {i}/{num_cycles}")
+                except Exception:
+                    pass
+
+            cycle_start = time.monotonic()
+            try:
+                t0 = time.monotonic()
+                self.camera.stop_grabbing()
+                stop_s = time.monotonic() - t0
+
+                if delay_s > 0:
+                    time.sleep(delay_s)
+
+                if vary_settings:
+                    # Alternate between two presets — small enough churn
+                    # not to dominate the cycle, large enough that GenICam
+                    # node-map writes are real.
+                    if i % 2 == 0:
+                        self.set_gain(1.0)
+                        self.set_exposure_time(10.0)
+                    else:
+                        self.set_gain(4.0)
+                        self.set_exposure_time(50.0)
+
+                t1 = time.monotonic()
+                self.camera.start_grabbing()
+                start_s = time.monotonic() - t1
+            except Exception as e:
+                results['errors'].append(
+                    f"Cycle {i}: {type(e).__name__}: {e}")
+                # Try to leave the camera grabbing for the next iteration;
+                # if it fails, the next stop_grabbing will surface it too.
+                continue
+
+            cycle_s = time.monotonic() - cycle_start
+            cycle_times.append(cycle_s)
+            stop_times.append(stop_s)
+            start_times.append(start_s)
+
+            if cycle_s >= slow_threshold_s:
+                results['slow_cycle_count'] += 1
+                # Cap the per-cycle log to keep the JSON small even on
+                # pathological runs (every cycle slow).
+                if len(results['slow_cycles']) < 50:
+                    results['slow_cycles'].append({
+                        'idx': i,
+                        'cycle_s': round(cycle_s, 4),
+                        'stop_s': round(stop_s, 4),
+                        'start_s': round(start_s, 4),
+                    })
+
+        results['total_elapsed_s'] = round(time.monotonic() - t_overall_start, 3)
+
+        # Restore caller's gain/exposure so vary_settings doesn't leak state.
+        try:
+            if vary_settings and original_gain is not None:
+                self.set_gain(float(original_gain))
+            if vary_settings and original_exposure is not None:
+                self.set_exposure_time(float(original_exposure))
+        except Exception as e:
+            results['errors'].append(
+                f"Restore settings failed: {type(e).__name__}: {e}")
+
+        def _pct(samples, q):
+            if not samples:
+                return 0.0
+            return round(float(np.percentile(samples, q)), 4)
+
+        results['cycle_p50_s'] = _pct(cycle_times, 50)
+        results['cycle_p95_s'] = _pct(cycle_times, 95)
+        results['cycle_p99_s'] = _pct(cycle_times, 99)
+        results['stop_p50_s']  = _pct(stop_times,  50)
+        results['stop_p95_s']  = _pct(stop_times,  95)
+        results['stop_p99_s']  = _pct(stop_times,  99)
+        results['start_p50_s'] = _pct(start_times, 50)
+        results['start_p95_s'] = _pct(start_times, 95)
+        results['start_p99_s'] = _pct(start_times, 99)
+
+        # Persist to data/camera_timing/ keyed by model + sdk version + delay
+        # so a sweep across delays produces one file per data point.
+        try:
+            import json
+            model = results['camera_model'] or 'unknown_camera'
+            sdk = results['pylon_version'] or 'unknown_sdk'
+            safe_model = str(model).replace(' ', '_').replace('/', '_')
+            safe_sdk = str(sdk).replace(' ', '_').replace('/', '_')
+            ts = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+            timing_dir = pathlib.Path(os.path.dirname(__file__)).parent / 'data' / 'camera_timing'
+            timing_dir.mkdir(parents=True, exist_ok=True)
+            out_path = timing_dir / (
+                f'grab_lifecycle_benchmark_{safe_model}_sdk{safe_sdk}_'
+                f'delay{int(inter_cycle_delay_ms)}ms_{ts}.json'
+            )
+            with open(out_path, 'w') as f:
+                json.dump(results, f, indent=2)
+            results['written_to'] = str(out_path)
+        except Exception as e:
+            results['errors'].append(
+                f"Persist failed: {type(e).__name__}: {e}")
+
+        logger.info(
+            f"[SCOPE API ] run_grab_lifecycle_benchmark: {num_cycles} cycles, "
+            f"delay={inter_cycle_delay_ms}ms, vary={vary_settings} → "
+            f"cycle p50={results['cycle_p50_s']}s p95={results['cycle_p95_s']}s "
+            f"p99={results['cycle_p99_s']}s, slow={results['slow_cycle_count']} "
+            f"(>={slow_threshold_s}s), total={results['total_elapsed_s']}s"
+        )
+        return results
+
     def _diagnostic_target_board(self, target: str):
         """Resolve a diagnostic-target string ('led' | 'motor') to a driver board.
 
