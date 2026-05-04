@@ -587,83 +587,13 @@ class LumaViewProApp(TooltipMixin, App):
         current_time = time.strftime("%m/%d/%Y", time.localtime())
         logger.info('[LVP Main  ] LumaViewProApp.build()', extra={'force_error': True})
 
-        logger.info('[LVP Main  ] -----------------------------------------')
-        logger.info(f'[LVP Main  ] Version: {version}')
-        # Log git commit so logs always identify exact code version.
-        # Try live git first, fall back to version.txt (ZIP downloads).
-        _git_hash = None
-        try:
-            import subprocess
-            _git_hash = subprocess.check_output(
-                ['git', 'rev-parse', '--short', 'HEAD'],
-                cwd=source_path, stderr=subprocess.DEVNULL, timeout=2
-            ).decode().strip()
-        except Exception:
-            # No git repo — read from version.txt (3rd line if present)
-            try:
-                with open(os.path.join(source_path, 'version.txt')) as _vf:
-                    _lines = _vf.read().strip().splitlines()
-                    if len(_lines) >= 3:
-                        _git_hash = _lines[2].strip()
-            except Exception:
-                pass
-        logger.info(f'[LVP Main  ] Git: {_git_hash or "unknown"}')
-        logger.info('[LVP Main  ] Run Time: ' + time.strftime("%Y %m %d %H:%M:%S"))
-
-        # Host + OS + Python + key library versions. Logged every launch
-        # so support bundles always identify the exact environment that
-        # produced the log, without needing the tech-support-report
-        # bundle. Keep each line short; split to one fact per line for
-        # easy grep.
-        try:
-            import platform as _platform
-            logger.info(f'[LVP Main  ] Host: {_platform.node()}')
-            logger.info(f'[LVP Main  ] OS: {_platform.platform()}')
-        except Exception as e:
-            logger.info(f'[LVP Main  ] OS: unavailable ({e})')
-        logger.info(
-            f'[LVP Main  ] Python: {sys.version.split()[0]} '
-            f'({sys.executable})')
-        try:
-            import kivy as _kivy
-            logger.info(f'[LVP Main  ] Kivy: {_kivy.__version__}')
-        except Exception as e:
-            logger.info(f'[LVP Main  ] Kivy: unavailable ({e})')
-
-        # Camera SDKs — log both the Python binding version AND the
-        # underlying SDK runtime. Binding/SDK mismatch has bitten us
-        # before. Emit even when no camera is connected so support
-        # logs always carry the versions.
-        try:
-            import importlib.metadata as _imeta
-            _pypylon_binding = _imeta.version('pypylon')
-        except Exception:
-            _pypylon_binding = 'unknown'
-        try:
-            from pypylon import pylon as _pylon
-            # Prefer the dotted string (e.g. "10.2.1.0471") over the raw
-            # list form GetPylonVersion() returns — the list renders as
-            # `[10, 2, 1, 471]` in logs, which looks like a bug report
-            # waiting to happen. Fall back to a composed string if the
-            # helper isn't available on an older pypylon.
-            try:
-                _pylon_ver = _pylon.GetPylonVersionString()
-            except Exception:
-                _v = _pylon.GetPylonVersion()
-                _pylon_ver = '.'.join(str(x) for x in _v)
-            logger.info(
-                f'[LVP Main  ] pypylon binding: {_pypylon_binding} / '
-                f'Pylon SDK: {_pylon_ver}')
-        except Exception as e:
-            logger.info(f'[LVP Main  ] Pylon SDK: unavailable ({e})')
-        try:
-            import importlib.metadata as _imeta
-            _ids_ver = _imeta.version('ids_peak')
-            logger.info(f'[LVP Main  ] ids_peak: {_ids_ver}')
-        except Exception:
-            logger.info('[LVP Main  ] ids_peak: not installed')
-
-        logger.info('[LVP Main  ] -----------------------------------------')
+        # LVP-A-9: every entry point that ships emits the same launch
+        # fingerprint via lvp_logger.log_environment_banner — REST API,
+        # headless test runner, and CLI tools all get identical
+        # environment lines without copy-pasting the platform / SDK /
+        # git-hash logic.
+        from lvp_logger import log_environment_banner
+        log_environment_banner(source_path, version)
 
         self._lvp_lock = lvp_lock.LvpLock(lock_port=get_lvp_lock_port(source_path))
         if not self._lvp_lock.lock():
