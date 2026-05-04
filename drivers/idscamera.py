@@ -161,10 +161,22 @@ class IDSCamera(Camera):
                 self.remote_nodemap.FindNode("UserSetSelector").SetCurrentEntry("Default")
                 self.remote_nodemap.FindNode("UserSetLoad").Execute()
                 self.remote_nodemap.FindNode("UserSetLoad").WaitUntilDone()
-                # Use lowest-bandwidth format from profile (Mono8 if available,
-                # otherwise first listed). Software ConvertTo handles the rest.
+                # Log the camera's actual PixelFormat options once at init --
+                # the supported list is camera-specific (IDS uses names like
+                # Mono10g40IDS / Mono12g24IDS, and not all sensors expose
+                # Mono8 -- e.g. Sony IMX676 in U3-34L0XCP-M is Mono10/12 only).
+                # Operators need this in the log to diagnose any future
+                # logical-to-camera mismatch.
+                supported = self.get_supported_pixel_formats()
+                logger.info(
+                    f'[CAM Class ] Supported PixelFormat entries: {list(supported)}')
+                # Pick the lowest-bandwidth entry the profile lists (cameras
+                # with Mono8 stay Mono8; cameras like IMX676 fall through to
+                # Mono10g40IDS). set_pixel_format resolves logical names
+                # ('Mono8') to camera-specific entries when applicable.
                 if self.profile.pixel_formats:
-                    preferred = 'Mono8' if 'Mono8' in self.profile.pixel_formats else self.profile.pixel_formats[0]
+                    preferred = ('Mono8' if 'Mono8' in self.profile.pixel_formats
+                                 else self.profile.pixel_formats[0])
                 else:
                     preferred = 'Mono10g40IDS'
                 self.set_pixel_format(preferred)
@@ -321,20 +333,72 @@ class IDSCamera(Camera):
             logger.error(f'[CAM Class ] get_frame_size failed: {e}')
             return None
 
+    @staticmethod
+    def _resolve_logical_format_name(logical: str, supported) -> str | None:
+        """Pure-logic resolver: map a logical PixelFormat name to a camera-native
+        SymbolicValue from the given supported list.
+
+        Factored out from _resolve_logical_format for unit-testability without
+        an SDK connection. Caller passes the camera's actual supported tuple
+        (from get_supported_pixel_formats); this returns the chosen name or
+        None.
+
+        Mapping rules:
+          'Mono8'  -> first entry whose SymbolicValue starts with 'Mono8'
+                      (catches Mono8, Mono8g, Mono8p).
+          'Mono12' -> first starting with 'Mono12', falling back to 'Mono10'
+                      (sensors that max out at 10-bit substitute for 12-bit).
+          Anything else: matches verbatim only.
+        """
+        if not supported:
+            return None
+        if logical in supported:
+            return logical
+        prefixes = {
+            'Mono8': ('Mono8',),
+            'Mono12': ('Mono12', 'Mono10'),
+        }
+        for prefix in prefixes.get(logical, ()):
+            for entry in supported:
+                if entry.startswith(prefix):
+                    return entry
+        return None
+
+    def _resolve_logical_format(self, logical: str) -> str | None:
+        """Map a logical PixelFormat name to the camera's actual SymbolicValue.
+
+        IDS Peak cameras don't expose a literal "Mono8" entry on every model:
+        they use sensor-specific suffixed names like "Mono10g40IDS" /
+        "Mono12g24IDS". Pylon accepts "Mono8" / "Mono12" as wire names
+        directly. To keep callers (UI, characterization tool) driver-agnostic
+        we accept the same logical names on both and map per-driver here.
+        """
+        return self._resolve_logical_format_name(
+            logical, self.get_supported_pixel_formats())
+
     def set_pixel_format(self, pixel_format):
         if not self.active:
             return False
 
-        if pixel_format not in self.get_supported_pixel_formats():
-            logger.error(f"[CAM Class ] Unsupported pixel format: {pixel_format}")
+        resolved = self._resolve_logical_format(pixel_format)
+        if resolved is None:
+            supported = self.get_supported_pixel_formats()
+            logger.error(
+                f"[CAM Class ] Unsupported pixel format: {pixel_format} "
+                f"(camera supports: {list(supported)})")
             return False
+
+        if resolved != pixel_format:
+            logger.info(
+                f'[CAM Class ] Pixel format {pixel_format} -> {resolved} '
+                f'(logical-to-camera mapping)')
 
         try:
             with self.update_camera_config():
-                self.remote_nodemap.FindNode("PixelFormat").SetCurrentEntry(pixel_format)
+                self.remote_nodemap.FindNode("PixelFormat").SetCurrentEntry(resolved)
             return True
         except Exception as e:
-            logger.error(f'[CAM Class ] set_pixel_format({pixel_format}) failed: {e}')
+            logger.error(f'[CAM Class ] set_pixel_format({resolved}) failed: {e}')
             self._mark_disconnected()
             return False
 
