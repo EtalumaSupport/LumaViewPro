@@ -793,7 +793,15 @@ class LumaViewProApp(TooltipMixin, App):
         io_executor = SequentialIOExecutor(name="IO", ui_dispatcher=_ui)
         camera_executor = SequentialIOExecutor(name="CAMERA", ui_dispatcher=_ui)
         protocol_executor = SequentialIOExecutor(name="PROTOCOL", ui_dispatcher=_ui)
-        file_io_executor = SequentialIOExecutor(name="FILE", ui_dispatcher=_ui)
+        # F-2: bound the file-IO protocol_queue at 32 frames so a save
+        # thread that falls behind drops new captures with a sentinel
+        # return (recorded as capture_failed_queue_full in the execution
+        # record) instead of letting the queue grow without bound. 32 is
+        # well above steady-state depth on a healthy system and well
+        # below the per-frame memory cost that drove F-2 (a 500-frame
+        # video kwarg is ~6 GB worst case before this cap; see VF-1).
+        file_io_executor = SequentialIOExecutor(
+            name="FILE", ui_dispatcher=_ui, protocol_queue_maxsize=32)
         autofocus_thread_executor = SequentialIOExecutor(name="AUTOFOCUS", ui_dispatcher=_ui)
         scope_display_thread_executor = SequentialIOExecutor(name="SCOPEDISPLAY", ui_dispatcher=_ui)
         stage_executor = io_executor    # consolidated: all motor serial I/O through one executor

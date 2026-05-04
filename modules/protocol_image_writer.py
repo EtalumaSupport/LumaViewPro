@@ -22,7 +22,7 @@ from lvp_logger import logger
 import modules.common_utils as common_utils
 from modules.protocol import Protocol
 from modules.video_capture import VideoCaptureSession, write_video
-from modules.sequential_io_executor import IOTask
+from modules.sequential_io_executor import IOTask, PROTOCOL_QUEUE_FULL
 
 try:
     from modules import profile_trace
@@ -84,6 +84,31 @@ class ProtocolImageWriter:
         self._rgb_buf = None             # PIW-6: 3D uint16 RGB, output of cv2.cvtColor
         self._consecutive_capture_failures = 0
         self._MAX_CONSECUTIVE_CAPTURE_FAILURES = 3
+
+    def _record_dropped_capture(self, *, step, step_index, scan_count,
+                                capture_time, name, reason="capture_failed_queue_full"):
+        """F-2: log a dropped protocol capture in the execution record.
+
+        Called when ``file_io_executor.protocol_put`` returns
+        ``PROTOCOL_QUEUE_FULL`` because the bounded file-IO queue
+        rejected the write. Without this the dropped capture would be
+        silently absent from the run record.
+        """
+        if self._execution_record is None:
+            return
+        try:
+            self._execution_record.add_step(
+                capture_result_file_name=reason,
+                step_name=name if name else "unknown",
+                step_index=step_index,
+                scan_count=scan_count,
+                timestamp=capture_time,
+                frame_count=0,
+                duration_sec=0.0,
+            )
+        except Exception as ex:
+            logger.error(
+                f"[Protocol-Writer] Failed to record dropped capture: {ex}")
 
     def _get_convert_buf_12to16(self, array):
         """Get-or-allocate the 12->16 conversion buffer matching array's shape/dtype."""
@@ -284,7 +309,8 @@ class ProtocolImageWriter:
 
                     self._leds_off()
 
-                    self._file_io_executor.protocol_put(IOTask(
+                    _capture_time = datetime.datetime.now()
+                    _put_result = self._file_io_executor.protocol_put(IOTask(
                         action=self.write_capture,
                         kwargs={
                             "is_video": is_video,
@@ -298,11 +324,18 @@ class ProtocolImageWriter:
                             "captured_image": None,
                             "step_index": curr_step,
                             "scan_count": scan_count,
-                            "capture_time": datetime.datetime.now(),
+                            "capture_time": _capture_time,
                             "enable_image_saving": enable_image_saving,
                             "separate_folder_per_channel": separate_folder_per_channel,
                         }
                     ))
+                    if _put_result is PROTOCOL_QUEUE_FULL:
+                        self._record_dropped_capture(
+                            step=step, step_index=curr_step,
+                            scan_count=scan_count, capture_time=_capture_time,
+                            name=name)
+                        _proto_outcome = "video_dropped_queue_full"
+                        return
                     _proto_outcome = "video_success"
                     return  # Video: leds_off already called at line 181
 
@@ -320,18 +353,27 @@ class ProtocolImageWriter:
                     if captured_image is False:
                         self._consecutive_capture_failures += 1
                         logger.error(f"[PROTOCOL] Capture failed for step {curr_step} ({step.get('Name', '?')}), scan {scan_count} — camera inactive or frame drain failed (failure {self._consecutive_capture_failures}/{self._MAX_CONSECUTIVE_CAPTURE_FAILURES})")
-                        # Still record the step with "capture_failed" so the record isn't silently missing
-                        self._file_io_executor.protocol_put(IOTask(
+                        # Still record the step with "capture_failed" so the record isn't silently missing.
+                        # If the file-IO queue is also full, fall back to recording directly (synchronously)
+                        # so the failure isn't doubly hidden.
+                        _failed_capture_time = datetime.datetime.now()
+                        _put_result = self._file_io_executor.protocol_put(IOTask(
                             action=self.write_capture,
                             kwargs={
                                 "step": step,
                                 "step_index": curr_step,
                                 "scan_count": scan_count,
-                                "capture_time": datetime.datetime.now(),
+                                "capture_time": _failed_capture_time,
                                 "enable_image_saving": enable_image_saving,
                                 "separate_folder_per_channel": separate_folder_per_channel,
                             }
                         ))
+                        if _put_result is PROTOCOL_QUEUE_FULL:
+                            self._record_dropped_capture(
+                                step=step, step_index=curr_step,
+                                scan_count=scan_count,
+                                capture_time=_failed_capture_time,
+                                name=name)
                         self._leds_off()
                         if self._consecutive_capture_failures >= self._MAX_CONSECUTIVE_CAPTURE_FAILURES:
                             from modules.notification_center import notifications
@@ -359,7 +401,8 @@ class ProtocolImageWriter:
                     except Exception as _e:
                         logger.debug(f'[PROTOCOL] hold_protocol_saved_image failed: {_e}')
 
-                    self._file_io_executor.protocol_put(IOTask(
+                    _success_capture_time = datetime.datetime.now()
+                    _put_result = self._file_io_executor.protocol_put(IOTask(
                         action=self.write_capture,
                         kwargs={
                             "save_folder": save_folder,
@@ -370,15 +413,24 @@ class ProtocolImageWriter:
                             "captured_image": captured_image,
                             "step_index": curr_step,
                             "scan_count": scan_count,
-                            "capture_time": datetime.datetime.now(),
+                            "capture_time": _success_capture_time,
                             "enable_image_saving": enable_image_saving,
                             "separate_folder_per_channel": separate_folder_per_channel,
                         }
                     ))
+                    if _put_result is PROTOCOL_QUEUE_FULL:
+                        self._record_dropped_capture(
+                            step=step, step_index=curr_step,
+                            scan_count=scan_count,
+                            capture_time=_success_capture_time,
+                            name=name)
+                        _proto_outcome = "dropped_queue_full"
+                        return
                     _proto_outcome = "success"
 
             else:
-                self._file_io_executor.protocol_put(IOTask(
+                _not_saving_capture_time = datetime.datetime.now()
+                _put_result = self._file_io_executor.protocol_put(IOTask(
                     action=self.write_capture,
                     kwargs={
                         "step": step,
@@ -386,7 +438,15 @@ class ProtocolImageWriter:
                         "separate_folder_per_channel": separate_folder_per_channel,
                     }
                 ))
-                _proto_outcome = "not_saving"
+                if _put_result is PROTOCOL_QUEUE_FULL:
+                    self._record_dropped_capture(
+                        step=step, step_index=curr_step,
+                        scan_count=scan_count,
+                        capture_time=_not_saving_capture_time,
+                        name=name)
+                    _proto_outcome = "not_saving_dropped_queue_full"
+                else:
+                    _proto_outcome = "not_saving"
 
             if not keep_led_on:
                 self._leds_off()

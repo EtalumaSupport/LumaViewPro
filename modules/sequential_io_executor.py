@@ -24,6 +24,13 @@ _IOTASK_TRACE_HEADER = (
     "queue_depth_at_enqueue,queue_wait_ms,exec_ms,exception"
 )
 
+# F-2: sentinel returned from protocol_put when a bounded protocol_queue
+# is full. Distinct from None (which means "executor disabled" or
+# "protocol not running"); callers that care about overflow check for
+# `is PROTOCOL_QUEUE_FULL` so a frame can be marked capture_failed in
+# the execution record instead of silently dropped.
+PROTOCOL_QUEUE_FULL = object()
+
 
 """
 IOTask
@@ -174,9 +181,16 @@ def _direct_dispatch(func, timeout=0):
 
 
 class SequentialIOExecutor:
-    def __init__(self, max_workers: int=1, name: str=None, ui_dispatcher=None):
+    def __init__(self, max_workers: int=1, name: str=None, ui_dispatcher=None,
+                 protocol_queue_maxsize: int = 0):
         self.queue = queue.Queue()
-        self.protocol_queue = queue.Queue()
+        # F-2: protocol_queue_maxsize=0 keeps the historical unbounded
+        # behavior; file_io_executor passes 32 so a save-thread that
+        # falls behind drops new captures with a sentinel return rather
+        # than letting the queue grow without bound.
+        self.protocol_queue = queue.Queue(maxsize=protocol_queue_maxsize)
+        self.protocol_queue_maxsize = protocol_queue_maxsize
+        self._protocol_queue_dropped_count = 0
         self.protocol_running = threading.Event()
         self.protocol_finish = threading.Event()
         self.name = name
@@ -281,10 +295,38 @@ class SequentialIOExecutor:
             task._t_enqueue = time.monotonic()
             task._queue_depth_at_enqueue = self.protocol_queue.qsize() + (1 if self._running_task else 0)
             task._queue_kind = "protocol"
-        self.protocol_queue.put(task)
+
+        # F-2: bounded queues use put_nowait so an overflowing save thread
+        # surfaces a drop signal instead of blocking the protocol thread
+        # that's submitting the next frame. Unbounded queues (default,
+        # backwards compat) take the original blocking put — put_nowait
+        # on an unbounded Queue is identical to put().
+        try:
+            self.protocol_queue.put_nowait(task)
+        except queue.Full:
+            self._protocol_queue_dropped_count += 1
+            depth = self.protocol_queue.qsize()
+            # Throttle the warning to avoid log inflation on a sustained
+            # overflow (per drop would mirror the queue depth growth we're
+            # already trying to bound).
+            if self._protocol_queue_dropped_count == 1 or \
+                    self._protocol_queue_dropped_count % 10 == 0:
+                logger.warning(
+                    f"[{self.executor_name}] PROTOCOL QUEUE FULL "
+                    f"(maxsize={self.protocol_queue_maxsize}, depth={depth}) — "
+                    f"dropping task; total drops this run: "
+                    f"{self._protocol_queue_dropped_count}")
+            # Discard the future so the caller doesn't get a leaked
+            # never-completed Future that pins memory.
+            if return_future:
+                with self._caller_futures_lock:
+                    self.caller_futures.pop(task, None)
+            return PROTOCOL_QUEUE_FULL
         task.set_name(self.executor_name)
 
-        # Warn if file write queue is building up (H23: back-pressure detection)
+        # Warn if file write queue is building up (H23: back-pressure detection).
+        # Kept on the success path as an early-warning before the cap is hit;
+        # bounded queues will trip PROTOCOL_QUEUE_FULL at maxsize anyway.
         depth = self.protocol_queue.qsize()
         if depth > 20 and depth % 10 == 0:
             logger.warning(f"[{self.executor_name}] Protocol queue depth: {depth} — "
