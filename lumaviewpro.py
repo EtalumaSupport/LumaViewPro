@@ -1031,13 +1031,14 @@ class LumaViewProApp(TooltipMixin, App):
         self.shutdown_threads()
 
 
-        # Stop motors if any are moving
-        try:
-            if lumaview.scope.motor_connected:
-                lumaview.scope.motion.exchange_command('STOP')
-                logger.info('[LVP Main  ] Motors stopped')
-        except Exception as e:
-            logger.warning(f'[LVP Main  ] Motor stop failed during shutdown: {e}')
+        # LVP-A-1: route through the API so every shutdown path stops
+        # motors, not just this one. stop_motion is also called as the
+        # first step of disconnect() now (defense in depth) so removing
+        # this line entirely would be a defensible alternative — kept as
+        # belt-and-suspenders since shutdown_threads runs before
+        # disconnect and any in-flight motion should stop before
+        # tearing down the executors that own the move callbacks.
+        lumaview.scope.stop_motion()
 
         logger.info("[LVP Main  ] lumaview.scope.leds_off()")
         try:

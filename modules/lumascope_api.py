@@ -1486,9 +1486,51 @@ class Lumascope():
         finally:
             self._hw_lock.release()
 
+    def stop_motion(self):
+        """Stop all in-flight motor moves (LVP-A-1).
+
+        Idempotent + safe-when-disconnected per Rule 4 + Rule 8 — no-ops
+        when the motor board isn't connected. Uses the firmware-side
+        ``STOP`` command which the motor controller implements as
+        ``motorstop`` (target=actual on all axes); same wire command the
+        UI emergency-stop already uses, just routed through the API
+        instead of an inline ``motion.exchange_command('STOP')``.
+
+        Called as the first step of ``disconnect()`` so every disconnect
+        path (App on_stop, REST shutdown, test teardown, future CLI
+        tools) stops motors before tearing down the serial port.
+        """
+        if not self.motor_connected:
+            return
+        try:
+            self.motion.exchange_command('STOP')
+            logger.info('[SCOPE API ] stop_motion: motors stopped')
+        except Exception as e:
+            # Rule 14 — log + notify, but don't re-raise: stop_motion
+            # is called from shutdown paths where the caller can't
+            # meaningfully recover and a raised exception would leave
+            # disconnect() half-done.
+            logger.warning(
+                f'[SCOPE API ] stop_motion failed: {type(e).__name__}: {e}')
+            try:
+                from modules.notification_center import notifications
+                notifications.warning(
+                    'Motion', 'Motor stop failed',
+                    f'STOP command failed during shutdown: '
+                    f'{type(e).__name__}: {e}')
+            except Exception:
+                pass
+
     def disconnect(self):
         """Disconnect from all hardware (LED, motion, camera)."""
         logger.info('[SCOPE API ] Disconnecting from microscope...')
+
+        # LVP-A-1: stop motors before tearing down the serial port so we
+        # don't leave a stage/turret moving against an end-stop after
+        # the host stops responding to status polls. Defense in depth —
+        # every disconnect path benefits without relying on the caller
+        # to remember.
+        self.stop_motion()
 
         # Stop the motion monitor before disconnecting the motor board
         self._stop_motion_monitor()
