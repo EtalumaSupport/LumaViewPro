@@ -126,11 +126,18 @@ def test_callers_pass_persisted_position():
     ``persisted_position=...``. Without this, the persisted tier is
     dead — same bug shape as the original #488 if a future caller
     forgets it.
+
+    LVP-A-5 (2026-05-04): the startup + reconnect call sites that
+    used to live in lumaviewpro.py:on_start and
+    ui/microscope_settings.py reconnect handler were lifted into
+    ``ScopeSession.start_application_session`` — the canonical owner
+    of the startup orchestration. Both old call sites now route
+    through that one method, so the caller list is updated to scan
+    its new home.
     """
     callers = [
         'modules/step_navigation.py',
-        'ui/microscope_settings.py',
-        'lumaviewpro.py',
+        'modules/scope_session.py',
     ]
     pattern = re.compile(
         r'get_turret_position_for_objective_id\([^)]*\)',

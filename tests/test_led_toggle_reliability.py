@@ -50,6 +50,10 @@ import pytest
 REPO = pathlib.Path(__file__).parent.parent
 LAYER_CONTROL = REPO / "ui" / "layer_control.py"
 LUMAVIEWPRO = REPO / "lumaviewpro.py"
+# LVP-A-6 (2026-05-04): the camera/LED/position listener closures moved
+# from lumaviewpro.py:on_start into modules/ui_listener_bridge.py.
+# The #617 safeguard tests below scan this file instead.
+UI_LISTENER_BRIDGE = REPO / "modules" / "ui_listener_bridge.py"
 
 
 def _parse(path: pathlib.Path) -> ast.Module:
@@ -174,8 +178,8 @@ class TestFixB2_ProgrammaticWidgetWriteWrapping:
         )
 
     def test_update_camera_ui_is_text_only(self):
-        """lumaviewpro._update_camera_ui (the camera listener handler) must
-        only update text widgets, never slider.value.
+        """The camera listener handler must only update text widgets,
+        never slider.value.
 
         Structural fix (4.1 session 13 follow-up to #617): the slider is
         the user-input source of truth. The listener exists to display
@@ -183,10 +187,16 @@ class TestFixB2_ProgrammaticWidgetWriteWrapping:
         back into the slider — doing so was the root cause of the
         handler-recursion feedback loop the `_initializing` flag was
         papering over.
+
+        LVP-A-6 (2026-05-04): the closure moved from
+        ``lumaviewpro.py:on_start`` into
+        ``modules/ui_listener_bridge.py:UIListenerBridge._on_camera_setting_changed``
+        (with the inner ``_update_camera_ui`` closure). Scanning the new
+        location.
         """
-        source = LUMAVIEWPRO.read_text()
+        source = UI_LISTENER_BRIDGE.read_text()
         idx = source.find("def _update_camera_ui")
-        assert idx != -1, "_update_camera_ui not found"
+        assert idx != -1, "_update_camera_ui not found in ui_listener_bridge.py"
         # Function is ~3000 chars; slice large enough to catch the body
         body = source[idx:idx + 3500]
 
