@@ -195,13 +195,17 @@ class VideoCaptureSession:
 
                 try:
                     video_images.put_nowait((image, datetime.datetime.now()))
+                    captured_frames += 1
                 except queue.Full:
+                    # VF-5: do NOT `continue` here — that bypasses the
+                    # per-frame sleep below and turns the capture loop into
+                    # a hot-spin against the writer thread when the queue
+                    # is full. Drop the frame, log it, fall through to the
+                    # normal frame-pacing sleep so the consumer has time to
+                    # drain.
                     logger.warning(
                         f"[PROTOCOL-VIDEO] Frame queue full "
                         f"({video_images.maxsize}), dropping frame")
-                    continue
-
-                captured_frames += 1
 
             # Slightly shorter sleep to compensate for processing overhead
             time.sleep(seconds_per_frame * 0.9)
