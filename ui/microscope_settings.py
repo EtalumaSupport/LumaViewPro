@@ -845,10 +845,48 @@ class MicroscopeSettings(BoxLayout):
                             settings[layer]['stim_config']['enabled'] = False
 
     # Save settings to JSON file
-    def save_settings(self, file="./data/current.json"):
+    def save_settings(self, file="./data/current.json", *, force=False):
+        """Save the current settings dict to disk as JSON.
+
+        LVP-A-4: when ``force=False`` (default), the save is skipped if
+        no hardware was connected during the session — without hardware
+        the slider defaults (0.01ms exposure, etc.) would overwrite the
+        user's real per-channel settings in current.json. The gate
+        previously lived inline in ``lumaviewpro.py:on_stop``; lifted
+        here so every caller (engineering plugin save-on-quit, REST
+        endpoint, scheduled save, future CLI tools) gets the same
+        guard.
+
+        Pass ``force=True`` only when the caller really does want the
+        save regardless of hardware presence (rare; e.g. an explicit
+        "save folder paths only" path that doesn't touch per-channel
+        values).
+
+        TODO 4.1: split by section so non-hardware values (folder
+        paths, protocol config) are always saved while hardware values
+        (gain, exposure) are gated. Until then, all-or-nothing on
+        hardware presence.
+        """
         logger.info('[LVP Main  ] MicroscopeSettings.save_settings()')
         ctx = _app_ctx.ctx
         settings = ctx.settings
+
+        # LVP-A-4: hardware-presence gate.
+        if not force:
+            scope = ctx.lumaview.scope if ctx.lumaview else None
+            had_hardware = bool(
+                scope and (
+                    scope.camera_is_connected()
+                    or scope.motor_connected
+                    or scope.led_connected
+                )
+            )
+            if not had_hardware:
+                logger.info(
+                    '[LVP Main  ] save_settings: skipped — no hardware was '
+                    'connected this session (would overwrite real per-channel '
+                    'values with slider defaults). Pass force=True to override.')
+                return
 
         if isinstance(file, str) and (file[-5:].lower() != '.json'):
                 file = file+'.json'
