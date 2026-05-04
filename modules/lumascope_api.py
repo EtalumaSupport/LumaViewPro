@@ -190,7 +190,8 @@ class Lumascope():
     MOTOR_POSITION_LIMIT = 1_000_000  # 1 meter in um
 
     def __init__(self, simulate: bool = False, camera_type: str = 'auto',
-                 register_atexit: bool = True):
+                 register_atexit: bool = True,
+                 register_metrics: bool = True):
         """Initialize Microscope.
 
         Args:
@@ -209,6 +210,13 @@ class Lumascope():
                 stays on if a test crashes mid-LED-on otherwise. Set to
                 False only when the caller has its own equivalent
                 shutdown path that supersedes the atexit hook.
+            register_metrics: If True (default), construct a
+                MetricsLogger on this Lumascope. Doesn't START it —
+                callers must call ``self.metrics_logger.start(scheduler)``
+                with an environment-appropriate Scheduler (Kivy app
+                uses KivyClockScheduler, REST/headless use
+                ThreadingTimerScheduler). Tests that don't need
+                periodic logging set False.
         """
         self._simulated = simulate
         self._coordinate_transformer = coord_transformations.CoordinateTransformer()
@@ -488,6 +496,34 @@ class Lumascope():
                 self.refresh_position_cache()
             except Exception:
                 pass  # OK — cache stays at 0.0 if firmware unresponsive
+
+        # LVP-A-13: pre-construct MetricsLogger so every Lumascope user
+        # (Kivy app, REST API, headless tests, CLI tools) shares the
+        # same metrics surface — engineering plugin / status endpoints
+        # can call self.metrics_logger.snapshot_executors() etc. without
+        # waiting for the host to register one. Lifecycle is two-phase:
+        # __init__ constructs (this block); the host calls
+        # self.metrics_logger.start(scheduler) once it knows which
+        # scheduler is appropriate for its environment. Doesn't start
+        # any timers / Clock events here, so test fixtures don't pay
+        # for periodic work they don't want.
+        #
+        # executor_bundle is None at construction; the host calls
+        # register_executor_bundle() after the bundle exists, before
+        # calling metrics_logger.start.
+        self.metrics_logger = None
+        self._executor_bundle = None
+        if register_metrics:
+            try:
+                from modules.metrics_logger import MetricsLogger
+                self.metrics_logger = MetricsLogger(
+                    scope=self,
+                    executor_bundle=None,  # set later via register_executor_bundle
+                    settings={},           # ditto
+                )
+            except Exception as _e:
+                logger.warning(
+                    f'[SCOPE API ] MetricsLogger construction failed: {_e}')
 
         # LVP-A-7: register the emergency-shutdown atexit hook so EVERY
         # Lumascope user (Kivy app, REST server, headless tests, CLI
@@ -875,6 +911,23 @@ class Lumascope():
         self._io_executor = io_executor
         self._file_io_executor = file_io_executor
         self._autofocus_io_executor = autofocus_io_executor
+
+    def register_executor_bundle(self, executor_bundle, settings=None):
+        """LVP-A-13: register the ExecutorBundle + settings dict for MetricsLogger.
+
+        Lumascope construction (__init__) creates a MetricsLogger but
+        cannot fill in the bundle yet — the bundle is created later by
+        ExecutorRegistry.create_default in the host's startup path.
+        Call this once after the bundle exists, BEFORE calling
+        ``self.metrics_logger.start(scheduler)``. Settings dict is
+        optional; defaults to ``{}`` if MetricsLogger was created with
+        a placeholder.
+        """
+        self._executor_bundle = executor_bundle
+        if self.metrics_logger is not None:
+            self.metrics_logger._bundle = executor_bundle
+            if settings is not None:
+                self.metrics_logger._settings = settings
 
     def register_source_path(self, source_path):
         """Register the LVP source/data path used by load_protocol() and

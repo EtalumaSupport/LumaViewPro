@@ -501,11 +501,14 @@ class LumaViewProApp(TooltipMixin, App):
 
         config_helpers.log_environment_once()  # TEMPORARY 2026-04-30 — fingerprint env once
 
-        # LVP-A-12: one MetricsLogger owns the periodic runtime-health
-        # logging surface (system metrics, executor watchdog, camera
-        # temps). Engineering plugin / REST status endpoint can call
-        # ctx.metrics_logger.snapshot_executors() / .tick_system_metrics()
-        # for on-demand dumps without waiting for the next tick.
+        # LVP-A-12 + LVP-A-13: MetricsLogger is constructed inside
+        # Lumascope.__init__ (so REST API + headless callers get the
+        # same surface). Here we register the executor bundle + settings
+        # dict and start the logger with a KivyClockScheduler. REST
+        # entry points wire a ThreadingTimerScheduler instead.
+        # ctx.metrics_logger is an alias for scope.metrics_logger so
+        # widget code that already reads ctx.metrics_logger keeps
+        # working.
         #
         # TEMPORARY 2026-04-30 — system-metrics cadence is 60 s during
         # the buffer-churn / Phase-A perf investigation; the production
@@ -518,16 +521,14 @@ class LumaViewProApp(TooltipMixin, App):
         # CPU per snapshot (gc.get_objects dominates). See
         # docs/LOG_ANALYSIS_GUIDE.md "Resource Health" + the matching
         # comment in modules/metrics_logger.py.
-        from modules.metrics_logger import MetricsLogger
-        ctx.metrics_logger = MetricsLogger(
-            scope=lumaview.scope,
-            executor_bundle=executor_bundle,
-            settings=settings,
-        )
-        ctx.metrics_logger.start(
-            Clock.schedule_interval, Clock.unschedule,
-            system_metrics_interval_s=60,    # TEMPORARY 2026-04-30 — see above
-        )
+        from modules.scheduler import KivyClockScheduler
+        lumaview.scope.register_executor_bundle(executor_bundle, settings)
+        ctx.metrics_logger = lumaview.scope.metrics_logger
+        if ctx.metrics_logger is not None:
+            ctx.metrics_logger.start(
+                KivyClockScheduler(Clock),
+                system_metrics_interval_s=60,    # TEMPORARY 2026-04-30 — see above
+            )
 
         # LVP-A-7: emergency-shutdown atexit hook moved into Lumascope.
         # __init__ — every Lumascope user (REST, headless tests, CLI

@@ -28,6 +28,7 @@ from typing import Optional
 
 from lvp_logger import logger
 import modules.config_helpers as config_helpers
+from modules.scheduler import Scheduler, _CallablePairScheduler
 
 
 # Default cadences. Tuned to match the previous inline values so a
@@ -70,8 +71,8 @@ class MetricsLogger:
         self._bundle = executor_bundle
         self._settings = settings
 
-        # Scheduler callables — bound at start().
-        self._unschedule_fn = None
+        # Scheduler bound at start() — None means not started.
+        self._scheduler: Optional[Scheduler] = None
         # Active schedule handles per tick (so each can be cancelled
         # independently). Keys: 'system_metrics', 'executor_watchdog'.
         # Camera-temp lives on Lumascope already (LVP-A-2) — not stored
@@ -139,8 +140,8 @@ class MetricsLogger:
     # ---- Lifecycle ----
 
     def start(self,
-              schedule_interval_fn,
-              unschedule_fn,
+              scheduler=None,
+              unschedule_fn=None,
               *,
               system_metrics_interval_s: float = DEFAULT_SYSTEM_METRICS_INTERVAL_S,
               executor_watchdog_interval_s: float = DEFAULT_EXECUTOR_WATCHDOG_INTERVAL_S,
@@ -148,11 +149,17 @@ class MetricsLogger:
               start_camera_temp: Optional[bool] = None) -> None:
         """Schedule all periodic ticks.
 
+        LVP-A-13: ``scheduler`` is now a :class:`modules.scheduler.Scheduler`
+        instance. The legacy two-callable form (``schedule_interval_fn,
+        unschedule_fn``) is auto-wrapped via ``_CallablePairScheduler``
+        for backwards compatibility, so any caller that hasn't migrated
+        yet keeps working unchanged.
+
         Args:
-            schedule_interval_fn: Callable matching
-                ``Clock.schedule_interval(func, interval_s)``.
-            unschedule_fn: Callable matching ``Clock.unschedule(handle)``.
-                Stored for ``stop()``.
+            scheduler: A ``Scheduler`` instance OR (legacy) a callable
+                matching ``Clock.schedule_interval(func, interval_s)``.
+            unschedule_fn: Legacy. Required when ``scheduler`` is a
+                callable; ignored when ``scheduler`` is a ``Scheduler``.
             system_metrics_interval_s: How often to emit the
                 CPU/memory/handles snapshot.
             executor_watchdog_interval_s: How often to emit the executor
@@ -164,18 +171,35 @@ class MetricsLogger:
                 logger only when ``scope.camera_is_connected()``. Pass
                 False to skip even when connected (rare; mostly tests).
         """
+        # Normalize scheduler argument: Scheduler instance, callable
+        # pair (legacy), or None (rejected).
+        if scheduler is None:
+            raise ValueError(
+                'MetricsLogger.start: scheduler is required (a Scheduler '
+                'instance or, legacy, a schedule_interval callable plus '
+                'unschedule_fn)')
+        if isinstance(scheduler, Scheduler):
+            self._scheduler = scheduler
+        elif callable(scheduler):
+            if unschedule_fn is None or not callable(unschedule_fn):
+                raise ValueError(
+                    'MetricsLogger.start: legacy callable form requires '
+                    'unschedule_fn (a callable matching Clock.unschedule)')
+            self._scheduler = _CallablePairScheduler(scheduler, unschedule_fn)
+        else:
+            raise TypeError(
+                f'MetricsLogger.start: scheduler must be a Scheduler or '
+                f'callable; got {type(scheduler).__name__}')
+
         # Initial snapshot — match the pre-LVP-A-12 behavior of logging
         # once on startup so the very first log line carries fingerprint
         # values rather than empty cells.
         self.tick_system_metrics()
 
-        self._unschedule_fn = unschedule_fn
-        self._handles['system_metrics'] = schedule_interval_fn(
-            lambda dt=0: self.tick_system_metrics(),
-            system_metrics_interval_s)
-        self._handles['executor_watchdog'] = schedule_interval_fn(
-            lambda dt=0: self.tick_executor_watchdog(),
-            executor_watchdog_interval_s)
+        self._handles['system_metrics'] = self._scheduler.schedule_interval(
+            self.tick_system_metrics, system_metrics_interval_s)
+        self._handles['executor_watchdog'] = self._scheduler.schedule_interval(
+            self.tick_executor_watchdog, executor_watchdog_interval_s)
 
         if start_camera_temp is False:
             return
@@ -185,8 +209,11 @@ class MetricsLogger:
         # Camera-temp scheduling stays inside Lumascope (LVP-A-2) so the
         # API keeps full ownership of the event handle and self-
         # unschedules cleanly when the camera disconnects mid-run.
+        # Hand it adapter callables matching the Scheduler so Lumascope
+        # doesn't need to learn about Scheduler.
         self._scope.start_camera_temp_logging(
-            schedule_interval_fn, unschedule_fn,
+            self._scheduler.schedule_interval,
+            self._scheduler.unschedule,
             interval_s=camera_temp_interval_s)
 
         logger.info(
@@ -196,17 +223,17 @@ class MetricsLogger:
 
     def stop(self) -> None:
         """Cancel every scheduled tick. Idempotent."""
-        if self._unschedule_fn is None:
+        if self._scheduler is None:
             return
         for name, handle in list(self._handles.items()):
             try:
-                self._unschedule_fn(handle)
+                self._scheduler.unschedule(handle)
             except Exception as e:
                 logger.warning(
                     f'[MetricsLogger] unschedule {name} failed: {e}')
         self._handles.clear()
         try:
-            self._scope.stop_camera_temp_logging(self._unschedule_fn)
+            self._scope.stop_camera_temp_logging(self._scheduler.unschedule)
         except Exception as e:
             logger.warning(
                 f'[MetricsLogger] stop_camera_temp_logging failed: {e}')
