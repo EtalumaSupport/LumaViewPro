@@ -193,7 +193,11 @@ if __name__ == "__main__":
     ENGINEERING_MODE = False
     focus_round = 0
 
-    # Executors — created in build(), registered on AppContext
+    # Executors — created in build(), registered on AppContext.
+    # LVP-A-10: created via modules.executor_registry.create_default which
+    # returns an ExecutorBundle held in `executor_bundle`; the named
+    # globals below are bound from the bundle so existing readers keep
+    # working unchanged.
     io_executor = None
     camera_executor = None
     protocol_executor = None
@@ -203,6 +207,7 @@ if __name__ == "__main__":
     stage_executor = None
     turret_executor = None
     reset_executor = None
+    executor_bundle = None
     scope_session = None
     ctx = None
 
@@ -437,29 +442,29 @@ class LumaViewProApp(TooltipMixin, App):
 
         Clock.schedule_once(complete_initialization, 0.3)
 
-        # Executor health watchdog: logs queue depths periodically and prunes stale display backlog
+        # LVP-A-8: executor health watchdog now reads queue depths
+        # through ExecutorBundle.snapshot() — same view the engineering
+        # plugin / REST status endpoint will consume. Adding a new
+        # executor only requires registering it on the bundle; the
+        # watchdog picks it up automatically.
         def _executor_watchdog(dt):
             try:
-                io_q = io_executor.queue_size() if hasattr(io_executor, 'queue_size') else -1
-                cam_q = camera_executor.queue_size() if hasattr(camera_executor, 'queue_size') else -1
-                prot_q = protocol_executor.queue_size() if hasattr(protocol_executor, 'protocol_queue_size') else -1
-                file_q = file_io_executor.queue_size() if hasattr(file_io_executor, 'queue_size') else -1
-                af_q = autofocus_thread_executor.queue_size() if hasattr(autofocus_thread_executor, 'queue_size') else -1
-                sd_q = scope_display_thread_executor.queue_size() if hasattr(scope_display_thread_executor, 'queue_size') else -1
-                reset_q = reset_executor.queue_size() if hasattr(reset_executor, 'queue_size') else -1
-
-                # Only log at warning level when any queue is backing up
-                total_q = sum(q for q in [io_q, cam_q, prot_q, file_q, af_q, sd_q, reset_q] if q > 0)
+                snap = executor_bundle.snapshot()
+                total_q = sum(q for q in snap.values() if q > 0)
+                fmt = ' '.join(f'{name}:{q}' for name, q in snap.items())
                 if total_q > 10:
-                    logger.warning(f"[Watchdog  ] Queue backlog ({total_q} total) — IO:{io_q} CAM:{cam_q} PROT:{prot_q} FILE:{file_q} AF:{af_q} SD:{sd_q} RESET:{reset_q}")
+                    logger.warning(
+                        f"[Watchdog  ] Queue backlog ({total_q} total) — {fmt}")
                 else:
-                    logger.debug(f"[Watchdog  ] Queues — IO:{io_q} CAM:{cam_q} PROT:{prot_q} FILE:{file_q} AF:{af_q} SD:{sd_q} RESET:{reset_q}")
+                    logger.debug(f"[Watchdog  ] Queues — {fmt}")
 
-                # If scopedisplay backlog is growing and appears stale, prune it to keep UI responsive
-                if sd_q is not None and sd_q > 20:
+                # SCOPEDISPLAY backlog: prune to keep UI responsive.
+                if snap.get('SCOPEDISPLAY', 0) > 20:
                     try:
-                        scope_display_thread_executor.clear_pending()
-                        logger.warning("[Watchdog  ] Cleared ScopeDisplay pending queue to prevent backlog")
+                        executor_bundle.scope_display_thread_executor.clear_pending()
+                        logger.warning(
+                            "[Watchdog  ] Cleared ScopeDisplay pending "
+                            "queue to prevent backlog")
                     except Exception:
                         pass
             except Exception:
@@ -698,10 +703,16 @@ class LumaViewProApp(TooltipMixin, App):
 
         objective_helper = objectives_loader.ObjectiveLoader(source_path=source_path)
 
-        # Create executors (previously at module level, moved here for init consolidation)
+        # LVP-A-10: every entry point that boots LVP shares one
+        # executor topology. ExecutorRegistry.create_default constructs
+        # all 7 executors (with aliases for stage/turret) and starts
+        # them; the bundle is the single source of truth used by the
+        # watchdog snapshot, the engineering plugin, and any future
+        # REST/CLI shell.
         global io_executor, camera_executor, protocol_executor
         global file_io_executor, autofocus_thread_executor, scope_display_thread_executor
         global stage_executor, turret_executor, reset_executor
+        global executor_bundle
         # Rule 15: Pass Clock.schedule_once as the UI dispatcher so executors
         # can schedule callbacks on the Kivy main thread without importing Kivy.
         from kivy.clock import Clock
@@ -711,23 +722,17 @@ class LumaViewProApp(TooltipMixin, App):
         from modules.kivy_utils import set_ui_dispatcher
         set_ui_dispatcher(_ui)
 
-        io_executor = SequentialIOExecutor(name="IO", ui_dispatcher=_ui)
-        camera_executor = SequentialIOExecutor(name="CAMERA", ui_dispatcher=_ui)
-        protocol_executor = SequentialIOExecutor(name="PROTOCOL", ui_dispatcher=_ui)
-        # F-2: bound the file-IO protocol_queue at 32 frames so a save
-        # thread that falls behind drops new captures with a sentinel
-        # return (recorded as capture_failed_queue_full in the execution
-        # record) instead of letting the queue grow without bound. 32 is
-        # well above steady-state depth on a healthy system and well
-        # below the per-frame memory cost that drove F-2 (a 500-frame
-        # video kwarg is ~6 GB worst case before this cap; see VF-1).
-        file_io_executor = SequentialIOExecutor(
-            name="FILE", ui_dispatcher=_ui, protocol_queue_maxsize=32)
-        autofocus_thread_executor = SequentialIOExecutor(name="AUTOFOCUS", ui_dispatcher=_ui)
-        scope_display_thread_executor = SequentialIOExecutor(name="SCOPEDISPLAY", ui_dispatcher=_ui)
-        stage_executor = io_executor    # consolidated: all motor serial I/O through one executor
-        turret_executor = io_executor   # consolidated: prevents concurrent motor board access
-        reset_executor = SequentialIOExecutor(name="RESET", ui_dispatcher=_ui)
+        from modules.executor_registry import create_default as _create_executors
+        executor_bundle = _create_executors(_ui)
+        io_executor = executor_bundle.io_executor
+        camera_executor = executor_bundle.camera_executor
+        protocol_executor = executor_bundle.protocol_executor
+        file_io_executor = executor_bundle.file_io_executor
+        autofocus_thread_executor = executor_bundle.autofocus_thread_executor
+        scope_display_thread_executor = executor_bundle.scope_display_thread_executor
+        stage_executor = executor_bundle.stage_executor
+        turret_executor = executor_bundle.turret_executor
+        reset_executor = executor_bundle.reset_executor
 
         # Create the GUI-independent scope session
         global scope_session
@@ -743,14 +748,8 @@ class LumaViewProApp(TooltipMixin, App):
         )
         scope_session.protocol_running = protocol_running_global
 
-        io_executor.start()
-        camera_executor.start()
-        protocol_executor.start()
-        file_io_executor.start()
-        autofocus_thread_executor.start()
-        scope_display_thread_executor.start()
-        # stage_executor and turret_executor are aliases for io_executor (already started above)
-        reset_executor.start()
+        # LVP-A-10: ExecutorRegistry.create_default already started every
+        # executor before returning the bundle.
 
         # LAYER-A': register executors so scope.X_async / scope.X_sync
         # methods can dispatch without callers passing executor handles.
