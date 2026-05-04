@@ -168,38 +168,12 @@ class MicroscopeSettings(BoxLayout):
         ctx.scope_display.stop()
         ctx.scope_display.start()
 
-        if not ctx.disable_homing:
-            # Home everything the board has — firmware homes Z, T, X, Y
-            # in the same routine; on Z-only boards the firmware homes
-            # what it has and reports the missing axes.
-            task = IOTask(
-                move_home,
-                args=('ALL',)
-            )
-            ctx.io_executor.put(task)
-
-
-        if lumaview.scope.has_turret():
-            objective_id = settings['objective_id']
-            turret_position = lumaview.scope.get_turret_position_for_objective_id(
-                objective_id=objective_id,
-                persisted_position=settings.get('turret_position'),
-            )
-
-            if turret_position is None:
-                DEFAULT_POSITION = 1
-                logger.info(f"Turret position for set objective {objective_id} not in turret objectives configuration. Setting to position {DEFAULT_POSITION}")
-                turret_position = DEFAULT_POSITION
-
-            settings['turret_position'] = turret_position
-            ctx.io_executor.put(IOTask(
-                move_absolute_position,
-                kwargs= {
-                    "axis": 'T',
-                    "pos": turret_position,
-                    "wait_until_complete": True
-                }
-            ))
+        # LVP-A-5: ScopeSession owns the standard startup orchestration
+        # (ALL-axis home + turret-positioning) — same path the App's
+        # on_start uses. Pre-LVP-A-5 this block was open-coded here and
+        # had subtly drifted from the App's version.
+        ctx.session.start_application_session(
+            disable_homing=ctx.disable_homing)
         ctx.image_settings.set_layer_exposure_ranges()
         layer_obj = ctx.image_settings.layer_lookup(layer='BF')
         layer_obj.apply_settings()

@@ -366,42 +366,13 @@ class LumaViewProApp(TooltipMixin, App):
                 message="No hardware detected. Please connect LED board, motor board, and camera."
             ), 0)
 
-        if not disable_homing:
-            # Home everything the board has. Firmware homes Z, then T,
-            # then X/Y in the same routine, so on Z-only boards (LS820)
-            # the firmware homes Z and reports the missing X/Y; on full
-            # XYZ(T) scopes it homes all axes. Either way this is the
-            # unified startup home.
-            task = IOTask(
-                move_home,
-                args=('ALL',)
-            )
-            stage_executor.put(task)
-
-
-        if lumaview.scope.has_turret():
-            objective_id = settings['objective_id']
-            turret_position = lumaview.scope.get_turret_position_for_objective_id(
-                objective_id=objective_id,
-                persisted_position=settings.get('turret_position'),
-            )
-
-            if turret_position is None:
-                DEFAULT_POSITION = 1
-                logger.info(f"Turret position for set objective {objective_id} not in turret objectives configuration. Setting to position {DEFAULT_POSITION}")
-                turret_position = DEFAULT_POSITION
-
-            settings['turret_position'] = turret_position
-            turret_executor.put(IOTask(
-                move_absolute_position,
-                kwargs= {
-                    "axis": 'T',
-                    "pos": turret_position,
-                    "wait_until_complete": True
-                }
-            ))
-            #thread_pool.submit(move_absolute_position, axis='T', pos=turret_position, wait_until_complete=True)
-            #move_absolute_position(axis='T', pos=turret_position, wait_until_complete=True)
+        # LVP-A-5: ScopeSession owns the standard startup orchestration
+        # (ALL-axis home + turret-positioning) so REST API + headless
+        # tools + the reconnect handler in ui/microscope_settings.py
+        # all hit the same path. Was inline here AND in reconnect; the
+        # two had drifted in subtle ways (different executor handles
+        # via the io/stage/turret aliases).
+        ctx.session.start_application_session(disable_homing=disable_homing)
 
         # Objective and LEDs already set by scope.initialize() in load_settings().
         # BF apply_settings will be called by complete_initialization() → accordion_collapse().

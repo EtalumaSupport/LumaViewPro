@@ -271,3 +271,68 @@ class ScopeSession:
         """Shut down the IO and camera executors."""
         self.io_executor.shutdown()
         self.camera_executor.shutdown()
+
+    def start_application_session(self, *, disable_homing: bool = False):
+        """LVP-A-5: queue the standard startup home + turret-positioning sequence.
+
+        Replaces the inline blocks in lumaviewpro.py:on_start AND
+        ui/microscope_settings.py reconnect handler — both previously
+        open-coded the same ALL-axis home + turret-positioning IOTasks
+        with a Rule-2 single-source-of-truth violation (drift risk if
+        one branch ever updated without the other).
+
+        After this method returns, two IOTasks have been put on the
+        io executor:
+
+        1. (when ``disable_homing=False``) ALL-axis ``move_home``.
+           Firmware homes Z, T, X, Y in one routine; on Z-only boards
+           it homes what it has and reports the missing axes.
+
+        2. (when ``self.scope.has_turret()`` is True) Absolute T-axis
+           move to the position that matches ``settings['objective_id']``
+           — falls back to position 1 if the objective isn't in the
+           turret config. Updates ``settings['turret_position']`` so
+           later code reads the actual position.
+
+        Headless / REST callers can use this exact same call to apply
+        the standard startup orchestration without copy-pasting from
+        the App.
+
+        Args:
+            disable_homing: If True, skip the home step but still run
+                turret-positioning. Matches the App's ``--no-home``
+                CLI flag semantics.
+        """
+        # Local import to avoid circular import at module load — ui_helpers
+        # imports many UI modules but the functions used here (move_home,
+        # move_absolute_position) operate on the scope and don't actually
+        # need a GUI surface.
+        from ui.ui_helpers import move_home, move_absolute_position
+        from modules.sequential_io_executor import IOTask
+
+        if not disable_homing:
+            self.io_executor.put(IOTask(move_home, args=('ALL',)))
+
+        if self.scope.has_turret():
+            objective_id = self.settings.get('objective_id')
+            turret_position = self.scope.get_turret_position_for_objective_id(
+                objective_id=objective_id,
+                persisted_position=self.settings.get('turret_position'),
+            )
+            if turret_position is None:
+                DEFAULT_POSITION = 1
+                logger.info(
+                    f"Turret position for set objective {objective_id} not "
+                    f"in turret objectives configuration. Setting to "
+                    f"position {DEFAULT_POSITION}")
+                turret_position = DEFAULT_POSITION
+
+            self.settings['turret_position'] = turret_position
+            self.io_executor.put(IOTask(
+                move_absolute_position,
+                kwargs={
+                    "axis": 'T',
+                    "pos": turret_position,
+                    "wait_until_complete": True,
+                },
+            ))
