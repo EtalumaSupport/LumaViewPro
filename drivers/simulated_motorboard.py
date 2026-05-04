@@ -186,6 +186,14 @@ class SimulatedMotorBoard:
     def is_connected(self) -> bool:
         return self.driver is not None
 
+    def motor_stop(self) -> bool:
+        """LVP-A-1 followup: simulator answers True (sim firmware
+        always supports STOP). Mirrors the production MotorBoard
+        method so Lumascope.stop_motion works identically against
+        the simulator.
+        """
+        return True
+
     def _close_driver(self):
         self.driver = None
 

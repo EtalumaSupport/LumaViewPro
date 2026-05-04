@@ -1578,8 +1578,18 @@ class Lumascope():
         if not self.motor_connected:
             return
         try:
-            self.motion.exchange_command('STOP')
-            logger.info('[SCOPE API ] stop_motion: motors stopped')
+            # LVP-A-1 followup: route through MotorBoard.motor_stop so
+            # field firmware (2024-09-10 EL-0940-02) silently no-ops
+            # instead of producing two FIRMWARE ERROR warnings per
+            # shutdown. motor_stop returns True if STOP was accepted,
+            # False if firmware doesn't implement it (cached).
+            stopped = self.motion.motor_stop()
+            if stopped:
+                logger.info('[SCOPE API ] stop_motion: motors stopped')
+            else:
+                logger.debug(
+                    '[SCOPE API ] stop_motion: firmware does not '
+                    'implement STOP; motors will latch on disconnect')
         except Exception as e:
             # Rule 14 — log + notify, but don't re-raise: stop_motion
             # is called from shutdown paths where the caller can't

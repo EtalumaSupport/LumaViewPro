@@ -743,6 +743,49 @@ class MotorBoard(SerialBoard):
             logger.error('[XYZ Class ] MotorBoard.home_status('+axis+') inactive')
             raise
 
+    def motor_stop(self) -> bool:
+        """LVP-A-1 followup: stop all motors via STOP, with field-firmware fallback.
+
+        Field firmware (e.g. EL-0940-02 2024-09-10) does not implement
+        the ``STOP`` command and replies ``ERROR: command 'STOP' not
+        found``. Newer firmware (2025-onward) accepts STOP as the
+        emergency-stop command (sets target=actual on every axis).
+
+        Behavior:
+        - First call: send STOP. Inspect the response — if it contains
+          ``not found`` or starts with ``ERROR``, cache the firmware
+          as unsupported and return False (silent skip on future
+          calls). Otherwise return True.
+        - Subsequent calls: skip the wire entirely if cached
+          unsupported.
+
+        The caller's shutdown is unaffected when STOP isn't supported:
+        the host is about to disconnect anyway, and v3.0.x firmware
+        latches its current state when the host stops issuing commands.
+        Returning False lets the caller know the stop didn't actually
+        execute (useful for tests / diagnostics).
+
+        Idempotent + safe to call concurrently with other operations
+        (per SerialBoard's exchange_command lock).
+        """
+        # Cached "unsupported" — silently skip the wire (and skip the
+        # FIRMWARE ERROR warning that exchange_command would emit).
+        if getattr(self, '_stop_supported', None) is False:
+            return False
+        resp = self.exchange_command('STOP')
+        resp_str = str(resp) if resp is not None else ''
+        if 'not found' in resp_str or resp_str.startswith('ERROR'):
+            self._stop_supported = False
+            logger.info(
+                '[XYZ Class ] motor_stop: firmware does not support '
+                f'STOP command (firmware date '
+                f'{getattr(self, "firmware_date", "unknown")}); '
+                'caching capability and silently skipping future STOP '
+                'attempts. Motors latch on host disconnect.')
+            return False
+        self._stop_supported = True
+        return True
+
     # return True if current position and target position are the same
     def target_status(self, axis):
         """ Return True if axis is at target position"""

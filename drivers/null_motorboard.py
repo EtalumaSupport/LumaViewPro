@@ -184,6 +184,7 @@ class NullMotionBoard:
     def check_firmware(self) -> dict: return {'status': False}
     def exchange_command(self, command, response_numlines=1, timeout=None): return None
     def exchange_multiline(self, command, timeout=60, end_markers=None): return []
+    def motor_stop(self) -> bool: return False  # LVP-A-1 followup: no motor, no stop
 
     # ------------------------------------------------------------------
     # Raw REPL (no-ops)
