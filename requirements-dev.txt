@@ -6,6 +6,14 @@
 pytest==8.3.5
 pyinstaller==6.19.0
 
+# Static analysis used by tests/test_lumaviewpro_app_smoke.py to catch
+# undefined-name regressions in lumaviewpro.py — pre-2026-05-04 a
+# mechanical refactor (LVP-A-3 partial) deleted module-level globals
+# referenced inside App.build(). All 1713 tests passed but production
+# startup NameError'd. pyflakes catches this class of bug at static-
+# analysis speed (<100ms) without needing a Kivy headless harness.
+pyflakes==3.4.0
+
 # Profiling — see Firmware/docs/PROFILING_PRACTICE.md
 # py-spy: sampling profiler, attaches to live LVP process without restart,
 # low overhead so it can run for hours without warping timing data.
