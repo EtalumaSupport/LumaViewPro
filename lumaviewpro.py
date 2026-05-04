@@ -289,115 +289,22 @@ class LumaViewProApp(TooltipMixin, App):
 
     def on_start(self):
         # LVP-A-11: read scope handle off ctx instead of the parallel
-        # module-global. Closures defined below capture the local.
+        # module-global. Used below for the API hardware checks; the
+        # UI listener bridge below also reads scope through ctx.lumaview
+        # internally so widget rebuilds (LS850 ↔ LS620) don't strand it.
         lumaview = ctx.lumaview
 
-        # Position listener: push-based UI updates on every move (immediate response).
-        # Replaces 10Hz polling for crosshair/stage/position text during motion.
-        def _on_position_change(axis, target, state):
-            if axis in ('X', 'Y'):
-                Clock.schedule_once(lambda dt: ctx.motion_settings.update_xy_stage_control_gui(), 0)
-                Clock.schedule_once(lambda dt: stage.draw_labware(), 0)
-            elif axis == 'Z':
-                z_ctrl = ctx.motion_settings.ids.get('verticalcontrol_id')
-                if z_ctrl:
-                    Clock.schedule_once(lambda dt: z_ctrl._update_z_text(target), 0)
-        lumaview.scope.add_position_listener(_on_position_change)
-
-        # LED listener: push-based UI updates on every LED state change.
-        # Replaces all manual update_led_toggle_ui() calls. Coalesces rapid
-        # stim pulses — at most one UI update per color per Kivy frame.
-        _pending_led_updates = {}
-
-        def _on_led_state_changed(color, enabled, mA, owner):
-            if color in _pending_led_updates:
-                return  # Already scheduled, will pick up latest state
-            _pending_led_updates[color] = True
-
-            def _update_led_ui(dt, c=color):
-                _pending_led_updates.pop(c, None)
-                if not ctx.ready:
-                    return
-                try:
-                    layer_obj = ctx.image_settings.layer_lookup(layer=c)
-                except Exception:
-                    return
-                # Read CURRENT state from driver (not event args, which may be stale)
-                state = lumaview.scope.get_led_state(color=c)
-                target = 'down' if state.get('enabled', False) else 'normal'
-                if layer_obj.ids['enable_led_btn'].state != target:
-                    LayerControl._suppressing_led_log = True
-                    try:
-                        layer_obj.ids['enable_led_btn'].state = target
-                    finally:
-                        LayerControl._suppressing_led_log = False
-
-            Clock.schedule_once(_update_led_ui, 0)
-
-        lumaview.scope.add_led_listener(_on_led_state_changed)
-
-        # Camera listener: push-based UI updates on gain/exposure changes.
-        # Ensures sliders reflect actual hardware state when any code path
-        # calls set_gain or set_exposure_time (protocol, auto-gain, REST API).
-        # Only fires on set_gain/set_exposure_time — NOT per-frame, so zero
-        # overhead on display framerate.
-        def _on_camera_setting_changed(param, value):
-            def _update_camera_ui(dt, p=param, v=value):
-                if not ctx.ready:
-                    return
-                # During protocol, the engine cycles gain/exposure across
-                # channels. Don't update the open tab's sliders with another
-                # channel's values — that's confusing, not helpful.
-                if ctx.protocol_running.is_set():
-                    return
-                opened_layer = common_utils.get_opened_layer(ctx.image_settings)
-                if not opened_layer:
-                    return
-                try:
-                    layer_obj = ctx.image_settings.layer_lookup(layer=opened_layer)
-                except Exception:
-                    return
-                if not layer_obj:
-                    return
-                # Respect an _initializing flag set by another code path
-                # (e.g. layer switch via set_step_state). Do not write our
-                # own; the text updates below do not trigger handlers.
-                if layer_obj._initializing:
-                    return
-
-                # Text-only update: the slider is the user-input source of
-                # truth. The listener exists to show the user what value the
-                # camera is actually running at (after AF, auto-gain, REST
-                # API, etc.) in the readout text, but must never push a value
-                # back into the slider — that was the root cause of the
-                # handler-recursion feedback loop in #617. Setting .text
-                # programmatically does not fire on_text_validate (which is
-                # Enter-only) or on_focus (focus-only), so no wrap is needed.
-                settings = ctx.settings
-                if p == 'gain':
-                    rounded = round(v, 1)
-                    # Only update if this layer's configured value matches
-                    # what the camera reports. If another layer changed the
-                    # camera (composite, AF restore), don't display its
-                    # value in this layer's text field. (#610)
-                    expected = settings[opened_layer]['gain']
-                    if abs(rounded - expected) > 0.5:
-                        return
-                    text = str(rounded)
-                    if layer_obj.ids['gain_text'].text != text:
-                        layer_obj.ids['gain_text'].text = text
-                elif p == 'exposure':
-                    rounded = round(v, 2)
-                    expected = settings[opened_layer]['exp']
-                    if abs(rounded - expected) > 0.5:
-                        return
-                    text = str(rounded)
-                    if layer_obj.ids['exp_text'].text != text:
-                        layer_obj.ids['exp_text'].text = text
-
-            Clock.schedule_once(_update_camera_ui, 0)
-
-        lumaview.scope.add_camera_listener(_on_camera_setting_changed)
+        # LVP-A-6: position / LED / camera state-change → UI update
+        # bridges live in modules/ui_listener_bridge.py so REST API +
+        # headless tools that mirror state can reuse them. Coalescing
+        # state, lookup paths, and #617-fix safeguards (text-only
+        # updates, no slider write-back) all live in the bridge.
+        from modules.ui_listener_bridge import UIListenerBridge
+        ctx.ui_listener_bridge = UIListenerBridge(
+            scope=lumaview.scope, ctx=ctx, stage=stage,
+            ui_dispatcher=Clock.schedule_once,
+        )
+        ctx.ui_listener_bridge.register_all()
 
         # Slow idle refresh (1Hz) for display elements that may change without motion
         # (e.g., labware selection, stage offset changes)

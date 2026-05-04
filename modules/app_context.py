@@ -85,6 +85,7 @@ class AppContext:
     zprojection_controls: object = None
     ij_helper: object = None
     metrics_logger: object = None       # MetricsLogger (LVP-A-12)
+    ui_listener_bridge: object = None   # UIListenerBridge (LVP-A-6)
 
     # State
     protocol: object = None            # Protocol instance (canonical owner, not UI)
