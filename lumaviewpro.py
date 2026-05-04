@@ -620,6 +620,15 @@ class LumaViewProApp(TooltipMixin, App):
         global ctx
         ij_helper = None
 
+        # LVP-A-3 fixup: these globals were never assigned inside build()
+        # (they only existed at module level for ctx kwarg pass-through).
+        # When LVP-A-3 partial deleted the module-level declarations,
+        # the AppContext construction below NameError'd on startup.
+        # Initialize as locals here so the kwargs bind correctly.
+        live_histo_setting = False
+        last_save_folder = None
+        focus_round = 0
+
         self.icon = './data/icons/icon.png'
 
         # Window title: version + build timestamp
