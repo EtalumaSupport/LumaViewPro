@@ -288,6 +288,10 @@ class LumaViewProApp(TooltipMixin, App):
     kv_file = 'ui/lumaviewpro.kv'
 
     def on_start(self):
+        # LVP-A-11: read scope handle off ctx instead of the parallel
+        # module-global. Closures defined below capture the local.
+        lumaview = ctx.lumaview
+
         # Position listener: push-based UI updates on every move (immediate response).
         # Replaces 10Hz polling for crosshair/stage/position text during motion.
         def _on_position_change(axis, target, state):
@@ -620,17 +624,12 @@ class LumaViewProApp(TooltipMixin, App):
                     f'popup: {popup_err}')
             sys.exit(1)
 
-        # LVP-A-3: video_creation_controls, stitch_controls,
+        # LVP-A-3 / LVP-A-11: video_creation_controls, stitch_controls,
         # zprojection_controls, composite_gen_controls — now registered
-        # directly on ctx by their __init__. The globals listed below
-        # were previously declared at module scope as duplicate-of-ctx
-        # state (Rule 2 violation); converted to locals here so the
-        # only read path is build()'s use during construction. ctx,
-        # lumaview, stage, protocol_running_global retained as globals
-        # because they have multi-method readers in this file (on_start,
-        # on_stop, on_request_close).
+        # directly on ctx by their __init__. Build-only state lives as
+        # locals here. lumaview is local + stored on ctx.lumaview;
+        # other methods read ctx.lumaview directly.
         global Window
-        global lumaview
         global stage
         global ctx
         ij_helper = None
@@ -905,7 +904,10 @@ class LumaViewProApp(TooltipMixin, App):
         return False
 
     def on_stop(self):
-        global lumaview
+        # LVP-A-11: read scope handle off ctx (canonical) instead of
+        # the parallel module-global. The `lumaview` reads below now
+        # go through ctx.lumaview.
+        lumaview = ctx.lumaview
 
         logger.info('[LVP Main  ] LumaViewProApp.on_stop()')
 
