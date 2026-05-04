@@ -189,7 +189,8 @@ class Lumascope():
     # limits are enforced by the motor board itself.
     MOTOR_POSITION_LIMIT = 1_000_000  # 1 meter in um
 
-    def __init__(self, simulate: bool = False, camera_type: str = 'auto'):
+    def __init__(self, simulate: bool = False, camera_type: str = 'auto',
+                 register_atexit: bool = True):
         """Initialize Microscope.
 
         Args:
@@ -201,6 +202,13 @@ class Lumascope():
                 `drivers/registry.py::camera_registry`. Post-B2 this is
                 the only parameter the caller needs to steer driver
                 selection — motion and LED drivers always use 'auto'.
+            register_atexit: If True (default), register a Python atexit
+                hook that turns off all LEDs and disconnects on
+                interpreter shutdown. Tests that construct Lumascope
+                outside the Kivy app should leave this enabled — the LED
+                stays on if a test crashes mid-LED-on otherwise. Set to
+                False only when the caller has its own equivalent
+                shutdown path that supersedes the atexit hook.
         """
         self._simulated = simulate
         self._coordinate_transformer = coord_transformations.CoordinateTransformer()
@@ -480,6 +488,20 @@ class Lumascope():
                 self.refresh_position_cache()
             except Exception:
                 pass  # OK — cache stays at 0.0 if firmware unresponsive
+
+        # LVP-A-7: register the emergency-shutdown atexit hook so EVERY
+        # Lumascope user (Kivy app, REST server, headless tests, CLI
+        # tools) gets the LED-off-and-disconnect safety net automatically.
+        # Was previously inline in lumaviewpro.py:541-549, leaving every
+        # non-GUI entry point silently unprotected — exactly the failure
+        # mode the comment cited (LED stays on, sample overheats).
+        if register_atexit:
+            try:
+                import atexit
+                atexit.register(self._emergency_shutdown)
+            except Exception as _e:
+                logger.warning(
+                    f'[SCOPE API ] atexit registration failed: {_e}')
 
 
     def initialize(self, config) -> None:
@@ -1557,6 +1579,30 @@ class Lumascope():
         self._invalidate_camera_cache()
 
         logger.info('[SCOPE API ] Microscope disconnected')
+
+    def _emergency_shutdown(self):
+        """LVP-A-7: best-effort safety shutdown for atexit / abnormal exit.
+
+        Guards LEDs and motor against the interpreter terminating mid-
+        operation: turns off all LEDs, then disconnects (which now also
+        stops motion via the LVP-A-1 chain). Swallows every exception so
+        atexit completes cleanly even when the logging stack or hardware
+        access is already torn down.
+        """
+        try:
+            self.leds_off()
+        except Exception:
+            pass
+        try:
+            self.disconnect()
+        except Exception:
+            pass
+        try:
+            logger.info(
+                '[SCOPE API ] _emergency_shutdown complete '
+                '(LEDs off, disconnected)')
+        except Exception:
+            pass
 
     @property
     def no_hardware(self):

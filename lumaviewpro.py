@@ -535,18 +535,9 @@ class LumaViewProApp(TooltipMixin, App):
             lumaview.log_camera_temps()  # Log once on startup
             lumaview.camera_temps_event = Clock.schedule_interval(lambda dt: lumaview.log_camera_temps(), 14400)  # Log every 4 hours
 
-        # Register emergency shutdown handler — ensures LEDs are off and serial
-        # ports released even if the app crashes or is killed. This is safety-
-        # critical: LEDs left on can overheat samples.
-        def _emergency_shutdown():
-            try:
-                if lumaview and lumaview.scope:
-                    lumaview.scope.leds_off()
-                    lumaview.scope.disconnect()
-                    logger.info('[LVP Main  ] atexit: emergency shutdown complete (LEDs off, disconnected)')
-            except Exception:
-                pass  # Best-effort — logging may already be torn down
-        atexit.register(_emergency_shutdown)
+        # LVP-A-7: emergency-shutdown atexit hook moved into Lumascope.
+        # __init__ — every Lumascope user (REST, headless tests, CLI
+        # tools) now gets the same safety net automatically.
 
         if getattr(sys, 'frozen', False):
             pyi_splash.close()
