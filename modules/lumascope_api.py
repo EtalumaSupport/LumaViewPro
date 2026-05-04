@@ -3041,6 +3041,73 @@ class Lumascope():
 
         return self.camera.get_all_temperatures()
 
+    def log_camera_temps(self):
+        """Emit one INFO line per camera temperature sensor.
+
+        No-op when no camera is connected. Called once on startup and
+        periodically by ``start_camera_temp_logging``.
+        """
+        if not self.camera_is_connected():
+            return
+        for source, temp in self.get_camera_temps().items():
+            logger.info(
+                f'[CAM Class ] Camera {source} Temperature : {temp:.2f} °C')
+
+    def start_camera_temp_logging(
+        self, schedule_interval_fn, unschedule_fn, *, interval_s: float = 14400.0):
+        """LVP-A-2: own the periodic camera-temp logging schedule.
+
+        Was previously a Clock.schedule_interval registered by the App
+        and stored as a fresh attribute on the MainDisplay widget — if
+        MainDisplay was ever recreated (LS850/LS620 scope swap), the
+        Clock event became orphaned and continued logging temps from a
+        now-disconnected camera.
+
+        Args:
+            schedule_interval_fn: Callable matching ``Clock.schedule_interval(func, interval)``.
+                Passed in so this module stays GUI-agnostic per Rule 15.
+            unschedule_fn: Callable matching ``Clock.unschedule(event)``,
+                used by ``stop_camera_temp_logging`` and on
+                disconnect-while-logging.
+            interval_s: Seconds between log emissions; default 4 hours.
+        """
+        # Defensive: if a previous logger is already running, stop it
+        # before starting a new one (idempotent — safe to call repeatedly).
+        if getattr(self, '_camera_temp_event', None) is not None:
+            self.stop_camera_temp_logging(unschedule_fn)
+
+        self._camera_temp_unschedule_fn = unschedule_fn
+        self.log_camera_temps()  # one immediate sample
+
+        def _tick(_dt=0):
+            # Self-unschedule when the camera disconnects so a stale
+            # event doesn't survive scope switches.
+            if not self.camera_is_connected():
+                self.stop_camera_temp_logging(unschedule_fn)
+                return
+            self.log_camera_temps()
+
+        self._camera_temp_event = schedule_interval_fn(_tick, interval_s)
+        logger.info(
+            f'[SCOPE API ] start_camera_temp_logging: interval={interval_s}s')
+
+    def stop_camera_temp_logging(self, unschedule_fn=None):
+        """Cancel the periodic camera-temp logger if active.
+
+        Idempotent — safe to call when no logger is running. The
+        unschedule_fn arg is optional; falls back to the function passed
+        at start_camera_temp_logging time.
+        """
+        ev = getattr(self, '_camera_temp_event', None)
+        if ev is None:
+            return
+        try:
+            (unschedule_fn or self._camera_temp_unschedule_fn)(ev)
+        except Exception as e:
+            logger.warning(
+                f'[SCOPE API ] stop_camera_temp_logging unschedule failed: {e}')
+        self._camera_temp_event = None
+
     ########################################################################
     # MOTION CONTROL FUNCTIONS
     ########################################################################

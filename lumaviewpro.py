@@ -536,9 +536,13 @@ class LumaViewProApp(TooltipMixin, App):
         # See docs/LOG_ANALYSIS_GUIDE.md "Resource Health".
         Clock.schedule_interval(lambda dt: config_helpers.log_system_metrics(settings), 60)   # TEMPORARY: every 1 min for buffer-churn investigation
 
+        # LVP-A-2: API owns the camera-temp logging schedule so the
+        # event handle survives any MainDisplay rebuild. The API stays
+        # GUI-agnostic (Rule 15) — we hand it Clock.schedule_interval
+        # and Clock.unschedule rather than importing Kivy on its side.
         if lumaview.scope.camera_is_connected():
-            lumaview.log_camera_temps()  # Log once on startup
-            lumaview.camera_temps_event = Clock.schedule_interval(lambda dt: lumaview.log_camera_temps(), 14400)  # Log every 4 hours
+            lumaview.scope.start_camera_temp_logging(
+                Clock.schedule_interval, Clock.unschedule, interval_s=14400)
 
         # LVP-A-7: emergency-shutdown atexit hook moved into Lumascope.
         # __init__ — every Lumascope user (REST, headless tests, CLI

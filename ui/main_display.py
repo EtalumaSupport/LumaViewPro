@@ -33,7 +33,7 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
         import modules.lumascope_api as lumascope_api
         super(MainDisplay,self).__init__(**kwargs)
         self.scope = lumascope_api.Lumascope(camera_type=camera_type, simulate=simulate)
-        self.camera_temps_event = None
+        # LVP-A-2: camera_temps_event moved to Lumascope.start_camera_temp_logging.
         self.recording = threading.Event()
         self.recording.clear()
         self.video_writing = threading.Event()  # Track if video is being written
@@ -47,15 +47,6 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
         self.video_writing_progress = 0
         self.video_writing_total_frames = 0
         self._pause_led_snapshot = None  # save/restore via API
-
-    def log_camera_temps(self):
-        if self.scope.camera_is_connected():
-            temps = self.scope.get_camera_temps()
-            for source, temp in temps.items():
-                logger.info(f'[CAM Class ] Camera {source} Temperature : {temp:.2f} °C')
-        else:
-            if self.camera_temps_event is not None:
-                Clock.unschedule(self.camera_temps_event)
 
     def cam_toggle(self):
         try:
