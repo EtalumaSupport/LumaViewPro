@@ -179,25 +179,22 @@ if __name__ == "__main__":
 
     import ui.image_utils_kivy as image_utils_kivy
 
-    # Module-level state — assigned in build(), accessed throughout app lifetime.
-    # All are registered on AppContext after creation.
-    wellplate_loader = None
-    objective_helper = None
-    coordinate_transformer = None
-    sequenced_capture_executor = None
+    # LVP-A-3: most module-level state declarations were duplicates of
+    # ctx fields (Rule 2 — single source of truth). Build-only state
+    # (wellplate_loader, objective_helper, coordinate_transformer,
+    # sequenced_capture_executor, live_histo_setting, last_save_folder,
+    # ENGINEERING_MODE, focus_round, scope_session, ij_helper,
+    # cell_count_content, graphing_controls, autofocus_executor) is
+    # now local to build(). The remaining globals below are read by
+    # multiple methods (on_start / on_stop / on_request_close / closures)
+    # and stay until LVP-A-3 phase 2 lifts them onto ctx.
     show_tooltips = False
     protocol_running_global = threading.Event()
-    live_histo_setting = False
-    last_save_folder = None
     stage = None
-    ENGINEERING_MODE = False
-    focus_round = 0
 
-    # Executors — created in build(), registered on AppContext.
-    # LVP-A-10: created via modules.executor_registry.create_default which
-    # returns an ExecutorBundle held in `executor_bundle`; the named
-    # globals below are bound from the bundle so existing readers keep
-    # working unchanged.
+    # Executors — created in build() via ExecutorBundle, then bound to
+    # the named globals below for backwards compat with existing
+    # readers. LVP-A-10 + LVP-A-8.
     io_executor = None
     camera_executor = None
     protocol_executor = None
@@ -208,7 +205,6 @@ if __name__ == "__main__":
     turret_executor = None
     reset_executor = None
     executor_bundle = None
-    scope_session = None
     ctx = None
 
 else:
@@ -623,23 +619,21 @@ class LumaViewProApp(TooltipMixin, App):
                     f'[LVP Lock ] Could not display already-running '
                     f'popup: {popup_err}')
             sys.exit(1)
-        
+
+        # LVP-A-3: video_creation_controls, stitch_controls,
+        # zprojection_controls, composite_gen_controls — now registered
+        # directly on ctx by their __init__. The globals listed below
+        # were previously declared at module scope as duplicate-of-ctx
+        # state (Rule 2 violation); converted to locals here so the
+        # only read path is build()'s use during construction. ctx,
+        # lumaview, stage, protocol_running_global retained as globals
+        # because they have multi-method readers in this file (on_start,
+        # on_stop, on_request_close).
         global Window
         global lumaview
-        global cell_count_content
-        global graphing_controls
-        # video_creation_controls, stitch_controls, zprojection_controls,
-        # composite_gen_controls — now registered directly on ctx by their __init__
         global stage
-        global wellplate_loader
-        global coordinate_transformer
-        global objective_helper
-        global ij_helper
-        ij_helper = None
-        global sequenced_capture_executor
-
-        global autofocus_executor
         global ctx
+        ij_helper = None
 
         self.icon = './data/icons/icon.png'
 
@@ -654,8 +648,8 @@ class LumaViewProApp(TooltipMixin, App):
         self.title = f'LumaViewPro {_title_version}'
         logger.info(f'[LVP Main  ] Window title: {self.title}')
 
-        # Load engineering mode early so _init_ui() methods see the correct value
-        global ENGINEERING_MODE
+        # Load engineering mode early so _init_ui() methods see the correct value.
+        # LVP-A-3: ENGINEERING_MODE is build-only; local now, no global.
         ENGINEERING_MODE = _load_mode(source_path)
 
         stage = Stage()
@@ -738,8 +732,8 @@ class LumaViewProApp(TooltipMixin, App):
         turret_executor = executor_bundle.turret_executor
         reset_executor = executor_bundle.reset_executor
 
-        # Create the GUI-independent scope session
-        global scope_session
+        # Create the GUI-independent scope session.
+        # LVP-A-3: scope_session is build-only; local now.
         scope_session = ScopeSession(
             settings=settings,
             scope=lumaview.scope,
