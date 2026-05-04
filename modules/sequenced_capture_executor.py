@@ -95,8 +95,6 @@ class SequencedCaptureExecutor:
         self._run_in_progress_event = threading.Event()  # GIL-free safe replacement for _run_in_progress bool
         self._cleanup_lock = threading.Lock()
         self._run_lock = threading.Lock()
-        self._video_write_finished = threading.Event()
-        self._video_write_finished.set()
         self._grease_redistribution_event = threading.Event()
         self._grease_redistribution_event.set()
 
@@ -164,7 +162,6 @@ class SequencedCaptureExecutor:
         self._target_y_pos = -1
         self._target_z_pos = -1
         self._protocol_ended.clear()
-        self._video_write_finished.set()
         
 
     @staticmethod
@@ -461,7 +458,6 @@ class SequencedCaptureExecutor:
             scope=self._scope,
             callbacks=self._callbacks,
             protocol_ended=self._protocol_ended,
-            video_write_finished=self._video_write_finished,
             file_io_executor=self.file_io_executor,
             protocol_executor=self.protocol_executor,
             execution_record=self._protocol_execution_record,

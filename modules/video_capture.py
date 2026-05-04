@@ -269,12 +269,66 @@ def write_video(result: VideoCaptureResult, save_folder: pathlib.Path,
 
     logger.info("[PROTOCOL-VIDEO] Writing video...")
 
-    try:
-        if video_as_frames:
-            frame_folder = save_folder / f"{name}"
-            if not frame_folder.exists():
-                frame_folder.mkdir(exist_ok=True, parents=True)
+    if video_as_frames:
+        frame_folder = save_folder / f"{name}"
+        if not frame_folder.exists():
+            frame_folder.mkdir(exist_ok=True, parents=True)
 
+        frame_num = 0
+        while not video_images.empty():
+            progress = frame_num / max(1, captured_frames) * 100
+            if "set_writing_title" in callbacks:
+                _schedule_ui(
+                    lambda dt, p=progress:
+                        callbacks['set_writing_title'](progress=p),
+                    0)
+
+            image_pair = video_images.get_nowait()
+            frame_num += 1
+            image = image_pair[0]
+            ts = image_pair[1]
+            del image_pair
+
+            ts_str = ts.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+            image_w_timestamp = image_utils.add_timestamp(
+                image=image, timestamp_str=ts_str)
+            del image
+            video_images.task_done()
+
+            frame_name = f"{name}_Frame_{frame_num:04}"
+            output_file_loc = frame_folder / f"{frame_name}.tiff"
+
+            metadata = {
+                "datetime": ts.strftime("%Y:%m:%d %H:%M:%S"),
+                "timestamp": ts.strftime("%Y:%m:%d %H:%M:%S.%f"),
+                "frame_num": frame_num,
+            }
+
+            try:
+                image_utils.write_tiff(
+                    data=image_w_timestamp,
+                    metadata=metadata,
+                    file_loc=output_file_loc,
+                    video_frame=True,
+                    ome=False,
+                    color=step['Color'],
+                )
+            except Exception as e:
+                logger.error(
+                    f"[PROTOCOL-VIDEO] Failed to write frame "
+                    f"{frame_num}: {e}")
+
+        _drain_queue(video_images)
+        capture_result = frame_folder
+
+    else:
+        output_file_loc = save_folder / f"{name}.mp4"
+        video_writer = VideoWriter(
+            output_file_loc=output_file_loc,
+            fps=result.calculated_fps,
+            include_timestamp_overlay=True,
+        )
+        try:
             frame_num = 0
             while not video_images.empty():
                 progress = frame_num / max(1, captured_frames) * 100
@@ -284,80 +338,22 @@ def write_video(result: VideoCaptureResult, save_folder: pathlib.Path,
                             callbacks['set_writing_title'](progress=p),
                         0)
 
-                image_pair = video_images.get_nowait()
-                frame_num += 1
-                image = image_pair[0]
-                ts = image_pair[1]
-                del image_pair
-
-                ts_str = ts.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
-                image_w_timestamp = image_utils.add_timestamp(
-                    image=image, timestamp_str=ts_str)
-                del image
-                video_images.task_done()
-
-                frame_name = f"{name}_Frame_{frame_num:04}"
-                output_file_loc = frame_folder / f"{frame_name}.tiff"
-
-                metadata = {
-                    "datetime": ts.strftime("%Y:%m:%d %H:%M:%S"),
-                    "timestamp": ts.strftime("%Y:%m:%d %H:%M:%S.%f"),
-                    "frame_num": frame_num,
-                }
-
                 try:
-                    image_utils.write_tiff(
-                        data=image_w_timestamp,
-                        metadata=metadata,
-                        file_loc=output_file_loc,
-                        video_frame=True,
-                        ome=False,
-                        color=step['Color'],
-                    )
+                    image_pair = video_images.get_nowait()
+                    video_writer.add_frame(
+                        image=image_pair[0], timestamp=image_pair[1])
+                    del image_pair
+                    video_images.task_done()
+                    frame_num += 1
                 except Exception as e:
                     logger.error(
-                        f"[PROTOCOL-VIDEO] Failed to write frame "
-                        f"{frame_num}: {e}")
+                        f"[PROTOCOL-VIDEO] FAILED TO WRITE FRAME: {e}")
+        finally:
+            video_writer.finish()
+            del video_writer
 
-            _drain_queue(video_images)
-            capture_result = frame_folder
-
-        else:
-            output_file_loc = save_folder / f"{name}.mp4"
-            video_writer = VideoWriter(
-                output_file_loc=output_file_loc,
-                fps=result.calculated_fps,
-                include_timestamp_overlay=True,
-            )
-            try:
-                frame_num = 0
-                while not video_images.empty():
-                    progress = frame_num / max(1, captured_frames) * 100
-                    if "set_writing_title" in callbacks:
-                        _schedule_ui(
-                            lambda dt, p=progress:
-                                callbacks['set_writing_title'](progress=p),
-                            0)
-
-                    try:
-                        image_pair = video_images.get_nowait()
-                        video_writer.add_frame(
-                            image=image_pair[0], timestamp=image_pair[1])
-                        del image_pair
-                        video_images.task_done()
-                        frame_num += 1
-                    except Exception as e:
-                        logger.error(
-                            f"[PROTOCOL-VIDEO] FAILED TO WRITE FRAME: {e}")
-            finally:
-                video_writer.finish()
-                del video_writer
-
-            _drain_queue(video_images)
-            capture_result = output_file_loc
-
-    finally:
-        pass  # Caller manages video_write_finished event
+        _drain_queue(video_images)
+        capture_result = output_file_loc
 
     if "reset_title" in callbacks:
         _schedule_ui(lambda dt: callbacks['reset_title'](), 0)

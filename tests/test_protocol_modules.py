@@ -471,7 +471,6 @@ class TestProtocolImageWriterWriteCapture:
             scope=MagicMock(),
             callbacks=ProtocolCallbacks(),
             protocol_ended=threading.Event(),
-            video_write_finished=threading.Event(),
             file_io_executor=_FakeExecutor(),
             protocol_executor=_FakeExecutor(),
             execution_record=execution_record,

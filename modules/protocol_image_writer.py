@@ -52,7 +52,6 @@ class ProtocolImageWriter:
         scope: Lumascope,
         callbacks: ProtocolCallbacks,
         protocol_ended: threading.Event,
-        video_write_finished: threading.Event,
         file_io_executor: SequentialIOExecutor,
         protocol_executor,  # SequentialIOExecutor (protocol queue)
         execution_record: ProtocolExecutionRecord,
@@ -68,7 +67,6 @@ class ProtocolImageWriter:
         self._scope = scope
         self._callbacks = callbacks
         self._protocol_ended = protocol_ended
-        self._video_write_finished = video_write_finished
         self._file_io_executor = file_io_executor
         self._protocol_executor = protocol_executor
         self._execution_record = execution_record
@@ -280,7 +278,6 @@ class ProtocolImageWriter:
 
                     if video_result is None:
                         # Cancelled or zero frames — skip write
-                        self._video_write_finished.set()
                         self._leds_off()
                         _proto_outcome = "video_cancelled"
                         return
@@ -452,17 +449,14 @@ class ProtocolImageWriter:
 
         if enable_image_saving:
             if is_video:
-                try:
-                    capture_result = write_video(
-                        result=video_result,
-                        save_folder=save_folder,
-                        name=name,
-                        video_as_frames=video_as_frames,
-                        step=step,
-                        callbacks=self._callbacks.to_dict(),
-                    )
-                finally:
-                    self._video_write_finished.set()
+                capture_result = write_video(
+                    result=video_result,
+                    save_folder=save_folder,
+                    name=name,
+                    video_as_frames=video_as_frames,
+                    step=step,
+                    callbacks=self._callbacks.to_dict(),
+                )
 
                 captured_frames = video_result.captured_frames
                 duration_sec = video_result.duration_sec
