@@ -8,7 +8,17 @@ from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.button import Button
 
 
+def _log_to_gui_interactions(kind: str, title: str, message: str):
+    """Best-effort forensics log of every popup the user sees."""
+    try:
+        from modules import gui_logger
+        gui_logger.notification(kind, title, message, source="popup")
+    except Exception:
+        pass
+
+
 def show_notification_popup(title: str, message: str):
+    _log_to_gui_interactions("INFO", title, message)
     content = BoxLayout(orientation='vertical', padding=10, spacing=10)
     content.add_widget(Label(text=message))
 
@@ -30,6 +40,7 @@ def show_notification_popup(title: str, message: str):
 
 
 def show_confirmation_w_ack_popup(title: str, message: str, ack_button_text: str, on_ack: typing.Callable):
+    _log_to_gui_interactions("CONFIRM_ACK", title, message)
     content = BoxLayout(orientation='vertical', padding=10, spacing=10)
     content.add_widget(Label(text=message))
 
@@ -51,6 +62,7 @@ def show_confirmation_w_ack_popup(title: str, message: str, ack_button_text: str
 
 
 def show_confirmation_popup(title: str, message: str, confirm_text: str, cancel_text: str, on_confirm):
+    _log_to_gui_interactions("CONFIRM", title, message)
     content = BoxLayout(orientation='vertical', padding=10, spacing=10)
     content.add_widget(Label(text=message))
 

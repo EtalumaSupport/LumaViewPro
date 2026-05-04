@@ -99,6 +99,19 @@ class NotificationCenter:
         # Always log at the matching level
         logger.log(int(severity), f"[{category}] {title}: {message}")
 
+        # Forensics: every notification (independent of any UI popup
+        # bridge that may suppress it post-shutdown) lands in
+        # gui_interactions.log so post-mortem can see what messages
+        # the user was looking at. Best-effort — gui_logger import or
+        # logging stack failures don't disrupt the notify path.
+        try:
+            from modules import gui_logger
+            gui_logger.notification(
+                severity.name if hasattr(severity, 'name') else str(severity),
+                f"{category}/{title}", message, source=source or "")
+        except Exception:
+            pass
+
         # Dedup check + shutdown suppression
         key = (category, title)
         now = time.monotonic()
