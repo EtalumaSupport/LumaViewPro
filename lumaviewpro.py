@@ -442,35 +442,11 @@ class LumaViewProApp(TooltipMixin, App):
 
         Clock.schedule_once(complete_initialization, 0.3)
 
-        # LVP-A-8: executor health watchdog now reads queue depths
-        # through ExecutorBundle.snapshot() — same view the engineering
-        # plugin / REST status endpoint will consume. Adding a new
-        # executor only requires registering it on the bundle; the
-        # watchdog picks it up automatically.
-        def _executor_watchdog(dt):
-            try:
-                snap = executor_bundle.snapshot()
-                total_q = sum(q for q in snap.values() if q > 0)
-                fmt = ' '.join(f'{name}:{q}' for name, q in snap.items())
-                if total_q > 10:
-                    logger.warning(
-                        f"[Watchdog  ] Queue backlog ({total_q} total) — {fmt}")
-                else:
-                    logger.debug(f"[Watchdog  ] Queues — {fmt}")
-
-                # SCOPEDISPLAY backlog: prune to keep UI responsive.
-                if snap.get('SCOPEDISPLAY', 0) > 20:
-                    try:
-                        executor_bundle.scope_display_thread_executor.clear_pending()
-                        logger.warning(
-                            "[Watchdog  ] Cleared ScopeDisplay pending "
-                            "queue to prevent backlog")
-                    except Exception:
-                        pass
-            except Exception:
-                pass
-
-        Clock.schedule_interval(_executor_watchdog, 60)
+        # LVP-A-12: executor watchdog + system metrics + camera-temp
+        # logging are now all owned by MetricsLogger so adding a new
+        # periodic metric (Pylon thread count, GC stats, etc.) only
+        # requires editing one module — and engineering plugin / REST
+        # status endpoint can hit the same surface for on-demand dumps.
 
         load_log_level(source_path)
         load_autofocus_log_enable(source_path)
@@ -524,25 +500,34 @@ class LumaViewProApp(TooltipMixin, App):
         # BF apply_settings will be called by complete_initialization() → accordion_collapse().
 
         config_helpers.log_environment_once()  # TEMPORARY 2026-04-30 — fingerprint env once
-        config_helpers.log_system_metrics(settings)  # Log once on startup
 
-        # Log resource metrics every minute. TEMPORARY 2026-04-30 — was hourly,
-        # bumped to 60 s for the buffer-churn investigation on branch
-        # `perf-instrumentation-4.0.0-beta`. Restore to 3600 before merging
-        # the buffer-reuse fix to `4.0.0-beta`. The added [PDH METRICS] +
-        # [BUFFER METRICS] blocks (`config_helpers.log_system_metrics`) need
-        # this cadence to capture the slowdown's onset within a single
-        # session. CPU cost per snapshot ~10-50 ms (gc.get_objects() dominates).
-        # See docs/LOG_ANALYSIS_GUIDE.md "Resource Health".
-        Clock.schedule_interval(lambda dt: config_helpers.log_system_metrics(settings), 60)   # TEMPORARY: every 1 min for buffer-churn investigation
-
-        # LVP-A-2: API owns the camera-temp logging schedule so the
-        # event handle survives any MainDisplay rebuild. The API stays
-        # GUI-agnostic (Rule 15) — we hand it Clock.schedule_interval
-        # and Clock.unschedule rather than importing Kivy on its side.
-        if lumaview.scope.camera_is_connected():
-            lumaview.scope.start_camera_temp_logging(
-                Clock.schedule_interval, Clock.unschedule, interval_s=14400)
+        # LVP-A-12: one MetricsLogger owns the periodic runtime-health
+        # logging surface (system metrics, executor watchdog, camera
+        # temps). Engineering plugin / REST status endpoint can call
+        # ctx.metrics_logger.snapshot_executors() / .tick_system_metrics()
+        # for on-demand dumps without waiting for the next tick.
+        #
+        # TEMPORARY 2026-04-30 — system-metrics cadence is 60 s during
+        # the buffer-churn / Phase-A perf investigation; the production
+        # default in MetricsLogger is 3600 s (1 hr). Restore to 3600
+        # before merging the buffer-reuse / Phase A bundle to
+        # 4.0.0-beta by either (a) deleting the
+        # system_metrics_interval_s=60 kwarg here so the default
+        # applies, or (b) editing DEFAULT_SYSTEM_METRICS_INTERVAL_S in
+        # modules/metrics_logger.py. The shorter cadence costs ~10-50 ms
+        # CPU per snapshot (gc.get_objects dominates). See
+        # docs/LOG_ANALYSIS_GUIDE.md "Resource Health" + the matching
+        # comment in modules/metrics_logger.py.
+        from modules.metrics_logger import MetricsLogger
+        ctx.metrics_logger = MetricsLogger(
+            scope=lumaview.scope,
+            executor_bundle=executor_bundle,
+            settings=settings,
+        )
+        ctx.metrics_logger.start(
+            Clock.schedule_interval, Clock.unschedule,
+            system_metrics_interval_s=60,    # TEMPORARY 2026-04-30 — see above
+        )
 
         # LVP-A-7: emergency-shutdown atexit hook moved into Lumascope.
         # __init__ — every Lumascope user (REST, headless tests, CLI
@@ -930,6 +915,16 @@ class LumaViewProApp(TooltipMixin, App):
             Clock.unschedule(ctx.motion_settings.update_xy_stage_control_gui)
         except Exception:
             pass
+
+        # LVP-A-12: stop the periodic metrics logger so its Clock
+        # intervals + the camera-temp tick don't survive into shutdown
+        # and try to log against torn-down hardware.
+        try:
+            if ctx.metrics_logger is not None:
+                ctx.metrics_logger.stop()
+        except Exception as e:
+            logger.warning(
+                f'[LVP Main  ] metrics_logger stop failed during shutdown: {e}')
 
         ctx.motion_settings.ids['protocol_settings_id'].cancel_all_protocols()
 

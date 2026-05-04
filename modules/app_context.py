@@ -84,6 +84,7 @@ class AppContext:
     video_creation_controls: object = None
     zprojection_controls: object = None
     ij_helper: object = None
+    metrics_logger: object = None       # MetricsLogger (LVP-A-12)
 
     # State
     protocol: object = None            # Protocol instance (canonical owner, not UI)
