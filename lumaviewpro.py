@@ -188,9 +188,10 @@ if __name__ == "__main__":
     # now local to build(). The remaining globals below are read by
     # multiple methods (on_start / on_stop / on_request_close / closures)
     # and stay until LVP-A-3 phase 2 lifts them onto ctx.
+    # LVP-A-3 phase 2: stage + protocol_running moved to ctx; previously
+    # module-level globals so on_start / on_stop / on_request_close
+    # could read them. Now read off ctx.stage / ctx.protocol_running.
     show_tooltips = False
-    protocol_running_global = threading.Event()
-    stage = None
 
     # Executors — created in build() via ExecutorBundle, then bound to
     # the named globals below for backwards compat with existing
@@ -301,14 +302,14 @@ class LumaViewProApp(TooltipMixin, App):
         # updates, no slider write-back) all live in the bridge.
         from modules.ui_listener_bridge import UIListenerBridge
         ctx.ui_listener_bridge = UIListenerBridge(
-            scope=lumaview.scope, ctx=ctx, stage=stage,
+            scope=lumaview.scope, ctx=ctx, stage=ctx.stage,
             ui_dispatcher=Clock.schedule_once,
         )
         ctx.ui_listener_bridge.register_all()
 
         # Slow idle refresh (1Hz) for display elements that may change without motion
         # (e.g., labware selection, stage offset changes)
-        Clock.schedule_interval(stage.draw_labware, 1.0)
+        Clock.schedule_interval(ctx.stage.draw_labware, 1.0)
         Clock.schedule_interval(ctx.motion_settings.update_xy_stage_control_gui, 1.0)
         Clock.schedule_once(functools.partial(ctx.image_settings.set_expanded_layer, 'BF'), 0.2)
 
@@ -494,7 +495,6 @@ class LumaViewProApp(TooltipMixin, App):
         # locals here. lumaview is local + stored on ctx.lumaview;
         # other methods read ctx.lumaview directly.
         global Window
-        global stage
         global ctx
         ij_helper = None
 
@@ -605,7 +605,10 @@ class LumaViewProApp(TooltipMixin, App):
         reset_executor = executor_bundle.reset_executor
 
         # Create the GUI-independent scope session.
-        # LVP-A-3: scope_session is build-only; local now.
+        # LVP-A-3 phase 2: scope_session and protocol_running_global are
+        # build-only locals; persisted to ctx.session and ctx.protocol_running
+        # so other methods read off ctx.
+        protocol_running_global = threading.Event()
         scope_session = ScopeSession(
             settings=settings,
             scope=lumaview.scope,
@@ -760,7 +763,9 @@ class LumaViewProApp(TooltipMixin, App):
     def on_request_close(self, *args):
         """Handle window close request - show confirmation if protocol is running."""
 
-        if protocol_running_global.is_set():
+        # LVP-A-3 phase 2: read protocol_running off ctx (canonical source)
+        # rather than the deleted module-level global.
+        if ctx.protocol_running.is_set():
             Clock.schedule_once(lambda dt: (
                 show_confirmation_popup(
                 title='Confirm Exit',
@@ -799,7 +804,7 @@ class LumaViewProApp(TooltipMixin, App):
 
         # Unschedule all recurring interval callbacks to prevent orphaned events
         try:
-            Clock.unschedule(stage.draw_labware)
+            Clock.unschedule(ctx.stage.draw_labware)
             Clock.unschedule(ctx.motion_settings.update_xy_stage_control_gui)
         except Exception:
             pass
