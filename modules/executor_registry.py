@@ -1,20 +1,20 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 
-"""LVP-A-10 / LVP-A-8 — central construction point for the LVP executor topology.
+"""LVP-A-10 / LVP-A-8 -- central construction point for the LVP executor topology.
 
 Every entry point that boots LVP (Kivy app, REST API, headless test
 runner, future CLI tools) needs the same topology of SequentialIOExecutor
 instances:
 
-    IO          — generic motor/serial work (also aliased as stage,
+    IO          -- generic motor/serial work (also aliased as stage,
                   turret because all motor serial I/O goes through one
                   executor to prevent concurrent motor-board access)
-    CAMERA      — camera-config / settings writes (CAMERA_WORKER thread)
-    PROTOCOL    — protocol orchestration (long-running runs)
-    FILE        — file IO; protocol_queue bounded at 32 (F-2)
-    AUTOFOCUS   — autofocus measurement loop
-    SCOPEDISPLAY— display pull loop dispatcher
-    RESET       — emergency stop / reconnect operations
+    CAMERA      -- camera-config / settings writes (CAMERA_WORKER thread)
+    PROTOCOL    -- protocol orchestration (long-running runs)
+    FILE        -- file IO; protocol_queue bounded at 32 (F-2)
+    AUTOFOCUS   -- autofocus measurement loop
+    SCOPEDISPLAY-- display pull loop dispatcher
+    RESET       -- emergency stop / reconnect operations
 
 Until LVP-A-10 every entry point open-coded ~45 lines of construct +
 start + register, with the failure mode that adding (e.g.) a new REST
@@ -24,7 +24,7 @@ a single ``ExecutorBundle`` that holds every executor with the aliases
 already wired and ``start()`` already called. Callers unpack the bundle
 into their context object.
 
-LVP-A-8 — ``ExecutorBundle.snapshot()`` returns ``{name: queue_depth}``
+LVP-A-8 -- ``ExecutorBundle.snapshot()`` returns ``{name: queue_depth}``
 so the App's executor watchdog (and engineering-plugin, REST status
 endpoint, future health-check) can read the same view through the same
 lens instead of hardcoding executor handle names.

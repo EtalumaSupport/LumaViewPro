@@ -4,7 +4,7 @@
 
 These Protocol classes define the public interface that all motor and LED
 driver implementations must satisfy.  They are used for static type checking
-only — there is zero runtime overhead.
+only -- there is zero runtime overhead.
 
 Usage:
     from drivers.protocols import MotorBoardProtocol, LEDBoardProtocol
@@ -14,7 +14,7 @@ Usage:
 
 All implementations (MotorBoard, SimulatedMotorBoard, NullMotionBoard,
 LEDBoard, SimulatedLEDBoard, NullLEDBoard) satisfy these protocols by
-duck typing — no inheritance required.
+duck typing -- no inheritance required.
 """
 
 from __future__ import annotations

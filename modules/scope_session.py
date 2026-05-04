@@ -1,6 +1,6 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """
-ScopeSession — GUI-independent state container for a microscope session.
+ScopeSession -- GUI-independent state container for a microscope session.
 
 Consolidates the shared state that was previously scattered across module-level
 globals in lumaviewpro.py.  LumaViewPro, the REST API, and standalone scripts
@@ -276,7 +276,7 @@ class ScopeSession:
         """LVP-A-5: queue the standard startup home + turret-positioning sequence.
 
         Replaces the inline blocks in lumaviewpro.py:on_start AND
-        ui/microscope_settings.py reconnect handler — both previously
+        ui/microscope_settings.py reconnect handler -- both previously
         open-coded the same ALL-axis home + turret-positioning IOTasks
         with a Rule-2 single-source-of-truth violation (drift risk if
         one branch ever updated without the other).
@@ -290,7 +290,7 @@ class ScopeSession:
 
         2. (when ``self.scope.has_turret()`` is True) Absolute T-axis
            move to the position that matches ``settings['objective_id']``
-           — falls back to position 1 if the objective isn't in the
+           -- falls back to position 1 if the objective isn't in the
            turret config. Updates ``settings['turret_position']`` so
            later code reads the actual position.
 

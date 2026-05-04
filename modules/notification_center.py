@@ -55,7 +55,7 @@ class NotificationCenter:
     Producers call ``notify()`` (or convenience methods ``error()``, etc.)
     from any thread.  The call always logs via ``lvp_logger`` so file
     logging is never lost.  Registered listeners are invoked inline on the
-    producer's thread — UI listeners must wrap work in
+    producer's thread -- UI listeners must wrap work in
     ``Clock.schedule_once``.
 
     Deduplication: notifications with the same ``(category, title)`` are

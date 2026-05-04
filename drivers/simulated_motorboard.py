@@ -1,17 +1,17 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """
-Simulated Motor Board — drop-in replacement for MotorBoard.
+Simulated Motor Board -- drop-in replacement for MotorBoard.
 
 No serial hardware required. Tracks axis positions, simulates homing
 and movement, and supports configurable delays.
 
 Timing modes:
-  'fast'      — instant movement, zero delays (for tests)
-  'realistic' — serial delays and speed-limited movement matching real hardware
+  'fast'      -- instant movement, zero delays (for tests)
+  'realistic' -- serial delays and speed-limited movement matching real hardware
 
 Failure injection (for testing error recovery):
-  fail_after=N      — disconnect after N commands (simulates USB cable pull)
-  fail_on={'ZHOME'} — return None for specific commands (simulates timeout)
+  fail_after=N      -- disconnect after N commands (simulates USB cable pull)
+  fail_on={'ZHOME'} -- return None for specific commands (simulates timeout)
 """
 
 import logging
@@ -774,14 +774,14 @@ class SimulatedMotorBoard:
     # Diagnostic commands (match MotorBoard API surface)
     # ------------------------------------------------------------------
     def get_config(self):
-        """Simulated CONFIG — returns motorconfig data."""
+        """Simulated CONFIG -- returns motorconfig data."""
         return {
             'Serial Number': self._fullinfo.get('serial_number', 'SIM-0000'),
             'Axis Present': {'X': 1, 'Y': 1, 'Z': 1, 'T': 0},
         }
 
     def get_drvstat(self, axis=None):
-        """Simulated DRVSTAT — returns fake driver status."""
+        """Simulated DRVSTAT -- returns fake driver status."""
         axes = [axis] if axis else ['X', 'Y', 'Z', 'T']
         return [{'axis': a, 'raw': '0x00000000', 'SG': 0, 'CS': 0,
                  'raw_line': f'{a}: raw=0x00000000 SG=0 CS=0'} for a in axes]
@@ -803,15 +803,15 @@ class SimulatedMotorBoard:
         return {'raw': '24V=OK 5V=N/A 3V3=N/A 1V2=N/A', '24V': 'OK'}
 
     def wait_for_position(self, axis, timeout=5.0):
-        """Simulated wait — always returns True (position reached instantly)."""
+        """Simulated wait -- always returns True (position reached instantly)."""
         return True
 
     def read_status(self, axis):
-        """Simulated STATUS register — return position_reached set."""
+        """Simulated STATUS register -- return position_reached set."""
         return 0x200  # bit 9 = position_reached
 
     def detect_firmware_version(self):
-        """No-op for simulator — version is set at construction."""
+        """No-op for simulator -- version is set at construction."""
         pass
 
     # ------------------------------------------------------------------

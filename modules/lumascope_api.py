@@ -99,7 +99,7 @@ def _try_connect_board(label, ctor, null_ctor):
     SerialBoard.connect() internally, which catches its OWN exceptions and
     logs without re-raising. That means a PermissionError on open leaves
     `board.found=True` (port was discovered) but `board.driver=None` (open
-    failed) — we detect that here and surface it as a clear failure instead
+    failed) -- we detect that here and surface it as a clear failure instead
     of silently substituting Null*.
 
     Rule 14: every case logs visibly and notifies the user with an
@@ -114,7 +114,7 @@ def _try_connect_board(label, ctor, null_ctor):
             return null_ctor()
         if getattr(board, 'driver', None) is None:
             logger.error(f'{label}: detected on {board.port} but driver failed to open '
-                         f'(port may be held by another program — Thonny, etc.)')
+                         f'(port may be held by another program -- Thonny, etc.)')
             _notify_board_failure(label, "port in use or unreachable",
                 f"{label} detected on {board.port} but the port could not be opened. "
                 f"Close other programs holding the port (Thonny, serial monitors), "
@@ -140,7 +140,7 @@ def _try_connect_board(label, ctor, null_ctor):
 
 
 def _notify_camera_failure(exc):
-    """Rule 14 audit A1 — surface camera-init failure to the user.
+    """Rule 14 audit A1 -- surface camera-init failure to the user.
 
     The camera registry raises a variety of exception types depending on
     which backend (pypylon, ids_peak, FX2, simulated). pypylon's
@@ -202,16 +202,16 @@ class Lumascope():
                 'ids', 'sim', or any other key registered in
                 `drivers/registry.py::camera_registry`. Post-B2 this is
                 the only parameter the caller needs to steer driver
-                selection — motion and LED drivers always use 'auto'.
+                selection -- motion and LED drivers always use 'auto'.
             register_atexit: If True (default), register a Python atexit
                 hook that turns off all LEDs and disconnects on
                 interpreter shutdown. Tests that construct Lumascope
-                outside the Kivy app should leave this enabled — the LED
+                outside the Kivy app should leave this enabled -- the LED
                 stays on if a test crashes mid-LED-on otherwise. Set to
                 False only when the caller has its own equivalent
                 shutdown path that supersedes the atexit hook.
             register_metrics: If True (default), construct a
-                MetricsLogger on this Lumascope. Doesn't START it —
+                MetricsLogger on this Lumascope. Doesn't START it --
                 callers must call ``self.metrics_logger.start(scheduler)``
                 with an environment-appropriate Scheduler (Kivy app
                 uses KivyClockScheduler, REST/headless use
@@ -545,7 +545,7 @@ class Lumascope():
 
         Call once after construction.  Sets all scope-level hardware
         configuration.  Does NOT set per-layer camera settings (gain,
-        exposure, auto-gain) — those are the caller's responsibility
+        exposure, auto-gain) -- those are the caller's responsibility
         for the active layer.
 
         Args:
@@ -567,7 +567,7 @@ class Lumascope():
     def _notify_partial_hardware(self, config) -> None:
         """Warn user about missing hardware, filtered by scope expectations.
 
-        An LS620 with no motor is not a failure — its scopes.json says
+        An LS620 with no motor is not a failure -- its scopes.json says
         Focus/XYStage/Turret are all false. Only warn for hardware the
         scope was supposed to have. Simulators never warn.
         """
@@ -598,7 +598,7 @@ class Lumascope():
         axis transitions to MOVING. Polls ``get_target_status()`` per
         MOVING axis and transitions them to IDLE on arrival. This is the
         single place where firmware target-status queries happen during
-        normal operation — all other code reads the in-memory axis state.
+        normal operation -- all other code reads the in-memory axis state.
         """
         while not self._motion_monitor_stop.is_set():
             # Sleep until something starts moving (or shutdown)
@@ -768,7 +768,7 @@ class Lumascope():
     def camera_max_gain(self):
         """Maximum camera gain in dB, or None if no camera is connected.
 
-        Parallel to camera_max_exposure — lets the UI size the gain
+        Parallel to camera_max_exposure -- lets the UI size the gain
         slider to the connected camera's profile-declared cap instead
         of a universal hardcoded 48 dB that can drive the image past
         the sensor's usable range (observed on LS620 2026-04-16).
@@ -875,7 +875,7 @@ class Lumascope():
     @property
     def frame_is_valid(self) -> bool:
         """True if all pending hardware state changes have settled
-        (frame_validity is the SSOT — see modules/frame_validity.py)."""
+        (frame_validity is the SSOT -- see modules/frame_validity.py)."""
         return self.frame_validity.is_valid
 
     def frames_until_valid(self, exclude_sources: tuple = ()) -> int:
@@ -904,7 +904,7 @@ class Lumascope():
         """Register the executor handles used by the X_async / X_sync
         command methods. Call once at startup after the executors are
         constructed. Tests that don't drive the executor-backed API
-        can skip this — those methods raise RuntimeError if invoked
+        can skip this -- those methods raise RuntimeError if invoked
         without executors registered.
         """
         self._camera_executor = camera_executor
@@ -916,7 +916,7 @@ class Lumascope():
         """LVP-A-13: register the ExecutorBundle + settings dict for MetricsLogger.
 
         Lumascope construction (__init__) creates a MetricsLogger but
-        cannot fill in the bundle yet — the bundle is created later by
+        cannot fill in the bundle yet -- the bundle is created later by
         ExecutorRegistry.create_default in the host's startup path.
         Call this once after the bundle exists, BEFORE calling
         ``self.metrics_logger.start(scheduler)``. Settings dict is
@@ -1170,7 +1170,7 @@ class Lumascope():
         """Home an axis (or the whole scope) via the io_executor.
 
         axis: 'Z' or 'T' homes that single axis. 'ALL' (or legacy 'XY')
-            homes everything the board has via self.home() — firmware
+            homes everything the board has via self.home() -- firmware
             homes Z and T first as part of the same routine.
         """
         ex = self._require_executor(self._io_executor, 'move_home_async')
@@ -1403,7 +1403,7 @@ class Lumascope():
         **must** schedule UI work via ``Clock.schedule_once``.
 
         Note: this fires on set_gain/set_exposure_time (user actions),
-        NOT on every camera frame grab — zero overhead on display framerate.
+        NOT on every camera frame grab -- zero overhead on display framerate.
 
         Args:
             listener: ``callable(param: str, value: float)``
@@ -1471,7 +1471,7 @@ class Lumascope():
     def is_any_axis_moving(self) -> bool:
         """Check if any axis is currently MOVING or HOMING.
 
-        Reads from the in-memory state dict — zero serial I/O.
+        Reads from the in-memory state dict -- zero serial I/O.
 
         Returns:
             bool: True if any axis is in MOVING or HOMING state.
@@ -1564,7 +1564,7 @@ class Lumascope():
     def stop_motion(self):
         """Stop all in-flight motor moves (LVP-A-1).
 
-        Idempotent + safe-when-disconnected per Rule 4 + Rule 8 — no-ops
+        Idempotent + safe-when-disconnected per Rule 4 + Rule 8 -- no-ops
         when the motor board isn't connected. Uses the firmware-side
         ``STOP`` command which the motor controller implements as
         ``motorstop`` (target=actual on all axes); same wire command the
@@ -1798,7 +1798,7 @@ class Lumascope():
         Lookup ranking when multiple positions hold the same objective (#488):
             1. Persisted position from settings, if it matches objective_id
                and is provided by the caller. Honors the user's most
-               recent explicit choice — survives restarts and post-home
+               recent explicit choice -- survives restarts and post-home
                situations where the current physical position is an
                artifact of the home routine (T zeros to 1), not user
                intent.
@@ -1806,7 +1806,7 @@ class Lumascope():
                Catches the case where the user has already rotated to a
                matching slot in this session and no persisted hint exists.
             3. First-match dict iteration (lowest position with the
-               objective). Used when neither hint is available — preserves
+               objective). Used when neither hint is available -- preserves
                today's fallback behavior.
 
         Args:
@@ -1956,7 +1956,7 @@ class Lumascope():
         """Get the current illumination level for an LED channel.
 
         Reads from the API-level _led_state cache (Rule 2). Does NOT
-        delegate to the driver — see AUDIT_LED_STATE_FX2.md Bug 4.
+        delegate to the driver -- see AUDIT_LED_STATE_FX2.md Bug 4.
 
         Args:
             color: Channel color name (e.g. "Blue", "Green", "Red", "BF").
@@ -1975,7 +1975,7 @@ class Lumascope():
 
         Reads from the API-level _led_state cache (Rule 2). Pre-fix,
         this delegated to the driver's get_led_state, which for
-        FX2LEDController always returned False — making led_off a
+        FX2LEDController always returned False -- making led_off a
         complete no-op (AUDIT_LED_STATE_FX2.md Bug 2).
         """
         if not self.led:
@@ -2223,7 +2223,7 @@ class Lumascope():
             self._fire_led_listeners(color, False, 0.0, '')
 
     def leds_off(self):
-        """Turn off all LEDs (nuclear — ignores ownership, clears all owners)."""
+        """Turn off all LEDs (nuclear -- ignores ownership, clears all owners)."""
         if not self.led: return
         with self._led_lock:
             self.led.leds_off()
@@ -2981,7 +2981,7 @@ class Lumascope():
         if t < 0.1:
             import traceback
             _caller = ''.join(traceback.format_stack(limit=6)[-4:-1]).strip()
-            logger.warning(f'[SCOPE API ] set_exposure_time({t}ms) is very low — '
+            logger.warning(f'[SCOPE API ] set_exposure_time({t}ms) is very low -- '
                            f'image will be nearly black. Value should be in milliseconds.\n'
                            f'Call stack:\n{_caller}')
         with self._cam_lock:
@@ -3121,7 +3121,7 @@ class Lumascope():
         """LVP-A-2: own the periodic camera-temp logging schedule.
 
         Was previously a Clock.schedule_interval registered by the App
-        and stored as a fresh attribute on the MainDisplay widget — if
+        and stored as a fresh attribute on the MainDisplay widget -- if
         MainDisplay was ever recreated (LS850/LS620 scope swap), the
         Clock event became orphaned and continued logging temps from a
         now-disconnected camera.
@@ -3157,7 +3157,7 @@ class Lumascope():
     def stop_camera_temp_logging(self, unschedule_fn=None):
         """Cancel the periodic camera-temp logger if active.
 
-        Idempotent — safe to call when no logger is running. The
+        Idempotent -- safe to call when no logger is running. The
         unschedule_fn arg is optional; falls back to the function passed
         at start_camera_temp_logging time.
         """
@@ -3232,7 +3232,7 @@ class Lumascope():
 
         This is the unified "home everything" entry point used by
         startup and the GUI Home button. The firmware's home routine
-        homes Z, then T, then X/Y — on a Z-only board (LS820) it homes
+        homes Z, then T, then X/Y -- on a Z-only board (LS820) it homes
         Z and reports the missing X/Y; on a full XYZ scope it homes
         all three. The driver returns True for both cases (full and
         partial), False only on real failure, so this method just
@@ -3250,7 +3250,7 @@ class Lumascope():
             notifications.error(
                 "Motion",
                 "Motor Not Connected",
-                "Cannot home — motor controller is not connected. "
+                "Cannot home -- motor controller is not connected. "
                 "Check the USB cable and that no other program "
                 "(Thonny, mpremote, etc.) is holding the port.",
             )
@@ -3335,7 +3335,7 @@ class Lumascope():
             notifications.error(
                 "Motion",
                 "Motor Not Connected",
-                "Cannot home turret — motor controller is not connected. "
+                "Cannot home turret -- motor controller is not connected. "
                 "Check the USB cable and that no other program is "
                 "holding the port.",
             )
@@ -3393,7 +3393,7 @@ class Lumascope():
 
         Called after homing completes to sync the cache with actual hardware
         positions.  During normal operation the cache is updated directly
-        by move commands — no polling needed.
+        by move commands -- no polling needed.
         """
         positions = {}
         for ax in self.axes_present():
@@ -3411,7 +3411,7 @@ class Lumascope():
     def get_target_position(self, axis=None):
         """Get the target position for an axis (where it is commanded to go).
 
-        Reads from the push-based position cache — zero serial I/O.
+        Reads from the push-based position cache -- zero serial I/O.
 
         Args:
             axis: Axis name ("X", "Y", "Z", "T"), or None for all axes.
@@ -3803,7 +3803,7 @@ class Lumascope():
     def is_moving(self):
         """Check if any axis is currently moving.
 
-        Reads from in-memory axis state — zero serial I/O. The motion
+        Reads from in-memory axis state -- zero serial I/O. The motion
         monitor thread handles firmware queries and state transitions.
 
         Returns:
@@ -3819,7 +3819,7 @@ class Lumascope():
         """Block until all axes have reached their target positions.
 
         Waits on per-axis arrival events set by the motion monitor thread.
-        Zero serial I/O from the calling thread — all firmware queries
+        Zero serial I/O from the calling thread -- all firmware queries
         happen on the monitor thread at 50 Hz.
 
         Args:
@@ -4008,7 +4008,7 @@ class Lumascope():
                 called every 250 frames.
 
         Returns:
-            dict: Same shape as the legacy ``CameraBandwidthTest.run()`` —
+            dict: Same shape as the legacy ``CameraBandwidthTest.run()`` --
                 num_frames_requested, num_frames_received, num_frames_none,
                 num_frames_error, total_bytes, elapsed_seconds,
                 mb_per_second, fps_actual, frame_sizes, errors, passed.
@@ -4084,14 +4084,14 @@ class Lumascope():
         if results['num_frames_none'] > 0:
             results['passed'] = False
             results['errors'].append(
-                f"{results['num_frames_none']} frames returned None — "
+                f"{results['num_frames_none']} frames returned None -- "
                 f"possible USB disconnect or bandwidth issue")
         if results['num_frames_error'] > 0:
             results['passed'] = False
         if len(frame_size_set) > 1:
             results['passed'] = False
             results['errors'].append(
-                f"Inconsistent frame sizes: {sorted(frame_size_set)} — "
+                f"Inconsistent frame sizes: {sorted(frame_size_set)} -- "
                 f"possible data corruption or config change during test")
 
         logger.info(
@@ -4113,7 +4113,7 @@ class Lumascope():
     ) -> dict:
         """Characterize stop_grabbing/start_grabbing latency under back-to-back cycling.
 
-        CAM-1 step (0a) — empirical floor for the SDK's "minimum safe
+        CAM-1 step (0a) -- empirical floor for the SDK's "minimum safe
         interval between StopGrabbing and the next StartGrabbing" instead
         of relying on Basler-published numbers. Typical case is 130-150 ms;
         the pathological ~11 s case has been observed when StopGrabbing
@@ -4124,7 +4124,7 @@ class Lumascope():
 
         Stays inside the API: drops to ``self.camera.stop_grabbing`` /
         ``start_grabbing`` directly, which is a Rule-1 downward call from
-        the API into its driver — same pattern as ``set_frame_size`` etc.
+        the API into its driver -- same pattern as ``set_frame_size`` etc.
 
         Args:
             num_cycles: Stop/start cycles to perform.
@@ -4133,7 +4133,7 @@ class Lumascope():
             vary_settings: When True, alternate gain (1.0 ↔ 4.0) and
                 exposure (10 ms ↔ 50 ms) between cycles to reproduce the
                 per-step protocol pattern that caused STALL-1.
-            slow_threshold_s: Cycle wall-time considered "slow" — counted
+            slow_threshold_s: Cycle wall-time considered "slow" -- counted
                 separately so the operator sees how often the pathological
                 case fires under the chosen delay.
             progress_cb: Optional ``callback(percent_int, message_str)``
@@ -4286,7 +4286,7 @@ class Lumascope():
 
         logger.info(
             f"[SCOPE API ] run_grab_lifecycle_benchmark: {num_cycles} cycles, "
-            f"delay={inter_cycle_delay_ms}ms, vary={vary_settings} → "
+            f"delay={inter_cycle_delay_ms}ms, vary={vary_settings} -> "
             f"cycle p50={results['cycle_p50_s']}s p95={results['cycle_p95_s']}s "
             f"p99={results['cycle_p99_s']}s, slow={results['slow_cycle_count']} "
             f"(>={slow_threshold_s}s), total={results['total_elapsed_s']}s"
@@ -4595,7 +4595,7 @@ class Lumascope():
         until frame_validity confirms all pending state changes (LED, gain,
         exposure, motion) have settled. Then grabs a fresh valid frame.
 
-        Frame-based settling automatically adapts to the camera's frame rate —
+        Frame-based settling automatically adapts to the camera's frame rate --
         fast exposures drain quickly, slow exposures drain slowly, matching
         the actual camera pipeline depth.
 

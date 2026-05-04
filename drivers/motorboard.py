@@ -56,7 +56,7 @@ class MotorBoard(SerialBoard):
 
         NOTE: This must NOT call connect(). connect() calls this method
         after update_from_board(), so calling connect() here would recurse
-        and attempt to reopen the serial port while it's already open —
+        and attempt to reopen the serial port while it's already open --
         causing PermissionError on Windows. (#610)
         """
         self.backlash = self.motorconfig.antibacklash_um('Z')
@@ -89,7 +89,7 @@ class MotorBoard(SerialBoard):
 
     def _initial_connect(self):
         """Called once from __init__ to establish the first connection."""
-        logger.info('[XYZ Class ] _initial_connect() — first connection attempt')
+        logger.info('[XYZ Class ] _initial_connect() -- first connection attempt')
         try:
             self.connect()
         except Exception:
@@ -100,7 +100,7 @@ class MotorBoard(SerialBoard):
         """Read per-unit config from connected board and merge into motorconfig.
 
         Called once after connect() succeeds. Separate from connect() because
-        connect's job is opening the port — config loading is a post-connect step.
+        connect's job is opening the port -- config loading is a post-connect step.
         """
         try:
             board_cfg = self.get_config()
@@ -130,7 +130,7 @@ class MotorBoard(SerialBoard):
             try:
                 # Skip if already connected
                 if self.driver is not None and self.driver.is_open:
-                    logger.debug(f'[XYZ Class ] connect() skipped — already connected on {self.port}')
+                    logger.debug(f'[XYZ Class ] connect() skipped -- already connected on {self.port}')
                     return
 
                 logger.info(f'[XYZ Class ] connect() starting on {self.port}')
@@ -158,7 +158,7 @@ class MotorBoard(SerialBoard):
                 self._close_driver()
                 self._connect_fails += 1
                 if self._connect_fails >= 10 and not self._connect_log_suppressed:
-                    logger.critical('[XYZ Class ] MotorBoard.connect() failed 10 times — suppressing further connect errors (other logging continues)')
+                    logger.critical('[XYZ Class ] MotorBoard.connect() failed 10 times -- suppressing further connect errors (other logging continues)')
                     self._connect_log_suppressed = True
                 if not self._connect_log_suppressed:
                     logger.error(f'[XYZ Class ] MotorBoard.connect() failed: {e}')
@@ -192,7 +192,7 @@ class MotorBoard(SerialBoard):
         info = self.exchange_command("FULLINFO")
         logger.info('[XYZ Class ] MotorBoard.fullinfo(): %s', info, extra={'force_error': True})
         if info is None:
-            logger.error('[XYZ Class ] FULLINFO returned None — board disconnected?')
+            logger.error('[XYZ Class ] FULLINFO returned None -- board disconnected?')
             return {"model": "unknown", "serial_number": "unknown"}
         try:
             parts = info.split()
@@ -512,7 +512,7 @@ class MotorBoard(SerialBoard):
         The firmware's xyzhome routine homes Z, then T, then attempts X/Y.
         On a full XYZ(T) board, the response is 'XYZ home complete'. On a
         Z-only board (LS820 bench), Z (and T if present) get homed first
-        and the firmware then returns 'ERROR: X not present' — the home
+        and the firmware then returns 'ERROR: X not present' -- the home
         DID succeed for the axes the board has, so this counts as
         success. Real failures (no response, hardware error, or partial
         home aborted by Z/T error) return False.
@@ -752,7 +752,7 @@ class MotorBoard(SerialBoard):
         emergency-stop command (sets target=actual on every axis).
 
         Behavior:
-        - First call: send STOP. Inspect the response — if it contains
+        - First call: send STOP. Inspect the response -- if it contains
           ``not found`` or starts with ``ERROR``, cache the firmware
           as unsupported and return False (silent skip on future
           calls). Otherwise return True.

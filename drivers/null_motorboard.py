@@ -1,6 +1,6 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 
-"""Null-object motor board — no-op implementation of the MotorBoard interface.
+"""Null-object motor board -- no-op implementation of the MotorBoard interface.
 
 Used when no motor hardware is present (e.g., LS620 Lumascope Classic, or
 MotorBoard connection failure). All methods return safe defaults:

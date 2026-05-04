@@ -358,7 +358,7 @@ def enable_engineering_logs(enabled: bool):
     """Attach/detach file handlers for engineering-mode-only logs.
 
     Called once after engineering mode is determined. When disabled,
-    the loggers exist but have no file handler — logging calls are
+    the loggers exist but have no file handler -- logging calls are
     essentially free (no I/O).
 
     WORKAROUND: During beta releases, always enable engineering logs
@@ -426,7 +426,7 @@ def log_environment_banner(source_path: str, version_str: str):
     so support bundles always identify the exact environment that
     produced the log (Rule 22).
 
-    Originally inline at lumaviewpro.py:587-666 — moved here so REST
+    Originally inline at lumaviewpro.py:587-666 -- moved here so REST
     API, headless test runner, CLI tools all get the same fingerprint
     without copy-paste.
     """

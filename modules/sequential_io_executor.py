@@ -313,7 +313,7 @@ class SequentialIOExecutor:
                     self._protocol_queue_dropped_count % 10 == 0:
                 logger.warning(
                     f"[{self.executor_name}] PROTOCOL QUEUE FULL "
-                    f"(maxsize={self.protocol_queue_maxsize}, depth={depth}) — "
+                    f"(maxsize={self.protocol_queue_maxsize}, depth={depth}) -- "
                     f"dropping task; total drops this run: "
                     f"{self._protocol_queue_dropped_count}")
             # Discard the future so the caller doesn't get a leaked
@@ -329,7 +329,7 @@ class SequentialIOExecutor:
         # bounded queues will trip PROTOCOL_QUEUE_FULL at maxsize anyway.
         depth = self.protocol_queue.qsize()
         if depth > 20 and depth % 10 == 0:
-            logger.warning(f"[{self.executor_name}] Protocol queue depth: {depth} — "
+            logger.warning(f"[{self.executor_name}] Protocol queue depth: {depth} -- "
                            f"file writes may be falling behind")
         return fut
 
@@ -374,7 +374,7 @@ class SequentialIOExecutor:
     def is_protocol_queue_active(self) -> bool:
         """Returns True if protocol queue has pending tasks or a protocol task is running.
 
-        Does NOT include protocol_finish flag — that flag only signals the
+        Does NOT include protocol_finish flag -- that flag only signals the
         dispatcher to drain remaining items, and clears asynchronously on the
         next dispatch cycle (~0.2s). Including it here caused back-to-back
         protocol runs to be blocked for up to 200ms after the queue was

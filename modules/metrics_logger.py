@@ -1,6 +1,6 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 
-"""LVP-A-12 — single owner for periodic runtime-health logging.
+"""LVP-A-12 -- single owner for periodic runtime-health logging.
 
 Collects what was previously scattered across lumaviewpro.py:
 
@@ -18,7 +18,7 @@ status endpoint can also call the ``snapshot_*`` building blocks
 directly to dump current state on demand without waiting for the
 next tick.
 
-Stays GUI-agnostic per Rule 15 — takes Clock-style scheduler/
+Stays GUI-agnostic per Rule 15 -- takes Clock-style scheduler/
 unscheduler callables instead of importing Kivy.
 """
 
@@ -58,11 +58,11 @@ class MetricsLogger:
         """Hold references; call ``start()`` to begin the schedules.
 
         Args:
-            scope: ``Lumascope`` API instance — used by the camera-temp
+            scope: ``Lumascope`` API instance -- used by the camera-temp
                 tick (delegates to ``scope.log_camera_temps``) and any
                 future tick that needs hardware access.
             executor_bundle: ``modules.executor_registry.ExecutorBundle``
-                — the executor watchdog reads ``.snapshot()`` and prunes
+                -- the executor watchdog reads ``.snapshot()`` and prunes
                 the SCOPEDISPLAY queue when it exceeds the threshold.
             settings: LVP settings dict, passed verbatim to
                 ``config_helpers.log_system_metrics``.
@@ -109,9 +109,9 @@ class MetricsLogger:
             fmt = ' '.join(f'{name}:{q}' for name, q in snap.items())
             if total_q > _EXECUTOR_BACKLOG_WARN_TOTAL:
                 logger.warning(
-                    f"[Watchdog  ] Queue backlog ({total_q} total) — {fmt}")
+                    f"[Watchdog  ] Queue backlog ({total_q} total) -- {fmt}")
             else:
-                logger.debug(f"[Watchdog  ] Queues — {fmt}")
+                logger.debug(f"[Watchdog  ] Queues -- {fmt}")
 
             if snap.get('SCOPEDISPLAY', 0) > _SCOPE_DISPLAY_PRUNE_THRESHOLD:
                 try:

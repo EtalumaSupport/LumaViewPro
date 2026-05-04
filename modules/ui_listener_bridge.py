@@ -1,6 +1,6 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 
-"""LVP-A-6 — Lumascope state-change → UI update bridge.
+"""LVP-A-6 -- Lumascope state-change → UI update bridge.
 
 Lumascope publishes state-change events (position, LED, camera-setting)
 via ``add_position_listener``, ``add_led_listener``, and
@@ -44,7 +44,7 @@ class UIListenerBridge:
 
     The bridge owns the per-listener coalescing state (each listener
     deduplicates rapid back-to-back events, scheduling at most one UI
-    update per Kivy frame). It does NOT own widget references — those
+    update per Kivy frame). It does NOT own widget references -- those
     are looked up via ``ctx`` so a widget rebuild (LS850 ↔ LS620 scope
     swap) doesn't leave the bridge holding stale handles.
     """
@@ -53,16 +53,16 @@ class UIListenerBridge:
         """Initialize the bridge.
 
         Args:
-            scope: ``Lumascope`` API instance — listener-add methods
+            scope: ``Lumascope`` API instance -- listener-add methods
                 are called on this.
-            ctx: ``AppContext`` — UI widget lookups (motion_settings,
+            ctx: ``AppContext`` -- UI widget lookups (motion_settings,
                 image_settings) and runtime flags (ready, settings,
                 protocol_running) read from here so a widget rebuild
                 doesn't strand the bridge.
-            stage: Stage widget — the position listener calls
+            stage: Stage widget -- the position listener calls
                 ``stage.draw_labware()`` on XY motion.
             ui_dispatcher: Callable matching
-                ``Clock.schedule_once(func, dt)`` — used to marshal
+                ``Clock.schedule_once(func, dt)`` -- used to marshal
                 listener callbacks (which fire on the worker thread
                 that caused the change) onto the UI thread. Passed
                 instead of imported per Rule 15.
@@ -85,7 +85,7 @@ class UIListenerBridge:
     # ------------------ Listener implementations ------------------
 
     def _on_position_change(self, axis, target, state):
-        """Position listener — XY motion redraws stage; Z motion updates Z text.
+        """Position listener -- XY motion redraws stage; Z motion updates Z text.
 
         Fires from the IO worker thread (or whichever thread mutated
         position cache). Marshals to UI via ``ui_dispatcher``.
@@ -103,7 +103,7 @@ class UIListenerBridge:
                     lambda dt: z_ctrl._update_z_text(target), 0)
 
     def _on_led_state_changed(self, color, enabled, mA, owner):
-        """LED listener — coalesces rapid stim pulses to one UI update per color per Kivy frame.
+        """LED listener -- coalesces rapid stim pulses to one UI update per color per Kivy frame.
 
         Replaces all manual ``update_led_toggle_ui()`` calls.
         """
@@ -143,11 +143,11 @@ class UIListenerBridge:
         self._ui_dispatch(_update_led_ui, 0)
 
     def _on_camera_setting_changed(self, param, value):
-        """Camera listener — fires on set_gain / set_exposure_time.
+        """Camera listener -- fires on set_gain / set_exposure_time.
 
         Updates the OPEN tab's text fields with what the camera is
         actually running at (after AF, auto-gain, REST API, etc.).
-        Never writes back into the slider — that was the root cause of
+        Never writes back into the slider -- that was the root cause of
         the handler-recursion feedback loop in #617.
 
         During a protocol run the engine cycles gain/exposure across

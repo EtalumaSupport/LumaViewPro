@@ -1,6 +1,6 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 
-"""LVP-A-13 — pluggable Scheduler protocol for periodic background work.
+"""LVP-A-13 -- pluggable Scheduler protocol for periodic background work.
 
 Lumascope-side periodic work (metrics logging, motion monitor,
 future Pylon-thread health checks, GC-pressure pollers) needs to fire
@@ -13,8 +13,8 @@ This module formalizes the previously-informal "pass two callables
 matching ``Clock.schedule_interval / Clock.unschedule``" pattern into
 a real ``Scheduler`` protocol with two reference implementations:
 
-- :class:`KivyClockScheduler` — wraps Kivy ``Clock`` for the LVP App.
-- :class:`ThreadingTimerScheduler` — wraps ``threading.Timer`` for
+- :class:`KivyClockScheduler` -- wraps Kivy ``Clock`` for the LVP App.
+- :class:`ThreadingTimerScheduler` -- wraps ``threading.Timer`` for
   REST API, headless soak, future CLI tools.
 
 Stays Rule-15-clean: ``Scheduler`` itself imports nothing GUI; the
@@ -41,7 +41,7 @@ class Scheduler(Protocol):
 
     Implementations let MetricsLogger (and any future Lumascope-side
     periodic work) fire on a cadence without coupling to a specific
-    event loop. The protocol is intentionally tiny — three methods —
+    event loop. The protocol is intentionally tiny -- three methods --
     so the surface stays implementable from any host environment.
 
     All methods are safe to call from any thread. Cancellation must
@@ -53,7 +53,7 @@ class Scheduler(Protocol):
         """Schedule ``callback`` to fire every ``interval_s`` seconds.
 
         Returns an opaque handle suitable for ``unschedule(handle)``.
-        Implementations may invoke ``callback()`` or ``callback(dt)`` —
+        Implementations may invoke ``callback()`` or ``callback(dt)`` --
         wrap your callback to accept ``*args`` if you don't care which.
         """
         ...
@@ -75,7 +75,7 @@ class KivyClockScheduler:
     """Scheduler implementation backed by Kivy ``Clock``.
 
     Used by the Kivy App entry point. Kivy callbacks fire on the
-    MainThread so the wrapped callback runs there too — appropriate for
+    MainThread so the wrapped callback runs there too -- appropriate for
     UI-touching ticks; metrics logging is fine because it just calls
     ``logger.info`` which is thread-safe.
     """
@@ -208,14 +208,14 @@ class _PeriodicTimer:
 class ThreadingTimerScheduler:
     """Scheduler implementation backed by stdlib ``threading.Timer``.
 
-    Used by REST API, headless soak harness, CLI tools — any
+    Used by REST API, headless soak harness, CLI tools -- any
     environment without a Kivy Clock. Each scheduled interval gets its
     own daemon timer thread that re-arms after every callback. Daemon
     threading is intentional: an unexpected interpreter exit must not
     hang on a pending timer.
 
     Safe to construct from any thread. Callbacks fire on the timer
-    thread, NOT on the calling thread — callbacks that need to
+    thread, NOT on the calling thread -- callbacks that need to
     serialize with other work should use their own lock.
     """
 

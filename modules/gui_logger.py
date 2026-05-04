@@ -49,7 +49,7 @@ def notification(severity, title, message, source=""):
     what the user was looking at when something went wrong.
 
     Wired from BOTH paths that produce visible UI:
-    - ``modules.notification_center.NotificationCenter.notify`` — every
+    - ``modules.notification_center.NotificationCenter.notify`` -- every
       ``notifications.warning/error/critical`` call (which reaches the
       listener-registered popup bridge in lumaviewpro.py:on_start).
     - ``ui.notification_popup`` helpers for direct popup calls

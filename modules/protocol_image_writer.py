@@ -40,7 +40,7 @@ class ProtocolImageWriter:
     """Handles image/video capture and file writing during protocol runs.
 
     Created by SequencedCaptureExecutor at the start of each run with
-    the references it needs.  All state is borrowed from the executor —
+    the references it needs.  All state is borrowed from the executor --
     this class owns no mutable state of its own.
     """
 
@@ -225,7 +225,7 @@ class ProtocolImageWriter:
                 self._scope.set_gain(step['Gain'])
                 self._scope.set_exposure_time(step['Exposure'])
             else:
-                logger.warning(f"[CAPTURE DIAG] SKIPPING camera settings — Auto_Gain is truthy: {_ag!r}")
+                logger.warning(f"[CAPTURE DIAG] SKIPPING camera settings -- Auto_Gain is truthy: {_ag!r}")
 
             # Objective short name for filename
             objective_short_name = None
@@ -236,7 +236,7 @@ class ProtocolImageWriter:
                 else:
                     logger.warning(
                         f"[PROTOCOL] Turret available but no objective info for ID "
-                        f"'{step['Objective']}' — using None for filename"
+                        f"'{step['Objective']}' -- using None for filename"
                     )
 
             # Build base name from protocol's custom root + step name
@@ -352,7 +352,7 @@ class ProtocolImageWriter:
 
                     if captured_image is False:
                         self._consecutive_capture_failures += 1
-                        logger.error(f"[PROTOCOL] Capture failed for step {curr_step} ({step.get('Name', '?')}), scan {scan_count} — camera inactive or frame drain failed (failure {self._consecutive_capture_failures}/{self._MAX_CONSECUTIVE_CAPTURE_FAILURES})")
+                        logger.error(f"[PROTOCOL] Capture failed for step {curr_step} ({step.get('Name', '?')}), scan {scan_count} -- camera inactive or frame drain failed (failure {self._consecutive_capture_failures}/{self._MAX_CONSECUTIVE_CAPTURE_FAILURES})")
                         # Still record the step with "capture_failed" so the record isn't silently missing.
                         # If the file-IO queue is also full, fall back to recording directly (synchronously)
                         # so the failure isn't doubly hidden.
