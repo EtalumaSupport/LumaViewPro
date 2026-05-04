@@ -3114,7 +3114,7 @@ class Lumascope():
             return
         for source, temp in self.get_camera_temps().items():
             logger.info(
-                f'[CAM Class ] Camera {source} Temperature : {temp:.2f} °C')
+                f'[CAM Class ] Camera {source} Temperature : {temp:.2f} degC')
 
     def start_camera_temp_logging(
         self, schedule_interval_fn, unschedule_fn, *, interval_s: float = 14400.0):
