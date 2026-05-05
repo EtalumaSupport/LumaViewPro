@@ -10,6 +10,7 @@ import time
 from pypylon import genicam, pylon
 
 from drivers.camera import Camera, ImageHandlerBase
+from drivers.exceptions import HardwareError
 from drivers.registry import camera_registry
 from lvp_logger import logger
 
@@ -605,6 +606,22 @@ class PylonCamera(Camera):
             )
 
     def set_pixel_format(self, pixel_format: str) -> bool:
+        """Set the camera pixel format.
+
+        Args:
+            pixel_format: Pylon pixel format symbolic name (e.g. 'Mono8').
+
+        Returns:
+            bool: True on success. False only when the camera is inactive
+                or the requested format is unsupported (caller-correctable
+                guards). Hardware-level failure raises HardwareError.
+
+        Raises:
+            HardwareError: SDK call failed (RuntimeException, transient
+                or persistent). Camera is marked disconnected on
+                RuntimeException; transient timeouts let the caller decide
+                whether to retry.
+        """
         if not self.active:
             return False
 
@@ -625,12 +642,16 @@ class PylonCamera(Camera):
                 f'[CAM Class ] Camera communication error during set_pixel_format({pixel_format}): {e}'
             )
             self._mark_disconnected()
-            return False
+            raise HardwareError(
+                f'set_pixel_format({pixel_format}) failed: {type(e).__name__}: {e}'
+            ) from e
         except Exception as e:
             if _cam_log is not None:
                 _cam_log.error(f'pylon PixelFormat.SetValue({pixel_format!r}) FAILED: {e}')
             logger.exception(f'[CAM Class ] Unexpected error in set_pixel_format: {e}')
-            return False
+            raise HardwareError(
+                f'set_pixel_format({pixel_format}) failed: {type(e).__name__}: {e}'
+            ) from e
 
     def get_pixel_format(self) -> str:
         if not self.active:
@@ -660,6 +681,22 @@ class PylonCamera(Camera):
             return ()
 
     def set_binning_size(self, size: int) -> bool:
+        """Set camera pixel binning size.
+
+        Args:
+            size: Binning factor (1 = no binning; up to 4 supported).
+
+        Returns:
+            bool: True on success. False only when the camera is inactive
+                or size is out of range (caller-correctable guards).
+                Hardware-level failure raises HardwareError.
+
+        Raises:
+            HardwareError: SDK call failed. TimeoutException is treated as
+                transient (does NOT mark disconnected) so the caller can
+                choose to retry; RuntimeException marks disconnected before
+                raising.
+        """
         if not self.active:
             return False
 
@@ -687,19 +724,25 @@ class PylonCamera(Camera):
 
             return True
         except genicam.TimeoutException as e:
-            # USB roundtrip timed out (transient). Don't mark disconnected --
-            # single timeouts can recover; let higher layers decide whether to retry.
+            # USB roundtrip timed out. Transient -- do NOT mark disconnected,
+            # single timeouts can recover. Caller can choose to retry.
             logger.warning(f'[CAM Class ] set_binning_size({size}) timed out: {e}')
-            return False
+            raise HardwareError(
+                f'set_binning_size({size}) timed out: {e}'
+            ) from e
         except genicam.RuntimeException as e:
             logger.error(
                 f'[CAM Class ] Camera communication error during set_binning_size({size}): {e}'
             )
             self._mark_disconnected()
-            return False
+            raise HardwareError(
+                f'set_binning_size({size}) failed: {type(e).__name__}: {e}'
+            ) from e
         except Exception as e:
             logger.exception(f'[CAM Class ] Unexpected error in set_binning_size: {e}')
-            return False
+            raise HardwareError(
+                f'set_binning_size({size}) failed: {type(e).__name__}: {e}'
+            ) from e
 
     def get_binning_size(self) -> int:
         if not self.active:

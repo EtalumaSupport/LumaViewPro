@@ -11,6 +11,7 @@ try:
 except ImportError:
     _cam_log = None
 from drivers.camera import Camera, ImageHandlerBase
+from drivers.exceptions import HardwareError
 from drivers.registry import camera_registry
 import threading
 
@@ -376,7 +377,22 @@ class IDSCamera(Camera):
         return self._resolve_logical_format_name(
             logical, self.get_supported_pixel_formats())
 
-    def set_pixel_format(self, pixel_format):
+    def set_pixel_format(self, pixel_format: str) -> bool:
+        """Set the camera pixel format.
+
+        Args:
+            pixel_format: Symbolic pixel format name (e.g. 'Mono8'). May be
+                a logical name; resolves to the camera-specific entry.
+
+        Returns:
+            bool: True on success. False only when the camera is inactive
+                or the format cannot be resolved (caller-correctable
+                guards). Hardware-level failure raises HardwareError.
+
+        Raises:
+            HardwareError: SDK call failed. Marks the camera disconnected
+                before raising.
+        """
         if not self.active:
             return False
 
@@ -400,7 +416,9 @@ class IDSCamera(Camera):
         except Exception as e:
             logger.error(f'[CAM Class ] set_pixel_format({resolved}) failed: {e}')
             self._mark_disconnected()
-            return False
+            raise HardwareError(
+                f'set_pixel_format({resolved}) failed: {type(e).__name__}: {e}'
+            ) from e
 
     def get_pixel_format(self):
         try:
@@ -500,6 +518,19 @@ class IDSCamera(Camera):
             logger.error(f'[CAM Class ] set_max_acquisition_frame_rate failed: {e}')
 
     def set_binning_size(self, size: int) -> bool:
+        """Set camera pixel binning size.
+
+        Args:
+            size: Binning factor (1 or 2; IDS bodies cap at 2x2).
+
+        Returns:
+            bool: True on success. False only when the camera is inactive
+                or size is out of range (caller-correctable guards).
+                Hardware-level failure raises HardwareError.
+
+        Raises:
+            HardwareError: SDK call failed.
+        """
         if not self.active:
             return False
 
@@ -517,7 +548,9 @@ class IDSCamera(Camera):
             return True
         except Exception as e:
             logger.error(f'[CAM Class ] set_binning_size failed: {e}')
-            return False
+            raise HardwareError(
+                f'set_binning_size({size}) failed: {type(e).__name__}: {e}'
+            ) from e
 
     def get_binning_size(self) -> int:
         if not self.active:

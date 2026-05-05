@@ -1874,24 +1874,35 @@ class Lumascope():
         except (AttributeError, TypeError):
             return [1]
 
-    def set_binning_size(self, size):
+    def set_binning_size(self, size: int) -> bool:
         """Set camera pixel binning size.
 
         Args:
-            size (int): Binning factor (1 = no binning, 2 = 2x2, etc.).
+            size: Binning factor (1 = no binning, 2 = 2x2, etc.).
+
+        Returns:
+            bool: True if the driver applied the binning. False if the
+                camera is absent, the driver returned False (size out of
+                range, camera inactive), or the driver raised an
+                exception. Caller can use the result to decide whether to
+                proceed with operations that depend on the new binning.
         """
         try:
             self._binning_size = size
 
             if self.camera:
-                self.camera.set_binning_size(size=size)
-            _api_log.info(f'set_binning {size}x{size}')
+                ok = self.camera.set_binning_size(size=size)
+            else:
+                ok = False
+            _api_log.info(f'set_binning {size}x{size} -> {ok}')
+            return ok
         except Exception as ex:
             logger.exception(f"[SCOPE API ] Error setting binning size: {ex}")
             from modules.notification_center import notifications
             notifications.error("Camera", "Binning change failed",
                 f"Could not set binning to {size}x{size}: {type(ex).__name__}: {ex}. "
                 f"Camera may still be at previous binning -- verify actual frame size.")
+            return False
 
     def get_binning_size(self) -> int:
         """Get the current camera binning size.
@@ -1921,11 +1932,25 @@ class Lumascope():
             pixel_format: Format string (e.g. 'Mono8', 'Mono12').
 
         Returns:
-            bool: True if successful, False otherwise.
+            bool: True on success. False if the camera is absent /
+                inactive, the driver returned False (unsupported format),
+                or the driver raised. Never raises -- caller may safely
+                check `if not scope.set_pixel_format(...)` for fallback.
         """
         if not self.camera or not self.camera.active:
             return False
-        result = self.camera.set_pixel_format(pixel_format)
+        try:
+            result = self.camera.set_pixel_format(pixel_format)
+        except Exception as ex:
+            logger.exception(f"[SCOPE API ] Error setting pixel format: {ex}")
+            from modules.notification_center import notifications
+            notifications.error(
+                "Camera",
+                "Pixel format change failed",
+                f"Could not set pixel format to {pixel_format}: "
+                f"{type(ex).__name__}: {ex}. Camera may still be at the "
+                f"previous format.")
+            return False
         if result:
             with self._camera_cache_lock:
                 self._camera_cache['pixel_format'] = pixel_format

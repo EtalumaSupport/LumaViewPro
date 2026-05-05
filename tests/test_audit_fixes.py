@@ -1216,13 +1216,110 @@ class TestRule14_A9_SetBinningSizeNotify:
         the underlying SDK call raises."""
         import pathlib
         source = pathlib.Path("modules/lumascope_api.py").read_text()
-        idx = source.find("def set_binning_size(self, size):")
-        assert idx != -1, "set_binning_size must exist"
-        method_body = source[idx:idx+1200]
+        idx = source.find("def set_binning_size(self, size: int) -> bool:")
+        assert idx != -1, "set_binning_size must exist with `-> bool` annotation"
+        method_body = source[idx:idx+1500]
         assert "notifications.error" in method_body, \
             "set_binning_size exception path must call notifications.error (A9 -- Rule 14)"
         assert "Binning change failed" in method_body, \
             "notification title must be 'Binning change failed' (A9 -- audit recommendation)"
+
+
+class TestSetBinningSizeReturnsBool:
+    """Wave 1 / B1: Lumascope.set_binning_size must propagate the driver's bool.
+
+    Bench session 2026-05-05 surfaced a phantom-failure bug where the API
+    method dropped the driver's True return and implicitly returned None;
+    char-tool's `if not ok:` check then misreported every successful binning
+    op as a failure. This test pins the contract: capture-and-return on the
+    success path, return False on exception.
+    """
+
+    def test_set_binning_size_has_bool_return_annotation(self):
+        import pathlib
+        source = pathlib.Path("modules/lumascope_api.py").read_text()
+        idx = source.find("def set_binning_size(self, size: int) -> bool:")
+        assert idx != -1, \
+            "Lumascope.set_binning_size must declare `-> bool` (Wave 1 B1; Rule 37)"
+
+    def test_set_binning_size_returns_driver_value(self):
+        """Method body must capture and return the driver's return value
+        on the success path, not drop it."""
+        import pathlib
+        source = pathlib.Path("modules/lumascope_api.py").read_text()
+        idx = source.find("def set_binning_size(self, size: int) -> bool:")
+        assert idx != -1
+        # End the slice at the next def at module column 4 to scope the body
+        next_def = source.find("\n    def ", idx + 1)
+        body = source[idx:next_def] if next_def != -1 else source[idx:idx+2000]
+        assert "ok = self.camera.set_binning_size(size=size)" in body, \
+            "set_binning_size must capture driver return into `ok`"
+        assert "return ok" in body, \
+            "set_binning_size success path must `return ok` (Wave 1 B1)"
+        assert "return False" in body, \
+            "set_binning_size exception path must `return False`"
+
+    def test_set_binning_size_has_returns_docstring_section(self):
+        """Rule 38: public methods declare what they return."""
+        import pathlib
+        source = pathlib.Path("modules/lumascope_api.py").read_text()
+        idx = source.find("def set_binning_size(self, size: int) -> bool:")
+        next_def = source.find("\n    def ", idx + 1)
+        body = source[idx:next_def] if next_def != -1 else source[idx:idx+2000]
+        assert "Returns:" in body, \
+            "set_binning_size docstring must have a Returns: section (Rule 38)"
+
+    def test_pyloncamera_set_binning_size_raises_hardware_error(self):
+        """Tier 3a / C2: PylonCamera.set_binning_size must raise HardwareError
+        on caught exception paths, not return False (Rule 29)."""
+        import pathlib
+        source = pathlib.Path("drivers/pyloncamera.py").read_text()
+        idx = source.find("def set_binning_size(self, size: int) -> bool:")
+        assert idx != -1
+        next_def = source.find("\n    def ", idx + 1)
+        body = source[idx:next_def] if next_def != -1 else source[idx:idx+3000]
+        # Three exception classes; each must raise HardwareError, not return False
+        for exc_clause in (
+            "except genicam.TimeoutException",
+            "except genicam.RuntimeException",
+            "except Exception",
+        ):
+            assert exc_clause in body, f"PylonCamera.set_binning_size must keep {exc_clause}"
+        assert body.count("raise HardwareError(") >= 3, \
+            "PylonCamera.set_binning_size must raise HardwareError on each caught exception (C2)"
+
+    def test_pyloncamera_set_pixel_format_raises_hardware_error(self):
+        """Tier 3a / C1."""
+        import pathlib
+        source = pathlib.Path("drivers/pyloncamera.py").read_text()
+        idx = source.find("def set_pixel_format(self, pixel_format: str) -> bool:")
+        assert idx != -1
+        next_def = source.find("\n    def ", idx + 1)
+        body = source[idx:next_def] if next_def != -1 else source[idx:idx+3000]
+        assert body.count("raise HardwareError(") >= 2, \
+            "PylonCamera.set_pixel_format must raise HardwareError on each caught exception (C1)"
+
+    def test_idscamera_set_binning_size_raises_hardware_error(self):
+        """Tier 3a / C5."""
+        import pathlib
+        source = pathlib.Path("drivers/idscamera.py").read_text()
+        idx = source.find("def set_binning_size(self, size: int) -> bool:")
+        assert idx != -1
+        next_def = source.find("\n    def ", idx + 1)
+        body = source[idx:next_def] if next_def != -1 else source[idx:idx+3000]
+        assert "raise HardwareError(" in body, \
+            "IDSCamera.set_binning_size must raise HardwareError on caught exception (C5)"
+
+    def test_idscamera_set_pixel_format_raises_and_annotated(self):
+        """Tier 3a / C3 + Tier 1-A: annotation added, raises HardwareError."""
+        import pathlib
+        source = pathlib.Path("drivers/idscamera.py").read_text()
+        idx = source.find("def set_pixel_format(self, pixel_format: str) -> bool:")
+        assert idx != -1, "IDSCamera.set_pixel_format must declare `-> bool` (Wave 1 C3 / Rule 37)"
+        next_def = source.find("\n    def ", idx + 1)
+        body = source[idx:next_def] if next_def != -1 else source[idx:idx+3000]
+        assert "raise HardwareError(" in body, \
+            "IDSCamera.set_pixel_format must raise HardwareError on caught exception (C3)"
 
 
 class TestF7_ProtocolHomingInterlock:
