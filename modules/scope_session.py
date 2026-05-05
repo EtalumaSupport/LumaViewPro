@@ -89,7 +89,13 @@ class ScopeSession:
         # rare ScopeSession path that doesn't pass source_path.
         scope.register_source_path(source_path)
 
-        # Optional helpers — import and construct if available
+        # Optional helpers — import and construct if available.
+        # Rule 14 A8: every silent helper-init failure has a downstream
+        # AttributeError waiting for whichever UI action first reads the
+        # missing helper; surface a warning at the failure site so the
+        # user knows which subsystem is unavailable and why.
+        from modules.notification_center import notifications
+
         wellplate_loader = None
         coordinate_transformer = None
         objective_helper = None
@@ -99,18 +105,29 @@ class ScopeSession:
             wellplate_loader = labware_loader.WellPlateLoader(source_path=source_path)
         except Exception as e:
             logger.warning(f"[ScopeSession] Could not load wellplate loader: {e}")
+            notifications.warning("Configuration", "Wellplate loader unavailable",
+                f"Labware configuration could not load: {type(e).__name__}: {e}. "
+                f"Plate-based UI (tile plans, well picker) will not work. "
+                f"Check that data/labware.json exists and is valid.")
 
         try:
             from modules import coord_transformations
             coordinate_transformer = coord_transformations.CoordinateTransformer()
         except Exception as e:
             logger.warning(f"[ScopeSession] Could not load coordinate transformer: {e}")
+            notifications.warning("Configuration", "Coordinate transformer unavailable",
+                f"Coordinate transformer could not load: {type(e).__name__}: {e}. "
+                f"Stage coordinate conversion (plate <-> stage) will not work.")
 
         try:
             from modules import objectives_loader
             objective_helper = objectives_loader.ObjectiveLoader(source_path=source_path)
         except Exception as e:
             logger.warning(f"[ScopeSession] Could not load objective helper: {e}")
+            notifications.warning("Configuration", "Objective helper unavailable",
+                f"Objective configuration could not load: {type(e).__name__}: {e}. "
+                f"Objective selection and lookup will not work. "
+                f"Check that data/objectives.json exists and is valid.")
 
         return cls(
             settings=settings,

@@ -1123,6 +1123,43 @@ class TestRule14_A5_AreAllConnectedExceptionNotify:
             "notification title must be 'Cannot verify hardware state' (A5 -- audit recommendation)"
 
 
+class TestRule14_A8_ScopeSessionHelperNotify:
+    """A8: scope_session optional helper failures must notify (Rule 14)."""
+
+    def test_wellplate_loader_failure_notifies(self):
+        import pathlib
+        source = pathlib.Path("modules/scope_session.py").read_text()
+        idx = source.find("Could not load wellplate loader:")
+        assert idx != -1, "Wellplate loader except branch must exist"
+        nearby = source[idx:idx+500]
+        assert "notifications.warning" in nearby, \
+            "Wellplate loader exception must call notifications.warning (A8 -- Rule 14)"
+        assert "Wellplate loader unavailable" in nearby, \
+            "Notification title must be 'Wellplate loader unavailable' (A8)"
+
+    def test_coord_transformer_failure_notifies(self):
+        import pathlib
+        source = pathlib.Path("modules/scope_session.py").read_text()
+        idx = source.find("Could not load coordinate transformer:")
+        assert idx != -1, "Coordinate transformer except branch must exist"
+        nearby = source[idx:idx+500]
+        assert "notifications.warning" in nearby, \
+            "Coordinate transformer exception must call notifications.warning (A8)"
+        assert "Coordinate transformer unavailable" in nearby, \
+            "Notification title must be 'Coordinate transformer unavailable' (A8)"
+
+    def test_objective_helper_failure_notifies(self):
+        import pathlib
+        source = pathlib.Path("modules/scope_session.py").read_text()
+        idx = source.find("Could not load objective helper:")
+        assert idx != -1, "Objective helper except branch must exist"
+        nearby = source[idx:idx+500]
+        assert "notifications.warning" in nearby, \
+            "Objective helper exception must call notifications.warning (A8)"
+        assert "Objective helper unavailable" in nearby, \
+            "Notification title must be 'Objective helper unavailable' (A8)"
+
+
 class TestRule14_A7_HyperstackBuildNotify:
     """A7: Hyperstack build background-thread failure must notify (Rule 14)."""
 
