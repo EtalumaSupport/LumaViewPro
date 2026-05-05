@@ -79,10 +79,18 @@ def run_cleanup(
     protocol_ended.set()
     scan_in_progress.clear()
 
+    # Rule 14 A10: collect cleanup-step failures into one list so a single
+    # summary notification at the end tells the user what went wrong --
+    # individually each except continues to the next step (fault tolerance,
+    # all six steps must run regardless), but total silence at the end is
+    # the bug. Audit recommendation: one summary popup, not six.
+    cleanup_errors: list[str] = []
+
     try:
         cancel_scheduled_events_fn()
     except Exception as ex:
         logger.error(f"[PROTOCOL] Error cancelling scheduled events during cleanup: {ex}")
+        cleanup_errors.append(f"Cancel scheduled events: {type(ex).__name__}: {ex}")
 
     # --- Restore LEDs ---
     try:
@@ -100,6 +108,7 @@ def run_cleanup(
             logger.error(f"Unsupported LEDs state at end value: {leds_state_at_end}")
     except Exception as ex:
         logger.error(f"[PROTOCOL] Error restoring LED states during cleanup: {ex}")
+        cleanup_errors.append(f"Restore LED states: {type(ex).__name__}: {ex}")
     logger.info(f"[{logger_name}] Cleanup: LED/camera restore complete")
 
     # --- Restore autofocus states ---
@@ -120,6 +129,7 @@ def run_cleanup(
                 _schedule_ui(lambda dt: callbacks.reset_autofocus_btns(), 0)
     except Exception as ex:
         logger.error(f"[PROTOCOL] Error restoring autofocus states during cleanup: {ex}")
+        cleanup_errors.append(f"Restore autofocus states: {type(ex).__name__}: {ex}")
 
     # --- Restore camera gain and exposure ---
     # PROTO-CLEAN-1: dispatch the gain/exposure SDK calls through
@@ -158,6 +168,7 @@ def run_cleanup(
                 scope.restore_camera_state(saved_camera_state)
     except Exception as ex:
         logger.error(f"[PROTOCOL] Error restoring camera gain/exposure during cleanup: {ex}")
+        cleanup_errors.append(f"Restore camera gain/exposure: {type(ex).__name__}: {ex}")
 
     # --- Complete protocol execution record ---
     try:
@@ -167,6 +178,7 @@ def run_cleanup(
             ))
     except Exception as ex:
         logger.error(f"[PROTOCOL] Error completing protocol record during cleanup: {ex}")
+        cleanup_errors.append(f"Complete protocol record: {type(ex).__name__}: {ex}")
 
     # --- Return to position ---
     try:
@@ -183,6 +195,7 @@ def run_cleanup(
             logger.info(f"[{logger_name}] Cleanup: return-to-position move issued")
     except Exception as ex:
         logger.error(f"[PROTOCOL] Error returning to position during cleanup: {ex}")
+        cleanup_errors.append(f"Return to position: {type(ex).__name__}: {ex}")
 
     # --- End executors ---
     scan_in_progress.clear()
@@ -209,6 +222,25 @@ def run_cleanup(
         # Transition back to IDLE from COMPLETING or ERROR
         if get_state_fn() in (ProtocolState.COMPLETING, ProtocolState.ERROR):
             set_state_fn(ProtocolState.IDLE)
+
+    # Rule 14 A10: surface a single summary if any cleanup step failed.
+    # Fault tolerance ran each step regardless; this is the user-visible
+    # consequence -- they need to know LED state, camera settings, or
+    # stage position may not be what they expect.
+    if cleanup_errors:
+        try:
+            from modules.notification_center import notifications
+            err_summary = "\n".join(f"  - {e}" for e in cleanup_errors)
+            notifications.warning(
+                "Protocol", "Protocol cleanup issues",
+                f"Protocol completed but {len(cleanup_errors)} cleanup step(s) failed:\n"
+                f"{err_summary}\n"
+                f"Check LED state, camera settings, and stage position."
+            )
+        except Exception as ex:
+            # Best-effort -- a notification failure during cleanup must
+            # not prevent the completion callbacks from firing.
+            logger.error(f"[PROTOCOL] Failed to surface cleanup-error notification: {ex}")
 
     # --- Fire completion callbacks ---
     _file_queue_active = file_io_executor.is_protocol_queue_active()

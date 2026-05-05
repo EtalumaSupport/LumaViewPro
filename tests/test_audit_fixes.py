@@ -1123,6 +1123,37 @@ class TestRule14_A5_AreAllConnectedExceptionNotify:
             "notification title must be 'Cannot verify hardware state' (A5 -- audit recommendation)"
 
 
+class TestRule14_A10_ProtocolCleanupErrorCollection:
+    """A10: protocol_cleanup must collect cleanup errors and surface a single
+    summary notification (Rule 14)."""
+
+    def test_cleanup_collects_errors(self):
+        """run_cleanup must initialize cleanup_errors list and append to it
+        on each step's exception."""
+        import pathlib
+        source = pathlib.Path("modules/protocol_cleanup.py").read_text()
+        assert "cleanup_errors: list[str] = []" in source, \
+            "run_cleanup must initialize cleanup_errors list (A10)"
+        # Verify each except branch appends
+        assert source.count("cleanup_errors.append") >= 6, \
+            "Each cleanup step except branch must append to cleanup_errors (A10 -- 6 steps)"
+
+    def test_cleanup_summary_notify(self):
+        """run_cleanup must surface a single summary notification when
+        cleanup_errors is non-empty."""
+        import pathlib
+        source = pathlib.Path("modules/protocol_cleanup.py").read_text()
+        idx = source.find("if cleanup_errors:")
+        assert idx != -1, "Cleanup-errors summary block must exist"
+        nearby = source[idx:idx+800]
+        assert "notifications.warning" in nearby, \
+            "Cleanup-errors block must call notifications.warning (A10 -- summary, not 6 popups)"
+        assert "Protocol cleanup issues" in nearby, \
+            "Notification title must be 'Protocol cleanup issues' (A10)"
+        assert "Check LED state, camera settings, and stage position." in nearby, \
+            "Notification body must prompt user to verify hardware state (A10 audit recommendation)"
+
+
 class TestRule14_A9_SetBinningSizeNotify:
     """A9: set_binning_size exception must surface a user notification (Rule 14)."""
 
