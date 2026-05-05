@@ -86,7 +86,7 @@ if __name__ == '__main__':
         settings = initialized_settings
 
     except Exception as e:  # grain: ignore NAKED_EXCEPT
-        logger.critical(f'[LVP Main  ] Failed to load settings — cannot continue. {e}')
+        logger.critical(f'[LVP Main  ] Failed to load settings -- cannot continue. {e}')
         sys.exit(1)
 
     import modules.app_context as app_context
@@ -300,7 +300,6 @@ class LumaViewProApp(TooltipMixin, App):
                 except Exception as e:  # grain: ignore NAKED_EXCEPT
                     logger.warning(f'[INIT      ] Z slider sync failed: {e}')
 
-                # Log initial per-channel settings for debugging
                 try:
                     settings = ctx.settings
                     for layer in common_utils.get_layers():
@@ -437,7 +436,7 @@ class LumaViewProApp(TooltipMixin, App):
                 _root = tkinter.Tk()
                 _root.withdraw()
                 messagebox.showerror(
-                    'LumaViewPro — already running',
+                    'LumaViewPro: already running',
                     'Another copy of LumaViewPro is already running.\n\n'
                     'This copy will now close. Switch to the existing '
                     'window, or close the other instance first before '
@@ -663,7 +662,7 @@ class LumaViewProApp(TooltipMixin, App):
             REQUIRED_PLUGIN_VERSION = '0.1.0'
             plugin_version = getattr(etaluma_engineering, '__version__', '0.0.0')
             if plugin_version < REQUIRED_PLUGIN_VERSION:
-                logger.debug(
+                logger.warning(
                     f'[LVP Main  ] Engineering plugin {plugin_version} outdated, '
                     f'need {REQUIRED_PLUGIN_VERSION}. '
                     f'Please update: pip install -e path/to/etaluma-engineering'
@@ -699,7 +698,7 @@ class LumaViewProApp(TooltipMixin, App):
             global profiling_helper
             profiling_helper = profiling_utils.ProfilingHelper()
             profiling_helper.enable()
-            logger.info('[LVP Main  ] cProfile enabled (debug_mode=true) — will dump on exit')
+            logger.info('[LVP Main  ] cProfile enabled (debug_mode=true) -- will dump on exit')
 
         return lumaview
 
@@ -779,11 +778,11 @@ class LumaViewProApp(TooltipMixin, App):
 
         self.shutdown_threads()
 
-        # Considered: removing this stop_motion() call, since disconnect() below
-        # calls stop_motion() as its first step. Rejected because shutdown_threads
-        # ran BEFORE disconnect, and any in-flight motion should stop before we
-        # tear down the executors that own the move callbacks. Revisit if
-        # shutdown_threads and disconnect are consolidated into one teardown.
+        # Considered removing this stop_motion() call, since disconnect() below calls
+        # stop_motion() as its first step; rejected because shutdown_threads ran BEFORE
+        # disconnect, and any in-flight motion should stop before we tear down the
+        # executors that own the move callbacks. Revisit if shutdown_threads and disconnect
+        # are consolidated into one teardown.
         lumaview.scope.stop_motion()
 
         logger.info('[LVP Main  ] lumaview.scope.leds_off()')
