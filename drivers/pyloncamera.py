@@ -652,6 +652,11 @@ class PylonCamera(Camera):
             logger.debug(f"[CAM Class ] Binning set to {self.get_binning_size()}, frame now {self.get_frame_size()}")
 
             return True
+        except genicam.TimeoutException as e:
+            # USB roundtrip timed out (transient). Don't mark disconnected --
+            # single timeouts can recover; let higher layers decide whether to retry.
+            logger.warning(f'[CAM Class ] set_binning_size({size}) timed out: {e}')
+            return False
         except genicam.RuntimeException as e:
             logger.error(f'[CAM Class ] Camera communication error during set_binning_size({size}): {e}')
             self._mark_disconnected()
@@ -917,6 +922,10 @@ class PylonCamera(Camera):
 
         try:
             return float(self.active.Gain.GetValue())
+        except genicam.TimeoutException as e:
+            # USB roundtrip timed out (transient). Don't mark disconnected; caller can retry.
+            logger.warning(f'[CAM Class ] get_gain timed out: {e}')
+            return -1
         except genicam.RuntimeException as e:
             logger.error(f'[CAM Class ] Failed to read gain value: Camera may be disconnected - {e}')
             self._mark_disconnected()
@@ -1061,6 +1070,10 @@ class PylonCamera(Camera):
             microsec = self.active.ExposureTime.GetValue() # get current exposure time in microsec
             millisec = microsec/1000 # convert exposure time to millisec
             return millisec
+        except genicam.TimeoutException as e:
+            # USB roundtrip timed out (transient). Don't mark disconnected; caller can retry.
+            logger.warning(f'[CAM Class ] get_exposure_t timed out: {e}')
+            return -1
         except genicam.RuntimeException as e:
             logger.error(f'[CAM Class ] Failed to read exposure time: Camera may be disconnected - {e}')
             self._mark_disconnected()
