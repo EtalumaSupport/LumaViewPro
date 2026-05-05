@@ -183,7 +183,11 @@ _U3_34L0XCP_M = CameraProfile(
     pixel_size_um=2.0,
     shutter='rolling',
     native_resolution={'width': 3552, 'height': 3552},
-    pixel_formats=['Mono10g40IDS', 'Mono12g24IDS'],  # No native Mono8
+    # IDS Peak SDK on this body exposes only packed 10-/12-bit. NOTE:
+    # the same IMX676 sensor in the Basler a2A3536 body (line 163)
+    # exposes Mono8 via Pylon -- this is a body/SDK property, not a
+    # sensor property. Always key support to camera model, not sensor.
+    pixel_formats=['Mono10g40IDS', 'Mono12g24IDS'],
     exposure_max_us=2_000_000,
     binning_sizes=[1, 2],           # Sensor 2x2 only, H+V joint
     binning_modes=['Sum'],
@@ -197,9 +201,12 @@ _U3_34L0XCP_M = CameraProfile(
     has_auto_exposure=False,        # Not supported in hardware
     has_temperature=False,
     driver='ids',
-    notes='No native Mono8 — requires software ConvertTo. '
-          'Binning H+V must be applied jointly. '
-          'Max gain 31.6x (analog only).',
+    notes='IDS Peak SDK on this body exposes only Mono10g40IDS / '
+          'Mono12g24IDS -- requires software ConvertTo for Mono8 '
+          'output. Same IMX676 sensor in Basler a2A3536 body exposes '
+          'Mono8 natively via Pylon (body/SDK difference, not a sensor '
+          'property). Binning H+V must be applied jointly. Max gain '
+          '31.6x (analog only).',
 )
 
 # Simulated camera
