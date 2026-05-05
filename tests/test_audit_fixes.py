@@ -1123,6 +1123,23 @@ class TestRule14_A5_AreAllConnectedExceptionNotify:
             "notification title must be 'Cannot verify hardware state' (A5 -- audit recommendation)"
 
 
+class TestRule14_A7_HyperstackBuildNotify:
+    """A7: Hyperstack build background-thread failure must notify (Rule 14)."""
+
+    def test_hyperstack_build_exception_notifies(self):
+        """create_hyperstacks_if_needed _build() must call notifications.error
+        when stack_builder.load_folder raises."""
+        import pathlib
+        source = pathlib.Path("modules/config_ui_getters.py").read_text()
+        idx = source.find('logger.exception("Error building hyperstacks")')
+        assert idx != -1, "Hyperstack build exception handler must exist"
+        nearby = source[idx:idx+500]
+        assert "notifications.error" in nearby, \
+            "Hyperstack build exception path must call notifications.error (A7 -- Rule 14)"
+        assert "Hyperstack build failed" in nearby, \
+            "notification title must be 'Hyperstack build failed' (A7 -- audit recommendation)"
+
+
 class TestRule14_A10_ProtocolCleanupErrorCollection:
     """A10: protocol_cleanup must collect cleanup errors and surface a single
     summary notification (Rule 14)."""

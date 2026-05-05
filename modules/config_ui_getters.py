@@ -301,9 +301,13 @@ def create_hyperstacks_if_needed():
                     focal_length=focal_length,
                 )
                 logger.info("Hyperstack creation complete")
-            except Exception:
+            except Exception as ex:
                 logger.exception("Error building hyperstacks")
-            finally:
-                pass
+                # Rule 14 A7: surface to user. Background thread, so
+                # without this the user sees the "Saving Hyperstacks"
+                # info popup that started this and never sees a result.
+                notifications.error("Post-processing", "Hyperstack build failed",
+                    f"Could not create hyperstacks: {type(ex).__name__}: {ex}. "
+                    f"See logs for details; source files are untouched.")
 
         threading.Thread(target=_build, daemon=True).start()
