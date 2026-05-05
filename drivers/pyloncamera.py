@@ -712,10 +712,14 @@ class PylonCamera(Camera):
 
 
     def update_auto_gain_target_brightness(self, auto_target_brightness: float):
+        # Basler runtime-modifiable parameter -- AutoTargetBrightness can
+        # be changed while StartGrabbing is active. Previous wrap in
+        # update_camera_config() forced a stop_grabbing/start_grabbing
+        # cycle on every call (same structural class as STALL-1's
+        # per-step over-stop). docs/TODO.md item 24.
         try:
             if _cam_log is not None: _cam_log.info(f'pylon AutoTargetBrightness.SetValue({auto_target_brightness:.3f})')
-            with self.update_camera_config():
-                self.active.AutoTargetBrightness.SetValue(auto_target_brightness)
+            self.active.AutoTargetBrightness.SetValue(auto_target_brightness)
         except genicam.RuntimeException as e:
             if _cam_log is not None: _cam_log.error(f'pylon AutoTargetBrightness.SetValue({auto_target_brightness}) FAILED: {e}')
             logger.error(f'[CAM Class ] Camera communication error during update_auto_gain_target_brightness({auto_target_brightness}): {e}')
@@ -729,6 +733,15 @@ class PylonCamera(Camera):
         if not self.active:
             return
 
+        # Basler runtime-modifiable parameters -- AutoGainLowerLimit /
+        # AutoGainUpperLimit can be changed while StartGrabbing is
+        # active. Previous wrap in update_camera_config() forced a
+        # stop_grabbing/start_grabbing cycle on every call (same
+        # structural class as STALL-1's per-step over-stop).
+        # docs/TODO.md item 24. Note auto_gain() calls this AND
+        # update_auto_gain_target_brightness, so the previous code
+        # stop/started twice per auto_gain invocation; both wraps now
+        # removed so the whole chain stays online.
         try:
             if min_gain is None:
                 min_gain = self.active.AutoGainLowerLimit.Min
@@ -737,9 +750,8 @@ class PylonCamera(Camera):
                 max_gain = self.active.AutoGainUpperLimit.Max
 
             if _cam_log is not None: _cam_log.info(f'pylon AutoGainLowerLimit.SetValue({min_gain}) AutoGainUpperLimit.SetValue({max_gain})')
-            with self.update_camera_config():
-                self.active.AutoGainLowerLimit.SetValue(min_gain)
-                self.active.AutoGainUpperLimit.SetValue(max_gain)
+            self.active.AutoGainLowerLimit.SetValue(min_gain)
+            self.active.AutoGainUpperLimit.SetValue(max_gain)
         except genicam.RuntimeException as e:
             logger.error(f'[CAM Class ] Camera communication error during update_auto_gain_min_max(min={min_gain}, max={max_gain}): {e}')
             self._mark_disconnected()

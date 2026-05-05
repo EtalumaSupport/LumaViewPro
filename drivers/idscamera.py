@@ -480,13 +480,23 @@ class IDSCamera(Camera):
             logger.warning('[CAM Class ] set_max_acquisition_frame_rate(): inactive camera')
             return
 
+        # IDS allows changing AcquisitionFrameRateTargetEnable +
+        # AcquisitionFrameRateTarget while acquisition is running (same
+        # runtime-parameter class as ExposureTime, see exposure_t above).
+        # Previous wrap in update_camera_config() forced an unnecessary
+        # stop_grabbing/start_grabbing cycle on every call (same class as
+        # STALL-1's per-step wrapper). docs/TODO.md item 24.
         try:
-            with self.update_camera_config():
-                self.remote_nodemap.FindNode("AcquisitionFrameRateTargetEnable").SetValue(enabled)
-
-                if enabled:
-                    self.remote_nodemap.FindNode("AcquisitionFrameRateTarget").SetValue(fps)
+            if _cam_log is not None:
+                _cam_log.info(
+                    f'ids AcquisitionFrameRateTargetEnable.SetValue({enabled})'
+                    + (f' AcquisitionFrameRateTarget.SetValue({fps})' if enabled else ''))
+            self.remote_nodemap.FindNode("AcquisitionFrameRateTargetEnable").SetValue(enabled)
+            if enabled:
+                self.remote_nodemap.FindNode("AcquisitionFrameRateTarget").SetValue(fps)
         except Exception as e:
+            if _cam_log is not None:
+                _cam_log.error(f'ids AcquisitionFrameRateTarget*({enabled}, {fps}) FAILED: {e}')
             logger.error(f'[CAM Class ] set_max_acquisition_frame_rate failed: {e}')
 
     def set_binning_size(self, size: int) -> bool:
