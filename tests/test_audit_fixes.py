@@ -1123,6 +1123,23 @@ class TestRule14_A5_AreAllConnectedExceptionNotify:
             "notification title must be 'Cannot verify hardware state' (A5 -- audit recommendation)"
 
 
+class TestRule14_A9_SetBinningSizeNotify:
+    """A9: set_binning_size exception must surface a user notification (Rule 14)."""
+
+    def test_set_binning_size_exception_notifies(self):
+        """lumascope_api.set_binning_size must call notifications.error when
+        the underlying SDK call raises."""
+        import pathlib
+        source = pathlib.Path("modules/lumascope_api.py").read_text()
+        idx = source.find("def set_binning_size(self, size):")
+        assert idx != -1, "set_binning_size must exist"
+        method_body = source[idx:idx+1200]
+        assert "notifications.error" in method_body, \
+            "set_binning_size exception path must call notifications.error (A9 -- Rule 14)"
+        assert "Binning change failed" in method_body, \
+            "notification title must be 'Binning change failed' (A9 -- audit recommendation)"
+
+
 class TestF7_ProtocolHomingInterlock:
     """F7: Homing/bookmark must be blocked during protocol execution."""
 

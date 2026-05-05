@@ -1888,6 +1888,10 @@ class Lumascope():
             _api_log.info(f'set_binning {size}x{size}')
         except Exception as ex:
             logger.exception(f"[SCOPE API ] Error setting binning size: {ex}")
+            from modules.notification_center import notifications
+            notifications.error("Camera", "Binning change failed",
+                f"Could not set binning to {size}x{size}: {type(ex).__name__}: {ex}. "
+                f"Camera may still be at previous binning -- verify actual frame size.")
 
     def get_binning_size(self) -> int:
         """Get the current camera binning size.
