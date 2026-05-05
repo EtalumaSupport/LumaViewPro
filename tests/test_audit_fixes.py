@@ -1096,6 +1096,39 @@ class TestG3_AutofocusFailureNotification:
             "autofocus_executor must import notifications (G3)"
 
 
+class TestRule14_A12_FirmwareUpdateReconnectNotify:
+    """A12: post-firmware-update reconnect failures must notify (Rule 14)."""
+
+    def test_notify_helper_exists(self):
+        """Module-scope helper for post-update reconnect notification must exist."""
+        import pathlib
+        source = pathlib.Path("modules/lumascope_api.py").read_text()
+        assert "def _notify_post_update_reconnect_failed(" in source, \
+            "_notify_post_update_reconnect_failed helper must be at module scope (A12)"
+        idx = source.find("def _notify_post_update_reconnect_failed(")
+        body = source[idx:idx+1200]
+        assert "notifications.error" in body, \
+            "helper must call notifications.error (A12 -- Rule 14)"
+        assert "Reconnect after update failed" in body, \
+            "helper must use 'Reconnect after update failed' title (A12 audit recommendation)"
+
+    def test_all_reconnect_sites_call_helper(self):
+        """Every post-firmware-update reconnect except branch must call the helper."""
+        import pathlib
+        source = pathlib.Path("modules/lumascope_api.py").read_text()
+        # Each "logger.error(...reconnect failed: {e}')" inside an
+        # update/reset/restore/upgrade method must be paired with a
+        # _notify_post_update_reconnect_failed call within ~200 chars.
+        # Count both to confirm parity.
+        reconnect_failed_count = source.count("reconnect failed: {e}'")
+        notify_call_count = source.count("_notify_post_update_reconnect_failed(")
+        # 7 reconnect-failure sites at audit time; helper definition + 7 call sites
+        assert notify_call_count >= 8, \
+            f"Expected helper def + at least 7 call sites; found {notify_call_count} (A12)"
+        assert reconnect_failed_count >= 7, \
+            f"Expected at least 7 reconnect-failed log sites; found {reconnect_failed_count}"
+
+
 class TestF7_ProtocolHomingInterlock:
     """F7: Homing/bookmark must be blocked during protocol execution."""
 

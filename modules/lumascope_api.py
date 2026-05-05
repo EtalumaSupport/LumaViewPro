@@ -140,6 +140,31 @@ def _try_connect_board(label, ctor, null_ctor):
         return null_ctor()
 
 
+def _notify_post_update_reconnect_failed(operation, exception):
+    """Surface a post-firmware-update reconnect failure to the user.
+
+    The various ``update_*_firmware`` / ``factory_reset_motor`` /
+    ``upgrade_board_fw40`` methods reconnect in their ``finally`` block
+    after flashing or restoring config. If the reconnect raises, the
+    board is left running on a Null fallback and the next command
+    silently no-ops. ``result.warnings`` carries the failure but only
+    surfaces if the caller renders it; many callers don't. Notify
+    directly at the API layer so every caller path (CLI, future UI)
+    surfaces the failure.
+
+    Best-effort: a notification-stack failure here must not prevent the
+    API method from returning the result object.
+    """
+    try:
+        from modules.notification_center import notifications
+        notifications.error("Firmware Update", "Reconnect after update failed",
+            f"{operation} -- firmware operation completed but reconnect failed: "
+            f"{type(exception).__name__}: {exception}. "
+            f"Board is offline. Power-cycle the scope and restart LVP.")
+    except Exception as nx:
+        logger.debug(f'reconnect-failure notification center unavailable: {nx}')
+
+
 def _notify_camera_failure(exc):
     """Rule 14 audit A1 — surface camera-init failure to the user.
 
@@ -755,6 +780,7 @@ class Lumascope():
                 )
             except Exception as e:
                 logger.error(f'[SCOPE API ] update_motor_firmware: reconnect failed: {e}')
+                _notify_post_update_reconnect_failed("Motor firmware update", e)
                 self.motion = NullMotionBoard()
                 if result is not None:
                     result.warnings.append(f'Post-update reconnect failed: {e}')
@@ -824,6 +850,7 @@ class Lumascope():
                 )
             except Exception as e:
                 logger.error(f'[SCOPE API ] update_motor_firmware_uf2: reconnect failed: {e}')
+                _notify_post_update_reconnect_failed("Motor UF2 firmware update", e)
                 self.motion = NullMotionBoard()
                 if result is not None:
                     result.warnings.append(f'Post-update reconnect failed: {e}')
@@ -895,6 +922,7 @@ class Lumascope():
                 )
             except Exception as e:
                 logger.error(f'[SCOPE API ] factory_reset_motor: reconnect failed: {e}')
+                _notify_post_update_reconnect_failed("Motor factory reset", e)
                 self.motion = NullMotionBoard()
                 if result is not None:
                     result.warnings.append(f'Post-reset reconnect failed: {e}')
@@ -964,6 +992,7 @@ class Lumascope():
                 )
             except Exception as e:
                 logger.error(f'[SCOPE API ] restore_motor_configs: reconnect failed: {e}')
+                _notify_post_update_reconnect_failed("Motor config restore", e)
                 self.motion = NullMotionBoard()
                 if result is not None:
                     result.warnings.append(f'Post-restore reconnect failed: {e}')
@@ -1009,6 +1038,7 @@ class Lumascope():
                 )
             except Exception as e:
                 logger.error(f'[SCOPE API ] restore_led_configs: reconnect failed: {e}')
+                _notify_post_update_reconnect_failed("LED config restore", e)
                 self.led = NullLEDBoard()
                 if result is not None:
                     result.warnings.append(f'Post-restore reconnect failed: {e}')
@@ -1061,6 +1091,7 @@ class Lumascope():
                 )
             except Exception as e:
                 logger.error(f'[SCOPE API ] update_led_firmware: reconnect failed: {e}')
+                _notify_post_update_reconnect_failed("LED firmware update", e)
                 self.led = NullLEDBoard()
                 if result is not None:
                     result.warnings.append(f'Post-update reconnect failed: {e}')
@@ -1209,6 +1240,10 @@ class Lumascope():
                 logger.error(
                     f'[SCOPE API ] upgrade_board_fw40: '
                     f'reconnect failed: {e}')
+                op_label = ("Motor FW4.0 upgrade"
+                            if board_type == BoardType.MOTOR
+                            else "LED FW4.0 upgrade")
+                _notify_post_update_reconnect_failed(op_label, e)
                 if board_type == BoardType.MOTOR:
                     self.motion = NullMotionBoard()
                 else:
