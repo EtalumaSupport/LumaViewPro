@@ -22,3 +22,78 @@ exclude_lines = [
     "raise NotImplementedError",
     "pass",
 ]
+
+# Ruff -- Python lint + format. CLAUDE.md Rule 36.
+# Source of truth for mechanical conventions; CLAUDE.md wins on disagreement.
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+extend-exclude = [
+    "build",
+    "dist",
+    "logs",
+    "capture",
+    "data",
+    ".venv",
+    "*.spec",
+]
+
+[tool.ruff.lint]
+# Default ruff is conservative (E + F). We pick a broader set per Rule 36.
+# E   = pycodestyle errors        F   = pyflakes
+# W   = pycodestyle warnings      I   = isort (import sorting)
+# N   = pep8-naming               UP  = pyupgrade (modern syntax)
+# B   = flake8-bugbear            A   = flake8-builtins (no shadowing)
+# C4  = flake8-comprehensions     PTH = flake8-use-pathlib
+# RUF = ruff-specific rules       SIM = flake8-simplify
+select = ["E", "F", "W", "I", "N", "UP", "B", "A", "C4", "PTH", "RUF", "SIM"]
+ignore = [
+    # E501 (line too long) -- ruff format handles wrapping; raw E501 is noisy.
+    "E501",
+    # E731 (lambda assignment) -- common Kivy pattern (Clock.schedule_once).
+    "E731",
+    # B008 (function call in default arg) -- common Kivy idiom.
+    "B008",
+    # SIM108 (use ternary) -- often hurts readability for non-trivial branches.
+    "SIM108",
+    # N802 (function lowercase) -- Kivy on_X / on_release / on_value handlers and on_*
+    # event names follow Kivy convention; SDK names (Pylon/IDS) use PascalCase too.
+    "N802",
+    # N803 (argument lowercase) -- some hardware register names are UPPER (HW spec).
+    "N803",
+    # N806 (variable lowercase) -- same; HW register names + Kivy conventions.
+    "N806",
+    # N815 (mixedCase classvar) -- Kivy property names follow Kivy convention.
+    "N815",
+    # PTH (pathlib migration) -- enabled but non-blocking during audit waves; the
+    # codebase has substantial os.path usage that migrates incrementally.
+    # Specific PTH codes can be re-enabled per directory once migrated.
+    "PTH",
+]
+
+# Per-file ignores -- carve out legitimate exceptions to specific rules.
+[tool.ruff.lint.per-file-ignores]
+"lumaviewpro.py" = [
+    # Kivy Config.set() must run before kivy import; the entire module
+    # body lives inside `if __name__ == "__main__":` so imports follow
+    # Config calls by design (Rule 36 config-must-run-first exception).
+    "E402",
+]
+"tests/*.py" = [
+    # Tests use sys.modules monkeypatching at module level by design.
+    "E402",
+    # Tests use bare assert; B-rules around asserts don't apply.
+    "B011",
+    # Tests redefine fixtures by name; F811 false-positives.
+    "F811",
+]
+"drivers/*.py" = [
+    # Drivers have hardware register reads/writes with magic numbers; ruff
+    # PLR2004 would flag every byte. (Re-evaluate per-driver if PLR is enabled.)
+]
+
+[tool.ruff.format]
+quote-style = "single"
+indent-style = "space"
+line-ending = "lf"
+

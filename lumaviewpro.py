@@ -5,42 +5,36 @@ import os
 
 # Python version check — must run before any imports that require 3.11+
 import sys
-if sys.version_info < (3, 11):
-    _ver = f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
+
+if sys.version_info < (3, 11):  # noqa: UP036 -- runtime check is load-bearing UX (friendly error before deeper SyntaxError on Python 3.10).
+    _ver = f'{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}'
     _msg = (
-        f"LumaViewPro requires Python 3.11 or later.\n"
-        f"You are running Python {_ver}.\n\n"
-        f"Supported versions: 3.11, 3.12, 3.13"
+        f'LumaViewPro requires Python 3.11 or later.\n'
+        f'You are running Python {_ver}.\n\n'
+        f'Supported versions: 3.11, 3.12, 3.13'
     )
     try:
         # Try GUI dialog first
         import tkinter
         from tkinter import messagebox
+
         root = tkinter.Tk()
         root.withdraw()
-        messagebox.showerror("Unsupported Python Version", _msg)
+        messagebox.showerror('Unsupported Python Version', _msg)
         root.destroy()
     except Exception:
         pass
-    print(f"ERROR: {_msg}", file=sys.stderr)
+    print(f'ERROR: {_msg}', file=sys.stderr)
     sys.exit(1)
 
-import atexit
-import datetime
 import functools
-import json
-import logging
-import os
-import sys
 import threading
-import time
 
 import matplotlib
-matplotlib.use('Agg')  # Must be set before pyplot import to avoid Tk/macOS conflict
-import numpy as np
-import pandas as pd
 
-if __name__ == "__main__":
+matplotlib.use('Agg')  # Must be set before pyplot import to avoid Tk/macOS conflict
+
+if __name__ == '__main__':
     disable_homing = False
     simulate_mode = '--simulate' in sys.argv
     if simulate_mode:
@@ -50,7 +44,7 @@ if __name__ == "__main__":
         sys.argv.remove('--no-engineering')
 
     ############################################################################
-    #---------------------Directory Initialization-----------------------------#
+    # ---------------------Directory Initialization-----------------------------#
     ############################################################################
 
     live_view_fps = 30
@@ -58,6 +52,7 @@ if __name__ == "__main__":
 
     # Environment setup — paths, version, platform detection
     from modules.app_environment import init_environment
+
     _env = init_environment(main_file=__file__)
     script_path = _env.script_path
     source_path = _env.source_path
@@ -65,21 +60,21 @@ if __name__ == "__main__":
     windows_machine = _env.windows_machine
     num_cores = _env.num_cores
 
-    PROTOCOL_DATA_DIR_NAME = "ProtocolData"
-
+    PROTOCOL_DATA_DIR_NAME = 'ProtocolData'
 
     ############################################################################
-    #---------------------Module Imports---------------------------------------#
+    # ---------------------Module Imports---------------------------------------#
     ############################################################################
 
-    from lvp_logger import logger, debug
+    from lvp_logger import debug, logger
+
     DEBUG_MODE = debug
 
-    print(f"LumaViewPro {version}")
-    logger.info(f"[LVP Main  ] LumaViewPro {version}")
+    print(f'LumaViewPro {version}')
+    logger.info(f'[LVP Main  ] LumaViewPro {version}')
 
     if DEBUG_MODE:
-        logger.info("[LVP Main  ] Debug mode is enabled.")
+        logger.info('[LVP Main  ] Debug mode is enabled.')
 
     try:
         from modules.settings_init import load_lvp_settings
@@ -91,45 +86,40 @@ if __name__ == "__main__":
         settings = initialized_settings
 
     except Exception as e:
-        logger.critical(f"[LVP Main  ] Failed to load settings — cannot continue. {e}")
+        logger.critical(f'[LVP Main  ] Failed to load settings — cannot continue. {e}')
         sys.exit(1)
 
-    import modules.profiling_utils as profiling_utils
-
+    import modules.app_context as app_context
     import modules.common_utils as common_utils
-    import modules.labware as labware
-    from modules.autofocus_executor import AutofocusExecutor
-    import modules.autofocus_functions as autofocus_functions
-    import modules.binning as binning
+    import modules.config_helpers as config_helpers
     import modules.coord_transformations as coord_transformations
     import modules.labware_loader as labware_loader
     import modules.lvp_lock as lvp_lock
     import modules.objectives_loader as objectives_loader
-    from modules.sequenced_capture_executor import SequencedCaptureExecutor
-    from modules.sequential_io_executor import IOTask, SequentialIOExecutor
-    import modules.config_helpers as config_helpers
-    from modules.scope_session import ScopeSession
-    import modules.app_context as app_context
+    import modules.profiling_utils as profiling_utils
     from modules.app_context import AppContext
-    import modules.post_processing as post_processing
+    from modules.autofocus_executor import AutofocusExecutor
+    from modules.scope_session import ScopeSession
+    from modules.sequenced_capture_executor import SequencedCaptureExecutor
 
     global profiling_helper
     profiling_helper = None
 
-
     if getattr(sys, 'frozen', False):
-        import pyi_splash # type: ignore
-        pyi_splash.update_text("")
+        import pyi_splash  # type: ignore
+
+        pyi_splash.update_text('')
 
     # Disable Kivy's own file logging (LVP has its own RotatingFileHandler)
-    os.environ["KIVY_NO_CONSOLELOG"] = "1"
-    os.environ["KIVY_NO_FILELOG"] = "1"
+    os.environ['KIVY_NO_CONSOLELOG'] = '1'
+    os.environ['KIVY_NO_FILELOG'] = '1'
 
     # Kivy configurations
     # Configurations must be set before Kivy is imported
     from kivy.config import Config
+
     Config.set('input', 'mouse', 'mouse, disable_multitouch')
-    Config.set('graphics', 'resizable', True) # this seemed to have no effect so may be unnessesary
+    Config.set('graphics', 'resizable', True)
     Config.set('kivy', 'exit_on_escape', '0')
     Config.set('graphics', 'minimum_width', '1024')
     Config.set('graphics', 'minimum_height', '600')
@@ -138,64 +128,61 @@ if __name__ == "__main__":
     Config.set('graphics', 'window_state', 'maximized')
 
     import kivy
-    kivy.require("2.1.0")
+
+    kivy.require('2.1.0')
 
     from kivy.app import App
-    from kivy.factory import Factory
-    from kivy.graphics import RenderContext
-    from kivy.input.motionevent import MotionEvent
-    from kivy.properties import StringProperty, ObjectProperty, BooleanProperty, ListProperty
-    #from kivy.properties import BoundedNumericProperty, ColorProperty, OptionProperty, NumericProperty
     from kivy.clock import Clock
+    from kivy.factory import Factory
+    from kivy.graphics import (
+        Color,
+        Ellipse,
+        Line,
+        Rectangle,
+        RenderContext,
+    )
+
+    # Video Related
+    from kivy.graphics.texture import Texture
+    from kivy.input.motionevent import MotionEvent
     from kivy.metrics import dp
-    #from kivy.animation import Animation
-    from kivy.graphics import Line, Color, Rectangle, Ellipse, Mesh, InstructionGroup
-    # Matplotlib-to-Kivy bridge → ui/figure_canvas.py
-    from ui.figure_canvas import FigureCanvasKivyAgg
+    from kivy.properties import BooleanProperty, ListProperty, ObjectProperty, StringProperty
 
     # User Interface
     from kivy.uix.accordion import AccordionItem
     from kivy.uix.boxlayout import BoxLayout
-    from kivy.uix.floatlayout import FloatLayout
-    from kivy.uix.scatter import Scatter
-    from kivy.uix.widget import Widget
-    from kivy.uix.slider import Slider
-    from kivy.uix.image import Image
     from kivy.uix.button import Button
-    from kivy.uix.scrollview import ScrollView
-    from kivy.uix.popup import Popup
+    from kivy.uix.floatlayout import FloatLayout
+    from kivy.uix.image import Image
     from kivy.uix.label import Label
-    from kivy.graphics import Fbo
-
-    # Video Related
-    from kivy.graphics.texture import Texture
-
-
-    # User Interface Custom Widgets
-    from ui.range_slider import RangeSlider
-    from ui.progress_popup import show_popup
-    from ui.notification_popup import show_notification_popup, show_confirmation_popup, show_confirmation_w_ack_popup
-    from ui.rounded_buttons import RoundedButton, RoundedToggleButton
+    from kivy.uix.popup import Popup
+    from kivy.uix.scatter import Scatter
+    from kivy.uix.scrollview import ScrollView
+    from kivy.uix.slider import Slider
+    from kivy.uix.widget import Widget
 
     import ui.image_utils_kivy as image_utils_kivy
 
-    # LVP-A-3: most module-level state declarations were duplicates of
-    # ctx fields (Rule 2 — single source of truth). Build-only state
-    # (wellplate_loader, objective_helper, coordinate_transformer,
-    # sequenced_capture_executor, live_histo_setting, last_save_folder,
-    # ENGINEERING_MODE, focus_round, scope_session, ij_helper,
-    # cell_count_content, graphing_controls, autofocus_executor) is
-    # now local to build(). The remaining globals below are read by
-    # multiple methods (on_start / on_stop / on_request_close / closures)
-    # and stay until LVP-A-3 phase 2 lifts them onto ctx.
-    # LVP-A-3 phase 2: stage + protocol_running moved to ctx; previously
-    # module-level globals so on_start / on_stop / on_request_close
-    # could read them. Now read off ctx.stage / ctx.protocol_running.
+    # Matplotlib-to-Kivy bridge → ui/figure_canvas.py
+    from ui.figure_canvas import FigureCanvasKivyAgg
+    from ui.notification_popup import (
+        show_confirmation_popup,
+        show_notification_popup,
+    )
+    from ui.progress_popup import show_popup
+
+    # User Interface Custom Widgets
+    from ui.range_slider import RangeSlider
+    from ui.rounded_buttons import RoundedButton, RoundedToggleButton
+
+    # Most state lives on ctx (single source of truth). The few globals
+    # that remain below are read by multiple methods (on_start / on_stop
+    # / on_request_close / closures) and have not been lifted onto ctx
+    # yet; build-only state lives as locals in build().
     show_tooltips = False
 
-    # Executors — created in build() via ExecutorBundle, then bound to
-    # the named globals below for backwards compat with existing
-    # readers. LVP-A-10 + LVP-A-8.
+    # Executors are created in build() via ExecutorBundle and bound to
+    # these named globals for backwards compat with existing readers.
     io_executor = None
     camera_executor = None
     protocol_executor = None
@@ -211,98 +198,85 @@ if __name__ == "__main__":
 else:
     # Subprocess/worker compatibility — Kivy not available
     from modules.subprocess_stubs import (  # noqa: F401
-        App, Widget, BoxLayout, FloatLayout, Scatter, Image, Button,
-        ToggleButton, Label, RoundedButton, RoundedToggleButton,
-        Slider, ScrollView, Popup, AccordionItem,
-        RenderContext, Line, Color, Rectangle, Ellipse, Texture,
-        StringProperty, ObjectProperty, BooleanProperty, ListProperty,
-        MotionEvent, Factory, Clock, dp,
-        RangeSlider, FigureCanvasKivyAgg,
-        show_popup, show_notification_popup, image_utils_kivy,
+        AccordionItem,
+        App,
+        BooleanProperty,
+        BoxLayout,
+        Button,
+        Clock,
+        Color,
+        Ellipse,
+        Factory,
+        FigureCanvasKivyAgg,
+        FloatLayout,
+        Image,
+        Label,
+        Line,
+        ListProperty,
+        MotionEvent,
+        ObjectProperty,
+        Popup,
+        RangeSlider,
+        Rectangle,
+        RenderContext,
+        RoundedButton,
+        RoundedToggleButton,
+        Scatter,
+        ScrollView,
+        Slider,
+        StringProperty,
+        Texture,
+        ToggleButton,
+        Widget,
+        dp,
+        image_utils_kivy,
+        show_notification_popup,
+        show_popup,
     )
 
 # ============================================================================
 # Imports — extracted modules (must be after Kivy init)
 # ============================================================================
 
-from ui.ui_helpers import (  # noqa: E402
-    move_absolute_position, move_relative_position, move_home, move_home_cb,
-    scope_leds_off, set_recording_title, set_writing_title, reset_title,
-    live_histo_off, live_histo_reverse, set_last_save_folder,
-    reset_acquire_ui, reset_stim_ui,
-    _update_step_number_callback, _handle_ui_update_for_axis,
-    _handle_autofocus_ui, update_autofocus_selection_after_protocol,
-    focus_log, find_nearest_step,
+from modules.app_config import (
+    get_lvp_lock_port,
+    load_autofocus_log_enable,
+    load_log_level,
 )
-
-from modules.step_navigation import go_to_step, go_to_step_update_ui  # noqa: E402
-
-from modules.config_ui_getters import (  # noqa: E402
-    get_binning_from_ui, get_zstack_params, get_zstack_positions,
-    get_layer_configs, get_active_layer_config, get_stim_configs,
-    get_enabled_stim_configs, get_current_plate_position,
-    get_current_frame_dimensions, get_selected_labware,
-    get_image_capture_config_from_ui, get_sequenced_capture_config_from_ui,
-    get_auto_gain_settings, get_current_objective_info,
-    get_protocol_time_params, is_image_saving_enabled,
-    create_hyperstacks_if_needed,
-)
-
-from ui.scope_display import ScopeDisplay  # noqa: E402
-from ui.composite_capture import CompositeCapture  # noqa: E402
-from ui.main_display import MainDisplay  # noqa: E402
-from ui.shader import ShaderViewer, ShaderEditor  # noqa: E402
-
-from ui.image_settings import (  # noqa: E402
-    AccordionItemXyStageControl, AccordionItemImageSettingsBase,
-    AccordionItemImageSettingsLumiControl, AccordionItemImageSettingsDfControl,
-    AccordionItemImageSettingsRedControl, AccordionItemImageSettingsGreenControl,
-    AccordionItemImageSettingsBlueControl, ImageSettings, set_histogram_layer,
-)
-
-from ui.motion_settings import MotionSettings, XYStageControl  # noqa: E402
-from ui.post_processing import (  # noqa: E402
-    StitchControls, ZProjectionControls, CompositeGenControls,
-    VideoCreationControls, GraphingControls, CellCountControls,
-    PostProcessingAccordion, CellCountDisplay,
-)
-
-from ui.histogram import Histogram  # noqa: E402
-from ui.vertical_control import VerticalControl  # noqa: E402
-from ui.protocol_settings import ProtocolSettings  # noqa: E402
-from ui.stage import Stage  # noqa: E402
-from ui.microscope_settings import MicroscopeSettings  # noqa: E402
-from ui.mod_slider import ModSlider  # noqa: E402
-from ui.layer_control import LayerControl  # noqa: E402
-from ui.zstack import ZStack  # noqa: E402
-from ui.file_dialogs import FileChooseBTN, FolderChooseBTN, FileSaveBTN  # noqa: E402
-from modules.app_config import (  # noqa: E402
-    load_log_level, get_lvp_lock_port, load_autofocus_log_enable,
+from modules.app_config import (
     load_mode as _load_mode,
 )
-
-from ui.tooltip import Tooltip, TooltipMixin  # noqa: E402
+from ui.main_display import MainDisplay
+from ui.post_processing import (
+    CellCountControls,
+    GraphingControls,
+)
+from ui.stage import Stage
+from ui.tooltip import TooltipMixin
+from ui.ui_helpers import (
+    _handle_autofocus_ui,
+    _handle_ui_update_for_axis,
+)
 
 
 class LumaViewProApp(TooltipMixin, App):
     """Main application class — build, start, stop, tooltips."""
+
     kv_file = 'ui/lumaviewpro.kv'
 
-    def on_start(self):
-        # LVP-A-11: read scope handle off ctx instead of the parallel
-        # module-global. Used below for the API hardware checks; the
-        # UI listener bridge below also reads scope through ctx.lumaview
-        # internally so widget rebuilds (LS850 ↔ LS620) don't strand it.
+    def on_start(self) -> None:
+        """Kivy lifecycle hook: fires after build() and before the main loop runs."""
+        # Read scope through ctx so widget rebuilds (LS850 <-> LS620) don't strand it.
         lumaview = ctx.lumaview
 
-        # LVP-A-6: position / LED / camera state-change → UI update
-        # bridges live in modules/ui_listener_bridge.py so REST API +
-        # headless tools that mirror state can reuse them. Coalescing
-        # state, lookup paths, and #617-fix safeguards (text-only
-        # updates, no slider write-back) all live in the bridge.
+        # UI listener bridges live in modules/ui_listener_bridge.py so REST API and
+        # headless tools can reuse them.
         from modules.ui_listener_bridge import UIListenerBridge
+
         ctx.ui_listener_bridge = UIListenerBridge(
-            scope=lumaview.scope, ctx=ctx, stage=ctx.stage,
+            scope=lumaview.scope,
+            ctx=ctx,
+            stage=ctx.stage,
             ui_dispatcher=Clock.schedule_once,
         )
         ctx.ui_listener_bridge.register_all()
@@ -320,7 +294,7 @@ class LumaViewProApp(TooltipMixin, App):
 
                 # Sync Z slider to actual motor position. Without this the
                 # .kv hardcodes obj_position.value=0 and the first user
-                # click snaps Z to 0 regardless of where the motor is. (#639)
+                # click snaps Z to 0 regardless of where the motor is.
                 try:
                     _handle_ui_update_for_axis('Z')
                 except Exception as e:
@@ -350,73 +324,65 @@ class LumaViewProApp(TooltipMixin, App):
 
         Clock.schedule_once(complete_initialization, 0.3)
 
-        # LVP-A-12: executor watchdog + system metrics + camera-temp
-        # logging are now all owned by MetricsLogger so adding a new
-        # periodic metric (Pylon thread count, GC stats, etc.) only
-        # requires editing one module — and engineering plugin / REST
-        # status endpoint can hit the same surface for on-demand dumps.
+        # MetricsLogger owns the executor watchdog, system metrics, and camera-temp
+        # logging so adding a new periodic metric only requires editing one module.
 
         load_log_level(source_path)
         load_autofocus_log_enable(source_path)
-        # load_mode() and engineering_mode assignment moved to build() for correct _init_ui timing
         logger.info('[LVP Main  ] LumaViewProApp.on_start()')
 
         if lumaview.scope.no_hardware:
-            Clock.schedule_once(lambda dt: show_notification_popup(
-                title="Hardware Connection Failed",
-                message="No hardware detected. Please connect LED board, motor board, and camera."
-            ), 0)
+            Clock.schedule_once(
+                lambda dt: show_notification_popup(
+                    title='No hardware detected',
+                    message=(
+                        'No microscope hardware was detected. You can continue in software-only '
+                        'mode (live view + protocol design will work; capture will not). To '
+                        'connect hardware, power on the scope and reconnect the USB cable, then '
+                        'restart LumaViewPro.'
+                    ),
+                ),
+                0,
+            )
 
-        # LVP-A-5: ScopeSession owns the standard startup orchestration
-        # (ALL-axis home + turret-positioning) so REST API + headless
-        # tools + the reconnect handler in ui/microscope_settings.py
-        # all hit the same path. Was inline here AND in reconnect; the
-        # two had drifted in subtle ways (different executor handles
-        # via the io/stage/turret aliases).
+        # ScopeSession owns startup orchestration so REST API, headless tools, and
+        # the reconnect handler in ui/microscope_settings.py all hit the same path.
         ctx.session.start_application_session(disable_homing=disable_homing)
 
-        # Objective and LEDs already set by scope.initialize() in load_settings().
-        # BF apply_settings will be called by complete_initialization() → accordion_collapse().
+        # Objective and LEDs are set by scope.initialize() during load_settings();
+        # BF apply_settings fires from complete_initialization() -> accordion_collapse().
 
-        config_helpers.log_environment_once()  # TEMPORARY 2026-04-30 — fingerprint env once
+        # TEMP: fingerprint env once at startup; revisit before 4.0 ship and either
+        # delete or fold into log_environment_banner for one place.
+        config_helpers.log_environment_once()
 
-        # LVP-A-12 + LVP-A-13: MetricsLogger is constructed inside
-        # Lumascope.__init__ (so REST API + headless callers get the
-        # same surface). Here we register the executor bundle + settings
-        # dict and start the logger with a KivyClockScheduler. REST
-        # entry points wire a ThreadingTimerScheduler instead.
-        # ctx.metrics_logger is an alias for scope.metrics_logger so
-        # widget code that already reads ctx.metrics_logger keeps
-        # working.
+        # Lumascope.__init__ constructs the MetricsLogger so REST and headless
+        # callers share the same surface. Here we register the executor bundle and
+        # start the logger with a KivyClockScheduler; REST entry points wire a
+        # ThreadingTimerScheduler instead.
         #
-        # TEMPORARY 2026-04-30 — system-metrics cadence is 60 s during
-        # the buffer-churn / Phase-A perf investigation; the production
-        # default in MetricsLogger is 3600 s (1 hr). Restore to 3600
-        # before merging the buffer-reuse / Phase A bundle to
-        # 4.0.0-beta by either (a) deleting the
-        # system_metrics_interval_s=60 kwarg here so the default
-        # applies, or (b) editing DEFAULT_SYSTEM_METRICS_INTERVAL_S in
-        # modules/metrics_logger.py. The shorter cadence costs ~10-50 ms
-        # CPU per snapshot (gc.get_objects dominates). See
-        # docs/LOG_ANALYSIS_GUIDE.md "Resource Health" + the matching
-        # comment in modules/metrics_logger.py.
+        # TEMP: system_metrics_interval_s=60 overrides the 1-hr production default
+        # for the buffer-churn / Phase A perf investigation. Drop the kwarg before
+        # merging Phase A to 4.0.0-beta, or edit DEFAULT_SYSTEM_METRICS_INTERVAL_S
+        # in modules/metrics_logger.py.
         from modules.scheduler import KivyClockScheduler
+
         lumaview.scope.register_executor_bundle(executor_bundle, settings)
         ctx.metrics_logger = lumaview.scope.metrics_logger
         if ctx.metrics_logger is not None:
             ctx.metrics_logger.start(
                 KivyClockScheduler(Clock),
-                system_metrics_interval_s=60,    # TEMPORARY 2026-04-30 — see above
+                system_metrics_interval_s=60,  # TEMP: see comment above
             )
 
-        # LVP-A-7: emergency-shutdown atexit hook moved into Lumascope.
-        # __init__ — every Lumascope user (REST, headless tests, CLI
-        # tools) now gets the same safety net automatically.
+        # The atexit emergency-shutdown hook is registered in Lumascope.__init__
+        # so every Lumascope user gets the same safety net automatically.
 
         if getattr(sys, 'frozen', False):
             pyi_splash.close()
 
-    def shutdown_threads(self):
+    def shutdown_threads(self) -> None:
+        """Stop profiling and shut down every executor in the bundle."""
         logger.info('[LVP Main  ] Shutting down threads...')
 
         if profiling_helper is not None:
@@ -447,33 +413,27 @@ class LumaViewProApp(TooltipMixin, App):
 
         logger.info('[LVP Main  ] Threads shut down.')
 
-
-    def build(self):
-        current_time = time.strftime("%m/%d/%Y", time.localtime())
+    def build(self) -> 'MainDisplay':
+        """Kivy lifecycle hook: construct the widget tree and return the root widget."""
         logger.info('[LVP Main  ] LumaViewProApp.build()', extra={'force_error': True})
 
-        # LVP-A-9: every entry point that ships emits the same launch
-        # fingerprint via lvp_logger.log_environment_banner — REST API,
-        # headless test runner, and CLI tools all get identical
-        # environment lines without copy-pasting the platform / SDK /
-        # git-hash logic.
+        # Every entry point emits the same launch fingerprint so REST API, headless
+        # test runner, and CLI tools all get identical environment lines.
         from lvp_logger import log_environment_banner
+
         log_environment_banner(source_path, version)
 
         self._lvp_lock = lvp_lock.LvpLock(lock_port=get_lvp_lock_port(source_path))
         if not self._lvp_lock.lock():
-            error_msg = "Another instance of LVP may already be running. Exiting."
+            error_msg = 'Another instance of LVP may already be running. Exiting.'
             logger.error(f'[LVP Lock ] {error_msg}')
-            print(f"ERROR: {error_msg}", file=sys.stderr)
-            # Pop a modal native dialog BEFORE sys.exit so the user
-            # sees why this copy refused to start. Kivy's main loop
-            # isn't running yet at this point (still inside build()),
-            # so we use tkinter for a minimal pre-Kivy alert path
-            # that's already bundled with Python. Silently skip if
-            # tkinter is unavailable — the exit still happens.
+            print(f'ERROR: {error_msg}', file=sys.stderr)
+            # Use tkinter for a pre-Kivy alert: Kivy's main loop isn't running yet
+            # (we're still inside build()) and tkinter ships with stdlib.
             try:
                 import tkinter
                 from tkinter import messagebox
+
                 _root = tkinter.Tk()
                 _root.withdraw()
                 messagebox.showerror(
@@ -481,28 +441,21 @@ class LumaViewProApp(TooltipMixin, App):
                     'Another copy of LumaViewPro is already running.\n\n'
                     'This copy will now close. Switch to the existing '
                     'window, or close the other instance first before '
-                    'launching again.')
+                    'launching again.',
+                )
                 _root.destroy()
             except Exception as popup_err:
-                logger.warning(
-                    f'[LVP Lock ] Could not display already-running '
-                    f'popup: {popup_err}')
+                logger.warning(f'[LVP Lock ] Could not display already-running popup: {popup_err}')
             sys.exit(1)
 
-        # LVP-A-3 / LVP-A-11: video_creation_controls, stitch_controls,
-        # zprojection_controls, composite_gen_controls — now registered
-        # directly on ctx by their __init__. Build-only state lives as
-        # locals here. lumaview is local + stored on ctx.lumaview;
-        # other methods read ctx.lumaview directly.
+        # video_creation_controls, stitch_controls, zprojection_controls, and
+        # composite_gen_controls register themselves on ctx in their __init__.
         global Window
         global ctx
         ij_helper = None
 
-        # LVP-A-3 fixup: these globals were never assigned inside build()
-        # (they only existed at module level for ctx kwarg pass-through).
-        # When LVP-A-3 partial deleted the module-level declarations,
-        # the AppContext construction below NameError'd on startup.
-        # Initialize as locals here so the kwargs bind correctly.
+        # AppContext binds these three as kwargs below; declared as locals here
+        # so the kwargs don't NameError at runtime.
         live_histo_setting = False
         last_save_folder = None
         focus_round = 0
@@ -514,51 +467,50 @@ class LumaViewProApp(TooltipMixin, App):
         try:
             _build_ts = _env.build_timestamp
             if _build_ts:
-                _title_version = f"{version} ({_build_ts})"
+                _title_version = f'{version} ({_build_ts})'
         except AttributeError:
             pass
         self.title = f'LumaViewPro {_title_version}'
         logger.info(f'[LVP Main  ] Window title: {self.title}')
 
         # Load engineering mode early so _init_ui() methods see the correct value.
-        # LVP-A-3: ENGINEERING_MODE is build-only; local now, no global.
+        # ENGINEERING_MODE is build-only; intentionally a local, not a global.
         ENGINEERING_MODE = _load_mode(source_path)
 
         stage = Stage()
 
         # Wire NotificationCenter to UI popups BEFORE any hardware init.
-        # MainDisplay() below constructs Lumascope → LED/motor boards →
-        # connect() → potentially fires notifications.error() for
-        # silent-board detection (#619 Phase B) or any other early
-        # hardware failure. If the listener is registered AFTER the
-        # hardware init, those early errors go to the log but never
-        # become user-visible popups. Register first, let LVP tell
-        # the user about startup problems.
-        from modules.notification_center import notifications, Severity
+        # MainDisplay() below constructs Lumascope -> LED/motor boards
+        # -> connect(), which can fire notifications.error() for silent-
+        # board detection or any other early hardware failure. If the
+        # listener is registered AFTER hardware init, those early errors
+        # go to the log but never reach the user as popups.
+        from modules.notification_center import Severity, notifications
 
         def _ui_notification_bridge(n):
             from kivy.clock import Clock
-            from ui.notification_popup import show_notification_popup
-            Clock.schedule_once(lambda dt: show_notification_popup(title=n.title, message=n.message), 0)
 
-        notifications.add_listener(_ui_notification_bridge,
-            min_severity=Severity.DEBUG if ENGINEERING_MODE else Severity.WARNING)
+            from ui.notification_popup import show_notification_popup
+
+            Clock.schedule_once(
+                lambda dt: show_notification_popup(title=n.title, message=n.message), 0
+            )
+
+        notifications.add_listener(
+            _ui_notification_bridge,
+            min_severity=Severity.DEBUG if ENGINEERING_MODE else Severity.WARNING,
+        )
 
         try:
             from kivy.core.window import Window
+
             # Window min size uses SDL point coordinates — do NOT use dp()
             Window.minimum_width = 1024
             Window.minimum_height = 600
             Window.bind(on_resize=self._on_resize)
             Window.bind(on_request_close=self.on_request_close)
-            # camera_type='auto' lets the registry pick by priority
-            # (Pylon → IDS → FX2). The legacy `settings['camera_type']`
-            # field in current.json defaulted to "pylon", which forced
-            # registry.create() down the specific-name path with no
-            # fallthrough — so LS620 / LS560 / LS720 (FX2 hardware)
-            # could never come up via LVP startup. Discovered 2026-04-15
-            # on the first LS620 GUI launch. The settings field is now
-            # vestigial; the registry handles all driver selection.
+            # camera_type='auto' lets the registry pick by priority (Pylon -> IDS
+            # -> FX2). The legacy settings['camera_type'] field is vestigial.
             lumaview = MainDisplay(camera_type='auto', simulate=simulate_mode)
             lumaview.scope.engineering_mode = ENGINEERING_MODE
             cell_count_content = CellCountControls()
@@ -573,26 +525,26 @@ class LumaViewProApp(TooltipMixin, App):
 
         objective_helper = objectives_loader.ObjectiveLoader(source_path=source_path)
 
-        # LVP-A-10: every entry point that boots LVP shares one
-        # executor topology. ExecutorRegistry.create_default constructs
-        # all 7 executors (with aliases for stage/turret) and starts
-        # them; the bundle is the single source of truth used by the
-        # watchdog snapshot, the engineering plugin, and any future
-        # REST/CLI shell.
+        # ExecutorRegistry.create_default constructs all 7 executors (plus stage
+        # and turret aliases) and starts them; every entry point shares this
+        # topology so the watchdog snapshot and engineering plugin see one truth.
         global io_executor, camera_executor, protocol_executor
         global file_io_executor, autofocus_thread_executor, scope_display_thread_executor
         global stage_executor, turret_executor, reset_executor
         global executor_bundle
-        # Rule 15: Pass Clock.schedule_once as the UI dispatcher so executors
-        # can schedule callbacks on the Kivy main thread without importing Kivy.
+        # Clock.schedule_once is passed as the UI dispatcher so executors can post
+        # callbacks to the Kivy main thread without importing Kivy themselves.
         from kivy.clock import Clock
+
         _ui = Clock.schedule_once
 
         # Also set the global dispatcher for kivy_utils.schedule_ui()
         from modules.kivy_utils import set_ui_dispatcher
+
         set_ui_dispatcher(_ui)
 
         from modules.executor_registry import create_default as _create_executors
+
         executor_bundle = _create_executors(_ui)
         io_executor = executor_bundle.io_executor
         camera_executor = executor_bundle.camera_executor
@@ -604,10 +556,8 @@ class LumaViewProApp(TooltipMixin, App):
         turret_executor = executor_bundle.turret_executor
         reset_executor = executor_bundle.reset_executor
 
-        # Create the GUI-independent scope session.
-        # LVP-A-3 phase 2: scope_session and protocol_running_global are
-        # build-only locals; persisted to ctx.session and ctx.protocol_running
-        # so other methods read off ctx.
+        # GUI-independent scope session; persisted to ctx.session and
+        # ctx.protocol_running so other methods read off ctx.
         protocol_running_global = threading.Event()
         scope_session = ScopeSession(
             settings=settings,
@@ -621,22 +571,17 @@ class LumaViewProApp(TooltipMixin, App):
         )
         scope_session.protocol_running = protocol_running_global
 
-        # LVP-A-10: ExecutorRegistry.create_default already started every
-        # executor before returning the bundle.
-
-        # LAYER-A': register executors so scope.X_async / scope.X_sync
-        # methods can dispatch without callers passing executor handles.
+        # Register executors so scope.X_async / scope.X_sync methods can
+        # dispatch without callers passing executor handles.
         lumaview.scope.register_executors(
             camera_executor=camera_executor,
             io_executor=io_executor,
             file_io_executor=file_io_executor,
             autofocus_io_executor=autofocus_thread_executor,
         )
-        # LAYER-I: register source_path so scope.load_protocol /
-        # create_protocol can resolve data/tiling.json without callers
-        # passing the path.
+        # Register source_path so scope.load_protocol / create_protocol
+        # can resolve data/tiling.json without callers passing the path.
         lumaview.scope.register_source_path(source_path)
-        #ij_helper = imagej_helper.ImageJHelper()
 
         autofocus_executor = AutofocusExecutor(
             scope=lumaview.scope,
@@ -646,7 +591,7 @@ class LumaViewProApp(TooltipMixin, App):
             autofocus_executor=autofocus_thread_executor,
             clock_unschedule_fn=Clock.unschedule,
             clock_schedule_interval_fn=Clock.schedule_interval,
-            ui_update_func=_handle_autofocus_ui
+            ui_update_func=_handle_autofocus_ui,
         )
 
         sequenced_capture_executor = SequencedCaptureExecutor(
@@ -705,7 +650,7 @@ class LumaViewProApp(TooltipMixin, App):
         ctx.motion_settings = lumaview.ids['motionsettings_id']
 
         # load settings file (must be after motion_settings is wired)
-        ctx.motion_settings.ids['microscope_settings_id'].load_settings("./data/current.json")
+        ctx.motion_settings.ids['microscope_settings_id'].load_settings('./data/current.json')
 
         # Creates and manages Tooltips
         self.init_tooltips(lumaview)
@@ -713,13 +658,16 @@ class LumaViewProApp(TooltipMixin, App):
         # Engineering plugin hook — adds engineering tab when installed
         try:
             import etaluma_engineering
+
             # Check version compatibility
-            REQUIRED_PLUGIN_VERSION = "0.1.0"
+            REQUIRED_PLUGIN_VERSION = '0.1.0'
             plugin_version = getattr(etaluma_engineering, '__version__', '0.0.0')
             if plugin_version < REQUIRED_PLUGIN_VERSION:
-                logger.debug(f'[LVP Main  ] Engineering plugin {plugin_version} outdated, '
-                             f'need {REQUIRED_PLUGIN_VERSION}. '
-                             f'Please update: pip install -e path/to/etaluma-engineering')
+                logger.debug(
+                    f'[LVP Main  ] Engineering plugin {plugin_version} outdated, '
+                    f'need {REQUIRED_PLUGIN_VERSION}. '
+                    f'Please update: pip install -e path/to/etaluma-engineering'
+                )
             etaluma_engineering.register(ctx)
             # Auto-enable engineering mode when plugin is present
             # (unless --no-engineering was passed on command line)
@@ -736,14 +684,13 @@ class LumaViewProApp(TooltipMixin, App):
 
         # Enable engineering-only log files (autofocus.log, api.log)
         from lvp_logger import enable_engineering_logs
+
         enable_engineering_logs(ENGINEERING_MODE)
 
-        # NotificationCenter → UI popup bridge was registered earlier in
-        # build(), BEFORE MainDisplay() / Lumascope() / hardware init,
-        # so silent-board notifications (#619 Phase B) or any other
-        # early hardware errors surface to the user as popups rather
-        # than being logged-only. See the "Wire NotificationCenter"
-        # block near the top of build().
+        # NotificationCenter -> UI popup bridge was registered at the
+        # top of build(), BEFORE MainDisplay() / Lumascope() / hardware
+        # init, so any early hardware errors surface as popups instead
+        # of being logged-only.
 
         # CPU profiling — enabled via debug_mode in settings.json
         # On exit, dumps a .profile file to logs/profile/ that can be
@@ -756,51 +703,48 @@ class LumaViewProApp(TooltipMixin, App):
 
         return lumaview
 
-    def _on_resize(self, window, w, h):
+    def _on_resize(self, window, w: int, h: int) -> None:
+        """Kivy on_resize hook: re-evaluate motion / image settings layout."""
         Clock.schedule_once(ctx.motion_settings.check_settings, 0.1)
         Clock.schedule_once(ctx.image_settings.check_settings, 0.1)
 
-    def on_request_close(self, *args):
-        """Handle window close request - show confirmation if protocol is running."""
+    def on_request_close(self, *args) -> bool:
+        """Kivy on_request_close hook: show a confirmation popup if a protocol is running.
 
-        # LVP-A-3 phase 2: read protocol_running off ctx (canonical source)
-        # rather than the deleted module-level global.
+        Returns:
+            True to prevent window close (popup shown); False to allow close.
+        """
         if ctx.protocol_running.is_set():
-            Clock.schedule_once(lambda dt: (
-                show_confirmation_popup(
-                title='Confirm Exit',
-                message='A protocol is currently running.\n\nAre you sure you want to exit?',
-                confirm_text='Confirm Exit',
-                cancel_text='Cancel',
-                on_confirm=self.stop
+            Clock.schedule_once(
+                lambda dt: show_confirmation_popup(
+                    title='Confirm Exit',
+                    message='A protocol is currently running.\n\nAre you sure you want to exit?',
+                    confirm_text='Confirm Exit',
+                    cancel_text='Cancel',
+                    on_confirm=self.stop,
                 )
-            ))
+            )
 
             return True  # Prevent window from closing
 
         # No protocol running - allow normal close
         return False
 
-    def on_stop(self):
-        # LVP-A-11: read scope handle off ctx (canonical) instead of
-        # the parallel module-global. The `lumaview` reads below now
-        # go through ctx.lumaview.
+    def on_stop(self) -> None:
+        """Kivy lifecycle hook: tear down hardware, save settings, exit cleanly."""
         lumaview = ctx.lumaview
 
         logger.info('[LVP Main  ] LumaViewProApp.on_stop()')
 
-        # Suppress notification-listener dispatch for the rest of
-        # shutdown. Queued IO tasks fail one-by-one as hardware
-        # disconnects; without suppression the user sees a flood of
-        # 30+ error toasts on close (issue #622). Log messages still
-        # fire so post-mortem diagnostics remain intact.
+        # Suppress notification-listener dispatch during shutdown so the user
+        # doesn't see 30+ error toasts as queued IO tasks fail against
+        # disconnecting hardware. Log lines still fire for post-mortem.
         try:
             from modules.notification_center import notifications
+
             notifications.set_shutting_down(True)
         except Exception as e:
-            logger.warning(
-                f'[LVP Main  ] Failed to suppress notifications on '
-                f'shutdown: {e}')
+            logger.warning(f'[LVP Main  ] Failed to suppress notifications on shutdown: {e}')
 
         # Unschedule all recurring interval callbacks to prevent orphaned events
         try:
@@ -809,77 +753,67 @@ class LumaViewProApp(TooltipMixin, App):
         except Exception:
             pass
 
-        # LVP-A-12: stop the periodic metrics logger so its Clock
-        # intervals + the camera-temp tick don't survive into shutdown
-        # and try to log against torn-down hardware.
+        # Stop the periodic metrics logger so its Clock intervals and
+        # the camera-temp tick don't survive into shutdown and try to
+        # log against torn-down hardware.
         try:
             if ctx.metrics_logger is not None:
                 ctx.metrics_logger.stop()
         except Exception as e:
-            logger.warning(
-                f'[LVP Main  ] metrics_logger stop failed during shutdown: {e}')
+            logger.warning(f'[LVP Main  ] metrics_logger stop failed during shutdown: {e}')
 
         ctx.motion_settings.ids['protocol_settings_id'].cancel_all_protocols()
 
-        # SHUTDOWN-RACE-1: stop the scope-display pull loop and drop any
-        # already-queued display tasks BEFORE the executor cascade. Without
-        # this the 30 fps pull loop keeps submitting update_scopedisplay_thread
-        # tasks while ctx.scope / hardware is being torn down; queued tasks
-        # then fire against a half-disconnected scope and produce 100-150
-        # empty-message exceptions in the shutdown log.
+        # Stop the scope-display pull loop and drain its queue BEFORE the
+        # executor cascade -- otherwise the 30 fps pull loop submits tasks
+        # against a half-disconnected scope and floods the shutdown log.
         try:
             if ctx.scope_display is not None:
                 ctx.scope_display.stop()
-            if scope_display_thread_executor is not None and \
-                    hasattr(scope_display_thread_executor, 'clear_pending'):
+            if scope_display_thread_executor is not None and hasattr(
+                scope_display_thread_executor, 'clear_pending'
+            ):
                 scope_display_thread_executor.clear_pending()
         except Exception as e:
             logger.warning(f'[LVP Main  ] scope_display stop during shutdown failed: {e}')
 
         self.shutdown_threads()
 
-
-        # LVP-A-1: route through the API so every shutdown path stops
-        # motors, not just this one. stop_motion is also called as the
-        # first step of disconnect() now (defense in depth) so removing
-        # this line entirely would be a defensible alternative — kept as
-        # belt-and-suspenders since shutdown_threads runs before
-        # disconnect and any in-flight motion should stop before
-        # tearing down the executors that own the move callbacks.
+        # Considered: removing this stop_motion() call, since disconnect() below
+        # calls stop_motion() as its first step. Rejected because shutdown_threads
+        # ran BEFORE disconnect, and any in-flight motion should stop before we
+        # tear down the executors that own the move callbacks. Revisit if
+        # shutdown_threads and disconnect are consolidated into one teardown.
         lumaview.scope.stop_motion()
 
-        logger.info("[LVP Main  ] lumaview.scope.leds_off()")
+        logger.info('[LVP Main  ] lumaview.scope.leds_off()')
         try:
-            # Use a thread with timeout to avoid blocking MainThread
-            # if workers still hold _hw_lock
+            # Run leds_off on a thread with timeout so MainThread doesn't block
+            # if workers still hold _hw_lock during teardown.
             t = threading.Thread(target=lumaview.scope.leds_off, daemon=True)
             t.start()
-            t.join(timeout=2.0)  # Wait max 2 seconds
+            t.join(timeout=2.0)
             if t.is_alive():
                 logger.warning('[LVP Main  ] leds_off timed out during shutdown')
         except Exception as e:
             logger.warning(f'[LVP Main  ] leds_off failed during shutdown: {e}')
 
-        # LVP-A-4: gate (was inline here) is now inside
-        # MicroscopeSettings.save_settings — every caller (engineering
-        # plugin save-on-quit, REST endpoint, scheduled save) gets the
-        # same hardware-presence guard automatically. Pass force=True
-        # only when explicit override is wanted.
-        ctx.motion_settings.ids['microscope_settings_id'].save_settings("./data/current.json")
+        # The hardware-presence gate lives inside MicroscopeSettings.save_settings
+        # now, so every caller (engineering plugin, REST, scheduled save) gets
+        # the same guard. Pass force=True only to override.
+        ctx.motion_settings.ids['microscope_settings_id'].save_settings('./data/current.json')
 
-        logger.info("[LVP Main  ] lumaview.scope.disconnect()")
+        logger.info('[LVP Main  ] lumaview.scope.disconnect()')
         lumaview.scope.disconnect()
 
         logger.info('[LVP Main  ] LumaViewProApp exiting.', extra={'force_error': True})
 
-
     # Tooltip methods provided by TooltipMixin (ui/tooltip.py)
-
 
 
 # ============================================================================
 # Application Entry Point
 # ============================================================================
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     LumaViewProApp().run()
