@@ -22,7 +22,7 @@ if sys.version_info < (3, 11):  # noqa: UP036 -- runtime check is load-bearing U
         root.withdraw()
         messagebox.showerror('Unsupported Python Version', _msg)
         root.destroy()
-    except Exception:
+    except Exception:  # grain: ignore NAKED_EXCEPT
         pass
     print(f'ERROR: {_msg}', file=sys.stderr)
     sys.exit(1)
@@ -85,7 +85,7 @@ if __name__ == '__main__':
 
         settings = initialized_settings
 
-    except Exception as e:
+    except Exception as e:  # grain: ignore NAKED_EXCEPT
         logger.critical(f'[LVP Main  ] Failed to load settings — cannot continue. {e}')
         sys.exit(1)
 
@@ -297,7 +297,7 @@ class LumaViewProApp(TooltipMixin, App):
                 # click snaps Z to 0 regardless of where the motor is.
                 try:
                     _handle_ui_update_for_axis('Z')
-                except Exception as e:
+                except Exception as e:  # grain: ignore NAKED_EXCEPT
                     logger.warning(f'[INIT      ] Z slider sync failed: {e}')
 
                 # Log initial per-channel settings for debugging
@@ -310,8 +310,8 @@ class LumaViewProApp(TooltipMixin, App):
                             f'exp={ls.get("exp", "?"):>8}ms, ill={ls.get("ill", "?"):>6}mA, '
                             f'af={ls.get("autofocus", "?")}, acquire={ls.get("acquire", "?")}'
                         )
-                except Exception:
-                    pass
+                except Exception as e:  # grain: ignore NAKED_EXCEPT
+                    logger.debug(f'[INIT      ] per-channel settings log skipped: {e}')
 
             # Check if a protocol is loaded and has steps
             if ctx.protocol is not None and ctx.protocol.num_steps() > 0:
@@ -444,7 +444,7 @@ class LumaViewProApp(TooltipMixin, App):
                     'launching again.',
                 )
                 _root.destroy()
-            except Exception as popup_err:
+            except Exception as popup_err:  # grain: ignore NAKED_EXCEPT
                 logger.warning(f'[LVP Lock ] Could not display already-running popup: {popup_err}')
             sys.exit(1)
 
@@ -679,7 +679,7 @@ class LumaViewProApp(TooltipMixin, App):
             logger.info(f'[LVP Main  ] Engineering plugin v{plugin_version} loaded')
         except ImportError:
             pass  # Expected — plugin not installed
-        except Exception as e:
+        except Exception as e:  # grain: ignore NAKED_EXCEPT
             logger.warning(f'[LVP Main  ] Engineering plugin failed to register: {e}')
 
         # Enable engineering-only log files (autofocus.log, api.log)
@@ -743,15 +743,15 @@ class LumaViewProApp(TooltipMixin, App):
             from modules.notification_center import notifications
 
             notifications.set_shutting_down(True)
-        except Exception as e:
+        except Exception as e:  # grain: ignore NAKED_EXCEPT
             logger.warning(f'[LVP Main  ] Failed to suppress notifications on shutdown: {e}')
 
         # Unschedule all recurring interval callbacks to prevent orphaned events
         try:
             Clock.unschedule(ctx.stage.draw_labware)
             Clock.unschedule(ctx.motion_settings.update_xy_stage_control_gui)
-        except Exception:
-            pass
+        except Exception as e:  # grain: ignore NAKED_EXCEPT
+            logger.debug(f'[LVP Main  ] Clock.unschedule during shutdown raised: {e}')
 
         # Stop the periodic metrics logger so its Clock intervals and
         # the camera-temp tick don't survive into shutdown and try to
@@ -759,7 +759,7 @@ class LumaViewProApp(TooltipMixin, App):
         try:
             if ctx.metrics_logger is not None:
                 ctx.metrics_logger.stop()
-        except Exception as e:
+        except Exception as e:  # grain: ignore NAKED_EXCEPT
             logger.warning(f'[LVP Main  ] metrics_logger stop failed during shutdown: {e}')
 
         ctx.motion_settings.ids['protocol_settings_id'].cancel_all_protocols()
@@ -774,7 +774,7 @@ class LumaViewProApp(TooltipMixin, App):
                 scope_display_thread_executor, 'clear_pending'
             ):
                 scope_display_thread_executor.clear_pending()
-        except Exception as e:
+        except Exception as e:  # grain: ignore NAKED_EXCEPT
             logger.warning(f'[LVP Main  ] scope_display stop during shutdown failed: {e}')
 
         self.shutdown_threads()
@@ -795,7 +795,7 @@ class LumaViewProApp(TooltipMixin, App):
             t.join(timeout=2.0)
             if t.is_alive():
                 logger.warning('[LVP Main  ] leds_off timed out during shutdown')
-        except Exception as e:
+        except Exception as e:  # grain: ignore NAKED_EXCEPT
             logger.warning(f'[LVP Main  ] leds_off failed during shutdown: {e}')
 
         # The hardware-presence gate lives inside MicroscopeSettings.save_settings
