@@ -1258,6 +1258,19 @@ class ImageHandler(pylon.ImageEventHandler):
                     _outcome = 'exception_getarray'
             else:
                 _outcome = 'success_no_grab'
+                # Log the SDK's reason on every False grab. err_code +
+                # err_desc may differ between failures (USB CRC vs partial
+                # frame vs buffer underrun) — throttling collapses the cause
+                # distribution, which is the whole diagnostic.
+                try:
+                    err_code = grabResult.GetErrorCode()
+                    err_desc = grabResult.GetErrorDescription()
+                except Exception as _err_introspect:
+                    err_code, err_desc = None, f'<introspect failed: {_err_introspect!r}>'
+                logger.warning(
+                    f'[CAM Class ] grabResult.GrabSucceeded()=False '
+                    f'err_code={err_code} desc={err_desc!r}'
+                )
                 should_stop = self._base._record_failure()
                 if should_stop:
                     try:

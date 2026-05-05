@@ -678,6 +678,19 @@ class ImageHandler(ImageHandlerBase):
             try:
                 buffer = self.data_stream.WaitForFinishedBuffer(self.timeout_ms)
                 if buffer.IsIncomplete():
+                    # Log every incomplete buffer with fill info. Partial-fill
+                    # extent is the only signal we get for USB packet loss /
+                    # bandwidth saturation; throttling loses the cause
+                    # distribution.
+                    try:
+                        bsize = buffer.SizeFilled() if hasattr(buffer, 'SizeFilled') else None
+                        bcap = buffer.Size() if hasattr(buffer, 'Size') else None
+                    except Exception as _bintrospect:
+                        bsize, bcap = None, f'<introspect failed: {_bintrospect!r}>'
+                    logger.warning(
+                        f'[CAM Class ] IDS buffer.IsIncomplete()=True '
+                        f'filled={bsize} capacity={bcap}'
+                    )
                     self.data_stream.QueueBuffer(buffer)
                     should_stop = self._record_failure()
                     if should_stop:
@@ -701,16 +714,21 @@ class ImageHandler(ImageHandlerBase):
                 ts = datetime.datetime.now()
                 self._store_frame(frame, ts)
             except Exception as e:
-                # WaitForFinishedBuffer timeout is normal — not a failure
                 err_str = str(e).lower()
                 if 'abort' in err_str or 'removed' in err_str or 'device' in err_str:
                     logger.warning(f'[CAM Class ] Device removal detected in grab loop: {e}')
                     self._parent._mark_disconnected()
                     break
+                # Log every grab-loop exception. Type + message may vary
+                # between failures (timeout vs malformed buffer vs SDK-internal
+                # fault); throttling loses the distribution. !r on `e` so
+                # any non-ASCII in the SDK message is escaped at format time.
+                logger.warning(
+                    f'[CAM Class ] ImageHandler grab loop exception: '
+                    f'{type(e).__name__}: {e!r}'
+                )
                 should_stop = self._record_failure()
                 if should_stop:
                     logger.error('[CAM Class ] Too many grab exceptions; marking device as removed')
                     self._parent._mark_disconnected()
                     break
-                if self._failed_grabs % 5 == 1:
-                    logger.warning(f'[CAM Class ] ImageHandler grab loop exception: {e}')
