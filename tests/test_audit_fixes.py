@@ -1078,6 +1078,51 @@ class TestG3_AutofocusFailureNotification:
             "autofocus_executor must import notifications (G3)"
 
 
+class TestRule14_A4_PreRunValidationNotify:
+    """A4: Pre-run validation errors must surface a user notification (Rule 14)."""
+
+    def test_validation_errors_branch_notifies(self):
+        """sequenced_capture_executor must call notifications.error when
+        validation_errors is non-empty before returning."""
+        import pathlib
+        source = pathlib.Path("modules/sequenced_capture_executor.py").read_text()
+        idx = source.find("Protocol has {len(validation_errors)} validation error(s). Cannot start run.")
+        assert idx != -1, "Validation-errors return path must exist"
+        nearby = source[idx:idx+800]
+        assert "notifications.error" in nearby, \
+            "validation_errors return path must call notifications.error (A4 -- Rule 14)"
+        assert "Validation failed" in nearby, \
+            "notification title must be 'Validation failed' (A4 -- audit recommendation)"
+
+    def test_validation_summary_truncates_at_five(self):
+        """Notification summary must show first 5 errors; mention 'see log' for overflow."""
+        import pathlib
+        source = pathlib.Path("modules/sequenced_capture_executor.py").read_text()
+        idx = source.find("validation_errors[:5]")
+        assert idx != -1, \
+            "Notification summary must slice validation_errors[:5] to keep popup readable (A4)"
+        idx = source.find("more (see log)")
+        assert idx != -1, \
+            "Overflow message must point user to the log for full details (A4)"
+
+
+class TestRule14_A5_AreAllConnectedExceptionNotify:
+    """A5: are_all_connected() exception branch must notify (Rule 14)."""
+
+    def test_are_all_connected_exception_branch_notifies(self):
+        """sequenced_capture_executor must call notifications.error when the
+        are_all_connected check itself raises, before returning."""
+        import pathlib
+        source = pathlib.Path("modules/sequenced_capture_executor.py").read_text()
+        idx = source.find("Error checking scope connection")
+        assert idx != -1, "are_all_connected exception handler must exist"
+        nearby = source[idx:idx+600]
+        assert "notifications.error" in nearby, \
+            "are_all_connected exception path must call notifications.error (A5 -- Rule 14)"
+        assert "Cannot verify hardware state" in nearby, \
+            "notification title must be 'Cannot verify hardware state' (A5 -- audit recommendation)"
+
+
 class TestF7_ProtocolHomingInterlock:
     """F7: Homing/bookmark must be blocked during protocol execution."""
 

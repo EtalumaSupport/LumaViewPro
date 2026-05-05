@@ -383,6 +383,12 @@ class SequencedCaptureExecutor:
                 for err in validation_errors:
                     logger.error(f"[PROTOCOL] Validation: {err}")
                 logger.error(f"[PROTOCOL] Protocol has {len(validation_errors)} validation error(s). Cannot start run.")
+                from modules.notification_center import notifications
+                err_summary = "\n".join(f"  - {err}" for err in validation_errors[:5])
+                if len(validation_errors) > 5:
+                    err_summary += f"\n  ... and {len(validation_errors)-5} more (see log)"
+                notifications.error("Protocol", "Validation failed",
+                    f"Protocol has {len(validation_errors)} validation error(s):\n{err_summary}")
                 return
         except Exception as ex:
             logger.warning(f"[PROTOCOL] Pre-run validation failed: {ex}. Proceeding anyway.")
@@ -396,6 +402,10 @@ class SequencedCaptureExecutor:
                 return
         except Exception as ex:
             logger.error(f"[PROTOCOL] Error checking scope connection: {ex}")
+            from modules.notification_center import notifications
+            notifications.error("Protocol", "Cannot verify hardware state",
+                f"Could not check hardware connection status: {type(ex).__name__}: {ex}. "
+                f"Reconnect the scope and try again.")
             return
 
         
