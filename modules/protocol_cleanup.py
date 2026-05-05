@@ -79,11 +79,11 @@ def run_cleanup(
     protocol_ended.set()
     scan_in_progress.clear()
 
-    # Rule 14 A10: collect cleanup-step failures into one list so a single
-    # summary notification at the end tells the user what went wrong --
-    # individually each except continues to the next step (fault tolerance,
-    # all six steps must run regardless), but total silence at the end is
-    # the bug. Audit recommendation: one summary popup, not six.
+    # Collect cleanup-step failures so a single summary notification at
+    # the end tells the user what went wrong. Each except continues to
+    # the next step (fault tolerance -- all six must run regardless of
+    # any one failing); total silence at the end was the bug. One
+    # summary popup, not six.
     cleanup_errors: list[str] = []
 
     try:
@@ -223,10 +223,10 @@ def run_cleanup(
         if get_state_fn() in (ProtocolState.COMPLETING, ProtocolState.ERROR):
             set_state_fn(ProtocolState.IDLE)
 
-    # Rule 14 A10: surface a single summary if any cleanup step failed.
-    # Fault tolerance ran each step regardless; this is the user-visible
-    # consequence -- they need to know LED state, camera settings, or
-    # stage position may not be what they expect.
+    # Surface a single summary if any cleanup step failed. Fault
+    # tolerance ran each step regardless; the user needs to know LED
+    # state, camera settings, or stage position may not be what they
+    # expect.
     if cleanup_errors:
         try:
             from modules.notification_center import notifications

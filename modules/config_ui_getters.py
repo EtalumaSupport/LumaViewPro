@@ -303,9 +303,9 @@ def create_hyperstacks_if_needed():
                 logger.info("Hyperstack creation complete")
             except Exception as ex:
                 logger.exception("Error building hyperstacks")
-                # Rule 14 A7: surface to user. Background thread, so
-                # without this the user sees the "Saving Hyperstacks"
-                # info popup that started this and never sees a result.
+                # Background thread: the user already saw the "Saving
+                # Hyperstacks" info popup; without this they never see
+                # a result.
                 notifications.error("Post-processing", "Hyperstack build failed",
                     f"Could not create hyperstacks: {type(ex).__name__}: {ex}. "
                     f"See logs for details; source files are untouched.")

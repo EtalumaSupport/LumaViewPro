@@ -90,10 +90,10 @@ class ScopeSession:
         scope.register_source_path(source_path)
 
         # Optional helpers — import and construct if available.
-        # Rule 14 A8: every silent helper-init failure has a downstream
-        # AttributeError waiting for whichever UI action first reads the
-        # missing helper; surface a warning at the failure site so the
-        # user knows which subsystem is unavailable and why.
+        # Every silent helper-init failure has a downstream AttributeError
+        # waiting for whichever UI action first reads the missing helper;
+        # surface a warning at the failure site so the user knows which
+        # subsystem is unavailable and why.
         from modules.notification_center import notifications
 
         wellplate_loader = None
