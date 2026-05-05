@@ -24,6 +24,14 @@ except ImportError:
     _cam_log = None
 
 
+# Pylon SDK error code returned by grabResult.GetErrorCode() when a buffer
+# was cancelled by StopGrabbing while in flight. Value 0xE2008002 in the
+# GenAPI error namespace; pypylon does not expose it as a named constant
+# (verified pypylon 26.4.1 / Pylon SDK 11.5.0). Update if a future pypylon
+# version starts exposing pylon.GENERIC_BUFFER_CANCELED or similar.
+_PYLON_ERR_BUFFER_CANCELED = 3791651074
+
+
 @camera_registry.register('pylon', priority=100)
 class PylonCamera(Camera):
     def __init__(self, **kwargs):
@@ -1258,28 +1266,42 @@ class ImageHandler(pylon.ImageEventHandler):
                     _outcome = 'exception_getarray'
             else:
                 _outcome = 'success_no_grab'
-                # Log the SDK's reason on every False grab. err_code +
-                # err_desc may differ between failures (USB CRC vs partial
-                # frame vs buffer underrun) — throttling collapses the cause
-                # distribution, which is the whole diagnostic.
                 try:
                     err_code = grabResult.GetErrorCode()
                     err_desc = grabResult.GetErrorDescription()
                 except Exception as _err_introspect:
                     err_code, err_desc = None, f'<introspect failed: {_err_introspect!r}>'
-                logger.warning(
-                    f'[CAM Class ] grabResult.GrabSucceeded()=False '
-                    f'err_code={err_code} desc={err_desc!r}'
-                )
-                should_stop = self._base._record_failure()
-                if should_stop:
-                    try:
-                        logger.error('[CAM Class ] Too many grab failures; stopping acquisition')
-                        if self._parent.active and self._parent.is_grabbing():
-                            self._parent.stop_grabbing()
-                        self._parent._mark_disconnected()
-                    except Exception:
-                        pass
+                if err_code == _PYLON_ERR_BUFFER_CANCELED:
+                    # Pylon returns buffers with cancelled status when
+                    # StopGrabbing fires while grabs are in flight. Not a
+                    # hardware failure -- purely a lifecycle event from
+                    # rapid stop/start cycles. Don't increment
+                    # _failed_grabs (that path triggers auto-disconnect at
+                    # MAX_CONSECUTIVE_FAILURES; cancel storms during
+                    # config changes would falsely trip it).
+                    logger.debug(
+                        f'[CAM Class ] Grab cancelled (SDK lifecycle, '
+                        f'not a failure) err_code={err_code} desc={err_desc!r}'
+                    )
+                    _outcome = 'success_no_grab_cancelled'
+                else:
+                    # Real failure path. err_code + err_desc may differ
+                    # between failures (USB CRC vs partial frame vs buffer
+                    # underrun); logging every one preserves the cause
+                    # distribution.
+                    logger.warning(
+                        f'[CAM Class ] grabResult.GrabSucceeded()=False '
+                        f'err_code={err_code} desc={err_desc!r}'
+                    )
+                    should_stop = self._base._record_failure()
+                    if should_stop:
+                        try:
+                            logger.error('[CAM Class ] Too many grab failures; stopping acquisition')
+                            if self._parent.active and self._parent.is_grabbing():
+                                self._parent.stop_grabbing()
+                            self._parent._mark_disconnected()
+                        except Exception:
+                            pass
         except Exception as e:
             _outcome = 'exception_outer'
             logger.exception(e)
