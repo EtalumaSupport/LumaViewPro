@@ -311,7 +311,7 @@ class LumaViewProApp(TooltipMixin, App):
                             f'af={ls.get("autofocus", "?")}, acquire={ls.get("acquire", "?")}'
                         )
                 except Exception as e:  # grain: ignore NAKED_EXCEPT
-                    logger.debug(f'[INIT      ] per-channel settings log skipped: {e}')
+                    logger.warning(f'[INIT      ] per-channel settings log skipped: {e}')
 
             # Check if a protocol is loaded and has steps
             if ctx.protocol is not None and ctx.protocol.num_steps() > 0:
