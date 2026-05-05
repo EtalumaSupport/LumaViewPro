@@ -197,7 +197,7 @@ if __name__ == '__main__':
 
 else:
     # Subprocess/worker compatibility — Kivy not available
-    from modules.subprocess_stubs import (  # noqa: F401
+    from modules.subprocess_stubs import (
         AccordionItem,
         App,
         BooleanProperty,
@@ -246,17 +246,53 @@ from modules.app_config import (
 from modules.app_config import (
     load_mode as _load_mode,
 )
+
+# Kivy Factory imports: the classes below are referenced from ui/lumaviewpro.kv
+# (and other .kv files Kivy loads at startup). Kivy's Builder.apply() resolves
+# class names via Factory.get(), which only finds a class once it has been
+# imported into a Python module. ruff F401 cannot see .kv references and would
+# strip these as unused; the per-file ignore in pyproject.toml ([tool.ruff.lint
+# .per-file-ignores] "lumaviewpro.py" lists F401) silences that. Do not remove
+# any of these without first grepping ui/*.kv for the class name.
+from ui.composite_capture import CompositeCapture
+from ui.file_dialogs import FileChooseBTN, FileSaveBTN, FolderChooseBTN
+from ui.histogram import Histogram
+from ui.image_settings import (
+    AccordionItemImageSettingsBase,
+    AccordionItemImageSettingsBlueControl,
+    AccordionItemImageSettingsDfControl,
+    AccordionItemImageSettingsGreenControl,
+    AccordionItemImageSettingsLumiControl,
+    AccordionItemImageSettingsRedControl,
+    AccordionItemXyStageControl,
+    ImageSettings,
+)
+from ui.layer_control import LayerControl
 from ui.main_display import MainDisplay
+from ui.microscope_settings import MicroscopeSettings
+from ui.mod_slider import ModSlider
+from ui.motion_settings import MotionSettings, XYStageControl
 from ui.post_processing import (
     CellCountControls,
+    CellCountDisplay,
+    CompositeGenControls,
     GraphingControls,
+    PostProcessingAccordion,
+    StitchControls,
+    VideoCreationControls,
+    ZProjectionControls,
 )
+from ui.protocol_settings import ProtocolSettings
+from ui.scope_display import ScopeDisplay
+from ui.shader import ShaderEditor, ShaderViewer
 from ui.stage import Stage
-from ui.tooltip import TooltipMixin
+from ui.tooltip import Tooltip, TooltipMixin
 from ui.ui_helpers import (
     _handle_autofocus_ui,
     _handle_ui_update_for_axis,
 )
+from ui.vertical_control import VerticalControl
+from ui.zstack import ZStack
 
 
 class LumaViewProApp(TooltipMixin, App):

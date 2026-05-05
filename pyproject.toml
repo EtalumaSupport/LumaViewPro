@@ -47,6 +47,17 @@ extend-exclude = [
 # C4  = flake8-comprehensions     PTH = flake8-use-pathlib
 # RUF = ruff-specific rules       SIM = flake8-simplify
 select = ["E", "F", "W", "I", "N", "UP", "B", "A", "C4", "PTH", "RUF", "SIM"]
+
+# Unused-import handling: F401 stays in `select` so ruff still flags genuinely
+# dead imports for human review, but it is REMOVED from autofix. ruff cannot
+# see Kivy `.kv` Factory references, pytest fixture re-exports, conftest
+# side-effect imports, or the public `__all__` re-export pattern, so an
+# automatic F401 strip is not safe. Verified 2026-05-05: a `ruff check --fix`
+# stripped `from ui.shader import ShaderViewer` -- LVP crashed at startup with
+# `kivy.factory.FactoryException: Unknown class <ShaderViewer>`. Manual review
+# is the only safe pruning path; `unfixable` makes that the only path.
+unfixable = ["F401"]
+
 ignore = [
     # E501 (line too long) -- ruff format handles wrapping; raw E501 is noisy.
     "E501",
