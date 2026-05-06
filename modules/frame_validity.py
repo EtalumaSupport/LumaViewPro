@@ -79,10 +79,14 @@ class FrameValidity:
 
     # Float-tolerance for chunk-match equality. ChunkExposureTime is in
     # microseconds (the API converts ms -> us when calling set_target);
-    # ChunkGain is in dB.
+    # ChunkGain is in dB. Values measured on a2A3536-31umBAS by sweeping
+    # set values across the supported range and reading back ChunkGain /
+    # ChunkExposureTime: gain round-trip error peaked at ~5e-5 dB (float
+    # quantization), exposure was bit-exact in microseconds. Tolerances
+    # set ~20-40x above observed max for safety across firmware revisions.
     DEFAULT_CHUNK_TOLERANCE = {
-        'gain':     0.1,    # dB
-        'exposure': 100.0,  # microseconds
+        'gain':     0.001,  # dB
+        'exposure': 2.0,    # microseconds
     }
 
     def __init__(self):
