@@ -83,10 +83,12 @@ class TestPylon(unittest.TestCase):
         """
         result = self.camera.probe_chunk_capabilities()
         print(f"\n=== probe_chunk_capabilities ===")
-        print(f"  model: {result['model']}")
+        print(f"  model:      {result['model']}")
+        print(f"  firmware:   {result['firmware']}")
+        print(f"  serial:     {result['serial']}")
         print(f"  advertised: {result['advertised']}")
-        print(f"  enabled: {result['enabled']}")
-        print(f"  errors: {result['errors']}")
+        print(f"  enabled:    {result['enabled']}")
+        print(f"  errors:     {result['errors']}")
         print(f"================================\n")
 
         # Hard assertions: probe ran without per-step explosion.

@@ -1256,12 +1256,16 @@ class PylonCamera(Camera):
         Returns:
             dict with keys:
               'model': camera model name (None if unavailable)
+              'firmware': camera firmware version (None if unavailable)
+              'serial': camera serial number (None if unavailable)
               'advertised': sorted list of ChunkSelector entry symbols
               'enabled': dict of selector -> bool (True = activation succeeded)
               'errors': list of error strings encountered during probe
         """
         result = {
             'model': getattr(self, 'model_name', None),
+            'firmware': None,
+            'serial': None,
             'advertised': [],
             'enabled': {},
             'errors': [],
@@ -1270,6 +1274,15 @@ class PylonCamera(Camera):
         if camera is None:
             result['errors'].append('camera not connected')
             return result
+
+        for genicam_attr, key in (('DeviceFirmwareVersion', 'firmware'),
+                                  ('DeviceSerialNumber', 'serial')):
+            try:
+                node = camera.GetNodeMap().GetNode(genicam_attr)
+                if node is not None:
+                    result[key] = node.GetValue()
+            except Exception:
+                pass
 
         was_grabbing = False
         try:
