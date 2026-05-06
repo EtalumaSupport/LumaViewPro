@@ -93,8 +93,15 @@ class SimulatedCamera(Camera):
         # Let the base class call connect()
         super().__init__()
 
-    def set_timing_mode(self, mode: str):
-        """Switch timing mode: 'fast' or 'realistic'."""
+    def set_timing_mode(self, mode: str) -> None:
+        """Switch timing mode: 'fast' or 'realistic'.
+
+        Args:
+            mode: One of ``'fast'``, ``'realistic'``.
+
+        Raises:
+            ValueError: ``mode`` is not a known preset.
+        """
         if mode == 'realistic':
             preset = self.TIMING_REALISTIC
         elif mode == 'fast':
@@ -104,7 +111,7 @@ class SimulatedCamera(Camera):
         self._grab_delay = preset['grab_delay']
         self._timing_mode = mode
 
-    def load_cycle_images(self, image_dir=None):
+    def load_cycle_images(self, image_dir=None) -> None:
         """Load images from a directory for cycling through in simulate mode.
 
         Images are resized to match the camera resolution and converted
@@ -173,6 +180,11 @@ class SimulatedCamera(Camera):
     # Connection
     # ------------------------------------------------------------------
     def connect(self) -> bool:
+        """Mark the simulated camera as active and load its profile.
+
+        Returns:
+            bool: Always True.
+        """
         with self._lock:
             self.active = True
             self.model_name = self.MODEL_NAME
@@ -188,6 +200,12 @@ class SimulatedCamera(Camera):
             return True
 
     def disconnect(self) -> bool:
+        """Mark the simulated camera as disconnected.
+
+        Returns:
+            bool: True when the camera was active before this call,
+                False when it was already disconnected.
+        """
         with self._lock:
             if self.active:
                 self._grabbing = False
@@ -198,6 +216,11 @@ class SimulatedCamera(Camera):
             return False
 
     def is_connected(self) -> bool:
+        """Whether the simulated camera is currently connected.
+
+        Returns:
+            bool: True when active and the device-removed flag is clear.
+        """
         if self.active in (False, None):
             return False
         if self._device_removed:
@@ -207,7 +230,8 @@ class SimulatedCamera(Camera):
     # ------------------------------------------------------------------
     # Config
     # ------------------------------------------------------------------
-    def init_camera_config(self):
+    def init_camera_config(self) -> None:
+        """Reset simulated camera to default config (Mono8, 10 ms, gain=1, bin=1)."""
         if not self.active:
             return
         self._pixel_format = 'Mono8'
@@ -218,16 +242,24 @@ class SimulatedCamera(Camera):
     # ------------------------------------------------------------------
     # Grabbing
     # ------------------------------------------------------------------
-    def is_grabbing(self):
+    def is_grabbing(self) -> bool:
+        """Return whether the simulated camera is currently acquiring.
+
+        Returns:
+            bool: True when ``start_grabbing()`` has been called and
+                ``stop_grabbing()`` has not.
+        """
         return self._grabbing
 
-    def start_grabbing(self):
+    def start_grabbing(self) -> None:
+        """Begin acquiring frames in the simulator."""
         with self._lock:
             self._grabbing = True
             if _cam_log is not None: _cam_log.info('sim start_grabbing')
             logger.info('[CAM Sim   ] start_grabbing')
 
-    def stop_grabbing(self):
+    def stop_grabbing(self) -> None:
+        """Stop acquiring frames in the simulator."""
         with self._lock:
             self._grabbing = False
             if _cam_log is not None: _cam_log.info('sim stop_grabbing')
@@ -236,25 +268,56 @@ class SimulatedCamera(Camera):
     # ------------------------------------------------------------------
     # Frame size
     # ------------------------------------------------------------------
-    def set_frame_size(self, w, h):
+    def set_frame_size(self, w: int, h: int) -> None:
+        """Set the simulated camera frame size, clamped to valid ranges.
+
+        Args:
+            w: Target width in pixels (snapped to multiple of 48,
+                clamped to [48, 4096]).
+            h: Target height in pixels (snapped to multiple of 4,
+                clamped to [4, 4096]).
+        """
         with self._lock:
             self._width = max(48, min(4096, int(w / 48) * 48))
             self._height = max(4, min(4096, int(h / 4) * 4))
             if _cam_log is not None: _cam_log.info(f'sim set_frame_size({self._width}x{self._height})')
 
     def get_min_frame_size(self) -> dict:
+        """Return the simulator's minimum supported frame size.
+
+        Returns:
+            dict: ``{'width': 48, 'height': 4}``.
+        """
         return {'width': 48, 'height': 4}
 
     def get_max_frame_size(self) -> dict:
+        """Return the simulator's maximum supported frame size.
+
+        Returns:
+            dict: ``{'width': 4096, 'height': 4096}``.
+        """
         return {'width': 4096, 'height': 4096}
 
-    def get_frame_size(self):
+    def get_frame_size(self) -> dict:
+        """Return the simulated camera's current frame size.
+
+        Returns:
+            dict: ``{'width': int, 'height': int}``.
+        """
         return {'width': self._width, 'height': self._height}
 
     # ------------------------------------------------------------------
     # Pixel format
     # ------------------------------------------------------------------
     def set_pixel_format(self, pixel_format: str) -> bool:
+        """Set the simulated camera pixel format.
+
+        Args:
+            pixel_format: Format identifier (must be in ``PIXEL_FORMATS``).
+
+        Returns:
+            bool: True on success, False when the format is not supported.
+        """
         if pixel_format not in self.PIXEL_FORMATS:
             if _cam_log is not None: _cam_log.error(f'sim set_pixel_format({pixel_format}) UNSUPPORTED')
             logger.error(f'[CAM Sim   ] Unsupported pixel format: {pixel_format}')
@@ -265,16 +328,33 @@ class SimulatedCamera(Camera):
         return True
 
     def get_pixel_format(self) -> str:
+        """Return the simulated camera's current pixel format.
+
+        Returns:
+            str: One of ``PIXEL_FORMATS``.
+        """
         return self._pixel_format
 
     def get_supported_pixel_formats(self) -> tuple:
+        """Return the supported pixel formats.
+
+        Returns:
+            tuple: ``('Mono8', 'Mono10', 'Mono12')``.
+        """
         return self.PIXEL_FORMATS
 
     # ------------------------------------------------------------------
     # Exposure
     # ------------------------------------------------------------------
-    def exposure_t(self, t):
-        """Set exposure time in milliseconds."""
+    def exposure_t(self, t: float) -> None:
+        """Set exposure time in milliseconds.
+
+        Silently clamps when ``t`` exceeds ``max_exposure`` (logs a
+        warning); silently no-ops when the simulator is not active.
+
+        Args:
+            t: Exposure time in milliseconds.
+        """
         if not self.active:
             return
         if t > self.max_exposure:
@@ -286,32 +366,56 @@ class SimulatedCamera(Camera):
             if _cam_log is not None: _cam_log.info(f'sim ExposureTime.SetValue({float(t) * 1000.0:.0f}us) (={t}ms)')
             logger.info(f'[CAM Sim   ] Exposure set to {t}ms')
 
-    def get_exposure_t(self):
-        """Return exposure time in milliseconds."""
+    def get_exposure_t(self) -> float:
+        """Return exposure time in milliseconds.
+
+        Returns:
+            float: Exposure in ms, or -1 when the simulator is not active.
+        """
         if not self.active:
             return -1
         return self._exposure_us / 1000.0
 
-    def auto_exposure_t(self, state=True):
+    def auto_exposure_t(self, state: bool = True) -> bool:
+        """Enable or disable simulated auto-exposure (state stored only).
+
+        Args:
+            state: True to enable, False to disable.
+
+        Returns:
+            bool: Always True.
+        """
         self._auto_exposure_enabled = state
         return True
 
     # ------------------------------------------------------------------
     # Model name
     # ------------------------------------------------------------------
-    def find_model_name(self):
+    def find_model_name(self) -> None:
+        """Set ``model_name`` to the simulator's fixed model identifier."""
         self.model_name = self.MODEL_NAME
 
     # ------------------------------------------------------------------
     # Temperature
     # ------------------------------------------------------------------
-    def get_all_temperatures(self):
+    def get_all_temperatures(self) -> dict:
+        """Return synthetic temperature telemetry.
+
+        Returns:
+            dict: ``{'sensor': 35.0, 'board': 40.0}``.
+        """
         return {'sensor': 35.0, 'board': 40.0}
 
     # ------------------------------------------------------------------
     # Frame rate
     # ------------------------------------------------------------------
-    def set_max_acquisition_frame_rate(self, enabled: bool, fps: float = 1.0):
+    def set_max_acquisition_frame_rate(self, enabled: bool, fps: float = 1.0) -> None:
+        """Enable or disable the simulated frame-rate cap.
+
+        Args:
+            enabled: True to enforce ``fps`` as the upper bound.
+            fps: Cap value in frames per second.
+        """
         with self._lock:
             self._frame_rate_limit_enabled = enabled
             if enabled:
@@ -322,6 +426,14 @@ class SimulatedCamera(Camera):
     # Binning
     # ------------------------------------------------------------------
     def set_binning_size(self, size: int) -> bool:
+        """Set hardware binning factor for the simulator.
+
+        Args:
+            size: Binning factor (1-4 inclusive).
+
+        Returns:
+            bool: True on success, False when ``size`` is unsupported.
+        """
         if size < 1 or size > 4:
             if _cam_log is not None: _cam_log.error(f'sim set_binning_size({size}) UNSUPPORTED')
             logger.error(f'[CAM Sim   ] Unsupported bin size: {size}')
@@ -332,27 +444,54 @@ class SimulatedCamera(Camera):
         return True
 
     def get_binning_size(self) -> int:
+        """Return the simulator's current binning factor.
+
+        Returns:
+            int: Binning factor (1 = no binning).
+        """
         return self._binning
 
     # ------------------------------------------------------------------
     # Z-dependent focus simulation
     # ------------------------------------------------------------------
-    def set_z_position(self, z: float):
-        """Set current Z position (um) for focus simulation."""
+    def set_z_position(self, z: float) -> None:
+        """Set current Z position (um) for focus simulation.
+
+        Args:
+            z: Current Z stage position in micrometers.
+        """
         self._z_position = float(z)
 
     def get_z_position(self) -> float:
+        """Return the current Z position used for focus simulation.
+
+        Returns:
+            float: Z position in micrometers.
+        """
         return self._z_position
 
-    def set_focal_z(self, z: float):
-        """Set the Z position (um) where focus is perfect."""
+    def set_focal_z(self, z: float) -> None:
+        """Set the Z position (um) where focus is perfect.
+
+        Args:
+            z: Focal Z position in micrometers.
+        """
         self._focal_z = float(z)
 
     def get_focal_z(self) -> float:
+        """Return the focal Z position.
+
+        Returns:
+            float: Focal Z position in micrometers.
+        """
         return self._focal_z
 
-    def set_blur_per_um(self, value: float):
-        """Set blur rate: uniform filter size increases by this per um of defocus."""
+    def set_blur_per_um(self, value: float) -> None:
+        """Set blur rate: uniform filter size increases by this per um of defocus.
+
+        Args:
+            value: Blur sigma increase per um of defocus.
+        """
         self._blur_per_um = float(value)
 
     # ------------------------------------------------------------------
@@ -474,13 +613,16 @@ class SimulatedCamera(Camera):
 
         return img
 
-    def grab(self):
+    def grab(self) -> tuple:
         """Return the last generated image (non-blocking).
 
         When image cycling is active, simulates realistic camera behavior:
         a new frame isn't available until the exposure time has elapsed.
         This matches real cameras where grab() returns the latest buffered
         frame and the frame rate is limited by exposure time.
+
+        Returns:
+            tuple: ``(success: bool, timestamp: datetime | None)``.
         """
         if not self._grabbing:
             return False, None
@@ -504,11 +646,15 @@ class SimulatedCamera(Camera):
 
         return True, self._last_grab_ts
 
-    def grab_latest(self):
+    def grab_latest(self) -> tuple:
         """Single-copy grab for display pipeline (overrides Camera.grab_latest).
 
         SimulatedCamera doesn't use ImageHandlerBase, so we override
         to generate and return the image directly.
+
+        Returns:
+            tuple: ``(success: bool, image: np.ndarray | None,
+                timestamp: datetime | None)``.
         """
         if not self._grabbing:
             return False, None, None
@@ -533,8 +679,16 @@ class SimulatedCamera(Camera):
 
         return True, img, self._last_grab_ts
 
-    def grab_new_capture(self, timeout):
-        """Generate a fresh image (blocking with timeout)."""
+    def grab_new_capture(self, timeout: float) -> tuple:
+        """Generate a fresh image (blocking with timeout).
+
+        Args:
+            timeout: Accepted for API parity; a small per-call delay
+                proportional to exposure is applied (capped at 0.1 s).
+
+        Returns:
+            tuple: ``(success: bool, timestamp: datetime | None)``.
+        """
         if not self._grabbing:
             return False, None
 
@@ -552,12 +706,22 @@ class SimulatedCamera(Camera):
     # ------------------------------------------------------------------
     # Gain
     # ------------------------------------------------------------------
-    def get_gain(self):
+    def get_gain(self) -> float:
+        """Return the simulated camera gain.
+
+        Returns:
+            float: Gain in dB, or -1 when the camera is not active.
+        """
         if not self.active:
             return -1
         return self._gain
 
-    def gain(self, gain):
+    def gain(self, gain: float) -> None:
+        """Set the simulated camera gain.
+
+        Args:
+            gain: Gain in dB.
+        """
         if not self.active:
             return
         with self._lock:
@@ -570,8 +734,17 @@ class SimulatedCamera(Camera):
         auto_target_brightness: float = 0.5,
         min_gain: float | None = None,
         max_gain: float | None = None,
-    ):
-        """Initialize auto-gain ROI and parameters (no-op in simulation)."""
+    ) -> bool:
+        """Initialize auto-gain ROI and parameters (no-op in simulation).
+
+        Args:
+            auto_target_brightness: Normalized brightness target (0.0-1.0).
+            min_gain: Optional lower bound in dB.
+            max_gain: Optional upper bound in dB.
+
+        Returns:
+            bool: Always True.
+        """
         with self._lock:
             self._auto_gain_target_brightness = auto_target_brightness
             if min_gain is not None:
@@ -582,11 +755,25 @@ class SimulatedCamera(Camera):
 
     def auto_gain(
         self,
-        state=True,
+        state: bool = True,
         target_brightness: float = 0.5,
         min_gain: float | None = None,
         max_gain: float | None = None,
-    ):
+    ) -> bool:
+        """Enable or disable simulated continuous auto-gain.
+
+        On enable, the simulator converges immediately by setting gain
+        to the midpoint of [min_gain, max_gain].
+
+        Args:
+            state: True to enable, False to disable.
+            target_brightness: Normalized brightness target (0.0-1.0).
+            min_gain: Optional lower bound in dB.
+            max_gain: Optional upper bound in dB.
+
+        Returns:
+            bool: Always True.
+        """
         with self._lock:
             self._auto_gain_enabled = state
             if state:
@@ -602,11 +789,24 @@ class SimulatedCamera(Camera):
 
     def auto_gain_once(
         self,
-        state=True,
+        state: bool = True,
         target_brightness: float = 0.5,
         min_gain: float | None = None,
         max_gain: float | None = None,
-    ):
+    ) -> bool:
+        """Run a single simulated auto-gain iteration.
+
+        Converges by setting gain to the midpoint of [min_gain, max_gain].
+
+        Args:
+            state: True to run, False to no-op.
+            target_brightness: Normalized brightness target (0.0-1.0).
+            min_gain: Optional lower bound in dB.
+            max_gain: Optional upper bound in dB.
+
+        Returns:
+            bool: Always True.
+        """
         if state:
             with self._lock:
                 self._auto_gain_target_brightness = target_brightness
@@ -618,12 +818,29 @@ class SimulatedCamera(Camera):
                 self._gain = (self._auto_gain_min + self._auto_gain_max) / 2.0
         return True
 
-    def update_auto_gain_target_brightness(self, auto_target_brightness: float):
+    def update_auto_gain_target_brightness(self, auto_target_brightness: float) -> bool:
+        """Update the auto-gain target brightness.
+
+        Args:
+            auto_target_brightness: Normalized brightness target (0.0-1.0).
+
+        Returns:
+            bool: Always True.
+        """
         with self._lock:
             self._auto_gain_target_brightness = auto_target_brightness
         return True
 
-    def update_auto_gain_min_max(self, min_gain: float | None, max_gain: float | None):
+    def update_auto_gain_min_max(self, min_gain: float | None, max_gain: float | None) -> bool:
+        """Update auto-gain bounds.
+
+        Args:
+            min_gain: Minimum gain in dB, or None to leave unchanged.
+            max_gain: Maximum gain in dB, or None to leave unchanged.
+
+        Returns:
+            bool: Always True.
+        """
         with self._lock:
             if min_gain is not None:
                 self._auto_gain_min = min_gain
@@ -634,7 +851,15 @@ class SimulatedCamera(Camera):
     # ------------------------------------------------------------------
     # Test pattern
     # ------------------------------------------------------------------
-    def set_test_pattern(self, enabled: bool = False, pattern: str = 'Black'):
+    def set_test_pattern(self, enabled: bool = False, pattern: str = 'Black') -> None:
+        """Enable or disable the simulator's test pattern generator.
+
+        Args:
+            enabled: True to enable the pattern, False to revert to ``'gradient'``.
+            pattern: Pattern name (case-insensitive). Common values:
+                ``'black'``, ``'white'``, ``'noise'``, ``'focus_target'``,
+                ``'image_cycle'``.
+        """
         if enabled:
             self._test_pattern = pattern.lower()
         else:

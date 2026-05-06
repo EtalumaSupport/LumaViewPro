@@ -138,12 +138,18 @@ class SimulatedMotorBoard:
             }
         }
 
-    def set_timing_mode(self, mode: str):
+    def set_timing_mode(self, mode: str) -> None:
         """Switch timing mode: 'instant', 'fast', or 'realistic'.
 
         instant: zero delays, truly instant moves. For unit tests only.
         fast: 1ms command delay, 3ms move duration. Default for --simulate.
         realistic: 3ms command delay, TMC5072 ramp-calculated move durations.
+
+        Args:
+            mode: One of ``'instant'``, ``'fast'``, ``'realistic'``.
+
+        Raises:
+            ValueError: ``mode`` is not a known preset.
         """
         presets = {
             'instant': self.TIMING_INSTANT,
@@ -161,7 +167,11 @@ class SimulatedMotorBoard:
 
     @property
     def is_v2(self) -> bool:
-        """True if firmware is v2.0 or later."""
+        """True if firmware is v2.0 or later.
+
+        Returns:
+            bool: True when the parsed major version is >= 2.
+        """
         if self.firmware_version is None:
             return False
         try:
@@ -173,18 +183,25 @@ class SimulatedMotorBoard:
     # ------------------------------------------------------------------
     # Connection
     # ------------------------------------------------------------------
-    def connect(self):
+    def connect(self) -> None:
+        """Mark the simulated board as connected (idempotent)."""
         with self.thread_lock:
             self.driver = True
             self._connect_fails = 0
             logger.info('[XYZ Sim   ] SimulatedMotorBoard.connect()')
 
-    def disconnect(self):
+    def disconnect(self) -> None:
+        """Mark the simulated board as disconnected."""
         with self.thread_lock:
             self.driver = None
             logger.info('[XYZ Sim   ] SimulatedMotorBoard.disconnect()')
 
     def is_connected(self) -> bool:
+        """Whether the simulated board is currently connected.
+
+        Returns:
+            bool: True when ``connect()`` has been called and ``disconnect()`` has not.
+        """
         return self.driver is not None
 
     def motor_stop(self) -> bool:
@@ -192,6 +209,9 @@ class SimulatedMotorBoard:
         always supports STOP). Mirrors the production MotorBoard
         method so Lumascope.stop_motion works identically against
         the simulator.
+
+        Returns:
+            bool: Always True.
         """
         return True
 
@@ -215,6 +235,21 @@ class SimulatedMotorBoard:
             time.sleep(self._cmd_delay)
 
     def exchange_command(self, command, response_numlines=1, timeout=None):
+        """Exchange a single command with the simulated firmware.
+
+        Honors failure injection (``fail_after`` / ``fail_on``) so callers
+        can exercise disconnect / timeout paths without real hardware.
+
+        Args:
+            command: Command string to dispatch.
+            response_numlines: 1 returns a single string; otherwise
+                returns a single-element list (mirrors SerialBoard).
+            timeout: Accepted for API parity; ignored by the simulator.
+
+        Returns:
+            Response string (or single-element list, or None on injected
+            failure).
+        """
         with self.thread_lock:
             t_start = time.monotonic()
             if self.driver is None:
@@ -260,7 +295,16 @@ class SimulatedMotorBoard:
             return [response]
 
     def exchange_multiline(self, command, timeout=60, end_markers=None):
-        """Simulated multi-line response."""
+        """Simulated multi-line response.
+
+        Args:
+            command: Command string to dispatch.
+            timeout: Accepted for API parity; ignored by the simulator.
+            end_markers: Accepted for API parity; ignored by the simulator.
+
+        Returns:
+            Response string from ``exchange_command()``.
+        """
         return self.exchange_command(command)
 
     def _handle_command(self, command):
@@ -490,10 +534,16 @@ class SimulatedMotorBoard:
     # ------------------------------------------------------------------
     # Informational
     # ------------------------------------------------------------------
-    def infomation(self):
+    def infomation(self) -> None:
+        """Send INFO; logs response via exchange_command (typo preserved for API parity)."""
         self.exchange_command('INFO')
 
-    def fullinfo(self):
+    def fullinfo(self) -> dict:
+        """Send FULLINFO and return the parsed model + serial-number dict.
+
+        Returns:
+            dict: ``{'model': str, 'serial_number': str}``.
+        """
         info = self.exchange_command('FULLINFO')
         info_parts = info.split()
         model = info_parts[info_parts.index("Model:") + 1]
@@ -502,36 +552,106 @@ class SimulatedMotorBoard:
         serial_number = info_parts[info_parts.index("Serial:") + 1]
         return {"model": model, "serial_number": serial_number}
 
-    def get_microscope_model(self):
+    def get_microscope_model(self) -> str:
+        """Return the configured microscope model string.
+
+        Returns:
+            str: Model identifier (e.g. ``'LS850'``).
+        """
         return self._fullinfo['model']
 
     # ------------------------------------------------------------------
     # Conversion functions (identical to real MotorBoard)
     # ------------------------------------------------------------------
-    def z_ustep2um(self, ustep):
+    def z_ustep2um(self, ustep: int) -> float:
+        """Convert Z-axis microsteps to micrometers.
+
+        Args:
+            ustep: Microstep count.
+
+        Returns:
+            float: Position in micrometers.
+        """
         return ustep * 1000 / self.motorconfig.usteps_per_mm('Z')
 
-    def z_um2ustep(self, um):
+    def z_um2ustep(self, um: float) -> int:
+        """Convert Z-axis micrometers to microsteps.
+
+        Args:
+            um: Position in micrometers.
+
+        Returns:
+            int: Microstep count (truncated toward zero).
+        """
         return int(self.motorconfig.usteps_per_mm('Z') * um / 1000)
 
-    def xy_ustep2um(self, ustep):
+    def xy_ustep2um(self, ustep: int) -> float:
+        """Convert XY microsteps to micrometers.
+
+        Args:
+            ustep: Microstep count.
+
+        Returns:
+            float: Position in micrometers.
+        """
         return ustep * 1000 / self.motorconfig.usteps_per_mm('X')
 
-    def xy_um2ustep(self, um):
+    def xy_um2ustep(self, um: float) -> int:
+        """Convert XY micrometers to microsteps.
+
+        Args:
+            um: Position in micrometers.
+
+        Returns:
+            int: Microstep count (truncated toward zero).
+        """
         return int(self.motorconfig.usteps_per_mm('X') * um / 1000)
 
-    def t_ustep2deg(self, ustep):
+    def t_ustep2deg(self, ustep: int) -> float:
+        """Convert turret microsteps to degrees.
+
+        Args:
+            ustep: Microstep count.
+
+        Returns:
+            float: Rotation in degrees.
+        """
         usteps_per_90deg = self.motorconfig.usteps_per_mm('T')
         return 90.0 / usteps_per_90deg * ustep
 
-    def t_ustep2pos(self, ustep):
+    def t_ustep2pos(self, ustep: int) -> int:
+        """Convert turret microsteps to a 1-based position number.
+
+        Args:
+            ustep: Microstep count.
+
+        Returns:
+            int: Turret position (1, 2, 3, 4 ...).
+        """
         return int(self.t_ustep2deg(ustep) / 90) + 1
 
-    def t_deg2ustep(self, degrees):
+    def t_deg2ustep(self, degrees: float) -> int:
+        """Convert turret degrees to microsteps.
+
+        Args:
+            degrees: Rotation in degrees.
+
+        Returns:
+            int: Microstep count (truncated toward zero).
+        """
         usteps_per_90deg = self.motorconfig.usteps_per_mm('T')
         return int(degrees * usteps_per_90deg / 90.0)
 
-    def t_pos2ustep(self, position):
+    def t_pos2ustep(self, position: int) -> int:
+        """Convert turret position (1-based) to microsteps.
+
+        Args:
+            position: Turret position (1-based).
+
+        Returns:
+            int: Microstep count for that position. Falls back to
+                90-degree spacing when motorconfig has no entry.
+        """
         usteps = self.motorconfig.turret_position_usteps(position)
         if usteps == 0 and position > 1:
             return self.t_deg2ustep(90 * (position - 1))
@@ -573,10 +693,16 @@ class SimulatedMotorBoard:
             return True
         raise HardwareError(f'home(): firmware error: {resp}')
 
-    def has_homed(self):
+    def has_homed(self) -> bool:
+        """Whether the simulated board has completed its initial XYZ home.
+
+        Returns:
+            bool: True if ``home()`` previously succeeded.
+        """
         return self.initial_homing_complete
 
-    def xycenter(self):
+    def xycenter(self) -> None:
+        """Move the simulated XY stage to centre (sends CENTER)."""
         self.exchange_command('CENTER')
 
     def thome(self) -> bool:
@@ -597,20 +723,47 @@ class SimulatedMotorBoard:
         raise HardwareError(f'thome(): firmware error: {resp}')
 
     def has_turret(self) -> bool:
+        """Whether the simulated board has a turret installed.
+
+        Returns:
+            bool: True when the model name ends in ``T``.
+        """
         return self._has_turret
 
-    def has_thomed(self):
+    def has_thomed(self) -> bool:
+        """Whether the simulated board has completed turret homing.
+
+        Returns:
+            bool: True if either XYZ or T homing has completed.
+        """
         return self.initial_homing_complete or self.initial_t_homing_complete
 
     # ------------------------------------------------------------------
     # Motion
     # ------------------------------------------------------------------
-    def move(self, axis, steps):
+    def move(self, axis: str, steps: int) -> None:
+        """Move an axis to an absolute microstep position.
+
+        Args:
+            axis: Axis letter ('X', 'Y', 'Z', 'T').
+            steps: Target absolute microstep position. Negative values
+                are wrapped to two's-complement so the simulated firmware
+                accepts them as unsigned 32-bit integers.
+        """
         if steps < 0:
             steps += 0x100000000
         self.exchange_command(f'TARGET_W{axis}{steps}')
 
-    def target_pos(self, axis):
+    def target_pos(self, axis: str) -> float | int:
+        """Get the target position of an axis in user units.
+
+        Args:
+            axis: Axis letter ('X', 'Y', 'Z', 'T').
+
+        Returns:
+            float | int: Microns for X/Y/Z, 1-based position for T, 0
+                on read failure or unknown axis.
+        """
         try:
             response = self.exchange_command(f'TARGET_R{axis}')
             position = int(response)
@@ -625,7 +778,16 @@ class SimulatedMotorBoard:
             return self.t_ustep2pos(position)
         return 0
 
-    def current_pos(self, axis):
+    def current_pos(self, axis: str) -> float | int:
+        """Get the current position of an axis in user units.
+
+        Args:
+            axis: Axis letter ('X', 'Y', 'Z', 'T').
+
+        Returns:
+            float | int: Microns for X/Y/Z, 1-based position for T, 0
+                on read failure or unknown axis.
+        """
         try:
             response = self.exchange_command(f'ACTUAL_R{axis}')
             position = int(response)
@@ -640,7 +802,24 @@ class SimulatedMotorBoard:
             return self.t_ustep2pos(position)
         return 0
 
-    def move_abs_pos(self, axis, pos, overshoot_enabled: bool = True, ignore_limits: bool = False):
+    def move_abs_pos(self, axis: str, pos: float, overshoot_enabled: bool = True, ignore_limits: bool = False) -> None:
+        """Move an axis to an absolute position in user units.
+
+        Mirrors the production ``MotorBoard.move_abs_pos`` contract,
+        including Z backlash overshoot when ``overshoot_enabled`` is True.
+
+        Args:
+            axis: Axis letter ('X', 'Y', 'Z', 'T').
+            pos: Target absolute position. Microns for X/Y/Z, 1-based
+                position for T.
+            overshoot_enabled: When True, apply Z backlash compensation
+                if the target is sufficiently below the current position.
+            ignore_limits: When True, skip the configured min/max
+                clamping.
+
+        Raises:
+            Exception: ``axis`` is not in ``axes_config``.
+        """
         if axis not in self.axes_config:
             raise Exception(f"Unsupported axis ({axis})")
 
@@ -665,14 +844,32 @@ class SimulatedMotorBoard:
 
         self.move(axis, steps)
 
-    def move_rel_pos(self, axis, um, overshoot_enabled: bool = False):
+    def move_rel_pos(self, axis: str, um: float, overshoot_enabled: bool = False) -> None:
+        """Move an axis by a relative offset in user units.
+
+        Args:
+            axis: Axis letter ('X', 'Y', 'Z', 'T').
+            um: Offset to apply. Microns for X/Y/Z, position-count
+                offset for T.
+            overshoot_enabled: When True, apply Z backlash compensation
+                during the underlying absolute move.
+        """
         pos = self.target_pos(axis)
         self.move_abs_pos(axis, pos + um, overshoot_enabled=overshoot_enabled)
 
     # ------------------------------------------------------------------
     # Status
     # ------------------------------------------------------------------
-    def home_status(self, axis):
+    def home_status(self, axis: str) -> bool:
+        """Return True if the axis is at the home position.
+
+        Args:
+            axis: Axis letter ('X', 'Y', 'Z', 'T').
+
+        Returns:
+            bool: True when the simulated STATUS_R bit is set; False on
+                read failure (does not raise, unlike production).
+        """
         try:
             data = int(self.exchange_command(f'STATUS_R{axis}'))
             bits = format(data, 'b').zfill(32)
@@ -680,7 +877,16 @@ class SimulatedMotorBoard:
         except Exception:
             return False
 
-    def target_status(self, axis):
+    def target_status(self, axis: str) -> bool:
+        """Return True if the axis has reached its target position.
+
+        Args:
+            axis: Axis letter ('X', 'Y', 'Z', 'T').
+
+        Returns:
+            bool: True when current == target; False on read failure
+                (does not raise, unlike production).
+        """
         try:
             data = int(self.exchange_command(f'STATUS_R{axis}'))
             bits = format(data, 'b').zfill(32)
@@ -688,13 +894,31 @@ class SimulatedMotorBoard:
         except Exception:
             return False
 
-    def reference_status(self, axis):
+    def reference_status(self, axis: str) -> int:
+        """Read the raw STATUS register for an axis.
+
+        Args:
+            axis: Axis letter ('X', 'Y', 'Z', 'T').
+
+        Returns:
+            int: 32-bit register value, or 0 on read failure (does not
+                raise, unlike production).
+        """
         try:
             return int(self.exchange_command(f'STATUS_R{axis}'))
         except Exception:
             return 0
 
-    def limit_switch_status(self, axis):
+    def limit_switch_status(self, axis: str) -> tuple[int, int]:
+        """Read the left + right limit switch state for an axis.
+
+        Args:
+            axis: Axis letter ('X', 'Y', 'Z', 'T').
+
+        Returns:
+            tuple[int, int]: ``(left, right)`` where each value is 1
+                (engaged), 0 (clear), or -1 on read failure.
+        """
         try:
             resp = self.reference_status(axis)
             left = 1 if (resp & (1 << 0)) else 0
@@ -707,58 +931,159 @@ class SimulatedMotorBoard:
     # Acceleration (stubs)
     # ------------------------------------------------------------------
     def acceleration_limit(self, axis: str, parameter: str) -> int:
+        """Stub: return the simulated firmware's fixed AMAX/DMAX value.
+
+        Args:
+            axis: Axis letter ('X' or 'Y').
+            parameter: ``'acceleration'`` or ``'deceleration'``.
+
+        Returns:
+            int: Always 30000 (matches simulated AMAX/DMAX response).
+        """
         return 30000
 
     def acceleration_limits(self) -> dict:
+        """Stub: return acceleration + deceleration limits for X / Y.
+
+        Returns:
+            dict: ``{axis: {parameter: 30000}}`` for X and Y.
+        """
         return {
             'X': {'acceleration': 30000, 'deceleration': 30000},
             'Y': {'acceleration': 30000, 'deceleration': 30000},
         }
 
-    def set_acceleration_limit(self, axis: str, parameter: str, val_pct: int):
+    def set_acceleration_limit(self, axis: str, parameter: str, val_pct: int) -> None:
+        """Stub: log the requested acceleration limit (no state change).
+
+        Args:
+            axis: Axis letter ('X' or 'Y').
+            parameter: ``'acceleration'`` or ``'deceleration'``.
+            val_pct: Percentage of the maximum (1-100, inclusive).
+        """
         logger.info(f'[XYZ Sim   ] set_acceleration_limit({axis}, {parameter}, {val_pct}%)')
 
-    def set_acceleration_limits(self, val_pct):
+    def set_acceleration_limits(self, val_pct: int) -> None:
+        """Stub: log the requested global acceleration limit.
+
+        Args:
+            val_pct: Percentage of the maximum (1-100, inclusive).
+        """
         logger.info(f'[XYZ Sim   ] set_acceleration_limits({val_pct}%)')
 
     # ------------------------------------------------------------------
     # SPI (stubs)
     # ------------------------------------------------------------------
     def spi_read(self, axis: str, addr: int) -> str:
+        """Stub: return a fixed acknowledgement for SPI reads.
+
+        Args:
+            axis: Motor axis ('X', 'Y', 'Z', 'T').
+            addr: SPI register address.
+
+        Returns:
+            str: Always ``'SPI OK'``.
+        """
         return 'SPI OK'
 
     def spi_write(self, axis: str, addr: int, payload: str) -> str:
+        """Stub: return a fixed acknowledgement for SPI writes.
+
+        Args:
+            axis: Motor axis ('X', 'Y', 'Z', 'T').
+            addr: SPI register address.
+            payload: Value to write.
+
+        Returns:
+            str: Always ``'SPI OK'``.
+        """
         return 'SPI OK'
 
-    def set_precision_mode(self, axis: str, enabled: bool):
+    def set_precision_mode(self, axis: str, enabled: bool) -> None:
+        """Stub: precision mode is a no-op in the simulator.
+
+        Args:
+            axis: Axis letter (accepted but unused).
+            enabled: Precision-mode flag (accepted but unused).
+        """
         pass  # No-op for simulator
 
     # ------------------------------------------------------------------
     # Firmware (stubs)
     # ------------------------------------------------------------------
-    def check_firmware(self):
+    def check_firmware(self) -> None:
+        """Stub: firmware check is a no-op in the simulator."""
         pass
 
-    def update_firmware(self):
+    def update_firmware(self) -> bool:
+        """Stub: firmware update always succeeds in the simulator.
+
+        Returns:
+            bool: Always True.
+        """
         return True
 
-    def get_firmware_URL(self, owner, repo, path):
-        # Stub: no real URL construction needed in simulator
+    def get_firmware_URL(self, owner: str, repo: str, path: str) -> str:
+        """Stub: simulator does not fetch firmware from GitHub.
+
+        Args:
+            owner: GitHub repository owner (unused).
+            repo: GitHub repository name (unused).
+            path: Relative path inside the repo (unused).
+
+        Returns:
+            str: Always an empty string.
+        """
         return ''
 
-    def get_latest_firmware(self, firmware_url, auth_token):
+    def get_latest_firmware(self, firmware_url: str, auth_token: str) -> dict:
+        """Stub: no-op firmware fetch in the simulator.
+
+        Args:
+            firmware_url: URL to the firmware blob (unused).
+            auth_token: GitHub auth token (unused).
+
+        Returns:
+            dict: Always an empty dict.
+        """
         return {}
 
-    def firmware_is_up_to_date(self):
+    def firmware_is_up_to_date(self) -> bool:
+        """Stub: simulator firmware is always up to date.
+
+        Returns:
+            bool: Always True.
+        """
         return True
 
-    def get_current_firmware(self):
+    def get_current_firmware(self) -> str:
+        """Return a fixed simulated firmware identification string.
+
+        Returns:
+            str: ``'Etaluma Motor Controller <model> Firmware: SIMULATED'``.
+        """
         return f"Etaluma Motor Controller {self._fullinfo['model']} Firmware: SIMULATED"
 
-    def get_axes_config(self):
+    def get_axes_config(self) -> dict:
+        """Return the per-axis config (limits + unit-conversion func).
+
+        Returns:
+            dict: Axis-letter-keyed configuration dict.
+        """
         return self.axes_config
 
-    def get_axis_limits(self, axis: str):
+    def get_axis_limits(self, axis: str) -> dict:
+        """Return the configured min/max travel limits for an axis.
+
+        Args:
+            axis: Axis letter ('X', 'Y', 'Z'). T has no configured limits.
+
+        Returns:
+            dict: ``{'min': float, 'max': float}`` in axis user units.
+
+        Raises:
+            Exception: ``axis`` is unsupported or has no defined limits.
+        """
         if axis not in self.axes_config:
             raise Exception(f"Unsupported axis ({axis})")
         if 'limits' not in self.axes_config[axis]:
@@ -768,8 +1093,12 @@ class SimulatedMotorBoard:
     # ------------------------------------------------------------------
     # New MotorBoard methods (2026-03-13)
     # ------------------------------------------------------------------
-    def detect_present_axes(self):
-        """Return list of axes present on this board."""
+    def detect_present_axes(self) -> list:
+        """Return the list of axes present on the simulated board.
+
+        Returns:
+            list: Axis letters present (e.g. ``['X', 'Y', 'Z', 'T']``).
+        """
         axes = ['Z']  # Z always present
         if self._fullinfo.get('model', '').startswith('LS85'):
             axes = ['X', 'Y', 'Z']
@@ -778,80 +1107,179 @@ class SimulatedMotorBoard:
             axes.append('T')
         return axes
 
-    def current_pos_steps(self, axis):
-        """Get current position in raw microsteps."""
+    def current_pos_steps(self, axis: str) -> int:
+        """Get current position in raw microsteps.
+
+        Args:
+            axis: Axis letter ('X', 'Y', 'Z', 'T').
+
+        Returns:
+            int: Microstep position (0 if axis is unknown).
+        """
         with self.thread_lock:
             return self._actual.get(axis, 0)
 
-    def target_pos_steps(self, axis):
-        """Get target position in raw microsteps."""
+    def target_pos_steps(self, axis: str) -> int:
+        """Get target position in raw microsteps.
+
+        Args:
+            axis: Axis letter ('X', 'Y', 'Z', 'T').
+
+        Returns:
+            int: Microstep target (0 if axis is unknown).
+        """
         with self.thread_lock:
             return self._target.get(axis, 0)
 
     # ------------------------------------------------------------------
     # Diagnostic commands (match MotorBoard API surface)
     # ------------------------------------------------------------------
-    def get_config(self):
-        """Simulated CONFIG -- returns motorconfig data."""
+    def get_config(self) -> dict:
+        """Simulated CONFIG -- returns motorconfig data.
+
+        Returns:
+            dict: Fixed-shape dict with ``Serial Number`` + ``Axis Present``.
+        """
         return {
             'Serial Number': self._fullinfo.get('serial_number', 'SIM-0000'),
             'Axis Present': {'X': 1, 'Y': 1, 'Z': 1, 'T': 0},
         }
 
-    def get_drvstat(self, axis=None):
-        """Simulated DRVSTAT -- returns fake driver status."""
+    def get_drvstat(self, axis: str | None = None) -> list:
+        """Simulated DRVSTAT -- returns fake driver status.
+
+        Args:
+            axis: Optional single axis to query. If None, returns all four.
+
+        Returns:
+            list: One dict per axis with ``raw``, ``SG``, ``CS`` keys.
+        """
         axes = [axis] if axis else ['X', 'Y', 'Z', 'T']
         return [{'axis': a, 'raw': '0x00000000', 'SG': 0, 'CS': 0,
                  'raw_line': f'{a}: raw=0x00000000 SG=0 CS=0'} for a in axes]
 
-    def get_motordetect(self):
-        """Simulated MOTORDETECT."""
+    def get_motordetect(self) -> list:
+        """Simulated MOTORDETECT.
+
+        Returns:
+            list: One dict per axis reporting detected + configured True.
+        """
         return [{'axis': a, 'detected': True, 'configured': True,
                  'raw_line': f'{a}: detected=True configured=True'}
                 for a in ['X', 'Y', 'Z', 'T']]
 
-    def get_current(self):
-        """Simulated CURRENT."""
+    def get_current(self) -> list:
+        """Simulated CURRENT.
+
+        Returns:
+            list: One dict per axis with ``CS_ACTUAL``, ``IRUN``,
+                ``IHOLD``, ``SG_RESULT`` keys.
+        """
         return [{'axis': a, 'CS_ACTUAL': 0, 'IRUN': 10, 'IHOLD': 3, 'SG_RESULT': 0,
                  'raw_line': f'{a}: CS_ACTUAL=0 IRUN=10 IHOLD=3 SG_RESULT=0'}
                 for a in ['X', 'Y', 'Z', 'T']]
 
-    def get_voltage(self):
-        """Simulated VOLTAGE."""
+    def get_voltage(self) -> dict:
+        """Simulated VOLTAGE.
+
+        Returns:
+            dict: ``{'raw': str, '24V': 'OK'}``.
+        """
         return {'raw': '24V=OK 5V=N/A 3V3=N/A 1V2=N/A', '24V': 'OK'}
 
-    def wait_for_position(self, axis, timeout=5.0):
-        """Simulated wait -- always returns True (position reached instantly)."""
+    def wait_for_position(self, axis: str, timeout: float = 5.0) -> bool:
+        """Simulated wait -- position is always reached instantly.
+
+        Args:
+            axis: Axis letter (accepted but unused).
+            timeout: Maximum wait time in seconds (accepted but unused).
+
+        Returns:
+            bool: Always True.
+        """
         return True
 
-    def read_status(self, axis):
-        """Simulated STATUS register -- return position_reached set."""
+    def read_status(self, axis: str) -> int:
+        """Simulated STATUS register -- bit 9 (position_reached) set.
+
+        Args:
+            axis: Axis letter (accepted but unused).
+
+        Returns:
+            int: Always ``0x200``.
+        """
         return 0x200  # bit 9 = position_reached
 
-    def detect_firmware_version(self):
+    def detect_firmware_version(self) -> None:
         """No-op for simulator -- version is set at construction."""
         pass
 
     # ------------------------------------------------------------------
     # Raw REPL stubs (match SerialBoard API surface)
     # ------------------------------------------------------------------
-    def enter_raw_repl(self):
+    def enter_raw_repl(self) -> bool:
+        """Stub: simulated raw REPL entry always succeeds.
+
+        Returns:
+            bool: Always True.
+        """
         return True
 
-    def exit_raw_repl(self):
+    def exit_raw_repl(self) -> None:
+        """Stub: simulated raw REPL exit is a no-op."""
         pass
 
-    def repl_exec(self, code, timeout=10):
+    def repl_exec(self, code: str, timeout: int = 10) -> tuple[bytes, bytes]:
+        """Stub: pretend to execute code in raw REPL.
+
+        Args:
+            code: Source code to run (accepted but unused).
+            timeout: Execution timeout (accepted but unused).
+
+        Returns:
+            tuple[bytes, bytes]: Empty ``(stdout, stderr)`` tuple.
+        """
         return (b'', b'')
 
-    def repl_list_files(self):
+    def repl_list_files(self) -> list:
+        """Stub: simulator has no on-board filesystem.
+
+        Returns:
+            list: Always empty.
+        """
         return []
 
-    def repl_read_file(self, filename, verify=True):
+    def repl_read_file(self, filename: str, verify: bool = True):
+        """Stub: simulator has no on-board filesystem.
+
+        Args:
+            filename: File name (accepted but unused).
+            verify: SHA256 verify flag (accepted but unused).
+
+        Returns:
+            None: Always.
+        """
         return None
 
-    def repl_write_file(self, filename, data):
+    def repl_write_file(self, filename: str, data) -> bool:
+        """Stub: simulator pretends every write succeeds.
+
+        Args:
+            filename: File name (accepted but unused).
+            data: File contents (accepted but unused).
+
+        Returns:
+            bool: Always True.
+        """
         return True
 
-    def verify_firmware_running(self, timeout=10):
+    def verify_firmware_running(self, timeout: int = 10) -> str:
+        """Stub: simulator firmware always reports running.
+
+        Args:
+            timeout: Maximum wait time in seconds (accepted but unused).
+
+        Returns:
+            str: Always ``'Simulated firmware running'``.
+        """
         return 'Simulated firmware running'

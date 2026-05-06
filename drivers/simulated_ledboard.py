@@ -75,8 +75,15 @@ class SimulatedLEDBoard:
         self._enabled = True
         self._channel_states = {i: 0 for i in range(6)}  # channel -> mA
 
-    def set_timing_mode(self, mode: str):
-        """Switch timing mode: 'instant', 'fast', or 'realistic'."""
+    def set_timing_mode(self, mode: str) -> None:
+        """Switch timing mode: 'instant', 'fast', or 'realistic'.
+
+        Args:
+            mode: One of ``'instant'``, ``'fast'``, ``'realistic'``.
+
+        Raises:
+            ValueError: ``mode`` is not a known preset.
+        """
         presets = {
             'instant': self.TIMING_INSTANT,
             'fast': self.TIMING_FAST,
@@ -90,7 +97,11 @@ class SimulatedLEDBoard:
 
     @property
     def is_v2(self) -> bool:
-        """True if firmware is v2.0 or later."""
+        """True if firmware is v2.0 or later.
+
+        Returns:
+            bool: True when the parsed major version is >= 2.
+        """
         if self.firmware_version is None:
             return False
         try:
@@ -102,12 +113,14 @@ class SimulatedLEDBoard:
     # ------------------------------------------------------------------
     # Connection
     # ------------------------------------------------------------------
-    def connect(self):
+    def connect(self) -> None:
+        """Mark the simulated board as connected (idempotent)."""
         with self._lock:
             self.driver = True
             logger.info('[LED Sim   ] SimulatedLEDBoard.connect()')
 
-    def disconnect(self):
+    def disconnect(self) -> None:
+        """Mark the simulated board as disconnected and clear LED state."""
         with self._lock:
             self.driver = None
             self.port = None
@@ -116,6 +129,11 @@ class SimulatedLEDBoard:
             logger.info('[LED Sim   ] SimulatedLEDBoard.disconnect()')
 
     def is_connected(self) -> bool:
+        """Whether the simulated board is currently connected.
+
+        Returns:
+            bool: True when ``connect()`` has been called and ``disconnect()`` has not.
+        """
         return self.driver is not None
 
     # ------------------------------------------------------------------
@@ -126,6 +144,19 @@ class SimulatedLEDBoard:
             time.sleep(self._delay)
 
     def exchange_command(self, command, response_numlines=1, timeout=None):
+        """Exchange a single command with the simulated firmware.
+
+        Honors failure injection (``fail_after`` / ``fail_on``) so callers
+        can exercise disconnect / timeout paths without real hardware.
+
+        Args:
+            command: Command string to dispatch.
+            response_numlines: Accepted for API parity; ignored by the simulator.
+            timeout: Accepted for API parity; ignored by the simulator.
+
+        Returns:
+            Response string ``f'RE: {command}'``, or None on injected failure.
+        """
         with self._lock:
             t_start = time.monotonic()
             if self.driver is None:
@@ -169,7 +200,16 @@ class SimulatedLEDBoard:
             return response
 
     def exchange_multiline(self, command, timeout=60, end_markers=None):
-        """Simulated multi-line response."""
+        """Simulated multi-line response.
+
+        Args:
+            command: Command string to dispatch.
+            timeout: Accepted for API parity; ignored by the simulator.
+            end_markers: Accepted for API parity; ignored by the simulator.
+
+        Returns:
+            Response string from ``exchange_command()``.
+        """
         return self.exchange_command(command)
 
     def _write_command_fast(self, command: str):
@@ -207,26 +247,54 @@ class SimulatedLEDBoard:
     # ------------------------------------------------------------------
     # Channel helpers
     # ------------------------------------------------------------------
-    def color2ch(self, color):
+    def color2ch(self, color: str) -> int:
+        """Convert color name to numerical channel.
+
+        Args:
+            color: Color name (e.g. 'BF', 'Red', 'Blue').
+
+        Returns:
+            int: Channel number (0-5). Defaults to 3 (BF) for unknown names.
+        """
         return self._COLOR_TO_CH.get(color, 3)
 
-    def ch2color(self, channel):
+    def ch2color(self, channel: int) -> str:
+        """Convert numerical channel to color name.
+
+        Args:
+            channel: Channel number (0-5).
+
+        Returns:
+            str: Color name. Defaults to 'BF' for unknown channels.
+        """
         return self._CH_TO_COLOR.get(channel, 'BF')
 
-    def available_channels(self):
+    def available_channels(self) -> tuple:
+        """Return all known LED channel numbers.
+
+        Returns:
+            tuple: Channel numbers (ints) supported by this board.
+        """
         return tuple(self._COLOR_TO_CH.values())
 
-    def available_colors(self):
+    def available_colors(self) -> tuple:
+        """Return all known LED color names.
+
+        Returns:
+            tuple: Color name strings supported by this board.
+        """
         return tuple(self._COLOR_TO_CH.keys())
 
     # ------------------------------------------------------------------
     # LED control
     # ------------------------------------------------------------------
-    def leds_enable(self):
+    def leds_enable(self) -> None:
+        """Enable all LED channels (master enable). Sends ``LEDS_ENT``."""
         self._enabled = True
         self.exchange_command('LEDS_ENT')
 
-    def leds_disable(self):
+    def leds_disable(self) -> None:
+        """Disable all LED channels (master disable) and clear cached state."""
         self._enabled = False
         for color in self.led_ma:
             self.led_ma[color] = -1
@@ -234,65 +302,133 @@ class SimulatedLEDBoard:
             self._channel_states[ch] = 0
         self.exchange_command('LEDS_ENF')
 
-    def get_status(self):
+    def get_status(self) -> str:
+        """Return a synthetic STATUS line describing currently-on channels.
+
+        Note: real LED firmware does not implement STATUS; the simulator
+        provides a useful response for tests that exercise the call.
+
+        Returns:
+            str: ``'RE: STATUS LEDx:ymA ...'`` or ``'RE: STATUS ALL_OFF'``.
+        """
         on_channels = [ch for ch, ma in self._channel_states.items() if ma > 0]
         if on_channels:
             status_str = ' '.join(f'LED{ch}:{self._channel_states[ch]}mA' for ch in on_channels)
             return f'RE: STATUS {status_str}'
         return 'RE: STATUS ALL_OFF'
 
-    def wait_until_on(self):
+    def wait_until_on(self) -> None:
+        """Block until ``get_status()`` reports a STATUS line.
+
+        The simulator returns a STATUS line on the first call, so this
+        is effectively non-blocking; provided for API parity.
+        """
         status = self.get_status()
         while "STATUS" not in status:
             status = self.get_status()
 
-    def get_led_ma(self, color):
+    def get_led_ma(self, color: str) -> int:
+        """Return the cached current setting for a color channel.
+
+        Args:
+            color: LED color name.
+
+        Returns:
+            int: Current in mA, or -1 when the channel is off / unknown.
+        """
         return self.led_ma.get(color, -1)
 
-    def is_led_on(self, color) -> bool:
+    def is_led_on(self, color: str) -> bool:
+        """Return whether a color channel is currently on (cached).
+
+        Args:
+            color: LED color name.
+
+        Returns:
+            bool: True when the cached current is positive.
+        """
         return self.led_ma.get(color, -1) > 0
 
-    def get_led_state(self, color) -> dict:
+    def get_led_state(self, color: str) -> dict:
+        """Return the cached state of a single LED color channel.
+
+        Args:
+            color: LED color name.
+
+        Returns:
+            dict: ``{'enabled': bool, 'illumination': int}``.
+        """
         return {
             'enabled': self.is_led_on(color),
             'illumination': self.get_led_ma(color),
         }
 
     def get_led_states(self) -> dict:
+        """Return cached state for every LED color channel.
+
+        Returns:
+            dict: Snapshot keyed by color name; each value is
+                ``{'enabled': bool, 'illumination': int}``.
+        """
         return {color: self.get_led_state(color) for color in self.led_ma}
 
-    def led_on(self, channel, mA, block=False):
+    def led_on(self, channel: int, mA: int, block: bool = False) -> None:
+        """Turn on the LED on a channel at a given current.
+
+        Args:
+            channel: Channel number (0-5).
+            mA: Drive current in milliamps.
+            block: Accepted for API parity; ignored by the simulator.
+        """
         color = self.ch2color(channel)
         self.led_ma[color] = mA
         self._channel_states[channel] = mA
         self.exchange_command(f'LED{int(channel)}_{int(mA)}')
 
-    def led_off(self, channel):
+    def led_off(self, channel: int) -> None:
+        """Turn off the LED on a channel.
+
+        Args:
+            channel: Channel number (0-5).
+        """
         color = self.ch2color(channel)
         self.led_ma[color] = -1
         self._channel_states[channel] = 0
         self.exchange_command(f'LED{int(channel)}_OFF')
 
-    def led_on_fast(self, channel, mA):
+    def led_on_fast(self, channel: int, mA: int) -> None:
+        """Fast write-only version of led_on for time-critical toggling.
+
+        Args:
+            channel: Channel number (0-5).
+            mA: Drive current in milliamps.
+        """
         color = self.ch2color(channel)
         self.led_ma[color] = mA
         self._channel_states[channel] = mA
         self._write_command_fast(f'LED{int(channel)}_{int(mA)}')
 
-    def led_off_fast(self, channel):
+    def led_off_fast(self, channel: int) -> None:
+        """Fast write-only version of led_off for time-critical toggling.
+
+        Args:
+            channel: Channel number (0-5).
+        """
         color = self.ch2color(channel)
         self.led_ma[color] = -1
         self._channel_states[channel] = 0
         self._write_command_fast(f'LED{int(channel)}_OFF')
 
-    def leds_off(self):
+    def leds_off(self) -> None:
+        """Turn off every LED channel. Clears the cached per-channel state."""
         for color in self.led_ma:
             self.led_ma[color] = -1
         for ch in self._channel_states:
             self._channel_states[ch] = 0
         self.exchange_command('LEDS_OFF')
 
-    def leds_off_fast(self):
+    def leds_off_fast(self) -> None:
+        """Fast write-only version of leds_off."""
         for color in self.led_ma:
             self.led_ma[color] = -1
         for ch in self._channel_states:
@@ -313,13 +449,24 @@ class SimulatedLEDBoard:
         logger.info('[LED Sim   ] enter_engineering_mode()')
         return True
 
-    def exit_engineering_mode(self):
-        """Simulated engineering mode exit."""
+    def exit_engineering_mode(self) -> str:
+        """Simulated engineering mode exit.
+
+        Returns:
+            str: Always ``'Q'`` (mirrors the firmware Q command).
+        """
         logger.info('[LED Sim   ] exit_engineering_mode()')
         return 'Q'
 
-    def selftest(self, timeout=180):
-        """Simulated SELFTEST — returns fake result lines."""
+    def selftest(self, timeout: float = 180) -> list:
+        """Simulated SELFTEST -- returns fake result lines.
+
+        Args:
+            timeout: Accepted for API parity; ignored by the simulator.
+
+        Returns:
+            list: One line per channel plus a final ``'SELFTEST Complete'``.
+        """
         lines = []
         for ch in range(6):
             ma = self._channel_states.get(ch, 0)
@@ -327,19 +474,31 @@ class SimulatedLEDBoard:
         lines.append('SELFTEST Complete')
         return lines
 
-    def get_info(self):
-        """Simulated INFO — returns version dict."""
+    def get_info(self) -> dict:
+        """Simulated INFO -- returns version dict.
+
+        Returns:
+            dict: ``{'raw': str, 'version': str}``.
+        """
         return {
             'raw': f'Simulated LED Board v{self.firmware_version}',
             'version': self.firmware_version,
         }
 
-    def detect_firmware_version(self):
-        """No-op for simulator — version is set at construction."""
+    def detect_firmware_version(self) -> None:
+        """No-op for simulator -- version is set at construction."""
         pass
 
-    def read_led_current(self, channel):
-        """Simulated ADC feedback — returns the set current for the channel, or None if not v2."""
+    def read_led_current(self, channel: int) -> float | None:
+        """Simulated ADC feedback -- returns the set current for the channel.
+
+        Args:
+            channel: Channel number (0-5).
+
+        Returns:
+            float | None: Set current in mA, 0.0 for unknown channels,
+                or None when firmware is too old (not v2+).
+        """
         if not self.is_v2:
             return None
         ch = int(channel)
@@ -350,23 +509,69 @@ class SimulatedLEDBoard:
     # ------------------------------------------------------------------
     # Raw REPL stubs (match SerialBoard API surface)
     # ------------------------------------------------------------------
-    def enter_raw_repl(self):
+    def enter_raw_repl(self) -> bool:
+        """Stub: simulated raw REPL entry always succeeds.
+
+        Returns:
+            bool: Always True.
+        """
         return True
 
-    def exit_raw_repl(self):
+    def exit_raw_repl(self) -> None:
+        """Stub: simulated raw REPL exit is a no-op."""
         pass
 
-    def repl_exec(self, code, timeout=10):
+    def repl_exec(self, code: str, timeout: int = 10) -> tuple[bytes, bytes]:
+        """Stub: pretend to execute code in raw REPL.
+
+        Args:
+            code: Source code to run (accepted but unused).
+            timeout: Execution timeout (accepted but unused).
+
+        Returns:
+            tuple[bytes, bytes]: Empty ``(stdout, stderr)`` tuple.
+        """
         return (b'', b'')
 
-    def repl_list_files(self):
+    def repl_list_files(self) -> list:
+        """Stub: simulator has no on-board filesystem.
+
+        Returns:
+            list: Always empty.
+        """
         return []
 
-    def repl_read_file(self, filename, verify=True):
+    def repl_read_file(self, filename: str, verify: bool = True):
+        """Stub: simulator has no on-board filesystem.
+
+        Args:
+            filename: File name (accepted but unused).
+            verify: SHA256 verify flag (accepted but unused).
+
+        Returns:
+            None: Always.
+        """
         return None
 
-    def repl_write_file(self, filename, data):
+    def repl_write_file(self, filename: str, data) -> bool:
+        """Stub: simulator pretends every write succeeds.
+
+        Args:
+            filename: File name (accepted but unused).
+            data: File contents (accepted but unused).
+
+        Returns:
+            bool: Always True.
+        """
         return True
 
-    def verify_firmware_running(self, timeout=10):
+    def verify_firmware_running(self, timeout: int = 10) -> str:
+        """Stub: simulator firmware always reports running.
+
+        Args:
+            timeout: Maximum wait time in seconds (accepted but unused).
+
+        Returns:
+            str: Always ``'Simulated firmware running'``.
+        """
         return 'Simulated firmware running'

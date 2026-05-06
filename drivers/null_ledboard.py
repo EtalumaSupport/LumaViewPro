@@ -47,59 +47,170 @@ class NullLEDBoard:
 
         logger.debug('[NULL LED  ] NullLEDBoard initialized (no LED hardware)')
 
-    def available_channels(self):
-        # Returns the same 6-channel range as a real RP2040 LED board so
-        # callers using the NullLEDBoard fallback see consistent ranges
-        # and silently no-op rather than raise ValueError on channel 0-5.
+    def available_channels(self) -> tuple:
+        """Return the supported LED channel numbers.
+
+        Returns the same 6-channel range as a real RP2040 LED board so
+        callers using the NullLEDBoard fallback see consistent ranges
+        and silently no-op rather than raise ValueError on channel 0-5.
+
+        Returns:
+            tuple: Channel numbers (ints) supported by this board.
+        """
         return tuple(self._COLOR_TO_CH.values())
 
-    def available_colors(self):
+    def available_colors(self) -> tuple:
+        """Return the supported LED color names.
+
+        Returns:
+            tuple: Color name strings supported by this board.
+        """
         return tuple(self._COLOR_TO_CH.keys())
 
     # ------------------------------------------------------------------
     # Core LED methods (no-ops)
     # ------------------------------------------------------------------
-    def led_on(self, channel, mA, block=False, timeout=5.0): pass
-    def led_off(self, channel): pass
-    def led_on_fast(self, channel, mA): pass
-    def led_off_fast(self, channel): pass
-    def leds_off(self): pass
-    def leds_off_fast(self): pass
-    def leds_enable(self): pass
-    def leds_disable(self): pass
+    def led_on(self, channel, mA, block=False, timeout=5.0) -> None:
+        """Null implementation: no-op."""
+        pass
+
+    def led_off(self, channel) -> None:
+        """Null implementation: no-op."""
+        pass
+
+    def led_on_fast(self, channel, mA) -> None:
+        """Null implementation: no-op."""
+        pass
+
+    def led_off_fast(self, channel) -> None:
+        """Null implementation: no-op."""
+        pass
+
+    def leds_off(self) -> None:
+        """Null implementation: no-op."""
+        pass
+
+    def leds_off_fast(self) -> None:
+        """Null implementation: no-op."""
+        pass
+
+    def leds_enable(self) -> None:
+        """Null implementation: no-op."""
+        pass
+
+    def leds_disable(self) -> None:
+        """Null implementation: no-op."""
+        pass
 
     # ------------------------------------------------------------------
     # State queries (return safe defaults)
     # ------------------------------------------------------------------
-    def get_led_ma(self, color): return -1
-    def is_led_on(self, color): return False
-    def get_led_state(self, color): return {'enabled': False, 'illumination': -1}
-    def get_led_states(self):
+    def get_led_ma(self, color) -> int:
+        """Null implementation: returns sentinel value.
+
+        Returns:
+            int: Always -1 (channel off / unknown).
+        """
+        return -1
+
+    def is_led_on(self, color) -> bool:
+        """Null implementation: returns sentinel value.
+
+        Returns:
+            bool: Always False.
+        """
+        return False
+
+    def get_led_state(self, color) -> dict:
+        """Null implementation: returns sentinel value.
+
+        Returns:
+            dict: ``{'enabled': False, 'illumination': -1}``.
+        """
+        return {'enabled': False, 'illumination': -1}
+
+    def get_led_states(self) -> dict:
+        """Null implementation: returns sentinel value.
+
+        Returns:
+            dict: Per-color snapshot with every channel off.
+        """
         return {c: {'enabled': False, 'illumination': -1} for c in self.led_ma}
-    def get_status(self): return None
-    def wait_until_on(self, timeout=5.0): pass
+
+    def get_status(self):
+        """Null implementation: returns sentinel value.
+
+        Returns:
+            None: Always.
+        """
+        return None
+
+    def wait_until_on(self, timeout=5.0) -> None:
+        """Null implementation: no-op."""
+        pass
 
     # ------------------------------------------------------------------
     # Channel mapping
     # ------------------------------------------------------------------
-    def color2ch(self, color):
+    def color2ch(self, color) -> int:
+        """Convert color name to numerical channel.
+
+        Args:
+            color: Color name (e.g. 'BF', 'Red', 'Blue').
+
+        Returns:
+            int: Channel number (0-5). Defaults to 3 (BF) for unknown names.
+        """
         return self._COLOR_TO_CH.get(color, 3)
 
-    def ch2color(self, channel):
+    def ch2color(self, channel) -> str:
+        """Convert numerical channel to color name.
+
+        Args:
+            channel: Channel number (0-5).
+
+        Returns:
+            str: Color name. Defaults to 'BF' for unknown channels.
+        """
         return self._CH_TO_COLOR.get(channel, 'BF')
 
     # ------------------------------------------------------------------
     # ADC / calibration (no-ops)
     # ------------------------------------------------------------------
-    def read_led_current(self, channel): return None
+    def read_led_current(self, channel):
+        """Null implementation: returns sentinel value.
+
+        Returns:
+            None: Always.
+        """
+        return None
 
     # ------------------------------------------------------------------
     # Connection (no-ops)
     # ------------------------------------------------------------------
-    def connect(self): pass
-    def disconnect(self): pass
-    def is_connected(self): return False
-    def exchange_command(self, command, **kwargs): return None
+    def connect(self) -> None:
+        """Null implementation: no-op."""
+        pass
+
+    def disconnect(self) -> None:
+        """Null implementation: no-op."""
+        pass
+
+    def is_connected(self) -> bool:
+        """Null implementation: never connected.
+
+        Returns:
+            bool: Always False.
+        """
+        return False
+
+    def exchange_command(self, command, **kwargs):
+        """Null implementation: returns sentinel value.
+
+        Returns:
+            None: Always.
+        """
+        return None
 
     # ------------------------------------------------------------------
     # Write-only (no-ops)

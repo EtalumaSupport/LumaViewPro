@@ -389,7 +389,8 @@ class StreamStats:
         self._lock = threading.Lock()
         self.reset()
 
-    def reset(self):
+    def reset(self) -> None:
+        """Clear every counter and the deque histories. Thread-safe."""
         with self._lock:
             self._frame_times: deque = deque(maxlen=120)
             self._partial_count = 0
@@ -403,22 +404,27 @@ class StreamStats:
             self._start_time = time.monotonic()
             self._delimiters_seen = 0
 
-    def record_good_frame(self):
+    def record_good_frame(self) -> None:
+        """Record a successfully-parsed full frame. Thread-safe."""
         with self._lock:
             now = time.monotonic()
             self._frame_times.append(now)
             self._good_count += 1
             self._delimiters_seen += 1
 
-    def record_partial_frame(self, size: int):
+    def record_partial_frame(self, size: int) -> None:
         """Frame between two delimiters was undersized (bytes dropped before
-        next delimiter). Discarded by the grab loop."""
+        next delimiter). Discarded by the grab loop.
+
+        Args:
+            size: Observed inter-delimiter buffer size in bytes.
+        """
         with self._lock:
             self._partial_count += 1
             self._partial_sizes.append(size)
             self._delimiters_seen += 1
 
-    def record_shifted_frame(self, size: int):
+    def record_shifted_frame(self, size: int) -> None:
         """Frame between two delimiters was the wrong size — either oversized
         (likely a missed delimiter caused two frames to be concatenated, or a
         false-positive delimiter elsewhere in pixel data inflated the buffer)
@@ -427,26 +433,41 @@ class StreamStats:
         partial frame is lost bytes BEFORE the next delimiter; a shifted frame
         is wrong-but-still-bigger-than-minimum, indicating the parser found
         bytes from outside the intended frame. Both are discarded.
-        See docs/AUDIT_FX2_RUNTIME.md Fix 1 (2026-04-15)."""
+        See docs/AUDIT_FX2_RUNTIME.md Fix 1 (2026-04-15).
+
+        Args:
+            size: Observed inter-delimiter buffer size in bytes.
+        """
         with self._lock:
             self._shifted_count += 1
             self._shifted_sizes.append(size)
             self._delimiters_seen += 1
 
-    def record_bytes(self, n: int):
+    def record_bytes(self, n: int) -> None:
+        """Add ``n`` to the total-bytes counter. Thread-safe.
+
+        Args:
+            n: Number of bytes received.
+        """
         with self._lock:
             self._total_bytes += n
 
-    def record_usb_error(self):
+    def record_usb_error(self) -> None:
+        """Increment the USB error counter. Thread-safe."""
         with self._lock:
             self._usb_errors += 1
 
-    def record_usb_timeout(self):
+    def record_usb_timeout(self) -> None:
+        """Increment the USB timeout counter. Thread-safe."""
         with self._lock:
             self._usb_timeouts += 1
 
     def get_fps(self) -> tuple[float, float]:
-        """Returns (current_fps, avg_fps). Current = last 2 seconds."""
+        """Return ``(current_fps, avg_fps)``. Current = last 2 seconds.
+
+        Returns:
+            tuple[float, float]: ``(current_fps, average_fps)``.
+        """
         with self._lock:
             now = time.monotonic()
             elapsed = now - self._start_time
@@ -457,6 +478,14 @@ class StreamStats:
             return cur_fps, avg_fps
 
     def summary(self) -> dict:
+        """Return a snapshot dict of every counter + derived rates.
+
+        Returns:
+            dict: Keys include ``elapsed_s``, ``good_frames``,
+                ``partial_frames``, ``shifted_frames``, ``total_MB``,
+                ``throughput_MBps``, ``fps_current``, ``fps_average``,
+                ``usb_errors``, ``usb_timeouts``.
+        """
         with self._lock:
             now = time.monotonic()
             elapsed = now - self._start_time
@@ -512,8 +541,16 @@ class _FX2Connection:
         """Return the singleton, constructing it on first call.
 
         Raises on construction failure (no FX2 hardware, no pyusb, firmware
-        upload timeout, etc.) — the registry catches the exception and
+        upload timeout, etc.) -- the registry catches the exception and
         falls through to the next candidate driver.
+
+        Returns:
+            _FX2Connection: The shared singleton instance.
+
+        Raises:
+            ImportError: pyusb (or libusb1 on macOS/Linux) is not installed.
+            RuntimeError: No Lumascope FX2 device was found, or firmware
+                upload did not re-enumerate within the timeout window.
         """
         if cls._instance is not None:
             return cls._instance
@@ -729,14 +766,24 @@ class _FX2Connection:
         index: int = 0,
         data: bytes = b'',
         timeout: int = 5000,
-    ):
+    ) -> int:
         """Thread-safe vendor OUT control transfer.
 
-        While streaming, the pyusb handle is closed — only one handle
+        While streaming, the pyusb handle is closed -- only one handle
         on the device at a time. Routes through whichever streaming
         handle is currently live (libusb1 on macOS/Linux, WinUSB reader
         on Windows), or the pyusb handle otherwise. Callers don't need
         to care which path is active.
+
+        Args:
+            request: USB vendor request code.
+            value: 16-bit ``wValue`` field.
+            index: 16-bit ``wIndex`` field.
+            data: Payload bytes.
+            timeout: Timeout in milliseconds.
+
+        Returns:
+            int: Bytes written, as reported by the underlying USB layer.
         """
         t_start = time.monotonic()
         try:
@@ -780,8 +827,20 @@ class _FX2Connection:
         index: int = 0,
         length: int = 0,
         timeout: int = 5000,
-    ):
-        """Thread-safe vendor IN control transfer (same routing as OUT)."""
+    ) -> bytes:
+        """Thread-safe vendor IN control transfer (same routing as OUT).
+
+        Args:
+            request: USB vendor request code.
+            value: 16-bit ``wValue`` field.
+            index: 16-bit ``wIndex`` field.
+            length: Number of bytes to read.
+            timeout: Timeout in milliseconds.
+
+        Returns:
+            bytes: Bytes returned by the device (length-prefixed by the
+                USB layer).
+        """
         t_start = time.monotonic()
         try:
             with self._lock:
@@ -820,7 +879,7 @@ class _FX2Connection:
             )
         return result
 
-    def i2c_write(self, addr: int, data):
+    def i2c_write(self, addr: int, data) -> int:
         """Write bytes to the I2C bus via vendor request 0xB3.
 
         Returns the result of the underlying control transfer (number of
@@ -828,6 +887,13 @@ class _FX2Connection:
         short writes (e.g., LED command diagnostics) can compare to
         `len(data)`. Pre-2026-04-15 this method discarded the result,
         which masked silent short-write failures in `_led_write`.
+
+        Args:
+            addr: I2C device address (used as ``wIndex``).
+            data: Bytes to write.
+
+        Returns:
+            int: Number of bytes written, as reported by the USB layer.
         """
         t_start = time.monotonic()
         try:
@@ -848,8 +914,16 @@ class _FX2Connection:
         )
         return result
 
-    def i2c_read(self, addr: int, length: int):
-        """Read bytes from the I2C bus via vendor request 0xB2."""
+    def i2c_read(self, addr: int, length: int) -> bytes:
+        """Read bytes from the I2C bus via vendor request 0xB2.
+
+        Args:
+            addr: I2C device address (used as ``wIndex``).
+            length: Number of bytes to read.
+
+        Returns:
+            bytes: Bytes returned by the device.
+        """
         t_start = time.monotonic()
         try:
             result = self.control_transfer_in(VR_I2C_READ, value=0, index=addr, length=length)
@@ -870,7 +944,7 @@ class _FX2Connection:
         )
         return result
 
-    def sensor_reg_write(self, reg: int, value: int):
+    def sensor_reg_write(self, reg: int, value: int) -> None:
         """Write 16-bit value to an MT9P031 register via VR_I2C_WRITE (0xB3).
 
         Wire format matches LVC exactly (`AptinaMT9P031_Control.cs::Write`):
@@ -890,6 +964,10 @@ class _FX2Connection:
         the constant but never calls it from any production code path; the
         real production path is plain VR_I2C_WRITE (0xB3). Fixed
         2026-04-15. See docs/AUDIT_FX2_RUNTIME.md Bug 6.
+
+        Args:
+            reg: MT9P031 register address (one byte).
+            value: 16-bit value to write.
         """
         high = (value >> 8) & 0xFF
         low = value & 0xFF
@@ -904,6 +982,12 @@ class _FX2Connection:
         The FX2 firmware processes this asynchronously: it sets a flag in the
         vendor request handler, the main loop does the I2C read, then sends
         the data back on EP0 IN. A generous 5s timeout covers the async gap.
+
+        Args:
+            reg: MT9P031 register address (used as ``wValue``).
+
+        Returns:
+            int: 16-bit register contents (high byte first).
         """
         result = self.control_transfer_in(
             VR_I2C_MT9P031_READ,
@@ -914,7 +998,7 @@ class _FX2Connection:
         )
         return (result[0] << 8) | result[1]
 
-    def init_gpif(self):
+    def init_gpif(self) -> None:
         """Initialize GPIF. Required after pixel clock changes via VR_INIT_GPIF.
 
         WARNING: do NOT call this from ``FX2Camera._init_sensor`` after the
@@ -925,23 +1009,31 @@ class _FX2Connection:
         """
         self.control_transfer_out(VR_INIT_GPIF)
 
-    def start_streaming(self):
+    def start_streaming(self) -> None:
         """Send vendor request to start image data output."""
         self.control_transfer_out(VR_START_STREAMING)
 
-    def stop_streaming(self):
+    def stop_streaming(self) -> None:
         """Send vendor request to stop image data output."""
         self.control_transfer_out(VR_STOP_STREAMING)
 
     def get_firmware_version(self) -> int:
-        """Read 2-byte firmware version register."""
+        """Read 2-byte firmware version register.
+
+        Returns:
+            int: Firmware version (high byte first, then low byte).
+        """
         result = self.control_transfer_in(VR_CODE_VERSION, length=2)
         return (result[0] << 8) | result[1]
 
     # -- bulk / alt-interface / low-level ----------------------------------
 
-    def set_alt_interface(self, alt: int):
-        """Switch USB alternate interface setting (0=bulk, 3=iso)."""
+    def set_alt_interface(self, alt: int) -> None:
+        """Switch USB alternate interface setting (0=bulk, 3=iso).
+
+        Args:
+            alt: Alternate setting index.
+        """
         with self._lock:
             self._dev.set_interface_altsetting(interface=0, alternate_setting=alt)
             # Clear any halt/stall on EP 0x82 after switching alt interface
@@ -951,16 +1043,28 @@ class _FX2Connection:
                 pass
             logger.info('[FX2 Conn  ] alt interface set to %d', alt)
 
-    def clear_halt(self, endpoint: int = 0x82):
-        """Clear halt/stall condition on an endpoint."""
+    def clear_halt(self, endpoint: int = 0x82) -> None:
+        """Clear halt/stall condition on an endpoint.
+
+        Args:
+            endpoint: USB endpoint address (default 0x82, the bulk IN).
+        """
         with self._lock:
             try:
                 self._dev.clear_halt(endpoint)
             except usb.core.USBError as e:
                 logger.debug('[FX2 Conn  ] clear_halt(0x%02X): %s', endpoint, e)
 
-    def bulk_read(self, size: int, timeout: int = 1000):
-        """Read from bulk endpoint 0x82. NOT locked — caller manages timing."""
+    def bulk_read(self, size: int, timeout: int = 1000) -> bytes:
+        """Read from bulk endpoint 0x82. NOT locked -- caller manages timing.
+
+        Args:
+            size: Number of bytes to read.
+            timeout: Timeout in milliseconds.
+
+        Returns:
+            bytes: Data read from EP 0x82.
+        """
         return self._dev.read(0x82, size, timeout=timeout)
 
     # -- teardown ----------------------------------------------------------
@@ -981,7 +1085,7 @@ class _FX2Connection:
         self._iso_handle_for_ctrl = None
         self._winusb_reader_for_ctrl = None
 
-    def disconnect(self):
+    def disconnect(self) -> None:
         """Public cleanup hook. Same as ``_teardown`` but named for callers."""
         self._teardown()
 
