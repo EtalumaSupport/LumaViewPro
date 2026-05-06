@@ -2486,6 +2486,24 @@ def _function_body_calls(source: str, func_name: str) -> set[str]:
     return calls
 
 
+def _function_source(source: str, func_name: str) -> str:
+    """Return the raw source text of a named top-level or method function.
+
+    For substring assertions on chained-attribute calls that AST-walk would
+    miss (e.g. `self.frame_validity.invalidate(...)` -- the chained receiver
+    isn't a top-level `self.<method>` shape).
+    """
+    import ast
+    tree = ast.parse(source)
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef) and node.name == func_name:
+            text = ast.get_source_segment(source, node)
+            if text is None:
+                raise AssertionError(f"could not extract source for {func_name!r}")
+            return text
+    raise AssertionError(f"function {func_name!r} not found in source")
+
+
 class TestFrameValidityG1_SaveLiveImageDrainsBeforeGrab:
     """G1 (FRAME_VALIDITY_PLAN.md §2): Lumascope.save_live_image must
     drain stale frames before grabbing. Bare self.get_image(...) ships a
@@ -2582,4 +2600,40 @@ class TestFrameValidityG3_AutofocusDrainsBeforeScore:
         assert "exclude_sources=('z_move',)" in src, (
             "G3: AutofocusExecutor._iterate's capture_and_wait calls must pass "
             "exclude_sources=('z_move',) since is_moving() already gates motion."
+        )
+
+
+class TestFrameValidity_AllLedMutatorsInvalidate:
+    """Defensive coverage: every LED state-mutator on Lumascope must call
+    frame_validity.invalidate('led'). Verified all 6 present in session 67
+    (the G6 'gap' was a false-positive audit excerpt). This test locks the
+    invariant -- if a future cleanup removes any invalidate call, the
+    regression fires here. Mirrors the cluster pattern from
+    `feedback_default_to_expanding_scope.md`."""
+
+    LED_MUTATORS = (
+        "led_on",
+        "led_off",
+        "led_on_fast",
+        "led_off_fast",
+        "leds_off_fast",
+        "leds_off",
+    )
+
+    def test_each_led_mutator_invalidates_validity(self):
+        from pathlib import Path
+        src = (Path(__file__).resolve().parent.parent / "modules" / "lumascope_api.py").read_text()
+        missing = []
+        for func in self.LED_MUTATORS:
+            calls = _function_body_calls(src, func)
+            # invalidate() is called as self.frame_validity.invalidate(...) which
+            # resolves to attribute "invalidate" on self.frame_validity. Use
+            # a chained attribute walk via raw source check too as belt+suspenders.
+            method_src = _function_source(src, func)
+            if "self.frame_validity.invalidate(" not in method_src:
+                missing.append(func)
+        assert not missing, (
+            "LED mutator coverage: each Lumascope LED state-mutator must call "
+            "self.frame_validity.invalidate('led') so frame_validity sees the "
+            f"transition. Missing: {missing!r}. See FRAME_VALIDITY_PLAN.md §2."
         )
