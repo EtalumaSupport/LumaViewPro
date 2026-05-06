@@ -19,6 +19,7 @@ import pathlib
 import threading
 import time
 from lvp_logger import logger
+from drivers.exceptions import HardwareError
 from drivers.motorconfig import MotorConfig
 from drivers.registry import motor_registry
 
@@ -539,18 +540,30 @@ class SimulatedMotorBoard:
     # ------------------------------------------------------------------
     # Homing
     # ------------------------------------------------------------------
-    def zhome(self):
+    def zhome(self) -> bool:
+        """Simulated Z homing. Mirrors `MotorBoard.zhome` contract.
+
+        Raises:
+            HardwareError: Simulated no-response or firmware-error path.
+        """
         resp = self.exchange_command('ZHOME')
         logger.info(f'[XYZ Sim   ] SimulatedMotorBoard.zhome() -> {resp}')
         if resp is None:
-            return False
-        return 'successful' in resp.lower() or 'complete' in resp.lower()
+            raise HardwareError('zhome(): no response from motor board (timeout or disconnect)')
+        if 'successful' in resp.lower() or 'complete' in resp.lower():
+            return True
+        raise HardwareError(f'zhome(): firmware error: {resp}')
 
-    def home(self):
+    def home(self) -> bool:
+        """Simulated full home. Mirrors `MotorBoard.home` contract.
+
+        Raises:
+            HardwareError: Simulated no-response or firmware-error path.
+        """
         resp = self.exchange_command('HOME')
         logger.info(f'[XYZ Sim   ] SimulatedMotorBoard.home() -> {resp}')
         if resp is None:
-            return False
+            raise HardwareError('home(): no response from motor board (timeout or disconnect)')
         if 'XYZ home complete' in resp:
             self.initial_homing_complete = True
             return True
@@ -558,7 +571,7 @@ class SimulatedMotorBoard:
         if ('not present' in resp) and ('X' in resp or 'Y' in resp):
             self.initial_homing_complete = True
             return True
-        return False
+        raise HardwareError(f'home(): firmware error: {resp}')
 
     def has_homed(self):
         return self.initial_homing_complete
@@ -566,17 +579,22 @@ class SimulatedMotorBoard:
     def xycenter(self):
         self.exchange_command('CENTER')
 
-    def thome(self):
+    def thome(self) -> bool:
+        """Simulated turret home. Mirrors `MotorBoard.thome` contract.
+
+        Raises:
+            HardwareError: Simulated no-response or firmware-error path.
+        """
         resp = self.exchange_command('THOME')
         logger.info(f'[XYZ Sim   ] SimulatedMotorBoard.thome() -> {resp}')
         if resp is None:
-            return False
+            raise HardwareError('thome(): no response from motor board (timeout or disconnect)')
         if 'T home successful' in resp:
             self.initial_t_homing_complete = True
             return True
         if 'not present' in resp.lower():
             return True
-        return False
+        raise HardwareError(f'thome(): firmware error: {resp}')
 
     def has_turret(self) -> bool:
         return self._has_turret

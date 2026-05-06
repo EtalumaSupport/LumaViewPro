@@ -3232,8 +3232,15 @@ class Lumascope():
         return self.motion.get_axis_limits(axis=axis)
 
 
-    def zhome(self):
-        """Home the Z axis (focus)."""
+    def zhome(self) -> bool:
+        """Home the Z axis (focus).
+
+        Returns:
+            bool: True on successful Z homing. False if the driver
+                returned False or raised (e.g. HardwareError on
+                no-response / firmware-error). The user is notified on
+                failure; programmatic callers can branch on the bool.
+        """
         #if not self.motion: return
         _api_log.info('zhome START')
         self._set_axis_state('Z', AxisState.HOMING)
@@ -3246,17 +3253,20 @@ class Lumascope():
                 notifications.error("Motion", "Homing Failed",
                     "Z axis homing failed. Position is unknown.")
                 self._set_axis_state('Z', AxisState.UNKNOWN)
-                return
+                return False
             self._set_axis_state('Z', AxisState.IDLE)
             self.refresh_position_cache()
+            _api_log.info('zhome DONE')
+            return True
         except Exception:
             logger.exception('[SCOPE API ] Z homing exception')
             self._set_axis_state('Z', AxisState.UNKNOWN)
             notifications.error("Motion", "Homing Error",
                 "Z axis homing encountered an error. Position is unknown.")
-        _api_log.info('zhome DONE')
+            _api_log.info('zhome DONE')
+            return False
 
-    def home(self):
+    def home(self) -> bool:
         """Home every axis the motor board has.
 
         This is the unified "home everything" entry point used by
@@ -3264,8 +3274,14 @@ class Lumascope():
         homes Z, then T, then X/Y -- on a Z-only board (LS820) it homes
         Z and reports the missing X/Y; on a full XYZ scope it homes
         all three. The driver returns True for both cases (full and
-        partial), False only on real failure, so this method just
-        trusts the driver's verdict.
+        partial), raises HardwareError on real failure.
+
+        Returns:
+            bool: True on full or partial success. False if the motor
+                is not connected, the driver returned False, or the
+                driver raised (HardwareError or other). The user is
+                notified on failure; programmatic callers can branch on
+                the bool.
         """
         # Short-circuit on disconnected motor — without this, home()
         # dispatches into the driver where exchange_command tries to
@@ -3283,7 +3299,7 @@ class Lumascope():
                 "Check the USB cable and that no other program "
                 "(Thonny, mpremote, etc.) is holding the port.",
             )
-            return
+            return False
         present_axes = self.axes_present()
         _api_log.info('home START')
         for ax in present_axes:
@@ -3304,19 +3320,21 @@ class Lumascope():
                     "Homing failed. Position is unknown.")
                 for ax in present_axes:
                     self._set_axis_state(ax, AxisState.UNKNOWN)
-                return
+                return False
             for ax in present_axes:
                 self._set_axis_state(ax, AxisState.IDLE)
             self.refresh_position_cache()
+            return True
         except Exception:
             logger.exception('[SCOPE API ] Homing exception')
             for ax in present_axes:
                 self._set_axis_state(ax, AxisState.UNKNOWN)
             notifications.error("Motion", "Homing Error",
                 "Homing encountered an error. Position is unknown.")
+            return False
         finally:
             self.is_homing = False
-        _api_log.info('home DONE')
+            _api_log.info('home DONE')
 
     def has_homed(self):
         """Check if the scope has been homed since startup.
@@ -3345,16 +3363,29 @@ class Lumascope():
         initial_z = self.get_current_position(axis='Z')
         self.move_absolute_position('Z', pos=0, wait_until_complete=True)
         self.is_turreting = True
-        yield
-        self.is_turreting = False
-        # Restore Z position
-        logger.info(f'[SCOPE API ] Restoring Z to {initial_z}', extra={'force_error': True})
-        self.move_absolute_position('Z', pos=initial_z, wait_until_complete=True)
+        try:
+            yield
+        finally:
+            # Always clear the flag and restore Z, even if the body raised
+            # (e.g. driver HardwareError from thome). Without this, a failed
+            # turret home would leave is_turreting=True and the stage stuck
+            # at Z=0.
+            self.is_turreting = False
+            logger.info(f'[SCOPE API ] Restoring Z to {initial_z}', extra={'force_error': True})
+            self.move_absolute_position('Z', pos=initial_z, wait_until_complete=True)
 
 
-    def thome(self):
-        """Home the turret axis. Moves Z to 0 during turret motion for safety."""
+    def thome(self) -> bool:
+        """Home the turret axis. Moves Z to 0 during turret motion for safety.
 
+        Returns:
+            bool: True on successful turret homing (or when the board
+                reports the turret is not present). False if the motor
+                is not connected, the driver returned False, or the
+                driver raised (HardwareError or other). The user is
+                notified on failure; programmatic callers can branch on
+                the bool.
+        """
         # Short-circuit on disconnected motor — same rationale as
         # home() above. Without this, thome dispatches into the driver
         # where exchange_command burns its 15s timeout doing failed
@@ -3368,20 +3399,35 @@ class Lumascope():
                 "Check the USB cable and that no other program is "
                 "holding the port.",
             )
-            return
+            return False
 
         # Move turret — set HOMING after Z is safe, not before.
         # Setting T to HOMING clears its arrival event, which would block
         # wait_until_finished_moving() inside safe_turret_mover's Z move.
         _api_log.info('thome START')
-        with self.reference_position_logger():
-            with self.safe_turret_mover():
-                self._set_axis_state('T', AxisState.HOMING)
-                self.frame_validity.invalidate('turret')
-                self.motion.thome()
-        self._set_axis_state('T', AxisState.IDLE)
-        self.refresh_position_cache()
-        _api_log.info('thome DONE')
+        try:
+            with self.reference_position_logger():
+                with self.safe_turret_mover():
+                    self._set_axis_state('T', AxisState.HOMING)
+                    self.frame_validity.invalidate('turret')
+                    result = self.motion.thome()
+            if result is False:
+                logger.error('[SCOPE API ] Turret homing failed')
+                notifications.error("Motion", "Homing Failed",
+                    "Turret homing failed. Position is unknown.")
+                self._set_axis_state('T', AxisState.UNKNOWN)
+                return False
+            self._set_axis_state('T', AxisState.IDLE)
+            self.refresh_position_cache()
+            _api_log.info('thome DONE')
+            return True
+        except Exception:
+            logger.exception('[SCOPE API ] Turret homing exception')
+            self._set_axis_state('T', AxisState.UNKNOWN)
+            notifications.error("Motion", "Homing Error",
+                "Turret homing encountered an error. Position is unknown.")
+            _api_log.info('thome DONE')
+            return False
 
     def has_thomed(self):
         """Check if the turret has been homed since startup.

@@ -331,11 +331,12 @@ class TestMotorBoardHomePartialResponse:
         assert board.home() is True
         assert board.initial_homing_complete is True
 
-    def test_real_failure_returns_false(self):
+    def test_real_failure_raises_hardware_error(self):
         """Non-partial errors (timeout, hardware fault, Z homing aborted)
-        must return False — these are the cases that should raise the
-        Homing Failed popup at the API layer."""
+        must raise HardwareError -- the API layer catches and raises the
+        Homing Failed popup. (Wave 2 / D1: Rule 29 typed-exception migration.)"""
         from drivers.motorboard import MotorBoard
+        from drivers.exceptions import HardwareError
 
         board = MotorBoard.__new__(MotorBoard)
         import threading
@@ -343,12 +344,15 @@ class TestMotorBoardHomePartialResponse:
         board.initial_homing_complete = False
         board.exchange_command = MagicMock(return_value="ERROR: timeout")
 
-        assert board.home() is False
+        with pytest.raises(HardwareError, match="firmware error"):
+            board.home()
         assert board.initial_homing_complete is False
 
-    def test_no_response_returns_false(self):
-        """No response (None) means disconnect/timeout — real failure."""
+    def test_no_response_raises_hardware_error(self):
+        """No response (None) means disconnect/timeout -- raises HardwareError.
+        (Wave 2 / D1: Rule 29 typed-exception migration.)"""
         from drivers.motorboard import MotorBoard
+        from drivers.exceptions import HardwareError
 
         board = MotorBoard.__new__(MotorBoard)
         import threading
@@ -356,7 +360,8 @@ class TestMotorBoardHomePartialResponse:
         board.initial_homing_complete = False
         board.exchange_command = MagicMock(return_value=None)
 
-        assert board.home() is False
+        with pytest.raises(HardwareError, match="no response"):
+            board.home()
         assert board.initial_homing_complete is False
 
 

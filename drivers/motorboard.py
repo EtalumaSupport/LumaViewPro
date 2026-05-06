@@ -479,17 +479,24 @@ class MotorBoard(SerialBoard):
         ustep = int((usteps_per_mm * um) / 1000)
         return ustep
 
-    def zhome(self):
-        """Home the objective. Returns True on success, False on failure."""
+    def zhome(self) -> bool:
+        """Home the objective.
+
+        Returns:
+            bool: True on successful Z homing.
+
+        Raises:
+            HardwareError: No response from the motor board (timeout or
+                disconnect), or firmware reported a homing failure.
+        """
         resp = self.exchange_command('ZHOME', timeout=15)
         logger.info(f'[XYZ Class ] MotorBoard.zhome() -> {resp}')
         if resp is None:
-            logger.error('[XYZ Class ] zhome(): no response (timeout or disconnect)')
-            return False
+            raise HardwareError('zhome(): no response from motor board (timeout or disconnect)')
         success = 'successful' in resp.lower() or 'complete' in resp.lower()
         if not success:
-            logger.error(f'[XYZ Class ] zhome() failed: {resp}')
-        return success
+            raise HardwareError(f'zhome(): firmware error: {resp}')
+        return True
 
     #----------------------------------------------------------
     # XY Stage Functions
@@ -506,7 +513,7 @@ class MotorBoard(SerialBoard):
         ustep = int((usteps_per_mm * um) / 1000)
         return ustep
 
-    def home(self):
+    def home(self) -> bool:
         """Send HOME to firmware and home every axis the board has.
 
         The firmware's xyzhome routine homes Z, then T, then attempts X/Y.
@@ -515,15 +522,19 @@ class MotorBoard(SerialBoard):
         and the firmware then returns 'ERROR: X not present' -- the home
         DID succeed for the axes the board has, so this counts as
         success. Real failures (no response, hardware error, or partial
-        home aborted by Z/T error) return False.
+        home aborted by Z/T error) raise HardwareError.
 
-        Returns True on full or partial success, False on real failure.
+        Returns:
+            bool: True on full or partial success.
+
+        Raises:
+            HardwareError: No response from the motor board (timeout or
+                disconnect), or firmware reported a homing failure.
         """
         resp = self.exchange_command('HOME', timeout=30)
         logger.info(f'[XYZ Class ] MotorBoard.home() -> {resp}', extra={'force_error': True})
         if resp is None:
-            logger.error('[XYZ Class ] home(): no response (timeout or disconnect)')
-            return False
+            raise HardwareError('home(): no response from motor board (timeout or disconnect)')
         if 'XYZ home complete' in resp:
             with self._state_lock:
                 self.initial_homing_complete = True
@@ -536,8 +547,7 @@ class MotorBoard(SerialBoard):
             with self._state_lock:
                 self.initial_homing_complete = True
             return True
-        logger.error(f'[XYZ Class ] home() failed: {resp}')
-        return False
+        raise HardwareError(f'home(): firmware error: {resp}')
 
     def has_homed(self):
         with self._state_lock:
@@ -576,13 +586,21 @@ class MotorBoard(SerialBoard):
             return self.t_deg2ustep(degrees=90*(position-1))
         return usteps
 
-    def thome(self):
-        """Home the turret. Returns True on success."""
+    def thome(self) -> bool:
+        """Home the turret.
+
+        Returns:
+            bool: True on successful turret homing, or when the board
+                reports the turret is not present (Z-only boards).
+
+        Raises:
+            HardwareError: No response from the motor board (timeout or
+                disconnect), or firmware reported a homing failure.
+        """
         resp = self.exchange_command('THOME', timeout=15)
         logger.info(f'[XYZ Class ] MotorBoard.thome() -> {resp}', extra={'force_error': True})
         if resp is None:
-            logger.error('[XYZ Class ] thome(): no response (timeout or disconnect)')
-            return False
+            raise HardwareError('thome(): no response from motor board (timeout or disconnect)')
         if 'T home successful' in resp:
             with self._state_lock:
                 self.initial_t_homing_complete = True
@@ -590,8 +608,7 @@ class MotorBoard(SerialBoard):
         # "T not present" is not a failure — board just doesn't have a turret
         if 'not present' in resp.lower():
             return True
-        logger.error(f'[XYZ Class ] thome() failed: {resp}')
-        return False
+        raise HardwareError(f'thome(): firmware error: {resp}')
 
     def has_turret(self) -> bool:
         with self._state_lock:

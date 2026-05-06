@@ -1322,6 +1322,151 @@ class TestSetBinningSizeReturnsBool:
             "IDSCamera.set_pixel_format must raise HardwareError on caught exception (C3)"
 
 
+class TestHomeReturnsBool:
+    """Wave 2 / B8 + B9 + B10 + D1: Lumascope.{home, zhome, thome} must
+    propagate the driver's bool, and MotorBoard / SimulatedMotorBoard
+    must raise HardwareError instead of returning False on no-response /
+    firmware-error paths (Rule 29).
+
+    Pairs with the existing `--run-homing` opt-in test set; this class
+    pins the mechanical contract (annotations + return propagation +
+    typed exceptions) so a future regression can't silently revert it.
+    """
+
+    def test_lumascope_zhome_has_bool_return_annotation(self):
+        import pathlib
+        source = pathlib.Path("modules/lumascope_api.py").read_text()
+        assert "def zhome(self) -> bool:" in source, \
+            "Lumascope.zhome must declare `-> bool` (Wave 2 B9; Rule 37)"
+
+    def test_lumascope_home_has_bool_return_annotation(self):
+        import pathlib
+        source = pathlib.Path("modules/lumascope_api.py").read_text()
+        assert "def home(self) -> bool:" in source, \
+            "Lumascope.home must declare `-> bool` (Wave 2 B10; Rule 37)"
+
+    def test_lumascope_thome_has_bool_return_annotation(self):
+        import pathlib
+        source = pathlib.Path("modules/lumascope_api.py").read_text()
+        assert "def thome(self) -> bool:" in source, \
+            "Lumascope.thome must declare `-> bool` (Wave 2 B8; Rule 37)"
+
+    def test_lumascope_zhome_returns_driver_value(self):
+        """Method body must return True on success and False on failure paths."""
+        import pathlib
+        source = pathlib.Path("modules/lumascope_api.py").read_text()
+        idx = source.find("def zhome(self) -> bool:")
+        assert idx != -1
+        next_def = source.find("\n    def ", idx + 1)
+        body = source[idx:next_def] if next_def != -1 else source[idx:idx+2000]
+        assert "result = self.motion.zhome()" in body, \
+            "zhome must capture driver return into `result`"
+        assert "return True" in body, \
+            "zhome success path must `return True` (Wave 2 B9)"
+        assert "return False" in body, \
+            "zhome failure paths must `return False` (Wave 2 B9)"
+        assert "Returns:" in body, \
+            "zhome docstring must have a Returns: section (Rule 38)"
+
+    def test_lumascope_home_returns_driver_value(self):
+        """Method body must capture and propagate the driver's return."""
+        import pathlib
+        source = pathlib.Path("modules/lumascope_api.py").read_text()
+        idx = source.find("def home(self) -> bool:")
+        assert idx != -1
+        next_def = source.find("\n    def ", idx + 1)
+        body = source[idx:next_def] if next_def != -1 else source[idx:idx+3000]
+        assert "result = self.motion.home()" in body, \
+            "home must capture driver return into `result`"
+        assert "return True" in body, \
+            "home success path must `return True` (Wave 2 B10)"
+        assert "return False" in body, \
+            "home failure paths must `return False` (Wave 2 B10)"
+        assert "Returns:" in body, \
+            "home docstring must have a Returns: section (Rule 38)"
+
+    def test_lumascope_thome_returns_driver_value(self):
+        """Method body must capture, notify on False, and return the bool.
+
+        Pre-Wave-2, thome dropped the driver return entirely (no capture,
+        no notify on failure). This pins the captured-and-returned shape.
+        """
+        import pathlib
+        source = pathlib.Path("modules/lumascope_api.py").read_text()
+        idx = source.find("def thome(self) -> bool:")
+        assert idx != -1
+        next_def = source.find("\n    def ", idx + 1)
+        body = source[idx:next_def] if next_def != -1 else source[idx:idx+3000]
+        assert "result = self.motion.thome()" in body, \
+            "thome must capture driver return into `result` (Wave 2 B8)"
+        assert "return True" in body, \
+            "thome success path must `return True` (Wave 2 B8)"
+        assert "return False" in body, \
+            "thome failure paths must `return False` (Wave 2 B8)"
+        assert "Turret homing failed" in body or "Homing Failed" in body, \
+            "thome must notify the user on driver False (Rule 14)"
+        assert "Returns:" in body, \
+            "thome docstring must have a Returns: section (Rule 38)"
+
+    def test_motorboard_zhome_raises_hardware_error(self):
+        """Tier 3b D1: MotorBoard.zhome must raise HardwareError on
+        no-response and firmware-error paths, not return False (Rule 29)."""
+        import pathlib
+        source = pathlib.Path("drivers/motorboard.py").read_text()
+        idx = source.find("def zhome(self) -> bool:")
+        assert idx != -1, \
+            "MotorBoard.zhome must declare `-> bool` (Tier 1-A / Rule 37)"
+        next_def = source.find("\n    def ", idx + 1)
+        body = source[idx:next_def] if next_def != -1 else source[idx:idx+2000]
+        # Two error paths: no-response and firmware-error
+        assert body.count("raise HardwareError(") >= 2, \
+            "MotorBoard.zhome must raise HardwareError on no-response AND firmware-error (D1)"
+        assert "Raises:" in body, \
+            "MotorBoard.zhome docstring must document HardwareError (Rule 38)"
+
+    def test_motorboard_home_raises_hardware_error(self):
+        """Tier 3b D1."""
+        import pathlib
+        source = pathlib.Path("drivers/motorboard.py").read_text()
+        idx = source.find("def home(self) -> bool:")
+        assert idx != -1
+        next_def = source.find("\n    def ", idx + 1)
+        body = source[idx:next_def] if next_def != -1 else source[idx:idx+3000]
+        assert body.count("raise HardwareError(") >= 2, \
+            "MotorBoard.home must raise HardwareError on each failure path (D1)"
+        assert "Raises:" in body, \
+            "MotorBoard.home docstring must document HardwareError (Rule 38)"
+
+    def test_motorboard_thome_raises_hardware_error(self):
+        """Tier 3b D1."""
+        import pathlib
+        source = pathlib.Path("drivers/motorboard.py").read_text()
+        idx = source.find("def thome(self) -> bool:")
+        assert idx != -1
+        next_def = source.find("\n    def ", idx + 1)
+        body = source[idx:next_def] if next_def != -1 else source[idx:idx+2000]
+        assert body.count("raise HardwareError(") >= 2, \
+            "MotorBoard.thome must raise HardwareError on each failure path (D1)"
+        assert "Raises:" in body, \
+            "MotorBoard.thome docstring must document HardwareError (Rule 38)"
+
+    def test_simulated_motorboard_home_family_raises_hardware_error(self):
+        """Tier 3b D1: SimulatedMotorBoard mirrors MotorBoard contract so
+        sim-backed tests exercise the same exception path as production."""
+        import pathlib
+        source = pathlib.Path("drivers/simulated_motorboard.py").read_text()
+        assert "from drivers.exceptions import HardwareError" in source, \
+            "SimulatedMotorBoard must import HardwareError"
+        for method in ("zhome", "home", "thome"):
+            idx = source.find(f"def {method}(self) -> bool:")
+            assert idx != -1, \
+                f"SimulatedMotorBoard.{method} must declare `-> bool`"
+            next_def = source.find("\n    def ", idx + 1)
+            body = source[idx:next_def] if next_def != -1 else source[idx:idx+2000]
+            assert "raise HardwareError(" in body, \
+                f"SimulatedMotorBoard.{method} must raise HardwareError on failure (D1)"
+
+
 class TestF7_ProtocolHomingInterlock:
     """F7: Homing/bookmark must be blocked during protocol execution."""
 

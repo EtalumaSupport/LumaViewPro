@@ -631,18 +631,25 @@ class TestMotorBoardCommands:
     def test_zhome_sends_zhome(self):
         """zhome() should send 'ZHOME\\n'."""
         board = self._make_board()
+        # Mock readline must match the success pattern so the driver
+        # body completes -- otherwise it raises HardwareError per Rule 29
+        # migration and we never get to the write-side assertion this
+        # test cares about. (Wave 2.)
+        board.driver.readline.return_value = b"Z home successful\n"
         board.zhome()
         board.driver.write.assert_called_with(b'ZHOME\n')
 
     def test_home_sends_home(self):
         """home() should send 'HOME\\n'."""
         board = self._make_board()
+        board.driver.readline.return_value = b"XYZ home complete\n"
         board.home()
         board.driver.write.assert_called_with(b'HOME\n')
 
     def test_thome_sends_thome(self):
         """thome() should send 'THOME\\n'."""
         board = self._make_board()
+        board.driver.readline.return_value = b"T home successful\n"
         board.thome()
         board.driver.write.assert_called_with(b'THOME\n')
 
@@ -741,18 +748,27 @@ class TestMotorBoardHoming:
         )
 
     def test_home_no_flag_on_real_failure(self):
-        """home() should not set flag for a real failure (timeout, hardware
-        error) — distinct from the LS820 partial-home case above."""
+        """home() must raise HardwareError on a real failure (timeout,
+        hardware error) -- distinct from the LS820 partial-home case
+        above. The homed flag must remain False. (Wave 2 / D1: Rule 29
+        typed-exception migration.)"""
+        from drivers.exceptions import HardwareError
+
         board = self._make_board()
         board.driver.readline.return_value = b"ERROR: timeout\n"
-        board.home()
+        with pytest.raises(HardwareError, match="firmware error"):
+            board.home()
         assert board.has_homed() is False
 
     def test_home_no_flag_on_none(self):
-        """home() should not set flag if response is None (disconnected)."""
+        """home() must raise HardwareError if the response is None
+        (disconnected). The homed flag must remain False. (Wave 2 / D1.)"""
+        from drivers.exceptions import HardwareError
+
         board = self._make_board()
         board.driver.write.side_effect = serial.SerialTimeoutException("timeout")
-        board.home()
+        with pytest.raises(HardwareError, match="no response"):
+            board.home()
         assert board.has_homed() is False
 
     def test_thome_sets_flag_on_success(self):
@@ -763,10 +779,14 @@ class TestMotorBoardHoming:
         assert board.has_thomed() is True
 
     def test_thome_no_flag_on_failure(self):
-        """thome() should not set flag if response doesn't match."""
+        """thome() must raise HardwareError if response is unrecognized.
+        The thomed flag must remain False. (Wave 2 / D1.)"""
+        from drivers.exceptions import HardwareError
+
         board = self._make_board()
         board.driver.readline.return_value = b"ERROR\n"
-        board.thome()
+        with pytest.raises(HardwareError, match="firmware error"):
+            board.thome()
         assert board.has_thomed() is False
 
     def test_has_thomed_true_after_home(self):
