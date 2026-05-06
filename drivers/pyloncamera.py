@@ -576,6 +576,11 @@ class PylonCamera(Camera):
             with self.update_camera_config():
                 camera.UserSetSelector = 'Default'
                 camera.UserSetLoad.Execute()
+                # Path C: enable chunk-data for gain/exposure/identity. Must
+                # happen inside update_camera_config (chunks are LOCKED while
+                # grabbing -- bench-confirmed AccessException). Persists
+                # across subsequent stop/start cycles.
+                self._enable_validity_chunks()
                 self.set_pixel_format(pixel_format='Mono8')
                 self.auto_gain(state=False)
                 self.gain(0.0)  # Set explicit gain — camera default after UserSetLoad is undefined
@@ -589,6 +594,39 @@ class PylonCamera(Camera):
             self._mark_disconnected()
         except Exception as e:
             logger.exception(f'[CAM Class ] Unexpected error in init_camera_config: {e}')
+
+    def _enable_validity_chunks(self) -> None:
+        """Enable ChunkExposureTime / ChunkGain / ChunkFrameID for Path C
+        chunk-driven validity (FRAME_VALIDITY_PLAN.md §1.1).
+
+        MUST be called while the camera is NOT grabbing (chunk-mode is
+        locked while grabbing -- bench-confirmed via T1 probe). The
+        canonical caller is init_camera_config() inside update_camera_config().
+
+        Idempotent: safely re-asserts settings if chunks were already enabled.
+        Per-chunk failures are logged but do not raise; the validity layer
+        falls back to skip_frames for unenabled chunks.
+        """
+        camera = self.active
+        if camera is None:
+            return
+        try:
+            camera.ChunkModeActive.Value = True
+        except Exception as e:
+            logger.warning(
+                f'[CAM Class ] Path C: could not enable ChunkModeActive: {e}; '
+                f'frame_validity will fall back to skip_frames calibration'
+            )
+            return
+        for sel in self._CHUNK_TARGETS_FOR_VALIDITY:
+            try:
+                camera.ChunkSelector.Value = sel
+                camera.ChunkEnable.Value = True
+            except Exception as e:
+                logger.warning(
+                    f'[CAM Class ] Path C: could not enable Chunk{sel}: {e}; '
+                    f'frame_validity will fall back to skip_frames for that source'
+                )
 
     def set_max_acquisition_frame_rate(self, enabled: bool, fps: float = 1.0):
         try:
@@ -1364,6 +1402,42 @@ class ImageHandler(pylon.ImageEventHandler):
         self._frame_queue = queue.Queue(maxsize=1)
         self._parent = parent_cam
 
+    # Maps GrabResult chunk attribute names to the chunk_data dict keys
+    # frame_validity expects (matches FrameValidity.CHUNK_KEY_FOR_SOURCE).
+    _CHUNK_GRAB_RESULT_ATTRS = (
+        ('ChunkExposureTime', 'ExposureTime'),
+        ('ChunkGain', 'Gain'),
+        ('ChunkFrameID', 'FrameID'),
+    )
+
+    @staticmethod
+    def _read_validity_chunks(grabResult) -> dict | None:
+        """Extract Path C validity chunks from a successful GrabResult.
+
+        Reads ChunkExposureTime / ChunkGain / ChunkFrameID via the
+        GrabResult attribute interface (pypylon exposes chunks as
+        attributes once ChunkModeActive + ChunkEnable are set on the
+        camera). Per-chunk failures are silenced; missing chunks just
+        don't appear in the returned dict.
+
+        Returns:
+            dict mapping chunk-key -> value (e.g. {'ExposureTime': 14530.0,
+            'Gain': 1.0, 'FrameID': 12345}), or None if no chunks were
+            readable (camera doesn't support chunks, or chunk_enable
+            failed during init_camera_config -> _enable_validity_chunks).
+        """
+        chunks: dict = {}
+        for chunk_attr, key in ImageHandler._CHUNK_GRAB_RESULT_ATTRS:
+            try:
+                node = getattr(grabResult, chunk_attr, None)
+                if node is None:
+                    continue
+                if genicam.IsReadable(node):
+                    chunks[key] = node.Value
+            except Exception:
+                pass
+        return chunks if chunks else None
+
     def OnImageGrabbed(self, camera, grabResult):
         # N1 (STALL-1 H2): per-callback duration trace. Gated on
         # profile_trace.ENABLE_PROFILE_TRACE — zero overhead when disabled.
@@ -1412,7 +1486,13 @@ class ImageHandler(pylon.ImageEventHandler):
                     img = grabResult.GetArray().copy()
                     ts = datetime.datetime.now()
                     _frame_bytes = img.nbytes
-                    self._base._store_frame(img, ts)
+                    # Path C: read per-frame chunk metadata if available.
+                    # _read_validity_chunks is defensive (catches per-chunk
+                    # exceptions); returns None if no chunks were readable
+                    # (cameras without chunk support / chunk_enable failed
+                    # during init).
+                    chunks = self._read_validity_chunks(grabResult)
+                    self._base._store_frame(img, ts, chunks=chunks)
                     self._frame_queue.put((True, img, ts))
                     _outcome = 'success_grabbed'
                 except Exception as e:

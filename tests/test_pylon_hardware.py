@@ -74,6 +74,30 @@ class TestPylon(unittest.TestCase):
         self.camera.gain(0)  # 0 dB is always in range
         self.assertAlmostEqual(self.camera.get_gain(), 0.0, delta=0.5)
 
+    def test_chunks_flow_through_grab(self):
+        """Path C commit 3 end-to-end: connect enables chunks, OnImageGrabbed
+        reads them per frame, ImageHandlerBase.last_chunks exposes them.
+        """
+        time.sleep(0.5)  # let streaming settle
+        result, _ts = self.camera.grab()
+        self.assertTrue(result, "grab failed -- chunks check requires successful frame")
+
+        chunks = self.camera.cam_image_handler._base.get_last_chunks()
+        print(f"\n=== last_chunks after first grab ===")
+        print(f"  chunks: {chunks}")
+        print(f"=====================================\n")
+
+        self.assertIsNotNone(chunks, "Path C: last_chunks should populate after a successful grab")
+        # All three target chunks should be present
+        for key in ('ExposureTime', 'Gain', 'FrameID'):
+            self.assertIn(key, chunks,
+                f"Path C: chunk '{key}' missing from last_chunks; "
+                f"got keys={sorted(chunks.keys())}")
+        # Sanity: values are floats/ints, not None or weird types
+        self.assertIsInstance(chunks['ExposureTime'], (int, float))
+        self.assertIsInstance(chunks['Gain'], (int, float))
+        self.assertIsInstance(chunks['FrameID'], int)
+
     def test_probe_chunk_capabilities(self):
         """T1 (FRAME_VALIDITY_PLAN.md §3): static introspection probe
         for chunk-data support. Answers whether ExposureTime / Gain /
