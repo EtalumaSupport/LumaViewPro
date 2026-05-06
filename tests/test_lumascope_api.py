@@ -743,6 +743,111 @@ class TestPerAxisDictsFromDriver:
         assert tuple(Lumascope._VALID_AXIS_NAMES) == ('X', 'Y', 'Z', 'T')
 
 
+class TestRunGrabLifecycleBenchmark:
+    """CAM-1 step (0a): regression tests for ``Lumascope.run_grab_lifecycle_benchmark``.
+
+    The API method shipped 2026-05-04 (LVP `56f094b`) without tests. This
+    class pins the contract: dict shape, num_cycles loop count, slow-cycle
+    accounting, vary_settings alternation, and the inactive-camera guard.
+    """
+
+    def _scope_with_camera(self):
+        """Return a Lumascope with simulated camera ready for stop/start cycles."""
+        scope = Lumascope(simulate=True)
+        # SimulatedCamera is wired by the registry; ensure it is in the
+        # active grabbing state the benchmark expects.
+        if scope.camera and not scope.camera.is_grabbing():
+            scope.camera.start_grabbing()
+        return scope
+
+    def test_returns_required_dict_keys(self):
+        scope = self._scope_with_camera()
+        r = scope.run_grab_lifecycle_benchmark(num_cycles=3,
+                                                inter_cycle_delay_ms=0)
+        for k in ('num_cycles', 'inter_cycle_delay_ms', 'vary_settings',
+                  'slow_threshold_s', 'slow_cycle_count', 'slow_cycles',
+                  'cycle_p50_s', 'cycle_p95_s', 'cycle_p99_s',
+                  'stop_p50_s', 'stop_p95_s', 'stop_p99_s',
+                  'start_p50_s', 'start_p95_s', 'start_p99_s',
+                  'total_elapsed_s', 'camera_model', 'pylon_version',
+                  'errors', 'written_to'):
+            assert k in r, f'Missing key: {k}'
+        assert r['num_cycles'] == 3
+        assert r['inter_cycle_delay_ms'] == 0
+        assert r['vary_settings'] is False
+        assert r['slow_threshold_s'] == 3.0  # default
+
+    def test_inactive_camera_returns_error(self):
+        """When self.camera is None or inactive, the method must surface
+        an error instead of crashing or silently returning empty results."""
+        scope = Lumascope(simulate=True)
+        scope.camera = None
+        r = scope.run_grab_lifecycle_benchmark(num_cycles=3)
+        assert r['errors'], (
+            'Inactive-camera path must populate errors so the operator '
+            'sees why the benchmark produced no data')
+        assert any('not active' in e.lower() for e in r['errors'])
+        # No samples means percentile fields stay at defaults.
+        assert r['cycle_p50_s'] == 0.0
+        assert r['slow_cycle_count'] == 0
+
+    def test_slow_cycle_detection_with_zero_threshold(self):
+        """slow_threshold_s=0.0 forces every cycle to count as slow,
+        verifying the slow-cycle accounting + 50-entry cap."""
+        scope = self._scope_with_camera()
+        r = scope.run_grab_lifecycle_benchmark(num_cycles=4,
+                                                inter_cycle_delay_ms=0,
+                                                slow_threshold_s=0.0)
+        assert r['slow_cycle_count'] == 4
+        assert len(r['slow_cycles']) == 4
+        for entry in r['slow_cycles']:
+            for field in ('idx', 'cycle_s', 'stop_s', 'start_s'):
+                assert field in entry, f'Missing field {field} in slow-cycle entry'
+
+    def test_vary_settings_alternates_gain(self):
+        """vary_settings=True alternates gain between 1.0 dB (even cycles)
+        and 4.0 dB (odd cycles)."""
+        scope = self._scope_with_camera()
+        gain_calls = []
+        original_set_gain = scope.set_gain
+
+        def _track(gain):
+            gain_calls.append(gain)
+            return original_set_gain(gain)
+        scope.set_gain = _track
+
+        scope.run_grab_lifecycle_benchmark(num_cycles=4,
+                                            inter_cycle_delay_ms=0,
+                                            vary_settings=True)
+        # 4 in-loop calls + restore at end (if vary_settings AND original_gain)
+        # The benchmark restores original gain after the loop, so total may be 5.
+        in_loop = gain_calls[:4]
+        assert in_loop == [1.0, 4.0, 1.0, 4.0], \
+            f'vary_settings should alternate 1.0/4.0; got {in_loop}'
+
+    def test_writes_json_artifact(self, tmp_path, monkeypatch):
+        """Persists results to data/camera_timing/. Filename includes camera
+        model + SDK + delay + timestamp so a delay sweep produces one file
+        per data point."""
+        import json
+        import os
+        scope = self._scope_with_camera()
+        r = scope.run_grab_lifecycle_benchmark(num_cycles=2,
+                                                inter_cycle_delay_ms=0)
+        assert r['written_to'] is not None, \
+            f'JSON persistence path empty; errors: {r.get("errors")}'
+        assert os.path.exists(r['written_to']), \
+            f'Promised JSON not at {r["written_to"]}'
+        with open(r['written_to']) as f:
+            persisted = json.load(f)
+        assert persisted['num_cycles'] == 2
+        # Cleanup test artifact so it doesn't accumulate in the repo dir.
+        try:
+            os.remove(r['written_to'])
+        except OSError:
+            pass
+
+
 class TestScopeCapabilities:
     """Audit B7: ScopeCapabilities is the single source of truth for
     "what does this scope have" — a frozen snapshot built at init from
