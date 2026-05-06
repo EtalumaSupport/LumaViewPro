@@ -7,6 +7,7 @@ import os
 import pathlib
 import threading
 import time
+import warnings
 
 import numpy as np
 
@@ -1801,7 +1802,7 @@ class Lumascope():
 
             with scope.acquire_exclusive():
                 scope.set_led_ma('Blue', 10)
-                image = scope.capture_blocking()
+                image = scope.capture_and_wait()
         """
         self._hw_lock.acquire()
         try:
@@ -5063,53 +5064,63 @@ class Lumascope():
     # ILLUMINATE AND CAPTURE
     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     def capture(self) -> None:
-        """Capture an image with illumination, asynchronously.
+        """Capture an image with illumination, asynchronously. DEPRECATED.
 
-        Schedules a deferred ``capture_complete`` after the exposure plus
-        rolling-shutter wait time. The captured image lands in
-        ``self.capture_return``. ``is_capturing`` is True until the
+        Schedules a deferred grab; the captured image lands in
+        ``self.capture_return`` and ``is_capturing`` is True until the
         deferred completion fires.
+
+        Deprecated: use ``capture_and_wait`` for synchronous capture, or
+        run ``capture_and_wait`` in a worker thread for async semantics.
+        Will be removed in a future release.
         """
+        warnings.warn(
+            "Lumascope.capture is deprecated. Use capture_and_wait() instead "
+            "(or run it in a worker thread for async semantics).",
+            DeprecationWarning, stacklevel=2,
+        )
 
         if not self.led: return
         if not self.camera or not self.camera.active: return
 
-        # Set capture states
         self.is_capturing = True
         self.capture_return = False
 
-        # Wait time for exposure and rolling shutter
-        wait_time = 2*self.get_exposure_time()/1000+0.2
-        #print("Wait time = ", wait_time)
-
-        # Start thread to wait until capture is complete
-        capture_timer = threading.Timer(wait_time, self.capture_complete)
+        # Async grab via timer thread; capture_and_wait inside the timer
+        # handles the drain. delay=0 because validity drains adaptively
+        # rather than waiting a fixed exposure-derived interval.
+        capture_timer = threading.Timer(0, self.capture_complete)
         capture_timer.start()
 
     def capture_complete(self) -> None:
-        """Deferred completion handler for ``capture``.
+        """Deferred completion handler for ``capture``. DEPRECATED.
 
         Grabs the image into ``self.capture_return`` and clears
         ``is_capturing``. Called from a background timer thread; not
         intended to be called directly.
         """
-        self.capture_return = self.get_image() # Grab image
+        self.capture_return = self.capture_and_wait()
         self.is_capturing = False
 
 
     def capture_blocking(self) -> 'np.ndarray | bool | None':
-        """Capture an image with illumination, blocking until the frame is ready.
+        """Capture an image with illumination, blocking until the frame is ready. DEPRECATED.
+
+        Deprecated: use ``capture_and_wait`` directly. Will be removed in
+        a future release.
 
         Returns:
             numpy.ndarray | False | None: Captured image array, False on
                 grab failure, or None if LED/camera are unavailable.
         """
+        warnings.warn(
+            "Lumascope.capture_blocking is deprecated. Use capture_and_wait() instead.",
+            DeprecationWarning, stacklevel=2,
+        )
         if not self.led: return
         if not self.camera or not self.camera.active: return
 
-        wait_time = 2*self.get_exposure_time()/1000+0.2
-        time.sleep(wait_time)
-        return self.get_image()
+        return self.capture_and_wait()
 
     def capture_and_wait(self, force_to_8bit: bool = True, *,
                          exclude_sources: tuple = (),

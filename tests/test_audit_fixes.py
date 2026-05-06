@@ -2603,6 +2603,60 @@ class TestFrameValidityG3_AutofocusDrainsBeforeScore:
         )
 
 
+class TestFrameValidityG2_LegacyCaptureRoutesThroughCaptureAndWait:
+    """G2 (FRAME_VALIDITY_PLAN.md §2): Lumascope.capture_complete and
+    Lumascope.capture_blocking previously did fixed-time-sleep + bare
+    get_image -- the v3.0.x anti-pattern Stage 5 retired in char tool.
+    Both methods are deprecated (no production callers, not in
+    LumascopeSkills.md). Implementation now routes through capture_and_wait
+    so that during the deprecation cycle they grab valid frames. A
+    DeprecationWarning fires on each call."""
+
+    def test_capture_complete_calls_capture_and_wait(self):
+        from pathlib import Path
+        src = (Path(__file__).resolve().parent.parent / "modules" / "lumascope_api.py").read_text()
+        body = _function_source(src, "capture_complete")
+        assert "self.capture_and_wait(" in body, (
+            "G2: capture_complete must call self.capture_and_wait(...) -- "
+            "previously called bare self.get_image() after a fixed-time sleep."
+        )
+        assert "self.get_image(" not in body, (
+            "G2: capture_complete must not call self.get_image(...) directly."
+        )
+
+    def test_capture_blocking_calls_capture_and_wait(self):
+        from pathlib import Path
+        src = (Path(__file__).resolve().parent.parent / "modules" / "lumascope_api.py").read_text()
+        body = _function_source(src, "capture_blocking")
+        assert "self.capture_and_wait(" in body, (
+            "G2: capture_blocking must call self.capture_and_wait(...)."
+        )
+        assert "self.get_image(" not in body, (
+            "G2: capture_blocking must not call self.get_image(...) directly."
+        )
+        assert "time.sleep(" not in body, (
+            "G2: capture_blocking must not contain a fixed-time sleep -- "
+            "validity drain replaces the v3.0.x wait_time anti-pattern."
+        )
+
+    def test_capture_emits_deprecation_warning(self):
+        from pathlib import Path
+        src = (Path(__file__).resolve().parent.parent / "modules" / "lumascope_api.py").read_text()
+        body = _function_source(src, "capture")
+        assert "DeprecationWarning" in body, (
+            "G2: capture must emit a DeprecationWarning so callers migrate "
+            "to capture_and_wait."
+        )
+
+    def test_capture_blocking_emits_deprecation_warning(self):
+        from pathlib import Path
+        src = (Path(__file__).resolve().parent.parent / "modules" / "lumascope_api.py").read_text()
+        body = _function_source(src, "capture_blocking")
+        assert "DeprecationWarning" in body, (
+            "G2: capture_blocking must emit a DeprecationWarning."
+        )
+
+
 class TestFrameValidityG4_CompositeEngineeringBranchDrains:
     """G4 (FRAME_VALIDITY_PLAN.md §2): the engineering-mode branch of
     composite_capture's live_capture path (bullseye / crosshairs enabled)
