@@ -79,11 +79,15 @@ class FrameValidity:
 
     # Float-tolerance for chunk-match equality. ChunkExposureTime is in
     # microseconds (the API converts ms -> us when calling set_target);
-    # ChunkGain is in dB. Values measured on a2A3536-31umBAS by sweeping
-    # set values across the supported range and reading back ChunkGain /
-    # ChunkExposureTime: gain round-trip error peaked at ~5e-5 dB (float
-    # quantization), exposure was bit-exact in microseconds. Tolerances
-    # set ~20-40x above observed max for safety across firmware revisions.
+    # ChunkGain is in dB. Values measured by sweeping set values across
+    # the supported range and reading back ChunkGain / ChunkExposureTime
+    # on multiple Basler USB3 cameras (a2A3536-31umBAS ace 2; daA3840-45um
+    # dart with firmware 1.1.0 and 2.6.0): observed deltas were bit-
+    # identical across hardware and firmware -- quantization happens at
+    # the Pylon SDK / genicam nodemap layer, not in camera firmware.
+    # Gain round-trip error peaked at ~5e-5 dB (float ε), exposure was
+    # bit-exact in microseconds. Tolerances set ~20x above observed max
+    # for safety across future firmware revisions.
     DEFAULT_CHUNK_TOLERANCE = {
         'gain':     0.001,  # dB
         'exposure': 2.0,    # microseconds
