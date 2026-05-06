@@ -117,12 +117,16 @@ class Camera(ABC):
           False  -- not connected (initial state)
           <obj>  -- connected camera instance (truthy; e.g. pylon.InstantCamera)
           None   -- disconnected / device removed (set by _mark_disconnected)
+
+        Returns:
+            False, the connected camera instance, or None.
         """
         with self._state_lock:
             return self._active
 
     @active.setter
-    def active(self, value):
+    def active(self, value) -> None:
+        """Set the active-state value under the state lock."""
         with self._state_lock:
             self._active = value
 
@@ -136,6 +140,11 @@ class Camera(ABC):
             logger.warning(f'[CAM Class ] __del__ disconnect failed: {e}')
 
     def is_device_removed(self) -> bool:
+        """Return whether the camera was marked as physically removed.
+
+        Returns:
+            bool: True after ``_mark_disconnected`` has been invoked.
+        """
         with self._state_lock:
             return self._device_removed
 
@@ -155,14 +164,33 @@ class Camera(ABC):
 
     @abstractmethod
     def connect(self) -> bool:
+        """Connect to the camera hardware.
+
+        Subclasses must catch their own connect-failure exceptions and
+        leave ``self._active`` as False or None on failure (the registry
+        uses ``self.found`` to skip non-functional drivers).
+
+        Returns:
+            bool: True on success.
+        """
         pass
 
     @abstractmethod
     def disconnect(self) -> bool:
+        """Disconnect from the camera hardware and release resources.
+
+        Returns:
+            bool: True on success.
+        """
         pass
 
     @abstractmethod
     def is_connected(self) -> bool:
+        """Return whether the camera is currently connected.
+
+        Returns:
+            bool: True if the SDK reports a live, attached camera.
+        """
         pass
 
     @contextlib.contextmanager
@@ -215,70 +243,159 @@ class Camera(ABC):
                     )
 
     @abstractmethod
-    def init_camera_config(self):
+    def init_camera_config(self) -> None:
+        """Apply the camera's startup configuration after connect().
+
+        Subclasses set pixel format, default frame size, exposure, gain,
+        binning, etc. Called inside ``update_camera_config()`` so the
+        grab loop is paused while configuration is in progress.
+        """
         pass
 
     @abstractmethod
-    def start_grabbing(self):
+    def start_grabbing(self) -> None:
+        """Begin acquiring frames into the image handler."""
         pass
 
     @abstractmethod
-    def stop_grabbing(self):
+    def stop_grabbing(self) -> None:
+        """Stop acquiring frames and release any pending buffers."""
         pass
 
     @abstractmethod
-    def is_grabbing(self):
+    def is_grabbing(self) -> bool:
+        """Return whether the camera is currently acquiring.
+
+        Returns:
+            bool: True when the SDK reports an active grab loop.
+        """
         pass
 
     @abstractmethod
-    def set_frame_size(self, w, h):
+    def set_frame_size(self, w: int, h: int) -> bool:
+        """Set the output frame size.
+
+        Args:
+            w: Frame width in pixels.
+            h: Frame height in pixels.
+
+        Returns:
+            bool: True on success.
+        """
         pass
 
     @abstractmethod
     def get_min_frame_size(self) -> dict:
+        """Return the minimum supported frame size.
+
+        Returns:
+            dict: ``{'width': int, 'height': int}``.
+        """
         pass
 
     @abstractmethod
     def get_max_frame_size(self) -> dict:
+        """Return the maximum supported frame size.
+
+        Returns:
+            dict: ``{'width': int, 'height': int}``.
+        """
         pass
 
     @abstractmethod
-    def get_frame_size(self):
+    def get_frame_size(self) -> dict:
+        """Return the current frame size.
+
+        Returns:
+            dict: ``{'width': int, 'height': int}``.
+        """
         pass
 
     @abstractmethod
     def set_pixel_format(self, pixel_format: str) -> bool:
+        """Set the camera pixel format.
+
+        Args:
+            pixel_format: Format identifier (e.g. ``'Mono8'``,
+                ``'Mono12'``).
+
+        Returns:
+            bool: True on success.
+        """
         pass
 
     @abstractmethod
     def get_pixel_format(self) -> str:
+        """Return the current camera pixel format.
+
+        Returns:
+            str: Format identifier (e.g. ``'Mono8'``).
+        """
         pass
 
     @abstractmethod
     def get_supported_pixel_formats(self) -> tuple:
+        """Return all pixel formats this camera can be set to.
+
+        Returns:
+            tuple: Format identifier strings supported by the SDK.
+        """
         pass
 
     @abstractmethod
-    def exposure_t(self, t):
+    def exposure_t(self, t: float) -> None:
+        """Set exposure time.
+
+        Args:
+            t: Exposure time in milliseconds.
+        """
         pass
 
     @abstractmethod
-    def get_exposure_t(self):
+    def get_exposure_t(self) -> float:
+        """Return the current exposure time.
+
+        Returns:
+            float: Exposure time in milliseconds.
+        """
         pass
 
     @abstractmethod
-    def auto_exposure_t(self, state = True):
+    def auto_exposure_t(self, state: bool = True) -> None:
+        """Enable or disable hardware auto-exposure.
+
+        Args:
+            state: True to enable, False to disable.
+        """
         pass
 
     @abstractmethod
-    def find_model_name(self):
+    def find_model_name(self) -> str | None:
+        """Discover and cache the camera model name.
+
+        Returns:
+            str | None: Model identifier, or None if unavailable.
+        """
         pass
 
-    def get_model_name(self):
+    def get_model_name(self) -> str | None:
+        """Return the cached camera model name.
+
+        Returns:
+            str | None: Cached model identifier, or None if not yet
+                discovered.
+        """
         return self.model_name
 
     @abstractmethod
-    def get_all_temperatures(self):
+    def get_all_temperatures(self) -> dict:
+        """Read all available camera temperature sensors.
+
+        Returns:
+            dict: Sensor-name-keyed temperatures in degrees Celsius.
+                Empty dict when the camera does not expose temperature
+                telemetry.
+        """
         pass
 
     def _load_profile(self):
@@ -318,7 +435,12 @@ class Camera(ABC):
             return self.profile.exposure_max_us / 1000.0
         return float(default_max_exposure)
 
-    def get_max_exposure(self):
+    def get_max_exposure(self) -> float:
+        """Return the maximum exposure cap in milliseconds.
+
+        Returns:
+            float: Same value as the ``max_exposure`` property.
+        """
         return self.max_exposure
 
     @property
@@ -335,26 +457,52 @@ class Camera(ABC):
             return float(self.profile.gain.total_max_db)
         return 48.0  # legacy kv default — kept for cameras without a profile
 
-    def get_max_gain(self):
+    def get_max_gain(self) -> float:
+        """Return the maximum gain cap in dB.
+
+        Returns:
+            float: Same value as the ``max_gain`` property.
+        """
         return self.max_gain
 
     @abstractmethod
-    def set_max_acquisition_frame_rate(self, enabled: bool, fps: float=1.0):
+    def set_max_acquisition_frame_rate(self, enabled: bool, fps: float = 1.0) -> None:
+        """Enable or disable the SDK's frame-rate cap.
+
+        Args:
+            enabled: True to enforce ``fps`` as the upper bound.
+            fps: Cap value in frames per second.
+        """
         pass
 
     @abstractmethod
     def set_binning_size(self, size: int) -> bool:
+        """Set hardware binning factor.
+
+        Args:
+            size: Binning factor (1, 2, 4, ...).
+
+        Returns:
+            bool: True on success.
+        """
         pass
 
     @abstractmethod
     def get_binning_size(self) -> int:
+        """Return the current hardware binning factor.
+
+        Returns:
+            int: Binning factor (1 = no binning).
+        """
         pass
 
-    def grab(self):
+    def grab(self) -> tuple:
         """Grab the most recent frame from the image handler.
 
-        Returns (success: bool, timestamp: datetime | None).
-        The image is available in self.array after a successful grab.
+        On success, the image is also stored in ``self.array``.
+
+        Returns:
+            tuple: ``(success: bool, timestamp: datetime | None)``.
         """
         with self._state_lock:
             if self._active is None or self._device_removed:
@@ -375,12 +523,17 @@ class Camera(ABC):
             logger.exception(f"[CAM Class ] grab() - get_last_image() failed: {ex}")
             return False, None
 
-    def get_array(self):
-        """Return a copy of the last grabbed image. Thread-safe."""
+    def get_array(self) -> np.ndarray:
+        """Return a copy of the last grabbed image. Thread-safe.
+
+        Returns:
+            np.ndarray: Copy of the most recent frame, or an empty
+                array when no frame has been grabbed yet.
+        """
         with self._array_lock:
             return self.array.copy() if self.array.size > 0 else self.array
 
-    def grab_latest(self):
+    def grab_latest(self) -> tuple:
         """Grab the latest frame and return it in one operation (single copy).
 
         Combines grab() + get_array() but avoids the second copy.
@@ -388,7 +541,8 @@ class Camera(ABC):
         safe to use without further copying.
 
         Returns:
-            (success: bool, image: np.ndarray | None, timestamp: datetime | None)
+            tuple: ``(success: bool, image: np.ndarray | None,
+                timestamp: datetime | None)``.
         """
         with self._state_lock:
             if self._active is None or self._device_removed:
@@ -412,45 +566,101 @@ class Camera(ABC):
             return False, None, None
 
     @abstractmethod
-    def grab_new_capture(self, timeout: float):
+    def grab_new_capture(self, timeout: float) -> tuple:
+        """Grab a fresh capture-quality frame, waiting if necessary.
+
+        Used by the still-capture path to guarantee the returned frame
+        was acquired after the call (not a stale live-preview frame).
+
+        Args:
+            timeout: Maximum wait in seconds.
+
+        Returns:
+            tuple: ``(success: bool, image: np.ndarray | None,
+                timestamp: datetime | None)``.
+        """
         pass
 
     @abstractmethod
-    def update_auto_gain_target_brightness(self, auto_target_brightness: float):
+    def update_auto_gain_target_brightness(self, auto_target_brightness: float) -> None:
+        """Update the target brightness for the auto-gain loop.
+
+        Args:
+            auto_target_brightness: Normalized target brightness (0.0
+                to 1.0).
+        """
         pass
 
     @abstractmethod
-    def update_auto_gain_min_max(self, min_gain: float | None, max_gain: float | None):
+    def update_auto_gain_min_max(self, min_gain: float | None, max_gain: float | None) -> None:
+        """Update the auto-gain bounds.
+
+        Args:
+            min_gain: Minimum gain in dB, or None to leave unchanged.
+            max_gain: Maximum gain in dB, or None to leave unchanged.
+        """
         pass
 
     @abstractmethod
-    def get_gain(self):
+    def get_gain(self) -> float:
+        """Return the current camera gain.
+
+        Returns:
+            float: Gain in dB.
+        """
         pass
 
     @abstractmethod
-    def gain(self, gain):
+    def gain(self, gain: float) -> None:
+        """Set the camera gain.
+
+        Args:
+            gain: Gain in dB.
+        """
         pass
 
     @abstractmethod
     def auto_gain(
         self,
-        state = True,
+        state: bool = True,
         target_brightness: float = 0.5,
         min_gain: float | None = None,
         max_gain: float | None = None
-    ):
+    ) -> None:
+        """Enable or disable continuous auto-gain.
+
+        Args:
+            state: True to enable, False to disable.
+            target_brightness: Normalized brightness target (0.0-1.0).
+            min_gain: Optional lower bound in dB.
+            max_gain: Optional upper bound in dB.
+        """
         pass
 
     @abstractmethod
     def auto_gain_once(
         self,
-        state = True,
+        state: bool = True,
         target_brightness: float = 0.5,
         min_gain: float | None = None,
         max_gain: float | None = None
-    ):
+    ) -> None:
+        """Run a single auto-gain iteration.
+
+        Args:
+            state: True to run, False to no-op.
+            target_brightness: Normalized brightness target (0.0-1.0).
+            min_gain: Optional lower bound in dB.
+            max_gain: Optional upper bound in dB.
+        """
         pass
 
     @abstractmethod
-    def set_test_pattern(self, enabled: bool = False, pattern: str = 'Black'):
+    def set_test_pattern(self, enabled: bool = False, pattern: str = 'Black') -> None:
+        """Enable or disable the SDK's test pattern generator.
+
+        Args:
+            enabled: True to enable the pattern, False to disable.
+            pattern: Pattern name (SDK-specific; e.g. ``'Black'``).
+        """
         pass

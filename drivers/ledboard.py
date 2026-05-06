@@ -70,18 +70,42 @@ class LEDBoard(SerialBoard):
 
     _CH_TO_COLOR = {v: k for k, v in _COLOR_TO_CH.items()}
 
-    def color2ch(self, color):
-        """ Convert color name to numerical channel """
+    def color2ch(self, color: str) -> int:
+        """Convert color name to numerical channel.
+
+        Args:
+            color: Color name (e.g. 'BF', 'Red', 'Blue').
+
+        Returns:
+            int: Channel number (0-5). Defaults to 3 (BF) for unknown names.
+        """
         return self._COLOR_TO_CH.get(color, 3)
 
-    def ch2color(self, channel):
-        """ Convert numerical channel to color name """
+    def ch2color(self, channel: int) -> str:
+        """Convert numerical channel to color name.
+
+        Args:
+            channel: Channel number (0-5).
+
+        Returns:
+            str: Color name. Defaults to 'BF' for unknown channels.
+        """
         return self._CH_TO_COLOR.get(channel, 'BF')
 
-    def available_channels(self):
+    def available_channels(self) -> tuple:
+        """Return all known LED channel numbers.
+
+        Returns:
+            tuple: Channel numbers (ints) supported by this board.
+        """
         return tuple(self._COLOR_TO_CH.values())
 
-    def available_colors(self):
+    def available_colors(self) -> tuple:
+        """Return all known LED color names.
+
+        Returns:
+            tuple: Color name strings supported by this board.
+        """
         return tuple(self._COLOR_TO_CH.keys())
 
     # interperet commands
@@ -102,13 +126,22 @@ class LEDBoard(SerialBoard):
     #   {"cmd": "LED_DISABLE"}
     # Currently all commands use the legacy text format.
 
-    def leds_enable(self):
+    def leds_enable(self) -> None:
+        """Enable all LED channels (master enable).
+
+        Sends ``LEDS_ENT`` and logs a warning if the board does not respond.
+        """
         command = 'LEDS_ENT'
         response = self.exchange_command(command)
         if response is None:
             logger.warning('[LED Class ] leds_enable() got no response')
 
-    def leds_disable(self):
+    def leds_disable(self) -> None:
+        """Disable all LED channels (master disable) and clear the cache.
+
+        Sends ``LEDS_ENF``. On success, clears the cached per-channel mA
+        state so subsequent reads reflect the disabled condition.
+        """
         command = 'LEDS_ENF'
         response = self.exchange_command(command)
 
@@ -119,29 +152,64 @@ class LEDBoard(SerialBoard):
         else:
             logger.warning('[LED Class ] leds_disable() got no response')
 
-    def get_status(self):
+    def get_status(self) -> None:
+        """Stub -- LED firmware does not implement a STATUS command.
+
+        Returns:
+            None: Always. Logs a warning to flag the call site.
+        """
         # NOTE: LED firmware does not implement a STATUS command.
         # This always returns "Command not recognized". Do not use.
         # TODO: Add STATUS handler to LED firmware in 4.1, or remove this method.
         logger.warning('[LED Class ] get_status() called but LED firmware has no STATUS command')
         return None
 
-    def wait_until_on(self, timeout: float = 5.0):
+    def wait_until_on(self, timeout: float = 5.0) -> None:
+        """Stub -- depends on STATUS command which the firmware lacks.
+
+        Args:
+            timeout: Maximum wait time in seconds (currently unused).
+        """
         # NOTE: Relies on get_status() which is not implemented in LED firmware.
         # This always times out. Do not use.
         # TODO: Implement in 4.1 with v3.1 protocol, or remove.
         logger.warning('[LED Class ] wait_until_on() called but STATUS command not implemented in firmware')
         return
 
-    def get_led_ma(self, color):
+    def get_led_ma(self, color: str) -> int:
+        """Return the cached current setting for a color channel.
+
+        Args:
+            color: LED color name (e.g. 'BF', 'Red').
+
+        Returns:
+            int: Current in mA, or -1 when the channel is off / unknown.
+        """
         with self._state_lock:
             return self.led_ma.get(color, -1)
 
-    def is_led_on(self, color) -> bool:
+    def is_led_on(self, color: str) -> bool:
+        """Return whether a color channel is currently on (cached).
+
+        Args:
+            color: LED color name.
+
+        Returns:
+            bool: True when the cached current is positive.
+        """
         with self._state_lock:
             return self.led_ma.get(color, -1) > 0
 
-    def get_led_state(self, color) -> dict:
+    def get_led_state(self, color: str) -> dict:
+        """Return the cached state of a single LED color channel.
+
+        Args:
+            color: LED color name.
+
+        Returns:
+            dict: ``{'enabled': bool, 'illumination': int}`` where
+                illumination is mA (or -1 when off / unknown).
+        """
         with self._state_lock:
             mA = self.led_ma.get(color, -1)
             enabled = mA > 0
@@ -151,6 +219,12 @@ class LEDBoard(SerialBoard):
         }
 
     def get_led_states(self) -> dict:
+        """Return cached state for every LED color channel.
+
+        Returns:
+            dict: Snapshot keyed by color name; each value is
+                ``{'enabled': bool, 'illumination': int}``.
+        """
         with self._state_lock:
             snapshot = {color: {'enabled': mA > 0, 'illumination': mA}
                         for color, mA in self.led_ma.items()}
@@ -180,10 +254,18 @@ class LEDBoard(SerialBoard):
         with self._state_lock:
             self.led_ma[color] = mA
 
-    def led_on(self, channel, mA, block=False, timeout: float = 5.0):
-        """
-        Turn on LED at channel number at mA power
-        If block=True, verify correct callback before returning (with timeout)
+    def led_on(self, channel: int, mA: int, block: bool = False, timeout: float = 5.0) -> None:
+        """Turn on the LED on a channel at a given current.
+
+        Args:
+            channel: Channel number (0-5).
+            mA: Drive current in milliamps (0-1000).
+            block: When True, poll until the firmware echoes the command
+                or until ``timeout`` elapses.
+            timeout: Block timeout in seconds.
+
+        Raises:
+            ValueError: ``channel`` or ``mA`` is outside the safe range.
         """
         color, command = self._validate_and_build_led_cmd(channel, mA)
         response = self.exchange_command(command)
@@ -210,8 +292,12 @@ class LEDBoard(SerialBoard):
                 if response is not None:
                     self._update_state_cache(color, mA)
 
-    def led_off(self, channel):
-        """ Turn off LED at channel number """
+    def led_off(self, channel: int) -> None:
+        """Turn off the LED on a channel.
+
+        Args:
+            channel: Channel number (0-5).
+        """
         color = self.ch2color(channel=channel)
 
         command = 'LED' + str(int(channel)) + '_OFF'
@@ -222,21 +308,39 @@ class LEDBoard(SerialBoard):
         else:
             logger.warning(f'[LED Class ] led_off(ch={channel}) got no response')
 
-    def led_on_fast(self, channel, mA):
-        """Fast write-only version of led_on for time-critical toggling."""
+    def led_on_fast(self, channel: int, mA: int) -> None:
+        """Fast write-only version of led_on for time-critical toggling.
+
+        Updates the cached state and dispatches the command without waiting
+        for a response.
+
+        Args:
+            channel: Channel number (0-5).
+            mA: Drive current in milliamps (0-1000).
+
+        Raises:
+            ValueError: ``channel`` or ``mA`` is outside the safe range.
+        """
         color, command = self._validate_and_build_led_cmd(channel, mA)
         self._update_state_cache(color, mA)
         self._write_command_fast(command)
 
-    def led_off_fast(self, channel):
-        """Fast write-only version of led_off for time-critical toggling."""
+    def led_off_fast(self, channel: int) -> None:
+        """Fast write-only version of led_off for time-critical toggling.
+
+        Args:
+            channel: Channel number (0-5).
+        """
         color = self.ch2color(channel=channel)
         self._update_state_cache(color, -1)
         command = 'LED' + str(int(channel)) + '_OFF'
         self._write_command_fast(command)
 
-    def leds_off(self):
-        """ Turn off all LEDs """
+    def leds_off(self) -> None:
+        """Turn off every LED channel.
+
+        On success, clears the cached per-channel mA state.
+        """
         command = 'LEDS_OFF'
         response = self.exchange_command(command)
 
@@ -247,8 +351,12 @@ class LEDBoard(SerialBoard):
         else:
             logger.warning('[LED Class ] leds_off() got no response')
 
-    def leds_off_fast(self):
-        """Fast write-only version to turn off all LEDs."""
+    def leds_off_fast(self) -> None:
+        """Fast write-only version of leds_off.
+
+        Clears the cached state and dispatches LEDS_OFF without waiting
+        for a response.
+        """
         with self._state_lock:
             for color in self.led_ma:
                 self.led_ma[color] = -1
@@ -297,10 +405,12 @@ class LEDBoard(SerialBoard):
         logger.info('[LED Class ] Entered engineering mode')
         return True
 
-    def exit_engineering_mode(self):
+    def exit_engineering_mode(self) -> str | None:
         """Exit engineering mode back to safe mode (Q command).
 
-        Returns response string.
+        Returns:
+            str | None: Raw board response, or None if no response was
+                received.
         """
         resp = self.exchange_command('Q', timeout=3)
         time.sleep(0.3)
@@ -313,12 +423,20 @@ class LEDBoard(SerialBoard):
         logger.info('[LED Class ] Exited engineering mode')
         return resp
 
-    def selftest(self, timeout=180):
+    def selftest(self, timeout: float = 180) -> list:
         """Run LED SELFTEST and return parsed results.
 
-        Sends SELFTEST, collects multiline response (one line per channel
-        with settle delays between), returns list of result line strings.
+        Sends SELFTEST, collects the multiline response (one line per
+        channel with settle delays between), and returns the result lines.
         The response ends with a 'Complete' marker.
+
+        Args:
+            timeout: Maximum wait time in seconds (the firmware can take
+                a while since it sweeps every channel).
+
+        Returns:
+            list: One stripped line per row of the firmware response.
+                Empty list when no response was received.
         """
         resp = self.exchange_multiline(
             'SELFTEST', timeout=timeout,
@@ -330,11 +448,13 @@ class LEDBoard(SerialBoard):
         logger.info(f'[LED Class ] selftest(): {len(lines)} lines')
         return lines
 
-    def get_info(self):
+    def get_info(self) -> dict:
         """Send INFO and return parsed dict.
 
-        Returns dict with keys like 'version', 'date', 'cal_status',
-        and 'raw' (the full response text). Returns empty dict on failure.
+        Returns:
+            dict: Parsed fields including ``version``, ``date``,
+                ``cal_status``, and ``raw`` (full response text). Empty
+                dict when no response was received.
         """
         resp = self.exchange_command('INFO', response_numlines=6, timeout=2)
         if resp is None:
@@ -356,9 +476,18 @@ class LEDBoard(SerialBoard):
             result['cal_status'] = 'calibrated' if 'Calibrated' in raw else 'default'
         return result
 
-    def read_led_current(self, channel):
-        """Read measured LED current (mA) from ADC feedback. Requires v2.0+ firmware in engineering mode.
-        Returns measured current in mA, or None on error/unsupported."""
+    def read_led_current(self, channel: int) -> float | None:
+        """Read measured LED current (mA) from ADC feedback.
+
+        Requires v2.0+ firmware in engineering mode.
+
+        Args:
+            channel: Channel number (0-5).
+
+        Returns:
+            float | None: Measured current in mA, or None on error or
+                when the firmware is too old.
+        """
         if not self.is_v2:
             return None
         command = f'LEDREAD{int(channel)}'
