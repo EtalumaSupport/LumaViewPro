@@ -74,6 +74,30 @@ class TestPylon(unittest.TestCase):
         self.camera.gain(0)  # 0 dB is always in range
         self.assertAlmostEqual(self.camera.get_gain(), 0.0, delta=0.5)
 
+    def test_probe_chunk_capabilities(self):
+        """T1 (FRAME_VALIDITY_PLAN.md §3): static introspection probe
+        for chunk-data support. Answers whether ExposureTime / Gain /
+        FrameID are supported on the connected camera. Print-heavy
+        rather than strict-assert because the answer drives architecture
+        decisions (Path A vs Path C) and we want raw data on the bench.
+        """
+        result = self.camera.probe_chunk_capabilities()
+        print(f"\n=== probe_chunk_capabilities ===")
+        print(f"  model: {result['model']}")
+        print(f"  advertised: {result['advertised']}")
+        print(f"  enabled: {result['enabled']}")
+        print(f"  errors: {result['errors']}")
+        print(f"================================\n")
+
+        # Hard assertions: probe ran without per-step explosion.
+        self.assertIsInstance(result, dict)
+        self.assertIn('advertised', result)
+        self.assertIn('enabled', result)
+        # ChunkSelector node should exist on any modern Basler USB3 cam.
+        self.assertGreater(len(result['advertised']), 0,
+            f"Camera advertised no ChunkSelector entries -- chunks unsupported. "
+            f"Errors: {result['errors']}")
+
 
 if __name__ == '__main__':
     unittest.main()

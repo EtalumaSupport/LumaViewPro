@@ -1235,6 +1235,108 @@ class PylonCamera(Camera):
         except Exception as e:
             logger.exception(f'[CAM Class ] Unexpected error in set_test_pattern: {e}')
 
+    # Chunks frame_validity wants in a chunk-driven validity strategy
+    # (Path C, FRAME_VALIDITY_PLAN.md). LED has no chunk equivalent;
+    # motion is firmware-gated; these three cover gain/exposure/identity.
+    _CHUNK_TARGETS_FOR_VALIDITY = ('ExposureTime', 'Gain', 'FrameID')
+
+    def probe_chunk_capabilities(self) -> dict:
+        """Probe per-frame chunk-data feature support via static introspection.
+
+        Enumerates the camera's ChunkSelector entries and attempts to
+        enable each chunk frame_validity might use. Activation-acceptance
+        is the sufficient test: if ChunkEnable accepts True for a given
+        selector and reads back True, the camera supports that chunk.
+
+        Pylon locks ChunkModeActive while grabbing -- the probe stops
+        grabbing if needed and restarts after, restoring the prior chunk
+        configuration. Does not grab a frame; live-value read is wired
+        separately when chunks land in ImageHandler.
+
+        Returns:
+            dict with keys:
+              'model': camera model name (None if unavailable)
+              'advertised': sorted list of ChunkSelector entry symbols
+              'enabled': dict of selector -> bool (True = activation succeeded)
+              'errors': list of error strings encountered during probe
+        """
+        result = {
+            'model': getattr(self, 'model_name', None),
+            'advertised': [],
+            'enabled': {},
+            'errors': [],
+        }
+        camera = self.active
+        if camera is None:
+            result['errors'].append('camera not connected')
+            return result
+
+        was_grabbing = False
+        try:
+            was_grabbing = bool(camera.IsGrabbing())
+        except Exception:
+            pass
+        if was_grabbing:
+            self.stop_grabbing()
+
+        prior_chunk_mode = None
+        prior_per_chunk: dict = {}
+        try:
+            try:
+                nm = camera.GetNodeMap()
+                selector_node = nm.GetNode('ChunkSelector')
+                if selector_node is None:
+                    result['errors'].append('ChunkSelector node missing')
+                    return result
+                for entry in selector_node.GetEntries():
+                    try:
+                        result['advertised'].append(entry.GetSymbolic())
+                    except Exception:
+                        pass
+                result['advertised'].sort()
+            except Exception as e:
+                result['errors'].append(f'introspection failed: {e}')
+                return result
+
+            try:
+                prior_chunk_mode = camera.ChunkModeActive.Value
+                camera.ChunkModeActive.Value = True
+            except Exception as e:
+                result['errors'].append(f'could not enable ChunkModeActive: {e}')
+                return result
+
+            for sel in self._CHUNK_TARGETS_FOR_VALIDITY:
+                if sel not in result['advertised']:
+                    result['enabled'][sel] = False
+                    continue
+                try:
+                    camera.ChunkSelector.Value = sel
+                    prior_per_chunk[sel] = camera.ChunkEnable.Value
+                    camera.ChunkEnable.Value = True
+                    result['enabled'][sel] = bool(camera.ChunkEnable.Value)
+                except Exception as e:
+                    result['enabled'][sel] = False
+                    result['errors'].append(f'could not enable Chunk{sel}: {e}')
+        finally:
+            for sel, prior in prior_per_chunk.items():
+                try:
+                    camera.ChunkSelector.Value = sel
+                    camera.ChunkEnable.Value = prior
+                except Exception:
+                    pass
+            if prior_chunk_mode is not None:
+                try:
+                    camera.ChunkModeActive.Value = prior_chunk_mode
+                except Exception:
+                    pass
+            if was_grabbing:
+                try:
+                    self.start_grabbing()
+                except Exception as e:
+                    result['errors'].append(f'could not restart streaming: {e}')
+
+        return result
+
 
 class ImageHandler(pylon.ImageEventHandler):
     """Pylon camera image handler — receives frames via SDK callbacks.
