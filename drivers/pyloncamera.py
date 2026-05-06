@@ -576,10 +576,10 @@ class PylonCamera(Camera):
             with self.update_camera_config():
                 camera.UserSetSelector = 'Default'
                 camera.UserSetLoad.Execute()
-                # Path C: enable chunk-data for gain/exposure/identity. Must
-                # happen inside update_camera_config (chunks are LOCKED while
-                # grabbing -- bench-confirmed AccessException). Persists
-                # across subsequent stop/start cycles.
+                # Enable per-frame chunks for gain/exposure/identity. Must
+                # happen here -- ChunkModeActive is locked while grabbing
+                # (genicam.AccessException). Settings persist across
+                # subsequent stop/start cycles.
                 self._enable_validity_chunks()
                 self.set_pixel_format(pixel_format='Mono8')
                 self.auto_gain(state=False)
@@ -596,12 +596,12 @@ class PylonCamera(Camera):
             logger.exception(f'[CAM Class ] Unexpected error in init_camera_config: {e}')
 
     def _enable_validity_chunks(self) -> None:
-        """Enable ChunkExposureTime / ChunkGain / ChunkFrameID for Path C
-        chunk-driven validity (FRAME_VALIDITY_PLAN.md §1.1).
+        """Enable ChunkExposureTime / ChunkGain / ChunkFrameID for chunk-
+        driven validity.
 
-        MUST be called while the camera is NOT grabbing (chunk-mode is
-        locked while grabbing -- bench-confirmed via T1 probe). The
-        canonical caller is init_camera_config() inside update_camera_config().
+        MUST be called while the camera is NOT grabbing (ChunkModeActive
+        is locked while grabbing). Canonical caller is init_camera_config()
+        inside update_camera_config().
 
         Idempotent: safely re-asserts settings if chunks were already enabled.
         Per-chunk failures are logged but do not raise; the validity layer
@@ -614,7 +614,7 @@ class PylonCamera(Camera):
             camera.ChunkModeActive.Value = True
         except Exception as e:
             logger.warning(
-                f'[CAM Class ] Path C: could not enable ChunkModeActive: {e}; '
+                f'[CAM Class ] could not enable ChunkModeActive: {e}; '
                 f'frame_validity will fall back to skip_frames calibration'
             )
             return
@@ -624,7 +624,7 @@ class PylonCamera(Camera):
                 camera.ChunkEnable.Value = True
             except Exception as e:
                 logger.warning(
-                    f'[CAM Class ] Path C: could not enable Chunk{sel}: {e}; '
+                    f'[CAM Class ] could not enable Chunk{sel}: {e}; '
                     f'frame_validity will fall back to skip_frames for that source'
                 )
 
@@ -1273,9 +1273,9 @@ class PylonCamera(Camera):
         except Exception as e:
             logger.exception(f'[CAM Class ] Unexpected error in set_test_pattern: {e}')
 
-    # Chunks frame_validity wants in a chunk-driven validity strategy
-    # (Path C, FRAME_VALIDITY_PLAN.md). LED has no chunk equivalent;
-    # motion is firmware-gated; these three cover gain/exposure/identity.
+    # Chunks consumed by chunk-driven validity in modules.frame_validity.
+    # LED has no chunk equivalent; motion is firmware-gated; these three
+    # cover gain / exposure / per-frame identity.
     _CHUNK_TARGETS_FOR_VALIDITY = ('ExposureTime', 'Gain', 'FrameID')
 
     def probe_chunk_capabilities(self) -> dict:
@@ -1412,7 +1412,7 @@ class ImageHandler(pylon.ImageEventHandler):
 
     @staticmethod
     def _read_validity_chunks(grabResult) -> dict | None:
-        """Extract Path C validity chunks from a successful GrabResult.
+        """Extract validity chunks from a successful GrabResult.
 
         Reads ChunkExposureTime / ChunkGain / ChunkFrameID via the
         GrabResult attribute interface (pypylon exposes chunks as
@@ -1486,10 +1486,10 @@ class ImageHandler(pylon.ImageEventHandler):
                     img = grabResult.GetArray().copy()
                     ts = datetime.datetime.now()
                     _frame_bytes = img.nbytes
-                    # Path C: read per-frame chunk metadata if available.
+                    # Read per-frame chunk metadata if available.
                     # _read_validity_chunks is defensive (catches per-chunk
                     # exceptions); returns None if no chunks were readable
-                    # (cameras without chunk support / chunk_enable failed
+                    # (camera doesn't support chunks or chunk-enable failed
                     # during init).
                     chunks = self._read_validity_chunks(grabResult)
                     self._base._store_frame(img, ts, chunks=chunks)

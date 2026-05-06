@@ -3378,8 +3378,8 @@ class Lumascope():
         with self._cam_lock:
             self.camera.gain(gain)
         self.frame_validity.invalidate('gain')
-        # Path C: record requested gain so capture_and_wait's chunk-match
-        # can short-circuit skip-frames once a frame's ChunkGain matches.
+        # Record requested gain so capture_and_wait's chunk-match can clear
+        # the pending source once a frame's ChunkGain matches.
         self.frame_validity.set_target('gain', float(gain))
         with self._camera_cache_lock:
             self._camera_cache['gain'] = float(gain)
@@ -3402,8 +3402,8 @@ class Lumascope():
             max_gain=settings['max_gain'],
         )
         self.frame_validity.invalidate('gain')
-        # Path C: auto-gain dynamically adjusts the value; clear the manual
-        # target so chunk-match falls back to skip-frames calibration.
+        # Auto-gain dynamically adjusts the value; clear the manual target
+        # so chunk-match falls back to skip-frames calibration.
         self.frame_validity.set_target('gain', None)
 
     def set_exposure_time(self, t: float) -> None:
@@ -3425,10 +3425,9 @@ class Lumascope():
         with self._cam_lock:
             self.camera.exposure_t(t)
         self.frame_validity.invalidate('exposure')
-        # Path C: record requested exposure for chunk-match. ChunkExposureTime
-        # is microseconds; the API takes milliseconds. Convert at the seam so
-        # frame_validity's tolerance (DEFAULT_CHUNK_TOLERANCE['exposure'] = 100 us)
-        # is in the same unit as the chunk value.
+        # Record requested exposure for chunk-match. ChunkExposureTime is
+        # microseconds; the API takes milliseconds. Convert at the seam so
+        # the chunk value and frame_validity's tolerance share units.
         self.frame_validity.set_target('exposure', float(t) * 1000.0)
         with self._camera_cache_lock:
             self._camera_cache['exposure_ms'] = float(t)
@@ -3456,8 +3455,8 @@ class Lumascope():
         if not self.camera or not self.camera.active: return
         self.camera.auto_exposure_t(state)
         self.frame_validity.invalidate('exposure')
-        # Path C: auto-exposure dynamically adjusts the value; clear the
-        # manual target so chunk-match falls back to skip-frames calibration.
+        # Auto-exposure dynamically adjusts the value; clear the manual
+        # target so chunk-match falls back to skip-frames calibration.
         self.frame_validity.set_target('exposure', None)
 
     def apply_layer_camera_settings(self, gain: float, exposure_ms: float,
@@ -5140,7 +5139,7 @@ class Lumascope():
         """Return per-frame chunk metadata for the most recent successful
         grab, or None if chunks aren't available.
 
-        Path C plumbing helper. Camera handlers expose chunks differently:
+        Camera handlers expose chunks differently:
           - PylonCamera.ImageHandler: composition -- chunks at handler._base
           - IDSCamera.ImageHandler: inheritance -- chunks at handler directly
           - FX2 / simulators: no chunks at all -> None
@@ -5204,10 +5203,10 @@ class Lumascope():
         grab_timeout = max(exposure_s * 3, 1.0)
 
         # Drain stale frames until all pending state changes have settled.
-        # Path C: pass per-frame chunk metadata into count_frame so chunks
-        # short-circuit skip-frames for chunk-validatable sources (gain,
-        # exposure). Cameras without chunks return None and fall back to
-        # the existing skip-frames + settle-check path.
+        # Per-frame chunk metadata flows into count_frame so chunks short-
+        # circuit skip-frames for chunk-validatable sources (gain, exposure).
+        # Cameras without chunks return None and fall back to the existing
+        # skip-frames + settle-check path.
         while self.frame_validity.frames_until_valid(exclude_sources=exclude_sources) > 0:
             status, _ = self.camera.grab_new_capture(timeout=grab_timeout)
             if status:

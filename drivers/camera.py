@@ -25,7 +25,7 @@ class ImageHandlerBase:
         self.last_result = False
         self.last_img = None
         self.last_img_ts = None
-        self.last_chunks = None  # Path C: per-frame chunk metadata, dict or None
+        self.last_chunks = None  # per-frame chunk metadata dict (None when unsupported)
         self._failed_grabs = 0
 
     def get_last_image(self):
@@ -44,14 +44,15 @@ class ImageHandlerBase:
     def get_last_chunks(self) -> dict | None:
         """Return per-frame chunk metadata for the most recent successful grab.
 
-        Path C: cameras that support chunk data (Basler USB3 ace 2 / dart;
-        IDS Peak partial) populate this dict in OnImageGrabbed / _grab_loop.
-        Cameras without chunk support return None (default).
+        Cameras that support GenICam chunk data populate this dict in their
+        ImageHandler grab callback. Cameras without chunk support return
+        None (default).
 
         Returned dict keys are GenICam attribute symbolic names
-        ('ExposureTime', 'Gain', 'FrameID' on Basler; 'ExposureTime' / 'Gain'
-        on IDS without FrameID). Values are floats / ints as reported by
-        the camera. Returns None when no successful grab has occurred yet.
+        ('ExposureTime', 'Gain', 'FrameID' on Basler USB3; 'ExposureTime' /
+        'Gain' on IDS Peak which lacks ChunkFrameID). Values are floats /
+        ints as reported by the camera. Returns None when no successful
+        grab has occurred yet.
         """
         with self._frame_lock:
             if not self.last_result:
@@ -73,9 +74,9 @@ class ImageHandlerBase:
         Args:
             image: numpy array (already copied from SDK buffer).
             timestamp: datetime when the frame arrived host-side.
-            chunks: optional per-frame chunk metadata dict (Path C). None
-                for cameras without chunk support; backward-compatible with
-                callers that don't pass it.
+            chunks: optional per-frame chunk metadata dict. None for cameras
+                without chunk support; backward-compatible with callers that
+                don't pass it.
         """
         with self._frame_lock:
             self.last_result = True

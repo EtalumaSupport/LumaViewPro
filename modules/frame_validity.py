@@ -64,10 +64,10 @@ class FrameValidity:
     MOTION_SOURCES = frozenset({'xy_move', 'z_move', 'turret'})
 
     # Sources whose validity can be confirmed deterministically via per-frame
-    # chunk metadata (Path C). When chunk_data is passed to count_frame() and
-    # the chunk value matches the requested target within tolerance, the
-    # source is cleared regardless of skip-frames count. LED has no chunk
-    # equivalent; motion is firmware-gated via _settle_check_fn.
+    # chunk metadata. When chunk_data is passed to count_frame() and the chunk
+    # value matches the requested target within tolerance, the source is
+    # cleared regardless of skip-frames count. LED has no chunk equivalent;
+    # motion is firmware-gated via _settle_check_fn.
     CHUNK_VALIDATABLE_SOURCES = frozenset({'gain', 'exposure'})
 
     # Maps our source names to the chunk_data dict keys used by camera
@@ -77,10 +77,9 @@ class FrameValidity:
         'exposure': 'ExposureTime',
     }
 
-    # Float-tolerance for chunk-match equality. Bench-measured per camera
-    # via the Path C tolerance test; defaults are conservative pre-bench.
-    # ChunkExposureTime is microseconds (we set in ms -> mul by 1000 in target);
-    # ChunkGain is dB.
+    # Float-tolerance for chunk-match equality. ChunkExposureTime is in
+    # microseconds (the API converts ms -> us when calling set_target);
+    # ChunkGain is in dB.
     DEFAULT_CHUNK_TOLERANCE = {
         'gain':     0.1,    # dB
         'exposure': 100.0,  # microseconds
@@ -147,9 +146,9 @@ class FrameValidity:
             self._frame_counter += 1
             settled = [s for s, target in self._pending.items()
                        if self._is_source_settled_unlocked(s, target)]
-            # Path C: chunks short-circuit skip-frames for chunk-validatable
-            # sources. Source is cleared if either the existing settle-check
-            # path OR the chunk-match path says satisfied.
+            # Chunks short-circuit skip-frames for chunk-validatable sources:
+            # a source is cleared if either the settle-check path OR a chunk
+            # value matches the requested target.
             if chunk_data is not None:
                 for source in list(self._pending):
                     if source in settled:

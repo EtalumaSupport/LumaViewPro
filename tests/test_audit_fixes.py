@@ -2504,19 +2504,17 @@ def _function_source(source: str, func_name: str) -> str:
     raise AssertionError(f"function {func_name!r} not found in source")
 
 
-class TestFrameValidityG1_SaveLiveImageDrainsBeforeGrab:
-    """G1 (FRAME_VALIDITY_PLAN.md §2): Lumascope.save_live_image must
-    drain stale frames before grabbing. Bare self.get_image(...) ships a
-    mid-transition frame to disk on every manual save; canonical helper
-    is self.capture_and_wait(...)."""
+class TestFrameValidity_SaveLiveImageDrainsBeforeGrab:
+    """Lumascope.save_live_image must drain stale frames before grabbing.
+    Bare self.get_image(...) ships a mid-transition frame to disk on every
+    manual save; the canonical helper is self.capture_and_wait(...)."""
 
     def test_save_live_image_calls_capture_and_wait(self):
         from pathlib import Path
         src = (Path(__file__).resolve().parent.parent / "modules" / "lumascope_api.py").read_text()
         calls = _function_body_calls(src, "save_live_image")
         assert "capture_and_wait" in calls, (
-            "G1: save_live_image must call self.capture_and_wait(...) for "
-            "drain-then-grab. See FRAME_VALIDITY_PLAN.md §2."
+            "save_live_image must call self.capture_and_wait(...) for drain-then-grab."
         )
 
     def test_save_live_image_does_not_call_bare_get_image(self):
@@ -2524,20 +2522,20 @@ class TestFrameValidityG1_SaveLiveImageDrainsBeforeGrab:
         src = (Path(__file__).resolve().parent.parent / "modules" / "lumascope_api.py").read_text()
         calls = _function_body_calls(src, "save_live_image")
         assert "get_image" not in calls, (
-            "G1: save_live_image must not call self.get_image(...) directly -- "
+            "save_live_image must not call self.get_image(...) directly -- "
             "that bypasses frame_validity. Route through self.capture_and_wait(...)."
         )
 
     def test_capture_and_wait_accepts_earliest_image_ts(self):
-        """G1 plumbing: capture_and_wait must forward earliest_image_ts so
-        save_live_image's signature stays L2-stable (Rule 30)."""
+        """capture_and_wait must forward earliest_image_ts so save_live_image's
+        public signature stays stable for L2 SDK callers."""
         import inspect
 
         from modules import lumascope_api
         sig = inspect.signature(lumascope_api.Lumascope.capture_and_wait)
         assert "earliest_image_ts" in sig.parameters, (
-            "G1: capture_and_wait must accept earliest_image_ts kwarg so "
-            "save_live_image can forward its existing parameter."
+            "capture_and_wait must accept earliest_image_ts so save_live_image "
+            "can forward its existing parameter."
         )
 
 
@@ -2565,20 +2563,19 @@ def _scope_attribute_calls(source: str, func_name: str) -> set[str]:
     return calls
 
 
-class TestFrameValidityG3_AutofocusDrainsBeforeScore:
-    """G3 (FRAME_VALIDITY_PLAN.md §2): AutofocusExecutor._iterate must drain
-    LED/gain/exposure-pending frames before scoring. Bare get_image after
-    Z arrival can score on a mid-LED-warmup or mid-gain-change frame,
-    corrupting the focus curve and landing wrong best-Z. AF excludes
-    z_move because AF is the controller of Z moves; once is_moving()
-    reports idle, Z is settled."""
+class TestFrameValidity_AutofocusDrainsBeforeScore:
+    """AutofocusExecutor._iterate must drain LED/gain/exposure-pending
+    frames before scoring. Bare get_image after Z arrival can score on a
+    mid-LED-warmup or mid-gain-change frame, corrupting the focus curve
+    and landing the wrong best-Z. AF excludes z_move because AF is the
+    controller of Z moves; once is_moving() reports idle, Z is settled."""
 
     def test_iterate_calls_capture_and_wait(self):
         from pathlib import Path
         src = (Path(__file__).resolve().parent.parent / "modules" / "autofocus_executor.py").read_text()
         calls = _scope_attribute_calls(src, "_iterate")
         assert "capture_and_wait" in calls, (
-            "G3: AutofocusExecutor._iterate must call self._scope.capture_and_wait(...) "
+            "AutofocusExecutor._iterate must call self._scope.capture_and_wait(...) "
             "to drain LED/gain/exposure pending frames before scoring."
         )
 
@@ -2587,7 +2584,7 @@ class TestFrameValidityG3_AutofocusDrainsBeforeScore:
         src = (Path(__file__).resolve().parent.parent / "modules" / "autofocus_executor.py").read_text()
         calls = _scope_attribute_calls(src, "_iterate")
         assert "get_image" not in calls, (
-            "G3: AutofocusExecutor._iterate must not call self._scope.get_image(...) "
+            "AutofocusExecutor._iterate must not call self._scope.get_image(...) "
             "directly -- bypasses frame_validity. Route through capture_and_wait."
         )
 
@@ -2598,15 +2595,14 @@ class TestFrameValidityG3_AutofocusDrainsBeforeScore:
         src = (Path(__file__).resolve().parent.parent / "modules" / "autofocus_executor.py").read_text()
         # both call sites must specify exclude_sources=('z_move',)
         assert "exclude_sources=('z_move',)" in src, (
-            "G3: AutofocusExecutor._iterate's capture_and_wait calls must pass "
+            "AutofocusExecutor._iterate's capture_and_wait calls must pass "
             "exclude_sources=('z_move',) since is_moving() already gates motion."
         )
 
 
-class TestFrameValidityG2_LegacyCaptureRoutesThroughCaptureAndWait:
-    """G2 (FRAME_VALIDITY_PLAN.md §2): Lumascope.capture_complete and
-    Lumascope.capture_blocking previously did fixed-time-sleep + bare
-    get_image -- the v3.0.x anti-pattern Stage 5 retired in char tool.
+class TestFrameValidity_LegacyCaptureRoutesThroughCaptureAndWait:
+    """Lumascope.capture_complete and Lumascope.capture_blocking previously
+    did fixed-time-sleep + bare get_image -- the v3.0.x anti-pattern.
     Both methods are deprecated (no production callers, not in
     LumascopeSkills.md). Implementation now routes through capture_and_wait
     so that during the deprecation cycle they grab valid frames. A
@@ -2617,11 +2613,11 @@ class TestFrameValidityG2_LegacyCaptureRoutesThroughCaptureAndWait:
         src = (Path(__file__).resolve().parent.parent / "modules" / "lumascope_api.py").read_text()
         body = _function_source(src, "capture_complete")
         assert "self.capture_and_wait(" in body, (
-            "G2: capture_complete must call self.capture_and_wait(...) -- "
-            "previously called bare self.get_image() after a fixed-time sleep."
+            "capture_complete must call self.capture_and_wait(...) -- previously "
+            "called bare self.get_image() after a fixed-time sleep."
         )
         assert "self.get_image(" not in body, (
-            "G2: capture_complete must not call self.get_image(...) directly."
+            "capture_complete must not call self.get_image(...) directly."
         )
 
     def test_capture_blocking_calls_capture_and_wait(self):
@@ -2629,14 +2625,14 @@ class TestFrameValidityG2_LegacyCaptureRoutesThroughCaptureAndWait:
         src = (Path(__file__).resolve().parent.parent / "modules" / "lumascope_api.py").read_text()
         body = _function_source(src, "capture_blocking")
         assert "self.capture_and_wait(" in body, (
-            "G2: capture_blocking must call self.capture_and_wait(...)."
+            "capture_blocking must call self.capture_and_wait(...)."
         )
         assert "self.get_image(" not in body, (
-            "G2: capture_blocking must not call self.get_image(...) directly."
+            "capture_blocking must not call self.get_image(...) directly."
         )
         assert "time.sleep(" not in body, (
-            "G2: capture_blocking must not contain a fixed-time sleep -- "
-            "validity drain replaces the v3.0.x wait_time anti-pattern."
+            "capture_blocking must not contain a fixed-time sleep -- validity "
+            "drain replaces the v3.0.x wait_time anti-pattern."
         )
 
     def test_capture_emits_deprecation_warning(self):
@@ -2644,8 +2640,7 @@ class TestFrameValidityG2_LegacyCaptureRoutesThroughCaptureAndWait:
         src = (Path(__file__).resolve().parent.parent / "modules" / "lumascope_api.py").read_text()
         body = _function_source(src, "capture")
         assert "DeprecationWarning" in body, (
-            "G2: capture must emit a DeprecationWarning so callers migrate "
-            "to capture_and_wait."
+            "capture must emit a DeprecationWarning so callers migrate to capture_and_wait."
         )
 
     def test_capture_blocking_emits_deprecation_warning(self):
@@ -2653,23 +2648,23 @@ class TestFrameValidityG2_LegacyCaptureRoutesThroughCaptureAndWait:
         src = (Path(__file__).resolve().parent.parent / "modules" / "lumascope_api.py").read_text()
         body = _function_source(src, "capture_blocking")
         assert "DeprecationWarning" in body, (
-            "G2: capture_blocking must emit a DeprecationWarning."
+            "capture_blocking must emit a DeprecationWarning."
         )
 
 
-class TestFrameValidityG4_CompositeEngineeringBranchDrains:
-    """G4 (FRAME_VALIDITY_PLAN.md §2): the engineering-mode branch of
-    composite_capture's live_capture path (bullseye / crosshairs enabled)
-    grabs an extra image_orig for overlay rendering. Bare get_image here
-    would persist a mid-transition raw image to disk via the subsequent
-    save_image call. Must route through capture_and_wait."""
+class TestFrameValidity_CompositeEngineeringBranchDrains:
+    """The engineering-mode branch of composite_capture's live_capture path
+    (bullseye / crosshairs enabled) grabs an extra image_orig for overlay
+    rendering. Bare get_image here would persist a mid-transition raw
+    image to disk via the subsequent save_image call. Must route through
+    capture_and_wait."""
 
     def test_live_capture_impl_uses_capture_and_wait(self):
         from pathlib import Path
         src = (Path(__file__).resolve().parent.parent / "ui" / "composite_capture.py").read_text()
         body = _function_source(src, "_live_capture_impl")
         assert "ctx.scope.capture_and_wait(" in body, (
-            "G4: composite_capture._live_capture_impl must call "
+            "composite_capture._live_capture_impl must call "
             "ctx.scope.capture_and_wait(...) for the engineering bullseye/"
             "crosshairs branch (was bare get_image)."
         )
@@ -2679,19 +2674,17 @@ class TestFrameValidityG4_CompositeEngineeringBranchDrains:
         src = (Path(__file__).resolve().parent.parent / "ui" / "composite_capture.py").read_text()
         body = _function_source(src, "_live_capture_impl")
         assert "ctx.scope.get_image(" not in body, (
-            "G4: composite_capture._live_capture_impl must not call "
+            "composite_capture._live_capture_impl must not call "
             "ctx.scope.get_image(...) directly. Route through capture_and_wait "
-            "(or save_live_image, which now uses capture_and_wait per G1)."
+            "(or save_live_image, which now uses capture_and_wait internally)."
         )
 
 
 class TestFrameValidity_AllLedMutatorsInvalidate:
     """Defensive coverage: every LED state-mutator on Lumascope must call
-    frame_validity.invalidate('led'). Verified all 6 present in session 67
-    (the G6 'gap' was a false-positive audit excerpt). This test locks the
-    invariant -- if a future cleanup removes any invalidate call, the
-    regression fires here. Mirrors the cluster pattern from
-    `feedback_default_to_expanding_scope.md`."""
+    frame_validity.invalidate('led'). All 6 currently invalidate; this
+    test locks the invariant so a future cleanup that removes any call
+    fires the regression."""
 
     LED_MUTATORS = (
         "led_on",
@@ -2717,16 +2710,15 @@ class TestFrameValidity_AllLedMutatorsInvalidate:
         assert not missing, (
             "LED mutator coverage: each Lumascope LED state-mutator must call "
             "self.frame_validity.invalidate('led') so frame_validity sees the "
-            f"transition. Missing: {missing!r}. See FRAME_VALIDITY_PLAN.md §2."
+            f"transition. Missing: {missing!r}."
         )
 
 
-class TestPathC5_CaptureAndWaitPassesChunksToValidity:
-    """Path C commit 5 (FRAME_VALIDITY_PLAN.md §1.1): capture_and_wait's
-    drain loop reads per-frame chunk metadata and passes it to
-    count_frame so chunk-match can short-circuit skip-frames for
-    gain/exposure on chunk-supporting cameras. Backward compat: cameras
-    without chunks return None and fall back to skip-frames."""
+class TestCaptureAndWaitPassesChunksToValidity:
+    """capture_and_wait's drain loop reads per-frame chunk metadata and
+    passes it to count_frame so chunk-match can short-circuit skip-frames
+    for gain/exposure on chunk-supporting cameras. Backward compat:
+    cameras without chunks return None and fall back to skip-frames."""
 
     def test_capture_and_wait_passes_chunk_data_to_count_frame(self):
         from pathlib import Path
@@ -2734,8 +2726,8 @@ class TestPathC5_CaptureAndWaitPassesChunksToValidity:
         body = _function_source(src, "capture_and_wait")
         # Source mentions count_frame call site with chunk_data kwarg
         assert "count_frame(chunk_data=" in body, (
-            "Path C: capture_and_wait must call count_frame(chunk_data=...) "
-            "in the drain loop so chunk-match can clear gain/exposure pending."
+            "capture_and_wait must call count_frame(chunk_data=...) in the "
+            "drain loop so chunk-match can clear gain/exposure pending."
         )
 
     def test_get_latest_chunks_helper_exists(self):
@@ -2744,7 +2736,7 @@ class TestPathC5_CaptureAndWaitPassesChunksToValidity:
         import inspect
         from modules import lumascope_api
         assert hasattr(lumascope_api.Lumascope, '_get_latest_chunks'), (
-            "Path C: Lumascope must expose _get_latest_chunks() helper."
+            "Lumascope must expose _get_latest_chunks() helper."
         )
         sig = inspect.signature(lumascope_api.Lumascope._get_latest_chunks)
         # No required params (besides self) -- it reads from self.camera state
@@ -2763,11 +2755,10 @@ class TestPathC5_CaptureAndWaitPassesChunksToValidity:
         assert scope._get_latest_chunks() is None
 
 
-class TestPathC4_LumascopeRecordsTargetForChunkMatch:
-    """Path C commit 4 (FRAME_VALIDITY_PLAN.md §1.1): the API layer records
-    requested gain / exposure values via frame_validity.set_target() so
-    capture_and_wait's chunk-match can short-circuit skip-frames once
-    a frame's chunks match the target.
+class TestLumascopeRecordsTargetForChunkMatch:
+    """The API layer records requested gain / exposure values via
+    frame_validity.set_target() so capture_and_wait's chunk-match can
+    short-circuit skip-frames once a frame's chunks match the target.
 
     Manual setters (set_gain, set_exposure_time) record the value; auto
     setters (set_auto_gain, set_auto_exposure_time) clear the target
@@ -2779,7 +2770,7 @@ class TestPathC4_LumascopeRecordsTargetForChunkMatch:
         src = (Path(__file__).resolve().parent.parent / "modules" / "lumascope_api.py").read_text()
         body = _function_source(src, "set_gain")
         assert "self.frame_validity.set_target('gain'" in body, (
-            "Path C: set_gain must record gain target via frame_validity.set_target."
+            "set_gain must record gain target via frame_validity.set_target."
         )
 
     def test_set_exposure_time_records_target_in_microseconds(self):
@@ -2790,11 +2781,11 @@ class TestPathC4_LumascopeRecordsTargetForChunkMatch:
         src = (Path(__file__).resolve().parent.parent / "modules" / "lumascope_api.py").read_text()
         body = _function_source(src, "set_exposure_time")
         assert "self.frame_validity.set_target('exposure'" in body, (
-            "Path C: set_exposure_time must record target via set_target."
+            "set_exposure_time must record target via set_target."
         )
         assert "1000" in body, (
-            "Path C: set_exposure_time must convert ms -> us when recording "
-            "target so chunk-match operates in microseconds."
+            "set_exposure_time must convert ms -> us when recording target "
+            "so chunk-match operates in microseconds."
         )
 
     def test_set_auto_gain_clears_target(self):
@@ -2802,8 +2793,8 @@ class TestPathC4_LumascopeRecordsTargetForChunkMatch:
         src = (Path(__file__).resolve().parent.parent / "modules" / "lumascope_api.py").read_text()
         body = _function_source(src, "set_auto_gain")
         assert "set_target('gain', None)" in body, (
-            "Path C: set_auto_gain must clear gain target (None) so chunk-match "
-            "doesn't fire against a stale manual target while auto adjusts."
+            "set_auto_gain must clear gain target (None) so chunk-match doesn't "
+            "fire against a stale manual target while auto adjusts."
         )
 
     def test_set_auto_exposure_time_clears_target(self):
@@ -2811,15 +2802,14 @@ class TestPathC4_LumascopeRecordsTargetForChunkMatch:
         src = (Path(__file__).resolve().parent.parent / "modules" / "lumascope_api.py").read_text()
         body = _function_source(src, "set_auto_exposure_time")
         assert "set_target('exposure', None)" in body, (
-            "Path C: set_auto_exposure_time must clear exposure target (None)."
+            "set_auto_exposure_time must clear exposure target (None)."
         )
 
 
-class TestPathC2_ImageHandlerBaseChunkSlot:
-    """Path C commit 2 (FRAME_VALIDITY_PLAN.md §1.1): ImageHandlerBase
-    extends frame storage to carry per-frame chunk metadata. Backward-
-    compatible: cameras that don't pass chunks (FX2, simulators) get
-    None and existing consumers continue to work."""
+class TestImageHandlerBaseChunkSlot:
+    """ImageHandlerBase extends frame storage to carry per-frame chunk
+    metadata. Backward-compatible: cameras that don't pass chunks (FX2,
+    simulators) get None and existing consumers continue to work."""
 
     def _make_base(self):
         from drivers.camera import ImageHandlerBase
