@@ -2521,3 +2521,65 @@ class TestFrameValidityG1_SaveLiveImageDrainsBeforeGrab:
             "G1: capture_and_wait must accept earliest_image_ts kwarg so "
             "save_live_image can forward its existing parameter."
         )
+
+
+def _scope_attribute_calls(source: str, func_name: str) -> set[str]:
+    """Return the set of `self._scope.<method>(...)` attribute calls in a
+    named function's body. Mirrors `_function_body_calls` for AF executor's
+    indirect-via-_scope grab pattern."""
+    import ast
+    tree = ast.parse(source)
+    target = None
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef) and node.name == func_name:
+            target = node
+            break
+    if target is None:
+        raise AssertionError(f"function {func_name!r} not found in source")
+    calls: set[str] = set()
+    for sub in ast.walk(target):
+        if isinstance(sub, ast.Call) and isinstance(sub.func, ast.Attribute):
+            value = sub.func.value
+            # match self._scope.<method>
+            if (isinstance(value, ast.Attribute) and value.attr == "_scope"
+                    and isinstance(value.value, ast.Name) and value.value.id == "self"):
+                calls.add(sub.func.attr)
+    return calls
+
+
+class TestFrameValidityG3_AutofocusDrainsBeforeScore:
+    """G3 (FRAME_VALIDITY_PLAN.md §2): AutofocusExecutor._iterate must drain
+    LED/gain/exposure-pending frames before scoring. Bare get_image after
+    Z arrival can score on a mid-LED-warmup or mid-gain-change frame,
+    corrupting the focus curve and landing wrong best-Z. AF excludes
+    z_move because AF is the controller of Z moves; once is_moving()
+    reports idle, Z is settled."""
+
+    def test_iterate_calls_capture_and_wait(self):
+        from pathlib import Path
+        src = (Path(__file__).resolve().parent.parent / "modules" / "autofocus_executor.py").read_text()
+        calls = _scope_attribute_calls(src, "_iterate")
+        assert "capture_and_wait" in calls, (
+            "G3: AutofocusExecutor._iterate must call self._scope.capture_and_wait(...) "
+            "to drain LED/gain/exposure pending frames before scoring."
+        )
+
+    def test_iterate_does_not_call_bare_get_image(self):
+        from pathlib import Path
+        src = (Path(__file__).resolve().parent.parent / "modules" / "autofocus_executor.py").read_text()
+        calls = _scope_attribute_calls(src, "_iterate")
+        assert "get_image" not in calls, (
+            "G3: AutofocusExecutor._iterate must not call self._scope.get_image(...) "
+            "directly -- bypasses frame_validity. Route through capture_and_wait."
+        )
+
+    def test_iterate_excludes_z_move_in_validity(self):
+        """AF excludes z_move because is_moving() already gates motion; the
+        drain is for LED/gain/exposure transitions only."""
+        from pathlib import Path
+        src = (Path(__file__).resolve().parent.parent / "modules" / "autofocus_executor.py").read_text()
+        # both call sites must specify exclude_sources=('z_move',)
+        assert "exclude_sources=('z_move',)" in src, (
+            "G3: AutofocusExecutor._iterate's capture_and_wait calls must pass "
+            "exclude_sources=('z_move',) since is_moving() already gates motion."
+        )

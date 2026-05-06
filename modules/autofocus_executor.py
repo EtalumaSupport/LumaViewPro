@@ -342,16 +342,11 @@ class AutofocusExecutor:
                 self._is_focusing_event.clear()
                 return
 
-            # REMOVED: 2-frame drain was a workaround for VSTOP=1000 motor
-            # overshoot. Now that set_motor_precision_mode() sets VSTOP=100
-            # for the fine pass, the motor fully decelerates before reporting
-            # target_reached. The drain is no longer needed.
-
             image = False
             num_retries = 5
             count = 0
             while True:
-                image = self._scope.get_image(force_new_capture=True)
+                image = self._scope.capture_and_wait(exclude_sources=('z_move',))
                 count += 1
                 if isinstance(image, np.ndarray):
                     break
@@ -370,7 +365,7 @@ class AutofocusExecutor:
             mean_intensity = float(np.mean(image))
             if mean_intensity < 1.0:
                 _af_log.warning(f'  DARK FRAME: mean={mean_intensity:.2f}, retrying')
-                retry = self._scope.get_image(force_new_capture=True)
+                retry = self._scope.capture_and_wait(exclude_sources=('z_move',))
                 if isinstance(retry, np.ndarray):
                     image = retry
 
