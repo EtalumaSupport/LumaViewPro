@@ -2721,6 +2721,48 @@ class TestFrameValidity_AllLedMutatorsInvalidate:
         )
 
 
+class TestPathC5_CaptureAndWaitPassesChunksToValidity:
+    """Path C commit 5 (FRAME_VALIDITY_PLAN.md §1.1): capture_and_wait's
+    drain loop reads per-frame chunk metadata and passes it to
+    count_frame so chunk-match can short-circuit skip-frames for
+    gain/exposure on chunk-supporting cameras. Backward compat: cameras
+    without chunks return None and fall back to skip-frames."""
+
+    def test_capture_and_wait_passes_chunk_data_to_count_frame(self):
+        from pathlib import Path
+        src = (Path(__file__).resolve().parent.parent / "modules" / "lumascope_api.py").read_text()
+        body = _function_source(src, "capture_and_wait")
+        # Source mentions count_frame call site with chunk_data kwarg
+        assert "count_frame(chunk_data=" in body, (
+            "Path C: capture_and_wait must call count_frame(chunk_data=...) "
+            "in the drain loop so chunk-match can clear gain/exposure pending."
+        )
+
+    def test_get_latest_chunks_helper_exists(self):
+        """The _get_latest_chunks helper abstracts handler shape (Pylon
+        composition vs IDS inheritance) and returns None for non-chunk cameras."""
+        import inspect
+        from modules import lumascope_api
+        assert hasattr(lumascope_api.Lumascope, '_get_latest_chunks'), (
+            "Path C: Lumascope must expose _get_latest_chunks() helper."
+        )
+        sig = inspect.signature(lumascope_api.Lumascope._get_latest_chunks)
+        # No required params (besides self) -- it reads from self.camera state
+        non_self = [p for p in sig.parameters if p != 'self']
+        assert len(non_self) == 0, (
+            f"_get_latest_chunks should take no args; got {non_self}"
+        )
+
+    def test_get_latest_chunks_returns_none_when_no_camera(self):
+        """Defensive: helper returns None instead of raising when camera
+        isn't connected (FX2 fallback / pre-connect / disconnected state)."""
+        from modules.lumascope_api import Lumascope
+        # Construct without going through full init -- attributes set by hand
+        scope = Lumascope.__new__(Lumascope)
+        scope.camera = None
+        assert scope._get_latest_chunks() is None
+
+
 class TestPathC4_LumascopeRecordsTargetForChunkMatch:
     """Path C commit 4 (FRAME_VALIDITY_PLAN.md §1.1): the API layer records
     requested gain / exposure values via frame_validity.set_target() so

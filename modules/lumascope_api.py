@@ -5136,6 +5136,32 @@ class Lumascope():
 
         return self.capture_and_wait()
 
+    def _get_latest_chunks(self) -> dict | None:
+        """Return per-frame chunk metadata for the most recent successful
+        grab, or None if chunks aren't available.
+
+        Path C plumbing helper. Camera handlers expose chunks differently:
+          - PylonCamera.ImageHandler: composition -- chunks at handler._base
+          - IDSCamera.ImageHandler: inheritance -- chunks at handler directly
+          - FX2 / simulators: no chunks at all -> None
+
+        Always returns None on any access path failure -- frame_validity
+        falls back to skip-frames calibration when chunks aren't available.
+        """
+        if self.camera is None:
+            return None
+        handler = getattr(self.camera, 'cam_image_handler', None)
+        if handler is None:
+            return None
+        # Composition (Pylon) first, then inheritance (IDS / direct base).
+        base = getattr(handler, '_base', handler)
+        if not hasattr(base, 'get_last_chunks'):
+            return None
+        try:
+            return base.get_last_chunks()
+        except Exception:
+            return None
+
     def capture_and_wait(self, force_to_8bit: bool = True, *,
                          exclude_sources: tuple = (),
                          all_ones_check: bool = False,
@@ -5177,11 +5203,15 @@ class Lumascope():
         exposure_s = self.get_exposure_time() / 1000
         grab_timeout = max(exposure_s * 3, 1.0)
 
-        # Drain stale frames until all pending state changes have settled
+        # Drain stale frames until all pending state changes have settled.
+        # Path C: pass per-frame chunk metadata into count_frame so chunks
+        # short-circuit skip-frames for chunk-validatable sources (gain,
+        # exposure). Cameras without chunks return None and fall back to
+        # the existing skip-frames + settle-check path.
         while self.frame_validity.frames_until_valid(exclude_sources=exclude_sources) > 0:
             status, _ = self.camera.grab_new_capture(timeout=grab_timeout)
             if status:
-                self.frame_validity.count_frame()
+                self.frame_validity.count_frame(chunk_data=self._get_latest_chunks())
             else:
                 logger.warning('[SCOPE API ] capture_and_wait: frame drain failed')
                 return False
