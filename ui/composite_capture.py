@@ -143,7 +143,7 @@ class CompositeCapture(FloatLayout):
                     turn_off_all_leds_after=False,
                 )
 
-            image_orig = ctx.scope.get_image(force_to_8bit=force_to_8bit_pixel_depth)
+            image_orig = ctx.scope.capture_and_wait(force_to_8bit=force_to_8bit_pixel_depth)
             if image_orig is False:
                 return
 

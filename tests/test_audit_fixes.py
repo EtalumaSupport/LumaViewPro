@@ -2603,6 +2603,34 @@ class TestFrameValidityG3_AutofocusDrainsBeforeScore:
         )
 
 
+class TestFrameValidityG4_CompositeEngineeringBranchDrains:
+    """G4 (FRAME_VALIDITY_PLAN.md §2): the engineering-mode branch of
+    composite_capture's live_capture path (bullseye / crosshairs enabled)
+    grabs an extra image_orig for overlay rendering. Bare get_image here
+    would persist a mid-transition raw image to disk via the subsequent
+    save_image call. Must route through capture_and_wait."""
+
+    def test_live_capture_impl_uses_capture_and_wait(self):
+        from pathlib import Path
+        src = (Path(__file__).resolve().parent.parent / "ui" / "composite_capture.py").read_text()
+        body = _function_source(src, "_live_capture_impl")
+        assert "ctx.scope.capture_and_wait(" in body, (
+            "G4: composite_capture._live_capture_impl must call "
+            "ctx.scope.capture_and_wait(...) for the engineering bullseye/"
+            "crosshairs branch (was bare get_image)."
+        )
+
+    def test_live_capture_impl_no_bare_ctx_scope_get_image(self):
+        from pathlib import Path
+        src = (Path(__file__).resolve().parent.parent / "ui" / "composite_capture.py").read_text()
+        body = _function_source(src, "_live_capture_impl")
+        assert "ctx.scope.get_image(" not in body, (
+            "G4: composite_capture._live_capture_impl must not call "
+            "ctx.scope.get_image(...) directly. Route through capture_and_wait "
+            "(or save_live_image, which now uses capture_and_wait per G1)."
+        )
+
+
 class TestFrameValidity_AllLedMutatorsInvalidate:
     """Defensive coverage: every LED state-mutator on Lumascope must call
     frame_validity.invalidate('led'). Verified all 6 present in session 67
