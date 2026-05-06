@@ -2719,3 +2719,75 @@ class TestFrameValidity_AllLedMutatorsInvalidate:
             "self.frame_validity.invalidate('led') so frame_validity sees the "
             f"transition. Missing: {missing!r}. See FRAME_VALIDITY_PLAN.md §2."
         )
+
+
+class TestPathC2_ImageHandlerBaseChunkSlot:
+    """Path C commit 2 (FRAME_VALIDITY_PLAN.md §1.1): ImageHandlerBase
+    extends frame storage to carry per-frame chunk metadata. Backward-
+    compatible: cameras that don't pass chunks (FX2, simulators) get
+    None and existing consumers continue to work."""
+
+    def _make_base(self):
+        from drivers.camera import ImageHandlerBase
+        return ImageHandlerBase()
+
+    def test_initial_chunks_none(self):
+        b = self._make_base()
+        assert b.last_chunks is None
+        assert b.get_last_chunks() is None
+
+    def test_store_frame_without_chunks_keeps_none(self):
+        """Backward compat: existing _store_frame(image, ts) call site."""
+        import datetime
+        import numpy as np
+        b = self._make_base()
+        b._store_frame(np.zeros((4, 4), dtype=np.uint8), datetime.datetime.now())
+        assert b.last_chunks is None
+        assert b.get_last_chunks() is None
+
+    def test_store_frame_with_chunks_sets_dict(self):
+        import datetime
+        import numpy as np
+        b = self._make_base()
+        chunks = {'ExposureTime': 14530.0, 'Gain': 1.0, 'FrameID': 12345}
+        b._store_frame(np.zeros((4, 4), dtype=np.uint8), datetime.datetime.now(), chunks=chunks)
+        assert b.last_chunks == chunks
+        assert b.get_last_chunks() == chunks
+
+    def test_get_last_chunks_returns_none_before_first_grab(self):
+        b = self._make_base()
+        # last_result is False from __init__ -> get_last_chunks returns None
+        assert b.get_last_chunks() is None
+
+    def test_get_last_chunks_returns_none_after_failed_grab(self):
+        """If the last grab failed, get_last_chunks returns None even if
+        a previous grab populated chunks."""
+        import datetime
+        import numpy as np
+        b = self._make_base()
+        b._store_frame(np.zeros((4, 4), dtype=np.uint8), datetime.datetime.now(),
+                       chunks={'ExposureTime': 14530.0})
+        b._record_failure()  # last_result becomes False
+        assert b.get_last_chunks() is None
+
+    def test_reset_clears_chunks(self):
+        import datetime
+        import numpy as np
+        b = self._make_base()
+        b._store_frame(np.zeros((4, 4), dtype=np.uint8), datetime.datetime.now(),
+                       chunks={'ExposureTime': 14530.0})
+        b.reset()
+        assert b.last_chunks is None
+        assert b.get_last_chunks() is None
+
+    def test_chunks_replace_not_merge(self):
+        """Each successful grab replaces the chunks dict; we don't merge."""
+        import datetime
+        import numpy as np
+        b = self._make_base()
+        b._store_frame(np.zeros((4, 4), dtype=np.uint8), datetime.datetime.now(),
+                       chunks={'ExposureTime': 14530.0, 'Gain': 1.0})
+        b._store_frame(np.zeros((4, 4), dtype=np.uint8), datetime.datetime.now(),
+                       chunks={'ExposureTime': 30000.0})
+        assert b.get_last_chunks() == {'ExposureTime': 30000.0}
+        assert 'Gain' not in b.get_last_chunks()

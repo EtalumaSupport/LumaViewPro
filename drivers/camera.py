@@ -25,6 +25,7 @@ class ImageHandlerBase:
         self.last_result = False
         self.last_img = None
         self.last_img_ts = None
+        self.last_chunks = None  # Path C: per-frame chunk metadata, dict or None
         self._failed_grabs = 0
 
     def get_last_image(self):
@@ -40,20 +41,47 @@ class ImageHandlerBase:
                 return False, None, None
             return True, self.last_img, self.last_img_ts
 
+    def get_last_chunks(self) -> dict | None:
+        """Return per-frame chunk metadata for the most recent successful grab.
+
+        Path C: cameras that support chunk data (Basler USB3 ace 2 / dart;
+        IDS Peak partial) populate this dict in OnImageGrabbed / _grab_loop.
+        Cameras without chunk support return None (default).
+
+        Returned dict keys are GenICam attribute symbolic names
+        ('ExposureTime', 'Gain', 'FrameID' on Basler; 'ExposureTime' / 'Gain'
+        on IDS without FrameID). Values are floats / ints as reported by
+        the camera. Returns None when no successful grab has occurred yet.
+        """
+        with self._frame_lock:
+            if not self.last_result:
+                return None
+            return self.last_chunks
+
     def reset(self):
         """Clear frame buffer and failure counter."""
         with self._frame_lock:
             self.last_result = False
             self.last_img = None
             self.last_img_ts = None
+            self.last_chunks = None
         self._failed_grabs = 0
 
-    def _store_frame(self, image, timestamp):
-        """Called by subclass when a new frame is successfully grabbed."""
+    def _store_frame(self, image, timestamp, chunks: dict | None = None):
+        """Called by subclass when a new frame is successfully grabbed.
+
+        Args:
+            image: numpy array (already copied from SDK buffer).
+            timestamp: datetime when the frame arrived host-side.
+            chunks: optional per-frame chunk metadata dict (Path C). None
+                for cameras without chunk support; backward-compatible with
+                callers that don't pass it.
+        """
         with self._frame_lock:
             self.last_result = True
             self.last_img = image
             self.last_img_ts = timestamp
+            self.last_chunks = chunks
         self._failed_grabs = 0
 
     def _record_failure(self):
