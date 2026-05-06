@@ -5,6 +5,7 @@ import re
 import threading
 import time
 from lvp_logger import logger
+from drivers.exceptions import HardwareError
 from drivers.serialboard import SerialBoard
 from drivers.registry import led_registry
 
@@ -257,21 +258,31 @@ class LEDBoard(SerialBoard):
     # ------------------------------------------------------------------
     # Engineering mode and diagnostics
     # ------------------------------------------------------------------
-    def enter_engineering_mode(self, timeout=5.0):
+    def enter_engineering_mode(self, timeout: float = 5.0) -> bool:
         """Enter engineering mode (FACTORY command with Y/N confirmation).
 
         Sends FACTORY, waits for Y/N prompt, sends Y, drains help text.
-        Returns True on success, False if prompt not seen or timeout.
+
+        Returns:
+            bool: True on success.
+
+        Raises:
+            HardwareError: No response from the LED board (timeout or
+                disconnect), or the firmware did not present a Y/N
+                prompt (likely too old to support engineering mode).
         """
         resp = self.exchange_multiline(
             'FACTORY', timeout=timeout,
             end_markers=['Y/N', 'y/n', 'FACTORY'])
         if resp is None:
-            logger.warning('[LED Class ] enter_engineering_mode(): no response')
-            return False
+            raise HardwareError(
+                'enter_engineering_mode(): no response from LED board '
+                '(timeout or disconnect)')
         if 'Y/N' not in resp.upper():
-            logger.warning(f'[LED Class ] enter_engineering_mode(): no Y/N prompt in: {resp!r}')
-            return False
+            raise HardwareError(
+                f'enter_engineering_mode(): no Y/N prompt seen -- '
+                f'firmware may be too old to support engineering mode. '
+                f'Response: {resp!r}')
         # Confirm with Y
         confirm_resp = self.exchange_multiline(
             'Y', timeout=timeout,

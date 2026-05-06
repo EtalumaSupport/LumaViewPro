@@ -1467,6 +1467,101 @@ class TestHomeReturnsBool:
                 f"SimulatedMotorBoard.{method} must raise HardwareError on failure (D1)"
 
 
+class TestDisconnectReturnsBool:
+    """Wave 4 / B2: Lumascope.disconnect must return an aggregated bool
+    indicating whether all sub-system disconnects (LED + motion + camera)
+    succeeded. Best-effort teardown still runs every sub-system and
+    resets state to Null variants even on partial failure.
+    """
+
+    def test_disconnect_has_bool_return_annotation(self):
+        import pathlib
+        source = pathlib.Path("modules/lumascope_api.py").read_text()
+        assert "def disconnect(self) -> bool:" in source, \
+            "Lumascope.disconnect must declare `-> bool` (Wave 4 B2; Rule 37)"
+
+    def test_disconnect_aggregates_and_returns_bool(self):
+        """Method body must aggregate three sub-system bools and return."""
+        import pathlib
+        source = pathlib.Path("modules/lumascope_api.py").read_text()
+        idx = source.find("def disconnect(self) -> bool:")
+        assert idx != -1
+        next_def = source.find("\n    def ", idx + 1)
+        body = source[idx:next_def] if next_def != -1 else source[idx:idx+4000]
+        # Each sub-system tracked independently:
+        for var in ("led_ok", "motion_ok", "camera_ok"):
+            assert var in body, f"disconnect must track {var} (Wave 4 B2)"
+        # Aggregation + return:
+        assert "led_ok and motion_ok and camera_ok" in body, \
+            "disconnect must aggregate the three sub-bools (Wave 4 B2)"
+        assert "return all_ok" in body, \
+            "disconnect must return the aggregate (Wave 4 B2)"
+        # Per-failure notification (Rule 14):
+        assert "notifications.error(" in body, \
+            "disconnect must notify per failure (Rule 14)"
+        # Returns: docstring section (Rule 38):
+        assert "Returns:" in body, \
+            "disconnect docstring must have a Returns: section (Rule 38)"
+
+    def test_disconnect_on_simulator_returns_true(self, sim_scope):
+        """Sim path: every sub-system disconnects cleanly -> True."""
+        # `sim_scope` fixture's teardown also calls disconnect; this
+        # call covers the explicit-return-value contract.
+        result = sim_scope.disconnect()
+        assert result is True, \
+            "Simulator disconnect must return True when no sub-system fails"
+
+    def test_disconnect_camera_failure_returns_false(self, sim_scope):
+        """If camera.disconnect raises, the API must catch, notify, and
+        still return False. LED + motion still attempted; state still reset."""
+        # Replace the camera with one whose disconnect raises.
+        from unittest.mock import MagicMock
+        sim_scope.camera = MagicMock()
+        sim_scope.camera.disconnect = MagicMock(side_effect=RuntimeError("boom"))
+        result = sim_scope.disconnect()
+        assert result is False, \
+            "disconnect must return False when camera teardown raises"
+        assert sim_scope.camera is None, \
+            "disconnect must reset self.camera even when teardown raises"
+
+
+class TestEnterEngineeringModeRaises:
+    """Wave 4 / D2: LEDBoard.enter_engineering_mode must raise
+    HardwareError on the no-response and no-Y/N-prompt failure paths
+    instead of `return False` (Rule 29).
+    """
+
+    def test_ledboard_enter_engineering_mode_has_bool_return(self):
+        import pathlib
+        source = pathlib.Path("drivers/ledboard.py").read_text()
+        assert "def enter_engineering_mode(self, timeout: float = 5.0) -> bool:" in source, \
+            "LEDBoard.enter_engineering_mode must declare `-> bool` (Tier 1-A; Rule 37)"
+
+    def test_ledboard_enter_engineering_mode_raises(self):
+        """Two failure paths must raise HardwareError."""
+        import pathlib
+        source = pathlib.Path("drivers/ledboard.py").read_text()
+        idx = source.find("def enter_engineering_mode(self, timeout: float = 5.0) -> bool:")
+        assert idx != -1
+        next_def = source.find("\n    def ", idx + 1)
+        body = source[idx:next_def] if next_def != -1 else source[idx:idx+3000]
+        assert body.count("raise HardwareError(") >= 2, \
+            "enter_engineering_mode must raise HardwareError on both failure paths (D2)"
+        assert "Raises:" in body, \
+            "enter_engineering_mode docstring must document HardwareError (Rule 38)"
+        # The legacy `return False` paths must be gone:
+        # (Sanity check -- the only `return` in the body should be
+        # `return True` on success; `return False` means migration regressed.)
+        assert "return False" not in body, \
+            "enter_engineering_mode must no longer `return False` (Rule 29 / D2)"
+
+    def test_ledboard_imports_hardware_error(self):
+        import pathlib
+        source = pathlib.Path("drivers/ledboard.py").read_text()
+        assert "from drivers.exceptions import HardwareError" in source, \
+            "ledboard must import HardwareError"
+
+
 class TestF7_ProtocolHomingInterlock:
     """F7: Homing/bookmark must be blocked during protocol execution."""
 

@@ -302,8 +302,14 @@ class SimulatedLEDBoard:
     # ------------------------------------------------------------------
     # Engineering mode and diagnostics (match LEDBoard API)
     # ------------------------------------------------------------------
-    def enter_engineering_mode(self, timeout=5.0):
-        """Simulated engineering mode entry — always succeeds."""
+    def enter_engineering_mode(self, timeout: float = 5.0) -> bool:
+        """Simulated engineering mode entry -- always succeeds.
+
+        Returns:
+            bool: Always True; sim never reproduces the
+                no-response / no-Y/N-prompt failure modes that the
+                real LEDBoard.enter_engineering_mode raises HardwareError on.
+        """
         logger.info('[LED Sim   ] enter_engineering_mode()')
         return True
 
