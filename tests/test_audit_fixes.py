@@ -2459,3 +2459,65 @@ class TestPF1_CpuPoolRetired:
         assert "from concurrent.futures import ProcessPoolExecutor" not in src, (
             "PF-1: unused ProcessPoolExecutor import should be removed from sequenced_capture_executor.py."
         )
+
+
+def _function_body_calls(source: str, func_name: str) -> set[str]:
+    """Return the set of `self.<method>(...)` attribute calls in a named function's body.
+
+    Used by frame-validity ship-gate tests to assert that capture call sites
+    route through the canonical drain-then-grab helper. AST-based so the
+    assertion survives whitespace / argument-order changes.
+    """
+    import ast
+    tree = ast.parse(source)
+    target = None
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef) and node.name == func_name:
+            target = node
+            break
+    if target is None:
+        raise AssertionError(f"function {func_name!r} not found in source")
+    calls: set[str] = set()
+    for sub in ast.walk(target):
+        if isinstance(sub, ast.Call) and isinstance(sub.func, ast.Attribute):
+            value = sub.func.value
+            if isinstance(value, ast.Name) and value.id == "self":
+                calls.add(sub.func.attr)
+    return calls
+
+
+class TestFrameValidityG1_SaveLiveImageDrainsBeforeGrab:
+    """G1 (FRAME_VALIDITY_PLAN.md §2): Lumascope.save_live_image must
+    drain stale frames before grabbing. Bare self.get_image(...) ships a
+    mid-transition frame to disk on every manual save; canonical helper
+    is self.capture_and_wait(...)."""
+
+    def test_save_live_image_calls_capture_and_wait(self):
+        from pathlib import Path
+        src = (Path(__file__).resolve().parent.parent / "modules" / "lumascope_api.py").read_text()
+        calls = _function_body_calls(src, "save_live_image")
+        assert "capture_and_wait" in calls, (
+            "G1: save_live_image must call self.capture_and_wait(...) for "
+            "drain-then-grab. See FRAME_VALIDITY_PLAN.md §2."
+        )
+
+    def test_save_live_image_does_not_call_bare_get_image(self):
+        from pathlib import Path
+        src = (Path(__file__).resolve().parent.parent / "modules" / "lumascope_api.py").read_text()
+        calls = _function_body_calls(src, "save_live_image")
+        assert "get_image" not in calls, (
+            "G1: save_live_image must not call self.get_image(...) directly -- "
+            "that bypasses frame_validity. Route through self.capture_and_wait(...)."
+        )
+
+    def test_capture_and_wait_accepts_earliest_image_ts(self):
+        """G1 plumbing: capture_and_wait must forward earliest_image_ts so
+        save_live_image's signature stays L2-stable (Rule 30)."""
+        import inspect
+
+        from modules import lumascope_api
+        sig = inspect.signature(lumascope_api.Lumascope.capture_and_wait)
+        assert "earliest_image_ts" in sig.parameters, (
+            "G1: capture_and_wait must accept earliest_image_ts kwarg so "
+            "save_live_image can forward its existing parameter."
+        )

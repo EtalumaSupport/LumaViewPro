@@ -429,6 +429,7 @@ image = scope.capture_and_wait(
     sum_count=4,                           # average 4 frames
     sum_delay_s=0.05,                      # delay between sum frames
     exclude_sources=('z_move',),           # don't wait for this source (AF uses this)
+    earliest_image_ts=None,                # optional wall-clock lower bound on returned frame
 )
 
 # Exposure (milliseconds) + gain (dB)

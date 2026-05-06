@@ -3274,7 +3274,7 @@ class Lumascope():
 
         # PIW-2: removed redundant `check_disk_space("/")` warn — see save_image() above.
 
-        array = self.get_image(
+        array = self.capture_and_wait(
             force_to_8bit=force_to_8bit,
             earliest_image_ts=earliest_image_ts,
             timeout=timeout,
@@ -5114,6 +5114,7 @@ class Lumascope():
     def capture_and_wait(self, force_to_8bit: bool = True, *,
                          exclude_sources: tuple = (),
                          all_ones_check: bool = False,
+                         earliest_image_ts: datetime.datetime | None = None,
                          timeout: datetime.timedelta = datetime.timedelta(seconds=0),
                          sum_count: int = 1, sum_delay_s: float = 0,
                          sum_iteration_callback=None) -> 'np.ndarray | bool':
@@ -5132,6 +5133,10 @@ class Lumascope():
             exclude_sources: Sources to ignore for validity (e.g. ('z_move',)
                 for autofocus where Z motion doesn't need to fully settle).
             all_ones_check: Reject all-max-value frames (camera hardware issue).
+            earliest_image_ts: Reject frames captured before this timestamp.
+                Forwarded to the final get_image call; complements the
+                frame-validity drain for callers that also want a wall-clock
+                lower bound on the returned frame.
             timeout: Timeout for the final get_image call.
             sum_count: Number of frames to sum for noise reduction.
             sum_delay_s: Delay between summed frames.
@@ -5158,6 +5163,7 @@ class Lumascope():
 
         return self.get_image(
             force_to_8bit=force_to_8bit,
+            earliest_image_ts=earliest_image_ts,
             all_ones_check=all_ones_check,
             timeout=timeout,
             sum_count=sum_count,
