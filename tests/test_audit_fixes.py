@@ -2721,6 +2721,58 @@ class TestFrameValidity_AllLedMutatorsInvalidate:
         )
 
 
+class TestPathC4_LumascopeRecordsTargetForChunkMatch:
+    """Path C commit 4 (FRAME_VALIDITY_PLAN.md §1.1): the API layer records
+    requested gain / exposure values via frame_validity.set_target() so
+    capture_and_wait's chunk-match can short-circuit skip-frames once
+    a frame's chunks match the target.
+
+    Manual setters (set_gain, set_exposure_time) record the value; auto
+    setters (set_auto_gain, set_auto_exposure_time) clear the target
+    (None) since auto dynamically changes the value and chunk-match
+    against a stale manual target would be wrong."""
+
+    def test_set_gain_records_target(self):
+        from pathlib import Path
+        src = (Path(__file__).resolve().parent.parent / "modules" / "lumascope_api.py").read_text()
+        body = _function_source(src, "set_gain")
+        assert "self.frame_validity.set_target('gain'" in body, (
+            "Path C: set_gain must record gain target via frame_validity.set_target."
+        )
+
+    def test_set_exposure_time_records_target_in_microseconds(self):
+        """ChunkExposureTime is microseconds; API takes milliseconds.
+        Conversion (* 1000) must happen at the seam so chunk-match's
+        tolerance is in matching units."""
+        from pathlib import Path
+        src = (Path(__file__).resolve().parent.parent / "modules" / "lumascope_api.py").read_text()
+        body = _function_source(src, "set_exposure_time")
+        assert "self.frame_validity.set_target('exposure'" in body, (
+            "Path C: set_exposure_time must record target via set_target."
+        )
+        assert "1000" in body, (
+            "Path C: set_exposure_time must convert ms -> us when recording "
+            "target so chunk-match operates in microseconds."
+        )
+
+    def test_set_auto_gain_clears_target(self):
+        from pathlib import Path
+        src = (Path(__file__).resolve().parent.parent / "modules" / "lumascope_api.py").read_text()
+        body = _function_source(src, "set_auto_gain")
+        assert "set_target('gain', None)" in body, (
+            "Path C: set_auto_gain must clear gain target (None) so chunk-match "
+            "doesn't fire against a stale manual target while auto adjusts."
+        )
+
+    def test_set_auto_exposure_time_clears_target(self):
+        from pathlib import Path
+        src = (Path(__file__).resolve().parent.parent / "modules" / "lumascope_api.py").read_text()
+        body = _function_source(src, "set_auto_exposure_time")
+        assert "set_target('exposure', None)" in body, (
+            "Path C: set_auto_exposure_time must clear exposure target (None)."
+        )
+
+
 class TestPathC2_ImageHandlerBaseChunkSlot:
     """Path C commit 2 (FRAME_VALIDITY_PLAN.md §1.1): ImageHandlerBase
     extends frame storage to carry per-frame chunk metadata. Backward-

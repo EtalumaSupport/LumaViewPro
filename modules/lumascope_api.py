@@ -3378,6 +3378,9 @@ class Lumascope():
         with self._cam_lock:
             self.camera.gain(gain)
         self.frame_validity.invalidate('gain')
+        # Path C: record requested gain so capture_and_wait's chunk-match
+        # can short-circuit skip-frames once a frame's ChunkGain matches.
+        self.frame_validity.set_target('gain', float(gain))
         with self._camera_cache_lock:
             self._camera_cache['gain'] = float(gain)
         _api_log.info(f'set_gain {gain}dB')
@@ -3399,6 +3402,9 @@ class Lumascope():
             max_gain=settings['max_gain'],
         )
         self.frame_validity.invalidate('gain')
+        # Path C: auto-gain dynamically adjusts the value; clear the manual
+        # target so chunk-match falls back to skip-frames calibration.
+        self.frame_validity.set_target('gain', None)
 
     def set_exposure_time(self, t: float) -> None:
         """Set the camera exposure time.
@@ -3419,6 +3425,11 @@ class Lumascope():
         with self._cam_lock:
             self.camera.exposure_t(t)
         self.frame_validity.invalidate('exposure')
+        # Path C: record requested exposure for chunk-match. ChunkExposureTime
+        # is microseconds; the API takes milliseconds. Convert at the seam so
+        # frame_validity's tolerance (DEFAULT_CHUNK_TOLERANCE['exposure'] = 100 us)
+        # is in the same unit as the chunk value.
+        self.frame_validity.set_target('exposure', float(t) * 1000.0)
         with self._camera_cache_lock:
             self._camera_cache['exposure_ms'] = float(t)
         _api_log.info(f'set_exposure {t}ms')
@@ -3445,6 +3456,9 @@ class Lumascope():
         if not self.camera or not self.camera.active: return
         self.camera.auto_exposure_t(state)
         self.frame_validity.invalidate('exposure')
+        # Path C: auto-exposure dynamically adjusts the value; clear the
+        # manual target so chunk-match falls back to skip-frames calibration.
+        self.frame_validity.set_target('exposure', None)
 
     def apply_layer_camera_settings(self, gain: float, exposure_ms: float,
                                      auto_gain: bool = False,
