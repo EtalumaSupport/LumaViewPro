@@ -717,46 +717,73 @@ class Lumascope():
 
     @property
     def camera_active(self) -> bool:
-        """Whether the camera is connected and active (reads cache)."""
+        """Whether the camera is connected and active (reads cache).
+
+        Returns:
+            bool: True if the camera is currently active.
+        """
         with self._camera_cache_lock:
             return self._camera_cache['active']
 
     @property
     def camera_gain(self) -> float:
-        """Current camera gain in dB (reads cache)."""
+        """Current camera gain in dB (reads cache).
+
+        Returns:
+            float: Cached gain value in dB.
+        """
         with self._camera_cache_lock:
             return self._camera_cache['gain']
 
     @property
     def camera_exposure_ms(self) -> float:
-        """Current camera exposure time in ms (reads cache)."""
+        """Current camera exposure time in ms (reads cache).
+
+        Returns:
+            float: Cached exposure time in milliseconds.
+        """
         with self._camera_cache_lock:
             return self._camera_cache['exposure_ms']
 
     @property
     def camera_frame_size(self) -> dict:
-        """Current camera frame size as {'width': int, 'height': int} (reads cache)."""
+        """Current camera frame size as {'width': int, 'height': int} (reads cache).
+
+        Returns:
+            dict: Copy of the cached frame size dict.
+        """
         with self._camera_cache_lock:
             return dict(self._camera_cache['frame_size'])
 
     @property
     def camera_max_frame_size(self) -> dict:
-        """Maximum camera frame size (reads cache)."""
+        """Maximum camera frame size (reads cache).
+
+        Returns:
+            dict: Copy of the cached max frame size dict.
+        """
         with self._camera_cache_lock:
             return dict(self._camera_cache['max_frame_size'])
 
     @property
     def camera_min_frame_size(self) -> dict:
-        """Minimum camera frame size (reads cache)."""
+        """Minimum camera frame size (reads cache).
+
+        Returns:
+            dict: Copy of the cached min frame size dict.
+        """
         with self._camera_cache_lock:
             return dict(self._camera_cache['min_frame_size'])
 
     @property
-    def camera_max_exposure(self):
+    def camera_max_exposure(self) -> float | None:
         """Maximum camera exposure time in ms, or None if no camera is connected.
 
         Returns None (not a sentinel 0.0) so callers can distinguish
         "camera missing" from a real driver value. See #616.
+
+        Returns:
+            float | None: Max exposure time in ms, or None if unavailable.
         """
         with self._camera_cache_lock:
             value = self._camera_cache.get('max_exposure')
@@ -765,13 +792,16 @@ class Lumascope():
         return float(value)
 
     @property
-    def camera_max_gain(self):
+    def camera_max_gain(self) -> float | None:
         """Maximum camera gain in dB, or None if no camera is connected.
 
         Parallel to camera_max_exposure -- lets the UI size the gain
         slider to the connected camera's profile-declared cap instead
         of a universal hardcoded 48 dB that can drive the image past
         the sensor's usable range (observed on LS620 2026-04-16).
+
+        Returns:
+            float | None: Max gain in dB, or None if unavailable.
         """
         with self._camera_cache_lock:
             value = self._camera_cache.get('max_gain')
@@ -781,7 +811,11 @@ class Lumascope():
 
     @property
     def camera_pixel_format(self) -> str:
-        """Current camera pixel format (e.g. 'Mono8', 'Mono12') (reads cache)."""
+        """Current camera pixel format (e.g. 'Mono8', 'Mono12') (reads cache).
+
+        Returns:
+            str: Cached pixel format string.
+        """
         with self._camera_cache_lock:
             return self._camera_cache.get('pixel_format', 'Mono8')
 
@@ -789,11 +823,16 @@ class Lumascope():
 
     @property
     def is_homing(self) -> bool:
-        """True while the microscope is homing."""
+        """True while the microscope is homing.
+
+        Returns:
+            bool: True if a homing operation is in progress.
+        """
         return self._homing_event.is_set()
 
     @is_homing.setter
-    def is_homing(self, value: bool):
+    def is_homing(self, value: bool) -> None:
+        """Set the homing-in-progress flag."""
         if value:
             self._homing_event.set()
         else:
@@ -801,11 +840,16 @@ class Lumascope():
 
     @property
     def is_turreting(self) -> bool:
-        """True while the turret is moving."""
+        """True while the turret is moving.
+
+        Returns:
+            bool: True if a turret motion is in progress.
+        """
         return self._turreting_event.is_set()
 
     @is_turreting.setter
-    def is_turreting(self, value: bool):
+    def is_turreting(self, value: bool) -> None:
+        """Set the turret-motion-in-progress flag."""
         if value:
             self._turreting_event.set()
         else:
@@ -813,11 +857,16 @@ class Lumascope():
 
     @property
     def is_capturing(self) -> bool:
-        """True while the microscope is capturing an image."""
+        """True while the microscope is capturing an image.
+
+        Returns:
+            bool: True if a capture is in progress.
+        """
         return self._capturing_event.is_set()
 
     @is_capturing.setter
-    def is_capturing(self, value: bool):
+    def is_capturing(self, value: bool) -> None:
+        """Set the capture-in-progress flag."""
         if value:
             self._capturing_event.set()
         else:
@@ -825,11 +874,16 @@ class Lumascope():
 
     @property
     def is_focusing(self) -> bool:
-        """True while the microscope is running autofocus."""
+        """True while the microscope is running autofocus.
+
+        Returns:
+            bool: True if an autofocus run is in progress.
+        """
         return self._focusing_event.is_set()
 
     @is_focusing.setter
-    def is_focusing(self, value: bool):
+    def is_focusing(self, value: bool) -> None:
+        """Set the autofocus-in-progress flag."""
         if value:
             self._focusing_event.set()
         else:
@@ -837,33 +891,55 @@ class Lumascope():
 
     @property
     def capture_return(self):
+        """Latest capture result (image array or False/None).
+
+        Returns:
+            Image array on success, or False/None when no capture has
+            completed yet.
+        """
         with self._state_lock:
             return self._capture_return
 
     @capture_return.setter
-    def capture_return(self, value):
+    def capture_return(self, value) -> None:
+        """Store the latest capture result."""
         with self._state_lock:
             self._capture_return = value
 
     @property
     def autofocus_return(self):
+        """Latest autofocus result.
+
+        Returns:
+            The most recent autofocus return value (driver-defined), or
+            None if autofocus has not run.
+        """
         with self._state_lock:
             return self._autofocus_return
 
     @autofocus_return.setter
-    def autofocus_return(self, value):
+    def autofocus_return(self, value) -> None:
+        """Store the latest autofocus result."""
         with self._state_lock:
             self._autofocus_return = value
 
     @property
-    def scale_bar_config(self):
-        """Return a snapshot of scale bar settings."""
+    def scale_bar_config(self) -> dict:
+        """Return a snapshot of scale bar settings.
+
+        Returns:
+            dict: Copy of the scale bar config (e.g. enabled, color).
+        """
         with self._state_lock:
             return dict(self._scale_bar)
 
     @property
     def scale_bar_enabled(self) -> bool:
-        """Whether the scale bar overlay is enabled."""
+        """Whether the scale bar overlay is enabled.
+
+        Returns:
+            bool: True if the scale bar is enabled.
+        """
         with self._state_lock:
             return bool(self._scale_bar.get('enabled', False))
 
@@ -874,21 +950,36 @@ class Lumascope():
 
     @property
     def frame_is_valid(self) -> bool:
-        """True if all pending hardware state changes have settled
-        (frame_validity is the SSOT -- see modules/frame_validity.py)."""
+        """True if all pending hardware state changes have settled.
+
+        ``frame_validity`` is the SSOT (see modules/frame_validity.py).
+
+        Returns:
+            bool: True when no pending state changes are outstanding.
+        """
         return self.frame_validity.is_valid
 
     def frames_until_valid(self, exclude_sources: tuple = ()) -> int:
-        """Number of frames that must be grabbed before the next valid
-        frame. Returns 0 if already valid. Delegates to frame_validity.
+        """Number of frames that must be grabbed before the next valid frame.
+
+        Delegates to frame_validity.
+
+        Args:
+            exclude_sources: Sources to exclude from the validity check.
+
+        Returns:
+            int: Number of additional frames to drain before validity. 0 if
+                already valid.
         """
         return self.frame_validity.frames_until_valid(
             exclude_sources=exclude_sources,
         )
 
-    def count_frame(self):
-        """Record that a frame was grabbed from the camera. Delegates
-        to frame_validity (no driver call)."""
+    def count_frame(self) -> None:
+        """Record that a frame was grabbed from the camera.
+
+        Delegates to frame_validity (no driver call).
+        """
         self.frame_validity.count_frame()
 
     # --- Executor-backed command API (LAYER-A' / Rule 2) ---
@@ -900,19 +991,25 @@ class Lumascope():
     # to pass an executor on every call (parallel-paths anti-pattern).
 
     def register_executors(self, *, camera_executor=None, io_executor=None,
-                           file_io_executor=None, autofocus_io_executor=None):
-        """Register the executor handles used by the X_async / X_sync
-        command methods. Call once at startup after the executors are
-        constructed. Tests that don't drive the executor-backed API
-        can skip this -- those methods raise RuntimeError if invoked
-        without executors registered.
+                           file_io_executor=None, autofocus_io_executor=None) -> None:
+        """Register the executor handles used by the X_async / X_sync command methods.
+
+        Call once at startup after the executors are constructed. Tests
+        that don't drive the executor-backed API can skip this -- those
+        methods raise RuntimeError if invoked without executors registered.
+
+        Args:
+            camera_executor: Executor for camera-bound IOTasks.
+            io_executor: Executor for general IO/motion IOTasks.
+            file_io_executor: Executor for file-IO IOTasks.
+            autofocus_io_executor: Executor for autofocus IOTasks.
         """
         self._camera_executor = camera_executor
         self._io_executor = io_executor
         self._file_io_executor = file_io_executor
         self._autofocus_io_executor = autofocus_io_executor
 
-    def register_executor_bundle(self, executor_bundle, settings=None):
+    def register_executor_bundle(self, executor_bundle, settings=None) -> None:
         """LVP-A-13: register the ExecutorBundle + settings dict for MetricsLogger.
 
         Lumascope construction (__init__) creates a MetricsLogger but
@@ -922,6 +1019,10 @@ class Lumascope():
         ``self.metrics_logger.start(scheduler)``. Settings dict is
         optional; defaults to ``{}`` if MetricsLogger was created with
         a placeholder.
+
+        Args:
+            executor_bundle: ExecutorBundle instance to attach.
+            settings: Optional settings dict for MetricsLogger.
         """
         self._executor_bundle = executor_bundle
         if self.metrics_logger is not None:
@@ -929,10 +1030,15 @@ class Lumascope():
             if settings is not None:
                 self.metrics_logger._settings = settings
 
-    def register_source_path(self, source_path):
-        """Register the LVP source/data path used by load_protocol() and
-        create_protocol() to find data/tiling.json. Called once at
-        startup. Tests that don't drive the protocol API can skip this.
+    def register_source_path(self, source_path) -> None:
+        """Register the LVP source/data path used by protocol API methods.
+
+        Used by ``load_protocol()`` and ``create_protocol()`` to find
+        ``data/tiling.json``. Called once at startup. Tests that don't
+        drive the protocol API can skip this.
+
+        Args:
+            source_path: Path-like to the LVP source/data root.
         """
         self._source_path = source_path
 
@@ -948,12 +1054,21 @@ class Lumascope():
 
     # --- Protocol API (LAYER-I / LV-16) ---
 
-    def load_protocol(self, file_path):
-        """Load a Protocol from disk. Wraps Protocol.from_file(...) and
-        resolves data/tiling.json from the registered source_path.
+    def load_protocol(self, file_path) -> 'Protocol':
+        """Load a Protocol from disk.
 
-        Returns a Protocol instance, or raises ProtocolFormatError on
-        format issues (same surface as Protocol.from_file).
+        Wraps ``Protocol.from_file(...)`` and resolves
+        ``data/tiling.json`` from the registered source_path.
+
+        Args:
+            file_path: Path to the protocol file.
+
+        Returns:
+            Protocol: The loaded Protocol instance.
+
+        Raises:
+            ProtocolFormatError: On format issues (same surface as
+                Protocol.from_file).
         """
         from modules.protocol import Protocol
         return Protocol.from_file(
@@ -962,8 +1077,10 @@ class Lumascope():
         )
 
     def create_protocol(self, *, config=None, input_config=None,
-                        empty_config=None):
-        """Construct a Protocol in-memory. Three modes (pass exactly one):
+                        empty_config=None) -> 'Protocol':
+        """Construct a Protocol in-memory.
+
+        Three modes (pass exactly one):
           - config={...}: full config dict passed to Protocol() directly.
           - input_config={...}: partial config (positions, layer_configs,
             etc.); routed through Protocol.from_config which fills defaults.
@@ -971,6 +1088,18 @@ class Lumascope():
             protocol; routed through Protocol.create_empty.
         tiling_configs_file_loc is resolved internally from the registered
         source_path.
+
+        Args:
+            config: Full config dict, or None.
+            input_config: Partial config dict, or None.
+            empty_config: Empty-steps config dict, or None.
+
+        Returns:
+            Protocol: Newly constructed Protocol instance.
+
+        Raises:
+            ValueError: If exactly one of config/input_config/empty_config
+                was not provided.
         """
         from modules.protocol import Protocol
         provided = sum(
@@ -999,9 +1128,18 @@ class Lumascope():
 
     @staticmethod
     def sanitize_step_name(input: str) -> str:
-        """Sanitize a step name string. Thin pass-through to
-        Protocol.sanitize_step_name so UI / module callers don't need
-        to import the Protocol data class for this utility."""
+        """Sanitize a step name string.
+
+        Thin pass-through to ``Protocol.sanitize_step_name`` so UI /
+        module callers don't need to import the Protocol data class for
+        this utility.
+
+        Args:
+            input: Raw step name to sanitize.
+
+        Returns:
+            str: Sanitized step name.
+        """
         from modules.protocol import Protocol
         return Protocol.sanitize_step_name(input=input)
 
@@ -1015,8 +1153,14 @@ class Lumascope():
 
     # --- LED command API ---
 
-    def leds_off_async(self, *, callback=None):
-        """Submit `leds_off` to the io_executor. No-op if LED disconnected."""
+    def leds_off_async(self, *, callback=None) -> None:
+        """Submit ``leds_off`` to the io_executor.
+
+        No-op if LED disconnected.
+
+        Args:
+            callback: Optional completion callback.
+        """
         if not self.led_connected:
             logger.warning('[SCOPE API ] LED controller not available.')
             return
@@ -1025,8 +1169,16 @@ class Lumascope():
         logger.info('[SCOPE API ] leds_off_async()')
 
     def led_on_async(self, channel, illumination, *, callback=None,
-                     cb_kwargs=None, owner: str = ''):
-        """Submit `led_on(channel, illumination)` to the io_executor."""
+                     cb_kwargs=None, owner: str = '') -> None:
+        """Submit ``led_on(channel, illumination)`` to the io_executor.
+
+        Args:
+            channel: Channel number or color name.
+            illumination: Illumination current in mA.
+            callback: Optional completion callback.
+            cb_kwargs: Optional kwargs passed to the callback.
+            owner: Optional ownership tag for the LED state.
+        """
         if not self.led_connected:
             logger.warning('[SCOPE API ] LED controller not available.')
             return
@@ -1041,8 +1193,16 @@ class Lumascope():
         ))
 
     def led_off_async(self, channel, *, callback=None, cb_kwargs=None,
-                      owner: str = ''):
-        """Submit `led_off(channel)` to the io_executor."""
+                      owner: str = '') -> None:
+        """Submit ``led_off(channel)`` to the io_executor.
+
+        Args:
+            channel: Channel number or color name.
+            callback: Optional completion callback.
+            cb_kwargs: Optional kwargs passed to the callback.
+            owner: Optional ownership tag; only matching owner can turn
+                off the channel.
+        """
         if not self.led_connected:
             logger.warning('[SCOPE API ] LED controller not available.')
             return
@@ -1058,8 +1218,15 @@ class Lumascope():
         ))
 
     def led_on_sync(self, channel, illumination, *, timeout=5,
-                    owner: str = ''):
-        """Run `led_on` through the io_executor and block until done."""
+                    owner: str = '') -> None:
+        """Run ``led_on`` through the io_executor and block until done.
+
+        Args:
+            channel: Channel number or color name.
+            illumination: Illumination current in mA.
+            timeout: Max seconds to wait for completion.
+            owner: Optional ownership tag for the LED state.
+        """
         if not self.led_connected:
             logger.warning('[SCOPE API ] LED controller not available.')
             return
@@ -1071,8 +1238,12 @@ class Lumascope():
         if fut:
             fut.result(timeout=timeout)
 
-    def leds_off_sync(self, *, timeout=5):
-        """Run `leds_off` through the io_executor and block until done."""
+    def leds_off_sync(self, *, timeout=5) -> None:
+        """Run ``leds_off`` through the io_executor and block until done.
+
+        Args:
+            timeout: Max seconds to wait for completion.
+        """
         if not self.led_connected:
             logger.warning('[SCOPE API ] LED controller not available.')
             return
@@ -1084,25 +1255,41 @@ class Lumascope():
 
     # --- Camera command API ---
 
-    def set_gain_sync(self, gain, *, timeout=5):
-        """Run `set_gain` through the camera_executor and block until done."""
+    def set_gain_sync(self, gain, *, timeout=5) -> None:
+        """Run ``set_gain`` through the camera_executor and block until done.
+
+        Args:
+            gain: Gain value in dB.
+            timeout: Max seconds to wait for completion.
+        """
         ex = self._require_executor(self._camera_executor, 'set_gain_sync')
         task = IOTask(action=self.set_gain, args=(gain,))
         fut = ex.put(task, return_future=True)
         if fut:
             fut.result(timeout=timeout)
 
-    def set_exposure_sync(self, exposure, *, timeout=5):
-        """Run `set_exposure_time` through the camera_executor and block."""
+    def set_exposure_sync(self, exposure, *, timeout=5) -> None:
+        """Run ``set_exposure_time`` through the camera_executor and block.
+
+        Args:
+            exposure: Exposure time in milliseconds.
+            timeout: Max seconds to wait for completion.
+        """
         ex = self._require_executor(self._camera_executor, 'set_exposure_sync')
         task = IOTask(action=self.set_exposure_time, args=(exposure,))
         fut = ex.put(task, return_future=True)
         if fut:
             fut.result(timeout=timeout)
 
-    def capture_and_wait_sync(self, *, timeout=30, **kwargs):
-        """Run `capture_and_wait` through the camera_executor and block.
-        Returns the captured image array, or None on failure.
+    def capture_and_wait_sync(self, *, timeout: float = 30, **kwargs) -> 'np.ndarray | bool | None':
+        """Run ``capture_and_wait`` through the camera_executor and block.
+
+        Args:
+            timeout: Max seconds to wait for completion.
+            **kwargs: Forwarded to ``capture_and_wait``.
+
+        Returns:
+            The captured image array, or None on failure.
         """
         ex = self._require_executor(self._camera_executor, 'capture_and_wait_sync')
         task = IOTask(action=self.capture_and_wait, kwargs=kwargs)
@@ -1115,8 +1302,17 @@ class Lumascope():
 
     def move_absolute_async(self, axis, pos, *, wait_until_complete=False,
                             overshoot_enabled=True, callback=None,
-                            cb_kwargs=None):
-        """Submit `move_absolute_position` to the io_executor."""
+                            cb_kwargs=None) -> None:
+        """Submit ``move_absolute_position`` to the io_executor.
+
+        Args:
+            axis: Axis name ("X", "Y", "Z", "T").
+            pos: Target position in um.
+            wait_until_complete: If True, block until move finishes.
+            overshoot_enabled: Allow Z overshoot for backlash compensation.
+            callback: Optional completion callback.
+            cb_kwargs: Optional kwargs passed to the callback.
+        """
         ex = self._require_executor(self._io_executor, 'move_absolute_async')
         ex.put(IOTask(
             action=self.move_absolute_position,
@@ -1131,10 +1327,19 @@ class Lumascope():
         ))
 
     def move_absolute_sync(self, axis, pos, *, wait_until_complete=True,
-                           overshoot_enabled=True, timeout=30):
-        """Run `move_absolute_position` through the io_executor and
-        block until both the IOTask completes and (when
-        `wait_until_complete`) the stage has physically arrived."""
+                           overshoot_enabled=True, timeout=30) -> None:
+        """Run ``move_absolute_position`` through the io_executor and block.
+
+        Blocks until both the IOTask completes and (when
+        ``wait_until_complete``) the stage has physically arrived.
+
+        Args:
+            axis: Axis name ("X", "Y", "Z", "T").
+            pos: Target position in um.
+            wait_until_complete: If True, block until move finishes.
+            overshoot_enabled: Allow Z overshoot for backlash compensation.
+            timeout: Max seconds to wait for completion.
+        """
         ex = self._require_executor(self._io_executor, 'move_absolute_sync')
         task = IOTask(
             action=self.move_absolute_position,
@@ -1151,8 +1356,17 @@ class Lumascope():
 
     def move_relative_async(self, axis, um, *, wait_until_complete=False,
                             overshoot_enabled=True, callback=None,
-                            cb_kwargs=None):
-        """Submit `move_relative_position` to the io_executor."""
+                            cb_kwargs=None) -> None:
+        """Submit ``move_relative_position`` to the io_executor.
+
+        Args:
+            axis: Axis name ("X", "Y", "Z", "T").
+            um: Distance to move in um.
+            wait_until_complete: If True, block until move finishes.
+            overshoot_enabled: Allow Z overshoot for backlash compensation.
+            callback: Optional completion callback.
+            cb_kwargs: Optional kwargs passed to the callback.
+        """
         ex = self._require_executor(self._io_executor, 'move_relative_async')
         ex.put(IOTask(
             action=self.move_relative_position,
@@ -1166,12 +1380,15 @@ class Lumascope():
             cb_kwargs=cb_kwargs,
         ))
 
-    def move_home_async(self, axis, *, callback=None, cb_args=None):
+    def move_home_async(self, axis, *, callback=None, cb_args=None) -> None:
         """Home an axis (or the whole scope) via the io_executor.
 
-        axis: 'Z' or 'T' homes that single axis. 'ALL' (or legacy 'XY')
-            homes everything the board has via self.home() -- firmware
-            homes Z and T first as part of the same routine.
+        Args:
+            axis: 'Z' or 'T' homes that single axis. 'ALL' (or legacy 'XY')
+                homes everything the board has via self.home() -- firmware
+                homes Z and T first as part of the same routine.
+            callback: Optional completion callback.
+            cb_args: Optional positional args passed to the callback.
         """
         ex = self._require_executor(self._io_executor, 'move_home_async')
         a = axis.upper()
@@ -1206,7 +1423,7 @@ class Lumascope():
         with self._axis_state_lock:
             return self._axis_state.get(axis, AxisState.UNKNOWN)
 
-    def add_position_listener(self, listener):
+    def add_position_listener(self, listener) -> None:
         """Register a callback for position/state changes on any axis.
 
         The listener is called with ``(axis, target_pos, state)`` whenever
@@ -1220,8 +1437,14 @@ class Lumascope():
         with self._position_listeners_lock:
             self._position_listeners.append(listener)
 
-    def remove_position_listener(self, listener):
-        """Unregister a position listener."""
+    def remove_position_listener(self, listener) -> None:
+        """Unregister a position listener.
+
+        Args:
+            listener: A callable previously passed to
+                ``add_position_listener``. Silently ignores listeners that
+                are not currently registered.
+        """
         with self._position_listeners_lock:
             try:
                 self._position_listeners.remove(listener)
@@ -1246,7 +1469,7 @@ class Lumascope():
     # LED change listeners
     # ------------------------------------------------------------------
 
-    def add_led_listener(self, listener):
+    def add_led_listener(self, listener) -> None:
         """Register a callback for LED state changes.
 
         The listener is called with ``(color, enabled, mA, owner)`` whenever
@@ -1260,8 +1483,13 @@ class Lumascope():
         with self._led_listeners_lock:
             self._led_listeners.append(listener)
 
-    def remove_led_listener(self, listener):
-        """Unregister an LED listener."""
+    def remove_led_listener(self, listener) -> None:
+        """Unregister an LED listener.
+
+        Args:
+            listener: A callable previously passed to ``add_led_listener``.
+                Silently ignores listeners that are not currently registered.
+        """
         with self._led_listeners_lock:
             try:
                 self._led_listeners.remove(listener)
@@ -1300,7 +1528,7 @@ class Lumascope():
                       f'{[c for c, s in states.items() if s.get("enabled")]}')
         return snapshot
 
-    def restore_led_state(self, snapshot: dict, owner: str = ''):
+    def restore_led_state(self, snapshot: dict, owner: str = '') -> None:
         """Restore LEDs to a previously saved state.
 
         Turns off channels owned by *owner* (or all if owner is empty),
@@ -1348,7 +1576,7 @@ class Lumascope():
         _api_log.info(f'save_camera_state tag={tag}: gain={gain} exp={exposure}')
         return snapshot
 
-    def restore_camera_state(self, snapshot: dict):
+    def restore_camera_state(self, snapshot: dict) -> None:
         """Restore camera gain and exposure from a previously saved state.
 
         Args:
@@ -1365,7 +1593,7 @@ class Lumascope():
         if exposure > 0:
             self.set_exposure_time(exposure)
 
-    def leds_off_owned(self, owner: str):
+    def leds_off_owned(self, owner: str) -> None:
         """Turn off only the LED channels owned by *owner*.
 
         Channels owned by other subsystems are left alone.
@@ -1394,7 +1622,7 @@ class Lumascope():
     # Camera change listeners
     # ------------------------------------------------------------------
 
-    def add_camera_listener(self, listener):
+    def add_camera_listener(self, listener) -> None:
         """Register a callback for camera setting changes.
 
         The listener is called with ``(param, value)`` whenever camera
@@ -1411,8 +1639,14 @@ class Lumascope():
         with self._camera_listeners_lock:
             self._camera_listeners.append(listener)
 
-    def remove_camera_listener(self, listener):
-        """Unregister a camera listener."""
+    def remove_camera_listener(self, listener) -> None:
+        """Unregister a camera listener.
+
+        Args:
+            listener: A callable previously passed to
+                ``add_camera_listener``. Silently ignores listeners that
+                are not currently registered.
+        """
         with self._camera_listeners_lock:
             try:
                 self._camera_listeners.remove(listener)
@@ -1496,7 +1730,13 @@ class Lumascope():
     def has_axis(self, axis: str) -> bool:
         """Check if an axis is physically present on this scope.
 
-        Thin wrapper over `self.capabilities.axes`.
+        Thin wrapper over ``self.capabilities.axes``.
+
+        Args:
+            axis: Axis name to check ("X", "Y", "Z", "T").
+
+        Returns:
+            bool: True if the axis is present.
         """
         return axis in self.capabilities.axes
 
@@ -1516,12 +1756,20 @@ class Lumascope():
 
     @property
     def motor_connected(self) -> bool:
-        """Whether the motor controller is connected."""
+        """Whether the motor controller is connected.
+
+        Returns:
+            bool: True if a real (non-Null) motor board is connected.
+        """
         return not isinstance(self.motion, NullMotionBoard) and self.motion.is_connected()
 
     @property
     def led_connected(self) -> bool:
-        """Whether the LED controller is connected."""
+        """Whether the LED controller is connected.
+
+        Returns:
+            bool: True if a real (non-Null) LED board is connected.
+        """
         return not isinstance(self.led, NullLEDBoard) and self.led.is_connected()
 
     def lens_focal_length(self) -> float:
@@ -1561,7 +1809,7 @@ class Lumascope():
         finally:
             self._hw_lock.release()
 
-    def stop_motion(self):
+    def stop_motion(self) -> None:
         """Stop all in-flight motor moves (LVP-A-1).
 
         Idempotent + safe-when-disconnected per Rule 4 + Rule 8 -- no-ops
@@ -1737,8 +1985,12 @@ class Lumascope():
             pass
 
     @property
-    def no_hardware(self):
-        """True if no real hardware was detected (LED, motor, and camera all missing)."""
+    def no_hardware(self) -> bool:
+        """True if no real hardware was detected (LED, motor, and camera all missing).
+
+        Returns:
+            bool: True when all three subsystems are absent or stubbed.
+        """
         return self._no_hardware
 
     def are_all_connected(self) -> bool:
@@ -1767,7 +2019,7 @@ class Lumascope():
     ########################################################################
     # SCOPE CONFIGURATION FUNCTIONS
     ########################################################################
-    def set_labware(self, labware):
+    def set_labware(self, labware) -> None:
         """Set the current labware (well plate) for the microscope.
 
         Args:
@@ -1783,7 +2035,7 @@ class Lumascope():
         """
         return self._labware
 
-    def set_objective(self, objective_id: str):
+    def set_objective(self, objective_id: str) -> None:
         """Set the active objective by ID.
 
         Args:
@@ -1800,7 +2052,7 @@ class Lumascope():
         """
         return getattr(self, '_objective_id', None)
 
-    def get_objective_info(self, objective_id: str):
+    def get_objective_info(self, objective_id: str) -> dict:
         """Get objective metadata by ID.
 
         Args:
@@ -1827,7 +2079,7 @@ class Lumascope():
         """
         return self._objective
 
-    def compute_focus_score(self, image):
+    def compute_focus_score(self, image) -> float:
         """Compute focus score (Vollath F4) on an image.
 
         Args:
@@ -1848,7 +2100,7 @@ class Lumascope():
         """
         self._turret_config = turret_config
 
-    def get_turret_config(self):
+    def get_turret_config(self) -> dict:
         """Get the current turret objective configuration.
 
         Returns:
@@ -1909,13 +2161,19 @@ class Lumascope():
         return None
 
     def is_current_turret_position_objective_set(self) -> bool:
+        """Check whether the objective slot at the current turret position is set.
+
+        Returns:
+            bool: True if the current turret position has a configured
+                objective ID; False if the slot is unconfigured.
+        """
         position = self.get_current_position(axis='T')
         if self._turret_config[position] is None:
             return False
 
         return True
 
-    def set_scale_bar(self, enabled: bool, color: str = None):
+    def set_scale_bar(self, enabled: bool, color: str = None) -> None:
         """Configure the scale bar overlay on captured images.
 
         Args:
@@ -1926,7 +2184,7 @@ class Lumascope():
         if color is not None:
             self._scale_bar['color'] = color
 
-    def set_stage_offset(self, stage_offset):
+    def set_stage_offset(self, stage_offset) -> None:
         """Set the stage offset for coordinate transformations.
 
         Args:
@@ -1934,8 +2192,13 @@ class Lumascope():
         """
         self._stage_offset = stage_offset
 
-    def get_available_binning_sizes(self):
-        """Return list of binning sizes supported by connected camera."""
+    def get_available_binning_sizes(self) -> list:
+        """Return list of binning sizes supported by connected camera.
+
+        Returns:
+            list: Supported binning factors (e.g. ``[1, 2, 4]``). Defaults
+                to ``[1]`` if no camera is active.
+        """
         if not self.camera or not self.camera.active:
             return [1]
         try:
@@ -2040,17 +2303,17 @@ class Lumascope():
     # LED BOARD FUNCTIONS
     ########################################################################
 
-    def leds_enable(self):
+    def leds_enable(self) -> None:
         """Enable all LED channels (allows them to be turned on)."""
         if not self.led: return
         self.led.leds_enable()
 
-    def leds_disable(self):
+    def leds_disable(self) -> None:
         """Disable all LED channels (prevents them from turning on)."""
         if not self.led: return
         self.led.leds_disable()
 
-    def get_led_ma(self, color: str):
+    def get_led_ma(self, color: str) -> float:
         """Get the current illumination level for an LED channel.
 
         Reads from the API-level _led_state cache (Rule 2). Does NOT
@@ -2075,6 +2338,12 @@ class Lumascope():
         this delegated to the driver's get_led_state, which for
         FX2LEDController always returned False -- making led_off a
         complete no-op (AUDIT_LED_STATE_FX2.md Bug 2).
+
+        Args:
+            color: Channel color name (e.g. "Blue", "Green", "Red", "BF").
+
+        Returns:
+            bool: True if the channel is currently on.
         """
         if not self.led:
             return False
@@ -2082,12 +2351,24 @@ class Lumascope():
             return self._led_state.get(color) is not None
 
     def led_illumination(self, color: str) -> float:
-        """Current mA for an LED channel, or -1 if off."""
+        """Current mA for an LED channel, or -1 if off.
+
+        Args:
+            color: Channel color name (e.g. "Blue", "Green", "Red", "BF").
+
+        Returns:
+            float: Illumination in milliamps, or -1 if off / unavailable.
+        """
         return self.get_led_ma(color)
 
     @property
     def led_states(self) -> dict:
-        """Snapshot of all LED states {color: {enabled, illumination}}."""
+        """Snapshot of all LED states {color: {enabled, illumination}}.
+
+        Returns:
+            dict: Mapping of color -> {'enabled': bool, 'illumination': float}.
+                Empty if no LED board is connected.
+        """
         if not self.led:
             return {}
         with self._led_owner_lock:
@@ -2096,7 +2377,7 @@ class Lumascope():
                 for color, entry in self._led_state.items()
             }
 
-    def get_led_state(self, color: str):
+    def get_led_state(self, color: str) -> dict:
         """Get the on/off state and illumination for an LED channel.
 
         Reads from the API-level _led_state cache (Rule 2).
@@ -2115,11 +2396,16 @@ class Lumascope():
                 return {'enabled': False, 'illumination': -1}
             return {'enabled': True, 'illumination': entry['illumination']}
 
-    def get_led_states(self):
+    def get_led_states(self) -> dict:
         """Get state and illumination for all LED channels.
 
         Returns states for ALL channels the driver supports (not just
         currently-on channels).
+
+        Returns:
+            dict: Mapping of color -> {'enabled': bool, 'illumination': float}
+                for every channel the driver supports. Empty if no LED
+                board is connected.
         """
         if not self.led:
             return {}
@@ -2135,7 +2421,7 @@ class Lumascope():
             }
 
 
-    def led_on(self, channel, mA, block=False, owner: str = ''):
+    def led_on(self, channel, mA, block: bool = False, owner: str = '') -> None:
         """Turn on an LED channel at the specified current.
 
         Args:
@@ -2210,7 +2496,7 @@ class Lumascope():
                 self._led_owners[color_name] = owner
             self._fire_led_listeners(color_name, True, float(mA), owner)
 
-    def led_off(self, channel, owner: str = ''):
+    def led_off(self, channel, owner: str = '') -> None:
         """Turn off an LED channel.
 
         Args:
@@ -2262,7 +2548,7 @@ class Lumascope():
                 self._led_owners.pop(color_name, None)
             self._fire_led_listeners(color_name, False, 0.0, owner)
 
-    def led_on_fast(self, channel, mA):
+    def led_on_fast(self, channel, mA) -> None:
         """Turn on an LED with write-only (no read-back) for time-critical pulses.
 
         Args:
@@ -2287,7 +2573,7 @@ class Lumascope():
         if color_name:
             self._fire_led_listeners(color_name, True, float(mA), '')
 
-    def led_off_fast(self, channel):
+    def led_off_fast(self, channel) -> None:
         """Turn off an LED with write-only (no read-back) for time-critical pulses.
 
         Args:
@@ -2309,7 +2595,7 @@ class Lumascope():
         if color_name:
             self._fire_led_listeners(color_name, False, 0.0, '')
 
-    def leds_off_fast(self):
+    def leds_off_fast(self) -> None:
         """Turn off all LEDs with write-only (no read-back) for time-critical pulses."""
         if not self.led: return
         with self._led_lock:
@@ -2320,7 +2606,7 @@ class Lumascope():
         for color in self.led.available_colors():
             self._fire_led_listeners(color, False, 0.0, '')
 
-    def leds_off(self):
+    def leds_off(self) -> None:
         """Turn off all LEDs (nuclear -- ignores ownership, clears all owners)."""
         if not self.led: return
         with self._led_lock:
@@ -2334,16 +2620,21 @@ class Lumascope():
             self._fire_led_listeners(color, False, 0.0, '')
 
     def get_led_status(self):
-        """Get the LED board status register."""
+        """Get the LED board status register.
+
+        Returns:
+            Driver-defined status object (typically int bitfield), or
+            None if no LED board is connected.
+        """
         if not self.led: return
         return self.led.get_status()
 
-    def wait_until_led_on(self):
+    def wait_until_led_on(self) -> None:
         """Block until the LED board confirms an LED is on."""
         if not self.led: return
         self.led.wait_until_on()
 
-    def ch2color(self, channel):
+    def ch2color(self, channel: int) -> str | None:
         """Convert a channel number to its color name string.
 
         Args:
@@ -2355,7 +2646,7 @@ class Lumascope():
         if not self.led: return
         return self.led.ch2color(channel)
 
-    def color2ch(self, color):
+    def color2ch(self, color: str) -> int | None:
         """Convert a color name string to its channel number.
 
         Args:
@@ -2380,9 +2671,9 @@ class Lumascope():
         sum_count: int = 1,
         sum_delay_s: float = 0,
         sum_iteration_callback = None,
-        force_new_capture = False,
-        new_capture_timeout = 1000,
-    ):
+        force_new_capture: bool = False,
+        new_capture_timeout: int = 1000,
+    ) -> 'np.ndarray | bool':
         """Grab and return an image from the camera.
 
         By default returns the last buffered frame. Set force_new_capture=True
@@ -2521,7 +2812,7 @@ class Lumascope():
     def get_image_from_buffer(
         self,
         force_to_8bit: bool = True
-        ):
+        ) -> tuple:
         """Grab the latest buffered frame from the camera without forcing a new capture.
 
         Copy budget (per frame):
@@ -2569,12 +2860,18 @@ class Lumascope():
 
         return tmp, grab_image_ts
 
-    def get_next_save_path(self, path):
-        """ GETS THE NEXT SAVE PATH GIVEN AN EXISTING SAVE PATH
+    def get_next_save_path(self, path) -> str:
+        """Get the next save path given an existing save path.
 
-            :param path of the format './{save_folder}/{well_label}_{color}_{file_id}.tiff'
-            :returns the next save path './{save_folder}/{well_label}_{color}_{file_id + 1}.tiff'
+        Increments the trailing numeric ID component on the filename and
+        returns the new path string.
 
+        Args:
+            path: Path of the format
+                ``./{save_folder}/{well_label}_{color}_{file_id}.tiff``.
+
+        Returns:
+            str: Next save path with ``file_id`` incremented.
         """
 
         NUM_SEQ_DIGITS = 6
@@ -2595,7 +2892,29 @@ class Lumascope():
         return str(new_path)
 
 
-    def generate_image_save_path(self, save_folder, file_root, append, tail_id_mode, output_format):
+    def generate_image_save_path(self, save_folder, file_root, append,
+                                 tail_id_mode, output_format) -> 'pathlib.Path':
+        """Generate a unique save path for an image given the naming inputs.
+
+        Resolves collisions per ``tail_id_mode`` ("increment" auto-numbers
+        until free, "if_collision" only adds a suffix on actual collision,
+        ``None`` returns the bare path).
+
+        Args:
+            save_folder: Directory to save into (str or Path).
+            file_root: Filename prefix.
+            append: String appended to filename (e.g. color label).
+            tail_id_mode: One of ``"increment"``, ``"if_collision"``, or
+                ``None``.
+            output_format: ``"TIFF"`` or ``"OME-TIFF"``.
+
+        Returns:
+            pathlib.Path: Full save path with appropriate extension and
+                disambiguation suffix.
+
+        Raises:
+            ConfigError: If ``tail_id_mode`` is not implemented.
+        """
         if isinstance(save_folder, str):
             save_folder = pathlib.Path(save_folder)
 
@@ -2646,7 +2965,20 @@ class Lumascope():
 
         return path
 
-    def get_well_label(self):
+    def get_well_label(self) -> str:
+        """Get the well label for the current stage XY position.
+
+        Maps the current target X/Y stage position to a plate-frame
+        coordinate using the registered labware and stage offset, then
+        looks up the matching well label.
+
+        Returns:
+            str: Well label (e.g. ``"A1"``).
+
+        Raises:
+            Exception: Re-raises any error encountered reading target
+                position; logged before re-raise.
+        """
         labware = self._labware
 
         # Get target position
@@ -2760,7 +3092,7 @@ class Lumascope():
         y,
         z,
         out_12to16: np.ndarray | None = None,
-    ):
+    ) -> dict:
         """Prepare an image array and metadata for saving to disk.
 
         Flips the image vertically, converts bit depth if needed, generates
@@ -2822,7 +3154,7 @@ class Lumascope():
         out_12to16: np.ndarray | None = None,
         false_color_buf: np.ndarray | None = None,
         rgb_buf: np.ndarray | None = None,
-    ):
+    ) -> str:
         """Save an image array to a TIFF file with metadata.
 
         Args:
@@ -2910,8 +3242,8 @@ class Lumascope():
             sum_delay_s: float = 0,
             sum_iteration_callback = None,
             turn_off_all_leds_after: bool = False,
-            use_executor = False
-        ):
+            use_executor: bool = False,
+        ) -> str | None:
 
         """Grab the current live image from the camera and save to a TIFF file.
 
@@ -2961,7 +3293,7 @@ class Lumascope():
         return self.save_image(array, save_folder, file_root, append, color, tail_id_mode, output_format=output_format, true_color=true_color)
 
 
-    def get_max_width(self):
+    def get_max_width(self) -> int:
         """Get the maximum pixel width of the camera sensor.
 
         Returns:
@@ -2970,7 +3302,7 @@ class Lumascope():
         if (not self.camera) or (not self.camera.active): return 0
         return self.camera.get_max_frame_size()['width']
 
-    def get_max_height(self):
+    def get_max_height(self) -> int:
         """Get the maximum pixel height of the camera sensor.
 
         Returns:
@@ -2979,7 +3311,7 @@ class Lumascope():
         if (not self.camera) or (not self.camera.active): return 0
         return self.camera.get_max_frame_size()['height']
 
-    def get_width(self):
+    def get_width(self) -> int:
         """Get the current frame width setting.
 
         Returns:
@@ -2988,7 +3320,7 @@ class Lumascope():
         if not self.camera: return 0
         return self.camera.get_frame_size()['width']
 
-    def get_height(self):
+    def get_height(self) -> int:
         """Get the current frame height setting.
 
         Returns:
@@ -2997,12 +3329,12 @@ class Lumascope():
         if not self.camera: return 0
         return self.camera.get_frame_size()['height']
 
-    def set_frame_size(self, w, h):
+    def set_frame_size(self, w: int, h: int) -> None:
         """Set the camera frame size in pixels.
 
         Args:
-            w (int): Frame width in pixels.
-            h (int): Frame height in pixels.
+            w: Frame width in pixels.
+            h: Frame height in pixels.
         """
 
         if not self.camera or not self.camera.active: return
@@ -3010,18 +3342,19 @@ class Lumascope():
         with self._camera_cache_lock:
             self._camera_cache['frame_size'] = {'width': int(w), 'height': int(h)}
 
-    def get_frame_size(self):
+    def get_frame_size(self) -> dict | None:
         """Get the current camera frame size.
 
         Returns:
-            dict: Contains 'width' and 'height' in pixels, or None if inactive.
+            dict | None: Contains 'width' and 'height' in pixels, or
+                None if inactive.
         """
 
         if not self.camera or not self.camera.active: return
         return self.camera.get_frame_size()
 
 
-    def get_gain(self):
+    def get_gain(self) -> float:
         """Get the current camera gain.
 
         Returns:
@@ -3031,11 +3364,11 @@ class Lumascope():
         if not self.camera or not self.camera.active: return -1
         return self.camera.get_gain()
 
-    def set_gain(self, gain):
+    def set_gain(self, gain: float) -> None:
         """Set the camera gain.
 
         Args:
-            gain (float): Gain value in dB.
+            gain: Gain value in dB.
         """
         if not self.camera or not self.camera.active: return
         # Skip redundant SDK call if gain hasn't changed
@@ -3049,7 +3382,7 @@ class Lumascope():
         _api_log.info(f'set_gain {gain}dB')
         self._fire_camera_listeners('gain', float(gain))
 
-    def set_auto_gain(self, state: bool, settings: dict):
+    def set_auto_gain(self, state: bool, settings: dict) -> None:
         """Enable or disable automatic gain adjustment.
 
         Args:
@@ -3066,11 +3399,11 @@ class Lumascope():
         )
         self.frame_validity.invalidate('gain')
 
-    def set_exposure_time(self, t):
+    def set_exposure_time(self, t: float) -> None:
         """Set the camera exposure time.
 
         Args:
-            t (float): Exposure time in milliseconds.
+            t: Exposure time in milliseconds.
         """
         if not self.camera or not self.camera.active: return
         # Skip redundant SDK call if exposure hasn't changed
@@ -3090,7 +3423,7 @@ class Lumascope():
         _api_log.info(f'set_exposure {t}ms')
         self._fire_camera_listeners('exposure', float(t))
 
-    def get_exposure_time(self):
+    def get_exposure_time(self) -> float:
         """Get the current camera exposure time.
 
         Returns:
@@ -3101,7 +3434,7 @@ class Lumascope():
         exposure = self.camera.get_exposure_t()
         return exposure
 
-    def set_auto_exposure_time(self, state = True):
+    def set_auto_exposure_time(self, state: bool = True) -> None:
         """Enable or disable automatic exposure adjustment.
 
         Args:
@@ -3135,23 +3468,23 @@ class Lumascope():
             self.set_auto_gain(auto_gain, settings=auto_gain_settings)
         _api_log.info(f'apply_layer_camera_settings gain={gain}dB exp={exposure_ms}ms auto_gain={auto_gain}')
 
-    def update_auto_gain_target_brightness(self, target_brightness: float):
+    def update_auto_gain_target_brightness(self, target_brightness: float) -> None:
         """Set the auto-gain target brightness on the camera.
 
         Args:
-            target_brightness: Target brightness value (0.0–1.0).
+            target_brightness: Target brightness value (0.0 to 1.0).
         """
         if not self.camera or not self.camera.active:
             return
         self.camera.update_auto_gain_target_brightness(target_brightness)
 
     def auto_gain_once(self, state: bool, target_brightness: float,
-                       min_gain: float, max_gain: float):
+                       min_gain: float, max_gain: float) -> None:
         """Run auto-gain for a single frame on the camera.
 
         Args:
             state: True to enable one-shot auto-gain.
-            target_brightness: Target brightness (0.0–1.0).
+            target_brightness: Target brightness (0.0 to 1.0).
             min_gain: Minimum gain in dB.
             max_gain: Maximum gain in dB.
         """
@@ -3172,6 +3505,10 @@ class Lumascope():
             with scope.update_camera_config():
                 scope.set_gain(5.0)
                 scope.set_exposure_time(100)
+
+        Returns:
+            A context manager. Falls back to ``contextlib.nullcontext()``
+            when no camera is active.
         """
         if not self.camera or not self.camera.active:
             return contextlib.nullcontext()
@@ -3202,7 +3539,7 @@ class Lumascope():
 
         return self.camera.get_all_temperatures()
 
-    def log_camera_temps(self):
+    def log_camera_temps(self) -> None:
         """Emit one INFO line per camera temperature sensor.
 
         No-op when no camera is connected. Called once on startup and
@@ -3215,7 +3552,8 @@ class Lumascope():
                 f'[CAM Class ] Camera {source} Temperature : {temp:.2f} degC')
 
     def start_camera_temp_logging(
-        self, schedule_interval_fn, unschedule_fn, *, interval_s: float = 14400.0):
+        self, schedule_interval_fn, unschedule_fn, *,
+        interval_s: float = 14400.0) -> None:
         """LVP-A-2: own the periodic camera-temp logging schedule.
 
         Was previously a Clock.schedule_interval registered by the App
@@ -3252,7 +3590,7 @@ class Lumascope():
         logger.info(
             f'[SCOPE API ] start_camera_temp_logging: interval={interval_s}s')
 
-    def stop_camera_temp_logging(self, unschedule_fn=None):
+    def stop_camera_temp_logging(self, unschedule_fn=None) -> None:
         """Cancel the periodic camera-temp logger if active.
 
         Idempotent -- safe to call when no logger is running. The
@@ -3274,13 +3612,19 @@ class Lumascope():
     ########################################################################
     @contextlib.contextmanager
     def reference_position_logger(self):
+        """Context manager that logs limit-switch status before and after homing.
+
+        Use as ``with scope.reference_position_logger(): ... home ...``.
+        Emits forced-INFO log lines so the limit-switch state pre/post
+        homing is preserved for diagnostics.
+        """
         before = self.get_limit_switch_status_all_axes()
         logger.info(f"Limit switch status before homing: {before}", extra={'force_error': True})
         yield
         after = self.get_limit_switch_status_all_axes()
         logger.info(f"Limit switch status after homing: {after}", extra={'force_error': True})
 
-    def get_axes_config(self):
+    def get_axes_config(self) -> dict:
         """Get the axis configuration from the motion board.
 
         Returns:
@@ -3405,7 +3749,7 @@ class Lumascope():
             self.is_homing = False
             _api_log.info('home DONE')
 
-    def has_homed(self):
+    def has_homed(self) -> bool:
         """Check if the scope has been homed since startup.
 
         Returns:
@@ -3413,7 +3757,7 @@ class Lumascope():
         """
         return self.motion.has_homed()
 
-    def xycenter(self):
+    def xycenter(self) -> None:
         """Move the XY stage to center position."""
 
         #if not self.motion: return
@@ -3427,6 +3771,12 @@ class Lumascope():
 
     @contextlib.contextmanager
     def safe_turret_mover(self):
+        """Context manager that lowers Z to 0 before turret motion and restores after.
+
+        Use as ``with scope.safe_turret_mover(): ... move turret ...``.
+        Sets ``is_turreting`` for the duration and restores the original
+        Z position even if the body raises.
+        """
         # Save off current Z position before moving Z to 0
         logger.info('[SCOPE API ] Moving Z to 0', extra={'force_error': True})
         initial_z = self.get_current_position(axis='Z')
@@ -3498,7 +3848,7 @@ class Lumascope():
             _api_log.info('thome DONE')
             return False
 
-    def has_thomed(self):
+    def has_thomed(self) -> bool:
         """Check if the turret has been homed since startup.
 
         Returns:
@@ -3506,11 +3856,11 @@ class Lumascope():
         """
         return self.motion.has_thomed()
 
-    def tmove(self, position):
+    def tmove(self, position: int) -> None:
         """Move the turret to a specific position. Skips if already there.
 
         Args:
-            position (int): Target turret position (1-4).
+            position: Target turret position (1-4).
         """
         # Commanding a move of the T axis is slow, even if the move is to the current position.
         # Use caching to determine if T is requested to move to it's current position, and bypass the
@@ -3527,12 +3877,15 @@ class Lumascope():
     def has_turret(self) -> bool:
         """Check if the microscope has a turret axis.
 
-        Thin wrapper over `self.capabilities.has_turret`.
+        Thin wrapper over ``self.capabilities.has_turret``.
+
+        Returns:
+            bool: True if the scope reports a turret axis.
         """
         return self.capabilities.has_turret
 
 
-    def refresh_position_cache(self):
+    def refresh_position_cache(self) -> None:
         """Fetch all axis positions from hardware and update the cache.
 
         Called after homing completes to sync the cache with actual hardware
@@ -3552,7 +3905,7 @@ class Lumascope():
         for ax in positions:
             self._fire_position_listeners(ax)
 
-    def get_target_position(self, axis=None):
+    def get_target_position(self, axis: str | None = None) -> 'float | dict | None':
         """Get the target position for an axis (where it is commanded to go).
 
         Reads from the push-based position cache -- zero serial I/O.
@@ -3573,7 +3926,7 @@ class Lumascope():
                 return dict(self._pos_cache)
             return self._pos_cache.get(axis, 0.0)
 
-    def get_current_position(self, axis=None):
+    def get_current_position(self, axis: str | None = None) -> 'float | dict':
         """Get the current position for an axis.
 
         During MOVING: returns predicted position based on trapezoidal
@@ -3699,7 +4052,7 @@ class Lumascope():
         pos = self.motion.current_pos(axis)
         return pos if pos is not None else 0.0
 
-    def set_motor_precision_mode(self, axis: str, enabled: bool):
+    def set_motor_precision_mode(self, axis: str, enabled: bool) -> None:
         """Set motor precision mode for an axis.
 
         Precision mode uses accurate but slightly slower motor stopping.
@@ -3716,7 +4069,10 @@ class Lumascope():
         self.motion.set_precision_mode(axis, enabled)
 
 
-    def move_absolute_position(self, axis, pos, wait_until_complete=False, overshoot_enabled: bool = True, ignore_limits: bool = False):
+    def move_absolute_position(self, axis: str, pos: float,
+                               wait_until_complete: bool = False,
+                               overshoot_enabled: bool = True,
+                               ignore_limits: bool = False) -> None:
         """Move an axis to an absolute position.
 
         Args:
@@ -3791,7 +4147,9 @@ class Lumascope():
             self._set_axis_state(axis, AxisState.IDLE)
 
 
-    def move_relative_position(self, axis, um, wait_until_complete=False, overshoot_enabled: bool = False):
+    def move_relative_position(self, axis: str, um: float,
+                               wait_until_complete: bool = False,
+                               overshoot_enabled: bool = False) -> None:
         """Move an axis by a relative distance.
 
         Args:
@@ -3836,11 +4194,11 @@ class Lumascope():
             self._set_axis_state(axis, AxisState.IDLE)
 
 
-    def get_home_status(self, axis):
+    def get_home_status(self, axis: str) -> bool:
         """Check if an axis is at its home position.
 
         Args:
-            axis (str): Axis name ("X", "Y", "Z", "T").
+            axis: Axis name ("X", "Y", "Z", "T").
 
         Returns:
             bool: True if the axis is homed, False otherwise or on error.
@@ -3854,11 +4212,11 @@ class Lumascope():
             logger.exception(f"[SCOPE API ] get_home_status({axis}) failed; treating as not home: {e}")
             return False
 
-    def get_target_status(self, axis):
+    def get_target_status(self, axis: str) -> bool:
         """Check if an axis has reached its target position.
 
         Args:
-            axis (str): Axis name ("X", "Y", "Z", "T").
+            axis: Axis name ("X", "Y", "Z", "T").
 
         Returns:
             bool: True if at target (always True for T if no turret present).
@@ -3877,11 +4235,11 @@ class Lumascope():
             logger.exception(f"[SCOPE API ] get_target_status({axis}) failed; treating as not at target: {e}")
             return False
 
-    def get_target_pos(self, axis):
+    def get_target_pos(self, axis: str) -> float:
         """Get the target position for an axis (error-safe version).
 
         Args:
-            axis (str): Axis name ("X", "Y", "Z", "T").
+            axis: Axis name ("X", "Y", "Z", "T").
 
         Returns:
             float: Target position in um, or -1 on error/no turret.
@@ -3896,11 +4254,11 @@ class Lumascope():
             logger.exception(f"[SCOPE API ] get_target_pos({axis}) failed; returning -1: {e}")
             return -1
 
-    def get_reference_status(self, axis):
+    def get_reference_status(self, axis: str) -> str:
         """Get reference status register bits for an axis.
 
         Args:
-            axis (str): Axis name ("X", "Y", "Z", "T").
+            axis: Axis name ("X", "Y", "Z", "T").
 
         Returns:
             str: 32-character binary string of register bits (MSB first).
@@ -3910,19 +4268,19 @@ class Lumascope():
         return self.motion.reference_status(axis=axis)
 
 
-    def get_limit_switch_status(self, axis):
+    def get_limit_switch_status(self, axis: str):
         """Get the limit switch status for an axis.
 
         Args:
-            axis (str): Axis name ("X", "Y", "Z", "T").
+            axis: Axis name ("X", "Y", "Z", "T").
 
         Returns:
-            Limit switch state for the specified axis.
+            Limit switch state for the specified axis (driver-defined).
         """
         return self.motion.limit_switch_status(axis=axis)
 
 
-    def get_limit_switch_status_all_axes(self):
+    def get_limit_switch_status_all_axes(self) -> dict:
         """Get limit switch status for all axes.
 
         Returns:
@@ -3934,7 +4292,7 @@ class Lumascope():
         return resp
 
 
-    def get_overshoot(self):
+    def get_overshoot(self) -> bool:
         """Check if the Z axis is currently in overshoot (backlash compensation) mode.
 
         Returns:
@@ -3944,7 +4302,7 @@ class Lumascope():
         #if not self.motion: return False
         return self.motion.overshoot
 
-    def is_moving(self):
+    def is_moving(self) -> bool:
         """Check if any axis is currently moving.
 
         Reads from in-memory axis state -- zero serial I/O. The motion
@@ -3959,7 +4317,7 @@ class Lumascope():
             return True
         return False
 
-    def wait_until_finished_moving(self, timeout: float = 120.0):
+    def wait_until_finished_moving(self, timeout: float = 120.0) -> bool:
         """Block until all axes have reached their target positions.
 
         Waits on per-axis arrival events set by the motion monitor thread.
@@ -3992,14 +4350,22 @@ class Lumascope():
         return True
 
 
-    def set_acceleration_limit(self, val_pct: int):
+    def set_acceleration_limit(self, val_pct: int) -> None:
+        """Set the motor controller acceleration limit (percent of max).
+
+        Silently ignores firmware that doesn't implement the command --
+        legacy boards lack the acceleration-limits feature.
+
+        Args:
+            val_pct: Acceleration limit as a percent of the firmware max.
+        """
         try:
             self.motion.set_acceleration_limits(val_pct=val_pct)
         except Exception:
             pass  # Legacy firmware doesn't support acceleration limits
 
 
-    def get_microscope_model(self):
+    def get_microscope_model(self) -> str | None:
         """Get the microscope model identifier from the motion board.
 
         Returns:
@@ -4515,7 +4881,7 @@ class Lumascope():
         *,
         timeout: float = 60,
         end_markers: list[str] | None = None,
-    ):
+    ) -> 'str | list[str]':
         """Send a firmware diagnostic command expected to return multiple lines.
 
         For SELFTEST, INFO with multi-line output, etc. Wraps the driver's
@@ -4559,7 +4925,7 @@ class Lumascope():
             return f'Error: {e}'
 
     @classmethod
-    def create_diagnostic(cls):
+    def create_diagnostic(cls) -> 'Lumascope':
         """Create a minimal Lumascope for diagnostics (no camera init).
 
         Connects to LED and motor boards only. For use by tools like
@@ -4696,9 +5062,14 @@ class Lumascope():
     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     # ILLUMINATE AND CAPTURE
     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-    def capture(self):
-        """INTEGRATED SCOPE FUNCTIONS
-        Capture image with illumination"""
+    def capture(self) -> None:
+        """Capture an image with illumination, asynchronously.
+
+        Schedules a deferred ``capture_complete`` after the exposure plus
+        rolling-shutter wait time. The captured image lands in
+        ``self.capture_return``. ``is_capturing`` is True until the
+        deferred completion fires.
+        """
 
         if not self.led: return
         if not self.camera or not self.camera.active: return
@@ -4715,12 +5086,24 @@ class Lumascope():
         capture_timer = threading.Timer(wait_time, self.capture_complete)
         capture_timer.start()
 
-    def capture_complete(self):
+    def capture_complete(self) -> None:
+        """Deferred completion handler for ``capture``.
+
+        Grabs the image into ``self.capture_return`` and clears
+        ``is_capturing``. Called from a background timer thread; not
+        intended to be called directly.
+        """
         self.capture_return = self.get_image() # Grab image
         self.is_capturing = False
 
 
-    def capture_blocking(self):
+    def capture_blocking(self) -> 'np.ndarray | bool | None':
+        """Capture an image with illumination, blocking until the frame is ready.
+
+        Returns:
+            numpy.ndarray | False | None: Captured image array, False on
+                grab failure, or None if LED/camera are unavailable.
+        """
         if not self.led: return
         if not self.camera or not self.camera.active: return
 
@@ -4728,11 +5111,12 @@ class Lumascope():
         time.sleep(wait_time)
         return self.get_image()
 
-    def capture_and_wait(self, force_to_8bit=True, *, exclude_sources=(),
-                         all_ones_check=False,
-                         timeout=datetime.timedelta(seconds=0),
-                         sum_count=1, sum_delay_s=0,
-                         sum_iteration_callback=None):
+    def capture_and_wait(self, force_to_8bit: bool = True, *,
+                         exclude_sources: tuple = (),
+                         all_ones_check: bool = False,
+                         timeout: datetime.timedelta = datetime.timedelta(seconds=0),
+                         sum_count: int = 1, sum_delay_s: float = 0,
+                         sum_iteration_callback=None) -> 'np.ndarray | bool':
         """Capture a frame guaranteed to reflect the current hardware state.
 
         Uses frame-based settling: drains stale frames from the camera pipeline
@@ -4752,6 +5136,10 @@ class Lumascope():
             sum_count: Number of frames to sum for noise reduction.
             sum_delay_s: Delay between summed frames.
             sum_iteration_callback: Called after each summed frame.
+
+        Returns:
+            numpy.ndarray | False: Captured image array on success, False
+                on camera-inactive or frame-drain failure.
         """
         if not self.camera or not self.camera.active:
             return False
@@ -4788,12 +5176,18 @@ class Lumascope():
 
 # Static methods for save_image functionality
     @staticmethod
-    def get_next_save_path_static(path):
-        """ GETS THE NEXT SAVE PATH GIVEN AN EXISTING SAVE PATH
+    def get_next_save_path_static(path) -> str:
+        """Get the next save path given an existing save path (static version).
 
-            :param path of the format './{save_folder}/{well_label}_{color}_{file_id}.tiff'
-            :returns the next save path './{save_folder}/{well_label}_{color}_{file_id + 1}.tiff'
+        Static counterpart to ``get_next_save_path``; usable without a
+        Lumascope instance.
 
+        Args:
+            path: Path of the format
+                ``./{save_folder}/{well_label}_{color}_{file_id}.tiff``.
+
+        Returns:
+            str: Next save path with ``file_id`` incremented.
         """
         NUM_SEQ_DIGITS = 6
         # Handle both .tiff and .ome.tiff by detecting multiple extensions if present
@@ -4813,7 +5207,26 @@ class Lumascope():
         return str(new_path)
 
     @staticmethod
-    def generate_image_save_path_static(save_folder, file_root, append, tail_id_mode, output_format):
+    def generate_image_save_path_static(save_folder, file_root, append,
+                                        tail_id_mode, output_format) -> 'pathlib.Path':
+        """Generate a unique save path for an image (static version).
+
+        Static counterpart to ``generate_image_save_path``; usable without
+        a Lumascope instance. Resolves collisions per ``tail_id_mode``.
+
+        Args:
+            save_folder: Directory to save into (str or Path).
+            file_root: Filename prefix.
+            append: String appended to filename.
+            tail_id_mode: ``"increment"`` or ``None``.
+            output_format: ``"TIFF"`` or ``"OME-TIFF"``.
+
+        Returns:
+            pathlib.Path: Full save path.
+
+        Raises:
+            ConfigError: If ``tail_id_mode`` is not implemented.
+        """
         if isinstance(save_folder, str):
             save_folder = pathlib.Path(save_folder)
 
@@ -4848,7 +5261,34 @@ class Lumascope():
     def generate_image_metadata_static(
         color, x, y, z, objective, labware, stage_offset, coordinate_transformer,
         binning_size, exposure_time_ms, gain_db, illumination_ma
-    ):
+    ) -> dict:
+        """Build TIFF metadata dict (static version).
+
+        Static counterpart to ``generate_image_metadata``; usable without
+        a Lumascope instance. Validates that objective, labware, and
+        stage_offset are provided.
+
+        Args:
+            color: Channel color name.
+            x: Stage X position in um (or None).
+            y: Stage Y position in um (or None).
+            z: Stage Z position in um (or None).
+            objective: Objective dict containing ``focal_length``.
+            labware: Labware configuration object.
+            stage_offset: Stage offset configuration.
+            coordinate_transformer: CoordinateTransformer instance.
+            binning_size: Camera binning factor.
+            exposure_time_ms: Exposure time in ms.
+            gain_db: Gain in dB.
+            illumination_ma: Illumination current in mA.
+
+        Returns:
+            dict: TIFF metadata dict with channel, positions, exposure,
+                gain, pixel size, and well label.
+
+        Raises:
+            ConfigError: If objective, labware, or stage_offset are missing.
+        """
         def _validate():
             if objective is None:
                 raise ConfigError(f"[SCOPE API ] Objective not set")
@@ -4924,7 +5364,38 @@ class Lumascope():
         x, y, z,
         objective, labware, stage_offset, coordinate_transformer,
         binning_size, exposure_time_ms, gain_db, illumination_ma
-    ):
+    ) -> dict:
+        """Prepare an image array and metadata for saving (static version).
+
+        Static counterpart to ``prepare_image_for_saving``; usable without
+        a Lumascope instance. Generates the save path, applies false
+        color, and flips the image vertically.
+
+        Args:
+            array: Raw image array from the driver.
+            save_folder: Directory to save into.
+            file_root: Filename prefix.
+            append: String appended to filename.
+            color: Color label for the filename.
+            tail_id_mode: ``"increment"`` or ``None``.
+            output_format: ``"TIFF"`` or ``"OME-TIFF"``.
+            true_color: Actual channel color for metadata.
+            x: Stage X position in um.
+            y: Stage Y position in um.
+            z: Stage Z position in um.
+            objective: Objective dict.
+            labware: Labware configuration.
+            stage_offset: Stage offset configuration.
+            coordinate_transformer: CoordinateTransformer instance.
+            binning_size: Camera binning factor.
+            exposure_time_ms: Exposure time in ms.
+            gain_db: Gain in dB.
+            illumination_ma: Illumination current in mA.
+
+        Returns:
+            dict: Contains ``'image'`` (ndarray) and ``'metadata'``
+                (dict including ``'file_loc'``).
+        """
         metadata = Lumascope.generate_image_metadata_static(
             color=true_color, x=x, y=y, z=z,
             objective=objective, labware=labware, stage_offset=stage_offset,
@@ -4967,29 +5438,40 @@ class Lumascope():
         objective=None, labware=None, stage_offset=None, coordinate_transformer=None,
         binning_size=None, exposure_time_ms=None, gain_db=None, illumination_ma=None,
         use_false_color_16bit: bool | None = None,
-    ):
-        """CAMERA FUNCTIONS
-        save image (as array) to file - static version that doesn't require Lumascope instance
+    ) -> str:
+        """Save an image array to a TIFF file with metadata (static version).
 
-        :param array: image array to save
-        :param save_folder: folder to save image in
-        :param file_root: root filename
-        :param append: string to append to filename
-        :param color: color channel identifier
-        :param tail_id_mode: how to handle filename incrementing
-        :param output_format: output format (TIFF or OME-TIFF)
-        :param true_color: true color for metadata
-        :param x: x position
-        :param y: y position
-        :param z: z position
-        :param objective: objective dictionary with focal_length
-        :param labware: labware configuration
-        :param stage_offset: stage offset configuration
-        :param coordinate_transformer: coordinate transformer instance
-        :param binning_size: camera binning size
-        :param exposure_time_ms: exposure time in milliseconds
-        :param gain_db: camera gain in dB
-        :param illumination_ma: LED illumination in mA
+        Static counterpart to ``save_image``; doesn't require a Lumascope
+        instance.
+
+        Args:
+            array: Image array to save.
+            save_folder: Directory to save in.
+            file_root: Filename prefix.
+            append: String appended to filename.
+            color: Color channel identifier for the filename.
+            tail_id_mode: How to handle filename incrementing.
+            output_format: ``"TIFF"`` or ``"OME-TIFF"``.
+            true_color: True color for metadata.
+            x: Stage X position in um.
+            y: Stage Y position in um.
+            z: Stage Z position in um.
+            objective: Objective dict containing ``focal_length``.
+            labware: Labware configuration.
+            stage_offset: Stage offset configuration.
+            coordinate_transformer: CoordinateTransformer instance.
+            binning_size: Camera binning factor.
+            exposure_time_ms: Exposure time in milliseconds.
+            gain_db: Camera gain in dB.
+            illumination_ma: LED illumination in mA.
+            use_false_color_16bit: Optional override for false-color
+                rendering at 16-bit depth.
+
+        Returns:
+            str: Path to the saved file.
+
+        Raises:
+            CaptureError: If the image cannot be written.
         """
 
         image_data = Lumascope.prepare_image_for_saving_static(
