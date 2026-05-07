@@ -3808,6 +3808,119 @@ class TestPylonUnderrunCounterSingleCanonical:
         )
 
 
+class TestPylonGigeDiagnosticNodeCoverage:
+    """read_diagnostic_snapshot must probe the canonical GigE
+    network-related parameters and stream-grabber resend counters
+    so cross-transport bench characterization captures the GigE
+    network state on dmA3536-9gm and the USB3 transport state on
+    a2A3536-31umBAS / daA3840-45um from a single API call.
+
+    Authoritative source: Basler doc network-related-parameters.md
+    (camera-side GigE params) + stream-grabber-parameters.html
+    (Packet Resend Mechanism + Statistics Parameters).
+
+    Per-camera applicability: every node read defensively via
+    _safe_node, returning '<missing>' on transports/cameras that
+    don't expose it. USB3 cameras report '<missing>' for the GigE
+    set; GigE cameras report '<missing>' for URB / MaxTransferSize.
+    """
+
+    def _pyloncamera_source(self):
+        from pathlib import Path
+        return (Path(__file__).resolve().parent.parent
+                / "drivers" / "pyloncamera.py").read_text()
+
+    def test_camera_nodemap_probes_gev_network_parameters(self):
+        """The 11 canonical GigE network-related camera-side nodes
+        from network-related-parameters.md must appear in the
+        camera-config probe in read_diagnostic_snapshot."""
+        src = self._pyloncamera_source()
+        idx = src.find("def read_diagnostic_snapshot(")
+        assert idx != -1
+        end = src.find("\n    def ", idx + 10)
+        body = src[idx:end]
+        for node in (
+            'GevHeartbeatTimeout',
+            'GevSCPSPacketSize',
+            'GevSCPD',
+            'GevSCBWR',
+            'GevSCBWRA',
+            'GevSCBWA',
+            'GevSCDMT',
+            'GevSCFJM',
+            'GevSCFTD',
+            'BandwidthReserveMode',
+            'PayloadSize',
+            'BslDeviceLinkCurrentThroughput',
+        ):
+            assert node in body, (
+                f"read_diagnostic_snapshot must probe {node!r} "
+                f"(per network-related-parameters.md). Missing nodes "
+                f"will not surface on dmA3536-9gm bench."
+            )
+
+    def test_stream_grabber_probes_gige_resend_config(self):
+        """The 8 canonical GigE Packet Resend Mechanism stream-
+        grabber config nodes from stream-grabber-parameters.html
+        must appear in the stream-grabber config probe."""
+        src = self._pyloncamera_source()
+        idx = src.find("def read_diagnostic_snapshot(")
+        end = src.find("\n    def ", idx + 10)
+        body = src[idx:end]
+        for node in (
+            'EnableResend',
+            'PacketTimeout',
+            'FrameRetention',
+            'MaximumNumberResendRequests',
+            'FirewallTraversalInterval',
+            'AutoPacketSize',
+            'SocketBufferSize',
+        ):
+            assert node in body, (
+                f"read_diagnostic_snapshot stream-grabber config "
+                f"must probe {node!r} (per stream-grabber-parameters."
+                f"html Packet Resend Mechanism Parameters)."
+            )
+
+    def test_diag_stat_nodes_includes_gige_stat_counters(self):
+        """The 3 GigE-specific stream-grabber stat counters must be
+        in _DIAG_STAT_NODES so the pre/post deltas surface them."""
+        src = self._pyloncamera_source()
+        # Find the _DIAG_STAT_NODES tuple body
+        idx = src.find("_DIAG_STAT_NODES = (")
+        assert idx != -1
+        end = src.find(")", idx)
+        body = src[idx:end]
+        for counter in (
+            'Statistic_Resend_Packet_Count',
+            'Statistic_Resend_Request_Count',
+            'Statistic_Failed_Packet_Count',
+        ):
+            assert counter in body, (
+                f"_DIAG_STAT_NODES must include {counter!r} so the "
+                f"GigE resend traffic surfaces in the diagnostic "
+                f"snapshot. Per stream-grabber-parameters.html "
+                f"Statistics Parameters."
+            )
+
+    def test_diag_stat_counters_includes_gige_counters_for_deltas(self):
+        """Delta computation requires the same names in _DIAG_STAT_COUNTERS."""
+        src = self._pyloncamera_source()
+        idx = src.find("_DIAG_STAT_COUNTERS = (")
+        assert idx != -1
+        end = src.find(")", idx)
+        body = src[idx:end]
+        for counter in (
+            'Statistic_Resend_Packet_Count',
+            'Statistic_Resend_Request_Count',
+            'Statistic_Failed_Packet_Count',
+        ):
+            assert counter in body, (
+                f"_DIAG_STAT_COUNTERS must include {counter!r} for "
+                f"delta computation."
+            )
+
+
 class TestPylonIsConnectedCallsSdkQuery:
     """is_connected docstring promised "if available, the SDK's
     device-removed query" but the implementation only checked the

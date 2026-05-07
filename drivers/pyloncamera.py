@@ -1540,12 +1540,11 @@ class PylonCamera(Camera):
         return result
 
     # Stream-grabber stat node names probed in read_diagnostic_snapshot.
-    # All read defensively via _safe_node so missing nodes (e.g.
-    # Statistic_Buffer_Underrun_Count is absent on USB3 in
-    # pypylon 26.4.1 / pylon SDK 11.5.0) record '<missing>' rather
-    # than raising. The full list is intentionally broader than what
-    # the doc claims is USB3-available -- the probe is also a node-
-    # availability survey across SDK versions and transports.
+    # All read defensively via _safe_node so missing nodes record
+    # '<missing>' rather than raising. The list spans both transports;
+    # the GigE-only resend counters return '<missing>' on USB3, and
+    # the USB3 underrun counter returns '<missing>' on GigE on some
+    # SDK versions. Per Basler doc stream-grabber-parameters.html.
     _DIAG_STAT_NODES = (
         'Statistic_Total_Buffer_Count',
         'Statistic_Failed_Buffer_Count',
@@ -1554,6 +1553,9 @@ class PylonCamera(Camera):
         'Statistic_Resynchronization_Count',
         'Statistic_Last_Failed_Buffer_Status',
         'Statistic_Last_Failed_Buffer_Status_Text',
+        'Statistic_Resend_Packet_Count',
+        'Statistic_Resend_Request_Count',
+        'Statistic_Failed_Packet_Count',
     )
     _DIAG_STAT_COUNTERS = (
         'Statistic_Total_Buffer_Count',
@@ -1561,6 +1563,9 @@ class PylonCamera(Camera):
         'Statistic_Buffer_Underrun_Count',
         'Statistic_Missed_Frame_Count',
         'Statistic_Resynchronization_Count',
+        'Statistic_Resend_Packet_Count',
+        'Statistic_Resend_Request_Count',
+        'Statistic_Failed_Packet_Count',
     )
 
     @staticmethod
@@ -1717,20 +1722,53 @@ class PylonCamera(Camera):
             (('BlackLevel',), 'black_level'),
             (('DeviceLinkThroughputLimitMode',), 'dltl_mode'),
             (('DeviceLinkThroughputLimit',), 'dltl_value_bps'),
+            (('BslDeviceLinkCurrentThroughput',),
+             'current_throughput_bps'),
             (('AcquisitionFrameRateEnable',), 'acquisition_frame_rate_enable'),
             (('AcquisitionFrameRate',), 'acquisition_frame_rate'),
             (('BslResultingAcquisitionFrameRate', 'ResultingFrameRate'),
              'resulting_frame_rate'),
+            # GigE network-related parameters per Basler doc
+            # network-related-parameters.md. Read-only entries
+            # (assigned bandwidth, max throughput, frame jitter max,
+            # payload size) characterise the network state; settable
+            # entries (heartbeat, packet size, inter-packet delay,
+            # bandwidth reserve) are tunable knobs. All return
+            # `<missing>` on USB3 cameras (a2A3536-31umBAS,
+            # daA3840-45um) per the doc's per-camera matrix.
+            (('GevHeartbeatTimeout',), 'gev_heartbeat_timeout_ms'),
+            (('GevSCPSPacketSize',), 'gev_packet_size_bytes'),
+            (('GevSCPD',), 'gev_inter_packet_delay_ticks'),
+            (('GevSCBWR',), 'gev_bandwidth_reserve_pct'),
+            (('GevSCBWRA',), 'gev_bandwidth_reserve_accumulation'),
+            (('GevSCBWA',), 'gev_bandwidth_assigned_bps'),
+            (('GevSCDMT',), 'gev_device_max_throughput_bps'),
+            (('GevSCFJM',), 'gev_frame_jitter_max_ticks'),
+            (('GevSCFTD',), 'gev_frame_transmission_delay_ticks'),
+            (('BandwidthReserveMode',), 'bandwidth_reserve_mode'),
+            (('PayloadSize',), 'payload_size_bytes'),
         ):
             result['config'][key] = self._safe_node(nm, *names)
 
-        # Stream-grabber-nodemap configuration (defaults; transport-
-        # specific availability varies)
+        # Stream-grabber-nodemap configuration. The first four are
+        # USB3-only per stream-grabber-parameters.html (URBs are USB
+        # request blocks). The remaining group covers the GigE Vision
+        # Packet Resend Mechanism per the same doc -- they apply on
+        # GigE only. All read defensively: USB3-only entries return
+        # `<missing>` on GigE and vice versa.
         for name, key in (
             ('MaxNumBuffer', 'max_num_buffer'),
             ('MaxTransferSize', 'max_transfer_size'),
             ('NumMaxQueuedUrbs', 'num_max_queued_urbs'),
             ('MaxBufferSize', 'max_buffer_size'),
+            ('EnableResend', 'enable_resend'),
+            ('PacketTimeout', 'packet_timeout_ms'),
+            ('FrameRetention', 'frame_retention_ms'),
+            ('MaximumNumberResendRequests', 'max_resend_requests'),
+            ('FirewallTraversalInterval', 'firewall_traversal_interval_ms'),
+            ('AutoPacketSize', 'auto_packet_size'),
+            ('Type', 'tl_provider_type'),
+            ('SocketBufferSize', 'socket_buffer_size_kb'),
         ):
             result['config'][key] = self._safe_node(sg, name)
 
