@@ -3652,3 +3652,39 @@ class TestPylonOnImageGrabbedExceptionContext:
             "OnImageGrabbed outer-except logger.exception call must include "
             "a contextual prefix. Found:\n" + window
         )
+
+
+class TestPylonInitCameraConfigStyleConsistency:
+    """Style-consistency checks on init_camera_config.
+
+    The pypylon C-extension supports both `node = value` (attribute
+    assignment) and `node.SetValue(value)` for parameter writes, but
+    they have slightly different exception envelopes (`__setattr__`
+    vs explicit `SetValue`). The rest of pyloncamera.py uses
+    `.SetValue(...)` consistently. The init_camera_config UserSet
+    setter previously mixed the styles -- pinning the consistent form
+    here prevents drift back.
+
+    Audit finding B22.
+    """
+
+    def _pyloncamera_source(self):
+        from pathlib import Path
+        return (Path(__file__).resolve().parent.parent
+                / "drivers" / "pyloncamera.py").read_text()
+
+    def test_user_set_selector_uses_set_value(self):
+        """init_camera_config must call camera.UserSetSelector.SetValue('Default')
+        rather than `camera.UserSetSelector = 'Default'`. Consistent
+        exception envelope; consistent with the rest of the file."""
+        src = self._pyloncamera_source()
+        assert "camera.UserSetSelector = 'Default'" not in src, (
+            "Use camera.UserSetSelector.SetValue('Default') -- attribute "
+            "assignment routes through pypylon __setattr__ which has a "
+            "slightly different exception envelope than the explicit "
+            "SetValue call used elsewhere in this file."
+        )
+        assert "UserSetSelector.SetValue('Default')" in src, (
+            "init_camera_config must select the 'Default' user set via "
+            "UserSetSelector.SetValue('Default')."
+        )

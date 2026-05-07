@@ -627,7 +627,7 @@ class PylonCamera(Camera):
 
         try:
             with self.update_camera_config():
-                camera.UserSetSelector = 'Default'
+                camera.UserSetSelector.SetValue('Default')
                 camera.UserSetLoad.Execute()
                 # Enable per-frame chunks for gain/exposure/identity. Must
                 # happen here -- ChunkModeActive is locked while grabbing
