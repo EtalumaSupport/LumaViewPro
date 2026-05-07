@@ -167,14 +167,15 @@ class PylonCamera(Camera):
     def _start_stats_poller(self):
         if profile_trace is None or not profile_trace.ENABLE_PROFILE_TRACE:
             return
-        # Smoke 1 surfaced a 4.6-min gap in poller output that aligned with
-        # rapid stop/start_grabbing cycles. Cause: prior code returned early
-        # if existing.is_alive(); during the window between _stop_stats_poller
-        # setting the event and the daemon thread actually exiting, a fresh
-        # start_grabbing would skip starting a new poller. The old thread
-        # then exits on its (already-set) event leaving NO poller running.
-        # Fix: actively join the prior thread (with bounded timeout) before
-        # starting a new one. Idempotent if no prior poller.
+        # Active poller cleanup before fresh start. Naive code that
+        # returns early on existing.is_alive() loses the poller across
+        # rapid stop/start_grabbing cycles: between _stop_stats_poller
+        # setting the event and the daemon thread actually exiting, a
+        # fresh start_grabbing skips starting a new poller, then the
+        # old thread exits on its already-set event -- leaving no
+        # poller running. Actively join the prior thread (with bounded
+        # timeout) before starting a new one. Idempotent if no prior
+        # poller.
         existing = getattr(self, '_stats_poller_thread', None)
         existing_ev = getattr(self, '_stats_poller_stop', None)
         if existing is not None and existing.is_alive():
@@ -277,7 +278,7 @@ class PylonCamera(Camera):
         ev = self._stats_poller_stop
         while not ev.wait(self._STATS_POLLER_INTERVAL_S):
             ts_ms = int(time.time() * 1000)
-            # --- Pylon SDK statistics (N3) ---
+            # --- Pylon SDK statistics ---
             stats = {}
             rfr = None
             underrun_value = None
@@ -358,9 +359,9 @@ class PylonCamera(Camera):
             # Temperature state: per Basler doc temperature-state.html,
             # ace 2 / boost / dart M/R cameras stop image acquisition
             # when over-temperature is reached and require cooldown
-            # before restart -- presents identically to STALL-1 in
-            # the user log without temperature attribution. Warn on
-            # any non-Ok state so the cause is visible.
+            # before restart -- presents identically to a frame-rate
+            # stall in the user log without temperature attribution.
+            # Warn on any non-Ok state so the cause is visible.
             temp_state = self._node_attr_get(cam, 'TemperatureState') if cam is not None else None
             prev_temp_state = getattr(self, '_prev_temp_state', None)
             if temp_state is not None and temp_state != prev_temp_state:
@@ -395,7 +396,7 @@ class PylonCamera(Camera):
                 ],
             )
 
-            # --- Thread counts (N4) ---
+            # --- Thread counts ---
             try:
                 threads = threading.enumerate()
                 n_pylon_grab = sum(1 for t in threads if t.name.startswith('PylonImageGrab'))
@@ -410,8 +411,9 @@ class PylonCamera(Camera):
                 logger.debug(f'[INSTR PYLON ] thread-count poll error: {e}')
 
     def stop_grabbing(self):
-        # N3+N4: stop the stats poller before tearing down the grab loop.
-        # No-op when poller wasn't started (LVP_PROFILE_TRACE unset).
+        # Stop the stats poller before tearing down the grab loop so the
+        # poller doesn't read a half-disposed StreamGrabber. No-op when
+        # the poller wasn't started (LVP_PROFILE_TRACE unset).
         self._stop_stats_poller()
         camera = self.active
         if _cam_log is not None:
@@ -445,7 +447,7 @@ class PylonCamera(Camera):
             camera.StartGrabbing(
                 pylon.GrabStrategy_LatestImageOnly, pylon.GrabLoop_ProvidedByInstantCamera
             )
-            # N3+N4 (STALL-1): start periodic Pylon stats + thread-count poller.
+            # Start the periodic Pylon stats + thread-count poller.
             # No-op when LVP_PROFILE_TRACE is unset.
             self._start_stats_poller()
         except Exception as e:
@@ -1090,10 +1092,11 @@ class PylonCamera(Camera):
 
     def update_auto_gain_target_brightness(self, auto_target_brightness: float):
         # Basler runtime-modifiable parameter -- AutoTargetBrightness can
-        # be changed while StartGrabbing is active. Previous wrap in
-        # update_camera_config() forced a stop_grabbing/start_grabbing
-        # cycle on every call (same structural class as STALL-1's
-        # per-step over-stop). docs/TODO.md item 24.
+        # be changed while StartGrabbing is active. The previous wrap
+        # in update_camera_config() forced a stop_grabbing /
+        # start_grabbing cycle on every call -- a needless over-stop
+        # of the same structural class as wrapping any other
+        # live-writable parameter.
         try:
             if _cam_log is not None:
                 _cam_log.info(f'pylon AutoTargetBrightness.SetValue({auto_target_brightness:.3f})')
@@ -1122,13 +1125,13 @@ class PylonCamera(Camera):
 
         # Basler runtime-modifiable parameters -- AutoGainLowerLimit /
         # AutoGainUpperLimit can be changed while StartGrabbing is
-        # active. Previous wrap in update_camera_config() forced a
-        # stop_grabbing/start_grabbing cycle on every call (same
-        # structural class as STALL-1's per-step over-stop).
-        # docs/TODO.md item 24. Note auto_gain() calls this AND
-        # update_auto_gain_target_brightness, so the previous code
-        # stop/started twice per auto_gain invocation; both wraps now
-        # removed so the whole chain stays online.
+        # active. The previous wrap in update_camera_config() forced a
+        # stop_grabbing / start_grabbing cycle on every call -- a
+        # needless over-stop of the same structural class as wrapping
+        # any other live-writable parameter. auto_gain() calls this
+        # method AND update_auto_gain_target_brightness, so the prior
+        # wrapped form stop/started twice per auto_gain invocation;
+        # both wraps removed so the whole chain stays online.
         try:
             if min_gain is None:
                 min_gain = self.active.AutoGainLowerLimit.Min
@@ -1165,8 +1168,8 @@ class PylonCamera(Camera):
         timing measurements we want the freshest frame possible, so
         drain everything that's already captured before waiting.
         """
-        # N2 (STALL-1 H1 vs H2 separator): per-grab duration trace.
-        # See docs/STALL1_INSTRUMENTATION_EXPERIMENT.md (Firmware repo) §4 N2.
+        # Per-grab duration trace; zero overhead when
+        # ENABLE_PROFILE_TRACE is unset (production builds).
         _trace_enabled = profile_trace is not None and profile_trace.ENABLE_PROFILE_TRACE
         _t0 = time.perf_counter() if _trace_enabled else None
         _outcome = 'unknown'
@@ -1200,9 +1203,9 @@ class PylonCamera(Camera):
                 return True, image_ts
 
             except Exception as ex:
-                # queue.Empty inherits from Exception — both timeout and other
-                # errors are caught here, matching pre-N2 behavior. Outcome
-                # classification distinguishes them in the trace row.
+                # queue.Empty inherits from Exception -- both timeout and
+                # other errors are caught here. Outcome classification
+                # distinguishes them in the trace row.
                 _outcome = 'timeout' if isinstance(ex, queue.Empty) else 'exception'
                 logger.exception(f'Failed to grab image: {ex}')
                 return False, None
@@ -2042,9 +2045,8 @@ class ImageHandler(pylon.ImageEventHandler):
         return chunks if chunks else None
 
     def OnImageGrabbed(self, camera, grabResult):
-        # N1 (STALL-1 H2): per-callback duration trace. Gated on
-        # profile_trace.ENABLE_PROFILE_TRACE — zero overhead when disabled.
-        # See docs/STALL1_INSTRUMENTATION_EXPERIMENT.md (Firmware repo) §4 N1.
+        # Per-callback duration trace; zero overhead when
+        # ENABLE_PROFILE_TRACE is unset (production builds).
         _trace_enabled = profile_trace is not None and profile_trace.ENABLE_PROFILE_TRACE
         _t0 = time.perf_counter() if _trace_enabled else None
         _outcome = 'unknown'
