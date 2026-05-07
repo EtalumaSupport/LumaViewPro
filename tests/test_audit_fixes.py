@@ -5029,3 +5029,26 @@ class TestGigeSetters:
         assert camera.set_bandwidth_reserve_mode('Performance') is False
         assert camera.set_gev_packet_size(9000) is False
         assert camera.set_gev_inter_packet_delay(0) is False
+
+
+class TestPylonCameraLineLengthCap:
+    """Pin Rule 26 line-length=100 on drivers/pyloncamera.py.
+
+    A12 closure (AUDIT_PYLONCAMERA_2026-05-07.md): 13 sites exceeded the cap;
+    all wrapped. Pyproject sets line-length=100; this test catches regressions
+    if a future commit reintroduces a long line.
+    """
+
+    def test_no_line_exceeds_100_chars(self):
+        from pathlib import Path
+        path = Path(__file__).resolve().parent.parent / 'drivers' / 'pyloncamera.py'
+        with path.open('r', encoding='utf-8') as fp:
+            offenders = [
+                (lineno, len(line.rstrip('\n')), line.rstrip('\n'))
+                for lineno, line in enumerate(fp, start=1)
+                if len(line.rstrip('\n')) > 100
+            ]
+        assert offenders == [], (
+            f'{len(offenders)} line(s) in pyloncamera.py exceed 100 chars: '
+            f'{[(n, c) for n, c, _ in offenders]}'
+        )

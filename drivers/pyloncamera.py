@@ -616,7 +616,8 @@ class PylonCamera(Camera):
 
         except genicam.RuntimeException as ex:
             logger.error(
-                f'[CAM Class ] Pylon camera connect failed (may be open in another application): {ex}'
+                '[CAM Class ] Pylon camera connect failed (may be open in another '
+                f'application): {ex}'
             )
             self.active = None
         except Exception:
@@ -732,7 +733,8 @@ class PylonCamera(Camera):
                 self._enable_validity_chunks()
                 self.set_pixel_format(pixel_format='Mono8')
                 self.auto_gain(state=False)
-                self.gain(0.0)  # Set explicit gain — camera default after UserSetLoad is undefined
+                # Set explicit gain — camera default after UserSetLoad is undefined
+                self.gain(0.0)
                 camera.ReverseX.SetValue(True)
                 if not self._use_camera_emulation:
                     self.init_auto_gain_focus()
@@ -1321,7 +1323,8 @@ class PylonCamera(Camera):
             if _cam_log is not None:
                 _cam_log.error(f'pylon PixelFormat.SetValue({pixel_format!r}) FAILED: {e}')
             logger.error(
-                f'[CAM Class ] Camera communication error during set_pixel_format({pixel_format}): {e}'
+                '[CAM Class ] Camera communication error during '
+                f'set_pixel_format({pixel_format}): {e}'
             )
             self._mark_disconnected()
             raise HardwareError(
@@ -1388,7 +1391,8 @@ class PylonCamera(Camera):
 
         try:
             logger.debug(
-                f'[CAM Class ] Binning {self.get_binning_size()} -> {size}, frame {self.get_frame_size()}'
+                f'[CAM Class ] Binning {self.get_binning_size()} -> {size}, '
+                f'frame {self.get_frame_size()}'
             )
             if _cam_log is not None:
                 _cam_log.info(
@@ -1401,7 +1405,8 @@ class PylonCamera(Camera):
                 self.active.BinningHorizontalMode.SetValue('Sum')
 
             logger.debug(
-                f'[CAM Class ] Binning set to {self.get_binning_size()}, frame now {self.get_frame_size()}'
+                f'[CAM Class ] Binning set to {self.get_binning_size()}, '
+                f'frame now {self.get_frame_size()}'
             )
 
             return True
@@ -1436,7 +1441,8 @@ class PylonCamera(Camera):
 
             if horiz_bin != vert_bin:
                 logger.warning(
-                    f'[CAM Class ] Binning mismatch detected between horizontal ({horiz_bin}) and vertical ({vert_bin})'
+                    '[CAM Class ] Binning mismatch detected between '
+                    f'horizontal ({horiz_bin}) and vertical ({vert_bin})'
                 )
 
             return vert_bin
@@ -1501,7 +1507,8 @@ class PylonCamera(Camera):
                     f'pylon AutoTargetBrightness.SetValue({auto_target_brightness}) FAILED: {e}'
                 )
             logger.error(
-                f'[CAM Class ] Camera communication error during update_auto_gain_target_brightness({auto_target_brightness}): {e}'
+                '[CAM Class ] Camera communication error during '
+                f'update_auto_gain_target_brightness({auto_target_brightness}): {e}'
             )
             self._mark_disconnected()
         except Exception as e:
@@ -1535,13 +1542,15 @@ class PylonCamera(Camera):
 
             if _cam_log is not None:
                 _cam_log.info(
-                    f'pylon AutoGainLowerLimit.SetValue({min_gain}) AutoGainUpperLimit.SetValue({max_gain})'
+                    f'pylon AutoGainLowerLimit.SetValue({min_gain}) '
+                    f'AutoGainUpperLimit.SetValue({max_gain})'
                 )
             self.active.AutoGainLowerLimit.SetValue(min_gain)
             self.active.AutoGainUpperLimit.SetValue(max_gain)
         except genicam.RuntimeException as e:
             logger.error(
-                f'[CAM Class ] Camera communication error during update_auto_gain_min_max(min={min_gain}, max={max_gain}): {e}'
+                '[CAM Class ] Camera communication error during '
+                f'update_auto_gain_min_max(min={min_gain}, max={max_gain}): {e}'
             )
             self._mark_disconnected()
         except Exception as e:
@@ -1625,7 +1634,8 @@ class PylonCamera(Camera):
 
             if _cam_log is not None:
                 _cam_log.info(
-                    f'pylon Width.SetValue({width}) Height.SetValue({height}) BslCenterX/Y.Execute() (geometry-realloc)'
+                    f'pylon Width.SetValue({width}) Height.SetValue({height}) '
+                    'BslCenterX/Y.Execute() (geometry-realloc)'
                 )
             with self.update_camera_config():
                 camera.Width.SetValue(width)
@@ -1798,7 +1808,8 @@ class PylonCamera(Camera):
         try:
             if _cam_log is not None:
                 _cam_log.info(
-                    f'pylon auto_gain(state={state}, target={target_brightness}, min={min_gain}, max={max_gain})'
+                    f'pylon auto_gain(state={state}, target={target_brightness}, '
+                    f'min={min_gain}, max={max_gain})'
                 )
             if state:
                 self.update_auto_gain_target_brightness(auto_target_brightness=target_brightness)
@@ -2493,7 +2504,8 @@ class ImageHandler(pylon.ImageEventHandler):
             # Check if parent camera was removed before processing
             if self._parent._device_removed:
                 logger.debug(
-                    '[CAM Class ] OnImageGrabbed called but device already marked as removed, ignoring'
+                    '[CAM Class ] OnImageGrabbed called but device '
+                    'already marked as removed, ignoring'
                 )
                 _outcome = 'early_return_removed'
                 return
@@ -2587,7 +2599,10 @@ class ImageHandler(pylon.ImageEventHandler):
                     should_stop = self._base._record_failure()
                     if should_stop:
                         try:
-                            logger.error('[CAM Class ] Too many grab failures; stopping acquisition')
+                            logger.error(
+                                '[CAM Class ] Too many grab failures; '
+                                'stopping acquisition'
+                            )
                             if self._parent.active and self._parent.is_grabbing():
                                 self._parent.stop_grabbing()
                             self._parent._mark_disconnected()
