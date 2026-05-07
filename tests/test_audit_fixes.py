@@ -4053,10 +4053,77 @@ class TestPylonResyncProminentLog:
         idx = src.find("'pylon_stats_trace.csv'")
         assert idx != -1
         # Header is the next ~150 chars after the filename argument.
-        window = src[idx:idx + 400]
+        window = src[idx:idx + 500]
         assert "resync_count" in window, (
             "pylon_stats_trace.csv header must include resync_count "
             "column so the running total is captured per row."
+        )
+
+
+class TestPylonTemperatureStateMonitoring:
+    """Per Basler doc temperature-state.html, ace 2 / boost /
+    dart M/R cameras halt image acquisition when over-temperature
+    is reached and require cool-down before restart -- presents
+    identically to STALL-1 in the user log without attribution.
+
+    Fix: poll TemperatureState in the live stats poller; warn on
+    any non-Ok state. Surface in read_diagnostic_snapshot too so
+    cross-host bench comparison captures the camera's thermal
+    history.
+
+    Audit finding B13.
+    """
+
+    def _pyloncamera_source(self):
+        from pathlib import Path
+        return (Path(__file__).resolve().parent.parent
+                / "drivers" / "pyloncamera.py").read_text()
+
+    def test_stats_poller_reads_temperature_state(self):
+        src = self._pyloncamera_source()
+        idx = src.find("def _stats_poller_loop(self):")
+        assert idx != -1
+        end = src.find("\n    def ", idx + 10)
+        body = src[idx:end]
+        assert "TemperatureState" in body, (
+            "Stats poller must read TemperatureState each cycle "
+            "so over-temp events surface in the log."
+        )
+        assert "[INSTR TEMP]" in body, (
+            "Stats poller must emit [INSTR TEMP] on temperature "
+            "state changes for log-grep visibility."
+        )
+        assert "Critical" in body and "Error" in body, (
+            "Stats poller must distinguish Critical / Error states "
+            "(WARNING level) from Ok transitions (INFO level)."
+        )
+
+    def test_read_diagnostic_snapshot_captures_thermal_state(self):
+        src = self._pyloncamera_source()
+        idx = src.find("def read_diagnostic_snapshot(")
+        assert idx != -1
+        end = src.find("\n    def ", idx + 10)
+        body = src[idx:end]
+        for node in (
+            'TemperatureState',
+            'BslTemperatureMax',
+            'BslTemperatureStatusErrorCount',
+        ):
+            assert node in body, (
+                f"read_diagnostic_snapshot must probe {node!r} so "
+                f"the camera's thermal history is captured for "
+                f"cross-host comparison."
+            )
+
+    def test_temperature_csv_column_present(self):
+        src = self._pyloncamera_source()
+        idx = src.find("'pylon_stats_trace.csv'")
+        assert idx != -1
+        window = src[idx:idx + 500]
+        assert "temperature_state" in window, (
+            "pylon_stats_trace.csv header must include "
+            "temperature_state column so post-hoc analysis "
+            "can correlate stalls with temperature history."
         )
 
 

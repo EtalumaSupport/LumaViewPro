@@ -334,10 +334,32 @@ class PylonCamera(Camera):
             if isinstance(resync_value, (int, float)):
                 self._prev_resync_count = resync_value
 
+            # Temperature state: per Basler doc temperature-state.html,
+            # ace 2 / boost / dart M/R cameras stop image acquisition
+            # when over-temperature is reached and require cooldown
+            # before restart -- presents identically to STALL-1 in
+            # the user log without temperature attribution. Warn on
+            # any non-Ok state so the cause is visible.
+            temp_state = self._node_attr_get(cam, 'TemperatureState') if cam is not None else None
+            prev_temp_state = getattr(self, '_prev_temp_state', None)
+            if temp_state is not None and temp_state != prev_temp_state:
+                if temp_state in ('Critical', 'Error'):
+                    logger.warning(
+                        f'[INSTR TEMP] TemperatureState={temp_state!r} '
+                        f'(was {prev_temp_state!r})'
+                    )
+                else:
+                    logger.info(
+                        f'[INSTR TEMP] TemperatureState={temp_state!r} '
+                        f'(was {prev_temp_state!r})'
+                    )
+            self._prev_temp_state = temp_state
+
             profile_trace.trace(
                 'pylon_stats_trace.csv',
                 'ts_ms,total_buffer_count,failed_buffer_count,'
-                'resync_count,underrun_node_name,underrun_value,resulting_fps',
+                'resync_count,underrun_node_name,underrun_value,resulting_fps,'
+                'temperature_state',
                 [
                     ts_ms,
                     stats.get('Statistic_Total_Buffer_Count'),
@@ -346,6 +368,7 @@ class PylonCamera(Camera):
                     underrun_name,
                     underrun_value,
                     f'{rfr:.3f}' if rfr is not None else None,
+                    temp_state,
                 ],
             )
 
@@ -1820,6 +1843,15 @@ class PylonCamera(Camera):
             (('GevSCFTD',), 'gev_frame_transmission_delay_ticks'),
             (('BandwidthReserveMode',), 'bandwidth_reserve_mode'),
             (('PayloadSize',), 'payload_size_bytes'),
+            # Thermal state. TemperatureState is the enum that drives
+            # the over-temperature acquisition halt described in
+            # temperature-state.html. BslTemperatureMax records the
+            # peak observed; BslTemperatureStatusErrorCount counts
+            # over-temp events. All read defensively.
+            (('TemperatureState',), 'temperature_state'),
+            (('BslTemperatureMax',), 'temperature_max_degC'),
+            (('BslTemperatureStatusErrorCount',),
+             'temperature_status_error_count'),
         ):
             result['config'][key] = self._safe_node(nm, *names)
 
