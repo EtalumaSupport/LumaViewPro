@@ -5364,3 +5364,90 @@ class TestPylonAcquisitionIdleWait:
         camera.active = _FakeCamera()
         result = camera._wait_for_acquisition_idle(timeout_s=0.1)
         assert result is False
+
+
+class TestPylonStreamGrabberStatusLog:
+    """B23 closure (AUDIT_PYLONCAMERA_2026-05-07.md): snapshot the
+    StreamGrabber.Status read-only node into the camera trace log
+    before StartGrabbing so post-mortem analysis can correlate
+    weird-startup symptoms with the grabber's entry state. Per
+    Basler stream-grabber-parameters.html.
+
+    Diagnostic-only -- no behavior change. STALL-1 instrumentation
+    aid; logs to _cam_log (LVP_PROFILE_TRACE-gated) so production
+    builds pay zero cost when tracing is off.
+    """
+
+    def test_helper_method_present(self):
+        from pathlib import Path
+        src = (Path(__file__).resolve().parent.parent
+               / "drivers" / "pyloncamera.py").read_text()
+        assert "def _log_stream_grabber_status(" in src
+
+    def test_start_grabbing_logs_status_before_start_call(self):
+        """Pin call-site shape: _log_stream_grabber_status fires in
+        start_grabbing BEFORE camera.StartGrabbing(...) so the trace
+        log captures the entry state, not post-start state."""
+        from pathlib import Path
+        src = (Path(__file__).resolve().parent.parent
+               / "drivers" / "pyloncamera.py").read_text()
+        body = _function_source(src, "start_grabbing")
+        assert "_log_stream_grabber_status" in body
+        idx_log = body.find("_log_stream_grabber_status")
+        idx_start = body.find("StartGrabbing(")
+        # idx_start of literal text "StartGrabbing(" appears in
+        # comments + the actual call. Find LAST occurrence to land
+        # on the call site (comments come first).
+        idx_start = body.rfind("StartGrabbing(")
+        assert 0 <= idx_log < idx_start, (
+            f"_log_stream_grabber_status must fire BEFORE "
+            f"StartGrabbing() in start_grabbing(); "
+            f"log_idx={idx_log} start_idx={idx_start}"
+        )
+
+    def test_log_helper_no_op_when_active_none(self):
+        """Helper must be a true no-op when self.active is None
+        (called during reconnect transitions)."""
+        from drivers.pyloncamera import PylonCamera
+        camera = PylonCamera.__new__(PylonCamera)
+        import threading as _threading
+        camera._state_lock = _threading.Lock()
+        camera.active = None
+        # Should not raise
+        camera._log_stream_grabber_status('test-label')
+
+    def test_log_helper_handles_missing_node_gracefully(self):
+        """Older firmware / non-Basler cameras may not expose Status.
+        Helper should not raise, log via _cam_log if present."""
+        from drivers.pyloncamera import PylonCamera
+
+        class _FakeStreamGrabberNodeMap:
+            def GetNode(self, name):
+                return None
+
+        class _FakeCamera:
+            def GetStreamGrabberNodeMap(self):
+                return _FakeStreamGrabberNodeMap()
+
+        camera = PylonCamera.__new__(PylonCamera)
+        import threading as _threading
+        camera._state_lock = _threading.Lock()
+        camera.active = _FakeCamera()
+        # Should not raise
+        camera._log_stream_grabber_status('test-label')
+
+    def test_log_helper_handles_runtime_exception(self):
+        """If the SDK raises while reading Status, helper should
+        catch + log warning, not propagate."""
+        from drivers.pyloncamera import PylonCamera
+
+        class _FakeCamera:
+            def GetStreamGrabberNodeMap(self):
+                raise RuntimeError("simulated SDK failure")
+
+        camera = PylonCamera.__new__(PylonCamera)
+        import threading as _threading
+        camera._state_lock = _threading.Lock()
+        camera.active = _FakeCamera()
+        # Should not raise
+        camera._log_stream_grabber_status('test-label')

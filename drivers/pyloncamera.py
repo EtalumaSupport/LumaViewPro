@@ -508,6 +508,45 @@ class PylonCamera(Camera):
         )
         return False
 
+    def _log_stream_grabber_status(self, label: str) -> None:
+        """Snapshot StreamGrabber Status into the camera trace log.
+
+        Per Basler ``stream-grabber-parameters.html`` the read-only
+        ``Status`` node reflects grabber lifecycle state (Closed,
+        Open, Grabbing, OutOfMemory, BufferAllocFailed,
+        BufferRequestFailed, OutOfResources, ...). Logging the value
+        at lifecycle transitions (e.g. before StartGrabbing) gives
+        post-mortem analysis a concrete entry-state for
+        STALL-1-class investigations.
+
+        No-op when ``_cam_log`` is unset (LVP_PROFILE_TRACE off in
+        production builds) or when the camera is inactive. Older
+        firmware / non-Basler cameras that do not expose the node
+        log a missing-node line and continue (no failure).
+
+        Args:
+            label: Short tag identifying the lifecycle point (e.g.
+                ``'pre-StartGrabbing'``, ``'post-StopGrabbing'``).
+        """
+        if _cam_log is None or self.active is None:
+            return
+        try:
+            sg = self.active.GetStreamGrabberNodeMap()
+            node = sg.GetNode('Status')
+            if node is None:
+                _cam_log.info(
+                    f'pylon StreamGrabber.Status [{label}]: <node missing>'
+                )
+                return
+            status = node.GetValue()
+            _cam_log.info(
+                f'pylon StreamGrabber.Status [{label}]: {status}'
+            )
+        except Exception as e:
+            _cam_log.warning(
+                f'pylon StreamGrabber.Status [{label}] read failed: {e}'
+            )
+
     def start_grabbing(self):
         camera = self.active
         try:
@@ -525,6 +564,13 @@ class PylonCamera(Camera):
                 if _cam_log is not None:
                     _cam_log.warning(f'pylon MaxNumBuffer cap FAILED: {e}')
                 logger.warning(f'[CAM Class ] MaxNumBuffer cap failed: {e}')
+            # B20 / B23: snapshot StreamGrabber.Status into the trace
+            # log before StartGrabbing so post-mortem analysis can
+            # correlate "weird StartGrabbing behavior" with the entry
+            # state. Per Basler stream-grabber-parameters.html the node
+            # is read-only and reflects grabber lifecycle state
+            # (Closed / Open / Grabbing / OutOfMemory / etc.).
+            self._log_stream_grabber_status('pre-StartGrabbing')
             if _cam_log is not None:
                 _cam_log.info('pylon StartGrabbing(LatestImageOnly, ProvidedByInstantCamera)')
             camera.StartGrabbing(
