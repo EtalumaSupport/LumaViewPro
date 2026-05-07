@@ -3228,3 +3228,107 @@ class TestPylonDiagnosticProbe:
         assert "'supported': False" in body or '"supported": False' in body, (
             "IDS read_diagnostic_snapshot stub must return supported=False"
         )
+
+
+class TestDeviceLinkThroughputLimitSetter:
+    """Lumascope.set_device_link_throughput_limit and the underlying
+    PylonCamera / IDSCamera implementations exist so the bench-probe
+    sweep can vary DLTL across cells without dropping below the API
+    layer (Rule 1) or writing /tmp/probe.py (Rule 22).
+
+    DLTL is documented live-writable; no StopGrabbing/StartGrabbing
+    wrap is required. The Pylon driver raises HardwareError on SDK
+    RuntimeException; the API layer notifies + re-raises.
+    """
+
+    def _make_scope_with_fake_camera(self, fake_camera):
+        from modules.lumascope_api import Lumascope
+        scope = Lumascope.__new__(Lumascope)
+        scope.camera = fake_camera
+        return scope
+
+    def test_lumascope_method_exists(self):
+        from modules.lumascope_api import Lumascope
+        assert hasattr(Lumascope, 'set_device_link_throughput_limit')
+        assert callable(Lumascope.set_device_link_throughput_limit)
+
+    def test_no_camera_returns_false(self):
+        from modules.lumascope_api import Lumascope
+        scope = Lumascope.__new__(Lumascope)
+        scope.camera = None
+        assert scope.set_device_link_throughput_limit('Off') is False
+
+    def test_inactive_camera_returns_false(self):
+        class _Fake:
+            active = None
+            def set_device_link_throughput_limit(self, **k):
+                raise AssertionError("driver should not be reached")
+        scope = self._make_scope_with_fake_camera(_Fake())
+        assert scope.set_device_link_throughput_limit('Off') is False
+
+    def test_unsupported_driver_returns_false(self):
+        """Camera class without the setter (e.g. SimulatedCamera) -> False."""
+        class _NoSetter:
+            active = True
+        scope = self._make_scope_with_fake_camera(_NoSetter())
+        assert scope.set_device_link_throughput_limit('Off') is False
+
+    def test_off_routes_to_driver(self):
+        called_with = {}
+        class _Fake:
+            active = True
+            def set_device_link_throughput_limit(self, mode, value_bps=None):
+                called_with['mode'] = mode
+                called_with['value_bps'] = value_bps
+                return True
+        scope = self._make_scope_with_fake_camera(_Fake())
+        assert scope.set_device_link_throughput_limit('Off') is True
+        assert called_with == {'mode': 'Off', 'value_bps': None}
+
+    def test_on_with_value_routes_to_driver(self):
+        called_with = {}
+        class _Fake:
+            active = True
+            def set_device_link_throughput_limit(self, mode, value_bps=None):
+                called_with['mode'] = mode
+                called_with['value_bps'] = value_bps
+                return True
+        scope = self._make_scope_with_fake_camera(_Fake())
+        ok = scope.set_device_link_throughput_limit(
+            'On', value_bps=160_000_000)
+        assert ok is True
+        assert called_with == {'mode': 'On', 'value_bps': 160_000_000}
+
+    def test_pylon_driver_method_present(self):
+        from pathlib import Path
+        src = (Path(__file__).resolve().parent.parent
+               / "drivers" / "pyloncamera.py").read_text()
+        assert "def set_device_link_throughput_limit(" in src, (
+            "PylonCamera must implement set_device_link_throughput_limit "
+            "for tomorrow's bench-probe sweep to function without "
+            "Rule 1 violations."
+        )
+
+    def test_pylon_driver_does_not_wrap_in_update_camera_config(self):
+        """DLTL is live-writable per Section 5; wrapping in
+        update_camera_config would force unnecessary stop/start cycles
+        (per the STALL-1 anti-pattern lesson)."""
+        from pathlib import Path
+        src = (Path(__file__).resolve().parent.parent
+               / "drivers" / "pyloncamera.py").read_text()
+        body = _function_source(src, "set_device_link_throughput_limit")
+        assert "with self.update_camera_config" not in body, (
+            "PylonCamera.set_device_link_throughput_limit must NOT wrap "
+            "the writes in update_camera_config (DLTL is live-writable; "
+            "wrapping would impose the STALL-1 over-stop pattern)."
+        )
+
+    def test_ids_driver_stub_present(self):
+        from pathlib import Path
+        src = (Path(__file__).resolve().parent.parent
+               / "drivers" / "idscamera.py").read_text()
+        assert "def set_device_link_throughput_limit(" in src, (
+            "IDSCamera must have a set_device_link_throughput_limit "
+            "stub so the API method does not need to know which driver "
+            "is connected when called by the sweep tool."
+        )

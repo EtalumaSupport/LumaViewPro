@@ -679,6 +679,81 @@ class PylonCamera(Camera):
                 f'[CAM Class ] Unexpected error in set_max_acquisition_frame_rate: {e}'
             )
 
+    def set_device_link_throughput_limit(
+        self,
+        mode: str,
+        value_bps: int | None = None,
+    ) -> bool:
+        """Set DeviceLinkThroughputLimitMode + DeviceLinkThroughputLimit.
+
+        Both nodes are live-writable per the SDK lock-state table -- no
+        StopGrabbing/StartGrabbing wrap is required. Per-camera defaults
+        on our cameras (bench-witnessed): ace 2 a2A3536-31umBAS at
+        360 MB/s -> 28.8 fps; dart daA3840-45um at 160 MB/s -> 18.7 fps.
+        Setting Mode=Off lets the camera run at sensor-readout max
+        (~31.2 fps ace 2; ~44.9 fps dart) -- but Basler warns "Corrupt
+        or dropped frames may occur if the DeviceLinkThroughputLimit
+        parameter is too high." Bench-test failure rate alongside fps
+        before settling on a per-camera production default.
+
+        Args:
+            mode: ``'On'`` or ``'Off'``. Case-sensitive (matches Pylon
+                enum entry symbolic names).
+            value_bps: Throughput cap in bytes per second when
+                ``mode='On'``. Ignored when ``mode='Off'``. If None
+                while ``mode='On'``, only the mode is changed and the
+                existing limit value is preserved.
+
+        Returns:
+            bool: True on success. False if the camera is inactive
+                (caller-correctable guard) or the requested mode is
+                rejected by the SDK.
+
+        Raises:
+            HardwareError: Underlying SDK call failed
+                (RuntimeException). Camera is marked disconnected on
+                RuntimeException.
+        """
+        if not self.active:
+            return False
+        if mode not in ('On', 'Off'):
+            logger.error(
+                f"[CAM Class ] set_device_link_throughput_limit: mode "
+                f"must be 'On' or 'Off'; got {mode!r}"
+            )
+            return False
+        try:
+            if _cam_log is not None:
+                _cam_log.info(
+                    f'pylon DeviceLinkThroughputLimitMode.SetValue({mode!r}) '
+                    f'value_bps={value_bps}'
+                )
+            self.active.DeviceLinkThroughputLimitMode.SetValue(mode)
+            if mode == 'On' and value_bps is not None:
+                self.active.DeviceLinkThroughputLimit.SetValue(int(value_bps))
+            return True
+        except genicam.RuntimeException as e:
+            if _cam_log is not None:
+                _cam_log.error(
+                    f'pylon set_device_link_throughput_limit({mode}, '
+                    f'{value_bps}) FAILED: {e}'
+                )
+            logger.error(
+                f'[CAM Class ] Camera communication error in '
+                f'set_device_link_throughput_limit: {e}'
+            )
+            self._mark_disconnected()
+            raise HardwareError(
+                f'set_device_link_throughput_limit({mode}, {value_bps}) '
+                f'failed: {e}'
+            ) from e
+        except Exception as e:
+            logger.exception(
+                f'[CAM Class ] Unexpected error in '
+                f'set_device_link_throughput_limit: {e}'
+            )
+            return False
+
     def set_pixel_format(self, pixel_format: str) -> bool:
         """Set the camera pixel format.
 

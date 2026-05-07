@@ -2299,6 +2299,69 @@ class Lumascope():
             return ()
         return self.camera.get_supported_pixel_formats()
 
+    def set_device_link_throughput_limit(
+        self,
+        mode: str,
+        value_bps: int | None = None,
+    ) -> bool:
+        """Set the camera's DeviceLinkThroughputLimit mode and value.
+
+        Both nodes are live-writable per the SDK lock-state table -- no
+        StopGrabbing/StartGrabbing wrap. Per-camera defaults bench-
+        witnessed: ace 2 a2A3536-31umBAS at 360 MB/s -> 28.8 fps;
+        dart daA3840-45um at 160 MB/s -> 18.7 fps. Setting ``mode='Off'``
+        lets the camera run at sensor-readout maximum (~31.2 fps ace 2;
+        ~44.9 fps dart).
+
+        Used by the diagnostic-probe sweep in ``tools/`` to characterize
+        failure rate vs throughput across camera + firmware + host
+        cells. Per Basler docs: "Corrupt or dropped frames may occur if
+        the DeviceLinkThroughputLimit parameter is too high" -- bench-
+        test failure rate alongside fps before settling on a per-camera
+        production default.
+
+        Args:
+            mode: ``'On'`` or ``'Off'`` (case-sensitive; matches Pylon
+                enum entry symbolic names).
+            value_bps: Throughput cap in bytes per second when
+                ``mode='On'``. Ignored when ``mode='Off'``. If None
+                while ``mode='On'``, only the mode is changed and the
+                existing limit value is preserved.
+
+        Returns:
+            bool: True on success. False if the camera is absent /
+                inactive, the mode argument is invalid, or the driver
+                returned False (unsupported by this driver).
+
+        Raises:
+            HardwareError: Underlying SDK call failed in the driver.
+        """
+        if not self.camera or not self.camera.active:
+            return False
+        if not hasattr(self.camera, 'set_device_link_throughput_limit'):
+            logger.warning(
+                f'[SCOPE API ] set_device_link_throughput_limit: '
+                f'{type(self.camera).__name__} does not implement this method'
+            )
+            return False
+        try:
+            return bool(self.camera.set_device_link_throughput_limit(
+                mode=mode, value_bps=value_bps,
+            ))
+        except Exception as ex:
+            logger.exception(
+                f"[SCOPE API ] Error setting DLTL: {ex}"
+            )
+            from modules.notification_center import notifications
+            notifications.error(
+                "Camera",
+                "DeviceLinkThroughputLimit change failed",
+                f"Could not set DLTL to mode={mode}, value_bps={value_bps}: "
+                f"{type(ex).__name__}: {ex}. Camera may still be at the "
+                f"previous DLTL setting."
+            )
+            raise
+
 
     ########################################################################
     # LED BOARD FUNCTIONS

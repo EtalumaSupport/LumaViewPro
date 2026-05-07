@@ -514,6 +514,43 @@ class IDSCamera(Camera):
     def get_all_temperatures(self):
         return {} #TODO: Implement for IDS cameras that support temperature readings
 
+    def set_device_link_throughput_limit(
+        self,
+        mode: str,
+        value_bps: int | None = None,
+    ) -> bool:
+        """IDS Peak SDK exposes only DeviceLinkThroughputLimit (no
+        DeviceLinkThroughputLimitMode) per the per-IDS-camera nodemap.
+        Setting the value to its Maximum() at init disables effective
+        throttling -- which is what init_camera_config already does
+        at line 199-203. Mode='Off' here maps to "set to Maximum()";
+        Mode='On' with value_bps maps to "set to value_bps".
+
+        Returns True on success, False if camera inactive or the node
+        is not present on this IDS body. Does not raise.
+        """
+        if not self.active or self.remote_nodemap is None:
+            return False
+        try:
+            node = self.remote_nodemap.FindNode("DeviceLinkThroughputLimit")
+            if node is None:
+                return False
+            if mode == 'Off':
+                node.SetValue(node.Maximum())
+            elif mode == 'On':
+                if value_bps is not None:
+                    node.SetValue(int(value_bps))
+                # if value_bps is None we leave the existing value alone
+            else:
+                return False
+            return True
+        except Exception as e:
+            logger.warning(
+                f'[CAM Class ] IDS set_device_link_throughput_limit('
+                f'{mode}, {value_bps}) failed: {e}'
+            )
+            return False
+
     def set_max_acquisition_frame_rate(self, enabled: bool, fps: float=1.0):
         if not self.active:
             logger.warning('[CAM Class ] set_max_acquisition_frame_rate(): inactive camera')
