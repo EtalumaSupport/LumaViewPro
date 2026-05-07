@@ -1807,7 +1807,7 @@ class ImageHandler(pylon.ImageEventHandler):
             # Check if parent camera is still active
             if self._parent.active is None:
                 logger.debug('[CAM Class ] OnImageGrabbed called but camera is inactive, ignoring')
-                self._parent._device_removed = True
+                self._parent._mark_disconnected()
                 _outcome = 'early_return_inactive'
                 return
 
@@ -1944,11 +1944,12 @@ class _CameraRemovalHandler(pylon.ConfigurationEventHandler):
         self._parent = parent_cam
 
     def OnCameraDeviceRemoved(self, camera):
-        # CRITICAL: This runs in a native Pylon SDK thread during device removal.
-        # RACE CONDITION: Do NOT modify self._parent.active here!
-        # Other Python threads may be accessing it simultaneously, causing crashes.
-        # ONLY set the boolean flag - Python's boolean assignment is atomic.
-        self._parent._device_removed = True
-        # Note: We do NOT set self._parent.active = False here to avoid race conditions.
-        # The is_connected() checks will see _device_removed and handle cleanup safely.
+        # Runs in a native Pylon SDK thread. _mark_disconnected acquires
+        # the camera's _state_lock and sets _device_removed + _active=None
+        # atomically; safe from any thread including SDK callbacks
+        # because the lock is microsecond-scale and never held during
+        # long work. Earlier the comment here said "do not touch active
+        # to avoid races" -- that predated _mark_disconnected's lock-
+        # based design.
+        self._parent._mark_disconnected()
         logger.error('[CAM Class ] Camera physically removed (Pylon SDK callback)')

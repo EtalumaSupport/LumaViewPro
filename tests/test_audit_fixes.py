@@ -3401,3 +3401,96 @@ class TestPylonAsciiOnlyInLoggerStrings:
             "Could not find a temperature log line in pyloncamera.py. "
             "If get_all_temperatures was renamed/removed, update this test."
         )
+
+
+class TestPylonStateMutationViaMarkDisconnected:
+    """CLAUDE.md Rule 2 (single source of truth) + Rule 35 (one canonical
+    implementation per capability).
+
+    The canonical write-path for "camera is disconnected" is
+    Camera._mark_disconnected (drivers/camera.py): it acquires _state_lock
+    and sets _device_removed=True and _active=None atomically, plus emits
+    the boundary-transition log line. Direct writes to either flag from
+    other call sites bypass the lock invariant and the log.
+
+    Two pyloncamera sites previously bypassed the helper:
+      - OnImageGrabbed (the inactive-fallback branch -- when the callback
+        runs but parent.active has been reset elsewhere)
+      - _CameraRemovalHandler.OnCameraDeviceRemoved (the SDK device-
+        removal callback)
+
+    Both now route through _mark_disconnected. The OnCameraDeviceRemoved
+    site previously had a comment claiming the helper was unsafe to call
+    from an SDK callback thread; that comment predated the lock-based
+    design (Camera._mark_disconnected docstring: "Safe to call from any
+    thread including SDK callbacks"). Comment retired in the same fix.
+
+    Locks the structural shape of the unified call path so a future
+    "while-I'm-here" patch that re-introduces a direct boolean write
+    fires the regression.
+    """
+
+    def _pyloncamera_source(self):
+        from pathlib import Path
+        return (Path(__file__).resolve().parent.parent
+                / "drivers" / "pyloncamera.py").read_text()
+
+    def test_no_direct_mark_disconnected_assignment(self):
+        """No direct `_device_removed = True` write in pyloncamera.py.
+
+        The canonical mark-disconnected write path is
+        Camera._mark_disconnected (acquires _state_lock + sets
+        _active=None atomically + emits boundary log). Setting the bool
+        to True bypasses all three invariants.
+
+        The inverse case (`_device_removed = False`) IS allowed -- the
+        reconnect path in connect() resets the flag for a fresh
+        session. There is no canonical _mark_connected helper today;
+        if one is added, this test grows to cover both directions.
+        """
+        src = self._pyloncamera_source()
+        forbidden = (
+            'self._parent._device_removed = True',
+            'self._device_removed = True',
+        )
+        offenders = [phrase for phrase in forbidden if phrase in src]
+        assert not offenders, (
+            "pyloncamera.py contains direct write(s) marking the camera "
+            f"removed: {offenders}. Use Camera._mark_disconnected "
+            "(acquires _state_lock + sets _active=None + emits "
+            "boundary log) instead."
+        )
+
+    def test_on_image_grabbed_inactive_branch_uses_mark_disconnected(self):
+        """The OnImageGrabbed inactive-fallback branch must call
+        _mark_disconnected so the parent's _state_lock invariants hold."""
+        src = self._pyloncamera_source()
+        # Find the inactive-branch sentinel and confirm the call sequence.
+        marker = "OnImageGrabbed called but camera is inactive"
+        idx = src.find(marker)
+        assert idx != -1, (
+            "Could not find OnImageGrabbed inactive-branch logger sentinel; "
+            "if the wording changed, update this test."
+        )
+        # Within ~200 chars after the sentinel, expect the canonical call.
+        window = src[idx:idx + 400]
+        assert "_mark_disconnected()" in window, (
+            "OnImageGrabbed inactive-branch must call "
+            "self._parent._mark_disconnected() to preserve the "
+            "_state_lock invariant. Found instead:\n" + window
+        )
+
+    def test_on_camera_device_removed_uses_mark_disconnected(self):
+        """The _CameraRemovalHandler SDK callback must call
+        _mark_disconnected. _mark_disconnected's docstring states it is
+        safe from any thread (including SDK callbacks); the prior
+        comment claiming otherwise was stale."""
+        src = self._pyloncamera_source()
+        marker = "def OnCameraDeviceRemoved("
+        idx = src.find(marker)
+        assert idx != -1, "Could not find OnCameraDeviceRemoved method."
+        window = src[idx:idx + 800]
+        assert "_mark_disconnected()" in window, (
+            "OnCameraDeviceRemoved must call self._parent._mark_disconnected() "
+            "to atomically clear _active under _state_lock."
+        )
