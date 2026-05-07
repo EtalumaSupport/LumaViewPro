@@ -605,15 +605,6 @@ class PylonCamera(Camera):
 
         return False
 
-    def find_model_name(self):
-        if not self.active:
-            logger.warning('[CAM Class ] Cannot read model name: camera inactive')
-            return
-
-        dev_info = self.active.GetDeviceInfo()
-        self.model_name = dev_info.GetModelName()
-        logger.info(f'[CAM Class ] Camera model: {self.model_name}')
-
     def get_all_temperatures(self):
         """
         Returns dict like:

@@ -499,17 +499,6 @@ class IDSCamera(Camera):
             logger.error(f'[CAM Class ] auto_exposure_t failed: {e}')
             return False
 
-    def find_model_name(self):
-        if not self.active:
-            logger.warning('[CAM Class ] Cannot read model name: camera inactive')
-            return
-
-        try:
-            self.model_name = self.active.ModelName()
-            logger.info(f'[CAM Class ] Camera model: {self.model_name}')
-        except Exception as e:
-            logger.error(f'[CAM Class ] find_model_name failed: {e}')
-
     def get_all_temperatures(self):
         return {} #TODO: Implement for IDS cameras that support temperature readings
 

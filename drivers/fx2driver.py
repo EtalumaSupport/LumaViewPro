@@ -1985,9 +1985,6 @@ class FX2Camera(Camera):
         self.exposure_t(50.0)  # 50 ms default — typical microscopy starting point
         self.gain(0.0)         # 0 dB = 1x gain
 
-    def find_model_name(self):
-        self.model_name = 'MT9P031-LS620'
-
     def get_all_temperatures(self) -> dict:
         return {}  # MT9P031 has no temperature sensor
 

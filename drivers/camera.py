@@ -397,15 +397,6 @@ class Camera(ABC):
         """
         pass
 
-    @abstractmethod
-    def find_model_name(self) -> str | None:
-        """Discover and cache the camera model name.
-
-        Returns:
-            str | None: Model identifier, or None if unavailable.
-        """
-        pass
-
     def get_model_name(self) -> str | None:
         """Return the cached camera model name.
 

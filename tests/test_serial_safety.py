@@ -2044,7 +2044,6 @@ class TestCameraStateLock:
             def exposure_t(self, t): pass
             def get_exposure_t(self): return 10.0
             def auto_exposure_t(self, state=True): pass
-            def find_model_name(self): self.model_name = 'TestCam'
             def get_all_temperatures(self): return {}
             def set_max_acquisition_frame_rate(self, enabled, fps=1.0): pass
             def set_binning_size(self, size): return True
@@ -2089,7 +2088,6 @@ class TestCameraStateLock:
             def exposure_t(self, t): pass
             def get_exposure_t(self): return 10.0
             def auto_exposure_t(self, state=True): pass
-            def find_model_name(self): self.model_name = 'TestCam'
             def get_all_temperatures(self): return {}
             def set_max_acquisition_frame_rate(self, enabled, fps=1.0): pass
             def set_binning_size(self, size): return True
@@ -2137,7 +2135,6 @@ class TestCameraStateLock:
             def exposure_t(self, t): pass
             def get_exposure_t(self): return 10.0
             def auto_exposure_t(self, state=True): pass
-            def find_model_name(self): self.model_name = 'TestCam'
             def get_all_temperatures(self): return {}
             def set_max_acquisition_frame_rate(self, enabled, fps=1.0): pass
             def set_binning_size(self, size): return True

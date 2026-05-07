@@ -4493,6 +4493,47 @@ class TestErrorReportCountRetired:
         )
 
 
+class TestFindModelNameRetired:
+    """A20 / D2: Camera.find_model_name was a 5-method dead capability
+    (1 abstract + 4 driver impls + 3 test fakes). Each driver's
+    connect() already sets self.model_name independently; nothing in
+    production code ever called find_model_name(). Rule 35 cleanup:
+    one canonical capability (model_name set in connect()), no
+    parallel implementation.
+
+    Pins the deletion across all 5 source files and the test fixture
+    file so a future addition can't silently re-introduce a parallel
+    discovery path without consensus.
+    """
+
+    def _read(self, rel_path):
+        from pathlib import Path
+        return (Path(__file__).resolve().parent.parent
+                / rel_path).read_text()
+
+    def test_camera_base_does_not_define_find_model_name(self):
+        assert "find_model_name" not in self._read("drivers/camera.py"), (
+            "drivers/camera.py must not re-introduce the find_model_name "
+            "abstract (Rule 35; dead capability retired -- model_name "
+            "is set in each driver's connect())."
+        )
+
+    def test_pyloncamera_does_not_define_find_model_name(self):
+        assert "find_model_name" not in self._read("drivers/pyloncamera.py")
+
+    def test_idscamera_does_not_define_find_model_name(self):
+        assert "find_model_name" not in self._read("drivers/idscamera.py")
+
+    def test_simulated_camera_does_not_define_find_model_name(self):
+        assert "find_model_name" not in self._read("drivers/simulated_camera.py")
+
+    def test_fx2driver_does_not_define_find_model_name(self):
+        assert "find_model_name" not in self._read("drivers/fx2driver.py")
+
+    def test_test_serial_safety_fakes_do_not_define_find_model_name(self):
+        assert "find_model_name" not in self._read("tests/test_serial_safety.py")
+
+
 class TestPylonChunkSelectorProbeWithFramecounterFallback:
     """B32: _enable_validity_chunks must probe ChunkSelector.GetEntries()
     before enabling chunks, with a FrameID -> Framecounter fallback for

@@ -389,13 +389,6 @@ class SimulatedCamera(Camera):
         return True
 
     # ------------------------------------------------------------------
-    # Model name
-    # ------------------------------------------------------------------
-    def find_model_name(self) -> None:
-        """Set ``model_name`` to the simulator's fixed model identifier."""
-        self.model_name = self.MODEL_NAME
-
-    # ------------------------------------------------------------------
     # Temperature
     # ------------------------------------------------------------------
     def get_all_temperatures(self) -> dict:
