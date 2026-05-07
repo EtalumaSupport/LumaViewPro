@@ -3795,3 +3795,38 @@ class TestPylonDisconnectResetsConnectionScopedCaches:
             "next connect re-resolves the underrun-counter node name "
             "(camera model / firmware on the new connection may differ)."
         )
+
+
+class TestPylonIsConnectedCallsSdkQuery:
+    """is_connected docstring promised "if available, the SDK's
+    device-removed query" but the implementation only checked the
+    internal _device_removed flag and self.active. The SDK's
+    InstantCamera.IsCameraDeviceRemoved() exposes its own removal
+    state -- if the _CameraRemovalHandler missed an event (e.g., the
+    handler was registered late, or the SDK delivered the removal on
+    a path that didn't fire the handler), the SDK still knows.
+
+    Defense in depth: query the SDK as a third check after our two
+    flags. Cheap (no transport enumeration). On query failure, log
+    debug and trust the prior checks.
+
+    Audit finding B12.
+    """
+
+    def _pyloncamera_source(self):
+        from pathlib import Path
+        return (Path(__file__).resolve().parent.parent
+                / "drivers" / "pyloncamera.py").read_text()
+
+    def test_is_connected_calls_is_camera_device_removed(self):
+        src = self._pyloncamera_source()
+        idx = src.find("def is_connected(self) -> bool:")
+        assert idx != -1, "Could not find PylonCamera.is_connected."
+        end = src.find("def ", idx + 10)
+        body = src[idx:end]
+        assert ".IsCameraDeviceRemoved()" in body, (
+            "is_connected must call self.active.IsCameraDeviceRemoved() "
+            "as a third check (after _device_removed flag + active is "
+            "None). The docstring already promises 'the SDK's "
+            "device-removed query'; the implementation must match."
+        )

@@ -1239,6 +1239,19 @@ class PylonCamera(Camera):
         if self.active is None:
             self._mark_disconnected()
             return False
+        # Belt-and-suspenders -- the InstantCamera knows whether the SDK
+        # received a removal notification before our handler fired or
+        # before our removal-handler registration succeeded. Cheap query
+        # (no transport enumeration); covers the case where the
+        # _CameraRemovalHandler missed the event for any reason.
+        try:
+            if self.active.IsCameraDeviceRemoved():
+                self._mark_disconnected()
+                return False
+        except Exception as e:
+            # Native-side query failed -- treat as inconclusive; trust
+            # the prior _device_removed / active checks.
+            logger.debug(f'[CAM Class ] IsCameraDeviceRemoved query raised: {e}')
         return True
 
     def gain(self, value):
