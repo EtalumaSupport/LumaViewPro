@@ -4578,6 +4578,61 @@ class TestPylonInitWaitsForIdleBeforeUserSetLoad:
         )
 
 
+class TestPylonGainSelectorBeforeGainSetValue:
+    """D10: Per Basler gain.html three-step recipe (GainAuto Off ->
+    GainSelector All -> Gain SetValue), assert GainSelector='All'
+    before each Gain.SetValue call. Defensive against upstream code
+    that may have set GainSelector to a per-channel selector;
+    per-write try/except tolerates camera models that don't expose
+    GainSelector at all.
+
+    Currently only matters if a future feature changes GainSelector
+    (e.g. per-channel-gain UI). Cheap insurance against a class of
+    bug that would otherwise be model-firmware-conditional.
+    """
+
+    def _pyloncamera_source(self):
+        from pathlib import Path
+        return (Path(__file__).resolve().parent.parent
+                / "drivers" / "pyloncamera.py").read_text()
+
+    def test_gain_method_sets_selector_to_all_first(self):
+        body = _function_source(self._pyloncamera_source(), "gain")
+        sel_idx = body.find("GainSelector.SetValue('All')")
+        gain_idx = body.find("Gain.SetValue(float(value))")
+        assert sel_idx >= 0, (
+            "PylonCamera.gain must call GainSelector.SetValue('All') "
+            "before Gain.SetValue (Basler 3-step recipe)."
+        )
+        assert gain_idx >= 0
+        assert sel_idx < gain_idx, (
+            "GainSelector.SetValue('All') must precede "
+            "Gain.SetValue(...) -- the order is the load-bearing part "
+            "of the doc-named recipe."
+        )
+
+    def test_gain_method_tolerates_missing_gain_selector(self):
+        """The selector write must be in its own try/except so a
+        camera model that doesn't expose GainSelector doesn't break
+        Gain.SetValue."""
+        body = _function_source(self._pyloncamera_source(), "gain")
+        # The selector and the actual write should be in separate
+        # try blocks; an inner try around the selector preserves the
+        # outer try/except's contract.
+        sel_idx = body.find("GainSelector.SetValue('All')")
+        # Find the closest 'try:' before the selector write.
+        try_idx = body.rfind("try:", 0, sel_idx)
+        # Find the closest 'except ' after the selector write but
+        # before the Gain.SetValue line.
+        gain_idx = body.find("Gain.SetValue(float(value))")
+        except_idx = body.find("except ", sel_idx, gain_idx)
+        assert try_idx >= 0 and except_idx >= 0, (
+            "GainSelector.SetValue('All') must be wrapped in its own "
+            "try/except so a missing selector doesn't break "
+            "Gain.SetValue on cameras that don't expose it."
+        )
+
+
 class TestPylonChunkSelectorProbeWithFramecounterFallback:
     """B32: _enable_validity_chunks must probe ChunkSelector.GetEntries()
     before enabling chunks, with a FrameID -> Framecounter fallback for

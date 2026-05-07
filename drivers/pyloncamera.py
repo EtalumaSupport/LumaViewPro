@@ -1714,6 +1714,18 @@ class PylonCamera(Camera):
             return
 
         try:
+            # Per Basler doc gain.html three-step recipe: GainAuto Off
+            # (caller's responsibility) -> GainSelector All -> Gain
+            # SetValue. Asserting GainSelector='All' here is defensive
+            # against upstream code that may have set GainSelector to
+            # a per-channel selector. Per-write try/except: tolerate
+            # cameras that don't expose the selector.
+            try:
+                self.active.GainSelector.SetValue('All')
+            except Exception as e_sel:
+                logger.debug(
+                    f'[CAM Class ] GainSelector.SetValue(All) skipped: {e_sel}'
+                )
             if _cam_log is not None:
                 _cam_log.info(f'pylon Gain.SetValue({float(value):.3f})')
             self.active.Gain.SetValue(float(value))
