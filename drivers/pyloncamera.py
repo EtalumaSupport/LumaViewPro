@@ -679,8 +679,23 @@ class PylonCamera(Camera):
                 except Exception as e:
                     logger.debug(f'[CAM Class ] AcquisitionMode set skipped: {e}')
                 try:
-                    camera.TriggerSelector.SetValue('FrameStart')
-                    camera.TriggerMode.SetValue('Off')
+                    # Per Basler doc free-run-image-acquisition.html:
+                    # "Repeat the steps above for all available trigger
+                    # types." A camera that exposes AcquisitionStart /
+                    # FrameBurstStart / etc. needs all of them off, not
+                    # just FrameStart, or a stray non-Off type leaks
+                    # through and blocks free-run.
+                    for entry in camera.TriggerSelector.GetEntries():
+                        try:
+                            if not entry.IsAvailable():
+                                continue
+                            camera.TriggerSelector.SetValue(entry.GetSymbolic())
+                            camera.TriggerMode.SetValue('Off')
+                        except Exception as e_inner:
+                            logger.debug(
+                                f'[CAM Class ] TriggerMode=Off skipped for '
+                                f'one trigger type: {e_inner}'
+                            )
                 except Exception as e:
                     logger.debug(f'[CAM Class ] TriggerMode set skipped: {e}')
                 # Enable per-frame chunks for gain/exposure/identity. Must

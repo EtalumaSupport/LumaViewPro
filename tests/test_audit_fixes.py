@@ -3729,10 +3729,37 @@ class TestPylonInitCameraConfigStyleConsistency:
         assert "TriggerMode.SetValue('Off')" in body, (
             "init_camera_config must call TriggerMode.SetValue('Off')."
         )
-        assert "TriggerSelector.SetValue('FrameStart')" in body, (
-            "init_camera_config must call TriggerSelector.SetValue('FrameStart') "
-            "before TriggerMode -- otherwise TriggerMode applies to whichever "
-            "selector was active before."
+
+    def test_init_iterates_all_trigger_selector_entries(self):
+        """Per Basler doc free-run-image-acquisition.html, 'Repeat the
+        steps above for all available trigger types.' A camera exposing
+        AcquisitionStart / FrameBurstStart / ExposureStart in addition
+        to FrameStart needs each of them set to TriggerMode=Off, or a
+        stray non-Off type leaks through and blocks free-run.
+
+        Pins the iteration over TriggerSelector.GetEntries() so a future
+        cleanup that collapses the loop back to a single FrameStart
+        write fires this test."""
+        src = self._pyloncamera_source()
+        idx = src.find("def init_camera_config(self):")
+        assert idx != -1
+        end = src.find("def ", idx + 10)
+        body = src[idx:end]
+        assert "TriggerSelector.GetEntries()" in body, (
+            "init_camera_config must iterate "
+            "camera.TriggerSelector.GetEntries() so TriggerMode=Off is "
+            "applied to every available trigger type, not just "
+            "FrameStart (per Basler doc free-run-image-acquisition.html)."
+        )
+        assert ".IsAvailable()" in body, (
+            "init_camera_config trigger-types loop must filter on "
+            "entry.IsAvailable() to skip entries that exist in the "
+            "enum but aren't supported on this camera model."
+        )
+        assert ".GetSymbolic()" in body, (
+            "init_camera_config trigger-types loop must call "
+            "entry.GetSymbolic() to feed the enum's string name back "
+            "into TriggerSelector.SetValue."
         )
 
 
