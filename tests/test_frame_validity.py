@@ -580,13 +580,15 @@ class TestChunkMatch:
     def test_match_within_default_tolerance(self):
         fv = FrameValidity()
         fv.set_target('gain', 5.0)
-        # gain default tolerance is 0.1 dB
-        assert fv.chunk_match('gain', 5.05) is True
-        assert fv.chunk_match('gain', 4.95) is True
+        # gain default tolerance is 0.001 dB (bench-measured ~20x headroom
+        # over Pylon SDK genicam round-trip noise)
+        assert fv.chunk_match('gain', 5.0005) is True
+        assert fv.chunk_match('gain', 4.9995) is True
 
     def test_no_match_outside_default_tolerance(self):
         fv = FrameValidity()
         fv.set_target('gain', 5.0)
+        # 0.2 dB delta is well outside the 0.001 dB default
         assert fv.chunk_match('gain', 5.2) is False
         assert fv.chunk_match('gain', 4.8) is False
 
@@ -603,17 +605,18 @@ class TestChunkMatch:
     def test_explicit_tolerance_override(self):
         fv = FrameValidity()
         fv.set_target('gain', 5.0)
-        # Default 0.1 would reject; explicit 0.5 accepts
+        # Default 0.001 would reject; explicit 0.5 accepts
         assert fv.chunk_match('gain', 5.4, tolerance=0.5) is True
         assert fv.chunk_match('gain', 5.4, tolerance=0.1) is False
 
     def test_exposure_microseconds_default(self):
         fv = FrameValidity()
         fv.set_target('exposure', 14530.0)
-        # exposure default tolerance is 100 us
+        # exposure default tolerance is 2 us (bench-measured: integer-us
+        # set values are bit-exact at the SDK layer)
         assert fv.chunk_match('exposure', 14530.5) is True
-        assert fv.chunk_match('exposure', 14620.0) is True
-        assert fv.chunk_match('exposure', 14700.0) is False
+        assert fv.chunk_match('exposure', 14531.5) is True
+        assert fv.chunk_match('exposure', 14533.0) is False
 
 
 class TestCountFrameWithChunks:
