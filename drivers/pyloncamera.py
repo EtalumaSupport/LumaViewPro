@@ -96,7 +96,41 @@ class PylonCamera(Camera):
                         self.stop_grabbing()
                 except Exception:
                     pass
-                self.active.Close()
+                # Each teardown step is independently guarded so a failure on
+                # one (e.g. Close on an already-removed device) does not
+                # prevent the others from running. The behaviour the caller
+                # expects after disconnect() returns is "self.active is None"
+                # regardless of whether the SDK calls themselves succeeded.
+                try:
+                    self.active.Close()
+                except Exception as e:
+                    logger.warning(
+                        f'[CAM Class ] Close() during disconnect raised: {e}; '
+                        f'continuing teardown'
+                    )
+                # Explicit DetachDevice + DestroyDevice releases the SDK-side
+                # device handle immediately rather than relying on CPython
+                # refcount-driven cleanup. pypylon issues #547 and #792
+                # document field cases where refcount cleanup left the SDK
+                # handle held until the next CreateDevice for the same serial
+                # failed with "device not reachable / controlled by another
+                # application" (Err 0xE1020018). DetachDevice releases the
+                # InstantCamera's ownership of the device pointer; DestroyDevice
+                # explicitly destroys the pointer (vs. waiting for GC).
+                try:
+                    self.active.DetachDevice()
+                except Exception as e:
+                    logger.warning(
+                        f'[CAM Class ] DetachDevice() during disconnect raised: {e}; '
+                        f'continuing teardown'
+                    )
+                try:
+                    self.active.DestroyDevice()
+                except Exception as e:
+                    logger.warning(
+                        f'[CAM Class ] DestroyDevice() during disconnect raised: {e}; '
+                        f'continuing teardown'
+                    )
                 self.active = None
                 logger.info('[CAM Class ] Disconnected from Pylon camera')
                 return True

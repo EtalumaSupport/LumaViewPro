@@ -2969,3 +2969,99 @@ class TestPylonCancelHandlingDefensive:
             "OnImageGrabbed non-cancel failure path must still call "
             "_record_failure to increment the consecutive-failure counter."
         )
+
+
+class TestPylonDisconnectDestroyDevice:
+    """PylonCamera.disconnect() must release the SDK-side device handle
+    explicitly via DetachDevice + DestroyDevice rather than relying on
+    CPython refcount-driven cleanup.
+
+    pypylon issues #547 and #792 document field cases where refcount
+    cleanup left the SDK handle held: subsequent CreateDevice for the
+    same serial fails with "device not reachable / controlled by another
+    application" (Err 0xE1020018). The Basler-recommended canonical
+    sequence is StopGrabbing -> Close -> DetachDevice -> DestroyDevice.
+
+    Each step must be independently guarded (try/except) so a failure
+    in one step (e.g., Close on an already-removed device) does not
+    short-circuit the rest of the cleanup chain. The post-cleanup
+    invariant is `self.active is None` regardless of which SDK calls
+    succeeded; without that invariant, the rest of the app sees a
+    known-bad camera as still connected.
+
+    Source-shape tests rather than behavioural tests because exercising
+    the path requires either a real Pylon device or mocking the entire
+    pypylon SDK at the C++ binding layer; the source-shape pin matches
+    the existing TestPylonCancelHandlingDefensive style and is enough
+    for Rule 18.
+    """
+
+    def _disconnect_body(self):
+        from pathlib import Path
+        src = (Path(__file__).resolve().parent.parent
+               / "drivers" / "pyloncamera.py").read_text()
+        return _function_source(src, "disconnect")
+
+    def test_disconnect_calls_destroy_device(self):
+        """disconnect() must explicitly destroy the SDK-side device
+        handle. Without this, CPython refcount-driven cleanup may leave
+        the handle held past the next reconnect attempt (pypylon #792)."""
+        body = self._disconnect_body()
+        assert "self.active.DestroyDevice()" in body, (
+            "PylonCamera.disconnect must call self.active.DestroyDevice() "
+            "to explicitly release the SDK-side device handle. Required "
+            "to prevent 'device controlled by another application' on the "
+            "next CreateDevice (pypylon issues #547, #792)."
+        )
+
+    def test_disconnect_calls_detach_device(self):
+        """DetachDevice releases the InstantCamera's ownership of the
+        device pointer before DestroyDevice destroys it. Per
+        Basler-recommended canonical reattach sequence."""
+        body = self._disconnect_body()
+        assert "self.active.DetachDevice()" in body, (
+            "PylonCamera.disconnect must call self.active.DetachDevice() "
+            "before DestroyDevice. Required by Basler-recommended cleanup "
+            "sequence: StopGrabbing -> Close -> DetachDevice -> DestroyDevice."
+        )
+
+    def test_disconnect_destroy_device_wrapped_in_try(self):
+        """If DestroyDevice fails (e.g., already-detached device), the
+        exception must NOT prevent self.active = None from running.
+        Otherwise the post-cleanup invariant breaks and the app thinks
+        a known-bad camera is still connected."""
+        body = self._disconnect_body()
+        # Look for the exact pattern: try block containing DestroyDevice
+        assert "self.active.DestroyDevice()" in body
+        # The DestroyDevice line must be inside a try/except that logs
+        # a warning and continues, not propagates.
+        # Heuristic: there must be at least 3 try blocks in disconnect
+        # (one for stop_grabbing, one for Close, one for DetachDevice,
+        # one for DestroyDevice -- count of "try:" lines must be >= 4).
+        try_count = body.count("try:")
+        assert try_count >= 4, (
+            f"disconnect() must wrap each SDK teardown step (Close, "
+            f"DetachDevice, DestroyDevice) in its own try/except so a "
+            f"failure in one does not skip the others. Currently "
+            f"{try_count} try blocks; expected >= 4 (stop_grabbing + "
+            f"Close + DetachDevice + DestroyDevice)."
+        )
+
+    def test_disconnect_clears_active_after_cleanup(self):
+        """self.active = None must come AFTER DestroyDevice, not before.
+        If we cleared active first we would lose the device pointer
+        before destroying it, leaving the SDK handle held."""
+        body = self._disconnect_body()
+        destroy_pos = body.find("self.active.DestroyDevice()")
+        clear_pos = body.find("self.active = None")
+        assert destroy_pos != -1, (
+            "DestroyDevice call missing from disconnect()"
+        )
+        assert clear_pos != -1, (
+            "self.active = None missing from disconnect()"
+        )
+        assert clear_pos > destroy_pos, (
+            "self.active = None must come AFTER self.active.DestroyDevice(). "
+            "Clearing active first loses the device pointer before "
+            "DestroyDevice can run -> SDK handle stays held."
+        )
