@@ -100,6 +100,12 @@ class PylonCamera(Camera):
                         f'[CAM Class ] stop_grabbing during disconnect raised: {e}; '
                         f'continuing teardown'
                     )
+                # B20: poll AcquisitionActive / ExposureActive after
+                # StopGrabbing so in-flight frames can drain before we
+                # release the device handle. Per Basler
+                # acquisition-status.html. Bounded so a stuck-active
+                # camera can't block disconnect indefinitely.
+                self._wait_for_acquisition_idle(timeout_s=2.0)
                 # Each teardown step is independently guarded so a failure on
                 # one (e.g. Close on an already-removed device) does not
                 # prevent the others from running. The behaviour the caller
@@ -444,6 +450,63 @@ class PylonCamera(Camera):
             if _cam_log is not None:
                 _cam_log.warning(f'pylon StopGrabbing FAILED: {e}')
             logger.warning(f'[CAM Class ] stop_grabbing ignored error: {e}')
+
+    _ACQ_IDLE_POLL_INTERVAL_S = 0.020
+
+    def _wait_for_acquisition_idle(self, timeout_s: float = 2.0) -> bool:
+        """Poll AcquisitionActive (and ExposureActive when available)
+        until the camera reports idle, or until ``timeout_s`` elapses.
+
+        Per Basler ``acquisition-status.html`` both nodes are exposed
+        on ace 2 / dart M / dart R cameras. Used by ``disconnect()``
+        between ``stop_grabbing()`` and ``Close()`` so in-flight frames
+        have time to drain before the device handle is released.
+
+        Bounded by ``timeout_s`` so a stuck-active camera cannot block
+        disconnect indefinitely; on timeout the disconnect path
+        proceeds and a warning is logged for diagnosis.
+
+        Args:
+            timeout_s: Wall-clock timeout in seconds. Caller picks per
+                use-case (disconnect uses 2.0).
+
+        Returns:
+            bool: True if the camera reached idle within timeout. False
+                if timeout expired, the nodes are not present (older
+                firmware / non-Basler), or a poll error fired.
+        """
+        if self.active is None:
+            return True
+        deadline = time.monotonic() + timeout_s
+        while time.monotonic() < deadline:
+            try:
+                nm = self.active.GetNodeMap()
+                acq_node = nm.GetNode('AcquisitionActive')
+                if acq_node is None:
+                    # Older firmware or non-Basler -- can't poll, bail
+                    # quickly without warning (this is expected).
+                    return False
+                acq_active = bool(acq_node.GetValue())
+                exp_node = nm.GetNode('ExposureActive')
+                exp_active = (
+                    bool(exp_node.GetValue())
+                    if exp_node is not None else False
+                )
+                if not acq_active and not exp_active:
+                    return True
+            except Exception as e:
+                logger.debug(
+                    f'[CAM Class ] _wait_for_acquisition_idle: node poll '
+                    f'failed: {e}; bailing on idle wait'
+                )
+                return False
+            time.sleep(self._ACQ_IDLE_POLL_INTERVAL_S)
+        logger.warning(
+            f'[CAM Class ] _wait_for_acquisition_idle: timed out after '
+            f'{timeout_s}s waiting for AcquisitionActive=False; '
+            f'proceeding with teardown'
+        )
+        return False
 
     def start_grabbing(self):
         camera = self.active

@@ -5219,3 +5219,148 @@ class TestStreamGrabberSetters:
             "silent return-False would mislead bench operators into "
             "thinking the knob applied."
         )
+
+
+class TestPylonAcquisitionIdleWait:
+    """B20 closure (AUDIT_PYLONCAMERA_2026-05-07.md): poll
+    AcquisitionActive / ExposureActive after StopGrabbing during
+    disconnect, so in-flight frames drain before Close() releases the
+    device handle. Bounded so a stuck-active camera can't block
+    disconnect indefinitely. Per Basler acquisition-status.html.
+
+    Pairs with CAM-1 trigger hypothesis (see
+    AUDIT_LAYER_VIOLATIONS_2026-05-01.md Cluster B): the rare ~11s
+    Pylon stop/start pause is correlated with stop_grabbing firing
+    while a frame is still in-flight from the previous start.
+    Bounded idle-wait between stop_grabbing and Close gives the SDK a
+    deterministic drain window.
+    """
+
+    def test_helper_method_present(self):
+        from pathlib import Path
+        src = (Path(__file__).resolve().parent.parent
+               / "drivers" / "pyloncamera.py").read_text()
+        assert "def _wait_for_acquisition_idle(" in src
+
+    def test_disconnect_calls_idle_wait_after_stop_grabbing(self):
+        """Pin call-site shape: disconnect() must invoke
+        _wait_for_acquisition_idle AFTER stop_grabbing and BEFORE
+        Close, not before stop_grabbing or after Close (the latter
+        would defeat the purpose -- the device handle is gone)."""
+        from pathlib import Path
+        src = (Path(__file__).resolve().parent.parent
+               / "drivers" / "pyloncamera.py").read_text()
+        body = _function_source(src, "disconnect")
+        assert "_wait_for_acquisition_idle" in body, (
+            "disconnect() must call _wait_for_acquisition_idle"
+        )
+        # Order check: stop_grabbing -> _wait_for_acquisition_idle -> Close
+        idx_stop = body.find("stop_grabbing")
+        idx_wait = body.find("_wait_for_acquisition_idle")
+        idx_close = body.find(".Close()")
+        assert 0 <= idx_stop < idx_wait < idx_close, (
+            f"Order violated in disconnect(): "
+            f"stop_grabbing={idx_stop} wait={idx_wait} Close={idx_close}"
+        )
+
+    def test_idle_wait_returns_true_when_inactive(self):
+        from drivers.pyloncamera import PylonCamera
+        camera = PylonCamera.__new__(PylonCamera)
+        import threading as _threading
+        camera._state_lock = _threading.Lock()
+        camera.active = None
+        assert camera._wait_for_acquisition_idle(timeout_s=0.1) is True
+
+    def test_idle_wait_returns_true_when_already_idle(self):
+        """When AcquisitionActive=False and ExposureActive=False on the
+        first poll, return True without sleeping the full timeout."""
+        from drivers.pyloncamera import PylonCamera
+
+        class _FakeNode:
+            def __init__(self, value):
+                self._value = value
+
+            def GetValue(self):
+                return self._value
+
+        class _FakeNodeMap:
+            def __init__(self):
+                self._nodes = {
+                    'AcquisitionActive': _FakeNode(False),
+                    'ExposureActive': _FakeNode(False),
+                }
+
+            def GetNode(self, name):
+                return self._nodes.get(name)
+
+        class _FakeCamera:
+            def GetNodeMap(self):
+                return _FakeNodeMap()
+
+        camera = PylonCamera.__new__(PylonCamera)
+        import threading as _threading
+        camera._state_lock = _threading.Lock()
+        camera.active = _FakeCamera()
+        import time as _time
+        t0 = _time.monotonic()
+        result = camera._wait_for_acquisition_idle(timeout_s=2.0)
+        elapsed = _time.monotonic() - t0
+        assert result is True
+        assert elapsed < 0.5, (
+            f"idle-wait took {elapsed:.3f}s on already-idle camera; "
+            f"should return immediately"
+        )
+
+    def test_idle_wait_returns_false_when_node_absent(self):
+        """Older firmware / non-Basler cameras may not expose
+        AcquisitionActive. Return False so disconnect proceeds without
+        waiting full timeout."""
+        from drivers.pyloncamera import PylonCamera
+
+        class _FakeNodeMap:
+            def GetNode(self, name):
+                return None
+
+        class _FakeCamera:
+            def GetNodeMap(self):
+                return _FakeNodeMap()
+
+        camera = PylonCamera.__new__(PylonCamera)
+        import threading as _threading
+        camera._state_lock = _threading.Lock()
+        camera.active = _FakeCamera()
+        import time as _time
+        t0 = _time.monotonic()
+        result = camera._wait_for_acquisition_idle(timeout_s=2.0)
+        elapsed = _time.monotonic() - t0
+        assert result is False
+        assert elapsed < 0.1, (
+            f"idle-wait should bail immediately when nodes absent; "
+            f"took {elapsed:.3f}s"
+        )
+
+    def test_idle_wait_times_out_when_stuck_active(self):
+        """If AcquisitionActive stays True past timeout, return False
+        and let caller proceed (warning is logged inside)."""
+        from drivers.pyloncamera import PylonCamera
+
+        class _FakeNode:
+            def GetValue(self):
+                return True  # Always active
+
+        class _FakeNodeMap:
+            def GetNode(self, name):
+                if name in ('AcquisitionActive', 'ExposureActive'):
+                    return _FakeNode()
+                return None
+
+        class _FakeCamera:
+            def GetNodeMap(self):
+                return _FakeNodeMap()
+
+        camera = PylonCamera.__new__(PylonCamera)
+        import threading as _threading
+        camera._state_lock = _threading.Lock()
+        camera.active = _FakeCamera()
+        result = camera._wait_for_acquisition_idle(timeout_s=0.1)
+        assert result is False
