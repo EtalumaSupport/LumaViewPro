@@ -3995,6 +3995,71 @@ class TestPylonDltlClampAndDocWarnings:
         )
 
 
+class TestPylonResyncProminentLog:
+    """Per Basler doc stream-grabber-parameters.html, "A host
+    resynchronization is considered the most serious error case in
+    the USB 3.0 and USB3 Vision specification."
+
+    The stats poller previously emitted a prominent log line for
+    Statistic_Buffer_Underrun_Count but not for
+    Statistic_Resynchronization_Count -- yet resync is the more
+    severe failure per the doc. The fix tracks the prior resync
+    count on the camera instance and emits a WARNING-level log on
+    any positive delta. Total count remains in the CSV row.
+
+    Audit finding B5.
+    """
+
+    def _pyloncamera_source(self):
+        from pathlib import Path
+        return (Path(__file__).resolve().parent.parent
+                / "drivers" / "pyloncamera.py").read_text()
+
+    def test_resync_node_in_stats_node_names(self):
+        """Statistic_Resynchronization_Count must be in the live
+        stats poll set so the delta tracker has fresh data."""
+        src = self._pyloncamera_source()
+        idx = src.find("_STATS_NODE_NAMES = (")
+        assert idx != -1
+        end = src.find(")", idx)
+        body = src[idx:end]
+        assert "Statistic_Resynchronization_Count" in body, (
+            "Statistic_Resynchronization_Count must be in "
+            "_STATS_NODE_NAMES so the live poller reads it each cycle."
+        )
+
+    def test_resync_prominent_log_on_positive_delta(self):
+        """Stats poller must emit a [INSTR RESYNC] warning when the
+        delta is positive."""
+        src = self._pyloncamera_source()
+        idx = src.find("def _stats_poller_loop(self):")
+        assert idx != -1
+        end = src.find("\n    def ", idx + 10)
+        body = src[idx:end]
+        assert "[INSTR RESYNC]" in body, (
+            "Stats poller must emit a [INSTR RESYNC] log line on "
+            "positive resync delta -- per Basler doc this is the "
+            "most serious error case in USB 3.0 / USB3 Vision."
+        )
+        assert "logger.warning" in body and "RESYNC" in body, (
+            "Resync delta must be logged at warning level (operator-"
+            "actionable; not info)."
+        )
+
+    def test_resync_csv_column_present(self):
+        """The pylon_stats_trace.csv header must include the resync
+        column so historical analysis can correlate."""
+        src = self._pyloncamera_source()
+        idx = src.find("'pylon_stats_trace.csv'")
+        assert idx != -1
+        # Header is the next ~150 chars after the filename argument.
+        window = src[idx:idx + 400]
+        assert "resync_count" in window, (
+            "pylon_stats_trace.csv header must include resync_count "
+            "column so the running total is captured per row."
+        )
+
+
 class TestPylonIsConnectedCallsSdkQuery:
     """is_connected docstring promised "if available, the SDK's
     device-removed query" but the implementation only checked the

@@ -155,9 +155,11 @@ class PylonCamera(Camera):
     # unset).
     _STATS_POLLER_INTERVAL_S = 5.0
     _UNDERRUN_NODE_NAME = 'Statistic_Buffer_Underrun_Count'
+    _RESYNC_NODE_NAME = 'Statistic_Resynchronization_Count'
     _STATS_NODE_NAMES = (
         'Statistic_Total_Buffer_Count',
         'Statistic_Failed_Buffer_Count',
+        'Statistic_Resynchronization_Count',
     )
 
     def _start_stats_poller(self):
@@ -310,20 +312,37 @@ class PylonCamera(Camera):
             except Exception as e:
                 logger.debug(f'[INSTR PYLON ] stats poll error: {e}')
 
-            # Underrun is the load-bearing single bit per the experiment doc
-            # — log on its own line with prominent marker, including which
-            # GenICam node provided the value.
+            # Underrun: prominent marker, on its own log line.
             if underrun_value is not None:
                 logger.info(f'[INSTR UNDERRUN] {underrun_name}={underrun_value}')
+
+            # Resync: prominent marker on positive delta. Per Basler
+            # doc stream-grabber-parameters.html, "A host
+            # resynchronization is considered the most serious error
+            # case in the USB 3.0 and USB3 Vision specification."
+            # Logged at WARNING because a non-zero delta is operator-
+            # actionable; the absolute count is just the running total.
+            resync_value = stats.get(self._RESYNC_NODE_NAME)
+            prev_resync = getattr(self, '_prev_resync_count', None)
+            if isinstance(resync_value, (int, float)) and isinstance(prev_resync, (int, float)):
+                delta = resync_value - prev_resync
+                if delta > 0:
+                    logger.warning(
+                        f'[INSTR RESYNC] {self._RESYNC_NODE_NAME} delta={delta} '
+                        f'(total={resync_value})'
+                    )
+            if isinstance(resync_value, (int, float)):
+                self._prev_resync_count = resync_value
 
             profile_trace.trace(
                 'pylon_stats_trace.csv',
                 'ts_ms,total_buffer_count,failed_buffer_count,'
-                'underrun_node_name,underrun_value,resulting_fps',
+                'resync_count,underrun_node_name,underrun_value,resulting_fps',
                 [
                     ts_ms,
                     stats.get('Statistic_Total_Buffer_Count'),
                     stats.get('Statistic_Failed_Buffer_Count'),
+                    resync_value,
                     underrun_name,
                     underrun_value,
                     f'{rfr:.3f}' if rfr is not None else None,
