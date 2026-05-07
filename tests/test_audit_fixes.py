@@ -4534,6 +4534,50 @@ class TestFindModelNameRetired:
         assert "find_model_name" not in self._read("tests/test_serial_safety.py")
 
 
+class TestPylonInitWaitsForIdleBeforeUserSetLoad:
+    """B6: Per Basler user-sets.html, "Loading a user set is only
+    possible when the camera is idle, i.e., not acquiring images."
+
+    update_camera_config() stops the grab loop, but on slow hosts
+    SDK StopGrabbing may not have fully settled by the time
+    init_camera_config() arrives at UserSetLoad. The bounded poll
+    surfaces the condition in logs rather than letting UserSetLoad
+    silently raise inside the outer try/except.
+    """
+
+    def _pyloncamera_source(self):
+        from pathlib import Path
+        return (Path(__file__).resolve().parent.parent
+                / "drivers" / "pyloncamera.py").read_text()
+
+    def test_init_polls_is_grabbing_before_user_set_load(self):
+        body = _function_source(self._pyloncamera_source(),
+                                "init_camera_config")
+        # The poll must be inside init_camera_config and BEFORE the
+        # UserSetLoad call.
+        assert "self.is_grabbing()" in body, (
+            "init_camera_config must poll self.is_grabbing() before "
+            "UserSetLoad (Basler user-sets.html idle requirement)."
+        )
+        idle_idx = body.find("is_grabbing()")
+        load_idx = body.find("UserSetLoad.Execute(")
+        assert idle_idx >= 0 and load_idx >= 0
+        assert idle_idx < load_idx, (
+            "init_camera_config must poll is_grabbing BEFORE "
+            "UserSetLoad.Execute(), not after."
+        )
+
+    def test_init_warns_if_still_grabbing_after_poll(self):
+        body = _function_source(self._pyloncamera_source(),
+                                "init_camera_config")
+        assert "still" in body.lower() and "grabbing" in body.lower() and "warning" in body.lower(), (
+            "init_camera_config must log a warning if is_grabbing() "
+            "stays True past the bounded poll -- silently letting "
+            "UserSetLoad raise inside the outer try/except hides the "
+            "condition from operators."
+        )
+
+
 class TestPylonChunkSelectorProbeWithFramecounterFallback:
     """B32: _enable_validity_chunks must probe ChunkSelector.GetEntries()
     before enabling chunks, with a FrameID -> Framecounter fallback for

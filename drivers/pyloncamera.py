@@ -654,6 +654,23 @@ class PylonCamera(Camera):
 
         try:
             with self.update_camera_config():
+                # Per Basler doc user-sets.html: "Loading a user set is
+                # only possible when the camera is idle, i.e., not
+                # acquiring images." update_camera_config() stops the
+                # grab loop, but on slow hosts SDK StopGrabbing may not
+                # have fully settled by the time we arrive here. Bounded
+                # poll surfaces the condition in logs (warning, not
+                # silent failure inside the outer try/except).
+                for _ in range(20):
+                    if not self.is_grabbing():
+                        break
+                    time.sleep(0.05)
+                else:
+                    logger.warning(
+                        '[CAM Class ] init_camera_config: camera still '
+                        'grabbing 1 s after update_camera_config stop; '
+                        'UserSetLoad may fail'
+                    )
                 camera.UserSetSelector.SetValue('Default')
                 camera.UserSetLoad.Execute()
                 # Defense in depth -- 'Default' user set is documented to
