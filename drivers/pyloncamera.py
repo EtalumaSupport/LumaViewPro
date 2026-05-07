@@ -1913,7 +1913,7 @@ class ImageHandler(pylon.ImageEventHandler):
                             pass
         except Exception as e:
             _outcome = 'exception_outer'
-            logger.exception(e)
+            logger.exception(f'[CAM Class ] OnImageGrabbed unexpected error: {e}')
         finally:
             if _trace_enabled and _t0 is not None:
                 _dt_ms = (time.perf_counter() - _t0) * 1000.0

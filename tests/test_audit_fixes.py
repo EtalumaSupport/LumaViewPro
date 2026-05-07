@@ -3600,3 +3600,55 @@ class TestPylonDisconnectStopGrabbingLogged:
             "disconnect's stop_grabbing except branch must log a warning, "
             "not silently pass. Found:\n" + window
         )
+
+
+class TestPylonOnImageGrabbedExceptionContext:
+    """CLAUDE.md Rule 5 + Rule 20 -- log every error with context; logs
+    must be clear and accurate.
+
+    The OnImageGrabbed outer except branch previously called
+    `logger.exception(e)`, passing the exception instance directly as
+    the message. logger.exception renders that as "ExceptionType('msg')"
+    -- no [CAM Class ] prefix used everywhere else, no callback context.
+    Operator scanning the main log sees a bare exception line with no
+    indication it came from the grab callback.
+
+    Fix: contextual prefix matching the file convention (line 140's
+    `logger.exception(f'[CAM Class ] Pylon camera disconnect failed: {e}')`,
+    line 1070's `logger.exception(f'Failed to grab image: {ex}')`).
+
+    Audit finding A7.
+    """
+
+    def _pyloncamera_source(self):
+        from pathlib import Path
+        return (Path(__file__).resolve().parent.parent
+                / "drivers" / "pyloncamera.py").read_text()
+
+    def test_on_image_grabbed_outer_except_uses_contextual_message(self):
+        """Bare `logger.exception(e)` is forbidden in OnImageGrabbed.
+        The fix uses an f-string with [CAM Class ] prefix and a callback
+        identifier."""
+        src = self._pyloncamera_source()
+        idx = src.find("def OnImageGrabbed(")
+        assert idx != -1, "Could not find ImageHandler.OnImageGrabbed."
+        end = src.find("def ", idx + 10)
+        body = src[idx:end]
+        # Find the outer except clause (indented less than the inner ones)
+        # Easiest: the literal `_outcome = 'exception_outer'` is unique.
+        marker = "_outcome = 'exception_outer'"
+        m_idx = body.find(marker)
+        assert m_idx != -1, (
+            "Could not find OnImageGrabbed outer-except sentinel "
+            "(_outcome = 'exception_outer'). If renamed, update test."
+        )
+        window = body[m_idx:m_idx + 250]
+        assert "logger.exception(e)" not in window, (
+            "OnImageGrabbed outer-except must NOT call logger.exception(e) "
+            "with the bare exception object -- the rendered log line lacks "
+            "[CAM Class ] prefix and callback context."
+        )
+        assert "OnImageGrabbed" in window or "[CAM Class ]" in window, (
+            "OnImageGrabbed outer-except logger.exception call must include "
+            "a contextual prefix. Found:\n" + window
+        )
