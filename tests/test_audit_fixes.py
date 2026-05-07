@@ -3711,3 +3711,31 @@ class TestPylonInitCameraConfigStyleConsistency:
             "before TriggerMode -- otherwise TriggerMode applies to whichever "
             "selector was active before."
         )
+
+
+class TestPylonGainParameterNotShadowingMethod:
+    """CLAUDE.md Rule 36 (identifier clarity).
+
+    PylonCamera.gain(self, gain) had the parameter shadow the method
+    name. Inside the method body, the symbol `gain` resolved to the
+    parameter -- the bound method `self.gain` was still reachable but
+    any future refactor that called the method recursively would
+    silently fail in a confusing way. Renaming to `value` removes the
+    ambiguity. Method name itself (`gain`) is L2-public and not
+    changed (Rule 30 stability); only the internal parameter name.
+
+    Audit finding A15.
+    """
+
+    def _pyloncamera_source(self):
+        from pathlib import Path
+        return (Path(__file__).resolve().parent.parent
+                / "drivers" / "pyloncamera.py").read_text()
+
+    def test_gain_method_signature_no_self_param_shadow(self):
+        """Forbid the shadowed signature `def gain(self, gain)`."""
+        src = self._pyloncamera_source()
+        assert "def gain(self, gain)" not in src, (
+            "PylonCamera.gain(self, gain) shadows the method name with "
+            "the parameter. Use `def gain(self, value)` instead."
+        )

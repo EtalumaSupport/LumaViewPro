@@ -1233,27 +1233,27 @@ class PylonCamera(Camera):
             return False
         return True
 
-    def gain(self, gain):
-        """Set gain value in the camera hardware"""
+    def gain(self, value):
+        """Set gain value in the camera hardware."""
         if self.active is None:
             if _cam_log is not None:
-                _cam_log.warning(f'pylon Gain.SetValue({gain}) SKIPPED: active=None')
-            logger.warning(f'[CAM Class ] Cannot set gain {gain}: camera inactive')
+                _cam_log.warning(f'pylon Gain.SetValue({value}) SKIPPED: active=None')
+            logger.warning(f'[CAM Class ] Cannot set gain {value}: camera inactive')
             return
 
         try:
             if _cam_log is not None:
-                _cam_log.info(f'pylon Gain.SetValue({float(gain):.3f})')
-            self.active.Gain.SetValue(float(gain))
-            logger.info(f'[CAM Class ] Gain set to {gain}')
+                _cam_log.info(f'pylon Gain.SetValue({float(value):.3f})')
+            self.active.Gain.SetValue(float(value))
+            logger.info(f'[CAM Class ] Gain set to {value}')
         except genicam.RuntimeException as e:
             if _cam_log is not None:
-                _cam_log.error(f'pylon Gain.SetValue({gain}) FAILED: {e}')
-            logger.error(f'[CAM Class ] Camera communication error during gain({gain}): {e}')
+                _cam_log.error(f'pylon Gain.SetValue({value}) FAILED: {e}')
+            logger.error(f'[CAM Class ] Camera communication error during gain({value}): {e}')
             self._mark_disconnected()
         except Exception as e:
             if _cam_log is not None:
-                _cam_log.error(f'pylon Gain.SetValue({gain}) FAILED: {e}')
+                _cam_log.error(f'pylon Gain.SetValue({value}) FAILED: {e}')
             logger.exception(f'[CAM Class ] Unexpected error in gain: {e}')
 
     def auto_gain(
