@@ -5519,3 +5519,61 @@ class TestPylonChunkModeActiveWriteRaceGuard:
             f"ChunkModeActive write must be skipped when grabbing; "
             f"got {write_attempted['count']} writes"
         )
+
+
+class TestPylonPublicMethodAnnotationsAndDocstrings:
+    """A13 + A14 closure (AUDIT_PYLONCAMERA_2026-05-07.md): every
+    public method on every class in drivers/pyloncamera.py has a
+    return-type annotation (Rule 37) AND a docstring (Rule 38).
+
+    Pins the structural fix so a future commit adding a public method
+    without annotation/docstring fails this test rather than slipping
+    through review. Methods exempt:
+      - dunder (__init__ / __del__ / etc.) -- language protocol
+      - underscore-prefixed (_helper / private)
+
+    A future class added to this module is automatically covered as
+    long as its public methods follow the rule.
+    """
+
+    def test_every_public_method_has_return_annotation_and_docstring(self):
+        import ast
+        from pathlib import Path
+        path = (Path(__file__).resolve().parent.parent
+                / 'drivers' / 'pyloncamera.py')
+        tree = ast.parse(path.read_text(encoding='utf-8'))
+        gaps = []
+        for cls_node in tree.body:
+            if not isinstance(cls_node, ast.ClassDef):
+                continue
+            for sub in cls_node.body:
+                if not isinstance(
+                    sub, (ast.FunctionDef, ast.AsyncFunctionDef)
+                ):
+                    continue
+                name = sub.name
+                if name.startswith('_'):
+                    continue
+                if name.startswith('__') and name.endswith('__'):
+                    continue
+                has_return = sub.returns is not None
+                has_doc = (
+                    sub.body
+                    and isinstance(sub.body[0], ast.Expr)
+                    and isinstance(sub.body[0].value, ast.Constant)
+                    and isinstance(sub.body[0].value.value, str)
+                )
+                if not has_return:
+                    gaps.append(
+                        f'{cls_node.name}.{name}@{sub.lineno} '
+                        f'missing return-type annotation (Rule 37)'
+                    )
+                if not has_doc:
+                    gaps.append(
+                        f'{cls_node.name}.{name}@{sub.lineno} '
+                        f'missing docstring (Rule 38)'
+                    )
+        assert gaps == [], (
+            f'{len(gaps)} public method(s) in pyloncamera.py missing '
+            f'annotation/docstring:\n  ' + '\n  '.join(gaps)
+        )

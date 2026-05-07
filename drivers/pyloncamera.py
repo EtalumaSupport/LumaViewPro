@@ -90,6 +90,19 @@ class PylonCamera(Camera):
             logger.warning(f'[CAM Class ] _query_dynamic_capabilities failed: {e}')
 
     def disconnect(self) -> bool:
+        """Tear down the active Pylon camera and release the SDK device.
+
+        Independently guards each teardown step (stop_grabbing, idle
+        poll, Close, DetachDevice, DestroyDevice) so a failure on one
+        does not prevent the others from running. After this method
+        returns, ``self.active is None`` regardless of whether the SDK
+        calls succeeded.
+
+        Returns:
+            bool: True on successful disconnect, False if the camera
+                was not connected or an outer exception aborted the
+                teardown chain.
+        """
         try:
             if self.active is not None:
                 try:
@@ -436,7 +449,14 @@ class PylonCamera(Camera):
             except Exception as e:
                 logger.debug(f'[INSTR PYLON ] thread-count poll error: {e}')
 
-    def stop_grabbing(self):
+    def stop_grabbing(self) -> None:
+        """Stop the camera's grab loop.
+
+        Idempotent and exception-tolerant: if the SDK is already
+        stopped or in an error state the call is logged and ignored
+        rather than propagated, so callers (notably ``disconnect``)
+        can safely sequence stop -> idle-wait -> teardown.
+        """
         # Stop the stats poller before tearing down the grab loop so the
         # poller doesn't read a half-disposed StreamGrabber. No-op when
         # the poller wasn't started (LVP_PROFILE_TRACE unset).
@@ -547,7 +567,17 @@ class PylonCamera(Camera):
                 f'pylon StreamGrabber.Status [{label}] read failed: {e}'
             )
 
-    def start_grabbing(self):
+    def start_grabbing(self) -> None:
+        """Start the camera's grab loop with `LatestImageOnly` strategy.
+
+        Caps `MaxNumBuffer` at 3 to bound Windows kernel non-paged
+        pool usage at full-resolution Mono12. Snapshots StreamGrabber
+        Status into the trace log per B23. Starts the optional stats
+        poller (no-op when `LVP_PROFILE_TRACE` is unset).
+
+        Exception-tolerant: SDK failures are logged but not raised so
+        UI handlers can call this without wrapping.
+        """
         camera = self.active
         try:
             # Cap the DMA buffer ring to 3. Pylon's default (10-25,
@@ -584,7 +614,13 @@ class PylonCamera(Camera):
                 _cam_log.warning(f'pylon StartGrabbing FAILED: {e}')
             logger.warning(f'[CAM Class ] start_grabbing ignored error: {e}')
 
-    def is_grabbing(self):
+    def is_grabbing(self) -> bool:
+        """Return True if the camera is currently in a grab loop.
+
+        Returns False on any SDK error so callers can use this as a
+        defensive precondition (e.g. B28 ChunkModeActive guard) without
+        a try/except.
+        """
         try:
             return self.active.IsGrabbing()
         except Exception:
@@ -735,10 +771,13 @@ class PylonCamera(Camera):
 
         return False
 
-    def get_all_temperatures(self):
-        """
-        Returns dict like:
-            {'FpgaCore': 43.2, 'SomethingElse': 40.1, ...}
+    def get_all_temperatures(self) -> dict:
+        """Read every DeviceTemperatureSelector entry the camera exposes.
+
+        Returns:
+            dict: ``{'FpgaCore': 43.2, 'Sensor': 40.1, ...}`` keyed by
+                the selector's symbolic name. Empty dict if the camera
+                is inactive or the temperature nodes are unreadable.
         """
         # Camera Must be open prior to calling function
         if not self.active:
@@ -777,7 +816,19 @@ class PylonCamera(Camera):
             logger.exception(f'[CAM Class ] Unexpected error reading temperatures: {e}')
             return {}
 
-    def init_camera_config(self):
+    def init_camera_config(self) -> None:
+        """Apply Etaluma's canonical camera configuration once on connect.
+
+        Loads the `Default` user set, sets pixel format to Mono8, sets
+        explicit gain (0 dB), enables `ReverseX`, enables validity
+        chunks (B28-guarded), and runs the auto-gain init defaults.
+        Wrapped in `update_camera_config()` so the caller does not
+        need a separate stop/start cycle.
+
+        Exception-tolerant: SDK failures are logged but not raised --
+        the camera remains connected with whatever subset of settings
+        applied successfully.
+        """
         camera = self.active
         if camera is None:
             return
@@ -982,7 +1033,24 @@ class PylonCamera(Camera):
             )
             return None
 
-    def set_max_acquisition_frame_rate(self, enabled: bool, fps: float = 1.0):
+    def set_max_acquisition_frame_rate(
+        self,
+        enabled: bool,
+        fps: float = 1.0,
+    ) -> None:
+        """Enable or disable the camera's `AcquisitionFrameRateEnable` cap.
+
+        When enabled, the camera will not produce frames faster than
+        `fps` regardless of sensor-readout capability. Used by IDS char-
+        tool crash protection (also relevant to Pylon for stability
+        soaks). Setting `enabled=False` returns the camera to its
+        sensor-readout-rate ceiling.
+
+        Args:
+            enabled: True to cap frame rate, False to remove the cap.
+            fps: Target frame rate in fps when ``enabled=True``.
+                Ignored when ``enabled=False``.
+        """
         try:
             self.active.AcquisitionFrameRateEnable.Value = enabled
             if enabled:
@@ -1599,6 +1667,13 @@ class PylonCamera(Camera):
             ) from e
 
     def get_pixel_format(self) -> str:
+        """Read the camera's currently-active PixelFormat symbolic value.
+
+        Returns:
+            str: Pylon symbolic name (e.g. ``'Mono8'``, ``'Mono12p'``).
+                Empty string if the camera is inactive or the read
+                fails.
+        """
         if not self.active:
             return ''
 
@@ -1615,6 +1690,13 @@ class PylonCamera(Camera):
             return ''
 
     def get_supported_pixel_formats(self) -> tuple:
+        """Return every PixelFormat symbolic name the camera advertises.
+
+        Returns:
+            tuple: PixelFormat enum entries as Pylon symbolic strings.
+                Empty tuple if the read fails or the camera is
+                inactive.
+        """
         try:
             return self.active.PixelFormat.GetSymbolics()
         except genicam.RuntimeException as e:
@@ -1692,6 +1774,17 @@ class PylonCamera(Camera):
             ) from e
 
     def get_binning_size(self) -> int:
+        """Read the camera's current binning size.
+
+        Returns the vertical binning value; if vertical and horizontal
+        diverge a warning is logged and vertical wins (the asymmetric
+        case is a misconfiguration the operator should fix).
+
+        Returns:
+            int: 1 (1x1, no binning) up to the camera's max binning
+                factor. 1 if the camera is inactive (caller-correctable
+                guard).
+        """
         if not self.active:
             return 1
 
@@ -1721,7 +1814,22 @@ class PylonCamera(Camera):
         auto_target_brightness: float = 0.5,
         min_gain: float | None = None,
         max_gain: float | None = None,
-    ):
+    ) -> None:
+        """Configure the AutoFunctionROI + auto-gain limits for AF use.
+
+        Sets ROI to the full sensor minus the existing offset, picks
+        the `MinimizeExposureTime` profile (autofocus prefers shorter
+        exposures), and applies caller-supplied gain bounds (or the
+        camera's reported min/max when `None`).
+
+        Args:
+            auto_target_brightness: Target brightness in 0..1, fed to
+                `AutoTargetBrightness`.
+            min_gain: Lower bound for the auto-gain controller in dB,
+                or ``None`` to use the camera's reported minimum.
+            max_gain: Upper bound in dB, or ``None`` to use the
+                camera's reported maximum.
+        """
         try:
             self.active.AutoFunctionROIWidth.SetValue(
                 self.active.Width.Max - 2 * self.active.AutoFunctionROIOffsetX.GetValue()
@@ -1750,7 +1858,19 @@ class PylonCamera(Camera):
         except Exception as e:
             logger.exception(f'[CAM Class ] Unexpected error in init_auto_gain_focus: {e}')
 
-    def update_auto_gain_target_brightness(self, auto_target_brightness: float):
+    def update_auto_gain_target_brightness(
+        self,
+        auto_target_brightness: float,
+    ) -> None:
+        """Update `AutoTargetBrightness` without an over-stop cycle.
+
+        Live-writable per Basler -- no `update_camera_config()` wrap
+        needed. The previous wrap forced a stop/start cycle on every
+        call (the same anti-pattern as STALL-1).
+
+        Args:
+            auto_target_brightness: Target brightness in 0..1.
+        """
         # Basler runtime-modifiable parameter -- AutoTargetBrightness can
         # be changed while StartGrabbing is active. The previous wrap
         # in update_camera_config() forced a stop_grabbing /
@@ -1780,7 +1900,21 @@ class PylonCamera(Camera):
                 f'[CAM Class ] Unexpected error in update_auto_gain_target_brightness: {e}'
             )
 
-    def update_auto_gain_min_max(self, min_gain: float | None, max_gain: float | None):
+    def update_auto_gain_min_max(
+        self,
+        min_gain: float | None,
+        max_gain: float | None,
+    ) -> None:
+        """Update auto-gain min/max bounds without an over-stop cycle.
+
+        Live-writable per Basler. ``None`` for either bound is treated
+        as "leave that side at its current value"; only the explicit
+        ones are written.
+
+        Args:
+            min_gain: Lower bound in dB, or ``None`` to leave unchanged.
+            max_gain: Upper bound in dB, or ``None`` to leave unchanged.
+        """
         if not self.active:
             return
 
@@ -1818,18 +1952,26 @@ class PylonCamera(Camera):
 
     # grab() inherited from Camera base class
 
-    def grab_new_capture(self, timeout: float):
-        """
-        Drain any already-queued frames, then block up to `timeout`
-        waiting for a genuinely new one. Saves the array into
-        self.array when received. Returns (bool, ts).
+    def grab_new_capture(self, timeout: float) -> tuple:
+        """Drain queued frames, then block for a genuinely new one.
 
-        Previously dropped only one queued frame, which meant
-        "force_new_capture" could still return a stale frame if the
-        consumer had fallen behind — queue held backlog, we'd pop the
-        oldest, then take the next-oldest. For AF / characterization
-        timing measurements we want the freshest frame possible, so
-        drain everything that's already captured before waiting.
+        Drops every frame already queued in the image handler, then
+        blocks up to ``timeout`` seconds waiting for the next callback.
+        Used by AF / characterization paths that need the freshest
+        possible frame -- previously dropped only one queued frame,
+        which could return a stale frame when the consumer had fallen
+        behind.
+
+        Args:
+            timeout: Wall-clock seconds to wait for a new frame after
+                draining queued frames.
+
+        Returns:
+            tuple: ``(success: bool, timestamp: float | None)``.
+                ``success=False`` if the camera is inactive, the handler
+                is missing, or no frame arrived within ``timeout``.
+                ``timestamp`` is the host-side capture timestamp on
+                success, ``None`` otherwise.
         """
         # Per-grab duration trace; zero overhead when
         # ENABLE_PROFILE_TRACE is unset (production builds).
@@ -1881,8 +2023,21 @@ class PylonCamera(Camera):
                     [int(time.time() * 1000), f'{_dt_ms:.3f}', dropped, _outcome, f'{timeout:.3f}'],
                 )
 
-    def set_frame_size(self, w, h):
-        """Set camera frame size to w by h and keep centered"""
+    def set_frame_size(self, w, h) -> None:
+        """Set camera frame size to ``w`` x ``h`` and recenter the ROI.
+
+        Width and height are clamped to the camera's reported maxima
+        and rounded down to the nearest multiple of 4 (Pylon
+        constraint on most current models). The
+        ``BslCenterX`` / ``BslCenterY`` execute calls keep the ROI
+        centered on the sensor after the size change. Wrapped in
+        ``update_camera_config()`` because Width/Height require a
+        buffer realloc.
+
+        Args:
+            w: Requested frame width in pixels.
+            h: Requested frame height in pixels.
+        """
         camera = self.active
         if camera is None:
             logger.warning(f'[CAM Class ] Cannot set frame size {w}x{h}: camera inactive')
@@ -1913,6 +2068,12 @@ class PylonCamera(Camera):
             logger.exception(f'[CAM Class ] Unexpected error in set_frame_size: {e}')
 
     def get_min_frame_size(self) -> dict:
+        """Read the camera's minimum supported frame dimensions.
+
+        Returns:
+            dict: ``{'width': int, 'height': int}`` or empty dict if
+                the camera is inactive or the read fails.
+        """
         camera = self.active
         if camera is None:
             return {}
@@ -1930,6 +2091,17 @@ class PylonCamera(Camera):
             return {}
 
     def get_max_frame_size(self) -> dict:
+        """Read the camera's maximum supported frame dimensions.
+
+        Note: this is the sensor-driven ceiling. Production lenses
+        typically constrain usable area further (lens-driven ceiling
+        is tracked separately at the API layer per `data/scopes.json`
+        ``max_usable_roi``).
+
+        Returns:
+            dict: ``{'width': int, 'height': int}`` or empty dict if
+                the camera is inactive or the read fails.
+        """
         camera = self.active
         if camera is None:
             return {}
@@ -1946,7 +2118,14 @@ class PylonCamera(Camera):
             logger.exception(f'[CAM Class ] Unexpected error reading max frame size: {e}')
             return {}
 
-    def get_frame_size(self):
+    def get_frame_size(self) -> dict | None:
+        """Read the camera's currently-active frame size.
+
+        Returns:
+            dict | None: ``{'width': int, 'height': int}`` (and any
+                additional fields populated by the active path) on
+                success, or ``None`` if the camera is inactive.
+        """
         camera = self.active
         if camera is None:
             return
@@ -1969,7 +2148,15 @@ class PylonCamera(Camera):
             logger.exception(f'[CAM Class ] Unexpected error reading frame size: {e}')
             return None
 
-    def get_gain(self):
+    def get_gain(self) -> float:
+        """Read the camera's current Gain value (dB).
+
+        Returns:
+            float: Gain in dB on success. Returns ``-1.0`` on any
+                error path (inactive camera, USB timeout, SDK
+                exception) so callers can treat ``< 0`` as "read
+                failed" without needing a try/except.
+        """
         if self.active is None:
             logger.warning('[CAM Class ] Cannot read gain: camera inactive')
             return -1
@@ -2016,8 +2203,18 @@ class PylonCamera(Camera):
             logger.debug(f'[CAM Class ] IsCameraDeviceRemoved query raised: {e}')
         return True
 
-    def gain(self, value):
-        """Set gain value in the camera hardware."""
+    def gain(self, value) -> None:
+        """Set Gain in the camera hardware (dB).
+
+        Per Basler ``gain.html`` three-step recipe: caller is
+        responsible for ``GainAuto=Off``; this method asserts
+        ``GainSelector='All'`` then writes ``Gain.SetValue(value)``.
+        ``GainSelector`` failures are tolerated (logged at debug)
+        for cameras that do not expose the selector.
+
+        Args:
+            value: Gain in dB. Coerced to ``float``.
+        """
         if self.active is None:
             if _cam_log is not None:
                 _cam_log.warning(f'pylon Gain.SetValue({value}) SKIPPED: active=None')
@@ -2057,9 +2254,25 @@ class PylonCamera(Camera):
         target_brightness: float = 0.5,
         min_gain: float | None = None,
         max_gain: float | None = None,
-    ):
-        """Enable / Disable camera auto_gain with the value of 'state'
-        It will be continueously updating based on the current image"""
+    ) -> None:
+        """Enable or disable continuous auto-gain + auto-exposure.
+
+        When enabled, ``GainAuto`` and ``ExposureAuto`` are set to
+        ``Continuous`` -- the camera continuously adjusts based on the
+        live image's brightness. When disabled, both are set to
+        ``Off``. Caller-supplied ``target_brightness`` / ``min_gain``
+        / ``max_gain`` are applied via ``update_auto_gain_*`` helpers
+        before enabling.
+
+        Args:
+            state: ``True`` to enable Continuous mode, ``False`` to
+                disable.
+            target_brightness: Target brightness in 0..1.
+            min_gain: Lower bound in dB, or ``None`` to leave
+                unchanged.
+            max_gain: Upper bound in dB, or ``None`` to leave
+                unchanged.
+        """
 
         if self.active is None:
             logger.warning(f'[CAM Class ] Cannot set auto_gain({state}): camera inactive')
@@ -2098,9 +2311,23 @@ class PylonCamera(Camera):
         target_brightness: float = 0.5,
         min_gain: float | None = None,
         max_gain: float | None = None,
-    ):
-        """Enable / Disable camera auto_gain with the value of 'state'
-        Auto Gain/Exposure executed one time"""
+    ) -> None:
+        """Run a single-shot auto-gain + auto-exposure pass.
+
+        ``GainAuto`` and ``ExposureAuto`` are set to ``Once`` -- the
+        camera adjusts once and then transitions back to ``Off`` on
+        its own. When ``state=False``, both are set to ``Off``
+        explicitly.
+
+        Args:
+            state: ``True`` to fire a single Once-mode adjustment,
+                ``False`` to disable.
+            target_brightness: Target brightness in 0..1.
+            min_gain: Lower bound in dB, or ``None`` to leave
+                unchanged.
+            max_gain: Upper bound in dB, or ``None`` to leave
+                unchanged.
+        """
 
         if self.active is None:
             logger.warning(f'[CAM Class ] Cannot set auto_gain_once({state}): camera inactive')
@@ -2122,8 +2349,17 @@ class PylonCamera(Camera):
         except Exception as e:
             logger.exception(f'[CAM Class ] Unexpected error in auto_gain_once: {e}')
 
-    def exposure_t(self, t):
-        """Set exposure time in the camera hardware t (msec)"""
+    def exposure_t(self, t) -> None:
+        """Set the camera's exposure time in milliseconds.
+
+        Pylon's ``ExposureTime`` node uses microseconds; this method
+        accepts milliseconds and converts. Values exceeding
+        ``self.max_exposure`` are rejected with a warning. Sub-minimum
+        values are clamped to ``ExposureTime.Min``.
+
+        Args:
+            t: Exposure time in milliseconds.
+        """
         if self.active is None:
             if _cam_log is not None:
                 _cam_log.warning(f'pylon ExposureTime.SetValue({t}ms) SKIPPED: active=None')
@@ -2153,9 +2389,21 @@ class PylonCamera(Camera):
         except Exception as e:
             logger.exception(f'[CAM Class ] Unexpected error in exposure_t: {e}')
 
-    def get_exposure_t(self):
-        """Get exposure time in the camera hardware
-        Returns t (msec), or -1 if the camera is inactive"""
+    def get_exposure_t(self) -> float:
+        """Read the camera's currently-active exposure time in ms.
+
+        Prefers ``BslEffectiveExposureTime`` (the value the camera
+        actually used, accounting for internal clock-rate rounding)
+        when the node is exposed; falls back to ``ExposureTime`` (the
+        set value) on legacy ace cameras that do not expose the
+        Bsl-prefixed node.
+
+        Returns:
+            float: Exposure time in milliseconds. Returns ``-1.0`` on
+                any error path (inactive camera, both nodes
+                unreadable) so callers can treat ``< 0`` as "read
+                failed" without needing a try/except.
+        """
 
         if self.active is None:
             logger.warning('[CAM Class ] Cannot read exposure: camera inactive')
@@ -2200,9 +2448,18 @@ class PylonCamera(Camera):
             logger.exception(f'[CAM Class ] Unexpected error reading exposure time: {e}')
             return -1
 
-    def auto_exposure_t(self, state=True):
-        """Enable / Disable camera auto_exposure with the value of 'state'
-        It will be continueously updating based on the current image"""
+    def auto_exposure_t(self, state=True) -> None:
+        """Enable or disable continuous auto-exposure.
+
+        When ``state=True``, ``ExposureAuto`` is set to ``Continuous``;
+        the camera continuously adjusts exposure based on the live
+        image. When ``state=False``, ``ExposureAuto`` is set to
+        ``Off``.
+
+        Args:
+            state: ``True`` to enable Continuous mode, ``False`` to
+                disable.
+        """
 
         if self.active is None:
             logger.warning(f'[CAM Class ] Cannot set auto_exposure({state}): camera inactive')
@@ -2220,7 +2477,24 @@ class PylonCamera(Camera):
         except Exception as e:
             logger.exception(f'[CAM Class ] Unexpected error in auto_exposure_t: {e}')
 
-    def set_test_pattern(self, enabled: bool = False, pattern: str = 'Black'):
+    def set_test_pattern(
+        self,
+        enabled: bool = False,
+        pattern: str = 'Black',
+    ) -> None:
+        """Apply a Pylon ``TestPattern`` and immediately grab one frame.
+
+        Per-camera supported patterns include ``'Black'``, ``'White'``,
+        ``'GreyHorizontalRamp'``, ``'GreyVerticalRamp'``,
+        ``'ColorDiagonalSawtooth8'``, etc. (per Basler
+        ``test-images.html``). ``enabled`` is currently a no-op marker
+        kept for API compatibility -- writes are unconditional when
+        called.
+
+        Args:
+            enabled: Reserved for future use.
+            pattern: Pylon symbolic test-pattern name.
+        """
         if self.active is None:
             return
 
@@ -2755,7 +3029,22 @@ class ImageHandler(pylon.ImageEventHandler):
                 )
         return chunks if chunks else None
 
-    def OnImageGrabbed(self, camera, grabResult):
+    def OnImageGrabbed(self, camera, grabResult) -> None:
+        """Pylon SDK callback fired once per acquired frame.
+
+        Runs in a Pylon-owned worker thread (renamed from CPython's
+        auto-assigned ``Dummy-N`` to ``PylonImageGrab`` for
+        thread-counter visibility). Branches on ``GrabSucceeded`` and
+        on the cancelled-buffer status code per Layer-1 cancel
+        handling -- see the cancel-code provenance comments earlier
+        in this module for the full classification table.
+
+        Args:
+            camera: SDK ``InstantCamera`` reference (unused; pylon
+                contract).
+            grabResult: SDK ``GrabResult`` carrying status, error
+                code, and image data.
+        """
         # Per-callback duration trace; zero overhead when
         # ENABLE_PROFILE_TRACE is unset (production builds).
         _trace_enabled = profile_trace is not None and profile_trace.ENABLE_PROFILE_TRACE
@@ -2903,8 +3192,14 @@ class ImageHandler(pylon.ImageEventHandler):
                     ],
                 )
 
-    def reset(self):
-        """Clear frame buffer, queue, and failure counter."""
+    def reset(self) -> None:
+        """Clear frame buffer, drain the queue, and reset failure counter.
+
+        Defensive against partially-disposed queue state during
+        teardown; the outer guard logs at warning if the queue raises
+        on drain (the per-iteration ``queue.Empty`` is the normal
+        exit).
+        """
         try:
             while not self._frame_queue.empty():
                 try:
@@ -2915,8 +3210,19 @@ class ImageHandler(pylon.ImageEventHandler):
             logger.warning(f'[CAM Class ] handler reset queue-drain failed: {e}')
         self._base.reset()
 
-    def get_last_image(self):
-        """Return (success, image_copy, timestamp) with parent-camera validity check."""
+    def get_last_image(self) -> tuple:
+        """Return ``(success, image_copy, timestamp)`` with validity guard.
+
+        Wraps the base ``ImageHandlerBase.get_last_image`` with a
+        parent-camera validity check: if the camera has been marked
+        removed or ``self._parent.active`` has been cleared, returns
+        ``(False, None, None)`` immediately rather than handing back
+        a frame from a no-longer-attached device.
+
+        Returns:
+            tuple: ``(success: bool, image: ndarray | None,
+                timestamp: float | None)``.
+        """
         try:
             if self._parent._device_removed:
                 return False, None, None
@@ -2934,10 +3240,17 @@ class _CameraRemovalHandler(pylon.ConfigurationEventHandler):
         super().__init__()
         self._parent = parent_cam
 
-    def OnCameraDeviceRemoved(self, camera):
-        # Runs in a native Pylon SDK thread. _mark_disconnected acquires
-        # _state_lock for microseconds and sets _device_removed +
-        # _active=None atomically; safe from any thread including SDK
-        # callbacks.
+    def OnCameraDeviceRemoved(self, camera) -> None:
+        """Pylon SDK callback fired when the device disappears.
+
+        Runs in a native Pylon SDK thread. Delegates to
+        ``_mark_disconnected``, which atomically sets
+        ``_device_removed`` and ``_active=None`` under
+        ``_state_lock`` (microsecond hold). Safe from any thread,
+        including SDK callbacks.
+
+        Args:
+            camera: SDK reference (unused; pylon contract).
+        """
         self._parent._mark_disconnected()
         logger.error('[CAM Class ] Camera physically removed (Pylon SDK callback)')
