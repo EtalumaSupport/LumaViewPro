@@ -345,10 +345,14 @@ class PylonCamera(Camera):
                         except Exception:
                             underrun_value = None
                 if cam is not None:
-                    try:
-                        rfr = cam.ResultingFrameRate.GetValue()
-                    except Exception:
-                        rfr = None
+                    # ace 2 / dart M/R expose BslResultingAcquisitionFrameRate
+                    # as the canonical node; legacy ace exposes
+                    # ResultingFrameRate. Try the Bsl variant first.
+                    rfr = self._node_attr_get(
+                        cam,
+                        'BslResultingAcquisitionFrameRate',
+                        'ResultingFrameRate',
+                    )
             except Exception as e:
                 logger.debug(f'[INSTR PYLON ] stats poll error: {e}')
 
@@ -1393,9 +1397,30 @@ class PylonCamera(Camera):
             return -1
 
         try:
-            microsec = self.active.ExposureTime.GetValue()  # get current exposure time in microsec
-            millisec = microsec / 1000  # convert exposure time to millisec
-            return millisec
+            # ace 2, boost R, and dart R/M expose BslEffectiveExposureTime
+            # as the read-only "value the camera actually used" (per
+            # Basler doc exposure-time.html: "It takes factors like
+            # internal offsets or clock speed requirements into account
+            # that may cause the exposure time to differ from the
+            # exposure time set."). Fall back to ExposureTime (the set
+            # value) if the Bsl-prefixed effective node is absent
+            # (legacy ace cameras don't expose it).
+            microsec = self._node_attr_get(
+                self.active,
+                'BslEffectiveExposureTime',
+                'ExposureTime',
+            )
+            if microsec is None:
+                # Both nodes failed -- mark disconnected as the
+                # original code did when ExposureTime read raised.
+                logger.error(
+                    '[CAM Class ] Failed to read exposure time: both '
+                    'BslEffectiveExposureTime and ExposureTime nodes '
+                    'unavailable. Camera may be disconnected.'
+                )
+                self._mark_disconnected()
+                return -1
+            return microsec / 1000  # microseconds -> milliseconds
         except genicam.TimeoutException as e:
             # USB roundtrip timed out (transient). Don't mark disconnected; caller can retry.
             logger.warning(f'[CAM Class ] get_exposure_t timed out: {e}')
@@ -1585,24 +1610,59 @@ class PylonCamera(Camera):
     )
 
     @staticmethod
-    def _safe_node(nodemap, name: str):
-        """Read a nodemap node defensively across both nodemap kinds.
+    def _safe_node(nodemap, *names: str):
+        """Read a nodemap node defensively, trying each name in order.
 
         Camera nodemap returns None for missing nodes; stream-grabber
         nodemap raises ``_genicam.LogicalErrorException`` ("Node not
         existing"). This helper unifies both into a sentinel string so
-        the probe never propagates an exception out of an optional read.
+        the probe never propagates an exception out of an optional
+        read.
+
+        Multiple names support the case where different camera families
+        expose the same logical parameter under different canonical
+        names. ace 2 / boost / dart M/R use ``BslResultingAcquisitionFrameRate``
+        and ``BslEffectiveExposureTime`` (per Basler doc
+        resulting-acquisition-frame-rate.html and exposure-time.html);
+        legacy ace cameras use the unprefixed ``ResultingFrameRate``
+        and ``ExposureTime``. Pass the Bsl-prefixed canonical first;
+        the helper falls back to the unprefixed form if the camera
+        doesn't expose the Bsl variant.
         """
-        try:
-            n = nodemap.GetNode(name)
-            if n is None:
-                return '<not present>'
+        last_sentinel = '<missing>'
+        for name in names:
             try:
-                return n.GetValue()
-            except Exception as e:
-                return f'<read err: {type(e).__name__}>'
-        except Exception:
-            return '<missing>'
+                n = nodemap.GetNode(name)
+                if n is None:
+                    last_sentinel = '<not present>'
+                    continue
+                try:
+                    return n.GetValue()
+                except Exception as e:
+                    last_sentinel = f'<read err: {type(e).__name__}>'
+                    continue
+            except Exception:
+                continue
+        return last_sentinel
+
+    @staticmethod
+    def _node_attr_get(camera, *names: str):
+        """Read camera.<name>.GetValue() trying each name in order.
+
+        Used at attribute-access call sites (live read paths) where
+        going through GetNodeMap().GetNode() adds overhead. Companion
+        to _safe_node which serves the diagnostic-snapshot probe path.
+        Returns None if no name resolves to a readable value.
+        """
+        for name in names:
+            node = getattr(camera, name, None)
+            if node is None:
+                continue
+            try:
+                return node.GetValue()
+            except Exception:
+                continue
+        return None
 
     def read_diagnostic_snapshot(
         self,
@@ -1687,23 +1747,28 @@ class PylonCamera(Camera):
         ):
             result['camera'][key] = self._safe_node(nm, genicam_name)
 
-        # Camera-nodemap configuration
-        for name, key in (
-            ('PixelFormat', 'pixel_format'),
-            ('Width', 'width'),
-            ('Height', 'height'),
-            ('SensorWidth', 'sensor_width'),
-            ('SensorHeight', 'sensor_height'),
-            ('ExposureTime', 'exposure_us'),
-            ('Gain', 'gain_db'),
-            ('BlackLevel', 'black_level'),
-            ('DeviceLinkThroughputLimitMode', 'dltl_mode'),
-            ('DeviceLinkThroughputLimit', 'dltl_value_bps'),
-            ('AcquisitionFrameRateEnable', 'acquisition_frame_rate_enable'),
-            ('AcquisitionFrameRate', 'acquisition_frame_rate'),
-            ('ResultingFrameRate', 'resulting_frame_rate'),
+        # Camera-nodemap configuration. Tuple-of-names entries probe
+        # each name in order until one resolves -- ace 2 / dart M/R
+        # expose Bsl-prefixed canonical nodes for what legacy ace
+        # exposes unprefixed (per Basler doc resulting-acquisition-
+        # frame-rate.html and exposure-time.html).
+        for names, key in (
+            (('PixelFormat',), 'pixel_format'),
+            (('Width',), 'width'),
+            (('Height',), 'height'),
+            (('SensorWidth',), 'sensor_width'),
+            (('SensorHeight',), 'sensor_height'),
+            (('BslEffectiveExposureTime', 'ExposureTime'), 'exposure_us'),
+            (('Gain',), 'gain_db'),
+            (('BlackLevel',), 'black_level'),
+            (('DeviceLinkThroughputLimitMode',), 'dltl_mode'),
+            (('DeviceLinkThroughputLimit',), 'dltl_value_bps'),
+            (('AcquisitionFrameRateEnable',), 'acquisition_frame_rate_enable'),
+            (('AcquisitionFrameRate',), 'acquisition_frame_rate'),
+            (('BslResultingAcquisitionFrameRate', 'ResultingFrameRate'),
+             'resulting_frame_rate'),
         ):
-            result['config'][key] = self._safe_node(nm, name)
+            result['config'][key] = self._safe_node(nm, *names)
 
         # Stream-grabber-nodemap configuration (defaults; transport-
         # specific availability varies)
