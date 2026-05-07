@@ -2553,6 +2553,94 @@ class Lumascope():
             )
             raise
 
+    def set_max_transfer_size(self, value_bytes: int) -> bool:
+        """Set Pylon StreamGrabber MaxTransferSize (USB3 only).
+
+        Bytes-per-USB-transfer the SDK requests from the kernel. Per
+        Basler `stream-grabber-parameters.html` this is the named lever
+        for the symptom "fails to receive image stream" -- decreasing
+        the value works around kernel / driver USB-transfer-size
+        constraints on some Windows hosts.
+
+        USB3-only. The node is absent on GigE cameras and on the IDS
+        SDK; returns False so the bench-probe sweep can call this
+        method unconditionally per cell.
+
+        Args:
+            value_bytes: New MaxTransferSize in bytes.
+
+        Returns:
+            bool: True on success. False if the camera is absent /
+                inactive, the driver doesn't implement the setter, or
+                the node is not exposed.
+
+        Raises:
+            HardwareError: Underlying SDK call failed in the driver.
+        """
+        if not self.camera or not self.camera.active:
+            return False
+        if not hasattr(self.camera, 'set_max_transfer_size'):
+            return False
+        try:
+            return bool(self.camera.set_max_transfer_size(
+                value_bytes=value_bytes
+            ))
+        except Exception as ex:
+            logger.exception(
+                f"[SCOPE API ] Error setting MaxTransferSize: {ex}"
+            )
+            from modules.notification_center import notifications
+            notifications.error(
+                "Camera",
+                "MaxTransferSize change failed",
+                f"Could not set MaxTransferSize to {value_bytes}: "
+                f"{type(ex).__name__}: {ex}."
+            )
+            raise
+
+    def set_num_max_queued_urbs(self, value: int) -> bool:
+        """Set Pylon StreamGrabber NumMaxQueuedUrbs (USB3 only).
+
+        Number of USB Request Blocks the SDK keeps in flight to the
+        kernel. Per Basler `stream-grabber-parameters.html` this is
+        the named lever for "insufficient system memory"
+        (0xe2010130 / 0xe2100001) -- decreasing the value reduces
+        kernel URB allocation pressure on memory-constrained hosts.
+
+        USB3-only. The node is absent on GigE cameras and on the IDS
+        SDK; returns False so the bench-probe sweep can call this
+        method unconditionally per cell.
+
+        Args:
+            value: New NumMaxQueuedUrbs (count).
+
+        Returns:
+            bool: True on success. False if the camera is absent /
+                inactive, the driver doesn't implement the setter, or
+                the node is not exposed.
+
+        Raises:
+            HardwareError: Underlying SDK call failed in the driver.
+        """
+        if not self.camera or not self.camera.active:
+            return False
+        if not hasattr(self.camera, 'set_num_max_queued_urbs'):
+            return False
+        try:
+            return bool(self.camera.set_num_max_queued_urbs(value=value))
+        except Exception as ex:
+            logger.exception(
+                f"[SCOPE API ] Error setting NumMaxQueuedUrbs: {ex}"
+            )
+            from modules.notification_center import notifications
+            notifications.error(
+                "Camera",
+                "NumMaxQueuedUrbs change failed",
+                f"Could not set NumMaxQueuedUrbs to {value}: "
+                f"{type(ex).__name__}: {ex}."
+            )
+            raise
+
 
     ########################################################################
     # LED BOARD FUNCTIONS

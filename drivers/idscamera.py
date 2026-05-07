@@ -558,6 +558,14 @@ class IDSCamera(Camera):
         """IDS does not expose Pylon GevSCPD. Stub False."""
         return False
 
+    def set_max_transfer_size(self, value_bytes: int) -> bool:
+        """IDS does not expose Pylon StreamGrabber MaxTransferSize. Stub False."""
+        return False
+
+    def set_num_max_queued_urbs(self, value: int) -> bool:
+        """IDS does not expose Pylon StreamGrabber NumMaxQueuedUrbs. Stub False."""
+        return False
+
     def set_max_acquisition_frame_rate(self, enabled: bool, fps: float=1.0):
         if not self.active:
             logger.warning('[CAM Class ] set_max_acquisition_frame_rate(): inactive camera')

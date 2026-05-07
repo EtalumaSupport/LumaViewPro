@@ -1015,6 +1015,139 @@ class PylonCamera(Camera):
             return hi
         return value_bps
 
+    def set_max_transfer_size(self, value_bytes: int) -> bool:
+        """Set StreamGrabber MaxTransferSize (USB3 only).
+
+        Per Basler `stream-grabber-parameters.html`, MaxTransferSize
+        is the bytes-per-USB-transfer the SDK requests from the kernel.
+        It is the doc's named lever for the symptom "fails to receive
+        image stream" -- decreasing the value works around kernel /
+        driver USB-transfer-size constraints on some Windows hosts.
+        Default is camera/SDK-version dependent.
+
+        USB3-only. The node is absent on the StreamGrabber NodeMap of
+        GigE cameras; in that case the write fails with a SDK
+        exception, which we surface as HardwareError.
+
+        Bench knob exposed parallel to the DLTL setter for
+        ``tools/pylon_probe_sweep.py`` characterization. No production
+        default change.
+
+        Args:
+            value_bytes: New MaxTransferSize in bytes. SDK clamps to
+                the node's supported range and raises OutOfRangeException
+                on invalid values; the RuntimeException branch surfaces
+                that as HardwareError.
+
+        Returns:
+            bool: True on success. False if the camera is inactive
+                (caller-correctable guard).
+
+        Raises:
+            HardwareError: Underlying SDK call failed (RuntimeException
+                or node-missing). Camera is marked disconnected on
+                RuntimeException.
+        """
+        return self._set_stream_grabber_int_node(
+            node_name='MaxTransferSize',
+            value=int(value_bytes),
+            method_label='set_max_transfer_size',
+        )
+
+    def set_num_max_queued_urbs(self, value: int) -> bool:
+        """Set StreamGrabber NumMaxQueuedUrbs (USB3 only).
+
+        Per Basler `stream-grabber-parameters.html`, NumMaxQueuedUrbs
+        controls how many USB Request Blocks (URBs) the SDK keeps in
+        flight to the kernel at once. It is the doc's named lever for
+        the symptom "insufficient system memory" with status codes
+        0xe2010130 / 0xe2100001 -- decreasing the value reduces kernel
+        URB allocation pressure on memory-constrained hosts.
+
+        USB3-only. The node is absent on the StreamGrabber NodeMap of
+        GigE cameras; in that case the write fails with a SDK
+        exception, which we surface as HardwareError.
+
+        Bench knob exposed parallel to the DLTL setter for
+        ``tools/pylon_probe_sweep.py`` characterization. No production
+        default change.
+
+        Args:
+            value: New NumMaxQueuedUrbs (count). SDK clamps to the
+                node's supported range and raises OutOfRangeException
+                on invalid values; the RuntimeException branch surfaces
+                that as HardwareError.
+
+        Returns:
+            bool: True on success. False if the camera is inactive
+                (caller-correctable guard).
+
+        Raises:
+            HardwareError: Underlying SDK call failed (RuntimeException
+                or node-missing). Camera is marked disconnected on
+                RuntimeException.
+        """
+        return self._set_stream_grabber_int_node(
+            node_name='NumMaxQueuedUrbs',
+            value=int(value),
+            method_label='set_num_max_queued_urbs',
+        )
+
+    def _set_stream_grabber_int_node(
+        self,
+        node_name: str,
+        value: int,
+        method_label: str,
+    ) -> bool:
+        """Shared helper for StreamGrabber integer-node setters.
+
+        Used by ``set_max_transfer_size`` and ``set_num_max_queued_urbs``.
+        Both write a single integer node on the StreamGrabber NodeMap
+        with identical error / log shape; this helper is the canonical
+        path so the two public setters stay one-liners (Rule 35).
+        """
+        if not self.active:
+            return False
+        try:
+            sg = self.active.GetStreamGrabberNodeMap()
+            node = sg.GetNode(node_name)
+            if node is None:
+                logger.error(
+                    f'[CAM Class ] {method_label}: StreamGrabber node '
+                    f'{node_name!r} not present (likely GigE camera; '
+                    f'this knob is USB3-only)'
+                )
+                raise HardwareError(
+                    f'{method_label}: StreamGrabber node {node_name!r} '
+                    f'not present on this camera'
+                )
+            if _cam_log is not None:
+                _cam_log.info(
+                    f'pylon StreamGrabber.{node_name}.SetValue({value})'
+                )
+            node.SetValue(value)
+            return True
+        except HardwareError:
+            raise
+        except genicam.RuntimeException as e:
+            if _cam_log is not None:
+                _cam_log.error(
+                    f'pylon {method_label}({value}) FAILED: {e}'
+                )
+            logger.error(
+                f'[CAM Class ] Camera communication error in '
+                f'{method_label}: {e}'
+            )
+            self._mark_disconnected()
+            raise HardwareError(
+                f'{method_label}({value}) failed: {e}'
+            ) from e
+        except Exception as e:
+            logger.exception(
+                f'[CAM Class ] Unexpected error in {method_label}: {e}'
+            )
+            return False
+
     _ACQ_STOP_MODES = ('Complete', 'CancelExposure', 'AbortExposure')
 
     def set_acquisition_stop_mode(self, mode: str) -> bool:

@@ -5084,3 +5084,138 @@ class TestPylonCameraNoSilentExcept:
             f'{offenders}; replace each with logger.debug or logger.warning '
             f'per Rule 5.'
         )
+
+
+class TestStreamGrabberSetters:
+    """Lumascope.set_max_transfer_size + set_num_max_queued_urbs and the
+    underlying PylonCamera / IDSCamera implementations exist so the
+    bench-probe sweep can vary the StreamGrabber USB3 knobs across cells
+    without dropping below the API layer (Rule 1) or writing /tmp/probe.py
+    (Rule 22).
+
+    Per Basler stream-grabber-parameters.html, MaxTransferSize is the
+    lever for "fails to receive image stream" symptoms and
+    NumMaxQueuedUrbs is the lever for "insufficient system memory"
+    symptoms (USB3 only). The Pylon driver raises HardwareError on SDK
+    RuntimeException and on missing-node (GigE / non-USB3); the API
+    layer notifies + re-raises. IDS stubs return False.
+
+    A6 / B16 closure (AUDIT_PYLONCAMERA_2026-05-07.md).
+    """
+
+    def _make_scope_with_fake_camera(self, fake_camera):
+        from modules.lumascope_api import Lumascope
+        scope = Lumascope.__new__(Lumascope)
+        scope.camera = fake_camera
+        return scope
+
+    def test_lumascope_methods_exist(self):
+        from modules.lumascope_api import Lumascope
+        for name in ('set_max_transfer_size', 'set_num_max_queued_urbs'):
+            assert hasattr(Lumascope, name), name
+            assert callable(getattr(Lumascope, name))
+
+    def test_no_camera_returns_false_for_both(self):
+        from modules.lumascope_api import Lumascope
+        scope = Lumascope.__new__(Lumascope)
+        scope.camera = None
+        assert scope.set_max_transfer_size(262144) is False
+        assert scope.set_num_max_queued_urbs(64) is False
+
+    def test_inactive_camera_returns_false_for_both(self):
+        class _Fake:
+            active = None
+
+            def set_max_transfer_size(self, **k):
+                raise AssertionError("driver should not be reached")
+
+            def set_num_max_queued_urbs(self, **k):
+                raise AssertionError("driver should not be reached")
+
+        scope = self._make_scope_with_fake_camera(_Fake())
+        assert scope.set_max_transfer_size(262144) is False
+        assert scope.set_num_max_queued_urbs(64) is False
+
+    def test_unsupported_driver_returns_false(self):
+        """Camera class without the setters (e.g. SimulatedCamera) -> False."""
+        class _NoSetter:
+            active = True
+
+        scope = self._make_scope_with_fake_camera(_NoSetter())
+        assert scope.set_max_transfer_size(262144) is False
+        assert scope.set_num_max_queued_urbs(64) is False
+
+    def test_max_transfer_size_routes_to_driver(self):
+        called_with = {}
+
+        class _Fake:
+            active = True
+
+            def set_max_transfer_size(self, value_bytes):
+                called_with['value_bytes'] = value_bytes
+                return True
+
+        scope = self._make_scope_with_fake_camera(_Fake())
+        assert scope.set_max_transfer_size(value_bytes=131072) is True
+        assert called_with == {'value_bytes': 131072}
+
+    def test_num_max_queued_urbs_routes_to_driver(self):
+        called_with = {}
+
+        class _Fake:
+            active = True
+
+            def set_num_max_queued_urbs(self, value):
+                called_with['value'] = value
+                return True
+
+        scope = self._make_scope_with_fake_camera(_Fake())
+        assert scope.set_num_max_queued_urbs(value=32) is True
+        assert called_with == {'value': 32}
+
+    def test_pylon_driver_methods_present(self):
+        from pathlib import Path
+        src = (Path(__file__).resolve().parent.parent
+               / "drivers" / "pyloncamera.py").read_text()
+        assert "def set_max_transfer_size(" in src
+        assert "def set_num_max_queued_urbs(" in src
+
+    def test_ids_driver_stubs_return_false(self):
+        from drivers.idscamera import IDSCamera
+        camera = IDSCamera.__new__(IDSCamera)
+        assert camera.set_max_transfer_size(262144) is False
+        assert camera.set_num_max_queued_urbs(64) is False
+
+    def test_pylon_driver_does_not_wrap_in_update_camera_config(self):
+        """StreamGrabber knobs are set via the StreamGrabber NodeMap,
+        which is independent of the camera grab loop. Wrapping in
+        update_camera_config would impose the STALL-1 over-stop
+        pattern unnecessarily."""
+        from pathlib import Path
+        src = (Path(__file__).resolve().parent.parent
+               / "drivers" / "pyloncamera.py").read_text()
+        for name in ('set_max_transfer_size', 'set_num_max_queued_urbs',
+                     '_set_stream_grabber_int_node'):
+            body = _function_source(src, name)
+            assert "with self.update_camera_config" not in body, (
+                f"PylonCamera.{name} must NOT wrap StreamGrabber writes "
+                f"in update_camera_config (the STALL-1 over-stop pattern)."
+            )
+
+    def test_pylon_driver_raises_hardware_error_on_runtime_exception(self):
+        """Per Rule 29 typed-exception contract, the Pylon setters raise
+        HardwareError on genicam.RuntimeException AND on missing-node
+        (GigE / non-USB3 cameras). Pins the raise shape against a future
+        cleanup that swaps it for return-False."""
+        from pathlib import Path
+        src = (Path(__file__).resolve().parent.parent
+               / "drivers" / "pyloncamera.py").read_text()
+        body = _function_source(src, "_set_stream_grabber_int_node")
+        assert "except genicam.RuntimeException" in body
+        assert "raise HardwareError(" in body
+        assert "node is None" in body, (
+            "_set_stream_grabber_int_node must check for missing node "
+            "(GigE / non-USB3 cameras) and raise HardwareError -- "
+            "silent return-False would mislead bench operators into "
+            "thinking the knob applied."
+        )
