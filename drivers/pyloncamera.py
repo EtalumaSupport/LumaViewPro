@@ -26,12 +26,25 @@ except ImportError:
 
 
 # Pylon SDK error code returned by grabResult.GetErrorCode() when a buffer
-# was cancelled by StopGrabbing while in flight. Value 0xE2000102 in the
-# GenAPI error namespace; pypylon does not expose it as a named constant
-# (verified pypylon 26.4.1 / Pylon SDK 11.5.0; bench-witnessed Firmware
-# DAILY_LOG.md session 65 Run-3/Run-4: 100% identical signature across
-# 10 grab failures). Update if a future pypylon version starts exposing
-# pylon.GENERIC_BUFFER_CANCELED or similar.
+# was cancelled by StopGrabbing while in flight. Value 0xE2000102.
+#
+# Transport scope: USB3. Per Basler doc stream-grabber-parameters.html
+# ("The error code for incompletely grabbed buffers is 0xE1000014 on GigE
+# cameras and 0xE2000212 on USB 3.0 cameras"), the 0xE2 high byte is the
+# USB3-Vision transport namespace and 0xE1 is the GigE-Vision namespace.
+# The bench witness was on USB3 cameras (a2A3536-31umBAS, daA3840-45um);
+# the cancel-on-StopGrabbing code on GigE may live in the 0xE1xxxxxx
+# range. The bundle does not enumerate cancel codes per transport.
+#
+# pypylon does not expose this as a named constant (verified
+# pypylon 26.4.1 / Pylon SDK 11.5.0). Update if a future pypylon version
+# starts exposing pylon.GENERIC_BUFFER_CANCELED or similar.
+#
+# OPEN: bench-validate on dmA3536-9gm (dart M GigE) once that camera is
+# in the test mix. If the cancel code differs on GigE, extend this
+# constant to a tuple of codes and update is_buffer_cancel() callers.
+# Existing OnImageGrabbed warning already prints err_code, so a single
+# stop/start storm during a config change will surface the GigE value.
 _PYLON_ERR_BUFFER_CANCELED = 3791651074
 
 
