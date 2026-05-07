@@ -3688,3 +3688,26 @@ class TestPylonInitCameraConfigStyleConsistency:
             "init_camera_config must select the 'Default' user set via "
             "UserSetSelector.SetValue('Default')."
         )
+
+    def test_init_asserts_free_run_acquisition(self):
+        """init_camera_config must explicitly assert AcquisitionMode=
+        Continuous + TriggerMode=Off after UserSetLoad. The 'Default'
+        set is documented to leave these in free-run state, but a
+        firmware bug or future user-set change could leak a different
+        default."""
+        src = self._pyloncamera_source()
+        idx = src.find("def init_camera_config(self):")
+        assert idx != -1
+        end = src.find("def ", idx + 10)
+        body = src[idx:end]
+        assert "AcquisitionMode.SetValue('Continuous')" in body, (
+            "init_camera_config must call AcquisitionMode.SetValue('Continuous')."
+        )
+        assert "TriggerMode.SetValue('Off')" in body, (
+            "init_camera_config must call TriggerMode.SetValue('Off')."
+        )
+        assert "TriggerSelector.SetValue('FrameStart')" in body, (
+            "init_camera_config must call TriggerSelector.SetValue('FrameStart') "
+            "before TriggerMode -- otherwise TriggerMode applies to whichever "
+            "selector was active before."
+        )

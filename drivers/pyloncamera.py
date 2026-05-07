@@ -629,6 +629,23 @@ class PylonCamera(Camera):
             with self.update_camera_config():
                 camera.UserSetSelector.SetValue('Default')
                 camera.UserSetLoad.Execute()
+                # Defense in depth -- 'Default' user set is documented to
+                # leave AcquisitionMode=Continuous + TriggerMode=Off
+                # (free-run is the Basler default). Re-assert explicitly
+                # so a firmware bug, factory misconfig, or future user-set
+                # change that leaks a different default surfaces here
+                # rather than silently breaking free-run acquisition.
+                # Per-write try/except: tolerate node-not-available on
+                # camera models that don't expose the parameter.
+                try:
+                    camera.AcquisitionMode.SetValue('Continuous')
+                except Exception as e:
+                    logger.debug(f'[CAM Class ] AcquisitionMode set skipped: {e}')
+                try:
+                    camera.TriggerSelector.SetValue('FrameStart')
+                    camera.TriggerMode.SetValue('Off')
+                except Exception as e:
+                    logger.debug(f'[CAM Class ] TriggerMode set skipped: {e}')
                 # Enable per-frame chunks for gain/exposure/identity. Must
                 # happen here -- ChunkModeActive is locked while grabbing
                 # (genicam.AccessException). Settings persist across
