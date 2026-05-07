@@ -458,6 +458,12 @@ class PylonCamera(Camera):
                 logger.debug(f'[CAM Class ] Camera removal handler registration not supported: {e}')
 
             self.cam_image_handler = ImageHandler(self)
+            # Cleanup_Delete: SDK takes ownership of the handler and
+            # deletes it when the InstantCamera is destroyed. No
+            # explicit DeregisterImageEventHandler / Deregister-
+            # Configuration call is needed in disconnect() -- the
+            # SDK lifecycle handles it. Same pattern for the two
+            # RegisterConfiguration calls above.
             camera.RegisterImageEventHandler(
                 self.cam_image_handler, pylon.RegistrationMode_Append, pylon.Cleanup_Delete
             )
@@ -1847,7 +1853,15 @@ class ImageHandler(pylon.ImageEventHandler):
         _outcome = 'unknown'
         _frame_bytes = 0
         try:
-            # Set thread name for dummy threads
+            # Rename SDK worker threads from Python's auto-assigned
+            # "Dummy-N" to a stable label so the thread-count poller
+            # (_stats_poller_loop) can count grab callbacks via
+            # name-prefix match. Assumption: pypylon delivers
+            # OnImageGrabbed on threads created outside Python (which
+            # CPython assigns Dummy-N names) on pypylon 26.4.x. If a
+            # future pypylon version uses pre-named threads, the rename
+            # branch never fires and _stats_poller_loop's grab count
+            # under-reports.
             if 'Dummy' in threading.current_thread().name:
                 threading.current_thread().name = 'PylonImageGrab'
 
@@ -1940,6 +1954,11 @@ class ImageHandler(pylon.ImageEventHandler):
                         f'[CAM Class ] grabResult.GrabSucceeded()=False '
                         f'err_code={err_code} desc={err_desc!r}'
                     )
+                    # _record_failure returns True after
+                    # ImageHandlerBase.MAX_CONSECUTIVE_FAILURES (128)
+                    # consecutive failures. At 30 fps that is ~4.3s of
+                    # back-to-back failures; at lower frame rates it
+                    # can take longer.
                     should_stop = self._base._record_failure()
                     if should_stop:
                         try:
