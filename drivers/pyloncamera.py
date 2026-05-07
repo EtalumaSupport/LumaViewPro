@@ -853,13 +853,14 @@ class PylonCamera(Camera):
         the mechanism is identical across transports (USB3 ace 2 /
         dart R, GigE dart M).
 
-        Per-camera defaults bench-witnessed:
+        Per-camera defaults bench-witnessed (USB3):
           ace 2 a2A3536-31umBAS    On / 360 MB/s -> 28.8 fps
           dart   daA3840-45um      On / 160 MB/s -> 18.7 fps
 
         Setting Mode=Off lets the camera run at sensor-readout max
-        (~31.2 fps ace 2; ~44.9 fps dart). Two failure modes per
-        per-camera spec pages (a2a3536-31umbas.html, daa3840-45um.html):
+        (~31.2 fps ace 2; ~44.9 fps dart on USB3). Two failure modes
+        per per-camera spec pages (a2a3536-31umbas.html,
+        daa3840-45um.html):
 
           - Too high: "Corrupt or dropped frames may occur if the
             DeviceLinkThroughputLimit parameter is too high."
@@ -867,9 +868,22 @@ class PylonCamera(Camera):
             (increased rolling shutter effect) may occur if the
             DeviceLinkThroughputLimit parameter is too low."
 
-        Both production cameras are rolling-shutter so both warnings
-        apply. Bench-test failure rate AND image quality alongside fps
-        before settling on a per-camera production default.
+        Both production USB3 cameras are rolling-shutter so both
+        warnings apply. Bench-test failure rate AND image quality
+        alongside fps before settling on a per-camera production
+        default.
+
+        **Transport caveat (GigE):** on GigE cameras (e.g.
+        dmA3536-9gm), DLTL is bounded above by the GigE wire limit
+        (~110 MB/s usable on 1 Gbps Ethernet, ~109 MB/s on this
+        camera at 9.3 fps Mono8). Setting DLTL above the wire limit
+        is a no-op; setting it below caps fps proportionally.
+        Materially different from USB3 where DLTL sits well below
+        the 5 Gbps wire limit and the knob has full bandwidth
+        headroom. For GigE bandwidth control across multiple
+        cameras on one link, use ``set_gev_inter_packet_delay`` and
+        ``set_bandwidth_reserve_mode`` instead -- those are the
+        GigE-side tools.
 
         ``value_bps`` outside the camera's supported range is clamped
         to ``DeviceLinkThroughputLimit.GetMin()`` /

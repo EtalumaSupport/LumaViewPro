@@ -2308,10 +2308,10 @@ class Lumascope():
 
         Both nodes are live-writable per the SDK lock-state table -- no
         StopGrabbing/StartGrabbing wrap. Per-camera defaults bench-
-        witnessed: ace 2 a2A3536-31umBAS at 360 MB/s -> 28.8 fps;
+        witnessed (USB3): ace 2 a2A3536-31umBAS at 360 MB/s -> 28.8 fps;
         dart daA3840-45um at 160 MB/s -> 18.7 fps. Setting ``mode='Off'``
         lets the camera run at sensor-readout maximum (~31.2 fps ace 2;
-        ~44.9 fps dart).
+        ~44.9 fps dart on USB3).
 
         Used by the diagnostic-probe sweep in ``tools/`` to characterize
         failure rate vs throughput across camera + firmware + host
@@ -2319,6 +2319,13 @@ class Lumascope():
         the DeviceLinkThroughputLimit parameter is too high" -- bench-
         test failure rate alongside fps before settling on a per-camera
         production default.
+
+        **Transport caveat (GigE):** on GigE cameras (e.g. dmA3536-9gm)
+        DLTL is bounded above by the GigE wire limit (~110 MB/s usable
+        on 1 Gbps Ethernet). Setting above wire limit is a no-op; below
+        caps fps proportionally. For GigE bandwidth control use
+        ``set_gev_inter_packet_delay`` / ``set_bandwidth_reserve_mode``
+        instead -- those are the GigE-side tools.
 
         Args:
             mode: ``'On'`` or ``'Off'`` (case-sensitive; matches Pylon

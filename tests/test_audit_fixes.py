@@ -4633,6 +4633,55 @@ class TestPylonGainSelectorBeforeGainSetValue:
         )
 
 
+class TestDltlSetterDocstringGigeCaveat:
+    """D8: set_device_link_throughput_limit docstring must surface the
+    GigE wire-limit transport caveat. On GigE cameras (e.g.
+    dmA3536-9gm at 9.3 fps Mono8 ~109 MB/s) DLTL is bounded above by
+    the ~110 MB/s wire limit -- materially different from USB3 where
+    the knob has full headroom. Operators picking a value need to
+    know the GigE-vs-USB3 distinction before they set DLTL=Off
+    expecting the same behavior across transports.
+    """
+
+    def _pyloncamera_source(self):
+        from pathlib import Path
+        return (Path(__file__).resolve().parent.parent
+                / "drivers" / "pyloncamera.py").read_text()
+
+    def _lumascope_api_source(self):
+        from pathlib import Path
+        return (Path(__file__).resolve().parent.parent
+                / "modules" / "lumascope_api.py").read_text()
+
+    def test_pylon_setter_docstring_mentions_gige_wire_limit(self):
+        body = _function_source(self._pyloncamera_source(),
+                                "set_device_link_throughput_limit")
+        assert "GigE" in body and "wire limit" in body, (
+            "PylonCamera.set_device_link_throughput_limit docstring "
+            "must surface the GigE wire-limit caveat (D8)."
+        )
+
+    def test_pylon_setter_docstring_points_to_gige_alternatives(self):
+        body = _function_source(self._pyloncamera_source(),
+                                "set_device_link_throughput_limit")
+        assert "set_gev_inter_packet_delay" in body, (
+            "Pylon DLTL docstring must point to set_gev_inter_packet_delay "
+            "as the GigE alternative."
+        )
+        assert "set_bandwidth_reserve_mode" in body, (
+            "Pylon DLTL docstring must point to set_bandwidth_reserve_mode "
+            "as the GigE alternative."
+        )
+
+    def test_lumascope_setter_docstring_mentions_gige_wire_limit(self):
+        body = _function_source(self._lumascope_api_source(),
+                                "set_device_link_throughput_limit")
+        assert "GigE" in body and "wire limit" in body, (
+            "Lumascope.set_device_link_throughput_limit docstring "
+            "must surface the GigE wire-limit caveat (D8)."
+        )
+
+
 class TestPylonChunkSelectorProbeWithFramecounterFallback:
     """B32: _enable_validity_chunks must probe ChunkSelector.GetEntries()
     before enabling chunks, with a FrameID -> Framecounter fallback for
