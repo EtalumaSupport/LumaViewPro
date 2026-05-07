@@ -2362,6 +2362,63 @@ class Lumascope():
             )
             raise
 
+    def set_acquisition_stop_mode(self, mode: str) -> bool:
+        """Set BslAcquisitionStopMode (Pylon-only; no-op on IDS).
+
+        Controls camera behavior when StopGrabbing fires during an
+        in-flight exposure:
+
+          - ``'Complete'`` (Pylon default): waits for the current
+            exposure to finish before stopping.
+          - ``'CancelExposure'``: stops cleanly; partial frame
+            discarded.
+          - ``'AbortExposure'``: aborts immediately; partial frame
+            discarded.
+
+        Default ``'Complete'`` waits up to the full exposure on long
+        fluorescence captures (5-10 s) -- presents identically to a
+        multi-second app-side stall when the user toggles modes.
+        ``'AbortExposure'`` resolves the symptom but is bench-
+        unvalidated on Etaluma's cameras. Setter is provided for
+        bench characterization; default is unchanged.
+
+        Args:
+            mode: One of ``'Complete'``, ``'CancelExposure'``,
+                ``'AbortExposure'``.
+
+        Returns:
+            bool: True on success. False if the camera is absent /
+                inactive, mode is invalid, the driver doesn't
+                implement the setter (IDS), or
+                BslAcquisitionStopMode is not exposed.
+
+        Raises:
+            HardwareError: Underlying SDK call failed in the driver.
+        """
+        if not self.camera or not self.camera.active:
+            return False
+        if not hasattr(self.camera, 'set_acquisition_stop_mode'):
+            logger.warning(
+                f'[SCOPE API ] set_acquisition_stop_mode: '
+                f'{type(self.camera).__name__} does not implement this method'
+            )
+            return False
+        try:
+            return bool(self.camera.set_acquisition_stop_mode(mode=mode))
+        except Exception as ex:
+            logger.exception(
+                f"[SCOPE API ] Error setting acquisition_stop_mode: {ex}"
+            )
+            from modules.notification_center import notifications
+            notifications.error(
+                "Camera",
+                "BslAcquisitionStopMode change failed",
+                f"Could not set acquisition_stop_mode to {mode!r}: "
+                f"{type(ex).__name__}: {ex}. Camera may still be at "
+                f"the previous stop-mode setting."
+            )
+            raise
+
 
     ########################################################################
     # LED BOARD FUNCTIONS

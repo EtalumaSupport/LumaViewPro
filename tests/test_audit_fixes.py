@@ -4569,3 +4569,130 @@ class TestPylonChunkSelectorProbeWithFramecounterFallback:
             "advertise Framecounter still produce a frame-identity "
             "value in the chunk dict (B32)."
         )
+
+
+class TestAcquisitionStopModeSetter:
+    """Lumascope.set_acquisition_stop_mode + driver setters give the
+    bench-probe sweep a way to compare BslAcquisitionStopMode='Complete'
+    (default) vs 'AbortExposure' on the same cell.
+
+    Default Complete waits for in-flight exposures to finish on
+    StopGrabbing -- on long fluorescence captures this presents
+    identically to a multi-second app-side stall when the user
+    toggles modes. AbortExposure is the doc-confirmed candidate fix
+    per acquisition-start-stop-and-abort.html. Setter exists for
+    bench characterization; default is unchanged in
+    init_camera_config (per Eric direction: setter-only-first,
+    bench-validate, then flip default if validated).
+
+    B19.
+    """
+
+    def _make_scope_with_fake_camera(self, fake_camera):
+        from modules.lumascope_api import Lumascope
+        scope = Lumascope.__new__(Lumascope)
+        scope.camera = fake_camera
+        return scope
+
+    def test_lumascope_method_exists(self):
+        from modules.lumascope_api import Lumascope
+        assert hasattr(Lumascope, 'set_acquisition_stop_mode')
+        assert callable(Lumascope.set_acquisition_stop_mode)
+
+    def test_no_camera_returns_false(self):
+        from modules.lumascope_api import Lumascope
+        scope = Lumascope.__new__(Lumascope)
+        scope.camera = None
+        assert scope.set_acquisition_stop_mode('Complete') is False
+
+    def test_inactive_camera_returns_false(self):
+        class _Fake:
+            active = None
+            def set_acquisition_stop_mode(self, **k):
+                raise AssertionError("driver should not be reached")
+        scope = self._make_scope_with_fake_camera(_Fake())
+        assert scope.set_acquisition_stop_mode('Complete') is False
+
+    def test_unsupported_driver_returns_false(self):
+        """Camera class without the setter (e.g. SimulatedCamera) -> False."""
+        class _NoSetter:
+            active = True
+        scope = self._make_scope_with_fake_camera(_NoSetter())
+        assert scope.set_acquisition_stop_mode('Complete') is False
+
+    def test_routes_to_driver_with_mode_kwarg(self):
+        called_with = {}
+        class _Fake:
+            active = True
+            def set_acquisition_stop_mode(self, mode):
+                called_with['mode'] = mode
+                return True
+        scope = self._make_scope_with_fake_camera(_Fake())
+        assert scope.set_acquisition_stop_mode('AbortExposure') is True
+        assert called_with == {'mode': 'AbortExposure'}
+
+    def test_pylon_driver_method_present(self):
+        from pathlib import Path
+        src = (Path(__file__).resolve().parent.parent
+               / "drivers" / "pyloncamera.py").read_text()
+        assert "def set_acquisition_stop_mode(" in src, (
+            "PylonCamera must implement set_acquisition_stop_mode for "
+            "the bench-probe sweep to exercise BslAcquisitionStopMode "
+            "without bypassing the API layer."
+        )
+
+    def test_pylon_driver_validates_mode_argument(self):
+        """Mode must be one of Complete / CancelExposure / AbortExposure
+        per Basler Specifics table."""
+        from pathlib import Path
+        src = (Path(__file__).resolve().parent.parent
+               / "drivers" / "pyloncamera.py").read_text()
+        body = _function_source(src, "set_acquisition_stop_mode")
+        assert "_ACQ_STOP_MODES" in body, (
+            "PylonCamera.set_acquisition_stop_mode must validate the "
+            "mode argument against _ACQ_STOP_MODES."
+        )
+        assert (
+            "_ACQ_STOP_MODES = ('Complete', 'CancelExposure', 'AbortExposure')"
+            in src
+        ), (
+            "PylonCamera._ACQ_STOP_MODES must list the three doc-named "
+            "values per acquisition-start-stop-and-abort.html."
+        )
+
+    def test_pylon_driver_does_not_wrap_in_update_camera_config(self):
+        """BslAcquisitionStopMode is a configuration property; setting
+        it does not require an in-flight stop/start cycle (and we do
+        not wrap because that would defeat the purpose of measuring
+        the StopGrabbing behavior change)."""
+        from pathlib import Path
+        src = (Path(__file__).resolve().parent.parent
+               / "drivers" / "pyloncamera.py").read_text()
+        body = _function_source(src, "set_acquisition_stop_mode")
+        assert "with self.update_camera_config" not in body, (
+            "PylonCamera.set_acquisition_stop_mode must NOT wrap the "
+            "write in update_camera_config -- the setter exists to "
+            "compare stop-grabbing behavior, and the wrap would "
+            "force a stop/start cycle on every call."
+        )
+
+    def test_pylon_driver_raises_hardware_error_on_runtime_exception(self):
+        """Rule 29 typed-exception contract; matches DLTL setter."""
+        from pathlib import Path
+        src = (Path(__file__).resolve().parent.parent
+               / "drivers" / "pyloncamera.py").read_text()
+        body = _function_source(src, "set_acquisition_stop_mode")
+        assert "except genicam.RuntimeException" in body, (
+            "PylonCamera.set_acquisition_stop_mode must catch "
+            "genicam.RuntimeException."
+        )
+        assert "raise HardwareError(" in body, (
+            "PylonCamera.set_acquisition_stop_mode must raise "
+            "HardwareError on RuntimeException, not return False."
+        )
+
+    def test_ids_driver_stub_returns_false(self):
+        from drivers.idscamera import IDSCamera
+        camera = IDSCamera.__new__(IDSCamera)
+        assert camera.set_acquisition_stop_mode('Complete') is False
+        assert camera.set_acquisition_stop_mode('AbortExposure') is False

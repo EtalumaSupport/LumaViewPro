@@ -550,6 +550,13 @@ class IDSCamera(Camera):
             )
             return False
 
+    def set_acquisition_stop_mode(self, mode: str) -> bool:
+        """IDS Peak SDK does not expose BslAcquisitionStopMode (Basler-
+        specific node). Stub returns False on all input so the API
+        method's hasattr-and-call shape is identical for both drivers.
+        """
+        return False
+
     def set_max_acquisition_frame_rate(self, enabled: bool, fps: float=1.0):
         if not self.active:
             logger.warning('[CAM Class ] set_max_acquisition_frame_rate(): inactive camera')

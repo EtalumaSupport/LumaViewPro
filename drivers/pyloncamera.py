@@ -962,6 +962,85 @@ class PylonCamera(Camera):
             return hi
         return value_bps
 
+    _ACQ_STOP_MODES = ('Complete', 'CancelExposure', 'AbortExposure')
+
+    def set_acquisition_stop_mode(self, mode: str) -> bool:
+        """Set BslAcquisitionStopMode -- behavior when StopGrabbing fires
+        during an in-flight exposure.
+
+        Per Basler doc acquisition-start-stop-and-abort.html:
+
+          - ``'Complete'`` (default): waits for the current exposure to
+            finish before stopping. On a 10 s fluorescence exposure,
+            StopGrabbing waits up to 10 s -- presents identically to a
+            multi-second app-side stall when the user toggles modes.
+          - ``'CancelExposure'``: stops cleanly; partial frame discarded.
+          - ``'AbortExposure'``: aborts immediately; partial frame
+            discarded.
+
+        Specifics table confirms ace 2 + dart M/R + boost R support
+        the parameter. Default is unchanged in init_camera_config;
+        this setter exists for bench characterization. Per Eric
+        direction: setter-only first, default unchanged, bench-
+        validate, flip default if validated.
+
+        Args:
+            mode: One of ``'Complete'``, ``'CancelExposure'``,
+                ``'AbortExposure'``.
+
+        Returns:
+            bool: True on success. False if the camera is inactive,
+                the mode argument is invalid, or
+                BslAcquisitionStopMode is not exposed by this camera /
+                firmware.
+
+        Raises:
+            HardwareError: Underlying SDK call failed
+                (RuntimeException). Camera is marked disconnected.
+        """
+        if not self.active:
+            return False
+        if mode not in self._ACQ_STOP_MODES:
+            logger.error(
+                f"[CAM Class ] set_acquisition_stop_mode: mode must be one "
+                f"of {self._ACQ_STOP_MODES}; got {mode!r}"
+            )
+            return False
+        try:
+            if _cam_log is not None:
+                _cam_log.info(
+                    f'pylon BslAcquisitionStopMode.SetValue({mode!r})'
+                )
+            node = self.active.GetNodeMap().GetNode('BslAcquisitionStopMode')
+            if node is None:
+                logger.warning(
+                    f'[CAM Class ] BslAcquisitionStopMode node not exposed; '
+                    f'set_acquisition_stop_mode({mode!r}) is a no-op on '
+                    f'this camera'
+                )
+                return False
+            node.SetValue(mode)
+            return True
+        except genicam.RuntimeException as e:
+            if _cam_log is not None:
+                _cam_log.error(
+                    f'pylon set_acquisition_stop_mode({mode!r}) FAILED: {e}'
+                )
+            logger.error(
+                f'[CAM Class ] Camera communication error in '
+                f'set_acquisition_stop_mode: {e}'
+            )
+            self._mark_disconnected()
+            raise HardwareError(
+                f'set_acquisition_stop_mode({mode!r}) failed: {e}'
+            ) from e
+        except Exception as e:
+            logger.exception(
+                f'[CAM Class ] Unexpected error in '
+                f'set_acquisition_stop_mode: {e}'
+            )
+            return False
+
     def set_pixel_format(self, pixel_format: str) -> bool:
         """Set the camera pixel format.
 
