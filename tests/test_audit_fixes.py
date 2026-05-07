@@ -5052,3 +5052,35 @@ class TestPylonCameraLineLengthCap:
             f'{len(offenders)} line(s) in pyloncamera.py exceed 100 chars: '
             f'{[(n, c) for n, c, _ in offenders]}'
         )
+
+
+class TestPylonCameraNoSilentExcept:
+    """Pin Rule 5 (no silent except) on drivers/pyloncamera.py.
+
+    A6 closure (AUDIT_PYLONCAMERA_2026-05-07.md): 9 silent `except: pass`
+    sites at A6 closure time. Each replaced with logger.debug (per-frame /
+    per-entry probes) or logger.warning (cleanup / restore paths) so failures
+    are visible. This test parses the AST and asserts no `except` block has
+    a body of only `pass`.
+
+    Allowed: handlers that re-raise / return / log / call something. Banned:
+    bare `except: pass` and `except Exception: pass` blocks.
+    """
+
+    def test_no_silent_except_pass_blocks(self):
+        import ast
+        from pathlib import Path
+        path = Path(__file__).resolve().parent.parent / 'drivers' / 'pyloncamera.py'
+        source = path.read_text(encoding='utf-8')
+        tree = ast.parse(source)
+        offenders = []
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ExceptHandler):
+                if (len(node.body) == 1
+                        and isinstance(node.body[0], ast.Pass)):
+                    offenders.append(node.lineno)
+        assert offenders == [], (
+            f'{len(offenders)} silent `except: pass` block(s) at line(s) '
+            f'{offenders}; replace each with logger.debug or logger.warning '
+            f'per Rule 5.'
+        )

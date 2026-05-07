@@ -845,8 +845,10 @@ class PylonCamera(Camera):
             for entry in selector_node.GetEntries():
                 try:
                     advertised.add(entry.GetSymbolic())
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug(
+                        f'[CAM Class ] ChunkSelector entry GetSymbolic() failed: {e}'
+                    )
             return advertised
         except Exception as e:
             logger.warning(
@@ -2021,14 +2023,18 @@ class PylonCamera(Camera):
                 node = camera.GetNodeMap().GetNode(genicam_attr)
                 if node is not None:
                     result[key] = node.GetValue()
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(
+                    f'[CAM Class ] chunk_data_probe could not read {genicam_attr}: {e}'
+                )
 
         was_grabbing = False
         try:
             was_grabbing = bool(camera.IsGrabbing())
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(
+                f'[CAM Class ] chunk_data_probe IsGrabbing() check failed: {e}'
+            )
         if was_grabbing:
             self.stop_grabbing()
 
@@ -2044,8 +2050,10 @@ class PylonCamera(Camera):
                 for entry in selector_node.GetEntries():
                     try:
                         result['advertised'].append(entry.GetSymbolic())
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.debug(
+                            f'[CAM Class ] chunk_data_probe entry GetSymbolic() failed: {e}'
+                        )
                 result['advertised'].sort()
             except Exception as e:
                 result['errors'].append(f'introspection failed: {e}')
@@ -2075,13 +2083,19 @@ class PylonCamera(Camera):
                 try:
                     camera.ChunkSelector.Value = sel
                     camera.ChunkEnable.Value = prior
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.warning(
+                        f'[CAM Class ] chunk_data_probe could not restore '
+                        f'Chunk{sel} prior state ({prior}): {e}'
+                    )
             if prior_chunk_mode is not None:
                 try:
                     camera.ChunkModeActive.Value = prior_chunk_mode
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.warning(
+                        f'[CAM Class ] chunk_data_probe could not restore '
+                        f'ChunkModeActive prior state ({prior_chunk_mode}): {e}'
+                    )
             if was_grabbing:
                 try:
                     self.start_grabbing()
@@ -2477,8 +2491,10 @@ class ImageHandler(pylon.ImageEventHandler):
                     continue
                 if genicam.IsReadable(node):
                     chunks[key] = node.Value
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(
+                    f'[CAM Class ] _extract_chunk_data could not read {chunk_attr}: {e}'
+                )
         return chunks if chunks else None
 
     def OnImageGrabbed(self, camera, grabResult):
@@ -2606,8 +2622,11 @@ class ImageHandler(pylon.ImageEventHandler):
                             if self._parent.active and self._parent.is_grabbing():
                                 self._parent.stop_grabbing()
                             self._parent._mark_disconnected()
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            logger.warning(
+                                f'[CAM Class ] OnImageGrabbed could not stop grabbing '
+                                f'after max failures: {e}'
+                            )
         except Exception as e:
             _outcome = 'exception_outer'
             logger.exception(f'[CAM Class ] OnImageGrabbed unexpected error: {e}')
@@ -2634,8 +2653,8 @@ class ImageHandler(pylon.ImageEventHandler):
                     self._frame_queue.get_nowait()
                 except queue.Empty:
                     break
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f'[CAM Class ] handler reset queue-drain failed: {e}')
         self._base.reset()
 
     def get_last_image(self):
