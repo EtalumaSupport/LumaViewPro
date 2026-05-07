@@ -3921,6 +3921,80 @@ class TestPylonGigeDiagnosticNodeCoverage:
             )
 
 
+class TestPylonDltlClampAndDocWarnings:
+    """set_device_link_throughput_limit must clamp out-of-range
+    values via DeviceLinkThroughputLimit.GetMin() / GetMax() rather
+    than letting the SDK raise OutOfRangeException, and the docstring
+    must record both Basler doc warnings: rolling-shutter distortion
+    if too low, corrupt/dropped frames if too high.
+
+    Per per-camera spec pages a2a3536-31umbas.html and
+    daa3840-45um.html: both production cameras are rolling-shutter,
+    so both warnings apply on both. Per
+    network-bandwidth-control-(blaze).md the DLTL throttle
+    mechanism (pause-insertion between packets) is identical across
+    transports.
+    """
+
+    def _pyloncamera_source(self):
+        from pathlib import Path
+        return (Path(__file__).resolve().parent.parent
+                / "drivers" / "pyloncamera.py").read_text()
+
+    def test_clamp_helper_present(self):
+        src = self._pyloncamera_source()
+        assert "def _clamp_dltl_value_bps(self, value_bps: int) -> int:" in src, (
+            "_clamp_dltl_value_bps helper must exist with the "
+            "documented signature."
+        )
+
+    def test_clamp_calls_min_max_query(self):
+        src = self._pyloncamera_source()
+        idx = src.find("def _clamp_dltl_value_bps(")
+        assert idx != -1
+        end = src.find("\n    def ", idx + 10)
+        body = src[idx:end]
+        assert ".GetMin()" in body and ".GetMax()" in body, (
+            "_clamp_dltl_value_bps must query DeviceLinkThroughputLimit"
+            ".GetMin() and .GetMax() to determine the clamp range."
+        )
+
+    def test_setter_calls_clamp_helper(self):
+        src = self._pyloncamera_source()
+        idx = src.find("def set_device_link_throughput_limit(")
+        assert idx != -1
+        end = src.find("\n    def ", idx + 10)
+        body = src[idx:end]
+        assert "_clamp_dltl_value_bps" in body, (
+            "set_device_link_throughput_limit must run value_bps "
+            "through _clamp_dltl_value_bps before SetValue."
+        )
+
+    def test_docstring_records_too_low_warning(self):
+        """Rolling-shutter distortion warning must appear in the docstring."""
+        src = self._pyloncamera_source()
+        idx = src.find("def set_device_link_throughput_limit(")
+        assert idx != -1
+        end = src.find('"""', src.find('"""', idx) + 3) + 3
+        docstring = src[idx:end]
+        assert "rolling shutter" in docstring.lower() or "rolling-shutter" in docstring.lower(), (
+            "DLTL setter docstring must record the rolling-shutter "
+            "distortion warning per per-camera spec pages."
+        )
+
+    def test_docstring_records_too_high_warning(self):
+        """Corrupt/dropped frames warning must appear in the docstring."""
+        src = self._pyloncamera_source()
+        idx = src.find("def set_device_link_throughput_limit(")
+        assert idx != -1
+        end = src.find('"""', src.find('"""', idx) + 3) + 3
+        docstring = src[idx:end]
+        assert "corrupt" in docstring.lower() or "dropped" in docstring.lower(), (
+            "DLTL setter docstring must record the too-high warning "
+            "(corrupt or dropped frames) per per-camera spec pages."
+        )
+
+
 class TestPylonIsConnectedCallsSdkQuery:
     """is_connected docstring promised "if available, the SDK's
     device-removed query" but the implementation only checked the

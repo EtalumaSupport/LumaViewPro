@@ -692,15 +692,33 @@ class PylonCamera(Camera):
     ) -> bool:
         """Set DeviceLinkThroughputLimitMode + DeviceLinkThroughputLimit.
 
-        Both nodes are live-writable per the SDK lock-state table -- no
-        StopGrabbing/StartGrabbing wrap is required. Per-camera defaults
-        on our cameras (bench-witnessed): ace 2 a2A3536-31umBAS at
-        360 MB/s -> 28.8 fps; dart daA3840-45um at 160 MB/s -> 18.7 fps.
+        DLTL throttles the camera by inserting pauses between network
+        packets. Per Basler doc network-bandwidth-control-(blaze).md
+        the mechanism is identical across transports (USB3 ace 2 /
+        dart R, GigE dart M).
+
+        Per-camera defaults bench-witnessed:
+          ace 2 a2A3536-31umBAS    On / 360 MB/s -> 28.8 fps
+          dart   daA3840-45um      On / 160 MB/s -> 18.7 fps
+
         Setting Mode=Off lets the camera run at sensor-readout max
-        (~31.2 fps ace 2; ~44.9 fps dart) -- but Basler warns "Corrupt
-        or dropped frames may occur if the DeviceLinkThroughputLimit
-        parameter is too high." Bench-test failure rate alongside fps
+        (~31.2 fps ace 2; ~44.9 fps dart). Two failure modes per
+        per-camera spec pages (a2a3536-31umbas.html, daa3840-45um.html):
+
+          - Too high: "Corrupt or dropped frames may occur if the
+            DeviceLinkThroughputLimit parameter is too high."
+          - Too low (rolling shutter cameras): "image distortion
+            (increased rolling shutter effect) may occur if the
+            DeviceLinkThroughputLimit parameter is too low."
+
+        Both production cameras are rolling-shutter so both warnings
+        apply. Bench-test failure rate AND image quality alongside fps
         before settling on a per-camera production default.
+
+        ``value_bps`` outside the camera's supported range is clamped
+        to ``DeviceLinkThroughputLimit.GetMin()`` /
+        ``GetMax()`` with a warning log; the SDK would otherwise raise
+        OutOfRangeException.
 
         Args:
             mode: ``'On'`` or ``'Off'``. Case-sensitive (matches Pylon
@@ -708,7 +726,9 @@ class PylonCamera(Camera):
             value_bps: Throughput cap in bytes per second when
                 ``mode='On'``. Ignored when ``mode='Off'``. If None
                 while ``mode='On'``, only the mode is changed and the
-                existing limit value is preserved.
+                existing limit value is preserved. Out-of-range values
+                are clamped to the camera's supported range with a
+                warning.
 
         Returns:
             bool: True on success. False if the camera is inactive
@@ -736,7 +756,8 @@ class PylonCamera(Camera):
                 )
             self.active.DeviceLinkThroughputLimitMode.SetValue(mode)
             if mode == 'On' and value_bps is not None:
-                self.active.DeviceLinkThroughputLimit.SetValue(int(value_bps))
+                value_bps = self._clamp_dltl_value_bps(int(value_bps))
+                self.active.DeviceLinkThroughputLimit.SetValue(value_bps)
             return True
         except genicam.RuntimeException as e:
             if _cam_log is not None:
@@ -759,6 +780,39 @@ class PylonCamera(Camera):
                 f'set_device_link_throughput_limit: {e}'
             )
             return False
+
+    def _clamp_dltl_value_bps(self, value_bps: int) -> int:
+        """Clamp a DLTL value to the camera's supported range.
+
+        Returns the value unchanged if min/max query fails (best
+        effort -- the SDK will reject out-of-range values with
+        OutOfRangeException; the caller's RuntimeException branch
+        catches that).
+        """
+        try:
+            node = self.active.DeviceLinkThroughputLimit
+            lo = int(node.GetMin())
+            hi = int(node.GetMax())
+        except Exception as e:
+            logger.debug(
+                f'[CAM Class ] DLTL min/max query failed: {e}; not clamping'
+            )
+            return value_bps
+        if value_bps < lo:
+            logger.warning(
+                f'[CAM Class ] DLTL value {value_bps} below camera minimum '
+                f'{lo}; clamping. Per Basler doc, very low DLTL on rolling-'
+                f'shutter cameras can introduce image distortion.'
+            )
+            return lo
+        if value_bps > hi:
+            logger.warning(
+                f'[CAM Class ] DLTL value {value_bps} above camera maximum '
+                f'{hi}; clamping. Per Basler doc, very high DLTL can cause '
+                f'corrupt or dropped frames.'
+            )
+            return hi
+        return value_bps
 
     def set_pixel_format(self, pixel_format: str) -> bool:
         """Set the camera pixel format.
