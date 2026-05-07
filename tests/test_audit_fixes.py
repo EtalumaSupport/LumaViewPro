@@ -3741,32 +3741,12 @@ class TestPylonGainParameterNotShadowingMethod:
         )
 
 
-class TestPylonDisconnectResetsConnectionScopedCaches:
-    """CLAUDE.md Rule 16 (bugs cluster) + Rule 39 (single data point is a
-    hypothesis, never a conclusion).
-
-    Two attributes were memoised across the lifetime of the
-    PylonCamera instance rather than the lifetime of a single
-    connection:
-
-      _pylon_self_validation_done -- one-shot StreamGrabber probe.
-        Set True after the probe runs once. Never reset.
-      _underrun_node_name_cache -- candidate-name resolution result
-        from the underrun-counter probe. Cached after first hit.
-        Never reset.
-
-    Both were sized correctly for the case "camera connection lasts
-    one session"; both hide a latent bug for the reconnect case
-    (different camera model / firmware on the new connection re-uses
-    the prior probe result, missing whatever changed). The Smoke 2
-    rationale ("EVERY poller start re-runs the probe") is a single-
-    data-point observation -- it doesn't license never-resetting
-    across connections.
-
-    Fix: clear both at end of disconnect() so the next connect starts
-    with fresh probes.
-
-    Audit finding A22.
+class TestPylonDisconnectResetsSelfValidationFlag:
+    """The _pylon_self_validation_done flag gates a one-shot
+    StreamGrabber NodeMap walk that runs on poller start. Without
+    reset on disconnect, a different camera attached on the next
+    connect re-uses the prior camera's validation state and skips
+    its own probe.
     """
 
     def _pyloncamera_source(self):
@@ -3785,15 +3765,46 @@ class TestPylonDisconnectResetsConnectionScopedCaches:
             "next connect re-runs the StreamGrabber probe."
         )
 
-    def test_disconnect_clears_underrun_node_cache(self):
+
+class TestPylonUnderrunCounterSingleCanonical:
+    """The stream-grabber underrun counter uses one canonical name per
+    Basler doc stream-grabber-parameters.html. The earlier multi-name
+    candidate resolver and its associated cache attribute were
+    speculative -- no other names are documented. If a future SDK
+    renames the node, the one-shot StreamGrabber NodeMap walk on
+    poller start emits the actual stat-like nodes via the
+    [INSTR PYLON ] StreamGrabber NodeMap stat-like log line; the
+    rename is diagnosable from there without a brute-force probe.
+    """
+
+    def _pyloncamera_source(self):
+        from pathlib import Path
+        return (Path(__file__).resolve().parent.parent
+                / "drivers" / "pyloncamera.py").read_text()
+
+    def test_canonical_underrun_node_name_constant(self):
         src = self._pyloncamera_source()
-        idx = src.find("def disconnect(self) -> bool:")
-        end = src.find("def ", idx + 10)
-        body = src[idx:end]
-        assert "_underrun_node_name_cache = None" in body, (
-            "disconnect() must clear _underrun_node_name_cache so the "
-            "next connect re-resolves the underrun-counter node name "
-            "(camera model / firmware on the new connection may differ)."
+        assert "_UNDERRUN_NODE_NAME = 'Statistic_Buffer_Underrun_Count'" in src, (
+            "Single canonical underrun-counter name "
+            "Statistic_Buffer_Underrun_Count must be the constant."
+        )
+
+    def test_no_candidate_list_or_resolver_method(self):
+        src = self._pyloncamera_source()
+        assert "_UNDERRUN_NODE_CANDIDATES" not in src, (
+            "_UNDERRUN_NODE_CANDIDATES tuple was the multi-name "
+            "speculative resolver; replaced by the single canonical "
+            "_UNDERRUN_NODE_NAME constant."
+        )
+        assert "_resolve_underrun_node_name" not in src, (
+            "_resolve_underrun_node_name method was the multi-name "
+            "resolver; with the single canonical constant the helper "
+            "is dead code."
+        )
+        assert "_underrun_node_name_cache" not in src, (
+            "_underrun_node_name_cache was the resolver's cache; "
+            "with the single canonical constant there is nothing to "
+            "cache."
         )
 
 

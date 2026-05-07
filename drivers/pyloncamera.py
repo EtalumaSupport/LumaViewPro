@@ -25,26 +25,14 @@ except ImportError:
     _cam_log = None
 
 
-# Pylon SDK error code returned by grabResult.GetErrorCode() when a buffer
-# was cancelled by StopGrabbing while in flight. Value 0xE2000102.
-#
-# Transport scope: USB3. Per Basler doc stream-grabber-parameters.html
-# ("The error code for incompletely grabbed buffers is 0xE1000014 on GigE
-# cameras and 0xE2000212 on USB 3.0 cameras"), the 0xE2 high byte is the
-# USB3-Vision transport namespace and 0xE1 is the GigE-Vision namespace.
-# The bench witness was on USB3 cameras (a2A3536-31umBAS, daA3840-45um);
-# the cancel-on-StopGrabbing code on GigE may live in the 0xE1xxxxxx
-# range. The bundle does not enumerate cancel codes per transport.
-#
-# pypylon does not expose this as a named constant (verified
-# pypylon 26.4.1 / Pylon SDK 11.5.0). Update if a future pypylon version
-# starts exposing pylon.GENERIC_BUFFER_CANCELED or similar.
-#
-# OPEN: bench-validate on dmA3536-9gm (dart M GigE) once that camera is
-# in the test mix. If the cancel code differs on GigE, extend this
-# constant to a tuple of codes and update is_buffer_cancel() callers.
-# Existing OnImageGrabbed warning already prints err_code, so a single
-# stop/start storm during a config change will surface the GigE value.
+# Pylon SDK error code returned by grabResult.GetErrorCode() when a
+# buffer is cancelled by StopGrabbing in flight. Value 0xE2000102.
+# USB3-Vision transport namespace (high byte 0xE2). Per Basler
+# stream-grabber-parameters.html the transport split is "0xE1000014
+# on GigE cameras and 0xE2000212 on USB 3.0 cameras"; on GigE the
+# cancel code may differ. pypylon does not expose this as a named
+# constant; if a future version adds pylon.GENERIC_BUFFER_CANCELED
+# or similar, replace this.
 _PYLON_ERR_BUFFER_CANCELED = 3791651074
 
 
@@ -148,14 +136,10 @@ class PylonCamera(Camera):
                         f'continuing teardown'
                     )
                 self.active = None
-                # Reset connection-scoped caches. Both attributes are
-                # populated lazily on first use after connect; if they
-                # carry over across a reconnect, a different camera
-                # model / firmware on the new connection sees a stale
-                # node-name (NodeMap walk) or a stale "validation
-                # already done" flag and skips its own probe.
+                # Reset the connection-scoped self-validation flag so
+                # the next connect re-runs the StreamGrabber NodeMap
+                # walk against whatever camera attaches.
                 self._pylon_self_validation_done = False
-                self._underrun_node_name_cache = None
                 logger.info('[CAM Class ] Disconnected from Pylon camera')
                 return True
             else:
@@ -166,25 +150,11 @@ class PylonCamera(Camera):
 
     # __del__() inherited from Camera base class
 
-    # N3+N4 (STALL-1 H1+H6 + H3): periodic Pylon SDK statistics + thread-count
-    # daemon poller. No-op when profile_trace is disabled (env var
-    # LVP_PROFILE_TRACE unset). See docs/STALL1_INSTRUMENTATION_EXPERIMENT.md
-    # (Firmware repo) §4 N3 + N4.
+    # Periodic Pylon SDK statistics + thread-count daemon poller.
+    # No-op when profile_trace is disabled (env var LVP_PROFILE_TRACE
+    # unset).
     _STATS_POLLER_INTERVAL_S = 5.0
-    # Smoke 1 confirmed Statistic_Total_Buffer_Count and
-    # Statistic_Failed_Buffer_Count work via getattr on StreamGrabber for
-    # pypylon 4.2.0 / Pylon SS 10.2.1.471 USB transport, but
-    # Statistic_Buffer_Underrun_Count returned None. The node may live
-    # under a different name on USB transport vs GigE. Try multiple
-    # candidates per Basler header conventions; the first non-None wins.
-    _UNDERRUN_NODE_CANDIDATES = (
-        'Statistic_Buffer_Underrun_Count',  # original guess (works on GigE)
-        'Statistic_Underrun_Count',  # alternate
-        'Statistic_Buffer_Underflow_Count',  # alternate naming
-        'Statistic_Underflow_Count',  # alternate
-        'Statistic_Missing_Frames',  # USB-specific possibility
-        'Statistic_Resync_Count',  # USB-specific possibility
-    )
+    _UNDERRUN_NODE_NAME = 'Statistic_Buffer_Underrun_Count'
     _STATS_NODE_NAMES = (
         'Statistic_Total_Buffer_Count',
         'Statistic_Failed_Buffer_Count',
@@ -241,43 +211,12 @@ class PylonCamera(Camera):
                 )
         self._stats_poller_thread = None
 
-    def _resolve_underrun_node_name(self, sg):
-        """Return the first underrun-class candidate name that returns a non-None value.
-
-        Caches the result in self._underrun_node_name_cache after first
-        success so subsequent polls don't re-probe.
-        """
-        cached = getattr(self, '_underrun_node_name_cache', None)
-        if cached is not None:
-            return cached
-        for name in self._UNDERRUN_NODE_CANDIDATES:
-            try:
-                node = getattr(sg, name, None)
-                if node is not None:
-                    val = node.GetValue()
-                    if val is not None:
-                        self._underrun_node_name_cache = name
-                        logger.info(f'[INSTR PYLON ] Underrun node resolved: {name}={val}')
-                        return name
-            except Exception:
-                continue
-        # None of the candidates worked; cache the negative result so we
-        # don't repeatedly probe.
-        self._underrun_node_name_cache = ''
-        return ''
-
     def _stats_poller_loop(self):
-        # One-shot self-validation dump at poller start.
-        # Smoke 2 showed this was running on EVERY poller start (each
-        # start_grabbing triggers a new poller), and during LVP init
-        # there are multiple stop/start cycles from update_camera_config
-        # wrapping pixel-format / frame-size / binning setters in
-        # init_camera_config(). Each NodeMap walk costs ~5-10 sec when
-        # it fails (Pylon SS 10.x USB grabber doesn't expose GetNodeMap
-        # as expected — fails with "Node not existing"). 5 restarts
-        # during init = ~20s extra startup time observed in smoke 2.
-        # Fix: cache validation on the camera instance — run once per
-        # LVP session, not per poller start.
+        # Run the StreamGrabber NodeMap walk once per camera instance.
+        # The walk costs several seconds when it fails on certain
+        # SDK / transport combinations; each StartGrabbing spawns a new
+        # poller, so without the per-instance gate the walk runs on
+        # every restart and inflates startup time.
         if not getattr(self, '_pylon_self_validation_done', False):
             try:
                 cam = self.active
@@ -349,14 +288,16 @@ class PylonCamera(Camera):
                             stats[name] = node.GetValue() if node is not None else None
                         except Exception:
                             stats[name] = None
-                    # Resolve underrun node name on first successful poll;
-                    # cached thereafter.
-                    underrun_name = self._resolve_underrun_node_name(sg)
-                    if underrun_name:
-                        try:
-                            underrun_value = getattr(sg, underrun_name).GetValue()
-                        except Exception:
-                            underrun_value = None
+                    # Read the canonical underrun counter directly. If
+                    # absent on this SDK / transport, leave value None
+                    # and emit the absence in the CSV row.
+                    try:
+                        node = getattr(sg, self._UNDERRUN_NODE_NAME, None)
+                        if node is not None:
+                            underrun_value = node.GetValue()
+                            underrun_name = self._UNDERRUN_NODE_NAME
+                    except Exception:
+                        underrun_value = None
                 if cam is not None:
                     # ace 2 / dart M/R expose BslResultingAcquisitionFrameRate
                     # as the canonical node; legacy ace exposes
@@ -1424,8 +1365,8 @@ class PylonCamera(Camera):
                 'ExposureTime',
             )
             if microsec is None:
-                # Both nodes failed -- mark disconnected as the
-                # original code did when ExposureTime read raised.
+                # Both nodes unreadable -- camera is unusable for any
+                # acquisition; treat as disconnected.
                 logger.error(
                     '[CAM Class ] Failed to read exposure time: both '
                     'BslEffectiveExposureTime and ExposureTime nodes '
@@ -2097,11 +2038,8 @@ class _CameraRemovalHandler(pylon.ConfigurationEventHandler):
 
     def OnCameraDeviceRemoved(self, camera):
         # Runs in a native Pylon SDK thread. _mark_disconnected acquires
-        # the camera's _state_lock and sets _device_removed + _active=None
-        # atomically; safe from any thread including SDK callbacks
-        # because the lock is microsecond-scale and never held during
-        # long work. Earlier the comment here said "do not touch active
-        # to avoid races" -- that predated _mark_disconnected's lock-
-        # based design.
+        # _state_lock for microseconds and sets _device_removed +
+        # _active=None atomically; safe from any thread including SDK
+        # callbacks.
         self._parent._mark_disconnected()
         logger.error('[CAM Class ] Camera physically removed (Pylon SDK callback)')
