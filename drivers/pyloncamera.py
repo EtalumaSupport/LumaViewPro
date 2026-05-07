@@ -135,6 +135,14 @@ class PylonCamera(Camera):
                         f'continuing teardown'
                     )
                 self.active = None
+                # Reset connection-scoped caches. Both attributes are
+                # populated lazily on first use after connect; if they
+                # carry over across a reconnect, a different camera
+                # model / firmware on the new connection sees a stale
+                # node-name (NodeMap walk) or a stale "validation
+                # already done" flag and skips its own probe.
+                self._pylon_self_validation_done = False
+                self._underrun_node_name_cache = None
                 logger.info('[CAM Class ] Disconnected from Pylon camera')
                 return True
             else:

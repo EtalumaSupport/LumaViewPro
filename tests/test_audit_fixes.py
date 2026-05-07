@@ -3739,3 +3739,59 @@ class TestPylonGainParameterNotShadowingMethod:
             "PylonCamera.gain(self, gain) shadows the method name with "
             "the parameter. Use `def gain(self, value)` instead."
         )
+
+
+class TestPylonDisconnectResetsConnectionScopedCaches:
+    """CLAUDE.md Rule 16 (bugs cluster) + Rule 39 (single data point is a
+    hypothesis, never a conclusion).
+
+    Two attributes were memoised across the lifetime of the
+    PylonCamera instance rather than the lifetime of a single
+    connection:
+
+      _pylon_self_validation_done -- one-shot StreamGrabber probe.
+        Set True after the probe runs once. Never reset.
+      _underrun_node_name_cache -- candidate-name resolution result
+        from the underrun-counter probe. Cached after first hit.
+        Never reset.
+
+    Both were sized correctly for the case "camera connection lasts
+    one session"; both hide a latent bug for the reconnect case
+    (different camera model / firmware on the new connection re-uses
+    the prior probe result, missing whatever changed). The Smoke 2
+    rationale ("EVERY poller start re-runs the probe") is a single-
+    data-point observation -- it doesn't license never-resetting
+    across connections.
+
+    Fix: clear both at end of disconnect() so the next connect starts
+    with fresh probes.
+
+    Audit finding A22.
+    """
+
+    def _pyloncamera_source(self):
+        from pathlib import Path
+        return (Path(__file__).resolve().parent.parent
+                / "drivers" / "pyloncamera.py").read_text()
+
+    def test_disconnect_clears_self_validation_flag(self):
+        src = self._pyloncamera_source()
+        idx = src.find("def disconnect(self) -> bool:")
+        assert idx != -1
+        end = src.find("def ", idx + 10)
+        body = src[idx:end]
+        assert "_pylon_self_validation_done = False" in body, (
+            "disconnect() must clear _pylon_self_validation_done so the "
+            "next connect re-runs the StreamGrabber probe."
+        )
+
+    def test_disconnect_clears_underrun_node_cache(self):
+        src = self._pyloncamera_source()
+        idx = src.find("def disconnect(self) -> bool:")
+        end = src.find("def ", idx + 10)
+        body = src[idx:end]
+        assert "_underrun_node_name_cache = None" in body, (
+            "disconnect() must clear _underrun_node_name_cache so the "
+            "next connect re-resolves the underrun-counter node name "
+            "(camera model / firmware on the new connection may differ)."
+        )
