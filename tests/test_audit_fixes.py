@@ -3555,3 +3555,48 @@ class TestPylonStatsPollerStopJoin:
             "_stop_stats_poller must call .join(timeout=...) on the prior "
             "stats-poller thread before clearing the reference."
         )
+
+
+class TestPylonDisconnectStopGrabbingLogged:
+    """CLAUDE.md Rule 5 -- fail visible; log every error with context.
+
+    The disconnect() teardown wraps stop_grabbing() in a defensive try
+    so a stop failure does not block the rest of teardown (Close,
+    DetachDevice, DestroyDevice). Earlier the except branch was bare
+    `pass` -- a stop_grabbing failure produced zero log evidence,
+    while the other three teardown failures produced a uniform warning
+    each. Operator reading the log after a disconnect anomaly saw
+    nothing about why teardown started weirdly.
+
+    Fix: warning-level log mirroring the Close / DetachDevice /
+    DestroyDevice except branches. Continues teardown either way.
+
+    Audit finding A6.
+    """
+
+    def _pyloncamera_source(self):
+        from pathlib import Path
+        return (Path(__file__).resolve().parent.parent
+                / "drivers" / "pyloncamera.py").read_text()
+
+    def test_disconnect_stop_grabbing_failure_is_logged(self):
+        """The bare `except Exception: pass` on stop_grabbing during
+        disconnect is a Rule 5 violation. The fix logs at warning
+        level."""
+        src = self._pyloncamera_source()
+        # Find the disconnect method body
+        idx = src.find("def disconnect(self) -> bool:")
+        assert idx != -1, "Could not find PylonCamera.disconnect."
+        # Walk forward to the stop_grabbing block
+        sg_idx = src.find("self.stop_grabbing()", idx)
+        assert sg_idx != -1, "Could not find stop_grabbing call in disconnect."
+        # The except block immediately follows; check the next ~250 chars
+        window = src[sg_idx:sg_idx + 350]
+        assert "except Exception:" not in window or "pass" not in window.split(
+            "except Exception:"
+        )[1].split("\n", 5)[0] if "except Exception:" in window else True
+        # Simpler: assert the warning-log phrase is present
+        assert "stop_grabbing during disconnect" in window, (
+            "disconnect's stop_grabbing except branch must log a warning, "
+            "not silently pass. Found:\n" + window
+        )

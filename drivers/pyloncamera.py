@@ -94,8 +94,11 @@ class PylonCamera(Camera):
                 try:
                     if self.is_grabbing():
                         self.stop_grabbing()
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.warning(
+                        f'[CAM Class ] stop_grabbing during disconnect raised: {e}; '
+                        f'continuing teardown'
+                    )
                 # Each teardown step is independently guarded so a failure on
                 # one (e.g. Close on an already-removed device) does not
                 # prevent the others from running. The behaviour the caller
