@@ -112,7 +112,6 @@ class Camera(ABC):
         # hold for seconds.
         self._lifecycle_lock = threading.RLock()
         self._active = False
-        self.error_report_count = 0
         self.array = np.array([])
         self.cam_image_handler: ImageHandlerBase | None = None
         self.model_name = None

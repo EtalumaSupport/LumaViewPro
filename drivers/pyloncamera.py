@@ -589,7 +589,6 @@ class PylonCamera(Camera):
             self.init_camera_config()
             self.start_grabbing()
 
-            self.error_report_count = 0
             logger.info('[CAM Class ] Connected to Pylon camera')
             return True
 
@@ -598,11 +597,9 @@ class PylonCamera(Camera):
                 f'[CAM Class ] Pylon camera connect failed (may be open in another application): {ex}'
             )
             self.active = None
-            self.error_report_count += 1
         except Exception:
             logger.exception('[CAM Class ] Pylon camera connect failed')
             self.active = None
-            self.error_report_count += 1
 
         return False
 

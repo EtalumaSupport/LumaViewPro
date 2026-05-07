@@ -4456,3 +4456,38 @@ class TestPylonAutoGainNoUpdateCameraConfigWrap:
             "PylonCamera.update_auto_gain_min_max must call "
             "AutoGainUpperLimit.SetValue(...) on the live nodemap."
         )
+
+
+class TestErrorReportCountRetired:
+    """The base Camera class previously held an `error_report_count`
+    attribute that PylonCamera and IDSCamera reset to 0 on connect
+    success and incremented on connect failure. Zero readers
+    codebase-wide -- pure dead state. Retired in this commit.
+
+    Pins the deletion so a future "while-I'm-here" addition can't
+    silently re-introduce a counter without a consumer (Rule 2 single
+    source of truth: dead state is worse than duplicated state).
+    """
+
+    def _read(self, rel_path):
+        from pathlib import Path
+        return (Path(__file__).resolve().parent.parent
+                / rel_path).read_text()
+
+    def test_base_camera_does_not_define_error_report_count(self):
+        assert "error_report_count" not in self._read("drivers/camera.py"), (
+            "drivers/camera.py must not re-introduce error_report_count "
+            "without a reader (dead state retired; Rule 2)."
+        )
+
+    def test_pyloncamera_does_not_reference_error_report_count(self):
+        assert "error_report_count" not in self._read("drivers/pyloncamera.py"), (
+            "drivers/pyloncamera.py must not re-introduce error_report_count "
+            "writes (Rule 2; dead state retired)."
+        )
+
+    def test_idscamera_does_not_reference_error_report_count(self):
+        assert "error_report_count" not in self._read("drivers/idscamera.py"), (
+            "drivers/idscamera.py must not re-introduce error_report_count "
+            "writes (Rule 2; dead state retired)."
+        )
