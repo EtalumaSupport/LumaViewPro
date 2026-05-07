@@ -3332,3 +3332,72 @@ class TestDeviceLinkThroughputLimitSetter:
             "stub so the API method does not need to know which driver "
             "is connected when called by the sweep tool."
         )
+
+
+class TestPylonAsciiOnlyInLoggerStrings:
+    """CLAUDE.md Rule 24 -- ASCII-only in strings emitted to logger / print /
+    notifications.
+
+    Non-ASCII characters in runtime-emittable strings can trigger recursive
+    UnicodeEncodeError on cp1252 stack handlers (Windows file rotation,
+    worker-thread escapees) and break strict-encoding CI environments. The
+    rule is strict: no chars past 0x7E (excluding newline / tab) in any
+    string passed to logger / print / notifications calls. Comments and
+    docstrings are exempt.
+
+    Regression: prior to this audit pass, pyloncamera.py:516 emitted a
+    degree sign (U+00B0) in the camera-temperature log line. Fixed
+    2026-05-07 audit cleanup commit; test below pins the corrected form
+    so a future ``while-I'm-here`` cleanup that re-introduces a non-ASCII
+    char in a logger context fires the regression.
+    """
+
+    def _pyloncamera_source_lines(self):
+        from pathlib import Path
+        return (Path(__file__).resolve().parent.parent
+                / "drivers" / "pyloncamera.py").read_text().splitlines()
+
+    def test_no_non_ascii_in_logger_or_print_lines(self):
+        """Walk every line of pyloncamera.py; any line that contains a
+        logger / print / notifications / _cam_log call must have no
+        char past 0x7E (excluding tab / newline)."""
+        offenders = []
+        call_markers = ('logger.', 'print(', 'notifications.', '_cam_log.', '_log.')
+        for i, line in enumerate(self._pyloncamera_source_lines(), 1):
+            if not any(m in line for m in call_markers):
+                continue
+            for col, ch in enumerate(line):
+                if ch in ('\t', '\n', '\r'):
+                    continue
+                if ord(ch) > 0x7E:
+                    offenders.append(
+                        f"line {i} col {col}: char {ch!r} (U+{ord(ch):04X}) -- "
+                        f"line is: {line.strip()[:80]}"
+                    )
+                    break
+        assert not offenders, (
+            "Rule 24 violation -- non-ASCII char in logger/print/notifications "
+            "string. Use ASCII (e.g. 'degC' not the degree sign). "
+            "Sites:\n  " + "\n  ".join(offenders)
+        )
+
+    def test_temperature_log_uses_degC_ascii_form(self):
+        """Pin the corrected form so the specific A10 fix survives. If a
+        future cleanup edits the temperature log line, this test reminds
+        the editor that ASCII-only was intentional."""
+        src_lines = self._pyloncamera_source_lines()
+        for i, line in enumerate(src_lines, 1):
+            if 'Temperature' in line and 'logger' in line:
+                assert 'degC' in line, (
+                    f"pyloncamera.py:{i} -- temperature log line must use "
+                    f"ASCII 'degC' (not the degree sign). Line: {line.strip()[:100]}"
+                )
+                assert chr(0xB0) not in line, (
+                    f"pyloncamera.py:{i} -- degree sign (U+00B0) reintroduced. "
+                    f"Use 'degC' instead."
+                )
+                return
+        raise AssertionError(
+            "Could not find a temperature log line in pyloncamera.py. "
+            "If get_all_temperatures was renamed/removed, update this test."
+        )
