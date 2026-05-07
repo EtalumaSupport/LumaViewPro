@@ -153,6 +153,13 @@ class PylonCamera(Camera):
     # Periodic Pylon SDK statistics + thread-count daemon poller.
     # No-op when profile_trace is disabled (env var LVP_PROFILE_TRACE
     # unset).
+    #
+    # 5.0s interval: long enough that CPU + trace-CSV row volume stay
+    # negligible during a multi-hour bench run; short enough that
+    # under-run / missed-frame / resync transitions land in the same
+    # row their root cause did. Falsify: if an event class shows up
+    # in the user log faster than the poller can catch the underlying
+    # counter delta, drop the interval.
     _STATS_POLLER_INTERVAL_S = 5.0
     _UNDERRUN_NODE_NAME = 'Statistic_Buffer_Underrun_Count'
     _RESYNC_NODE_NAME = 'Statistic_Resynchronization_Count'
@@ -181,6 +188,12 @@ class PylonCamera(Camera):
         if existing is not None and existing.is_alive():
             if existing_ev is not None:
                 existing_ev.set()
+            # 10.0s is far more than the ~5s _STATS_POLLER_INTERVAL_S
+            # tick the daemon may be sleeping inside; bounded so a
+            # stuck thread can't deadlock start_grabbing. Falsify: if
+            # this timeout fires routinely, the thread is genuinely
+            # stuck (not just slow-waking) and the start-side log
+            # warning surfaces it.
             existing.join(timeout=10.0)
             if existing.is_alive():
                 logger.warning(
@@ -208,6 +221,13 @@ class PylonCamera(Camera):
         if ev is not None:
             ev.set()
         if t is not None and t.is_alive():
+            # 2.0s: stop is the fast path -- the daemon's longest
+            # blocking call is ev.wait(_STATS_POLLER_INTERVAL_S=5.0)
+            # but ev.set() above breaks it immediately; 2s covers any
+            # in-progress node-read jitter. Symmetric with start-side
+            # 10s join (which had to tolerate a fresh tick already in
+            # flight). Falsify: if this fires, the daemon is wedged
+            # in a long node-read or thread-rename block.
             t.join(timeout=2.0)
             if t.is_alive():
                 logger.warning(
@@ -717,6 +737,13 @@ class PylonCamera(Camera):
                 if not self._use_camera_emulation:
                     self.init_auto_gain_focus()
                 self.exposure_t(t=10)
+                # 1900x1900: bench-witnessed driver-init default. Both
+                # production cameras (a2A3536 ace 2 and daA3840 dart)
+                # support this size; the 2100x2100 production-max ROI
+                # lives at the UI input layer (data/scopes.json driven)
+                # not at the driver default. Falsify: if a future
+                # camera body's sensor doesn't reach 1900 in either
+                # axis, the SetValue will clamp + warn from set_frame_size.
                 self.set_frame_size(w=1900, h=1900)
         except genicam.RuntimeException as e:
             logger.error(f'[CAM Class ] Camera communication error during init_camera_config: {e}')
@@ -2138,6 +2165,13 @@ class PylonCamera(Camera):
 
     def read_diagnostic_snapshot(
         self,
+        # 3.0s default: matches the bench probe shape used to
+        # characterize dart vs ace 2 on Mac (session 65 / 68).
+        # Long enough for cumulative counters to advance visibly at
+        # 18-30 fps without being so long the operator gets bored.
+        # Falsify: if running this at 3s misses a class of error that
+        # only shows up over longer windows, callers raise the value
+        # explicitly per-call.
         duration_s: float = 3.0,
         drain_camera_side_errors: bool = True,
     ) -> dict:
@@ -2347,6 +2381,14 @@ class PylonCamera(Camera):
                 next_cmd = nm.GetNode('BslErrorReportNext')
                 if err_present is not None and code_node is not None and next_cmd is not None:
                     errs = []
+                    # 64-iteration cap: bound the drain so a wedged
+                    # firmware that reports BslErrorPresent=True
+                    # forever can't infinite-loop the snapshot. 64 is
+                    # far more than any expected error queue depth on
+                    # ace 2 / dart M/R (typical: 0-3 entries per
+                    # session). Falsify: if a real run actually drains
+                    # 64 errors, the camera is in a catastrophic state
+                    # AND the snapshot logs the truncation.
                     for _ in range(64):
                         try:
                             present = err_present.GetValue()
