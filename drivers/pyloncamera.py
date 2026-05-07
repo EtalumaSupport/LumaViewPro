@@ -716,21 +716,38 @@ class PylonCamera(Camera):
         except Exception as e:
             logger.exception(f'[CAM Class ] Unexpected error in init_camera_config: {e}')
 
+    # Frame-identity chunk candidates in preference order. Different
+    # Basler models advertise different per-frame identity chunks
+    # (data-chunks.html). We probe ChunkSelector and enable the first
+    # candidate the camera advertises; the read-side alias maps both
+    # back to the same 'FrameID' dict key for the trace.
+    _FRAME_IDENTITY_CHUNK_CANDIDATES = ('FrameID', 'Framecounter')
+
+    # Always-enable chunks (no per-camera fallback; both production
+    # USB3 cameras and dart M GigE advertise these).
+    _CHUNK_TARGETS_ALWAYS = ('ExposureTime', 'Gain')
+
     def _enable_validity_chunks(self) -> None:
-        """Enable ChunkExposureTime / ChunkGain / ChunkFrameID for chunk-
-        driven validity.
+        """Enable ChunkExposureTime / ChunkGain + a per-frame identity
+        chunk (ChunkFrameID or ChunkFramecounter) for chunk-driven
+        validity.
 
         MUST be called while the camera is NOT grabbing (ChunkModeActive
-        is locked while grabbing). Canonical caller is init_camera_config()
-        inside update_camera_config().
+        is locked while grabbing). Canonical caller is
+        init_camera_config() inside update_camera_config().
 
-        Idempotent: safely re-asserts settings if chunks were already enabled.
-        Per-chunk failures are logged but do not raise; the validity layer
-        falls back to skip_frames for unenabled chunks.
+        Idempotent: safely re-asserts settings if chunks were already
+        enabled. Per-chunk failures are logged but do not raise; the
+        validity layer falls back to skip_frames for unenabled chunks.
+        Frame-identity is trace-only (frame_validity validates gain
+        and exposure); skipping it does not break validity.
         """
         camera = self.active
         if camera is None:
             return
+        advertised = self._probe_advertised_chunks(camera)
+        if advertised is None:
+            return  # _probe_advertised_chunks already logged
         try:
             camera.ChunkModeActive.Value = True
         except Exception as e:
@@ -739,7 +756,29 @@ class PylonCamera(Camera):
                 f'frame_validity will fall back to skip_frames calibration'
             )
             return
-        for sel in self._CHUNK_TARGETS_FOR_VALIDITY:
+
+        targets = list(self._CHUNK_TARGETS_ALWAYS)
+        frame_id_chunk = next(
+            (c for c in self._FRAME_IDENTITY_CHUNK_CANDIDATES if c in advertised),
+            None,
+        )
+        if frame_id_chunk is not None:
+            targets.append(frame_id_chunk)
+        else:
+            logger.info(
+                f'[CAM Class ] no frame-identity chunk advertised '
+                f'(tried {self._FRAME_IDENTITY_CHUNK_CANDIDATES}); '
+                f'enabling Gain + ExposureTime only'
+            )
+
+        for sel in targets:
+            if sel not in advertised:
+                logger.warning(
+                    f'[CAM Class ] Chunk{sel} not advertised by this '
+                    f'camera; frame_validity will fall back to skip_frames '
+                    f'for that source'
+                )
+                continue
             try:
                 camera.ChunkSelector.Value = sel
                 camera.ChunkEnable.Value = True
@@ -748,6 +787,36 @@ class PylonCamera(Camera):
                     f'[CAM Class ] could not enable Chunk{sel}: {e}; '
                     f'frame_validity will fall back to skip_frames for that source'
                 )
+
+    @staticmethod
+    def _probe_advertised_chunks(camera) -> set | None:
+        """Return the set of ChunkSelector entry names advertised by
+        the camera, or None if the ChunkSelector node is missing /
+        unreadable. Shared by _enable_validity_chunks and
+        probe_chunk_capabilities.
+        """
+        try:
+            nm = camera.GetNodeMap()
+            selector_node = nm.GetNode('ChunkSelector')
+            if selector_node is None:
+                logger.warning(
+                    '[CAM Class ] ChunkSelector node missing; '
+                    'frame_validity will fall back to skip_frames calibration'
+                )
+                return None
+            advertised = set()
+            for entry in selector_node.GetEntries():
+                try:
+                    advertised.add(entry.GetSymbolic())
+                except Exception:
+                    pass
+            return advertised
+        except Exception as e:
+            logger.warning(
+                f'[CAM Class ] ChunkSelector introspection failed: {e}; '
+                f'frame_validity will fall back to skip_frames calibration'
+            )
+            return None
 
     def set_max_acquisition_frame_rate(self, enabled: bool, fps: float = 1.0):
         try:
@@ -2010,10 +2079,15 @@ class ImageHandler(pylon.ImageEventHandler):
 
     # Maps GrabResult chunk attribute names to the chunk_data dict keys
     # frame_validity expects (matches FrameValidity.CHUNK_KEY_FOR_SOURCE).
+    # ChunkFrameID and ChunkFramecounter both map to 'FrameID' -- the
+    # camera advertised one of them, _enable_validity_chunks enabled
+    # whichever is present, the read side tries both and the active
+    # one returns a value.
     _CHUNK_GRAB_RESULT_ATTRS = (
         ('ChunkExposureTime', 'ExposureTime'),
         ('ChunkGain', 'Gain'),
         ('ChunkFrameID', 'FrameID'),
+        ('ChunkFramecounter', 'FrameID'),
     )
 
     @staticmethod

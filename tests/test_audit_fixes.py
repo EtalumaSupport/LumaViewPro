@@ -4491,3 +4491,81 @@ class TestErrorReportCountRetired:
             "drivers/idscamera.py must not re-introduce error_report_count "
             "writes (Rule 2; dead state retired)."
         )
+
+
+class TestPylonChunkSelectorProbeWithFramecounterFallback:
+    """B32: _enable_validity_chunks must probe ChunkSelector.GetEntries()
+    before enabling chunks, with a FrameID -> Framecounter fallback for
+    cameras that advertise the Framecounter chunk under that name.
+
+    The earlier code unconditionally selected 'FrameID' and let pypylon
+    raise on cameras that don't expose it -- which silently dropped
+    per-frame identity from the trace on those cameras. The probe-first
+    pattern + read-side alias keeps the trace populated regardless of
+    which spelling the camera uses.
+
+    Frame-identity is trace-only (frame_validity validates gain and
+    exposure); skipping it does NOT break validity. The fix is for
+    diagnostic completeness, not validity correctness.
+    """
+
+    def _pyloncamera_source(self):
+        from pathlib import Path
+        return (Path(__file__).resolve().parent.parent
+                / "drivers" / "pyloncamera.py").read_text()
+
+    def test_frame_identity_chunk_candidates_lists_frameid_first(self):
+        """FrameID is the canonical name on most Basler cameras (data-
+        chunks.html). Framecounter is the documented fallback. Probe
+        FrameID first, then Framecounter -- pinning the order so a
+        future cleanup that swaps them or alphabetises the tuple
+        fires this test."""
+        src = self._pyloncamera_source()
+        assert (
+            "_FRAME_IDENTITY_CHUNK_CANDIDATES = ('FrameID', 'Framecounter')"
+            in src
+        ), (
+            "PylonCamera must declare _FRAME_IDENTITY_CHUNK_CANDIDATES "
+            "with FrameID first, Framecounter second (B32 fallback)."
+        )
+
+    def test_enable_validity_chunks_probes_advertised_first(self):
+        """The method must call _probe_advertised_chunks before
+        attempting to enable per-chunk; otherwise it silently fails
+        on cameras advertising Framecounter instead of FrameID."""
+        body = _function_source(self._pyloncamera_source(),
+                                "_enable_validity_chunks")
+        assert "_probe_advertised_chunks(" in body, (
+            "_enable_validity_chunks must probe ChunkSelector entries "
+            "before enabling chunks (B32; refactor shares "
+            "_probe_advertised_chunks with probe_chunk_capabilities)."
+        )
+
+    def test_enable_validity_chunks_falls_back_to_framecounter(self):
+        """The method must walk _FRAME_IDENTITY_CHUNK_CANDIDATES and
+        pick the first advertised name (FrameID first, Framecounter
+        second)."""
+        body = _function_source(self._pyloncamera_source(),
+                                "_enable_validity_chunks")
+        assert "_FRAME_IDENTITY_CHUNK_CANDIDATES" in body, (
+            "_enable_validity_chunks must consult "
+            "_FRAME_IDENTITY_CHUNK_CANDIDATES to fall back from "
+            "FrameID to Framecounter (B32)."
+        )
+
+    def test_chunk_grab_result_attrs_aliases_framecounter(self):
+        """The read-side map must include ChunkFramecounter aliased to
+        the same 'FrameID' dict key so the read works regardless of
+        which spelling the camera enabled."""
+        src = self._pyloncamera_source()
+        assert "('ChunkFrameID', 'FrameID')" in src, (
+            "ImageHandler._CHUNK_GRAB_RESULT_ATTRS must keep the "
+            "ChunkFrameID -> 'FrameID' mapping for cameras that "
+            "advertise FrameID."
+        )
+        assert "('ChunkFramecounter', 'FrameID')" in src, (
+            "ImageHandler._CHUNK_GRAB_RESULT_ATTRS must include the "
+            "ChunkFramecounter -> 'FrameID' alias so cameras that "
+            "advertise Framecounter still produce a frame-identity "
+            "value in the chunk dict (B32)."
+        )
