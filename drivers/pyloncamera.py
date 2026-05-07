@@ -880,7 +880,9 @@ class PylonCamera(Camera):
 
         MUST be called while the camera is NOT grabbing (ChunkModeActive
         is locked while grabbing). Canonical caller is
-        init_camera_config() inside update_camera_config().
+        init_camera_config() inside update_camera_config(); B28 adds a
+        runtime guard below so a future caller violating the contract
+        gets a logged warning instead of a silent SDK lock error.
 
         Idempotent: safely re-asserts settings if chunks were already
         enabled. Per-chunk failures are logged but do not raise; the
@@ -890,6 +892,20 @@ class PylonCamera(Camera):
         """
         camera = self.active
         if camera is None:
+            return
+        # B28: ChunkModeActive is locked while grabbing per Basler
+        # data-chunks.html. The caller contract (docstring above)
+        # requires "not grabbing", but a future caller could violate
+        # it. Guard rather than silently corrupt -- frame_validity
+        # falls back to skip_frames calibration when chunks aren't
+        # enabled, so refusing the write is the safe default.
+        if self.is_grabbing():
+            logger.warning(
+                '[CAM Class ] _enable_validity_chunks called while '
+                'grabbing; ChunkModeActive is locked. Skipping write. '
+                'frame_validity will fall back to skip_frames '
+                'calibration. Stop grabbing before enabling chunks.'
+            )
             return
         advertised = self._probe_advertised_chunks(camera)
         if advertised is None:

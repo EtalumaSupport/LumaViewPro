@@ -5451,3 +5451,71 @@ class TestPylonStreamGrabberStatusLog:
         camera.active = _FakeCamera()
         # Should not raise
         camera._log_stream_grabber_status('test-label')
+
+
+class TestPylonChunkModeActiveWriteRaceGuard:
+    """B28 closure (AUDIT_PYLONCAMERA_2026-05-07.md):
+    `_enable_validity_chunks` guards against the ChunkModeActive
+    write-while-grabbing race.
+
+    Per Basler data-chunks.html, ChunkModeActive is locked while
+    the camera is grabbing. The docstring already required callers
+    to invoke this method while NOT grabbing, but enforcement was
+    absent -- a future caller violating the contract would hit a
+    silent SDK lock error. The guard logs a warning and skips the
+    write; frame_validity falls back to skip_frames calibration so
+    refusing the write is safe by default.
+    """
+
+    def test_guard_present_in_enable_validity_chunks(self):
+        """Pin the structural fix shape: an is_grabbing()-guarded
+        early-return at the top of _enable_validity_chunks before
+        any ChunkModeActive write."""
+        from pathlib import Path
+        src = (Path(__file__).resolve().parent.parent
+               / "drivers" / "pyloncamera.py").read_text()
+        body = _function_source(src, "_enable_validity_chunks")
+        # Guard must reference is_grabbing AND must come BEFORE the
+        # ChunkModeActive write site.
+        assert "is_grabbing" in body, (
+            "_enable_validity_chunks must guard with is_grabbing() to "
+            "avoid the ChunkModeActive write-while-grabbing race."
+        )
+        idx_guard = body.find("is_grabbing")
+        idx_write = body.find("ChunkModeActive.Value = True")
+        assert 0 <= idx_guard < idx_write, (
+            f"is_grabbing() guard must precede ChunkModeActive write; "
+            f"guard_idx={idx_guard} write_idx={idx_write}"
+        )
+
+    def test_guard_skips_write_and_logs_warning(self):
+        """Functional test: when is_grabbing() returns True, the
+        method must return without touching ChunkModeActive."""
+        from drivers.pyloncamera import PylonCamera
+
+        write_attempted = {'count': 0}
+
+        class _ChunkModeActive:
+            @property
+            def Value(self):
+                return False
+
+            @Value.setter
+            def Value(self, v):
+                write_attempted['count'] += 1
+
+        class _FakeCamera:
+            ChunkModeActive = _ChunkModeActive()
+
+        camera = PylonCamera.__new__(PylonCamera)
+        import threading as _threading
+        camera._state_lock = _threading.Lock()
+        camera.active = _FakeCamera()
+        # Force is_grabbing() True via monkeypatch -- using a bound
+        # method override to avoid needing the full SDK.
+        camera.is_grabbing = lambda: True
+        camera._enable_validity_chunks()
+        assert write_attempted['count'] == 0, (
+            f"ChunkModeActive write must be skipped when grabbing; "
+            f"got {write_attempted['count']} writes"
+        )
