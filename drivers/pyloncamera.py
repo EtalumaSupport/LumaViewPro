@@ -198,9 +198,23 @@ class PylonCamera(Camera):
         t.start()
 
     def _stop_stats_poller(self):
+        # Capture the thread reference before signalling so we can join
+        # it. Without the join, the thread may still be sleeping inside
+        # ev.wait(_STATS_POLLER_INTERVAL_S) when a fresh _start_stats_poller
+        # fires, briefly leaving two pollers writing to the same trace
+        # CSV. _start_stats_poller also joins on entry; this is the
+        # symmetric stop-side guard.
+        t = getattr(self, '_stats_poller_thread', None)
         ev = getattr(self, '_stats_poller_stop', None)
         if ev is not None:
             ev.set()
+        if t is not None and t.is_alive():
+            t.join(timeout=2.0)
+            if t.is_alive():
+                logger.warning(
+                    '[INSTR PYLON ] stats poller did not exit within 2s; '
+                    'releasing reference anyway'
+                )
         self._stats_poller_thread = None
 
     def _resolve_underrun_node_name(self, sg):

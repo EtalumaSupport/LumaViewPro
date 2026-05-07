@@ -3494,3 +3494,64 @@ class TestPylonStateMutationViaMarkDisconnected:
             "OnCameraDeviceRemoved must call self._parent._mark_disconnected() "
             "to atomically clear _active under _state_lock."
         )
+
+
+class TestPylonStatsPollerStopJoin:
+    """CLAUDE.md Rule 2 (single source of truth) + Rule 16 (bugs cluster --
+    fix all instances of the same structural pattern).
+
+    _start_stats_poller (line ~169) joins any prior thread before
+    starting a new one, on the explicit rationale that during the
+    window between event-set and daemon-thread-exit, a fresh
+    start_stats_poller would skip the join branch and start a duplicate
+    poller. _stop_stats_poller (line ~200) historically did not
+    symmetrise that join: it set the event and immediately nulled the
+    thread reference. Result: brief window during rapid stop/start
+    cycles where two pollers write to pylon_stats_trace.csv.
+
+    The fix captures the thread reference, signals stop, joins with a
+    bounded timeout (2.0s -- twice the poller's wait interval), then
+    releases the reference. Symmetric with _start_stats_poller.
+
+    Locks the structural shape so a future "while-I'm-here" patch that
+    drops the join fires the regression.
+    """
+
+    def _pyloncamera_source(self):
+        from pathlib import Path
+        return (Path(__file__).resolve().parent.parent
+                / "drivers" / "pyloncamera.py").read_text()
+
+    def test_stop_stats_poller_captures_thread_before_signalling(self):
+        """The thread reference must be read before the event is set;
+        otherwise a concurrent _stats_poller_thread = None elsewhere
+        could cause join() to be called on None."""
+        src = self._pyloncamera_source()
+        idx = src.find("def _stop_stats_poller(self):")
+        assert idx != -1, "Could not find _stop_stats_poller."
+        end = src.find("def ", idx + 10)
+        body = src[idx:end]
+        # Order check: thread getattr before event set.
+        thread_get = body.find("_stats_poller_thread")
+        ev_set = body.find(".set()")
+        assert thread_get != -1 and ev_set != -1, (
+            "_stop_stats_poller must reference both _stats_poller_thread and the "
+            "event. Body:\n" + body
+        )
+        assert thread_get < ev_set, (
+            "_stop_stats_poller must capture the thread reference BEFORE "
+            "signalling the stop event, so the join() target is stable."
+        )
+
+    def test_stop_stats_poller_joins_with_timeout(self):
+        """_stop_stats_poller must join the prior thread with a bounded
+        timeout to symmetrise _start_stats_poller's join."""
+        src = self._pyloncamera_source()
+        idx = src.find("def _stop_stats_poller(self):")
+        assert idx != -1
+        end = src.find("def ", idx + 10)
+        body = src[idx:end]
+        assert ".join(timeout=" in body, (
+            "_stop_stats_poller must call .join(timeout=...) on the prior "
+            "stats-poller thread before clearing the reference."
+        )
