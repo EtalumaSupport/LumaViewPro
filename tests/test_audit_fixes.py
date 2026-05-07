@@ -4696,3 +4696,147 @@ class TestAcquisitionStopModeSetter:
         camera = IDSCamera.__new__(IDSCamera)
         assert camera.set_acquisition_stop_mode('Complete') is False
         assert camera.set_acquisition_stop_mode('AbortExposure') is False
+
+
+class TestGigeSetters:
+    """GigE-specific Pylon node setters: BandwidthReserveMode,
+    GevSCPSPacketSize, GevSCPD. Required for the dmA3536-9gm dart M
+    GigE bench-probe sweep cells.
+
+    USB3 cameras don't expose these nodes; the setters return False
+    without warning so the sweep can call them unconditionally per
+    cell. IDS stubs return False (no Basler-equivalent nodes).
+
+    Doc citations:
+      - BandwidthReserveMode: network-related-parameters.md;
+        dmA3536-9gm spec footnote ('Performance' = 9.5 fps vs default 9.3)
+      - GevSCPSPacketSize: network-related-parameters.md;
+        jumbo-frame negotiation
+      - GevSCPD: network-related-parameters.md; inter-packet throttle
+    """
+
+    def _make_scope_with_fake_camera(self, fake_camera):
+        from modules.lumascope_api import Lumascope
+        scope = Lumascope.__new__(Lumascope)
+        scope.camera = fake_camera
+        return scope
+
+    def test_lumascope_methods_exist(self):
+        from modules.lumascope_api import Lumascope
+        for name in (
+            'set_bandwidth_reserve_mode',
+            'set_gev_packet_size',
+            'set_gev_inter_packet_delay',
+        ):
+            assert hasattr(Lumascope, name), (
+                f"Lumascope must implement {name} for the GigE bench "
+                f"sweep to vary the knob without bypassing the API layer."
+            )
+            assert callable(getattr(Lumascope, name))
+
+    def test_no_camera_returns_false_for_all(self):
+        from modules.lumascope_api import Lumascope
+        scope = Lumascope.__new__(Lumascope)
+        scope.camera = None
+        assert scope.set_bandwidth_reserve_mode('Performance') is False
+        assert scope.set_gev_packet_size(9000) is False
+        assert scope.set_gev_inter_packet_delay(0) is False
+
+    def test_inactive_camera_returns_false_for_all(self):
+        class _Fake:
+            active = None
+            def set_bandwidth_reserve_mode(self, **k):
+                raise AssertionError("driver should not be reached")
+            def set_gev_packet_size(self, **k):
+                raise AssertionError("driver should not be reached")
+            def set_gev_inter_packet_delay(self, **k):
+                raise AssertionError("driver should not be reached")
+        scope = self._make_scope_with_fake_camera(_Fake())
+        assert scope.set_bandwidth_reserve_mode('Performance') is False
+        assert scope.set_gev_packet_size(9000) is False
+        assert scope.set_gev_inter_packet_delay(0) is False
+
+    def test_bandwidth_reserve_mode_routes_to_driver(self):
+        called_with = {}
+        class _Fake:
+            active = True
+            def set_bandwidth_reserve_mode(self, mode):
+                called_with['mode'] = mode
+                return True
+        scope = self._make_scope_with_fake_camera(_Fake())
+        assert scope.set_bandwidth_reserve_mode('Performance') is True
+        assert called_with == {'mode': 'Performance'}
+
+    def test_gev_packet_size_routes_to_driver(self):
+        called_with = {}
+        class _Fake:
+            active = True
+            def set_gev_packet_size(self, size_bytes):
+                called_with['size_bytes'] = size_bytes
+                return True
+        scope = self._make_scope_with_fake_camera(_Fake())
+        assert scope.set_gev_packet_size(9000) is True
+        assert called_with == {'size_bytes': 9000}
+
+    def test_gev_inter_packet_delay_routes_to_driver(self):
+        called_with = {}
+        class _Fake:
+            active = True
+            def set_gev_inter_packet_delay(self, delay_ticks):
+                called_with['delay_ticks'] = delay_ticks
+                return True
+        scope = self._make_scope_with_fake_camera(_Fake())
+        assert scope.set_gev_inter_packet_delay(100) is True
+        assert called_with == {'delay_ticks': 100}
+
+    def test_pylon_setters_present(self):
+        from pathlib import Path
+        src = (Path(__file__).resolve().parent.parent
+               / "drivers" / "pyloncamera.py").read_text()
+        for name in (
+            'set_bandwidth_reserve_mode',
+            'set_gev_packet_size',
+            'set_gev_inter_packet_delay',
+        ):
+            assert f"def {name}(" in src, (
+                f"PylonCamera must implement {name}."
+            )
+
+    def test_pylon_bandwidth_reserve_mode_validates(self):
+        from pathlib import Path
+        src = (Path(__file__).resolve().parent.parent
+               / "drivers" / "pyloncamera.py").read_text()
+        body = _function_source(src, "set_bandwidth_reserve_mode")
+        assert "_BANDWIDTH_RESERVE_MODES" in body, (
+            "set_bandwidth_reserve_mode must validate against "
+            "_BANDWIDTH_RESERVE_MODES."
+        )
+        assert (
+            "_BANDWIDTH_RESERVE_MODES = ('Default', 'Performance')" in src
+        )
+
+    def test_pylon_setters_raise_hardware_error(self):
+        """All three setters raise HardwareError on RuntimeException
+        (Rule 29; matches DLTL + AbortExposure setters)."""
+        from pathlib import Path
+        src = (Path(__file__).resolve().parent.parent
+               / "drivers" / "pyloncamera.py").read_text()
+        for name in (
+            'set_bandwidth_reserve_mode',
+            'set_gev_packet_size',
+            'set_gev_inter_packet_delay',
+        ):
+            body = _function_source(src, name)
+            assert "except genicam.RuntimeException" in body, (
+                f"{name} must catch genicam.RuntimeException."
+            )
+            assert "raise HardwareError(" in body, (
+                f"{name} must raise HardwareError on RuntimeException."
+            )
+
+    def test_ids_stubs_return_false(self):
+        from drivers.idscamera import IDSCamera
+        camera = IDSCamera.__new__(IDSCamera)
+        assert camera.set_bandwidth_reserve_mode('Performance') is False
+        assert camera.set_gev_packet_size(9000) is False
+        assert camera.set_gev_inter_packet_delay(0) is False

@@ -1041,6 +1041,203 @@ class PylonCamera(Camera):
             )
             return False
 
+    _BANDWIDTH_RESERVE_MODES = ('Default', 'Performance')
+
+    def set_bandwidth_reserve_mode(self, mode: str) -> bool:
+        """Set BandwidthReserveMode -- GigE only.
+
+        Per Basler doc network-related-parameters.md:
+
+          - ``'Default'``: camera reserves a portion of bandwidth for
+            packet retransmits.
+          - ``'Performance'``: all bandwidth dedicated to image
+            transmit; minimal retransmit reserve.
+
+        dmA3536-9gm spec footnote: "9.5 fps (with Bandwidth Reserve
+        mode set to Performance)" -- vs the default 9.3 fps. The
+        knob is load-bearing for actual fps on GigE cameras.
+
+        USB3 cameras do not expose the node; returns False without
+        warning so the bench-probe sweep can call this method
+        unconditionally per cell.
+
+        Args:
+            mode: ``'Default'`` or ``'Performance'``.
+
+        Returns:
+            bool: True on success. False if the camera is inactive,
+                mode is invalid, or the BandwidthReserveMode node is
+                not exposed (USB3 camera).
+
+        Raises:
+            HardwareError: SDK RuntimeException during the write.
+        """
+        if not self.active:
+            return False
+        if mode not in self._BANDWIDTH_RESERVE_MODES:
+            logger.error(
+                f"[CAM Class ] set_bandwidth_reserve_mode: mode must be one "
+                f"of {self._BANDWIDTH_RESERVE_MODES}; got {mode!r}"
+            )
+            return False
+        try:
+            node = self.active.GetNodeMap().GetNode('BandwidthReserveMode')
+            if node is None:
+                return False
+            if _cam_log is not None:
+                _cam_log.info(f'pylon BandwidthReserveMode.SetValue({mode!r})')
+            node.SetValue(mode)
+            return True
+        except genicam.RuntimeException as e:
+            if _cam_log is not None:
+                _cam_log.error(
+                    f'pylon set_bandwidth_reserve_mode({mode!r}) FAILED: {e}'
+                )
+            logger.error(
+                f'[CAM Class ] Camera communication error in '
+                f'set_bandwidth_reserve_mode: {e}'
+            )
+            self._mark_disconnected()
+            raise HardwareError(
+                f'set_bandwidth_reserve_mode({mode!r}) failed: {e}'
+            ) from e
+        except Exception as e:
+            logger.exception(
+                f'[CAM Class ] Unexpected error in '
+                f'set_bandwidth_reserve_mode: {e}'
+            )
+            return False
+
+    def set_gev_packet_size(self, size_bytes: int) -> bool:
+        """Set GevSCPSPacketSize -- GigE only.
+
+        Per Basler doc network-related-parameters.md, the GigE
+        packet size governs jumbo-frame negotiation. 1500 is the
+        standard Ethernet MTU; 9000 is the typical jumbo-frame
+        size. Loss probability scales with packet count, so larger
+        packets reduce host CPU and packet rate -- but jumbo frames
+        require OS-level configuration on the host (per the
+        bundled network-configuration-(gige-cameras).md).
+
+        Per dmA3536-9gm spec at 9.3 fps Mono8 (~109 MB/s) the camera
+        is at the GigE wire limit; packet size dominates per-frame
+        packet count (1500 MTU -> ~78k pkts/s; 9000 MTU -> ~13k
+        pkts/s).
+
+        USB3 cameras do not expose the node; returns False without
+        warning so the bench-probe sweep can call this method
+        unconditionally per cell.
+
+        Args:
+            size_bytes: Packet size in bytes. Typical values:
+                1500 (standard MTU) or 9000 (jumbo).
+
+        Returns:
+            bool: True on success. False if the camera is inactive,
+                size_bytes is non-positive, or the GevSCPSPacketSize
+                node is not exposed (USB3 camera).
+
+        Raises:
+            HardwareError: SDK RuntimeException during the write.
+        """
+        if not self.active:
+            return False
+        if not isinstance(size_bytes, int) or size_bytes <= 0:
+            logger.error(
+                f"[CAM Class ] set_gev_packet_size: size_bytes must be a "
+                f"positive int; got {size_bytes!r}"
+            )
+            return False
+        try:
+            node = self.active.GetNodeMap().GetNode('GevSCPSPacketSize')
+            if node is None:
+                return False
+            if _cam_log is not None:
+                _cam_log.info(f'pylon GevSCPSPacketSize.SetValue({size_bytes})')
+            node.SetValue(int(size_bytes))
+            return True
+        except genicam.RuntimeException as e:
+            if _cam_log is not None:
+                _cam_log.error(
+                    f'pylon set_gev_packet_size({size_bytes}) FAILED: {e}'
+                )
+            logger.error(
+                f'[CAM Class ] Camera communication error in '
+                f'set_gev_packet_size: {e}'
+            )
+            self._mark_disconnected()
+            raise HardwareError(
+                f'set_gev_packet_size({size_bytes}) failed: {e}'
+            ) from e
+        except Exception as e:
+            logger.exception(
+                f'[CAM Class ] Unexpected error in set_gev_packet_size: {e}'
+            )
+            return False
+
+    def set_gev_inter_packet_delay(self, delay_ticks: int) -> bool:
+        """Set GevSCPD (inter-packet delay in clock ticks) -- GigE only.
+
+        Per Basler doc network-related-parameters.md, GevSCPD inserts
+        a wait between successive packets. Used to throttle a camera
+        when multiple cameras share a single GigE link or when the
+        host CPU can't keep up at full bandwidth. Larger values =
+        slower transmit = lower per-camera throughput; combine across
+        multiple cameras to share a single link.
+
+        USB3 cameras do not expose the node; returns False without
+        warning so the bench-probe sweep can call this method
+        unconditionally per cell.
+
+        Args:
+            delay_ticks: Inter-packet delay in GigE clock ticks
+                (camera-specific tick rate). 0 = no delay.
+
+        Returns:
+            bool: True on success. False if the camera is inactive,
+                delay_ticks is negative, or the GevSCPD node is
+                not exposed (USB3 camera).
+
+        Raises:
+            HardwareError: SDK RuntimeException during the write.
+        """
+        if not self.active:
+            return False
+        if not isinstance(delay_ticks, int) or delay_ticks < 0:
+            logger.error(
+                f"[CAM Class ] set_gev_inter_packet_delay: delay_ticks "
+                f"must be a non-negative int; got {delay_ticks!r}"
+            )
+            return False
+        try:
+            node = self.active.GetNodeMap().GetNode('GevSCPD')
+            if node is None:
+                return False
+            if _cam_log is not None:
+                _cam_log.info(f'pylon GevSCPD.SetValue({delay_ticks})')
+            node.SetValue(int(delay_ticks))
+            return True
+        except genicam.RuntimeException as e:
+            if _cam_log is not None:
+                _cam_log.error(
+                    f'pylon set_gev_inter_packet_delay({delay_ticks}) '
+                    f'FAILED: {e}'
+                )
+            logger.error(
+                f'[CAM Class ] Camera communication error in '
+                f'set_gev_inter_packet_delay: {e}'
+            )
+            self._mark_disconnected()
+            raise HardwareError(
+                f'set_gev_inter_packet_delay({delay_ticks}) failed: {e}'
+            ) from e
+        except Exception as e:
+            logger.exception(
+                f'[CAM Class ] Unexpected error in '
+                f'set_gev_inter_packet_delay: {e}'
+            )
+            return False
+
     def set_pixel_format(self, pixel_format: str) -> bool:
         """Set the camera pixel format.
 

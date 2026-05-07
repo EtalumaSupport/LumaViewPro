@@ -2419,6 +2419,133 @@ class Lumascope():
             )
             raise
 
+    def set_bandwidth_reserve_mode(self, mode: str) -> bool:
+        """Set BandwidthReserveMode (GigE-only Pylon node).
+
+        ``'Default'`` reserves a portion of GigE bandwidth for
+        retransmits; ``'Performance'`` dedicates all bandwidth to
+        image transmit. Per dmA3536-9gm spec, ``'Performance'``
+        unlocks 9.5 fps vs the default 9.3 fps.
+
+        USB3 cameras do not expose the node; returns False so the
+        bench-probe sweep can call this method unconditionally per
+        cell.
+
+        Args:
+            mode: ``'Default'`` or ``'Performance'``.
+
+        Returns:
+            bool: True on success. False if the camera is absent /
+                inactive, the driver doesn't implement the setter,
+                or the node is not exposed.
+
+        Raises:
+            HardwareError: Underlying SDK call failed in the driver.
+        """
+        if not self.camera or not self.camera.active:
+            return False
+        if not hasattr(self.camera, 'set_bandwidth_reserve_mode'):
+            return False
+        try:
+            return bool(self.camera.set_bandwidth_reserve_mode(mode=mode))
+        except Exception as ex:
+            logger.exception(
+                f"[SCOPE API ] Error setting BandwidthReserveMode: {ex}"
+            )
+            from modules.notification_center import notifications
+            notifications.error(
+                "Camera",
+                "BandwidthReserveMode change failed",
+                f"Could not set BandwidthReserveMode to {mode!r}: "
+                f"{type(ex).__name__}: {ex}."
+            )
+            raise
+
+    def set_gev_packet_size(self, size_bytes: int) -> bool:
+        """Set GevSCPSPacketSize (GigE-only Pylon node).
+
+        Packet size in bytes. 1500 = standard Ethernet MTU; 9000 =
+        typical jumbo-frame size. Larger packets reduce per-camera
+        CPU + packet rate but require OS-level jumbo-frame config.
+
+        USB3 cameras do not expose the node; returns False so the
+        bench-probe sweep can call this method unconditionally per
+        cell.
+
+        Args:
+            size_bytes: Packet size in bytes (positive int).
+
+        Returns:
+            bool: True on success. False if the camera is absent /
+                inactive, size_bytes is non-positive, the driver
+                doesn't implement the setter, or the node is not
+                exposed.
+
+        Raises:
+            HardwareError: Underlying SDK call failed in the driver.
+        """
+        if not self.camera or not self.camera.active:
+            return False
+        if not hasattr(self.camera, 'set_gev_packet_size'):
+            return False
+        try:
+            return bool(self.camera.set_gev_packet_size(size_bytes=size_bytes))
+        except Exception as ex:
+            logger.exception(
+                f"[SCOPE API ] Error setting GevSCPSPacketSize: {ex}"
+            )
+            from modules.notification_center import notifications
+            notifications.error(
+                "Camera",
+                "GevSCPSPacketSize change failed",
+                f"Could not set GevSCPSPacketSize to {size_bytes}: "
+                f"{type(ex).__name__}: {ex}."
+            )
+            raise
+
+    def set_gev_inter_packet_delay(self, delay_ticks: int) -> bool:
+        """Set GevSCPD (GigE inter-packet delay, in clock ticks).
+
+        Inserts a wait between successive packets to throttle the
+        camera. Used when multiple cameras share a single GigE link
+        or when the host CPU can't keep up. 0 = no delay.
+
+        USB3 cameras do not expose the node; returns False so the
+        bench-probe sweep can call this method unconditionally per
+        cell.
+
+        Args:
+            delay_ticks: Non-negative int; camera-specific tick rate.
+
+        Returns:
+            bool: True on success. False if the camera is absent /
+                inactive, delay_ticks is negative, the driver doesn't
+                implement the setter, or the node is not exposed.
+
+        Raises:
+            HardwareError: Underlying SDK call failed in the driver.
+        """
+        if not self.camera or not self.camera.active:
+            return False
+        if not hasattr(self.camera, 'set_gev_inter_packet_delay'):
+            return False
+        try:
+            return bool(self.camera.set_gev_inter_packet_delay(
+                delay_ticks=delay_ticks
+            ))
+        except Exception as ex:
+            logger.exception(
+                f"[SCOPE API ] Error setting GevSCPD: {ex}"
+            )
+            from modules.notification_center import notifications
+            notifications.error(
+                "Camera",
+                "GevSCPD change failed",
+                f"Could not set GevSCPD to {delay_ticks}: "
+                f"{type(ex).__name__}: {ex}."
+            )
+            raise
+
 
     ########################################################################
     # LED BOARD FUNCTIONS

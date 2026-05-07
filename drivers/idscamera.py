@@ -557,6 +557,18 @@ class IDSCamera(Camera):
         """
         return False
 
+    def set_bandwidth_reserve_mode(self, mode: str) -> bool:
+        """IDS does not expose Pylon BandwidthReserveMode. Stub False."""
+        return False
+
+    def set_gev_packet_size(self, size_bytes: int) -> bool:
+        """IDS does not expose Pylon GevSCPSPacketSize. Stub False."""
+        return False
+
+    def set_gev_inter_packet_delay(self, delay_ticks: int) -> bool:
+        """IDS does not expose Pylon GevSCPD. Stub False."""
+        return False
+
     def set_max_acquisition_frame_rate(self, enabled: bool, fps: float=1.0):
         if not self.active:
             logger.warning('[CAM Class ] set_max_acquisition_frame_rate(): inactive camera')
