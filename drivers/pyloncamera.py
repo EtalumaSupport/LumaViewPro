@@ -1424,6 +1424,240 @@ class PylonCamera(Camera):
 
         return result
 
+    # Stream-grabber stat node names probed in read_diagnostic_snapshot.
+    # All read defensively via _safe_node so missing nodes (e.g.
+    # Statistic_Buffer_Underrun_Count is absent on USB3 in
+    # pypylon 26.4.1 / pylon SDK 11.5.0) record '<missing>' rather
+    # than raising. The full list is intentionally broader than what
+    # the doc claims is USB3-available -- the probe is also a node-
+    # availability survey across SDK versions and transports.
+    _DIAG_STAT_NODES = (
+        'Statistic_Total_Buffer_Count',
+        'Statistic_Failed_Buffer_Count',
+        'Statistic_Buffer_Underrun_Count',
+        'Statistic_Missed_Frame_Count',
+        'Statistic_Resynchronization_Count',
+        'Statistic_Last_Failed_Buffer_Status',
+        'Statistic_Last_Failed_Buffer_Status_Text',
+    )
+    _DIAG_STAT_COUNTERS = (
+        'Statistic_Total_Buffer_Count',
+        'Statistic_Failed_Buffer_Count',
+        'Statistic_Buffer_Underrun_Count',
+        'Statistic_Missed_Frame_Count',
+        'Statistic_Resynchronization_Count',
+    )
+
+    @staticmethod
+    def _safe_node(nodemap, name: str):
+        """Read a nodemap node defensively across both nodemap kinds.
+
+        Camera nodemap returns None for missing nodes; stream-grabber
+        nodemap raises ``_genicam.LogicalErrorException`` ("Node not
+        existing"). This helper unifies both into a sentinel string so
+        the probe never propagates an exception out of an optional read.
+        """
+        try:
+            n = nodemap.GetNode(name)
+            if n is None:
+                return '<not present>'
+            try:
+                return n.GetValue()
+            except Exception as e:
+                return f'<read err: {type(e).__name__}>'
+        except Exception:
+            return '<missing>'
+
+    def read_diagnostic_snapshot(
+        self,
+        duration_s: float = 3.0,
+        drain_camera_side_errors: bool = True,
+    ) -> dict:
+        """Capture a single diagnostic snapshot of camera + stream-grabber state.
+
+        Reads camera identity, current configuration, and stream-grabber
+        statistics counters at the start and end of a sampling window of
+        ``duration_s`` seconds. Computes per-counter deltas and derived
+        rates (observed_fps, fail_rate_pct, failures_per_second,
+        resyncs_per_second). Optionally drains the camera-side error log
+        via ``BslErrorPresent`` / ``BslErrorReportValue`` /
+        ``BslErrorReportNext``.
+
+        Does NOT change grab state. If the camera is not currently
+        grabbing, the deltas will be near-zero (stats counters do not
+        advance without an active grab loop) -- treated as a sentinel
+        rather than an error, since the snapshot still captures
+        configuration state useful for cross-host comparison.
+
+        Reads are wrapped via ``_safe_node`` so missing nodes (e.g.
+        ``Statistic_Buffer_Underrun_Count`` on USB3) record sentinel
+        strings rather than raising. The counter delta computation
+        only runs for entries that returned numeric values both pre
+        and post.
+
+        Args:
+            duration_s: Sampling window in seconds. Default 3.0 matches
+                the bench probe shape used to characterize dart vs ace 2.
+            drain_camera_side_errors: When True, drain ``BslErrorPresent``
+                queue (capped at 64 iterations as a defensive bound) and
+                return the list of opaque error codes. Per Basler docs,
+                these codes are "evaluated by Basler support" (no public
+                translation table for ace 2 / dart R).
+
+        Returns:
+            dict with keys: connected, duration_s_requested,
+                duration_s_actual, camera (model_name, firmware_version,
+                serial), config (pixel_format, width/height,
+                exposure_us, gain_db, black_level, dltl_mode/value,
+                acquisition_frame_rate*, resulting_frame_rate,
+                max_num_buffer/transfer_size/queued_urbs/buffer_size),
+                stats_pre, stats_post, deltas, derived
+                (observed_fps, fail_rate_pct, failures_per_second,
+                resyncs_per_second), camera_side_errors, errors.
+        """
+        result: dict = {
+            'connected': False,
+            'duration_s_requested': float(duration_s),
+            'duration_s_actual': 0.0,
+            'camera': {},
+            'config': {},
+            'stats_pre': {},
+            'stats_post': {},
+            'deltas': {},
+            'derived': {},
+            'camera_side_errors': None,
+            'errors': [],
+        }
+
+        cam = self.active
+        if cam is None:
+            result['errors'].append('camera not connected')
+            return result
+        result['connected'] = True
+
+        try:
+            nm = cam.GetNodeMap()
+            sg = cam.GetStreamGrabberNodeMap()
+        except Exception as e:
+            result['errors'].append(f'nodemap fetch failed: {type(e).__name__}: {e}')
+            return result
+
+        # Camera identity
+        for genicam_name, key in (
+            ('DeviceModelName', 'model_name'),
+            ('DeviceSerialNumber', 'serial'),
+            ('DeviceFirmwareVersion', 'firmware_version'),
+            ('DeviceVersion', 'device_version'),
+        ):
+            result['camera'][key] = self._safe_node(nm, genicam_name)
+
+        # Camera-nodemap configuration
+        for name, key in (
+            ('PixelFormat', 'pixel_format'),
+            ('Width', 'width'),
+            ('Height', 'height'),
+            ('SensorWidth', 'sensor_width'),
+            ('SensorHeight', 'sensor_height'),
+            ('ExposureTime', 'exposure_us'),
+            ('Gain', 'gain_db'),
+            ('BlackLevel', 'black_level'),
+            ('DeviceLinkThroughputLimitMode', 'dltl_mode'),
+            ('DeviceLinkThroughputLimit', 'dltl_value_bps'),
+            ('AcquisitionFrameRateEnable', 'acquisition_frame_rate_enable'),
+            ('AcquisitionFrameRate', 'acquisition_frame_rate'),
+            ('ResultingFrameRate', 'resulting_frame_rate'),
+        ):
+            result['config'][key] = self._safe_node(nm, name)
+
+        # Stream-grabber-nodemap configuration (defaults; transport-
+        # specific availability varies)
+        for name, key in (
+            ('MaxNumBuffer', 'max_num_buffer'),
+            ('MaxTransferSize', 'max_transfer_size'),
+            ('NumMaxQueuedUrbs', 'num_max_queued_urbs'),
+            ('MaxBufferSize', 'max_buffer_size'),
+        ):
+            result['config'][key] = self._safe_node(sg, name)
+
+        # Stats pre
+        for name in self._DIAG_STAT_NODES:
+            result['stats_pre'][name] = self._safe_node(sg, name)
+
+        # Sampling window
+        t0 = time.monotonic()
+        try:
+            if duration_s > 0:
+                time.sleep(duration_s)
+        except Exception as e:
+            result['errors'].append(f'sleep raised: {type(e).__name__}: {e}')
+        dt = time.monotonic() - t0
+        result['duration_s_actual'] = dt
+
+        # Stats post
+        for name in self._DIAG_STAT_NODES:
+            result['stats_post'][name] = self._safe_node(sg, name)
+
+        # Deltas (only for numeric counters where both pre and post
+        # returned int/float; missing nodes record None)
+        for name in self._DIAG_STAT_COUNTERS:
+            pre = result['stats_pre'].get(name)
+            post = result['stats_post'].get(name)
+            if isinstance(pre, (int, float)) and isinstance(post, (int, float)):
+                result['deltas'][name] = post - pre
+            else:
+                result['deltas'][name] = None
+
+        # Derived rates
+        total_d = result['deltas'].get('Statistic_Total_Buffer_Count')
+        failed_d = result['deltas'].get('Statistic_Failed_Buffer_Count')
+        resync_d = result['deltas'].get('Statistic_Resynchronization_Count')
+        missed_d = result['deltas'].get('Statistic_Missed_Frame_Count')
+        if isinstance(total_d, (int, float)) and dt > 0:
+            result['derived']['observed_fps'] = total_d / dt
+            if total_d > 0 and isinstance(failed_d, (int, float)):
+                result['derived']['fail_rate_pct'] = 100.0 * failed_d / total_d
+        if isinstance(failed_d, (int, float)) and dt > 0:
+            result['derived']['failures_per_second'] = failed_d / dt
+        if isinstance(resync_d, (int, float)) and dt > 0:
+            result['derived']['resyncs_per_second'] = resync_d / dt
+        if isinstance(missed_d, (int, float)) and dt > 0:
+            result['derived']['misses_per_second'] = missed_d / dt
+
+        # Camera-side error log drain (capped to prevent runaway loop
+        # on a malformed firmware response)
+        if drain_camera_side_errors:
+            try:
+                err_present = nm.GetNode('BslErrorPresent')
+                code_node = nm.GetNode('BslErrorReportValue')
+                next_cmd = nm.GetNode('BslErrorReportNext')
+                if err_present is not None and code_node is not None and next_cmd is not None:
+                    errs = []
+                    for _ in range(64):
+                        try:
+                            present = err_present.GetValue()
+                        except Exception:
+                            break
+                        if not present:
+                            break
+                        try:
+                            code = code_node.GetValue()
+                        except Exception:
+                            break
+                        if code == 0:
+                            break
+                        errs.append(int(code))
+                        try:
+                            next_cmd.Execute()
+                        except Exception:
+                            break
+                    result['camera_side_errors'] = errs
+            except Exception as e:
+                result['errors'].append(
+                    f'BslErrorPresent drain raised: {type(e).__name__}: {e}'
+                )
+
+        return result
+
 
 class ImageHandler(pylon.ImageEventHandler):
     """Pylon camera image handler — receives frames via SDK callbacks.

@@ -4817,6 +4817,241 @@ class Lumascope():
         )
         return results
 
+    @staticmethod
+    def _human_os_version() -> str:
+        """Render OS version in a form humans can recognise.
+
+        ``platform.release()`` on macOS returns the Darwin kernel
+        version (e.g. ``24.6.0``) which nobody can map to "macOS 14.x"
+        by inspection. ``platform.mac_ver()[0]`` returns the actual
+        macOS version (e.g. ``14.5``); equivalent on Windows is
+        ``platform.win32_ver()[0]``. Falls back to system + release
+        on Linux / unknown.
+        """
+        import platform as _pl
+        sys_name = _pl.system()
+        try:
+            if sys_name == 'Darwin':
+                mac = _pl.mac_ver()[0]
+                if mac:
+                    return f'macOS {mac}'
+            elif sys_name == 'Windows':
+                win = _pl.win32_ver()[0]
+                if win:
+                    return f'Windows {win}'
+        except Exception:
+            pass
+        return f'{sys_name} {_pl.release()}'
+
+    @staticmethod
+    def _safe_pylon_versions() -> dict:
+        """Best-effort capture of pypylon + pylon SDK runtime versions.
+
+        Both reads are wrapped: pypylon may not be installed (FX2-only
+        installs), or the runtime version helper may have been renamed
+        between SDK versions.
+        """
+        out = {'pypylon_version': None, 'pylon_sdk_version': None}
+        try:
+            import pypylon as _pyp
+            out['pypylon_version'] = getattr(_pyp, '__version__', None)
+        except Exception:
+            pass
+        try:
+            from pypylon import pylon as _pylon
+            for fn_name in ('GetPylonVersion', 'GetVersionString'):
+                fn = getattr(_pylon, fn_name, None)
+                if callable(fn):
+                    try:
+                        out['pylon_sdk_version'] = str(fn())
+                        break
+                    except Exception:
+                        continue
+        except Exception:
+            pass
+        return out
+
+    def run_pylon_diagnostic_probe(
+        self,
+        duration_s: float = 3.0,
+        *,
+        drain_camera_side_errors: bool = True,
+        progress_cb=None,
+    ) -> dict:
+        """One-shot Pylon-camera diagnostic probe with JSON output.
+
+        Captures camera identity, current configuration, and stream-
+        grabber statistics counter deltas over a sampling window of
+        ``duration_s`` seconds. Adds host metadata (OS, hostname,
+        pypylon + pylon SDK versions) and writes a single JSON file
+        to ``data/pylon_probe/`` keyed on
+        ``<model>__sn<serial>__fw<firmware>__<host>__dltl<config>__<datetime>.json``.
+
+        Designed for cross-host / cross-camera / cross-firmware
+        comparison: the filename pattern keeps a sweep's outputs
+        sortable, and ``firmware_version`` + ``dltl_config`` are also
+        promoted to top-level JSON keys for filter-by-load.
+
+        Does NOT change grab state. If the camera is not currently
+        grabbing, the deltas will be near-zero (stats counters do not
+        advance without an active grab loop). Caller is expected to
+        be in live preview when calling this method.
+
+        Args:
+            duration_s: Sampling window in seconds. Default 3.0
+                matches the bench probe shape used to characterize
+                dart vs ace 2 on Mac (Firmware DAILY_LOG.md).
+            drain_camera_side_errors: When True, drain the camera's
+                ``BslErrorPresent`` queue and capture the list of
+                opaque error codes (per Basler "evaluated by support",
+                no public translation table for ace 2 / dart R).
+            progress_cb: Optional ``callback(percent_int, message_str)``
+                called at probe start, mid-sample, and end.
+
+        Returns:
+            dict: Snapshot from driver plus host / timestamps /
+                output_path metadata. Returns
+                ``{'connected': False, 'errors': [...]}`` if no
+                camera is active. Returns the driver's
+                ``{'supported': False, 'reason': ...}`` shape for
+                IDS or other non-Pylon drivers.
+        """
+        if progress_cb is not None:
+            try:
+                progress_cb(0, 'starting Pylon diagnostic probe')
+            except Exception:
+                pass
+
+        if not self.camera or not self.camera.active:
+            return {'connected': False, 'errors': ['Camera not active']}
+
+        if not hasattr(self.camera, 'read_diagnostic_snapshot'):
+            return {
+                'connected': False,
+                'supported': False,
+                'errors': [
+                    f'{type(self.camera).__name__} does not implement '
+                    f'read_diagnostic_snapshot'
+                ],
+            }
+
+        # Driver-level snapshot
+        snapshot = self.camera.read_diagnostic_snapshot(
+            duration_s=duration_s,
+            drain_camera_side_errors=drain_camera_side_errors,
+        )
+
+        # Non-Pylon stub returns supported=False; pass through unchanged
+        if snapshot.get('supported') is False:
+            if progress_cb is not None:
+                try:
+                    progress_cb(100, 'driver does not support diagnostic probe')
+                except Exception:
+                    pass
+            return snapshot
+
+        if progress_cb is not None:
+            try:
+                progress_cb(70, 'snapshot captured; collecting host metadata')
+            except Exception:
+                pass
+
+        # Host metadata
+        import socket
+        import platform as _platform
+        host_versions = self._safe_pylon_versions()
+        snapshot['host'] = {
+            'os': self._human_os_version(),
+            'hostname': socket.gethostname(),
+            'machine': _platform.machine(),
+            'pypylon_version': host_versions['pypylon_version'],
+            'pylon_sdk_version': host_versions['pylon_sdk_version'],
+        }
+
+        now_utc = datetime.datetime.now(datetime.timezone.utc)
+        end_iso = now_utc.isoformat()
+        start_iso = (now_utc - datetime.timedelta(
+            seconds=snapshot.get('duration_s_actual', duration_s)
+        )).isoformat()
+        snapshot['timestamps'] = {'start_iso': start_iso, 'end_iso': end_iso}
+
+        # Filter-by-load top-level keys (per v4 author request: easier
+        # to grep across many files than parsing camera.firmware_version
+        # nested)
+        snapshot['firmware_version'] = (
+            snapshot.get('camera', {}).get('firmware_version')
+        )
+
+        dltl_token = self._dltl_filename_token(snapshot.get('config', {}))
+        snapshot['dltl_config'] = dltl_token
+
+        # JSON file write
+        try:
+            import json
+            out_dir = (
+                pathlib.Path(os.path.dirname(__file__)).parent
+                / 'data' / 'pylon_probe'
+            )
+            out_dir.mkdir(parents=True, exist_ok=True)
+
+            def _safe_token(v: str | None, fallback: str) -> str:
+                s = str(v) if v is not None else fallback
+                # Filenames: replace separators that would break the
+                # __ split-pattern, and any path separators.
+                for bad in (' ', '/', '\\', ':', '*', '?', '"', '<', '>', '|'):
+                    s = s.replace(bad, '_')
+                return s
+
+            model_t = _safe_token(
+                snapshot.get('camera', {}).get('model_name'), 'unknown_model')
+            serial_t = _safe_token(
+                snapshot.get('camera', {}).get('serial'), 'unknown_serial')
+            fw_t = _safe_token(snapshot.get('firmware_version'), 'unknown_fw')
+            host_t = _safe_token(
+                snapshot['host']['hostname'], 'unknown_host'
+            ).replace('.', '_')
+            ts_t = now_utc.strftime('%Y%m%dT%H%M%SZ')
+
+            fname = f'{model_t}__sn{serial_t}__fw{fw_t}__{host_t}__{dltl_token}__{ts_t}.json'
+            out_path = out_dir / fname
+            with open(out_path, 'w') as f:
+                json.dump(snapshot, f, indent=2, default=str)
+            snapshot['output_path'] = str(out_path)
+        except Exception as e:
+            snapshot.setdefault('errors', []).append(
+                f'JSON write failed: {type(e).__name__}: {e}'
+            )
+
+        if progress_cb is not None:
+            try:
+                progress_cb(100, 'complete')
+            except Exception:
+                pass
+
+        return snapshot
+
+    @staticmethod
+    def _dltl_filename_token(config: dict) -> str:
+        """Encode the DLTL config as a short filename-safe token.
+
+        Examples:
+            DLTL Off                  -> 'dltloff'
+            DLTL On at 160 MB/s       -> 'dltl160M'
+            DLTL On at 197.43 MB/s    -> 'dltl197M' (rounded)
+            anything else / missing   -> 'dltlunknown'
+
+        ``int(round(...))`` handles non-round sweep values cleanly --
+        v4 author flagged the case where a sweep set DLTL to an
+        intermediate value with sub-MB/s precision.
+        """
+        mode = config.get('dltl_mode')
+        if isinstance(mode, str) and mode.lower() == 'off':
+            return 'dltloff'
+        value = config.get('dltl_value_bps')
+        if isinstance(value, (int, float)) and value > 0:
+            return f'dltl{int(round(value / 1_000_000))}M'
+        return 'dltlunknown'
+
     def _diagnostic_target_board(self, target: str):
         """Resolve a diagnostic-target string ('led' | 'motor') to a driver board.
 

@@ -124,6 +124,27 @@ class IDSCamera(Camera):
             return False
         return True
 
+    def read_diagnostic_snapshot(
+        self,
+        duration_s: float = 3.0,
+        drain_camera_side_errors: bool = True,
+    ) -> dict:
+        """Stub: IDS path not yet supported by the diagnostic probe API.
+
+        The IDS Peak SDK exposes a different node-map structure and
+        statistics surface from Pylon. A separate implementation is
+        required; not provided in this commit. The stub returns a
+        structured "supported=False" response so the API layer can
+        report the gap without raising.
+        """
+        return {
+            'connected': self.active not in (False, None),
+            'supported': False,
+            'reason': 'IDS Peak diagnostic probe not yet implemented; '
+                      'Pylon driver only for now.',
+            'errors': [],
+        }
+
     def _query_dynamic_capabilities(self):
         """Query IDS SDK for gain/exposure ranges and merge into profile."""
         if not self.active or not self.remote_nodemap:
