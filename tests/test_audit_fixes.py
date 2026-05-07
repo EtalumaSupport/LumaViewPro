@@ -3333,6 +3333,29 @@ class TestDeviceLinkThroughputLimitSetter:
             "is connected when called by the sweep tool."
         )
 
+    def test_pylon_driver_raises_hardware_error_on_runtime_exception(self):
+        """Per the Raises: docstring section, the Pylon setter raises
+        HardwareError on genicam.RuntimeException so the API layer can
+        notify and the caller can handle it (Rule 29 typed-exception
+        contract; matches set_binning_size / set_pixel_format).
+
+        Pins the raise so a future cleanup that swaps it for return-False
+        is caught here instead of in the field.
+        """
+        from pathlib import Path
+        src = (Path(__file__).resolve().parent.parent
+               / "drivers" / "pyloncamera.py").read_text()
+        body = _function_source(src, "set_device_link_throughput_limit")
+        assert "except genicam.RuntimeException" in body, (
+            "PylonCamera.set_device_link_throughput_limit must keep its "
+            "RuntimeException catch (Rule 29 typed-exception contract)."
+        )
+        assert "raise HardwareError(" in body, (
+            "PylonCamera.set_device_link_throughput_limit must raise "
+            "HardwareError on RuntimeException, not return False -- the "
+            "API layer catches and notifies."
+        )
+
 
 class TestPylonAsciiOnlyInLoggerStrings:
     """CLAUDE.md Rule 24 -- ASCII-only in strings emitted to logger / print /
@@ -4335,4 +4358,74 @@ class TestPylonBslPrefixedNodeFallbacks:
             "read_diagnostic_snapshot must probe BslEffectiveExposureTime "
             "before ExposureTime so the snapshot reports effective "
             "exposure on ace 2 / dart M/R."
+        )
+
+
+class TestPylonAutoGainNoUpdateCameraConfigWrap:
+    """update_auto_gain_target_brightness and update_auto_gain_min_max
+    write Basler AutoTargetBrightness / AutoGainLowerLimit /
+    AutoGainUpperLimit -- all runtime-modifiable per Basler doc, so the
+    previous update_camera_config wrap was a needless stop_grabbing /
+    start_grabbing cycle on every call (same structural class as
+    STALL-1's per-step over-stop).
+
+    Pins the structural fix so a future cleanup can't silently re-wrap
+    the writes. Mirrors TestDeviceLinkThroughputLimitSetter
+    .test_pylon_driver_does_not_wrap_in_update_camera_config.
+    """
+
+    def _pyloncamera_source(self):
+        from pathlib import Path
+        return (Path(__file__).resolve().parent.parent
+                / "drivers" / "pyloncamera.py").read_text()
+
+    def test_update_auto_gain_target_brightness_does_not_wrap(self):
+        body = _function_source(
+            self._pyloncamera_source(),
+            "update_auto_gain_target_brightness",
+        )
+        assert "with self.update_camera_config" not in body, (
+            "PylonCamera.update_auto_gain_target_brightness must NOT "
+            "wrap the AutoTargetBrightness write in update_camera_config "
+            "(runtime-modifiable per Basler; wrapping would impose the "
+            "STALL-1 over-stop pattern)."
+        )
+
+    def test_update_auto_gain_min_max_does_not_wrap(self):
+        body = _function_source(
+            self._pyloncamera_source(),
+            "update_auto_gain_min_max",
+        )
+        assert "with self.update_camera_config" not in body, (
+            "PylonCamera.update_auto_gain_min_max must NOT wrap the "
+            "AutoGainLowerLimit / AutoGainUpperLimit writes in "
+            "update_camera_config (runtime-modifiable per Basler; "
+            "wrapping would impose the STALL-1 over-stop pattern)."
+        )
+
+    def test_pylon_driver_writes_auto_target_brightness_directly(self):
+        """Sanity: the method really does call .SetValue on the node so
+        the no-wrap test isn't passing because the method is empty."""
+        body = _function_source(
+            self._pyloncamera_source(),
+            "update_auto_gain_target_brightness",
+        )
+        assert "AutoTargetBrightness.SetValue(" in body, (
+            "PylonCamera.update_auto_gain_target_brightness must call "
+            "AutoTargetBrightness.SetValue(...) on the live nodemap."
+        )
+
+    def test_pylon_driver_writes_auto_gain_limits_directly(self):
+        """Sanity: same as above for the min/max pair."""
+        body = _function_source(
+            self._pyloncamera_source(),
+            "update_auto_gain_min_max",
+        )
+        assert "AutoGainLowerLimit.SetValue(" in body, (
+            "PylonCamera.update_auto_gain_min_max must call "
+            "AutoGainLowerLimit.SetValue(...) on the live nodemap."
+        )
+        assert "AutoGainUpperLimit.SetValue(" in body, (
+            "PylonCamera.update_auto_gain_min_max must call "
+            "AutoGainUpperLimit.SetValue(...) on the live nodemap."
         )
