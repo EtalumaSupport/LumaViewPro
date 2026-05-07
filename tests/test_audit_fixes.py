@@ -4127,6 +4127,58 @@ class TestPylonTemperatureStateMonitoring:
         )
 
 
+class TestPylonMissedFrameDeltaLog:
+    """Per Basler doc stream-grabber-parameters.html, "A high Missed
+    Frame Count indicates that the host controller doesn't support
+    the bandwidth of the camera, i.e., the host controller does not
+    retrieve the acquired images in time."
+
+    Missed frames climb BEFORE Failed_Buffer_Count moves -- they
+    are an early bandwidth-stress signal. The stats poller now
+    tracks the prior count and emits a WARNING-level log on any
+    positive delta (same pattern as B5 resync).
+
+    Audit finding B14.
+    """
+
+    def _pyloncamera_source(self):
+        from pathlib import Path
+        return (Path(__file__).resolve().parent.parent
+                / "drivers" / "pyloncamera.py").read_text()
+
+    def test_missed_frame_node_in_stats_node_names(self):
+        src = self._pyloncamera_source()
+        idx = src.find("_STATS_NODE_NAMES = (")
+        assert idx != -1
+        end = src.find(")", idx)
+        body = src[idx:end]
+        assert "Statistic_Missed_Frame_Count" in body, (
+            "Statistic_Missed_Frame_Count must be in _STATS_NODE_NAMES "
+            "so the live poller reads it each cycle."
+        )
+
+    def test_missed_frame_prominent_log_on_positive_delta(self):
+        src = self._pyloncamera_source()
+        idx = src.find("def _stats_poller_loop(self):")
+        assert idx != -1
+        end = src.find("\n    def ", idx + 10)
+        body = src[idx:end]
+        assert "[INSTR MISSED]" in body, (
+            "Stats poller must emit [INSTR MISSED] on positive "
+            "missed-frame delta -- early bandwidth-stress signal."
+        )
+
+    def test_missed_frame_csv_column_present(self):
+        src = self._pyloncamera_source()
+        idx = src.find("'pylon_stats_trace.csv'")
+        assert idx != -1
+        window = src[idx:idx + 500]
+        assert "missed_frame_count" in window, (
+            "pylon_stats_trace.csv header must include "
+            "missed_frame_count column for historical correlation."
+        )
+
+
 class TestPylonIsConnectedCallsSdkQuery:
     """is_connected docstring promised "if available, the SDK's
     device-removed query" but the implementation only checked the

@@ -156,10 +156,12 @@ class PylonCamera(Camera):
     _STATS_POLLER_INTERVAL_S = 5.0
     _UNDERRUN_NODE_NAME = 'Statistic_Buffer_Underrun_Count'
     _RESYNC_NODE_NAME = 'Statistic_Resynchronization_Count'
+    _MISSED_FRAME_NODE_NAME = 'Statistic_Missed_Frame_Count'
     _STATS_NODE_NAMES = (
         'Statistic_Total_Buffer_Count',
         'Statistic_Failed_Buffer_Count',
         'Statistic_Resynchronization_Count',
+        'Statistic_Missed_Frame_Count',
     )
 
     def _start_stats_poller(self):
@@ -334,6 +336,25 @@ class PylonCamera(Camera):
             if isinstance(resync_value, (int, float)):
                 self._prev_resync_count = resync_value
 
+            # Missed frames: prominent marker on positive delta. Per
+            # Basler doc stream-grabber-parameters.html, "A high Missed
+            # Frame Count indicates that the host controller doesn't
+            # support the bandwidth of the camera, i.e., the host
+            # controller does not retrieve the acquired images in
+            # time." Visible BEFORE Failed_Buffer_Count moves -- early
+            # bandwidth-stress signal.
+            missed_value = stats.get(self._MISSED_FRAME_NODE_NAME)
+            prev_missed = getattr(self, '_prev_missed_frame_count', None)
+            if isinstance(missed_value, (int, float)) and isinstance(prev_missed, (int, float)):
+                delta = missed_value - prev_missed
+                if delta > 0:
+                    logger.warning(
+                        f'[INSTR MISSED] {self._MISSED_FRAME_NODE_NAME} delta={delta} '
+                        f'(total={missed_value})'
+                    )
+            if isinstance(missed_value, (int, float)):
+                self._prev_missed_frame_count = missed_value
+
             # Temperature state: per Basler doc temperature-state.html,
             # ace 2 / boost / dart M/R cameras stop image acquisition
             # when over-temperature is reached and require cooldown
@@ -358,13 +379,15 @@ class PylonCamera(Camera):
             profile_trace.trace(
                 'pylon_stats_trace.csv',
                 'ts_ms,total_buffer_count,failed_buffer_count,'
-                'resync_count,underrun_node_name,underrun_value,resulting_fps,'
+                'resync_count,missed_frame_count,'
+                'underrun_node_name,underrun_value,resulting_fps,'
                 'temperature_state',
                 [
                     ts_ms,
                     stats.get('Statistic_Total_Buffer_Count'),
                     stats.get('Statistic_Failed_Buffer_Count'),
                     resync_value,
+                    missed_value,
                     underrun_name,
                     underrun_value,
                     f'{rfr:.3f}' if rfr is not None else None,
