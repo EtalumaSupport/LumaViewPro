@@ -26,10 +26,12 @@ except ImportError:
 
 
 # Pylon SDK error code returned by grabResult.GetErrorCode() when a buffer
-# was cancelled by StopGrabbing while in flight. Value 0xE2008002 in the
+# was cancelled by StopGrabbing while in flight. Value 0xE2000102 in the
 # GenAPI error namespace; pypylon does not expose it as a named constant
-# (verified pypylon 26.4.1 / Pylon SDK 11.5.0). Update if a future pypylon
-# version starts exposing pylon.GENERIC_BUFFER_CANCELED or similar.
+# (verified pypylon 26.4.1 / Pylon SDK 11.5.0; bench-witnessed Firmware
+# DAILY_LOG.md session 65 Run-3/Run-4: 100% identical signature across
+# 10 grab failures). Update if a future pypylon version starts exposing
+# pylon.GENERIC_BUFFER_CANCELED or similar.
 _PYLON_ERR_BUFFER_CANCELED = 3791651074
 
 
@@ -1509,7 +1511,7 @@ class ImageHandler(pylon.ImageEventHandler):
                     err_desc = grabResult.GetErrorDescription()
                 except Exception as _err_introspect:
                     err_code, err_desc = None, f'<introspect failed: {_err_introspect!r}>'
-                if err_code == _PYLON_ERR_BUFFER_CANCELED:
+                if err_code == _PYLON_ERR_BUFFER_CANCELED or self._parent._device_removed:
                     # Pylon returns buffers with cancelled status when
                     # StopGrabbing fires while grabs are in flight. Not a
                     # hardware failure -- purely a lifecycle event from
@@ -1517,9 +1519,18 @@ class ImageHandler(pylon.ImageEventHandler):
                     # _failed_grabs (that path triggers auto-disconnect at
                     # MAX_CONSECUTIVE_FAILURES; cancel storms during
                     # config changes would falsely trip it).
+                    # OR-with-removal-flag insurance: device-removal
+                    # teardown delivers in-flight buffers as failures, but
+                    # the precise err_code attached during removal is not
+                    # documented by Basler. Treating any failure paired
+                    # with _device_removed=True as expected teardown
+                    # protects MAX_CONSECUTIVE_FAILURES from spurious
+                    # auto-disconnect during removal storms even if a
+                    # second cancel-flavoured code surfaces later.
                     logger.debug(
                         f'[CAM Class ] Grab cancelled (SDK lifecycle, '
-                        f'not a failure) err_code={err_code} desc={err_desc!r}'
+                        f'not a failure) err_code={err_code} desc={err_desc!r} '
+                        f'device_removed={self._parent._device_removed}'
                     )
                     _outcome = 'success_no_grab_cancelled'
                 else:

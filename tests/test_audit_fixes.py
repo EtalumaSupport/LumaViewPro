@@ -2875,3 +2875,97 @@ class TestImageHandlerBaseChunkSlot:
                        chunks={'ExposureTime': 30000.0})
         assert b.get_last_chunks() == {'ExposureTime': 30000.0}
         assert 'Gain' not in b.get_last_chunks()
+
+
+class TestPylonCancelHandlingDefensive:
+    """OR-with-removal-flag insurance pattern in OnImageGrabbed.
+
+    The cancel-classification branch must treat any failure paired with
+    ``self._parent._device_removed=True`` as expected teardown, not as a
+    real grab failure. Without this insurance a device-removal-driven
+    cancel storm whose underlying err_code happens to differ from
+    ``_PYLON_ERR_BUFFER_CANCELED`` could trip MAX_CONSECUTIVE_FAILURES
+    auto-disconnect and produce log noise during the unplug path.
+
+    Public evidence (pypylon issue #815, bench session 65) supports a
+    single SDK cancel code 0xE2000102 / 3791651074 on USB3, but Basler
+    does not document whether device-removal teardown ALWAYS attaches
+    the same code to in-flight buffers. The OR pattern insulates the
+    grab loop from that uncertainty without requiring enumeration.
+
+    These tests lock the source-level shape of the fix so a future
+    cleanup that drops the OR clause fires the regression. Behavioral
+    test of the race (device_removed flips between the line-1457 early
+    check and the line-1514 OR check, e.g. on the SDK's removal-
+    forwarding thread) requires threading mocks; static lock is the
+    primary regression gate.
+    """
+
+    def _pyloncamera_source(self):
+        from pathlib import Path
+        return (Path(__file__).resolve().parent.parent
+                / "drivers" / "pyloncamera.py").read_text()
+
+    def test_buffer_cancel_constant_value_matches_bench(self):
+        """The bench-witnessed decimal from session 65 (3791651074) is the
+        authoritative cancel-code constant. If pypylon ever exposes
+        pylon.GENERIC_BUFFER_CANCELED or similar, bump this."""
+        from drivers.pyloncamera import _PYLON_ERR_BUFFER_CANCELED
+        assert _PYLON_ERR_BUFFER_CANCELED == 3791651074, (
+            "Buffer-cancel constant must match the bench-witnessed value "
+            "from Firmware DAILY_LOG.md session 65 Run-3 "
+            "(decimal 3791651074 = 0xE2000102)."
+        )
+
+    def test_buffer_cancel_comment_hex_matches_constant(self):
+        """The source comment must show the hex form that matches the
+        decimal constant. Earlier the comment said 0xE2008002 (= decimal
+        3791683586, NOT what's stored). The corrected hex is 0xE2000102.
+        Mismatch between comment and value misleads anyone debugging this
+        path; the comment is load-bearing documentation, not decoration."""
+        src = self._pyloncamera_source()
+        assert "0xE2000102" in src, (
+            "Source comment near _PYLON_ERR_BUFFER_CANCELED must reference "
+            "0xE2000102 (the hex form of decimal 3791651074). If you found "
+            "0xE2008002 here, that's the prior typo — fix to 0xE2000102."
+        )
+        assert "0xE2008002" not in src, (
+            "Stale typo: 0xE2008002 must not appear in pyloncamera.py "
+            "source — that hex equals 3791683586 (NOT what's stored)."
+        )
+
+    def test_cancel_branch_uses_or_with_removal_flag(self):
+        """The cancel-classification branch in OnImageGrabbed must include
+        the OR-with-removal-flag insurance:
+
+            if err_code == _PYLON_ERR_BUFFER_CANCELED or self._parent._device_removed:
+
+        This protects against a race where _device_removed flips True
+        between the line-1457 early-return check and the line-1514
+        cancel-classification check (the SDK's removal-forwarding thread
+        runs on its own thread; either the grab thread or the removal
+        thread can set the flag). Without the OR, a mid-call removal
+        whose first cancellation buffer carries an undocumented err_code
+        would count toward MAX_CONSECUTIVE_FAILURES."""
+        src = self._pyloncamera_source()
+        body = _function_source(src, "OnImageGrabbed")
+        assert (
+            "_PYLON_ERR_BUFFER_CANCELED or self._parent._device_removed"
+            in body
+        ), (
+            "OnImageGrabbed cancel-classification branch must use "
+            "OR-with-removal-flag insurance. See class docstring for the "
+            "race the OR protects against."
+        )
+
+    def test_normal_failure_branch_still_calls_record_failure(self):
+        """The non-cancel non-removal failure path must still increment
+        the consecutive-failure counter. Without this, real failures
+        (incomplete buffers 0xE2000212, transport errors 0xE2000011,
+        etc.) would never trip MAX_CONSECUTIVE_FAILURES auto-disconnect."""
+        src = self._pyloncamera_source()
+        body = _function_source(src, "OnImageGrabbed")
+        assert "self._base._record_failure()" in body, (
+            "OnImageGrabbed non-cancel failure path must still call "
+            "_record_failure to increment the consecutive-failure counter."
+        )
