@@ -143,24 +143,50 @@ def show_confirmation_popup(
     button_layout.add_widget(yes_button)
     content.add_widget(button_layout)
 
+    # auto_dismiss=False -> click-outside-popup does NOT dismiss. The
+    # docstring promises "blocking modal" and callers (e.g.
+    # engineering_tab._prompt_confirm) block their worker thread on
+    # an Event waiting for one of the button callbacks. A click-out
+    # dismiss without callback leaves the worker hung forever, which
+    # bit a char run on Windows 2026-05-08 (cap-on prompt dismissed
+    # by accidental click-out, char tool stopped silently).
     popup = Popup(
         title=title,
         content=content,
         size_hint=(0.6, 0.3),
+        auto_dismiss=False,
     )
 
+    # Track whether either button fired so on_dismiss can defensively
+    # fire the cancel callback if some other code path dismisses
+    # programmatically (atexit, app shutdown, future Kivy lifecycle).
+    decided = {'value': False}
+
     def _on_confirm(*_a):
+        decided['value'] = True
         _log_response(title, f'CONFIRM:{confirm_text}')
         on_confirm()
         popup.dismiss()
 
     def _on_cancel(*_a):
+        decided['value'] = True
         _log_response(title, f'CANCEL:{cancel_text}')
         if on_cancel is not None:
             on_cancel()
         popup.dismiss()
 
+    def _on_dismiss(*_a):
+        # Defensive: if neither button was clicked but the popup
+        # dismissed anyway (programmatic dismiss / lifecycle), treat
+        # as cancel so blocked worker threads release.
+        if decided['value']:
+            return
+        _log_response(title, 'CANCEL:dismissed_without_button')
+        if on_cancel is not None:
+            on_cancel()
+
     yes_button.bind(on_release=_on_confirm)
     no_button.bind(on_release=_on_cancel)
+    popup.bind(on_dismiss=_on_dismiss)
 
     popup.open()

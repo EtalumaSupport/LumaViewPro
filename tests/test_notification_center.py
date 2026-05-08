@@ -195,3 +195,46 @@ class TestShutdownSuppression:
         nc.set_shutting_down(False)
         nc.error("X", "Y", "z")
         assert len(received) == 1
+
+
+class TestConfirmationPopupIsModal:
+    """`show_confirmation_popup` callers (notably engineering_tab._prompt_confirm)
+    block their worker thread on a threading.Event waiting for one of
+    the button callbacks. A click-out dismiss without callback leaves
+    the worker hung forever -- bench-confirmed 2026-05-08 Windows
+    char run: cap-on prompt dismissed by accidental click-out, char
+    tool stopped silently. Static-source asserts (kivy.uix.* is not
+    importable in the unit-test env)."""
+
+    def _read_source(self):
+        import pathlib
+        path = pathlib.Path(__file__).parent.parent / 'ui' / 'notification_popup.py'
+        return path.read_text()
+
+    def test_show_confirmation_popup_passes_auto_dismiss_false(self):
+        src = self._read_source()
+        # Locate the show_confirmation_popup function body and assert
+        # the Popup constructor inside it gets auto_dismiss=False.
+        marker = 'def show_confirmation_popup('
+        start = src.find(marker)
+        assert start != -1, 'show_confirmation_popup not found'
+        # Body extends to next top-level `def ` or end of file
+        next_def = src.find('\ndef ', start + len(marker))
+        body = src[start:next_def] if next_def != -1 else src[start:]
+        assert 'auto_dismiss=False' in body, (
+            'show_confirmation_popup MUST construct Popup with '
+            'auto_dismiss=False. Click-outside-popup otherwise dismisses '
+            'without firing either callback, leaving worker threads '
+            'blocked on done.wait() forever. See engineering_tab.'
+            '_prompt_confirm caller.')
+
+    def test_show_confirmation_popup_binds_on_dismiss_handler(self):
+        src = self._read_source()
+        marker = 'def show_confirmation_popup('
+        start = src.find(marker)
+        next_def = src.find('\ndef ', start + len(marker))
+        body = src[start:next_def] if next_def != -1 else src[start:]
+        assert 'on_dismiss=' in body, (
+            'show_confirmation_popup MUST bind an on_dismiss handler so '
+            'programmatic dismisses (lifecycle / atexit / future Kivy '
+            'changes) still release blocked workers via on_cancel.')
