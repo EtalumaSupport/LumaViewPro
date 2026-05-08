@@ -567,23 +567,54 @@ class PylonCamera(Camera):
 
         Exception-tolerant: SDK failures are logged but not raised so
         UI handlers can call this without wrapping.
+
+        ``LVP_PYLON_MAX_NUM_BUFFER`` env var overrides the cap (bench
+        characterization). Set before importing PylonCamera. Default is 3.
         """
         camera = self.active
         try:
-            # Cap the DMA buffer ring to 3. Pylon's default (10-25,
-            # depending on SDK version) pins ~16 MB per buffer of Windows
-            # kernel nonpaged pool at full-resolution Mono12, matching
-            # the observed ~228 MB startup spike that never releases.
-            # LatestImageOnly discards old frames anyway, so 3 buffers
-            # is plenty — two active + one rotating.
+            # Cap the DMA buffer ring to 3 by default. Pylon's default
+            # (10-25, depending on SDK version) pins ~16 MB per buffer of
+            # Windows kernel nonpaged pool at full-resolution Mono12,
+            # matching the observed ~228 MB startup spike that never
+            # releases. LatestImageOnly discards old frames anyway, so 3
+            # buffers is plenty -- two active + one rotating.
+            # The cap can starve the buffer ring under USB transfer hiccups
+            # (proven on dart M USB3 + DLTL=160 MB/s default); raising via
+            # LVP_PYLON_MAX_NUM_BUFFER for bench is the characterization
+            # path. Production default unchanged until measurement settles.
             try:
-                camera.MaxNumBuffer.SetValue(3)
+                _mnb = int(os.environ.get('LVP_PYLON_MAX_NUM_BUFFER', '3'))
+            except (ValueError, TypeError):
+                _mnb = 3
+            try:
+                camera.MaxNumBuffer.SetValue(_mnb)
                 if _cam_log is not None:
-                    _cam_log.info('pylon MaxNumBuffer.SetValue(3)')
+                    _cam_log.info(f'pylon MaxNumBuffer.SetValue({_mnb})')
             except Exception as e:
                 if _cam_log is not None:
                     _cam_log.warning(f'pylon MaxNumBuffer cap FAILED: {e}')
                 logger.warning(f'[CAM Class ] MaxNumBuffer cap failed: {e}')
+            # USB3 StreamGrabber tuning. Production default = SDK default
+            # (MaxTransferSize=256KB, NumMaxQueuedUrbs=64). Bench overrides
+            # via LVP_PYLON_MAX_TRANSFER_SIZE / LVP_PYLON_NUM_QUEUED_URBS to
+            # characterize bandwidth-discard rate at sensor-max throughput.
+            _mts = os.environ.get('LVP_PYLON_MAX_TRANSFER_SIZE')
+            if _mts:
+                try:
+                    self.set_max_transfer_size(int(_mts))
+                except Exception as e:
+                    logger.warning(
+                        f'[CAM Class ] set_max_transfer_size({_mts}) failed: {e}'
+                    )
+            _nqu = os.environ.get('LVP_PYLON_NUM_QUEUED_URBS')
+            if _nqu:
+                try:
+                    self.set_num_max_queued_urbs(int(_nqu))
+                except Exception as e:
+                    logger.warning(
+                        f'[CAM Class ] set_num_max_queued_urbs({_nqu}) failed: {e}'
+                    )
             # B20 / B23: snapshot StreamGrabber.Status into the trace
             # log before StartGrabbing so post-mortem analysis can
             # correlate "weird StartGrabbing behavior" with the entry
@@ -591,10 +622,26 @@ class PylonCamera(Camera):
             # is read-only and reflects grabber lifecycle state
             # (Closed / Open / Grabbing / OutOfMemory / etc.).
             self._log_stream_grabber_status('pre-StartGrabbing')
+            # LVP_PYLON_GRAB_STRATEGY env var overrides the strategy for bench
+            # characterization. Default LatestImageOnly is the production
+            # contract -- frame_validity, capture_and_wait, and the
+            # auto-discard skip_frames floor all depend on this strategy
+            # (see DAILY_LOG 2026-05-04). OneByOne for apples-to-apples vs
+            # Pylon Viewer's bandwidth test (which delivers every frame).
+            _strategy_name = os.environ.get(
+                'LVP_PYLON_GRAB_STRATEGY', 'LatestImageOnly'
+            )
+            _strategy_map = {
+                'LatestImageOnly': pylon.GrabStrategy_LatestImageOnly,
+                'OneByOne': pylon.GrabStrategy_OneByOne,
+            }
+            _strategy = _strategy_map.get(
+                _strategy_name, pylon.GrabStrategy_LatestImageOnly
+            )
             if _cam_log is not None:
-                _cam_log.info('pylon StartGrabbing(LatestImageOnly, ProvidedByInstantCamera)')
+                _cam_log.info(f'pylon StartGrabbing({_strategy_name}, ProvidedByInstantCamera)')
             camera.StartGrabbing(
-                pylon.GrabStrategy_LatestImageOnly, pylon.GrabLoop_ProvidedByInstantCamera
+                _strategy, pylon.GrabLoop_ProvidedByInstantCamera
             )
             # Start the periodic Pylon stats + thread-count poller.
             # No-op when LVP_PROFILE_TRACE is unset.
