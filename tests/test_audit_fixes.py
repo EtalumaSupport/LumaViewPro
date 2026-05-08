@@ -4387,6 +4387,34 @@ class TestPylonBslPrefixedNodeFallbacks:
             "exposure on ace 2 / dart M/R."
         )
 
+    def test_node_attr_get_suppresses_getattr_exception(self):
+        """_node_attr_get must NOT propagate the exception that
+        pypylon's InstantCamera.__getattr__ raises for missing nodes.
+
+        The helper relied on Python's `getattr(obj, name, default)`
+        default-arg fallback. pypylon's InstantCamera doesn't honor
+        that contract -- it raises ``genicam.LogicalErrorException``
+        ("Node not existing") instead of returning None. Without the
+        try/except, every protocol step's ``get_exposure_t()`` raised
+        a 13-line traceback (1540 occurrences in a single protocol
+        run on Windows 2026-05-08).
+        """
+        from drivers.pyloncamera import PylonCamera
+
+        class _PypylonStyleCamera:
+            def __getattr__(self, name):
+                raise RuntimeError(f'Node {name!r} not existing')
+
+        result = PylonCamera._node_attr_get(
+            _PypylonStyleCamera(), 'ExposureTime', 'BslEffectiveExposureTime'
+        )
+        assert result is None, (
+            f"_node_attr_get must return None when every name's getattr "
+            f"raises (treating as 'node not present'); got {result!r}. "
+            f"Without the try/except wrapper, the LogicalErrorException "
+            f"propagates out and floods the error log."
+        )
+
 
 class TestPylonAutoGainNoUpdateCameraConfigWrap:
     """update_auto_gain_target_brightness and update_auto_gain_min_max

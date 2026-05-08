@@ -2582,7 +2582,15 @@ class PylonCamera(Camera):
         Returns None if no name resolves to a readable value.
         """
         for name in names:
-            node = getattr(camera, name, None)
+            try:
+                node = getattr(camera, name, None)
+            except Exception:
+                # pypylon's InstantCamera.__getattr__ raises
+                # genicam.LogicalErrorException for missing nodes instead
+                # of letting Python's default-arg fallback fire. Treat as
+                # "not present" and try the next name. Bench-verified
+                # 2026-05-08: 1540 tracebacks per protocol run before fix.
+                continue
             if node is None:
                 continue
             try:
