@@ -715,6 +715,32 @@ class PylonCamera(Camera):
 
             camera.Open()
 
+            # B34 follow-up: if LVP_PYLON_MAX_NUM_BUFFER is set, apply the
+            # cap immediately after Open() -- earliest possible window
+            # before pypylon 26.4.x's AcquireContinuousConfiguration
+            # auto-starts grabbing and locks the node. This is the only
+            # path that actually applies the cap on pypylon 26.4.x.
+            # Unset = SDK default (no cap, current behavior).
+            _mnb_env = os.environ.get('LVP_PYLON_MAX_NUM_BUFFER')
+            if _mnb_env:
+                try:
+                    camera.MaxNumBuffer.SetValue(int(_mnb_env))
+                    actual = camera.MaxNumBuffer.GetValue()
+                    logger.info(
+                        f'[CAM Class ] MaxNumBuffer cap applied post-Open: '
+                        f'requested={_mnb_env} actual={actual}'
+                    )
+                    if _cam_log is not None:
+                        _cam_log.info(
+                            f'pylon MaxNumBuffer.SetValue({_mnb_env}) post-Open '
+                            f'(actual={actual})'
+                        )
+                except Exception as e:
+                    logger.warning(
+                        f'[CAM Class ] MaxNumBuffer cap post-Open failed '
+                        f'(window may have closed): {e}'
+                    )
+
             # Store device identity if possible
             try:
                 dev_info = camera.GetDeviceInfo()
