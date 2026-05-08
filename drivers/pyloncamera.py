@@ -92,16 +92,9 @@ class PylonCamera(Camera):
     def disconnect(self) -> bool:
         """Tear down the active Pylon camera and release the SDK device.
 
-        Independently guards each teardown step (stop_grabbing, idle
-        poll, Close, DetachDevice, DestroyDevice) so a failure on one
-        does not prevent the others from running. After this method
-        returns, ``self.active is None`` regardless of whether the SDK
-        calls succeeded.
-
-        Returns:
-            bool: True on successful disconnect, False if the camera
-                was not connected or an outer exception aborted the
-                teardown chain.
+        Each teardown step is independently guarded so one failure doesn't
+        block the rest. After return, ``self.active is None`` regardless of
+        SDK call success. Returns False if not connected or outer aborted.
         """
         try:
             if self.active is not None:
@@ -113,11 +106,8 @@ class PylonCamera(Camera):
                         f'[CAM Class ] stop_grabbing during disconnect raised: {e}; '
                         f'continuing teardown'
                     )
-                # B20: poll AcquisitionActive / ExposureActive after
-                # StopGrabbing so in-flight frames can drain before we
-                # release the device handle. Per Basler
-                # acquisition-status.html. Bounded so a stuck-active
-                # camera can't block disconnect indefinitely.
+                # Drain in-flight frames after StopGrabbing before releasing
+                # the device handle (Basler `acquisition-status.html`). Bounded.
                 self._wait_for_acquisition_idle(timeout_s=2.0)
                 # Each teardown step is independently guarded so a failure on
                 # one (e.g. Close on an already-removed device) does not
@@ -772,14 +762,7 @@ class PylonCamera(Camera):
         return False
 
     def get_all_temperatures(self) -> dict:
-        """Read every DeviceTemperatureSelector entry the camera exposes.
-
-        Returns:
-            dict: ``{'FpgaCore': 43.2, 'Sensor': 40.1, ...}`` keyed by
-                the selector's symbolic name. Empty dict if the camera
-                is inactive or the temperature nodes are unreadable.
-        """
-        # Camera Must be open prior to calling function
+        """Return {selector: degC, ...} per DeviceTemperatureSelector entry; {} if unreadable."""
         if not self.active:
             logger.warning('[CAM Class ] get_all_temperatures(): inactive camera')
             return {}
@@ -1209,37 +1192,13 @@ class PylonCamera(Camera):
         return value_bps
 
     def set_max_transfer_size(self, value_bytes: int) -> bool:
-        """Set StreamGrabber MaxTransferSize (USB3 only).
+        """Set StreamGrabber MaxTransferSize (USB3-only bench knob).
 
-        Per Basler `stream-grabber-parameters.html`, MaxTransferSize
-        is the bytes-per-USB-transfer the SDK requests from the kernel.
-        It is the doc's named lever for the symptom "fails to receive
-        image stream" -- decreasing the value works around kernel /
-        driver USB-transfer-size constraints on some Windows hosts.
-        Default is camera/SDK-version dependent.
-
-        USB3-only. The node is absent on the StreamGrabber NodeMap of
-        GigE cameras; in that case the write fails with a SDK
-        exception, which we surface as HardwareError.
-
-        Bench knob exposed parallel to the DLTL setter for
-        ``tools/pylon_probe_sweep.py`` characterization. No production
-        default change.
-
-        Args:
-            value_bytes: New MaxTransferSize in bytes. SDK clamps to
-                the node's supported range and raises OutOfRangeException
-                on invalid values; the RuntimeException branch surfaces
-                that as HardwareError.
-
-        Returns:
-            bool: True on success. False if the camera is inactive
-                (caller-correctable guard).
-
-        Raises:
-            HardwareError: Underlying SDK call failed (RuntimeException
-                or node-missing). Camera is marked disconnected on
-                RuntimeException.
+        Per Basler `stream-grabber-parameters.html`: bytes-per-USB-transfer
+        the SDK requests. Doc's named lever for "fails to receive image
+        stream"; decreasing works around kernel USB-transfer-size limits
+        on some Windows hosts. SDK clamps to node range. Returns False if
+        camera inactive; raises HardwareError on SDK failure.
         """
         return self._set_stream_grabber_int_node(
             node_name='MaxTransferSize',
@@ -1248,37 +1207,14 @@ class PylonCamera(Camera):
         )
 
     def set_num_max_queued_urbs(self, value: int) -> bool:
-        """Set StreamGrabber NumMaxQueuedUrbs (USB3 only).
+        """Set StreamGrabber NumMaxQueuedUrbs (USB3-only bench knob).
 
-        Per Basler `stream-grabber-parameters.html`, NumMaxQueuedUrbs
-        controls how many USB Request Blocks (URBs) the SDK keeps in
-        flight to the kernel at once. It is the doc's named lever for
-        the symptom "insufficient system memory" with status codes
-        0xe2010130 / 0xe2100001 -- decreasing the value reduces kernel
-        URB allocation pressure on memory-constrained hosts.
-
-        USB3-only. The node is absent on the StreamGrabber NodeMap of
-        GigE cameras; in that case the write fails with a SDK
-        exception, which we surface as HardwareError.
-
-        Bench knob exposed parallel to the DLTL setter for
-        ``tools/pylon_probe_sweep.py`` characterization. No production
-        default change.
-
-        Args:
-            value: New NumMaxQueuedUrbs (count). SDK clamps to the
-                node's supported range and raises OutOfRangeException
-                on invalid values; the RuntimeException branch surfaces
-                that as HardwareError.
-
-        Returns:
-            bool: True on success. False if the camera is inactive
-                (caller-correctable guard).
-
-        Raises:
-            HardwareError: Underlying SDK call failed (RuntimeException
-                or node-missing). Camera is marked disconnected on
-                RuntimeException.
+        Per Basler `stream-grabber-parameters.html`: count of in-flight USB
+        Request Blocks. Doc's named lever for "insufficient system memory"
+        (status 0xe2010130 / 0xe2100001); decreasing reduces kernel URB
+        allocation pressure on memory-constrained hosts. SDK clamps to node
+        range. Returns False if camera inactive; raises HardwareError on
+        SDK failure.
         """
         return self._set_stream_grabber_int_node(
             node_name='NumMaxQueuedUrbs',
@@ -1344,38 +1280,16 @@ class PylonCamera(Camera):
     _ACQ_STOP_MODES = ('Complete', 'CancelExposure', 'AbortExposure')
 
     def set_acquisition_stop_mode(self, mode: str) -> bool:
-        """Set BslAcquisitionStopMode -- behavior when StopGrabbing fires
-        during an in-flight exposure.
+        """Set BslAcquisitionStopMode -- StopGrabbing behavior during in-flight exposure.
 
-        Per Basler doc acquisition-start-stop-and-abort.html:
+        Per Basler `acquisition-start-stop-and-abort.html`:
+          - ``'Complete'`` (default): waits for current exposure (up to N s on long FL).
+          - ``'CancelExposure'``: stops cleanly, partial frame discarded.
+          - ``'AbortExposure'``: aborts immediately, partial frame discarded.
 
-          - ``'Complete'`` (default): waits for the current exposure to
-            finish before stopping. On a 10 s fluorescence exposure,
-            StopGrabbing waits up to 10 s -- presents identically to a
-            multi-second app-side stall when the user toggles modes.
-          - ``'CancelExposure'``: stops cleanly; partial frame discarded.
-          - ``'AbortExposure'``: aborts immediately; partial frame
-            discarded.
-
-        Specifics table confirms ace 2 + dart M/R + boost R support
-        the parameter. Default is unchanged in init_camera_config;
-        this setter exists for bench characterization. Per Eric
-        direction: setter-only first, default unchanged, bench-
-        validate, flip default if validated.
-
-        Args:
-            mode: One of ``'Complete'``, ``'CancelExposure'``,
-                ``'AbortExposure'``.
-
-        Returns:
-            bool: True on success. False if the camera is inactive,
-                the mode argument is invalid, or
-                BslAcquisitionStopMode is not exposed by this camera /
-                firmware.
-
-        Raises:
-            HardwareError: Underlying SDK call failed
-                (RuntimeException). Camera is marked disconnected.
+        Supported on ace 2 / dart M/R / boost R. Default unchanged; setter
+        exists for bench characterization. Returns False if camera inactive,
+        mode invalid, or node absent. Raises HardwareError on SDK failure.
         """
         if not self.active:
             return False
@@ -1423,33 +1337,15 @@ class PylonCamera(Camera):
     _BANDWIDTH_RESERVE_MODES = ('Default', 'Performance')
 
     def set_bandwidth_reserve_mode(self, mode: str) -> bool:
-        """Set BandwidthReserveMode -- GigE only.
+        """Set BandwidthReserveMode (GigE only).
 
-        Per Basler doc network-related-parameters.md:
+        Per Basler `network-related-parameters.md`:
+          - ``'Default'``: reserves bandwidth for packet retransmits.
+          - ``'Performance'``: all bandwidth to transmit; minimal retransmit.
 
-          - ``'Default'``: camera reserves a portion of bandwidth for
-            packet retransmits.
-          - ``'Performance'``: all bandwidth dedicated to image
-            transmit; minimal retransmit reserve.
-
-        dmA3536-9gm spec footnote: "9.5 fps (with Bandwidth Reserve
-        mode set to Performance)" -- vs the default 9.3 fps. The
-        knob is load-bearing for actual fps on GigE cameras.
-
-        USB3 cameras do not expose the node; returns False without
-        warning so the bench-probe sweep can call this method
-        unconditionally per cell.
-
-        Args:
-            mode: ``'Default'`` or ``'Performance'``.
-
-        Returns:
-            bool: True on success. False if the camera is inactive,
-                mode is invalid, or the BandwidthReserveMode node is
-                not exposed (USB3 camera).
-
-        Raises:
-            HardwareError: SDK RuntimeException during the write.
+        Load-bearing for fps on GigE; dmA3536-9gm goes 9.3 -> 9.5 fps with
+        ``Performance``. USB3 cameras silently return False so the bench
+        sweep can call unconditionally. Raises HardwareError on SDK failure.
         """
         if not self.active:
             return False
@@ -1488,36 +1384,13 @@ class PylonCamera(Camera):
             return False
 
     def set_gev_packet_size(self, size_bytes: int) -> bool:
-        """Set GevSCPSPacketSize -- GigE only.
+        """Set GevSCPSPacketSize (GigE only).
 
-        Per Basler doc network-related-parameters.md, the GigE
-        packet size governs jumbo-frame negotiation. 1500 is the
-        standard Ethernet MTU; 9000 is the typical jumbo-frame
-        size. Loss probability scales with packet count, so larger
-        packets reduce host CPU and packet rate -- but jumbo frames
-        require OS-level configuration on the host (per the
-        bundled network-configuration-(gige-cameras).md).
-
-        Per dmA3536-9gm spec at 9.3 fps Mono8 (~109 MB/s) the camera
-        is at the GigE wire limit; packet size dominates per-frame
-        packet count (1500 MTU -> ~78k pkts/s; 9000 MTU -> ~13k
-        pkts/s).
-
-        USB3 cameras do not expose the node; returns False without
-        warning so the bench-probe sweep can call this method
-        unconditionally per cell.
-
-        Args:
-            size_bytes: Packet size in bytes. Typical values:
-                1500 (standard MTU) or 9000 (jumbo).
-
-        Returns:
-            bool: True on success. False if the camera is inactive,
-                size_bytes is non-positive, or the GevSCPSPacketSize
-                node is not exposed (USB3 camera).
-
-        Raises:
-            HardwareError: SDK RuntimeException during the write.
+        Per Basler `network-related-parameters.md`: 1500 = standard MTU,
+        9000 = jumbo. Larger packets cut host CPU + packet rate but require
+        OS-level jumbo-frame config. USB3 cameras silently return False so
+        the bench sweep can call unconditionally. Raises HardwareError on
+        SDK failure.
         """
         if not self.active:
             return False
@@ -1555,30 +1428,12 @@ class PylonCamera(Camera):
             return False
 
     def set_gev_inter_packet_delay(self, delay_ticks: int) -> bool:
-        """Set GevSCPD (inter-packet delay in clock ticks) -- GigE only.
+        """Set GevSCPD inter-packet delay in clock ticks (GigE only).
 
-        Per Basler doc network-related-parameters.md, GevSCPD inserts
-        a wait between successive packets. Used to throttle a camera
-        when multiple cameras share a single GigE link or when the
-        host CPU can't keep up at full bandwidth. Larger values =
-        slower transmit = lower per-camera throughput; combine across
-        multiple cameras to share a single link.
-
-        USB3 cameras do not expose the node; returns False without
-        warning so the bench-probe sweep can call this method
-        unconditionally per cell.
-
-        Args:
-            delay_ticks: Inter-packet delay in GigE clock ticks
-                (camera-specific tick rate). 0 = no delay.
-
-        Returns:
-            bool: True on success. False if the camera is inactive,
-                delay_ticks is negative, or the GevSCPD node is
-                not exposed (USB3 camera).
-
-        Raises:
-            HardwareError: SDK RuntimeException during the write.
+        Per Basler `network-related-parameters.md`: throttles per-camera
+        throughput so multiple cameras can share a GigE link. 0 = no delay.
+        USB3 cameras silently return False so the bench sweep can call
+        unconditionally. Raises HardwareError on SDK failure.
         """
         if not self.active:
             return False
@@ -1667,13 +1522,7 @@ class PylonCamera(Camera):
             ) from e
 
     def get_pixel_format(self) -> str:
-        """Read the camera's currently-active PixelFormat symbolic value.
-
-        Returns:
-            str: Pylon symbolic name (e.g. ``'Mono8'``, ``'Mono12p'``).
-                Empty string if the camera is inactive or the read
-                fails.
-        """
+        """Return active PixelFormat (e.g. 'Mono8'); '' on inactive / read failure."""
         if not self.active:
             return ''
 
@@ -1690,13 +1539,7 @@ class PylonCamera(Camera):
             return ''
 
     def get_supported_pixel_formats(self) -> tuple:
-        """Return every PixelFormat symbolic name the camera advertises.
-
-        Returns:
-            tuple: PixelFormat enum entries as Pylon symbolic strings.
-                Empty tuple if the read fails or the camera is
-                inactive.
-        """
+        """Return every PixelFormat the camera advertises; () on inactive / read failure."""
         try:
             return self.active.PixelFormat.GetSymbolics()
         except genicam.RuntimeException as e:
@@ -1774,16 +1617,9 @@ class PylonCamera(Camera):
             ) from e
 
     def get_binning_size(self) -> int:
-        """Read the camera's current binning size.
+        """Return current binning factor; 1 on inactive / read failure.
 
-        Returns the vertical binning value; if vertical and horizontal
-        diverge a warning is logged and vertical wins (the asymmetric
-        case is a misconfiguration the operator should fix).
-
-        Returns:
-            int: 1 (1x1, no binning) up to the camera's max binning
-                factor. 1 if the camera is inactive (caller-correctable
-                guard).
+        Vertical wins on asymmetric mismatch (operator misconfig).
         """
         if not self.active:
             return 1
@@ -2068,12 +1904,7 @@ class PylonCamera(Camera):
             logger.exception(f'[CAM Class ] Unexpected error in set_frame_size: {e}')
 
     def get_min_frame_size(self) -> dict:
-        """Read the camera's minimum supported frame dimensions.
-
-        Returns:
-            dict: ``{'width': int, 'height': int}`` or empty dict if
-                the camera is inactive or the read fails.
-        """
+        """Return min frame dims as {'width': int, 'height': int}; {} on inactive / read failure."""
         camera = self.active
         if camera is None:
             return {}
@@ -2091,16 +1922,10 @@ class PylonCamera(Camera):
             return {}
 
     def get_max_frame_size(self) -> dict:
-        """Read the camera's maximum supported frame dimensions.
+        """Return sensor-driven max frame dims; {} on inactive / read failure.
 
-        Note: this is the sensor-driven ceiling. Production lenses
-        typically constrain usable area further (lens-driven ceiling
-        is tracked separately at the API layer per `data/scopes.json`
-        ``max_usable_roi``).
-
-        Returns:
-            dict: ``{'width': int, 'height': int}`` or empty dict if
-                the camera is inactive or the read fails.
+        Lens-driven ceiling (typically tighter) lives at the API layer in
+        `data/scopes.json` ``max_usable_roi``.
         """
         camera = self.active
         if camera is None:
@@ -2119,13 +1944,7 @@ class PylonCamera(Camera):
             return {}
 
     def get_frame_size(self) -> dict | None:
-        """Read the camera's currently-active frame size.
-
-        Returns:
-            dict | None: ``{'width': int, 'height': int}`` (and any
-                additional fields populated by the active path) on
-                success, or ``None`` if the camera is inactive.
-        """
+        """Return active dims as {'width': int, 'height': int}; None on inactive / read failure."""
         camera = self.active
         if camera is None:
             return
@@ -2149,14 +1968,7 @@ class PylonCamera(Camera):
             return None
 
     def get_gain(self) -> float:
-        """Read the camera's current Gain value (dB).
-
-        Returns:
-            float: Gain in dB on success. Returns ``-1.0`` on any
-                error path (inactive camera, USB timeout, SDK
-                exception) so callers can treat ``< 0`` as "read
-                failed" without needing a try/except.
-        """
+        """Return current Gain (dB); -1.0 on any error so callers can treat < 0 as failure."""
         if self.active is None:
             logger.warning('[CAM Class ] Cannot read gain: camera inactive')
             return -1
@@ -2178,42 +1990,27 @@ class PylonCamera(Camera):
             return -1
 
     def is_connected(self) -> bool:
-        """Return True if the current camera is considered connected.
-        Uses internal removal flag and, if available, the SDK's device-removed query.
-        Avoids transport-layer enumeration to reduce risk of native-side instability.
-        """
+        """Return True if connected; uses removal flag + SDK device-removed query."""
         if self._device_removed:
             self._mark_disconnected()
             return False
         if self.active is None:
             self._mark_disconnected()
             return False
-        # Belt-and-suspenders -- the InstantCamera knows whether the SDK
-        # received a removal notification before our handler fired or
-        # before our removal-handler registration succeeded. Cheap query
-        # (no transport enumeration); covers the case where the
-        # _CameraRemovalHandler missed the event for any reason.
+        # Cheap SDK-side query covers cases where _CameraRemovalHandler missed the event.
         try:
             if self.active.IsCameraDeviceRemoved():
                 self._mark_disconnected()
                 return False
         except Exception as e:
-            # Native-side query failed -- treat as inconclusive; trust
-            # the prior _device_removed / active checks.
             logger.debug(f'[CAM Class ] IsCameraDeviceRemoved query raised: {e}')
         return True
 
     def gain(self, value) -> None:
-        """Set Gain in the camera hardware (dB).
+        """Set Gain in dB. Asserts GainSelector='All' first (Basler gain.html three-step).
 
-        Per Basler ``gain.html`` three-step recipe: caller is
-        responsible for ``GainAuto=Off``; this method asserts
-        ``GainSelector='All'`` then writes ``Gain.SetValue(value)``.
-        ``GainSelector`` failures are tolerated (logged at debug)
-        for cameras that do not expose the selector.
-
-        Args:
-            value: Gain in dB. Coerced to ``float``.
+        Caller is responsible for ``GainAuto=Off``. GainSelector write
+        failures are tolerated (cameras without the selector).
         """
         if self.active is None:
             if _cam_log is not None:
@@ -2222,12 +2019,6 @@ class PylonCamera(Camera):
             return
 
         try:
-            # Per Basler doc gain.html three-step recipe: GainAuto Off
-            # (caller's responsibility) -> GainSelector All -> Gain
-            # SetValue. Asserting GainSelector='All' here is defensive
-            # against upstream code that may have set GainSelector to
-            # a per-channel selector. Per-write try/except: tolerate
-            # cameras that don't expose the selector.
             try:
                 self.active.GainSelector.SetValue('All')
             except Exception as e_sel:
@@ -2515,26 +2306,15 @@ class PylonCamera(Camera):
     _CHUNK_TARGETS_FOR_VALIDITY = ('ExposureTime', 'Gain', 'FrameID')
 
     def probe_chunk_capabilities(self) -> dict:
-        """Probe per-frame chunk-data feature support via static introspection.
+        """Probe per-frame chunk support via activation-acceptance.
 
-        Enumerates the camera's ChunkSelector entries and attempts to
-        enable each chunk frame_validity might use. Activation-acceptance
-        is the sufficient test: if ChunkEnable accepts True for a given
-        selector and reads back True, the camera supports that chunk.
+        For each ChunkSelector entry, sets ChunkEnable=True and reads back
+        to confirm support. ChunkModeActive is locked while grabbing, so
+        the probe stops grabbing if needed and restores prior config.
 
-        Pylon locks ChunkModeActive while grabbing -- the probe stops
-        grabbing if needed and restarts after, restoring the prior chunk
-        configuration. Does not grab a frame; live-value read is wired
-        separately when chunks land in ImageHandler.
-
-        Returns:
-            dict with keys:
-              'model': camera model name (None if unavailable)
-              'firmware': camera firmware version (None if unavailable)
-              'serial': camera serial number (None if unavailable)
-              'advertised': sorted list of ChunkSelector entry symbols
-              'enabled': dict of selector -> bool (True = activation succeeded)
-              'errors': list of error strings encountered during probe
+        Returns dict with keys: 'model', 'firmware', 'serial', 'advertised'
+        (sorted list of selector symbols), 'enabled' (selector -> bool),
+        'errors' (list).
         """
         result = {
             'model': getattr(self, 'model_name', None),
@@ -2986,12 +2766,9 @@ class ImageHandler(pylon.ImageEventHandler):
         self._frame_queue = queue.Queue(maxsize=1)
         self._parent = parent_cam
 
-    # Maps GrabResult chunk attribute names to the chunk_data dict keys
-    # frame_validity expects (matches FrameValidity.CHUNK_KEY_FOR_SOURCE).
-    # ChunkFrameID and ChunkFramecounter both map to 'FrameID' -- the
-    # camera advertised one of them, _enable_validity_chunks enabled
-    # whichever is present, the read side tries both and the active
-    # one returns a value.
+    # Maps GrabResult chunk attrs to keys in FrameValidity.CHUNK_KEY_FOR_SOURCE.
+    # ChunkFrameID + ChunkFramecounter both map to 'FrameID' (camera advertises one;
+    # read side tries both, the active one returns a value).
     _CHUNK_GRAB_RESULT_ATTRS = (
         ('ChunkExposureTime', 'ExposureTime'),
         ('ChunkGain', 'Gain'),
@@ -3003,17 +2780,8 @@ class ImageHandler(pylon.ImageEventHandler):
     def _read_validity_chunks(grabResult) -> dict | None:
         """Extract validity chunks from a successful GrabResult.
 
-        Reads ChunkExposureTime / ChunkGain / ChunkFrameID via the
-        GrabResult attribute interface (pypylon exposes chunks as
-        attributes once ChunkModeActive + ChunkEnable are set on the
-        camera). Per-chunk failures are silenced; missing chunks just
-        don't appear in the returned dict.
-
-        Returns:
-            dict mapping chunk-key -> value (e.g. {'ExposureTime': 14530.0,
-            'Gain': 1.0, 'FrameID': 12345}), or None if no chunks were
-            readable (camera doesn't support chunks, or chunk_enable
-            failed during init_camera_config -> _enable_validity_chunks).
+        Returns dict like {'ExposureTime': float, 'Gain': float, 'FrameID': int},
+        or None if no chunks readable (chunks unsupported or not enabled).
         """
         chunks: dict = {}
         for chunk_attr, key in ImageHandler._CHUNK_GRAB_RESULT_ATTRS:
@@ -3030,21 +2798,7 @@ class ImageHandler(pylon.ImageEventHandler):
         return chunks if chunks else None
 
     def OnImageGrabbed(self, camera, grabResult) -> None:
-        """Pylon SDK callback fired once per acquired frame.
-
-        Runs in a Pylon-owned worker thread (renamed from CPython's
-        auto-assigned ``Dummy-N`` to ``PylonImageGrab`` for
-        thread-counter visibility). Branches on ``GrabSucceeded`` and
-        on the cancelled-buffer status code per Layer-1 cancel
-        handling -- see the cancel-code provenance comments earlier
-        in this module for the full classification table.
-
-        Args:
-            camera: SDK ``InstantCamera`` reference (unused; pylon
-                contract).
-            grabResult: SDK ``GrabResult`` carrying status, error
-                code, and image data.
-        """
+        """Pylon SDK callback fired per acquired frame; runs in a Pylon-owned thread."""
         # Per-callback duration trace; zero overhead when
         # ENABLE_PROFILE_TRACE is unset (production builds).
         _trace_enabled = profile_trace is not None and profile_trace.ENABLE_PROFILE_TRACE
@@ -3052,19 +2806,13 @@ class ImageHandler(pylon.ImageEventHandler):
         _outcome = 'unknown'
         _frame_bytes = 0
         try:
-            # Rename SDK worker threads from Python's auto-assigned
-            # "Dummy-N" to a stable label so the thread-count poller
-            # (_stats_poller_loop) can count grab callbacks via
-            # name-prefix match. Assumption: pypylon delivers
-            # OnImageGrabbed on threads created outside Python (which
-            # CPython assigns Dummy-N names) on pypylon 26.4.x. If a
-            # future pypylon version uses pre-named threads, the rename
-            # branch never fires and _stats_poller_loop's grab count
-            # under-reports.
+            # Rename Pylon's Dummy-N worker thread to a stable label so
+            # _stats_poller_loop can count grab callbacks by name. If a
+            # future pypylon pre-names threads, this branch no-ops AND
+            # _stats_poller_loop's grab count under-reports.
             if 'Dummy' in threading.current_thread().name:
                 threading.current_thread().name = 'PylonImageGrab'
 
-            # Check if parent camera was removed before processing
             if self._parent._device_removed:
                 logger.debug(
                     '[CAM Class ] OnImageGrabbed called but device '
@@ -3073,7 +2821,6 @@ class ImageHandler(pylon.ImageEventHandler):
                 _outcome = 'early_return_removed'
                 return
 
-            # Check if parent camera is still active
             if self._parent.active is None:
                 logger.debug('[CAM Class ] OnImageGrabbed called but camera is inactive, ignoring')
                 self._parent._mark_disconnected()
@@ -3084,7 +2831,7 @@ class ImageHandler(pylon.ImageEventHandler):
                 with contextlib.suppress(queue.Empty):
                     self._frame_queue.get_nowait()
 
-            # Safely check grab result - this can throw native exceptions
+            # GrabSucceeded() can leak native exceptions in cancel/teardown paths.
             try:
                 grab_succeeded = grabResult.GrabSucceeded()
             except Exception as e:
@@ -3100,11 +2847,7 @@ class ImageHandler(pylon.ImageEventHandler):
                     img = grabResult.GetArray().copy()
                     ts = datetime.datetime.now()
                     _frame_bytes = img.nbytes
-                    # Read per-frame chunk metadata if available.
-                    # _read_validity_chunks is defensive (catches per-chunk
-                    # exceptions); returns None if no chunks were readable
-                    # (camera doesn't support chunks or chunk-enable failed
-                    # during init).
+                    # None if chunks not enabled or unsupported.
                     chunks = self._read_validity_chunks(grabResult)
                     self._base._store_frame(img, ts, chunks=chunks)
                     self._frame_queue.put((True, img, ts))
@@ -3124,21 +2867,13 @@ class ImageHandler(pylon.ImageEventHandler):
                 except Exception as _err_introspect:
                     err_code, err_desc = None, f'<introspect failed: {_err_introspect!r}>'
                 if err_code == _PYLON_ERR_BUFFER_CANCELED or self._parent._device_removed:
-                    # Pylon returns buffers with cancelled status when
-                    # StopGrabbing fires while grabs are in flight. Not a
-                    # hardware failure -- purely a lifecycle event from
-                    # rapid stop/start cycles. Don't increment
-                    # _failed_grabs (that path triggers auto-disconnect at
-                    # MAX_CONSECUTIVE_FAILURES; cancel storms during
-                    # config changes would falsely trip it).
-                    # OR-with-removal-flag insurance: device-removal
-                    # teardown delivers in-flight buffers as failures, but
-                    # the precise err_code attached during removal is not
-                    # documented by Basler. Treating any failure paired
-                    # with _device_removed=True as expected teardown
-                    # protects MAX_CONSECUTIVE_FAILURES from spurious
-                    # auto-disconnect during removal storms even if a
-                    # second cancel-flavoured code surfaces later.
+                    # Cancelled buffers (StopGrabbing mid-flight) and any failure
+                    # during device removal are SDK lifecycle events, not real
+                    # failures. Counting them would falsely trip
+                    # MAX_CONSECUTIVE_FAILURES during stop/start or removal storms.
+                    # The OR with _device_removed is insurance: Basler doesn't
+                    # document the precise err_code on removal teardown, so we
+                    # treat any failure paired with the flag as expected.
                     logger.debug(
                         f'[CAM Class ] Grab cancelled (SDK lifecycle, '
                         f'not a failure) err_code={err_code} desc={err_desc!r} '
@@ -3146,19 +2881,13 @@ class ImageHandler(pylon.ImageEventHandler):
                     )
                     _outcome = 'success_no_grab_cancelled'
                 else:
-                    # Real failure path. err_code + err_desc may differ
-                    # between failures (USB CRC vs partial frame vs buffer
-                    # underrun); logging every one preserves the cause
-                    # distribution.
+                    # err_code/desc varies (USB CRC, partial frame, underrun);
+                    # log each to preserve cause distribution.
                     logger.warning(
                         f'[CAM Class ] grabResult.GrabSucceeded()=False '
                         f'err_code={err_code} desc={err_desc!r}'
                     )
-                    # _record_failure returns True after
-                    # ImageHandlerBase.MAX_CONSECUTIVE_FAILURES (128)
-                    # consecutive failures. At 30 fps that is ~4.3s of
-                    # back-to-back failures; at lower frame rates it
-                    # can take longer.
+                    # Returns True after 128 consecutive failures (~4.3s at 30 fps).
                     should_stop = self._base._record_failure()
                     if should_stop:
                         try:
@@ -3193,13 +2922,7 @@ class ImageHandler(pylon.ImageEventHandler):
                 )
 
     def reset(self) -> None:
-        """Clear frame buffer, drain the queue, and reset failure counter.
-
-        Defensive against partially-disposed queue state during
-        teardown; the outer guard logs at warning if the queue raises
-        on drain (the per-iteration ``queue.Empty`` is the normal
-        exit).
-        """
+        """Clear frame buffer, drain the queue, and reset failure counter."""
         try:
             while not self._frame_queue.empty():
                 try:
