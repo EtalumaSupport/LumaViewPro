@@ -490,8 +490,15 @@ class SequentialIOExecutor:
     def _on_task_done(self, task: IOTask, result, exception):
         # Receives (result, exception) from worker, then schedules task.on_complete
         if exception is not None:
-            notifications.error("Task", f"{self.name} Task Failed",
-                f"{getattr(task.action, '__name__', str(task.action))} failed: {type(exception).__name__}: {exception}")
+            if isinstance(exception, CancelledError):
+                logger.debug(
+                    f'[{self.name}] '
+                    f'{getattr(task.action, "__name__", str(task.action))} '
+                    f'cancelled (by-contract)'
+                )
+            else:
+                notifications.error("Task", f"{self.name} Task Failed",
+                    f"{getattr(task.action, '__name__', str(task.action))} failed: {type(exception).__name__}: {exception}")
         self.last_task_done_monotonic = time.monotonic()
 
         # Threading audit §10.1 — emit per-IOTask timing row when opt-in tracing

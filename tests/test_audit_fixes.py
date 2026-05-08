@@ -4416,6 +4416,64 @@ class TestPylonBslPrefixedNodeFallbacks:
         )
 
 
+class TestSequentialIOExecutorCancelledNotErrorLogged:
+    """SequentialIOExecutor._on_task_done must not fire
+    notifications.error when the exception is a CancelledError.
+    Cancellations come from the caller (shutdown / clear_pending /
+    cancel_all_protocols) by contract; treating them as failures
+    floods the error log on every clean shutdown.
+    """
+
+    def _run_on_task_done(self, executor, exception):
+        from modules.sequential_io_executor import IOTask
+        task = IOTask(action=lambda: None, callback=lambda *a, **k: None)
+        executor.queue.put(task)
+        executor._on_task_done(task, None, exception)
+
+    def test_cancelled_does_not_call_notifications_error(self, monkeypatch):
+        from concurrent.futures import CancelledError
+        from modules.sequential_io_executor import SequentialIOExecutor
+        from modules import notification_center
+
+        executor = SequentialIOExecutor(max_workers=1, name='TEST_CANCEL')
+        try:
+            calls = []
+            monkeypatch.setattr(
+                notification_center.notifications,
+                'error',
+                lambda *a, **kw: calls.append(('error', a, kw)),
+            )
+            self._run_on_task_done(executor, CancelledError())
+            assert calls == [], (
+                f'_on_task_done(..., CancelledError()) must not fire '
+                f'notifications.error; got {calls}'
+            )
+        finally:
+            executor.executor.shutdown(wait=False)
+            executor.dispatcher.shutdown(wait=False)
+
+    def test_runtime_error_still_calls_notifications_error(self, monkeypatch):
+        from modules.sequential_io_executor import SequentialIOExecutor
+        from modules import notification_center
+
+        executor = SequentialIOExecutor(max_workers=1, name='TEST_REAL_FAIL')
+        try:
+            calls = []
+            monkeypatch.setattr(
+                notification_center.notifications,
+                'error',
+                lambda *a, **kw: calls.append(('error', a, kw)),
+            )
+            self._run_on_task_done(executor, RuntimeError('test failure'))
+            assert len(calls) == 1, (
+                f'_on_task_done(..., RuntimeError) must fire one '
+                f'notifications.error; got {calls}'
+            )
+        finally:
+            executor.executor.shutdown(wait=False)
+            executor.dispatcher.shutdown(wait=False)
+
+
 class TestPylonAutoGainNoUpdateCameraConfigWrap:
     """update_auto_gain_target_brightness and update_auto_gain_min_max
     write Basler AutoTargetBrightness / AutoGainLowerLimit /
