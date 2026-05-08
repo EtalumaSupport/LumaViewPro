@@ -29,7 +29,7 @@ This NOTICE file is maintained by Etaluma, Inc. in accordance with Apache-2.0 §
 | Numba | 0.64.0 | BSD-2-Clause | https://numba.pydata.org/ |
 | llvmlite (numba dep) | bundled with numba | BSD-2-Clause (wrapper); LLVM is Apache-2.0 with LLVM Exceptions | https://github.com/numba/llvmlite |
 | platformdirs | 4.4.0 | MIT | https://github.com/platformdirs/platformdirs |
-| pypylon | 4.2.0 | BSD-3-Clause (Python wrapper only) | https://github.com/basler/pypylon |
+| pypylon | 26.4.1 | BSD-3-Clause (Python wrapper only) | https://github.com/basler/pypylon |
 | ids-peak | 1.13.0.0.6 | BSD-3-Clause (Python wrapper only) | https://pypi.org/project/ids-peak/ |
 | PyAV (`av`) | 14.0.0 | BSD-3-Clause wrapper over LGPL-2.1 FFmpeg | https://github.com/PyAV-Org/PyAV |
 | JPype1 | 1.6.0 | Apache-2.0 | https://github.com/jpype-project/jpype |

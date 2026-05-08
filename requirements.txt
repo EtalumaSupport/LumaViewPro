@@ -5,7 +5,7 @@ matplotlib==3.10.8
 numpy==2.4.4
 opencv-python-headless==4.13.0.92
 pandas==3.0.2
-pypylon==4.2.0
+pypylon==26.4.1
 pyserial==3.5
 scikit-image==0.26.0
 scipy==1.17.1
