@@ -560,41 +560,59 @@ class PylonCamera(Camera):
     def start_grabbing(self) -> None:
         """Start the camera's grab loop with `LatestImageOnly` strategy.
 
-        Caps `MaxNumBuffer` at 3 to bound Windows kernel non-paged
-        pool usage at full-resolution Mono12. Snapshots StreamGrabber
+        Idempotent: if grabbing already started (pypylon 26.4.x's
+        ``AcquireContinuousConfiguration + Open()`` triggers an implicit
+        StartGrabbing), this method returns early. Snapshots StreamGrabber
         Status into the trace log per B23. Starts the optional stats
-        poller (no-op when `LVP_PROFILE_TRACE` is unset).
+        poller (no-op when ``LVP_PROFILE_TRACE`` is unset).
 
         Exception-tolerant: SDK failures are logged but not raised so
         UI handlers can call this without wrapping.
 
-        ``LVP_PYLON_MAX_NUM_BUFFER`` env var overrides the cap (bench
-        characterization). Set before importing PylonCamera. Default is 3.
+        ``LVP_PYLON_MAX_NUM_BUFFER`` / ``LVP_PYLON_MAX_TRANSFER_SIZE`` /
+        ``LVP_PYLON_NUM_QUEUED_URBS`` / ``LVP_PYLON_GRAB_STRATEGY`` env
+        vars override defaults for bench characterization.
         """
         camera = self.active
+        if camera is None:
+            return
+        # Idempotent guard (B35). pypylon 26.4.x: AcquireContinuousConfiguration
+        # + Open() triggers an implicit StartGrabbing before connect()'s
+        # explicit start_grabbing() runs. Bench evidence 2026-05-08 (Mac +
+        # Windows): a second StartGrabbing raises RuntimeException
+        # "Grabbing has already been started" -- caught but logs spurious
+        # WARNING on every connect.
         try:
-            # Cap the DMA buffer ring to 3 by default. Pylon's default
-            # (10-25, depending on SDK version) pins ~16 MB per buffer of
-            # Windows kernel nonpaged pool at full-resolution Mono12,
-            # matching the observed ~228 MB startup spike that never
-            # releases. LatestImageOnly discards old frames anyway, so 3
-            # buffers is plenty -- two active + one rotating.
-            # The cap can starve the buffer ring under USB transfer hiccups
-            # (proven on dart M USB3 + DLTL=160 MB/s default); raising via
-            # LVP_PYLON_MAX_NUM_BUFFER for bench is the characterization
-            # path. Production default unchanged until measurement settles.
-            try:
-                _mnb = int(os.environ.get('LVP_PYLON_MAX_NUM_BUFFER', '3'))
-            except (ValueError, TypeError):
-                _mnb = 3
-            try:
-                camera.MaxNumBuffer.SetValue(_mnb)
+            if camera.IsGrabbing():
                 if _cam_log is not None:
-                    _cam_log.info(f'pylon MaxNumBuffer.SetValue({_mnb})')
-            except Exception as e:
-                if _cam_log is not None:
-                    _cam_log.warning(f'pylon MaxNumBuffer cap FAILED: {e}')
-                logger.warning(f'[CAM Class ] MaxNumBuffer cap failed: {e}')
+                    _cam_log.info('start_grabbing: already grabbing, skipping')
+                return
+        except Exception as e:
+            if _cam_log is not None:
+                _cam_log.debug(f'start_grabbing IsGrabbing() check raised: {e}')
+        try:
+            # MaxNumBuffer cap retired 2026-05-08 (B34). The previous cap
+            # of 3 was for Windows non-paged-pool pressure at full-res
+            # Mono12 (originally observed ~228 MB startup spike). pypylon
+            # 26.4.x makes MaxNumBuffer RO once grabbing has begun, AND
+            # AcquireContinuousConfiguration auto-starts on Open() in
+            # 26.4.x -- the cap window no longer exists. Bench data
+            # (Mac dart M, 2026-05-08) shows the cap was also
+            # counterproductive: ring-of-3 starves the buffer pool under
+            # USB transfer hiccups (28% fail vs 13% at default 10).
+            # Production now runs at SDK default. Override via
+            # LVP_PYLON_MAX_NUM_BUFFER if a future Windows memory regression
+            # surfaces.
+            _mnb_env = os.environ.get('LVP_PYLON_MAX_NUM_BUFFER')
+            if _mnb_env:
+                try:
+                    camera.MaxNumBuffer.SetValue(int(_mnb_env))
+                    if _cam_log is not None:
+                        _cam_log.info(f'pylon MaxNumBuffer.SetValue({_mnb_env}) [env]')
+                except Exception as e:
+                    if _cam_log is not None:
+                        _cam_log.warning(f'pylon MaxNumBuffer override FAILED: {e}')
+                    logger.debug(f'[CAM Class ] MaxNumBuffer override failed: {e}')
             # USB3 StreamGrabber tuning. Production default = SDK default
             # (MaxTransferSize=256KB, NumMaxQueuedUrbs=64). Bench overrides
             # via LVP_PYLON_MAX_TRANSFER_SIZE / LVP_PYLON_NUM_QUEUED_URBS to
