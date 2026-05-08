@@ -426,6 +426,12 @@ class Lumascope():
         self._stage_offset = None         # The stage offset for the microscope
         self._last_turret_position = None # Stores the last known turret position
         self.engineering_mode = False      # Set by UI to enable engineering features
+        # When True, programmatic value-range warnings (sub-0.1ms exposure,
+        # future similar setters) are silenced. Internal callers that sweep
+        # full ranges (camera characterization, dynamic-range tests) enter
+        # this via `suppress_value_warnings()`; the warnings exist for L1
+        # researchers who type microsecond values thinking ms.
+        self._suppress_value_warnings = False
 
         # LAYER-A' executor handles. Registered post-construction via
         # register_executors() so that tests using `Lumascope(simulate=True)`
@@ -3748,6 +3754,29 @@ class Lumascope():
         # so chunk-match falls back to skip-frames calibration.
         self.frame_validity.set_target('gain', None)
 
+    @contextlib.contextmanager
+    def suppress_value_warnings(self):
+        """Suppress programmatic value-range warnings (sub-0.1ms exposure
+        and similar) for the duration of the `with` block.
+
+        Used by sweep-style internal callers (camera characterization
+        dynamic_range / linearity stages) that walk the full setting
+        range deliberately. The warnings exist for L1 researchers who
+        type microsecond values thinking ms; they're noise when the
+        char tool is exercising the API as designed.
+
+        Restores the prior flag value (not unconditionally False) so
+        nested `with` blocks behave correctly. Restoration runs on
+        exception too -- exiting an exception-aborted char run leaves
+        the API in a clean state for the next user action.
+        """
+        prior = self._suppress_value_warnings
+        self._suppress_value_warnings = True
+        try:
+            yield
+        finally:
+            self._suppress_value_warnings = prior
+
     def set_exposure_time(self, t: float) -> None:
         """Set the camera exposure time.
 
@@ -3758,7 +3787,7 @@ class Lumascope():
         # Skip redundant SDK call if exposure hasn't changed
         if abs(float(t) - self.camera_exposure_ms) < 0.001:
             return
-        if t < 0.1:
+        if t < 0.1 and not self._suppress_value_warnings:
             import traceback
             _caller = ''.join(traceback.format_stack(limit=6)[-4:-1]).strip()
             logger.warning(f'[SCOPE API ] set_exposure_time({t}ms) is very low -- '

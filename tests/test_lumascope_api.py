@@ -985,3 +985,79 @@ def dataclasses_fields(cls):
     """Helper — imported late to keep the imports tidy."""
     import dataclasses as _dc
     return _dc.fields(cls)
+
+
+class TestSetExposureTimeValueWarningSuppression:
+    """`set_exposure_time` warns at < 0.1 ms exposures because the
+    L1-researcher failure mode is typing 0.05 thinking microseconds and
+    getting a black image (lumascope_api.py:3761). Sweep-style internal
+    callers (camera characterization dynamic_range / linearity stages)
+    walk that range deliberately and need a way to silence the warning.
+    The `suppress_value_warnings()` context manager flips an instance
+    flag that gates the warning. Tests verify the gate, the flag's
+    restore-on-exit semantics (including exception path), and that the
+    warning still fires by default for L1-typed values.
+    """
+
+    def _patch_logger(self, monkeypatch):
+        from unittest.mock import MagicMock
+        import modules.lumascope_api as lapi
+        mock = MagicMock()
+        monkeypatch.setattr(lapi, 'logger', mock)
+        return mock
+
+    def test_warning_fires_by_default_at_sub_0_1_ms(self, monkeypatch):
+        mock_logger = self._patch_logger(monkeypatch)
+        scope = Lumascope(simulate=True)
+        scope.set_exposure_time(0.05)
+        # Find the warning among any other logger calls
+        warn_msgs = [str(c) for c in mock_logger.warning.call_args_list]
+        assert any('set_exposure_time(0.05ms)' in m and 'very low' in m
+                   for m in warn_msgs), (
+            f'expected sub-0.1ms warning but got: {warn_msgs}')
+
+    def test_warning_suppressed_inside_context_manager(self, monkeypatch):
+        mock_logger = self._patch_logger(monkeypatch)
+        scope = Lumascope(simulate=True)
+        with scope.suppress_value_warnings():
+            scope.set_exposure_time(0.05)
+        warn_msgs = [str(c) for c in mock_logger.warning.call_args_list]
+        assert not any('set_exposure_time(0.05ms)' in m
+                       for m in warn_msgs), (
+            f'expected no sub-0.1ms warning inside context, got: {warn_msgs}')
+
+    def test_flag_restored_after_normal_exit(self):
+        scope = Lumascope(simulate=True)
+        assert scope._suppress_value_warnings is False
+        with scope.suppress_value_warnings():
+            assert scope._suppress_value_warnings is True
+        assert scope._suppress_value_warnings is False
+
+    def test_flag_restored_after_exception_in_context(self):
+        scope = Lumascope(simulate=True)
+        assert scope._suppress_value_warnings is False
+        with pytest.raises(RuntimeError, match='boom'):
+            with scope.suppress_value_warnings():
+                assert scope._suppress_value_warnings is True
+                raise RuntimeError('boom')
+        assert scope._suppress_value_warnings is False
+
+    def test_nested_context_managers_restore_to_outer_value(self):
+        """Nested `with` blocks restore to prior, not unconditionally False --
+        an outer `with` followed by an inner-then-exit must leave True."""
+        scope = Lumascope(simulate=True)
+        with scope.suppress_value_warnings():
+            with scope.suppress_value_warnings():
+                assert scope._suppress_value_warnings is True
+            # After inner exit, outer is still suppressing
+            assert scope._suppress_value_warnings is True
+        assert scope._suppress_value_warnings is False
+
+    def test_warning_does_not_fire_at_or_above_threshold(self, monkeypatch):
+        mock_logger = self._patch_logger(monkeypatch)
+        scope = Lumascope(simulate=True)
+        scope.set_exposure_time(0.5)
+        scope.set_exposure_time(20.0)
+        warn_msgs = [str(c) for c in mock_logger.warning.call_args_list]
+        assert not any('very low' in m for m in warn_msgs), (
+            f'no sub-0.1ms warning expected, got: {warn_msgs}')
