@@ -715,31 +715,31 @@ class PylonCamera(Camera):
 
             camera.Open()
 
-            # B34 follow-up: if LVP_PYLON_MAX_NUM_BUFFER is set, apply the
-            # cap immediately after Open() -- earliest possible window
-            # before pypylon 26.4.x's AcquireContinuousConfiguration
-            # auto-starts grabbing and locks the node. This is the only
-            # path that actually applies the cap on pypylon 26.4.x.
-            # Unset = SDK default (no cap, current behavior).
-            _mnb_env = os.environ.get('LVP_PYLON_MAX_NUM_BUFFER')
-            if _mnb_env:
-                try:
-                    camera.MaxNumBuffer.SetValue(int(_mnb_env))
-                    actual = camera.MaxNumBuffer.GetValue()
-                    logger.info(
-                        f'[CAM Class ] MaxNumBuffer cap applied post-Open: '
-                        f'requested={_mnb_env} actual={actual}'
+            # MaxNumBuffer cap (default 3). Applied post-Open() -- earliest
+            # window before pypylon 26.4.x's AcquireContinuousConfiguration
+            # auto-starts grabbing and locks the node. Bench-validated
+            # 2026-05-08 (Windows dart M, sensor-max Mono8): cap=3 and
+            # SDK-default both run at 0% fail rate / 0 resyncs/sec, so the
+            # cap restores the original Windows non-paged-pool bound at
+            # zero observed perf cost. Override via LVP_PYLON_MAX_NUM_BUFFER.
+            _mnb_env = os.environ.get('LVP_PYLON_MAX_NUM_BUFFER', '3')
+            try:
+                camera.MaxNumBuffer.SetValue(int(_mnb_env))
+                actual = camera.MaxNumBuffer.GetValue()
+                logger.info(
+                    f'[CAM Class ] MaxNumBuffer cap applied post-Open: '
+                    f'requested={_mnb_env} actual={actual}'
+                )
+                if _cam_log is not None:
+                    _cam_log.info(
+                        f'pylon MaxNumBuffer.SetValue({_mnb_env}) post-Open '
+                        f'(actual={actual})'
                     )
-                    if _cam_log is not None:
-                        _cam_log.info(
-                            f'pylon MaxNumBuffer.SetValue({_mnb_env}) post-Open '
-                            f'(actual={actual})'
-                        )
-                except Exception as e:
-                    logger.warning(
-                        f'[CAM Class ] MaxNumBuffer cap post-Open failed '
-                        f'(window may have closed): {e}'
-                    )
+            except Exception as e:
+                logger.warning(
+                    f'[CAM Class ] MaxNumBuffer cap post-Open failed '
+                    f'(window may have closed): {e}'
+                )
 
             # Store device identity if possible
             try:
