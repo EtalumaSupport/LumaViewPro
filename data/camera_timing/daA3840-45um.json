@@ -1,18 +1,48 @@
 {
   "camera_model": "daA3840-45um",
-  "measured_date": "2026-04-15",
+  "measured_date": "2026-05-08",
   "skip_frames": {
+    "led_off_to_on": {
+      "p50": 1,
+      "p95": 2,
+      "max": 2
+    },
+    "led_on_to_off": {
+      "p50": 1,
+      "p95": 2,
+      "max": 2
+    },
+    "gain_up": {
+      "p50": 2,
+      "p95": 3,
+      "max": 3
+    },
+    "gain_down": {
+      "p50": 2,
+      "p95": 3,
+      "max": 3
+    },
+    "exposure_short_to_long": {
+      "p50": 2,
+      "p95": 2,
+      "max": 2
+    },
+    "exposure_long_to_short": {
+      "p50": 1,
+      "p95": 2,
+      "max": 2
+    },
     "led": 2,
-    "gain": 2,
-    "exposure": 3
+    "gain": 3,
+    "exposure": 2
   },
   "frame_intervals_ms": {
-    "1": 23.17,
-    "5": 23.72,
-    "10": 24.79,
-    "20": 23.17,
-    "50": 50.1,
-    "100": 101.31,
+    "1": 56.59,
+    "5": 56.59,
+    "10": 56.59,
+    "20": 58.17,
+    "50": 58.17,
+    "100": 100.76,
     "200": 200.97
   },
   "af_z_move_drain_needed": false,
@@ -36,8 +66,8 @@
     "20dB": 2.2
   },
   "channel_crosstalk_detected": false,
-  "max_unsaturated_gain_dB": 10,
-  "max_unsaturated_exposure_ms": 100,
+  "max_unsaturated_gain_dB": 15,
+  "max_unsaturated_exposure_ms": 50,
   "z_settle_summary": {
     "1": {
       "focus_95_ms": 62.0,
@@ -85,5 +115,69 @@
     "AF_min": 8.0,
     "AF_max": 36.0,
     "AF_range": 75.0
-  }
+  },
+  "led_stability_drift_pct": {
+    "BF": 0.31
+  },
+  "dark_noise_std_at_max_gain": 2.86,
+  "dark_noise_gain_db": 48.00000004350822,
+  "noise_vs_gain_exposure_ms": 1.0,
+  "noise_vs_gain_points": [
+    {
+      "gain_db": 0.0,
+      "read_noise_floor_dn_mean": 0.0,
+      "read_noise_floor_dn_std": 0.0,
+      "temporal_noise_per_pixel_dn": 0.0,
+      "n_frames": 20
+    },
+    {
+      "gain_db": 6.86,
+      "read_noise_floor_dn_mean": 0.0,
+      "read_noise_floor_dn_std": 0.0,
+      "temporal_noise_per_pixel_dn": 0.0,
+      "n_frames": 20
+    },
+    {
+      "gain_db": 13.71,
+      "read_noise_floor_dn_mean": 0.001,
+      "read_noise_floor_dn_std": 0.0,
+      "temporal_noise_per_pixel_dn": 0.002,
+      "n_frames": 20
+    },
+    {
+      "gain_db": 20.57,
+      "read_noise_floor_dn_mean": 0.019,
+      "read_noise_floor_dn_std": 0.0,
+      "temporal_noise_per_pixel_dn": 0.065,
+      "n_frames": 20
+    },
+    {
+      "gain_db": 27.43,
+      "read_noise_floor_dn_mean": 0.168,
+      "read_noise_floor_dn_std": 0.001,
+      "temporal_noise_per_pixel_dn": 0.381,
+      "n_frames": 20
+    },
+    {
+      "gain_db": 34.29,
+      "read_noise_floor_dn_mean": 0.556,
+      "read_noise_floor_dn_std": 0.089,
+      "temporal_noise_per_pixel_dn": 0.956,
+      "n_frames": 20
+    },
+    {
+      "gain_db": 41.14,
+      "read_noise_floor_dn_mean": 1.596,
+      "read_noise_floor_dn_std": 0.012,
+      "temporal_noise_per_pixel_dn": 2.377,
+      "n_frames": 20
+    },
+    {
+      "gain_db": 48.0,
+      "read_noise_floor_dn_mean": 3.599,
+      "read_noise_floor_dn_std": 0.011,
+      "temporal_noise_per_pixel_dn": 5.253,
+      "n_frames": 20
+    }
+  ]
 }
