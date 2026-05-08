@@ -3719,7 +3719,7 @@ class TestPylonInitCameraConfigStyleConsistency:
         firmware bug or future user-set change could leak a different
         default."""
         src = self._pyloncamera_source()
-        idx = src.find("def init_camera_config(self):")
+        idx = src.find("def init_camera_config(self)")
         assert idx != -1
         end = src.find("def ", idx + 10)
         body = src[idx:end]
@@ -3741,7 +3741,7 @@ class TestPylonInitCameraConfigStyleConsistency:
         cleanup that collapses the loop back to a single FrameStart
         write fires this test."""
         src = self._pyloncamera_source()
-        idx = src.find("def init_camera_config(self):")
+        idx = src.find("def init_camera_config(self)")
         assert idx != -1
         end = src.find("def ", idx + 10)
         body = src[idx:end]
