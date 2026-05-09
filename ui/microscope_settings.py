@@ -401,6 +401,10 @@ class MicroscopeSettings(BoxLayout):
 
             self.select_video_recording_format()
 
+            manual_video = settings.get('manual_video', {})
+            self.ids['manual_video_max_fps_input'].text = str(manual_video.get('max_fps', 0))
+            self.ids['manual_video_max_duration_input'].text = str(manual_video.get('max_duration', 30))
+
             if "live_view_fps" in settings:
                 ctx.live_view_fps = settings['live_view_fps']
             else:
@@ -737,6 +741,52 @@ class MicroscopeSettings(BoxLayout):
             settings['video_as_frames'] = False
         else:
             settings['video_as_frames'] = True
+
+
+    def update_manual_video_max_fps(self):
+        # 0 = no limit (camera free-run rate). record_init keys
+        # _user_requested_fps_limit on this; non-zero requests the
+        # camera-side rate cap.
+        settings = _app_ctx.ctx.settings
+        widget = self.ids['manual_video_max_fps_input']
+        try:
+            value = int(widget.text)
+        except (ValueError, TypeError):
+            value = -1
+        if value < 0 or value > 200:
+            from modules.notification_center import notifications
+            notifications.warning(
+                "Invalid FPS limit",
+                "Manual Video Max FPS must be between 0 and 200 "
+                "(0 = no limit). Reverting to previous value."
+            )
+            settings.setdefault('manual_video', {})
+            widget.text = str(settings['manual_video'].get('max_fps', 0))
+            return
+        settings.setdefault('manual_video', {})
+        settings['manual_video']['max_fps'] = value
+
+    def update_manual_video_max_duration(self):
+        # Memmap allocates max_fps * duration frames; the disk-space
+        # pre-flight in record_init catches infeasible sizes.
+        settings = _app_ctx.ctx.settings
+        widget = self.ids['manual_video_max_duration_input']
+        try:
+            value = int(widget.text)
+        except (ValueError, TypeError):
+            value = 0
+        if value < 1 or value > 3600:
+            from modules.notification_center import notifications
+            notifications.warning(
+                "Invalid duration",
+                "Manual Video Duration must be between 1 and 3600 "
+                "seconds. Reverting to previous value."
+            )
+            settings.setdefault('manual_video', {})
+            widget.text = str(settings['manual_video'].get('max_duration', 30))
+            return
+        settings.setdefault('manual_video', {})
+        settings['manual_video']['max_duration'] = value
 
 
     def update_scale_bar_state(self):

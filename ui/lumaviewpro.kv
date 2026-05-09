@@ -2216,6 +2216,54 @@
 				size_hint_y: None
 				height: '30dp'
 				Label:
+					text: 'Manual Video Max FPS'
+					tooltip_text: 'Maximum frames per second for manual recording.\n0 = no limit (camera free-run rate).\nAt low FPS the camera is rate-limited so live preview slows too;\nrestored to free-run when recording stops.'
+					halign: 'left'
+					valign: 'middle'
+					text_size: self.size
+					font_size: '12sp'
+				TextInput:
+					id: manual_video_max_fps_input
+					size_hint_x: None
+					width: '45dp'
+					multiline: False
+					font_size: '12sp'
+					padding: ['4dp', (self.height-self.line_height)/2]
+					halign: 'right'
+					input_filter: 'int'
+					text: '0'
+					on_text_validate: root.update_manual_video_max_fps()
+					on_focus: if not self.focus: root.update_manual_video_max_fps()
+
+			BoxLayout:
+				orientation: 'horizontal'
+				size_hint_y: None
+				height: '30dp'
+				Label:
+					text: 'Manual Video Duration (s)'
+					tooltip_text: 'Maximum recording duration in seconds.\nMemmap is sized for max_fps * duration frames;\nlarger values need more disk space.'
+					halign: 'left'
+					valign: 'middle'
+					text_size: self.size
+					font_size: '12sp'
+				TextInput:
+					id: manual_video_max_duration_input
+					size_hint_x: None
+					width: '45dp'
+					multiline: False
+					font_size: '12sp'
+					padding: ['4dp', (self.height-self.line_height)/2]
+					halign: 'right'
+					input_filter: 'int'
+					text: '30'
+					on_text_validate: root.update_manual_video_max_duration()
+					on_focus: if not self.focus: root.update_manual_video_max_duration()
+
+			BoxLayout:
+				orientation: 'horizontal'
+				size_hint_y: None
+				height: '30dp'
+				Label:
 					font_size: '12sp'
 					text: '12 Bit Mode'
 					tooltip_text: 'Capture and save images at 12-bit depth\n(4096 levels) instead of 8-bit (256 levels)'

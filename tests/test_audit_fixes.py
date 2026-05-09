@@ -6042,3 +6042,143 @@ class TestPylonPublicMethodAnnotationsAndDocstrings:
             f'{len(gaps)} public method(s) in pyloncamera.py missing '
             f'annotation/docstring:\n  ' + '\n  '.join(gaps)
         )
+
+
+class TestManualVideoSpinners:
+    """Issue #633 Stage 2D: manual_video FPS + duration UI binding.
+
+    Static-source assertions: kv ID + handlers exist, record_init reads
+    via .get with defaults, and max_fps == 0 maps to
+    _user_requested_fps_limit = False (so a fresh install no longer
+    fires 'FPS budget exceeded' at every >25ms exposure -- the Stage 2C
+    regression that this stage closes).
+    """
+
+    def _kv_text(self):
+        import pathlib
+        return pathlib.Path("ui/lumaviewpro.kv").read_text()
+
+    def _ms_text(self):
+        import pathlib
+        return pathlib.Path("ui/microscope_settings.py").read_text()
+
+    def _record_init_body(self):
+        import pathlib
+        source = pathlib.Path("ui/main_display.py").read_text()
+        idx = source.find("def record_init")
+        assert idx >= 0, "record_init not found in ui/main_display.py"
+        next_def = source.find("\n    def ", idx + 1)
+        return source[idx:next_def] if next_def > 0 else source[idx:]
+
+    def test_kv_has_max_fps_textinput(self):
+        kv = self._kv_text()
+        assert "id: manual_video_max_fps_input" in kv, (
+            "ui/lumaviewpro.kv must define a TextInput with id "
+            "manual_video_max_fps_input bound to "
+            "settings['manual_video']['max_fps']."
+        )
+        assert "root.update_manual_video_max_fps()" in kv, (
+            "manual_video_max_fps_input must call "
+            "root.update_manual_video_max_fps() on edit."
+        )
+
+    def test_kv_has_max_duration_textinput(self):
+        kv = self._kv_text()
+        assert "id: manual_video_max_duration_input" in kv, (
+            "ui/lumaviewpro.kv must define a TextInput with id "
+            "manual_video_max_duration_input bound to "
+            "settings['manual_video']['max_duration']."
+        )
+        assert "root.update_manual_video_max_duration()" in kv, (
+            "manual_video_max_duration_input must call "
+            "root.update_manual_video_max_duration() on edit."
+        )
+
+    def test_microscope_settings_has_handlers(self):
+        body = self._ms_text()
+        assert "def update_manual_video_max_fps" in body, (
+            "MicroscopeSettings must define update_manual_video_max_fps "
+            "to write the spinner value back to settings dict."
+        )
+        assert "def update_manual_video_max_duration" in body, (
+            "MicroscopeSettings must define "
+            "update_manual_video_max_duration."
+        )
+
+    def test_handlers_validate_and_revert_on_invalid(self):
+        body = self._ms_text()
+        # Both handlers must surface a notifications.warning AND revert
+        # the widget text on bad input -- the L1 researcher sees the
+        # error and the field doesn't silently accept garbage.
+        for handler in ("update_manual_video_max_fps",
+                        "update_manual_video_max_duration"):
+            idx = body.find(f"def {handler}")
+            assert idx >= 0
+            next_def = body.find("\n    def ", idx + 1)
+            handler_body = body[idx:next_def] if next_def > 0 else body[idx:]
+            assert "notifications.warning" in handler_body, (
+                f"{handler} must notify on invalid input (Rule 28)."
+            )
+            assert "widget.text =" in handler_body, (
+                f"{handler} must revert widget.text on invalid input."
+            )
+
+    def test_load_settings_pushes_manual_video_into_widgets(self):
+        body = self._ms_text()
+        assert "manual_video_max_fps_input" in body, (
+            "load_settings must push settings['manual_video']['max_fps'] "
+            "into the manual_video_max_fps_input widget on load."
+        )
+        assert "manual_video_max_duration_input" in body, (
+            "load_settings must push "
+            "settings['manual_video']['max_duration'] into the "
+            "manual_video_max_duration_input widget on load."
+        )
+
+    def test_record_init_reads_via_get_with_defaults(self):
+        body = self._record_init_body()
+        # No bare KeyError when manual_video dict is missing or its
+        # keys are missing -- a partially-edited settings.json won't
+        # crash record_init.
+        assert 'settings.get("manual_video"' in body, (
+            "record_init must read settings.get('manual_video', {}) "
+            "to tolerate missing dict on a fresh / partial install."
+        )
+        assert 'manual_video.get("max_fps"' in body, (
+            "record_init must read max_fps via .get with a default."
+        )
+
+    def test_user_requested_fps_limit_keys_on_max_fps_zero(self):
+        body = self._record_init_body()
+        assert "self._user_requested_fps_limit = max_fps > 0" in body, (
+            "max_fps == 0 means uncapped (camera free-run); only "
+            "max_fps > 0 sets _user_requested_fps_limit = True. This "
+            "closes the Stage 2C regression where the shipped 40fps "
+            "default fired the FPS-budget warning at every "
+            ">25ms exposure."
+        )
+
+    def test_video_fps_falls_back_to_exposure_freq_when_uncapped(self):
+        body = self._record_init_body()
+        # When _user_requested_fps_limit is False, video_fps must NOT
+        # take min(exposure_freq, 0) (which would set video_fps=0 and
+        # break the memmap allocation).
+        assert "video_fps = exposure_freq" in body, (
+            "When the user has not requested an FPS limit, video_fps "
+            "must default to exposure_freq -- not min(exposure_freq, "
+            "max_fps) which would be 0 and break recording."
+        )
+
+    def test_shipped_settings_max_fps_is_zero(self):
+        # Only the tracked settings.json is the shipping contract;
+        # current.json is gitignored runtime state regenerated from
+        # settings.json on first launch.
+        import json
+        import pathlib
+        path = pathlib.Path("data/settings.json")
+        data = json.loads(path.read_text())
+        assert data.get("manual_video", {}).get("max_fps") == 0, (
+            "data/settings.json must ship with manual_video.max_fps = 0 "
+            "(uncapped) so a fresh install does not fire 'FPS budget "
+            "exceeded' on every record."
+        )

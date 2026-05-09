@@ -150,23 +150,19 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
 
         self.video_false_color = color
 
-        if "manual_video" in settings:
-            max_fps = settings["manual_video"]["max_fps"]
-            max_duration = settings["manual_video"]["max_duration"]
-            self._user_requested_fps_limit = True  # issue #633 Stage 2C
-        else:
-            max_fps = 40
-            max_duration = 30
-            self._user_requested_fps_limit = False
+        manual_video = settings.get("manual_video", {})
+        max_fps = manual_video.get("max_fps", 0)
+        max_duration = manual_video.get("max_duration", 30)
+        # max_fps == 0 means uncapped (camera free-run rate). The
+        # spinner ships at 0; non-zero is the explicit user opt-in
+        # that gates pre-flight + camera-rate-toggle below.
+        self._user_requested_fps_limit = max_fps > 0
 
         frame_size = self.scope.camera_frame_size
         exposure = self.scope.camera_exposure_ms
         exposure_freq = 1.0 / (exposure / 1000)
-        # Issue #633 Stage 2C: pre-flight when the user requested a specific
-        # FPS limit (manual_video config or, eventually, the UI spinner).
-        # If exposure exceeds the FPS budget, warn but accept the achievable
-        # rate (per Eric's "warn + accept" choice). The camera will deliver
-        # at min(requested, exposure-allowed); video_fps below reflects that.
+        # Pre-flight: warn if the user requested an FPS limit that
+        # exposure can't hit. Accept the achievable rate either way.
         if self._user_requested_fps_limit and max_fps > exposure_freq:
             try:
                 from modules.notification_center import notifications
@@ -179,7 +175,10 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
                 )
             except Exception as e:
                 logger.warning(f'[LVP Main  ] Could not notify FPS budget: {e}')
-        video_fps = min(exposure_freq, max_fps)
+        if self._user_requested_fps_limit:
+            video_fps = min(exposure_freq, max_fps)
+        else:
+            video_fps = exposure_freq
 
         max_frames = math.ceil(video_fps * max_duration)
 
