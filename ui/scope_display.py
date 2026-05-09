@@ -598,8 +598,11 @@ class ScopeDisplay(Image):
         self._last_frame_ts = frame_ts
         t_grab_end = time.monotonic()
 
-        # Record queue wait for perf logging (debug only)
-        if logger.isEnabledFor(logging.DEBUG):
+        # Record queue wait for perf logging (settings.debug_mode only).
+        # On the very first frame _debug_perf is None (resolved below); we
+        # miss one queue-wait sample, which is irrelevant given the 5-second
+        # log window.
+        if self._debug_perf:
             self._perf_blit_schedule_times.append(t_queue_wait)
 
         # Capture FPS tracking + camera data rate
@@ -677,9 +680,9 @@ class ScopeDisplay(Image):
             g = generation
             Clock.schedule_once(lambda dt, b=image_bytes, s=image_shape, ts=t_blit_scheduled, gen=g: self.create_and_set_texture(b, s, ts, gen), 0)
 
-            # Performance instrumentation — only when settings.debug_mode is True.
-            # lvp_logger.py:395 disables logging at DEBUG, so isEnabledFor(DEBUG) is
-            # always False — gate on the cached settings flag instead.
+            # Performance instrumentation gated on settings.debug_mode. lvp_logger
+            # force-disables DEBUG-level emission, so logger.isEnabledFor(DEBUG) is
+            # always False; the cached settings flag is what actually toggles perf.
             if self._debug_perf is None:
                 ctx = _app_ctx.ctx
                 self._debug_perf = bool(ctx is not None and ctx.settings.get('debug_mode', False))
@@ -748,7 +751,7 @@ class ScopeDisplay(Image):
     def create_and_set_texture(self, image_bytes, shape, scheduled_time=0, generation=0):
         if generation != self._display_generation:
             return  # Stale callback from previous start/stop cycle
-        if scheduled_time and logger.isEnabledFor(logging.DEBUG):
+        if scheduled_time and self._debug_perf:
             blit_delay = (time.monotonic() - scheduled_time) * 1000
             self._perf_blit_delays.append(blit_delay)
             if blit_delay > 100:
