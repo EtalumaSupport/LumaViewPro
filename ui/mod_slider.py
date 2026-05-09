@@ -20,6 +20,26 @@ class ModSlider(Slider):
             return True
 
     def on_touch_down(self, touch):
+        # Mouse-wheel scroll over the slider track adjusts value by
+        # step (5x with shift). Default Kivy Slider ignores scroll
+        # events; users had to click+drag to adjust illumination /
+        # exposure / gain / Z. on_release fires per tick so wired
+        # hardware updates on each scroll click without buffering.
+        if (
+            'button' in touch.profile
+            and touch.button in ('scrollup', 'scrolldown')
+            and self.collide_point(*touch.pos)
+        ):
+            from kivy.core.window import Window
+            modifiers = set(Window.modifiers)
+            multiplier = 5 if (modifiers & {'shift', 'rshift'}) else 1
+            delta = self.step * multiplier
+            if touch.button == 'scrollup':
+                self.value = min(self.max, self.value + delta)
+            else:
+                self.value = max(self.min, self.value - delta)
+            self.dispatch('on_release')
+            return True
         out = super().on_touch_down(touch)
         # If the slider accepted the touch, it will grab it.
         if touch.grab_current == self:

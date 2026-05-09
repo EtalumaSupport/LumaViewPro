@@ -6224,6 +6224,101 @@ class TestManualVideoSpinners:
         )
 
 
+class TestModSliderScrollWheel:
+    """ModSlider must accept mouse-wheel events to adjust value by
+    step. Default Kivy Slider ignores scroll, so users could only
+    click+drag to adjust illumination / exposure / gain / Z. All
+    14 ModSlider instances in lumaviewpro.kv inherit the fix.
+
+    Static-source assertions; runtime Kivy touch-event tests need a
+    Window context that isn't available in unit-test env.
+    """
+
+    def _src(self):
+        import pathlib
+        return pathlib.Path("ui/mod_slider.py").read_text()
+
+    def test_scroll_handler_present(self):
+        src = self._src()
+        idx = src.find("def on_touch_down")
+        assert idx >= 0
+        next_def = src.find("\n    def ", idx + 1)
+        body = src[idx:next_def] if next_def > 0 else src[idx:]
+        assert "'scrollup'" in body and "'scrolldown'" in body, (
+            "ModSlider.on_touch_down must handle scrollup + scrolldown."
+        )
+        assert "self.collide_point" in body, (
+            "Scroll handler must require touch.pos to land on the "
+            "slider; otherwise wheel-over-other-widget would still "
+            "adjust an unrelated slider."
+        )
+
+    def test_scroll_uses_step_attribute(self):
+        src = self._src()
+        idx = src.find("def on_touch_down")
+        assert idx >= 0
+        next_def = src.find("\n    def ", idx + 1)
+        body = src[idx:next_def] if next_def > 0 else src[idx:]
+        assert "self.step" in body, (
+            "Scroll delta must derive from self.step so each ModSlider "
+            "instance's configured step (default 5) is honored."
+        )
+
+    def test_scroll_clamps_at_min_max(self):
+        src = self._src()
+        idx = src.find("def on_touch_down")
+        assert idx >= 0
+        next_def = src.find("\n    def ", idx + 1)
+        body = src[idx:next_def] if next_def > 0 else src[idx:]
+        assert "self.max" in body and "self.min" in body, (
+            "Scroll must clamp at self.min / self.max so wheel "
+            "spinning past the limit doesn't escape the slider range."
+        )
+
+    def test_scroll_dispatches_on_release(self):
+        src = self._src()
+        idx = src.find("def on_touch_down")
+        assert idx >= 0
+        next_def = src.find("\n    def ", idx + 1)
+        body = src[idx:next_def] if next_def > 0 else src[idx:]
+        assert "self.dispatch('on_release')" in body, (
+            "Each scroll tick must dispatch on_release so wired "
+            "hardware (illumination, exposure, gain, Z) updates "
+            "per tick without manual click."
+        )
+
+    def test_scrollup_increases_scrolldown_decreases(self):
+        src = self._src()
+        idx = src.find("def on_touch_down")
+        assert idx >= 0
+        next_def = src.find("\n    def ", idx + 1)
+        body = src[idx:next_def] if next_def > 0 else src[idx:]
+        # Both directional branches must exist. Direction-correctness
+        # contract: scrollup INCREASES (wheel up = brighter / higher),
+        # scrolldown DECREASES. Asserted by presence of both signs;
+        # specifically that the scrollup branch is the one with +delta.
+        assert "self.value + delta" in body, (
+            "Scroll handler must add delta on one branch."
+        )
+        assert "self.value - delta" in body, (
+            "Scroll handler must subtract delta on the other branch."
+        )
+        # The scrollup branch must own the +delta path. Find the
+        # in-body conditional `== 'scrollup'` (not the tuple membership
+        # test at the top) and verify the next ~80 chars contain
+        # "self.value + delta".
+        cond_idx = body.find("touch.button == 'scrollup'")
+        assert cond_idx >= 0, (
+            "Handler must branch on touch.button == 'scrollup'."
+        )
+        cond_block = body[cond_idx:cond_idx + 200]
+        assert "self.value + delta" in cond_block, (
+            "scrollup branch must INCREASE slider value (wheel up = "
+            "brighter / larger / higher Z). If reversed, illumination "
+            "control feels backwards to the user."
+        )
+
+
 class TestFx2DriverLibusbBackendProbe:
     """Issue #645 Bug A: fx2driver.py must probe the libusb-1.0 native
     backend at module load so the missing-DLL case is classified as
