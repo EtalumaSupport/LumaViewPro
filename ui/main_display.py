@@ -236,6 +236,13 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
 
         self.current_captured_frames = 0
         self.timestamps = []
+        self.chunks_per_frame = []  # issue #633 Stage 2A: per-frame chunks for TIFF metadata
+        # Snapshot the camera-side timestamp tick frequency once. Used at
+        # finalize time to convert ChunkTimestamp ticks to seconds; None
+        # if the camera doesn't expose a Timestamp chunk.
+        self.timestamp_tick_freq_hz = getattr(
+            self.scope.camera, 'timestamp_tick_frequency_hz', None
+        ) if self.scope.camera else None
         self._last_recorded_frame_ts = None  # Reset duplicate detection
 
         logger.info(f"Manual-Video] Capturing video...")
@@ -338,6 +345,8 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
             # Capture state (atomic with respect to camera thread, as we are ON camera thread)
             captured_frames = self.current_captured_frames if hasattr(self, 'current_captured_frames') else 0
             timestamps = self.timestamps[:] if hasattr(self, 'timestamps') else []
+            chunks_per_frame = self.chunks_per_frame[:] if hasattr(self, 'chunks_per_frame') else []
+            tick_freq_hz = self.timestamp_tick_freq_hz if hasattr(self, 'timestamp_tick_freq_hz') else None
             video_frames = self.current_video_frames if hasattr(self, 'current_video_frames') else None
             video_duration = self.video_duration if hasattr(self, 'video_duration') else 0
             video_save_folder = self.video_save_folder if hasattr(self, 'video_save_folder') else None
@@ -370,6 +379,8 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
             kwargs = {
                 'captured_frames': captured_frames,
                 'timestamps': timestamps,
+                'chunks_per_frame': chunks_per_frame,
+                'tick_freq_hz': tick_freq_hz,
                 'video_frames': video_frames,
                 'video_duration': video_duration,
                 'video_save_folder': video_save_folder,
@@ -406,6 +417,8 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
         # Retrieve captured state passed from _finalize_recording_state
         captured_frames = kwargs.get('captured_frames', 0)
         timestamps = kwargs.get('timestamps', [])
+        chunks_per_frame = kwargs.get('chunks_per_frame', [])
+        tick_freq_hz = kwargs.get('tick_freq_hz', None)
         video_frames = kwargs.get('video_frames', None)
         video_duration = kwargs.get('video_duration', 0)
         video_save_folder = kwargs.get('video_save_folder', None)
@@ -472,11 +485,29 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
 
                     output_file_loc = save_folder / f"{frame_name}.tiff"
 
+                    # Issue #633 Stage 2A: per-frame timestamp metadata. Existing
+                    # 'datetime' / 'timestamp' / 'frame_num' keys preserved for
+                    # backward compatibility with downstream readers that look
+                    # for them. New 'timestamp_iso' / 'timestamp_camera_ticks' /
+                    # 'timestamp_camera_tick_hz' / 'frame_id' keys mirror the
+                    # structured Plane fields used elsewhere; the video_frame
+                    # TIFF path serializes them into the description tag.
                     metadata = {
                                 "datetime": ts.strftime("%Y:%m:%d %H:%M:%S"),
                                 "timestamp": ts.strftime("%Y:%m:%d %H:%M:%S.%f"),
-                                "frame_num": frame_num
+                                "timestamp_iso": ts.isoformat(timespec='microseconds'),
+                                "frame_num": frame_num,
                             }
+                    chunks = chunks_per_frame[frame_num] if frame_num < len(chunks_per_frame) else None
+                    if chunks is not None:
+                        ts_ticks = chunks.get('Timestamp')
+                        if ts_ticks is not None:
+                            metadata['timestamp_camera_ticks'] = int(ts_ticks)
+                        if tick_freq_hz is not None:
+                            metadata['timestamp_camera_tick_hz'] = int(tick_freq_hz)
+                        frame_id = chunks.get('FrameID')
+                        if frame_id is not None:
+                            metadata['frame_id'] = int(frame_id)
 
                     if include_hyperstack_generation:
                         current_position = _app_ctx.ctx.scope.get_current_position()
@@ -611,13 +642,15 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
         else:
             force_to_8bit = False
 
-        # Use get_image_from_buffer() instead of get_image() — avoids the extra
-        # get_array() copy (~8MB at 4K) and the retry sleep loop. Returns the
-        # latest frame reference directly via grab_latest().
-        result = self.scope.get_image_from_buffer(force_to_8bit=force_to_8bit)
+        # Use get_image_with_chunks_from_buffer() to atomically snapshot the
+        # frame + per-frame camera chunks (Timestamp / FrameID / etc). Without
+        # the atomic getter, image-N could pair with chunks-N+1 because the
+        # camera thread can insert a _store_frame call between two non-atomic
+        # gets. issue #633 Stage 2A.
+        result = self.scope.get_image_with_chunks_from_buffer(force_to_8bit=force_to_8bit)
         if result is None or result[0] is False:
             return
-        image, frame_ts = result
+        image, frame_ts, chunks = result
 
         # Skip duplicate frames — if camera hasn't delivered a new frame since
         # last recording, don't waste a memmap slot on identical data.
@@ -638,6 +671,7 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
 
             self.current_video_frames[self.current_captured_frames] = image
             self.timestamps.append(datetime.datetime.now())
+            self.chunks_per_frame.append(chunks)
 
             self.current_captured_frames += 1
 

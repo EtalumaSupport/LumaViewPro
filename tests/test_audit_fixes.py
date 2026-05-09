@@ -2987,6 +2987,72 @@ class TestImageHandlerBaseChunkSlot:
         assert 'Gain' not in b.get_last_chunks()
 
 
+class TestImageHandlerBaseAtomicChunksSnapshot:
+    """Issue #633 Stage 2A: get_last_image_with_chunks returns image + ts +
+    chunks under one lock acquisition.
+
+    Without this, a consumer that does get_last_image() then get_last_chunks()
+    can observe image-N paired with chunks-N+1 if _store_frame runs between
+    the two non-atomic gets (camera thread grabs concurrently with the
+    consumer thread). The atomic getter eliminates that race.
+    """
+
+    def _make_base(self):
+        from drivers.camera import ImageHandlerBase
+        return ImageHandlerBase()
+
+    def test_atomic_snapshot_before_grab_returns_falsy(self):
+        b = self._make_base()
+        result, image, ts, chunks = b.get_last_image_with_chunks()
+        assert result is False
+        assert image is None
+        assert ts is None
+        assert chunks is None
+
+    def test_atomic_snapshot_returns_all_fields(self):
+        import datetime
+        import numpy as np
+        b = self._make_base()
+        img = np.zeros((4, 4), dtype=np.uint8)
+        ts = datetime.datetime.now()
+        chunks = {'ExposureTime': 14530.0, 'Gain': 1.0, 'Timestamp': 1234567890123}
+        b._store_frame(img, ts, chunks=chunks)
+        result, out_img, out_ts, out_chunks = b.get_last_image_with_chunks()
+        assert result is True
+        assert out_img is img  # no copy at this layer
+        assert out_ts == ts
+        assert out_chunks == chunks
+
+    def test_atomic_snapshot_falsy_after_failed_grab(self):
+        import datetime
+        import numpy as np
+        b = self._make_base()
+        b._store_frame(np.zeros((4, 4), dtype=np.uint8), datetime.datetime.now(),
+                       chunks={'Timestamp': 1234567890123})
+        b._record_failure()  # last_result becomes False
+        result, image, ts, chunks = b.get_last_image_with_chunks()
+        assert result is False
+        assert image is None
+        assert ts is None
+        assert chunks is None
+
+    def test_atomic_snapshot_returns_none_chunks_when_camera_lacks_support(self):
+        """Cameras without chunk support (FX2, simulators) populate
+        last_chunks=None; the atomic getter returns None for chunks
+        without disabling the image+ts return path."""
+        import datetime
+        import numpy as np
+        b = self._make_base()
+        img = np.zeros((4, 4), dtype=np.uint8)
+        ts = datetime.datetime.now()
+        b._store_frame(img, ts)  # no chunks kwarg => None
+        result, out_img, out_ts, out_chunks = b.get_last_image_with_chunks()
+        assert result is True
+        assert out_img is img
+        assert out_ts == ts
+        assert out_chunks is None
+
+
 class TestPylonCancelHandlingDefensive:
     """OR-with-removal-flag insurance pattern in OnImageGrabbed.
 
