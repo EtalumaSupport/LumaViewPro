@@ -171,12 +171,13 @@ def get_current_plate_position(
 
 def log_environment_once():
     """Log fixed environment fingerprint — system boot time, uptime, OS build,
-    Pylon SDK version, Defender state. TEMPORARY 2026-04-30 — added for the
-    perf-investigation Stage 0 checklist (`docs/LVP_PERF_TEST_PLAN_2026-04-30.md`).
+    Pylon SDK version, Defender state. Once-per-startup pairs with the
+    per-tick log_system_metrics surface so post-mortem can correlate a
+    runtime metric trace against the host's exact version state.
 
     Call once at startup before the periodic log_system_metrics schedule.
-    The 632h-uptime Dell in the perf-bundle was already in memory exhaustion
-    at test start; without recording boot time, that contamination is
+    Long-uptime hosts can be in pathological states (e.g. memory
+    exhaustion at 632h that contaminated one perf-investigation run); without recording boot time, that contamination is
     invisible in post-hoc log analysis.
     """
     import datetime as _dt
@@ -256,9 +257,9 @@ def log_system_metrics(settings: dict):
             extra={'force_error': True},
         )
 
-    # System uptime per-tick (TEMPORARY 2026-04-30) — pairs with [ENV METRICS]
-    # boot timestamp logged once at startup. Lets post-hoc log analysis tag
-    # each tick with "system has been up for N hours" to filter out runs
+    # System uptime per-tick — pairs with [ENV METRICS] boot timestamp
+    # logged once at startup. Lets post-hoc log analysis tag each tick
+    # with "system has been up for N hours" to filter out runs
     # contaminated by long-uptime memory exhaustion.
     try:
         import time as _time
@@ -353,8 +354,8 @@ def log_system_metrics(settings: dict):
 
     # Per-process I/O bytes (cumulative + per-second rates).
     # Cumulative distinguishes "we wrote 50 GB this hour" from "Windows Defender did".
-    # Rates (TEMPORARY 2026-04-30) give the steady-state save rate to compare
-    # against camera_data_rate in [BUFFER METRICS] and Defender's read rate.
+    # Rates give the steady-state save rate to compare against
+    # camera_data_rate in [BUFFER METRICS] and Defender's read rate.
     io_read = metrics.get('io_read_mb', -1)
     io_write = metrics.get('io_write_mb', -1)
     io_read_rate = metrics.get('io_read_mbps', -1)
@@ -369,7 +370,7 @@ def log_system_metrics(settings: dict):
             extra={'force_error': True},
         )
 
-    # Page-fault rate (TEMPORARY 2026-04-30).
+    # Page-fault rate.
     # Sustained > 1000 pf/sec on a desktop = real memory pressure (paging).
     # If pf/sec stays low while standby grows, slowdown is not real paging.
     pf_total = metrics.get('page_faults_total')
@@ -380,10 +381,9 @@ def log_system_metrics(settings: dict):
             extra={'force_error': True},
         )
 
-    # --- Windows PDH counters (TEMPORARY 2026-04-30) ---
-    # Buffer-churn investigation. Standby cache + nonpaged pool are the
-    # specific signals we need. Remove this block when the buffer-reuse
-    # fixes ship and standby trend is verified flat.
+    # --- Windows PDH counters ---
+    # Standby cache + nonpaged pool are the specific signals for
+    # diagnosing buffer-churn / slow-onset memory growth on Windows.
     #
     # Standby split: Normal + Reserve + Core = total standby cache.
     #   - Standby growing while RAM available stays high → mapped-file
@@ -421,7 +421,7 @@ def log_system_metrics(settings: dict):
             extra={'force_error': True},
         )
 
-    # --- Buffer-churn signals from the live capture path (TEMPORARY 2026-04-30) ---
+    # --- Buffer-churn signals from the live capture path ---
     # capture_fps × frame_nbytes = MB/sec the camera produces. Each frame
     # currently allocates ~3 fresh OS-level buffers (camera copy, 12→8 LUT,
     # tobytes()). The standby-cache growth in [PDH METRICS] should track
@@ -447,10 +447,10 @@ def log_system_metrics(settings: dict):
         except Exception as e:
             logger.debug(f'[BUFFER METRICS] unavailable: {e}')
 
-        # Frame-interval percentiles (TEMPORARY 2026-04-30) — consumer-stall
-        # detection. Spikes in p99/max correlate with main-thread congestion
-        # or worker-thread blocks. After the buffer-reuse fix, p99 should
-        # tighten as lock-hold times shrink.
+        # Frame-interval percentiles — consumer-stall detection.
+        # Spikes in p99/max correlate with main-thread congestion
+        # or worker-thread blocks; tracking these surfaces UI lock
+        # contention and IO scheduling issues.
         try:
             if hasattr(sd, 'frame_interval_percentiles_ms'):
                 pcts = sd.frame_interval_percentiles_ms()
@@ -467,11 +467,11 @@ def log_system_metrics(settings: dict):
         except Exception as e:
             logger.debug(f'[FRAME INTERVAL] unavailable: {e}')
 
-    # --- Defender (MsMpEng.exe) metrics (TEMPORARY 2026-04-30) ---
-    # Direct signal on the "Defender memory-maps every TIFF write" hypothesis.
-    # If defender_io_read_mbps tracks our io_write_mbps × ~1, that's the
-    # smoking gun. defender_private_mb growing alongside standby_total_mb
-    # is also implicating.
+    # --- Defender (MsMpEng.exe) metrics ---
+    # Direct signal for the "Defender memory-maps every TIFF write"
+    # interaction. If defender_io_read_mbps tracks our io_write_mbps
+    # × ~1, Defender is the slowdown source. defender_private_mb
+    # growing alongside standby_total_mb is also implicating.
     defender_private = metrics.get('defender_private_mb')
     if defender_private is not None:
         defender_rss = metrics.get('defender_rss_mb', -1)
@@ -485,7 +485,7 @@ def log_system_metrics(settings: dict):
             extra={'force_error': True},
         )
 
-    # --- GC pressure (TEMPORARY 2026-04-30) ---
+    # --- GC pressure ---
     # gc_count = current uncollected objects per generation (depth).
     # gc_genN_collections (existing [GC METRICS] block) = collections-since-start
     # (rate). Both together separate "lots of churn but clean steady state"
@@ -499,11 +499,11 @@ def log_system_metrics(settings: dict):
             extra={'force_error': True},
         )
 
-    # --- Queue depth (TEMPORARY 2026-04-30) ---
-    # F-2 from AUDIT_LVP_PERF_2026-04-30.md: protocol_queue is unbounded with
-    # advisory-only depth warning. Monotonic queue growth = save can't keep up,
-    # frames pile up retaining 16-48 MB each. This is the most direct
-    # mechanism for the 18-20 hr slowdown if Defender ISN'T the cause.
+    # --- Queue depth ---
+    # protocol_queue is unbounded with advisory-only depth warning.
+    # Monotonic queue growth = save can't keep up, frames pile up
+    # retaining 16-48 MB each. Direct mechanism for slow-onset
+    # multi-hour memory growth on the save path.
     try:
         ctx = _app_ctx.ctx if _app_ctx.ctx is not None else None
     except Exception:
@@ -533,7 +533,7 @@ def log_system_metrics(settings: dict):
                 extra={'force_error': True},
             )
 
-    # --- tracemalloc top-N (TEMPORARY 2026-04-30, env-flag gated) ---
+    # --- tracemalloc top-N (env-flag gated) ---
     # Off by default. Enable with LVP_TRACEMALLOC=1 env var. Adds 10-30%
     # process memory overhead so reserved for targeted runs. When on,
     # logs top-5 allocators by current size — direct pre/post verification

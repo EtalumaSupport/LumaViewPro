@@ -31,34 +31,32 @@ import modules.config_helpers as config_helpers
 from modules.scheduler import Scheduler, _CallablePairScheduler
 
 
-# Default cadences. Tuned to match the previous inline values so a
-# launch produces the same log volume + content as before LVP-A-12.
-#
-# TEMPORARY 2026-04-30 — DEFAULT_SYSTEM_METRICS_INTERVAL_S is 60 s for
-# the buffer-churn / Phase-A perf investigation. Restore to 3600 (1 hr)
-# before merging the buffer-reuse / Phase A bundle to 4.0.0-beta. The
-# 60 s cadence costs ~10-50 ms CPU per snapshot (gc.get_objects
-# dominates) and is needed only while the slowdown's onset is being
-# captured within a single session. The matching kwarg + comment lives
-# in lumaviewpro.py LumaViewProApp.on_start.
-DEFAULT_SYSTEM_METRICS_INTERVAL_S = 60.0       # TEMPORARY: was 3600 (1 hr); see above
-DEFAULT_EXECUTOR_WATCHDOG_INTERVAL_S = 60.0    # was scheduled at 60 s
-DEFAULT_CAMERA_TEMP_INTERVAL_S = 14400.0       # was scheduled at 4 hr
+# Default cadences. system_metrics is the verbose snapshot (CPU, RAM,
+# GC, page-faults, Defender, buffer-churn, frame-interval percentiles)
+# costing ~10-50 ms per tick; 1-hr cadence keeps post-mortem coverage
+# without measurable steady-state cost. Engineering plugin / REST
+# status endpoint can call snapshot_* on demand for finer detail.
+# Bench / perf-investigation runs override via start(...) kwargs.
+DEFAULT_SYSTEM_METRICS_INTERVAL_S = 3600.0
+DEFAULT_EXECUTOR_WATCHDOG_INTERVAL_S = 60.0
+DEFAULT_CAMERA_TEMP_INTERVAL_S = 14400.0
 
 # Backlog thresholds used by the executor-watchdog tick. Match the
 # pre-LVP-A-12 values so behavior is identical.
 _EXECUTOR_BACKLOG_WARN_TOTAL = 10
 _SCOPE_DISPLAY_PRUNE_THRESHOLD = 20
 
-# Frame-flow heartbeat: piggybacks on tick_system_metrics' 60 s cadence
-# to detect silent grab failures (camera reports active=True +
-# is_grabbing=True but no frames are flowing). Catches scenarios like
-# Pylon SDK grab thread dead, USB transport stalled without formal
-# camera removal, or buffer queue jammed. Threshold is set well below
-# even 0.5 fps (1-row long-exposure baseline) so legitimate slow
-# grabs don't trip it; consecutive-tick guard avoids alarms during
-# the second or two between a fresh grab-start and the first frame
-# arriving.
+# Frame-flow heartbeat: piggybacks on tick_system_metrics' production
+# 1-hr cadence to detect silent grab failures (camera reports
+# active=True + is_grabbing=True but no frames are flowing). Catches
+# scenarios like Pylon SDK grab thread dead, USB transport stalled
+# without formal camera removal, or buffer queue jammed. Threshold
+# is set well below even 0.5 fps so legitimate slow grabs don't trip
+# it; consecutive-tick guard avoids alarms during the second between
+# a fresh grab-start and the first frame arriving. Alarm latency at
+# the 1-hr cadence is ~2 hours -- acceptable for sustained-soak
+# detection; for sub-hour interactive responsiveness, callers can
+# override system_metrics_interval_s via start(...) kwargs.
 _FRAME_FLOW_STALL_FPS = 0.1
 _FRAME_FLOW_STALL_TICK_THRESHOLD = 2
 

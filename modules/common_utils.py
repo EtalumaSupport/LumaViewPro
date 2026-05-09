@@ -724,7 +724,7 @@ def system_metrics(path="/"):
         metrics["io_read_mbps"] = -1
         metrics["io_write_mbps"] = -1
 
-    # --- Page faults (rate) — TEMPORARY 2026-04-30 ---
+    # --- Page faults (rate) ---
     # Sustained > 1000 pf/sec on a desktop = real memory pressure (paging
     # working set in/out). Useful as a sanity signal — if pf/sec stays low
     # while standby grows, the slowdown is allocator/standby-cache, not
@@ -787,9 +787,9 @@ def system_metrics(path="/"):
         metrics["gc_gen1_collections"] = -1
         metrics["gc_gen2_collections"] = -1
 
-    # --- Windows PDH memory counters (TEMPORARY 2026-04-30) ---
-    # Buffer-churn investigation. Standby cache + nonpaged pool are the
-    # specific signals we need. See `_PdhCountersOnce` for removal plan.
+    # --- Windows PDH memory counters ---
+    # Standby cache + nonpaged pool are the specific signals for
+    # diagnosing buffer-churn / slow-onset memory growth on Windows.
     try:
         pdh = query_windows_perf_counters()
         for k, v in pdh.items():
@@ -797,14 +797,14 @@ def system_metrics(path="/"):
     except Exception:
         pass
 
-    # --- Defender (MsMpEng.exe) metrics (TEMPORARY 2026-04-30) ---
+    # --- Defender (MsMpEng.exe) metrics ---
     try:
         for k, v in query_defender_metrics().items():
             metrics[k] = v
     except Exception:
         pass
 
-    # --- Live GC depth (uncollected objects per generation) (TEMPORARY 2026-04-30) ---
+    # --- Live GC depth (uncollected objects per generation) ---
     # Existing gc_genN_collections counts collections-since-start (a counter).
     # gc.get_count() is the CURRENT depth — pairs with the counter to show
     # both rate (collections/min) and steady-state pressure (depth growing

@@ -387,28 +387,23 @@ class LumaViewProApp(TooltipMixin, App):
         # Objective and LEDs are set by scope.initialize() during load_settings();
         # BF apply_settings fires from complete_initialization() -> accordion_collapse().
 
-        # TEMP: fingerprint env once at startup; revisit before 4.0 ship and either
-        # delete or fold into log_environment_banner for one place.
+        # Once-per-startup environment + dependency fingerprint. Pairs
+        # with the per-tick [PDH METRICS] / [BUFFER METRICS] surface so
+        # post-mortem can correlate a problem against the exact host
+        # state (OS, Python, Pylon SDK, Defender state, etc.) without
+        # the noise of repeating those facts every tick.
         config_helpers.log_environment_once()
 
         # Lumascope.__init__ constructs the MetricsLogger so REST and headless
         # callers share the same surface. Here we register the executor bundle and
         # start the logger with a KivyClockScheduler; REST entry points wire a
         # ThreadingTimerScheduler instead.
-        #
-        # TEMP: system_metrics_interval_s=60 overrides the 1-hr production default
-        # for the buffer-churn / Phase A perf investigation. Drop the kwarg before
-        # merging Phase A to 4.0.0-beta, or edit DEFAULT_SYSTEM_METRICS_INTERVAL_S
-        # in modules/metrics_logger.py.
         from modules.scheduler import KivyClockScheduler
 
         lumaview.scope.register_executor_bundle(executor_bundle, settings)
         ctx.metrics_logger = lumaview.scope.metrics_logger
         if ctx.metrics_logger is not None:
-            ctx.metrics_logger.start(
-                KivyClockScheduler(Clock),
-                system_metrics_interval_s=60,  # TEMP: see comment above
-            )
+            ctx.metrics_logger.start(KivyClockScheduler(Clock))
 
         # The atexit emergency-shutdown hook is registered in Lumascope.__init__
         # so every Lumascope user gets the same safety net automatically.

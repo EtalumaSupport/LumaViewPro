@@ -81,11 +81,10 @@ class ScopeDisplay(Image):
         self._camera_mbps = 0.0
         self._last_frame_nbytes = 0
 
-        # Frame-interval rolling histogram for P50/P95/P99 (TEMPORARY 2026-04-30,
-        # buffer-churn investigation). Sized to ~60 s at typical 15-30 fps.
-        # Worker thread appends; metrics-log thread reads via
-        # `frame_interval_percentiles_ms()`. deque.append is atomic in CPython
-        # so no lock needed for occasional snapshot reads.
+        # Frame-interval rolling histogram for P50/P95/P99. Sized to ~60 s
+        # at typical 15-30 fps. Worker thread appends; metrics-log thread
+        # reads via `frame_interval_percentiles_ms()`. deque.append is
+        # atomic in CPython so no lock needed for occasional snapshot reads.
         from collections import deque
         self._frame_interval_history = deque(maxlen=2000)
         self._last_frame_pull_time = None
@@ -409,9 +408,8 @@ class ScopeDisplay(Image):
     def frame_interval_percentiles_ms(self):
         """Return P50/P95/P99 frame interval in ms over the rolling history.
 
-        TEMPORARY 2026-04-30 — buffer-churn investigation. Used by
-        log_system_metrics() to detect consumer stalls. Returns dict with
-        keys p50/p95/p99/n; empty dict if no samples yet.
+        Used by log_system_metrics() to detect consumer stalls. Returns dict
+        with keys p50/p95/p99/n; empty dict if no samples yet.
         """
         history = list(self._frame_interval_history)
         n = len(history)
@@ -460,8 +458,8 @@ class ScopeDisplay(Image):
             # checking until the next protocol save.
             self._protocol_hold_until = 0.0
 
-        # Frame-interval recording (TEMPORARY 2026-04-30, buffer-churn investigation).
-        # _pull_next_frame is called once per display cycle on the main thread,
+        # Frame-interval recording. _pull_next_frame is called once per
+        # display cycle on the main thread,
         # so the interval between calls is the wall-clock period between
         # rendered frames (or scheduled-but-not-yet-rendered).
         if self._last_frame_pull_time is not None:
