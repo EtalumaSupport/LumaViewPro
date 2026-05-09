@@ -50,6 +50,18 @@ DEFAULT_CAMERA_TEMP_INTERVAL_S = 14400.0       # was scheduled at 4 hr
 _EXECUTOR_BACKLOG_WARN_TOTAL = 10
 _SCOPE_DISPLAY_PRUNE_THRESHOLD = 20
 
+# Frame-flow heartbeat: piggybacks on tick_system_metrics' 60 s cadence
+# to detect silent grab failures (camera reports active=True +
+# is_grabbing=True but no frames are flowing). Catches scenarios like
+# Pylon SDK grab thread dead, USB transport stalled without formal
+# camera removal, or buffer queue jammed. Threshold is set well below
+# even 0.5 fps (1-row long-exposure baseline) so legitimate slow
+# grabs don't trip it; consecutive-tick guard avoids alarms during
+# the second or two between a fresh grab-start and the first frame
+# arriving.
+_FRAME_FLOW_STALL_FPS = 0.1
+_FRAME_FLOW_STALL_TICK_THRESHOLD = 2
+
 
 class MetricsLogger:
     """Owns the periodic runtime-health logging surface for LVP."""
@@ -79,6 +91,14 @@ class MetricsLogger:
         # here because Lumascope owns its own handle.
         self._handles: dict[str, object] = {}
 
+        # Consecutive ticks where the camera was reported active +
+        # grabbing yet capture_fps was below _FRAME_FLOW_STALL_FPS.
+        # Reset whenever fps recovers OR camera is no longer grabbing.
+        # The frame-flow heartbeat fires WARNING when this exceeds
+        # _FRAME_FLOW_STALL_TICK_THRESHOLD, surfacing silent grab
+        # failures that don't raise an exception or trigger a timeout.
+        self._frame_flow_stalled_ticks = 0
+
     # ---- Tick implementations (also callable on-demand) ----
 
     def tick_system_metrics(self) -> None:
@@ -87,7 +107,9 @@ class MetricsLogger:
         Delegates to ``config_helpers.log_system_metrics`` so the format
         + content match the existing log surface; engineering tools
         that grep ``[PDH METRICS]`` / ``[BUFFER METRICS]`` keep working.
-        Safe to call on demand from a status endpoint.
+        Also runs the frame-flow heartbeat on the same cadence; see
+        ``_check_frame_flow_heartbeat``. Safe to call on demand from a
+        status endpoint.
         """
         try:
             config_helpers.log_system_metrics(self._settings)
@@ -95,6 +117,63 @@ class MetricsLogger:
             logger.warning(
                 f'[MetricsLogger] tick_system_metrics failed: '
                 f'{type(e).__name__}: {e}')
+        # Heartbeat is best-effort and never propagates exceptions out
+        # of the metrics tick (would lose all subsequent ticks).
+        try:
+            self._check_frame_flow_heartbeat()
+        except Exception as e:
+            logger.debug(
+                f'[MetricsLogger] frame-flow heartbeat failed: '
+                f'{type(e).__name__}: {e}')
+
+    def _check_frame_flow_heartbeat(self) -> None:
+        """Detect silent grab failure: camera active + is_grabbing()
+        reports True, but capture_fps is essentially zero for multiple
+        consecutive ticks. Catches scenarios where the SDK grab thread
+        is alive but no frames are flowing (USB transport stalled
+        without formal removal, Pylon-side grab loop hung, buffer
+        queue jammed). All-zero FRAME CONTENT is detected separately
+        in the char tool's data-validity guard; this catches the
+        zero-frame-RATE case at the API layer.
+
+        Resets the consecutive-stalled-ticks counter whenever the
+        camera is not grabbing (so a paused live view doesn't trip
+        the alarm) or fps recovers above _FRAME_FLOW_STALL_FPS.
+        """
+        try:
+            cam = getattr(self._scope, 'camera', None)
+            if cam is None or not getattr(cam, 'active', False):
+                self._frame_flow_stalled_ticks = 0
+                return
+            if not cam.is_grabbing():
+                self._frame_flow_stalled_ticks = 0
+                return
+        except Exception:
+            self._frame_flow_stalled_ticks = 0
+            return
+
+        capture_fps = 0.0
+        try:
+            from modules import app_context as _app_ctx  # noqa: WPS433
+            sd = _app_ctx.ctx.scope_display if _app_ctx.ctx is not None else None
+            if sd is not None:
+                capture_fps = float(getattr(sd, '_capture_fps_value', 0.0) or 0.0)
+        except Exception:
+            return
+
+        if capture_fps >= _FRAME_FLOW_STALL_FPS:
+            self._frame_flow_stalled_ticks = 0
+            return
+
+        self._frame_flow_stalled_ticks += 1
+        if self._frame_flow_stalled_ticks >= _FRAME_FLOW_STALL_TICK_THRESHOLD:
+            logger.warning(
+                f'[FRAME FLOW] capture_fps={capture_fps:.2f} below '
+                f'{_FRAME_FLOW_STALL_FPS} for '
+                f'{self._frame_flow_stalled_ticks} consecutive ticks while '
+                f'camera reports active=True + is_grabbing=True -- possible '
+                f'silent grab failure. Check camera.log for last successful '
+                f'grab; investigate USB transport / Pylon SDK state.')
 
     def tick_executor_watchdog(self) -> None:
         """Snapshot executor queue depths + auto-prune SCOPEDISPLAY backlog.
