@@ -385,6 +385,16 @@ class LumaViewProApp(TooltipMixin, App):
                 except Exception as e:  # grain: ignore NAKED_EXCEPT
                     logger.warning(f'[INIT      ] per-channel settings log skipped: {e}')
 
+            # Apply transmitted-layer slider caps (50 mA on BF / PC / DF)
+            # before either branch below fires. The .kv ships ill_slider
+            # at max=500; without this call the cap stays unapplied until
+            # the user first toggles the settings panel, leaving BF / PC
+            # / DF channels exposed at slider-default 500 mA.
+            try:
+                ctx.image_settings.update_transmitted()
+            except Exception as e:  # grain: ignore NAKED_EXCEPT
+                logger.warning(f'[INIT      ] update_transmitted skipped: {e}')
+
             # Check if a protocol is loaded and has steps
             if ctx.protocol is not None and ctx.protocol.num_steps() > 0:
                 protocol_settings = ctx.motion_settings.ids['protocol_settings_id']

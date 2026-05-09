@@ -6224,6 +6224,63 @@ class TestManualVideoSpinners:
         )
 
 
+class TestBfIlluminationCapAtStartup:
+    """Transmitted-layer slider caps (BF / PC / DF -> 50 mA) must be
+    applied at app startup, not on first settings-panel toggle. The
+    .kv ships ill_slider with max=500; without an init-time
+    update_transmitted() call the cap stays unapplied and BF / PC /
+    DF channels can be driven up to 500 mA from the slider on first
+    use.
+    """
+
+    def _src(self):
+        import pathlib
+        return pathlib.Path("lumaviewpro.py").read_text()
+
+    def test_complete_initialization_calls_update_transmitted(self):
+        src = self._src()
+        idx = src.find("def complete_initialization")
+        assert idx >= 0, "complete_initialization not found in lumaviewpro.py"
+        # Slice through the next def at the matching indent.
+        next_def = src.find("\n        def ", idx + 1)
+        if next_def < 0:
+            # complete_initialization is the last nested def in build();
+            # cap by the trailing Clock.schedule_once call instead.
+            next_def = src.find("Clock.schedule_once(complete_initialization", idx)
+        assert next_def > idx
+        body = src[idx:next_def]
+        assert "ctx.image_settings.update_transmitted()" in body, (
+            "complete_initialization must call "
+            "ctx.image_settings.update_transmitted() so transmitted "
+            "slider caps are applied at startup, not on first "
+            "settings-panel toggle."
+        )
+
+    def test_update_transmitted_runs_before_protocol_or_accordion_branch(self):
+        src = self._src()
+        idx = src.find("def complete_initialization")
+        assert idx >= 0
+        next_def = src.find("Clock.schedule_once(complete_initialization", idx)
+        assert next_def > idx
+        body = src[idx:next_def]
+        ut_pos = body.find("ctx.image_settings.update_transmitted()")
+        protocol_pos = body.find("if ctx.protocol is not None")
+        accordion_pos = body.find("ctx.image_settings.accordion_collapse()")
+        assert ut_pos > 0
+        assert protocol_pos > 0
+        assert accordion_pos > 0
+        assert ut_pos < protocol_pos, (
+            "update_transmitted() must run before the protocol-branch "
+            "early-return; otherwise protocol-startup leaves the cap "
+            "unapplied."
+        )
+        assert ut_pos < accordion_pos, (
+            "update_transmitted() must run before accordion_collapse() "
+            "fires apply_settings on BF, otherwise BF gets applied at "
+            "the .kv-default 500 mA before the cap."
+        )
+
+
 class TestModSliderScrollWheel:
     """ModSlider must accept mouse-wheel events to adjust value by
     step. Default Kivy Slider ignores scroll, so users could only
