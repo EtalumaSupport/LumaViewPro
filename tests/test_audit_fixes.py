@@ -1726,6 +1726,59 @@ class TestRule1_SerialBoardNoNotifications:
         assert "notifications.info" not in source
 
 
+class TestRule1_UiNoDriverReachThrough:
+    """Rule 1 (LV-14): UI must call the API, not the driver. Reach-throughs
+    like `scope.motion.driver` or `scope.led.driver` bypass the API's
+    NullBoard/connection guards and read driver internals that mean different
+    things across hardware revisions. The right gate is the API capability
+    property (`scope.motor_connected`, `scope.led_connected`) which composes
+    NullBoard isinstance + is_connected().
+
+    Catches the cluster (LV-14 was the last shader.py site; this prevents
+    reintroduction in any UI module).
+    """
+
+    UI_FILES = (
+        "ui/shader.py",
+        "ui/scope_display.py",
+        "ui/main_display.py",
+        "ui/image_settings.py",
+        "ui/microscope_settings.py",
+        "ui/protocol_settings.py",
+        "ui/layer_control.py",
+        "ui/vertical_control.py",
+        "ui/zstack.py",
+        "ui/motion_settings.py",
+        "ui/post_processing.py",
+        "ui/file_dialogs.py",
+        "ui/composite_capture.py",
+    )
+
+    def test_ui_does_not_reach_through_motion_driver(self):
+        import pathlib
+        for path in self.UI_FILES:
+            p = pathlib.Path(path)
+            if not p.exists():
+                continue
+            source = p.read_text()
+            assert "scope.motion.driver" not in source, (
+                f"{path} must not read scope.motion.driver directly "
+                "(Rule 1 / LV-14). Use scope.motor_connected instead."
+            )
+
+    def test_ui_does_not_reach_through_led_driver(self):
+        import pathlib
+        for path in self.UI_FILES:
+            p = pathlib.Path(path)
+            if not p.exists():
+                continue
+            source = p.read_text()
+            assert "scope.led.driver" not in source, (
+                f"{path} must not read scope.led.driver directly "
+                "(Rule 1). Use scope.led_connected instead."
+            )
+
+
 class TestIssue637_DrawerCloseSaturation:
     """#637: Closing the right-side LED settings drawer caused the image to
     saturate. Reproduction:
