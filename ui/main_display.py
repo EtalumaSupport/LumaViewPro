@@ -5,6 +5,7 @@ extracted from lumaviewpro.py.
 """
 
 import datetime
+import json
 import logging
 import math
 import pathlib
@@ -20,6 +21,7 @@ import modules.app_context as _app_ctx
 import modules.common_utils as common_utils
 from modules import gui_logger
 import modules.image_utils as image_utils
+from modules.recording_manifest import build_session_manifest
 from modules.sequential_io_executor import IOTask
 from ui.ui_helpers import set_last_save_folder
 from ui.composite_capture import CompositeCapture
@@ -540,6 +542,39 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
                     Clock.schedule_once(lambda dt, p=progress: setattr(self, 'video_writing_progress', p), 0)
 
                 logger.info("Manual-Video] Video frames written to disk.")
+
+                # Issue #633 Stage 2B: write session_manifest.json next to
+                # the TIFFs. Single summary file per recording with provenance,
+                # rate stats, and per-frame index. Failure to write does not
+                # abort the recording cleanup -- the TIFFs are the primary
+                # deliverable.
+                try:
+                    from lvp_logger import version as _lvp_version
+                    camera_model = None
+                    camera_serial = None
+                    try:
+                        scope = _app_ctx.ctx.scope
+                        if scope is not None and scope.camera is not None:
+                            camera_model = getattr(scope.camera, 'model_name', None)
+                            camera_serial = getattr(scope.camera, '_device_serial', None)
+                    except Exception:
+                        pass
+                    manifest = build_session_manifest(
+                        timestamps=timestamps,
+                        chunks_per_frame=chunks_per_frame,
+                        tick_freq_hz=tick_freq_hz,
+                        captured_frames=captured_frames,
+                        video_duration=video_duration,
+                        camera_model=camera_model,
+                        camera_serial=camera_serial,
+                        lvp_version=_lvp_version,
+                    )
+                    manifest_path = save_folder / 'session_manifest.json'
+                    with open(manifest_path, 'w') as fh:
+                        json.dump(manifest, fh, indent=2, default=str)
+                    logger.info(f'Manual-Video] Session manifest written to {manifest_path}')
+                except Exception as e:
+                    logger.warning(f'Manual-Video] Failed to write session_manifest.json: {e}')
 
 
                 if include_hyperstack_generation:

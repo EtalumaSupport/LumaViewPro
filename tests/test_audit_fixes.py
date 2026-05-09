@@ -2987,6 +2987,136 @@ class TestImageHandlerBaseChunkSlot:
         assert 'Gain' not in b.get_last_chunks()
 
 
+class TestSessionManifestHelpers:
+    """Issue #633 Stage 2B: session_manifest.json helpers in ui/main_display.py
+    are pure functions (input dict -> output dict). Unit-testable without Kivy.
+
+    The manifest is the single per-recording summary the customer + downstream
+    scripts read instead of opening 600 TIFFs. Schema mirrors the char tool's
+    provenance shape so manifests across LVP and char runs are comparable.
+    """
+
+    def test_compute_fps_stats_empty(self):
+        from modules.recording_manifest import compute_fps_stats as _compute_fps_stats
+        result = _compute_fps_stats([])
+        assert result == {'mean': 0.0, 'min': 0.0, 'max': 0.0, 'samples': 0}
+
+    def test_compute_fps_stats_single_frame(self):
+        import datetime
+        from modules.recording_manifest import compute_fps_stats as _compute_fps_stats
+        result = _compute_fps_stats([datetime.datetime.now()])
+        assert result == {'mean': 0.0, 'min': 0.0, 'max': 0.0, 'samples': 0}
+
+    def test_compute_fps_stats_steady_10fps(self):
+        import datetime
+        from modules.recording_manifest import compute_fps_stats as _compute_fps_stats
+        # 100ms intervals -> 10 FPS exactly
+        base = datetime.datetime(2026, 5, 9, 14, 0, 0)
+        timestamps = [
+            base + datetime.timedelta(milliseconds=100 * i) for i in range(10)
+        ]
+        result = _compute_fps_stats(timestamps)
+        assert result['samples'] == 9
+        assert abs(result['mean'] - 10.0) < 1e-6
+        assert abs(result['min'] - 10.0) < 1e-6
+        assert abs(result['max'] - 10.0) < 1e-6
+
+    def test_compute_fps_stats_jittered(self):
+        import datetime
+        from modules.recording_manifest import compute_fps_stats as _compute_fps_stats
+        base = datetime.datetime(2026, 5, 9, 14, 0, 0)
+        # Three intervals: 100ms (10fps), 200ms (5fps), 50ms (20fps)
+        timestamps = [
+            base,
+            base + datetime.timedelta(milliseconds=100),
+            base + datetime.timedelta(milliseconds=300),
+            base + datetime.timedelta(milliseconds=350),
+        ]
+        result = _compute_fps_stats(timestamps)
+        assert result['samples'] == 3
+        assert abs(result['min'] - 5.0) < 1e-6
+        assert abs(result['max'] - 20.0) < 1e-6
+        # mean = (10 + 5 + 20) / 3 = 11.667
+        assert abs(result['mean'] - 35.0 / 3) < 1e-6
+
+    def test_gather_host_provenance_keys(self):
+        from modules.recording_manifest import gather_host_provenance
+        host = gather_host_provenance()
+        assert 'hostname' in host
+        assert 'os_platform' in host
+        assert 'cpu_model' in host
+        assert 'python_version' in host
+        # Sanity: all values are non-empty strings.
+        for k, v in host.items():
+            assert isinstance(v, str)
+            assert len(v) > 0, f"{k} should be non-empty"
+
+    def test_build_session_manifest_schema(self):
+        import datetime
+        from modules.recording_manifest import build_session_manifest as _build_session_manifest
+        ts0 = datetime.datetime(2026, 5, 9, 14, 0, 0)
+        timestamps = [ts0 + datetime.timedelta(milliseconds=100 * i) for i in range(3)]
+        chunks_per_frame = [
+            {'Timestamp': 1000, 'FrameID': 1, 'ExposureTime': 50.0},
+            {'Timestamp': 1100, 'FrameID': 2, 'ExposureTime': 50.0},
+            {'Timestamp': 1200, 'FrameID': 3, 'ExposureTime': 50.0},
+        ]
+        manifest = _build_session_manifest(
+            timestamps=timestamps,
+            chunks_per_frame=chunks_per_frame,
+            tick_freq_hz=1_000_000_000,
+            captured_frames=3,
+            video_duration=0.3,
+        )
+        assert manifest['manifest_version'] == 1
+        assert manifest['recording']['frames_captured'] == 3
+        assert manifest['recording']['duration_s'] == 0.3
+        assert manifest['recording']['start_iso'] == ts0.isoformat(timespec='microseconds')
+        assert manifest['camera']['timestamp_tick_hz'] == 1_000_000_000
+        assert 'host' in manifest['provenance']
+        assert 'software' in manifest['provenance']
+        assert len(manifest['frame_index']) == 3
+        assert manifest['frame_index'][0]['i'] == 0
+        assert manifest['frame_index'][0]['ts_camera_ticks'] == 1000
+        assert manifest['frame_index'][0]['frame_id'] == 1
+
+    def test_build_session_manifest_handles_missing_chunks(self):
+        """Cameras without chunk support: chunks_per_frame is [None, None, ...].
+        Manifest still emits frame_index entries with None for camera fields."""
+        import datetime
+        from modules.recording_manifest import build_session_manifest as _build_session_manifest
+        ts0 = datetime.datetime(2026, 5, 9, 14, 0, 0)
+        timestamps = [ts0 + datetime.timedelta(milliseconds=100 * i) for i in range(2)]
+        manifest = _build_session_manifest(
+            timestamps=timestamps,
+            chunks_per_frame=[None, None],
+            tick_freq_hz=None,
+            captured_frames=2,
+            video_duration=0.2,
+        )
+        assert manifest['camera']['timestamp_tick_hz'] is None
+        assert manifest['frame_index'][0]['ts_camera_ticks'] is None
+        assert manifest['frame_index'][0]['frame_id'] is None
+        assert manifest['frame_index'][0]['ts_host_iso'] is not None
+
+    def test_build_session_manifest_handles_short_arrays(self):
+        """timestamps/chunks_per_frame may be shorter than captured_frames if
+        the camera dropped late frames; emit None rather than IndexError."""
+        from modules.recording_manifest import build_session_manifest as _build_session_manifest
+        manifest = _build_session_manifest(
+            timestamps=[],
+            chunks_per_frame=[],
+            tick_freq_hz=1_000_000_000,
+            captured_frames=5,
+            video_duration=0.0,
+        )
+        assert len(manifest['frame_index']) == 5
+        for entry in manifest['frame_index']:
+            assert entry['ts_host_iso'] is None
+            assert entry['ts_camera_ticks'] is None
+            assert entry['frame_id'] is None
+
+
 class TestImageHandlerBaseAtomicChunksSnapshot:
     """Issue #633 Stage 2A: get_last_image_with_chunks returns image + ts +
     chunks under one lock acquisition.
