@@ -2987,6 +2987,79 @@ class TestImageHandlerBaseChunkSlot:
         assert 'Gain' not in b.get_last_chunks()
 
 
+class TestRecordInitFpsPreflightAndToggle:
+    """Issue #633 Stage 2C: record_init pre-flight + camera FPS toggle.
+
+    Static-source assertions because record_init has Kivy Clock + camera
+    dependencies that aren't mockable in the unit-test env. Bench
+    verification per the Monday plan covers the runtime behavior.
+    """
+
+    def _record_init_body(self):
+        import pathlib
+        source = pathlib.Path("ui/main_display.py").read_text()
+        idx = source.find("def record_init")
+        assert idx >= 0, "record_init not found in ui/main_display.py"
+        # Slice through the next def at class indent (4 spaces).
+        next_def = source.find("\n    def ", idx + 1)
+        return source[idx:next_def] if next_def > 0 else source[idx:]
+
+    def _finalize_body(self):
+        import pathlib
+        source = pathlib.Path("ui/main_display.py").read_text()
+        idx = source.find("def _finalize_recording_state")
+        assert idx >= 0, "_finalize_recording_state not found"
+        next_def = source.find("\n    def ", idx + 1)
+        return source[idx:next_def] if next_def > 0 else source[idx:]
+
+    def test_fps_budget_warning_fires_when_limit_binds(self):
+        body = self._record_init_body()
+        assert "FPS budget exceeded" in body, (
+            "record_init must surface a notifications.warning when the "
+            "user-requested FPS limit binds against the exposure budget "
+            "(issue #633 Stage 2C, Eric's 'warn + accept' choice)."
+        )
+        # Warn-and-accept: do NOT block recording on this path.
+        assert "self.recording.clear()" not in body.split("FPS budget exceeded")[0][-500:], (
+            "FPS-budget warning path must not clear self.recording -- "
+            "Eric chose warn-and-accept, not abort."
+        )
+
+    def test_disk_space_preflight_aborts_with_notify(self):
+        body = self._record_init_body()
+        assert "Insufficient disk space" in body, (
+            "record_init must pre-flight disk space and abort with "
+            "notifications.error when insufficient (issue #633 Stage 2C)."
+        )
+        assert "self.recording.clear()" in body, (
+            "Disk-space abort must clear self.recording so a retry "
+            "after freeing disk can claim recording again."
+        )
+
+    def test_record_init_enables_camera_fps_limit_when_binding(self):
+        body = self._record_init_body()
+        assert "set_max_acquisition_frame_rate(True" in body, (
+            "record_init must enable the camera-side rate limit via "
+            "scope.set_max_acquisition_frame_rate(True, video_fps) when "
+            "the limit binds (issue #633 Stage 2C)."
+        )
+        assert "_fps_limit_was_enabled" in body, (
+            "record_init must track whether the limit was enabled so "
+            "_finalize_recording_state knows whether to toggle off."
+        )
+
+    def test_finalize_disables_camera_fps_limit(self):
+        body = self._finalize_body()
+        assert "set_max_acquisition_frame_rate(False" in body, (
+            "_finalize_recording_state must disable the camera-side rate "
+            "limit so live preview returns to free-run (issue #633 Stage 2C)."
+        )
+        assert "_fps_limit_was_enabled" in body, (
+            "_finalize must guard the disable on _fps_limit_was_enabled "
+            "to avoid touching the knob when we didn't enable it."
+        )
+
+
 class TestSessionManifestHelpers:
     """Issue #633 Stage 2B: session_manifest.json helpers in ui/main_display.py
     are pure functions (input dict -> output dict). Unit-testable without Kivy.

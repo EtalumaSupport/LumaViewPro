@@ -9,6 +9,7 @@ import json
 import logging
 import math
 import pathlib
+import shutil
 import threading
 import time
 
@@ -152,16 +153,32 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
         if "manual_video" in settings:
             max_fps = settings["manual_video"]["max_fps"]
             max_duration = settings["manual_video"]["max_duration"]
+            self._user_requested_fps_limit = True  # issue #633 Stage 2C
         else:
             max_fps = 40
             max_duration = 30
+            self._user_requested_fps_limit = False
 
-        # Record at camera rate — duplicate frame detection in record_helper()
-        # prevents storing the same frame twice. max_fps only used for
-        # final video playback FPS calculation, not capture throttling.
         frame_size = self.scope.camera_frame_size
         exposure = self.scope.camera_exposure_ms
         exposure_freq = 1.0 / (exposure / 1000)
+        # Issue #633 Stage 2C: pre-flight when the user requested a specific
+        # FPS limit (manual_video config or, eventually, the UI spinner).
+        # If exposure exceeds the FPS budget, warn but accept the achievable
+        # rate (per Eric's "warn + accept" choice). The camera will deliver
+        # at min(requested, exposure-allowed); video_fps below reflects that.
+        if self._user_requested_fps_limit and max_fps > exposure_freq:
+            try:
+                from modules.notification_center import notifications
+                notifications.warning(
+                    "FPS budget exceeded",
+                    f"Requested {max_fps:.1f} FPS at {exposure:.0f} ms exposure "
+                    f"exceeds the camera's max {exposure_freq:.1f} FPS for that "
+                    f"exposure. Recording will run at {exposure_freq:.1f} FPS "
+                    f"instead. Reduce exposure to hit the requested rate."
+                )
+            except Exception as e:
+                logger.warning(f'[LVP Main  ] Could not notify FPS budget: {e}')
         video_fps = min(exposure_freq, max_fps)
 
         max_frames = math.ceil(video_fps * max_duration)
@@ -198,6 +215,30 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
 
         bytes_per_element = 1 if dtype == 'uint8' else 2
         expected_size = int(np.prod(required_shape, dtype=np.int64)) * bytes_per_element
+
+        # Issue #633 Stage 2C: pre-flight disk space. The memmap creation
+        # below would error eventually, but at that point the user has
+        # already clicked Record and waited; surface earlier with an
+        # actionable message. 256 MB safety margin keeps the OS from
+        # running out of breathing room mid-record.
+        _DISK_SAFETY_MB = 256
+        try:
+            free_bytes = shutil.disk_usage(self.memmap_location.parent).free
+            if expected_size + _DISK_SAFETY_MB * 1024 * 1024 > free_bytes:
+                from modules.notification_center import notifications
+                notifications.error(
+                    "Insufficient disk space",
+                    f"Recording would need {expected_size / 1e9:.1f} GB but only "
+                    f"{free_bytes / 1e9:.1f} GB free. Free up space or reduce "
+                    f"FPS / duration / pixel depth."
+                )
+                self.recording.clear()
+                return
+        except Exception as e:
+            # Non-fatal: a disk_usage probe failure is a worse error than
+            # the eventual memmap-create failure. Log and proceed; the
+            # OSError catch below is the structural backstop.
+            logger.warning(f'[LVP Main  ] Disk-space pre-flight failed: {e}')
 
         # Check if we can reuse existing file (fast path - no truncation needed)
         reuse_existing = False
@@ -248,6 +289,29 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
         self._last_recorded_frame_ts = None  # Reset duplicate detection
 
         logger.info(f"Manual-Video] Capturing video...")
+
+        # Issue #633 Stage 2C: enable camera-side rate limit only when the
+        # user opted in (manual_video config or eventually the UI spinner)
+        # AND the limit binds (max_fps below exposure_freq). When the limit
+        # binds, set_max_acquisition_frame_rate caps the camera at video_fps
+        # so frames arrive at exactly the requested cadence. Toggled OFF in
+        # _finalize_recording_state so live preview returns to free-run.
+        # set_max_acquisition_frame_rate already exists as a shipping API
+        # in both Pylon and IDS drivers (used elsewhere as a "max cap"; we
+        # use it as a target rate).
+        self._fps_limit_was_enabled = False
+        if self._user_requested_fps_limit and video_fps < exposure_freq:
+            try:
+                self.scope.set_max_acquisition_frame_rate(True, video_fps)
+                self._fps_limit_was_enabled = True
+                logger.info(
+                    f'Manual-Video] Camera FPS limit enabled at {video_fps:.2f} fps'
+                )
+            except Exception as e:
+                logger.warning(
+                    f'[LVP Main  ] Could not enable FPS limit ({video_fps:.2f}): '
+                    f'{e}; recording will run at camera free-rate'
+                )
 
         # Schedule recording at camera exposure rate (not capped to max_fps).
         # Duplicate frame detection in record_helper() naturally handles the case
@@ -341,6 +405,21 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
     def _finalize_recording_state(self, dt=None, ui_snapshot=None):
         """Run on camera executor: Capture final state quickly and hand off to file writer."""
         memmap_path = None
+        # Issue #633 Stage 2C: restore camera free-run before anything else
+        # so live preview unsticks immediately after recording stops.
+        # _fps_limit_was_enabled is set in record_init only when we
+        # actually toggled the camera; never call disable when we didn't
+        # enable, to avoid touching a knob the user may have set elsewhere.
+        if getattr(self, '_fps_limit_was_enabled', False):
+            try:
+                self.scope.set_max_acquisition_frame_rate(False, 0.0)
+                self._fps_limit_was_enabled = False
+                logger.info('Manual-Video] Camera FPS limit disabled (free-run restored)')
+            except Exception as e:
+                logger.warning(
+                    f'[LVP Main  ] Could not disable FPS limit: {e}; '
+                    f'live preview may stay at recording rate until next config'
+                )
         try:
             logger.info("Manual-Video] Finalizing recording state...")
 
