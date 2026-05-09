@@ -1,7 +1,7 @@
 # -*- mode: python ; coding: utf-8 -*-
 
 from kivy_deps import sdl2, glew
-from PyInstaller.utils.hooks import copy_metadata
+from PyInstaller.utils.hooks import copy_metadata, collect_submodules
 
 app_name = 'lumaviewpro'
 datas = [
@@ -22,9 +22,15 @@ for pkg in ('numpy', 'scyjava', 'imglyb', 'pyimagej'):
         pass  # Package may not be installed on all build machines
 
 
+# imagecodecs uses lazy submodule imports for each compression
+# algorithm (lzw_encode, zlib_encode, etc.). PyInstaller can't follow
+# them statically, so the previous {_imcd, _shared}-only hidden-import
+# list missed lzw_encode and the bundle crashed on every TIFF write
+# with `compression='lzw'`. collect_submodules picks up the full set;
+# install-size cost is minor and future tifffile compression options
+# just work.
 hiddenimports = [
-    'imagecodecs._imcd',
-    'imagecodecs._shared',
+    *collect_submodules('imagecodecs'),
     'skimage.measure',
     'win32timezone',
     # FX2 (LVC) USB driver imports — pyusb + libusb1 dynamic submodules
