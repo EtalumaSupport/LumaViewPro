@@ -170,9 +170,11 @@ def get_selected_labware() -> tuple[str | None, labware.WellPlate | None]:
     Falls back to settings['protocol']['labware'] if the spinner text is empty
     (e.g. before the spinner has been populated from settings on startup).
 
-    Returns (labware_id, wellplate_obj) on success, (None, None) on any failure.
-    Lookup + None-on-error logic is delegated to the tested headless helper
-    `config_helpers.get_selected_labware_from_settings`.
+    Returns (labware_id, wellplate_obj). On UI/spinner read failure
+    returns (None, None); the labware lookup itself never returns None
+    (the headless helper falls back to the shipped default or first
+    available plate, and only raises ConfigError if the wellplate
+    loader is completely empty).
     """
     try:
         protocol_settings = _app_ctx.ctx.motion_settings.ids['protocol_settings_id']

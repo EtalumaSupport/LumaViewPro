@@ -145,7 +145,8 @@ class TestGetSelectedLabware:
         loader.get_plate_list.return_value = []
         settings = {'protocol': {'labware': 'anything'}}
         import pytest
-        with pytest.raises(ValueError, match="no plates registered"):
+        from modules.exceptions import ConfigError
+        with pytest.raises(ConfigError, match="no plates registered"):
             get_selected_labware_from_settings(settings, loader)
 
 

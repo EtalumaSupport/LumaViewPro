@@ -15,6 +15,7 @@ import psutil
 
 from lvp_logger import logger
 import modules.common_utils as common_utils
+from modules.exceptions import ConfigError
 
 
 # ---------------------------------------------------------------------------
@@ -685,11 +686,11 @@ def get_selected_labware_from_settings(
                 f"falling back to first available plate"
             )
     # Second fallback: anything in the loader. If the loader is empty,
-    # this raises ValueError — at which point the install is broken.
+    # the install is broken (labware.json missing or unreadable).
     available = wellplate_loader.get_plate_list()
     if not available:
-        raise ValueError(
-            "wellplate_loader has no plates registered — labware.json "
+        raise ConfigError(
+            "wellplate_loader has no plates registered -- labware.json "
             "is missing or unreadable"
         )
     fallback_id = available[0]
