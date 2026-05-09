@@ -6182,3 +6182,55 @@ class TestManualVideoSpinners:
             "(uncapped) so a fresh install does not fire 'FPS budget "
             "exceeded' on every record."
         )
+
+
+class TestFx2DriverLibusbBackendProbe:
+    """Issue #645 Bug A: fx2driver.py must probe the libusb-1.0 native
+    backend at module load so the missing-DLL case is classified as
+    'FX2 not applicable to this install' rather than crashing with
+    NoBackendError mid-_connect.
+
+    Static-source assertions because monkeypatching pyusb backend
+    state at import time isn't reliable in unit-test env.
+    """
+
+    def _src(self):
+        import pathlib
+        return pathlib.Path("drivers/fx2driver.py").read_text()
+
+    def test_module_probes_libusb_backend_at_load(self):
+        src = self._src()
+        assert "usb.backend.libusb1.get_backend()" in src, (
+            "fx2driver.py must probe usb.backend.libusb1.get_backend() "
+            "at module load so missing libusb-1.0.dll is classified "
+            "before _connect runs."
+        )
+        assert "_HAS_USB_BACKEND" in src, (
+            "fx2driver.py must record the backend-loadable state in "
+            "_HAS_USB_BACKEND for use by the _FX2_AVAILABLE gate."
+        )
+
+    def test_fx2_available_gate_includes_backend_check(self):
+        src = self._src()
+        idx = src.find("_FX2_AVAILABLE = ")
+        assert idx >= 0
+        # Read up to the closing of the assignment (next blank line or
+        # next top-level statement). Captures the multi-line form.
+        end = src.find("\nif not _FX2_AVAILABLE", idx)
+        assert end > idx
+        expr = src[idx:end]
+        assert "_HAS_USB_BACKEND" in expr, (
+            "_FX2_AVAILABLE must AND in _HAS_USB_BACKEND so a "
+            "pyusb-installed-but-no-native-backend system does not "
+            "register FX2 drivers."
+        )
+
+    def test_missing_backend_path_logs_install_hint(self):
+        src = self._src()
+        # The else-if branch for the missing-backend case must fire
+        # an INFO with concrete install instructions per platform.
+        assert "libusb-1.0 native library not loadable" in src, (
+            "fx2driver.py must log a clear INFO when the libusb-1.0 "
+            "backend is not loadable, with platform-specific install "
+            "instructions."
+        )

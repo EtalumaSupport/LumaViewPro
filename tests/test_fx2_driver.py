@@ -120,10 +120,19 @@ class TestRegistryGatedOnPrereqs:
     ImportError, and dumps a confusing traceback on every no-LVC install."""
 
     def test_fx2_available_flag_matches_imports(self):
-        # _FX2_AVAILABLE is the gate; it must follow _HAS_USB and (win or _HAS_USB1).
+        # _FX2_AVAILABLE is the gate; it must follow _HAS_USB AND
+        # _HAS_USB_BACKEND AND (win or _HAS_USB1). _HAS_USB_BACKEND
+        # was added for issue #645 Bug A: pyusb imports successfully
+        # without the native libusb-1.0 binary on the path, so the
+        # missing-DLL case has to be caught explicitly via
+        # usb.backend.libusb1.get_backend() probe at module load,
+        # otherwise NoBackendError surfaces mid-_connect with a
+        # confusing traceback.
         import sys as _sys
-        expected = fx2driver._HAS_USB and (
-            _sys.platform == 'win32' or fx2driver._HAS_USB1
+        expected = (
+            fx2driver._HAS_USB
+            and fx2driver._HAS_USB_BACKEND
+            and (_sys.platform == 'win32' or fx2driver._HAS_USB1)
         )
         assert fx2driver._FX2_AVAILABLE == expected
 

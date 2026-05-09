@@ -114,6 +114,20 @@ except ImportError:
     _USBError = OSError
     _USBTimeoutError = TimeoutError
 
+# pyusb imports without the native libusb-1.0 binary on the path; the
+# missing-DLL case only surfaces at the first usb.core.find() call,
+# which then raises NoBackendError mid-_connect and produces a noisy
+# traceback in lumaviewpro_errors.log on every startup. Probe the
+# backend at module load so the case is classified as "FX2 not
+# applicable to this install" rather than "FX2 driver crashed."
+_HAS_USB_BACKEND = False
+if _HAS_USB:
+    try:
+        import usb.backend.libusb1
+        _HAS_USB_BACKEND = usb.backend.libusb1.get_backend() is not None
+    except Exception:
+        _HAS_USB_BACKEND = False
+
 try:
     import usb1
     _HAS_USB1 = True
@@ -121,20 +135,32 @@ except ImportError:
     _HAS_USB1 = False
 
 
-# FX2 (LumaviewClassic) drivers require pyusb on every platform, plus
-# libusb1 on macOS / Linux for ISO streaming. On systems missing those,
-# FX2 hardware fundamentally cannot be reached — registering the drivers
-# anyway causes the registry to attempt instantiation on every auto-detect
-# run, raise ImportError, and dump a confusing traceback (issue #635) on
-# systems that simply don't have LVC hardware. Skip-with-INFO-log is the
-# right classification: this driver class isn't applicable to this install.
-_FX2_AVAILABLE = _HAS_USB and (sys.platform == 'win32' or _HAS_USB1)
+# FX2 (LumaviewClassic) drivers require pyusb plus a loadable libusb-1.0
+# native backend on every platform, plus libusb1 on macOS / Linux for ISO
+# streaming. On systems missing those, FX2 hardware fundamentally cannot
+# be reached — registering the drivers anyway causes the registry to
+# attempt instantiation on every auto-detect run, raise NoBackendError /
+# ImportError, and dump a confusing traceback on systems that simply
+# don't have LVC hardware. Skip-with-INFO-log is the right
+# classification: this driver class isn't applicable to this install.
+_FX2_AVAILABLE = (
+    _HAS_USB and _HAS_USB_BACKEND and (sys.platform == 'win32' or _HAS_USB1)
+)
 if not _FX2_AVAILABLE:
     if not _HAS_USB:
         logger.info(
             "[FX2 Driver] pyusb not installed — FX2 (LumaviewClassic) "
             "drivers will not be registered. Install pyusb to enable "
             "LVC hardware support: pip install pyusb"
+        )
+    elif not _HAS_USB_BACKEND:
+        logger.info(
+            "[FX2 Driver] libusb-1.0 native library not loadable — FX2 "
+            "(LumaviewClassic) drivers will not be registered. Install "
+            "the native library to enable LVC hardware support: macOS: "
+            "brew install libusb; Windows: ensure libusb-1.0.dll is on "
+            "PATH or vendored alongside the executable; Linux: apt "
+            "install libusb-1.0-0."
         )
     elif not _HAS_USB1:
         logger.info(
