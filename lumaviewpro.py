@@ -114,6 +114,44 @@ if __name__ == '__main__':
     os.environ['KIVY_NO_CONSOLELOG'] = '1'
     os.environ['KIVY_NO_FILELOG'] = '1'
 
+    # Single-instance lock check BEFORE any Kivy import.
+    # When the check lived inside App.build(), Kivy had already
+    # initialized SDL2 and opened a native window by the time the
+    # loser reached sys.exit, producing duplicate visible Kivy
+    # windows on double-launch. Run the check now while only
+    # tkinter is alive (used above for the Python-version dialog).
+    from modules.app_config import get_lvp_lock_port as _get_lvp_lock_port
+
+    _lvp_lock_singleton = lvp_lock.LvpLock(
+        lock_port=_get_lvp_lock_port(source_path)
+    )
+    if not _lvp_lock_singleton.lock():
+        _msg = 'Another instance of LVP may already be running. Exiting.'
+        logger.error(f'[LVP Lock ] {_msg}')
+        print(f'ERROR: {_msg}', file=sys.stderr)
+        try:
+            import tkinter as _tk
+            from tkinter import messagebox as _mb
+
+            _root = _tk.Tk()
+            _root.withdraw()
+            _mb.showerror(
+                'LumaViewPro: already running',
+                'Another copy of LumaViewPro is already running.\n\n'
+                'This copy will now close. Switch to the existing '
+                'window, or close the other instance first before '
+                'launching again.',
+            )
+            _root.destroy()
+        except Exception as popup_err:  # grain: ignore NAKED_EXCEPT
+            logger.warning(
+                f'[LVP Lock ] Could not display already-running popup: {popup_err}'
+            )
+        # os._exit terminates immediately; sys.exit raises SystemExit
+        # which downstream cleanup paths may swallow before any Kivy
+        # import has the chance to spin up.
+        os._exit(1)
+
     # Kivy configurations
     # Configurations must be set before Kivy is imported
     from kivy.config import Config
@@ -239,7 +277,6 @@ else:
 # ============================================================================
 
 from modules.app_config import (
-    get_lvp_lock_port,
     load_autofocus_log_enable,
     load_log_level,
 )
@@ -453,30 +490,11 @@ class LumaViewProApp(TooltipMixin, App):
 
         log_environment_banner(source_path, version)
 
-        self._lvp_lock = lvp_lock.LvpLock(lock_port=get_lvp_lock_port(source_path))
-        if not self._lvp_lock.lock():
-            error_msg = 'Another instance of LVP may already be running. Exiting.'
-            logger.error(f'[LVP Lock ] {error_msg}')
-            print(f'ERROR: {error_msg}', file=sys.stderr)
-            # Use tkinter for a pre-Kivy alert: Kivy's main loop isn't running yet
-            # (we're still inside build()) and tkinter ships with stdlib.
-            try:
-                import tkinter
-                from tkinter import messagebox
-
-                _root = tkinter.Tk()
-                _root.withdraw()
-                messagebox.showerror(
-                    'LumaViewPro: already running',
-                    'Another copy of LumaViewPro is already running.\n\n'
-                    'This copy will now close. Switch to the existing '
-                    'window, or close the other instance first before '
-                    'launching again.',
-                )
-                _root.destroy()
-            except Exception as popup_err:  # grain: ignore NAKED_EXCEPT
-                logger.warning(f'[LVP Lock ] Could not display already-running popup: {popup_err}')
-            sys.exit(1)
+        # Lock was claimed in __main__ before any Kivy import (issue #559);
+        # keep a strong ref here so the bound socket survives for the
+        # lifetime of the app. The instance is a module-global below;
+        # take it onto self for symmetry with the rest of the app state.
+        self._lvp_lock = _lvp_lock_singleton
 
         # video_creation_controls, stitch_controls, zprojection_controls, and
         # composite_gen_controls register themselves on ctx in their __init__.

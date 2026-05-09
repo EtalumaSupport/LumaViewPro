@@ -556,6 +556,46 @@ class TestLvpLock:
             finally:
                 second.close()
 
+    def test_lock_check_runs_before_kivy_import(self):
+        """Issue #559 structural fix: the lock check must run BEFORE
+        any Kivy import. When the check lived in App.build(), Kivy
+        had already initialized SDL2 and opened a native window by
+        the time the loser reached sys.exit, producing duplicate
+        visible Kivy windows on double-launch.
+        """
+        import pathlib
+        src = pathlib.Path("lumaviewpro.py").read_text()
+        lock_idx = src.find("_lvp_lock_singleton.lock()")
+        assert lock_idx >= 0, (
+            "lumaviewpro.py must invoke _lvp_lock_singleton.lock() "
+            "in __main__ block; structural fix for issue #559."
+        )
+        first_kivy_import = src.find("from kivy.")
+        assert first_kivy_import >= 0
+        assert lock_idx < first_kivy_import, (
+            "Lock check must run BEFORE the first kivy import. If "
+            "this fails, the loser's Kivy window has already opened "
+            "before sys.exit fires (issue #559 structural regression)."
+        )
+
+    def test_lock_loser_calls_os_exit(self):
+        """The lock-loser path uses os._exit(1) rather than sys.exit(1)
+        so that no downstream import (Kivy / SDL2) gets to fire after
+        the dialog is dismissed. sys.exit raises SystemExit which
+        cleanup paths can swallow.
+        """
+        import pathlib
+        src = pathlib.Path("lumaviewpro.py").read_text()
+        # Slice the __main__ block lock-check region.
+        start = src.find("_lvp_lock_singleton.lock()")
+        end = src.find("Kivy configurations", start)
+        assert end > start
+        region = src[start:end]
+        assert "os._exit(1)" in region, (
+            "Lock-loser path must call os._exit(1) (not sys.exit(1)) "
+            "so Kivy / SDL2 cannot start after the popup is dismissed."
+        )
+
 
 class TestSerialRateLimiting:
     """Verify serial command rate limiting infrastructure."""
