@@ -3404,13 +3404,14 @@ class Lumascope():
             common_utils.max_decimal_precision('pixel_size'),
         )
 
+        now_host = datetime.datetime.now()
         metadata = {
             'camera_make': 'Etaluma',
             'microscope': self.get_microscope_model(),
             'software': f'LumaViewPro {version}',
             'channel': color,
-            'datetime': datetime.datetime.now().strftime("%Y:%m:%d %H:%M:%S"),      # Format for metadata
-            'sub_sec_time': f"{datetime.datetime.now().microsecond // 1000:03d}",
+            'datetime': now_host.strftime("%Y:%m:%d %H:%M:%S"),      # Format for metadata
+            'sub_sec_time': f"{now_host.microsecond // 1000:03d}",
             'objective': self._objective,
             'focal_length': self._objective['focal_length'],
             'plate_pos_mm': {'x': px, 'y': py},
@@ -3423,7 +3424,29 @@ class Lumascope():
             'binning_size': self._binning_size,
             'pixel_size_um': pixel_size_um,
             'well_label': well_label,
+            'timestamp_iso': now_host.isoformat(timespec='microseconds'),
         }
+
+        # Camera-side timestamp + frame-id provenance, when the camera
+        # supports chunk data (Pylon ace 2 / dart M / dart R always; IDS
+        # has ExposureTime/Gain but no ChunkTimestamp yet -- Stage 2 work).
+        # Read the most recent chunks; they're captured at-grab-time and
+        # are the right values for the most recent frame on this thread.
+        try:
+            handler = getattr(self.camera, 'cam_image_handler', None)
+            chunks = handler.get_last_chunks() if handler is not None else None
+        except Exception:
+            chunks = None
+        if chunks is not None:
+            ts_ticks = chunks.get('Timestamp')
+            if ts_ticks is not None:
+                metadata['timestamp_camera_ticks'] = int(ts_ticks)
+            tick_hz = getattr(self.camera, 'timestamp_tick_frequency_hz', None)
+            if tick_hz is not None:
+                metadata['timestamp_camera_tick_hz'] = int(tick_hz)
+            frame_id = chunks.get('FrameID')
+            if frame_id is not None:
+                metadata['frame_id'] = int(frame_id)
 
         return metadata
 

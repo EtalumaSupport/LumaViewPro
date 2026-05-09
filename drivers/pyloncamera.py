@@ -960,11 +960,12 @@ class PylonCamera(Camera):
                             )
                 except Exception as e:
                     logger.debug(f'[CAM Class ] TriggerMode set skipped: {e}')
-                # Enable per-frame chunks for gain/exposure/identity. Must
-                # happen here -- ChunkModeActive is locked while grabbing
+                # Enable per-frame chunks for gain/exposure/identity/timestamp.
+                # Must happen here -- ChunkModeActive is locked while grabbing
                 # (genicam.AccessException). Settings persist across
                 # subsequent stop/start cycles.
                 self._enable_validity_chunks()
+                self._read_timestamp_tick_frequency()
                 self.set_pixel_format(pixel_format='Mono8')
                 self.auto_gain(state=False)
                 # Set explicit gain — camera default after UserSetLoad is undefined
@@ -995,8 +996,12 @@ class PylonCamera(Camera):
     _FRAME_IDENTITY_CHUNK_CANDIDATES = ('FrameID', 'Framecounter')
 
     # Always-enable chunks (no per-camera fallback; both production
-    # USB3 cameras and dart M GigE advertise these).
-    _CHUNK_TARGETS_ALWAYS = ('ExposureTime', 'Gain')
+    # USB3 cameras and dart M GigE advertise these). Timestamp is the
+    # camera-side capture-time tick value; surfaced through the chunks
+    # dict for downstream metadata writes (TIFF Plane fields, session
+    # manifest). frame_validity does not validate against it -- it's
+    # provenance, not state-equality.
+    _CHUNK_TARGETS_ALWAYS = ('ExposureTime', 'Gain', 'Timestamp')
 
     def _enable_validity_chunks(self) -> None:
         """Enable ChunkExposureTime / ChunkGain + a per-frame identity
@@ -1074,6 +1079,63 @@ class PylonCamera(Camera):
                     f'[CAM Class ] could not enable Chunk{sel}: {e}; '
                     f'frame_validity will fall back to skip_frames for that source'
                 )
+
+    # Basler USB3 ace 2 / dart M / dart R: documented fixed 1 GHz timestamp
+    # tick rate (no GenAPI node). Basler GigE: GevTimestampTickFrequency or
+    # TimestampTickFrequency feature. For unknown future cameras: fall back
+    # to None so the metadata writer skips camera-tick fields rather than
+    # writing wrong values (1 GHz default would be a silent lie if the
+    # camera's actual rate differs).
+    _BASLER_USB3_DEFAULT_TICK_HZ = 1_000_000_000
+
+    def _read_timestamp_tick_frequency(self) -> None:
+        """Resolve and cache the camera's Timestamp chunk tick frequency.
+
+        Sets ``self.timestamp_tick_frequency_hz``. Tries the GigE node names
+        first; falls back to the documented USB3 default (1 GHz) when no
+        node is available; sets None if the device-info transport is
+        unrecognised so downstream metadata is honest about the unknown.
+        """
+        camera = self.active
+        if camera is None:
+            return
+        for node_name in ('GevTimestampTickFrequency', 'TimestampTickFrequency'):
+            try:
+                nm = camera.GetNodeMap()
+                node = nm.GetNode(node_name)
+                if node is not None and genicam.IsReadable(node):
+                    self.timestamp_tick_frequency_hz = int(node.GetValue())
+                    logger.info(
+                        f'[CAM Class ] Timestamp tick frequency '
+                        f'{self.timestamp_tick_frequency_hz} Hz ({node_name})'
+                    )
+                    return
+            except Exception as e:
+                logger.debug(
+                    f'[CAM Class ] {node_name} read skipped: {e}'
+                )
+        # No GigE node -- assume Basler USB3 fixed rate per data-chunks doc.
+        # Probe the device-info transport key to confirm we're actually on
+        # USB3 before applying the default; if introspection fails, leave
+        # tick frequency as None.
+        try:
+            di = camera.GetDeviceInfo()
+            transport = di.GetDeviceClass() if hasattr(di, 'GetDeviceClass') else ''
+        except Exception:
+            transport = ''
+        if 'Usb' in transport or 'USB' in transport:
+            self.timestamp_tick_frequency_hz = self._BASLER_USB3_DEFAULT_TICK_HZ
+            logger.info(
+                f'[CAM Class ] Timestamp tick frequency assumed '
+                f'{self._BASLER_USB3_DEFAULT_TICK_HZ} Hz (Basler USB3 default; '
+                f'no TickFrequency node)'
+            )
+        else:
+            logger.warning(
+                f'[CAM Class ] Could not determine Timestamp tick frequency '
+                f'(transport={transport!r}, no TickFrequency node); '
+                f'ChunkTimestamp values will be unconvertible to seconds'
+            )
 
     @staticmethod
     def _probe_advertised_chunks(camera) -> set | None:
@@ -2865,7 +2927,8 @@ class ImageHandler(pylon.ImageEventHandler):
         self._frame_queue = queue.Queue(maxsize=1)
         self._parent = parent_cam
 
-    # Maps GrabResult chunk attrs to keys in FrameValidity.CHUNK_KEY_FOR_SOURCE.
+    # Maps GrabResult chunk attrs to keys in FrameValidity.CHUNK_KEY_FOR_SOURCE
+    # plus the Timestamp provenance chunk (not validated; surfaced for metadata).
     # ChunkFrameID + ChunkFramecounter both map to 'FrameID' (camera advertises one;
     # read side tries both, the active one returns a value).
     _CHUNK_GRAB_RESULT_ATTRS = (
@@ -2873,6 +2936,7 @@ class ImageHandler(pylon.ImageEventHandler):
         ('ChunkGain', 'Gain'),
         ('ChunkFrameID', 'FrameID'),
         ('ChunkFramecounter', 'FrameID'),
+        ('ChunkTimestamp', 'Timestamp'),
     )
 
     @staticmethod

@@ -435,6 +435,71 @@ class TestTiffMetadata:
             assert 306 in tag_codes, "DateTime tag should be present"
 
 
+class TestTimestampMetadata:
+    """Per-frame timestamp fields in the TIFF Plane metadata (issue #633).
+
+    Each timestamp field is optional -- callers that don't capture them
+    omit the keys and the corresponding TIFF Plane fields don't appear.
+    Callers that do (Lumascope.generate_image_metadata once the camera
+    supports ChunkTimestamp) get host wall-clock + camera-tick provenance
+    embedded in every saved frame.
+    """
+
+    def test_timestamp_iso_emitted_when_provided(self, img_8bit, metadata):
+        metadata['timestamp_iso'] = '2026-05-09T14:23:01.123456'
+        result = image_utils.generate_tiff_data(
+            data=img_8bit, metadata=metadata, image_type='imagej', color='BF'
+        )
+        plane = result['metadata']['Plane']
+        assert plane['Timestamp'] == '2026-05-09T14:23:01.123456'
+        assert plane['TimestampSource'] == 'host_wallclock'
+
+    def test_camera_ticks_emitted_when_provided(self, img_8bit, metadata):
+        metadata['timestamp_iso'] = '2026-05-09T14:23:01.123456'
+        metadata['timestamp_camera_ticks'] = 1234567890123
+        metadata['timestamp_camera_tick_hz'] = 1_000_000_000
+        result = image_utils.generate_tiff_data(
+            data=img_8bit, metadata=metadata, image_type='imagej', color='BF'
+        )
+        plane = result['metadata']['Plane']
+        assert plane['TimestampCameraTicks'] == 1234567890123
+        assert plane['TimestampCameraTickHz'] == 1_000_000_000
+
+    def test_frame_id_emitted_when_provided(self, img_8bit, metadata):
+        metadata['frame_id'] = 42
+        result = image_utils.generate_tiff_data(
+            data=img_8bit, metadata=metadata, image_type='imagej', color='BF'
+        )
+        plane = result['metadata']['Plane']
+        assert plane['FrameID'] == 42
+
+    def test_no_timestamp_fields_when_metadata_lacks_them(self, img_8bit, metadata):
+        # Default metadata fixture has no timestamp_* keys; Plane should
+        # not gain spurious fields.
+        result = image_utils.generate_tiff_data(
+            data=img_8bit, metadata=metadata, image_type='imagej', color='BF'
+        )
+        plane = result['metadata']['Plane']
+        assert 'Timestamp' not in plane
+        assert 'TimestampSource' not in plane
+        assert 'TimestampCameraTicks' not in plane
+        assert 'TimestampCameraTickHz' not in plane
+        assert 'FrameID' not in plane
+
+    def test_partial_timestamp_metadata_emits_only_what_provided(self, img_8bit, metadata):
+        # Provide host wall-clock only (camera doesn't support ChunkTimestamp,
+        # e.g. IDS today). The host fields appear; the camera fields do not.
+        metadata['timestamp_iso'] = '2026-05-09T14:23:01.123456'
+        result = image_utils.generate_tiff_data(
+            data=img_8bit, metadata=metadata, image_type='imagej', color='BF'
+        )
+        plane = result['metadata']['Plane']
+        assert plane['Timestamp'] == '2026-05-09T14:23:01.123456'
+        assert 'TimestampCameraTicks' not in plane
+        assert 'TimestampCameraTickHz' not in plane
+        assert 'FrameID' not in plane
+
+
 # ---------------------------------------------------------------------------
 # Windows Preview compatibility
 # ---------------------------------------------------------------------------

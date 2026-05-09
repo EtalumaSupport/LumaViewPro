@@ -117,6 +117,11 @@ class Camera(ABC):
         self.model_name = None
         self._device_removed = False
         self._device_serial = None
+        # Camera-side timestamp tick rate (Hz). Set by the driver at init
+        # if the camera supports a Timestamp chunk; None for cameras
+        # without chunk timestamps (downstream code skips per-frame
+        # camera-tick metadata when None).
+        self.timestamp_tick_frequency_hz: int | None = None
         self.profile: CameraProfile = CameraProfile()
         # Re-entrancy depth for ``update_camera_config()`` (CAM-4).
         # Protected by ``_state_lock``; only the outermost level

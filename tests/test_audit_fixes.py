@@ -1726,6 +1726,63 @@ class TestRule1_SerialBoardNoNotifications:
         assert "notifications.info" not in source
 
 
+class TestPylonChunkTimestampEnabled:
+    """Issue #633 Stage 1: ChunkTimestamp enabled on Basler cameras so
+    every grabbed frame carries a sensor-side capture-time tick value
+    that can be embedded in TIFF metadata.
+
+    Static-source assertion (the production path enabling chunks runs
+    inside init_camera_config which requires real camera hardware to
+    test, so we assert the constants are correctly defined; bench
+    verification per the Monday plan covers the runtime path).
+    """
+
+    def test_timestamp_in_chunk_targets_always(self):
+        import pathlib
+        source = pathlib.Path("drivers/pyloncamera.py").read_text()
+        # _CHUNK_TARGETS_ALWAYS is the tuple enabled by default in
+        # _enable_validity_chunks; Timestamp must be in it for every
+        # camera to surface ChunkTimestamp at grab time.
+        idx = source.find("_CHUNK_TARGETS_ALWAYS")
+        assert idx >= 0, "_CHUNK_TARGETS_ALWAYS not found in pyloncamera.py"
+        decl_end = source.find(")", idx)
+        decl = source[idx:decl_end]
+        assert "'Timestamp'" in decl, (
+            "_CHUNK_TARGETS_ALWAYS must include 'Timestamp' for issue #633 "
+            "per-frame timestamps. Currently: " + decl
+        )
+
+    def test_chunktimestamp_in_grab_result_attrs(self):
+        import pathlib
+        source = pathlib.Path("drivers/pyloncamera.py").read_text()
+        # _CHUNK_GRAB_RESULT_ATTRS maps SDK attr -> chunks dict key.
+        # Without this entry the read side won't surface the timestamp
+        # even if the chunk is enabled.
+        idx = source.find("_CHUNK_GRAB_RESULT_ATTRS")
+        assert idx >= 0, "_CHUNK_GRAB_RESULT_ATTRS not found in pyloncamera.py"
+        next_def = source.find("\n    def ", idx)
+        decl = source[idx:next_def] if next_def > 0 else source[idx:idx + 1000]
+        assert "'ChunkTimestamp'" in decl and "'Timestamp'" in decl, (
+            "_CHUNK_GRAB_RESULT_ATTRS must map ChunkTimestamp -> 'Timestamp'. "
+            "Currently: " + decl
+        )
+
+    def test_camera_base_has_timestamp_tick_frequency_hz(self):
+        # The Camera base class declares the attribute so callers
+        # (Lumascope.generate_image_metadata) can read it without a
+        # hasattr() guard.
+        from drivers.camera import Camera
+        # Attribute is declared in __init__; check via the source since
+        # instantiating Camera requires hardware. AST-walk would be more
+        # robust but a substring check is enough for a regression test.
+        import pathlib
+        source = pathlib.Path("drivers/camera.py").read_text()
+        assert "self.timestamp_tick_frequency_hz" in source, (
+            "Camera base must declare self.timestamp_tick_frequency_hz "
+            "so generate_image_metadata can read it"
+        )
+
+
 class TestRule1_UiNoDriverReachThrough:
     """Rule 1 (LV-14): UI must call the API, not the driver. Reach-throughs
     like `scope.motion.driver` or `scope.led.driver` bypass the API's

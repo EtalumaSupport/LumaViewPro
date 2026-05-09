@@ -482,6 +482,24 @@ def generate_tiff_data(data, metadata: dict, image_type: str, color: str,):
         'IlluminationUnit': 'mA',
     }
 
+    # Per-frame timestamps. Each is optional -- callers that don't capture
+    # them (older static metadata builders, Stage 2-pending paths) simply
+    # omit the keys and the corresponding TIFF fields don't appear.
+    # timestamp_iso is host wall-clock at metadata-build time;
+    # timestamp_camera_ticks is the camera-side ChunkTimestamp value;
+    # timestamp_camera_tick_hz is the camera tick frequency for converting
+    # ticks to seconds (1 GHz on Basler USB3, GevTimestampTickFrequency on
+    # GigE). frame_id is the ChunkFrameID/Framecounter integer.
+    if 'timestamp_iso' in metadata:
+        plane['Timestamp'] = metadata['timestamp_iso']
+        plane['TimestampSource'] = 'host_wallclock'
+    if 'timestamp_camera_ticks' in metadata:
+        plane['TimestampCameraTicks'] = metadata['timestamp_camera_ticks']
+    if 'timestamp_camera_tick_hz' in metadata:
+        plane['TimestampCameraTickHz'] = metadata['timestamp_camera_tick_hz']
+    if 'frame_id' in metadata:
+        plane['FrameID'] = metadata['frame_id']
+
     # Base metadata shared by all structured types
     tiff_metadata = {
         'axes': axes,
