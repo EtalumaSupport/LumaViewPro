@@ -105,6 +105,38 @@ $venv = Join-Path $build_dir "buildvenv"
 Set-Location $build_dir
 
 # ---------------------------------------------------------------------------
+# Build log capture
+# ---------------------------------------------------------------------------
+# Tee every byte that follows (Write-Host, native command stdout/stderr,
+# Python warnings, WiX output, exit codes) into a timestamped log file
+# alongside the console echo. Bench evidence 2026-05-08: when beta6
+# silently shipped a broken imagecodecs and the soak failed, post-mortem
+# required operator-captured console output; now the capture happens
+# automatically and the operator just attaches the file.
+$build_log_ts = (Get-Date -Format 'yyyyMMdd_HHmmss')
+if (-not (Test-Path $artifacts)) { New-Item -ItemType Directory -Path $artifacts -Force | Out-Null }
+$build_log = Join-Path $artifacts "build_$build_log_ts.log"
+Start-Transcript -Path $build_log -IncludeInvocationHeader | Out-Null
+
+function Write-Phase {
+    param([string]$Name)
+    Write-Host ""
+    Write-Host "[$(Get-Date -Format 'HH:mm:ss')] === $Name ==="
+}
+
+Write-Host ""
+Write-Host "================================================================"
+Write-Host "  LumaViewPro build starting at $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
+Write-Host "  Build host:   $env:COMPUTERNAME (user $env:USERNAME)"
+Write-Host "  Script path:  $PSCommandPath"
+Write-Host "  PowerShell:   $($PSVersionTable.PSVersion)"
+Write-Host "  Branch param: '$Branch'"
+Write-Host "  BuildType:    '$BuildType'"
+Write-Host "  Build dir:    $build_dir"
+Write-Host "  Log file:     $build_log"
+Write-Host "================================================================"
+
+# ---------------------------------------------------------------------------
 # Select branch
 # ---------------------------------------------------------------------------
 if (-not $Branch) {
@@ -257,6 +289,16 @@ git clone --depth 1 --branch $Branch $repo_url $clone
 $clone_exit = $LASTEXITCODE
 $ErrorActionPreference = "Stop"
 if ($clone_exit -ne 0) { Write-Host "ERROR: Clone failed"; Exit 1 }
+
+# Capture HEAD SHA before .git is wiped; useful for tying a released
+# installer back to a specific commit when the post-mortem starts from
+# the bundle exe rather than the build log.
+$ErrorActionPreference = "Continue"
+$git_sha = (& git -C $clone rev-parse HEAD 2>$null).Trim()
+$ErrorActionPreference = "Stop"
+$git_sha_short = if ($git_sha) { $git_sha.Substring(0, 7) } else { '<unknown>' }
+Write-Host "Git SHA: $git_sha ($git_sha_short)"
+
 Remove-Item "$clone\.git*" -Recurse -Force -ErrorAction SilentlyContinue
 
 # ---------------------------------------------------------------------------
@@ -303,7 +345,7 @@ Rename-Item $clone $product
 # ---------------------------------------------------------------------------
 # Create build venv and install dependencies
 # ---------------------------------------------------------------------------
-Write-Host "`n--- Build Environment ---"
+Write-Phase "Build Environment"
 $recreate_build_env = $BuildType -eq "Release"
 
 if ($recreate_build_env -and (Test-Path $venv)) {
@@ -348,7 +390,7 @@ if ($LASTEXITCODE -ne 0) { Write-Host "ERROR: PyInstaller not available in build
 # ---------------------------------------------------------------------------
 # Build EXE
 # ---------------------------------------------------------------------------
-Write-Host "`n--- PyInstaller ---"
+Write-Phase "PyInstaller"
 Set-Location $src
 # License files may be in licenses/ (old) or docs/licenses/ (current)
 if (Test-Path ".\licenses") {
@@ -425,7 +467,7 @@ if ($maven_dir) {
 # ---------------------------------------------------------------------------
 # Build MSI
 # ---------------------------------------------------------------------------
-Write-Host "`n--- WiX MSI ---"
+Write-Phase "WiX MSI"
 $wix_dir = Join-Path $src "scripts\appBuild\build_exe\wix"
 Set-Location $wix_dir
 
@@ -511,9 +553,26 @@ Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
 Write-Host "`n======================================="
 Write-Host "  BUILD COMPLETE"
 Write-Host "======================================="
-Write-Host "  MSI:    $msi"
+Write-Host "  MSI:      $msi"
 if ($bundle -and (Test-Path $bundle)) {
-    Write-Host "  Bundle: $bundle"
+    Write-Host "  Bundle:   $bundle"
 }
-Write-Host "  Output: $output_dir"
+Write-Host "  Output:   $output_dir"
+Write-Host "  Version:  $version"
+Write-Host "  Git SHA:  $git_sha_short  ($git_sha)"
+Write-Host "  Log:      $build_log"
+Write-Host "  Ended:    $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
 Write-Host "======================================="
+
+# Copy the build log into the version-specific output dir so it ships
+# alongside the MSI / bundle. The primary copy in $artifacts root
+# remains for cross-build sorting by timestamp.
+if (Test-Path $output_dir) {
+    try {
+        Copy-Item $build_log -Destination (Join-Path $output_dir "build.log") -Force
+    } catch {
+        Write-Host "Note: build.log copy into $output_dir failed: $_"
+    }
+}
+
+Stop-Transcript | Out-Null
