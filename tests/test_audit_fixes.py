@@ -6426,3 +6426,71 @@ class TestFx2DriverLibusbBackendProbe:
             "backend is not loadable, with platform-specific install "
             "instructions."
         )
+
+
+# ---------------------------------------------------------------------------
+# stage_offset value-semantics at run() start
+# ---------------------------------------------------------------------------
+
+class TestStageOffsetSnapshot:
+    """SequencedCaptureExecutor must snapshot stage_offset at run() start so
+    mid-protocol UI mutations don't change the in-flight coordinate
+    transforms. UI edits between runs must still be visible to the next run.
+    """
+
+    def _make_executor(self, stage_offset):
+        from modules.sequenced_capture_executor import SequencedCaptureExecutor
+        return SequencedCaptureExecutor(
+            scope=MagicMock(),
+            stage_offset=stage_offset,
+            io_executor=MagicMock(),
+            protocol_executor=MagicMock(),
+            file_io_executor=MagicMock(),
+            camera_executor=MagicMock(),
+            autofocus_io_executor=MagicMock(),
+        )
+
+    def test_constructor_holds_live_reference(self):
+        src = {'x': 100.0, 'y': 50.0, 'z': 0.0}
+        exc = self._make_executor(src)
+        assert exc._stage_offset_source is src, (
+            "__init__ must hold the live reference in _stage_offset_source "
+            "so between-run edits propagate to the next snapshot."
+        )
+
+    def test_snapshot_deepcopies_stage_offset(self):
+        src = {'x': 100.0, 'y': 50.0, 'z': 0.0}
+        exc = self._make_executor(src)
+        exc._snapshot_run_state()
+        assert exc._stage_offset is not src, (
+            "_snapshot_run_state must produce a new dict, not share the ref."
+        )
+        assert exc._stage_offset == src
+
+    def test_mid_run_source_mutation_does_not_affect_snapshot(self):
+        """Core race: source mutated mid-protocol must not leak in."""
+        src = {'x': 100.0, 'y': 50.0, 'z': 0.0}
+        exc = self._make_executor(src)
+        exc._snapshot_run_state()
+        src['x'] = 999.0
+        src['y'] = -50.0
+        assert exc._stage_offset['x'] == 100.0
+        assert exc._stage_offset['y'] == 50.0
+
+    def test_next_snapshot_picks_up_between_run_mutations(self):
+        """Between runs, the next snapshot reflects source updates."""
+        src = {'x': 100.0, 'y': 50.0, 'z': 0.0}
+        exc = self._make_executor(src)
+        exc._snapshot_run_state()
+        assert exc._stage_offset['x'] == 100.0
+        src['x'] = 200.0
+        exc._snapshot_run_state()
+        assert exc._stage_offset['x'] == 200.0
+
+    def test_nested_dict_mutation_does_not_affect_snapshot(self):
+        """Deep copy: nested dicts must also be private to the run."""
+        src = {'x': 100.0, 'y': {'sub': 1.0}, 'z': 0.0}
+        exc = self._make_executor(src)
+        exc._snapshot_run_state()
+        src['y']['sub'] = 99.0
+        assert exc._stage_offset['y']['sub'] == 1.0

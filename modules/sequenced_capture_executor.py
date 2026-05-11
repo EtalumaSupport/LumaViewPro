@@ -1,5 +1,6 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 
+import copy
 import datetime
 import pathlib
 import time
@@ -83,6 +84,11 @@ class SequencedCaptureExecutor:
     ):
         self._coordinate_transformer = coord_transformations.CoordinateTransformer()
         self._wellplate_loader = labware_loader.WellPlateLoader()
+        # Hold stage_offset by reference so UI edits between runs are visible
+        # to the next run; _snapshot_run_state takes a deepcopy at run() start
+        # so an in-flight protocol's coordinate transforms are immune to
+        # mid-run mutations of ctx.settings['stage_offset'].
+        self._stage_offset_source = stage_offset
         self._stage_offset = stage_offset
         self._io_executor = io_executor
         self.protocol_executor = protocol_executor
@@ -311,6 +317,17 @@ class SequencedCaptureExecutor:
     def protocol_interval(self):
         return self._protocol.period()
     
+    def _snapshot_run_state(self) -> None:
+        """Snapshot mutable settings dicts into private copies for this run.
+
+        The live ctx.settings['stage_offset'] dict is shared by reference; a
+        deepcopy here gives each run a private value so a UI mutation (or
+        future programmatic edit) mid-protocol doesn't change coordinate
+        transforms partway through. The next run() re-snapshots from the
+        source so between-run edits are still picked up.
+        """
+        self._stage_offset = copy.deepcopy(self._stage_offset_source)
+
     def get_initial_autofocus_states(self, layer_configs: dict | None = None):
         states = {}
         ctx = _app_ctx.ctx
@@ -409,6 +426,11 @@ class SequencedCaptureExecutor:
             return
 
         
+        # Snapshot stage_offset so mid-run mutations to
+        # ctx.settings['stage_offset'] don't change the in-flight coordinate
+        # transforms partway through a multi-day soak.
+        self._snapshot_run_state()
+
         # Snapshot hardware state for restoration after protocol
         self._original_led_states = self._scope.get_led_states()
         self._saved_camera_state = self._scope.save_camera_state('protocol')
