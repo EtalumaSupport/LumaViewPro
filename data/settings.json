@@ -189,7 +189,9 @@
     "debug_mode": false,
     "profiling": {
         "enabled": false,
-        "stim_profiling": false
+        "stim_profiling": false,
+        "handle_trace_enabled": false,
+        "handle_trace_obj_sample_every": 1000
     },
     "scale_bar": {
         "enabled": false

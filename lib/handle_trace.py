@@ -6,8 +6,22 @@ manifest only over multi-hour soaks. Use this when a long-soak run shows
 linear handle growth and you need to identify which per-call site is the
 source without rebuilding the exe between iterations.
 
-Default OFF. Set `LVP_HANDLE_TRACE=1` to enable. Zero overhead when disabled
-(single env-var read at module-load).
+Default OFF. Two enable paths:
+
+  - **Settings.json** (preferred for customer / bench operators):
+    Set `settings['profiling']['handle_trace_enabled'] = true`. The
+    LumaViewProSettings.start_app() path calls `enable()` at app boot
+    when the flag is true. Mirrors the existing `profiling.enabled`
+    flag for MemoryLeakProfiler.
+
+  - **Env var** (dev convenience, no settings.json needed):
+    Set `LVP_HANDLE_TRACE=1` in the environment before launch. Read at
+    module-load; flips the same gate the settings path uses.
+
+Object-sample interval tunable via either
+`settings['profiling']['handle_trace_obj_sample_every']` (preferred)
+or `LVP_OBJ_SAMPLE_EVERY=N` env var. Default 1000 ticks; 200 is good
+for shorter diagnostic runs.
 
 Usage at call sites (zero-overhead when disabled, see ENABLE gate below):
 
@@ -29,7 +43,7 @@ Considered alternatives:
       allocations, not Windows kernel handles. Won't catch handle leaks
       from ctypes / native SDK calls.
     - per-call logging (no batching): too noisy at protocol scan rates
-      (~6 captures/min × multiple labels = log spam).
+      (~6 captures/min * multiple labels = log spam).
 """
 import os
 import threading
@@ -47,29 +61,67 @@ except ImportError:
     logger = logging.getLogger(__name__)
 
 
-ENABLE = os.environ.get('LVP_HANDLE_TRACE') == '1'
+# Module-level gate flipped by enable() (settings-based path) OR by the
+# env-var check at module load (dev path). tick() short-circuits when False.
+ENABLE = False
+OBJ_SAMPLE_EVERY = 1000
+
 # Detect num_handles() availability (Windows only). Object-type sampler
 # (gc.get_objects()) works cross-platform, so the diagnostic stays useful
 # on macOS / Linux for reproducing the Python-side leak shape via simulator
 # camera, even when the Windows handle counter is unavailable.
 _HAS_NUM_HANDLES = False
-if ENABLE and _proc is not None:
+if _proc is not None:
     try:
         _proc.num_handles()
         _HAS_NUM_HANDLES = True
     except (AttributeError, NotImplementedError):
-        logger.info(
-            '[HANDLE TRACE] num_handles() unavailable (non-Windows host); '
-            'object-type sampler still active.'
-        )
-# Per-tick object-type sampler: every Nth tick (default every 1000 ticks
-# of any label), Counter the gc.get_objects() type names and log the top 20.
-# Heavy (~1-3 s on 10M-object processes), so heavily throttled. Same env gate.
-OBJ_SAMPLE_EVERY = int(os.environ.get('LVP_OBJ_SAMPLE_EVERY', '1000'))
+        _HAS_NUM_HANDLES = False
 
 _state: dict = {}  # label -> (count, baseline_handles)
 _lock = threading.Lock()
 _obj_sample_counter = 0
+
+
+def enable(obj_sample_every: int = 1000) -> None:
+    """Activate handle-trace + object-type sampling. Safe to call multiple times.
+
+    Args:
+        obj_sample_every: Number of ticks between gc.get_objects() top-20
+            dumps. 1000 = ~4 min between dumps at typical protocol rate;
+            200 = ~50 sec for faster diagnostic runs.
+    """
+    global ENABLE, OBJ_SAMPLE_EVERY
+    if ENABLE:
+        # Allow updating the sample interval on a second call without
+        # noise; otherwise no-op.
+        OBJ_SAMPLE_EVERY = int(obj_sample_every)
+        return
+    ENABLE = True
+    OBJ_SAMPLE_EVERY = int(obj_sample_every)
+    if not _HAS_NUM_HANDLES:
+        logger.info(
+            '[HANDLE TRACE] activated -- num_handles() unavailable on this '
+            'host; object-type sampler still active.'
+        )
+    else:
+        logger.info(
+            f'[HANDLE TRACE] activated -- per-call handle delta + '
+            f'gc.get_objects() top-20 every {OBJ_SAMPLE_EVERY} ticks.'
+        )
+
+
+def disable() -> None:
+    """Deactivate handle-trace. Safe to call when already disabled."""
+    global ENABLE
+    ENABLE = False
+
+
+# Dev-convenience env-var path: enabled at module load if LVP_HANDLE_TRACE=1.
+# The settings.json path calls enable() later from
+# LumaViewProSettings.start_app() (parallel to the MemoryLeakProfiler hook).
+if os.environ.get('LVP_HANDLE_TRACE') == '1':
+    enable(obj_sample_every=int(os.environ.get('LVP_OBJ_SAMPLE_EVERY', '1000')))
 
 
 def tick(label: str, every_n: int = 50) -> None:
