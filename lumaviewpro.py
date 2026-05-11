@@ -450,7 +450,16 @@ class LumaViewProApp(TooltipMixin, App):
         lumaview.scope.register_executor_bundle(executor_bundle, settings)
         ctx.metrics_logger = lumaview.scope.metrics_logger
         if ctx.metrics_logger is not None:
-            ctx.metrics_logger.start(KivyClockScheduler(Clock))
+            # settings.profiling.metrics_interval_s overrides the default
+            # 3600 s cadence. Set to 30-60 s for short-soak leak hunts
+            # (gen2_depth + handle/thread counts are usable signals at
+            # sub-minute granularity; hourly is fine for production).
+            _prof = ctx.settings.get('profiling', {})
+            _metrics_interval = _prof.get('metrics_interval_s', None)
+            _start_kwargs = {}
+            if _metrics_interval is not None:
+                _start_kwargs['system_metrics_interval_s'] = float(_metrics_interval)
+            ctx.metrics_logger.start(KivyClockScheduler(Clock), **_start_kwargs)
 
         # The atexit emergency-shutdown hook is registered in Lumascope.__init__
         # so every Lumascope user gets the same safety net automatically.

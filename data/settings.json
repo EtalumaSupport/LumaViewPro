@@ -191,7 +191,8 @@
         "enabled": false,
         "stim_profiling": false,
         "handle_trace_enabled": false,
-        "handle_trace_obj_sample_every": 1000
+        "handle_trace_obj_sample_every": 1000,
+        "metrics_interval_s": null
     },
     "scale_bar": {
         "enabled": false
