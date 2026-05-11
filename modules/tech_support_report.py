@@ -2074,8 +2074,22 @@ class TechSupportReport:
                 self._step_protocols(tmp)
 
                 cb(85, "Writing metadata...")
-                # Use a short SN-like tag for the filename; no firmware probe.
-                sn_tag = 'logs'
+                # Pull cached serial from the motor driver's motorconfig;
+                # populated at boot when the motor board's get_config()
+                # ran during _load_board_config. Cache-read, no wire I/O.
+                # Falls back to 'logs' when running standalone or when
+                # motorconfig couldn't read the per-unit values.
+                sn_tag = None
+                try:
+                    mb = self.diag.motor_board
+                    if mb is not None and hasattr(mb, 'motorconfig'):
+                        sn = mb.motorconfig.serial_number()
+                        if sn and sn != 'Unknown':
+                            sn_tag = sn
+                except Exception:
+                    sn_tag = None
+                if not sn_tag:
+                    sn_tag = 'logs'
                 self._meta['report_type'] = 'logs_only'
                 self._meta['report_generated_at'] = (
                     datetime.datetime.now().isoformat(timespec='seconds')
