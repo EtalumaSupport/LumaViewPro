@@ -13,7 +13,7 @@ import pathlib
 
 import psutil
 
-from lvp_logger import logger
+from lvp_logger import logger, metrics_logger
 import modules.common_utils as common_utils
 from modules.exceptions import ConfigError
 
@@ -227,11 +227,10 @@ def log_environment_once():
         except Exception:
             pass
 
-    logger.info(
+    metrics_logger.info(
         f"[ENV METRICS] boot={boot_dt} | uptime_hr={uptime_hr:.1f} | "
         f"os={os_release} | cores={ncores} | pylon={pylon_ver} | "
         f"defender={defender_state}",
-        extra={'force_error': True},
     )
 
 
@@ -255,7 +254,6 @@ def log_system_metrics(settings: dict):
     if free_space < 1024:  # Less than 1 GB
         logger.error(
             f"Low disk space: {free_space:.1f} MB remaining",
-            extra={'force_error': True},
         )
 
     # System uptime per-tick — pairs with [ENV METRICS] boot timestamp
@@ -269,51 +267,46 @@ def log_system_metrics(settings: dict):
     except Exception:
         uptime_str = ""
 
-    logger.info(
+    metrics_logger.info(
         f"[SYSTEM METRICS] CPU Usage: {metrics['cpu_percent_total']:.1f}% | "
         f"RAM Available: {metrics['ram_available_gb']:.1f} GB | "
         f"RAM Usage: {metrics['ram_percent_total']:.1f}%{uptime_str}",
-        extra={'force_error': True},
     )
-    logger.info(
+    metrics_logger.info(
         f"[DISK METRICS] Disk Free: {metrics['disk_free_gb']:.1f} GB | "
         f"Disk Usage: {metrics['disk_used_percent']:.1f}%",
-        extra={'force_error': True},
     )
-    logger.info(
+    metrics_logger.info(
         f"[PROCESS METRICS] Process CPU Usage: {metrics['cpu_percent_python']:.1f}% | "
         f"Process RAM Usage: {metrics['ram_used_python_mb']:.1f} MB, "
         f"{metrics['ram_used_python_percent']:.1f}% | "
         f"Private: {metrics.get('ram_private_mb', -1):.1f} MB",
-        extra={'force_error': True},
     )
 
     extra_disks = common_utils.get_extra_disks_info(exclude_path=path)
     if extra_disks:
-        logger.info(f"[EXTRA DISKS] {extra_disks}", extra={'force_error': True})
+        metrics_logger.info(f"[EXTRA DISKS] {extra_disks}")
 
     # --- Long-run stability metrics ---
-    # Each block is grep-able and logged with force_error so it lands in
-    # both lumaviewpro.log and lumaviewpro_errors.log. See
-    # docs/LOG_ANALYSIS_GUIDE.md "Resource Health" section for healthy
+    # Each block is grep-able and routed through metrics_logger to
+    # metrics.log (D R-2: split from errors.log to keep errors signal-only).
+    # See docs/LOG_ANALYSIS_GUIDE.md "Resource Health" section for healthy
     # vs unhealthy patterns.
 
     # GDI / USER objects (Windows only). The #1 cause of "Windows feels
     # slow after 24 hours" — process limit is 10k, desktop degrades at ~5k.
     gdi = metrics.get('gdi_objects', -1)
     if gdi >= 0:
-        logger.info(
+        metrics_logger.info(
             f"[GDI METRICS] gdi={gdi} | user={metrics.get('user_objects', -1)}",
-            extra={'force_error': True},
         )
 
     # OS handles + open files count. Watch for steady upward trend.
     handles = metrics.get('os_handles', -1)
     open_files = metrics.get('open_files_count', -1)
     if handles >= 0 or open_files >= 0:
-        logger.info(
+        metrics_logger.info(
             f"[HANDLE METRICS] handles={handles} | open_files={open_files}",
-            extra={'force_error': True},
         )
 
     # Thread count. Should plateau ~20-25; growth means executor leak.
@@ -328,29 +321,26 @@ def log_system_metrics(settings: dict):
             stem = n.split('-')[0] if '-' in n else n
             name_summary[stem] += 1
         names_str = ', '.join(f"{k}={v}" for k, v in sorted(name_summary.items()))
-        logger.info(
+        metrics_logger.info(
             f"[THREAD METRICS] count={thread_count} | {names_str}",
-            extra={'force_error': True},
         )
 
     # Python GC objects. Steady growth = closures or observers holding refs.
     gc_objects = metrics.get('gc_objects', -1)
     if gc_objects >= 0:
-        logger.info(
+        metrics_logger.info(
             f"[GC METRICS] objects={gc_objects} | "
             f"gen0={metrics.get('gc_gen0_collections', -1)} "
             f"gen1={metrics.get('gc_gen1_collections', -1)} "
             f"gen2={metrics.get('gc_gen2_collections', -1)}",
-            extra={'force_error': True},
         )
 
     # Swap pressure. "RAM looks low" doesn't catch page-file thrashing.
     swap_pct = metrics.get('swap_percent', -1)
     if swap_pct >= 0:
-        logger.info(
+        metrics_logger.info(
             f"[SWAP METRICS] used={metrics.get('swap_used_gb', -1):.1f} GB "
             f"({swap_pct:.1f}%)",
-            extra={'force_error': True},
         )
 
     # Per-process I/O bytes (cumulative + per-second rates).
@@ -366,9 +356,8 @@ def log_system_metrics(settings: dict):
         if io_read_rate >= 0 or io_write_rate >= 0:
             rate_str = (f" | read_rate={io_read_rate:.2f} MB/s"
                         f" | write_rate={io_write_rate:.2f} MB/s")
-        logger.info(
+        metrics_logger.info(
             f"[PROCESS IO] read={io_read:.1f} MB | write={io_write:.1f} MB{rate_str}",
-            extra={'force_error': True},
         )
 
     # Page-fault rate.
@@ -377,9 +366,8 @@ def log_system_metrics(settings: dict):
     pf_total = metrics.get('page_faults_total')
     pf_rate = metrics.get('page_faults_per_sec')
     if pf_total is not None or pf_rate is not None:
-        logger.info(
+        metrics_logger.info(
             f"[PAGE FAULTS] total={pf_total} | rate={pf_rate:.1f}/s",
-            extra={'force_error': True},
         )
 
     # --- Windows PDH counters ---
@@ -407,7 +395,7 @@ def log_system_metrics(settings: dict):
             + metrics.get('pdh_standby_reserve_bytes', 0)
             + metrics.get('pdh_standby_core_bytes', 0)
         ) / (1024 * 1024)
-        logger.info(
+        metrics_logger.info(
             f"[PDH METRICS] standby_total={standby_total_mb:.0f} MB "
             f"(normal={_mb('pdh_standby_normal_bytes')} "
             f"reserve={_mb('pdh_standby_reserve_bytes')} "
@@ -419,7 +407,6 @@ def log_system_metrics(settings: dict):
             f"free_zero={_mb('pdh_free_zero_bytes')} MB | "
             f"available={_mb('pdh_available_bytes')} MB | "
             f"commit={_mb('pdh_commit_bytes')}/{_mb('pdh_commit_limit_bytes')} MB",
-            extra={'force_error': True},
         )
 
     # --- Buffer-churn signals from the live capture path ---
@@ -438,12 +425,11 @@ def log_system_metrics(settings: dict):
             display_fps = float(getattr(sd, '_display_fps_value', 0.0) or 0.0)
             camera_mbps = float(getattr(sd, '_camera_mbps', 0.0) or 0.0)
             frame_nbytes = int(getattr(sd, '_last_frame_nbytes', 0) or 0)
-            logger.info(
+            metrics_logger.info(
                 f"[BUFFER METRICS] capture_fps={capture_fps:.1f} | "
                 f"display_fps={display_fps:.1f} | "
                 f"camera_data_rate={camera_mbps:.1f} MB/s | "
                 f"frame_size={frame_nbytes / 1024:.0f} KB",
-                extra={'force_error': True},
             )
         except Exception as e:
             logger.debug(f'[BUFFER METRICS] unavailable: {e}')
@@ -456,14 +442,13 @@ def log_system_metrics(settings: dict):
             if hasattr(sd, 'frame_interval_percentiles_ms'):
                 pcts = sd.frame_interval_percentiles_ms()
                 if pcts:
-                    logger.info(
+                    metrics_logger.info(
                         f"[FRAME INTERVAL] "
                         f"p50={pcts['p50']:.1f} ms | "
                         f"p95={pcts['p95']:.1f} ms | "
                         f"p99={pcts['p99']:.1f} ms | "
                         f"max={pcts['max']:.1f} ms | "
                         f"n={pcts['n']}",
-                        extra={'force_error': True},
                     )
         except Exception as e:
             logger.debug(f'[FRAME INTERVAL] unavailable: {e}')
@@ -478,12 +463,11 @@ def log_system_metrics(settings: dict):
         defender_rss = metrics.get('defender_rss_mb', -1)
         defender_read = metrics.get('defender_io_read_mb_total', -1)
         defender_read_rate = metrics.get('defender_io_read_mbps', -1)
-        logger.info(
+        metrics_logger.info(
             f"[DEFENDER METRICS] private={defender_private:.0f} MB | "
             f"rss={defender_rss:.0f} MB | "
             f"io_read_total={defender_read:.0f} MB | "
             f"io_read_rate={defender_read_rate:.2f} MB/s",
-            extra={'force_error': True},
         )
 
     # --- GC pressure ---
@@ -495,9 +479,8 @@ def log_system_metrics(settings: dict):
     g1 = metrics.get('gc_count_gen1')
     g2 = metrics.get('gc_count_gen2')
     if g0 is not None and g1 is not None and g2 is not None:
-        logger.info(
+        metrics_logger.info(
             f"[GC PRESSURE] gen0_depth={g0} | gen1_depth={g1} | gen2_depth={g2}",
-            extra={'force_error': True},
         )
 
     # --- Queue depth ---
@@ -529,9 +512,8 @@ def log_system_metrics(settings: dict):
             except Exception:
                 continue
         if queue_parts:
-            logger.info(
+            metrics_logger.info(
                 f"[QUEUE METRICS] {' | '.join(queue_parts)}",
-                extra={'force_error': True},
             )
 
     # --- tracemalloc top-N (env-flag gated) ---
@@ -544,11 +526,10 @@ def log_system_metrics(settings: dict):
         tm = _cu.query_tracemalloc_top_n(n=5)
         if tm:
             for i, entry in enumerate(tm, 1):
-                logger.info(
+                metrics_logger.info(
                     f"[TRACEMALLOC] #{i} {entry['size_kb']:.0f} KB "
                     f"(count={entry['count']}) at "
                     f"{entry['file']}:{entry['line']}",
-                    extra={'force_error': True},
                 )
     except Exception:
         pass

@@ -2599,11 +2599,17 @@
 				size_hint_y: None
 				height: dp(48)
 				padding: dp(8)
+				spacing: dp(4)
 				RoundedButton:
 					id: btn_support_report
 					text: 'Generate Support Report'
 					font_size: '12sp'
 					on_release: root.generate_support_report()
+				RoundedButton:
+					id: btn_zip_logs
+					text: 'Zip Logs Only'
+					font_size: '12sp'
+					on_release: root.zip_logs_only()
 
 			Label:
 

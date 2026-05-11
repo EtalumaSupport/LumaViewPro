@@ -77,7 +77,12 @@ class ProtocolStepExecutor:
             except Exception as ex:
                 logger.error(f"[Scan] Error during scan loop: {ex}", exc_info=True)
                 from modules.notification_center import notifications
-                notifications.error("Protocol", "Protocol Scan Error", str(ex))
+                ex_msg = str(ex) or "An unexpected error occurred"
+                notifications.error(
+                    "Protocol",
+                    "Protocol scan stopped",
+                    f"{ex_msg}. The protocol is halted; check the main log for details and restart the scan if needed.",
+                )
                 self._p._scan_in_progress.clear()
                 break
 

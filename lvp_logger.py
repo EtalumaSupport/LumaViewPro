@@ -95,6 +95,7 @@ AUTOFOCUS_LOG_FILE = os.path.join(log_dir, 'autofocus.log')
 API_LOG_FILE = os.path.join(log_dir, 'api.log')
 CAMERA_LOG_FILE = os.path.join(log_dir, 'camera.log')
 GUI_LOG_FILE = os.path.join(log_dir, 'gui_interactions.log')
+METRICS_LOG_FILE = os.path.join(log_dir, 'metrics.log')
 
 # CustomFormatter class enables change in log format depending on log level 
 class CustomFormatter(logging.Formatter):
@@ -141,14 +142,22 @@ class ThreadPauseFilter(logging.Filter):
         # Allow the log if the thread is not paused
         return not getattr(_paused_threads, 'paused', False)
 
-# Log traceback if we have a crash to tell us more info on what happened
+# Log traceback if we have a crash to tell us more info on what happened.
+# D R-6: previous form `exc_info=(exc_type, exc_value, exc_traceback)`
+# dropped the traceback in the field (5 opaque CRASH lines on 04/19).
+# Embed the formatted traceback directly in the message so it renders
+# through CustomFormatter regardless of stdlib exc_info handling.
+import traceback as _traceback
+
+
 def custom_except_hook(exc_type, exc_value, exc_traceback):
     if issubclass(exc_type, KeyboardInterrupt):
         logger.critical("Logger ] Keyboard interrupt quit.")
         sys.__excepthook__(exc_type, exc_value, exc_traceback)
         return
-    
-    logger.critical("Logger ] CRASH - Uncaught Exception: ", exc_info=(exc_type, exc_value, exc_traceback))
+
+    tb_text = ''.join(_traceback.format_exception(exc_type, exc_value, exc_traceback))
+    logger.critical(f"Logger ] CRASH - Uncaught Exception:\n{tb_text}")
 
 # ensures logger is specific to the file importing lvp_logger
 logger = logging.getLogger(__name__)
@@ -297,6 +306,30 @@ camera_file_handler.addFilter(ThreadPauseFilter())
 camera_logger.addHandler(camera_file_handler)
 # Also send camera errors/warnings to the errors log
 camera_logger.addHandler(error_file_handler)
+
+# Metrics log — dedicated file for periodic runtime-health snapshots
+# (system metrics, handle/GC counts, buffer churn, frame-interval percentiles).
+# Previously these landed in errors.log via extra={'force_error': True}
+# (D R-2: split out so errors.log stays signal-only). Uses standard
+# CustomFormatter so existing log-parsing scripts continue to work.
+metrics_logger = logging.getLogger('LVP.metrics')
+metrics_logger.setLevel(logging.INFO)
+metrics_logger.propagate = False  # Keep metrics out of the main log
+
+metrics_file_handler = RotatingFileHandler(
+    METRICS_LOG_FILE,
+    mode='a',
+    maxBytes=20*1024*1024,
+    backupCount=5,
+    encoding=None,
+    delay=False,
+)
+metrics_file_handler.namer = lambda name: name.replace('.log', '') + '.log'
+metrics_file_handler.setFormatter(CustomFormatter())
+metrics_file_handler.addFilter(ThreadPauseFilter())
+metrics_logger.addHandler(metrics_file_handler)
+# Metrics errors/warnings still hit the errors log
+metrics_logger.addHandler(error_file_handler)
 
 # Autofocus log — dedicated file for AF sweep data, scores, timing.
 # Engineering mode only — handler attached via enable_engineering_logs().
@@ -505,14 +538,22 @@ def log_environment_banner(source_path: str, version_str: str):
     logger.info('[LVP Main  ] -----------------------------------------')
 
 
-# Also catch unhandled exceptions in worker threads (Python 3.8+)
+# Also catch unhandled exceptions in worker threads (Python 3.8+).
+# D R-6: same traceback-rendering issue as custom_except_hook; embed
+# traceback in the message string.
 def _thread_except_hook(args):
     if issubclass(args.exc_type, KeyboardInterrupt):
         return
+    tb_text = ''.join(_traceback.format_exception(
+        args.exc_type, args.exc_value, args.exc_traceback))
     logger.critical(
-        f"Logger ] CRASH - Uncaught Exception in thread '{args.thread.name}': ",
-        exc_info=(args.exc_type, args.exc_value, args.exc_traceback)
+        f"Logger ] CRASH - Uncaught Exception in thread '{args.thread.name}':\n{tb_text}"
     )
 threading.excepthook = _thread_except_hook
 minimize_logger_window()
-logging.disable(logging.DEBUG)
+
+# D R-1: gate global DEBUG suppression behind an env var so investigations
+# can enable debug logging without rebuilding. Without LVP_DEBUG_ENABLED=1,
+# preserves the long-standing default of silencing debug-level chatter.
+if os.environ.get('LVP_DEBUG_ENABLED') != '1':
+    logging.disable(logging.DEBUG)

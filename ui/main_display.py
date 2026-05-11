@@ -167,6 +167,7 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
             try:
                 from modules.notification_center import notifications
                 notifications.warning(
+                    "Recording",
                     "FPS budget exceeded",
                     f"Requested {max_fps:.1f} FPS at {exposure:.0f} ms exposure "
                     f"exceeds the camera's max {exposure_freq:.1f} FPS for that "
@@ -226,6 +227,7 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
             if expected_size + _DISK_SAFETY_MB * 1024 * 1024 > free_bytes:
                 from modules.notification_center import notifications
                 notifications.error(
+                    "Recording",
                     "Insufficient disk space",
                     f"Recording would need {expected_size / 1e9:.1f} GB but only "
                     f"{free_bytes / 1e9:.1f} GB free. Free up space or reduce "

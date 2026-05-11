@@ -2052,6 +2052,45 @@ class TechSupportReport:
             return f"{version} ({build_timestamp})" if build_timestamp else version
         return 'Unknown'
 
+    def generate_logs_only(self, callback=None, output_dir=None):
+        """Quick zip of logs + data + recent protocols only. No hardware tests.
+
+        For sending diagnostic files to support when the issue is log-only
+        (e.g. post-incident log review) and running the full report would
+        exercise hardware needlessly. Returns the ZIP path, or None on failure.
+        """
+        cb = callback or (lambda pct, msg: None)
+        try:
+            with tempfile.TemporaryDirectory(prefix='lvp_logs_') as tmp:
+                tmp = pathlib.Path(tmp)
+
+                cb(5, "Copying log files...")
+                self._step_logs(tmp)
+
+                cb(35, "Copying data folder...")
+                self._step_data_folder(tmp)
+
+                cb(70, "Copying recent protocols...")
+                self._step_protocols(tmp)
+
+                cb(85, "Writing metadata...")
+                # Use a short SN-like tag for the filename; no firmware probe.
+                sn_tag = 'logs'
+                self._meta['report_type'] = 'logs_only'
+                self._meta['report_generated_at'] = (
+                    datetime.datetime.now().isoformat(timespec='seconds')
+                )
+                (tmp / 'metadata.json').write_text(json.dumps(self._meta, indent=2))
+
+                cb(95, "Creating ZIP file...")
+                zip_path = self._create_zip(tmp, sn_tag, output_dir)
+                cb(100, f"Done -- {zip_path.name}")
+                return zip_path
+        except Exception as e:
+            logger.error(f"Logs-only zip failed: {e}", exc_info=True)
+            cb(100, f"Error: {e}")
+            return None
+
     def _create_zip(self, tmp, sn, output_dir=None):
         if output_dir is None:
             output_dir = _get_desktop()

@@ -112,24 +112,31 @@ def run_cleanup(
     logger.info(f"[{logger_name}] Cleanup: LED/camera restore complete")
 
     # --- Restore autofocus states ---
-    try:
-        for layer, layer_data in original_autofocus_states.items():
-            if callbacks.restore_autofocus_state:
-                callbacks.restore_autofocus_state(layer=layer, value=layer_data)
-            else:
-                import modules.app_context as _app_ctx
-                from modules.settings_init import settings
-                ctx = _app_ctx.ctx
-                if ctx is not None:
-                    with ctx.settings_lock:
-                        settings[layer]["autofocus"] = layer_data
+    # D R-9: guard against None / empty state (the common case when no AF was
+    # active for this scan). Previously fired ERROR every scan with
+    # `'NoneType' object is not subscriptable` -- thousands of spurious
+    # errors that buried real signal.
+    if not original_autofocus_states:
+        logger.debug("[PROTOCOL] No autofocus states to restore")
+    else:
+        try:
+            for layer, layer_data in original_autofocus_states.items():
+                if callbacks.restore_autofocus_state:
+                    callbacks.restore_autofocus_state(layer=layer, value=layer_data)
                 else:
-                    settings[layer]["autofocus"] = layer_data
-            if callbacks.reset_autofocus_btns:
-                _schedule_ui(lambda dt: callbacks.reset_autofocus_btns(), 0)
-    except Exception as ex:
-        logger.error(f"[PROTOCOL] Error restoring autofocus states during cleanup: {ex}")
-        cleanup_errors.append(f"Restore autofocus states: {type(ex).__name__}: {ex}")
+                    import modules.app_context as _app_ctx
+                    from modules.settings_init import settings
+                    ctx = _app_ctx.ctx
+                    if ctx is not None:
+                        with ctx.settings_lock:
+                            settings[layer]["autofocus"] = layer_data
+                    else:
+                        settings[layer]["autofocus"] = layer_data
+                if callbacks.reset_autofocus_btns:
+                    _schedule_ui(lambda dt: callbacks.reset_autofocus_btns(), 0)
+        except Exception as ex:
+            logger.error(f"[PROTOCOL] Error restoring autofocus states during cleanup: {ex}")
+            cleanup_errors.append(f"Restore autofocus states: {type(ex).__name__}: {ex}")
 
     # --- Restore camera gain and exposure ---
     # PROTO-CLEAN-1: dispatch the gain/exposure SDK calls through

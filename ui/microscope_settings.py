@@ -756,6 +756,7 @@ class MicroscopeSettings(BoxLayout):
         if value < 0 or value > 200:
             from modules.notification_center import notifications
             notifications.warning(
+                "Settings",
                 "Invalid FPS limit",
                 "Manual Video Max FPS must be between 0 and 200 "
                 "(0 = no limit). Reverting to previous value."
@@ -778,6 +779,7 @@ class MicroscopeSettings(BoxLayout):
         if value < 1 or value > 3600:
             from modules.notification_center import notifications
             notifications.warning(
+                "Settings",
                 "Invalid duration",
                 "Manual Video Duration must be between 1 and 3600 "
                 "seconds. Reverting to previous value."
@@ -1269,6 +1271,64 @@ class MicroscopeSettings(BoxLayout):
                 title='Report Failed',
                 message=(
                     'Could not generate the report.\n'
+                    'Check the log file for details and contact\n'
+                    'techsupport@etaluma.com directly.'
+                ),
+            )
+
+    def zip_logs_only(self):
+        """Quick zip of logs + data + recent protocols. No hardware tests."""
+        from ui.progress_popup import CustomPopup
+        from modules.tech_support_report import TechSupportReport
+        import threading
+
+        self._zip_logs_popup = CustomPopup(
+            title='Zipping Logs...',
+            auto_dismiss=False,
+        )
+        self._zip_logs_popup.open()
+
+        def run():
+            try:
+                report = TechSupportReport(scope=_app_ctx.ctx.lumaview.scope)
+
+                def progress(pct, msg):
+                    Clock.schedule_once(
+                        lambda dt: self._update_zip_logs_progress(pct, msg), 0)
+
+                path = report.generate_logs_only(callback=progress)
+                Clock.schedule_once(lambda dt: self._zip_logs_done(path), 0)
+            except Exception as e:
+                logger.error(f"Zip-logs failed: {e}", exc_info=True)
+                Clock.schedule_once(lambda dt: self._zip_logs_done(None), 0)
+
+        threading.Thread(target=run, daemon=True).start()
+
+    def _update_zip_logs_progress(self, pct, msg):
+        if hasattr(self, '_zip_logs_popup') and self._zip_logs_popup:
+            self._zip_logs_popup.progress = pct
+            self._zip_logs_popup.text = msg
+
+    def _zip_logs_done(self, zip_path):
+        if hasattr(self, '_zip_logs_popup') and self._zip_logs_popup:
+            self._zip_logs_popup.dismiss()
+            self._zip_logs_popup = None
+
+        from ui.notification_popup import show_notification_popup
+        if zip_path:
+            show_notification_popup(
+                title='Logs zipped',
+                message=(
+                    f'Saved to Desktop:\n{zip_path.name}\n\n'
+                    f'Email this file to:\n'
+                    f'techsupport@etaluma.com'
+                ),
+            )
+        else:
+            show_notification_popup(
+                title='Zip failed',
+                message=(
+                    'Could not create the logs zip.\n'
                     'Check the log file for details and contact\n'
                     'techsupport@etaluma.com directly.'
                 ),

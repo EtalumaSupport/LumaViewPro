@@ -96,6 +96,12 @@ class MetricsLogger:
         # _FRAME_FLOW_STALL_TICK_THRESHOLD, surfacing silent grab
         # failures that don't raise an exception or trigger a timeout.
         self._frame_flow_stalled_ticks = 0
+        # Sticky flag so Bug A notification (L1) fires once per stall
+        # episode -- set when the warning is first surfaced; cleared
+        # when fps recovers above _FRAME_FLOW_STALL_FPS. Re-stall after
+        # recovery re-fires the notification per Rule 28 sticky-failure
+        # clause.
+        self._frame_flow_stall_notified = False
 
     # ---- Tick implementations (also callable on-demand) ----
 
@@ -160,7 +166,12 @@ class MetricsLogger:
             return
 
         if capture_fps >= _FRAME_FLOW_STALL_FPS:
+            if self._frame_flow_stall_notified:
+                logger.info(
+                    f'[FRAME FLOW] capture_fps recovered to '
+                    f'{capture_fps:.2f} after silent-grab stall')
             self._frame_flow_stalled_ticks = 0
+            self._frame_flow_stall_notified = False
             return
 
         self._frame_flow_stalled_ticks += 1
@@ -172,6 +183,24 @@ class MetricsLogger:
                 f'camera reports active=True + is_grabbing=True -- possible '
                 f'silent grab failure. Check camera.log for last successful '
                 f'grab; investigate USB transport / Pylon SDK state.')
+            # Bug A: fire L1 notification once per stall episode so the
+            # silent stuck is visible to the user (not just buried in log).
+            # Re-stall after fps recovery re-fires per Rule 28 sticky-failure.
+            if not self._frame_flow_stall_notified:
+                self._frame_flow_stall_notified = True
+                try:
+                    from modules.notification_center import notifications
+                    notifications.warning(
+                        "Camera",
+                        "Camera frame flow stalled",
+                        "Captures have not arrived for several seconds. "
+                        "The camera reports active but frames are not flowing. "
+                        "The protocol will continue retrying; if this persists, "
+                        "restart the program."
+                    )
+                except Exception as _e:
+                    logger.debug(
+                        f'[FRAME FLOW] notification suppressed: {_e}')
 
     def tick_executor_watchdog(self) -> None:
         """Snapshot executor queue depths + auto-prune SCOPEDISPLAY backlog.

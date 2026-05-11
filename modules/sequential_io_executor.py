@@ -497,8 +497,25 @@ class SequentialIOExecutor:
                     f'cancelled (by-contract)'
                 )
             else:
-                notifications.error("Task", f"{self.name} Task Failed",
-                    f"{getattr(task.action, '__name__', str(task.action))} failed: {type(exception).__name__}: {exception}")
+                # Rule 28 voice: typed exceptions (CaptureError, ProtocolError,
+                # HardwareError, ConfigError) carry an L1-friendly message in
+                # str(exception); show that directly. Untyped exceptions get a
+                # generic message so L1 doesn't see raw Python class names; the
+                # full trace is already in the log via _run_task's logger.error.
+                from modules.exceptions import CaptureError, ProtocolError, ConfigError
+                try:
+                    from drivers.exceptions import HardwareError
+                    typed = (CaptureError, ProtocolError, ConfigError, HardwareError)
+                except ImportError:
+                    typed = (CaptureError, ProtocolError, ConfigError)
+                if isinstance(exception, typed) and str(exception):
+                    body = str(exception)
+                else:
+                    body = (
+                        "A background task failed. The protocol may have skipped "
+                        "a step; check the main log for details."
+                    )
+                notifications.error("Task", f"{self.name} task failed", body)
         self.last_task_done_monotonic = time.monotonic()
 
         # Threading audit §10.1 — emit per-IOTask timing row when opt-in tracing
