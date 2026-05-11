@@ -3083,6 +3083,10 @@ class ImageHandler(pylon.ImageEventHandler):
                         _frame_bytes,
                     ],
                 )
+            # Bug-E diagnostic: env-gated handle-leak tracking.
+            # Enable with LVP_HANDLE_TRACE=1; zero overhead when disabled.
+            from lib.handle_trace import tick as _h_tick
+            _h_tick('OnImageGrabbed')
 
     def reset(self) -> None:
         """Clear frame buffer, drain the queue, and reset failure counter."""

@@ -3595,6 +3595,15 @@ class Lumascope():
         # already aborts on save-folder space exhaustion. Actual write failures
         # surface through the try/except below.
 
+        # Camera silent-stuck or grab-timeout produces None; raise typed exception
+        # so the IOTask popup carries an L1-friendly message instead of a raw
+        # AttributeError traceback. Pairs with Rule 40 recovery contract work.
+        if array is None:
+            raise CaptureError(
+                "Camera did not return an image. The capture was skipped; "
+                "the protocol will retry on the next step."
+            )
+
         image_data = self.prepare_image_for_saving(
             array=array,
             save_folder=save_folder,
@@ -3637,6 +3646,11 @@ class Lumascope():
             notifications.error("FileIO", "Image Save Failed",
                 f"Failed to save image to {file_loc}. Check disk space and permissions.")
             raise
+
+        # Bug-E diagnostic: env-gated handle-leak tracking.
+        # Enable with LVP_HANDLE_TRACE=1; zero overhead when disabled.
+        from lib.handle_trace import tick as _h_tick
+        _h_tick('save_image')
 
         return file_loc
 
@@ -6206,6 +6220,14 @@ class Lumascope():
         Raises:
             CaptureError: If the image cannot be written.
         """
+
+        # Same None-gate as save_image; retires with this static path in
+        # Wave 7 Phase 5 (modules/image_save.py extraction).
+        if array is None:
+            raise CaptureError(
+                "Camera did not return an image. The capture was skipped; "
+                "the protocol will retry on the next step."
+            )
 
         image_data = Lumascope.prepare_image_for_saving_static(
             array=array,
