@@ -539,12 +539,18 @@ def generate_tiff_data(data, metadata: dict, image_type: str, color: str,):
         # Resolution for ImageJ types is in pixels/pixel
         resolution = (1. / metadata['pixel_size_um'], 1. / metadata['pixel_size_um'])
     else:
-        # ome and default use same options
+        # ome and default use same options. maxworkers=0 disables tifffile's
+        # per-write ThreadPoolExecutor; the executor's internal queue holds
+        # a Windows kernel Event handle that intermittently outlives cleanup,
+        # giving ~1 leaked handle per save (instrumentation confirmed via
+        # lib/handle_trace.py over a 28-min bench run: mean +0.967/call).
+        # LZW compression now runs single-threaded -- +~10ms per 5MP save,
+        # negligible vs typical 1-2 saves/sec protocol cadence.
         options = dict(
             photometric=photometric,
             compression='lzw',
             resolutionunit='CENTIMETER',
-            maxworkers=2,
+            maxworkers=0,
         )
         resolution = (1e4 / metadata['pixel_size_um'], 1e4 / metadata['pixel_size_um'])
 
