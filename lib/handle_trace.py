@@ -1,9 +1,10 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """Opt-in Windows handle-count tracking for leak hunting.
 
-Diagnostic instrumentation for Bug E (handle leak) per the 2026-05-11 48hr
-bench run: ~7K handles/hour linear growth. Source unknown. Use this to
-narrow down WHICH per-iteration path leaks.
+Diagnostic instrumentation for narrowing per-iteration handle leaks that
+manifest only over multi-hour soaks. Use this when a long-soak run shows
+linear handle growth and you need to identify which per-call site is the
+source without rebuilding the exe between iterations.
 
 Default OFF. Set `LVP_HANDLE_TRACE=1` to enable. Zero overhead when disabled
 (single env-var read at module-load).

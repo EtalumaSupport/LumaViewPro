@@ -143,10 +143,10 @@ class ThreadPauseFilter(logging.Filter):
         return not getattr(_paused_threads, 'paused', False)
 
 # Log traceback if we have a crash to tell us more info on what happened.
-# D R-6: previous form `exc_info=(exc_type, exc_value, exc_traceback)`
-# dropped the traceback in the field (5 opaque CRASH lines on 04/19).
-# Embed the formatted traceback directly in the message so it renders
-# through CustomFormatter regardless of stdlib exc_info handling.
+# The tuple form `exc_info=(type, value, tb)` does not render through
+# CustomFormatter, which silently dropped tracebacks in the field. Embed
+# the formatted traceback directly in the message string so it renders
+# regardless of stdlib exc_info handling.
 import traceback as _traceback
 
 
@@ -308,10 +308,10 @@ camera_logger.addHandler(camera_file_handler)
 camera_logger.addHandler(error_file_handler)
 
 # Metrics log — dedicated file for periodic runtime-health snapshots
-# (system metrics, handle/GC counts, buffer churn, frame-interval percentiles).
-# Previously these landed in errors.log via extra={'force_error': True}
-# (D R-2: split out so errors.log stays signal-only). Uses standard
-# CustomFormatter so existing log-parsing scripts continue to work.
+# (system metrics, handle/GC counts, buffer churn, frame-interval
+# percentiles). Routed here instead of errors.log so errors.log stays
+# signal-only. Uses standard CustomFormatter so existing log-parsing
+# scripts continue to work against this file.
 metrics_logger = logging.getLogger('LVP.metrics')
 metrics_logger.setLevel(logging.INFO)
 metrics_logger.propagate = False  # Keep metrics out of the main log
@@ -539,8 +539,7 @@ def log_environment_banner(source_path: str, version_str: str):
 
 
 # Also catch unhandled exceptions in worker threads (Python 3.8+).
-# D R-6: same traceback-rendering issue as custom_except_hook; embed
-# traceback in the message string.
+# Same traceback-rendering workaround as custom_except_hook above.
 def _thread_except_hook(args):
     if issubclass(args.exc_type, KeyboardInterrupt):
         return
@@ -552,8 +551,8 @@ def _thread_except_hook(args):
 threading.excepthook = _thread_except_hook
 minimize_logger_window()
 
-# D R-1: gate global DEBUG suppression behind an env var so investigations
-# can enable debug logging without rebuilding. Without LVP_DEBUG_ENABLED=1,
-# preserves the long-standing default of silencing debug-level chatter.
+# Gate global DEBUG suppression behind an env var so investigations can
+# enable debug logging without rebuilding. Default preserves the
+# long-standing behavior of silencing debug-level chatter.
 if os.environ.get('LVP_DEBUG_ENABLED') != '1':
     logging.disable(logging.DEBUG)

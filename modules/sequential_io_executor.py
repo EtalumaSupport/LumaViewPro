@@ -497,11 +497,11 @@ class SequentialIOExecutor:
                     f'cancelled (by-contract)'
                 )
             else:
-                # Rule 28 voice: typed exceptions (CaptureError, ProtocolError,
-                # HardwareError, ConfigError) carry an L1-friendly message in
-                # str(exception); show that directly. Untyped exceptions get a
-                # generic message so L1 doesn't see raw Python class names; the
-                # full trace is already in the log via _run_task's logger.error.
+                # Typed exceptions (CaptureError / ProtocolError / etc.)
+                # carry a user-friendly message in str(exception); show
+                # that directly. Untyped exceptions get a generic message
+                # so the popup doesn't leak raw Python class names; the
+                # full trace is already in the log via _run_task above.
                 from modules.exceptions import CaptureError, ProtocolError, ConfigError
                 try:
                     from drivers.exceptions import HardwareError

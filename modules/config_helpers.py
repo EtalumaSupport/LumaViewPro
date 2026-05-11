@@ -289,9 +289,9 @@ def log_system_metrics(settings: dict):
 
     # --- Long-run stability metrics ---
     # Each block is grep-able and routed through metrics_logger to
-    # metrics.log (D R-2: split from errors.log to keep errors signal-only).
-    # See docs/LOG_ANALYSIS_GUIDE.md "Resource Health" section for healthy
-    # vs unhealthy patterns.
+    # metrics.log so errors.log stays signal-only. See
+    # docs/LOG_ANALYSIS_GUIDE.md "Resource Health" for healthy vs
+    # unhealthy patterns.
 
     # GDI / USER objects (Windows only). The #1 cause of "Windows feels
     # slow after 24 hours" — process limit is 10k, desktop degrades at ~5k.

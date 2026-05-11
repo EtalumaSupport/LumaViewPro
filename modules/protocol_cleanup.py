@@ -112,10 +112,10 @@ def run_cleanup(
     logger.info(f"[{logger_name}] Cleanup: LED/camera restore complete")
 
     # --- Restore autofocus states ---
-    # D R-9: guard against None / empty state (the common case when no AF was
-    # active for this scan). Previously fired ERROR every scan with
-    # `'NoneType' object is not subscriptable` -- thousands of spurious
-    # errors that buried real signal.
+    # Guard against None / empty (the common case when no AF was active
+    # for this scan). Without the guard, iteration on None raised
+    # `'NoneType' object is not subscriptable` and fired ERROR every
+    # scan, burying real failure signal under thousands of spurious lines.
     if not original_autofocus_states:
         logger.debug("[PROTOCOL] No autofocus states to restore")
     else:

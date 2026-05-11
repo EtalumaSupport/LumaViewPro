@@ -96,11 +96,11 @@ class MetricsLogger:
         # _FRAME_FLOW_STALL_TICK_THRESHOLD, surfacing silent grab
         # failures that don't raise an exception or trigger a timeout.
         self._frame_flow_stalled_ticks = 0
-        # Sticky flag so Bug A notification (L1) fires once per stall
-        # episode -- set when the warning is first surfaced; cleared
-        # when fps recovers above _FRAME_FLOW_STALL_FPS. Re-stall after
-        # recovery re-fires the notification per Rule 28 sticky-failure
-        # clause.
+        # Sticky flag so the user-facing stall notification fires once
+        # per stall episode -- set when the warning is first surfaced;
+        # cleared when fps recovers above _FRAME_FLOW_STALL_FPS. Re-stall
+        # after recovery re-fires the notification (persistent faults
+        # must resurface; dedup-suppressed notifications hide real bugs).
         self._frame_flow_stall_notified = False
 
     # ---- Tick implementations (also callable on-demand) ----
@@ -183,9 +183,10 @@ class MetricsLogger:
                 f'camera reports active=True + is_grabbing=True -- possible '
                 f'silent grab failure. Check camera.log for last successful '
                 f'grab; investigate USB transport / Pylon SDK state.')
-            # Bug A: fire L1 notification once per stall episode so the
-            # silent stuck is visible to the user (not just buried in log).
-            # Re-stall after fps recovery re-fires per Rule 28 sticky-failure.
+            # Fire user-facing notification once per stall episode so the
+            # silent-stuck state is visible at the GUI, not just buried in
+            # the log. Re-stall after fps recovery re-fires (persistent
+            # faults must resurface).
             if not self._frame_flow_stall_notified:
                 self._frame_flow_stall_notified = True
                 try:
