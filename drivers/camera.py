@@ -27,6 +27,10 @@ class ImageHandlerBase:
         self.last_img_ts = None
         self.last_chunks = None  # per-frame chunk metadata dict (None when unsupported)
         self._failed_grabs = 0
+        # Per-frame consumers (manual record today; per-frame plugins later).
+        # Snapshotted-then-released under _frame_lock at _store_frame time so
+        # a slow callback never holds the SDK thread.
+        self._frame_callbacks: list = []
 
     def get_last_image(self):
         """Return (success, image, timestamp). Thread-safe.
@@ -85,6 +89,30 @@ class ImageHandlerBase:
             self.last_chunks = None
         self._failed_grabs = 0
 
+    def register_frame_callback(self, cb) -> None:
+        """Register a per-frame callback fired after every successful grab.
+
+        Callback signature: ``cb(image, timestamp, chunks)``. Runs on the
+        SDK callback thread (Pylon ``PylonImageGrab`` / IDS grab loop /
+        simulated pump). Callbacks MUST NOT block — they share the camera
+        ingest thread with the next frame. Heavy work (file IO, image
+        conversion) belongs on an executor; the callback's job is fast
+        decision + enqueue.
+
+        Registration is idempotent for the same callable.
+        """
+        with self._frame_lock:
+            if cb not in self._frame_callbacks:
+                self._frame_callbacks.append(cb)
+
+    def unregister_frame_callback(self, cb) -> None:
+        """Remove a callback registered via ``register_frame_callback``.
+
+        No-op when ``cb`` is not currently registered.
+        """
+        with self._frame_lock, contextlib.suppress(ValueError):
+            self._frame_callbacks.remove(cb)
+
     def _store_frame(self, image, timestamp, chunks: dict | None = None):
         """Called by subclass when a new frame is successfully grabbed.
 
@@ -100,7 +128,16 @@ class ImageHandlerBase:
             self.last_img = image
             self.last_img_ts = timestamp
             self.last_chunks = chunks
+            cbs = list(self._frame_callbacks)
         self._failed_grabs = 0
+        # Snapshot under lock + invoke outside: a callback that takes >0
+        # microseconds never extends the SDK thread's lock hold past the
+        # storage write. One failing callback can't block its peers.
+        for cb in cbs:
+            try:
+                cb(image, timestamp, chunks)
+            except Exception as e:
+                logger.exception(f'[CAM Class ] frame callback raised: {e}')
 
     def _record_failure(self):
         """Called by subclass when a grab fails.
@@ -605,6 +642,24 @@ class Camera(ABC):
         except Exception as ex:
             logger.exception(f"[CAM Class ] grab_latest() failed: {ex}")
             return False, None, None
+
+    def register_frame_callback(self, cb) -> None:
+        """Register a per-frame callback on the driver's image handler.
+
+        Default implementation delegates to ``cam_image_handler``;
+        drivers without a handler (SimulatedCamera) override.
+        """
+        if self.cam_image_handler is not None:
+            self.cam_image_handler.register_frame_callback(cb)
+
+    def unregister_frame_callback(self, cb) -> None:
+        """Unregister a callback registered via ``register_frame_callback``.
+
+        Default implementation delegates to ``cam_image_handler``;
+        drivers without a handler (SimulatedCamera) override.
+        """
+        if self.cam_image_handler is not None:
+            self.cam_image_handler.unregister_frame_callback(cb)
 
     def grab_latest_with_chunks(self) -> tuple:
         """Like grab_latest, plus an atomic snapshot of the per-frame chunks dict.

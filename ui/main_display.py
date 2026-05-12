@@ -44,10 +44,17 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
         self.video_writing = threading.Event()  # Track if video is being written
         self.video_writing.clear()
         self.recording_check = None
-        self.recording_event = None
         self.recording_complete_event = None
         self.recording_title_update = None
-        self._last_recorded_frame_ts = None  # For duplicate frame detection during recording
+        # Per-frame camera-callback driven recording (replaces the Kivy
+        # Clock save timer). Slot index reserved by callback under
+        # _record_lock; the IOTask on camera_executor writes the slot.
+        self._record_lock = threading.Lock()
+        self._on_camera_frame_cb = None
+        self._save_interval_s = 0.0
+        self._next_save_slot_ts = 0.0
+        self._reserved_frames = 0
+        self._max_frames = 0
         self.writing_progress_update = None
         self.video_writing_progress = 0
         self.video_writing_total_frames = 0
@@ -281,15 +288,18 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
             return
 
         self.current_captured_frames = 0
-        self.timestamps = []
-        self.chunks_per_frame = []  # issue #633 Stage 2A: per-frame chunks for TIFF metadata
+        # Pre-sized: callback reserves a slot index, IOTask writes at that
+        # index. Concurrent callbacks-then-IOTasks can't race on append() and
+        # produce out-of-order timestamps lists; slot-indexed writes match
+        # slot-indexed reads in recording_complete.
+        self.timestamps = [None] * max_frames
+        self.chunks_per_frame = [None] * max_frames
         # Snapshot the camera-side timestamp tick frequency once. Used at
         # finalize time to convert ChunkTimestamp ticks to seconds; None
         # if the camera doesn't expose a Timestamp chunk.
         self.timestamp_tick_freq_hz = getattr(
             self.scope.camera, 'timestamp_tick_frequency_hz', None
         ) if self.scope.camera else None
-        self._last_recorded_frame_ts = None  # Reset duplicate detection
 
         logger.info(f"Manual-Video] Capturing video...")
 
@@ -298,41 +308,67 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
         # -- individual frames jittered from 6.5 to 78 fps around a 10 fps
         # mean. The cap is no longer applied; the camera runs at whatever
         # live-view left it at (typically free-run). Per-frame cadence is
-        # enforced below via capture_interval = 1.0 / video_fps so Clock
-        # fires at the target rate. _fps_limit_was_enabled retained as False
-        # so the finalize path's set_max_acquisition_frame_rate(False) call
-        # stays a no-op rather than a hard remove (defense against future
-        # re-introduction).
+        # enforced via the camera-callback slot scheduler below.
+        # _fps_limit_was_enabled retained as False so the finalize path's
+        # set_max_acquisition_frame_rate(False) call stays a no-op rather
+        # than a hard remove (defense against future re-introduction).
         self._fps_limit_was_enabled = False
 
-        # Schedule recording at the user-requested rate (video_fps), not the
-        # camera exposure rate. Driving Clock at the target rate avoids a
-        # Bresenham rounding artifact: at 1 ms exposure (exposure_freq = 1 kHz)
-        # Kivy Clock can't actually fire faster than ~16-30 ms (display-frame
-        # floor on Windows), so a per-fire "save if >= save_interval" gate
-        # accumulates Clock-floor delay until the next save fires -- bench
-        # 2026-05-12 saw mean=131.9 ms for a 100 ms target.
-        # Duplicate frame detection in record_helper() handles the case where
-        # the timer fires faster than the camera delivers new frames. See the
-        # recording-controller refactor TODO for the proper architectural fix
-        # (dedicated thread / camera-callback-driven, off Kivy Clock entirely).
+        # Slot-scheduled save on camera ticks. The Kivy Clock save timer
+        # was retired here: Clock's ~16-30 ms display-frame floor on
+        # Windows plus main-thread GIL contention produced mean=131.9 ms
+        # for a 100 ms target on bench 2026-05-12. Camera SDK ticks arrive
+        # on the ingest thread at sub-ms accuracy (Pylon GetArray copy
+        # latency dominates), so reserving the next slot only when
+        # `now >= start_ts + N * save_interval` produces tight cadence
+        # without a separate timer. check_recording_state stays on Clock
+        # at capture_interval purely for button-state and time-stop
+        # detection (main-thread Kivy widget reads).
+        self._save_interval_s = 1.0 / video_fps
+        self._next_save_slot_ts = self.start_ts + self._save_interval_s
+        self._reserved_frames = 0
+        self._max_frames = max_frames
         capture_interval = 1.0 / video_fps
-        # Schedule title updates to show recording progress
-        self.recording_title_update = Clock.schedule_interval(self.update_recording_title, 0.1)  # Update every 100ms
+        self.recording_title_update = Clock.schedule_interval(self.update_recording_title, 0.1)
         self.recording_check = Clock.schedule_interval(self.check_recording_state, capture_interval)
-        self.recording_event = Clock.schedule_interval(self._enqueue_recording_frame, capture_interval)
+        self._on_camera_frame_cb = self._on_camera_frame
+        self.scope.register_frame_callback(self._on_camera_frame_cb)
 
-    def _enqueue_recording_frame(self, dt=None):
-        """Enqueue a recording frame task without creating closure."""
-        _app_ctx.ctx.camera_executor.put(IOTask(self.record_helper))
+    def _on_camera_frame(self, image, frame_ts, chunks):
+        """Camera-SDK-thread callback: reserve next save slot and enqueue write.
+
+        Runs on the camera ingest thread (Pylon ``PylonImageGrab`` / IDS
+        grab loop / SimCameraPump). Fast decision only -- the actual
+        memmap write happens on ``camera_executor`` via ``record_helper``.
+        """
+        if not self.recording.is_set():
+            return
+        now = time.time()
+        with self._record_lock:
+            if not self.recording.is_set():
+                return
+            if self._reserved_frames >= self._max_frames:
+                return
+            if now < self._next_save_slot_ts:
+                return
+            slot_index = self._reserved_frames
+            self._reserved_frames += 1
+            self._next_save_slot_ts += self._save_interval_s
+        _app_ctx.ctx.camera_executor.put(IOTask(
+            self.record_helper,
+            kwargs={
+                'slot_index': slot_index,
+                'image': image,
+                'frame_ts': frame_ts,
+                'chunks': chunks,
+            },
+        ))
 
     def check_recording_state(self, dt=None):
-        # Over the max duration, stop video
-        if time.time() >= self.stop_ts:
-            Clock.unschedule(self.recording_check)
-            Clock.unschedule(self.recording_event)
-            if hasattr(self, 'recording_title_update') and self.recording_title_update:
-                Clock.unschedule(self.recording_title_update)
+        # Time-stop or capacity-stop: max_frames reserved means the
+        # memmap is full; no more callbacks will reserve a slot.
+        if time.time() >= self.stop_ts or self._reserved_frames >= self._max_frames:
+            self._stop_recording_clocks()
             self.video_duration = time.time() - self.start_ts
             self.recording_complete_event = Clock.schedule_once(self._enqueue_recording_complete, 0)
             # Flip the record_btn back to 'normal' so the UI shows "ready"; the
@@ -346,12 +382,32 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
             return
 
         # Button clicked, stop recording
-        Clock.unschedule(self.recording_check)
-        Clock.unschedule(self.recording_event)
-        if hasattr(self, 'recording_title_update') and self.recording_title_update:
-            Clock.unschedule(self.recording_title_update)
+        self._stop_recording_clocks()
         self.video_duration = time.time() - self.start_ts
         self.recording_complete_event = Clock.schedule_once(self._enqueue_recording_complete, 0)
+
+    def _stop_recording_clocks(self):
+        """Unschedule recording clocks and unregister the camera callback.
+
+        Called from both ``check_recording_state`` stop branches. Order
+        matters: unregister the callback BEFORE the finalize IOTask
+        runs so no new ``record_helper`` task can be enqueued after
+        ``_finalize_recording_state`` has snapshotted state. The
+        camera_executor is FIFO, so any record_helper tasks already
+        queued ahead of the finalize task complete first.
+        """
+        if self._on_camera_frame_cb is not None:
+            try:
+                self.scope.unregister_frame_callback(self._on_camera_frame_cb)
+            except Exception as e:
+                logger.warning(f'[LVP Main  ] unregister_frame_callback failed: {e}')
+            self._on_camera_frame_cb = None
+        if self.recording_check is not None:
+            Clock.unschedule(self.recording_check)
+            self.recording_check = None
+        if self.recording_title_update is not None:
+            Clock.unschedule(self.recording_title_update)
+            self.recording_title_update = None
 
     def update_recording_title(self, dt=None):
         """Update window title-bar event suffix with recording elapsed time."""
@@ -768,54 +824,45 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
         except Exception as e:
             logger.exception(f"Manual-Video] Error during GUI cleanup: {e}")
 
-    def record_helper(self, dt=None):
+    def record_helper(self, slot_index, image, frame_ts, chunks, dt=None):
+        """Write one reserved frame slot on the camera_executor.
+
+        Called via IOTask from ``_on_camera_frame``. ``slot_index`` was
+        reserved under ``_record_lock`` in the callback, so two
+        concurrent ``record_helper`` tasks always have distinct slots
+        and slot-indexed writes never collide.
+        """
+        # Defensive: finalize may have nulled the memmap if a stray
+        # task slipped past the FIFO discipline; the increment-and-write
+        # is then a no-op rather than a NoneType crash.
+        if self.current_video_frames is None:
+            return
+        if not isinstance(image, np.ndarray):
+            return
+        if slot_index >= self.current_video_frames.shape[0]:
+            return
+
         settings = _app_ctx.ctx.settings
+        force_to_8bit = not settings['use_full_pixel_depth'] or not settings['video_as_frames']
 
-        if not settings['use_full_pixel_depth'] or not settings['video_as_frames']:
-            force_to_8bit = True
-        else:
-            force_to_8bit = False
+        if force_to_8bit and image.dtype != np.uint8:
+            image = image_utils.convert_12bit_to_8bit(image)
+        elif image.dtype == np.uint16:
+            image = image_utils.convert_12bit_to_16bit(image)
 
-        # Use get_image_with_chunks_from_buffer() to atomically snapshot the
-        # frame + per-frame camera chunks (Timestamp / FrameID / etc). Without
-        # the atomic getter, image-N could pair with chunks-N+1 because the
-        # camera thread can insert a _store_frame call between two non-atomic
-        # gets. issue #633 Stage 2A.
-        result = self.scope.get_image_with_chunks_from_buffer(force_to_8bit=force_to_8bit)
-        if result is None or result[0] is False:
-            return
-        image, frame_ts, chunks = result
+        # Note: Currently, if image is 12/16-bit, then we ignore false coloring for video captures.
+        if (image.dtype != np.uint16) and (self.video_false_color is not None):
+            image = image_utils.add_false_color(array=image, color=self.video_false_color)
 
-        # Skip duplicate frames — if camera hasn't delivered a new frame since
-        # last recording, don't waste a memmap slot on identical data.
-        if frame_ts is not None and frame_ts == self._last_recorded_frame_ts:
-            return
-        self._last_recorded_frame_ts = frame_ts
+        image = np.flip(image, 0)
 
-        if isinstance(image, np.ndarray):
-
-            if image.dtype == np.uint16:
-                image = image_utils.convert_12bit_to_16bit(image)
-
-            # Note: Currently, if image is 12/16-bit, then we ignore false coloring for video captures.
-            if (image.dtype != np.uint16) and (self.video_false_color is not None):
-                image = image_utils.add_false_color(array=image, color=self.video_false_color)
-
-            image = np.flip(image, 0)
-
-            # Time-based stop is async from frame enqueue: record_helper
-            # tasks queued before check_recording_state unscheduled the
-            # Clock continue draining on camera_executor. The buffer is
-            # the authoritative cap (sized to max_frames); drop the
-            # surplus rather than IndexError.
-            if self.current_captured_frames >= self.current_video_frames.shape[0]:
-                return
-
-            self.current_video_frames[self.current_captured_frames] = image
-            self.timestamps.append(datetime.datetime.now())
-            self.chunks_per_frame.append(chunks)
-
-            self.current_captured_frames += 1
+        self.current_video_frames[slot_index] = image
+        self.timestamps[slot_index] = frame_ts if frame_ts is not None else datetime.datetime.now()
+        self.chunks_per_frame[slot_index] = chunks
+        # Counter of actually-written slots (callback's _reserved_frames
+        # may briefly exceed this between reservation and write).
+        # _finalize_recording_state reads this for the saved count.
+        self.current_captured_frames = max(self.current_captured_frames, slot_index + 1)
 
 
     def fit_image(self):

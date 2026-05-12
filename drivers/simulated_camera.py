@@ -7,6 +7,7 @@ camera state (exposure, gain, binning, frame size, pixel format), and
 supports the full Camera ABC interface.
 """
 
+import contextlib
 import datetime
 import pathlib
 import threading
@@ -68,6 +69,17 @@ class SimulatedCamera(Camera):
 
         self._lock = threading.RLock()
         self._last_grab_ts = None
+
+        # Per-frame callback delivery (mirrors the Pylon/IDS ImageHandler
+        # callback surface). SimulatedCamera has no SDK callback thread,
+        # so a host-side pump thread fires callbacks at the exposure rate
+        # whenever any are registered AND grabbing is active. Tests that
+        # exercise the production callback path use this; the display
+        # pull-pipeline (grab/grab_latest) keeps working as before.
+        self._frame_callbacks: list = []
+        self._frame_callback_lock = threading.Lock()
+        self._pump_thread: threading.Thread | None = None
+        self._pump_stop = threading.Event()
 
         # Synthetic image state — can be set externally for test scenarios
         # 'gradient', 'black', 'white', 'noise', 'focus_target', 'image_cycle'
@@ -212,6 +224,7 @@ class SimulatedCamera(Camera):
                 self.active = None
                 if _cam_log is not None: _cam_log.info('sim Disconnected')
                 logger.info('[CAM Sim   ] Disconnected')
+                self._stop_callback_pump()
                 return True
             return False
 
@@ -257,6 +270,11 @@ class SimulatedCamera(Camera):
             self._grabbing = True
             if _cam_log is not None: _cam_log.info('sim start_grabbing')
             logger.info('[CAM Sim   ] start_grabbing')
+        # Re-spawn the pump if callbacks were registered while not grabbing.
+        with self._frame_callback_lock:
+            need_pump = bool(self._frame_callbacks)
+        if need_pump:
+            self._start_callback_pump()
 
     def stop_grabbing(self) -> None:
         """Stop acquiring frames in the simulator."""
@@ -264,6 +282,88 @@ class SimulatedCamera(Camera):
             self._grabbing = False
             if _cam_log is not None: _cam_log.info('sim stop_grabbing')
             logger.info('[CAM Sim   ] stop_grabbing')
+        self._stop_callback_pump()
+
+    # ------------------------------------------------------------------
+    # Per-frame callbacks (parity with Pylon/IDS ImageHandler surface)
+    # ------------------------------------------------------------------
+    def register_frame_callback(self, cb) -> None:
+        """Register a callback fired on every simulated grab.
+
+        Starts a small host-side pump thread on the first registration
+        while ``_grabbing`` is True, so callers (manual record) see the
+        same push-driven semantics they get from real cameras.
+        """
+        with self._frame_callback_lock:
+            if cb not in self._frame_callbacks:
+                self._frame_callbacks.append(cb)
+            need_pump = bool(self._frame_callbacks) and self._grabbing
+        if need_pump:
+            self._start_callback_pump()
+
+    def unregister_frame_callback(self, cb) -> None:
+        """Remove a registered callback; stops the pump when none remain."""
+        with self._frame_callback_lock:
+            with contextlib.suppress(ValueError):
+                self._frame_callbacks.remove(cb)
+            still_active = bool(self._frame_callbacks)
+        if not still_active:
+            self._stop_callback_pump()
+
+    def _start_callback_pump(self) -> None:
+        """Spawn the callback pump if not already running."""
+        if self._pump_thread is not None and self._pump_thread.is_alive():
+            return
+        self._pump_stop.clear()
+        self._pump_thread = threading.Thread(
+            target=self._callback_pump_loop,
+            name='SimCameraPump',
+            daemon=True,
+        )
+        self._pump_thread.start()
+
+    def _stop_callback_pump(self) -> None:
+        """Signal the pump to exit and join with a short timeout."""
+        self._pump_stop.set()
+        t = self._pump_thread
+        if t is not None:
+            t.join(timeout=2.0)
+        self._pump_thread = None
+
+    def _callback_pump_loop(self) -> None:
+        """Fire registered callbacks at ``1 / exposure_s`` while grabbing.
+
+        Generates a fresh image per tick so the callback gets a unique
+        ``(image, ts, chunks=None)`` triple. SimulatedCamera has no
+        chunk surface, so chunks is always None — recording callers
+        already treat None as "skip chunk-derived metadata."
+        """
+        while not self._pump_stop.is_set():
+            if not self._grabbing:
+                # Pump only delivers while grabbing; cheap idle loop.
+                if self._pump_stop.wait(0.05):
+                    return
+                continue
+            with self._frame_callback_lock:
+                cbs = list(self._frame_callbacks)
+            if not cbs:
+                return
+            with self._lock:
+                self.array = self._generate_image()
+                ts = datetime.datetime.now()
+                self._last_grab_ts = ts
+                image = self.array.copy()
+            for cb in cbs:
+                try:
+                    cb(image, ts, None)
+                except Exception as e:
+                    logger.exception(
+                        f'[CAM Sim   ] frame callback raised: {e}'
+                    )
+            # Honor the configured exposure as the inter-frame interval.
+            interval_s = max(self._exposure_us / 1_000_000.0, 0.001)
+            if self._pump_stop.wait(interval_s):
+                return
 
     # ------------------------------------------------------------------
     # Frame size

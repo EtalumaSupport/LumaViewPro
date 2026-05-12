@@ -2491,6 +2491,41 @@ class Lumascope():
             )
             raise
 
+    def register_frame_callback(self, cb) -> None:
+        """Register a per-frame callback fired on every successful grab.
+
+        Passthrough to the driver. Callback signature is
+        ``cb(image, timestamp, chunks)``; runs on the SDK callback
+        thread (Pylon ``PylonImageGrab`` / IDS grab loop / simulated
+        pump). Callbacks MUST NOT block — heavy work belongs on an
+        executor. No-op when no camera is connected. Used by the
+        manual-record path to drive saves on camera ticks instead of
+        Kivy Clock.
+        """
+        if not self.camera or not self.camera.active:
+            return
+        try:
+            self.camera.register_frame_callback(cb)
+        except Exception as ex:
+            logger.exception(
+                f"[SCOPE API ] register_frame_callback failed: {ex}"
+            )
+
+    def unregister_frame_callback(self, cb) -> None:
+        """Remove a callback registered via ``register_frame_callback``.
+
+        Passthrough to the driver. No-op when no camera is connected
+        or the callback was never registered.
+        """
+        if not self.camera:
+            return
+        try:
+            self.camera.unregister_frame_callback(cb)
+        except Exception as ex:
+            logger.exception(
+                f"[SCOPE API ] unregister_frame_callback failed: {ex}"
+            )
+
     def set_bandwidth_reserve_mode(self, mode: str) -> bool:
         """Set BandwidthReserveMode (GigE-only Pylon node).
 

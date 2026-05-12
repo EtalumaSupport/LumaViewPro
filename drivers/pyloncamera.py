@@ -3150,6 +3150,14 @@ class ImageHandler(pylon.ImageEventHandler):
 
         return self._base.get_last_image_with_chunks()
 
+    def register_frame_callback(self, cb) -> None:
+        """Composition delegate to ``ImageHandlerBase.register_frame_callback``."""
+        self._base.register_frame_callback(cb)
+
+    def unregister_frame_callback(self, cb) -> None:
+        """Composition delegate to ``ImageHandlerBase.unregister_frame_callback``."""
+        self._base.unregister_frame_callback(cb)
+
 
 # Handle camera removal events to flag device disconnect
 class _CameraRemovalHandler(pylon.ConfigurationEventHandler):
