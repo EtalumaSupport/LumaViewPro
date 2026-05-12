@@ -219,6 +219,20 @@ class Lumascope():
                 ThreadingTimerScheduler). Tests that don't need
                 periodic logging set False.
         """
+        # Pre-release API warning. Fires once per process via the
+        # warnings module's default dedup. Suppressible via
+        # PYTHONWARNINGS or the LVP_API_ACKNOWLEDGE_UNSTABLE env var.
+        # Retires when the L2 freeze trigger fires (PyPI publish +
+        # first named consumer in L2_CONSUMERS.md).
+        if not os.environ.get('LVP_API_ACKNOWLEDGE_UNSTABLE'):
+            warnings.warn(
+                'Lumascope API is PRE-RELEASE; subject to breaking changes in '
+                '4.1 / 4.1.5 / 4.2. See LumascopeSkills.md for migration plan. '
+                'Suppress this warning by setting LVP_API_ACKNOWLEDGE_UNSTABLE=1.',
+                FutureWarning,
+                stacklevel=2,
+            )
+
         self._simulated = simulate
         self._coordinate_transformer = coord_transformations.CoordinateTransformer()
         self._objectives_loader = objectives_loader.ObjectiveLoader()

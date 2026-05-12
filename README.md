@@ -1,5 +1,7 @@
 # LumaViewPro
 
+> **PRE-RELEASE API**: the Lumascope SDK + REST API exposed by LumaViewPro 4.0.0 is subject to breaking changes in 4.1 / 4.1.5 / 4.2. Do not build production integrations against the API yet. If you intend to use it, contact Etaluma support so we know to consult you before structural changes.
+
 LumaViewPro is an open-source fluorescence microscope control application written in Python. Sponsored by [Etaluma, Inc.](https://www.etaluma.com/), it provides a full-featured GUI and a Python API for controlling Etaluma Lumascope microscopes.
 
 **Current version:** 4.0.0-beta

@@ -1,5 +1,19 @@
 # LumaViewPro — API & Integration Reference
 
+## PRE-RELEASE API
+
+The Lumascope SDK API documented in this file is **subject to breaking changes** in 4.1 / 4.1.5 / 4.2. Specifically:
+
+- 4.1.5 ships the sub-API decomposition (Wave 7): hardware-direct methods on `Lumascope` move to sub-APIs (`scope.motion.*`, `scope.illumination.*`, `scope.imaging.*`, `scope.diagnostics.*`, `scope.capabilities.*`, `scope.io.*`). The `Lumascope` class becomes a thin facade; L2 entry point shifts to `ScopeSession`.
+- 4.2 ships the capability + wire contract changes that may rename or restructure protocol-level surfaces.
+- The REST endpoint convention is **deferred** to a dedicated design session; do not assume current shapes are final.
+
+If you are using this API before stabilization, **contact Etaluma support** so we know to consult you before structural changes. Internal LumaViewPro use does not trigger this requirement.
+
+The warning retires when (1) a tagged release publishes to PyPI / a public binary distribution channel AND (2) we have at least one named external consumer on record. See `Firmware/docs/CLAUDE.md` Rule 30 for the internal freeze trigger.
+
+---
+
 ## Overview
 
 LumaViewPro controls Etaluma microscopes: LED illumination, XYZ stage + turret motion, and camera image acquisition. This document is the integration reference for developers building scripts, headless automation, or external control applications on top of LumaViewPro.

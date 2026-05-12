@@ -5,6 +5,14 @@ markers = [
     "requires_led_v2: requires LED firmware v2.0+",
     "requires_motor_v2: requires motor firmware v2.0+",
 ]
+# Suppress the PRE-RELEASE API FutureWarning emitted by Lumascope.__init__
+# (CLAUDE.md Rule 30). Runtime banner for L2 users; pytest stdout must
+# stay clean per feedback_test_run_simply.md. Pytest captures warnings
+# regardless of Python's filterwarnings, so the suppression needs to
+# live here in addition to tests/conftest.py.
+filterwarnings = [
+    "ignore:.*Lumascope API is PRE-RELEASE.*:FutureWarning",
+]
 
 [tool.coverage.run]
 source = ["modules", "drivers", "ui"]
