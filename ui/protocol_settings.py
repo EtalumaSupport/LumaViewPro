@@ -615,12 +615,24 @@ class ProtocolSettings(FloatLayout):
         self.ids['labware_spinner'].text = settings['protocol']['labware']
         self.ids['capture_root'].text = self._protocol.capture_root()
 
-        # Set all layers to acquire as set in loaded protocol
+        # Restore per-layer UI state from the protocol's Layer Settings
+        # block (v6) or, for v5 files, from the inferred per-layer state
+        # built from the steps Color column. Layers that aren't named in
+        # the protocol fall back to disabled (acquire=None) so the UI
+        # shows them as not-part-of-this-protocol; their other slider
+        # values (illumination/gain/exposure/etc.) are untouched, since
+        # the user's prior choices for those layers shouldn't be lost
+        # just because the loaded protocol didn't reference them.
+        layer_settings_from_protocol = self._protocol.layer_settings()
         for layer in common_utils.get_layers():
             settings[layer]['acquire'] = None
             if "stim_config" in settings[layer]:
                 if settings[layer]['stim_config'] is not None:
                     settings[layer]['stim_config']['enabled'] = False
+        for layer_name, vals in (layer_settings_from_protocol or {}).items():
+            if layer_name not in common_utils.get_layers():
+                continue
+            self._apply_layer_settings_row(settings, layer_name, vals)
 
         reset_acquire_ui()
         reset_stim_ui()
@@ -635,6 +647,103 @@ class ProtocolSettings(FloatLayout):
             self.go_to_step(protocol=False)
 
         return True
+
+
+    @staticmethod
+    def _apply_layer_settings_row(settings: dict, layer_name: str, vals: dict) -> None:
+        """Apply a single Layer Settings row to settings[layer_name][*].
+
+        Handles the column-name <-> settings-key mapping plus the string
+        -> bool/float/int casting required when the row was parsed off
+        disk. Missing or blank values are skipped so an explicit empty
+        cell doesn't clobber a sensible default.
+        """
+        def _as_bool(s):
+            if isinstance(s, bool):
+                return s
+            return str(s).strip().lower() == 'true'
+
+        def _as_float(s, default=None):
+            try:
+                return float(s)
+            except (TypeError, ValueError):
+                return default
+
+        def _as_int(s, default=None):
+            try:
+                return int(float(s))
+            except (TypeError, ValueError):
+                return default
+
+        layer = settings.setdefault(layer_name, {})
+
+        acquire = vals.get('Acquire', '')
+        if acquire in ('image', 'video'):
+            layer['acquire'] = acquire
+
+        for col, key, caster in (
+                ('Illumination', 'ill', _as_float),
+                ('Gain', 'gain', _as_float),
+                ('Exposure', 'exp', _as_float),
+                ('Sum', 'sum', _as_int)):
+            raw = vals.get(col, '')
+            if raw == '' or raw is None:
+                continue
+            cast = caster(raw)
+            if cast is not None:
+                layer[key] = cast
+
+        for col, key in (
+                ('Auto_Gain', 'auto_gain'),
+                ('False_Color', 'false_color')):
+            raw = vals.get(col, '')
+            if raw == '' or raw is None:
+                continue
+            layer[key] = _as_bool(raw)
+
+        # Stim_Enabled is the per-layer stim master switch (the rest of
+        # the stim_config sub-dict is preserved). Blank means "leave the
+        # current stim_config alone"; explicit True/False sets the flag.
+        stim_raw = vals.get('Stim_Enabled', '')
+        if stim_raw not in ('', None):
+            stim_cfg = layer.get('stim_config')
+            if isinstance(stim_cfg, dict):
+                stim_cfg['enabled'] = _as_bool(stim_raw)
+
+
+    def _gather_layer_settings_for_save(self) -> dict:
+        """Collect current per-layer UI settings for inclusion in to_file().
+
+        Only layers with acquire in ('image', 'video') are returned --
+        these are the layers the user has marked as part of the
+        protocol. Disabled layers are omitted so reload doesn't
+        resurrect them.
+        """
+        settings = _app_ctx.ctx.settings
+        out = {}
+        for layer_name in common_utils.get_layers():
+            layer = settings.get(layer_name)
+            if not isinstance(layer, dict):
+                continue
+            acquire = layer.get('acquire')
+            if acquire not in ('image', 'video'):
+                continue
+            row = {
+                'Layer': layer_name,
+                'Acquire': acquire,
+                'Illumination': layer.get('ill', ''),
+                'Gain': layer.get('gain', ''),
+                'Auto_Gain': layer.get('auto_gain', ''),
+                'Exposure': layer.get('exp', ''),
+                'False_Color': layer.get('false_color', ''),
+                'Sum': layer.get('sum', ''),
+                'Stim_Enabled': '',
+            }
+            stim_cfg = layer.get('stim_config')
+            if isinstance(stim_cfg, dict) and 'enabled' in stim_cfg:
+                row['Stim_Enabled'] = stim_cfg['enabled']
+            out[layer_name] = row
+        return out
 
 
     def get_default_name_for_curr_step(self):
@@ -700,8 +809,15 @@ class ProtocolSettings(FloatLayout):
             if (isinstance(filepath, str)) and (filepath[-4:].lower() != '.tsv'):
                 filepath = filepath+'.tsv'
 
+            # v6: include the per-layer UI state in the saved TSV header
+            # so reload restores acquire mode + illumination/gain/exp
+            # without needing inference from step rows. Existing
+            # downstream callers (REST save, headless tests) keep their
+            # signature -- to_file() with no kwarg still works and falls
+            # back to inference on reload.
             result = self._protocol.to_file(
-                file_path=filepath
+                file_path=filepath,
+                layer_settings=self._gather_layer_settings_for_save(),
             )
 
             if result: # Had an error saving

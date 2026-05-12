@@ -2193,3 +2193,143 @@ class TestPerRowConfigParsing:
         proto.step(idx=0)['Video Config']['duration'] = 999
         # Other row should be unaffected
         assert proto.step(idx=1)['Video Config']['duration'] != 999
+
+
+# ---------------------------------------------------------------------------
+# v6 Layer Settings block
+# ---------------------------------------------------------------------------
+
+
+class TestV6LayerSettings:
+    """Protocol TSV v6 adds a 'Layer Settings' header block that persists
+    per-layer UI state so reload restores acquire mode + illumination +
+    gain + exposure + false_color + sum + stim-enabled without inferring
+    from step rows. v5 files without the block fall back to inference."""
+
+    def test_inference_returns_four_channels(self, tmp_path):
+        """v5-shape protocol (no Layer Settings block on disk): inference
+        from steps Color column should produce one entry per unique Color."""
+        proto = _build_protocol([
+            _make_step(name="A1_BF", color="BF", acquire="image", illumination=2.0, gain=1.0, exposure=2.0),
+            _make_step(name="A1_Blue", color="Blue", acquire="image", illumination=150.0, gain=0.0, exposure=100.0),
+            _make_step(name="A1_Green", color="Green", acquire="image", illumination=250.0, gain=20.0, exposure=100.0),
+            _make_step(name="A1_Red", color="Red", acquire="image", illumination=350.0, gain=48.0, exposure=100.0),
+        ])
+        # Save WITHOUT layer_settings (legacy save path)
+        filepath = tmp_path / "v5_shape.tsv"
+        proto.to_file(filepath)
+        reloaded = Protocol.from_file(filepath, tiling_configs_file_loc=TILING_CONFIGS)
+        inferred = reloaded.layer_settings()
+
+        assert set(inferred.keys()) == {"BF", "Blue", "Green", "Red"}
+        for layer in ("BF", "Blue", "Green", "Red"):
+            assert inferred[layer]["Acquire"] == "image"
+        assert float(inferred["Blue"]["Illumination"]) == 150.0
+        assert float(inferred["Green"]["Gain"]) == 20.0
+        assert float(inferred["Red"]["Exposure"]) == 100.0
+
+    def test_explicit_block_round_trips(self, tmp_path):
+        """Save with layer_settings kwarg, reload, expect identical values
+        back from layer_settings() (string representation; values cast in UI)."""
+        proto = _build_protocol([
+            _make_step(name="A1_BF", color="BF", acquire="image", illumination=2.0),
+            _make_step(name="A1_Blue", color="Blue", acquire="image", illumination=150.0),
+        ])
+        ls_in = {
+            "BF": {"Layer": "BF", "Acquire": "image", "Illumination": 2.0, "Gain": 1.0,
+                   "Auto_Gain": False, "Exposure": 2.0, "False_Color": False, "Sum": 1, "Stim_Enabled": ""},
+            "Blue": {"Layer": "Blue", "Acquire": "image", "Illumination": 150.0, "Gain": 0.0,
+                     "Auto_Gain": False, "Exposure": 100.0, "False_Color": True, "Sum": 1, "Stim_Enabled": False},
+        }
+        filepath = tmp_path / "v6.tsv"
+        proto.to_file(filepath, layer_settings=ls_in)
+
+        # File should contain the block markers
+        text = filepath.read_text()
+        assert "Layer Settings" in text
+        assert "Stim_Enabled" in text
+
+        reloaded = Protocol.from_file(filepath, tiling_configs_file_loc=TILING_CONFIGS)
+        ls_out = reloaded.layer_settings()
+        assert set(ls_out.keys()) == {"BF", "Blue"}
+        assert ls_out["BF"]["Acquire"] == "image"
+        assert float(ls_out["Blue"]["Illumination"]) == 150.0
+        assert ls_out["Blue"]["False_Color"] == "True"
+        assert ls_out["Blue"]["Stim_Enabled"] == "False"
+
+    def test_disabled_layers_omitted(self, tmp_path):
+        """Layers with Acquire not in (image, video) should NOT be written
+        to disk; reload should not see them."""
+        proto = _build_protocol([_make_step(color="BF", acquire="image")])
+        ls_in = {
+            "BF": {"Layer": "BF", "Acquire": "image", "Illumination": 2.0, "Gain": 1.0,
+                   "Auto_Gain": False, "Exposure": 2.0, "False_Color": False, "Sum": 1},
+            "Blue": {"Layer": "Blue", "Acquire": None, "Illumination": 150.0},  # disabled
+            "PC": {"Layer": "PC", "Acquire": "", "Illumination": 5.0},          # disabled
+        }
+        filepath = tmp_path / "v6_partial.tsv"
+        proto.to_file(filepath, layer_settings=ls_in)
+        reloaded = Protocol.from_file(filepath, tiling_configs_file_loc=TILING_CONFIGS)
+        ls_out = reloaded.layer_settings()
+        assert "BF" in ls_out
+        assert "Blue" not in ls_out
+        assert "PC" not in ls_out
+
+    def test_to_file_falls_back_to_stored_layer_settings(self, tmp_path):
+        """If caller doesn't pass layer_settings, to_file() picks up
+        anything that was loaded into self._config -- enabling clean
+        v6 round-trip without re-passing the dict every save."""
+        proto1 = _build_protocol([_make_step(color="BF", acquire="image")])
+        filepath1 = tmp_path / "v6_first.tsv"
+        proto1.to_file(filepath1, layer_settings={
+            "BF": {"Layer": "BF", "Acquire": "image", "Illumination": 7.5, "Gain": 1.0,
+                   "Auto_Gain": False, "Exposure": 2.0, "False_Color": False, "Sum": 1},
+        })
+
+        reloaded1 = Protocol.from_file(filepath1, tiling_configs_file_loc=TILING_CONFIGS)
+        filepath2 = tmp_path / "v6_second.tsv"
+        # No layer_settings kwarg this time
+        reloaded1.to_file(filepath2)
+
+        text = filepath2.read_text()
+        assert "Layer Settings" in text
+        reloaded2 = Protocol.from_file(filepath2, tiling_configs_file_loc=TILING_CONFIGS)
+        ls = reloaded2.layer_settings()
+        assert ls.get("BF", {}).get("Acquire") == "image"
+        assert float(ls["BF"]["Illumination"]) == 7.5
+
+    def test_no_layer_settings_no_block_written(self, tmp_path):
+        """Saving without layer_settings AND with no stored block should
+        produce a file containing no 'Layer Settings' marker."""
+        proto = _build_protocol([_make_step(color="BF", acquire="image")])
+        filepath = tmp_path / "no_block.tsv"
+        proto.to_file(filepath)
+        text = filepath.read_text()
+        assert "Layer Settings" not in text
+
+    def test_malformed_block_falls_back_to_inference(self, tmp_path):
+        """A Layer Settings header without a 'Layer' column should be
+        discarded with a warning; layer_settings() then falls back to
+        steps-based inference."""
+        filepath = tmp_path / "bad_block.tsv"
+        filepath.write_text(
+            "LumaViewPro Protocol\n"
+            "Version\t6\n"
+            "Period\t1.0\n"
+            "Duration\t1.0\n"
+            "Labware\t6 well microplate\n"
+            "Capture Root\t\n"
+            "\n"
+            "Layer Settings\n"
+            "Wrong\tColumns\tHere\n"
+            "BF\timage\t99\n"
+            "\n"
+            "Steps\n"
+            "Name\tX\tY\tZ\tAuto_Focus\tColor\tFalse_Color\tIllumination\tGain\tAuto_Gain\tExposure\tSum\tObjective\tWell\tTile\tZ-Slice\tCustom Step\tTile Group ID\tZ-Stack Group ID\tAcquire\tVideo Config\tStim_Config\n"
+            "A1_BF\t14.38\t11.24\t4000.0\tFalse\tBF\tFalse\t2.0\t1.0\tFalse\t2.0\t1\t10x Air\tA1\t\t-1\tFalse\t-1\t-1\timage\t\"{\"\"duration\"\": 5}\"\t\"{\"\"Blue\"\": {\"\"enabled\"\": false}}\"\n"
+        )
+        reloaded = Protocol.from_file(filepath, tiling_configs_file_loc=TILING_CONFIGS)
+        ls = reloaded.layer_settings()
+        # Bad block discarded; inference from the BF step row
+        assert "BF" in ls
+        assert ls["BF"]["Acquire"] == "image"

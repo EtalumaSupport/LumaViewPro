@@ -38,9 +38,26 @@ class Protocol:
         3: ['Name', 'X', 'Y', 'Z', 'Auto_Focus', 'Color', 'False_Color', 'Illumination', 'Gain', 'Auto_Gain', 'Exposure', 'Objective', 'Well', 'Tile', 'Z-Slice', 'Custom Step', 'Tile Group ID', 'Z-Stack Group ID', 'Acquire', 'Video Config'],
         4: ['Name', 'X', 'Y', 'Z', 'Auto_Focus', 'Color', 'False_Color', 'Illumination', 'Gain', 'Auto_Gain', 'Exposure', 'Sum', 'Objective', 'Well', 'Tile', 'Z-Slice', 'Custom Step', 'Tile Group ID', 'Z-Stack Group ID', 'Acquire', 'Video Config'],
         5: ['Name', 'X', 'Y', 'Z', 'Auto_Focus', 'Color', 'False_Color', 'Illumination', 'Gain', 'Auto_Gain', 'Exposure', 'Sum', 'Objective', 'Well', 'Tile', 'Z-Slice', 'Custom Step', 'Tile Group ID', 'Z-Stack Group ID', 'Acquire', 'Video Config', 'Stim_Config'],
+        # v6: step columns unchanged from v5; the format-version bump
+        # signals a new 'Layer Settings' block in the header preamble
+        # that persists per-layer UI state (acquire mode + illumination
+        # + gain + exposure + false_color + sum + stim-enabled) so a
+        # protocol round-trips through the UI without losing per-layer
+        # configuration. v5 files without the block fall back to
+        # inference from the steps Color column (see _infer_layer_settings).
+        6: ['Name', 'X', 'Y', 'Z', 'Auto_Focus', 'Color', 'False_Color', 'Illumination', 'Gain', 'Auto_Gain', 'Exposure', 'Sum', 'Objective', 'Well', 'Tile', 'Z-Slice', 'Custom Step', 'Tile Group ID', 'Z-Stack Group ID', 'Acquire', 'Video Config', 'Stim_Config'],
     }
-    CURRENT_VERSION = 5
+    CURRENT_VERSION = 6
     CURRENT_COLUMNS = COLUMNS[CURRENT_VERSION]
+
+    # Header columns for the v6 'Layer Settings' block. Order is the
+    # written-out order; rows that omit trailing columns (e.g. Stim_Enabled
+    # blank for transmitted layers) are still valid as long as the leading
+    # required columns are present.
+    LAYER_SETTINGS_COLUMNS = [
+        'Layer', 'Acquire', 'Illumination', 'Gain', 'Auto_Gain',
+        'Exposure', 'False_Color', 'Sum', 'Stim_Enabled',
+    ]
     STEP_NAME_PATTERN = re.compile(r"^(?P<well_label>[A-Z][0-9]+)(_(?P<color>(Blue|Green|Red|BF|DF|PC|Lumi)))(_T(?P<tile_label>[A-Z][0-9]+))?(_Z(?P<z_slice>[0-9]+))?(_([0-9]*))?(.tif[f])?$")
     
     def __init__(
@@ -98,6 +115,85 @@ class Protocol:
         return self._config.get('capture_root', '')
 
 
+    def layer_settings(self) -> dict:
+        """Return per-layer UI settings keyed by layer name.
+
+        v6 protocols carry an explicit 'Layer Settings' block in the
+        header; this method returns those values directly. For v5 (and
+        older) files that lack the block, per-layer state is inferred
+        from the steps DataFrame: each unique Color value yields one
+        entry seeded from the first matching step (Illumination, Gain,
+        Auto_Gain, Exposure, False_Color, Sum, Acquire). Returns an
+        empty dict when no inference is possible (no steps, etc.).
+
+        Values are returned as strings (matching the on-disk format).
+        The UI caller is responsible for casting to float/bool/int.
+        """
+        explicit = self._config.get('layer_settings')
+        if explicit:
+            return explicit
+        return self._infer_layer_settings_from_steps()
+
+
+    def _infer_layer_settings_from_steps(self) -> dict:
+        """Fallback for v5 files: build per-layer state from unique Colors.
+
+        Picks the first step per Color as the representative source
+        for that layer. Honors any 'Acquire' value present in the
+        step row (image/video). Stim_Enabled is left blank because v5
+        steps embed stim_config per-step rather than per-layer.
+        """
+        out = {}
+        try:
+            steps = self._config.get('steps')
+            if steps is None or len(steps) == 0:
+                return out
+            if 'Color' not in steps.columns:
+                return out
+            for color, group in steps.groupby('Color'):
+                if not color:
+                    continue
+                first = group.iloc[0]
+                acquire = 'image'
+                if 'Acquire' in group.columns:
+                    if (group['Acquire'] == 'video').any():
+                        acquire = 'video'
+                    else:
+                        acquire = str(first.get('Acquire', 'image')) or 'image'
+                out[str(color)] = {
+                    'Layer': str(color),
+                    'Acquire': acquire,
+                    'Illumination': str(first.get('Illumination', '')),
+                    'Gain': str(first.get('Gain', '')),
+                    'Auto_Gain': str(first.get('Auto_Gain', '')),
+                    'Exposure': str(first.get('Exposure', '')),
+                    'False_Color': str(first.get('False_Color', '')),
+                    'Sum': str(first.get('Sum', '')),
+                    'Stim_Enabled': '',
+                }
+        except Exception as e:
+            logger.warning(f"[Protocol] Layer Settings inference failed: {e}")
+        return out
+
+
+    def set_layer_settings(self, layer_settings: dict) -> None:
+        """Store per-layer UI settings for inclusion in the next to_file().
+
+        Caller (typically ui/protocol_settings.py:save_protocol) gathers
+        current settings[layer][*] from the UI and passes them here
+        right before calling to_file(). Stored on the Protocol instance
+        so to_file's signature stays clean for non-UI callers (REST,
+        headless tests).
+        """
+        if layer_settings is None:
+            self._config.pop('layer_settings', None)
+            return
+        # Defensive copy: don't keep a live reference to the UI's dict.
+        self._config['layer_settings'] = {
+            k: dict(v) for k, v in layer_settings.items() if isinstance(v, dict)
+        }
+
+
     def copy_for_execution(self):
         """Lightweight copy for protocol execution.
 
@@ -116,8 +212,24 @@ class Protocol:
         new._num_steps_cache = None
         return new
 
-    def to_file(self, file_path: pathlib.Path):   
-        
+    def to_file(self, file_path: pathlib.Path, layer_settings: dict | None = None):
+        """Write the protocol to a TSV file.
+
+        Args:
+            file_path: Destination path.
+            layer_settings: Optional dict mapping layer name to a dict
+                of per-layer UI settings (Acquire, Illumination, Gain,
+                Auto_Gain, Exposure, False_Color, Sum, Stim_Enabled).
+                Only layers whose Acquire is 'image' or 'video' are
+                written. When None, falls back to any layer_settings
+                stored on the Protocol (set by load + the
+                set_layer_settings() helper); when both are absent
+                the file is written without a 'Layer Settings'
+                block (channel-enable state will be inferred from
+                steps on reload, matching the v5 fallback path).
+        """
+        if layer_settings is None:
+            layer_settings = self._config.get('layer_settings')
         if self.period() is None:
             period_minutes = -1
         else:
@@ -138,7 +250,34 @@ class Protocol:
                 csvwriter.writerow(['Duration', duration_hours])
                 csvwriter.writerow(['Labware', self._config['labware_id']])
                 csvwriter.writerow(['Capture Root', self.capture_root() if self.capture_root() is not None or self.capture_root() != '' else ''])
-                
+
+                # v6 Layer Settings block — emitted only when the caller
+                # passes layer_settings AND at least one layer is enabled.
+                # Older readers tolerate the block (the 'find Steps' loop
+                # in from_file already skips unknown rows until it hits
+                # 'Steps'); this lets v6 files round-trip cleanly without
+                # breaking any v5-aware downstream tooling.
+                if layer_settings:
+                    enabled = [
+                        (name, vals) for name, vals in layer_settings.items()
+                        if vals.get('Acquire') in ('image', 'video')
+                    ]
+                    if enabled:
+                        fp.write('\nLayer Settings\n')
+                        csvwriter.writerow(self.LAYER_SETTINGS_COLUMNS)
+                        for name, vals in enabled:
+                            csvwriter.writerow([
+                                name,
+                                vals.get('Acquire', ''),
+                                vals.get('Illumination', ''),
+                                vals.get('Gain', ''),
+                                vals.get('Auto_Gain', ''),
+                                vals.get('Exposure', ''),
+                                vals.get('False_Color', ''),
+                                vals.get('Sum', ''),
+                                vals.get('Stim_Enabled', ''),
+                            ])
+
                 fp.write('\nSteps\n')
 
                 # Serialize dict columns as JSON strings before writing to CSV.
@@ -1258,9 +1397,12 @@ class Protocol:
         if config['version'] == cls.CURRENT_VERSION:
             allowed = True
 
-        elif (config['version'] in (2, 3, 4)) and (cls.CURRENT_VERSION == 5):
+        elif (config['version'] in (2, 3, 4, 5)) and (cls.CURRENT_VERSION == 6):
+            # v6 introduces the Layer Settings header block; older
+            # versions are accepted and per-layer state is inferred
+            # from the steps Color column on load.
             allowed = True
-                
+
         if not allowed:
             logger.error(f"Unable to load {file_path} which contains protocol version {config['version']}.\nPlease create a new protocol using this version of LumaViewPro.")
             raise ProtocolFormatError(f"Protocol version {config['version']} is not supported.")
@@ -1347,16 +1489,53 @@ class Protocol:
             raise ProtocolFormatError(f"Protocol file is incomplete.")
 
 
-        # Search for "Steps" to indicate start of steps
+        # Search for "Steps" to indicate start of steps. Along the way,
+        # optionally capture a v6 'Layer Settings' block — a header row
+        # followed by one row per enabled layer. Block ends at the first
+        # blank row or at the 'Steps' marker.
         if next_row[0] != "Steps": # Check to ensure compatibility with no capture_root field
+            found_steps = False
             try:
-                while True:
+                while not found_steps:
                     tmp = next(csvreader)
                     if len(tmp) == 0:
                         continue
 
                     if tmp[0] == "Steps":
+                        found_steps = True
                         break
+
+                    if tmp[0] == "Layer Settings":
+                        # Parse the block in place. The first non-blank row is
+                        # the column header; subsequent non-blank rows are
+                        # per-layer entries; block ends at the first blank
+                        # row or at the 'Steps' marker. Bad header (missing
+                        # 'Layer' key) is logged and the block is discarded;
+                        # the file still loads via inference fallback.
+                        ls_header = None
+                        config['layer_settings'] = {}
+                        for sub_row in csvreader:
+                            if len(sub_row) == 0 or sub_row[0] == '':
+                                if ls_header is not None:
+                                    break  # blank row ends the block
+                                continue  # tolerate blank rows before header
+                            if sub_row[0] == "Steps":
+                                found_steps = True
+                                break
+                            if ls_header is None:
+                                ls_header = sub_row
+                                if 'Layer' not in ls_header:
+                                    logger.warning(
+                                        f"[Protocol] Layer Settings header missing "
+                                        f"'Layer' column in {file_path}; discarding block "
+                                        f"and falling back to inference.")
+                                    config['layer_settings'] = {}
+                                    ls_header = None
+                                continue
+                            row_dict = dict(zip(ls_header, sub_row))
+                            layer_name = row_dict.get('Layer', '').strip()
+                            if layer_name:
+                                config['layer_settings'][layer_name] = row_dict
             except StopIteration:
                 logger.error(f"Missing 'Steps' section in protocol file {file_path}")
                 raise ProtocolFormatError(f"Missing 'Steps' section in protocol file")
