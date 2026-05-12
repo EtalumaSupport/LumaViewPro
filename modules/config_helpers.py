@@ -516,6 +516,30 @@ def log_system_metrics(settings: dict):
                 f"[QUEUE METRICS] {' | '.join(queue_parts)}",
             )
 
+        # Per-executor caller_futures alloc/pop/live counters. Sustained
+        # drift between allocs and pops means Future entries are
+        # accumulating in caller_futures; on Windows each orphan Future
+        # leaves a Lock/Semaphore kernel handle open. Steady-state
+        # invariant: alloc == pop within a few per cadence (each
+        # in-flight task is one of the few "live" entries).
+        futures_parts = []
+        for name in ('sequenced_capture_executor', 'autofocus_executor',
+                     'protocol_executor', 'io_executor', 'camera_executor',
+                     'file_io_executor', 'autofocus_thread_executor',
+                     'scope_display_thread_executor', 'reset_executor'):
+            try:
+                exe = getattr(ctx, name, None)
+                if exe is None or not hasattr(exe, 'caller_futures_stats'):
+                    continue
+                allocs, pops, live = exe.caller_futures_stats()
+                futures_parts.append(f"{name}=A{allocs}/P{pops}/L{live}")
+            except Exception:
+                continue
+        if futures_parts:
+            metrics_logger.info(
+                f"[FUTURES METRICS] {' | '.join(futures_parts)}",
+            )
+
     # --- tracemalloc top-N (env-flag gated) ---
     # Off by default. Enable with LVP_TRACEMALLOC=1 env var. Adds 10-30%
     # process memory overhead so reserved for targeted runs. When on,

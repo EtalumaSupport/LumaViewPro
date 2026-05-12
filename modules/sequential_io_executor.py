@@ -208,6 +208,12 @@ class SequentialIOExecutor:
         self.pending_shutdown = False
         self._caller_futures_lock = threading.Lock()
         self.caller_futures = {}
+        # Monotonic alloc/pop counters paired with caller_futures. Drift
+        # between the two means Future entries are leaking; on Windows
+        # each leaked Future leaves a Lock/Semaphore kernel handle open.
+        # Surfaced by metrics_logger as a permanent invariant.
+        self._caller_futures_alloc_count = 0
+        self._caller_futures_pop_count = 0
 
         self.cleared_queue = False
         self.cleared_protocol_queue = False
@@ -262,6 +268,7 @@ class SequentialIOExecutor:
             fut = Future()
             with self._caller_futures_lock:
                 self.caller_futures[task] = fut
+                self._caller_futures_alloc_count += 1
         else:
             fut = None
         if profile_trace.ENABLE_PROFILE_TRACE:
@@ -289,6 +296,7 @@ class SequentialIOExecutor:
             fut = Future()
             with self._caller_futures_lock:
                 self.caller_futures[task] = fut
+                self._caller_futures_alloc_count += 1
         else:
             fut = None
         if profile_trace.ENABLE_PROFILE_TRACE:
@@ -320,7 +328,8 @@ class SequentialIOExecutor:
             # never-completed Future that pins memory.
             if return_future:
                 with self._caller_futures_lock:
-                    self.caller_futures.pop(task, None)
+                    if self.caller_futures.pop(task, None) is not None:
+                        self._caller_futures_pop_count += 1
             return PROTOCOL_QUEUE_FULL
         task.set_name(self.executor_name)
 
@@ -547,6 +556,8 @@ class SequentialIOExecutor:
                 )
         with self._caller_futures_lock:
             caller_fut = self.caller_futures.pop(task, None)
+            if caller_fut is not None:
+                self._caller_futures_pop_count += 1
         if caller_fut:
             # This future was returned to a caller - they still hold a reference
             # DON'T null internal state or it will break their .result() call
@@ -575,6 +586,21 @@ class SequentialIOExecutor:
         if self.global_callback is not None:
             self._ui_dispatch(lambda dt: self.global_callback(*self.global_cb_args, **self.global_cb_kwargs), 0)
 
+    def caller_futures_stats(self) -> tuple:
+        """Return (allocs, pops, live_count) for the caller_futures dict.
+
+        Snapshot is taken under the caller_futures_lock so the three
+        values are mutually consistent. Drift between allocs and pops
+        indicates Future objects accumulating in the dict (handle leak
+        signal on Windows; see attribute comments at __init__).
+        """
+        with self._caller_futures_lock:
+            return (
+                self._caller_futures_alloc_count,
+                self._caller_futures_pop_count,
+                len(self.caller_futures),
+            )
+
     def set_done_callback(self, callback_fn, cb_args, cb_kwargs):
         # Allows to set a callback for when any IO task finishes (universal)
         self.global_callback = callback_fn
@@ -600,6 +626,7 @@ class SequentialIOExecutor:
         # Clear futures dict - don't corrupt internals as callers may hold references
         # Just remove our tracking references
         with self._caller_futures_lock:
+            self._caller_futures_pop_count += len(self.caller_futures)
             self.caller_futures.clear()
         self.running_task = None
 
@@ -616,6 +643,8 @@ class SequentialIOExecutor:
                 # Cancel future and aggressively cleanup
                 with self._caller_futures_lock:
                     fut = self.caller_futures.pop(task, None)
+                    if fut is not None:
+                        self._caller_futures_pop_count += 1
                 if fut:
                     try:
                         fut.cancel()
@@ -639,6 +668,8 @@ class SequentialIOExecutor:
                 # Cancel future and aggressively cleanup
                 with self._caller_futures_lock:
                     fut = self.caller_futures.pop(task, None)
+                    if fut is not None:
+                        self._caller_futures_pop_count += 1
                 if fut:
                     try:
                         fut.cancel()
