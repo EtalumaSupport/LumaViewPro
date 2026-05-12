@@ -24,6 +24,8 @@ from modules import gui_logger
 import modules.image_utils as image_utils
 from modules.recording_manifest import build_session_manifest
 from modules.sequential_io_executor import IOTask
+from modules.stack_builder import StackBuilder
+from modules.video_writer import VideoWriter
 from ui.ui_helpers import set_last_save_folder
 from ui.composite_capture import CompositeCapture
 
@@ -493,9 +495,6 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
 
     def recording_complete(self, **kwargs):
         """Run on file_io_executor: Do heavy file writing without blocking camera."""
-        from modules.stack_builder import StackBuilder
-        from modules.video_writer import VideoWriter
-
         # Retrieve captured state passed from _finalize_recording_state
         captured_frames = kwargs.get('captured_frames', 0)
         timestamps = kwargs.get('timestamps', [])
