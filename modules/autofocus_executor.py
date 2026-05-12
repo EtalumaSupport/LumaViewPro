@@ -70,11 +70,15 @@ class AutofocusExecutor:
                 and self._iterator_scheduled is not None):
             self._clock_unschedule_fn(self._iterator_scheduled)
             self._iterator_scheduled = None
-        # M20: Ensure precision mode is off on reset (e.g. after cancel)
+        # Restore Z precision mode to the resting default (ON). AF
+        # temporarily disables precision during coarse passes for speed
+        # and re-enables for the fine pass; this restores ON regardless
+        # of which AF phase was interrupted so subsequent protocol Z
+        # moves stop accurately.
         try:
-            self._scope.set_motor_precision_mode('Z', False)
+            self._scope.set_motor_precision_mode('Z', True)
         except Exception as e:
-            logger.debug(f"[AF] Could not disable precision mode during reset (scope may be unavailable): {e}")
+            logger.debug(f"[AF] Could not restore precision mode during reset (scope may be unavailable): {e}")
         self._reset_state()
 
     def set_scope(self, scope: lumascope_api.Lumascope):
@@ -213,6 +217,16 @@ class AutofocusExecutor:
             self._scope.set_exposure_time(self._camera_exposure)
         # Turn on LED for AF illumination with ownership (#602)
         self._led_on()
+        # Drop Z precision for the coarse passes -- the looser stop
+        # threshold (VSTOP=1000) saves ~tens of ms per move at the
+        # cost of overshoot tolerance, which is fine for the coarse
+        # search. The fine pass restores precision ON at line 526
+        # below; all exit paths (success, cancel, exception, abort)
+        # also restore ON via reset() / explicit setters.
+        try:
+            self._scope.set_motor_precision_mode('Z', False)
+        except Exception as e:
+            logger.debug(f"[AF] Could not drop precision mode for coarse passes: {e}")
         self._move_absolute_position(pos=self._params['z_min'])
 
         # Queue single IOTask that runs the entire autofocus loop
@@ -269,8 +283,11 @@ class AutofocusExecutor:
                 time.sleep(0.01)
 
             except Exception as ex:
-                # Any unexpected AF error: cleanup so UI is not stuck
-                self._scope.set_motor_precision_mode('Z', False)
+                # Any unexpected AF error: cleanup so UI is not stuck.
+                # Restore Z precision ON so subsequent protocol Z moves
+                # aren't left in the low-precision state from the
+                # coarse passes that were running when AF threw.
+                self._scope.set_motor_precision_mode('Z', True)
                 self._autofocus_executor.protocol_end()
                 self._autofocus_executor.clear_protocol_pending()
                 self._is_focusing_event.clear()
@@ -291,7 +308,9 @@ class AutofocusExecutor:
         if not self._af_in_progress.is_set():
             return
         _af_log.info('--- AF CANCELLED ---')
-        self._scope.set_motor_precision_mode('Z', False)
+        # Restore Z precision ON so subsequent protocol moves stop
+        # accurately (coarse passes may have left it OFF).
+        self._scope.set_motor_precision_mode('Z', True)
         self._led_off()
         if self._saved_led_state:
             self._scope.restore_led_state(self._saved_led_state,
@@ -457,7 +476,10 @@ class AutofocusExecutor:
                 _af_log.warning('--- AF ABORT: degenerate curve (all scores zero/NaN) ---')
                 notifications.error("Autofocus", "Autofocus Failed",
                                     "Focus curve is flat or invalid — check sample and illumination")
-                self._scope.set_motor_precision_mode('Z', False)
+                # Restore Z precision ON before bailing so the held
+                # current-Z position is reached accurately on any
+                # subsequent move.
+                self._scope.set_motor_precision_mode('Z', True)
                 self._is_focusing_event.clear()
                 self._is_complete_event.set()
                 self._best_focus_position = self._params['center']
@@ -496,8 +518,12 @@ class AutofocusExecutor:
                     except Exception as ex:
                         logger.warning(f"[AF] Failed to queue autofocus data save: {ex}")
 
-                # Restore normal motor mode after fine pass
-                self._scope.set_motor_precision_mode('Z', False)
+                # Fine pass just set precision ON for the final move;
+                # set it again here as the explicit AF-exit handoff so
+                # the invariant "Z precision ON outside of AF" holds
+                # regardless of which exit path AF took. Idempotent
+                # when the fine-pass setter already ran.
+                self._scope.set_motor_precision_mode('Z', True)
 
                 self._is_focusing_event.clear()
                 self._is_complete_event.set()

@@ -537,27 +537,34 @@ class MotorBoard(SerialBoard):
         'Z': 0x4B,  # VSTOP_M2 on ZT chip
         'T': 0x2B,  # VSTOP_M1 on ZT chip
     }
-    _VSTOP_NORMAL = 1000    # factory default — fast but overshoots
-    _VSTOP_PRECISION = 100  # accurate stop position
+    # Loose stop threshold (VSTOP=1000): fast moves with overshoot
+    # tolerance. Used only during AF coarse passes for search speed.
+    # Faster than _VSTOP_PRECISION but the final stop position drifts.
+    _VSTOP_LOW_PRECISION = 1000
+    # Tight stop threshold (VSTOP=100): accurate final position. This
+    # is the resting default for normal operation -- motorconfig.py
+    # writes vstop=100 to the Z axis at boot, and AF restores ON at
+    # every exit path. Anything outside AF should be in this mode.
+    _VSTOP_PRECISION = 100
 
     def set_precision_mode(self, axis: str, enabled: bool) -> None:
         """Set motor precision mode for an axis.
 
-        Precision mode uses a lower VSTOP threshold so the motor fully
-        decelerates before reporting target reached. Use for autofocus
-        fine passes and any measurement that needs accurate positioning.
-
-        Normal mode uses a higher VSTOP for faster moves where overshoot
-        is acceptable (coarse AF pass, user jogging, homing approach).
+        Precision mode (enabled=True) is the resting default for all
+        normal operation -- motorconfig.py writes the precise VSTOP
+        threshold to the chip at boot. AF temporarily drops to OFF for
+        its coarse passes (search speed) and restores ON for the fine
+        pass and all exit paths.
 
         Args:
             axis: Axis name ("X", "Y", "Z", "T").
-            enabled: True for precise positioning, False for speed.
+            enabled: True for precise positioning (the resting default),
+                False for the loose threshold used during AF coarse.
         """
         if axis not in self._VSTOP_ADDR:
             logger.warning(f'[XYZ Class ] set_precision_mode: invalid axis {axis}')
             return
-        vstop = self._VSTOP_PRECISION if enabled else self._VSTOP_NORMAL
+        vstop = self._VSTOP_PRECISION if enabled else self._VSTOP_LOW_PRECISION
         addr = self._VSTOP_ADDR[axis]
         self.spi_write(axis, addr, str(vstop))
         logger.info(f'[XYZ Class ] {axis} precision_mode={enabled} (VSTOP={vstop})')

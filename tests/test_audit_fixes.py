@@ -994,6 +994,55 @@ class TestIssue602_AFExecutorLED:
             mock_led_off.assert_called_once()
 
 
+class TestAFPrecisionModeRestoresOn:
+    """AutofocusExecutor exit paths must restore Z precision mode ON.
+
+    Z precision mode (VSTOP=100) is the resting default for all normal
+    operation -- motorconfig.py writes this at boot. AF temporarily
+    drops to OFF (VSTOP=1000) for its coarse passes for search speed
+    and must restore ON via reset / cancel / exception / abort /
+    success so subsequent protocol Z moves stop accurately.
+
+    Regression: pre-fix, reset() / cancel() / etc. set precision OFF,
+    leaving the system stuck in low-precision after any AF exit. The
+    `not run_in_progress -> reset()` call in protocol_step_executor.py
+    fired after every protocol step (even ones without AF), so Z stayed
+    in OFF for all subsequent protocol moves.
+    """
+
+    def _build_af(self):
+        from modules.autofocus_executor import AutofocusExecutor
+        from modules.lumascope_api import Lumascope
+        from modules.sequential_io_executor import SequentialIOExecutor
+        scope = Lumascope(simulate=True)
+        return AutofocusExecutor(
+            scope=scope,
+            camera_executor=SequentialIOExecutor(name="CAM_PREC"),
+            io_executor=SequentialIOExecutor(name="IO_PREC"),
+            file_io_executor=SequentialIOExecutor(name="FILE_PREC"),
+            autofocus_executor=SequentialIOExecutor(name="AF_PREC"),
+        ), scope
+
+    def test_reset_restores_precision_on(self, _mock_heavy_deps):
+        from unittest.mock import patch
+        af, scope = self._build_af()
+        with patch.object(scope, 'set_motor_precision_mode') as mock_set:
+            af.reset()
+            mock_set.assert_called_with('Z', True)
+
+    def test_cancel_restores_precision_on(self, _mock_heavy_deps):
+        from unittest.mock import patch
+        af, scope = self._build_af()
+        af._af_in_progress.set()
+        with patch.object(scope, 'set_motor_precision_mode') as mock_set, \
+             patch.object(af, '_led_off'):
+            af.cancel()
+            calls = [tuple(c.args) for c in mock_set.call_args_list]
+            assert ('Z', True) in calls, (
+                f"cancel() must restore Z precision_mode=True; got calls {calls}"
+            )
+
+
 class TestIssue605_AccordionLEDProtocol:
     """#605: Stepping through Protocol with 'Protocol LEDs On' doesn't stay on.
 
