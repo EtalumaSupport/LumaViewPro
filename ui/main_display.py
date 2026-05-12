@@ -784,6 +784,14 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
 
             image = np.flip(image, 0)
 
+            # Time-based stop is async from frame enqueue: record_helper
+            # tasks queued before check_recording_state unscheduled the
+            # Clock continue draining on camera_executor. The buffer is
+            # the authoritative cap (sized to max_frames); drop the
+            # surplus rather than IndexError.
+            if self.current_captured_frames >= self.current_video_frames.shape[0]:
+                return
+
             self.current_video_frames[self.current_captured_frames] = image
             self.timestamps.append(datetime.datetime.now())
             self.chunks_per_frame.append(chunks)
