@@ -1481,7 +1481,11 @@ class Protocol:
         try:
             next_row = next(csvreader)
             if next_row[0] == "Capture Root":
-                config['capture_root'] = next_row[1]
+                # The shipped data/new_default_protocol.tsv writes
+                # "Capture Root" as a single-cell row (no tab + value),
+                # so next_row[1] raises IndexError. Treat a missing or
+                # empty value column as the empty-capture-root default.
+                config['capture_root'] = next_row[1] if len(next_row) > 1 else ''
             else:
                 config['capture_root'] = ''
         except StopIteration:
