@@ -18,6 +18,7 @@ real module loads. Hardware tests are gated by markers (`ids_hardware`,
 """
 import os
 import sys
+import warnings
 from unittest.mock import MagicMock
 
 import pytest
@@ -27,6 +28,15 @@ import pytest
 # before either runs, so set them here as well.
 os.environ.setdefault("KIVY_NO_CONSOLELOG", "1")
 os.environ.setdefault("KIVY_NO_FILELOG", "1")
+
+# Suppress the PRE-RELEASE API FutureWarning emitted by Lumascope.__init__
+# (CLAUDE.md Rule 30 freeze trigger -- ships as a runtime banner for L2
+# users, but pytest stdout must stay clean per feedback_test_run_simply.md).
+warnings.filterwarnings(
+    "ignore",
+    message=r".*Lumascope API is PRE-RELEASE.*",
+    category=FutureWarning,
+)
 
 
 # ---------------------------------------------------------------------------
