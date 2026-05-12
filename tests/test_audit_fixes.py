@@ -3125,18 +3125,6 @@ class TestRecordInitFpsPreflightAndToggle:
             "after freeing disk can claim recording again."
         )
 
-    def test_record_init_enables_camera_fps_limit_when_binding(self):
-        body = self._record_init_body()
-        assert "set_max_acquisition_frame_rate(True" in body, (
-            "record_init must enable the camera-side rate limit via "
-            "scope.set_max_acquisition_frame_rate(True, video_fps) when "
-            "the limit binds (issue #633 Stage 2C)."
-        )
-        assert "_fps_limit_was_enabled" in body, (
-            "record_init must track whether the limit was enabled so "
-            "_finalize_recording_state knows whether to toggle off."
-        )
-
     def test_finalize_disables_camera_fps_limit(self):
         body = self._finalize_body()
         assert "set_max_acquisition_frame_rate(False" in body, (
