@@ -2446,6 +2446,51 @@ class Lumascope():
             )
             raise
 
+    def set_max_acquisition_frame_rate(
+        self,
+        enabled: bool,
+        fps: float = 1.0,
+    ) -> None:
+        """Enable or disable the camera's acquisition frame-rate cap.
+
+        Passthrough to the camera driver's ``set_max_acquisition_frame_rate``.
+        When enabled, the camera will not produce frames faster than
+        ``fps`` regardless of sensor-readout capability. Used by the
+        manual-record path (#633 Stage 2C) to clamp video to the user's
+        requested FPS, and by char-tool crash protection.
+
+        Args:
+            enabled: True to cap frame rate, False to remove the cap.
+            fps: Target frame rate in fps when ``enabled=True``.
+                Ignored when ``enabled=False``.
+
+        Raises:
+            HardwareError: Underlying SDK call failed in the driver.
+        """
+        if not self.camera or not self.camera.active:
+            return
+        if not hasattr(self.camera, 'set_max_acquisition_frame_rate'):
+            logger.warning(
+                f'[SCOPE API ] set_max_acquisition_frame_rate: '
+                f'{type(self.camera).__name__} does not implement this method'
+            )
+            return
+        try:
+            self.camera.set_max_acquisition_frame_rate(enabled=enabled, fps=fps)
+        except Exception as ex:
+            logger.exception(
+                f"[SCOPE API ] Error setting max_acquisition_frame_rate: {ex}"
+            )
+            from modules.notification_center import notifications
+            notifications.error(
+                "Camera",
+                "Frame-rate cap change failed",
+                f"Could not set frame-rate cap to enabled={enabled}, "
+                f"fps={fps}: {type(ex).__name__}: {ex}. Camera may still be "
+                f"at the previous setting."
+            )
+            raise
+
     def set_bandwidth_reserve_mode(self, mode: str) -> bool:
         """Set BandwidthReserveMode (GigE-only Pylon node).
 
