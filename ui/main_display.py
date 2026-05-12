@@ -338,7 +338,11 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
                 Clock.unschedule(self.recording_title_update)
             self.video_duration = time.time() - self.start_ts
             self.recording_complete_event = Clock.schedule_once(self._enqueue_recording_complete, 0)
+            # Flip the record_btn back to 'normal' so the UI shows "ready"; the
+            # next block (button-released stop) must NOT fall through and
+            # double-schedule the complete event -- return here.
             self.ids['record_btn'].state = 'normal'
+            return
 
         # Button not clicked yet, keep recording
         if self.ids['record_btn'].state == 'down':
@@ -743,6 +747,20 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
             # Clear the title-bar event suffix; status bar will show FPS only.
             from ui.ui_helpers import set_title_event_text
             set_title_event_text(None)
+
+            # Delete the memmap scratch file from the user's capture folder.
+            # record_init kept it around for size-match reuse on the next run,
+            # but that's only useful when the next recording matches geometry;
+            # the cost is a multi-GB litter file in the user's live folder
+            # after every record. record_init recreates as needed.
+            if memmap_path is not None:
+                try:
+                    pathlib.Path(memmap_path).unlink(missing_ok=True)
+                except OSError as e:
+                    logger.warning(
+                        f'Manual-Video] Could not remove memmap scratch file '
+                        f'{memmap_path}: {e}'
+                    )
 
             logger.info("Manual-Video] Recording cleanup complete")
         except Exception as e:
