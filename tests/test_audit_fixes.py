@@ -6543,3 +6543,84 @@ class TestStageOffsetSnapshot:
         exc._snapshot_run_state()
         src['y']['sub'] = 99.0
         assert exc._stage_offset['y']['sub'] == 1.0
+
+
+class TestReusableTaskWaiter:
+    """_ReusableTaskWaiter replaces concurrent.futures.Future on the
+    SequentialIOExecutor return_future=True path so Lock kernel handles
+    aren't churned per submission (Bug E mitigation -- Windows
+    Semaphore handle leak under high-rate protocol submission).
+    Contract: API-compatible subset (result/timeout, set_result,
+    set_exception, cancel) + reusable via reset across sequential
+    same-thread submissions.
+    """
+
+    def test_set_result_unblocks_caller(self):
+        from modules.sequential_io_executor import _ReusableTaskWaiter
+        w = _ReusableTaskWaiter()
+        w.set_result(42)
+        assert w.result(timeout=0.1) == 42
+
+    def test_set_exception_raises_in_caller(self):
+        from modules.sequential_io_executor import _ReusableTaskWaiter
+        w = _ReusableTaskWaiter()
+        w.set_exception(ValueError("boom"))
+        import pytest
+        with pytest.raises(ValueError, match="boom"):
+            w.result(timeout=0.1)
+
+    def test_timeout_raises(self):
+        from modules.sequential_io_executor import _ReusableTaskWaiter
+        from concurrent.futures import TimeoutError as _TimeoutError
+        w = _ReusableTaskWaiter()
+        import pytest
+        with pytest.raises(_TimeoutError):
+            w.result(timeout=0.05)
+
+    def test_reset_allows_reuse(self):
+        from modules.sequential_io_executor import _ReusableTaskWaiter
+        w = _ReusableTaskWaiter()
+        w.set_result("first")
+        assert w.result(timeout=0.1) == "first"
+        w.reset()
+        assert not w.is_spent()
+        w.set_result("second")
+        assert w.result(timeout=0.1) == "second"
+
+    def test_is_spent_after_set_result(self):
+        from modules.sequential_io_executor import _ReusableTaskWaiter
+        w = _ReusableTaskWaiter()
+        assert not w.is_spent()
+        w.set_result(None)
+        assert w.is_spent()
+
+    def test_cancel_unblocks_with_cancelled_error(self):
+        from modules.sequential_io_executor import _ReusableTaskWaiter
+        from concurrent.futures import CancelledError
+        w = _ReusableTaskWaiter()
+        assert w.cancel() is True
+        import pytest
+        with pytest.raises(CancelledError):
+            w.result(timeout=0.1)
+
+    def test_thread_local_pool_reuse(self):
+        """Sequential submissions from the same thread should reuse the
+        same waiter instance (the entire point of the pool -- zero
+        per-submission kernel-handle allocation in steady state)."""
+        from modules.sequential_io_executor import _claim_waiter
+        w1 = _claim_waiter()
+        w1.set_result("a")
+        w1.result(timeout=0.1)
+        # Same thread submits again -- should reuse the same waiter
+        w2 = _claim_waiter()
+        assert w2 is w1, "expected thread-local waiter reuse; got different instance"
+
+    def test_concurrent_submission_allocates_fresh_waiter(self):
+        """If a thread tries to claim while its previous waiter is still
+        in-flight (set_result not yet called), allocate a fresh one
+        instead of clobbering the in-flight wait."""
+        from modules.sequential_io_executor import _claim_waiter
+        w1 = _claim_waiter()
+        # Don't set result -- w1 is still in-flight
+        w2 = _claim_waiter()
+        assert w2 is not w1, "expected fresh waiter when previous is in-flight"

@@ -32,6 +32,100 @@ _IOTASK_TRACE_HEADER = (
 PROTOCOL_QUEUE_FULL = object()
 
 
+class _ReusableTaskWaiter:
+    """Future-shim with the subset of concurrent.futures.Future API that
+    LVP _sync callers + the executor cleanup path need: result(),
+    set_result(), set_exception(). Wraps a threading.Event so wait
+    semantics are identical.
+
+    Reusable via reset() so a single instance can serve many sequential
+    submissions from the same thread, dropping Lock-kernel-handle
+    allocation pressure from O(submissions) to O(threads). Same kernel
+    object class as Future's internal Condition.Lock (Semaphore on
+    Windows) -- just allocated once and reused, instead of churned per
+    call. This is the fix for the Windows kernel-handle leak observed
+    during multi-hour protocol runs (Semaphore handles climbed
+    ~78/min despite caller_futures cleanup being clean).
+
+    Not thread-safe across CONCURRENT use of the same waiter -- the
+    executor pairs each task with one waiter; the caller blocks on
+    result() until the executor sets it; same-thread sequential reuse
+    is safe via is_spent() / reset().
+    """
+
+    def __init__(self):
+        self._event = threading.Event()
+        self._result = None
+        self._exception = None
+
+    def reset(self) -> None:
+        self._event.clear()
+        self._result = None
+        self._exception = None
+
+    def is_spent(self) -> bool:
+        """True if a result or exception has been set since the last reset.
+        A spent waiter is safe to reset and hand to the next caller; an
+        unspent waiter is still in-flight (set_result has not run yet)
+        and must not be reused."""
+        return self._event.is_set()
+
+    def set_result(self, value) -> None:
+        self._result = value
+        self._event.set()
+
+    def set_exception(self, exc) -> None:
+        self._exception = exc
+        self._event.set()
+
+    def result(self, timeout=None):
+        if not self._event.wait(timeout):
+            from concurrent.futures import TimeoutError as _TimeoutError
+            raise _TimeoutError(f"task did not complete within {timeout}s")
+        if self._exception is not None:
+            raise self._exception
+        return self._result
+
+    def cancel(self) -> bool:
+        """Best-effort cancel; signals waiting caller with CancelledError.
+        Matches the Future API used by clear_pending / clear_protocol_pending
+        in the executor (which wraps in try/except, so a False return
+        or no-op is also acceptable).
+        """
+        if self._event.is_set():
+            return False
+        from concurrent.futures import CancelledError as _CancelledError
+        self._exception = _CancelledError()
+        self._event.set()
+        return True
+
+
+# Per-thread waiter cache. Each calling thread that submits with
+# return_future=True gets one waiter for its lifetime; the same waiter
+# is reset and reused on every subsequent submission from that thread.
+# Threads that never call put(return_future=True) (e.g. protocol_put
+# fire-and-forget paths) never allocate one.
+_waiter_thread_local = threading.local()
+
+
+def _claim_waiter() -> _ReusableTaskWaiter:
+    """Return a reset, ready-to-use waiter for the calling thread.
+
+    Reuses the thread's cached waiter when it's spent (i.e. its
+    previous use has completed). Allocates a fresh waiter when the
+    cached one is still in-flight (rare: same thread submitting a
+    second future before the first completes -- not the normal LVP
+    submit-then-result pattern).
+    """
+    waiter = getattr(_waiter_thread_local, 'waiter', None)
+    if waiter is None or not waiter.is_spent():
+        waiter = _ReusableTaskWaiter()
+        _waiter_thread_local.waiter = waiter
+    else:
+        waiter.reset()
+    return waiter
+
+
 """
 IOTask
 - Encapsulates a single unit of work:
@@ -262,10 +356,12 @@ class SequentialIOExecutor:
         if self.protocol_running.is_set() and not self.protocol_finish.is_set():
             return None
         
-        # Push IO work item into queue
-        # Only create Future if caller explicitly requests it to reduce memory overhead
+        # Push IO work item into queue. When return_future=True, hand
+        # the caller a per-thread reusable waiter (was concurrent.futures
+        # Future before; switched to drop Lock kernel-handle allocation
+        # pressure during high-rate protocol submission).
         if return_future:
-            fut = Future()
+            fut = _claim_waiter()
             with self._caller_futures_lock:
                 self.caller_futures[task] = fut
                 self._caller_futures_alloc_count += 1
@@ -291,9 +387,11 @@ class SequentialIOExecutor:
         if not self.protocol_running.is_set():
             return None
 
-        # Only create Future if caller explicitly requests it to reduce memory overhead
+        # Per-thread reusable waiter when caller wants to block; see
+        # _claim_waiter for the rationale (kernel-handle allocation
+        # pressure mitigation).
         if return_future:
-            fut = Future()
+            fut = _claim_waiter()
             with self._caller_futures_lock:
                 self.caller_futures[task] = fut
                 self._caller_futures_alloc_count += 1
@@ -397,7 +495,7 @@ class SequentialIOExecutor:
         with self._caller_futures_lock:
             if task not in self.caller_futures:
                 return
-            fut: Future = self.caller_futures[task]
+            fut = self.caller_futures[task]
 
         try:
             result = fut.result(timeout=timeout)
