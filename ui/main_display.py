@@ -295,22 +295,28 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
 
         # Issue #633 Stage 2C (revised 2026-05-12): camera-side
         # AcquisitionFrameRate caps the AVERAGE rate, not per-frame intervals
-        # -- individual frames jitter from 6.5 to 78 fps around a 10 fps mean.
-        # Customer expectation is a folder with exactly N frames at near-
-        # uniform spacing, so we drop the camera-side cap and decimate on the
-        # save path instead: camera runs at sensor max (or whatever live-view
-        # left it at), record_helper picks at most one frame per save_interval.
-        # _fps_limit_was_enabled retained so the finalize path's
-        # set_max_acquisition_frame_rate(False) call stays a no-op rather than
-        # a hard remove (defense against future re-introduction).
+        # -- individual frames jittered from 6.5 to 78 fps around a 10 fps
+        # mean. The cap is no longer applied; the camera runs at whatever
+        # live-view left it at (typically free-run). Per-frame cadence is
+        # enforced below via capture_interval = 1.0 / video_fps so Clock
+        # fires at the target rate. _fps_limit_was_enabled retained as False
+        # so the finalize path's set_max_acquisition_frame_rate(False) call
+        # stays a no-op rather than a hard remove (defense against future
+        # re-introduction).
         self._fps_limit_was_enabled = False
-        self._save_interval_sec = (1.0 / video_fps) if video_fps > 0 else 0.0
-        self._last_saved_monotonic = 0.0
 
-        # Schedule recording at camera exposure rate (not capped to max_fps).
-        # Duplicate frame detection in record_helper() naturally handles the case
-        # where the timer fires faster than the camera delivers new frames.
-        capture_interval = 1.0 / exposure_freq
+        # Schedule recording at the user-requested rate (video_fps), not the
+        # camera exposure rate. Driving Clock at the target rate avoids a
+        # Bresenham rounding artifact: at 1 ms exposure (exposure_freq = 1 kHz)
+        # Kivy Clock can't actually fire faster than ~16-30 ms (display-frame
+        # floor on Windows), so a per-fire "save if >= save_interval" gate
+        # accumulates Clock-floor delay until the next save fires -- bench
+        # 2026-05-12 saw mean=131.9 ms for a 100 ms target.
+        # Duplicate frame detection in record_helper() handles the case where
+        # the timer fires faster than the camera delivers new frames. See the
+        # recording-controller refactor TODO for the proper architectural fix
+        # (dedicated thread / camera-callback-driven, off Kivy Clock entirely).
+        capture_interval = 1.0 / video_fps
         # Schedule title updates to show recording progress
         self.recording_title_update = Clock.schedule_interval(self.update_recording_title, 0.1)  # Update every 100ms
         self.recording_check = Clock.schedule_interval(self.check_recording_state, capture_interval)
@@ -785,18 +791,6 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
         if frame_ts is not None and frame_ts == self._last_recorded_frame_ts:
             return
         self._last_recorded_frame_ts = frame_ts
-
-        # Save-time decimation: enforce the user-requested FPS by saving at
-        # most one frame per save_interval_sec. The camera runs at sensor
-        # max (no AcquisitionFrameRate cap on the recording path); host
-        # clock governs cadence. Skips when the user did not request a
-        # limit (_save_interval_sec == 0) or when video_fps already equals
-        # exposure_freq (interval already matches Clock granularity).
-        if self._user_requested_fps_limit and self._save_interval_sec > 0:
-            now_mono = time.monotonic()
-            if now_mono - self._last_saved_monotonic < self._save_interval_sec:
-                return
-            self._last_saved_monotonic = now_mono
 
         if isinstance(image, np.ndarray):
 
