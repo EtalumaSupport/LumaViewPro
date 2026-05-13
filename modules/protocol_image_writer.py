@@ -327,7 +327,8 @@ class ProtocolImageWriter:
                             "capture_time": _capture_time,
                             "enable_image_saving": enable_image_saving,
                             "separate_folder_per_channel": separate_folder_per_channel,
-                        }
+                        },
+                        silent_on_failure=True,
                     ))
                     if _put_result is PROTOCOL_QUEUE_FULL:
                         self._record_dropped_capture(
@@ -366,7 +367,8 @@ class ProtocolImageWriter:
                                 "capture_time": _failed_capture_time,
                                 "enable_image_saving": enable_image_saving,
                                 "separate_folder_per_channel": separate_folder_per_channel,
-                            }
+                            },
+                            silent_on_failure=True,
                         ))
                         if _put_result is PROTOCOL_QUEUE_FULL:
                             self._record_dropped_capture(
@@ -416,7 +418,8 @@ class ProtocolImageWriter:
                             "capture_time": _success_capture_time,
                             "enable_image_saving": enable_image_saving,
                             "separate_folder_per_channel": separate_folder_per_channel,
-                        }
+                        },
+                        silent_on_failure=True,
                     ))
                     if _put_result is PROTOCOL_QUEUE_FULL:
                         self._record_dropped_capture(
@@ -436,7 +439,8 @@ class ProtocolImageWriter:
                         "step": step,
                         "enable_image_saving": enable_image_saving,
                         "separate_folder_per_channel": separate_folder_per_channel,
-                    }
+                    },
+                    silent_on_failure=True,
                 ))
                 if _put_result is PROTOCOL_QUEUE_FULL:
                     self._record_dropped_capture(

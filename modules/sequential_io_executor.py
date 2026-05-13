@@ -154,9 +154,16 @@ class IOTask:
 
         def __init__(self, action, args=None, kwargs=None, callback=None,
                      cb_args=None, cb_kwargs=None, pass_result=False,
-                     slow_task_threshold_sec=None):
+                     slow_task_threshold_sec=None,
+                     silent_on_failure=False):
             self.action = action
             self._ui_dispatch = None  # Set by executor when task is dispatched
+            # When True, _on_task_done skips the generic "Task failed"
+            # notification on exception -- the caller's callback (or its
+            # surrounding context) is responsible for user-facing
+            # notification. Logs are unaffected. Rule 14: API/caller
+            # decides whether to notify, not the executor.
+            self.silent_on_failure = silent_on_failure
             if args is None:
                 self.args = ()
             # if it’s a sequence (list, tuple, etc) but not a string
@@ -603,6 +610,15 @@ class SequentialIOExecutor:
                     f'{getattr(task.action, "__name__", str(task.action))} '
                     f'cancelled (by-contract)'
                 )
+            elif getattr(task, 'silent_on_failure', False):
+                # Caller opted in to handle its own notification (Rule 14:
+                # API/caller decides, not the executor). Exception is still
+                # logged at ERROR via IOTask.run() and captured in the
+                # exception passed to the callback. Suppress the generic
+                # "Task failed" popup. Used for the protocol image-writer
+                # retry path where per-failure popups would stack
+                # (see protocol_image_writer.execute_step).
+                pass
             else:
                 # Typed exceptions (CaptureError / ProtocolError / etc.)
                 # carry a user-friendly message in str(exception); show
