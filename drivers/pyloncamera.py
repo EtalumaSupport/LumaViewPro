@@ -1649,6 +1649,23 @@ class PylonCamera(Camera):
             logger.error(f'[CAM Class ] Unsupported pixel format: {pixel_format}')
             return False
 
+        # Short-circuit redundant SetValue: update_camera_config() bounces
+        # the grab loop. init_camera_config + channel-select hit this
+        # setter multiple times with the same target across threads.
+        try:
+            if self.active.PixelFormat.GetValue() == pixel_format:
+                if _cam_log is not None:
+                    _cam_log.info(
+                        f'pylon PixelFormat.SetValue({pixel_format!r}) '
+                        'short-circuited (already active)'
+                    )
+                return True
+        except (genicam.RuntimeException, genicam.TimeoutException) as e:
+            logger.debug(
+                f'[CAM Class ] PixelFormat short-circuit read failed; '
+                f'falling through to SetValue path: {e}'
+            )
+
         try:
             if _cam_log is not None:
                 _cam_log.info(f'pylon PixelFormat.SetValue({pixel_format!r}) (geometry-realloc)')
@@ -2046,6 +2063,27 @@ class PylonCamera(Camera):
             width = int(min(int(w), camera.Width.Max) / 4) * 4
             height = int(min(int(h), camera.Height.Max) / 4) * 4
 
+            # Short-circuit when geometry already matches: Width/Height SetValue
+            # requires update_camera_config() buffer realloc + grab-loop bounce.
+            # init + bring-up call this multiple times with the same clamped
+            # dims. BslCenterX/Y.Execute is also skipped because we don't write
+            # OffsetX/OffsetY directly elsewhere, so the ROI stays centered.
+            try:
+                if (camera.Width.GetValue() == width
+                        and camera.Height.GetValue() == height):
+                    if _cam_log is not None:
+                        _cam_log.info(
+                            f'pylon Width.SetValue({width}) Height.SetValue({height}) '
+                            'short-circuited'
+                        )
+                    logger.info(f'[CAM Class ] Frame size already at {width}x{height}')
+                    return
+            except (genicam.RuntimeException, genicam.TimeoutException) as e:
+                logger.debug(
+                    f'[CAM Class ] Frame-size short-circuit read failed; '
+                    f'falling through to SetValue path: {e}'
+                )
+
             if _cam_log is not None:
                 _cam_log.info(
                     f'pylon Width.SetValue({width}) Height.SetValue({height}) '
@@ -2187,6 +2225,22 @@ class PylonCamera(Camera):
             except Exception as e_sel:
                 logger.debug(
                     f'[CAM Class ] GainSelector.SetValue(All) skipped: {e_sel}'
+                )
+            # Short-circuit when already at target. Selector is 'All' (asserted
+            # above) so the read matches the requested write. Tolerance 1e-3 dB
+            # is below GenICam Gain increment on ace 2 / dart.
+            try:
+                if abs(float(self.active.Gain.GetValue()) - float(value)) < 1e-3:
+                    if _cam_log is not None:
+                        _cam_log.info(
+                            f'pylon Gain.SetValue({float(value):.3f}) short-circuited'
+                        )
+                    logger.info(f'[CAM Class ] Gain already at {value}')
+                    return
+            except (genicam.RuntimeException, genicam.TimeoutException) as e:
+                logger.debug(
+                    f'[CAM Class ] Gain short-circuit read failed; '
+                    f'falling through to SetValue path: {e}'
                 )
             if _cam_log is not None:
                 _cam_log.info(f'pylon Gain.SetValue({float(value):.3f})')
@@ -2331,6 +2385,22 @@ class PylonCamera(Camera):
         # Pylon takes time in microseconds, so pass t*1000 to convert to us
         try:
             us_value = max(float(t) * 1000, self.active.ExposureTime.Min)
+            # Short-circuit when already at target us. SDK rounds to its clock
+            # grid so same target ms maps to same us count; 1 us tolerance is
+            # below ExposureTime increment on ace 2 / dart.
+            try:
+                if abs(float(self.active.ExposureTime.GetValue()) - us_value) < 1.0:
+                    if _cam_log is not None:
+                        _cam_log.info(
+                            f'pylon ExposureTime.SetValue({us_value:.0f}us) short-circuited'
+                        )
+                    logger.info(f'[CAM Class ] Exposure already at {t}ms')
+                    return
+            except (genicam.RuntimeException, genicam.TimeoutException) as e:
+                logger.debug(
+                    f'[CAM Class ] ExposureTime short-circuit read failed; '
+                    f'falling through to SetValue path: {e}'
+                )
             if _cam_log is not None:
                 _cam_log.info(f'pylon ExposureTime.SetValue({us_value:.0f}us) (={t}ms)')
             self.active.ExposureTime.SetValue(us_value)
