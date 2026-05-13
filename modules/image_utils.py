@@ -531,10 +531,16 @@ def generate_tiff_data(data, metadata: dict, image_type: str, color: str,):
         tiff_metadata['LUTs'] = [lut]
         if colormap_type != LvpColormap.GRAY:
             tiff_metadata['mode'] = 'color'
+        # imagej path mirrors the default/ome maxworkers=0 below for the
+        # same Windows kernel-handle-leak reason; this path triggers on
+        # 16-bit fluorescence + non-color + image_layer, which the
+        # bench-witnessed 8-bit Bug E soak did not exercise. Adjacent
+        # symmetry: same tifffile.write() ThreadPoolExecutor pattern,
+        # same leak risk; deflate single-threaded cost is negligible.
         options = dict(
             photometric=photometric,
             compression='deflate',
-            maxworkers=1,
+            maxworkers=0,
         )
         # Resolution for ImageJ types is in pixels/pixel
         resolution = (1. / metadata['pixel_size_um'], 1. / metadata['pixel_size_um'])
