@@ -32,12 +32,19 @@ from modules.scheduler import Scheduler, _CallablePairScheduler
 
 
 # Default cadences. system_metrics is the verbose snapshot (CPU, RAM,
-# GC, page-faults, Defender, buffer-churn, frame-interval percentiles)
-# costing ~10-50 ms per tick; 1-hr cadence keeps post-mortem coverage
-# without measurable steady-state cost. Engineering plugin / REST
-# status endpoint can call snapshot_* on demand for finer detail.
-# Bench / perf-investigation runs override via start(...) kwargs.
-DEFAULT_SYSTEM_METRICS_INTERVAL_S = 3600.0
+# GC, page-faults, Defender, buffer-churn, handle counts, queue depth,
+# caller_futures alloc/pop drift, frame-interval percentiles) costing
+# ~10-50 ms per tick. The Bug E investigation showed that 1-hr cadence
+# (the original default) was too coarse to catch handle-growth-per-hr
+# regressions and silent_stuck symptoms; one boot snapshot in a 38-min
+# soak left handle-growth-per-hr unmeasured. Stage B1 lowered the
+# default to 60 s -- ~60 ticks per hour at <0.1% CPU overhead so every
+# soak has post-mortem coverage with sub-minute granularity for the
+# leak-rate budgets in PERFORMANCE_BUDGETS.md. Engineering plugin /
+# REST status endpoint can still call snapshot_* on demand. Callers
+# wanting finer or coarser cadence override via
+# settings.profiling.metrics_interval_s.
+DEFAULT_SYSTEM_METRICS_INTERVAL_S = 60.0
 DEFAULT_EXECUTOR_WATCHDOG_INTERVAL_S = 60.0
 DEFAULT_CAMERA_TEMP_INTERVAL_S = 14400.0
 
@@ -220,14 +227,12 @@ class MetricsLogger:
             else:
                 logger.debug(f"[Watchdog  ] Queues -- {fmt}")
 
-            if snap.get('SCOPEDISPLAY', 0) > _SCOPE_DISPLAY_PRUNE_THRESHOLD:
-                try:
-                    self._bundle.scope_display_thread_executor.clear_pending()
-                    logger.warning(
-                        "[Watchdog  ] Cleared ScopeDisplay pending "
-                        "queue to prevent backlog")
-                except Exception:
-                    pass
+            # Stage B1: SCOPEDISPLAY is a bare Thread with no queue;
+            # the prune-on-backlog branch retires. The snapshot reports
+            # 0 (running) / -1 (stopped). Watchdog has no actionable
+            # response if the thread itself is wedged -- that's a
+            # daemon=True process-exit-reap scenario, not a queue
+            # prune.
         except Exception:
             # Best-effort — a watchdog that crashes silently mid-tick
             # is preferable to one that takes the app down with it.

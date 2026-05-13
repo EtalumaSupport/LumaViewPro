@@ -15,11 +15,14 @@ Copy budget:
   8-bit path:  SDK(1) + tobytes(1)                    = 2 copies
   12-bit path: SDK(1) + 12→8 LUT(1) + tobytes(1)     = 3 copies
 
-Threading model:
-  - Main thread (Kivy): _pull_next_frame(), create_and_set_texture(), _schedule_next()
-  - Worker thread (scope_display_thread_executor): update_scopedisplay_thread()
-  - Generation counter prevents stale callbacks after stop()/start() cycles
-  - _schedule_next() enforces FPS cap via Clock.schedule_once delay
+Threading model (Stage B1):
+  - Main thread (Kivy): create_and_set_texture() / create_and_set_bullseye_texture()
+    blit textures dispatched from worker via Clock.schedule_once.
+  - scope_display_thread (modules/scope_display_thread.py): owns the
+    FPS-paced loop; calls _render_one_frame(...) per iteration.
+  - Generation counter (owned by the thread; mirrored via _current_generation())
+    prevents stale callbacks after stop()/start() cycles.
+  - FPS pacing lives on the thread (Event.wait(timeout=...) per iteration).
 """
 import logging
 import threading
@@ -56,8 +59,12 @@ class ScopeDisplay(Image):
         super(ScopeDisplay,self).__init__(**kwargs)
         logger.debug('[LVP Main  ] ScopeDisplay.__init__()')
         self.play = True
-        self.paused = threading.Event()
-        self.paused.clear()
+        # paused / _display_running / _display_generation / _min_frame_interval /
+        # _protocol_hold_until / _cycle_start_time all retired from this widget.
+        # Lifecycle + pacing state now owned by ScopeDisplayThread
+        # (modules/scope_display_thread.py). The widget keeps only render-side
+        # state (texture cache, _last_rendered_frame for listener fan-out,
+        # frame-interval history for metrics).
 
         self.use_bullseye = False
         self.use_crosshairs = False
@@ -118,20 +125,10 @@ class ScopeDisplay(Image):
         self._debug_counter = 0
         self._display_update_counter = 0
 
-        # Pull-based display loop state
-        self._display_running = False
-        self._display_generation = 0  # Incremented on each start() to invalidate stale callbacks
-        self._cycle_start_time = 0.0  # When _pull_next_frame() was called (full cycle timing)
-        self._last_frame_ts = None  # Camera timestamp of last displayed frame
-        self._min_frame_interval = 1.0 / 30  # derived from fps setting
-
-        # DISPLAY-1: monotonic deadline until which the most-recent saved
-        # protocol image must remain on screen. 0 = no hold active.
-        # Bumped by hold_protocol_saved_image() when a protocol step
-        # finishes capturing; cleared automatically when the deadline
-        # passes. _pull_next_frame() short-circuits while it's set.
-        self._protocol_hold_until = 0.0
-        self._PROTOCOL_HOLD_MS = 500
+        # Display loop state owned by ScopeDisplayThread. Widget keeps:
+        self._last_frame_ts = None       # camera timestamp of last displayed frame (dup check)
+        self._last_rendered_frame = None # (bytes, shape, monotonic_ts) for thread.add_frame_listener fan-out
+        self._PROTOCOL_HOLD_MS = 500     # hold deadline duration (bumped via thread.bump_protocol_hold)
 
         # Crosshair canvas overlay (drawn on top of texture, not into pixels)
         self._crosshair_group = InstructionGroup()
@@ -250,7 +247,7 @@ class ScopeDisplay(Image):
             size=(dot_radius * 2, dot_radius * 2),
         ))
 
-    def start(self, fps = None):
+    def start(self, fps=None):
         logger.info('[LVP Main  ] ScopeDisplay.start()')
         ctx = _app_ctx.ctx
         if fps is not None:
@@ -259,26 +256,34 @@ class ScopeDisplay(Image):
             self.fps = ctx.settings['live_view_fps']
         else:
             self.fps = 30
-
-        # fps=0 means uncapped — run as fast as the pipeline allows
-        if self.fps == 0:
-            self._min_frame_interval = 0
-        else:
-            self._min_frame_interval = 1.0 / max(1, self.fps)
-        self._display_generation += 1
-        self.paused.clear()
-
-        if not self._display_running:
-            self._display_running = True
-            fps_label = "uncapped" if self.fps == 0 else f"{self.fps} FPS cap"
-            logger.info(f'[LVP Main  ] ScopeDisplay: pull-based loop started ({fps_label})')
-        Clock.schedule_once(self._pull_next_frame, 0)
+        thread = getattr(ctx, 'scope_display_thread', None) if ctx else None
+        if thread is not None:
+            thread.start(fps=self.fps)
+            fps_label = 'uncapped' if self.fps == 0 else f'{self.fps} FPS cap'
+            logger.info(f'[LVP Main  ] ScopeDisplay: thread started ({fps_label})')
 
     def stop(self):
-        self.paused.set()
-        self._display_running = False
-        Clock.unschedule(self._pull_next_frame)
+        ctx = _app_ctx.ctx
+        thread = getattr(ctx, 'scope_display_thread', None) if ctx else None
+        if thread is not None:
+            thread.stop()
         logger.info('[LVP Main  ] ScopeDisplay.stop()')
+
+    def pause(self):
+        """Pause rendering without tearing down the thread. The
+        last-rendered frame stays on screen. Use resume() to continue.
+        cam_toggle button (ui/main_display.py) uses pause/resume so
+        the thread stays alive and the texture freezes."""
+        ctx = _app_ctx.ctx
+        thread = getattr(ctx, 'scope_display_thread', None) if ctx else None
+        if thread is not None:
+            thread.pause()
+
+    def resume(self):
+        ctx = _app_ctx.ctx
+        thread = getattr(ctx, 'scope_display_thread', None) if ctx else None
+        if thread is not None:
+            thread.resume()
 
 
     def touch(self, target: Widget, event: MotionEvent):
@@ -425,87 +430,11 @@ class ScopeDisplay(Image):
         }
 
 
-    def _pull_next_frame(self, dt=0):
-        """Pull-based display loop entry point. Called on main thread.
-
-        Schedules the next frame grab on the display worker. The worker
-        calls _schedule_next() when done, which re-invokes this method
-        after enforcing the minimum frame interval. This naturally adapts
-        to the system's actual throughput — no timer overrun possible.
-        """
-        if not self._display_running or self.paused.is_set():
-            return
-
-        self._cycle_start_time = time.monotonic()
-
-        # DISPLAY-1: hold the most recently saved protocol image on
-        # screen for at least PROTOCOL_HOLD_MS so the user can see what
-        # was just captured before the live preview overwrites it. The
-        # next protocol save bumps the hold window forward, so the
-        # display still tracks the latest save in real time — this is
-        # NOT a delay added to the pipeline, just a "minimum visible
-        # time" floor on the most-recent saved frame. The frame-interval
-        # recording below treats the hold-skipped cycles as "no frame
-        # rendered" — the next ``_pull_next_frame`` after the hold window
-        # is the one that records an interval against ``_last_frame_pull_time``.
-        hold_until = self._protocol_hold_until
-        if hold_until > 0.0:
-            remaining = hold_until - time.monotonic()
-            if remaining > 0:
-                Clock.schedule_once(self._pull_next_frame, remaining)
-                return
-            # Hold window elapsed; clear the marker so we don't keep
-            # checking until the next protocol save.
-            self._protocol_hold_until = 0.0
-
-        # Frame-interval recording. _pull_next_frame is called once per
-        # display cycle on the main thread,
-        # so the interval between calls is the wall-clock period between
-        # rendered frames (or scheduled-but-not-yet-rendered).
-        if self._last_frame_pull_time is not None:
-            interval_ms = (self._cycle_start_time - self._last_frame_pull_time) * 1000.0
-            self._frame_interval_history.append(interval_ms)
-        self._last_frame_pull_time = self._cycle_start_time
-
-        ctx = _app_ctx.ctx
-        if ctx is None:
-            # Not ready yet — retry shortly
-            Clock.schedule_once(self._pull_next_frame, 0.1)
-            return
-
-        # Capture widget state on the main thread (Kivy widgets are not thread-safe)
-        active_layer = None
-        active_layer_config = None
-        open_layer = None
-        try:
-            from modules.config_ui_getters import get_active_layer_config
-            active_layer, active_layer_config = get_active_layer_config()
-        except Exception as e:
-            logger.debug(f'[LVP Main  ] Active layer detection failed: {e}')
-
-        if ctx.engineering_mode:
-            for layer in common_utils.get_layers():
-                accordion_item_obj = ctx.image_settings.accordion_item_lookup(layer=layer)
-                if not accordion_item_obj.collapse:
-                    open_layer = layer
-                    break
-
-        from modules.sequential_io_executor import IOTask
-        dispatch_time = time.monotonic()
-        gen = self._display_generation
-        ctx.scope_display_thread_executor.put(IOTask(
-            self.update_scopedisplay_thread,
-            args=(active_layer, active_layer_config, open_layer, dispatch_time, gen),
-        ))
-
-    def update_scopedisplay(self, dt=0):
-        """Trigger a one-shot display update (used as callback by protocol executors).
-
-        In the pull-based loop, this simply kicks a frame grab if the loop
-        isn't already running. Safe to call from Clock.schedule_once or as
-        a direct callback.
-        """
-        self._pull_next_frame(dt)
+    # _pull_next_frame, update_scopedisplay, _schedule_next retired in Stage B1.
+    # The dedicated scope_display_thread owns the FPS-paced loop; this widget
+    # provides _render_one_frame as the loop body (one iteration = one frame).
+    # FPS pacing, generation, hold-deadline all live on the thread.
+    pass
 
     def set_engineering_ui(self, mean, stddev, af_score, open_layer):
         ctx = _app_ctx.ctx
@@ -549,21 +478,36 @@ class ScopeDisplay(Image):
         if self._debug_counter == 30:
             self._debug_counter = 0
 
-    def update_scopedisplay_thread(self, active_layer, active_layer_config, open_layer, dispatch_time=0, generation=0):
+    def _render_one_frame(self, *, active_layer, active_layer_config, open_layer,
+                          dispatch_time=0, generation=0):
+        """Render one display frame. Called by ScopeDisplayThread per iteration.
+
+        Returns a status code from scope_display_thread (STATUS_OK /
+        STATUS_EMPTY / STATUS_DUPLICATE / STATUS_NOT_READY); the loop uses
+        the status to decide whether to fan out to frame listeners and how
+        to pace the next iteration. Self-rearming via Clock.schedule_once
+        is RETIRED -- the loop owns pacing now.
+        """
+        from modules.scope_display_thread import (
+            STATUS_OK, STATUS_EMPTY, STATUS_DUPLICATE, STATUS_NOT_READY,
+        )
         ctx = _app_ctx.ctx
 
-        # SHUTDOWN-RACE-1: tasks already queued when on_stop fires can
-        # dequeue here after ctx / ctx.scope has been torn down. Early-
-        # return rather than NPE through camera_is_connected().
+        # SHUTDOWN-RACE-1: thread can dequeue here after ctx / ctx.scope
+        # has been torn down. Early-return rather than NPE through
+        # camera_is_connected().
         if ctx is None or ctx.scope is None:
-            return
+            return STATUS_NOT_READY
 
-        # Drop stale callbacks from a previous start()/stop() cycle
-        if generation != self._display_generation:
-            return
+        # Frame-interval recording (was on _pull_next_frame; now per-iteration here).
+        cycle_start = dispatch_time or time.monotonic()
+        if self._last_frame_pull_time is not None:
+            interval_ms = (cycle_start - self._last_frame_pull_time) * 1000.0
+            self._frame_interval_history.append(interval_ms)
+        self._last_frame_pull_time = cycle_start
 
-        t_worker_start = time.monotonic()
-        t_queue_wait = t_worker_start - dispatch_time if dispatch_time else 0
+        t_worker_start = cycle_start
+        t_queue_wait = 0  # No queue under B1; preserve var for downstream perf code.
 
         # Snapshot counter value before scheduling increment on main thread
         display_counter = self._display_update_counter + 1
@@ -572,9 +516,7 @@ class ScopeDisplay(Image):
         if not ctx.scope.camera_is_connected():
             if not self.camera_disconnected_display_set:
                 Clock.schedule_once(lambda dt: self.set_camera_disconnected_display(), 0)
-            # No frame — retry after a short delay
-            Clock.schedule_once(self._pull_next_frame, 0.2)
-            return
+            return STATUS_NOT_READY
 
         if self.camera_disconnected_display_set:
             Clock.schedule_once(lambda dt: self.source_clear(), 0)
@@ -587,14 +529,11 @@ class ScopeDisplay(Image):
         t_grab_start = time.monotonic()
         image, frame_ts = ctx.scope.get_image_from_buffer(force_to_8bit=True)
         if (image is False) or (image is None) or (image.size == 0):
-            # No new frame available — retry after minimum interval
-            Clock.schedule_once(self._pull_next_frame, self._min_frame_interval)
-            return
+            return STATUS_EMPTY
 
         # Skip duplicate frames (same camera timestamp = same data)
         if frame_ts is not None and frame_ts == self._last_frame_ts:
-            Clock.schedule_once(self._pull_next_frame, self._min_frame_interval)
-            return
+            return STATUS_DUPLICATE
         self._last_frame_ts = frame_ts
         t_grab_end = time.monotonic()
 
@@ -663,9 +602,8 @@ class ScopeDisplay(Image):
                 bullseye_shape = image_bullseye.shape
                 g = generation
                 Clock.schedule_once(lambda dt, b=bullseye_bytes, s=bullseye_shape, gen=g: self.create_and_set_bullseye_texture(b, s, gen), 0)
-            else:
-                # Bullseye frame-rate cap skipped this frame — keep the loop alive
-                self._schedule_next()
+                # Publish for thread.add_frame_listener fan-out
+                self._last_rendered_frame = (bullseye_bytes, bullseye_shape, time.monotonic())
 
         if not self.use_bullseye:
             t_process_start = time.monotonic()
@@ -679,6 +617,8 @@ class ScopeDisplay(Image):
             t_blit_scheduled = time.monotonic()
             g = generation
             Clock.schedule_once(lambda dt, b=image_bytes, s=image_shape, ts=t_blit_scheduled, gen=g: self.create_and_set_texture(b, s, ts, gen), 0)
+            # Publish for thread.add_frame_listener fan-out
+            self._last_rendered_frame = (image_bytes, image_shape, t_blit_scheduled)
 
             # Performance instrumentation gated on settings.debug_mode. lvp_logger
             # force-disables DEBUG-level emission, so logger.isEnabledFor(DEBUG) is
@@ -716,24 +656,13 @@ class ScopeDisplay(Image):
                     self._perf_process_times.clear()
                     self._perf_blit_schedule_times.clear()
                     self._perf_blit_delays.clear()
-            
 
-    def _schedule_next(self):
-        """Schedule the next frame grab, enforcing minimum frame interval.
+        return STATUS_OK
 
-        Called on the main thread after blit completes. Measures elapsed time
-        from the START of the current cycle (_pull_next_frame) to account for
-        the full pipeline: dispatch → worker grab → worker process → blit.
-        """
-        if not self._display_running or self.paused.is_set():
-            return
-        now = time.monotonic()
-        elapsed = now - self._cycle_start_time
-        wait = max(0, self._min_frame_interval - elapsed)
-        Clock.schedule_once(self._pull_next_frame, wait)
+    # _schedule_next retired; ScopeDisplayThread loop owns pacing.
 
     def create_and_set_bullseye_texture(self, image_bytes, shape, generation=0):
-        if generation != self._display_generation:
+        if generation != self._current_generation():
             return  # Stale callback from previous start/stop cycle
         size = (shape[1], shape[0])
         # Mirror the mono path's caching — only allocate a new GDI texture
@@ -746,10 +675,18 @@ class ScopeDisplay(Image):
         self.texture = self._bullseye_texture
         self.canvas.ask_update()
         self._count_display_fps()
-        self._schedule_next()
+        # _schedule_next retired; ScopeDisplayThread loop owns pacing.
+
+    def _current_generation(self):
+        """Return the active display generation from the thread, or 0
+        if the thread hasn't spawned yet. Used by texture-blit callbacks
+        to discard callbacks from a previous start/stop cycle."""
+        ctx = _app_ctx.ctx
+        thread = getattr(ctx, 'scope_display_thread', None) if ctx else None
+        return thread.generation if thread is not None else 0
 
     def create_and_set_texture(self, image_bytes, shape, scheduled_time=0, generation=0):
-        if generation != self._display_generation:
+        if generation != self._current_generation():
             return  # Stale callback from previous start/stop cycle
         if scheduled_time and self._debug_perf:
             blit_delay = (time.monotonic() - scheduled_time) * 1000
@@ -763,7 +700,7 @@ class ScopeDisplay(Image):
         self.texture = self._mono_texture
         self.canvas.ask_update()
         self._count_display_fps()
-        self._schedule_next()
+        # _schedule_next retired; ScopeDisplayThread loop owns pacing.
 
     def hold_protocol_saved_image(self, image):
         """DISPLAY-1: show the most-recent protocol-saved image and hold it.
@@ -795,9 +732,12 @@ class ScopeDisplay(Image):
                 arr = _image_utils.convert_12bit_to_8bit(arr)
             shape = arr.shape
             data = arr.tobytes()
-            gen = self._display_generation
-            now = time.monotonic()
-            self._protocol_hold_until = now + (self._PROTOCOL_HOLD_MS / 1000.0)
+            gen = self._current_generation()
+            # Bump hold deadline on the thread (was self._protocol_hold_until).
+            ctx = _app_ctx.ctx
+            thread = getattr(ctx, 'scope_display_thread', None) if ctx else None
+            if thread is not None:
+                thread.bump_protocol_hold(self._PROTOCOL_HOLD_MS / 1000.0)
             _Clock.schedule_once(
                 lambda dt, b=data, s=shape, g=gen:
                     self.create_and_set_texture(b, s, generation=g),

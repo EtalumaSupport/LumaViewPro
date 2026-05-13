@@ -105,7 +105,11 @@ class CompositeCapture(FloatLayout):
         save_folder.mkdir(parents=True, exist_ok=True)
         set_last_save_folder(dir=save_folder)
 
-        sum_iteration_callback = ctx.scope_display.update_scopedisplay
+        # Stage B1: update_scopedisplay retired -- the display thread
+        # runs a continuous FPS-paced loop, so "kick the display" is
+        # a no-op. Pass None to the sum_iteration loop; downstream
+        # callers tolerate None (already a documented convention).
+        sum_iteration_callback = None
 
         layer_configs = get_layer_configs(specific_layers=layer)
         sum_delay_s=layer_configs[layer]['exposure']/1000
@@ -378,7 +382,8 @@ class CompositeCapture(FloatLayout):
                 exposure = layer_settings[layer]['exp']
                 ctx.scope.set_exposure_sync(exposure)
                 sum_count = layer_settings[layer]['sum']
-                sum_iteration_callback = ctx.scope_display.update_scopedisplay
+                # Stage B1: see comment above; update_scopedisplay retired.
+                sum_iteration_callback = None
 
                 # Compute brightness threshold (percentage → absolute value)
                 brightness_thresholds[layer] = layer_settings[layer]["composite_brightness_threshold"] / 100 * max_value

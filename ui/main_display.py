@@ -72,7 +72,11 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
 
             if scope_display.play:
                 scope_display.play = False
-                scope_display.stop()
+                # Stage B1: pause() instead of stop()+start() so the
+                # display thread stays alive across pause-resume; no
+                # Thread spawn/join overhead; generation does NOT bump
+                # so the texture stays on the last rendered frame.
+                scope_display.pause()
                 if self.scope.led_connected:
                     self._pause_led_snapshot = self.scope.save_led_state('camera_pause')
                     self.scope.leds_off_async()
@@ -84,7 +88,7 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
                     # LED observer handles UI button sync
 
                 scope_display.play = True
-                scope_display.start()
+                scope_display.resume()
         except Exception as e:
             logger.error(f'[UI] cam_toggle failed: {e}', exc_info=True)
             from ui.notification_popup import show_notification_popup
