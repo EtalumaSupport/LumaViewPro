@@ -533,10 +533,19 @@ scope.get_camera_profile_info()            # sensor specs + dynamic ranges; retu
 Frame validity is the single source of truth for "is the next frame still what I asked for?" Every hardware state change invalidates pending frames. `capture_and_wait()` drains stale frames until all sources settle.
 
 ```python
-scope.frame_validity.is_valid              # True if next frame is valid
-scope.frame_validity.pending_sources       # {'z_move': 5, 'led': 3}
-scope.frame_validity.frames_until_valid()  # 0 = ready, >0 = keep draining
+scope.frame_is_valid                       # True if next frame is valid
+scope.frames_until_valid()                 # 0 = ready, >0 = keep draining
+scope.count_frame()                        # record that you grabbed a frame
+                                           # (advances the drain count;
+                                           # only callers who run their own
+                                           # grab loop need this; capture_and_wait
+                                           # handles it internally)
 ```
+
+`pending_sources` (mapping of `{source: frames_remaining}`) is currently
+accessed as `scope.frame_validity.pending_sources` -- this is an internal
+diagnostic and not part of the L2-stable API surface; use it for debug,
+not for production control flow.
 
 Invalidation is automatic — you don't need to call it yourself. The sources that invalidate frames are:
 
