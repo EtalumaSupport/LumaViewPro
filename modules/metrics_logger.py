@@ -32,12 +32,19 @@ from modules.scheduler import Scheduler, _CallablePairScheduler
 
 
 # Default cadences. system_metrics is the verbose snapshot (CPU, RAM,
-# GC, page-faults, Defender, buffer-churn, frame-interval percentiles)
-# costing ~10-50 ms per tick; 1-hr cadence keeps post-mortem coverage
-# without measurable steady-state cost. Engineering plugin / REST
-# status endpoint can call snapshot_* on demand for finer detail.
-# Bench / perf-investigation runs override via start(...) kwargs.
-DEFAULT_SYSTEM_METRICS_INTERVAL_S = 3600.0
+# GC, page-faults, Defender, buffer-churn, handle counts, queue depth,
+# caller_futures alloc/pop drift, frame-interval percentiles) costing
+# ~10-50 ms per tick. The Bug E investigation showed that 1-hr cadence
+# (the original default) was too coarse to catch handle-growth-per-hr
+# regressions and silent_stuck symptoms; one boot snapshot in a 38-min
+# soak left handle-growth-per-hr unmeasured. Stage B1 lowered the
+# default to 60 s -- ~60 ticks per hour at <0.1% CPU overhead so every
+# soak has post-mortem coverage with sub-minute granularity for the
+# leak-rate budgets in PERFORMANCE_BUDGETS.md. Engineering plugin /
+# REST status endpoint can still call snapshot_* on demand. Callers
+# wanting finer or coarser cadence override via
+# settings.profiling.metrics_interval_s.
+DEFAULT_SYSTEM_METRICS_INTERVAL_S = 60.0
 DEFAULT_EXECUTOR_WATCHDOG_INTERVAL_S = 60.0
 DEFAULT_CAMERA_TEMP_INTERVAL_S = 14400.0
 
@@ -46,19 +53,23 @@ DEFAULT_CAMERA_TEMP_INTERVAL_S = 14400.0
 _EXECUTOR_BACKLOG_WARN_TOTAL = 10
 _SCOPE_DISPLAY_PRUNE_THRESHOLD = 20
 
-# Frame-flow heartbeat: piggybacks on tick_system_metrics' production
-# 1-hr cadence to detect silent grab failures (camera reports
-# active=True + is_grabbing=True but no frames are flowing). Catches
-# scenarios like Pylon SDK grab thread dead, USB transport stalled
-# without formal camera removal, or buffer queue jammed. Threshold
-# is set well below even 0.5 fps so legitimate slow grabs don't trip
-# it; consecutive-tick guard avoids alarms during the second between
-# a fresh grab-start and the first frame arriving. Alarm latency at
-# the 1-hr cadence is ~2 hours -- acceptable for sustained-soak
-# detection; for sub-hour interactive responsiveness, callers can
-# override system_metrics_interval_s via start(...) kwargs.
+# Frame-flow heartbeat: piggybacks on tick_system_metrics to detect
+# silent grab failures (camera reports active=True + is_grabbing=True
+# but no frames are flowing). Catches scenarios like Pylon SDK grab
+# thread dead, USB transport stalled without formal camera removal,
+# or buffer queue jammed. Threshold set well below 0.5 fps so
+# legitimate slow grabs don't trip it; consecutive-tick guard avoids
+# alarms during the second between a fresh grab-start and the first
+# frame arriving. Alarm latency at the 60-s tick cadence is ~2 min
+# from stall onset to first popup.
 _FRAME_FLOW_STALL_FPS = 0.1
 _FRAME_FLOW_STALL_TICK_THRESHOLD = 2
+# Rule 14 sticky-failure: persistent faults must resurface, not dedup
+# forever. Re-fire the user-facing notification every N additional
+# stalled ticks while the stall persists; escalate to critical after
+# the stall has lasted this many ticks past the initial warning.
+_FRAME_FLOW_STALL_RENOTIFY_TICKS = 5
+_FRAME_FLOW_STALL_CRITICAL_TICKS = 20
 
 
 class MetricsLogger:
@@ -96,12 +107,12 @@ class MetricsLogger:
         # _FRAME_FLOW_STALL_TICK_THRESHOLD, surfacing silent grab
         # failures that don't raise an exception or trigger a timeout.
         self._frame_flow_stalled_ticks = 0
-        # Sticky flag so the user-facing stall notification fires once
-        # per stall episode -- set when the warning is first surfaced;
-        # cleared when fps recovers above _FRAME_FLOW_STALL_FPS. Re-stall
-        # after recovery re-fires the notification (persistent faults
-        # must resurface; dedup-suppressed notifications hide real bugs).
-        self._frame_flow_stall_notified = False
+        # Tick count at which the user-facing notification was last
+        # fired (-1 = never). Drives Rule 14 sticky-failure refire:
+        # re-notify every _FRAME_FLOW_STALL_RENOTIFY_TICKS while the
+        # stall persists; escalate to critical at _CRITICAL_TICKS once.
+        self._frame_flow_stall_last_notified_tick = -1
+        self._frame_flow_stall_critical_fired = False
 
     # ---- Tick implementations (also callable on-demand) ----
 
@@ -166,12 +177,13 @@ class MetricsLogger:
             return
 
         if capture_fps >= _FRAME_FLOW_STALL_FPS:
-            if self._frame_flow_stall_notified:
+            if self._frame_flow_stall_last_notified_tick >= 0:
                 logger.info(
                     f'[FRAME FLOW] capture_fps recovered to '
                     f'{capture_fps:.2f} after silent-grab stall')
             self._frame_flow_stalled_ticks = 0
-            self._frame_flow_stall_notified = False
+            self._frame_flow_stall_last_notified_tick = -1
+            self._frame_flow_stall_critical_fired = False
             return
 
         self._frame_flow_stalled_ticks += 1
@@ -183,22 +195,45 @@ class MetricsLogger:
                 f'camera reports active=True + is_grabbing=True -- possible '
                 f'silent grab failure. Check camera.log for last successful '
                 f'grab; investigate USB transport / Pylon SDK state.')
-            # Fire user-facing notification once per stall episode so the
-            # silent-stuck state is visible at the GUI, not just buried in
-            # the log. Re-stall after fps recovery re-fires (persistent
-            # faults must resurface).
-            if not self._frame_flow_stall_notified:
-                self._frame_flow_stall_notified = True
+            # Rule 14 sticky-failure: persistent stalls keep resurfacing.
+            # First popup at threshold; same-severity refire every
+            # _RENOTIFY_TICKS thereafter; one critical escalation once
+            # _CRITICAL_TICKS has passed. Recovery resets all of it.
+            should_renotify = (
+                self._frame_flow_stall_last_notified_tick < 0
+                or (self._frame_flow_stalled_ticks
+                    - self._frame_flow_stall_last_notified_tick)
+                   >= _FRAME_FLOW_STALL_RENOTIFY_TICKS
+            )
+            should_escalate = (
+                not self._frame_flow_stall_critical_fired
+                and self._frame_flow_stalled_ticks
+                    >= _FRAME_FLOW_STALL_CRITICAL_TICKS
+            )
+            if should_renotify or should_escalate:
                 try:
                     from modules.notification_center import notifications
-                    notifications.warning(
-                        "Camera",
-                        "Camera frame flow stalled",
-                        "Captures have not arrived for several seconds. "
-                        "The camera reports active but frames are not flowing. "
-                        "The protocol will continue retrying; if this persists, "
-                        "restart the program."
-                    )
+                    if should_escalate:
+                        notifications.critical(
+                            "Camera",
+                            "Camera frame flow still stalled",
+                            "Captures have not arrived for an extended period. "
+                            "The camera reports active but no frames are flowing. "
+                            "Restart the program; if this recurs, power-cycle "
+                            "the camera."
+                        )
+                        self._frame_flow_stall_critical_fired = True
+                    else:
+                        notifications.warning(
+                            "Camera",
+                            "Camera frame flow stalled",
+                            "Captures have not arrived for several seconds. "
+                            "The camera reports active but frames are not flowing. "
+                            "The protocol will continue retrying; if this persists, "
+                            "restart the program."
+                        )
+                    self._frame_flow_stall_last_notified_tick = (
+                        self._frame_flow_stalled_ticks)
                 except Exception as _e:
                     logger.debug(
                         f'[FRAME FLOW] notification suppressed: {_e}')
@@ -220,14 +255,12 @@ class MetricsLogger:
             else:
                 logger.debug(f"[Watchdog  ] Queues -- {fmt}")
 
-            if snap.get('SCOPEDISPLAY', 0) > _SCOPE_DISPLAY_PRUNE_THRESHOLD:
-                try:
-                    self._bundle.scope_display_thread_executor.clear_pending()
-                    logger.warning(
-                        "[Watchdog  ] Cleared ScopeDisplay pending "
-                        "queue to prevent backlog")
-                except Exception:
-                    pass
+            # Stage B1: SCOPEDISPLAY is a bare Thread with no queue;
+            # the prune-on-backlog branch retires. The snapshot reports
+            # 0 (running) / -1 (stopped). Watchdog has no actionable
+            # response if the thread itself is wedged -- that's a
+            # daemon=True process-exit-reap scenario, not a queue
+            # prune.
         except Exception:
             # Best-effort — a watchdog that crashes silently mid-tick
             # is preferable to one that takes the app down with it.

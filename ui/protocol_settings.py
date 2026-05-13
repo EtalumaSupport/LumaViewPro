@@ -1397,7 +1397,8 @@ class ProtocolSettings(FloatLayout):
 
             callbacks = {
                 'move_position': _handle_ui_update_for_axis,
-                'update_scope_display': ctx.scope_display.update_scopedisplay,
+                # Stage B1: update_scopedisplay retired -- thread runs continuously
+                'update_scope_display': lambda dt=0: None,
                 # Pause live UI during recording-heavy runs for throughput
                 'pause_live_ui': lambda: (
                     ctx.scope_display.stop(),
@@ -1908,7 +1909,8 @@ class ProtocolSettings(FloatLayout):
                 # LED observer handles UI sync — no manual callbacks needed
                 'update_step_number': _update_step_number_callback,
                 'go_to_step': go_to_step,
-                'update_scope_display': ctx.scope_display.update_scopedisplay,
+                # Stage B1: update_scopedisplay retired -- thread runs continuously
+                'update_scope_display': lambda dt=0: None,
                 'reset_autofocus_btns': update_autofocus_selection_after_protocol,
                 'set_recording_title': set_recording_title,
                 'set_writing_title': set_writing_title,

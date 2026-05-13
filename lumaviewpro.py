@@ -226,7 +226,7 @@ if __name__ == '__main__':
     protocol_executor = None
     file_io_executor = None
     autofocus_thread_executor = None
-    scope_display_thread_executor = None
+    scope_display_thread = None  # Stage B1: was scope_display_thread_executor
     reset_executor = None
     executor_bundle = None
     ctx = None
@@ -358,6 +358,35 @@ class LumaViewProApp(TooltipMixin, App):
         Clock.schedule_interval(ctx.motion_settings.update_xy_stage_control_gui, 1.0)
         Clock.schedule_once(functools.partial(ctx.image_settings.set_expanded_layer, 'BF'), 0.2)
 
+        # Stage B1: publish Kivy-side layer state to scope_display_thread at
+        # 30Hz. The thread cannot read Kivy widget attrs from a non-UI
+        # thread (Rule 15). This callback reads
+        # get_active_layer_config() + engineering-mode open-layer and
+        # pushes them onto the thread; the thread reads under _config_lock
+        # at each frame start. Staleness is bounded by 33ms (one tick).
+        def _publish_layer_config(dt):
+            if ctx is None or scope_display_thread is None:
+                return
+            active_layer = None
+            active_layer_config = None
+            open_layer = None
+            try:
+                from modules.config_ui_getters import get_active_layer_config
+                active_layer, active_layer_config = get_active_layer_config()
+            except Exception:
+                pass
+            if ctx.engineering_mode and ctx.image_settings is not None:
+                import modules.common_utils as _cu
+                for layer in _cu.get_layers():
+                    accordion_item_obj = ctx.image_settings.accordion_item_lookup(layer=layer)
+                    if not accordion_item_obj.collapse:
+                        open_layer = layer
+                        break
+            scope_display_thread.update_layer_config(
+                active_layer, active_layer_config, open_layer,
+            )
+        Clock.schedule_interval(_publish_layer_config, 1.0 / 30)
+
         # Clear app initialization flag and apply settings for the default opened layer
         def complete_initialization(dt):
             if ctx is not None:
@@ -487,8 +516,8 @@ class LumaViewProApp(TooltipMixin, App):
         if autofocus_thread_executor is not None:
             autofocus_thread_executor.shutdown(wait=False)
 
-        if scope_display_thread_executor is not None:
-            scope_display_thread_executor.shutdown(wait=False)
+        if scope_display_thread is not None:
+            scope_display_thread.stop()
 
         if reset_executor is not None:
             reset_executor.shutdown(wait=False)
@@ -592,7 +621,7 @@ class LumaViewProApp(TooltipMixin, App):
         # and turret aliases) and starts them; every entry point shares this
         # topology so the watchdog snapshot and engineering plugin see one truth.
         global io_executor, camera_executor, protocol_executor
-        global file_io_executor, autofocus_thread_executor, scope_display_thread_executor
+        global file_io_executor, autofocus_thread_executor, scope_display_thread
         global reset_executor
         global executor_bundle
         # Clock.schedule_once is passed as the UI dispatcher so executors can post
@@ -614,7 +643,7 @@ class LumaViewProApp(TooltipMixin, App):
         protocol_executor = executor_bundle.protocol_executor
         file_io_executor = executor_bundle.file_io_executor
         autofocus_thread_executor = executor_bundle.autofocus_thread_executor
-        scope_display_thread_executor = executor_bundle.scope_display_thread_executor
+        scope_display_thread = executor_bundle.scope_display_thread
         reset_executor = executor_bundle.reset_executor
 
         # GUI-independent scope session; persisted to ctx.session and
@@ -682,7 +711,7 @@ class LumaViewProApp(TooltipMixin, App):
             protocol_executor=protocol_executor,
             file_io_executor=file_io_executor,
             autofocus_thread_executor=autofocus_thread_executor,
-            scope_display_thread_executor=scope_display_thread_executor,
+            scope_display_thread=scope_display_thread,
             reset_executor=reset_executor,
             wellplate_loader=wellplate_loader,
             coordinate_transformer=coordinate_transformer,
@@ -709,6 +738,12 @@ class LumaViewProApp(TooltipMixin, App):
         ctx.scope_display = ctx.viewer.ids['scope_display_id']
         ctx.image_settings = lumaview.ids['imagesettings_id']
         ctx.motion_settings = lumaview.ids['motionsettings_id']
+
+        # Start the display thread now that both widget reference and
+        # thread instance are in ctx. Earlier start sites (widget __init__,
+        # registry creation) run before one or the other field is wired,
+        # so they cannot validly delegate to thread.start().
+        ctx.scope_display.start()
 
         # load settings file (must be after motion_settings is wired)
         ctx.motion_settings.ids['microscope_settings_id'].load_settings('./data/current.json')
@@ -825,16 +860,12 @@ class LumaViewProApp(TooltipMixin, App):
 
         ctx.motion_settings.ids['protocol_settings_id'].cancel_all_protocols()
 
-        # Stop the scope-display pull loop and drain its queue BEFORE the
-        # executor cascade -- otherwise the 30 fps pull loop submits tasks
-        # against a half-disconnected scope and floods the shutdown log.
+        # Stop the scope-display thread BEFORE the executor cascade --
+        # otherwise the FPS-paced loop submits work against a half-
+        # disconnected scope and floods the shutdown log.
         try:
             if ctx.scope_display is not None:
                 ctx.scope_display.stop()
-            if scope_display_thread_executor is not None and hasattr(
-                scope_display_thread_executor, 'clear_pending'
-            ):
-                scope_display_thread_executor.clear_pending()
         except Exception as e:  # grain: ignore NAKED_EXCEPT
             logger.warning(f'[LVP Main  ] scope_display stop during shutdown failed: {e}')
 

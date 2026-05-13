@@ -886,7 +886,8 @@ class LayerControl(BoxLayout):
         lumaview = ctx.lumaview
 
         def update_shader(dt=None):
-            if not ctx.scope_display.paused.is_set():
+            thread = getattr(ctx, 'scope_display_thread', None)
+            if thread is not None and not thread.is_paused:
                 if ctx.scope_display.use_bullseye is False:
                     self.update_shader(dt=0)
 

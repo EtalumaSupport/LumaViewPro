@@ -36,6 +36,7 @@ from dataclasses import dataclass
 
 from lvp_logger import logger
 from modules.sequential_io_executor import SequentialIOExecutor
+from modules.scope_display_thread import ScopeDisplayThread
 
 
 # F-2: file_io_executor's protocol_queue is bounded at 32. See
@@ -45,14 +46,14 @@ _FILE_IO_PROTOCOL_QUEUE_MAXSIZE = 32
 
 @dataclass
 class ExecutorBundle:
-    """Holds every SequentialIOExecutor LVP needs at runtime."""
+    """Holds the executors + long-lived threads LVP needs at runtime."""
 
     io_executor: SequentialIOExecutor
     camera_executor: SequentialIOExecutor
     protocol_executor: SequentialIOExecutor
     file_io_executor: SequentialIOExecutor
     autofocus_thread_executor: SequentialIOExecutor
-    scope_display_thread_executor: SequentialIOExecutor
+    scope_display_thread: ScopeDisplayThread
     reset_executor: SequentialIOExecutor
 
     def snapshot(self) -> dict[str, int]:
@@ -61,6 +62,10 @@ class ExecutorBundle:
         Aliased executors (stage, turret) are omitted to avoid double-
         counting their queue depth. Engineering plugin / REST status
         endpoint / app watchdog all consume the same view.
+
+        SCOPEDISPLAY is the bare-Thread per Stage B1 -- no queue, so
+        its slot reports 0 (running) or -1 (stopped) instead of a
+        queue depth.
         """
         executors = [
             ('IO',          self.io_executor),
@@ -68,7 +73,6 @@ class ExecutorBundle:
             ('PROTOCOL',    self.protocol_executor),
             ('FILE',        self.file_io_executor),
             ('AUTOFOCUS',   self.autofocus_thread_executor),
-            ('SCOPEDISPLAY', self.scope_display_thread_executor),
             ('RESET',       self.reset_executor),
         ]
         out = {}
@@ -77,6 +81,10 @@ class ExecutorBundle:
                 out[name] = ex.queue_size()
             except Exception:
                 out[name] = -1
+        try:
+            out['SCOPEDISPLAY'] = 0 if self.scope_display_thread.is_running else -1
+        except Exception:
+            out['SCOPEDISPLAY'] = -1
         return out
 
 
@@ -96,6 +104,8 @@ def create_default(ui_dispatcher) -> ExecutorBundle:
         and started. Caller is responsible for calling ``shutdown()`` /
         ``shutdown_threads()`` at app teardown.
     """
+    import modules.app_context as _app_ctx
+
     io_executor = SequentialIOExecutor(
         name="IO", ui_dispatcher=ui_dispatcher)
     camera_executor = SequentialIOExecutor(
@@ -109,8 +119,14 @@ def create_default(ui_dispatcher) -> ExecutorBundle:
         protocol_queue_maxsize=_FILE_IO_PROTOCOL_QUEUE_MAXSIZE)
     autofocus_thread_executor = SequentialIOExecutor(
         name="AUTOFOCUS", ui_dispatcher=ui_dispatcher)
-    scope_display_thread_executor = SequentialIOExecutor(
-        name="SCOPEDISPLAY", ui_dispatcher=ui_dispatcher)
+    # Thread is constructed here but NOT started. Start happens in
+    # lumaviewpro.py:build() after ctx.scope_display (widget) and
+    # ctx.scope_display_thread (this) are both wired into ctx;
+    # starting earlier races the ctx wiring and silently no-ops.
+    scope_display_thread = ScopeDisplayThread(
+        ui_dispatcher=ui_dispatcher,
+        ctx_provider=lambda: _app_ctx.ctx,
+    )
     reset_executor = SequentialIOExecutor(
         name="RESET", ui_dispatcher=ui_dispatcher)
 
@@ -120,19 +136,20 @@ def create_default(ui_dispatcher) -> ExecutorBundle:
         protocol_executor=protocol_executor,
         file_io_executor=file_io_executor,
         autofocus_thread_executor=autofocus_thread_executor,
-        scope_display_thread_executor=scope_display_thread_executor,
+        scope_display_thread=scope_display_thread,
         reset_executor=reset_executor,
     )
 
     for ex in (
         io_executor, camera_executor, protocol_executor,
         file_io_executor, autofocus_thread_executor,
-        scope_display_thread_executor, reset_executor,
+        reset_executor,
     ):
         ex.start()
 
     logger.info(
         '[LVP Main  ] ExecutorRegistry: created + started '
-        '7 executors (IO, CAMERA, PROTOCOL, FILE, AUTOFOCUS, '
-        'SCOPEDISPLAY, RESET); stage/turret aliased to IO')
+        '6 SequentialIOExecutor instances (IO, CAMERA, PROTOCOL, FILE, '
+        'AUTOFOCUS, RESET) + scope_display_thread (deferred start by widget); '
+        'stage/turret aliased to IO')
     return bundle

@@ -523,7 +523,8 @@ class VerticalControl(BoxLayout):
 
         callbacks = {
             'move_position': _handle_ui_update_for_axis,
-            'update_scope_display': ctx.scope_display.update_scopedisplay,
+            # Stage B1: update_scopedisplay retired -- thread runs continuously
+            'update_scope_display': lambda dt=0: None,
             'scan_iterate_post': run_complete_func,
             'run_complete': run_complete_func,
             # LED observer handles UI sync — no manual callbacks needed
