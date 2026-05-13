@@ -53,19 +53,23 @@ DEFAULT_CAMERA_TEMP_INTERVAL_S = 14400.0
 _EXECUTOR_BACKLOG_WARN_TOTAL = 10
 _SCOPE_DISPLAY_PRUNE_THRESHOLD = 20
 
-# Frame-flow heartbeat: piggybacks on tick_system_metrics' production
-# 1-hr cadence to detect silent grab failures (camera reports
-# active=True + is_grabbing=True but no frames are flowing). Catches
-# scenarios like Pylon SDK grab thread dead, USB transport stalled
-# without formal camera removal, or buffer queue jammed. Threshold
-# is set well below even 0.5 fps so legitimate slow grabs don't trip
-# it; consecutive-tick guard avoids alarms during the second between
-# a fresh grab-start and the first frame arriving. Alarm latency at
-# the 1-hr cadence is ~2 hours -- acceptable for sustained-soak
-# detection; for sub-hour interactive responsiveness, callers can
-# override system_metrics_interval_s via start(...) kwargs.
+# Frame-flow heartbeat: piggybacks on tick_system_metrics to detect
+# silent grab failures (camera reports active=True + is_grabbing=True
+# but no frames are flowing). Catches scenarios like Pylon SDK grab
+# thread dead, USB transport stalled without formal camera removal,
+# or buffer queue jammed. Threshold set well below 0.5 fps so
+# legitimate slow grabs don't trip it; consecutive-tick guard avoids
+# alarms during the second between a fresh grab-start and the first
+# frame arriving. Alarm latency at the 60-s tick cadence is ~2 min
+# from stall onset to first popup.
 _FRAME_FLOW_STALL_FPS = 0.1
 _FRAME_FLOW_STALL_TICK_THRESHOLD = 2
+# Rule 14 sticky-failure: persistent faults must resurface, not dedup
+# forever. Re-fire the user-facing notification every N additional
+# stalled ticks while the stall persists; escalate to critical after
+# the stall has lasted this many ticks past the initial warning.
+_FRAME_FLOW_STALL_RENOTIFY_TICKS = 5
+_FRAME_FLOW_STALL_CRITICAL_TICKS = 20
 
 
 class MetricsLogger:
@@ -103,12 +107,12 @@ class MetricsLogger:
         # _FRAME_FLOW_STALL_TICK_THRESHOLD, surfacing silent grab
         # failures that don't raise an exception or trigger a timeout.
         self._frame_flow_stalled_ticks = 0
-        # Sticky flag so the user-facing stall notification fires once
-        # per stall episode -- set when the warning is first surfaced;
-        # cleared when fps recovers above _FRAME_FLOW_STALL_FPS. Re-stall
-        # after recovery re-fires the notification (persistent faults
-        # must resurface; dedup-suppressed notifications hide real bugs).
-        self._frame_flow_stall_notified = False
+        # Tick count at which the user-facing notification was last
+        # fired (-1 = never). Drives Rule 14 sticky-failure refire:
+        # re-notify every _FRAME_FLOW_STALL_RENOTIFY_TICKS while the
+        # stall persists; escalate to critical at _CRITICAL_TICKS once.
+        self._frame_flow_stall_last_notified_tick = -1
+        self._frame_flow_stall_critical_fired = False
 
     # ---- Tick implementations (also callable on-demand) ----
 
@@ -173,12 +177,13 @@ class MetricsLogger:
             return
 
         if capture_fps >= _FRAME_FLOW_STALL_FPS:
-            if self._frame_flow_stall_notified:
+            if self._frame_flow_stall_last_notified_tick >= 0:
                 logger.info(
                     f'[FRAME FLOW] capture_fps recovered to '
                     f'{capture_fps:.2f} after silent-grab stall')
             self._frame_flow_stalled_ticks = 0
-            self._frame_flow_stall_notified = False
+            self._frame_flow_stall_last_notified_tick = -1
+            self._frame_flow_stall_critical_fired = False
             return
 
         self._frame_flow_stalled_ticks += 1
@@ -190,22 +195,45 @@ class MetricsLogger:
                 f'camera reports active=True + is_grabbing=True -- possible '
                 f'silent grab failure. Check camera.log for last successful '
                 f'grab; investigate USB transport / Pylon SDK state.')
-            # Fire user-facing notification once per stall episode so the
-            # silent-stuck state is visible at the GUI, not just buried in
-            # the log. Re-stall after fps recovery re-fires (persistent
-            # faults must resurface).
-            if not self._frame_flow_stall_notified:
-                self._frame_flow_stall_notified = True
+            # Rule 14 sticky-failure: persistent stalls keep resurfacing.
+            # First popup at threshold; same-severity refire every
+            # _RENOTIFY_TICKS thereafter; one critical escalation once
+            # _CRITICAL_TICKS has passed. Recovery resets all of it.
+            should_renotify = (
+                self._frame_flow_stall_last_notified_tick < 0
+                or (self._frame_flow_stalled_ticks
+                    - self._frame_flow_stall_last_notified_tick)
+                   >= _FRAME_FLOW_STALL_RENOTIFY_TICKS
+            )
+            should_escalate = (
+                not self._frame_flow_stall_critical_fired
+                and self._frame_flow_stalled_ticks
+                    >= _FRAME_FLOW_STALL_CRITICAL_TICKS
+            )
+            if should_renotify or should_escalate:
                 try:
                     from modules.notification_center import notifications
-                    notifications.warning(
-                        "Camera",
-                        "Camera frame flow stalled",
-                        "Captures have not arrived for several seconds. "
-                        "The camera reports active but frames are not flowing. "
-                        "The protocol will continue retrying; if this persists, "
-                        "restart the program."
-                    )
+                    if should_escalate:
+                        notifications.critical(
+                            "Camera",
+                            "Camera frame flow still stalled",
+                            "Captures have not arrived for an extended period. "
+                            "The camera reports active but no frames are flowing. "
+                            "Restart the program; if this recurs, power-cycle "
+                            "the camera."
+                        )
+                        self._frame_flow_stall_critical_fired = True
+                    else:
+                        notifications.warning(
+                            "Camera",
+                            "Camera frame flow stalled",
+                            "Captures have not arrived for several seconds. "
+                            "The camera reports active but frames are not flowing. "
+                            "The protocol will continue retrying; if this persists, "
+                            "restart the program."
+                        )
+                    self._frame_flow_stall_last_notified_tick = (
+                        self._frame_flow_stalled_ticks)
                 except Exception as _e:
                     logger.debug(
                         f'[FRAME FLOW] notification suppressed: {_e}')
