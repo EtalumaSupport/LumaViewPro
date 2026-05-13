@@ -94,7 +94,7 @@ class ImageHandlerBase:
 
         Callback signature: ``cb(image, timestamp, chunks)``. Runs on the
         SDK callback thread (Pylon ``PylonImageGrab`` / IDS grab loop /
-        simulated pump). Callbacks MUST NOT block — they share the camera
+        simulated pump). Callbacks MUST NOT block -- they share the camera
         ingest thread with the next frame. Heavy work (file IO, image
         conversion) belongs on an executor; the callback's job is fast
         decision + enqueue.
@@ -649,8 +649,9 @@ class Camera(ABC):
         Default implementation delegates to ``cam_image_handler``;
         drivers without a handler (SimulatedCamera) override.
         """
-        if self.cam_image_handler is not None:
-            self.cam_image_handler.register_frame_callback(cb)
+        if not self.cam_image_handler:
+            return
+        self.cam_image_handler.register_frame_callback(cb)
 
     def unregister_frame_callback(self, cb) -> None:
         """Unregister a callback registered via ``register_frame_callback``.
@@ -658,8 +659,9 @@ class Camera(ABC):
         Default implementation delegates to ``cam_image_handler``;
         drivers without a handler (SimulatedCamera) override.
         """
-        if self.cam_image_handler is not None:
-            self.cam_image_handler.unregister_frame_callback(cb)
+        if not self.cam_image_handler:
+            return
+        self.cam_image_handler.unregister_frame_callback(cb)
 
     def grab_latest_with_chunks(self) -> tuple:
         """Like grab_latest, plus an atomic snapshot of the per-frame chunks dict.

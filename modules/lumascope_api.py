@@ -2497,7 +2497,7 @@ class Lumascope():
         Passthrough to the driver. Callback signature is
         ``cb(image, timestamp, chunks)``; runs on the SDK callback
         thread (Pylon ``PylonImageGrab`` / IDS grab loop / simulated
-        pump). Callbacks MUST NOT block — heavy work belongs on an
+        pump). Callbacks MUST NOT block -- heavy work belongs on an
         executor. No-op when no camera is connected. Used by the
         manual-record path to drive saves on camera ticks instead of
         Kivy Clock.

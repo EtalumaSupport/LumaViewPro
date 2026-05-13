@@ -50,7 +50,6 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
         # Clock save timer). Slot index reserved by callback under
         # _record_lock; the IOTask on camera_executor writes the slot.
         self._record_lock = threading.Lock()
-        self._on_camera_frame_cb = None
         self._save_interval_s = 0.0
         self._next_save_slot_ts = 0.0
         self._reserved_frames = 0
@@ -303,27 +302,19 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
 
         logger.info(f"Manual-Video] Capturing video...")
 
-        # Issue #633 Stage 2C (revised 2026-05-12): camera-side
-        # AcquisitionFrameRate caps the AVERAGE rate, not per-frame intervals
-        # -- individual frames jittered from 6.5 to 78 fps around a 10 fps
-        # mean. The cap is no longer applied; the camera runs at whatever
-        # live-view left it at (typically free-run). Per-frame cadence is
-        # enforced via the camera-callback slot scheduler below.
-        # _fps_limit_was_enabled retained as False so the finalize path's
-        # set_max_acquisition_frame_rate(False) call stays a no-op rather
-        # than a hard remove (defense against future re-introduction).
+        # Considered camera-side AcquisitionFrameRate cap; rejected because
+        # the cap controls AVERAGE rate while jittering individual frames
+        # widely around the target. Cadence is enforced host-side via the
+        # callback slot scheduler below. The _fps_limit_was_enabled flag
+        # stays as defense against future re-introduction.
         self._fps_limit_was_enabled = False
 
-        # Slot-scheduled save on camera ticks. The Kivy Clock save timer
-        # was retired here: Clock's ~16-30 ms display-frame floor on
-        # Windows plus main-thread GIL contention produced mean=131.9 ms
-        # for a 100 ms target on bench 2026-05-12. Camera SDK ticks arrive
-        # on the ingest thread at sub-ms accuracy (Pylon GetArray copy
-        # latency dominates), so reserving the next slot only when
-        # `now >= start_ts + N * save_interval` produces tight cadence
-        # without a separate timer. check_recording_state stays on Clock
-        # at capture_interval purely for button-state and time-stop
-        # detection (main-thread Kivy widget reads).
+        # Considered host-side Kivy Clock timer; rejected because Clock's
+        # ~16-30 ms Windows display-frame floor plus main-thread GIL
+        # contention produces ~30% cadence stdev. Camera SDK ticks arrive
+        # on the ingest thread at sub-ms accuracy. check_recording_state
+        # stays on Clock for button-state and time-stop detection
+        # (main-thread Kivy widget reads).
         self._save_interval_s = 1.0 / video_fps
         self._next_save_slot_ts = self.start_ts + self._save_interval_s
         self._reserved_frames = 0
@@ -331,8 +322,7 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
         capture_interval = 1.0 / video_fps
         self.recording_title_update = Clock.schedule_interval(self.update_recording_title, 0.1)
         self.recording_check = Clock.schedule_interval(self.check_recording_state, capture_interval)
-        self._on_camera_frame_cb = self._on_camera_frame
-        self.scope.register_frame_callback(self._on_camera_frame_cb)
+        self.scope.register_frame_callback(self._on_camera_frame)
 
     def _on_camera_frame(self, image, frame_ts, chunks):
         """Camera-SDK-thread callback: reserve next save slot and enqueue write.
@@ -396,12 +386,10 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
         camera_executor is FIFO, so any record_helper tasks already
         queued ahead of the finalize task complete first.
         """
-        if self._on_camera_frame_cb is not None:
-            try:
-                self.scope.unregister_frame_callback(self._on_camera_frame_cb)
-            except Exception as e:
-                logger.warning(f'[LVP Main  ] unregister_frame_callback failed: {e}')
-            self._on_camera_frame_cb = None
+        try:
+            self.scope.unregister_frame_callback(self._on_camera_frame)
+        except Exception as e:
+            logger.warning(f'[LVP Main  ] unregister_frame_callback failed: {e}')
         if self.recording_check is not None:
             Clock.unschedule(self.recording_check)
             self.recording_check = None
@@ -859,9 +847,6 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
         self.current_video_frames[slot_index] = image
         self.timestamps[slot_index] = frame_ts if frame_ts is not None else datetime.datetime.now()
         self.chunks_per_frame[slot_index] = chunks
-        # Counter of actually-written slots (callback's _reserved_frames
-        # may briefly exceed this between reservation and write).
-        # _finalize_recording_state reads this for the saved count.
         self.current_captured_frames = max(self.current_captured_frames, slot_index + 1)
 
 
