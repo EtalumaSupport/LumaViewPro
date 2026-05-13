@@ -155,7 +155,7 @@ if not _FX2_AVAILABLE:
         )
     elif not _HAS_USB_BACKEND:
         logger.info(
-            "[FX2 Driver] libusb-1.0 native library not loadable — FX2 "
+            "[FX2 Driver] libusb-1.0 native library not loadable -- FX2 "
             "(LumaviewClassic) drivers will not be registered. Install "
             "the native library to enable LVC hardware support: macOS: "
             "brew install libusb; Windows: ensure libusb-1.0.dll is on "
@@ -164,7 +164,7 @@ if not _FX2_AVAILABLE:
         )
     elif not _HAS_USB1:
         logger.info(
-            "[FX2 Driver] libusb1 not installed — FX2 (LumaviewClassic) "
+            "[FX2 Driver] libusb1 not installed -- FX2 (LumaviewClassic) "
             "drivers will not be registered on macOS/Linux. Install "
             "libusb1 (pip install libusb1) plus the native libusb to "
             "enable LVC hardware support."
