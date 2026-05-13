@@ -127,6 +127,7 @@ class VideoCaptureSession:
                 target=scheduler.run,
                 name="stim-scheduler",
                 args=(self._stim_start_event, self._stim_stop_event),
+                daemon=True,
             )
             stim_thread.start()
 
