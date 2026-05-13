@@ -345,10 +345,15 @@ class SequentialIOExecutor:
 
 
     def start(self):
+        # daemon=True so a hung in-flight task at app teardown cannot keep
+        # the process alive. Cooperative shutdown is still preferred:
+        # long-running task implementations may close over the executor
+        # and poll `executor.pending_shutdown` to bail early (the pattern
+        # already used by _protocol_ended.is_set() in scan_loop).
         self._worker_thread = threading.Thread(
             target=self._run_loop,
             name=self.executor_name,
-            daemon=False,
+            daemon=True,
         )
         self._worker_thread.start()
 
