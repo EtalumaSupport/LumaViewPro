@@ -146,7 +146,10 @@ class ScopeDisplay(Image):
         # Create a black texture to avoid white flash on startup
         self._create_default_black_texture()
 
-        self.start()
+        # Display thread start happens from lumaviewpro.py:build()
+        # after ctx is fully wired. Starting from __init__ runs during
+        # kv tree construction, before ctx.scope_display_thread exists,
+        # so the delegate inside self.start() silently no-ops.
 
     def _create_default_black_texture(self):
         """Create a default black texture to display before camera feed starts."""
@@ -557,7 +560,7 @@ class ScopeDisplay(Image):
         elapsed = now - self._capture_fps_last_time
         if elapsed >= 1.0:
             self._capture_fps_value = self._capture_fps_count / elapsed
-            # EMA smoothing (α=0.3) — without this the title bar bounces noisily
+            # EMA smoothing (alpha=0.3) -- without this the title bar bounces noisily
             # because each 1-second window gets a fresh hard-assigned value
             # (85 / 120 / 95 / 110 / 88 MB/s during a steady capture). EMA
             # converges to the real average over 3-4 seconds.

@@ -119,9 +119,10 @@ def create_default(ui_dispatcher) -> ExecutorBundle:
         protocol_queue_maxsize=_FILE_IO_PROTOCOL_QUEUE_MAXSIZE)
     autofocus_thread_executor = SequentialIOExecutor(
         name="AUTOFOCUS", ui_dispatcher=ui_dispatcher)
-    # Stage B1: SCOPEDISPLAY is a dedicated thread, not a queue-of-1
-    # SequentialIOExecutor. ScopeDisplay widget calls .start(fps)
-    # after Kivy build (the widget doesn't exist yet here).
+    # Thread is constructed here but NOT started. Start happens in
+    # lumaviewpro.py:build() after ctx.scope_display (widget) and
+    # ctx.scope_display_thread (this) are both wired into ctx;
+    # starting earlier races the ctx wiring and silently no-ops.
     scope_display_thread = ScopeDisplayThread(
         ui_dispatcher=ui_dispatcher,
         ctx_provider=lambda: _app_ctx.ctx,

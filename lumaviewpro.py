@@ -739,6 +739,12 @@ class LumaViewProApp(TooltipMixin, App):
         ctx.image_settings = lumaview.ids['imagesettings_id']
         ctx.motion_settings = lumaview.ids['motionsettings_id']
 
+        # Start the display thread now that both widget reference and
+        # thread instance are in ctx. Earlier start sites (widget __init__,
+        # registry creation) run before one or the other field is wired,
+        # so they cannot validly delegate to thread.start().
+        ctx.scope_display.start()
+
         # load settings file (must be after motion_settings is wired)
         ctx.motion_settings.ids['microscope_settings_id'].load_settings('./data/current.json')
 

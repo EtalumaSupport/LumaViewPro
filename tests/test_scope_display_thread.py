@@ -11,6 +11,7 @@ from collections import deque
 
 import pytest
 
+from modules import app_context as _app_ctx
 from modules.scope_display_thread import (
     ScopeDisplayThread,
     STATUS_OK,
@@ -260,3 +261,65 @@ def test_widget_unavailable_loop_retries_without_crash():
     time.sleep(0.1)
     t.stop()
     assert widget.calls, 'thread did not pick up widget after late wiring'
+
+
+def test_widget_start_delegate_when_ctx_wired_runs_thread():
+    """Mirror the lumaviewpro.build() start site: with both
+    ctx.scope_display_thread and ctx.settings populated, the delegate
+    used by ui/scope_display.py:start() must successfully start the
+    thread. Regression for the kv-construction-time start race where
+    ScopeDisplay.__init__ called self.start() before ExecutorRegistry
+    created the thread, so getattr(ctx, 'scope_display_thread', None)
+    returned None and the delegate silently no-opped."""
+    saved_ctx = _app_ctx.ctx
+    try:
+        t, fake_ctx, _widget = _make_thread()
+        fake_ctx.scope_display_thread = t
+        fake_ctx.settings = {'live_view_fps': 30}
+        _app_ctx.ctx = fake_ctx
+
+        # Mirror ui/scope_display.py:start() body without importing Kivy.
+        ctx_now = _app_ctx.ctx
+        fps = ctx_now.settings['live_view_fps']
+        thread = getattr(ctx_now, 'scope_display_thread', None)
+        assert thread is t, (
+            'scope_display_thread missing from ctx; lumaviewpro.build() '
+            'must wire it before invoking widget.start()'
+        )
+        thread.start(fps=fps)
+        try:
+            assert t.is_running, (
+                'thread.start() did not actually start the worker; '
+                'this would manifest as silent live-preview death at bench'
+            )
+        finally:
+            t.stop(timeout=2.0)
+    finally:
+        _app_ctx.ctx = saved_ctx
+
+
+def test_widget_start_delegate_silently_noops_when_thread_missing():
+    """Documents the defensive guard in ui/scope_display.py:start() that
+    handles the case where ctx is None or ctx.scope_display_thread is
+    not yet wired. Other early-call sites depend on this no-op behavior;
+    if it ever raises, the new lumaviewpro.build() start contract breaks
+    for those sites."""
+    saved_ctx = _app_ctx.ctx
+    try:
+        # Case 1: ctx is None entirely
+        _app_ctx.ctx = None
+        ctx_now = _app_ctx.ctx
+        thread = getattr(ctx_now, 'scope_display_thread', None) if ctx_now else None
+        assert thread is None
+        if thread is not None:           # mirrors widget code
+            thread.start(fps=30)         # never reached
+
+        # Case 2: ctx exists but scope_display_thread field absent
+        _app_ctx.ctx = _FakeCtx()        # no scope_display_thread attribute
+        ctx_now = _app_ctx.ctx
+        thread = getattr(ctx_now, 'scope_display_thread', None) if ctx_now else None
+        assert thread is None
+        if thread is not None:
+            thread.start(fps=30)         # never reached
+    finally:
+        _app_ctx.ctx = saved_ctx
