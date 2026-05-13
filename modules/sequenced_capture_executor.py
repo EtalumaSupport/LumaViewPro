@@ -257,31 +257,43 @@ class SequencedCaptureExecutor:
         
 
     def _create_run_dir(self):
+        # Directory name uses second-resolution timestamps. Runs started
+        # within the same wall-clock second collide; retry with _001,
+        # _002, ... up to 999 so user-visible "directory exists" errors
+        # only fire on the impossibly-rare case of a thousand collisions.
         now = datetime.datetime.now()
-        time_string = now.strftime("%Y%m%d_%H%M%S")
-        self._run_dir = self._parent_dir / time_string
+        base_time_string = now.strftime("%Y%m%d_%H%M%S")
+        candidates = [base_time_string] + [
+            f"{base_time_string}_{i:03d}" for i in range(1, 1000)
+        ]
+        for candidate in candidates:
+            self._run_dir = self._parent_dir / candidate
+            try:
+                self._run_dir.mkdir(exist_ok=False)
+                return {
+                    'status': True,
+                    'data': None,
+                    'error': None,
+                }
+            except FileExistsError:
+                continue
+            except FileNotFoundError:
+                err_str = f"Unable to save data to {str(self._run_dir)}. Please select an accessible capture location."
+                return {
+                    'status': False,
+                    'data': None,
+                    'error': err_str,
+                }
 
-        try:
-            self._run_dir.mkdir(exist_ok=False)
-        except FileExistsError:
-            err_str = f"Unable to save data to {str(self._run_dir)}, already exists."
-            return {
-                'status': False,
-                'data': None,
-                'error': err_str,
-            }
-        except FileNotFoundError:
-            err_str = f"Unable to save data to {str(self._run_dir)}. Please select an accessible capture location."
-            return {
-                'status': False,
-                'data': None,
-                'error': err_str,
-            }
-        
+        err_str = (
+            f"Unable to save data to {str(self._run_dir)}: "
+            f"exhausted 1000 collision suffixes within the same second. "
+            f"Please wait a moment and retry."
+        )
         return {
-            'status': True,
+            'status': False,
             'data': None,
-            'error': None,
+            'error': err_str,
         }
     
 

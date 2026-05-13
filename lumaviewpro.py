@@ -226,8 +226,8 @@ if __name__ == '__main__':
     protocol_executor = None
     file_io_executor = None
     autofocus_thread_executor = None
-    scope_display_thread = None  # Stage B1: was scope_display_thread_executor
-    reset_executor = None
+    scope_display_thread = None
+    worker_pool = None
     executor_bundle = None
     ctx = None
 
@@ -519,8 +519,8 @@ class LumaViewProApp(TooltipMixin, App):
         if scope_display_thread is not None:
             scope_display_thread.stop()
 
-        if reset_executor is not None:
-            reset_executor.shutdown(wait=False)
+        if worker_pool is not None:
+            worker_pool.shutdown(wait=False)
 
         logger.info('[LVP Main  ] Threads shut down.')
 
@@ -622,7 +622,7 @@ class LumaViewProApp(TooltipMixin, App):
         # topology so the watchdog snapshot and engineering plugin see one truth.
         global io_executor, camera_executor, protocol_executor
         global file_io_executor, autofocus_thread_executor, scope_display_thread
-        global reset_executor
+        global worker_pool
         global executor_bundle
         # Clock.schedule_once is passed as the UI dispatcher so executors can post
         # callbacks to the Kivy main thread without importing Kivy themselves.
@@ -644,7 +644,7 @@ class LumaViewProApp(TooltipMixin, App):
         file_io_executor = executor_bundle.file_io_executor
         autofocus_thread_executor = executor_bundle.autofocus_thread_executor
         scope_display_thread = executor_bundle.scope_display_thread
-        reset_executor = executor_bundle.reset_executor
+        worker_pool = executor_bundle.worker_pool
 
         # GUI-independent scope session; persisted to ctx.session and
         # ctx.protocol_running so other methods read off ctx.
@@ -712,7 +712,7 @@ class LumaViewProApp(TooltipMixin, App):
             file_io_executor=file_io_executor,
             autofocus_thread_executor=autofocus_thread_executor,
             scope_display_thread=scope_display_thread,
-            reset_executor=reset_executor,
+            worker_pool=worker_pool,
             wellplate_loader=wellplate_loader,
             coordinate_transformer=coordinate_transformer,
             objective_helper=objective_helper,

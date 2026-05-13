@@ -294,9 +294,21 @@ class AutofocusExecutor:
                 self._is_complete_event.clear()
                 # _af_in_progress is cleared in _autofocus_loop() after
                 # camera state is restored (#610 race fix).
-                # Surface error in logs and notify user (Rule 14)
-                import logging as _logging
-                _logging.getLogger().error(f"[AF] Error during loop: {ex}", exc_info=True)
+                # Surface traceback in both the main log and the AF-
+                # specific log so post-mortem readers find it from either
+                # entry point. logger.exception emits at ERROR level with
+                # the full stack frame; the bare repr of self._params is
+                # included so KeyError-on-params bugs identify the missing
+                # key + the surrounding state in one read.
+                params_repr = repr(getattr(self, '_params', None))[:500]
+                logger.exception(
+                    f"[AF] Error during loop: {type(ex).__name__}: {ex} "
+                    f"| _params={params_repr}"
+                )
+                _af_log.exception(
+                    f"AF loop raised: {type(ex).__name__}: {ex} "
+                    f"| _params={params_repr}"
+                )
                 notifications.error("Autofocus", "Autofocus Failed",
                                     f"Unexpected error during autofocus: {ex}")
                 if 'complete' in self._callbacks:

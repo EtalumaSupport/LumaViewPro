@@ -499,7 +499,7 @@ def log_system_metrics(settings: dict):
         for name in ('sequenced_capture_executor', 'autofocus_executor',
                      'protocol_executor', 'io_executor', 'camera_executor',
                      'file_io_executor', 'autofocus_thread_executor',
-                     'reset_executor'):
+                     'worker_pool'):
             # scope_display_thread retired from these queue/futures
             # scans (Stage B1: it's a bare Thread, no queue, no
             # caller_futures).
@@ -529,7 +529,7 @@ def log_system_metrics(settings: dict):
         for name in ('sequenced_capture_executor', 'autofocus_executor',
                      'protocol_executor', 'io_executor', 'camera_executor',
                      'file_io_executor', 'autofocus_thread_executor',
-                     'reset_executor'):
+                     'worker_pool'):
             # scope_display_thread retired from these queue/futures
             # scans (Stage B1: it's a bare Thread, no queue, no
             # caller_futures).

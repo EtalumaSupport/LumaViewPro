@@ -21,7 +21,7 @@ from modules.config_ui_getters import (
 from modules import gui_logger
 from modules.debounce import debounce
 from modules.sequenced_capture_executor import SequencedCaptureRunMode
-from modules.sequential_io_executor import IOTask
+from modules.sequential_io_executor import IOTask, PRIORITY_HIGH
 from modules.tiling_config import TilingConfig
 from ui.ui_helpers import (
     _handle_ui_update_for_axis,
@@ -325,13 +325,15 @@ class VerticalControl(BoxLayout):
     def _cleanup_at_end_of_autofocus(self):
         ctx = _app_ctx.ctx
 
-        ctx.reset_executor.put(IOTask(
+        ctx.worker_pool.put(IOTask(
             action=ctx.sequenced_capture_executor.reset,
-            callback=self._reset_run_autofocus_button
+            callback=self._reset_run_autofocus_button,
+            priority=PRIORITY_HIGH,
         ))
 
-        ctx.reset_executor.put(IOTask(
-            action=ctx.autofocus_executor.reset
+        ctx.worker_pool.put(IOTask(
+            action=ctx.autofocus_executor.reset,
+            priority=PRIORITY_HIGH,
         ))
 
         # Resetting autofocus_executor before sequenced_capture_executor leads to possibility
@@ -411,9 +413,10 @@ class VerticalControl(BoxLayout):
             try:
                 if ctx.sequenced_capture_executor.run_trigger_source() == 'autofocus' and ctx.sequenced_capture_executor.run_in_progress():
                     # If AF is still stuck after timeout, attempt a protocol reset and revert UI
-                    ctx.reset_executor.put(IOTask(
+                    ctx.worker_pool.put(IOTask(
                         action=ctx.sequenced_capture_executor.reset,
-                        callback=self._reset_run_autofocus_button
+                        callback=self._reset_run_autofocus_button,
+                        priority=PRIORITY_HIGH,
                     ))
                     logger.warning('[AF Safety] Autofocus appeared stuck. Forced reset.')
             except Exception:
