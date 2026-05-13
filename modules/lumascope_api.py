@@ -5978,12 +5978,27 @@ class Lumascope():
         # circuit skip-frames for chunk-validatable sources (gain, exposure).
         # Cameras without chunks return None and fall back to the existing
         # skip-frames + settle-check path.
+        drain_iterations = 0
         while self.frame_validity.frames_until_valid(exclude_sources=exclude_sources) > 0:
             status, _ = self.camera.grab_new_capture(timeout=grab_timeout)
             if status:
                 self.frame_validity.count_frame(chunk_data=self._get_latest_chunks())
+                drain_iterations += 1
             else:
-                logger.warning('[SCOPE API ] capture_and_wait: frame drain failed')
+                remaining = self.frame_validity.frames_until_valid(
+                    exclude_sources=exclude_sources)
+                device_removed = (
+                    self.camera.is_device_removed()
+                    if self.camera and hasattr(self.camera, 'is_device_removed')
+                    else None
+                )
+                logger.warning(
+                    f'[SCOPE API ] capture_and_wait: frame drain failed -- '
+                    f'grab_new_capture returned status=False after '
+                    f'{grab_timeout:.1f}s timeout '
+                    f'(drained={drain_iterations}, frames_until_valid={remaining}, '
+                    f'device_removed={device_removed})'
+                )
                 return False
 
         return self.get_image(

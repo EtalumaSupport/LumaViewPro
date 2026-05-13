@@ -1996,12 +1996,22 @@ class PylonCamera(Camera):
                 _outcome = 'success'
                 return True, image_ts
 
+            except queue.Empty:
+                # Expected outcome when no frame arrives within `timeout`.
+                # WARNING (not ERROR), no traceback -- the wait simply
+                # expired, no SDK fault to attribute.
+                _outcome = 'timeout'
+                logger.warning(
+                    f'[CAM Class ] grab_new_capture timed out after '
+                    f'{timeout:.1f}s (no frame queued; dropped {dropped} stale)'
+                )
+                return False, None
             except Exception as ex:
-                # queue.Empty inherits from Exception -- both timeout and
-                # other errors are caught here. Outcome classification
-                # distinguishes them in the trace row.
-                _outcome = 'timeout' if isinstance(ex, queue.Empty) else 'exception'
-                logger.exception(f'Failed to grab image: {ex}')
+                _outcome = 'exception'
+                logger.exception(
+                    f'[CAM Class ] grab_new_capture raised '
+                    f'{type(ex).__name__}: {ex}'
+                )
                 return False, None
         finally:
             if _trace_enabled and _t0 is not None:
