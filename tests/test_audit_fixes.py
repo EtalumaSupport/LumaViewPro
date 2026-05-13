@@ -7059,3 +7059,69 @@ class TestReusableTaskWaiter:
         # Don't set result -- w1 is still in-flight
         w2 = _claim_waiter()
         assert w2 is not w1, "expected fresh waiter when previous is in-flight"
+
+
+class TestSequencedCaptureExecutorRunDirCollision:
+    """Rapid protocol-run mashing collides on the second-resolution
+    timestamp directory name. _create_run_dir retries with _001, _002,
+    ... so same-second collisions succeed on the next attempt instead
+    of hard-failing."""
+
+    def _make_executor(self, parent_dir):
+        from modules.sequenced_capture_executor import SequencedCaptureExecutor
+        exc = SequencedCaptureExecutor(
+            scope=MagicMock(),
+            stage_offset={'x': 0.0, 'y': 0.0, 'z': 0.0},
+            io_executor=MagicMock(),
+            protocol_executor=MagicMock(),
+            file_io_executor=MagicMock(),
+            camera_executor=MagicMock(),
+            autofocus_io_executor=MagicMock(),
+        )
+        exc._parent_dir = parent_dir
+        return exc
+
+    def test_first_call_uses_unsuffixed_name(self, tmp_path):
+        exc = self._make_executor(tmp_path)
+        result = exc._create_run_dir()
+        assert result['status'] is True
+        assert exc._run_dir.exists()
+        # Unsuffixed: bare YYYYMMDD_HHMMSS, no trailing _NNN.
+        name = exc._run_dir.name
+        assert len(name.split('_')) == 2, (
+            f"first call must use bare timestamp name; got {name!r}"
+        )
+
+    def test_same_second_collision_uses_suffix(self, tmp_path):
+        exc = self._make_executor(tmp_path)
+        r1 = exc._create_run_dir()
+        r2 = exc._create_run_dir()
+        r3 = exc._create_run_dir()
+        for r in (r1, r2, r3):
+            assert r['status'] is True, f"unexpected failure: {r}"
+        # All three directories exist and are distinct.
+        dirs = sorted(p.name for p in tmp_path.iterdir())
+        assert len(dirs) == 3
+        # The first is unsuffixed; the next two carry _001 and _002.
+        assert dirs[1].endswith('_001'), dirs
+        assert dirs[2].endswith('_002'), dirs
+
+    def test_collision_retries_dont_overwrite(self, tmp_path):
+        exc = self._make_executor(tmp_path)
+        exc._create_run_dir()
+        first_path = exc._run_dir
+        (first_path / 'sentinel.txt').write_text('do not overwrite')
+        exc._create_run_dir()
+        # First directory and its file are intact.
+        assert (first_path / 'sentinel.txt').read_text() == 'do not overwrite'
+        # Second call wrote to a different directory.
+        assert exc._run_dir != first_path
+        assert exc._run_dir.exists()
+
+    def test_missing_parent_still_returns_clear_error(self, tmp_path):
+        # Parent that does not exist: each candidate raises
+        # FileNotFoundError, no FileExistsError-style retry.
+        exc = self._make_executor(tmp_path / 'does_not_exist')
+        result = exc._create_run_dir()
+        assert result['status'] is False
+        assert 'accessible capture location' in result['error']
