@@ -227,8 +227,6 @@ if __name__ == '__main__':
     file_io_executor = None
     autofocus_thread_executor = None
     scope_display_thread_executor = None
-    stage_executor = None
-    turret_executor = None
     reset_executor = None
     executor_bundle = None
     ctx = None
@@ -492,8 +490,6 @@ class LumaViewProApp(TooltipMixin, App):
         if scope_display_thread_executor is not None:
             scope_display_thread_executor.shutdown(wait=False)
 
-        # stage_executor and turret_executor are aliases for io_executor (already shut down above)
-
         if reset_executor is not None:
             reset_executor.shutdown(wait=False)
 
@@ -597,7 +593,7 @@ class LumaViewProApp(TooltipMixin, App):
         # topology so the watchdog snapshot and engineering plugin see one truth.
         global io_executor, camera_executor, protocol_executor
         global file_io_executor, autofocus_thread_executor, scope_display_thread_executor
-        global stage_executor, turret_executor, reset_executor
+        global reset_executor
         global executor_bundle
         # Clock.schedule_once is passed as the UI dispatcher so executors can post
         # callbacks to the Kivy main thread without importing Kivy themselves.
@@ -619,8 +615,6 @@ class LumaViewProApp(TooltipMixin, App):
         file_io_executor = executor_bundle.file_io_executor
         autofocus_thread_executor = executor_bundle.autofocus_thread_executor
         scope_display_thread_executor = executor_bundle.scope_display_thread_executor
-        stage_executor = executor_bundle.stage_executor
-        turret_executor = executor_bundle.turret_executor
         reset_executor = executor_bundle.reset_executor
 
         # GUI-independent scope session; persisted to ctx.session and

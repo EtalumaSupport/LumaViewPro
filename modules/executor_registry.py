@@ -45,13 +45,7 @@ _FILE_IO_PROTOCOL_QUEUE_MAXSIZE = 32
 
 @dataclass
 class ExecutorBundle:
-    """Holds every SequentialIOExecutor LVP needs at runtime.
-
-    ``stage_executor`` and ``turret_executor`` are the same object as
-    ``io_executor`` (all motor serial I/O serializes through one
-    executor). They are kept as named fields so callers don't have to
-    know about the aliasing.
-    """
+    """Holds every SequentialIOExecutor LVP needs at runtime."""
 
     io_executor: SequentialIOExecutor
     camera_executor: SequentialIOExecutor
@@ -60,8 +54,6 @@ class ExecutorBundle:
     autofocus_thread_executor: SequentialIOExecutor
     scope_display_thread_executor: SequentialIOExecutor
     reset_executor: SequentialIOExecutor
-    stage_executor: SequentialIOExecutor    # alias for io_executor
-    turret_executor: SequentialIOExecutor   # alias for io_executor
 
     def snapshot(self) -> dict[str, int]:
         """LVP-A-8: return ``{logical_name: queue_size}`` for every executor.
@@ -130,9 +122,6 @@ def create_default(ui_dispatcher) -> ExecutorBundle:
         autofocus_thread_executor=autofocus_thread_executor,
         scope_display_thread_executor=scope_display_thread_executor,
         reset_executor=reset_executor,
-        # Aliases — same object, named so callers don't have to know.
-        stage_executor=io_executor,
-        turret_executor=io_executor,
     )
 
     for ex in (
