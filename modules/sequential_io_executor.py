@@ -6,6 +6,7 @@
 # the ui_dispatcher parameter when constructing executors.
 
 from concurrent.futures import Future, CancelledError
+import itertools
 import queue
 from collections.abc import Sequence
 from lvp_logger import logger, debug
@@ -13,6 +14,13 @@ from lib import profile_trace
 from modules.notification_center import notifications
 import threading
 import time
+
+
+# IOTask priority constants. Lower value runs first. Only honored by
+# priority_aware executors; FIFO executors ignore the field.
+PRIORITY_HIGH = 0
+PRIORITY_MED = 1
+PRIORITY_LOW = 2
 
 # Threading audit §10.1 — per-IOTask queue-wait + exec-time instrumentation.
 # Opt-in via LVP_PROFILE_TRACE=1 env var (same gate as serial_trace /
@@ -154,8 +162,10 @@ class IOTask:
         def __init__(self, action, args=None, kwargs=None, callback=None,
                      cb_args=None, cb_kwargs=None, pass_result=False,
                      slow_task_threshold_sec=None,
-                     silent_on_failure=False):
+                     silent_on_failure=False,
+                     priority: int = PRIORITY_MED):
             self.action = action
+            self.priority = priority
             self._ui_dispatch = None  # Set by executor when task is dispatched
             # When True, _on_task_done skips the generic "Task failed"
             # notification on exception -- the caller's callback (or its
@@ -280,10 +290,56 @@ def _direct_dispatch(func, timeout=0):
             _log.getLogger('LVP').debug(f'_direct_dispatch error: {e}')
 
 
+class _PriorityFifoQueue:
+    """PriorityQueue wrapper hiding the tuple wrap/unwrap from callers.
+    put(task) / get() -> task have the same shape as queue.Queue; the
+    priority field drives ordering, a monotonic counter breaks ties
+    FIFO within priority. IOTask stays non-comparable because the
+    counter is reached only on an impossible (priority, counter) tie.
+    """
+
+    def __init__(self):
+        self._q = queue.PriorityQueue()
+        # itertools.count() is thread-safe in CPython; per-instance
+        # so two priority_aware executors don't share counter state.
+        self._counter = itertools.count()
+
+    def put(self, task):
+        self._q.put((task.priority, next(self._counter), task))
+
+    def put_nowait(self, task):
+        self._q.put_nowait((task.priority, next(self._counter), task))
+
+    def get(self, block=True, timeout=None):
+        _prio, _ctr, task = self._q.get(block=block, timeout=timeout)
+        return task
+
+    def get_nowait(self):
+        _prio, _ctr, task = self._q.get_nowait()
+        return task
+
+    def qsize(self):
+        return self._q.qsize()
+
+    def empty(self):
+        return self._q.empty()
+
+    def task_done(self):
+        self._q.task_done()
+
+
 class SequentialIOExecutor:
     def __init__(self, max_workers: int=1, name: str=None, ui_dispatcher=None,
-                 protocol_queue_maxsize: int = 0):
-        self.queue = queue.Queue()
+                 protocol_queue_maxsize: int = 0,
+                 priority_aware: bool = False):
+        # priority_aware=True swaps the default queue for a priority
+        # wrapper; protocol_queue stays FIFO so step ordering inside
+        # a protocol is preserved.
+        self.priority_aware = priority_aware
+        if priority_aware:
+            self.queue = _PriorityFifoQueue()
+        else:
+            self.queue = queue.Queue()
         # F-2: protocol_queue_maxsize=0 keeps the historical unbounded
         # behavior; file_io_executor passes 32 so a save-thread that
         # falls behind drops new captures with a sentinel return rather
@@ -735,6 +791,12 @@ class SequentialIOExecutor:
         pass
 
     def clear_pending(self):
+        """Drain the default queue, cancelling each pending task's Future.
+
+        For priority_aware executors the drain order is HIGH-first --
+        if a HIGH cancel callback must run before a MED cancel callback
+        (e.g. abort signal ordering), that's the right semantic.
+        """
         # Remove all tasks still in queue
         cleared_count = 0
         while True:

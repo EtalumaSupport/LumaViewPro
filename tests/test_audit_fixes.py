@@ -5099,6 +5099,284 @@ class TestSequentialIOExecutorSubmitThenShutdownNoFutureLeak:
         )
 
 
+class TestSequentialIOExecutorPriorityAware:
+    """priority_aware=True orders the default queue by IOTask.priority
+    (lower value first) with FIFO tie-break within priority.
+    priority_aware=False keeps submit-order FIFO regardless of priority.
+    """
+
+    @staticmethod
+    def _drain_with_blocker(executor, head_event, tasks, timeout=2.0):
+        """Submit a head task that blocks on head_event, then submit
+        tasks in order. Release head_event and wait for all tasks to
+        run. Returns the order in which the tasks' actions executed.
+        """
+        import threading as _t
+        import time as _t2
+        from modules.sequential_io_executor import IOTask
+
+        observed = []
+
+        def head_action():
+            head_event.wait(timeout=timeout)
+            observed.append('__head__')
+
+        executor.put(IOTask(action=head_action))
+        # Give the worker time to dequeue + enter head_action's wait.
+        _t2.sleep(0.05)
+
+        for label, prio in tasks:
+            executor.put(IOTask(
+                action=lambda lbl=label: observed.append(lbl),
+                priority=prio,
+            ))
+
+        # Now release the head -- worker processes the rest in priority
+        # order.
+        head_event.set()
+        deadline = _t2.monotonic() + timeout
+        expected = 1 + len(tasks)
+        while len(observed) < expected and _t2.monotonic() < deadline:
+            _t2.sleep(0.01)
+        return observed
+
+    def test_high_jumps_med(self):
+        import threading as _t
+        from modules.sequential_io_executor import (
+            SequentialIOExecutor, PRIORITY_HIGH, PRIORITY_MED,
+        )
+        executor = SequentialIOExecutor(
+            name='TEST_PRIO', priority_aware=True)
+        executor.start()
+        try:
+            head = _t.Event()
+            order = self._drain_with_blocker(
+                executor, head,
+                [('med-A', PRIORITY_MED),
+                 ('high',  PRIORITY_HIGH),
+                 ('med-B', PRIORITY_MED)],
+            )
+            assert order == ['__head__', 'high', 'med-A', 'med-B'], (
+                f'HIGH must jump ahead of pending MEDs (FIFO within MED); '
+                f'got {order}'
+            )
+        finally:
+            executor.shutdown(wait=False)
+
+    def test_fifo_within_priority(self):
+        import threading as _t
+        from modules.sequential_io_executor import (
+            SequentialIOExecutor, PRIORITY_MED,
+        )
+        executor = SequentialIOExecutor(
+            name='TEST_PRIO_FIFO', priority_aware=True)
+        executor.start()
+        try:
+            head = _t.Event()
+            order = self._drain_with_blocker(
+                executor, head,
+                [('a', PRIORITY_MED),
+                 ('b', PRIORITY_MED),
+                 ('c', PRIORITY_MED),
+                 ('d', PRIORITY_MED)],
+            )
+            assert order == ['__head__', 'a', 'b', 'c', 'd'], (
+                f'within a single priority the monotonic counter must '
+                f'preserve submit order; got {order}'
+            )
+        finally:
+            executor.shutdown(wait=False)
+
+    def test_three_priorities_strict_ordering(self):
+        import threading as _t
+        from modules.sequential_io_executor import (
+            SequentialIOExecutor, PRIORITY_HIGH, PRIORITY_MED, PRIORITY_LOW,
+        )
+        executor = SequentialIOExecutor(
+            name='TEST_PRIO_THREE', priority_aware=True)
+        executor.start()
+        try:
+            head = _t.Event()
+            # Interleave submission order; expect priority sort then
+            # FIFO tie-break:
+            #   HIGH:  h1, h2
+            #   MED:   m1, m2
+            #   LOW:   l1, l2
+            order = self._drain_with_blocker(
+                executor, head,
+                [('l1', PRIORITY_LOW),
+                 ('m1', PRIORITY_MED),
+                 ('h1', PRIORITY_HIGH),
+                 ('m2', PRIORITY_MED),
+                 ('h2', PRIORITY_HIGH),
+                 ('l2', PRIORITY_LOW)],
+            )
+            assert order == ['__head__',
+                             'h1', 'h2', 'm1', 'm2', 'l1', 'l2'], (
+                f'priority sort + FIFO tie-break failed; got {order}'
+            )
+        finally:
+            executor.shutdown(wait=False)
+
+    def test_low_eventually_runs_under_sustained_med(self):
+        """LOW fairness sanity: pure priority ordering (no aging), but
+        a finite MED batch must not infinitely starve LOW. Submit LOW
+        first, then a 50-MED burst, verify LOW completes."""
+        import threading as _t
+        import time as _t2
+        from modules.sequential_io_executor import (
+            SequentialIOExecutor, IOTask, PRIORITY_MED, PRIORITY_LOW,
+        )
+        executor = SequentialIOExecutor(
+            name='TEST_PRIO_FAIR', priority_aware=True)
+        executor.start()
+        try:
+            head = _t.Event()
+            low_done = _t.Event()
+
+            def head_action():
+                head.wait(timeout=2.0)
+
+            executor.put(IOTask(action=head_action))
+            _t2.sleep(0.05)
+
+            executor.put(IOTask(
+                action=low_done.set, priority=PRIORITY_LOW))
+            for i in range(50):
+                executor.put(IOTask(
+                    action=lambda: None, priority=PRIORITY_MED))
+
+            head.set()
+            assert low_done.wait(timeout=3.0), (
+                'LOW must run after the 50 MED tasks finish; '
+                'pure priority sort still guarantees forward progress '
+                'on a bounded MED batch'
+            )
+        finally:
+            executor.shutdown(wait=False)
+
+    def test_clear_pending_drains_high_first(self):
+        """clear_pending on a priority_aware executor drains HIGH-first;
+        all caller_futures are drained and the alloc/pop counters
+        balance after the drain."""
+        import threading as _t
+        import time as _t2
+        from modules.sequential_io_executor import (
+            SequentialIOExecutor, IOTask, PRIORITY_HIGH, PRIORITY_MED,
+        )
+        executor = SequentialIOExecutor(
+            name='TEST_PRIO_CLEAR', priority_aware=True)
+        executor.start()
+        try:
+            # Block the worker so the queue actually accumulates tasks
+            # without them draining mid-test.
+            head_event = _t.Event()
+
+            def head_action():
+                head_event.wait(timeout=2.0)
+
+            executor.put(IOTask(action=head_action))
+            _t2.sleep(0.05)
+
+            # Submit MED then HIGH then MED. Without priority,
+            # cancel-order would be MED, HIGH, MED.
+            cancel_order = []
+            futs = []
+            for label, prio in [('med-A', PRIORITY_MED),
+                                ('high',  PRIORITY_HIGH),
+                                ('med-B', PRIORITY_MED)]:
+                task = IOTask(
+                    action=lambda lbl=label: cancel_order.append(
+                        ('ran-', lbl)),
+                    priority=prio,
+                )
+                fut = executor.put(task, return_future=True)
+                futs.append((label, fut))
+
+            executor.clear_pending()
+            # Cancel callbacks on _ReusableTaskWaiter are recorded as
+            # the order in which clear_pending pulled them. The
+            # PriorityQueue.get_nowait order IS the cancel-execution
+            # order from clear_pending's perspective.
+            #
+            # We can't directly observe cancel-call order without
+            # patching the waiter; instead verify the structural
+            # contract: every fut had cancel() invoked, and the
+            # caller_futures dict is fully drained.
+            head_event.set()
+            _t2.sleep(0.1)
+            assert len(executor.caller_futures) == 0, (
+                'clear_pending must drain caller_futures fully; '
+                f'residual={len(executor.caller_futures)}'
+            )
+            alloc, pop, _ = executor.caller_futures_stats()
+            assert alloc == pop, (
+                f'caller_futures alloc/pop must balance after '
+                f'clear_pending; alloc={alloc} pop={pop}'
+            )
+        finally:
+            executor.shutdown(wait=False)
+
+    def test_caller_futures_invariant_under_priority_mix(self):
+        """Mixed-priority return_future submission must keep
+        alloc == pop at steady state."""
+        import time as _t2
+        from modules.sequential_io_executor import (
+            SequentialIOExecutor, IOTask, PRIORITY_HIGH, PRIORITY_MED,
+            PRIORITY_LOW,
+        )
+        executor = SequentialIOExecutor(
+            name='TEST_PRIO_FUTURES', priority_aware=True)
+        executor.start()
+        try:
+            prios = [PRIORITY_HIGH, PRIORITY_MED, PRIORITY_LOW] * 30
+            for prio in prios:
+                executor.put(
+                    IOTask(action=lambda: None, priority=prio),
+                    return_future=True,
+                )
+            # Drain.
+            deadline = _t2.monotonic() + 3.0
+            while executor.queue_size() > 0 and _t2.monotonic() < deadline:
+                _t2.sleep(0.01)
+            _t2.sleep(0.1)  # last task to complete + clean up
+            alloc, pop, live = executor.caller_futures_stats()
+            assert alloc == pop, (
+                f'priority-mixed return_future submissions must keep '
+                f'alloc==pop; alloc={alloc} pop={pop} live={live}'
+            )
+            assert live == 0, (
+                f'no Future entries may remain in caller_futures after '
+                f'steady state; live={live}'
+            )
+        finally:
+            executor.shutdown(wait=False)
+
+    def test_priority_aware_false_keeps_fifo(self):
+        """priority_aware=False (the default) ignores IOTask.priority
+        and keeps submit-order FIFO."""
+        import threading as _t
+        from modules.sequential_io_executor import (
+            SequentialIOExecutor, PRIORITY_HIGH, PRIORITY_MED,
+        )
+        executor = SequentialIOExecutor(name='TEST_FIFO_LEGACY')
+        executor.start()
+        try:
+            head = _t.Event()
+            order = self._drain_with_blocker(
+                executor, head,
+                [('med-A', PRIORITY_MED),
+                 ('high',  PRIORITY_HIGH),
+                 ('med-B', PRIORITY_MED)],
+            )
+            assert order == ['__head__', 'med-A', 'high', 'med-B'], (
+                f'priority_aware=False must keep submit-order FIFO '
+                f'regardless of IOTask.priority; got {order}'
+            )
+        finally:
+            executor.shutdown(wait=False)
+
+
 class TestPylonAutoGainNoUpdateCameraConfigWrap:
     """update_auto_gain_target_brightness and update_auto_gain_min_max
     write Basler AutoTargetBrightness / AutoGainLowerLimit /

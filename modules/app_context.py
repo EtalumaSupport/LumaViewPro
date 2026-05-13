@@ -63,8 +63,8 @@ class AppContext:
     protocol_executor: object = None
     file_io_executor: object = None
     autofocus_thread_executor: object = None
-    scope_display_thread: object = None  # Stage B1: was scope_display_thread_executor
-    reset_executor: object = None
+    scope_display_thread: object = None
+    worker_pool: object = None
 
     # Helpers
     wellplate_loader: object = None

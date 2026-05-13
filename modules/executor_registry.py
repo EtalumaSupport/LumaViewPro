@@ -13,8 +13,12 @@ instances:
     PROTOCOL    -- protocol orchestration (long-running runs)
     FILE        -- file IO; protocol_queue bounded at 32 (F-2)
     AUTOFOCUS   -- autofocus measurement loop
-    SCOPEDISPLAY-- display pull loop dispatcher
-    RESET       -- emergency stop / reconnect operations
+    SCOPEDISPLAY-- display pull loop dispatcher (bare Thread, no queue)
+    WORKER_POOL -- priority-aware lane for short-lived work that needs
+                  to jump ahead of MED (abort cleanup at PRIORITY_HIGH,
+                  diagnostics at PRIORITY_LOW). HIGH/MED/LOW ordering;
+                  FIFO tie-break within priority. protocol_queue stays
+                  FIFO regardless.
 
 Until LVP-A-10 every entry point open-coded ~45 lines of construct +
 start + register, with the failure mode that adding (e.g.) a new REST
@@ -54,7 +58,7 @@ class ExecutorBundle:
     file_io_executor: SequentialIOExecutor
     autofocus_thread_executor: SequentialIOExecutor
     scope_display_thread: ScopeDisplayThread
-    reset_executor: SequentialIOExecutor
+    worker_pool: SequentialIOExecutor
 
     def snapshot(self) -> dict[str, int]:
         """LVP-A-8: return ``{logical_name: queue_size}`` for every executor.
@@ -63,9 +67,10 @@ class ExecutorBundle:
         counting their queue depth. Engineering plugin / REST status
         endpoint / app watchdog all consume the same view.
 
-        SCOPEDISPLAY is the bare-Thread per Stage B1 -- no queue, so
-        its slot reports 0 (running) or -1 (stopped) instead of a
-        queue depth.
+        SCOPEDISPLAY is a bare Thread -- no queue, so its slot reports
+        0 (running) or -1 (stopped) instead of a queue depth.
+        WORKER_POOL is priority-aware; queue_size aggregates all
+        priorities (HIGH + MED + LOW).
         """
         executors = [
             ('IO',          self.io_executor),
@@ -73,7 +78,7 @@ class ExecutorBundle:
             ('PROTOCOL',    self.protocol_executor),
             ('FILE',        self.file_io_executor),
             ('AUTOFOCUS',   self.autofocus_thread_executor),
-            ('RESET',       self.reset_executor),
+            ('WORKER_POOL', self.worker_pool),
         ]
         out = {}
         for name, ex in executors:
@@ -127,8 +132,9 @@ def create_default(ui_dispatcher) -> ExecutorBundle:
         ui_dispatcher=ui_dispatcher,
         ctx_provider=lambda: _app_ctx.ctx,
     )
-    reset_executor = SequentialIOExecutor(
-        name="RESET", ui_dispatcher=ui_dispatcher)
+    worker_pool = SequentialIOExecutor(
+        name="WORKER_POOL", ui_dispatcher=ui_dispatcher,
+        priority_aware=True)
 
     bundle = ExecutorBundle(
         io_executor=io_executor,
@@ -137,19 +143,19 @@ def create_default(ui_dispatcher) -> ExecutorBundle:
         file_io_executor=file_io_executor,
         autofocus_thread_executor=autofocus_thread_executor,
         scope_display_thread=scope_display_thread,
-        reset_executor=reset_executor,
+        worker_pool=worker_pool,
     )
 
     for ex in (
         io_executor, camera_executor, protocol_executor,
         file_io_executor, autofocus_thread_executor,
-        reset_executor,
+        worker_pool,
     ):
         ex.start()
 
     logger.info(
         '[LVP Main  ] ExecutorRegistry: created + started '
         '6 SequentialIOExecutor instances (IO, CAMERA, PROTOCOL, FILE, '
-        'AUTOFOCUS, RESET) + scope_display_thread (deferred start by widget); '
-        'stage/turret aliased to IO')
+        'AUTOFOCUS, WORKER_POOL) + scope_display_thread (started '
+        'separately from lumaviewpro.build); stage/turret aliased to IO')
     return bundle
