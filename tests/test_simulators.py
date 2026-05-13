@@ -274,6 +274,46 @@ class TestSimulatedMotorBoard:
         assert 'X' in limits
         assert 'Y' in limits
 
+    def test_amax_dmax_probe_warning_suppressed(self, caplog):
+        """Legacy firmware probe failures for AMAXX/DMAXX/AMAXY/DMAXY
+        are filtered out of LVP.serial WARNING records.
+        drivers/motorboard.py installs the filter at import time."""
+        import logging
+        serial_log = logging.getLogger('LVP.serial')
+        with caplog.at_level(logging.WARNING, logger='LVP.serial'):
+            for cmd in ('AMAXX', 'DMAXX', 'AMAXY', 'DMAXY'):
+                serial_log.warning(
+                    f"[XYZ Class ] FIRMWARE ERROR: {cmd} -> "
+                    f"ERROR: command '{cmd}' not found:"
+                )
+        suppressed = [r for r in caplog.records
+                      if 'FIRMWARE ERROR' in r.getMessage()]
+        assert suppressed == [], (
+            f'AMAX/DMAX probe warnings must be filtered; '
+            f'leaked {len(suppressed)} records'
+        )
+
+    def test_other_firmware_errors_still_propagate(self, caplog):
+        """Filter must drop ONLY the AMAX/DMAX probe records. Any other
+        FIRMWARE ERROR (real protocol-level failure) propagates."""
+        import logging
+        serial_log = logging.getLogger('LVP.serial')
+        with caplog.at_level(logging.WARNING, logger='LVP.serial'):
+            serial_log.warning(
+                "[XYZ Class ] FIRMWARE ERROR: MOVE -> "
+                "ERROR: motor stalled at limit switch"
+            )
+            serial_log.warning(
+                "[LED Class ] FIRMWARE ERROR: ILLUMS -> "
+                "ERROR: channel not available"
+            )
+        passed = [r for r in caplog.records
+                  if 'FIRMWARE ERROR' in r.getMessage()]
+        assert len(passed) == 2, (
+            f'Real FIRMWARE ERROR records must propagate; '
+            f'got {len(passed)} (expected 2)'
+        )
+
     def test_axes_config(self):
         board = SimulatedMotorBoard()
         config = board.get_axes_config()
@@ -1269,9 +1309,9 @@ class TestTimingModes:
         """In realistic mode, target_status returns False during move."""
         m = SimulatedMotorBoard(timing='realistic')
         m._homed['Z'] = True
-        # 1000 usteps gives ~0.5 s expected duration with TMC ramp params —
+        # 1000 usteps gives ~0.5 s expected duration with TMC ramp params --
         # still proves "not instant" via the immediate-False check, while
-        # leaving ~10× headroom against the 5 s deadline. Pre-shrink the
+        # leaving ~10x headroom against the 5 s deadline. Pre-shrink the
         # test used 10 000 usteps which produced ~4.7 s expected duration
         # and only ~0.3 s of margin; under heavy concurrent test load
         # (memory pressure, GC pauses) the deadline blew intermittently.
