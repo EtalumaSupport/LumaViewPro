@@ -4881,9 +4881,17 @@ class TestSequentialIOExecutorCancelledNotErrorLogged:
     """
 
     def _run_on_task_done(self, executor, exception):
+        # Mirror the worker's lifecycle: put -> get -> task.run ->
+        # _on_task_done. The worker dequeues before running; the test
+        # bypasses task.run but must dequeue first so _on_task_done's
+        # internal task_done() balances against the put. Without the
+        # get_nowait, Stage A's shutdown -> clear_pending would call
+        # task_done() on a queue whose unfinished count already went to
+        # zero, raising ValueError.
         from modules.sequential_io_executor import IOTask
         task = IOTask(action=lambda: None, callback=lambda *a, **k: None)
         executor.queue.put(task)
+        executor.queue.get_nowait()
         executor._on_task_done(task, None, exception)
 
     def test_cancelled_does_not_call_notifications_error(self, monkeypatch):
@@ -4905,8 +4913,7 @@ class TestSequentialIOExecutorCancelledNotErrorLogged:
                 f'notifications.error; got {calls}'
             )
         finally:
-            executor.executor.shutdown(wait=False)
-            executor.dispatcher.shutdown(wait=False)
+            executor.shutdown(wait=False)
 
     def test_runtime_error_still_calls_notifications_error(self, monkeypatch):
         from modules.sequential_io_executor import SequentialIOExecutor
@@ -4926,8 +4933,170 @@ class TestSequentialIOExecutorCancelledNotErrorLogged:
                 f'notifications.error; got {calls}'
             )
         finally:
-            executor.executor.shutdown(wait=False)
-            executor.dispatcher.shutdown(wait=False)
+            executor.shutdown(wait=False)
+
+
+class TestSequentialIOExecutorSilentOnFailure:
+    """IOTask.silent_on_failure=True must suppress the generic
+    notifications.error popup at _on_task_done. The caller opted in to
+    handle its own notification path (Rule 14 -- API/caller decides,
+    not the executor). LVP 09a324a shipped this for the
+    protocol_image_writer.execute_step retry path where per-failure
+    popups would stack into the Class A 110-popups-overnight storm.
+    Regression guard for the executor topology plan Stage A amendments:
+    Stage A's inline _on_task_done call must preserve this flag's
+    semantics.
+    """
+
+    def _build_task(self, silent: bool):
+        from modules.sequential_io_executor import IOTask
+        return IOTask(
+            action=lambda: None,
+            callback=lambda *a, **k: None,
+            silent_on_failure=silent,
+        )
+
+    def test_silent_on_failure_suppresses_notification(self, monkeypatch):
+        from modules.sequential_io_executor import SequentialIOExecutor
+        from modules import notification_center
+
+        executor = SequentialIOExecutor(max_workers=1, name='TEST_SILENT')
+        try:
+            calls = []
+            monkeypatch.setattr(
+                notification_center.notifications,
+                'error',
+                lambda *a, **kw: calls.append(('error', a, kw)),
+            )
+            task = self._build_task(silent=True)
+            executor.queue.put(task)
+            executor.queue.get_nowait()  # mirror worker dequeue
+            executor._on_task_done(task, None, RuntimeError('expected'))
+            assert calls == [], (
+                f'silent_on_failure=True must suppress notifications.error; '
+                f'got {calls}'
+            )
+        finally:
+            executor.shutdown(wait=False)
+
+    def test_silent_on_failure_default_does_fire_notification(self, monkeypatch):
+        from modules.sequential_io_executor import SequentialIOExecutor
+        from modules import notification_center
+
+        executor = SequentialIOExecutor(max_workers=1, name='TEST_LOUD')
+        try:
+            calls = []
+            monkeypatch.setattr(
+                notification_center.notifications,
+                'error',
+                lambda *a, **kw: calls.append(('error', a, kw)),
+            )
+            task = self._build_task(silent=False)
+            executor.queue.put(task)
+            executor.queue.get_nowait()  # mirror worker dequeue
+            executor._on_task_done(task, None, RuntimeError('expected'))
+            assert len(calls) == 1, (
+                f'silent_on_failure=False (default) must fire one '
+                f'notifications.error; got {calls}'
+            )
+        finally:
+            executor.shutdown(wait=False)
+
+
+class TestSequentialIOExecutorTDequeuePreservedUnderProfileTrace:
+    """Stage A's inline _run_loop must preserve the _t_dequeue
+    profile_trace timing stamp at sequential_io_executor.py:533. The
+    timing is used for queue-wait + exec-time instrumentation per
+    AUDIT_THREADING_PARALLELISM section 10.1. Stage A drops the
+    two-pool ThreadPoolExecutor in favor of a single worker thread;
+    this test guards the timing path against accidental removal.
+    """
+
+    def test_t_dequeue_set_when_profile_trace_enabled(self, monkeypatch):
+        import time
+        from modules.sequential_io_executor import SequentialIOExecutor, IOTask
+        from lib import profile_trace
+
+        # Force-enable profile_trace for the test. Restore previous state
+        # in finally so other tests are unaffected.
+        original = profile_trace.ENABLE_PROFILE_TRACE
+        monkeypatch.setattr(profile_trace, 'ENABLE_PROFILE_TRACE', True)
+
+        executor = SequentialIOExecutor(max_workers=1, name='TEST_TDEQUEUE')
+        try:
+            done_event = __import__('threading').Event()
+            results = {}
+
+            def captured_action():
+                # Capture t_dequeue at task-run time so the test can read
+                # what _run_loop stamped.
+                results['t_dequeue'] = getattr(task, '_t_dequeue', None)
+                done_event.set()
+
+            task = IOTask(action=captured_action, callback=lambda *a, **k: None)
+            executor.start()
+            t_submit = time.monotonic()
+            executor.put(task)
+
+            assert done_event.wait(timeout=2.0), 'task did not run in 2s'
+            assert results.get('t_dequeue') is not None, (
+                '_t_dequeue must be set by _run_loop before task.run() '
+                'when profile_trace is enabled'
+            )
+            assert results['t_dequeue'] >= t_submit, (
+                f'_t_dequeue must be set AFTER submission; '
+                f'submit={t_submit} t_dequeue={results["t_dequeue"]}'
+            )
+        finally:
+            executor.shutdown(wait=False)
+            monkeypatch.setattr(profile_trace, 'ENABLE_PROFILE_TRACE', original)
+
+
+class TestSequentialIOExecutorSubmitThenShutdownNoFutureLeak:
+    """Stage A retires the orphan-submit pattern that caused Bug E
+    (Future + _WorkItem retention in CPython ThreadPoolExecutor
+    internals). The structural fix runs every task inline in a single
+    worker thread -- there is no Future and no _WorkItem.
+
+    This unit test guards the proxy invariant that caller_futures is
+    fully drained after shutdown(wait=False), even when tasks were
+    submitted with return_future=True. A live caller_futures dict
+    after shutdown would indicate the Stage A retirement re-introduced
+    a leak surface.
+
+    The bench-validated test (Handle.exe plateau on a 30-min protocol)
+    is the canonical Bug E acceptance per
+    docs/EXECUTOR_TOPOLOGY_PLAN_2026-05-13.md section 4.A. This unit
+    test is the in-suite proxy.
+    """
+
+    def test_caller_futures_empty_after_submit_then_shutdown(self):
+        from modules.sequential_io_executor import SequentialIOExecutor, IOTask
+
+        executor = SequentialIOExecutor(max_workers=1, name='TEST_SHUTDOWN_DRAIN')
+        executor.start()
+        try:
+            # Submit a batch of return_future tasks. Don't wait for them
+            # to complete -- shutdown(wait=False) should cancel pending
+            # and drain caller_futures regardless.
+            for i in range(20):
+                task = IOTask(
+                    action=lambda: None,
+                    callback=lambda *a, **k: None,
+                )
+                executor.put(task, return_future=True)
+        finally:
+            executor.shutdown(wait=False)
+
+        assert len(executor.caller_futures) == 0, (
+            f'caller_futures must be fully drained after '
+            f'shutdown(wait=False); residual={len(executor.caller_futures)}'
+        )
+        alloc, pop, _residual_live = executor.caller_futures_stats()
+        assert alloc == pop, (
+            f'caller_futures alloc/pop must balance after shutdown; '
+            f'alloc={alloc} pop={pop}'
+        )
 
 
 class TestPylonAutoGainNoUpdateCameraConfigWrap:

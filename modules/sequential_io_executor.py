@@ -5,10 +5,9 @@
 # direct invocation. The GUI layer passes Clock.schedule_once as
 # the ui_dispatcher parameter when constructing executors.
 
-from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor, Future, CancelledError
+from concurrent.futures import Future, CancelledError
 import queue
 from collections.abc import Sequence
-from functools import partial
 from lvp_logger import logger, debug
 from lib import profile_trace
 from modules.notification_center import notifications
@@ -297,12 +296,12 @@ class SequentialIOExecutor:
         self.name = name
         if name is not None:
             self.executor_name = name + "_" + "WORKER"
-            self.dispatcher_name = name + "_" + "DISPATCHER"
-            self.executor = ThreadPoolExecutor(thread_name_prefix=self.executor_name, max_workers=max_workers)
-            self.dispatcher = ThreadPoolExecutor(thread_name_prefix=self.dispatcher_name, max_workers=1)
         else:
-            self.executor = ThreadPoolExecutor(max_workers=max_workers)
-            self.dispatcher = ThreadPoolExecutor(max_workers=1)
+            self.executor_name = "WORKER"
+        # max_workers retained for signature back-compat; the worker is
+        # a single thread by design (sequential per hardware boundary).
+        self._max_workers = max_workers
+        self._worker_thread = None
         self._running_task_lock = threading.Lock()
         self._running_task = None
         self.global_callback = None
@@ -346,8 +345,17 @@ class SequentialIOExecutor:
 
 
     def start(self):
-        # Start internal dispatcher
-        self.dispatcher.submit(self._dispatch_loop)
+        # daemon=True so a hung in-flight task at app teardown cannot keep
+        # the process alive. Cooperative shutdown is still preferred:
+        # long-running task implementations may close over the executor
+        # and poll `executor.pending_shutdown` to bail early (the pattern
+        # already used by _protocol_ended.is_set() in scan_loop).
+        self._worker_thread = threading.Thread(
+            target=self._run_loop,
+            name=self.executor_name,
+            daemon=True,
+        )
+        self._worker_thread.start()
 
     def disable(self):
         self._disable = True
@@ -510,20 +518,17 @@ class SequentialIOExecutor:
             logger.error(f"{self.name} Worker Error: {e}")
             
 
-    def _dispatch_loop(self):
-        # Pulls from queue, submits to worker pool, wires up callbacks
-        threading.current_thread().name = self.dispatcher_name
+    def _run_loop(self):
         while True:
             if self._disable:
                 self.blocker.wait()
             try:
+                task = None
                 try:
                     if self.protocol_running.is_set() or self.protocol_finish.is_set():
                         task = self.protocol_queue.get(block=True, timeout=0.2)
                         task.protocol = True
                     elif not self.protocol_queue.empty():
-                        # Protocol is not running and there are still items in the protocol queue
-                        # Clear the queue
                         self.clear_protocol_pending()
                         continue
                     else:
@@ -535,15 +540,10 @@ class SequentialIOExecutor:
                     if self.pending_shutdown:
                         return
                     if self.protocol_finish.is_set():
-                        # Capture callback BEFORE protocol_end() — protocol_end
-                        # clears self.protocol_complete_callback for the
-                        # "premature end" path (e.g. caller invokes protocol_end
-                        # directly without going through finish-then-end). The
-                        # normal-drain path here also calls protocol_end, so
-                        # without capturing first, the callback gets wiped
-                        # before we can fire it. Caused issue #642 where
-                        # files_complete never fired on disk-space abort →
-                        # button stuck at "Writing Files... (0)" disabled.
+                        # Capture callback locals BEFORE protocol_end --
+                        # protocol_end clears protocol_complete_callback for
+                        # the premature-end path, so reading it after would
+                        # always be None on the normal-drain path here.
                         with self._callback_lock:
                             _cb = self.protocol_complete_callback
                             _cb_args = self.protocol_complete_cb_args
@@ -558,47 +558,34 @@ class SequentialIOExecutor:
                                 lambda dt: _cb(*_cb_args, **_cb_kwargs), 0
                             )
                     continue
-                if self.protocol_running.is_set() or self.protocol_finish.is_set():
-                    if self.pending_shutdown:
-                        return
-                    task._ui_dispatch = self._ui_dispatch
-                    self.executor.submit(task.run).add_done_callback(partial(self._safe_done_cb, task=task))
-                    self.running_task = task
-                else:
+
+                if not (self.protocol_running.is_set() or self.protocol_finish.is_set()):
                     if not self.protocol_queue.empty():
                         self.protocol_queue.queue.clear()
-                    if self.pending_shutdown:
-                        return
-                    task._ui_dispatch = self._ui_dispatch
-                    self.executor.submit(task.run).add_done_callback(partial(self._safe_done_cb, task=task))
-                    self.running_task = task
+                if self.pending_shutdown:
+                    return
+
+                task._ui_dispatch = self._ui_dispatch
+                self.running_task = task
+
+                run_result = None
+                run_exc = None
+                try:
+                    run_result = task.run()
+                except BaseException as e:
+                    run_exc = e
+
+                if run_exc is not None:
+                    self._on_task_done(task, None, run_exc)
+                elif isinstance(run_result, tuple) and len(run_result) == 2:
+                    self._on_task_done(task, run_result[0], run_result[1])
+                else:
+                    self._on_task_done(task, run_result, None)
             except Exception as e:
-                logger.error(f"Uncaught Thread Exception in {self.name} Dispatcher: {e}", exc_info=True)
-
-    def _safe_done_cb(self, fut, task):
-        try:
-            if fut.cancelled():
-                # Treat cancellation as a completed task with a CancelledError
-                self._on_task_done(task, None, CancelledError())
-                return
-
-            exc = fut.exception()
-            if exc is not None:
-                # This would only happen if task.run() itself raised and wasn't caught,
-                self._on_task_done(task, None, exc)
-                return
-
-            result = fut.result() 
-            # task.run() returns (res, None) or (None, e)
-            if isinstance(result, tuple) and len(result) == 2:
-                self._on_task_done(task, result[0], result[1])
-            else:
-                # Backstop in case run() changes
-                self._on_task_done(task, result, None)
-        except Exception as e:
-            logger.error(f"Done-callback error in {self.name}: {e}")
-        finally:
-            del fut
+                logger.error(
+                    f"Uncaught Thread Exception in {self.name} Worker: {e}",
+                    exc_info=True,
+                )
 
 
     def _on_task_done(self, task: IOTask, result, exception):
@@ -722,23 +709,22 @@ class SequentialIOExecutor:
         self.global_cb_kwargs = cb_kwargs
 
     def shutdown(self, wait=True):
-        # Stops dispatcher and running tasks
-        # If wait, wait until task running finishes
         self.pending_shutdown = True
         self.enable()
         self.protocol_end()
         self.clear_pending()
         self.clear_protocol_pending()
-        self.dispatcher.shutdown(wait=wait, cancel_futures=not wait)
-        self.executor.shutdown(wait=wait, cancel_futures=not wait)
-        
-        # Explicitly clear callback references and futures dict to break circular refs
+        if self._worker_thread is not None and self._worker_thread.is_alive():
+            if wait:
+                # Worker polls pending_shutdown on every queue.get timeout
+                # (0.2s); bound the join so a hung task does not block
+                # process exit indefinitely.
+                self._worker_thread.join(timeout=5.0)
+
         self.global_callback = None
         self.global_cb_args = None
         self.global_cb_kwargs = None
-        
-        # Clear futures dict - don't corrupt internals as callers may hold references
-        # Just remove our tracking references
+
         with self._caller_futures_lock:
             self._caller_futures_pop_count += len(self.caller_futures)
             self.caller_futures.clear()

@@ -43,7 +43,7 @@ def show_popup(function):
         app.bind(done=popup.dismiss)  # When app.done is set to True, then popup.dismiss is fired
         popup.open()  # Show popup
         proxy = _PopupProxy(popup)  # Thread-safe proxy for background use
-        t = threading.Thread(target=function, args=[app, proxy, *args], kwargs=kwargs)  # Create thread
+        t = threading.Thread(target=function, args=[app, proxy, *args], kwargs=kwargs, daemon=True)
         t.start()  # Start thread
         return t
 

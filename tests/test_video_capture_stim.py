@@ -334,10 +334,11 @@ def test_video_capture_session_creates_one_stim_thread(monkeypatch):
     created_threads = []
 
     class RecordingThread:
-        def __init__(self, target, name, args):
+        def __init__(self, target, name, args, daemon=False):
             self.target = target
             self.name = name
             self.args = args
+            self.daemon = daemon
             self._alive = False
             created_threads.append(self)
 
@@ -397,3 +398,8 @@ def test_video_capture_session_creates_one_stim_thread(monkeypatch):
     assert result is not None
     assert len(created_threads) == 1
     assert created_threads[0].name == "stim-scheduler"
+    assert created_threads[0].daemon is True, (
+        "stim_thread must be daemon=True so app exit reaps it without "
+        "hang on an in-flight scheduler iteration (Rule 41 + LVP "
+        "f4920c8 daemon-flag fix)"
+    )
