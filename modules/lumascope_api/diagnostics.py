@@ -45,3 +45,56 @@ class DiagnosticsAPI:
 
     def send_diagnostic_command_multiline(self, *args, **kwargs):
         return self._scope.send_diagnostic_command_multiline(*args, **kwargs)
+
+    # --- Motor power / driver / fan diagnostics ---
+    # Each returns parsed values or None when the firmware does not
+    # support the command (legacy 2024-09-10 firmware did not include
+    # VOLTAGE / DRVSTAT_<axis> / FANSPEED / FAN). Per Eric: the driver
+    # owns firmware-version gating; callers (TSR, future REST
+    # diagnostic endpoint) read None as "INCONCLUSIVE -- firmware
+    # does not support this probe."
+
+    def read_motor_voltages(self):
+        """Read motor-board power rail tolerance diagnostic.
+
+        Returns a dict mapping rail label to volts (or None per rail
+        if unparseable), or None when the firmware does not implement
+        the VOLTAGE command. See MotorBoard.read_voltages.
+        """
+        drv = getattr(self._scope, '_motion_driver', None)
+        if drv is None or not hasattr(drv, 'read_voltages'):
+            return None
+        return drv.read_voltages()
+
+    def read_motor_drv_status(self, axis: str):
+        """Read TMC5072 DRV_STATUS register for an axis.
+
+        Returns the raw register value as int (caller decodes bits),
+        or None when the firmware does not implement DRVSTAT_<axis>.
+        """
+        drv = getattr(self._scope, '_motion_driver', None)
+        if drv is None or not hasattr(drv, 'read_drv_status'):
+            return None
+        return drv.read_drv_status(axis)
+
+    def read_motor_fanspeed(self):
+        """Read motor-board fan tachometer RPM.
+
+        Returns RPM as int (0 if no tach wire) or None when firmware
+        does not implement FANSPEED.
+        """
+        drv = getattr(self._scope, '_motion_driver', None)
+        if drv is None or not hasattr(drv, 'read_fanspeed'):
+            return None
+        return drv.read_fanspeed()
+
+    def set_motor_fan_duty(self, duty_pct: int) -> bool:
+        """Set motor-board fan PWM duty cycle (0..100).
+
+        Returns True if firmware accepted the command, False if firmware
+        does not implement FAN:<duty> or no motor driver is present.
+        """
+        drv = getattr(self._scope, '_motion_driver', None)
+        if drv is None or not hasattr(drv, 'set_fan_duty'):
+            return False
+        return drv.set_fan_duty(duty_pct)

@@ -1401,3 +1401,128 @@ class MotorBoard(SerialBoard):
             raise HardwareError(f"Axis {axis} does not have defined limits")
 
         return axis_config['limits']
+
+
+    # ------------------------------------------------------------------
+    # Diagnostic queries -- firmware-version-gated
+    # ------------------------------------------------------------------
+    # VOLTAGE / DRVSTAT_<axis> / FANSPEED / FAN:<duty> are diagnostic
+    # commands added in firmware revisions after 2024-09-10. Older
+    # firmware responds with `ERROR: command 'X' not found:` and the
+    # driver returns None / False instead of leaking that response to
+    # callers. Per Rule 10 the firmware-shape knowledge stays here so
+    # diagnostic callers (TSR, future REST diagnostic endpoint) need
+    # not parse raw firmware responses.
+
+    def _diagnostic_query(self, command: str) -> str | None:
+        """Send a capability-gated diagnostic command.
+
+        Returns the raw response string, or None when the firmware
+        rejected the command with an `ERROR` prefix (i.e. the legacy
+        firmware does not implement this query). Callers should treat
+        None as "INCONCLUSIVE -- firmware does not support this
+        diagnostic," NOT as a fault.
+        """
+        resp = self.exchange_command(command)
+        if resp is None:
+            return None
+        if resp.startswith('ERROR'):
+            logger.debug(
+                f"[XYZ Class ] MotorBoard.{command} not supported by "
+                f"connected firmware (response: {resp!r})"
+            )
+            return None
+        return resp
+
+    def read_voltages(self) -> dict[str, float | None] | None:
+        """Read power-rail voltage tolerance diagnostic.
+
+        Returns a dict mapping rail label ('5V', '3.3V', '1.2V', '24V')
+        to the measured voltage in volts, or None for any rail whose
+        firmware reading was non-numeric (e.g. 'OK', 'N/A', 'MISSING').
+        Returns None for the whole call when the firmware does not
+        support the VOLTAGE command (legacy firmware predating
+        diagnostic queries). Callers should distinguish:
+            None              -> INCONCLUSIVE: firmware does not support
+            {rail: None, ...} -> INCONCLUSIVE: per-rail unparseable
+            {rail: float}     -> measurement available
+        """
+        raw = self._diagnostic_query('VOLTAGE')
+        if raw is None:
+            return None
+        # Firmware response shape: '24V=OK 5V=5.18 3V3=3.31 1V2=1.24'
+        # (or 'N/A' / 'MISSING' / 'ERROR' in the value slot).
+        # Normalize '3V3' -> '3.3V' and '1V2' -> '1.2V' so caller
+        # comparison against VOLTAGE_NOMINAL keys lines up.
+        rail_rename = {'3V3': '3.3V', '1V2': '1.2V'}
+        non_numeric = {'OK', 'N/A', 'MISSING', 'ERROR'}
+        rails: dict[str, float | None] = {}
+        for token in raw.split():
+            if '=' not in token:
+                continue
+            key, _, value = token.partition('=')
+            label = rail_rename.get(key, key)
+            if value in non_numeric:
+                rails[label] = None
+                continue
+            try:
+                rails[label] = float(value.rstrip('V'))
+            except ValueError:
+                rails[label] = None
+        return rails
+
+    def read_drv_status(self, axis: str) -> int | None:
+        """Read TMC5072 DRV_STATUS register for an axis.
+
+        Returns the raw 32-bit register value as int (caller decodes
+        bits), or None if firmware does not support DRVSTAT_<axis>.
+        Axis must be one of 'X', 'Y', 'Z', 'T'.
+        """
+        axis = axis.upper()
+        if axis not in ('X', 'Y', 'Z', 'T'):
+            raise ValueError(f"Invalid axis: {axis!r}")
+        raw = self._diagnostic_query(f'DRVSTAT_{axis}')
+        if raw is None:
+            return None
+        try:
+            return int(raw.strip().split()[0], 0)
+        except (ValueError, IndexError):
+            logger.warning(
+                f"[XYZ Class ] DRVSTAT_{axis} unparseable: {raw!r}"
+            )
+            return None
+
+    def read_fanspeed(self) -> int | None:
+        """Read fan tachometer RPM.
+
+        Returns RPM as int (0 if tachometer wire not installed),
+        or None if firmware does not support FANSPEED.
+        """
+        raw = self._diagnostic_query('FANSPEED')
+        if raw is None:
+            return None
+        try:
+            return int(raw.strip().split()[0])
+        except (ValueError, IndexError):
+            logger.warning(
+                f"[XYZ Class ] FANSPEED unparseable: {raw!r}"
+            )
+            return None
+
+    def set_fan_duty(self, duty_pct: int) -> bool:
+        """Set fan PWM duty cycle (0..100). Returns True if firmware
+        accepted the command, False if firmware does not support
+        FAN:<duty>.
+        """
+        if not 0 <= duty_pct <= 100:
+            raise ValueError(f"Fan duty must be 0..100, got {duty_pct}")
+        resp = self.exchange_command(f'FAN:{duty_pct}')
+        if resp is None:
+            return False
+        if resp.startswith('ERROR'):
+            logger.debug(
+                f"[XYZ Class ] FAN:{duty_pct} not supported by "
+                f"connected firmware (response: {resp!r})"
+            )
+            return False
+        return True
