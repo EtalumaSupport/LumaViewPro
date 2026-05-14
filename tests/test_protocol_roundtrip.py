@@ -911,6 +911,37 @@ class TestRoundTripMetadata:
         reloaded = _save_and_reload(proto, tmp_path)
         assert reloaded.period() == datetime.timedelta(minutes=5)
 
+    def test_period_zero_accepted_as_single_scan(self, tmp_path):
+        """Z-stack and single-shot capture write Period=0 in their TSV;
+        loader must accept this. Pre-fix the loader raised
+        ProtocolFormatError 'Period must be > 0', which blocked
+        Apply-Z-Projection on every Z-stack folder. Downstream
+        protocol_time_estimator already treats period_s == 0 as 1 scan."""
+        proto = _build_protocol([_make_step()], period_min=0.0)
+        reloaded = _save_and_reload(proto, tmp_path)
+        assert reloaded.period() == datetime.timedelta(0)
+
+    def test_period_negative_still_rejected(self, tmp_path):
+        """Period < 0 stays a hard error -- meaningless and likely a
+        corrupted TSV. Constructs the file by hand-editing a known-good
+        save because _build_protocol/datetime.timedelta won't carry a
+        negative-minutes value into the on-disk Period row directly."""
+        from modules.protocol import ProtocolFormatError
+        tmp_path.mkdir(parents=True, exist_ok=True)
+        proto = _build_protocol([_make_step()], period_min=1.0)
+        filepath = tmp_path / "neg_period.tsv"
+        proto.to_file(filepath)
+        # Hand-edit the Period row to a negative value.
+        text = filepath.read_text(encoding='utf-8')
+        patched = text.replace('Period\t1', 'Period\t-1', 1)
+        filepath.write_text(patched, encoding='utf-8')
+
+        with pytest.raises(ProtocolFormatError):
+            Protocol.from_file(
+                file_path=filepath,
+                tiling_configs_file_loc=TILING_CONFIGS,
+            )
+
     def test_duration_preserved(self, tmp_path):
         proto = _build_protocol([_make_step()], duration_hrs=12.0)
         reloaded = _save_and_reload(proto, tmp_path)
