@@ -204,9 +204,15 @@ class ZProjectionControls(BoxLayout):
                              pass_result=True))
 
     def zprojection_callback(self, popup, status_map, result=None, exception=None):
+        from modules.notification_center import notifications
         popup.progress = 100
         if result is None:
             popup.text = "Generating Z-Projection images - FAILED"
+            notifications.warning(
+                "Z-Projection", "Z-Projection failed",
+                "Z-Projection task returned no result. Check lumaviewpro.log "
+                "for details and retry."
+            )
             Clock.schedule_once(lambda dt: popup.dismiss(), 5)
             return
 
@@ -214,6 +220,13 @@ class ZProjectionControls(BoxLayout):
         if result['status'] is False:
             final_text += f"\n{result['message']}"
             popup.text = final_text
+            notifications.warning(
+                "Z-Projection", "No Z-Stack data found",
+                f"{result['message']}. Pick a folder that contains a Z-stack "
+                f"run -- look under 'Manual/Z-Stacks/<timestamp>/' for a "
+                f"manual Z-stack, or a 'ProtocolData/<timestamp>/' folder "
+                f"whose protocol included Z-stack steps."
+            )
             Clock.schedule_once(lambda dt: popup.dismiss(), 5)
             return
 
