@@ -498,11 +498,10 @@ def log_system_metrics(settings: dict):
         # ThreadPoolExecutor (_work_queue.qsize). Both expose qsize().
         for name in ('sequenced_capture_executor', 'autofocus_executor',
                      'protocol_executor', 'io_executor', 'camera_executor',
-                     'file_io_executor', 'autofocus_thread_executor',
-                     'worker_pool'):
-            # scope_display_thread retired from these queue/futures
-            # scans (Stage B1: it's a bare Thread, no queue, no
-            # caller_futures).
+                     'file_io_executor', 'worker_pool'):
+            # scope_display_thread and autofocus_thread retired from
+            # these queue / futures scans -- both are bare Threads with
+            # no queue and no caller_futures.
             try:
                 exe = getattr(ctx, name, None)
                 if exe is None:
@@ -528,11 +527,10 @@ def log_system_metrics(settings: dict):
         futures_parts = []
         for name in ('sequenced_capture_executor', 'autofocus_executor',
                      'protocol_executor', 'io_executor', 'camera_executor',
-                     'file_io_executor', 'autofocus_thread_executor',
-                     'worker_pool'):
-            # scope_display_thread retired from these queue/futures
-            # scans (Stage B1: it's a bare Thread, no queue, no
-            # caller_futures).
+                     'file_io_executor', 'worker_pool'):
+            # scope_display_thread and autofocus_thread retired from
+            # these queue / futures scans -- both are bare Threads with
+            # no queue and no caller_futures.
             try:
                 exe = getattr(ctx, name, None)
                 if exe is None or not hasattr(exe, 'caller_futures_stats'):

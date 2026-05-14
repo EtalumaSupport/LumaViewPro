@@ -177,7 +177,7 @@ class ProtocolStepExecutor:
                 step = dict(step)
                 step['Auto_Focus'] = False
 
-        # If autofocus selected, not running, not complete — start it
+        # If autofocus selected, not running, not complete -- start it
         if step['Auto_Focus'] and not p._autofocus_executor.complete() and not p._autofocus_executor.in_progress():
             if p._callbacks.autofocus_in_progress:
                 _schedule_ui(lambda dt: p._callbacks.autofocus_in_progress(), 0)
@@ -185,13 +185,11 @@ class ProtocolStepExecutor:
             af_executor_callbacks = {}
             if p._callbacks.move_position:
                 af_executor_callbacks['move_position'] = p._callbacks.move_position
-            if p._callbacks.autofocus_completed:
-                af_executor_callbacks['complete'] = p._callbacks.autofocus_completed
 
             if p._protocol_ended.is_set() or not p._scan_in_progress.is_set():
                 return
 
-            p._autofocus_executor.run(
+            p._af_future = p.autofocus_thread.run_autofocus(
                 objective_id=step['Objective'],
                 save_results_to_file=p._save_autofocus_data,
                 results_dir=p._parent_dir,
@@ -202,6 +200,13 @@ class ProtocolStepExecutor:
                 camera_gain=step['Gain'],
                 camera_exposure=step['Exposure'],
             )
+            if p._callbacks.autofocus_completed:
+                # Fires on success, abort, or failure -- the UI handler
+                # resets buttons either way; Future.exception() lets it
+                # branch on outcome if it needs to.
+                p._af_future.add_done_callback(
+                    lambda _f: _schedule_ui(lambda dt: p._callbacks.autofocus_completed(), 0)
+                )
             return
 
         # Still executing autofocus

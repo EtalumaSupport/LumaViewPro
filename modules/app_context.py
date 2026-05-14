@@ -57,13 +57,13 @@ class AppContext:
     version: str = ""
     source_path: str = ""
 
-    # Executors
+    # Executors + long-lived threads
     io_executor: object = None
     camera_executor: object = None
     protocol_executor: object = None
     file_io_executor: object = None
-    autofocus_thread_executor: object = None
     scope_display_thread: object = None
+    autofocus_thread: object = None
     worker_pool: object = None
 
     # Helpers

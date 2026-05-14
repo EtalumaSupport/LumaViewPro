@@ -78,7 +78,7 @@ class SequencedCaptureExecutor:
         protocol_executor: SequentialIOExecutor,
         file_io_executor: SequentialIOExecutor,
         camera_executor: SequentialIOExecutor,
-        autofocus_io_executor: SequentialIOExecutor,
+        autofocus_thread,
         autofocus_executor: AutofocusExecutor | None = None,
         z_ui_update_func: typing.Callable | None = None,
     ):
@@ -94,7 +94,7 @@ class SequencedCaptureExecutor:
         self.protocol_executor = protocol_executor
         self.file_io_executor = file_io_executor
         self.camera_executor = camera_executor
-        self.autofocus_io_executor = autofocus_io_executor
+        self.autofocus_thread = autofocus_thread
         self._z_ui_update_func = z_ui_update_func
         self._scan_in_progress = threading.Event()
         self._protocol_ended = threading.Event()
@@ -105,15 +105,14 @@ class SequencedCaptureExecutor:
         self._grease_redistribution_event.set()
 
         if autofocus_executor is None:
-            # No clock_*_fn — fallback path for headless / test usage.
-            # _schedule_interval_func will raise if anyone tries to
-            # use the interval-driven AF path; that's intentional.
+            # Headless / test fallback. Caller may construct a private
+            # AFE that bypasses the AutofocusThread for unit tests that
+            # only need the protocol state machine.
             self._autofocus_executor = AutofocusExecutor(
                 scope=scope,
                 camera_executor=camera_executor,
                 io_executor=io_executor,
                 file_io_executor=file_io_executor,
-                autofocus_executor=autofocus_io_executor,
             )
         else:
             self._autofocus_executor = autofocus_executor
@@ -592,7 +591,7 @@ class SequencedCaptureExecutor:
             cancel_scheduled_events_fn=self._cancel_all_scheduled_events,
             io_executor=self._io_executor,
             protocol_executor=self.protocol_executor,
-            autofocus_io_executor=self.autofocus_io_executor,
+            autofocus_thread=self.autofocus_thread,
             file_io_executor=self.file_io_executor,
             camera_executor=self.camera_executor,
             set_run_in_progress_fn=lambda v: self._run_in_progress_event.set() if v else self._run_in_progress_event.clear(),

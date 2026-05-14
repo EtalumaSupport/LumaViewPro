@@ -155,7 +155,12 @@ def _mock_heavy_deps(monkeypatch):
 # 1. Domain exceptions — no mocks needed, pure Python module
 # ===========================================================================
 from drivers.exceptions import HardwareError
-from modules.exceptions import ProtocolError, ConfigError, CaptureError
+from modules.exceptions import (
+    AutofocusAborted,
+    CaptureError,
+    ConfigError,
+    ProtocolError,
+)
 
 
 class TestDomainExceptions:
@@ -955,7 +960,6 @@ class TestIssue602_AFExecutorLED:
             camera_executor=cam,
             io_executor=io,
             file_io_executor=file_ex,
-            autofocus_executor=af_ex,
         )
         # Verify _led_on and _led_off methods exist
         assert hasattr(af, '_led_on')
@@ -982,15 +986,25 @@ class TestIssue602_AFExecutorLED:
             camera_executor=cam,
             io_executor=io,
             file_io_executor=file_ex,
-            autofocus_executor=af_ex,
         )
-        # Set LED state as if AF was running with LED
+        # Set LED state as if AF were running with LED. AFE.run()'s
+        # finally block calls _led_off regardless of exit path
+        # (success / abort / exception); this checks the invariant.
         af._led_color = 'BF'
         af._led_illumination = 100
-        af._af_in_progress.set()
+        af._saved_led_state = {'channel': 'BF', 'mA': 0}
 
-        with patch.object(af, '_led_off') as mock_led_off:
-            af.cancel()
+        abort_event = threading.Event()
+        abort_event.set()  # pre-set so AFE.run() unwinds via abort path
+        with patch.object(af, '_led_off') as mock_led_off, \
+             patch.object(af, '_move_absolute_position'), \
+             patch.object(scope, 'save_led_state', return_value={}), \
+             patch.object(scope, 'save_camera_state', return_value={}), \
+             patch.object(scope, 'set_motor_precision_mode'), \
+             patch.object(scope, 'restore_led_state'), \
+             patch.object(scope, 'restore_camera_state'):
+            with pytest.raises(AutofocusAborted):
+                af.run(objective_id='4x', abort_event=abort_event)
             mock_led_off.assert_called_once()
 
 
@@ -1020,7 +1034,6 @@ class TestAFPrecisionModeRestoresOn:
             camera_executor=SequentialIOExecutor(name="CAM_PREC"),
             io_executor=SequentialIOExecutor(name="IO_PREC"),
             file_io_executor=SequentialIOExecutor(name="FILE_PREC"),
-            autofocus_executor=SequentialIOExecutor(name="AF_PREC"),
         ), scope
 
     def test_reset_restores_precision_on(self, _mock_heavy_deps):
@@ -1030,16 +1043,27 @@ class TestAFPrecisionModeRestoresOn:
             af.reset()
             mock_set.assert_called_with('Z', True)
 
-    def test_cancel_restores_precision_on(self, _mock_heavy_deps):
+    def test_abort_path_restores_precision_on(self, _mock_heavy_deps):
+        # AFE.run() finally block must restore Z precision ON on abort,
+        # mirroring the success and exception exit paths so the
+        # invariant "Z precision ON outside of AF" holds for every
+        # exit path (regression-tested below for the abort case).
         from unittest.mock import patch
         af, scope = self._build_af()
-        af._af_in_progress.set()
+        abort_event = threading.Event()
+        abort_event.set()  # pre-set so AFE.run() unwinds via abort
         with patch.object(scope, 'set_motor_precision_mode') as mock_set, \
-             patch.object(af, '_led_off'):
-            af.cancel()
+             patch.object(af, '_led_off'), \
+             patch.object(af, '_move_absolute_position'), \
+             patch.object(scope, 'save_led_state', return_value={}), \
+             patch.object(scope, 'save_camera_state', return_value={}), \
+             patch.object(scope, 'restore_led_state'), \
+             patch.object(scope, 'restore_camera_state'):
+            with pytest.raises(AutofocusAborted):
+                af.run(objective_id='4x', abort_event=abort_event)
             calls = [tuple(c.args) for c in mock_set.call_args_list]
             assert ('Z', True) in calls, (
-                f"cancel() must restore Z precision_mode=True; got calls {calls}"
+                f"abort path must restore Z precision_mode=True; got calls {calls}"
             )
 
 
@@ -6931,7 +6955,7 @@ class TestStageOffsetSnapshot:
             protocol_executor=MagicMock(),
             file_io_executor=MagicMock(),
             camera_executor=MagicMock(),
-            autofocus_io_executor=MagicMock(),
+            autofocus_thread=MagicMock(),
         )
 
     def test_constructor_holds_live_reference(self):
@@ -7076,7 +7100,7 @@ class TestSequencedCaptureExecutorRunDirCollision:
             protocol_executor=MagicMock(),
             file_io_executor=MagicMock(),
             camera_executor=MagicMock(),
-            autofocus_io_executor=MagicMock(),
+            autofocus_thread=MagicMock(),
         )
         exc._parent_dir = parent_dir
         return exc

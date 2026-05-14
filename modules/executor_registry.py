@@ -12,13 +12,17 @@ instances:
     CAMERA      -- camera-config / settings writes (CAMERA_WORKER thread)
     PROTOCOL    -- protocol orchestration (long-running runs)
     FILE        -- file IO; protocol_queue bounded at 32 (F-2)
-    AUTOFOCUS   -- autofocus measurement loop
     SCOPEDISPLAY-- display pull loop dispatcher (bare Thread, no queue)
     WORKER_POOL -- priority-aware lane for short-lived work that needs
                   to jump ahead of MED (abort cleanup at PRIORITY_HIGH,
                   diagnostics at PRIORITY_LOW). HIGH/MED/LOW ordering;
                   FIFO tie-break within priority. protocol_queue stays
                   FIFO regardless.
+
+The AF lane is intentionally absent from the registry; AutofocusThread
+is constructed in lumaviewpro.py:build() once the Lumascope + the
+AutofocusExecutor it drives are available, and lives directly on
+AppContext.
 
 Until LVP-A-10 every entry point open-coded ~45 lines of construct +
 start + register, with the failure mode that adding (e.g.) a new REST
@@ -56,12 +60,11 @@ class ExecutorBundle:
     camera_executor: SequentialIOExecutor
     protocol_executor: SequentialIOExecutor
     file_io_executor: SequentialIOExecutor
-    autofocus_thread_executor: SequentialIOExecutor
     scope_display_thread: ScopeDisplayThread
     worker_pool: SequentialIOExecutor
 
     def snapshot(self) -> dict[str, int]:
-        """LVP-A-8: return ``{logical_name: queue_size}`` for every executor.
+        """Return ``{logical_name: queue_size}`` for every executor.
 
         Aliased executors (stage, turret) are omitted to avoid double-
         counting their queue depth. Engineering plugin / REST status
@@ -69,6 +72,8 @@ class ExecutorBundle:
 
         SCOPEDISPLAY is a bare Thread -- no queue, so its slot reports
         0 (running) or -1 (stopped) instead of a queue depth.
+        AUTOFOCUS is similarly a bare Thread and reported via
+        AppContext.autofocus_thread (not in this bundle).
         WORKER_POOL is priority-aware; queue_size aggregates all
         priorities (HIGH + MED + LOW).
         """
@@ -77,7 +82,6 @@ class ExecutorBundle:
             ('CAMERA',      self.camera_executor),
             ('PROTOCOL',    self.protocol_executor),
             ('FILE',        self.file_io_executor),
-            ('AUTOFOCUS',   self.autofocus_thread_executor),
             ('WORKER_POOL', self.worker_pool),
         ]
         out = {}
@@ -122,8 +126,6 @@ def create_default(ui_dispatcher) -> ExecutorBundle:
     file_io_executor = SequentialIOExecutor(
         name="FILE", ui_dispatcher=ui_dispatcher,
         protocol_queue_maxsize=_FILE_IO_PROTOCOL_QUEUE_MAXSIZE)
-    autofocus_thread_executor = SequentialIOExecutor(
-        name="AUTOFOCUS", ui_dispatcher=ui_dispatcher)
     # Thread is constructed here but NOT started. Start happens in
     # lumaviewpro.py:build() after ctx.scope_display (widget) and
     # ctx.scope_display_thread (this) are both wired into ctx;
@@ -141,21 +143,20 @@ def create_default(ui_dispatcher) -> ExecutorBundle:
         camera_executor=camera_executor,
         protocol_executor=protocol_executor,
         file_io_executor=file_io_executor,
-        autofocus_thread_executor=autofocus_thread_executor,
         scope_display_thread=scope_display_thread,
         worker_pool=worker_pool,
     )
 
     for ex in (
         io_executor, camera_executor, protocol_executor,
-        file_io_executor, autofocus_thread_executor,
-        worker_pool,
+        file_io_executor, worker_pool,
     ):
         ex.start()
 
     logger.info(
         '[LVP Main  ] ExecutorRegistry: created + started '
-        '6 SequentialIOExecutor instances (IO, CAMERA, PROTOCOL, FILE, '
-        'AUTOFOCUS, WORKER_POOL) + scope_display_thread (started '
-        'separately from lumaviewpro.build); stage/turret aliased to IO')
+        '5 SequentialIOExecutor instances (IO, CAMERA, PROTOCOL, FILE, '
+        'WORKER_POOL) + scope_display_thread (started separately from '
+        'lumaviewpro.build); stage/turret aliased to IO; AutofocusThread '
+        'constructed in lumaviewpro.build with the AFE handle')
     return bundle

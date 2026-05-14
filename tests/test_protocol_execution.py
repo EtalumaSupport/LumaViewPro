@@ -300,7 +300,7 @@ def executor(scope, executors):
         protocol_executor=executors['protocol'],
         file_io_executor=executors['file_io'],
         camera_executor=executors['camera'],
-        autofocus_io_executor=executors['autofocus'],
+        autofocus_thread=MagicMock(),
         autofocus_executor=mock_af,
     )
     exc._wellplate_loader = WellPlateLoader()
@@ -949,22 +949,10 @@ class TestRunModeSingleAutofocusScan:
         assert completed
 
 
-class TestRunModeSingleAutofocus:
-    """SINGLE_AUTOFOCUS run mode."""
-
-    def test_completes(self, executor, scope, tmp_path):
-        protocol = _make_single_step_protocol(color='BF', auto_focus=True)
-
-        af = executor._autofocus_executor
-        af.complete.return_value = True
-        af.in_progress.return_value = False
-
-        completed, _ = _run_and_wait(
-            executor, protocol, tmp_path,
-            run_mode=SequencedCaptureRunMode.SINGLE_AUTOFOCUS,
-            max_scans=1,
-        )
-        assert completed
+# SINGLE_AUTOFOCUS run mode retired -- standalone AF routes directly
+# through AutofocusThread.run_autofocus() from the UI, bypassing the
+# SequencedCapture path. Coverage for the standalone AF flow lives in
+# the autofocus_thread regression tests.
 
 
 # ---------------------------------------------------------------------------

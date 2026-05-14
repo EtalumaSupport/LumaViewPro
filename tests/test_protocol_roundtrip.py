@@ -231,7 +231,7 @@ def executor(scope, executors):
         protocol_executor=executors['protocol'],
         file_io_executor=executors['file_io'],
         camera_executor=executors['camera'],
-        autofocus_io_executor=executors['autofocus'],
+        autofocus_thread=MagicMock(),
         autofocus_executor=mock_af,
     )
     mock_loader = MagicMock()
@@ -268,7 +268,7 @@ def real_executor(scope, executors):
         protocol_executor=executors['protocol'],
         file_io_executor=executors['file_io'],
         camera_executor=executors['camera'],
-        autofocus_io_executor=executors['autofocus'],
+        autofocus_thread=MagicMock(),
         autofocus_executor=mock_af,
     )
     exc._wellplate_loader = WellPlateLoader()

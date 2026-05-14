@@ -9,20 +9,13 @@ import modules.app_context as _app_ctx
 import modules.common_utils as common_utils
 from modules.config_ui_getters import (
     get_active_layer_config,
-    get_auto_gain_settings,
     get_binning_from_ui,
-    get_current_frame_dimensions,
     get_current_objective_info,
-    get_current_plate_position,
-    get_image_capture_config_from_ui,
-    get_selected_labware,
-    get_stim_configs,
 )
 from modules import gui_logger
 from modules.debounce import debounce
-from modules.sequenced_capture_executor import SequencedCaptureRunMode
+from modules.kivy_utils import schedule_ui as _schedule_ui
 from modules.sequential_io_executor import IOTask, PRIORITY_HIGH
-from modules.tiling_config import TilingConfig
 from ui.ui_helpers import (
     _handle_ui_update_for_axis,
     live_histo_off,
@@ -30,10 +23,6 @@ from ui.ui_helpers import (
     move_absolute_position,
     move_home,
     move_relative_position,
-    reset_title,
-    set_recording_title,
-    set_writing_title,
-    update_autofocus_selection_after_protocol,
 )
 
 logger = logging.getLogger('LVP.ui.vertical_control')
@@ -311,8 +300,8 @@ class VerticalControl(BoxLayout):
 
     def _reset_run_autofocus_button(self, **kwargs):
         ctx = _app_ctx.ctx
-        ctx.autofocus_thread_executor.protocol_end()
-        ctx.autofocus_thread_executor.clear_protocol_pending()
+        if ctx.autofocus_thread is not None:
+            ctx.autofocus_thread.abort()
         self.ids['autofocus_id'].state = 'normal'
         self.ids['autofocus_id'].text = 'Autofocus'
 
@@ -360,13 +349,40 @@ class VerticalControl(BoxLayout):
         except Exception as e:
             logger.warning(f'[AF] Failed to update layer focus after AF: {e}')
 
-        # Clear any stuck AF protocol queue entries after completion
+        # Defensive abort -- if the AF thread is somehow still in flight
+        # at the completion path, this is a no-op; if not, it unwinds.
         try:
-            ctx.autofocus_thread_executor.protocol_end()
-            ctx.autofocus_thread_executor.clear_protocol_pending()
+            if ctx.autofocus_thread is not None:
+                ctx.autofocus_thread.abort()
         except Exception:
             pass
 
+
+    def _build_standalone_af_args(
+        self,
+        active_layer: str,
+        active_layer_config: dict,
+        save_autofocus_data: bool,
+        parent_dir,
+    ) -> dict:
+        """Build the kwargs for AutofocusThread.run_autofocus() from the
+        currently-active layer and UI state.
+
+        Mirrors the per-step kwarg build in protocol_step_executor so a
+        standalone AF run uses the same AFE entry as a protocol step.
+        """
+        objective_id, _ = get_current_objective_info()
+        return {
+            'objective_id': objective_id,
+            'save_results_to_file': save_autofocus_data,
+            'results_dir': parent_dir,
+            'run_trigger_source': 'autofocus',
+            'led_color': active_layer,
+            'led_illumination': float(active_layer_config.get('illumination', 0)),
+            'camera_gain': float(active_layer_config.get('gain', 0)),
+            'camera_exposure': float(active_layer_config.get('exposure', 1)),
+            'callbacks': {'move_position': _handle_ui_update_for_axis},
+        }
 
     def run_autofocus_from_ui(self):
         gui_logger.button('AUTOFOCUS')
@@ -383,18 +399,17 @@ class VerticalControl(BoxLayout):
 
         live_histo_off()
 
-        trigger_source = 'autofocus'
-        run_complete_func = self._autofocus_run_complete
-        run_not_started_func = self._reset_run_autofocus_button
-
-        run_trigger_source = ctx.sequenced_capture_executor.run_trigger_source()
-        if ctx.sequenced_capture_executor.run_in_progress() and \
-            (run_trigger_source != trigger_source):
-            run_not_started_func()
-            logger.warning(f"Cannot start autofocus. Run already in progress from {run_trigger_source}")
+        # Block standalone AF if a protocol is running OR if AF is
+        # already in flight. Either case: just reset the UI button.
+        if ctx.sequenced_capture_executor.run_in_progress():
+            self._reset_run_autofocus_button()
+            logger.warning(
+                'Cannot start autofocus: protocol run already in progress '
+                f'(trigger={ctx.sequenced_capture_executor.run_trigger_source()})'
+            )
             return
 
-        if ctx.autofocus_executor.run_in_progress() or ctx.sequenced_capture_executor.run_in_progress():
+        if ctx.autofocus_thread is not None and ctx.autofocus_thread.is_running:
             self._cleanup_at_end_of_autofocus()
             return
 
@@ -403,6 +418,7 @@ class VerticalControl(BoxLayout):
             return
 
         self._set_run_autofocus_button()
+
         # Safety timer to revert AF UI if AF doesn't progress within a timeout
         try:
             if hasattr(self, '_af_safety_event') and self._af_safety_event is not None:
@@ -411,154 +427,29 @@ class VerticalControl(BoxLayout):
             pass
         def _af_safety(dt):
             try:
-                if ctx.sequenced_capture_executor.run_trigger_source() == 'autofocus' and ctx.sequenced_capture_executor.run_in_progress():
-                    # If AF is still stuck after timeout, attempt a protocol reset and revert UI
-                    ctx.worker_pool.put(IOTask(
-                        action=ctx.sequenced_capture_executor.reset,
-                        callback=self._reset_run_autofocus_button,
-                        priority=PRIORITY_HIGH,
-                    ))
-                    logger.warning('[AF Safety] Autofocus appeared stuck. Forced reset.')
+                if ctx.autofocus_thread is not None and ctx.autofocus_thread.is_running:
+                    ctx.autofocus_thread.abort()
+                    _schedule_ui(lambda _dt: self._reset_run_autofocus_button(), 0)
+                    logger.warning('[AF Safety] Autofocus appeared stuck. Forced abort.')
             except Exception:
                 pass
         self._af_safety_event = Clock.schedule_once(_af_safety, AF_SAFETY_TIMEOUT_S)
 
-        objective_id, _ = get_current_objective_info()
-        labware_id, _ = get_selected_labware()
         active_layer, active_layer_config = get_active_layer_config()
-        active_layer_config['autofocus'] = True
-        active_layer_config['acquire'] = "image"
-        ctx.io_executor.put(IOTask(
-            action=get_current_plate_position,
-            callback=self.intermediary_autofocus,
-            cb_args=(
-                labware_id,
-                objective_id,
-                active_layer,
-                active_layer_config,
-                run_complete_func,
-                trigger_source,
-                parent_dir,
-                save_autofocus_data
-            ),
-            pass_result=True
-        ))
-
-    def intermediary_autofocus(self, labware_id,
-                objective_id,
-                active_layer,
-                active_layer_config,
-                run_complete_func,
-                trigger_source,
-                parent_dir,
-                save_autofocus_data,
-                result=None,
-                exception=None):
-
-        if exception is not None:
-            raise exception
-
-        if result is None:
-            return
-
-        curr_position = result
-
-        ctx = _app_ctx.ctx
-        ctx.io_executor.put(IOTask(
-            action=self.curr_position_autofocus,
-            args= (
-                curr_position,
-                labware_id,
-                objective_id,
-                active_layer,
-                active_layer_config,
-                run_complete_func,
-                trigger_source,
-                parent_dir,
-                save_autofocus_data
-            )
-        ))
-
-
-    def curr_position_autofocus(self,
-                                curr_position,
-                                labware_id,
-                                objective_id,
-                                active_layer,
-                                active_layer_config,
-                                run_complete_func,
-                                trigger_source,
-                                parent_dir,
-                                save_autofocus_data,
-                                result=None, exception=None):
-
-        ctx = _app_ctx.ctx
-        settings = ctx.settings
-
-        curr_position.update({'name': 'AF'})
-
-        positions = [
-            curr_position,
-        ]
-
-        tiling_config = TilingConfig(
-            tiling_configs_file_loc=pathlib.Path(ctx.source_path) / "data" / "tiling.json",
+        args = self._build_standalone_af_args(
+            active_layer=active_layer,
+            active_layer_config=active_layer_config,
+            save_autofocus_data=save_autofocus_data,
+            parent_dir=parent_dir,
         )
 
-        config = {
-            'labware_id': labware_id,
-            'positions': positions,
-            'objective_id': objective_id,
-            'zstack_params': {'range': 0, 'step_size': 0},
-            'use_zstacking': False,
-            'tiling': tiling_config.no_tiling_label(),
-            'layer_configs': {active_layer: active_layer_config},
-            'period': None,
-            'duration': None,
-            'frame_dimensions': get_current_frame_dimensions(),
-            'binning_size': get_binning_from_ui(),
-            'stim_config': get_stim_configs(),
-        }
-
-        autofocus_sequence = ctx.scope.create_protocol(input_config=config)
-
-        autogain_settings = get_auto_gain_settings()
-
-        callbacks = {
-            'move_position': _handle_ui_update_for_axis,
-            # Stage B1: update_scopedisplay retired -- thread runs continuously
-            'update_scope_display': lambda dt=0: None,
-            'scan_iterate_post': run_complete_func,
-            'run_complete': run_complete_func,
-            # LED observer handles UI sync — no manual callbacks needed
-            'reset_autofocus_btns': update_autofocus_selection_after_protocol,
-            'set_recording_title': set_recording_title,
-            'set_writing_title': set_writing_title,
-            'reset_title': reset_title,
-            'autofocus_completed': self._cleanup_at_end_of_autofocus,
-        }
-
-        ctx.protocol_executor.put(IOTask(
-            action=ctx.sequenced_capture_executor.run,
-            kwargs={
-                "protocol":autofocus_sequence,
-                "run_mode":SequencedCaptureRunMode.SINGLE_AUTOFOCUS,
-                "run_trigger_source":trigger_source,
-                "max_scans":1,
-                "sequence_name":'af',
-                "parent_dir":parent_dir,
-                "image_capture_config":get_image_capture_config_from_ui(),
-                "enable_image_saving":False,
-                "disable_saving_artifacts":True,
-                "separate_folder_per_channel":False,
-                "autogain_settings":autogain_settings,
-                "callbacks":callbacks,
-                "return_to_position":None,
-                "save_autofocus_data":save_autofocus_data,
-                "leds_state_at_end":"return_to_original",
-                "video_as_frames":settings['video_as_frames']
-            }
-        ))
+        future = ctx.autofocus_thread.run_autofocus(**args)
+        # Cleanup UI state on completion (success, abort, or failure).
+        # _autofocus_run_complete handles per-layer focus persistence
+        # and the AF safety timer reset; it tolerates either outcome.
+        future.add_done_callback(
+            lambda _f: _schedule_ui(lambda _dt: self._autofocus_run_complete(), 0)
+        )
 
 
     @debounce(1.0)

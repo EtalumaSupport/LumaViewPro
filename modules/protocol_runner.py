@@ -41,20 +41,22 @@ class ProtocolRunner:
         session,
         protocol_executor: SequentialIOExecutor | None = None,
         file_io_executor: SequentialIOExecutor | None = None,
-        autofocus_io_executor: SequentialIOExecutor | None = None,
+        autofocus_thread=None,
     ):
         """
         Args:
             session: ScopeSession instance providing scope, settings, executors
             protocol_executor: Executor for protocol sequencing (created if None)
             file_io_executor: Executor for file I/O (created if None)
-            autofocus_io_executor: Executor for autofocus (created if None)
+            autofocus_thread: AutofocusThread for running AF. If None, the
+                protocol may run only when no step requests autofocus;
+                an AF-bearing step raises at the producer site.
         """
         self.session = session
 
         self._protocol_executor = protocol_executor or SequentialIOExecutor(name="PROTOCOL")
         self._file_io_executor = file_io_executor or SequentialIOExecutor(name="FILE")
-        self._autofocus_io_executor = autofocus_io_executor or SequentialIOExecutor(name="AUTOFOCUS")
+        self._autofocus_thread = autofocus_thread
 
         self._completion_event = threading.Event()
 
@@ -65,7 +67,7 @@ class ProtocolRunner:
             protocol_executor=self._protocol_executor,
             file_io_executor=self._file_io_executor,
             camera_executor=session.camera_executor,
-            autofocus_io_executor=self._autofocus_io_executor,
+            autofocus_thread=self._autofocus_thread,
         )
 
         self._owned_executors_started = False
@@ -266,7 +268,6 @@ class ProtocolRunner:
         if not self._owned_executors_started:
             self._protocol_executor.start()
             self._file_io_executor.start()
-            self._autofocus_io_executor.start()
             self._owned_executors_started = True
 
     def shutdown(self):
@@ -274,5 +275,4 @@ class ProtocolRunner:
         if self._owned_executors_started:
             self._protocol_executor.shutdown()
             self._file_io_executor.shutdown()
-            self._autofocus_io_executor.shutdown()
             self._owned_executors_started = False

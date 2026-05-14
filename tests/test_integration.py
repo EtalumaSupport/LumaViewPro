@@ -258,7 +258,7 @@ def executor(scope, executors):
         protocol_executor=executors['protocol'],
         file_io_executor=executors['file_io'],
         camera_executor=executors['camera'],
-        autofocus_io_executor=executors['autofocus'],
+        autofocus_thread=MagicMock(),
         autofocus_executor=mock_af,
     )
     exc._wellplate_loader = WellPlateLoader()
@@ -274,7 +274,6 @@ def af_executor(scope, executors):
         camera_executor=executors['camera'],
         io_executor=executors['io'],
         file_io_executor=executors['file_io'],
-        autofocus_executor=executors['autofocus'],
     )
 
     exc = SequencedCaptureExecutor(
@@ -284,7 +283,7 @@ def af_executor(scope, executors):
         protocol_executor=executors['protocol'],
         file_io_executor=executors['file_io'],
         camera_executor=executors['camera'],
-        autofocus_io_executor=executors['autofocus'],
+        autofocus_thread=MagicMock(),
         autofocus_executor=af,
     )
     return exc
@@ -525,7 +524,6 @@ class TestIntegrationAutofocus:
             camera_executor=executors['camera'],
             io_executor=executors['io'],
             file_io_executor=executors['file_io'],
-            autofocus_executor=executors['autofocus'],
         )
 
         # Simulate the multi-channel scenario: camera is at Green settings
@@ -756,14 +754,15 @@ class TestHeadlessSession:
             runner.shutdown()
             session.shutdown_executors()
 
-    def test_protocol_runner_no_kivy_clock_callbacks(self):
-        """ProtocolRunner's SequencedCaptureExecutor should default to
-        no Kivy Clock callbacks (LV-31 / LAYER-E callback inversion)."""
+    def test_protocol_runner_afe_no_kivy_dependency(self):
+        """AFE has no Kivy Clock dependency (Rule 15). Under the
+        thread-driven model the AF thread drives iterations directly;
+        there are no Clock-schedule attributes to misconfigure."""
         session = ScopeSession.create_headless()
         runner = session.create_protocol_runner()
         af = runner.sequenced_capture_executor._autofocus_executor
-        assert af._clock_unschedule_fn is None
-        assert af._clock_schedule_interval_fn is None
+        assert not hasattr(af, '_clock_unschedule_fn')
+        assert not hasattr(af, '_clock_schedule_interval_fn')
 
 
 class TestRestAPIPrep:
@@ -931,70 +930,75 @@ class TestRestAPIPrep:
             runner.shutdown()
             session.shutdown_executors()
 
-    def test_autofocus_executor_cancel_noop_when_idle(self):
-        """AutofocusExecutor.cancel() should be safe when not running."""
+    def test_autofocus_thread_abort_noop_when_idle(self):
+        """AutofocusThread.abort() should be safe when no run is in flight."""
+        from modules.autofocus_thread import AutofocusThread
         session = ScopeSession.create_headless()
         session.start_executors()
         try:
             runner = session.create_protocol_runner()
             af = runner.sequenced_capture_executor._autofocus_executor
-            af.cancel()  # Should not raise
-            assert af.get_status()['state'] == 'idle'
+            thread = AutofocusThread(afe=af)
+            thread.start()
+            try:
+                thread.abort()  # idle -> no-op
+                assert thread.is_running is False
+            finally:
+                thread.stop(timeout=2.0)
         finally:
             runner.shutdown()
             session.shutdown_executors()
 
-    def test_autofocus_executor_run_and_complete(self):
-        """AutofocusExecutor should run autofocus and reach completion."""
+    def test_autofocus_thread_run_and_complete(self):
+        """AutofocusThread.run_autofocus() resolves Future with the
+        best focus position when AF completes."""
+        from modules.autofocus_thread import AutofocusThread
         session = ScopeSession.create_headless()
         session.start_executors()
         try:
             runner = session.create_protocol_runner()
-            runner._ensure_executors_started()  # Start AF executor thread
             af = runner.sequenced_capture_executor._autofocus_executor
-
-            objectives = session.scope.get_available_objectives()
-            done = threading.Event()
-            af.run(
-                objective_id=objectives[0],
-                callbacks={'complete': lambda: done.set()},
-            )
-
-            assert af.get_status()['in_progress'] is True
-
-            completed = done.wait(timeout=30)
-            assert completed, "Autofocus did not complete within timeout"
-
-            status = af.get_status()
-            assert status['state'] == 'complete'
-            assert status['best_position'] is not None
+            thread = AutofocusThread(afe=af)
+            thread.start()
+            try:
+                objectives = session.scope.get_available_objectives()
+                future = thread.run_autofocus(objective_id=objectives[0])
+                result = future.result(timeout=30)
+                assert result is not None
+                assert af.complete() is True
+            finally:
+                thread.stop(timeout=2.0)
         finally:
             runner.shutdown()
             session.shutdown_executors()
 
-    def test_autofocus_executor_cancel_during_run(self):
-        """AutofocusExecutor.cancel() should stop a running autofocus."""
+    def test_autofocus_thread_abort_during_run(self):
+        """AutofocusThread.abort() unwinds an in-flight run; the Future
+        surfaces AutofocusAborted."""
+        from modules.autofocus_thread import AutofocusThread
+        from modules.exceptions import AutofocusAborted
         session = ScopeSession.create_headless()
         session.start_executors()
         try:
             runner = session.create_protocol_runner()
-            runner._ensure_executors_started()
             af = runner.sequenced_capture_executor._autofocus_executor
+            thread = AutofocusThread(afe=af)
+            thread.start()
+            try:
+                objectives = session.scope.get_available_objectives()
+                future = thread.run_autofocus(objective_id=objectives[0])
 
-            objectives = session.scope.get_available_objectives()
-            af.run(objective_id=objectives[0], callbacks={})
+                # Give the thread a moment to enter AFE.run()
+                time.sleep(0.1)
+                assert thread.is_running is True
 
-            # Give it a moment to start
-            time.sleep(0.1)
-            assert af.get_status()['in_progress'] is True
+                thread.abort()
 
-            af.cancel()
-
-            # Wait for cancellation to take effect
-            time.sleep(0.5)
-            status = af.get_status()
-            assert status['in_progress'] is False
-            assert status['state'] != 'focusing'
+                with pytest.raises(AutofocusAborted):
+                    future.result(timeout=5)
+                assert thread.is_running is False
+            finally:
+                thread.stop(timeout=2.0)
         finally:
             runner.shutdown()
             session.shutdown_executors()

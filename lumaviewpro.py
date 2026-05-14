@@ -99,6 +99,7 @@ if __name__ == '__main__':
     import modules.profiling_utils as profiling_utils
     from modules.app_context import AppContext
     from modules.autofocus_executor import AutofocusExecutor
+    from modules.autofocus_thread import AutofocusThread
     from modules.scope_session import ScopeSession
     from modules.sequenced_capture_executor import SequencedCaptureExecutor
 
@@ -225,7 +226,7 @@ if __name__ == '__main__':
     camera_executor = None
     protocol_executor = None
     file_io_executor = None
-    autofocus_thread_executor = None
+    autofocus_thread = None
     scope_display_thread = None
     worker_pool = None
     executor_bundle = None
@@ -513,8 +514,8 @@ class LumaViewProApp(TooltipMixin, App):
         if file_io_executor is not None:
             file_io_executor.shutdown(wait=False)
 
-        if autofocus_thread_executor is not None:
-            autofocus_thread_executor.shutdown(wait=False)
+        if autofocus_thread is not None:
+            autofocus_thread.stop(timeout=2.0)
 
         if scope_display_thread is not None:
             scope_display_thread.stop()
@@ -621,7 +622,7 @@ class LumaViewProApp(TooltipMixin, App):
         # and turret aliases) and starts them; every entry point shares this
         # topology so the watchdog snapshot and engineering plugin see one truth.
         global io_executor, camera_executor, protocol_executor
-        global file_io_executor, autofocus_thread_executor, scope_display_thread
+        global file_io_executor, autofocus_thread, scope_display_thread
         global worker_pool
         global executor_bundle
         # Clock.schedule_once is passed as the UI dispatcher so executors can post
@@ -642,7 +643,6 @@ class LumaViewProApp(TooltipMixin, App):
         camera_executor = executor_bundle.camera_executor
         protocol_executor = executor_bundle.protocol_executor
         file_io_executor = executor_bundle.file_io_executor
-        autofocus_thread_executor = executor_bundle.autofocus_thread_executor
         scope_display_thread = executor_bundle.scope_display_thread
         worker_pool = executor_bundle.worker_pool
 
@@ -667,7 +667,6 @@ class LumaViewProApp(TooltipMixin, App):
             camera_executor=camera_executor,
             io_executor=io_executor,
             file_io_executor=file_io_executor,
-            autofocus_io_executor=autofocus_thread_executor,
         )
         # Register source_path so scope.load_protocol / create_protocol
         # can resolve data/tiling.json without callers passing the path.
@@ -678,11 +677,18 @@ class LumaViewProApp(TooltipMixin, App):
             camera_executor=camera_executor,
             io_executor=io_executor,
             file_io_executor=file_io_executor,
-            autofocus_executor=autofocus_thread_executor,
-            clock_unschedule_fn=Clock.unschedule,
-            clock_schedule_interval_fn=Clock.schedule_interval,
             ui_update_func=_handle_autofocus_ui,
         )
+
+        # AutofocusThread owns the actual AF worker thread; AFE is the
+        # per-iteration state machine the thread drives. Construct after
+        # AFE so the wiring is one-way (thread holds AFE, AFE is unaware
+        # of the thread except via the abort_event passed to run()).
+        autofocus_thread = AutofocusThread(
+            afe=autofocus_executor,
+            ui_dispatcher=_ui,
+        )
+        autofocus_thread.start()
 
         sequenced_capture_executor = SequencedCaptureExecutor(
             scope=lumaview.scope,
@@ -692,7 +698,7 @@ class LumaViewProApp(TooltipMixin, App):
             protocol_executor=protocol_executor,
             file_io_executor=file_io_executor,
             camera_executor=camera_executor,
-            autofocus_io_executor=autofocus_thread_executor,
+            autofocus_thread=autofocus_thread,
             z_ui_update_func=_handle_autofocus_ui,
         )
 
@@ -710,7 +716,7 @@ class LumaViewProApp(TooltipMixin, App):
             camera_executor=camera_executor,
             protocol_executor=protocol_executor,
             file_io_executor=file_io_executor,
-            autofocus_thread_executor=autofocus_thread_executor,
+            autofocus_thread=autofocus_thread,
             scope_display_thread=scope_display_thread,
             worker_pool=worker_pool,
             wellplate_loader=wellplate_loader,

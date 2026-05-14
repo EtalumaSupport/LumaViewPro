@@ -455,7 +455,6 @@ class Lumascope():
         self._camera_executor = None
         self._io_executor = None
         self._file_io_executor = None
-        self._autofocus_io_executor = None
 
         # LAYER-I source-path handle. Registered via register_source_path()
         # at startup. load_protocol() / create_protocol() use it to find
@@ -1012,7 +1011,7 @@ class Lumascope():
     # to pass an executor on every call (parallel-paths anti-pattern).
 
     def register_executors(self, *, camera_executor=None, io_executor=None,
-                           file_io_executor=None, autofocus_io_executor=None) -> None:
+                           file_io_executor=None) -> None:
         """Register the executor handles used by the X_async / X_sync command methods.
 
         Call once at startup after the executors are constructed. Tests
@@ -1023,12 +1022,10 @@ class Lumascope():
             camera_executor: Executor for camera-bound IOTasks.
             io_executor: Executor for general IO/motion IOTasks.
             file_io_executor: Executor for file-IO IOTasks.
-            autofocus_io_executor: Executor for autofocus IOTasks.
         """
         self._camera_executor = camera_executor
         self._io_executor = io_executor
         self._file_io_executor = file_io_executor
-        self._autofocus_io_executor = autofocus_io_executor
 
     def register_executor_bundle(self, executor_bundle, settings=None) -> None:
         """LVP-A-13: register the ExecutorBundle + settings dict for MetricsLogger.

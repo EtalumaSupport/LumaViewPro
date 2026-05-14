@@ -304,7 +304,9 @@ class TestRunCleanup:
         run_in_progress = [True]
         io_exec = _FakeExecutor()
         proto_exec = _FakeExecutor()
-        af_exec = _FakeExecutor()
+        # autofocus_thread replaces autofocus_io_executor in Stage B2;
+        # MagicMock so the cleanup tests can assert abort() was called.
+        af_thread = MagicMock()
         file_exec = _FakeExecutor()
         camera_exec = _FakeExecutor()
 
@@ -330,7 +332,7 @@ class TestRunCleanup:
             cancel_scheduled_events_fn=lambda: None,
             io_executor=io_exec,
             protocol_executor=proto_exec,
-            autofocus_io_executor=af_exec,
+            autofocus_thread=af_thread,
             file_io_executor=file_exec,
             camera_executor=camera_exec,
             set_run_in_progress_fn=lambda v: run_in_progress.__setitem__(0, v),
@@ -409,7 +411,7 @@ class TestRunCleanup:
         run_cleanup(**args)
         assert args['io_executor'].protocol_ended
         assert args['protocol_executor'].protocol_ended
-        assert args['autofocus_io_executor'].protocol_ended
+        assert args['autofocus_thread'].abort.called
         assert args['camera_executor'].enabled
 
     def test_cleanup_sets_protocol_ended_event(self):

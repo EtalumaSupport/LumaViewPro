@@ -53,7 +53,7 @@ def run_cleanup(
     # IO executors
     io_executor,
     protocol_executor,
-    autofocus_io_executor,
+    autofocus_thread,
     file_io_executor,
     camera_executor,
     # Mutable flag — set to False when done
@@ -210,7 +210,10 @@ def run_cleanup(
 
     io_executor.protocol_end()
     protocol_executor.protocol_end()
-    autofocus_io_executor.protocol_end()
+    if autofocus_thread is not None:
+        # Signal any lingering AF run to unwind. abort() is a no-op when
+        # the thread is idle, so this is always safe to call.
+        autofocus_thread.abort()
     camera_executor.enable()
     logger.info(f"[{logger_name}] Cleanup: protocol_end called on all executors")
 
