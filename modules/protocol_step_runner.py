@@ -48,37 +48,31 @@ class ProtocolStepRunner:
         """Iterate through all protocol steps until scan completes.
 
         Blocks until the scan is done (all steps executed or aborted).
+        Exceptions propagate to the outer run-loop so it can classify
+        the failure as fatal (hardware disconnected -> abort + notify)
+        or transient (everything else -> silent retry on next period).
+        Catching exceptions here at the inner layer fires a
+        notification at the wrong level and turns transient faults
+        into protocol-halting popups.
         """
         last_maintenance_time = time.monotonic()
 
         while self._p._scan_in_progress.is_set() and not self._p._aborted.is_set():
-            try:
-                # Periodic cleanup and watchdog logging for long runs
-                now_mono = time.monotonic()
-                if now_mono - last_maintenance_time > 60:
-                    last_maintenance_time = now_mono
+            # Periodic cleanup and watchdog logging for long runs
+            now_mono = time.monotonic()
+            if now_mono - last_maintenance_time > 60:
+                last_maintenance_time = now_mono
 
-                    collected = gc.collect()
-                    if collected > 0:
-                        logger.info(f"[Scan Watchdog] GC collected {collected} objects")
+                collected = gc.collect()
+                if collected > 0:
+                    logger.info(f"[Scan Watchdog] GC collected {collected} objects")
 
-                # Run one step iteration
-                self.scan_iterate()
+            # Run one step iteration. Exceptions propagate to the
+            # outer run loop for fatal/transient classification.
+            self.scan_iterate()
 
-                # Small delay to prevent CPU throttling
-                time.sleep(0.001)
-
-            except Exception as ex:
-                logger.error(f"[Scan] Error during scan loop: {ex}", exc_info=True)
-                from modules.notification_center import notifications
-                ex_msg = str(ex) or "An unexpected error occurred"
-                notifications.error(
-                    "Protocol",
-                    "Protocol scan stopped",
-                    f"{ex_msg}. The protocol is halted; check the main log for details and restart the scan if needed.",
-                )
-                self._p._scan_in_progress.clear()
-                break
+            # Small delay to prevent CPU throttling
+            time.sleep(0.001)
 
     # ------------------------------------------------------------------
     # Single step iteration

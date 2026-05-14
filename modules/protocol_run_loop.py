@@ -165,16 +165,64 @@ class ProtocolRunLoop:
                     p._set_state(ProtocolState.RUNNING)
 
             except Exception as ex:
-                logger.error(f"[Protocol] Error during run loop: {ex}", exc_info=True)
-                from modules.notification_center import notifications
-                notifications.error("Protocol", "Protocol Error", str(ex))
-                if p._state not in (ProtocolState.COMPLETING, ProtocolState.IDLE, ProtocolState.ERROR):
+                # Classify: hardware disconnected = fatal (abort +
+                # notify); everything else = transient (silent log,
+                # retry on next period). Only loss of one of the
+                # connected boards (camera, LED, motor) blocks
+                # the protocol from making progress; transient errors
+                # (one bad LED ack, one frame timeout, etc.) are
+                # exactly what a periodic protocol is supposed to ride
+                # out. The 30s periodic are_all_connected() check
+                # earlier in this loop covers between-scan
+                # disconnects; this branch covers during-scan ones.
+                try:
+                    connected = p._scope.are_all_connected()
+                except Exception:
+                    # If the connection probe itself fails, assume
+                    # the worst -- a disconnect that broke the probe
+                    # is still a disconnect.
+                    connected = False
+
+                if not connected:
+                    logger.error(
+                        f"[Protocol] Hardware disconnect during scan: {ex}",
+                        exc_info=True,
+                    )
+                    from modules.notification_center import notifications
+                    notifications.error(
+                        "Protocol",
+                        "Protocol Aborted",
+                        "Hardware disconnected during protocol run. "
+                        "Check the camera, LED board, and motor board "
+                        "connections, then restart the scan.",
+                    )
+                    if p._state not in (
+                        ProtocolState.COMPLETING,
+                        ProtocolState.IDLE,
+                        ProtocolState.ERROR,
+                    ):
+                        try:
+                            p._set_state(ProtocolState.ERROR)
+                        except ValueError:
+                            pass
+                    p._cleanup()
+                    break
+
+                # Transient: log warning, do NOT increment scan_count,
+                # do NOT break. The outer while loop's next iteration
+                # waits the protocol period and re-runs the scan.
+                logger.warning(
+                    f"[Protocol] Transient scan failure (hardware "
+                    f"still connected); will retry on next period: "
+                    f"{ex}",
+                    exc_info=True,
+                )
+                p._scan_in_progress.clear()
+                if p._state == ProtocolState.SCANNING:
                     try:
-                        p._set_state(ProtocolState.ERROR)
+                        p._set_state(ProtocolState.RUNNING)
                     except ValueError:
                         pass
-                p._cleanup()
-                break
 
         # Ensure cleanup runs when exiting the while loop
         p._cleanup()
