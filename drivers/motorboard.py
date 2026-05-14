@@ -1067,11 +1067,15 @@ class MotorBoard(SerialBoard):
         Idempotent + safe to call concurrently with other operations
         (per SerialBoard's exchange_command lock).
         """
-        # Cached "unsupported" — silently skip the wire (and skip the
+        # Cached "unsupported" -- silently skip the wire (and skip the
         # FIRMWARE ERROR warning that exchange_command would emit).
         if getattr(self, '_stop_supported', None) is False:
             return False
-        resp = self.exchange_command('STOP')
+        # expect_unsupported=True suppresses the FIRMWARE ERROR warning
+        # on this first probe -- the unsupported case is handled
+        # immediately below by caching _stop_supported=False and
+        # logging an informational message instead.
+        resp = self.exchange_command('STOP', expect_unsupported=True)
         resp_str = str(resp) if resp is not None else ''
         if 'not found' in resp_str or resp_str.startswith('ERROR'):
             self._stop_supported = False
