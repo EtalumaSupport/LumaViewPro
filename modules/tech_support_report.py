@@ -2194,7 +2194,10 @@ class TechSupportReport:
 
         clean_sn = ''.join(c for c in str(sn) if c.isalnum() or c in '-_') or 'UNKNOWN'
         ts = datetime.datetime.now().strftime('%Y-%m-%d-%H%M%S')
-        zip_path = output_dir / f"SN{clean_sn}-{ts}.zip"
+        # "TSR" token distinguishes this bundle from the user-action log
+        # dump (`SNlogs-...zip`) that ships with manual error reports;
+        # support engineers can sort the two apart by filename alone.
+        zip_path = output_dir / f"SN{clean_sn}-TSR-{ts}.zip"
 
         with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zf:
             # Include a privacy notice describing what data is collected
