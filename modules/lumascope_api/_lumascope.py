@@ -176,10 +176,10 @@ class Lumascope():
 
     # --- Input validation constants ---
     LED_MAX_MA = 1000       # Maximum LED current in milliamps (matches firmware CH_MAX)
-    # LED channel set comes from self.led.available_channels() — varies by
+    # LED channel set comes from self._led_driver.available_channels() — varies by
     # hardware (RP2040 = 6, FX2/Lumaview Classic = 4).
     # Per-axis state dicts (_pos_cache, _axis_state, _arrival_events,
-    # _move_profile) are built from self.motion.detect_present_axes() at
+    # _move_profile) are built from self._motion_driver.detect_present_axes() at
     # init — they reflect actual hardware. This `_VALID_AXIS_NAMES` tuple
     # is the structural axis-name vocabulary used only for input sanity
     # checks ("did the caller pass a real axis letter?"), not for
@@ -304,7 +304,7 @@ class Lumascope():
         # Constructed BEFORE the per-axis state dicts so we can size them
         # to the axes the hardware actually has (audit B4). Constructed
         # BEFORE the motion monitor thread so the thread always sees a
-        # valid `self.motion`. Driver selection goes through the motor
+        # valid `self._motion_driver`. Driver selection goes through the motor
         # registry (audit B2) — 'auto' tries real drivers in descending
         # priority order and falls back to NullMotionBoard if all fail,
         # so no manual try/except needed.
@@ -313,7 +313,7 @@ class Lumascope():
             from modules.settings_init import settings
             motor_kwargs['model'] = (settings.get('microscope', 'LS850')
                                      if settings else 'LS850')
-        self.motion: MotorBoardProtocol = motor_registry.create(
+        self._motion_driver: MotorBoardProtocol = motor_registry.create(
             'auto', simulate=simulate, **motor_kwargs
         )
         if simulate:
@@ -327,7 +327,7 @@ class Lumascope():
         # with no motor hardware ends up with empty dicts. _set_axis_state
         # and the move_*_position methods handle that case as a Rule 8
         # silent no-op for absent axes.
-        present_axes = self.motion.detect_present_axes()
+        present_axes = self._motion_driver.detect_present_axes()
         self._pos_cache = {ax: 0.0 for ax in present_axes}
         self._axis_state = {ax: AxisState.UNKNOWN for ax in present_axes}
         self._arrival_events = {ax: threading.Event() for ax in present_axes}
@@ -348,7 +348,7 @@ class Lumascope():
 
         # ----- LED Control Board -----
         # Same registry-based selection as motion (audit B2).
-        self.led: LEDBoardProtocol = led_registry.create('auto', simulate=simulate)
+        self._led_driver: LEDBoardProtocol = led_registry.create('auto', simulate=simulate)
         if simulate:
             logger.info('[SCOPE API ] Using SIMULATED LED Board')
 
@@ -361,16 +361,16 @@ class Lumascope():
         # continue to pass camera_type='pylon' explicitly.
         # PF-5: _image_buffer retired — get_image() chains via a local variable.
         self._frame_buffer = None
-        self.camera = None
+        self._camera_driver = None
         camera_kwargs: dict = {}
         if simulate:
-            camera_kwargs['z_position_func'] = lambda: self.motion.current_pos('Z')
+            camera_kwargs['z_position_func'] = lambda: self._motion_driver.current_pos('Z')
         try:
-            self.camera: Camera = camera_registry.create(
+            self._camera_driver: Camera = camera_registry.create(
                 camera_type, simulate=simulate, **camera_kwargs
             )
             if simulate:
-                self.camera.load_cycle_images()
+                self._camera_driver.load_cycle_images()
                 logger.info('[SCOPE API ] Using SIMULATED Camera')
         except Exception as _cam_exc:
             logger.exception('[SCOPE API ] Camera Board Not Initialized')
@@ -387,22 +387,43 @@ class Lumascope():
         # stays as live properties on Lumascope — those must reflect
         # disconnects and can't be snapshotted.
         self.capabilities = ScopeCapabilities.from_drivers(
-            motion=self.motion,
-            led=self.led,
-            camera=self.camera,
+            motion=self._motion_driver,
+            led=self._led_driver,
+            camera=self._camera_driver,
             led_max_ma=self.LED_MAX_MA,
         )
+
+        # ----- Sub-API wiring (Wave 7 Phase 1) -----
+        # Six sub-APIs: motion, illumination, imaging, diagnostics,
+        # capabilities, io. Phase 1 ships them as delegating facades
+        # over this composition root; bodies still live on Lumascope.
+        # Later Wave 7 phases physically relocate the bodies and
+        # migrate the ~70 caller sites. Sub-APIs imported lazily here
+        # to avoid a circular import at module load.
+        from modules.lumascope_api.motion import MotionAPI
+        from modules.lumascope_api.illumination import IlluminationAPI
+        from modules.lumascope_api.imaging import ImagingAPI
+        from modules.lumascope_api.diagnostics import DiagnosticsAPI
+        from modules.lumascope_api.io import IOAPI
+        self.motion = MotionAPI(self, self._motion_driver)
+        self.illumination = IlluminationAPI(self, self._led_driver)
+        self.imaging = ImagingAPI(self, self._camera_driver)
+        self.diagnostics = DiagnosticsAPI(self)
+        self.io = IOAPI(self)
 
         # Partial-hardware notification deferred to initialize(config) —
         # we need scope-config knowledge to distinguish "LS620 correctly
         # has no motor" from "LS820 motor failed to connect."
 
-        # Track whether any real hardware was found
+        # Track whether any real hardware was found.
+        # Camera check reads the (private) driver handle directly because
+        # the public `self.camera` attribute is the new ImagingAPI in
+        # Wave 7 Phase 1 -- not the driver.
         self._no_hardware = (
             not simulate
-            and isinstance(self.led, NullLEDBoard)
-            and isinstance(self.motion, NullMotionBoard)
-            and not hasattr(self, 'camera')
+            and isinstance(self._led_driver, NullLEDBoard)
+            and isinstance(self._motion_driver, NullMotionBoard)
+            and self._camera_driver is None
         )
         if self._no_hardware:
             logger.warning('[SCOPE API ] No hardware detected (LED, motor, and camera all failed to initialize)')
@@ -479,8 +500,8 @@ class Lumascope():
             return True
         self.frame_validity.set_settle_check(_motion_settle_check)
         self._load_camera_timing()
-        if self.camera:
-            self._binning_size = self.camera.get_binning_size()
+        if self._camera_driver:
+            self._binning_size = self._camera_driver.get_binning_size()
         else:
             self._binning_size = 1
 
@@ -594,11 +615,11 @@ class Lumascope():
         if self._simulated:
             return
         missing = []
-        if config.expects_led and isinstance(self.led, NullLEDBoard):
+        if config.expects_led and isinstance(self._led_driver, NullLEDBoard):
             missing.append("LED Board")
-        if config.expects_motion and isinstance(self.motion, NullMotionBoard):
+        if config.expects_motion and isinstance(self._motion_driver, NullMotionBoard):
             missing.append("Motor Controller")
-        if not hasattr(self, 'camera') or not getattr(self.camera, 'active', None):
+        if not hasattr(self, 'camera') or not getattr(self._camera_driver, 'active', None):
             missing.append("Camera")
         if missing:
             notifications.warning(
@@ -638,7 +659,7 @@ class Lumascope():
                 if not moving_axes:
                     # Also check overshoot — if overshoot is active,
                     # the monitor should keep running
-                    if hasattr(self.motion, 'overshoot') and self.motion.overshoot:
+                    if hasattr(self._motion_driver, 'overshoot') and self._motion_driver.overshoot:
                         time.sleep(self._MOTION_POLL_INTERVAL)
                         continue
                     # All axes arrived — go back to sleep
@@ -655,7 +676,7 @@ class Lumascope():
                         if self._motion_monitor_stop.is_set():
                             break
                         try:
-                            if self.motion.is_connected() and self.get_target_status(ax):
+                            if self._motion_driver.is_connected() and self.get_target_status(ax):
                                 # Axis has arrived — transition to IDLE
                                 self._set_axis_state(ax, AxisState.IDLE)
                             else:
@@ -680,11 +701,11 @@ class Lumascope():
         Looks for data/camera_timing/<model>.json and overrides
         FrameValidity.SKIP_FRAMES with measured values.
         """
-        if not self.camera or not self.camera.active:
+        if not self._camera_driver or not self._camera_driver.active:
             return
         try:
             import json
-            model = getattr(self.camera, 'model_name', None)
+            model = getattr(self._camera_driver, 'model_name', None)
             if not model:
                 return
             # Normalize model name for filename
@@ -704,7 +725,7 @@ class Lumascope():
 
     def _populate_camera_cache(self):
         """Populate camera cache from hardware. Called at init and on reconnect."""
-        if not self.camera or not self.camera.active:
+        if not self._camera_driver or not self._camera_driver.active:
             with self._camera_cache_lock:
                 self._camera_cache['active'] = False
             return
@@ -712,15 +733,15 @@ class Lumascope():
         try:
             cache = {
                 'active': True,
-                'gain': self.camera.get_gain() or 0.0,
-                'exposure_ms': self.camera.get_exposure_t() or 0.0,
-                'frame_size': self.camera.get_frame_size() or {'width': 0, 'height': 0},
-                'max_frame_size': self.camera.get_max_frame_size() or {'width': 0, 'height': 0},
-                'min_frame_size': self.camera.get_min_frame_size() or {'width': 0, 'height': 0},
-                'max_exposure': self.camera.get_max_exposure() or None,
-                'max_gain': self.camera.get_max_gain() if hasattr(self.camera, 'get_max_gain') else None,
-                'pixel_format': self.camera.get_pixel_format() if hasattr(self.camera, 'get_pixel_format') else None,
-                'binning': self.camera.get_binning_size() if hasattr(self.camera, 'get_binning_size') else 1,
+                'gain': self._camera_driver.get_gain() or 0.0,
+                'exposure_ms': self._camera_driver.get_exposure_t() or 0.0,
+                'frame_size': self._camera_driver.get_frame_size() or {'width': 0, 'height': 0},
+                'max_frame_size': self._camera_driver.get_max_frame_size() or {'width': 0, 'height': 0},
+                'min_frame_size': self._camera_driver.get_min_frame_size() or {'width': 0, 'height': 0},
+                'max_exposure': self._camera_driver.get_max_exposure() or None,
+                'max_gain': self._camera_driver.get_max_gain() if hasattr(self._camera_driver, 'get_max_gain') else None,
+                'pixel_format': self._camera_driver.get_pixel_format() if hasattr(self._camera_driver, 'get_pixel_format') else None,
+                'binning': self._camera_driver.get_binning_size() if hasattr(self._camera_driver, 'get_binning_size') else 1,
             }
             with self._camera_cache_lock:
                 self._camera_cache.update(cache)
@@ -728,7 +749,7 @@ class Lumascope():
         except Exception as e:
             logger.warning(f'[SCOPE API ] Failed to populate camera cache: {e}')
             with self._camera_cache_lock:
-                self._camera_cache['active'] = bool(self.camera and self.camera.active)
+                self._camera_cache['active'] = bool(self._camera_driver and self._camera_driver.active)
 
     def _invalidate_camera_cache(self):
         """Mark camera cache as inactive (e.g. on disconnect)."""
@@ -1619,7 +1640,7 @@ class Lumascope():
         Args:
             owner: The owner tag whose channels should be turned off.
         """
-        if not self.led or not owner:
+        if not self._led_driver or not owner:
             return
         with self._led_owner_lock:
             channels_to_off = [color for color, own in self._led_owners.items()
@@ -1631,7 +1652,7 @@ class Lumascope():
             ch = self.color2ch(color)
             if ch is not None:
                 with self._led_lock:
-                    self.led.led_off(ch)
+                    self._led_driver.led_off(ch)
                 self.frame_validity.invalidate('led')
                 _api_log.info(f'led_off ch={ch} (owned release by {owner})')
                 self._fire_led_listeners(color, False, 0.0, owner=owner)
@@ -1768,7 +1789,7 @@ class Lumascope():
             float: Travel limit in um, or MOTOR_POSITION_LIMIT if unknown.
         """
         try:
-            return float(self.motion.motorconfig.travel_limit_um(axis))
+            return float(self._motion_driver.motorconfig.travel_limit_um(axis))
         except Exception:
             return float(self.MOTOR_POSITION_LIMIT)
 
@@ -1779,7 +1800,7 @@ class Lumascope():
         Returns:
             bool: True if a real (non-Null) motor board is connected.
         """
-        return not isinstance(self.motion, NullMotionBoard) and self.motion.is_connected()
+        return not isinstance(self._motion_driver, NullMotionBoard) and self._motion_driver.is_connected()
 
     @property
     def led_connected(self) -> bool:
@@ -1788,7 +1809,7 @@ class Lumascope():
         Returns:
             bool: True if a real (non-Null) LED board is connected.
         """
-        return not isinstance(self.led, NullLEDBoard) and self.led.is_connected()
+        return not isinstance(self._led_driver, NullLEDBoard) and self._led_driver.is_connected()
 
     def lens_focal_length(self) -> float:
         """Get tube lens focal length from motorconfig.
@@ -1796,7 +1817,7 @@ class Lumascope():
         Returns:
             float: Focal length in mm (default 47.8).
         """
-        return self.motion.motorconfig.lens_focal_length()
+        return self._motion_driver.motorconfig.lens_focal_length()
 
     def pixel_size(self) -> float:
         """Get camera pixel size from motorconfig.
@@ -1804,7 +1825,7 @@ class Lumascope():
         Returns:
             float: Pixel size in um/pixel (default 2.0).
         """
-        return self.motion.motorconfig.pixel_size()
+        return self._motion_driver.motorconfig.pixel_size()
 
     # --- CR-6: Exclusive lock for multi-step hardware operations ---
 
@@ -1849,7 +1870,7 @@ class Lumascope():
             # instead of producing two FIRMWARE ERROR warnings per
             # shutdown. motor_stop returns True if STOP was accepted,
             # False if firmware doesn't implement it (cached).
-            stopped = self.motion.motor_stop()
+            stopped = self._motion_driver.motor_stop()
             if stopped:
                 logger.info('[SCOPE API ] stop_motion: motors stopped')
             else:
@@ -1910,17 +1931,17 @@ class Lumascope():
 
         # Each sub-system: only attempt disconnect on a driver that
         # has one. Skips both the canonical no-op states (NullLEDBoard,
-        # NullMotionBoard, self.camera is None) and edge-case test
+        # NullMotionBoard, self._camera_driver is None) and edge-case test
         # fixtures that bend the type system (e.g. `scope.led = object()`
         # for partial-hardware-warning tests). A skipped sub-system
         # counts as ok=True -- "nothing to tear down" is success, not
         # failure. Real drivers that raise inside disconnect() still
         # flip *_ok to False and fire a Rule-14 notification.
         led_ok = True
-        if (not isinstance(self.led, NullLEDBoard)
-                and hasattr(self.led, 'disconnect')):
+        if (not isinstance(self._led_driver, NullLEDBoard)
+                and hasattr(self._led_driver, 'disconnect')):
             try:
-                self.led.disconnect()
+                self._led_driver.disconnect()
             except Exception as ex:
                 led_ok = False
                 logger.exception(f"[SCOPE API ] LED disconnect failed: {ex}")
@@ -1930,13 +1951,13 @@ class Lumascope():
                     f"LED board teardown raised {type(ex).__name__}: {ex}. "
                     f"The serial port may be left open; reconnecting "
                     f"may require a process restart.")
-        self.led = NullLEDBoard()
+        self._led_driver = NullLEDBoard()
 
         motion_ok = True
-        if (not isinstance(self.motion, NullMotionBoard)
-                and hasattr(self.motion, 'disconnect')):
+        if (not isinstance(self._motion_driver, NullMotionBoard)
+                and hasattr(self._motion_driver, 'disconnect')):
             try:
-                self.motion.disconnect()
+                self._motion_driver.disconnect()
             except Exception as ex:
                 motion_ok = False
                 logger.exception(f"[SCOPE API ] Motion disconnect failed: {ex}")
@@ -1946,12 +1967,12 @@ class Lumascope():
                     f"Motor board teardown raised {type(ex).__name__}: {ex}. "
                     f"The serial port may be left open; reconnecting "
                     f"may require a process restart.")
-        self.motion = NullMotionBoard()
+        self._motion_driver = NullMotionBoard()
 
         camera_ok = True
-        if self.camera is not None and hasattr(self.camera, 'disconnect'):
+        if self._camera_driver is not None and hasattr(self._camera_driver, 'disconnect'):
             try:
-                camera_ok = bool(self.camera.disconnect())
+                camera_ok = bool(self._camera_driver.disconnect())
             except Exception as ex:
                 camera_ok = False
                 logger.exception(f"[SCOPE API ] Camera disconnect failed: {ex}")
@@ -1961,11 +1982,11 @@ class Lumascope():
                     f"Camera teardown raised {type(ex).__name__}: {ex}. "
                     f"USB resources may not be fully released until the "
                     f"app restarts.")
-            self.camera = None
-        elif self.camera is not None:
+            self._camera_driver = None
+        elif self._camera_driver is not None:
             # Camera lacked a `disconnect` method (test-fixture artifact);
             # clear the slot but don't claim success on a real teardown.
-            self.camera = None
+            self._camera_driver = None
         self._invalidate_camera_cache()
 
         all_ok = led_ok and motion_ok and camera_ok
@@ -2018,9 +2039,9 @@ class Lumascope():
             bool: True if all three components are connected.
         """
         logger.info('[SCOPE API ] Performing connection check...')
-        led = not isinstance(self.led, NullLEDBoard) and self.led.is_connected()
+        led = not isinstance(self._led_driver, NullLEDBoard) and self._led_driver.is_connected()
         motion = self.motor_connected
-        camera = self.camera is not None and self.camera.is_connected()
+        camera = self._camera_driver is not None and self._camera_driver.is_connected()
 
         if not led:
             logger.info('[SCOPE API ] Connection Check: LED Board not connected')
@@ -2217,10 +2238,10 @@ class Lumascope():
             list: Supported binning factors (e.g. ``[1, 2, 4]``). Defaults
                 to ``[1]`` if no camera is active.
         """
-        if not self.camera or not self.camera.active:
+        if not self._camera_driver or not self._camera_driver.active:
             return [1]
         try:
-            return self.camera.profile.binning_sizes
+            return self._camera_driver.profile.binning_sizes
         except (AttributeError, TypeError):
             return [1]
 
@@ -2240,8 +2261,8 @@ class Lumascope():
         try:
             self._binning_size = size
 
-            if self.camera:
-                ok = self.camera.set_binning_size(size=size)
+            if self._camera_driver:
+                ok = self._camera_driver.set_binning_size(size=size)
             else:
                 ok = False
             _api_log.info(f'set_binning {size}x{size} -> {ok}')
@@ -2260,10 +2281,10 @@ class Lumascope():
         Returns:
             int: Current binning factor (1 if camera inactive).
         """
-        if not self.camera or not self.camera.active:
+        if not self._camera_driver or not self._camera_driver.active:
             return 1
 
-        return self.camera.get_binning_size()
+        return self._camera_driver.get_binning_size()
 
     def get_pixel_format(self) -> str | None:
         """Get the current camera pixel format.
@@ -2271,9 +2292,9 @@ class Lumascope():
         Returns:
             str | None: Pixel format string (e.g. 'Mono8'), or None if inactive.
         """
-        if not self.camera or not self.camera.active:
+        if not self._camera_driver or not self._camera_driver.active:
             return None
-        return self.camera.get_pixel_format()
+        return self._camera_driver.get_pixel_format()
 
     def set_pixel_format(self, pixel_format: str) -> bool:
         """Set the camera pixel format.
@@ -2287,10 +2308,10 @@ class Lumascope():
                 or the driver raised. Never raises -- caller may safely
                 check `if not scope.set_pixel_format(...)` for fallback.
         """
-        if not self.camera or not self.camera.active:
+        if not self._camera_driver or not self._camera_driver.active:
             return False
         try:
-            result = self.camera.set_pixel_format(pixel_format)
+            result = self._camera_driver.set_pixel_format(pixel_format)
         except Exception as ex:
             logger.exception(f"[SCOPE API ] Error setting pixel format: {ex}")
             from modules.notification_center import notifications
@@ -2312,9 +2333,9 @@ class Lumascope():
         Returns:
             tuple: Supported format strings, or empty tuple if inactive.
         """
-        if not self.camera or not self.camera.active:
+        if not self._camera_driver or not self._camera_driver.active:
             return ()
-        return self.camera.get_supported_pixel_formats()
+        return self._camera_driver.get_supported_pixel_formats()
 
     def set_device_link_throughput_limit(
         self,
@@ -2360,16 +2381,16 @@ class Lumascope():
         Raises:
             HardwareError: Underlying SDK call failed in the driver.
         """
-        if not self.camera or not self.camera.active:
+        if not self._camera_driver or not self._camera_driver.active:
             return False
-        if not hasattr(self.camera, 'set_device_link_throughput_limit'):
+        if not hasattr(self._camera_driver, 'set_device_link_throughput_limit'):
             logger.warning(
                 f'[SCOPE API ] set_device_link_throughput_limit: '
-                f'{type(self.camera).__name__} does not implement this method'
+                f'{type(self._camera_driver).__name__} does not implement this method'
             )
             return False
         try:
-            return bool(self.camera.set_device_link_throughput_limit(
+            return bool(self._camera_driver.set_device_link_throughput_limit(
                 mode=mode, value_bps=value_bps,
             ))
         except Exception as ex:
@@ -2419,16 +2440,16 @@ class Lumascope():
         Raises:
             HardwareError: Underlying SDK call failed in the driver.
         """
-        if not self.camera or not self.camera.active:
+        if not self._camera_driver or not self._camera_driver.active:
             return False
-        if not hasattr(self.camera, 'set_acquisition_stop_mode'):
+        if not hasattr(self._camera_driver, 'set_acquisition_stop_mode'):
             logger.warning(
                 f'[SCOPE API ] set_acquisition_stop_mode: '
-                f'{type(self.camera).__name__} does not implement this method'
+                f'{type(self._camera_driver).__name__} does not implement this method'
             )
             return False
         try:
-            return bool(self.camera.set_acquisition_stop_mode(mode=mode))
+            return bool(self._camera_driver.set_acquisition_stop_mode(mode=mode))
         except Exception as ex:
             logger.exception(
                 f"[SCOPE API ] Error setting acquisition_stop_mode: {ex}"
@@ -2464,16 +2485,16 @@ class Lumascope():
         Raises:
             HardwareError: Underlying SDK call failed in the driver.
         """
-        if not self.camera or not self.camera.active:
+        if not self._camera_driver or not self._camera_driver.active:
             return
-        if not hasattr(self.camera, 'set_max_acquisition_frame_rate'):
+        if not hasattr(self._camera_driver, 'set_max_acquisition_frame_rate'):
             logger.warning(
                 f'[SCOPE API ] set_max_acquisition_frame_rate: '
-                f'{type(self.camera).__name__} does not implement this method'
+                f'{type(self._camera_driver).__name__} does not implement this method'
             )
             return
         try:
-            self.camera.set_max_acquisition_frame_rate(enabled=enabled, fps=fps)
+            self._camera_driver.set_max_acquisition_frame_rate(enabled=enabled, fps=fps)
         except Exception as ex:
             logger.exception(
                 f"[SCOPE API ] Error setting max_acquisition_frame_rate: {ex}"
@@ -2499,10 +2520,10 @@ class Lumascope():
         manual-record path to drive saves on camera ticks instead of
         Kivy Clock.
         """
-        if not self.camera or not self.camera.active:
+        if not self._camera_driver or not self._camera_driver.active:
             return
         try:
-            self.camera.register_frame_callback(cb)
+            self._camera_driver.register_frame_callback(cb)
         except Exception as ex:
             logger.exception(
                 f"[SCOPE API ] register_frame_callback failed: {ex}"
@@ -2514,10 +2535,10 @@ class Lumascope():
         Passthrough to the driver. No-op when no camera is connected
         or the callback was never registered.
         """
-        if not self.camera:
+        if not self._camera_driver:
             return
         try:
-            self.camera.unregister_frame_callback(cb)
+            self._camera_driver.unregister_frame_callback(cb)
         except Exception as ex:
             logger.exception(
                 f"[SCOPE API ] unregister_frame_callback failed: {ex}"
@@ -2546,12 +2567,12 @@ class Lumascope():
         Raises:
             HardwareError: Underlying SDK call failed in the driver.
         """
-        if not self.camera or not self.camera.active:
+        if not self._camera_driver or not self._camera_driver.active:
             return False
-        if not hasattr(self.camera, 'set_bandwidth_reserve_mode'):
+        if not hasattr(self._camera_driver, 'set_bandwidth_reserve_mode'):
             return False
         try:
-            return bool(self.camera.set_bandwidth_reserve_mode(mode=mode))
+            return bool(self._camera_driver.set_bandwidth_reserve_mode(mode=mode))
         except Exception as ex:
             logger.exception(
                 f"[SCOPE API ] Error setting BandwidthReserveMode: {ex}"
@@ -2588,12 +2609,12 @@ class Lumascope():
         Raises:
             HardwareError: Underlying SDK call failed in the driver.
         """
-        if not self.camera or not self.camera.active:
+        if not self._camera_driver or not self._camera_driver.active:
             return False
-        if not hasattr(self.camera, 'set_gev_packet_size'):
+        if not hasattr(self._camera_driver, 'set_gev_packet_size'):
             return False
         try:
-            return bool(self.camera.set_gev_packet_size(size_bytes=size_bytes))
+            return bool(self._camera_driver.set_gev_packet_size(size_bytes=size_bytes))
         except Exception as ex:
             logger.exception(
                 f"[SCOPE API ] Error setting GevSCPSPacketSize: {ex}"
@@ -2629,12 +2650,12 @@ class Lumascope():
         Raises:
             HardwareError: Underlying SDK call failed in the driver.
         """
-        if not self.camera or not self.camera.active:
+        if not self._camera_driver or not self._camera_driver.active:
             return False
-        if not hasattr(self.camera, 'set_gev_inter_packet_delay'):
+        if not hasattr(self._camera_driver, 'set_gev_inter_packet_delay'):
             return False
         try:
-            return bool(self.camera.set_gev_inter_packet_delay(
+            return bool(self._camera_driver.set_gev_inter_packet_delay(
                 delay_ticks=delay_ticks
             ))
         except Exception as ex:
@@ -2674,12 +2695,12 @@ class Lumascope():
         Raises:
             HardwareError: Underlying SDK call failed in the driver.
         """
-        if not self.camera or not self.camera.active:
+        if not self._camera_driver or not self._camera_driver.active:
             return False
-        if not hasattr(self.camera, 'set_max_transfer_size'):
+        if not hasattr(self._camera_driver, 'set_max_transfer_size'):
             return False
         try:
-            return bool(self.camera.set_max_transfer_size(
+            return bool(self._camera_driver.set_max_transfer_size(
                 value_bytes=value_bytes
             ))
         except Exception as ex:
@@ -2719,12 +2740,12 @@ class Lumascope():
         Raises:
             HardwareError: Underlying SDK call failed in the driver.
         """
-        if not self.camera or not self.camera.active:
+        if not self._camera_driver or not self._camera_driver.active:
             return False
-        if not hasattr(self.camera, 'set_num_max_queued_urbs'):
+        if not hasattr(self._camera_driver, 'set_num_max_queued_urbs'):
             return False
         try:
-            return bool(self.camera.set_num_max_queued_urbs(value=value))
+            return bool(self._camera_driver.set_num_max_queued_urbs(value=value))
         except Exception as ex:
             logger.exception(
                 f"[SCOPE API ] Error setting NumMaxQueuedUrbs: {ex}"
@@ -2745,13 +2766,13 @@ class Lumascope():
 
     def leds_enable(self) -> None:
         """Enable all LED channels (allows them to be turned on)."""
-        if not self.led: return
-        self.led.leds_enable()
+        if not self._led_driver: return
+        self._led_driver.leds_enable()
 
     def leds_disable(self) -> None:
         """Disable all LED channels (prevents them from turning on)."""
-        if not self.led: return
-        self.led.leds_disable()
+        if not self._led_driver: return
+        self._led_driver.leds_disable()
 
     def get_led_ma(self, color: str) -> float:
         """Get the current illumination level for an LED channel.
@@ -2766,7 +2787,7 @@ class Lumascope():
             float: Illumination in milliamps, or -1 if channel is off or
                 LED board unavailable.
         """
-        if not self.led: return -1
+        if not self._led_driver: return -1
         with self._led_owner_lock:
             entry = self._led_state.get(color)
             return entry['illumination'] if entry else -1.0
@@ -2785,7 +2806,7 @@ class Lumascope():
         Returns:
             bool: True if the channel is currently on.
         """
-        if not self.led:
+        if not self._led_driver:
             return False
         with self._led_owner_lock:
             return self._led_state.get(color) is not None
@@ -2809,7 +2830,7 @@ class Lumascope():
             dict: Mapping of color -> {'enabled': bool, 'illumination': float}.
                 Empty if no LED board is connected.
         """
-        if not self.led:
+        if not self._led_driver:
             return {}
         with self._led_owner_lock:
             return {
@@ -2828,7 +2849,7 @@ class Lumascope():
         Returns:
             dict: {'enabled': bool, 'illumination': float}.
         """
-        if not self.led:
+        if not self._led_driver:
             return {'enabled': False, 'illumination': -1}
         with self._led_owner_lock:
             entry = self._led_state.get(color)
@@ -2847,9 +2868,9 @@ class Lumascope():
                 for every channel the driver supports. Empty if no LED
                 board is connected.
         """
-        if not self.led:
+        if not self._led_driver:
             return {}
-        all_colors = self.led.available_colors()
+        all_colors = self._led_driver.available_colors()
         with self._led_owner_lock:
             return {
                 color: (
@@ -2876,12 +2897,12 @@ class Lumascope():
         Raises:
             ValueError: If channel or mA is out of range.
         """
-        if not self.led: return
+        if not self._led_driver: return
 
         if isinstance(channel, str):
             channel = self.color2ch(color=channel)
 
-        valid_channels = self.led.available_channels()
+        valid_channels = self._led_driver.available_channels()
         if channel not in valid_channels:
             raise ValueError(f"LED channel must be one of {valid_channels}, got {channel}")
         if not isinstance(mA, (int, float)) or mA < 0 or mA > self.LED_MAX_MA:
@@ -2917,7 +2938,7 @@ class Lumascope():
                     return
 
         with self._led_lock:
-            self.led.led_on(channel, mA, block=block)
+            self._led_driver.led_on(channel, mA, block=block)
         self.frame_validity.invalidate('led')
         _api_log.info(f'led_on ch={channel} mA={mA} owner={owner!r}')
 
@@ -2948,12 +2969,12 @@ class Lumascope():
         Raises:
             ValueError: If channel is out of range.
         """
-        if not self.led: return
+        if not self._led_driver: return
 
         if isinstance(channel, str):
             channel = self.color2ch(color=channel)
 
-        valid_channels = self.led.available_channels()
+        valid_channels = self._led_driver.available_channels()
         if channel not in valid_channels:
             raise ValueError(f"LED channel must be one of {valid_channels}, got {channel}")
 
@@ -2977,7 +2998,7 @@ class Lumascope():
                     return
 
         with self._led_lock:
-            self.led.led_off(channel)
+            self._led_driver.led_off(channel)
         self.frame_validity.invalidate('led')
         _api_log.info(f'led_off ch={channel} owner={owner!r}')
 
@@ -2998,16 +3019,16 @@ class Lumascope():
         Raises:
             ValueError: If channel or mA is out of range.
         """
-        if not self.led: return
+        if not self._led_driver: return
         if isinstance(channel, str):
             channel = self.color2ch(color=channel)
-        valid_channels = self.led.available_channels()
+        valid_channels = self._led_driver.available_channels()
         if channel not in valid_channels:
             raise ValueError(f"LED channel must be one of {valid_channels}, got {channel}")
         if not isinstance(mA, (int, float)) or mA < 0 or mA > self.LED_MAX_MA:
             raise ValueError(f"LED current must be 0-{self.LED_MAX_MA} mA, got {mA}")
         with self._led_lock:
-            self.led.led_on_fast(channel, mA)
+            self._led_driver.led_on_fast(channel, mA)
         self.frame_validity.invalidate('led')
         color_name = self.ch2color(channel)
         if color_name:
@@ -3022,14 +3043,14 @@ class Lumascope():
         Raises:
             ValueError: If channel is out of range.
         """
-        if not self.led: return
+        if not self._led_driver: return
         if isinstance(channel, str):
             channel = self.color2ch(color=channel)
-        valid_channels = self.led.available_channels()
+        valid_channels = self._led_driver.available_channels()
         if channel not in valid_channels:
             raise ValueError(f"LED channel must be one of {valid_channels}, got {channel}")
         with self._led_lock:
-            self.led.led_off_fast(channel)
+            self._led_driver.led_off_fast(channel)
         self.frame_validity.invalidate('led')
         color_name = self.ch2color(channel)
         if color_name:
@@ -3037,26 +3058,26 @@ class Lumascope():
 
     def leds_off_fast(self) -> None:
         """Turn off all LEDs with write-only (no read-back) for time-critical pulses."""
-        if not self.led: return
+        if not self._led_driver: return
         with self._led_lock:
-            self.led.leds_off_fast()
+            self._led_driver.leds_off_fast()
         self.frame_validity.invalidate('led')
         with self._led_owner_lock:
             self._led_state.clear()
-        for color in self.led.available_colors():
+        for color in self._led_driver.available_colors():
             self._fire_led_listeners(color, False, 0.0, '')
 
     def leds_off(self) -> None:
         """Turn off all LEDs (nuclear -- ignores ownership, clears all owners)."""
-        if not self.led: return
+        if not self._led_driver: return
         with self._led_lock:
-            self.led.leds_off()
+            self._led_driver.leds_off()
         with self._led_owner_lock:
             self._led_owners.clear()
             self._led_state.clear()
         self.frame_validity.invalidate('led')
         _api_log.info('leds_off')
-        for color in self.led.available_colors():
+        for color in self._led_driver.available_colors():
             self._fire_led_listeners(color, False, 0.0, '')
 
     def get_led_status(self):
@@ -3066,13 +3087,13 @@ class Lumascope():
             Driver-defined status object (typically int bitfield), or
             None if no LED board is connected.
         """
-        if not self.led: return
-        return self.led.get_status()
+        if not self._led_driver: return
+        return self._led_driver.get_status()
 
     def wait_until_led_on(self) -> None:
         """Block until the LED board confirms an LED is on."""
-        if not self.led: return
-        self.led.wait_until_on()
+        if not self._led_driver: return
+        self._led_driver.wait_until_on()
 
     def ch2color(self, channel: int) -> str | None:
         """Convert a channel number to its color name string.
@@ -3083,8 +3104,8 @@ class Lumascope():
         Returns:
             str: Color name (e.g. "Blue", "BF"), or None if LED board unavailable.
         """
-        if not self.led: return
-        return self.led.ch2color(channel)
+        if not self._led_driver: return
+        return self._led_driver.ch2color(channel)
 
     def color2ch(self, color: str) -> int | None:
         """Convert a color name string to its channel number.
@@ -3095,8 +3116,8 @@ class Lumascope():
         Returns:
             int: Channel number (0-5), or None if LED board unavailable.
         """
-        if not self.led: return
-        return self.led.color2ch(color)
+        if not self._led_driver: return
+        return self._led_driver.color2ch(color)
 
     ########################################################################
     # CAMERA FUNCTIONS
@@ -3135,7 +3156,7 @@ class Lumascope():
             numpy.ndarray | False: Captured image array, or False on failure.
         """
 
-        if not self.camera or not self.camera.active:
+        if not self._camera_driver or not self._camera_driver.active:
             return False
 
         tmp_buffer = []
@@ -3148,18 +3169,18 @@ class Lumascope():
                 # set_gain/set_exposure from another thread mid-frame.
                 with self._cam_lock:
                     if force_new_capture:
-                        grab_status, grab_image_ts = self.camera.grab_new_capture(new_capture_timeout)
+                        grab_status, grab_image_ts = self._camera_driver.grab_new_capture(new_capture_timeout)
                     else:
-                        grab_status, grab_image_ts = self.camera.grab()
+                        grab_status, grab_image_ts = self._camera_driver.grab()
 
                     if grab_status:
                         self.frame_validity.count_frame()
-                        tmp = self.camera.get_array()  # thread-safe copy
+                        tmp = self._camera_driver.get_array()  # thread-safe copy
 
                 if not grab_status:
                     # Check if camera disconnected — don't retry for 5 seconds
                     # if the camera is gone (H20).
-                    if not self.camera.active:
+                    if not self._camera_driver.active:
                         logger.error("[SCOPE API ] get_image: camera disconnected")
                         from modules.notification_center import notifications
                         notifications.error("Camera", "Camera Disconnected",
@@ -3178,10 +3199,10 @@ class Lumascope():
                     # too high), not a camera error. Don't loop until timeout.
                     retry_frame = None
                     with self._cam_lock:
-                        retry_status, _ = self.camera.grab_new_capture(new_capture_timeout) if force_new_capture else self.camera.grab()
+                        retry_status, _ = self._camera_driver.grab_new_capture(new_capture_timeout) if force_new_capture else self._camera_driver.grab()
                         if retry_status:
                             self.frame_validity.count_frame()
-                            retry_frame = self.camera.get_array()
+                            retry_frame = self._camera_driver.get_array()
                     # Saturation walk is outside cam_lock — no camera state needed,
                     # and the walk would otherwise block concurrent set_gain/set_exposure.
                     if retry_frame is not None:
@@ -3265,10 +3286,10 @@ class Lumascope():
                 if no frame is available. Chunks may be None for cameras
                 without chunk support.
         """
-        if not self.camera or not self.camera.active:
+        if not self._camera_driver or not self._camera_driver.active:
             return False, None, None
 
-        grab_status, tmp, grab_image_ts, chunks = self.camera.grab_latest_with_chunks()
+        grab_status, tmp, grab_image_ts, chunks = self._camera_driver.grab_latest_with_chunks()
         if not grab_status or tmp is None:
             return False, None, None
         self.frame_validity.count_frame(chunk_data=chunks)
@@ -3313,13 +3334,13 @@ class Lumascope():
             tuple: (image, timestamp) where image is numpy.ndarray and timestamp
                    is from the camera SDK, or (False, None) if unavailable.
         """
-        if not self.camera or not self.camera.active:
+        if not self._camera_driver or not self._camera_driver.active:
             return False, None
 
         # Single-copy grab: grab_latest() returns the image directly,
         # avoiding the extra copy that grab() + get_array() would make.
         # This saves ~2.3MB copy + 1 lock acquisition per frame.
-        grab_status, tmp, grab_image_ts = self.camera.grab_latest()
+        grab_status, tmp, grab_image_ts = self._camera_driver.grab_latest()
         if not grab_status or tmp is None:
             return False, None
         self.frame_validity.count_frame()
@@ -3568,7 +3589,7 @@ class Lumascope():
         # Read the most recent chunks; they're captured at-grab-time and
         # are the right values for the most recent frame on this thread.
         try:
-            handler = getattr(self.camera, 'cam_image_handler', None)
+            handler = getattr(self._camera_driver, 'cam_image_handler', None)
             chunks = handler.get_last_chunks() if handler is not None else None
         except Exception:
             chunks = None
@@ -3576,7 +3597,7 @@ class Lumascope():
             ts_ticks = chunks.get('Timestamp')
             if ts_ticks is not None:
                 metadata['timestamp_camera_ticks'] = int(ts_ticks)
-            tick_hz = getattr(self.camera, 'timestamp_tick_frequency_hz', None)
+            tick_hz = getattr(self._camera_driver, 'timestamp_tick_frequency_hz', None)
             if tick_hz is not None:
                 metadata['timestamp_camera_tick_hz'] = int(tick_hz)
             frame_id = chunks.get('FrameID')
@@ -3821,8 +3842,8 @@ class Lumascope():
         Returns:
             int: Max width in pixels, or 0 if camera inactive.
         """
-        if (not self.camera) or (not self.camera.active): return 0
-        return self.camera.get_max_frame_size()['width']
+        if (not self._camera_driver) or (not self._camera_driver.active): return 0
+        return self._camera_driver.get_max_frame_size()['width']
 
     def get_max_height(self) -> int:
         """Get the maximum pixel height of the camera sensor.
@@ -3830,8 +3851,8 @@ class Lumascope():
         Returns:
             int: Max height in pixels, or 0 if camera inactive.
         """
-        if (not self.camera) or (not self.camera.active): return 0
-        return self.camera.get_max_frame_size()['height']
+        if (not self._camera_driver) or (not self._camera_driver.active): return 0
+        return self._camera_driver.get_max_frame_size()['height']
 
     def get_width(self) -> int:
         """Get the current frame width setting.
@@ -3839,8 +3860,8 @@ class Lumascope():
         Returns:
             int: Current width in pixels, or 0 if camera unavailable.
         """
-        if not self.camera: return 0
-        return self.camera.get_frame_size()['width']
+        if not self._camera_driver: return 0
+        return self._camera_driver.get_frame_size()['width']
 
     def get_height(self) -> int:
         """Get the current frame height setting.
@@ -3848,8 +3869,8 @@ class Lumascope():
         Returns:
             int: Current height in pixels, or 0 if camera unavailable.
         """
-        if not self.camera: return 0
-        return self.camera.get_frame_size()['height']
+        if not self._camera_driver: return 0
+        return self._camera_driver.get_frame_size()['height']
 
     def set_frame_size(self, w: int, h: int) -> None:
         """Set the camera frame size in pixels.
@@ -3859,8 +3880,8 @@ class Lumascope():
             h: Frame height in pixels.
         """
 
-        if not self.camera or not self.camera.active: return
-        self.camera.set_frame_size(w, h)
+        if not self._camera_driver or not self._camera_driver.active: return
+        self._camera_driver.set_frame_size(w, h)
         with self._camera_cache_lock:
             self._camera_cache['frame_size'] = {'width': int(w), 'height': int(h)}
 
@@ -3872,8 +3893,8 @@ class Lumascope():
                 None if inactive.
         """
 
-        if not self.camera or not self.camera.active: return
-        return self.camera.get_frame_size()
+        if not self._camera_driver or not self._camera_driver.active: return
+        return self._camera_driver.get_frame_size()
 
 
     def get_gain(self) -> float:
@@ -3883,8 +3904,8 @@ class Lumascope():
             float: Gain in dB, or -1 if camera inactive.
         """
 
-        if not self.camera or not self.camera.active: return -1
-        return self.camera.get_gain()
+        if not self._camera_driver or not self._camera_driver.active: return -1
+        return self._camera_driver.get_gain()
 
     def set_gain(self, gain: float) -> None:
         """Set the camera gain.
@@ -3892,12 +3913,12 @@ class Lumascope():
         Args:
             gain: Gain value in dB.
         """
-        if not self.camera or not self.camera.active: return
+        if not self._camera_driver or not self._camera_driver.active: return
         # Skip redundant SDK call if gain hasn't changed
         if abs(float(gain) - self.camera_gain) < 0.001:
             return
         with self._cam_lock:
-            self.camera.gain(gain)
+            self._camera_driver.gain(gain)
         self.frame_validity.invalidate('gain')
         # Record requested gain so capture_and_wait's chunk-match can clear
         # the pending source once a frame's ChunkGain matches.
@@ -3915,8 +3936,8 @@ class Lumascope():
             settings: Dict with 'target_brightness', 'min_gain', 'max_gain'.
         """
 
-        if not self.camera or not self.camera.active: return
-        self.camera.auto_gain(
+        if not self._camera_driver or not self._camera_driver.active: return
+        self._camera_driver.auto_gain(
             state,
             target_brightness=settings['target_brightness'],
             min_gain=settings['min_gain'],
@@ -3956,7 +3977,7 @@ class Lumascope():
         Args:
             t: Exposure time in milliseconds.
         """
-        if not self.camera or not self.camera.active: return
+        if not self._camera_driver or not self._camera_driver.active: return
         # Skip redundant SDK call if exposure hasn't changed
         if abs(float(t) - self.camera_exposure_ms) < 0.001:
             return
@@ -3967,7 +3988,7 @@ class Lumascope():
                            f'image will be nearly black. Value should be in milliseconds.\n'
                            f'Call stack:\n{_caller}')
         with self._cam_lock:
-            self.camera.exposure_t(t)
+            self._camera_driver.exposure_t(t)
         self.frame_validity.invalidate('exposure')
         # Record requested exposure for chunk-match. ChunkExposureTime is
         # microseconds; the API takes milliseconds. Convert at the seam so
@@ -3985,8 +4006,8 @@ class Lumascope():
             float: Exposure time in milliseconds, or 0 if camera inactive.
         """
 
-        if not self.camera or not self.camera.active: return 0
-        exposure = self.camera.get_exposure_t()
+        if not self._camera_driver or not self._camera_driver.active: return 0
+        exposure = self._camera_driver.get_exposure_t()
         return exposure
 
     def set_auto_exposure_time(self, state: bool = True) -> None:
@@ -3996,8 +4017,8 @@ class Lumascope():
             state: True to enable auto exposure, False to disable.
         """
 
-        if not self.camera or not self.camera.active: return
-        self.camera.auto_exposure_t(state)
+        if not self._camera_driver or not self._camera_driver.active: return
+        self._camera_driver.auto_exposure_t(state)
         self.frame_validity.invalidate('exposure')
         # Auto-exposure dynamically adjusts the value; clear the manual
         # target so chunk-match falls back to skip-frames calibration.
@@ -4018,7 +4039,7 @@ class Lumascope():
             auto_gain_settings: Dict with target_brightness, min_gain, max_gain
                                (required if auto_gain is True).
         """
-        if not self.camera or not self.camera.active:
+        if not self._camera_driver or not self._camera_driver.active:
             return
         self.set_gain(gain)
         self.set_exposure_time(exposure_ms)
@@ -4032,9 +4053,9 @@ class Lumascope():
         Args:
             target_brightness: Target brightness value (0.0 to 1.0).
         """
-        if not self.camera or not self.camera.active:
+        if not self._camera_driver or not self._camera_driver.active:
             return
-        self.camera.update_auto_gain_target_brightness(target_brightness)
+        self._camera_driver.update_auto_gain_target_brightness(target_brightness)
 
     def auto_gain_once(self, state: bool, target_brightness: float,
                        min_gain: float, max_gain: float) -> None:
@@ -4046,9 +4067,9 @@ class Lumascope():
             min_gain: Minimum gain in dB.
             max_gain: Maximum gain in dB.
         """
-        if not self.camera or not self.camera.active:
+        if not self._camera_driver or not self._camera_driver.active:
             return
-        self.camera.auto_gain_once(
+        self._camera_driver.auto_gain_once(
             state=state,
             target_brightness=target_brightness,
             min_gain=min_gain,
@@ -4068,9 +4089,9 @@ class Lumascope():
             A context manager. Falls back to ``contextlib.nullcontext()``
             when no camera is active.
         """
-        if not self.camera or not self.camera.active:
+        if not self._camera_driver or not self._camera_driver.active:
             return contextlib.nullcontext()
-        return self.camera.update_camera_config()
+        return self._camera_driver.update_camera_config()
 
     def camera_is_connected(self) -> bool:
         """Check if the camera is active and connected.
@@ -4078,10 +4099,10 @@ class Lumascope():
         Returns:
             bool: True if camera is connected and active.
         """
-        if not self.camera or not self.camera.active:
+        if not self._camera_driver or not self._camera_driver.active:
             return False
 
-        return self.camera.is_connected()
+        return self._camera_driver.is_connected()
 
         #return True
 
@@ -4092,10 +4113,10 @@ class Lumascope():
             dict: Mapping of sensor name to temperature in Celsius. Empty if inactive.
         """
 
-        if not self.camera or not self.camera.active:
+        if not self._camera_driver or not self._camera_driver.active:
             return {}
 
-        return self.camera.get_all_temperatures()
+        return self._camera_driver.get_all_temperatures()
 
     def log_camera_temps(self) -> None:
         """Emit one INFO line per camera temperature sensor.
@@ -4188,7 +4209,7 @@ class Lumascope():
         Returns:
             dict: Axis configuration (axes present, limits, etc.).
         """
-        return self.motion.get_axes_config()
+        return self._motion_driver.get_axes_config()
 
     def get_axis_limits(self, axis: str) -> dict:
         """Get the travel limits for an axis.
@@ -4200,7 +4221,7 @@ class Lumascope():
             dict: Contains 'min' and 'max' positions in um.
         """
 
-        return self.motion.get_axis_limits(axis=axis)
+        return self._motion_driver.get_axis_limits(axis=axis)
 
 
     def zhome(self) -> bool:
@@ -4212,13 +4233,13 @@ class Lumascope():
                 no-response / firmware-error). The user is notified on
                 failure; programmatic callers can branch on the bool.
         """
-        #if not self.motion: return
+        #if not self._motion_driver: return
         _api_log.info('zhome START')
         self._set_axis_state('Z', AxisState.HOMING)
         self.frame_validity.invalidate('z_move')
         try:
             with self.reference_position_logger():
-                result = self.motion.zhome()
+                result = self._motion_driver.zhome()
             if result is False:
                 logger.error('[SCOPE API ] Z homing failed')
                 notifications.error("Motion", "Homing Failed",
@@ -4284,7 +4305,7 @@ class Lumascope():
         self.is_homing = True
         try:
             with self.reference_position_logger():
-                result = self.motion.home()
+                result = self._motion_driver.home()
             if result is False:
                 logger.error('[SCOPE API ] Homing failed')
                 notifications.error("Motion", "Homing Failed",
@@ -4313,15 +4334,15 @@ class Lumascope():
         Returns:
             bool: True if home() has succeeded at least once.
         """
-        return self.motion.has_homed()
+        return self._motion_driver.has_homed()
 
     def xycenter(self) -> None:
         """Move the XY stage to center position."""
 
-        #if not self.motion: return
+        #if not self._motion_driver: return
         self._set_axis_state('X', AxisState.MOVING)
         self._set_axis_state('Y', AxisState.MOVING)
-        self.motion.xycenter()
+        self._motion_driver.xycenter()
         self._set_axis_state('X', AxisState.IDLE)
         self._set_axis_state('Y', AxisState.IDLE)
         self.refresh_position_cache()
@@ -4387,7 +4408,7 @@ class Lumascope():
                 with self.safe_turret_mover():
                     self._set_axis_state('T', AxisState.HOMING)
                     self.frame_validity.invalidate('turret')
-                    result = self.motion.thome()
+                    result = self._motion_driver.thome()
             if result is False:
                 logger.error('[SCOPE API ] Turret homing failed')
                 notifications.error("Motion", "Homing Failed",
@@ -4412,7 +4433,7 @@ class Lumascope():
         Returns:
             bool: True if turret homing has been performed.
         """
-        return self.motion.has_thomed()
+        return self._motion_driver.has_thomed()
 
     def tmove(self, position: int) -> None:
         """Move the turret to a specific position. Skips if already there.
@@ -4453,7 +4474,7 @@ class Lumascope():
         positions = {}
         for ax in self.axes_present():
             try:
-                pos = self.motion.target_pos(axis=ax)
+                pos = self._motion_driver.target_pos(axis=ax)
                 positions[ax] = pos if pos is not None else 0.0
             except Exception:
                 positions[ax] = 0.0
@@ -4476,7 +4497,7 @@ class Lumascope():
                 axis positions. Returns 0 if motion board inactive, None if
                 axis T requested but no turret present.
         """
-        if (not self.motion.has_turret()) and (axis == 'T'):
+        if (not self._motion_driver.has_turret()) and (axis == 'T'):
             return None
 
         with self._pos_cache_lock:
@@ -4607,7 +4628,7 @@ class Lumascope():
         """
         if not self.motor_connected:
             return 0.0
-        pos = self.motion.current_pos(axis)
+        pos = self._motion_driver.current_pos(axis)
         return pos if pos is not None else 0.0
 
     def set_motor_precision_mode(self, axis: str, enabled: bool) -> None:
@@ -4624,7 +4645,7 @@ class Lumascope():
         """
         if not self.motor_connected:
             return
-        self.motion.set_precision_mode(axis, enabled)
+        self._motion_driver.set_precision_mode(axis, enabled)
 
 
     def move_absolute_position(self, axis: str, pos: float,
@@ -4661,7 +4682,7 @@ class Lumascope():
         with self._pos_cache_lock:
             start_pos = self._pos_cache.get(axis, 0.0)
         try:
-            ramp = self.motion.motorconfig.ramp_params(axis)
+            ramp = self._motion_driver.motorconfig.ramp_params(axis)
         except Exception:
             ramp = None
         if ramp:
@@ -4686,7 +4707,7 @@ class Lumascope():
         # the new value, so position_reached is reliably False and the
         # motion monitor polls until real arrival.
         try:
-            self.motion.move_abs_pos(axis, pos, overshoot_enabled=overshoot_enabled, ignore_limits=ignore_limits)
+            self._motion_driver.move_abs_pos(axis, pos, overshoot_enabled=overshoot_enabled, ignore_limits=ignore_limits)
         except Exception as e:
             with self._move_profile_lock:
                 self._move_profile[axis] = None
@@ -4735,7 +4756,7 @@ class Lumascope():
         # Write hardware target BEFORE transitioning axis to MOVING —
         # same race fix as move_absolute_position (#618).
         try:
-            self.motion.move_rel_pos(axis, um, overshoot_enabled=overshoot_enabled)
+            self._motion_driver.move_rel_pos(axis, um, overshoot_enabled=overshoot_enabled)
         except Exception as e:
             _api_log.error(f'move_rel {axis}={um:+.1f}um FAILED: {e}')
             raise
@@ -4762,9 +4783,9 @@ class Lumascope():
             bool: True if the axis is homed, False otherwise or on error.
         """
 
-        #if not self.motion: return True
+        #if not self._motion_driver: return True
         try:
-            status = self.motion.home_status(axis)
+            status = self._motion_driver.home_status(axis)
             return status
         except Exception as e:
             logger.exception(f"[SCOPE API ] get_home_status({axis}) failed; treating as not home: {e}")
@@ -4780,14 +4801,14 @@ class Lumascope():
             bool: True if at target (always True for T if no turret present).
         """
 
-        #if not self.motion: return True
+        #if not self._motion_driver: return True
 
         # Handle case where we want to know if turret has reached its target, but there is no turret
-        if (axis == 'T') and (not self.motion.has_turret()):
+        if (axis == 'T') and (not self._motion_driver.has_turret()):
             return True
 
         try:
-            status = self.motion.target_status(axis)
+            status = self._motion_driver.target_status(axis)
             return status
         except Exception as e:
             logger.exception(f"[SCOPE API ] get_target_status({axis}) failed; treating as not at target: {e}")
@@ -4802,11 +4823,11 @@ class Lumascope():
         Returns:
             float: Target position in um, or -1 on error/no turret.
         """
-        if (axis == 'T') and (not self.motion.has_turret()):
+        if (axis == 'T') and (not self._motion_driver.has_turret()):
             return -1
 
         try:
-            pos = self.motion.target_pos(axis)
+            pos = self._motion_driver.target_pos(axis)
             return pos if pos is not None else -1
         except Exception as e:
             logger.exception(f"[SCOPE API ] get_target_pos({axis}) failed; returning -1: {e}")
@@ -4822,8 +4843,8 @@ class Lumascope():
             str: 32-character binary string of register bits (MSB first).
         """
 
-        #if not self.motion: return
-        return self.motion.reference_status(axis=axis)
+        #if not self._motion_driver: return
+        return self._motion_driver.reference_status(axis=axis)
 
 
     def get_limit_switch_status(self, axis: str):
@@ -4835,7 +4856,7 @@ class Lumascope():
         Returns:
             Limit switch state for the specified axis (driver-defined).
         """
-        return self.motion.limit_switch_status(axis=axis)
+        return self._motion_driver.limit_switch_status(axis=axis)
 
 
     def get_limit_switch_status_all_axes(self) -> dict:
@@ -4857,8 +4878,8 @@ class Lumascope():
             bool: True if overshoot is in progress.
         """
 
-        #if not self.motion: return False
-        return self.motion.overshoot
+        #if not self._motion_driver: return False
+        return self._motion_driver.overshoot
 
     def is_moving(self) -> bool:
         """Check if any axis is currently moving.
@@ -4918,7 +4939,7 @@ class Lumascope():
             val_pct: Acceleration limit as a percent of the firmware max.
         """
         try:
-            self.motion.set_acceleration_limits(val_pct=val_pct)
+            self._motion_driver.set_acceleration_limits(val_pct=val_pct)
         except Exception:
             pass  # Legacy firmware doesn't support acceleration limits
 
@@ -4929,7 +4950,7 @@ class Lumascope():
         Returns:
             str | None: Model string, or None if motion board inactive.
         """
-        return self.motion.get_microscope_model()
+        return self._motion_driver.get_microscope_model()
 
     def get_motor_info(self) -> dict:
         """Get motor controller information.
@@ -4938,11 +4959,11 @@ class Lumascope():
             dict: Keys 'model', 'serial_number', 'firmware_version'.
                   Values are None/unknown if board inactive.
         """
-        info = self.motion.fullinfo()
+        info = self._motion_driver.fullinfo()
         return {
             'model': info.get('model', 'unknown'),
             'serial_number': info.get('serial_number', 'unknown'),
-            'firmware_version': getattr(self.motion, 'firmware_version', None),
+            'firmware_version': getattr(self._motion_driver, 'firmware_version', None),
         }
 
     def get_led_info(self) -> dict:
@@ -4951,11 +4972,11 @@ class Lumascope():
         Returns:
             dict: Keys 'firmware_version', 'connected'.
         """
-        if not self.led or not self.led.is_connected():
+        if not self._led_driver or not self._led_driver.is_connected():
             return {'firmware_version': None, 'connected': False}
 
         return {
-            'firmware_version': getattr(self.led, 'firmware_version', None),
+            'firmware_version': getattr(self._led_driver, 'firmware_version', None),
             'connected': True,
         }
 
@@ -4965,12 +4986,12 @@ class Lumascope():
         Returns:
             dict: Keys 'model', 'pixel_format', 'connected'.
         """
-        if not self.camera or not self.camera.active:
+        if not self._camera_driver or not self._camera_driver.active:
             return {'model': None, 'pixel_format': None, 'connected': False}
 
         return {
-            'model': self.camera.get_model_name(),
-            'pixel_format': self.camera.get_pixel_format(),
+            'model': self._camera_driver.get_model_name(),
+            'pixel_format': self._camera_driver.get_pixel_format(),
             'connected': True,
         }
 
@@ -4981,10 +5002,10 @@ class Lumascope():
             dict: Mapping of sensor name to temperature in °C.
             Empty dict if camera is inactive or has no temperature sensors.
         """
-        if not self.camera or not self.camera.active:
+        if not self._camera_driver or not self._camera_driver.active:
             return {}
         try:
-            return self.camera.get_all_temperatures()
+            return self._camera_driver.get_all_temperatures()
         except Exception as e:
             logger.debug(f'[SCOPE API ] get_camera_temperatures failed: {e}')
             return {}
@@ -4993,7 +5014,7 @@ class Lumascope():
     # Diagnostic API (LAYER-D / LV-23, LV-24, LV-32, LV-40)
     # Tech-support / bring-up / bench tools route diagnostics through
     # these methods so the API layer owns Rule-13 logging and Rule-14
-    # error visibility. Modules MUST NOT call `self.camera.get_image()`,
+    # error visibility. Modules MUST NOT call `self._camera_driver.get_image()`,
     # `scope.led.exchange_command()`, etc. directly — see audit doc
     # `docs/AUDIT_LAYER_VIOLATIONS_2026-05-01.md` Cluster D.
     # ------------------------------------------------------------------
@@ -5013,7 +5034,7 @@ class Lumascope():
                 error strings for fields the driver couldn't supply.
                 Returns ``{'connected': False}`` if the camera is inactive.
         """
-        if not self.camera or not self.camera.active:
+        if not self._camera_driver or not self._camera_driver.active:
             return {'connected': False}
 
         info: dict = {'connected': True}
@@ -5024,11 +5045,11 @@ class Lumascope():
             except Exception as e:
                 info[key] = f'Error: {e}'
 
-        _try('model', lambda: self.camera.get_model_name())
-        _try('pixel_format', lambda: self.camera.get_pixel_format())
+        _try('model', lambda: self._camera_driver.get_model_name())
+        _try('pixel_format', lambda: self._camera_driver.get_pixel_format())
 
         try:
-            fs = self.camera.get_frame_size()
+            fs = self._camera_driver.get_frame_size()
             info['resolution'] = f"{fs.get('width', '?')}x{fs.get('height', '?')}"
             info['frame_size'] = fs
         except Exception as e:
@@ -5036,8 +5057,8 @@ class Lumascope():
 
         _try('gain', lambda: self.get_gain())
         _try('exposure_ms', lambda: self.get_exposure_time())
-        _try('max_gain', lambda: self.camera.get_max_gain())
-        _try('max_exposure_ms', lambda: self.camera.get_max_exposure())
+        _try('max_gain', lambda: self._camera_driver.get_max_gain())
+        _try('max_exposure_ms', lambda: self._camera_driver.get_max_exposure())
 
         info['temperatures'] = self.get_camera_temperatures()
         return info
@@ -5053,7 +5074,7 @@ class Lumascope():
 
         Routes every frame grab through ``Lumascope.get_image()`` so the
         bandwidth numbers reflect what protocol/preview capture actually
-        sees. Bypassing this method (calling ``self.camera.get_image()``
+        sees. Bypassing this method (calling ``self._camera_driver.get_image()``
         directly) is a Rule-1 layer violation and the resulting numbers
         are not comparable to production capture.
 
@@ -5092,7 +5113,7 @@ class Lumascope():
                 if key in cam_info:
                     results[key] = cam_info[key]
 
-        if not self.camera or not self.camera.active:
+        if not self._camera_driver or not self._camera_driver.active:
             results['passed'] = False
             results['errors'].append('Camera not active')
             return results
@@ -5179,7 +5200,7 @@ class Lumascope():
         0/50/100/200/500/1000 ms across runs reveals the smallest delay
         that yields ZERO slow cycles.
 
-        Stays inside the API: drops to ``self.camera.stop_grabbing`` /
+        Stays inside the API: drops to ``self._camera_driver.stop_grabbing`` /
         ``start_grabbing`` directly, which is a Rule-1 downward call from
         the API into its driver -- same pattern as ``set_frame_size`` etc.
 
@@ -5220,7 +5241,7 @@ class Lumascope():
             'written_to': None,
         }
 
-        if not self.camera or not self.camera.active:
+        if not self._camera_driver or not self._camera_driver.active:
             results['errors'].append('Camera not active')
             return results
 
@@ -5233,8 +5254,8 @@ class Lumascope():
 
         # Snapshot current settings so we can restore even when vary_settings
         # is on — the benchmark must not leave the camera in an arbitrary state.
-        original_gain = getattr(self.camera, 'gain', None)
-        original_exposure = getattr(self.camera, 'exposure_time', None)
+        original_gain = getattr(self._camera_driver, 'gain', None)
+        original_exposure = getattr(self._camera_driver, 'exposure_time', None)
 
         t_overall_start = time.monotonic()
         for i in range(int(num_cycles)):
@@ -5248,7 +5269,7 @@ class Lumascope():
             cycle_start = time.monotonic()
             try:
                 t0 = time.monotonic()
-                self.camera.stop_grabbing()
+                self._camera_driver.stop_grabbing()
                 stop_s = time.monotonic() - t0
 
                 if delay_s > 0:
@@ -5266,7 +5287,7 @@ class Lumascope():
                         self.set_exposure_time(50.0)
 
                 t1 = time.monotonic()
-                self.camera.start_grabbing()
+                self._camera_driver.start_grabbing()
                 start_s = time.monotonic() - t1
             except Exception as e:
                 results['errors'].append(
@@ -5455,21 +5476,21 @@ class Lumascope():
             except Exception:
                 pass
 
-        if not self.camera or not self.camera.active:
+        if not self._camera_driver or not self._camera_driver.active:
             return {'connected': False, 'errors': ['Camera not active']}
 
-        if not hasattr(self.camera, 'read_diagnostic_snapshot'):
+        if not hasattr(self._camera_driver, 'read_diagnostic_snapshot'):
             return {
                 'connected': False,
                 'supported': False,
                 'errors': [
-                    f'{type(self.camera).__name__} does not implement '
+                    f'{type(self._camera_driver).__name__} does not implement '
                     f'read_diagnostic_snapshot'
                 ],
             }
 
         # Driver-level snapshot
-        snapshot = self.camera.read_diagnostic_snapshot(
+        snapshot = self._camera_driver.read_diagnostic_snapshot(
             duration_s=duration_s,
             drain_camera_side_errors=drain_camera_side_errors,
         )
@@ -5594,9 +5615,9 @@ class Lumascope():
         """
         target = target.lower() if isinstance(target, str) else target
         if target == 'led':
-            return self.led
+            return self._led_driver
         if target in ('motor', 'motion'):
-            return self.motion
+            return self._motion_driver
         raise ValueError(
             f"send_diagnostic_command: unknown target {target!r} "
             f"(expected 'led' or 'motor')")
@@ -5799,10 +5820,10 @@ class Lumascope():
             dict with model, sensor, pixel_size_um, shutter, resolution,
             gain_range, max_exposure, binning_sizes. None if no camera.
         """
-        if not self.camera or not self.camera.active:
+        if not self._camera_driver or not self._camera_driver.active:
             return None
         try:
-            profile = self.camera.profile
+            profile = self._camera_driver.profile
             exposure_min_us = getattr(profile, 'exposure_min_us', None)
             exposure_min_ms = (exposure_min_us / 1000.0
                                  if exposure_min_us is not None else None)
@@ -5861,8 +5882,8 @@ class Lumascope():
             DeprecationWarning, stacklevel=2,
         )
 
-        if not self.led: return
-        if not self.camera or not self.camera.active: return
+        if not self._led_driver: return
+        if not self._camera_driver or not self._camera_driver.active: return
 
         self.is_capturing = True
         self.capture_return = False
@@ -5898,8 +5919,8 @@ class Lumascope():
             "Lumascope.capture_blocking is deprecated. Use capture_and_wait() instead.",
             DeprecationWarning, stacklevel=2,
         )
-        if not self.led: return
-        if not self.camera or not self.camera.active: return
+        if not self._led_driver: return
+        if not self._camera_driver or not self._camera_driver.active: return
 
         return self.capture_and_wait()
 
@@ -5915,9 +5936,9 @@ class Lumascope():
         Always returns None on any access path failure -- frame_validity
         falls back to skip-frames calibration when chunks aren't available.
         """
-        if self.camera is None:
+        if self._camera_driver is None:
             return None
-        handler = getattr(self.camera, 'cam_image_handler', None)
+        handler = getattr(self._camera_driver, 'cam_image_handler', None)
         if handler is None:
             return None
         # Composition (Pylon) first, then inheritance (IDS / direct base).
@@ -5964,7 +5985,7 @@ class Lumascope():
             numpy.ndarray | False: Captured image array on success, False
                 on camera-inactive or frame-drain failure.
         """
-        if not self.camera or not self.camera.active:
+        if not self._camera_driver or not self._camera_driver.active:
             return False
 
         exposure_s = self.get_exposure_time() / 1000
@@ -5977,7 +5998,7 @@ class Lumascope():
         # skip-frames + settle-check path.
         drain_iterations = 0
         while self.frame_validity.frames_until_valid(exclude_sources=exclude_sources) > 0:
-            status, _ = self.camera.grab_new_capture(timeout=grab_timeout)
+            status, _ = self._camera_driver.grab_new_capture(timeout=grab_timeout)
             if status:
                 self.frame_validity.count_frame(chunk_data=self._get_latest_chunks())
                 drain_iterations += 1
@@ -5985,8 +6006,8 @@ class Lumascope():
                 remaining = self.frame_validity.frames_until_valid(
                     exclude_sources=exclude_sources)
                 device_removed = (
-                    self.camera.is_device_removed()
-                    if self.camera and hasattr(self.camera, 'is_device_removed')
+                    self._camera_driver.is_device_removed()
+                    if self._camera_driver and hasattr(self._camera_driver, 'is_device_removed')
                     else None
                 )
                 logger.warning(
