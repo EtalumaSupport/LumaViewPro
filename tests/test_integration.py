@@ -222,13 +222,13 @@ def scope():
     """Create a real Lumascope with simulated hardware."""
     s = Lumascope(simulate=True)
     # Set timing to fast for test speed
-    s.led.set_timing_mode('fast')
-    s.motion.set_timing_mode('fast')
-    s.camera.set_timing_mode('fast')
+    s._led_driver.set_timing_mode('fast')
+    s._motion_driver.set_timing_mode('fast')
+    s._camera_driver.set_timing_mode('fast')
     # Camera must be grabbing for get_image to work
-    s.camera.start_grabbing()
+    s._camera_driver.start_grabbing()
     yield s
-    s.camera.stop_grabbing()
+    s._camera_driver.stop_grabbing()
     s.disconnect()
 
 
@@ -317,7 +317,7 @@ class TestIntegrationSingleStep:
 
         # All LED channels should be off
         for color in ('BF', 'PC', 'DF', 'Red', 'Green', 'Blue'):
-            assert not scope.led.is_led_on(color), f"LED {color} still on after protocol"
+            assert not scope._led_driver.is_led_on(color), f"LED {color} still on after protocol"
 
     def test_camera_settings_applied(self, executor, scope, tmp_path):
         """Verify gain and exposure are set on the real camera simulator."""
@@ -330,7 +330,7 @@ class TestIntegrationSingleStep:
         # The camera should have had gain and exposure set during the protocol.
         # After completion, values may be restored — but the simulator should have
         # received the calls. We verify the camera is still functional.
-        assert scope.camera.is_connected()
+        assert scope._camera_driver.is_connected()
 
     def test_motor_position_set(self, executor, scope, tmp_path):
         """Verify the motor moves to the protocol step position."""
@@ -342,7 +342,7 @@ class TestIntegrationSingleStep:
         assert completed
 
         # Z position should be near the target (simulator moves instantly in fast mode)
-        z_pos = scope.motion.current_pos('Z')
+        z_pos = scope._motion_driver.current_pos('Z')
         assert abs(z_pos - z_target) < 100.0, f"Z position {z_pos} not near target {z_target}"
 
     def test_image_captured(self, executor, scope, tmp_path):
@@ -353,7 +353,7 @@ class TestIntegrationSingleStep:
 
         # After a successful protocol run, the camera should have grabbed at least one image
         # The array is populated by grab() calls during the capture sequence
-        arr = scope.camera.array
+        arr = scope._camera_driver.array
         assert arr is not None
         assert isinstance(arr, np.ndarray)
         # If grab was called, array should have 2D shape (height, width)
@@ -375,8 +375,8 @@ class TestIntegrationAutoGain:
     def test_auto_gain_adjusts_camera(self, executor, scope, tmp_path):
         """After auto-gain, camera gain should have been modified."""
         # Set initial gain to something we can detect changed
-        scope.camera.gain(1.0)
-        initial_gain = scope.camera.get_gain()
+        scope._camera_driver.gain(1.0)
+        initial_gain = scope._camera_driver.get_gain()
 
         protocol = _make_protocol([{
             'color': 'BF', 'auto_gain': True, 'illumination': 50.0,
@@ -424,7 +424,7 @@ class TestIntegrationMultiChannel:
         assert completed
 
         for color in ('BF', 'PC', 'DF', 'Red', 'Green', 'Blue'):
-            assert not scope.led.is_led_on(color), f"LED {color} still on"
+            assert not scope._led_driver.is_led_on(color), f"LED {color} still on"
 
 
 class TestIntegrationZStack:
@@ -444,7 +444,7 @@ class TestIntegrationZStack:
 
     def test_z_stack_motor_moved(self, executor, scope, tmp_path):
         """After Z-stack, motor should have moved from its initial position."""
-        initial_z = scope.motion.current_pos('Z')
+        initial_z = scope._motion_driver.current_pos('Z')
         z_positions = [4000.0, 5000.0, 6000.0]
         steps = [
             {'color': 'BF', 'z': z, 'z_slice': i, 'zstack_group_id': 1,
@@ -455,7 +455,7 @@ class TestIntegrationZStack:
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed
 
-        z_final = scope.motion.current_pos('Z')
+        z_final = scope._motion_driver.current_pos('Z')
         # Motor should have moved to one of the Z-stack positions
         assert z_final in z_positions or abs(z_final - initial_z) > 100.0, \
             f"Z={z_final} didn't move from initial {initial_z}"
@@ -499,8 +499,8 @@ class TestIntegrationAutofocus:
     def test_autofocus_step_completes(self, af_executor, scope, tmp_path):
         """Single step with auto_focus=True completes using real AF executor."""
         # Set up focus simulation
-        scope.camera.set_test_pattern('focus_target')
-        scope.camera.set_focal_z(5000.0)
+        scope._camera_driver.set_test_pattern('focus_target')
+        scope._camera_driver.set_focal_z(5000.0)
 
         protocol = _make_protocol([{
             'color': 'BF', 'auto_focus': True, 'z': 5000.0,
@@ -523,8 +523,8 @@ class TestIntegrationAutofocus:
         grabbed with wrong settings.
         """
         # Set up focus simulation
-        scope.camera.set_test_pattern('focus_target')
-        scope.camera.set_focal_z(5000.0)
+        scope._camera_driver.set_test_pattern('focus_target')
+        scope._camera_driver.set_focal_z(5000.0)
 
         af = AutofocusRunner(
             scope=scope,
@@ -585,21 +585,21 @@ class TestIntegrationStateAssertions:
         protocol = _make_protocol([{'color': 'BF', 'illumination': 75.0}])
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed
-        assert not scope.led.is_led_on('BF')
+        assert not scope._led_driver.is_led_on('BF')
 
     def test_led_green_channel(self, executor, scope, tmp_path):
         """Verify Green LED is driven and turned off after protocol."""
         protocol = _make_protocol([{'color': 'Green', 'illumination': 75.0}])
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed
-        assert not scope.led.is_led_on('Green')
+        assert not scope._led_driver.is_led_on('Green')
 
     def test_led_red_channel(self, executor, scope, tmp_path):
         """Verify Red LED is driven and turned off after protocol."""
         protocol = _make_protocol([{'color': 'Red', 'illumination': 75.0}])
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed
-        assert not scope.led.is_led_on('Red')
+        assert not scope._led_driver.is_led_on('Red')
 
     def test_scope_connected_throughout(self, executor, scope, tmp_path):
         """Scope remains connected after protocol run."""
@@ -607,9 +607,9 @@ class TestIntegrationStateAssertions:
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed
 
-        assert scope.led.is_connected()
-        assert scope.motion.is_connected()
-        assert scope.camera.is_connected()
+        assert scope._led_driver.is_connected()
+        assert scope._motion_driver.is_connected()
+        assert scope._camera_driver.is_connected()
 
     def test_camera_still_grabbing(self, executor, scope, tmp_path):
         """Camera should still be in grabbing state after protocol."""
@@ -618,7 +618,7 @@ class TestIntegrationStateAssertions:
         assert completed
 
         # Camera grabbing state is managed externally, should still be active
-        assert scope.camera.is_grabbing()
+        assert scope._camera_driver.is_grabbing()
 
     @pytest.mark.skip(reason="Executor reuse bug: second run() starts but run_complete callback "
                              "never fires. Debug shows: run enters, _reset_vars clears state, "
@@ -702,9 +702,9 @@ class TestHeadlessSession:
         try:
             scope = session.scope
             scope.led_on(channel=0, mA=100)
-            assert scope.led.get_led_ma('Blue') == 100
+            assert scope._led_driver.get_led_ma('Blue') == 100
             scope.led_off(channel=0)
-            assert scope.led.get_led_ma('Blue') == -1
+            assert scope._led_driver.get_led_ma('Blue') == -1
         finally:
             session.shutdown_executors()
 
@@ -808,7 +808,7 @@ class TestRestAPIPrep:
     def test_pixel_format_inactive_camera(self):
         """Pixel format methods should handle inactive camera gracefully."""
         session = ScopeSession.create_headless()
-        session.scope.camera = None
+        session.scope._camera_driver = None
         assert session.scope.get_pixel_format() is None
         assert session.scope.set_pixel_format('Mono8') is False
         assert session.scope.get_supported_pixel_formats() == ()
@@ -850,9 +850,9 @@ class TestRestAPIPrep:
         """get_system_info() should handle missing hardware gracefully."""
         from drivers.null_motorboard import NullMotionBoard
         session = ScopeSession.create_headless()
-        session.scope.motion = NullMotionBoard()
-        session.scope.led = None
-        session.scope.camera = None
+        session.scope._motion_driver = NullMotionBoard()
+        session.scope._led_driver = None
+        session.scope._camera_driver = None
         info = session.scope.get_system_info()
         assert info['motor']['model'] is None
         assert info['led']['connected'] is False

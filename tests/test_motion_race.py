@@ -44,7 +44,7 @@ import pytest
 
 
 REPO = pathlib.Path(__file__).parent.parent
-LUMASCOPE_API = REPO / "modules" / "lumascope_api.py"
+LUMASCOPE_API = REPO / "modules" / "lumascope_api" / "_lumascope.py"
 
 
 # ---------------------------------------------------------------------------
@@ -67,7 +67,7 @@ class TestSourceOrder_618:
 
     def test_move_absolute_position_writes_hardware_first(self):
         body = _find_method_source("Lumascope", "move_absolute_position")
-        move_idx = body.find("self.motion.move_abs_pos(")
+        move_idx = body.find("self._motion_driver.move_abs_pos(")
         state_idx = body.find("self._set_axis_state(axis, AxisState.MOVING)")
         assert move_idx != -1, "move_abs_pos call missing from move_absolute_position"
         assert state_idx != -1, "_set_axis_state(MOVING) call missing"
@@ -78,7 +78,7 @@ class TestSourceOrder_618:
 
     def test_move_relative_position_writes_hardware_first(self):
         body = _find_method_source("Lumascope", "move_relative_position")
-        move_idx = body.find("self.motion.move_rel_pos(")
+        move_idx = body.find("self._motion_driver.move_rel_pos(")
         state_idx = body.find("self._set_axis_state(axis, AxisState.MOVING)")
         assert move_idx != -1, "move_rel_pos call missing from move_relative_position"
         assert state_idx != -1, "_set_axis_state(MOVING) call missing"
@@ -102,8 +102,8 @@ class TestRuntimeOrder_618:
         from modules.lumascope_api import AxisState
 
         call_order = []
-        orig_move_abs = scope.motion.move_abs_pos
-        orig_move_rel = scope.motion.move_rel_pos
+        orig_move_abs = scope._motion_driver.move_abs_pos
+        orig_move_rel = scope._motion_driver.move_rel_pos
         orig_set_state = scope._set_axis_state
 
         def track_move_abs(*args, **kwargs):
@@ -121,15 +121,15 @@ class TestRuntimeOrder_618:
                 call_order.append("set_state_IDLE")
             return orig_set_state(ax, state)
 
-        scope.motion.move_abs_pos = track_move_abs
-        scope.motion.move_rel_pos = track_move_rel
+        scope._motion_driver.move_abs_pos = track_move_abs
+        scope._motion_driver.move_rel_pos = track_move_rel
         scope._set_axis_state = track_set_state
         return call_order
 
     def test_move_absolute_position_order_z(self):
         from modules.lumascope_api import Lumascope
         scope = Lumascope(simulate=True)
-        scope.motion.set_timing_mode("fast")
+        scope._motion_driver.set_timing_mode("fast")
         call_order = self._track_calls(scope, "Z")
         scope.move_absolute_position("Z", 5000.0, wait_until_complete=False)
         # The hardware write must come before the MOVING transition
@@ -145,7 +145,7 @@ class TestRuntimeOrder_618:
     def test_move_relative_position_order_z(self):
         from modules.lumascope_api import Lumascope
         scope = Lumascope(simulate=True)
-        scope.motion.set_timing_mode("fast")
+        scope._motion_driver.set_timing_mode("fast")
         call_order = self._track_calls(scope, "Z")
         scope.move_relative_position("Z", 100.0, wait_until_complete=False)
         assert "motion.move_rel_pos" in call_order
@@ -174,10 +174,10 @@ class TestRaceSimulation_618:
         already-set arrival event — that's the race signature."""
         from modules.lumascope_api import Lumascope, AxisState
         scope = Lumascope(simulate=True)
-        scope.motion.set_timing_mode("fast")
+        scope._motion_driver.set_timing_mode("fast")
 
         # Hook motion.move_abs_pos to inspect state during the call
-        orig_move_abs = scope.motion.move_abs_pos
+        orig_move_abs = scope._motion_driver.move_abs_pos
         observations = []
 
         def observe_during_move(*args, **kwargs):
@@ -193,7 +193,7 @@ class TestRaceSimulation_618:
             observations.append((state, arrival_set))
             return orig_move_abs(*args, **kwargs)
 
-        scope.motion.move_abs_pos = observe_during_move
+        scope._motion_driver.move_abs_pos = observe_during_move
 
         # Prime: do one move to set Z to a known IDLE state
         scope.move_absolute_position("Z", 1000.0, wait_until_complete=True)
@@ -230,26 +230,26 @@ class TestBackToBackMoves_618:
     def test_two_back_to_back_z_moves_end_at_correct_targets(self):
         from modules.lumascope_api import Lumascope
         scope = Lumascope(simulate=True)
-        scope.motion.set_timing_mode("fast")
+        scope._motion_driver.set_timing_mode("fast")
 
         scope.move_absolute_position("Z", 2000.0, wait_until_complete=True)
-        pos1 = scope.motion.current_pos("Z")
+        pos1 = scope._motion_driver.current_pos("Z")
         assert abs(pos1 - 2000.0) < 5.0, f"first move ended at {pos1}, expected ~2000"
 
         scope.move_absolute_position("Z", 8000.0, wait_until_complete=True)
-        pos2 = scope.motion.current_pos("Z")
+        pos2 = scope._motion_driver.current_pos("Z")
         assert abs(pos2 - 8000.0) < 5.0, f"second move ended at {pos2}, expected ~8000"
 
     def test_many_rapid_moves_end_at_correct_targets(self):
         from modules.lumascope_api import Lumascope
         scope = Lumascope(simulate=True)
-        scope.motion.set_timing_mode("fast")
+        scope._motion_driver.set_timing_mode("fast")
 
         # 20 rapid back-to-back moves, alternating direction
         targets = [3000.0, 7000.0] * 10
         for target in targets:
             scope.move_absolute_position("Z", target, wait_until_complete=True)
-            actual = scope.motion.current_pos("Z")
+            actual = scope._motion_driver.current_pos("Z")
             assert abs(actual - target) < 5.0, (
                 f"move to {target} ended at {actual}"
             )

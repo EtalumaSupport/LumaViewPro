@@ -58,15 +58,15 @@ def scope_with_io_traps():
     scope = lumascope_api.Lumascope(simulate=True, register_atexit=False)
 
     # Trap motor-board serial-equivalent methods.
-    if hasattr(scope.motion, 'exchange_command'):
-        scope.motion.exchange_command = _explode('motion.exchange_command')
-    if hasattr(scope.motion, 'exchange_json'):
-        scope.motion.exchange_json = _explode('motion.exchange_json')
-    if hasattr(scope.motion, 'exchange_multiline'):
-        scope.motion.exchange_multiline = _explode('motion.exchange_multiline')
+    if hasattr(scope._motion_driver, 'exchange_command'):
+        scope._motion_driver.exchange_command = _explode('motion.exchange_command')
+    if hasattr(scope._motion_driver, 'exchange_json'):
+        scope._motion_driver.exchange_json = _explode('motion.exchange_json')
+    if hasattr(scope._motion_driver, 'exchange_multiline'):
+        scope._motion_driver.exchange_multiline = _explode('motion.exchange_multiline')
 
     # Trap camera SDK-equivalent methods that would indicate live I/O.
-    cam = scope.camera
+    cam = scope._camera_driver
     if cam is not None:
         for attr in ('set_pixel_format', 'set_binning_size',
                      'set_frame_size', 'start_grabbing', 'stop_grabbing',

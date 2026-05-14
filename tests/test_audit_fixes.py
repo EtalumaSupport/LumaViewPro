@@ -768,7 +768,7 @@ class TestPositionCache:
         # Directly set the simulated motor's internal position to simulate homing
         # The simulated motor stores positions in microsteps; target_pos() converts.
         # Use move_abs_pos to set a known position, then verify refresh reads it.
-        sim_scope.motion.move_abs_pos('Z', 5000.0)
+        sim_scope._motion_driver.move_abs_pos('Z', 5000.0)
         # Cache still has old value since we bypassed move_absolute_position
         assert sim_scope.get_target_position('Z') != 5000.0
         # Now refresh from hardware
@@ -838,8 +838,8 @@ class TestAxisState:
         from modules.lumascope_api import Lumascope, AxisState
         from drivers.simulated_motorboard import SimulatedMotorBoard
         scope = Lumascope(simulate=True)
-        scope.motion = SimulatedMotorBoard(model='LS850T')
-        present = scope.motion.detect_present_axes()
+        scope._motion_driver = SimulatedMotorBoard(model='LS850T')
+        present = scope._motion_driver.detect_present_axes()
         assert 'T' in present, "LS850T sim must report T present"
         scope._pos_cache = {ax: 0.0 for ax in present}
         scope._axis_state = {ax: AxisState.UNKNOWN for ax in present}
@@ -903,7 +903,7 @@ class TestAxisState:
         list.
         """
         axes = sim_scope.axes_present()
-        assert set(axes) == set(sim_scope.motion.detect_present_axes())
+        assert set(axes) == set(sim_scope._motion_driver.detect_present_axes())
         assert set(axes) == {'X', 'Y', 'Z'}  # LS850 default — no T
 
     def test_has_axis(self, sim_scope):
@@ -1328,7 +1328,7 @@ class TestRule14_A9_SetBinningSizeNotify:
         """lumascope_api.set_binning_size must call notifications.error when
         the underlying SDK call raises."""
         import pathlib
-        source = pathlib.Path("modules/lumascope_api.py").read_text()
+        source = pathlib.Path("modules/lumascope_api/_lumascope.py").read_text()
         idx = source.find("def set_binning_size(self, size: int) -> bool:")
         assert idx != -1, "set_binning_size must exist with `-> bool` annotation"
         method_body = source[idx:idx+1500]
@@ -1350,7 +1350,7 @@ class TestSetBinningSizeReturnsBool:
 
     def test_set_binning_size_has_bool_return_annotation(self):
         import pathlib
-        source = pathlib.Path("modules/lumascope_api.py").read_text()
+        source = pathlib.Path("modules/lumascope_api/_lumascope.py").read_text()
         idx = source.find("def set_binning_size(self, size: int) -> bool:")
         assert idx != -1, \
             "Lumascope.set_binning_size must declare `-> bool` (Wave 1 B1; Rule 37)"
@@ -1359,13 +1359,13 @@ class TestSetBinningSizeReturnsBool:
         """Method body must capture and return the driver's return value
         on the success path, not drop it."""
         import pathlib
-        source = pathlib.Path("modules/lumascope_api.py").read_text()
+        source = pathlib.Path("modules/lumascope_api/_lumascope.py").read_text()
         idx = source.find("def set_binning_size(self, size: int) -> bool:")
         assert idx != -1
         # End the slice at the next def at module column 4 to scope the body
         next_def = source.find("\n    def ", idx + 1)
         body = source[idx:next_def] if next_def != -1 else source[idx:idx+2000]
-        assert "ok = self.camera.set_binning_size(size=size)" in body, \
+        assert "ok = self._camera_driver.set_binning_size(size=size)" in body, \
             "set_binning_size must capture driver return into `ok`"
         assert "return ok" in body, \
             "set_binning_size success path must `return ok` (Wave 1 B1)"
@@ -1375,7 +1375,7 @@ class TestSetBinningSizeReturnsBool:
     def test_set_binning_size_has_returns_docstring_section(self):
         """Rule 38: public methods declare what they return."""
         import pathlib
-        source = pathlib.Path("modules/lumascope_api.py").read_text()
+        source = pathlib.Path("modules/lumascope_api/_lumascope.py").read_text()
         idx = source.find("def set_binning_size(self, size: int) -> bool:")
         next_def = source.find("\n    def ", idx + 1)
         body = source[idx:next_def] if next_def != -1 else source[idx:idx+2000]
@@ -1448,31 +1448,31 @@ class TestHomeReturnsBool:
 
     def test_lumascope_zhome_has_bool_return_annotation(self):
         import pathlib
-        source = pathlib.Path("modules/lumascope_api.py").read_text()
+        source = pathlib.Path("modules/lumascope_api/_lumascope.py").read_text()
         assert "def zhome(self) -> bool:" in source, \
             "Lumascope.zhome must declare `-> bool` (Wave 2 B9; Rule 37)"
 
     def test_lumascope_home_has_bool_return_annotation(self):
         import pathlib
-        source = pathlib.Path("modules/lumascope_api.py").read_text()
+        source = pathlib.Path("modules/lumascope_api/_lumascope.py").read_text()
         assert "def home(self) -> bool:" in source, \
             "Lumascope.home must declare `-> bool` (Wave 2 B10; Rule 37)"
 
     def test_lumascope_thome_has_bool_return_annotation(self):
         import pathlib
-        source = pathlib.Path("modules/lumascope_api.py").read_text()
+        source = pathlib.Path("modules/lumascope_api/_lumascope.py").read_text()
         assert "def thome(self) -> bool:" in source, \
             "Lumascope.thome must declare `-> bool` (Wave 2 B8; Rule 37)"
 
     def test_lumascope_zhome_returns_driver_value(self):
         """Method body must return True on success and False on failure paths."""
         import pathlib
-        source = pathlib.Path("modules/lumascope_api.py").read_text()
+        source = pathlib.Path("modules/lumascope_api/_lumascope.py").read_text()
         idx = source.find("def zhome(self) -> bool:")
         assert idx != -1
         next_def = source.find("\n    def ", idx + 1)
         body = source[idx:next_def] if next_def != -1 else source[idx:idx+2000]
-        assert "result = self.motion.zhome()" in body, \
+        assert "result = self._motion_driver.zhome()" in body, \
             "zhome must capture driver return into `result`"
         assert "return True" in body, \
             "zhome success path must `return True` (Wave 2 B9)"
@@ -1484,12 +1484,12 @@ class TestHomeReturnsBool:
     def test_lumascope_home_returns_driver_value(self):
         """Method body must capture and propagate the driver's return."""
         import pathlib
-        source = pathlib.Path("modules/lumascope_api.py").read_text()
+        source = pathlib.Path("modules/lumascope_api/_lumascope.py").read_text()
         idx = source.find("def home(self) -> bool:")
         assert idx != -1
         next_def = source.find("\n    def ", idx + 1)
         body = source[idx:next_def] if next_def != -1 else source[idx:idx+3000]
-        assert "result = self.motion.home()" in body, \
+        assert "result = self._motion_driver.home()" in body, \
             "home must capture driver return into `result`"
         assert "return True" in body, \
             "home success path must `return True` (Wave 2 B10)"
@@ -1505,12 +1505,12 @@ class TestHomeReturnsBool:
         no notify on failure). This pins the captured-and-returned shape.
         """
         import pathlib
-        source = pathlib.Path("modules/lumascope_api.py").read_text()
+        source = pathlib.Path("modules/lumascope_api/_lumascope.py").read_text()
         idx = source.find("def thome(self) -> bool:")
         assert idx != -1
         next_def = source.find("\n    def ", idx + 1)
         body = source[idx:next_def] if next_def != -1 else source[idx:idx+3000]
-        assert "result = self.motion.thome()" in body, \
+        assert "result = self._motion_driver.thome()" in body, \
             "thome must capture driver return into `result` (Wave 2 B8)"
         assert "return True" in body, \
             "thome success path must `return True` (Wave 2 B8)"
@@ -1589,14 +1589,14 @@ class TestDisconnectReturnsBool:
 
     def test_disconnect_has_bool_return_annotation(self):
         import pathlib
-        source = pathlib.Path("modules/lumascope_api.py").read_text()
+        source = pathlib.Path("modules/lumascope_api/_lumascope.py").read_text()
         assert "def disconnect(self) -> bool:" in source, \
             "Lumascope.disconnect must declare `-> bool` (Wave 4 B2; Rule 37)"
 
     def test_disconnect_aggregates_and_returns_bool(self):
         """Method body must aggregate three sub-system bools and return."""
         import pathlib
-        source = pathlib.Path("modules/lumascope_api.py").read_text()
+        source = pathlib.Path("modules/lumascope_api/_lumascope.py").read_text()
         idx = source.find("def disconnect(self) -> bool:")
         assert idx != -1
         next_def = source.find("\n    def ", idx + 1)
@@ -1629,12 +1629,12 @@ class TestDisconnectReturnsBool:
         still return False. LED + motion still attempted; state still reset."""
         # Replace the camera with one whose disconnect raises.
         from unittest.mock import MagicMock
-        sim_scope.camera = MagicMock()
-        sim_scope.camera.disconnect = MagicMock(side_effect=RuntimeError("boom"))
+        sim_scope._camera_driver = MagicMock()
+        sim_scope._camera_driver.disconnect = MagicMock(side_effect=RuntimeError("boom"))
         result = sim_scope.disconnect()
         assert result is False, \
             "disconnect must return False when camera teardown raises"
-        assert sim_scope.camera is None, \
+        assert sim_scope._camera_driver is None, \
             "disconnect must reset self.camera even when teardown raises"
 
 
@@ -1898,7 +1898,7 @@ class TestPylonChunkTimestampEnabled:
 
 class TestRule1_UiNoDriverReachThrough:
     """Rule 1 (LV-14): UI must call the API, not the driver. Reach-throughs
-    like `scope.motion.driver` or `scope.led.driver` bypass the API's
+    like `scope._motion_driver.driver` or `scope._led_driver.driver` bypass the API's
     NullBoard/connection guards and read driver internals that mean different
     things across hardware revisions. The right gate is the API capability
     property (`scope.motor_connected`, `scope.led_connected`) which composes
@@ -1931,8 +1931,8 @@ class TestRule1_UiNoDriverReachThrough:
             if not p.exists():
                 continue
             source = p.read_text()
-            assert "scope.motion.driver" not in source, (
-                f"{path} must not read scope.motion.driver directly "
+            assert "scope._motion_driver.driver" not in source, (
+                f"{path} must not read scope._motion_driver.driver directly "
                 "(Rule 1 / LV-14). Use scope.motor_connected instead."
             )
 
@@ -1943,8 +1943,8 @@ class TestRule1_UiNoDriverReachThrough:
             if not p.exists():
                 continue
             source = p.read_text()
-            assert "scope.led.driver" not in source, (
-                f"{path} must not read scope.led.driver directly "
+            assert "scope._led_driver.driver" not in source, (
+                f"{path} must not read scope._led_driver.driver directly "
                 "(Rule 1). Use scope.led_connected instead."
             )
 
@@ -2140,7 +2140,7 @@ class TestAOC1_SaturationCheckShortCircuit:
 
     def test_source_uses_not_any_form(self):
         from pathlib import Path
-        src = (Path(__file__).resolve().parent.parent / "modules" / "lumascope_api.py").read_text()
+        src = (Path(__file__).resolve().parent.parent / "modules" / "lumascope_api" / "_lumascope.py").read_text()
         assert "not np.any(tmp != np.iinfo(tmp.dtype).max)" in src, (
             "AOC-1: get_image() saturation check should use the short-circuit "
             "`not np.any(tmp != max)` form."
@@ -2195,7 +2195,7 @@ class TestAOC2_RetrySaturationCheckOutsideCamLock:
 
     def test_retry_saturation_walk_is_outside_cam_lock(self):
         from pathlib import Path
-        src = (Path(__file__).resolve().parent.parent / "modules" / "lumascope_api.py").read_text()
+        src = (Path(__file__).resolve().parent.parent / "modules" / "lumascope_api" / "_lumascope.py").read_text()
         # The old form: np.all(retry_frame == ...) inside the with self._cam_lock: block
         assert "np.all(retry_frame == np.iinfo(retry_frame.dtype).max)" not in src, (
             "AOC-2: old `np.all(retry_frame == max)` form should be replaced."
@@ -2214,7 +2214,7 @@ class TestAOC2_RetrySaturationCheckOutsideCamLock:
         """Structural: retry_frame must be initialized before the with block so the
         outside-lock check can reference it whether or not the grab succeeded."""
         from pathlib import Path
-        src = (Path(__file__).resolve().parent.parent / "modules" / "lumascope_api.py").read_text()
+        src = (Path(__file__).resolve().parent.parent / "modules" / "lumascope_api" / "_lumascope.py").read_text()
         # Find the retry block; verify retry_frame = None precedes the with statement.
         idx_init = src.find("retry_frame = None")
         idx_lock = src.find("with self._cam_lock:", idx_init)
@@ -2252,7 +2252,7 @@ class TestPIW3_FalseColor16bitCachedAtRunStart:
 
     def test_save_image_threads_param_to_write_tiff(self):
         from pathlib import Path
-        src = (Path(__file__).resolve().parent.parent / "modules" / "lumascope_api.py").read_text()
+        src = (Path(__file__).resolve().parent.parent / "modules" / "lumascope_api" / "_lumascope.py").read_text()
         # Both save_image() (instance method) and save_image_static() must accept the param.
         assert src.count("use_false_color_16bit: bool | None = None") >= 2, (
             "PIW-3: save_image and save_image_static should both accept use_false_color_16bit."
@@ -2345,7 +2345,7 @@ class TestPIW5_Convert12to16OutBuffer:
 
     def test_save_image_threads_out_12to16_to_prepare(self):
         from pathlib import Path
-        src = (Path(__file__).resolve().parent.parent / "modules" / "lumascope_api.py").read_text()
+        src = (Path(__file__).resolve().parent.parent / "modules" / "lumascope_api" / "_lumascope.py").read_text()
         # save_image accepts the param.
         assert "out_12to16: np.ndarray | None = None" in src, (
             "PIW-5: save_image / prepare_image_for_saving should accept out_12to16."
@@ -2437,7 +2437,7 @@ class TestPIW6_PF3_FalseColorRgbPreallocated:
 
     def test_save_image_threads_buffers_to_write_tiff(self):
         from pathlib import Path
-        src = (Path(__file__).resolve().parent.parent / "modules" / "lumascope_api.py").read_text()
+        src = (Path(__file__).resolve().parent.parent / "modules" / "lumascope_api" / "_lumascope.py").read_text()
         assert "false_color_buf: np.ndarray | None = None" in src, (
             "PF-3: save_image should accept false_color_buf."
         )
@@ -2509,7 +2509,7 @@ class TestPIW2_DisksUsageDeduped:
 
     def test_lumascope_api_disk_check_removed(self):
         from pathlib import Path
-        src = (Path(__file__).resolve().parent.parent / "modules" / "lumascope_api.py").read_text()
+        src = (Path(__file__).resolve().parent.parent / "modules" / "lumascope_api" / "_lumascope.py").read_text()
         # The exact pattern of the redundant warn-only check.
         assert "if (common_utils.check_disk_space() < 1024):" not in src, (
             "PIW-2: redundant per-save check_disk_space call should be removed from lumascope_api."
@@ -2593,7 +2593,7 @@ class TestPF5_ImageBufferRetired:
 
     def test_image_buffer_property_removed(self):
         from pathlib import Path
-        src = (Path(__file__).resolve().parent.parent / "modules" / "lumascope_api.py").read_text()
+        src = (Path(__file__).resolve().parent.parent / "modules" / "lumascope_api" / "_lumascope.py").read_text()
         # Property declaration gone.
         assert "def image_buffer(self):" not in src, (
             "PF-5: image_buffer property getter should be removed."
@@ -2608,7 +2608,7 @@ class TestPF5_ImageBufferRetired:
 
     def test_image_buffer_attribute_removed(self):
         from pathlib import Path
-        src = (Path(__file__).resolve().parent.parent / "modules" / "lumascope_api.py").read_text()
+        src = (Path(__file__).resolve().parent.parent / "modules" / "lumascope_api" / "_lumascope.py").read_text()
         # The internal _image_buffer attribute init gone.
         assert "self._image_buffer = None" not in src, (
             "PF-5: self._image_buffer initialization should be removed."
@@ -2619,7 +2619,7 @@ class TestPF5_ImageBufferRetired:
 
     def test_get_image_returns_local_variable(self):
         from pathlib import Path
-        src = (Path(__file__).resolve().parent.parent / "modules" / "lumascope_api.py").read_text()
+        src = (Path(__file__).resolve().parent.parent / "modules" / "lumascope_api" / "_lumascope.py").read_text()
         # The chain must use a local `image` variable.
         assert "image = image_utils.add_scale_bar(" in src, (
             "PF-5: scale-bar step should bind to local `image` instead of self.image_buffer."
@@ -2730,7 +2730,7 @@ class TestFrameValidity_SaveLiveImageDrainsBeforeGrab:
 
     def test_save_live_image_calls_capture_and_wait(self):
         from pathlib import Path
-        src = (Path(__file__).resolve().parent.parent / "modules" / "lumascope_api.py").read_text()
+        src = (Path(__file__).resolve().parent.parent / "modules" / "lumascope_api" / "_lumascope.py").read_text()
         calls = _function_body_calls(src, "save_live_image")
         assert "capture_and_wait" in calls, (
             "save_live_image must call self.capture_and_wait(...) for drain-then-grab."
@@ -2738,7 +2738,7 @@ class TestFrameValidity_SaveLiveImageDrainsBeforeGrab:
 
     def test_save_live_image_does_not_call_bare_get_image(self):
         from pathlib import Path
-        src = (Path(__file__).resolve().parent.parent / "modules" / "lumascope_api.py").read_text()
+        src = (Path(__file__).resolve().parent.parent / "modules" / "lumascope_api" / "_lumascope.py").read_text()
         calls = _function_body_calls(src, "save_live_image")
         assert "get_image" not in calls, (
             "save_live_image must not call self.get_image(...) directly -- "
@@ -2829,7 +2829,7 @@ class TestFrameValidity_LegacyCaptureRoutesThroughCaptureAndWait:
 
     def test_capture_complete_calls_capture_and_wait(self):
         from pathlib import Path
-        src = (Path(__file__).resolve().parent.parent / "modules" / "lumascope_api.py").read_text()
+        src = (Path(__file__).resolve().parent.parent / "modules" / "lumascope_api" / "_lumascope.py").read_text()
         body = _function_source(src, "capture_complete")
         assert "self.capture_and_wait(" in body, (
             "capture_complete must call self.capture_and_wait(...) -- previously "
@@ -2841,7 +2841,7 @@ class TestFrameValidity_LegacyCaptureRoutesThroughCaptureAndWait:
 
     def test_capture_blocking_calls_capture_and_wait(self):
         from pathlib import Path
-        src = (Path(__file__).resolve().parent.parent / "modules" / "lumascope_api.py").read_text()
+        src = (Path(__file__).resolve().parent.parent / "modules" / "lumascope_api" / "_lumascope.py").read_text()
         body = _function_source(src, "capture_blocking")
         assert "self.capture_and_wait(" in body, (
             "capture_blocking must call self.capture_and_wait(...)."
@@ -2856,7 +2856,7 @@ class TestFrameValidity_LegacyCaptureRoutesThroughCaptureAndWait:
 
     def test_capture_emits_deprecation_warning(self):
         from pathlib import Path
-        src = (Path(__file__).resolve().parent.parent / "modules" / "lumascope_api.py").read_text()
+        src = (Path(__file__).resolve().parent.parent / "modules" / "lumascope_api" / "_lumascope.py").read_text()
         body = _function_source(src, "capture")
         assert "DeprecationWarning" in body, (
             "capture must emit a DeprecationWarning so callers migrate to capture_and_wait."
@@ -2864,7 +2864,7 @@ class TestFrameValidity_LegacyCaptureRoutesThroughCaptureAndWait:
 
     def test_capture_blocking_emits_deprecation_warning(self):
         from pathlib import Path
-        src = (Path(__file__).resolve().parent.parent / "modules" / "lumascope_api.py").read_text()
+        src = (Path(__file__).resolve().parent.parent / "modules" / "lumascope_api" / "_lumascope.py").read_text()
         body = _function_source(src, "capture_blocking")
         assert "DeprecationWarning" in body, (
             "capture_blocking must emit a DeprecationWarning."
@@ -2916,7 +2916,7 @@ class TestFrameValidity_AllLedMutatorsInvalidate:
 
     def test_each_led_mutator_invalidates_validity(self):
         from pathlib import Path
-        src = (Path(__file__).resolve().parent.parent / "modules" / "lumascope_api.py").read_text()
+        src = (Path(__file__).resolve().parent.parent / "modules" / "lumascope_api" / "_lumascope.py").read_text()
         missing = []
         for func in self.LED_MUTATORS:
             calls = _function_body_calls(src, func)
@@ -2941,7 +2941,7 @@ class TestCaptureAndWaitPassesChunksToValidity:
 
     def test_capture_and_wait_passes_chunk_data_to_count_frame(self):
         from pathlib import Path
-        src = (Path(__file__).resolve().parent.parent / "modules" / "lumascope_api.py").read_text()
+        src = (Path(__file__).resolve().parent.parent / "modules" / "lumascope_api" / "_lumascope.py").read_text()
         body = _function_source(src, "capture_and_wait")
         # Source mentions count_frame call site with chunk_data kwarg
         assert "count_frame(chunk_data=" in body, (
@@ -2970,7 +2970,7 @@ class TestCaptureAndWaitPassesChunksToValidity:
         from modules.lumascope_api import Lumascope
         # Construct without going through full init -- attributes set by hand
         scope = Lumascope.__new__(Lumascope)
-        scope.camera = None
+        scope._camera_driver = None
         assert scope._get_latest_chunks() is None
 
 
@@ -2986,7 +2986,7 @@ class TestLumascopeRecordsTargetForChunkMatch:
 
     def test_set_gain_records_target(self):
         from pathlib import Path
-        src = (Path(__file__).resolve().parent.parent / "modules" / "lumascope_api.py").read_text()
+        src = (Path(__file__).resolve().parent.parent / "modules" / "lumascope_api" / "_lumascope.py").read_text()
         body = _function_source(src, "set_gain")
         assert "self.frame_validity.set_target('gain'" in body, (
             "set_gain must record gain target via frame_validity.set_target."
@@ -2997,7 +2997,7 @@ class TestLumascopeRecordsTargetForChunkMatch:
         Conversion (* 1000) must happen at the seam so chunk-match's
         tolerance is in matching units."""
         from pathlib import Path
-        src = (Path(__file__).resolve().parent.parent / "modules" / "lumascope_api.py").read_text()
+        src = (Path(__file__).resolve().parent.parent / "modules" / "lumascope_api" / "_lumascope.py").read_text()
         body = _function_source(src, "set_exposure_time")
         assert "self.frame_validity.set_target('exposure'" in body, (
             "set_exposure_time must record target via set_target."
@@ -3009,7 +3009,7 @@ class TestLumascopeRecordsTargetForChunkMatch:
 
     def test_set_auto_gain_clears_target(self):
         from pathlib import Path
-        src = (Path(__file__).resolve().parent.parent / "modules" / "lumascope_api.py").read_text()
+        src = (Path(__file__).resolve().parent.parent / "modules" / "lumascope_api" / "_lumascope.py").read_text()
         body = _function_source(src, "set_auto_gain")
         assert "set_target('gain', None)" in body, (
             "set_auto_gain must clear gain target (None) so chunk-match doesn't "
@@ -3018,7 +3018,7 @@ class TestLumascopeRecordsTargetForChunkMatch:
 
     def test_set_auto_exposure_time_clears_target(self):
         from pathlib import Path
-        src = (Path(__file__).resolve().parent.parent / "modules" / "lumascope_api.py").read_text()
+        src = (Path(__file__).resolve().parent.parent / "modules" / "lumascope_api" / "_lumascope.py").read_text()
         body = _function_source(src, "set_auto_exposure_time")
         assert "set_target('exposure', None)" in body, (
             "set_auto_exposure_time must clear exposure target (None)."
@@ -3562,7 +3562,7 @@ class TestPylonDiagnosticProbe:
         test_get_latest_chunks_returns_none_when_no_camera."""
         from modules.lumascope_api import Lumascope
         scope = Lumascope.__new__(Lumascope)
-        scope.camera = fake_camera
+        scope._camera_driver = fake_camera
         return scope
 
     def test_method_exists_on_lumascope(self):
@@ -3575,7 +3575,7 @@ class TestPylonDiagnosticProbe:
         """Returns {'connected': False, 'errors': [...]} when no camera."""
         from modules.lumascope_api import Lumascope
         scope = Lumascope.__new__(Lumascope)
-        scope.camera = None
+        scope._camera_driver = None
         result = scope.run_pylon_diagnostic_probe(duration_s=0.0)
         assert result['connected'] is False
         assert isinstance(result.get('errors'), list)
@@ -3720,7 +3720,7 @@ class TestDeviceLinkThroughputLimitSetter:
     def _make_scope_with_fake_camera(self, fake_camera):
         from modules.lumascope_api import Lumascope
         scope = Lumascope.__new__(Lumascope)
-        scope.camera = fake_camera
+        scope._camera_driver = fake_camera
         return scope
 
     def test_lumascope_method_exists(self):
@@ -3731,7 +3731,7 @@ class TestDeviceLinkThroughputLimitSetter:
     def test_no_camera_returns_false(self):
         from modules.lumascope_api import Lumascope
         scope = Lumascope.__new__(Lumascope)
-        scope.camera = None
+        scope._camera_driver = None
         assert scope.set_device_link_throughput_limit('Off') is False
 
     def test_inactive_camera_returns_false(self):
@@ -5660,7 +5660,7 @@ class TestDltlSetterDocstringGigeCaveat:
     def _lumascope_api_source(self):
         from pathlib import Path
         return (Path(__file__).resolve().parent.parent
-                / "modules" / "lumascope_api.py").read_text()
+                / "modules" / "lumascope_api" / "_lumascope.py").read_text()
 
     def test_pylon_setter_docstring_mentions_gige_wire_limit(self):
         body = _function_source(self._pyloncamera_source(),
@@ -5789,7 +5789,7 @@ class TestAcquisitionStopModeSetter:
     def _make_scope_with_fake_camera(self, fake_camera):
         from modules.lumascope_api import Lumascope
         scope = Lumascope.__new__(Lumascope)
-        scope.camera = fake_camera
+        scope._camera_driver = fake_camera
         return scope
 
     def test_lumascope_method_exists(self):
@@ -5800,7 +5800,7 @@ class TestAcquisitionStopModeSetter:
     def test_no_camera_returns_false(self):
         from modules.lumascope_api import Lumascope
         scope = Lumascope.__new__(Lumascope)
-        scope.camera = None
+        scope._camera_driver = None
         assert scope.set_acquisition_stop_mode('Complete') is False
 
     def test_inactive_camera_returns_false(self):
@@ -5916,7 +5916,7 @@ class TestGigeSetters:
     def _make_scope_with_fake_camera(self, fake_camera):
         from modules.lumascope_api import Lumascope
         scope = Lumascope.__new__(Lumascope)
-        scope.camera = fake_camera
+        scope._camera_driver = fake_camera
         return scope
 
     def test_lumascope_methods_exist(self):
@@ -5935,7 +5935,7 @@ class TestGigeSetters:
     def test_no_camera_returns_false_for_all(self):
         from modules.lumascope_api import Lumascope
         scope = Lumascope.__new__(Lumascope)
-        scope.camera = None
+        scope._camera_driver = None
         assert scope.set_bandwidth_reserve_mode('Performance') is False
         assert scope.set_gev_packet_size(9000) is False
         assert scope.set_gev_inter_packet_delay(0) is False
@@ -6115,7 +6115,7 @@ class TestStreamGrabberSetters:
     def _make_scope_with_fake_camera(self, fake_camera):
         from modules.lumascope_api import Lumascope
         scope = Lumascope.__new__(Lumascope)
-        scope.camera = fake_camera
+        scope._camera_driver = fake_camera
         return scope
 
     def test_lumascope_methods_exist(self):
@@ -6127,7 +6127,7 @@ class TestStreamGrabberSetters:
     def test_no_camera_returns_false_for_both(self):
         from modules.lumascope_api import Lumascope
         scope = Lumascope.__new__(Lumascope)
-        scope.camera = None
+        scope._camera_driver = None
         assert scope.set_max_transfer_size(262144) is False
         assert scope.set_num_max_queued_urbs(64) is False
 

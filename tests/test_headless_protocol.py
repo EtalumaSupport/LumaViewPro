@@ -207,10 +207,10 @@ class TestHeadlessProtocolExecution:
 
         scope = Lumascope(simulate=True)
         # Speed up the simulator for test runtime
-        scope.led.set_timing_mode('fast')
-        scope.motion.set_timing_mode('fast')
-        scope.camera.set_timing_mode('fast')
-        scope.camera.grab()
+        scope._led_driver.set_timing_mode('fast')
+        scope._motion_driver.set_timing_mode('fast')
+        scope._camera_driver.set_timing_mode('fast')
+        scope._camera_driver.grab()
 
         execs = self._make_executors()
         try:

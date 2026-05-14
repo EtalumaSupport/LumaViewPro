@@ -185,12 +185,12 @@ def _save_and_reload(protocol, tmp_path):
 @pytest.fixture
 def scope():
     s = Lumascope(simulate=True)
-    s.led.set_timing_mode('fast')
-    s.motion.set_timing_mode('fast')
-    s.camera.set_timing_mode('fast')
-    s.camera.start_grabbing()
+    s._led_driver.set_timing_mode('fast')
+    s._motion_driver.set_timing_mode('fast')
+    s._camera_driver.set_timing_mode('fast')
+    s._camera_driver.start_grabbing()
     yield s
-    s.camera.stop_grabbing()
+    s._camera_driver.stop_grabbing()
     s.disconnect()
 
 
@@ -2037,9 +2037,9 @@ class TestLumascapeAPILed:
 
     def test_led_on_off(self, scope):
         scope.led_on(channel=0, mA=100)
-        assert scope.led.is_led_on('Blue')
+        assert scope._led_driver.is_led_on('Blue')
         scope.led_off(channel=0)
-        assert not scope.led.is_led_on('Blue')
+        assert not scope._led_driver.is_led_on('Blue')
 
     def test_led_on_by_color_name(self, scope):
         scope.led_on(channel='Green', mA=200)

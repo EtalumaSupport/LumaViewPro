@@ -23,11 +23,11 @@ from modules.lumascope_api import Lumascope
 def scope():
     """Simulated Lumascope with fast timing."""
     s = Lumascope(simulate=True)
-    s.led.set_timing_mode('fast')
-    s.motion.set_timing_mode('fast')
-    s.camera.set_timing_mode('fast')
-    s.camera.load_cycle_images()
-    s.camera.start_grabbing()
+    s._led_driver.set_timing_mode('fast')
+    s._motion_driver.set_timing_mode('fast')
+    s._camera_driver.set_timing_mode('fast')
+    s._camera_driver.load_cycle_images()
+    s._camera_driver.start_grabbing()
     yield s
 
 

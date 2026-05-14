@@ -29,7 +29,7 @@ TILING_CONFIGS = REPO_ROOT / "data" / "tiling.json"
 # ---------------------------------------------------------------------------
 
 def test_lumascope_api_supports_if_collision_mode():
-    src = (REPO_ROOT / "modules" / "lumascope_api.py").read_text()
+    src = (REPO_ROOT / "modules" / "lumascope_api" / "_lumascope.py").read_text()
     assert 'tail_id_mode == "if_collision"' in src, (
         "lumascope_api.generate_image_save_path must support the "
         '"if_collision" tail_id_mode for write-time defense against '

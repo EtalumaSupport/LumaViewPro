@@ -99,8 +99,8 @@ def _make_scope_with_no_hardware():
     """Sim scope, then strip drivers to Null* / no camera, then flip
     `_simulated` off so the early-return doesn't fire."""
     scope = Lumascope(simulate=True)
-    scope.led = NullLEDBoard()
-    scope.motion = NullMotionBoard()
+    scope._led_driver = NullLEDBoard()
+    scope._motion_driver = NullMotionBoard()
     if hasattr(scope, 'camera'):
         delattr(scope, 'camera')
     scope._simulated = False
@@ -115,7 +115,7 @@ def captured_warnings(monkeypatch):
     received = []
     fresh_nc.add_listener(lambda n: received.append(n),
                           min_severity=Severity.WARNING)
-    monkeypatch.setattr('modules.lumascope_api.notifications', fresh_nc)
+    monkeypatch.setattr('modules.lumascope_api._lumascope.notifications', fresh_nc)
     return received
 
 
@@ -133,7 +133,7 @@ class TestNotifyPartialHardware:
         scope = _make_scope_with_no_hardware()
         # LS620 has Layers — pretend the LED board did connect by
         # swapping Null out for a real-ish object.
-        scope.led = object()  # truthy non-Null sentinel
+        scope._led_driver = object()  # truthy non-Null sentinel
         config = ScopeInitConfig.from_settings(
             _BASE_SETTINGS, labware=None, scope_config=_LS620_CONFIG,
         )
@@ -146,7 +146,7 @@ class TestNotifyPartialHardware:
 
     def test_ls820_motor_failed_warns(self, captured_warnings):
         scope = _make_scope_with_no_hardware()
-        scope.led = object()
+        scope._led_driver = object()
         config = ScopeInitConfig.from_settings(
             _BASE_SETTINGS, labware=None, scope_config=_LS820_CONFIG,
         )
@@ -158,7 +158,7 @@ class TestNotifyPartialHardware:
         """Backward-compat: callers that don't supply scope_config get
         the pre-filter behavior (any Null driver → warning)."""
         scope = _make_scope_with_no_hardware()
-        scope.led = object()
+        scope._led_driver = object()
         config = ScopeInitConfig.from_settings(_BASE_SETTINGS, labware=None)
         scope._notify_partial_hardware(config)
         assert len(captured_warnings) == 1

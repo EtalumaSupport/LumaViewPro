@@ -55,10 +55,10 @@ COMPLETION_TIMEOUT = 15  # seconds — generous for CI
 def _make_simulated_scope():
     """Create a Lumascope with simulated hardware in fast timing mode."""
     s = Lumascope(simulate=True)
-    s.led.set_timing_mode('fast')
-    s.motion.set_timing_mode('fast')
-    s.camera.set_timing_mode('fast')
-    s.camera.start_grabbing()
+    s._led_driver.set_timing_mode('fast')
+    s._motion_driver.set_timing_mode('fast')
+    s._camera_driver.set_timing_mode('fast')
+    s._camera_driver.start_grabbing()
     return s
 
 
@@ -268,7 +268,7 @@ def _run_and_wait(executor, protocol, tmp_path, **run_kwargs):
 def scope():
     s = _make_simulated_scope()
     yield s
-    s.camera.stop_grabbing()
+    s._camera_driver.stop_grabbing()
     s.disconnect()
 
 
@@ -328,22 +328,22 @@ class TestSingleScanBasicImage:
 
     def test_sets_gain_and_exposure(self, executor, scope, tmp_path):
         # Record original camera settings
-        original_gain = scope.camera.get_gain()
-        original_exposure = scope.camera.get_exposure_t()
+        original_gain = scope._camera_driver.get_gain()
+        original_exposure = scope._camera_driver.get_exposure_t()
         protocol = _make_single_step_protocol(color='BF', gain=5.0, exposure=50.0)
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed
         # After protocol cleanup, gain/exposure should be restored to original values
-        assert scope.camera.get_gain() == pytest.approx(original_gain, abs=0.1)
-        assert scope.camera.get_exposure_t() == pytest.approx(original_exposure, abs=0.1)
+        assert scope._camera_driver.get_gain() == pytest.approx(original_gain, abs=0.1)
+        assert scope._camera_driver.get_exposure_t() == pytest.approx(original_exposure, abs=0.1)
 
     def test_turns_led_on_and_off(self, executor, scope, tmp_path):
         protocol = _make_single_step_protocol(color='BF', illumination=75.0)
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed
         # After protocol with leds_state_at_end='off', all LEDs should be off
-        for color in scope.led.led_ma:
-            assert not scope.led.is_led_on(color), f"LED {color} still on after protocol"
+        for color in scope._led_driver.led_ma:
+            assert not scope._led_driver.is_led_on(color), f"LED {color} still on after protocol"
 
     def test_auto_gain_disabled_in_step(self, executor, scope, tmp_path):
         """When auto_gain=False, protocol should complete normally."""
@@ -366,7 +366,7 @@ class TestSingleScanAutoGain:
         assert completed
         # Auto gain cycle ran successfully — gain value should have been adjusted
         # from the initial value by the auto-gain convergence logic
-        assert scope.camera.get_gain() > 0
+        assert scope._camera_driver.get_gain() > 0
 
     def test_does_not_set_manual_gain_when_auto(self, executor, scope, tmp_path):
         """When auto_gain=True, manual set_gain should NOT be called in _scan_iterate."""
@@ -610,8 +610,8 @@ class TestLedStateAtEnd:
                                       leds_state_at_end='off')
         assert completed
         # Verify all LEDs are off via simulator public API
-        for color in scope.led.led_ma:
-            assert not scope.led.is_led_on(color), f"LED {color} still on"
+        for color in scope._led_driver.led_ma:
+            assert not scope._led_driver.is_led_on(color), f"LED {color} still on"
 
     def test_return_to_original_leds(self, executor, scope, tmp_path):
         # Turn on BF LED before protocol so executor captures it as original state
@@ -1308,9 +1308,9 @@ class TestDisconnectedScope:
 
     def test_run_aborts_when_not_connected(self, executor, scope, tmp_path):
         # Disconnect all boards so are_all_connected() returns False
-        scope.led.disconnect()
-        scope.motion.disconnect()
-        scope.camera.disconnect()
+        scope._led_driver.disconnect()
+        scope._motion_driver.disconnect()
+        scope._camera_driver.disconnect()
         protocol = _make_single_step_protocol(color='BF')
 
         done = threading.Event()
@@ -1516,7 +1516,7 @@ class TestWithTurret:
     """Scope with turret enabled — objective name included in filenames."""
 
     def test_turret_protocol_completes(self, executor, scope, tmp_path):
-        scope.motion._has_turret = True
+        scope._motion_driver._has_turret = True
         protocol = _make_single_step_protocol(color='BF')
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed
@@ -1949,8 +1949,8 @@ class TestCleanupCorrectness:
         executor.reset()
         done.wait(timeout=COMPLETION_TIMEOUT)
 
-        for color in scope.led.led_ma:
-            assert not scope.led.is_led_on(color), f"LED {color} still on after abort"
+        for color in scope._led_driver.led_ma:
+            assert not scope._led_driver.is_led_on(color), f"LED {color} still on after abort"
 
     def test_back_to_back_runs_no_state_bleed(self, executor, scope, tmp_path):
         """Gain/exposure from run A don't leak into run B's restored values."""
