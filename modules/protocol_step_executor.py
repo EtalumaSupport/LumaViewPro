@@ -51,7 +51,7 @@ class ProtocolStepExecutor:
         """
         last_maintenance_time = time.monotonic()
 
-        while self._p._scan_in_progress.is_set() and not self._p._protocol_ended.is_set():
+        while self._p._scan_in_progress.is_set() and not self._p._aborted.is_set():
             try:
                 # Periodic cleanup and watchdog logging for long runs
                 now_mono = time.monotonic()
@@ -61,12 +61,6 @@ class ProtocolStepExecutor:
                     collected = gc.collect()
                     if collected > 0:
                         logger.info(f"[Scan Watchdog] GC collected {collected} objects")
-
-                    try:
-                        protocol_queue_size = self._p.protocol_executor.protocol_queue_size()
-                        logger.debug(f"[Scan Watchdog] Protocol queue: {protocol_queue_size}")
-                    except Exception as e:
-                        logger.debug(f"[Scan Watchdog] Could not read protocol queue size: {e}")
 
                 # Run one step iteration
                 self.scan_iterate()
@@ -94,7 +88,7 @@ class ProtocolStepExecutor:
         """Execute one iteration of the scan state machine."""
         p = self._p  # shorthand
 
-        if p._protocol_ended.is_set():
+        if p._aborted.is_set():
             return
         # Video encoding runs on FILE_WORKER in background — do NOT block
         # the next step waiting for it. Frames are already captured and queued.
@@ -136,7 +130,7 @@ class ProtocolStepExecutor:
         if not p._grease_redistribution_event.is_set():
             return
 
-        if p._protocol_ended.is_set() or not p._scan_in_progress.is_set():
+        if p._aborted.is_set() or not p._scan_in_progress.is_set():
             return
 
         # AF already pushed the Z UI to best_focus_position; do not
@@ -156,7 +150,7 @@ class ProtocolStepExecutor:
         # Camera settings (gain, exposure) and LED_ON are handled by
         # protocol_image_writer.capture() right before the actual frame grab.
         # Setting them here would duplicate the commands.
-        if p._protocol_ended.is_set() or not p._scan_in_progress.is_set():
+        if p._aborted.is_set() or not p._scan_in_progress.is_set():
             return
 
         # BF AF for fluorescence
@@ -184,7 +178,7 @@ class ProtocolStepExecutor:
             if p._callbacks.move_position:
                 af_executor_callbacks['move_position'] = p._callbacks.move_position
 
-            if p._protocol_ended.is_set() or not p._scan_in_progress.is_set():
+            if p._aborted.is_set() or not p._scan_in_progress.is_set():
                 return
 
             p._af_future = p.autofocus_thread.run_autofocus(
@@ -376,7 +370,7 @@ class ProtocolStepExecutor:
         """Move to the position for a given protocol step."""
         p = self._p
         p._step_start_time = time.monotonic()
-        if p._protocol_ended.is_set():
+        if p._aborted.is_set():
             return
 
         if p._callbacks.go_to_step:
@@ -461,7 +455,7 @@ class ProtocolStepExecutor:
         UI update is handled by the LED observer — no manual callback needed.
         """
         p = self._p
-        if p._protocol_ended.is_set() and not force:
+        if p._aborted.is_set() and not force:
             return
 
         fut = p._io_executor.protocol_put(IOTask(

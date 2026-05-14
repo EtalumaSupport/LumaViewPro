@@ -39,7 +39,7 @@ from modules.config_ui_getters import (
 )
 from modules.path_utils import get_source_root
 from modules.sequenced_capture_executor import SequencedCaptureRunMode
-from modules.sequential_io_executor import IOTask
+from modules.sequential_io_executor import IOTask, PRIORITY_MED
 from modules.step_navigation import go_to_step
 from modules.tiling_config import TilingConfig
 from modules.timedelta_formatter import strfdelta
@@ -450,12 +450,14 @@ class ProtocolSettings(FloatLayout):
             )
             return
 
-        protocol_executor = _app_ctx.ctx.protocol_executor
-        protocol_executor.put(IOTask(
+        # new_protocol_ex builds the step table from the labware + scan
+        # parameters; bounded work, fits on worker_pool MED so the UI
+        # remains responsive while it runs.
+        _app_ctx.ctx.worker_pool.put(IOTask(
             action=self.new_protocol_ex,
             args=(protocol),
             callback=self.update_step_ui,
-
+            priority=PRIORITY_MED,
         ))
 
     def new_protocol_ex(self, protocol):

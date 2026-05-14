@@ -2526,17 +2526,16 @@ class TestPIW2_DisksUsageDeduped:
         assert "shutil.disk_usage(str(save_folder)).free" in src, (
             "PIW-2: protocol_image_writer's save-folder disk check should be kept (it's the useful one)."
         )
-        assert "self._protocol_ended.set()" in src, (
+        assert "self._abort_fn()" in src, (
             "PIW-2: protocol_image_writer's abort-on-low-disk path should still be present."
         )
 
 
 class TestPF2_FileIoExecutorClearedOnAbort:
     """PF-2: on hardware-disconnect / abort cleanup, file_io_executor's
-    pending queue was NOT cleared — only io_executor and protocol_executor
-    were. Queued IOTasks hold captured_image references; on a slow drain
-    these can pin GB of memory and lock the next protocol-start until the
-    drain completes.
+    pending queue was NOT cleared — only io_executor's was. Queued IOTasks
+    hold captured_image references; on a slow drain these can pin GB of
+    memory and lock the next protocol-start until the drain completes.
 
     Distinct from normal completion, where draining is correct (writes user
     data to disk). The discriminator is `ProtocolState.ERROR` at cleanup
@@ -2573,12 +2572,9 @@ class TestPF2_FileIoExecutorClearedOnAbort:
         assert "file_io_executor.clear_protocol_pending()" in src, (
             "PF-2: cleanup should clear file_io_executor's pending queue on abort."
         )
-        # Existing unconditional clears for the other executors must still be present.
+        # Existing unconditional clear for io_executor must still be present.
         assert "io_executor.clear_protocol_pending()" in src, (
             "PF-2: io_executor.clear_protocol_pending should still be called unconditionally."
-        )
-        assert "protocol_executor.clear_protocol_pending()" in src, (
-            "PF-2: protocol_executor.clear_protocol_pending should still be called unconditionally."
         )
 
 
@@ -6952,7 +6948,7 @@ class TestStageOffsetSnapshot:
             scope=MagicMock(),
             stage_offset=stage_offset,
             io_executor=MagicMock(),
-            protocol_executor=MagicMock(),
+            protocol_thread=MagicMock(),
             file_io_executor=MagicMock(),
             camera_executor=MagicMock(),
             autofocus_thread=MagicMock(),
@@ -7097,7 +7093,7 @@ class TestSequencedCaptureExecutorRunDirCollision:
             scope=MagicMock(),
             stage_offset={'x': 0.0, 'y': 0.0, 'z': 0.0},
             io_executor=MagicMock(),
-            protocol_executor=MagicMock(),
+            protocol_thread=MagicMock(),
             file_io_executor=MagicMock(),
             camera_executor=MagicMock(),
             autofocus_thread=MagicMock(),

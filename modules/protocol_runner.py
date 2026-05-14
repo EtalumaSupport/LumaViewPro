@@ -30,6 +30,7 @@ import modules.common_utils as common_utils
 from modules.protocol import Protocol
 from modules.sequenced_capture_executor import SequencedCaptureExecutor, SequencedCaptureRunMode
 from modules.sequential_io_executor import SequentialIOExecutor
+from modules.protocol_thread import ProtocolThread
 from modules.autofocus_runner import AutofocusRunner
 
 
@@ -39,14 +40,15 @@ class ProtocolRunner:
     def __init__(
         self,
         session,
-        protocol_executor: SequentialIOExecutor | None = None,
+        protocol_thread: ProtocolThread | None = None,
         file_io_executor: SequentialIOExecutor | None = None,
         autofocus_thread=None,
     ):
         """
         Args:
             session: ScopeSession instance providing scope, settings, executors
-            protocol_executor: Executor for protocol sequencing (created if None)
+            protocol_thread: ProtocolThread that drives the scan loop
+                (created if None; the caller owns lifecycle in that case).
             file_io_executor: Executor for file I/O (created if None)
             autofocus_thread: AutofocusThread for running AF. If None, the
                 protocol may run only when no step requests autofocus;
@@ -54,7 +56,7 @@ class ProtocolRunner:
         """
         self.session = session
 
-        self._protocol_executor = protocol_executor or SequentialIOExecutor(name="PROTOCOL")
+        self._protocol_thread = protocol_thread or ProtocolThread()
         self._file_io_executor = file_io_executor or SequentialIOExecutor(name="FILE")
         self._autofocus_thread = autofocus_thread
 
@@ -64,13 +66,13 @@ class ProtocolRunner:
             scope=session.scope,
             stage_offset=session.settings.get('stage_offset', {}),
             io_executor=session.io_executor,
-            protocol_executor=self._protocol_executor,
+            protocol_thread=self._protocol_thread,
             file_io_executor=self._file_io_executor,
             camera_executor=session.camera_executor,
             autofocus_thread=self._autofocus_thread,
         )
 
-        self._owned_executors_started = False
+        self._owned_resources_started = False
 
     @property
     def sequenced_capture_executor(self) -> SequencedCaptureExecutor:
@@ -251,6 +253,7 @@ class ProtocolRunner:
 
     def abort(self):
         """Abort the current run."""
+        self._protocol_thread.abort()
         self._executor.reset()
         self._completion_event.set()
         self.session.protocol_running.clear()
@@ -264,15 +267,15 @@ class ProtocolRunner:
     # ------------------------------------------------------------------
 
     def _ensure_executors_started(self):
-        """Start any executors we created if not already started."""
-        if not self._owned_executors_started:
-            self._protocol_executor.start()
+        """Start any resources we created if not already started."""
+        if not self._owned_resources_started:
+            self._protocol_thread.start()
             self._file_io_executor.start()
-            self._owned_executors_started = True
+            self._owned_resources_started = True
 
     def shutdown(self):
-        """Shut down executors that we created."""
-        if self._owned_executors_started:
-            self._protocol_executor.shutdown()
+        """Shut down resources that we created."""
+        if self._owned_resources_started:
+            self._protocol_thread.stop(timeout=2.0)
             self._file_io_executor.shutdown()
-            self._owned_executors_started = False
+            self._owned_resources_started = False

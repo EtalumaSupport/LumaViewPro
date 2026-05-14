@@ -75,7 +75,7 @@ class SequencedCaptureExecutor:
         scope: Lumascope,
         stage_offset: dict,
         io_executor: SequentialIOExecutor,
-        protocol_executor: SequentialIOExecutor,
+        protocol_thread,
         file_io_executor: SequentialIOExecutor,
         camera_executor: SequentialIOExecutor,
         autofocus_thread,
@@ -91,13 +91,17 @@ class SequencedCaptureExecutor:
         self._stage_offset_source = stage_offset
         self._stage_offset = stage_offset
         self._io_executor = io_executor
-        self.protocol_executor = protocol_executor
+        self.protocol_thread = protocol_thread
         self.file_io_executor = file_io_executor
         self.camera_executor = camera_executor
         self.autofocus_thread = autofocus_thread
         self._z_ui_update_func = z_ui_update_func
         self._scan_in_progress = threading.Event()
-        self._protocol_ended = threading.Event()
+        # Abort signal. Owned by protocol_thread; SCE holds a reference
+        # assigned in run() from protocol_thread.aborted. Tests that
+        # construct SCE without a real protocol_thread can still read
+        # this Event because it defaults to a local Event before run().
+        self._aborted: threading.Event = threading.Event()
         self._run_in_progress_event = threading.Event()  # GIL-free safe replacement for _run_in_progress bool
         self._cleanup_lock = threading.Lock()
         self._run_lock = threading.Lock()
@@ -174,7 +178,10 @@ class SequencedCaptureExecutor:
         self._target_x_pos = -1
         self._target_y_pos = -1
         self._target_z_pos = -1
-        self._protocol_ended.clear()
+        # _aborted is owned by protocol_thread; cleared there when a new
+        # run is enqueued via run_protocol(). Do not clear here -- doing
+        # so would race a concurrent abort() request that fired between
+        # the abort and the next run kickoff.
         
 
     @staticmethod
@@ -507,12 +514,18 @@ class SequencedCaptureExecutor:
         else:
             false_color_16bit = False
 
+        # Borrow protocol_thread's abort Event as SCE's _aborted reference.
+        # Cross-thread readers (protocol_step_executor, protocol_run_loop)
+        # consult self._aborted.is_set() each tick. PIW receives a callable
+        # bound to protocol_thread.abort so its capture-failure / disk-fail
+        # paths abort the run.
+        self._aborted = self.protocol_thread.aborted
         self._image_writer = ProtocolImageWriter(
             scope=self._scope,
             callbacks=self._callbacks,
-            protocol_ended=self._protocol_ended,
+            aborted=self._aborted,
             file_io_executor=self.file_io_executor,
-            protocol_executor=self.protocol_executor,
+            abort_fn=self.protocol_thread.abort,
             execution_record=self._protocol_execution_record,
             leds_off_fn=self._step_executor.leds_off,
             led_on_fn=self._step_executor.led_on,
@@ -527,22 +540,17 @@ class SequencedCaptureExecutor:
             self._set_state(ProtocolState.RUNNING)
             self._run_in_progress_event.set()
         self.camera_executor.disable()
-        self.protocol_executor.protocol_start()
         self._io_executor.protocol_start()
         self.file_io_executor.protocol_start()
         # Not IO
         self._scope.update_auto_gain_target_brightness(self._autogain_settings['target_brightness'])
 
-        # Start the main run loop which manages all scan timing and execution.
-        # `slow_task_threshold_sec=None` -> use the higher long-running default;
-        # protocol runs commonly take minutes-to-hours, far above the 5 sec
-        # default threshold that's appropriate for individual hardware tasks.
-        # 24h (86400 sec) effectively disables the warning for the run loop —
-        # if a single protocol exceeds 24 hours something genuinely is wrong.
-        self.protocol_executor.protocol_put(IOTask(
-            action=self._run_loop_executor.run_loop,
-            slow_task_threshold_sec=86400.0,
-        ))
+        # Dispatch the main run loop onto protocol_thread. The returned
+        # Future is fire-and-forget here -- completion is signalled via
+        # _run_in_progress_event clearing inside _cleanup. run_protocol
+        # also clears _aborted under its state lock atomically with
+        # publishing the new Future, mirroring the AutofocusThread fix.
+        self.protocol_thread.run_protocol(self._run_loop_executor.run_loop)
     
     def run_in_progress(self) -> bool:
         with self._run_lock:
@@ -583,7 +591,6 @@ class SequencedCaptureExecutor:
             get_state_fn=lambda: self._state,
             set_state_fn=self._set_state,
             run_lock=self._run_lock,
-            protocol_ended=self._protocol_ended,
             scan_in_progress=self._scan_in_progress,
             leds_state_at_end=self._leds_state_at_end,
             original_led_states=self._original_led_states,
@@ -600,7 +607,6 @@ class SequencedCaptureExecutor:
             default_move_fn=self._step_executor.default_move,
             cancel_scheduled_events_fn=self._cancel_all_scheduled_events,
             io_executor=self._io_executor,
-            protocol_executor=self.protocol_executor,
             autofocus_thread=self.autofocus_thread,
             file_io_executor=self.file_io_executor,
             camera_executor=self.camera_executor,

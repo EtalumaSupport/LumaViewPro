@@ -56,7 +56,7 @@ class ProtocolRunLoop:
         p = self._p
         last_connection_check = time.monotonic()
 
-        while p._run_in_progress_event.is_set() and not p._protocol_ended.is_set():
+        while p._run_in_progress_event.is_set() and not p._aborted.is_set():
             try:
                 # Periodic hardware connection check (every 30 seconds)
                 now = time.monotonic()
@@ -130,14 +130,17 @@ class ProtocolRunLoop:
                             logger.error(f"[PROTOCOL] {msg} — aborting protocol")
                             from modules.notification_center import notifications
                             notifications.error("Protocol", "Protocol Aborted", msg)
-                            p._protocol_ended.set()
+                            # p._aborted IS protocol_thread.aborted; setting
+                            # it from inside the run loop signals the next
+                            # iteration to exit and triggers cleanup-on-exit.
+                            p._aborted.set()
                             break
                 except Exception as e:
                     logger.debug(f"[PROTOCOL] Disk space check failed (proceeding anyway): {e}")
 
                 p._step_executor.go_to_step(step_idx=p._curr_step)
                 # Guard: if cleanup already ran (e.g. button spam), don't proceed
-                if p._protocol_ended.is_set() or p._state == ProtocolState.IDLE:
+                if p._aborted.is_set() or p._state == ProtocolState.IDLE:
                     break
                 p._scan_in_progress.set()
                 p._set_state(ProtocolState.SCANNING)

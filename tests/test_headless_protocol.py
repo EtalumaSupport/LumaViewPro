@@ -135,16 +135,23 @@ class TestHeadlessProtocolExecution:
     """Verify a full protocol runs end-to-end without Kivy loaded."""
 
     def _make_executors(self):
-        names = ['io', 'protocol', 'file_io', 'camera', 'autofocus']
+        from modules.protocol_thread import ProtocolThread
+        names = ['io', 'file_io', 'camera', 'autofocus']
         execs = {n: SequentialIOExecutor(name=f"HEADLESS_{n.upper()}") for n in names}
         for e in execs.values():
             e.start()
+        pt = ProtocolThread()
+        pt.start()
+        execs['protocol'] = pt
         return execs
 
     def _shutdown_executors(self, execs):
-        for e in execs.values():
+        for name, e in execs.items():
             try:
-                e.shutdown()
+                if name == 'protocol':
+                    e.stop(timeout=2.0)
+                else:
+                    e.shutdown()
             except Exception:
                 pass
 
@@ -220,7 +227,7 @@ class TestHeadlessProtocolExecution:
                 scope=scope,
                 stage_offset={'x': 0.0, 'y': 0.0},
                 io_executor=execs['io'],
-                protocol_executor=execs['protocol'],
+                protocol_thread=execs['protocol'],
                 file_io_executor=execs['file_io'],
                 camera_executor=execs['camera'],
                 autofocus_thread=MagicMock(),

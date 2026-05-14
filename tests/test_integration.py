@@ -60,18 +60,25 @@ COMPLETION_TIMEOUT = 30  # generous for CI
 # ---------------------------------------------------------------------------
 
 def _make_executors():
-    """Create and start all SequentialIOExecutors needed."""
-    names = ['io', 'protocol', 'file_io', 'camera', 'autofocus']
+    """Create and start all SequentialIOExecutors + protocol_thread."""
+    from modules.protocol_thread import ProtocolThread
+    names = ['io', 'file_io', 'camera', 'autofocus']
     execs = {n: SequentialIOExecutor(name=f"INTEG_{n.upper()}") for n in names}
     for e in execs.values():
         e.start()
+    pt = ProtocolThread()
+    pt.start()
+    execs['protocol'] = pt
     return execs
 
 
 def _shutdown_executors(execs):
-    for e in execs.values():
+    for name, e in execs.items():
         try:
-            e.shutdown()
+            if name == 'protocol':
+                e.stop(timeout=2.0)
+            else:
+                e.shutdown()
         except Exception:
             pass
 
@@ -255,7 +262,7 @@ def executor(scope, executors):
         scope=scope,
         stage_offset={'x': 0.0, 'y': 0.0},
         io_executor=executors['io'],
-        protocol_executor=executors['protocol'],
+        protocol_thread=executors['protocol'],
         file_io_executor=executors['file_io'],
         camera_executor=executors['camera'],
         autofocus_thread=MagicMock(),
@@ -280,7 +287,7 @@ def af_executor(scope, executors):
         scope=scope,
         stage_offset={'x': 0.0, 'y': 0.0},
         io_executor=executors['io'],
-        protocol_executor=executors['protocol'],
+        protocol_thread=executors['protocol'],
         file_io_executor=executors['file_io'],
         camera_executor=executors['camera'],
         autofocus_thread=MagicMock(),

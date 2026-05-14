@@ -20,7 +20,7 @@ import modules.common_utils as common_utils
 from modules import gui_logger
 from modules.composite_builder import build_composite
 import modules.image_utils as image_utils
-from modules.sequential_io_executor import IOTask
+from modules.sequential_io_executor import IOTask, PRIORITY_MED
 from ui.ui_helpers import (
     live_histo_off, live_histo_reverse, set_last_save_folder,
 )
@@ -242,9 +242,11 @@ class CompositeCapture(FloatLayout):
         scope_display = self.ids['viewer_id'].ids['scope_display_id']
         use_full_pixel_depth = scope_display.use_full_pixel_depth
 
-        # Run hardware-blocking work via the protocol executor to avoid
-        # freezing the UI and to prevent contention with io_executor.
-        ctx.protocol_executor.put(IOTask(
+        # Run hardware-blocking work on worker_pool at MED priority so it
+        # doesn't freeze the UI or contend with io_executor. HIGH-priority
+        # abort/cleanup tasks still jump ahead. Composite capture is
+        # bounded (~seconds) so it doesn't starve LOW background work.
+        ctx.worker_pool.put(IOTask(
             action=self._composite_capture_worker,
             kwargs={
                 'z_stage_present': z_stage_present,
@@ -253,6 +255,7 @@ class CompositeCapture(FloatLayout):
                 'use_full_pixel_depth': use_full_pixel_depth,
                 'saved_video_false_color': saved_video_false_color,
             },
+            priority=PRIORITY_MED,
         ))
 
     def _composite_capture_worker(

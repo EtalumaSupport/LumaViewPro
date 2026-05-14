@@ -63,24 +63,30 @@ def _make_simulated_scope():
 
 
 def _make_executors():
-    """Create and start the set of SequentialIOExecutors needed."""
+    """Create and start the SequentialIOExecutors + protocol_thread needed."""
+    from modules.protocol_thread import ProtocolThread
     execs = {
         'io': SequentialIOExecutor(name="TEST_IO"),
-        'protocol': SequentialIOExecutor(name="TEST_PROTOCOL"),
         'file_io': SequentialIOExecutor(name="TEST_FILE"),
         'camera': SequentialIOExecutor(name="TEST_CAMERA"),
         'autofocus': SequentialIOExecutor(name="TEST_AF"),
     }
     for e in execs.values():
         e.start()
+    pt = ProtocolThread()
+    pt.start()
+    execs['protocol'] = pt
     return execs
 
 
 def _shutdown_executors(execs):
-    """Shut down all executors."""
-    for e in execs.values():
+    """Shut down all executors + protocol_thread."""
+    for name, e in execs.items():
         try:
-            e.shutdown()
+            if name == 'protocol':
+                e.stop(timeout=2.0)
+            else:
+                e.shutdown()
         except Exception:
             pass
 
@@ -297,7 +303,7 @@ def executor(scope, executors):
         scope=scope,
         stage_offset={'x': 0.0, 'y': 0.0},
         io_executor=executors['io'],
-        protocol_executor=executors['protocol'],
+        protocol_thread=executors['protocol'],
         file_io_executor=executors['file_io'],
         camera_executor=executors['camera'],
         autofocus_thread=MagicMock(),

@@ -51,9 +51,9 @@ class ProtocolImageWriter:
         *,
         scope: Lumascope,
         callbacks: ProtocolCallbacks,
-        protocol_ended: threading.Event,
+        aborted: threading.Event,
         file_io_executor: SequentialIOExecutor,
-        protocol_executor,  # SequentialIOExecutor (protocol queue)
+        abort_fn,  # callable -- bound to protocol_thread.abort
         execution_record: ProtocolExecutionRecord,
         # Functions borrowed from the parent executor
         leds_off_fn,
@@ -66,9 +66,9 @@ class ProtocolImageWriter:
     ):
         self._scope = scope
         self._callbacks = callbacks
-        self._protocol_ended = protocol_ended
+        self._aborted = aborted
         self._file_io_executor = file_io_executor
-        self._protocol_executor = protocol_executor
+        self._abort_fn = abort_fn
         self._execution_record = execution_record
         self._leds_off = leds_off_fn
         self._led_on = led_on_fn
@@ -153,11 +153,9 @@ class ProtocolImageWriter:
 
         Runs on the protocol-executor thread.
         """
-        if self._protocol_ended.is_set():
+        if self._aborted.is_set():
             return
         if not self._is_run_in_progress():
-            return
-        if not self._protocol_executor.is_protocol_running():
             return
 
         # N5 (STALL-1 H5 disambiguator): proto-state trace.
@@ -293,7 +291,7 @@ class ProtocolImageWriter:
                         scope=self._scope,
                         step=step,
                         autogain_settings=autogain_settings,
-                        is_protocol_running_fn=self._protocol_executor.is_protocol_running,
+                        is_protocol_running_fn=self._is_run_in_progress,
                         callbacks=self._callbacks.to_dict(),
                         leds_off_fn=self._leds_off,
                         stim_profiling=self._stim_profiling,
@@ -381,7 +379,7 @@ class ProtocolImageWriter:
                             from modules.notification_center import notifications
                             notifications.critical("Protocol", "Camera Failure",
                                 f"Camera failed {self._consecutive_capture_failures} consecutive captures. Aborting protocol.")
-                            self._protocol_ended.set()
+                            self._abort_fn()
                         _proto_outcome = "capture_failed"
                         return
 
@@ -506,7 +504,7 @@ class ProtocolImageWriter:
                     from modules.notification_center import notifications
                     notifications.critical("FileIO", "Disk Space Critical",
                         f"Only {free_mb:.0f} MB free. Aborting protocol to prevent data loss.")
-                    self._protocol_ended.set()
+                    self._abort_fn()
                     return
             except Exception:
                 pass  # If we can't check, proceed anyway

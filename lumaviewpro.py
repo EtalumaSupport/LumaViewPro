@@ -224,7 +224,7 @@ if __name__ == '__main__':
     # these named globals for backwards compat with existing readers.
     io_executor = None
     camera_executor = None
-    protocol_executor = None
+    protocol_thread = None
     file_io_executor = None
     autofocus_thread = None
     scope_display_thread = None
@@ -517,8 +517,8 @@ class LumaViewProApp(TooltipMixin, App):
         if scope_display_thread is not None:
             scope_display_thread.stop()
 
-        if protocol_executor is not None:
-            protocol_executor.shutdown(wait=False)
+        if protocol_thread is not None:
+            protocol_thread.stop(timeout=2.0)
 
         if io_executor is not None:
             io_executor.shutdown(wait=False)
@@ -627,10 +627,11 @@ class LumaViewProApp(TooltipMixin, App):
 
         objective_helper = objectives_loader.ObjectiveLoader(source_path=source_path)
 
-        # ExecutorRegistry.create_default constructs all 7 executors (plus stage
-        # and turret aliases) and starts them; every entry point shares this
-        # topology so the watchdog snapshot and engineering plugin see one truth.
-        global io_executor, camera_executor, protocol_executor
+        # ExecutorRegistry.create_default constructs all SequentialIOExecutor
+        # lanes (plus stage and turret aliases) and the protocol_thread, then
+        # starts them; every entry point shares this topology so the watchdog
+        # snapshot and engineering plugin see one truth.
+        global io_executor, camera_executor, protocol_thread
         global file_io_executor, autofocus_thread, scope_display_thread
         global worker_pool
         global executor_bundle
@@ -650,7 +651,7 @@ class LumaViewProApp(TooltipMixin, App):
         executor_bundle = _create_executors(_ui)
         io_executor = executor_bundle.io_executor
         camera_executor = executor_bundle.camera_executor
-        protocol_executor = executor_bundle.protocol_executor
+        protocol_thread = executor_bundle.protocol_thread
         file_io_executor = executor_bundle.file_io_executor
         scope_display_thread = executor_bundle.scope_display_thread
         worker_pool = executor_bundle.worker_pool
@@ -704,7 +705,7 @@ class LumaViewProApp(TooltipMixin, App):
             stage_offset=settings['stage_offset'],
             autofocus_runner=autofocus_runner,
             io_executor=io_executor,
-            protocol_executor=protocol_executor,
+            protocol_thread=protocol_thread,
             file_io_executor=file_io_executor,
             camera_executor=camera_executor,
             autofocus_thread=autofocus_thread,
@@ -723,7 +724,7 @@ class LumaViewProApp(TooltipMixin, App):
             source_path=source_path,
             io_executor=io_executor,
             camera_executor=camera_executor,
-            protocol_executor=protocol_executor,
+            protocol_thread=protocol_thread,
             file_io_executor=file_io_executor,
             autofocus_thread=autofocus_thread,
             scope_display_thread=scope_display_thread,

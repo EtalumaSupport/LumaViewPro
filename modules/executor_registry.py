@@ -10,9 +10,9 @@ instances:
                   turret because all motor serial I/O goes through one
                   executor to prevent concurrent motor-board access)
     CAMERA      -- camera-config / settings writes (CAMERA_WORKER thread)
-    PROTOCOL    -- protocol orchestration (long-running runs)
     FILE        -- file IO; protocol_queue bounded at 32 (F-2)
     SCOPEDISPLAY-- display pull loop dispatcher (bare Thread, no queue)
+    PROTOCOL    -- protocol orchestration (bare Thread, no queue)
     WORKER_POOL -- priority-aware lane for short-lived work that needs
                   to jump ahead of MED (abort cleanup at PRIORITY_HIGH,
                   diagnostics at PRIORITY_LOW). HIGH/MED/LOW ordering;
@@ -43,8 +43,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from lvp_logger import logger
-from modules.sequential_io_executor import SequentialIOExecutor
+from modules.protocol_thread import ProtocolThread
 from modules.scope_display_thread import ScopeDisplayThread
+from modules.sequential_io_executor import SequentialIOExecutor
 
 
 # F-2: file_io_executor's protocol_queue is bounded at 32. See
@@ -58,7 +59,7 @@ class ExecutorBundle:
 
     io_executor: SequentialIOExecutor
     camera_executor: SequentialIOExecutor
-    protocol_executor: SequentialIOExecutor
+    protocol_thread: ProtocolThread
     file_io_executor: SequentialIOExecutor
     scope_display_thread: ScopeDisplayThread
     worker_pool: SequentialIOExecutor
@@ -70,8 +71,8 @@ class ExecutorBundle:
         counting their queue depth. Engineering plugin / REST status
         endpoint / app watchdog all consume the same view.
 
-        SCOPEDISPLAY is a bare Thread -- no queue, so its slot reports
-        0 (running) or -1 (stopped) instead of a queue depth.
+        SCOPEDISPLAY and PROTOCOL are bare Threads -- no queue, so their
+        slots report 0 (running) or -1 (stopped) instead of a queue depth.
         AUTOFOCUS is similarly a bare Thread and reported via
         AppContext.autofocus_thread (not in this bundle).
         WORKER_POOL is priority-aware; queue_size aggregates all
@@ -80,7 +81,6 @@ class ExecutorBundle:
         executors = [
             ('IO',          self.io_executor),
             ('CAMERA',      self.camera_executor),
-            ('PROTOCOL',    self.protocol_executor),
             ('FILE',        self.file_io_executor),
             ('WORKER_POOL', self.worker_pool),
         ]
@@ -94,6 +94,10 @@ class ExecutorBundle:
             out['SCOPEDISPLAY'] = 0 if self.scope_display_thread.is_running else -1
         except Exception:
             out['SCOPEDISPLAY'] = -1
+        try:
+            out['PROTOCOL'] = 0 if self.protocol_thread.is_running else -1
+        except Exception:
+            out['PROTOCOL'] = -1
         return out
 
 
@@ -119,8 +123,6 @@ def create_default(ui_dispatcher) -> ExecutorBundle:
         name="IO", ui_dispatcher=ui_dispatcher)
     camera_executor = SequentialIOExecutor(
         name="CAMERA", ui_dispatcher=ui_dispatcher)
-    protocol_executor = SequentialIOExecutor(
-        name="PROTOCOL", ui_dispatcher=ui_dispatcher)
     # F-2: bounded protocol_queue prevents a save thread that falls
     # behind from letting the queue grow without bound.
     file_io_executor = SequentialIOExecutor(
@@ -134,6 +136,9 @@ def create_default(ui_dispatcher) -> ExecutorBundle:
         ui_dispatcher=ui_dispatcher,
         ctx_provider=lambda: _app_ctx.ctx,
     )
+    # Protocol scan-loop driver. Generic callable runner; SCE.run()
+    # submits self._run_loop_executor.run_loop and receives a Future.
+    protocol_thread = ProtocolThread(ui_dispatcher=ui_dispatcher)
     worker_pool = SequentialIOExecutor(
         name="WORKER_POOL", ui_dispatcher=ui_dispatcher,
         priority_aware=True)
@@ -141,22 +146,24 @@ def create_default(ui_dispatcher) -> ExecutorBundle:
     bundle = ExecutorBundle(
         io_executor=io_executor,
         camera_executor=camera_executor,
-        protocol_executor=protocol_executor,
+        protocol_thread=protocol_thread,
         file_io_executor=file_io_executor,
         scope_display_thread=scope_display_thread,
         worker_pool=worker_pool,
     )
 
     for ex in (
-        io_executor, camera_executor, protocol_executor,
+        io_executor, camera_executor,
         file_io_executor, worker_pool,
     ):
         ex.start()
+    protocol_thread.start()
 
     logger.info(
         '[LVP Main  ] ExecutorRegistry: created + started '
-        '5 SequentialIOExecutor instances (IO, CAMERA, PROTOCOL, FILE, '
-        'WORKER_POOL) + scope_display_thread (started separately from '
-        'lumaviewpro.build); stage/turret aliased to IO; AutofocusThread '
-        'constructed in lumaviewpro.build with the AFE handle')
+        '4 SequentialIOExecutor instances (IO, CAMERA, FILE, '
+        'WORKER_POOL) + protocol_thread + scope_display_thread '
+        '(started separately from lumaviewpro.build); stage/turret '
+        'aliased to IO; AutofocusThread constructed in lumaviewpro.build '
+        'with the AFE handle')
     return bundle

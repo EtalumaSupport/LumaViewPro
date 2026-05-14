@@ -196,19 +196,25 @@ def scope():
 
 @pytest.fixture
 def executors():
+    from modules.protocol_thread import ProtocolThread
     execs = {
         'io': SequentialIOExecutor(name="RT_IO"),
-        'protocol': SequentialIOExecutor(name="RT_PROTOCOL"),
         'file_io': SequentialIOExecutor(name="RT_FILE"),
         'camera': SequentialIOExecutor(name="RT_CAMERA"),
         'autofocus': SequentialIOExecutor(name="RT_AF"),
     }
     for e in execs.values():
         e.start()
+    pt = ProtocolThread()
+    pt.start()
+    execs['protocol'] = pt
     yield execs
-    for e in execs.values():
+    for name, e in execs.items():
         try:
-            e.shutdown()
+            if name == 'protocol':
+                e.stop(timeout=2.0)
+            else:
+                e.shutdown()
         except Exception:
             pass
 
@@ -228,7 +234,7 @@ def executor(scope, executors):
         scope=scope,
         stage_offset={'x': 0.0, 'y': 0.0},
         io_executor=executors['io'],
-        protocol_executor=executors['protocol'],
+        protocol_thread=executors['protocol'],
         file_io_executor=executors['file_io'],
         camera_executor=executors['camera'],
         autofocus_thread=MagicMock(),
@@ -265,7 +271,7 @@ def real_executor(scope, executors):
         scope=scope,
         stage_offset={'x': 0.0, 'y': 0.0},
         io_executor=executors['io'],
-        protocol_executor=executors['protocol'],
+        protocol_thread=executors['protocol'],
         file_io_executor=executors['file_io'],
         camera_executor=executors['camera'],
         autofocus_thread=MagicMock(),
@@ -1269,9 +1275,11 @@ class TestExecuteCancellation:
             },
         )
 
-        # Let it run for a moment then cancel
+        # Let it run for a moment then cancel via the protocol_thread
+        # abort path (B3: _protocol_ended Event retired; abort signal
+        # owned by protocol_thread).
         time.sleep(0.5)
-        executor._protocol_ended.set()
+        executor.protocol_thread.abort()
 
         # Should still fire run_complete callback
         completed = done.wait(timeout=COMPLETION_TIMEOUT)

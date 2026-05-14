@@ -60,7 +60,7 @@ class AppContext:
     # Executors + long-lived threads
     io_executor: object = None
     camera_executor: object = None
-    protocol_executor: object = None
+    protocol_thread: object = None
     file_io_executor: object = None
     scope_display_thread: object = None
     autofocus_thread: object = None
