@@ -698,30 +698,25 @@ class FirmwareDiagnostics:
         return drv is not None and getattr(drv, 'found', False)
 
     def _enter_engineering(self):
-        """Enter LED engineering mode (send FACTORY + Y confirmation).
+        """Enter LED engineering mode via the diagnostics sub-API.
 
-        Routes through the API's ``send_diagnostic_command`` (Rule 13).
+        Routes through ``scope.diagnostics.enter_led_engineering_mode``
+        so the driver-canonical FACTORY + Y handshake (with end-marker
+        detection + post-Y drain) is the single canonical implementation.
         """
         if not self._led_ok():
             return False
-        try:
-            # Send FACTORY — firmware echoes prompt and waits for Y/N
-            self._scope.send_diagnostic_command(
-                'led', 'FACTORY', response_numlines=1, timeout=5)
-            time.sleep(0.3)
-            # Send Y confirmation — firmware enters engineering mode
-            self._scope.send_diagnostic_command(
-                'led', 'Y', response_numlines=1, timeout=5)
-            return True
-        except Exception as e:
-            logger.warning(f"Enter engineering mode failed: {e}")
-            return False
+        return self._scope.diagnostics.enter_led_engineering_mode(timeout=5)
 
     def _exit_engineering(self):
-        """Exit LED engineering mode (send Q)."""
+        """Exit LED engineering mode via the diagnostics sub-API.
+
+        Driver-canonical exit drains and sleeps after Q so the LED
+        firmware actually transitions out of eng mode.
+        """
         if not self._led_ok():
             return
-        self._cmd('led', 'Q')
+        self._scope.diagnostics.exit_led_engineering_mode()
 
     def _cmd(self, target, command, timeout=None):
         """Send command and return response string, or error string.

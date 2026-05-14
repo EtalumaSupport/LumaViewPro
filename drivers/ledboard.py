@@ -275,16 +275,29 @@ class LEDBoard(SerialBoard):
         else:
             logger.warning(f'[LED Class ] led_on(ch={channel}, mA={mA}) got no response')
 
+        def check_each_substr(substrings, result):
+            for sub_str in substrings:
+                if sub_str not in result:
+                    return False
+            return True
+
         if block:
-            # Poll until the firmware acks. ANY non-None response counts as
-            # an ack -- the EL-0925 Gen3 firmware replies with '' for LED
-            # writes (no echo), while older firmware echoed the command
-            # back. Both shapes are valid acks; an over-strict echo /
-            # substring check used to retry forever on the empty-ack
-            # firmware, hitting the 5s timeout and halting protocols
-            # (issue #651).
+            # Poll until the firmware echoes the command back, OR the
+            # response contains 'LED' + channel + mA as substrings (the
+            # firmware response shape: 'LED N set to X mA.'). An empty
+            # response is NOT treated as ack: empty responses are observed
+            # when the LED firmware is wedged (e.g. left mid-engineering-
+            # mode by a diagnostic flow that exited without draining), and
+            # in that state the LED is NOT actually energized. The
+            # substring check protects callers from silently succeeding
+            # while the hardware is dark.
             deadline = time.monotonic() + timeout
-            while response is None:
+            while response is None or (
+                command not in response
+                and not check_each_substr(
+                    ['LED', str(int(channel)), str(int(mA))], response
+                )
+            ):
                 if time.monotonic() > deadline:
                     logger.warning(
                         f'[LED Class ] led_on(ch={channel}, mA={mA}, block=True) '

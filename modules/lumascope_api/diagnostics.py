@@ -98,3 +98,41 @@ class DiagnosticsAPI:
         if drv is None or not hasattr(drv, 'set_fan_duty'):
             return False
         return drv.set_fan_duty(duty_pct)
+
+    # --- LED engineering mode (LEDREADS / SELFTEST handshake) ---
+    # Open-coded FACTORY / Y / Q sequences in callers were leaving the
+    # LED board wedged when LEDREADS or SELFTEST timed out mid-eng-mode
+    # -- Q was sent without the post-Q drain + end-marker check that the
+    # driver-canonical methods do, so the firmware was left in a state
+    # where every subsequent LED command returned ''. These sub-API
+    # entries keep the careful handshake as the single canonical
+    # implementation.
+
+    def enter_led_engineering_mode(self, timeout: float = 5.0) -> bool:
+        """Enter LED engineering mode via the driver-canonical handshake.
+
+        Returns True on success, False when the LED driver is absent or
+        does not expose engineering-mode entry (legacy LED firmware
+        predating the FACTORY/Y/Q protocol).
+        """
+        drv = getattr(self._scope, '_led_driver', None)
+        if drv is None or not hasattr(drv, 'enter_engineering_mode'):
+            return False
+        try:
+            return drv.enter_engineering_mode(timeout=timeout)
+        except Exception:
+            return False
+
+    def exit_led_engineering_mode(self):
+        """Exit LED engineering mode via the driver-canonical handshake.
+
+        Driver method drains and sleeps after Q so the LED firmware
+        actually transitions out of eng mode.
+        """
+        drv = getattr(self._scope, '_led_driver', None)
+        if drv is None or not hasattr(drv, 'exit_engineering_mode'):
+            return None
+        try:
+            return drv.exit_engineering_mode()
+        except Exception:
+            return None
