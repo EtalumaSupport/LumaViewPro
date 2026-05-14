@@ -1,10 +1,10 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""Regression tests for issue #650 -- AF Characterization folder empty.
+"""Regression tests for AF Characterization data save on every exit path.
 
-Bench observation 2026-05-14: Eric reported `<live_folder>/Autofocus
-Characterization/<timestamp>/` folders appearing on disk with no CSV
-or plot inside. AF Characterization is a diagnostic tool enabled in
-engineering mode; the failure data is the WHOLE POINT of running it.
+Bench observation: `<live_folder>/Autofocus Characterization/<timestamp>/`
+folders were appearing on disk with no CSV or plot inside. AF
+Characterization is a diagnostic tool enabled in engineering mode; the
+failure data is the WHOLE POINT of running it.
 
 Root cause: `_save_autofocus_data` was queued only from the success
 branch inside `_iterate()` (the `if self._last_pass:` block). Any

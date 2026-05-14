@@ -3499,7 +3499,8 @@ class TestPylonPayloadDiscardedClassification:
         """The source must document WHY this classification exists --
         camera-side FIFO overflow during host stalls plus the
         frame_validity coverage that makes the drop safe to ignore.
-        Comment is load-bearing per Rule 27 (workaround disposition)."""
+        Comment is load-bearing: removing it would re-introduce the
+        'why does this skip _record_failure' question."""
         src = self._pyloncamera_source()
         assert "camera-side FIFO overflow" in src.lower() or (
             "camera-side fifo" in src.lower()
