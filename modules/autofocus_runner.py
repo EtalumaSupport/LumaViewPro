@@ -59,6 +59,19 @@ class AutofocusRunner:
         self._reset_state()
 
 
+    def _notify_af_failure(self, title: str, message: str) -> None:
+        """Fire an AF failure user-notification IF the trigger is
+        interactive. Suppressed for unattended ('protocol') triggers
+        because protocols continue with the prior Z position and
+        should not block on modal popups -- per the
+        "protocols are unattended" product contract. Log lines are
+        emitted by the caller regardless of trigger source; this is
+        the popup-gate only."""
+        if self._run_trigger_source == 'protocol':
+            return
+        notifications.error("Autofocus", title, message)
+
+
     def reset(self):
         # Skip if a run is in flight: _reset_state() would wipe _params
         # while AFE.run() reads it on the AF thread. AFE.run()'s own
@@ -289,8 +302,7 @@ class AutofocusRunner:
                 f"AF loop raised: {type(ex).__name__}: {ex} "
                 f"| _params={params_repr}"
             )
-            notifications.error(
-                "Autofocus",
+            self._notify_af_failure(
                 "Autofocus Failed",
                 f"Unexpected error during autofocus: {ex}",
             )
@@ -497,8 +509,10 @@ class AutofocusRunner:
             if scores.max() == 0 or scores.isna().all():
                 logger.warning("Autofocus: degenerate focus curve (all scores zero or NaN) — aborting, keeping current Z position")
                 _af_log.warning('--- AF ABORT: degenerate curve (all scores zero/NaN) ---')
-                notifications.error("Autofocus", "Autofocus Failed",
-                                    "Focus curve is flat or invalid — check sample and illumination")
+                self._notify_af_failure(
+                    "Autofocus Failed",
+                    "Focus curve is flat or invalid — check sample and illumination",
+                )
                 # Restore Z precision ON before bailing so the held
                 # current-Z position is reached accurately on any
                 # subsequent move.
