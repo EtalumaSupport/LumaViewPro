@@ -802,6 +802,15 @@ class LumaViewProApp(TooltipMixin, App):
         from modules.plugins import load_plugins
         load_plugins(ctx)
 
+        # Register in-tree built-in plugins (Stitcher canary, plus
+        # CompositeGeneration / ZProjector / VideoBuilder once they
+        # retire into the namespace). Runs AFTER load_plugins so an
+        # external package claiming the same name wins -- the built-in
+        # registration then logs WARNING and continues, leaving the
+        # legacy UI button paths still wired to the same Stitcher class.
+        from modules.plugins.builtin import register_builtins
+        register_builtins(ctx)
+
         # Enable engineering-only log files (autofocus.log, api.log)
         from lvp_logger import enable_engineering_logs
 
