@@ -186,12 +186,18 @@ class FolderChooseBTN(HoverBehavior, Button):
             "apply_stitching_to_folder",
             "apply_composite_gen_to_folder",
             "apply_video_gen_to_folder",
-            "apply_zprojection_to_folder",
         ):
             selected_path = pathlib.Path(settings['live_folder']) / "ProtocolData"
             if not selected_path.exists():
                 selected_path = pathlib.Path(settings['live_folder'])
             selected_path = str(selected_path)
+        elif self.context == "apply_zprojection_to_folder":
+            # Z-stacks live in TWO canonical places: Manual/Z-Stacks/<ts>/ for
+            # the manual ZSTACK button and ProtocolData/<ts>/ for a protocol
+            # with Z-stack steps. Opening at live_folder lets the user see
+            # both. Fixes #629 (picker was opening one level too deep into
+            # ProtocolData, hiding Manual/Z-Stacks behind a navigate-up).
+            selected_path = str(pathlib.Path(settings['live_folder']))
         else:
             selected_path = settings['live_folder']
 
