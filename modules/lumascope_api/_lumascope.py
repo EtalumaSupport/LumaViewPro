@@ -1339,31 +1339,23 @@ class Lumascope():
 
     # --- Motion command API ---
 
+    # ---- Rule-30 backcompat forwarders -- motion sub-API ----
+    # Bodies live on MotionAPI (modules/lumascope_api/motion.py) per
+    # Wave 7 Phase 2b decomposition. This cluster (and its scattered
+    # siblings further down the file) retires in Phase 2f once
+    # production + test callers migrate to scope.motion.<name> in
+    # 2d / 2e.
     def move_absolute_async(self, axis, pos, *, wait_until_complete=False,
                             overshoot_enabled=True, callback=None,
                             cb_kwargs=None) -> None:
-        """Submit ``move_absolute_position`` to the io_executor.
-
-        Args:
-            axis: Axis name ("X", "Y", "Z", "T").
-            pos: Target position in um.
-            wait_until_complete: If True, block until move finishes.
-            overshoot_enabled: Allow Z overshoot for backlash compensation.
-            callback: Optional completion callback.
-            cb_kwargs: Optional kwargs passed to the callback.
-        """
-        ex = self._require_executor(self._io_executor, 'move_absolute_async')
-        ex.put(IOTask(
-            action=self.move_absolute_position,
-            kwargs={
-                'axis': axis,
-                'pos': pos,
-                'wait_until_complete': wait_until_complete,
-                'overshoot_enabled': overshoot_enabled,
-            },
+        """Backcompat forwarder -- see MotionAPI.move_absolute_async."""
+        return self.motion.move_absolute_async(
+            axis, pos,
+            wait_until_complete=wait_until_complete,
+            overshoot_enabled=overshoot_enabled,
             callback=callback,
             cb_kwargs=cb_kwargs,
-        ))
+        )
 
     def move_absolute_sync(self, axis, pos, *, wait_until_complete=True,
                            overshoot_enabled=True, timeout=30) -> None:
@@ -1849,49 +1841,8 @@ class Lumascope():
             self._hw_lock.release()
 
     def stop_motion(self) -> None:
-        """Stop all in-flight motor moves (LVP-A-1).
-
-        Idempotent + safe-when-disconnected per Rule 4 + Rule 8 -- no-ops
-        when the motor board isn't connected. Uses the firmware-side
-        ``STOP`` command which the motor controller implements as
-        ``motorstop`` (target=actual on all axes); same wire command the
-        UI emergency-stop already uses, just routed through the API
-        instead of an inline ``motion.exchange_command('STOP')``.
-
-        Called as the first step of ``disconnect()`` so every disconnect
-        path (App on_stop, REST shutdown, test teardown, future CLI
-        tools) stops motors before tearing down the serial port.
-        """
-        if not self.motor_connected:
-            return
-        try:
-            # LVP-A-1 followup: route through MotorBoard.motor_stop so
-            # field firmware (2024-09-10 EL-0940-02) silently no-ops
-            # instead of producing two FIRMWARE ERROR warnings per
-            # shutdown. motor_stop returns True if STOP was accepted,
-            # False if firmware doesn't implement it (cached).
-            stopped = self._motion_driver.motor_stop()
-            if stopped:
-                logger.info('[SCOPE API ] stop_motion: motors stopped')
-            else:
-                logger.debug(
-                    '[SCOPE API ] stop_motion: firmware does not '
-                    'implement STOP; motors will latch on disconnect')
-        except Exception as e:
-            # Rule 14 — log + notify, but don't re-raise: stop_motion
-            # is called from shutdown paths where the caller can't
-            # meaningfully recover and a raised exception would leave
-            # disconnect() half-done.
-            logger.warning(
-                f'[SCOPE API ] stop_motion failed: {type(e).__name__}: {e}')
-            try:
-                from modules.notification_center import notifications
-                notifications.warning(
-                    'Motion', 'Motor stop failed',
-                    f'STOP command failed during shutdown: '
-                    f'{type(e).__name__}: {e}')
-            except Exception:
-                pass
+        """Backcompat forwarder -- see MotionAPI.stop_motion."""
+        return self.motion.stop_motion()
 
     def disconnect(self) -> bool:
         """Disconnect from all hardware (LED, motion, camera).
@@ -2153,64 +2104,16 @@ class Lumascope():
         prefer_current: bool = True,
         persisted_position: int | None = None,
     ) -> int | None:
-        """Find the turret position holding a given objective.
-
-        Lookup ranking when multiple positions hold the same objective (#488):
-            1. Persisted position from settings, if it matches objective_id
-               and is provided by the caller. Honors the user's most
-               recent explicit choice -- survives restarts and post-home
-               situations where the current physical position is an
-               artifact of the home routine (T zeros to 1), not user
-               intent.
-            2. Current physical T position, if it matches objective_id.
-               Catches the case where the user has already rotated to a
-               matching slot in this session and no persisted hint exists.
-            3. First-match dict iteration (lowest position with the
-               objective). Used when neither hint is available -- preserves
-               today's fallback behavior.
-
-        Args:
-            objective_id: Objective identifier to search for.
-            prefer_current: If True (default), check the current physical
-                turret position when persisted_position is unavailable
-                or doesn't match.
-            persisted_position: Caller-supplied hint, typically
-                ``settings.get('turret_position')``. None disables this
-                tier of the lookup.
-
-        Returns:
-            int | None: Turret position (1-4), or None if not found.
-        """
-        if persisted_position is not None:
-            if self._turret_config.get(persisted_position) == objective_id:
-                return persisted_position
-
-        if prefer_current:
-            try:
-                current_pos = self.get_current_position(axis='T')
-                if self._turret_config.get(current_pos) == objective_id:
-                    return current_pos
-            except Exception:
-                pass
-
-        for turret_position, turret_objective_id in self._turret_config.items():
-            if objective_id == turret_objective_id:
-                return turret_position
-
-        return None
+        """Backcompat forwarder -- see MotionAPI.get_turret_position_for_objective_id."""
+        return self.motion.get_turret_position_for_objective_id(
+            objective_id,
+            prefer_current=prefer_current,
+            persisted_position=persisted_position,
+        )
 
     def is_current_turret_position_objective_set(self) -> bool:
-        """Check whether the objective slot at the current turret position is set.
-
-        Returns:
-            bool: True if the current turret position has a configured
-                objective ID; False if the slot is unconfigured.
-        """
-        position = self.get_current_position(axis='T')
-        if self._turret_config[position] is None:
-            return False
-
-        return True
+        """Backcompat forwarder -- see MotionAPI.is_current_turret_position_objective_set."""
+        return self.motion.is_current_turret_position_objective_set()
 
     def set_scale_bar(self, enabled: bool, color: str = None) -> None:
         """Configure the scale bar overlay on captured images.
@@ -4204,12 +4107,8 @@ class Lumascope():
         logger.info(f"Limit switch status after homing: {after}", extra={'force_error': True})
 
     def get_axes_config(self) -> dict:
-        """Get the axis configuration from the motion board.
-
-        Returns:
-            dict: Axis configuration (axes present, limits, etc.).
-        """
-        return self._motion_driver.get_axes_config()
+        """Backcompat forwarder -- see MotionAPI.get_axes_config."""
+        return self.motion.get_axes_config()
 
     def get_axis_limits(self, axis: str) -> dict:
         """Get the travel limits for an axis.
@@ -4259,74 +4158,8 @@ class Lumascope():
             return False
 
     def home(self) -> bool:
-        """Home every axis the motor board has.
-
-        This is the unified "home everything" entry point used by
-        startup and the GUI Home button. The firmware's home routine
-        homes Z, then T, then X/Y -- on a Z-only board (LS820) it homes
-        Z and reports the missing X/Y; on a full XYZ scope it homes
-        all three. The driver returns True for both cases (full and
-        partial), raises HardwareError on real failure.
-
-        Returns:
-            bool: True on full or partial success. False if the motor
-                is not connected, the driver returned False, or the
-                driver raised (HardwareError or other). The user is
-                notified on failure; programmatic callers can branch on
-                the bool.
-        """
-        # Short-circuit on disconnected motor — without this, home()
-        # dispatches into the driver where exchange_command tries to
-        # auto-reconnect and burns its full timeout (~10 s). That was
-        # the user-perceived "spinning beachball" in #632. Fire ONE
-        # clean Rule 14 notification with the right cause, instead of
-        # the misleading "Homing Failed. Position is unknown" that
-        # implies a homing-mechanics problem.
-        if not self.motor_connected:
-            logger.warning('[SCOPE API ] home() called with motor not connected')
-            notifications.error(
-                "Motion",
-                "Motor Not Connected",
-                "Cannot home -- motor controller is not connected. "
-                "Check the USB cable and that no other program "
-                "(Thonny, mpremote, etc.) is holding the port.",
-            )
-            return False
-        present_axes = self.axes_present()
-        _api_log.info('home START')
-        for ax in present_axes:
-            self._set_axis_state(ax, AxisState.HOMING)
-        if 'Z' in present_axes:
-            self.frame_validity.invalidate('z_move')
-        if 'X' in present_axes or 'Y' in present_axes:
-            self.frame_validity.invalidate('xy_move')
-        if 'T' in present_axes:
-            self.frame_validity.invalidate('turret')
-        self.is_homing = True
-        try:
-            with self.reference_position_logger():
-                result = self._motion_driver.home()
-            if result is False:
-                logger.error('[SCOPE API ] Homing failed')
-                notifications.error("Motion", "Homing Failed",
-                    "Homing failed. Position is unknown.")
-                for ax in present_axes:
-                    self._set_axis_state(ax, AxisState.UNKNOWN)
-                return False
-            for ax in present_axes:
-                self._set_axis_state(ax, AxisState.IDLE)
-            self.refresh_position_cache()
-            return True
-        except Exception:
-            logger.exception('[SCOPE API ] Homing exception')
-            for ax in present_axes:
-                self._set_axis_state(ax, AxisState.UNKNOWN)
-            notifications.error("Motion", "Homing Error",
-                "Homing encountered an error. Position is unknown.")
-            return False
-        finally:
-            self.is_homing = False
-            _api_log.info('home DONE')
+        """Backcompat forwarder -- see MotionAPI.home."""
+        return self.motion.home()
 
     def has_homed(self) -> bool:
         """Check if the scope has been homed since startup.
@@ -4348,120 +4181,26 @@ class Lumascope():
         self.refresh_position_cache()
 
 
-    @contextlib.contextmanager
     def safe_turret_mover(self):
-        """Context manager that lowers Z to 0 before turret motion and restores after.
-
-        Use as ``with scope.safe_turret_mover(): ... move turret ...``.
-        Sets ``is_turreting`` for the duration and restores the original
-        Z position even if the body raises.
-        """
-        # Save off current Z position before moving Z to 0
-        logger.info('[SCOPE API ] Moving Z to 0', extra={'force_error': True})
-        initial_z = self.get_current_position(axis='Z')
-        self.move_absolute_position('Z', pos=0, wait_until_complete=True)
-        self.is_turreting = True
-        try:
-            yield
-        finally:
-            # Always clear the flag and restore Z, even if the body raised
-            # (e.g. driver HardwareError from thome). Without this, a failed
-            # turret home would leave is_turreting=True and the stage stuck
-            # at Z=0.
-            self.is_turreting = False
-            logger.info(f'[SCOPE API ] Restoring Z to {initial_z}', extra={'force_error': True})
-            self.move_absolute_position('Z', pos=initial_z, wait_until_complete=True)
+        """Backcompat forwarder -- see MotionAPI.safe_turret_move."""
+        return self.motion.safe_turret_move()
 
 
     def thome(self) -> bool:
-        """Home the turret axis. Moves Z to 0 during turret motion for safety.
-
-        Returns:
-            bool: True on successful turret homing (or when the board
-                reports the turret is not present). False if the motor
-                is not connected, the driver returned False, or the
-                driver raised (HardwareError or other). The user is
-                notified on failure; programmatic callers can branch on
-                the bool.
-        """
-        # Short-circuit on disconnected motor — same rationale as
-        # home() above. Without this, thome dispatches into the driver
-        # where exchange_command burns its 15s timeout doing failed
-        # auto-reconnect attempts. Fire one clean Rule 14 notification.
-        if not self.motor_connected:
-            logger.warning('[SCOPE API ] thome() called with motor not connected')
-            notifications.error(
-                "Motion",
-                "Motor Not Connected",
-                "Cannot home turret -- motor controller is not connected. "
-                "Check the USB cable and that no other program is "
-                "holding the port.",
-            )
-            return False
-
-        # Move turret — set HOMING after Z is safe, not before.
-        # Setting T to HOMING clears its arrival event, which would block
-        # wait_until_finished_moving() inside safe_turret_mover's Z move.
-        _api_log.info('thome START')
-        try:
-            with self.reference_position_logger():
-                with self.safe_turret_mover():
-                    self._set_axis_state('T', AxisState.HOMING)
-                    self.frame_validity.invalidate('turret')
-                    result = self._motion_driver.thome()
-            if result is False:
-                logger.error('[SCOPE API ] Turret homing failed')
-                notifications.error("Motion", "Homing Failed",
-                    "Turret homing failed. Position is unknown.")
-                self._set_axis_state('T', AxisState.UNKNOWN)
-                return False
-            self._set_axis_state('T', AxisState.IDLE)
-            self.refresh_position_cache()
-            _api_log.info('thome DONE')
-            return True
-        except Exception:
-            logger.exception('[SCOPE API ] Turret homing exception')
-            self._set_axis_state('T', AxisState.UNKNOWN)
-            notifications.error("Motion", "Homing Error",
-                "Turret homing encountered an error. Position is unknown.")
-            _api_log.info('thome DONE')
-            return False
+        """Backcompat forwarder -- see MotionAPI.thome."""
+        return self.motion.thome()
 
     def has_thomed(self) -> bool:
-        """Check if the turret has been homed since startup.
-
-        Returns:
-            bool: True if turret homing has been performed.
-        """
-        return self._motion_driver.has_thomed()
+        """Backcompat forwarder -- see MotionAPI.has_thomed."""
+        return self.motion.has_thomed()
 
     def tmove(self, position: int) -> None:
-        """Move the turret to a specific position. Skips if already there.
-
-        Args:
-            position: Target turret position (1-4).
-        """
-        # Commanding a move of the T axis is slow, even if the move is to the current position.
-        # Use caching to determine if T is requested to move to it's current position, and bypass the
-        # move altogether if it is.
-        if self._last_turret_position == position:
-            return
-
-        with self.safe_turret_mover():
-            logger.info(f'[SCOPE API ] Moving T to position {position}')
-            self.move_absolute_position('T', position, wait_until_complete=True)
-            self._last_turret_position = position
-
+        """Backcompat forwarder -- see MotionAPI.tmove."""
+        return self.motion.tmove(position)
 
     def has_turret(self) -> bool:
-        """Check if the microscope has a turret axis.
-
-        Thin wrapper over ``self.capabilities.has_turret``.
-
-        Returns:
-            bool: True if the scope reports a turret axis.
-        """
-        return self.capabilities.has_turret
+        """Backcompat forwarder -- see MotionAPI.has_turret."""
+        return self.motion.has_turret()
 
 
     def refresh_position_cache(self) -> None:
@@ -4611,41 +4350,12 @@ class Lumascope():
 
 
     def get_actual_position(self, axis: str) -> float:
-        """Query the actual hardware position via serial (not cached).
-
-        Unlike get_current_position() which returns the last commanded
-        target, this queries the motor controller for where it actually is
-        right now. Use during continuous motion sweeps where the stage is
-        moving and the cache doesn't reflect the true position.
-
-        Costs one serial round-trip (~5ms).
-
-        Args:
-            axis: Axis name ("X", "Y", "Z", "T").
-
-        Returns:
-            float: Current position in um. 0 if motor not connected.
-        """
-        if not self.motor_connected:
-            return 0.0
-        pos = self._motion_driver.current_pos(axis)
-        return pos if pos is not None else 0.0
+        """Backcompat forwarder -- see MotionAPI.get_actual_position."""
+        return self.motion.get_actual_position(axis)
 
     def set_motor_precision_mode(self, axis: str, enabled: bool) -> None:
-        """Set motor precision mode for an axis.
-
-        Precision mode uses accurate but slightly slower motor stopping.
-        Use before autofocus fine passes or any measurement requiring
-        precise Z positioning. Disable for coarse moves where speed
-        matters more than final position accuracy.
-
-        Args:
-            axis: Axis name ("X", "Y", "Z", "T").
-            enabled: True for precise positioning, False for speed.
-        """
-        if not self.motor_connected:
-            return
-        self._motion_driver.set_precision_mode(axis, enabled)
+        """Backcompat forwarder -- see MotionAPI.set_motor_precision_mode."""
+        return self.motion.set_motor_precision_mode(axis, enabled)
 
 
     def move_absolute_position(self, axis: str, pos: float,
@@ -4774,127 +4484,36 @@ class Lumascope():
 
 
     def get_home_status(self, axis: str) -> bool:
-        """Check if an axis is at its home position.
-
-        Args:
-            axis: Axis name ("X", "Y", "Z", "T").
-
-        Returns:
-            bool: True if the axis is homed, False otherwise or on error.
-        """
-
-        #if not self._motion_driver: return True
-        try:
-            status = self._motion_driver.home_status(axis)
-            return status
-        except Exception as e:
-            logger.exception(f"[SCOPE API ] get_home_status({axis}) failed; treating as not home: {e}")
-            return False
+        """Backcompat forwarder -- see MotionAPI.get_home_status."""
+        return self.motion.get_home_status(axis)
 
     def get_target_status(self, axis: str) -> bool:
-        """Check if an axis has reached its target position.
-
-        Args:
-            axis: Axis name ("X", "Y", "Z", "T").
-
-        Returns:
-            bool: True if at target (always True for T if no turret present).
-        """
-
-        #if not self._motion_driver: return True
-
-        # Handle case where we want to know if turret has reached its target, but there is no turret
-        if (axis == 'T') and (not self._motion_driver.has_turret()):
-            return True
-
-        try:
-            status = self._motion_driver.target_status(axis)
-            return status
-        except Exception as e:
-            logger.exception(f"[SCOPE API ] get_target_status({axis}) failed; treating as not at target: {e}")
-            return False
+        """Backcompat forwarder -- see MotionAPI.get_target_status."""
+        return self.motion.get_target_status(axis)
 
     def get_target_pos(self, axis: str) -> float:
-        """Get the target position for an axis (error-safe version).
-
-        Args:
-            axis: Axis name ("X", "Y", "Z", "T").
-
-        Returns:
-            float: Target position in um, or -1 on error/no turret.
-        """
-        if (axis == 'T') and (not self._motion_driver.has_turret()):
-            return -1
-
-        try:
-            pos = self._motion_driver.target_pos(axis)
-            return pos if pos is not None else -1
-        except Exception as e:
-            logger.exception(f"[SCOPE API ] get_target_pos({axis}) failed; returning -1: {e}")
-            return -1
+        """Backcompat forwarder -- see MotionAPI.get_target_pos."""
+        return self.motion.get_target_pos(axis)
 
     def get_reference_status(self, axis: str) -> str:
-        """Get reference status register bits for an axis.
-
-        Args:
-            axis: Axis name ("X", "Y", "Z", "T").
-
-        Returns:
-            str: 32-character binary string of register bits (MSB first).
-        """
-
-        #if not self._motion_driver: return
-        return self._motion_driver.reference_status(axis=axis)
-
+        """Backcompat forwarder -- see MotionAPI.get_reference_status."""
+        return self.motion.get_reference_status(axis)
 
     def get_limit_switch_status(self, axis: str):
-        """Get the limit switch status for an axis.
-
-        Args:
-            axis: Axis name ("X", "Y", "Z", "T").
-
-        Returns:
-            Limit switch state for the specified axis (driver-defined).
-        """
-        return self._motion_driver.limit_switch_status(axis=axis)
-
+        """Backcompat forwarder -- see MotionAPI.get_limit_switch_status."""
+        return self.motion.get_limit_switch_status(axis)
 
     def get_limit_switch_status_all_axes(self) -> dict:
-        """Get limit switch status for all axes.
-
-        Returns:
-            dict: Mapping of axis name to limit switch state.
-        """
-        resp = {}
-        for axis in self.axes_present():
-            resp[axis] = self.get_limit_switch_status(axis=axis)
-        return resp
-
+        """Backcompat forwarder -- see MotionAPI.get_limit_switch_status_all_axes."""
+        return self.motion.get_limit_switch_status_all_axes()
 
     def get_overshoot(self) -> bool:
-        """Check if the Z axis is currently in overshoot (backlash compensation) mode.
-
-        Returns:
-            bool: True if overshoot is in progress.
-        """
-
-        #if not self._motion_driver: return False
-        return self._motion_driver.overshoot
+        """Backcompat forwarder -- see MotionAPI.get_overshoot."""
+        return self.motion.get_overshoot()
 
     def is_moving(self) -> bool:
-        """Check if any axis is currently moving.
-
-        Reads from in-memory axis state -- zero serial I/O. The motion
-        monitor thread handles firmware queries and state transitions.
-
-        Returns:
-            bool: True if any axis is MOVING/HOMING or overshoot is active.
-        """
-        if self.is_any_axis_moving():
-            return True
-        if self.get_overshoot():
-            return True
-        return False
+        """Backcompat forwarder -- see MotionAPI.is_moving."""
+        return self.motion.is_moving()
 
     def wait_until_finished_moving(self, timeout: float = 120.0) -> bool:
         """Block until all axes have reached their target positions.
@@ -4930,18 +4549,8 @@ class Lumascope():
 
 
     def set_acceleration_limit(self, val_pct: int) -> None:
-        """Set the motor controller acceleration limit (percent of max).
-
-        Silently ignores firmware that doesn't implement the command --
-        legacy boards lack the acceleration-limits feature.
-
-        Args:
-            val_pct: Acceleration limit as a percent of the firmware max.
-        """
-        try:
-            self._motion_driver.set_acceleration_limits(val_pct=val_pct)
-        except Exception:
-            pass  # Legacy firmware doesn't support acceleration limits
+        """Backcompat forwarder -- see MotionAPI.set_acceleration_limit."""
+        return self.motion.set_acceleration_limit(val_pct)
 
 
     def get_microscope_model(self) -> str | None:

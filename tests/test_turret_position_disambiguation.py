@@ -17,6 +17,7 @@ from pathlib import Path
 import re
 
 from modules.lumascope_api import Lumascope
+from modules.lumascope_api.motion import MotionAPI
 
 
 def _make_scope_with_turret(turret_config, current_pos=None):
@@ -32,6 +33,12 @@ def _make_scope_with_turret(turret_config, current_pos=None):
         def _raise(*_a, **_kw):
             raise RuntimeError('current pos unavailable in test')
         scope.get_current_position = _raise
+    # MotionAPI hosts the relocated body; the Lumascope forwarder
+    # routes through scope.motion. __new__ skips __init__, which is
+    # what sets scope.motion in production, so the test installs the
+    # sub-API directly. driver=None is OK -- this lookup reads only
+    # scope-side state, no driver calls.
+    scope.motion = MotionAPI(scope, None)
     return scope
 
 

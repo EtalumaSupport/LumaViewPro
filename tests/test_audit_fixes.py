@@ -1494,14 +1494,18 @@ class TestHomeReturnsBool:
             "zhome docstring must have a Returns: section (Rule 38)"
 
     def test_lumascope_home_returns_driver_value(self):
-        """Method body must capture and propagate the driver's return."""
+        """Method body must capture and propagate the driver's return.
+
+        Body lives on MotionAPI (motion.py) after the Wave 7 stateless
+        decomposition; the Lumascope surface keeps a thin forwarder.
+        """
         import pathlib
-        source = pathlib.Path("modules/lumascope_api/_lumascope.py").read_text()
+        source = pathlib.Path("modules/lumascope_api/motion.py").read_text()
         idx = source.find("def home(self) -> bool:")
         assert idx != -1
         next_def = source.find("\n    def ", idx + 1)
         body = source[idx:next_def] if next_def != -1 else source[idx:idx+3000]
-        assert "result = self._motion_driver.home()" in body, \
+        assert "result = self._driver.home()" in body, \
             "home must capture driver return into `result`"
         assert "return True" in body, \
             "home success path must `return True` (Wave 2 B10)"
@@ -1515,14 +1519,16 @@ class TestHomeReturnsBool:
 
         Pre-Wave-2, thome dropped the driver return entirely (no capture,
         no notify on failure). This pins the captured-and-returned shape.
+        Body lives on MotionAPI (motion.py) after the Wave 7 stateless
+        decomposition; the Lumascope surface keeps a thin forwarder.
         """
         import pathlib
-        source = pathlib.Path("modules/lumascope_api/_lumascope.py").read_text()
+        source = pathlib.Path("modules/lumascope_api/motion.py").read_text()
         idx = source.find("def thome(self) -> bool:")
         assert idx != -1
         next_def = source.find("\n    def ", idx + 1)
         body = source[idx:next_def] if next_def != -1 else source[idx:idx+3000]
-        assert "result = self._motion_driver.thome()" in body, \
+        assert "result = self._driver.thome()" in body, \
             "thome must capture driver return into `result` (Wave 2 B8)"
         assert "return True" in body, \
             "thome success path must `return True` (Wave 2 B8)"
