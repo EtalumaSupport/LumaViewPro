@@ -496,11 +496,29 @@ class LumaViewProApp(TooltipMixin, App):
             pyi_splash.close()
 
     def shutdown_threads(self) -> None:
-        """Stop profiling and shut down every executor in the bundle."""
+        """Stop profiling and shut down every executor in the bundle.
+
+        Order matters: long-lived consumer threads (autofocus_thread,
+        scope_display_thread) stop BEFORE the SequentialIOExecutor
+        lanes they consume. Otherwise a consumer mid-iteration can
+        find its lane already shut down and either hang waiting for
+        a queue dispatch that never fires or surface a misleading
+        post-shutdown exception. AF holds io_executor + camera_executor;
+        scope_display holds camera_executor.
+        """
         logger.info('[LVP Main  ] Shutting down threads...')
 
         if profiling_helper is not None:
             profiling_helper.stop()
+
+        if autofocus_thread is not None:
+            autofocus_thread.stop(timeout=2.0)
+
+        if scope_display_thread is not None:
+            scope_display_thread.stop()
+
+        if protocol_executor is not None:
+            protocol_executor.shutdown(wait=False)
 
         if io_executor is not None:
             io_executor.shutdown(wait=False)
@@ -508,17 +526,8 @@ class LumaViewProApp(TooltipMixin, App):
         if camera_executor is not None:
             camera_executor.shutdown(wait=False)
 
-        if protocol_executor is not None:
-            protocol_executor.shutdown(wait=False)
-
         if file_io_executor is not None:
             file_io_executor.shutdown(wait=False)
-
-        if autofocus_thread is not None:
-            autofocus_thread.stop(timeout=2.0)
-
-        if scope_display_thread is not None:
-            scope_display_thread.stop()
 
         if worker_pool is not None:
             worker_pool.shutdown(wait=False)

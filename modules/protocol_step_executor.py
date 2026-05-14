@@ -155,7 +155,7 @@ class ProtocolStepExecutor:
 
         # Camera settings (gain, exposure) and LED_ON are handled by
         # protocol_image_writer.capture() right before the actual frame grab.
-        # Setting them here caused duplicate commands (issue #587, #588).
+        # Setting them here would duplicate the commands.
         if p._protocol_ended.is_set() or not p._scan_in_progress.is_set():
             return
 
@@ -198,13 +198,6 @@ class ProtocolStepExecutor:
                 camera_gain=step['Gain'],
                 camera_exposure=step['Exposure'],
             )
-            if p._callbacks.autofocus_completed:
-                # Fires on success, abort, or failure -- the UI handler
-                # resets buttons either way; Future.exception() lets it
-                # branch on outcome if it needs to.
-                p._af_future.add_done_callback(
-                    lambda _f: _schedule_ui(lambda dt: p._callbacks.autofocus_completed(), 0)
-                )
             return
 
         if step['Auto_Focus'] and p._af_future is not None and not p._af_future.done():
@@ -317,14 +310,13 @@ class ProtocolStepExecutor:
     def default_move(self, px=None, py=None, z=None):
         """Move to plate coordinates, converting to stage coordinates.
 
-        Threading-cleanup: the previous implementation called
-        ``scope.move_absolute_position`` directly from PROTOCOL_WORKER,
-        which made motor serial writes from this thread interleave with
-        any IO_WORKER-queued motor command (UI sliders, manual moves)
-        mid-step. AUDIT_THREADING.md C3 / AUDIT_SUMMARY.md C2. Now each
-        axis move is submitted through ``io_executor.protocol_put`` and
-        the protocol thread waits on the future, so all motor I/O is
-        serialized to one worker.
+        Each axis move is submitted through ``io_executor.protocol_put``
+        and the protocol thread waits on the future, so all motor I/O
+        is serialized to one worker. Calling
+        ``scope.move_absolute_position`` directly from PROTOCOL_WORKER
+        instead would let motor serial writes from this thread
+        interleave with any io_executor-queued motor command (UI
+        sliders, manual moves) mid-step.
         """
         p = self._p
         labware = p._wellplate_loader.get_plate(plate_key=p._protocol.labware())

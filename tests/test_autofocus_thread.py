@@ -153,3 +153,80 @@ class TestExceptionPropagation:
                 future.result(timeout=2.0)
         finally:
             thread.stop(timeout=2.0)
+
+
+class TestAbortLockingRace:
+    """Regression: a concurrent abort() fired between the lock-protected
+    publication of _current_future and the subsequent _aborted.clear()
+    must not silently disappear. Original race had _aborted.clear()
+    outside the lock; an abort interleaved in that window would set
+    _aborted, then clear() would wipe it, and the new run would proceed
+    without the abort flag set.
+    """
+
+    def test_abort_immediately_after_run_autofocus_returns_lands(self, afe):
+        # The caller pattern that exercises the race: queue an AF run,
+        # then abort while the worker is still picking it up off the
+        # queue. The Future must surface AutofocusAborted -- the abort
+        # must not be cleared by run_autofocus's own _aborted.clear().
+        afe._run_delay = 5.0  # long-running AFE.run so abort lands mid-flight
+        thread = AutofocusThread(afe=afe)
+        thread.start()
+        try:
+            future = thread.run_autofocus(objective_id='4x')
+            # Immediately abort -- this exercises the window between
+            # _current_future publication and _aborted.clear().
+            thread.abort()
+            with pytest.raises(AutofocusAborted):
+                future.result(timeout=2.0)
+        finally:
+            thread.stop(timeout=2.0)
+
+    def test_repeated_run_then_abort_cycles(self, afe):
+        # Stress the locking: 10 cycles of run_autofocus immediately
+        # followed by abort. Each cycle must surface AutofocusAborted
+        # via the Future. A pre-fix race would non-deterministically
+        # let some cycles complete normally (abort lost).
+        afe._run_delay = 5.0
+        thread = AutofocusThread(afe=afe)
+        thread.start()
+        try:
+            for _ in range(10):
+                future = thread.run_autofocus(objective_id='4x')
+                thread.abort()
+                with pytest.raises(AutofocusAborted):
+                    future.result(timeout=2.0)
+        finally:
+            thread.stop(timeout=2.0)
+
+
+class TestKeyErrorRaceRegression:
+    """Regression: bench (SN12062 2026-05-13) surfaced a KeyError on
+    AFE._iterate reading self._params['resolution'] mid-protocol-abort.
+    Root cause: UI thread called AFE.reset() (which replaces _params = {})
+    while AF thread was iterating. Fix landed structurally via Option C
+    (retired all 4 external AFE.reset call sites) + defense-in-depth
+    early-return guard in AFE.reset() when _af_in_progress is set.
+
+    This test exercises the public surface: aborting via
+    autofocus_thread.abort() must not raise KeyError on the iteration
+    that observes the abort. (Pre-fix, an externally-called reset()
+    would have torn down _params; this test verifies the unwind is
+    clean.)
+    """
+
+    def test_abort_unwind_does_not_keyerror_on_params(self, afe):
+        afe._run_delay = 5.0  # ensure run is in flight when abort fires
+        thread = AutofocusThread(afe=afe)
+        thread.start()
+        try:
+            future = thread.run_autofocus(objective_id='4x')
+            assert afe.entered_run.wait(timeout=1.0)
+            thread.abort()
+            # The Future must resolve with AutofocusAborted -- NOT
+            # with KeyError. KeyError would indicate the unwind hit
+            # a torn-down state dict.
+            with pytest.raises(AutofocusAborted):
+                future.result(timeout=2.0)
+        finally:
+            thread.stop(timeout=2.0)

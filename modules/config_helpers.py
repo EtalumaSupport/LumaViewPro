@@ -496,12 +496,14 @@ def log_system_metrics(settings: dict):
         queue_parts = []
         # Walk known executors. Each may use a queue.Queue (qsize) or a
         # ThreadPoolExecutor (_work_queue.qsize). Both expose qsize().
-        for name in ('sequenced_capture_executor', 'autofocus_executor',
-                     'protocol_executor', 'io_executor', 'camera_executor',
-                     'file_io_executor', 'worker_pool'):
-            # scope_display_thread and autofocus_thread retired from
-            # these queue / futures scans -- both are bare Threads with
-            # no queue and no caller_futures.
+        for name in ('sequenced_capture_executor', 'protocol_executor',
+                     'io_executor', 'camera_executor', 'file_io_executor',
+                     'worker_pool'):
+            # scope_display_thread, autofocus_thread, autofocus_executor
+            # excluded: scope_display_thread and autofocus_thread are bare
+            # Threads with no queue and no caller_futures;
+            # AutofocusExecutor has neither _work_queue nor
+            # caller_futures_stats either.
             try:
                 exe = getattr(ctx, name, None)
                 if exe is None:
@@ -525,12 +527,14 @@ def log_system_metrics(settings: dict):
         # invariant: alloc == pop within a few per cadence (each
         # in-flight task is one of the few "live" entries).
         futures_parts = []
-        for name in ('sequenced_capture_executor', 'autofocus_executor',
-                     'protocol_executor', 'io_executor', 'camera_executor',
-                     'file_io_executor', 'worker_pool'):
-            # scope_display_thread and autofocus_thread retired from
-            # these queue / futures scans -- both are bare Threads with
-            # no queue and no caller_futures.
+        for name in ('sequenced_capture_executor', 'protocol_executor',
+                     'io_executor', 'camera_executor', 'file_io_executor',
+                     'worker_pool'):
+            # scope_display_thread, autofocus_thread, autofocus_executor
+            # excluded: scope_display_thread and autofocus_thread are bare
+            # Threads with no queue and no caller_futures;
+            # AutofocusExecutor has neither _work_queue nor
+            # caller_futures_stats either.
             try:
                 exe = getattr(ctx, name, None)
                 if exe is None or not hasattr(exe, 'caller_futures_stats'):

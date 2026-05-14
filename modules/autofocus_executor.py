@@ -260,7 +260,9 @@ class AutofocusExecutor:
                     break
 
             if abort_event.is_set() and not self._is_complete_event.is_set():
-                _af_log.info('--- AF ABORTED by caller ---')
+                _af_log.info(
+                    f'--- AF ABORTED by caller (source={self._run_trigger_source}) ---'
+                )
                 raise AutofocusAborted('autofocus aborted by caller')
 
             completed_successfully = True
@@ -315,7 +317,16 @@ class AutofocusExecutor:
                         f'pre-AF position {self._saved_z_position:.2f}'
                     )
                 except Exception:
-                    logger.debug('[AF] pre-AF Z restore in finally failed', exc_info=True)
+                    logger.warning(
+                        '[AF] pre-AF Z restore in finally failed; the stage '
+                        'may be left at the last AF search position',
+                        exc_info=True,
+                    )
+                    notifications.warning(
+                        "Autofocus",
+                        "Could not restore Z position after autofocus stopped. "
+                        "Move Z manually if needed.",
+                    )
             self._led_off()
             if self._saved_led_state:
                 self._scope.restore_led_state(
@@ -577,10 +588,9 @@ class AutofocusExecutor:
     def in_progress(self) -> bool:
         # Use _af_in_progress, not _is_focusing_event. _is_focusing_event
         # is cleared in _iterate() when AF finds the best focus, but the
-        # finally block in _autofocus_loop() still needs to restore camera
-        # state. _af_in_progress is cleared at the END of the finally block,
-        # so callers (protocol capture) won't proceed until restore is done.
-        # (#610 race fix)
+        # finally block still needs to restore camera state. _af_in_progress
+        # is cleared at the END of the finally block, so callers (protocol
+        # capture) won't proceed until restore is done.
         return self._af_in_progress.is_set()
 
 
@@ -727,7 +737,8 @@ class AutofocusExecutor:
             except FileExistsError:
                 continue
         raise RuntimeError(
-            f"Unable to allocate AF results subdir under {parent_dir}: "
-            f"exhausted 1000 collision suffixes within the same second"
+            f"Could not allocate an autofocus results folder under "
+            f"{parent_dir} (1000 same-second collisions). Try running "
+            f"again; if the problem persists, free disk space or restart."
         )
 

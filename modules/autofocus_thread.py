@@ -157,7 +157,15 @@ class AutofocusThread:
                 )
                 return future
             self._current_future = future
-        self._aborted.clear()
+            # Clear _aborted under the same lock that publishes
+            # _current_future. A concurrent abort() reads is_running
+            # under this lock; with the clear() outside the lock there
+            # was a one-instruction window where abort() could see
+            # is_running True (just-published Future), set _aborted,
+            # and then have its bit cleared here -- silently dropping
+            # the abort. Same-lock pairing makes the new-Future-with-
+            # cleared-aborted publication atomic w.r.t. abort().
+            self._aborted.clear()
         try:
             self._request_queue.put_nowait((kwargs, future))
         except queue.Full:

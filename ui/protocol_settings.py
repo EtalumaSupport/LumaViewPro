@@ -1579,7 +1579,7 @@ class ProtocolSettings(FloatLayout):
             return
 
         # State of button immediately changed upon press, so we are checking if the button was previously not pressed, and if autofocus is happening
-        if self.ids['run_scan_btn'].state == 'down' and sequenced_capture_executor._autofocus_executor.in_progress():
+        if self.ids['run_scan_btn'].state == 'down' and ctx.autofocus_thread.is_running:
             run_not_started_func()
             logger.warning(f"Cannot start scan. Autofocus still in progress.")
             return
@@ -1768,7 +1768,7 @@ class ProtocolSettings(FloatLayout):
             run_trigger_source = sequenced_capture_executor.run_trigger_source()
 
             # State of button immediately changed upon press, so we are checking if the button was previously not pressed, and if autofocus is happening
-            if self.ids['run_protocol_btn'].state == 'down' and sequenced_capture_executor._autofocus_executor.in_progress():
+            if self.ids['run_protocol_btn'].state == 'down' and ctx.autofocus_thread.is_running:
                 run_not_started_func()
                 logger.warning(f"Cannot start protocol run. Autofocus still in progress.")
                 return

@@ -121,6 +121,10 @@ class SequencedCaptureExecutor:
         self._run_trigger_source = None
         self._protocol_state_lock = threading.Lock()
         self._state = ProtocolState.IDLE
+        # Defensive default so attribute access before the first run()
+        # (e.g. from a test that drives scan_iterate directly) returns
+        # a no-op callbacks object instead of AttributeError.
+        self._callbacks = ProtocolCallbacks()
         self._reset_vars()
         self._step_executor = ProtocolStepExecutor(self)
         self._run_loop_executor = ProtocolRunLoop(self)

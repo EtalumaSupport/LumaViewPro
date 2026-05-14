@@ -35,7 +35,6 @@ class ProtocolCallbacks:
 
     # --- Autofocus ---
     autofocus_in_progress: Optional[Callable] = None   # () -> None
-    autofocus_completed: Optional[Callable] = None     # () -> None  (passed as 'complete' to AF executor)
     autofocus_complete: Optional[Callable] = None      # () -> None  (UI notification)
     reset_autofocus_btns: Optional[Callable] = None    # () -> None
     restore_autofocus_state: Optional[Callable] = None # (layer=, value=) -> None
