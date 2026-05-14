@@ -454,10 +454,13 @@ class LEDBoard(SerialBoard):
 
         # Verify firmware actually returned from factory(). INFO is the
         # cheap responsiveness probe -- a wedged firmware returns ''
-        # or garbage; a healthy firmware echoes the version banner with
-        # 'Etaluma' in it.
+        # or garbage; a healthy firmware responds with the version
+        # banner whose first line begins with 'Version:' (followed by
+        # 'EL-0925 Gen3 LED Controller' or similar -- the exact
+        # controller string depends on hardware revision, so 'Version:'
+        # is the stable marker across revisions).
         info_resp = self.exchange_command('INFO', timeout=2)
-        if info_resp and 'Etaluma' in info_resp:
+        if info_resp and 'Version' in info_resp:
             logger.info('[LED Class ] Exited engineering mode')
             return resp
 
@@ -487,7 +490,7 @@ class LEDBoard(SerialBoard):
 
         # Re-verify after recovery
         info_resp2 = self.exchange_command('INFO', timeout=3)
-        if info_resp2 and 'Etaluma' in info_resp2:
+        if info_resp2 and 'Version' in info_resp2:
             logger.info(
                 '[LED Class ] Exited engineering mode (after Ctrl-D recovery)'
             )

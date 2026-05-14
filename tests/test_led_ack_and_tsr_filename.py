@@ -255,11 +255,12 @@ class TestLedExitEngineeringRecoversFromWedge:
 
     def test_happy_path_no_recovery_when_info_returns_banner(self):
         """Post-Q INFO returns a healthy banner -> no Ctrl-D recovery
-        fires, no extra delay."""
+        fires, no extra delay. exchange_command returns only the first
+        line of the multi-line INFO response, so the marker must be in
+        that first line."""
         write_log = []
         led = self._make_led(
-            info_responses=['Version: EL-0925 Gen3 LED Controller'
-                            'Firmware: 2024-06-05ESWEA Copyright: Etaluma, Inc.'],
+            info_responses=['Version:      EL-0925 Gen3 LED Controller'],
             write_log=write_log,
         )
         led.exit_engineering_mode()
@@ -276,7 +277,7 @@ class TestLedExitEngineeringRecoversFromWedge:
         led = self._make_led(
             info_responses=[
                 '',  # first probe: wedged
-                'Version: EL-0925 Gen3 LED Controller Etaluma, Inc.',  # post-recovery
+                'Version:      EL-0925 Gen3 LED Controller',  # post-recovery
             ],
             write_log=write_log,
         )
