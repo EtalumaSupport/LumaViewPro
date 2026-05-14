@@ -1,6 +1,6 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """
-Integration tests for protocol execution through SequencedCaptureExecutor.
+Integration tests for protocol execution through SequencedCaptureRunner.
 
 Tier 1: Core execution paths — verifies that the most common protocol
 configurations run to completion without crashing and produce the
@@ -23,7 +23,7 @@ import pytest
 # Heavy deps (lvp_logger, kivy, pypylon, ids_peak, ...) are mocked by
 # tests/conftest.py at module-import time. Test-specific mocks below.
 
-# Mock settings_init before sequenced_capture_executor imports it
+# Mock settings_init before sequenced_capture_runner imports it
 _mock_settings_init = MagicMock()
 _mock_settings_init.settings = {
     'BF': {'autofocus': False},
@@ -38,8 +38,8 @@ sys.modules.setdefault('modules.settings_init', _mock_settings_init)
 
 from modules.lumascope_api import Lumascope
 from modules.sequential_io_executor import SequentialIOExecutor
-from modules.sequenced_capture_executor import SequencedCaptureExecutor
-from modules.sequenced_capture_executor import SequencedCaptureRunMode
+from modules.sequenced_capture_runner import SequencedCaptureRunner
+from modules.sequenced_capture_runner import SequencedCaptureRunMode
 from modules.protocol import Protocol
 
 # ---------------------------------------------------------------------------
@@ -281,7 +281,7 @@ def executors():
 
 @pytest.fixture
 def executor(scope, executors):
-    """Create a SequencedCaptureExecutor with real simulated scope,
+    """Create a SequencedCaptureRunner with real simulated scope,
     real WellPlateLoader, and real CoordinateTransformer.
 
     Only the AutofocusRunner is mocked (real AF needs camera focus
@@ -299,7 +299,7 @@ def executor(scope, executors):
     mock_af.best_focus_position = MagicMock(return_value=5000.0)
     mock_af.run_in_progress = MagicMock(return_value=False)
 
-    exc = SequencedCaptureExecutor(
+    exc = SequencedCaptureRunner(
         scope=scope,
         stage_offset={'x': 0.0, 'y': 0.0},
         io_executor=executors['io'],
@@ -1738,11 +1738,11 @@ class TestStepTimeout:
 
     def test_stuck_motion_skips_step(self, executor, scope, tmp_path):
         """If motion never completes, the step times out and protocol continues."""
-        from modules.sequenced_capture_executor import SequencedCaptureExecutor
+        from modules.sequenced_capture_runner import SequencedCaptureRunner
 
         # Use a very short timeout for the test
-        original_timeout = SequencedCaptureExecutor.STEP_TIMEOUT_SECONDS
-        SequencedCaptureExecutor.STEP_TIMEOUT_SECONDS = 1  # 1 second
+        original_timeout = SequencedCaptureRunner.STEP_TIMEOUT_SECONDS
+        SequencedCaptureRunner.STEP_TIMEOUT_SECONDS = 1  # 1 second
 
         protocol = _make_multi_step_protocol([
             {'color': 'BF', 'x': 10.0}, {'color': 'Red', 'x': 20.0},
@@ -1763,7 +1763,7 @@ class TestStepTimeout:
 
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         # Restore
-        SequencedCaptureExecutor.STEP_TIMEOUT_SECONDS = original_timeout
+        SequencedCaptureRunner.STEP_TIMEOUT_SECONDS = original_timeout
         scope.get_target_status = original_get_target
 
         assert completed

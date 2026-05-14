@@ -1,6 +1,6 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """
-Integration tests using Lumascope(simulate=True) with real SequencedCaptureExecutor.
+Integration tests using Lumascope(simulate=True) with real SequencedCaptureRunner.
 
 Unlike test_protocol_execution.py which mocks the scope, camera, and autofocus,
 these tests use real simulated hardware and verify end-to-end behavior by
@@ -29,7 +29,7 @@ import pytest
 # Heavy deps (lvp_logger, kivy, pypylon, ids_peak, ...) are mocked by
 # tests/conftest.py at module-import time. Test-specific mocks below.
 
-# Mock settings_init before sequenced_capture_executor imports it
+# Mock settings_init before sequenced_capture_runner imports it
 _mock_settings_init = MagicMock()
 _mock_settings_init.settings = {
     'BF': {'autofocus': False},
@@ -44,8 +44,8 @@ sys.modules.setdefault('modules.settings_init', _mock_settings_init)
 
 from modules.lumascope_api import Lumascope
 from modules.sequential_io_executor import SequentialIOExecutor
-from modules.sequenced_capture_executor import SequencedCaptureExecutor
-from modules.sequenced_capture_executor import SequencedCaptureRunMode
+from modules.sequenced_capture_runner import SequencedCaptureRunner
+from modules.sequenced_capture_runner import SequencedCaptureRunMode
 from modules.autofocus_runner import AutofocusRunner
 from modules.protocol import Protocol
 
@@ -241,7 +241,7 @@ def executors():
 
 @pytest.fixture
 def executor(scope, executors):
-    """Create a SequencedCaptureExecutor with real simulated scope,
+    """Create a SequencedCaptureRunner with real simulated scope,
     real WellPlateLoader, and real CoordinateTransformer."""
     from modules.coord_transformations import CoordinateTransformer
     from modules.labware_loader import WellPlateLoader
@@ -258,7 +258,7 @@ def executor(scope, executors):
     mock_af.best_focus_position = MagicMock(return_value=5000.0)
     mock_af.run_in_progress = MagicMock(return_value=False)
 
-    exc = SequencedCaptureExecutor(
+    exc = SequencedCaptureRunner(
         scope=scope,
         stage_offset={'x': 0.0, 'y': 0.0},
         io_executor=executors['io'],
@@ -275,7 +275,7 @@ def executor(scope, executors):
 
 @pytest.fixture
 def af_executor(scope, executors):
-    """Create a SequencedCaptureExecutor with real AutofocusRunner for AF tests."""
+    """Create a SequencedCaptureRunner with real AutofocusRunner for AF tests."""
     af = AutofocusRunner(
         scope=scope,
         camera_executor=executors['camera'],
@@ -283,7 +283,7 @@ def af_executor(scope, executors):
         file_io_executor=executors['file_io'],
     )
 
-    exc = SequencedCaptureExecutor(
+    exc = SequencedCaptureRunner(
         scope=scope,
         stage_offset={'x': 0.0, 'y': 0.0},
         io_executor=executors['io'],
@@ -769,7 +769,7 @@ class TestHeadlessSession:
         there are no Clock-schedule attributes to misconfigure."""
         session = ScopeSession.create_headless()
         runner = session.create_protocol_runner()
-        af = runner.sequenced_capture_executor._autofocus_runner
+        af = runner.sequenced_capture_runner._autofocus_runner
         assert not hasattr(af, '_clock_unschedule_fn')
         assert not hasattr(af, '_clock_schedule_interval_fn')
 
@@ -930,7 +930,7 @@ class TestRestAPIPrep:
         session.start_executors()
         try:
             runner = session.create_protocol_runner()
-            af = runner.sequenced_capture_executor._autofocus_runner
+            af = runner.sequenced_capture_runner._autofocus_runner
             status = af.get_status()
             assert status['state'] == 'idle'
             assert status['in_progress'] is False
@@ -946,7 +946,7 @@ class TestRestAPIPrep:
         session.start_executors()
         try:
             runner = session.create_protocol_runner()
-            af = runner.sequenced_capture_executor._autofocus_runner
+            af = runner.sequenced_capture_runner._autofocus_runner
             thread = AutofocusThread(afe=af)
             thread.start()
             try:
@@ -966,7 +966,7 @@ class TestRestAPIPrep:
         session.start_executors()
         try:
             runner = session.create_protocol_runner()
-            af = runner.sequenced_capture_executor._autofocus_runner
+            af = runner.sequenced_capture_runner._autofocus_runner
             thread = AutofocusThread(afe=af)
             thread.start()
             try:
@@ -990,7 +990,7 @@ class TestRestAPIPrep:
         session.start_executors()
         try:
             runner = session.create_protocol_runner()
-            af = runner.sequenced_capture_executor._autofocus_runner
+            af = runner.sequenced_capture_runner._autofocus_runner
             thread = AutofocusThread(afe=af)
             thread.start()
             try:

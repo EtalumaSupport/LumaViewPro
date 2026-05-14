@@ -7,7 +7,7 @@ Callers can still pass plain dicts — use ``ProtocolCallbacks.from_dict()``
 to convert.  The executor and sub-modules use attribute access instead of
 ``'key' in dict`` checks.
 
-Extracted from ``sequenced_capture_executor.py`` during the
+Extracted from ``sequenced_capture_runner.py`` during the
 protocol-decomposition refactor.
 """
 

@@ -7,7 +7,7 @@ the import and runtime level:
   1. No module under modules/ imports Kivy directly (image_utils_kivy
      used to live there as an exception; it now lives at
      ui/image_utils_kivy.py per Rule 15).
-  2. A full protocol can be executed through SequencedCaptureExecutor
+  2. A full protocol can be executed through SequencedCaptureRunner
      without any Kivy module loaded in sys.modules.
   3. kivy_utils.schedule_ui() falls back to direct invocation when no
      GUI dispatcher has been set.
@@ -64,8 +64,8 @@ _purge_kivy_from_sys_modules()
 # Now import the protocol execution chain — these MUST not require Kivy
 from modules.lumascope_api import Lumascope
 from modules.sequential_io_executor import SequentialIOExecutor
-from modules.sequenced_capture_executor import (
-    SequencedCaptureExecutor,
+from modules.sequenced_capture_runner import (
+    SequencedCaptureRunner,
     SequencedCaptureRunMode,
 )
 from modules.protocol import Protocol
@@ -88,7 +88,7 @@ class TestHeadlessImports:
         # be a no-op, so reload their state by dropping them first if needed)
         import importlib
         import modules.lumascope_api
-        import modules.sequenced_capture_executor
+        import modules.sequenced_capture_runner
         import modules.protocol
         import modules.kivy_utils
 
@@ -223,7 +223,7 @@ class TestHeadlessProtocolExecution:
             mock_af.best_focus_position = MagicMock(return_value=5000.0)
             mock_af.run_in_progress = MagicMock(return_value=False)
 
-            executor = SequencedCaptureExecutor(
+            executor = SequencedCaptureRunner(
                 scope=scope,
                 stage_offset={'x': 0.0, 'y': 0.0},
                 io_executor=execs['io'],

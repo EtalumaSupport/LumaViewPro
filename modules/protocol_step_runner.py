@@ -3,7 +3,7 @@
 """Per-step execution logic for protocol runs.
 
 Handles scan iteration, motion, LED control, autofocus orchestration,
-and grease redistribution.  Extracted from ``sequenced_capture_executor.py``
+and grease redistribution.  Extracted from ``sequenced_capture_runner.py``
 during the protocol-decomposition refactor.
 
 Thread ownership:
@@ -24,20 +24,20 @@ from modules.protocol_state_machine import ProtocolState
 from modules.sequential_io_executor import IOTask
 
 if TYPE_CHECKING:
-    from modules.sequenced_capture_executor import SequencedCaptureExecutor
+    from modules.sequenced_capture_runner import SequencedCaptureRunner
 
 from modules.kivy_utils import schedule_ui as _schedule_ui
 
 
-class ProtocolStepExecutor:
+class ProtocolStepRunner:
     """Executes individual protocol steps within a scan.
 
-    Receives a reference to the parent ``SequencedCaptureExecutor`` to
+    Receives a reference to the parent ``SequencedCaptureRunner`` to
     access shared state (protocol, scope, events, executors).  This keeps
     the step-execution logic in its own file without duplicating state.
     """
 
-    def __init__(self, parent: SequencedCaptureExecutor):
+    def __init__(self, parent: SequencedCaptureRunner):
         self._p = parent
 
     # ------------------------------------------------------------------

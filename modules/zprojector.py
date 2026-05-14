@@ -10,7 +10,7 @@ import modules.common_utils as common_utils
 import modules.image_utils as image_utils
 
 from modules.common_utils import PostFunction
-from modules.protocol_post_processing_executor import ProtocolPostProcessingExecutor
+from modules.protocol_post_processor import ProtocolPostProcessor
 from modules.protocol_post_record import ProtocolPostRecord
 
 import modules.imagej_helper as imagej_helper
@@ -18,7 +18,7 @@ import modules.imagej_helper as imagej_helper
 from lvp_logger import logger
 
 
-class ZProjector(ProtocolPostProcessingExecutor):
+class ZProjector(ProtocolPostProcessor):
 
     def __init__(
         self,

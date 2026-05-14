@@ -51,7 +51,7 @@ class VerticalControl(BoxLayout):
 
     def update_gui(self, vertical_control=False):
         ctx = _app_ctx.ctx
-        if ctx.sequenced_capture_executor.run_in_progress():
+        if ctx.sequenced_capture_runner.run_in_progress():
             return
         if not vertical_control:
             ctx.io_executor.put(IOTask(
@@ -314,11 +314,11 @@ class VerticalControl(BoxLayout):
     def _cleanup_at_end_of_autofocus(self):
         ctx = _app_ctx.ctx
 
-        # SequencedCaptureExecutor.reset() unwinds any running protocol
+        # SequencedCaptureRunner.reset() unwinds any running protocol
         # (its _cleanup chain calls autofocus_thread.abort() on the AF
         # thread). AFE state is reset implicitly on the next AFE.run().
         ctx.worker_pool.put(IOTask(
-            action=ctx.sequenced_capture_executor.reset,
+            action=ctx.sequenced_capture_runner.reset,
             callback=self._reset_run_autofocus_button,
             priority=PRIORITY_HIGH,
         ))
@@ -362,7 +362,7 @@ class VerticalControl(BoxLayout):
         """Build the kwargs for AutofocusThread.run_autofocus() from the
         currently-active layer and UI state.
 
-        Mirrors the per-step kwarg build in protocol_step_executor so a
+        Mirrors the per-step kwarg build in protocol_step_runner so a
         standalone AF run uses the same AFE entry as a protocol step.
         """
         objective_id, _ = get_current_objective_info()
@@ -395,11 +395,11 @@ class VerticalControl(BoxLayout):
 
         # Block standalone AF if a protocol is running OR if AF is
         # already in flight. Either case: just reset the UI button.
-        if ctx.sequenced_capture_executor.run_in_progress():
+        if ctx.sequenced_capture_runner.run_in_progress():
             self._reset_run_autofocus_button()
             logger.warning(
                 'Cannot start autofocus: protocol run already in progress '
-                f'(trigger={ctx.sequenced_capture_executor.run_trigger_source()})'
+                f'(trigger={ctx.sequenced_capture_runner.run_trigger_source()})'
             )
             return
 

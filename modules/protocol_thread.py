@@ -20,7 +20,7 @@ Public API:
   is_running                      -- True if a run is in flight.
   aborted                         -- the abort threading.Event (read-only
                                      reference; readers like
-                                     protocol_step_executor consult its
+                                     protocol_step_runner consult its
                                      is_set() directly each tick).
 
 Concurrency contract: one protocol run at a time. A second run_protocol()

@@ -25,7 +25,7 @@ from modules.config_ui_getters import (
     get_zstack_positions,
     is_image_saving_enabled,
 )
-from modules.sequenced_capture_executor import SequencedCaptureRunMode
+from modules.sequenced_capture_runner import SequencedCaptureRunMode
 from modules.tiling_config import TilingConfig
 from ui.ui_helpers import (
     _handle_ui_update_for_axis,
@@ -99,7 +99,7 @@ class ZStack(FloatLayout):
 
     def _cleanup_at_end_of_acquire(self):
         ctx = _app_ctx.ctx
-        ctx.sequenced_capture_executor.reset()
+        ctx.sequenced_capture_runner.reset()
         self._reset_run_zstack_acquire_button()
         live_histo_reverse()
 
@@ -124,8 +124,8 @@ class ZStack(FloatLayout):
             run_not_started_func = self._reset_run_zstack_acquire_button
             run_complete_func = self._zstack_run_complete
 
-            run_trigger_source = ctx.sequenced_capture_executor.run_trigger_source()
-            if ctx.sequenced_capture_executor.run_in_progress() and \
+            run_trigger_source = ctx.sequenced_capture_runner.run_trigger_source()
+            if ctx.sequenced_capture_runner.run_in_progress() and \
                 (run_trigger_source != trigger_source):
                 run_not_started_func()
                 logger.warning(f"Cannot start Z-Stack acquire. Run already in progress from {run_trigger_source}")
@@ -219,7 +219,7 @@ class ZStack(FloatLayout):
             initial_position = get_current_plate_position()
             image_capture_config = get_image_capture_config_from_ui()
 
-            ctx.sequenced_capture_executor.run(
+            ctx.sequenced_capture_runner.run(
                 protocol=zstack_sequence,
                 run_mode=SequencedCaptureRunMode.SINGLE_ZSTACK,
                 run_trigger_source=trigger_source,
@@ -236,7 +236,7 @@ class ZStack(FloatLayout):
                 video_as_frames = settings['video_as_frames']
             )
 
-            set_last_save_folder(dir=ctx.sequenced_capture_executor.run_dir())
+            set_last_save_folder(dir=ctx.sequenced_capture_runner.run_dir())
         except Exception as e:
             logger.error(f'[UI] run_zstack_acquire_from_ui failed: {e}', exc_info=True)
             from ui.notification_popup import show_notification_popup

@@ -1,7 +1,7 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """Unit tests for decomposed protocol modules.
 
-Tests the 5 modules extracted from sequenced_capture_executor.py:
+Tests the 5 modules extracted from sequenced_capture_runner.py:
   - protocol_state_machine
   - protocol_callbacks
   - kivy_utils

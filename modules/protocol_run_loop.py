@@ -3,7 +3,7 @@
 """Main protocol run loop — scan timing, hardware checks, completion detection.
 
 Runs on the **protocol-executor** thread.  Extracted from
-``sequenced_capture_executor.py`` during the protocol-decomposition refactor.
+``sequenced_capture_runner.py`` during the protocol-decomposition refactor.
 """
 
 from __future__ import annotations
@@ -18,7 +18,7 @@ from lvp_logger import logger
 from modules.protocol_state_machine import ProtocolState
 
 if TYPE_CHECKING:
-    from modules.sequenced_capture_executor import SequencedCaptureExecutor
+    from modules.sequenced_capture_runner import SequencedCaptureRunner
 
 from modules.kivy_utils import schedule_ui as _schedule_ui
 
@@ -34,7 +34,7 @@ HW_CHECK_INTERVAL_S = 30       # Seconds between hardware connection checks
 class ProtocolRunLoop:
     """Manages scan timing and the outer run loop for protocol execution."""
 
-    def __init__(self, parent: SequencedCaptureExecutor):
+    def __init__(self, parent: SequencedCaptureRunner):
         self._p = parent
 
     def run_loop(self):

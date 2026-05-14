@@ -6,7 +6,7 @@ Covers:
   1. Domain exceptions (modules/exceptions.py)
   2. Input validation (lumascope_api.py)
   3. Protocol file limits (modules/protocol.py)
-  4. ProtocolState transitions (modules/sequenced_capture_executor.py)
+  4. ProtocolState transitions (modules/sequenced_capture_runner.py)
   5. Settings snapshot thread safety (modules/app_context.py)
   6. AppleScript escaping (ui/file_dialogs.py)
   7. FPS calculation edge case
@@ -1019,7 +1019,7 @@ class TestAFPrecisionModeRestoresOn:
 
     Regression: pre-fix, reset() / cancel() / etc. set precision OFF,
     leaving the system stuck in low-precision after any AF exit. The
-    `not run_in_progress -> reset()` call in protocol_step_executor.py
+    `not run_in_progress -> reset()` call in protocol_step_runner.py
     fired after every protocol step (even ones without AF), so Z stayed
     in OFF for all subsequent protocol moves.
     """
@@ -1195,10 +1195,10 @@ class TestRule14_A4_PreRunValidationNotify:
     """A4: Pre-run validation errors must surface a user notification (Rule 14)."""
 
     def test_validation_errors_branch_notifies(self):
-        """sequenced_capture_executor must call notifications.error when
+        """sequenced_capture_runner must call notifications.error when
         validation_errors is non-empty before returning."""
         import pathlib
-        source = pathlib.Path("modules/sequenced_capture_executor.py").read_text()
+        source = pathlib.Path("modules/sequenced_capture_runner.py").read_text()
         idx = source.find("Protocol has {len(validation_errors)} validation error(s). Cannot start run.")
         assert idx != -1, "Validation-errors return path must exist"
         nearby = source[idx:idx+800]
@@ -1210,7 +1210,7 @@ class TestRule14_A4_PreRunValidationNotify:
     def test_validation_summary_truncates_at_five(self):
         """Notification summary must show first 5 errors; mention 'see log' for overflow."""
         import pathlib
-        source = pathlib.Path("modules/sequenced_capture_executor.py").read_text()
+        source = pathlib.Path("modules/sequenced_capture_runner.py").read_text()
         idx = source.find("validation_errors[:5]")
         assert idx != -1, \
             "Notification summary must slice validation_errors[:5] to keep popup readable (A4)"
@@ -1223,10 +1223,10 @@ class TestRule14_A5_AreAllConnectedExceptionNotify:
     """A5: are_all_connected() exception branch must notify (Rule 14)."""
 
     def test_are_all_connected_exception_branch_notifies(self):
-        """sequenced_capture_executor must call notifications.error when the
+        """sequenced_capture_runner must call notifications.error when the
         are_all_connected check itself raises, before returning."""
         import pathlib
-        source = pathlib.Path("modules/sequenced_capture_executor.py").read_text()
+        source = pathlib.Path("modules/sequenced_capture_runner.py").read_text()
         idx = source.find("Error checking scope connection")
         assert idx != -1, "are_all_connected exception handler must exist"
         nearby = source[idx:idx+600]
@@ -2234,7 +2234,7 @@ class TestPIW3_FalseColor16bitCachedAtRunStart:
 
     Fix: thread an `use_false_color_16bit` parameter through write_tiff /
     save_image / save_image_static / ProtocolImageWriter, read once in
-    sequenced_capture_executor at run start, and pass through. write_tiff
+    sequenced_capture_runner at run start, and pass through. write_tiff
     falls back to the lock-read path when `use_false_color_16bit=None`,
     preserving behavior for ad-hoc callers.
     """
@@ -2275,9 +2275,9 @@ class TestPIW3_FalseColor16bitCachedAtRunStart:
             "PIW-3: ProtocolImageWriter should pass the cached value to save_image."
         )
 
-    def test_sequenced_capture_executor_reads_once_at_run_start(self):
+    def test_sequenced_capture_runner_reads_once_at_run_start(self):
         from pathlib import Path
-        src = (Path(__file__).resolve().parent.parent / "modules" / "sequenced_capture_executor.py").read_text()
+        src = (Path(__file__).resolve().parent.parent / "modules" / "sequenced_capture_runner.py").read_text()
         # The read must happen under the settings_lock and pass through to the writer.
         assert "with ctx.settings_lock:" in src, (
             "PIW-3: false_color_16bit read should be guarded by settings_lock."
@@ -2635,7 +2635,7 @@ class TestPF1_CpuPoolRetired:
     construction at lumaviewpro.py:214-237 never ran. The
     sequenced_capture_writer.py module was only imported from that dead
     block — the entire module was unreachable. The cpu_pool param threaded
-    through SequencedCaptureExecutor.__init__ was always None.
+    through SequencedCaptureRunner.__init__ was always None.
 
     Per IMAGE_PROCESSING_ARCHITECTURE_2026-04-30.md: do NOT pre-build a
     replacement pool — modules/postprocessing/ and modules/live_processing/
@@ -2644,7 +2644,7 @@ class TestPF1_CpuPoolRetired:
     Fix: deleted modules/sequenced_capture_writer.py entirely. Removed
     cpu_pool / use_multiprocessing from lumaviewpro.py (declarations,
     init block, shutdown block, executor kwarg). Removed cpu_pool param
-    from SequencedCaptureExecutor.__init__ + the now-unused
+    from SequencedCaptureRunner.__init__ + the now-unused
     ProcessPoolExecutor import. Removed the test that exercised the dead
     setup_worker_logger function.
     """
@@ -2671,12 +2671,12 @@ class TestPF1_CpuPoolRetired:
 
     def test_executor_no_cpu_pool_param(self):
         from pathlib import Path
-        src = (Path(__file__).resolve().parent.parent / "modules" / "sequenced_capture_executor.py").read_text()
+        src = (Path(__file__).resolve().parent.parent / "modules" / "sequenced_capture_runner.py").read_text()
         assert "cpu_pool" not in src, (
-            "PF-1: cpu_pool should be removed from SequencedCaptureExecutor."
+            "PF-1: cpu_pool should be removed from SequencedCaptureRunner."
         )
         assert "from concurrent.futures import ProcessPoolExecutor" not in src, (
-            "PF-1: unused ProcessPoolExecutor import should be removed from sequenced_capture_executor.py."
+            "PF-1: unused ProcessPoolExecutor import should be removed from sequenced_capture_runner.py."
         )
 
 
@@ -6937,14 +6937,14 @@ class TestFx2DriverLibusbBackendProbe:
 # ---------------------------------------------------------------------------
 
 class TestStageOffsetSnapshot:
-    """SequencedCaptureExecutor must snapshot stage_offset at run() start so
+    """SequencedCaptureRunner must snapshot stage_offset at run() start so
     mid-protocol UI mutations don't change the in-flight coordinate
     transforms. UI edits between runs must still be visible to the next run.
     """
 
     def _make_executor(self, stage_offset):
-        from modules.sequenced_capture_executor import SequencedCaptureExecutor
-        return SequencedCaptureExecutor(
+        from modules.sequenced_capture_runner import SequencedCaptureRunner
+        return SequencedCaptureRunner(
             scope=MagicMock(),
             stage_offset=stage_offset,
             io_executor=MagicMock(),
@@ -7081,15 +7081,15 @@ class TestReusableTaskWaiter:
         assert w2 is not w1, "expected fresh waiter when previous is in-flight"
 
 
-class TestSequencedCaptureExecutorRunDirCollision:
+class TestSequencedCaptureRunnerRunDirCollision:
     """Rapid protocol-run mashing collides on the second-resolution
     timestamp directory name. _create_run_dir retries with _001, _002,
     ... so same-second collisions succeed on the next attempt instead
     of hard-failing."""
 
     def _make_executor(self, parent_dir):
-        from modules.sequenced_capture_executor import SequencedCaptureExecutor
-        exc = SequencedCaptureExecutor(
+        from modules.sequenced_capture_runner import SequencedCaptureRunner
+        exc = SequencedCaptureRunner(
             scope=MagicMock(),
             stage_offset={'x': 0.0, 'y': 0.0, 'z': 0.0},
             io_executor=MagicMock(),

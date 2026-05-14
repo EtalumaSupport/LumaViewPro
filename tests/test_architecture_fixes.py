@@ -328,8 +328,8 @@ class TestTinyFileConsolidation:
         assert "Stitched" in PostFunction.list_values()
 
     def test_sequenced_capture_run_mode_importable_from_executor(self):
-        """Verify SequencedCaptureRunMode is importable from sequenced_capture_executor."""
-        from modules.sequenced_capture_executor import SequencedCaptureRunMode
+        """Verify SequencedCaptureRunMode is importable from sequenced_capture_runner."""
+        from modules.sequenced_capture_runner import SequencedCaptureRunMode
         assert SequencedCaptureRunMode.FULL_PROTOCOL.value == 'full_protocol'
         assert SequencedCaptureRunMode.SINGLE_SCAN.value == 'single_scan'
 
@@ -345,7 +345,7 @@ class TestTinyFileConsolidation:
             'modules.stitcher_' + 'helper',
             'modules.processing_' + 'utils',
         ]
-        # Deleted module that must not be confused with protocol_step_executor
+        # Deleted module that must not be confused with protocol_step_runner
         old_protocol_step = 'modules.protocol_' + 'step'
         root = os.path.join(os.path.dirname(__file__), '..')
         violations = []
@@ -359,9 +359,9 @@ class TestTinyFileConsolidation:
                     for old_mod in old_modules:
                         if old_mod in line:
                             violations.append(f"{os.path.relpath(py_file, root)}:{i} ({old_mod})")
-                    # Check for deleted modules.protocol_step but not protocol_step_executor
+                    # Check for deleted modules.protocol_step but not protocol_step_runner
                     if old_protocol_step in line:
-                        # Only flag if it's not followed by '_' (which would be protocol_step_executor)
+                        # Only flag if it's not followed by '_' (which would be protocol_step_runner)
                         import re
                         if re.search(r'modules\.protocol_step(?!_)', line):
                             violations.append(f"{os.path.relpath(py_file, root)}:{i} ({old_protocol_step})")

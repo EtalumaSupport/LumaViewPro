@@ -27,11 +27,11 @@ def _check_hyperstack_memory(num_t, num_z, num_c, h, w, dtype):
 
 import modules.common_utils as common_utils
 from modules.common_utils import PostFunction
-from modules.protocol_post_processing_executor import ProtocolPostProcessingExecutor
+from modules.protocol_post_processor import ProtocolPostProcessor
 from modules.protocol_post_record import ProtocolPostRecord
 
 
-class StackBuilder(ProtocolPostProcessingExecutor):
+class StackBuilder(ProtocolPostProcessor):
 
     def __init__(self, *args, **kwargs):
         super().__init__(

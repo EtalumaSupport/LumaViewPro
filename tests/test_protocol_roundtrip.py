@@ -26,7 +26,7 @@ import pandas as pd
 import pytest
 
 from modules.protocol import Protocol
-from modules.sequenced_capture_executor import SequencedCaptureExecutor, SequencedCaptureRunMode
+from modules.sequenced_capture_runner import SequencedCaptureRunner, SequencedCaptureRunMode
 from modules.sequential_io_executor import SequentialIOExecutor
 from modules.lumascope_api import Lumascope
 from unittest.mock import MagicMock
@@ -230,7 +230,7 @@ def executor(scope, executors):
     mock_af.best_focus_position = MagicMock(return_value=5000.0)
     mock_af.run_in_progress = MagicMock(return_value=False)
 
-    exc = SequencedCaptureExecutor(
+    exc = SequencedCaptureRunner(
         scope=scope,
         stage_offset={'x': 0.0, 'y': 0.0},
         io_executor=executors['io'],
@@ -267,7 +267,7 @@ def real_executor(scope, executors):
     mock_af.best_focus_position = MagicMock(return_value=5000.0)
     mock_af.run_in_progress = MagicMock(return_value=False)
 
-    exc = SequencedCaptureExecutor(
+    exc = SequencedCaptureRunner(
         scope=scope,
         stage_offset={'x': 0.0, 'y': 0.0},
         io_executor=executors['io'],
@@ -1727,7 +1727,7 @@ class TestExecutorEdgeCases:
 
     def test_executor_state_idle_after_run(self, real_executor, scope, tmp_path):
         """Executor returns to IDLE state after protocol completes."""
-        from modules.sequenced_capture_executor import ProtocolState
+        from modules.sequenced_capture_runner import ProtocolState
         proto = _build_protocol([_make_step()])
         completed, _ = _run_and_wait(real_executor, proto, tmp_path)
         assert completed

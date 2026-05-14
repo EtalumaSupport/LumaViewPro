@@ -101,7 +101,7 @@ if __name__ == '__main__':
     from modules.autofocus_runner import AutofocusRunner
     from modules.autofocus_thread import AutofocusThread
     from modules.scope_session import ScopeSession
-    from modules.sequenced_capture_executor import SequencedCaptureExecutor
+    from modules.sequenced_capture_runner import SequencedCaptureRunner
 
     global profiling_helper
     profiling_helper = None
@@ -700,7 +700,7 @@ class LumaViewProApp(TooltipMixin, App):
         )
         autofocus_thread.start()
 
-        sequenced_capture_executor = SequencedCaptureExecutor(
+        sequenced_capture_runner = SequencedCaptureRunner(
             scope=lumaview.scope,
             stage_offset=settings['stage_offset'],
             autofocus_runner=autofocus_runner,
@@ -718,7 +718,7 @@ class LumaViewProApp(TooltipMixin, App):
             lumaview=lumaview,
             settings=settings,
             session=scope_session,
-            sequenced_capture_executor=sequenced_capture_executor,
+            sequenced_capture_runner=sequenced_capture_runner,
             autofocus_runner=autofocus_runner,
             version=version,
             source_path=source_path,

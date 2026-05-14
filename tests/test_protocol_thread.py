@@ -248,7 +248,7 @@ class TestC6Collapse:
         assert future.result(timeout=2.0) == 'aborted-via-abort_fn'
 
     def test_aborted_property_returns_event_reference(self, pt):
-        # Readers (protocol_step_executor, protocol_run_loop) borrow
+        # Readers (protocol_step_runner, protocol_run_loop) borrow
         # the Event reference and call is_set() each tick.
         ev = pt.aborted
         assert isinstance(ev, threading.Event)

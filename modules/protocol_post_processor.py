@@ -17,7 +17,7 @@ import modules.image_utils as image_utils
 from lvp_logger import logger
 
 
-class ProtocolPostProcessingExecutor(abc.ABC):
+class ProtocolPostProcessor(abc.ABC):
 
     def __init__(
         self,

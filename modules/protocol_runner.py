@@ -5,7 +5,7 @@ GUI-independent protocol runner.
 Provides a clean API for running protocols (scans, full protocols, autofocus)
 without any Kivy/GUI dependencies. Used by the REST API and standalone scripts.
 The LumaViewPro GUI continues to use ProtocolSettings for UI orchestration,
-but both ultimately delegate to SequencedCaptureExecutor.
+but both ultimately delegate to SequencedCaptureRunner.
 
 Usage
 -----
@@ -28,14 +28,14 @@ import typing
 from lvp_logger import logger
 import modules.common_utils as common_utils
 from modules.protocol import Protocol
-from modules.sequenced_capture_executor import SequencedCaptureExecutor, SequencedCaptureRunMode
+from modules.sequenced_capture_runner import SequencedCaptureRunner, SequencedCaptureRunMode
 from modules.sequential_io_executor import SequentialIOExecutor
 from modules.protocol_thread import ProtocolThread
 from modules.autofocus_runner import AutofocusRunner
 
 
 class ProtocolRunner:
-    """GUI-independent protocol runner wrapping SequencedCaptureExecutor."""
+    """GUI-independent protocol runner wrapping SequencedCaptureRunner."""
 
     def __init__(
         self,
@@ -62,7 +62,7 @@ class ProtocolRunner:
 
         self._completion_event = threading.Event()
 
-        self._executor = SequencedCaptureExecutor(
+        self._executor = SequencedCaptureRunner(
             scope=session.scope,
             stage_offset=session.settings.get('stage_offset', {}),
             io_executor=session.io_executor,
@@ -75,7 +75,7 @@ class ProtocolRunner:
         self._owned_resources_started = False
 
     @property
-    def sequenced_capture_executor(self) -> SequencedCaptureExecutor:
+    def sequenced_capture_runner(self) -> SequencedCaptureRunner:
         return self._executor
 
     # ------------------------------------------------------------------

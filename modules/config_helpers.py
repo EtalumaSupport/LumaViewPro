@@ -496,7 +496,7 @@ def log_system_metrics(settings: dict):
         queue_parts = []
         # Walk known executors. Each may use a queue.Queue (qsize) or a
         # ThreadPoolExecutor (_work_queue.qsize). Both expose qsize().
-        for name in ('sequenced_capture_executor',
+        for name in ('sequenced_capture_runner',
                      'io_executor', 'camera_executor', 'file_io_executor',
                      'worker_pool'):
             # protocol_thread, scope_display_thread, autofocus_thread,
@@ -526,7 +526,7 @@ def log_system_metrics(settings: dict):
         # invariant: alloc == pop within a few per cadence (each
         # in-flight task is one of the few "live" entries).
         futures_parts = []
-        for name in ('sequenced_capture_executor',
+        for name in ('sequenced_capture_runner',
                      'io_executor', 'camera_executor', 'file_io_executor',
                      'worker_pool'):
             # protocol_thread, scope_display_thread, autofocus_thread,

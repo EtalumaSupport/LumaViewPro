@@ -3,7 +3,7 @@
 """Protocol cleanup / shutdown logic.
 
 Restores LED, autofocus, camera state and fires completion callbacks.
-Extracted from ``sequenced_capture_executor.py`` during the
+Extracted from ``sequenced_capture_runner.py`` during the
 protocol-decomposition refactor.
 """
 
@@ -56,11 +56,11 @@ def run_cleanup(
     camera_executor,
     # Mutable flag — set to False when done
     set_run_in_progress_fn,
-    logger_name: str = "SequencedCaptureExecutor",
+    logger_name: str = "SequencedCaptureRunner",
 ):
     """Core cleanup logic — restores state, fires callbacks, ends executors.
 
-    Called from ``SequencedCaptureExecutor._cleanup_inner()``.
+    Called from ``SequencedCaptureRunner._cleanup_inner()``.
     """
     # PF-2: capture initial state BEFORE the COMPLETING transition below so we
     # can distinguish abort (ERROR) from normal end. On abort (e.g. hardware

@@ -3,7 +3,7 @@
 """Image/video capture and file-write orchestration for protocol execution.
 
 Runs on the protocol-executor thread (_capture) and file-IO thread
-(_write_capture).  Extracted from ``sequenced_capture_executor.py``
+(_write_capture).  Extracted from ``sequenced_capture_runner.py``
 during the protocol-decomposition refactor.
 """
 
@@ -39,12 +39,12 @@ if TYPE_CHECKING:
 class ProtocolImageWriter:
     """Handles image/video capture and file writing during protocol runs.
 
-    Created by SequencedCaptureExecutor at the start of each run with
+    Created by SequencedCaptureRunner at the start of each run with
     the references it needs.  All state is borrowed from the executor --
     this class owns no mutable state of its own.
     """
 
-    LOGGER_NAME = "SequencedCaptureExecutor"
+    LOGGER_NAME = "SequencedCaptureRunner"
 
     def __init__(
         self,

@@ -15,7 +15,7 @@ from modules.protocol_state_machine import (
 from modules.protocol_callbacks import ProtocolCallbacks
 from modules.protocol_image_writer import ProtocolImageWriter
 from modules.protocol_cleanup import run_cleanup
-from modules.protocol_step_executor import ProtocolStepExecutor
+from modules.protocol_step_runner import ProtocolStepRunner
 from modules.protocol_run_loop import ProtocolRunLoop
 
 from modules.kivy_utils import schedule_ui as _schedule_ui
@@ -65,7 +65,7 @@ step_dict = {
 }
 """
 
-class SequencedCaptureExecutor:
+class SequencedCaptureRunner:
 
     LOGGER_NAME = "SeqCapExec"
     STEP_TIMEOUT_SECONDS = 120  # Max time to wait for a single step (motion + capture)
@@ -130,7 +130,7 @@ class SequencedCaptureExecutor:
         # a no-op callbacks object instead of AttributeError.
         self._callbacks = ProtocolCallbacks()
         self._reset_vars()
-        self._step_executor = ProtocolStepExecutor(self)
+        self._step_executor = ProtocolStepRunner(self)
         self._run_loop_executor = ProtocolRunLoop(self)
 
 
@@ -515,7 +515,7 @@ class SequencedCaptureExecutor:
             false_color_16bit = False
 
         # Borrow protocol_thread's abort Event as SCE's _aborted reference.
-        # Cross-thread readers (protocol_step_executor, protocol_run_loop)
+        # Cross-thread readers (protocol_step_runner, protocol_run_loop)
         # consult self._aborted.is_set() each tick. PIW receives a callable
         # bound to protocol_thread.abort so its capture-failure / disk-fail
         # paths abort the run.
