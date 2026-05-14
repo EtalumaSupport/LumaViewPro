@@ -309,6 +309,26 @@ class AutofocusRunner:
             raise
 
         finally:
+            # Save AF characterization data on EVERY exit path (success,
+            # abort, exception, degenerate-curve). Queued before the
+            # restore chain so the partial-pass data isn't lost if any
+            # restore step raises. _save_autofocus_data early-returns
+            # when both data lists are empty (true no-data abort).
+            if self._save_results_to_file:
+                # Promote any unpromoted in-pass samples so a mid-pass
+                # abort still leaves diagnostic data on disk.
+                if self._af_data_pass:
+                    self._af_data_full.extend(self._af_data_pass)
+                    self._af_data_pass = []
+                try:
+                    self._file_io_executor.protocol_put(
+                        IOTask(action=self._save_autofocus_data)
+                    )
+                except Exception as ex:
+                    logger.warning(
+                        f"[AF] Failed to queue autofocus data save: {ex}"
+                    )
+
             # Restore LED + camera + Z precision regardless of exit path
             # so the invariant "Z precision ON + pre-AF camera + LED off
             # outside of AF" holds for abort, exception, and success.
@@ -541,13 +561,10 @@ class AutofocusRunner:
                 if self.ui_update_func is not None:
                     _schedule_ui(lambda dt: self.ui_update_func(pos=float(best_focus_position)), 0)
 
-                if self._save_results_to_file:
-                    # Push file / plot work off the AF thread using the
-                    # file_io executor so the AF Future resolves promptly.
-                    try:
-                        self._file_io_executor.protocol_put(IOTask(action=self._save_autofocus_data))
-                    except Exception as ex:
-                        logger.warning(f"[AF] Failed to queue autofocus data save: {ex}")
+                # Data save is queued from run()'s finally block so abort,
+                # exception, and degenerate-curve exits also produce a CSV
+                # + plot in the per-run subdir. AF Characterization is a
+                # diagnostic tool; the failure data is the whole point.
 
                 # Restore Z precision ON as the explicit AF-exit handoff
                 # so the invariant "Z precision ON outside of AF" holds
