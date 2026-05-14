@@ -434,7 +434,7 @@ class AutofocusRunner:
                 self._is_focusing_event.clear()
                 return
 
-            # Detect dark/blank frames — would score 0, corrupting the curve.
+            # Detect dark/blank frames -- would score 0, corrupting the curve.
             # Retry once; if still dark, accept (may be genuinely dark sample).
             mean_intensity = float(np.mean(image))
             if mean_intensity < 1.0:
@@ -478,7 +478,7 @@ class AutofocusRunner:
             # tissue). Early stop could miss the global peak. The full
             # range must always be swept.
 
-            # Extend scan if peak is at the edge — we need both sides
+            # Extend scan if peak is at the edge -- we need both sides
             # of the peak for a reliable Gaussian fit. Keep going until
             # we see 2 consecutive drops below 50% of peak.
             if next_target > self._params['z_max'] and len(self._af_data_pass) >= 3:
@@ -487,7 +487,7 @@ class AutofocusRunner:
                 if pass_scores:
                     pass_max = max(pass_scores)
                     peak_idx = pass_scores.index(pass_max)
-                    # Peak is in the last 2 positions — extend the scan
+                    # Peak is in the last 2 positions -- extend the scan
                     if peak_idx >= len(pass_scores) - 2 and pass_max > 0:
                         recent = pass_scores[-2:]
                         if not all(s < pass_max * 0.5 for s in recent):
@@ -527,11 +527,11 @@ class AutofocusRunner:
             # Detect degenerate focus curve (all zeros, all NaN, or flat)
             scores = df['score']
             if scores.max() == 0 or scores.isna().all():
-                logger.warning("Autofocus: degenerate focus curve (all scores zero or NaN) — aborting, keeping current Z position")
+                logger.warning("Autofocus: degenerate focus curve (all scores zero or NaN) -- aborting, keeping current Z position")
                 _af_log.warning('--- AF ABORT: degenerate curve (all scores zero/NaN) ---')
                 self._notify_af_failure(
                     "Autofocus Failed",
-                    "Focus curve is flat or invalid — check sample and illumination",
+                    "Focus curve is flat or invalid -- check sample and illumination",
                 )
                 # Restore Z precision ON before bailing so the held
                 # current-Z position is reached accurately on any
@@ -670,7 +670,7 @@ class AutofocusRunner:
         # Drop NaN/infinite scores before finding best
         valid = df[df['score'].apply(lambda x: np.isfinite(x))]
         if valid.empty:
-            logger.warning("Autofocus: all focus scores are NaN/infinite — returning first position")
+            logger.warning("Autofocus: all focus scores are NaN/infinite -- returning first position")
             return df['position'].iloc[0]
         max_score_idx = valid['score'].idxmax()
         raw_best = valid['position'].loc[max_score_idx]
@@ -702,7 +702,7 @@ class AutofocusRunner:
                             # Sanity: fit shift must be less than the step
                             # spacing between measured points. A larger shift
                             # means the fit is extrapolating beyond the data
-                            # — likely an asymmetric curve fooling the Gaussian.
+                            # -- likely an asymmetric curve fooling the Gaussian.
                             z_diffs = np.diff(np.sort(z_vals))
                             max_shift = np.median(z_diffs) * 2 if len(z_diffs) > 0 else float('inf')
                             if shift <= max_shift:
