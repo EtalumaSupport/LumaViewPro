@@ -224,7 +224,7 @@ class TestHeadlessProtocolExecution:
                 file_io_executor=execs['file_io'],
                 camera_executor=execs['camera'],
                 autofocus_thread=MagicMock(),
-                autofocus_executor=mock_af,
+                autofocus_runner=mock_af,
             )
             executor._wellplate_loader = WellPlateLoader()
             executor._coordinate_transformer = CoordinateTransformer()

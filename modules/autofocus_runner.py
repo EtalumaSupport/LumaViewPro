@@ -24,7 +24,7 @@ from modules.sequential_io_executor import IOTask, SequentialIOExecutor
 _af_log = logging.getLogger('LVP.autofocus')
 
 
-class AutofocusExecutor:
+class AutofocusRunner:
 
     def __init__(
         self,

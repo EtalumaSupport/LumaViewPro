@@ -53,7 +53,7 @@ class AppContext:
     settings_lock: threading.Lock = field(default_factory=threading.Lock)
     session: object = None             # ScopeSession
     sequenced_capture_executor: object = None
-    autofocus_executor: object = None
+    autofocus_runner: object = None
     version: str = ""
     source_path: str = ""
 

@@ -27,7 +27,7 @@ import modules.common_utils as common_utils
 import modules.coord_transformations as coord_transformations
 
 import modules.labware_loader as labware_loader
-from modules.autofocus_executor import AutofocusExecutor
+from modules.autofocus_runner import AutofocusRunner
 from modules.protocol import Protocol
 from modules.protocol_execution_record import ProtocolExecutionRecord
 
@@ -79,7 +79,7 @@ class SequencedCaptureExecutor:
         file_io_executor: SequentialIOExecutor,
         camera_executor: SequentialIOExecutor,
         autofocus_thread,
-        autofocus_executor: AutofocusExecutor | None = None,
+        autofocus_runner: AutofocusRunner | None = None,
         z_ui_update_func: typing.Callable | None = None,
     ):
         self._coordinate_transformer = coord_transformations.CoordinateTransformer()
@@ -104,18 +104,18 @@ class SequencedCaptureExecutor:
         self._grease_redistribution_event = threading.Event()
         self._grease_redistribution_event.set()
 
-        if autofocus_executor is None:
+        if autofocus_runner is None:
             # Headless / test fallback. Caller may construct a private
             # AFE that bypasses the AutofocusThread for unit tests that
             # only need the protocol state machine.
-            self._autofocus_executor = AutofocusExecutor(
+            self._autofocus_runner = AutofocusRunner(
                 scope=scope,
                 camera_executor=camera_executor,
                 io_executor=io_executor,
                 file_io_executor=file_io_executor,
             )
         else:
-            self._autofocus_executor = autofocus_executor
+            self._autofocus_runner = autofocus_runner
 
         self._scope = scope
         self._run_trigger_source = None

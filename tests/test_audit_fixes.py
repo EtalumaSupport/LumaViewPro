@@ -937,16 +937,16 @@ class TestIssue602_AFExecutorLED:
     """
 
     def test_af_executor_accepts_led_params(self, _mock_heavy_deps):
-        """AutofocusExecutor.run() should accept led_color and led_illumination."""
+        """AutofocusRunner.run() should accept led_color and led_illumination."""
         import inspect
-        from modules.autofocus_executor import AutofocusExecutor
-        sig = inspect.signature(AutofocusExecutor.run)
+        from modules.autofocus_runner import AutofocusRunner
+        sig = inspect.signature(AutofocusRunner.run)
         assert 'led_color' in sig.parameters
         assert 'led_illumination' in sig.parameters
 
     def test_af_executor_turns_led_on(self, _mock_heavy_deps):
         """AF executor should call led_on when led_color is provided."""
-        from modules.autofocus_executor import AutofocusExecutor
+        from modules.autofocus_runner import AutofocusRunner
         from modules.lumascope_api import Lumascope
 
         scope = Lumascope(simulate=True)
@@ -955,7 +955,7 @@ class TestIssue602_AFExecutorLED:
         cam = SequentialIOExecutor(name="CAM_TEST")
         af_ex = SequentialIOExecutor(name="AF_TEST")
         file_ex = SequentialIOExecutor(name="FILE_TEST")
-        af = AutofocusExecutor(
+        af = AutofocusRunner(
             scope=scope,
             camera_executor=cam,
             io_executor=io,
@@ -971,7 +971,7 @@ class TestIssue602_AFExecutorLED:
 
     def test_af_executor_led_off_in_cancel(self, _mock_heavy_deps):
         """AF executor cancel() should turn off LED."""
-        from modules.autofocus_executor import AutofocusExecutor
+        from modules.autofocus_runner import AutofocusRunner
         from modules.lumascope_api import Lumascope
         from unittest.mock import patch
 
@@ -981,7 +981,7 @@ class TestIssue602_AFExecutorLED:
         cam = SequentialIOExecutor(name="CAM_TEST")
         af_ex = SequentialIOExecutor(name="AF_TEST")
         file_ex = SequentialIOExecutor(name="FILE_TEST")
-        af = AutofocusExecutor(
+        af = AutofocusRunner(
             scope=scope,
             camera_executor=cam,
             io_executor=io,
@@ -1009,7 +1009,7 @@ class TestIssue602_AFExecutorLED:
 
 
 class TestAFPrecisionModeRestoresOn:
-    """AutofocusExecutor exit paths must restore Z precision mode ON.
+    """AutofocusRunner exit paths must restore Z precision mode ON.
 
     Z precision mode (VSTOP=100) is the resting default for all normal
     operation -- motorconfig.py writes this at boot. AF temporarily
@@ -1025,11 +1025,11 @@ class TestAFPrecisionModeRestoresOn:
     """
 
     def _build_af(self):
-        from modules.autofocus_executor import AutofocusExecutor
+        from modules.autofocus_runner import AutofocusRunner
         from modules.lumascope_api import Lumascope
         from modules.sequential_io_executor import SequentialIOExecutor
         scope = Lumascope(simulate=True)
-        return AutofocusExecutor(
+        return AutofocusRunner(
             scope=scope,
             camera_executor=SequentialIOExecutor(name="CAM_PREC"),
             io_executor=SequentialIOExecutor(name="IO_PREC"),
@@ -1164,7 +1164,7 @@ class TestG3_AutofocusFailureNotification:
     def test_af_exception_notifies_user(self, _mock_heavy_deps):
         """AF exception handler must call notifications.error()."""
         import pathlib
-        source = pathlib.Path("modules/autofocus_executor.py").read_text()
+        source = pathlib.Path("modules/autofocus_runner.py").read_text()
         # Find the exception handler block
         idx = source.find("Error during loop")
         assert idx != -1, "Exception handler must exist"
@@ -1176,7 +1176,7 @@ class TestG3_AutofocusFailureNotification:
     def test_af_degenerate_curve_notifies_user(self, _mock_heavy_deps):
         """AF degenerate curve detection must call notifications.error()."""
         import pathlib
-        source = pathlib.Path("modules/autofocus_executor.py").read_text()
+        source = pathlib.Path("modules/autofocus_runner.py").read_text()
         idx = source.find("degenerate focus curve")
         assert idx != -1, "Degenerate curve handler must exist"
         nearby = source[idx:idx+500]
@@ -1184,11 +1184,11 @@ class TestG3_AutofocusFailureNotification:
             "AF degenerate curve handler must call notifications.error (G3 — Rule 14)"
 
     def test_af_imports_notifications(self, _mock_heavy_deps):
-        """autofocus_executor must import notifications module."""
+        """autofocus_runner must import notifications module."""
         import pathlib
-        source = pathlib.Path("modules/autofocus_executor.py").read_text()
+        source = pathlib.Path("modules/autofocus_runner.py").read_text()
         assert "from modules.notification_center import notifications" in source, \
-            "autofocus_executor must import notifications (G3)"
+            "autofocus_runner must import notifications (G3)"
 
 
 class TestRule14_A4_PreRunValidationNotify:
@@ -2787,7 +2787,7 @@ def _scope_attribute_calls(source: str, func_name: str) -> set[str]:
 
 
 class TestFrameValidity_AutofocusDrainsBeforeScore:
-    """AutofocusExecutor._iterate must drain LED/gain/exposure-pending
+    """AutofocusRunner._iterate must drain LED/gain/exposure-pending
     frames before scoring. Bare get_image after Z arrival can score on a
     mid-LED-warmup or mid-gain-change frame, corrupting the focus curve
     and landing the wrong best-Z. AF excludes z_move because AF is the
@@ -2795,19 +2795,19 @@ class TestFrameValidity_AutofocusDrainsBeforeScore:
 
     def test_iterate_calls_capture_and_wait(self):
         from pathlib import Path
-        src = (Path(__file__).resolve().parent.parent / "modules" / "autofocus_executor.py").read_text()
+        src = (Path(__file__).resolve().parent.parent / "modules" / "autofocus_runner.py").read_text()
         calls = _scope_attribute_calls(src, "_iterate")
         assert "capture_and_wait" in calls, (
-            "AutofocusExecutor._iterate must call self._scope.capture_and_wait(...) "
+            "AutofocusRunner._iterate must call self._scope.capture_and_wait(...) "
             "to drain LED/gain/exposure pending frames before scoring."
         )
 
     def test_iterate_does_not_call_bare_get_image(self):
         from pathlib import Path
-        src = (Path(__file__).resolve().parent.parent / "modules" / "autofocus_executor.py").read_text()
+        src = (Path(__file__).resolve().parent.parent / "modules" / "autofocus_runner.py").read_text()
         calls = _scope_attribute_calls(src, "_iterate")
         assert "get_image" not in calls, (
-            "AutofocusExecutor._iterate must not call self._scope.get_image(...) "
+            "AutofocusRunner._iterate must not call self._scope.get_image(...) "
             "directly -- bypasses frame_validity. Route through capture_and_wait."
         )
 
@@ -2815,10 +2815,10 @@ class TestFrameValidity_AutofocusDrainsBeforeScore:
         """AF excludes z_move because is_moving() already gates motion; the
         drain is for LED/gain/exposure transitions only."""
         from pathlib import Path
-        src = (Path(__file__).resolve().parent.parent / "modules" / "autofocus_executor.py").read_text()
+        src = (Path(__file__).resolve().parent.parent / "modules" / "autofocus_runner.py").read_text()
         # both call sites must specify exclude_sources=('z_move',)
         assert "exclude_sources=('z_move',)" in src, (
-            "AutofocusExecutor._iterate's capture_and_wait calls must pass "
+            "AutofocusRunner._iterate's capture_and_wait calls must pass "
             "exclude_sources=('z_move',) since is_moving() already gates motion."
         )
 

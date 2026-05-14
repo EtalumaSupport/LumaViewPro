@@ -214,7 +214,7 @@ class ProtocolImageWriter:
                 # despite LVP-side processing being fast).
                 #
                 # AF code already sets gain/exposure without a wrapper
-                # (modules/autofocus_executor.py:200,202). This change brings
+                # (modules/autofocus_runner.py:200,202). This change brings
                 # protocol behavior in line with AF.
                 #
                 # If a "Node is locked while streaming" GenICam exception fires

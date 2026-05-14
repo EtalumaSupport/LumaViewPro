@@ -143,7 +143,7 @@ class ProtocolStepExecutor:
         # overwrite with the pre-AF step['Z']. AFE.complete() being
         # True at this point means the most recent AF run finished
         # with a result that AFE has already scheduled to the UI.
-        if step.get('Auto_Focus') and p._autofocus_executor.complete():
+        if step.get('Auto_Focus') and p._autofocus_runner.complete():
             pass
         elif p._z_ui_update_func is not None:
             _schedule_ui(lambda dt: p._z_ui_update_func(float(step['Z'])))
@@ -168,11 +168,11 @@ class ProtocolStepExecutor:
         except Exception as e:
             logger.debug(f"[Capture   ] Could not read bf_af_for_fluorescence setting: {e}")
         if bf_af_for_fluor and step['Color'] != 'BF':
-            if p._autofocus_executor.best_focus_position() is not None:
+            if p._autofocus_runner.best_focus_position() is not None:
                 if p._update_z_pos_from_autofocus:
-                    new_z_pos = p._autofocus_executor.best_focus_position()
+                    new_z_pos = p._autofocus_runner.best_focus_position()
                     p._protocol.modify_step_z_height(step_idx=p._curr_step, z=new_z_pos)
-                logger.info(f'[Capture   ] Skipping AF on {step["Color"]} — using BF result Z={p._autofocus_executor.best_focus_position()}')
+                logger.info(f'[Capture   ] Skipping AF on {step["Color"]} — using BF result Z={p._autofocus_runner.best_focus_position()}')
                 step = dict(step)
                 step['Auto_Focus'] = False
 
@@ -212,7 +212,7 @@ class ProtocolStepExecutor:
 
         # Update Z position with autofocus results
         if step['Auto_Focus'] and p._update_z_pos_from_autofocus:
-            new_z_pos = p._autofocus_executor.best_focus_position()
+            new_z_pos = p._autofocus_runner.best_focus_position()
             if new_z_pos is not None:
                 p._protocol.modify_step_z_height(step_idx=p._curr_step, z=new_z_pos)
             else:

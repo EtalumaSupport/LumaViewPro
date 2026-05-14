@@ -98,7 +98,7 @@ if __name__ == '__main__':
     import modules.objectives_loader as objectives_loader
     import modules.profiling_utils as profiling_utils
     from modules.app_context import AppContext
-    from modules.autofocus_executor import AutofocusExecutor
+    from modules.autofocus_runner import AutofocusRunner
     from modules.autofocus_thread import AutofocusThread
     from modules.scope_session import ScopeSession
     from modules.sequenced_capture_executor import SequencedCaptureExecutor
@@ -681,7 +681,7 @@ class LumaViewProApp(TooltipMixin, App):
         # can resolve data/tiling.json without callers passing the path.
         lumaview.scope.register_source_path(source_path)
 
-        autofocus_executor = AutofocusExecutor(
+        autofocus_runner = AutofocusRunner(
             scope=lumaview.scope,
             camera_executor=camera_executor,
             io_executor=io_executor,
@@ -694,7 +694,7 @@ class LumaViewProApp(TooltipMixin, App):
         # AFE so the wiring is one-way (thread holds AFE, AFE is unaware
         # of the thread except via the abort_event passed to run()).
         autofocus_thread = AutofocusThread(
-            afe=autofocus_executor,
+            afe=autofocus_runner,
             ui_dispatcher=_ui,
         )
         autofocus_thread.start()
@@ -702,7 +702,7 @@ class LumaViewProApp(TooltipMixin, App):
         sequenced_capture_executor = SequencedCaptureExecutor(
             scope=lumaview.scope,
             stage_offset=settings['stage_offset'],
-            autofocus_executor=autofocus_executor,
+            autofocus_runner=autofocus_runner,
             io_executor=io_executor,
             protocol_executor=protocol_executor,
             file_io_executor=file_io_executor,
@@ -718,7 +718,7 @@ class LumaViewProApp(TooltipMixin, App):
             settings=settings,
             session=scope_session,
             sequenced_capture_executor=sequenced_capture_executor,
-            autofocus_executor=autofocus_executor,
+            autofocus_runner=autofocus_runner,
             version=version,
             source_path=source_path,
             io_executor=io_executor,

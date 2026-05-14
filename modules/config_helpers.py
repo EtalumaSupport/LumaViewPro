@@ -499,10 +499,10 @@ def log_system_metrics(settings: dict):
         for name in ('sequenced_capture_executor', 'protocol_executor',
                      'io_executor', 'camera_executor', 'file_io_executor',
                      'worker_pool'):
-            # scope_display_thread, autofocus_thread, autofocus_executor
+            # scope_display_thread, autofocus_thread, autofocus_runner
             # excluded: scope_display_thread and autofocus_thread are bare
             # Threads with no queue and no caller_futures;
-            # AutofocusExecutor has neither _work_queue nor
+            # AutofocusRunner has neither _work_queue nor
             # caller_futures_stats either.
             try:
                 exe = getattr(ctx, name, None)
@@ -530,10 +530,10 @@ def log_system_metrics(settings: dict):
         for name in ('sequenced_capture_executor', 'protocol_executor',
                      'io_executor', 'camera_executor', 'file_io_executor',
                      'worker_pool'):
-            # scope_display_thread, autofocus_thread, autofocus_executor
+            # scope_display_thread, autofocus_thread, autofocus_runner
             # excluded: scope_display_thread and autofocus_thread are bare
             # Threads with no queue and no caller_futures;
-            # AutofocusExecutor has neither _work_queue nor
+            # AutofocusRunner has neither _work_queue nor
             # caller_futures_stats either.
             try:
                 exe = getattr(ctx, name, None)

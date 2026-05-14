@@ -113,9 +113,9 @@ class TestAFRaceCondition:
         currently prevents.
         """
         import inspect
-        from modules.autofocus_executor import AutofocusExecutor
+        from modules.autofocus_runner import AutofocusRunner
 
-        source = inspect.getsource(AutofocusExecutor._iterate)
+        source = inspect.getsource(AutofocusRunner._iterate)
         last_pass_start = source.index('if self._last_pass:')
         last_pass_block = source[last_pass_start:]
         return_idx = last_pass_block.index('\n                return\n')

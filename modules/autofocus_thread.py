@@ -6,7 +6,7 @@
 
 Replaces the queue-of-1 SequentialIOExecutor pattern that previously
 hosted AF execution. The thread owns the per-iteration loop; calls
-AutofocusExecutor.run(**args, abort_event=...) to completion per
+AutofocusRunner.run(**args, abort_event=...) to completion per
 request; sets the request's Future when AF finishes (success, abort,
 or failure).
 
@@ -50,11 +50,11 @@ class AutofocusThread:
 
     The thread idles on a request queue between AF runs; when
     run_autofocus() is called it picks up the request, drives
-    AutofocusExecutor.run(...) to completion, and resolves the
+    AutofocusRunner.run(...) to completion, and resolves the
     request's Future.
 
     Args:
-        afe: an AutofocusExecutor instance. The thread calls
+        afe: an AutofocusRunner instance. The thread calls
             afe.run(**kwargs, abort_event=self._aborted) per request.
         ui_dispatcher: optional callable(callback, delay_seconds) for
             posting work back to the UI thread. Defaults to a direct
@@ -142,7 +142,7 @@ class AutofocusThread:
         exception on failure or abort.
 
         Args:
-            **kwargs: forwarded verbatim to AutofocusExecutor.run().
+            **kwargs: forwarded verbatim to AutofocusRunner.run().
 
         Returns:
             Future[float | None]. Inspect with .result(timeout=...) to

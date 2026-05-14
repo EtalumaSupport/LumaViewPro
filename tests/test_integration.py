@@ -9,7 +9,7 @@ inspecting simulator state after protocol runs.
 Test tiers:
   - Tier 1: Single-step protocols — verify LED, motor, camera state
   - Tier 2: Multi-step protocols — multi-channel, Z-stack, tiling
-  - Tier 3: Autofocus — real AutofocusExecutor with SimulatedCamera focus simulation
+  - Tier 3: Autofocus — real AutofocusRunner with SimulatedCamera focus simulation
 """
 
 import datetime
@@ -46,7 +46,7 @@ from modules.lumascope_api import Lumascope
 from modules.sequential_io_executor import SequentialIOExecutor
 from modules.sequenced_capture_executor import SequencedCaptureExecutor
 from modules.sequenced_capture_executor import SequencedCaptureRunMode
-from modules.autofocus_executor import AutofocusExecutor
+from modules.autofocus_runner import AutofocusRunner
 from modules.protocol import Protocol
 
 # ---------------------------------------------------------------------------
@@ -259,7 +259,7 @@ def executor(scope, executors):
         file_io_executor=executors['file_io'],
         camera_executor=executors['camera'],
         autofocus_thread=MagicMock(),
-        autofocus_executor=mock_af,
+        autofocus_runner=mock_af,
     )
     exc._wellplate_loader = WellPlateLoader()
     exc._coordinate_transformer = CoordinateTransformer()
@@ -268,8 +268,8 @@ def executor(scope, executors):
 
 @pytest.fixture
 def af_executor(scope, executors):
-    """Create a SequencedCaptureExecutor with real AutofocusExecutor for AF tests."""
-    af = AutofocusExecutor(
+    """Create a SequencedCaptureExecutor with real AutofocusRunner for AF tests."""
+    af = AutofocusRunner(
         scope=scope,
         camera_executor=executors['camera'],
         io_executor=executors['io'],
@@ -284,7 +284,7 @@ def af_executor(scope, executors):
         file_io_executor=executors['file_io'],
         camera_executor=executors['camera'],
         autofocus_thread=MagicMock(),
-        autofocus_executor=af,
+        autofocus_runner=af,
     )
     return exc
 
@@ -487,7 +487,7 @@ class TestIntegrationTiling:
 # ===========================================================================
 
 class TestIntegrationAutofocus:
-    """Autofocus tests using real AutofocusExecutor + SimulatedCamera focus sim."""
+    """Autofocus tests using real AutofocusRunner + SimulatedCamera focus sim."""
 
     def test_autofocus_step_completes(self, af_executor, scope, tmp_path):
         """Single step with auto_focus=True completes using real AF executor."""
@@ -519,7 +519,7 @@ class TestIntegrationAutofocus:
         scope.camera.set_test_pattern('focus_target')
         scope.camera.set_focal_z(5000.0)
 
-        af = AutofocusExecutor(
+        af = AutofocusRunner(
             scope=scope,
             camera_executor=executors['camera'],
             io_executor=executors['io'],
@@ -762,7 +762,7 @@ class TestHeadlessSession:
         there are no Clock-schedule attributes to misconfigure."""
         session = ScopeSession.create_headless()
         runner = session.create_protocol_runner()
-        af = runner.sequenced_capture_executor._autofocus_executor
+        af = runner.sequenced_capture_executor._autofocus_runner
         assert not hasattr(af, '_clock_unschedule_fn')
         assert not hasattr(af, '_clock_schedule_interval_fn')
 
@@ -917,13 +917,13 @@ class TestRestAPIPrep:
         assert current is not None
         assert isinstance(current, dict)
 
-    def test_autofocus_executor_get_status_idle(self):
-        """AutofocusExecutor.get_status() should return idle state initially."""
+    def test_autofocus_runner_get_status_idle(self):
+        """AutofocusRunner.get_status() should return idle state initially."""
         session = ScopeSession.create_headless()
         session.start_executors()
         try:
             runner = session.create_protocol_runner()
-            af = runner.sequenced_capture_executor._autofocus_executor
+            af = runner.sequenced_capture_executor._autofocus_runner
             status = af.get_status()
             assert status['state'] == 'idle'
             assert status['in_progress'] is False
@@ -939,7 +939,7 @@ class TestRestAPIPrep:
         session.start_executors()
         try:
             runner = session.create_protocol_runner()
-            af = runner.sequenced_capture_executor._autofocus_executor
+            af = runner.sequenced_capture_executor._autofocus_runner
             thread = AutofocusThread(afe=af)
             thread.start()
             try:
@@ -959,7 +959,7 @@ class TestRestAPIPrep:
         session.start_executors()
         try:
             runner = session.create_protocol_runner()
-            af = runner.sequenced_capture_executor._autofocus_executor
+            af = runner.sequenced_capture_executor._autofocus_runner
             thread = AutofocusThread(afe=af)
             thread.start()
             try:
@@ -983,7 +983,7 @@ class TestRestAPIPrep:
         session.start_executors()
         try:
             runner = session.create_protocol_runner()
-            af = runner.sequenced_capture_executor._autofocus_executor
+            af = runner.sequenced_capture_executor._autofocus_runner
             thread = AutofocusThread(afe=af)
             thread.start()
             try:

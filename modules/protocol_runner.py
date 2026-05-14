@@ -30,7 +30,7 @@ import modules.common_utils as common_utils
 from modules.protocol import Protocol
 from modules.sequenced_capture_executor import SequencedCaptureExecutor, SequencedCaptureRunMode
 from modules.sequential_io_executor import SequentialIOExecutor
-from modules.autofocus_executor import AutofocusExecutor
+from modules.autofocus_runner import AutofocusRunner
 
 
 class ProtocolRunner:

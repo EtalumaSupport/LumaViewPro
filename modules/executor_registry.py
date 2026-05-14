@@ -21,7 +21,7 @@ instances:
 
 The AF lane is intentionally absent from the registry; AutofocusThread
 is constructed in lumaviewpro.py:build() once the Lumascope + the
-AutofocusExecutor it drives are available, and lives directly on
+AutofocusRunner it drives are available, and lives directly on
 AppContext.
 
 Until LVP-A-10 every entry point open-coded ~45 lines of construct +

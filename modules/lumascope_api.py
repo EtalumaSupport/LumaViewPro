@@ -6015,7 +6015,7 @@ class Lumascope():
     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
     # Legacy autofocus methods (autofocus, autofocus_iterate, focus_best) removed
-    # 2026-03-31 — superseded by AutofocusExecutor. No callers remained.
+    # 2026-03-31 — superseded by AutofocusRunner. No callers remained.
 
 # Static methods for save_image functionality
     @staticmethod

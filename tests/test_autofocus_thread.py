@@ -22,7 +22,7 @@ from modules.exceptions import AutofocusAborted
 
 
 class _FakeAFE:
-    """Minimal AutofocusExecutor stand-in. The thread calls run(...) per
+    """Minimal AutofocusRunner stand-in. The thread calls run(...) per
     request; this stub blocks until the abort_event is set OR returns
     after a configurable delay so tests can drive both completion paths.
     """

@@ -27,7 +27,7 @@ XTARGET is already on the hardware, so any subsequent `position_reached`
 poll reflects the new (correct) target — guaranteed False until real
 arrival. The same fix was applied to `move_relative_position`.
 
-Side effect: the same race affected `AutofocusExecutor._iterate()`, which
+Side effect: the same race affected `AutofocusRunner._iterate()`, which
 checks `scope.is_moving()` before capturing each focus-curve sample. AF
 "noise" from sporadic bad data points was likely caused by this same
 race. The fix resolves both #618 and the latent AF issue.

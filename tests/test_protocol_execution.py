@@ -278,7 +278,7 @@ def executor(scope, executors):
     """Create a SequencedCaptureExecutor with real simulated scope,
     real WellPlateLoader, and real CoordinateTransformer.
 
-    Only the AutofocusExecutor is mocked (real AF needs camera focus
+    Only the AutofocusRunner is mocked (real AF needs camera focus
     simulation which is only set up in dedicated AF test fixtures).
     """
     from modules.coord_transformations import CoordinateTransformer
@@ -301,7 +301,7 @@ def executor(scope, executors):
         file_io_executor=executors['file_io'],
         camera_executor=executors['camera'],
         autofocus_thread=MagicMock(),
-        autofocus_executor=mock_af,
+        autofocus_runner=mock_af,
     )
     exc._wellplate_loader = WellPlateLoader()
     exc._coordinate_transformer = CoordinateTransformer()
@@ -378,7 +378,7 @@ class TestSingleScanAutoFocus:
         protocol = _make_single_step_protocol(color='BF', auto_focus=True)
 
         # Simulate AF already complete so _scan_iterate proceeds past AF logic
-        af = executor._autofocus_executor
+        af = executor._autofocus_runner
         af.complete.return_value = True
         af.in_progress.return_value = False
         # Per-step Future tracks AF state; mock as done so scan_iterate
@@ -396,7 +396,7 @@ class TestSingleScanAutoFocusNoneResult:
     def test_completes_when_autofocus_returns_none(self, executor, scope, tmp_path):
         protocol = _make_single_step_protocol(color='BF', auto_focus=True)
 
-        af = executor._autofocus_executor
+        af = executor._autofocus_runner
         af.complete.return_value = True
         af.in_progress.return_value = False
         # Per-step Future tracks AF state; mock as done so scan_iterate
@@ -412,7 +412,7 @@ class TestSingleScanAutoFocusNoneResult:
         protocol = _make_single_step_protocol(color='BF', auto_focus=True)
         original_z = protocol.step(idx=0)['Z']
 
-        af = executor._autofocus_executor
+        af = executor._autofocus_runner
         af.complete.return_value = True
         af.in_progress.return_value = False
         # Per-step Future tracks AF state; mock as done so scan_iterate
@@ -435,7 +435,7 @@ class TestSingleScanAutoGainAndAutoFocus:
         protocol = _make_single_step_protocol(color='BF', auto_gain=True, auto_focus=True)
 
         # Simulate AF already complete
-        af = executor._autofocus_executor
+        af = executor._autofocus_runner
         af.complete.return_value = True
         af.in_progress.return_value = False
         # Per-step Future tracks AF state; mock as done so scan_iterate
@@ -461,7 +461,7 @@ class TestAFSliderRaceRegression:
         protocol = _make_single_step_protocol(color='BF', auto_focus=True)
         pre_af_z = protocol.step(idx=0)['Z']
 
-        af = executor._autofocus_executor
+        af = executor._autofocus_runner
         af.complete.return_value = True
         af.in_progress.return_value = False
         # Per-step Future tracks AF state; mock as done so scan_iterate
@@ -848,7 +848,7 @@ class TestZStackWithAutoFocus:
         steps = _make_zstack_steps(num_slices=3, auto_focus=True)
         protocol = _make_multi_step_protocol(steps)
 
-        af = executor._autofocus_executor
+        af = executor._autofocus_runner
         af.complete.return_value = True
         af.in_progress.return_value = False
         # Per-step Future tracks AF state; mock as done so scan_iterate
@@ -961,7 +961,7 @@ class TestRunModeSingleAutofocusScan:
     def test_completes(self, executor, scope, tmp_path):
         protocol = _make_single_step_protocol(color='BF', auto_focus=True)
 
-        af = executor._autofocus_executor
+        af = executor._autofocus_runner
         af.complete.return_value = True
         af.in_progress.return_value = False
         # Per-step Future tracks AF state; mock as done so scan_iterate
@@ -1094,7 +1094,7 @@ class TestAutoFocusWithTiling:
         steps = _make_tile_grid_steps(rows=2, cols=2, auto_focus=True)
         protocol = _make_multi_step_protocol(steps)
 
-        af = executor._autofocus_executor
+        af = executor._autofocus_runner
         af.complete.return_value = True
         af.in_progress.return_value = False
         # Per-step Future tracks AF state; mock as done so scan_iterate
