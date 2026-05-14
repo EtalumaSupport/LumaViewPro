@@ -794,6 +794,14 @@ class LumaViewProApp(TooltipMixin, App):
         except Exception as e:  # grain: ignore NAKED_EXCEPT
             logger.warning(f'[LVP Main  ] Engineering plugin failed to register: {e}')
 
+        # Discover any plugins installed via entry_points group 'lvp.plugins'.
+        # The etaluma_engineering import above is the legacy import-by-name path
+        # and will retire once it ships with [project.entry-points]; until then
+        # both paths coexist and load_plugins is a no-op if no entry-points
+        # are registered.
+        from modules.plugins import load_plugins
+        load_plugins(ctx)
+
         # Enable engineering-only log files (autofocus.log, api.log)
         from lvp_logger import enable_engineering_logs
 
@@ -857,6 +865,15 @@ class LumaViewProApp(TooltipMixin, App):
             notifications.set_shutting_down(True)
         except Exception as e:  # grain: ignore NAKED_EXCEPT
             logger.warning(f'[LVP Main  ] Failed to suppress notifications on shutdown: {e}')
+
+        # Plugins released first: their listener subscriptions and file handles
+        # need to drop before hardware tear-down so shutdown ordering matches
+        # registration ordering.
+        try:
+            from modules.plugins import unload_plugins
+            unload_plugins(ctx)
+        except Exception as e:  # grain: ignore NAKED_EXCEPT
+            logger.warning(f'[LVP Main  ] Plugin unload during shutdown raised: {e}')
 
         # Unschedule all recurring interval callbacks to prevent orphaned events
         try:

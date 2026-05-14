@@ -3,6 +3,8 @@ import copy
 import threading
 from dataclasses import dataclass, field
 
+from modules.plugins import PluginRegistry
+
 # Module-level singleton — set by LumaViewProApp.build() after construction.
 # Extracted modules import this module and access `app_context.ctx` to avoid
 # circular imports with lumaviewpro.py.
@@ -86,6 +88,9 @@ class AppContext:
     ij_helper: object = None
     metrics_logger: object = None       # MetricsLogger (LVP-A-12)
     ui_listener_bridge: object = None   # UIListenerBridge (LVP-A-6)
+
+    # Plugin platform (Phase A: registry; Phase B1/B2: entry-points discovery)
+    plugins: PluginRegistry = field(default_factory=PluginRegistry)
 
     # State
     protocol: object = None            # Protocol instance (canonical owner, not UI)

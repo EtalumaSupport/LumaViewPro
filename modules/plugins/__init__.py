@@ -1,0 +1,540 @@
+# Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
+"""Plugin platform for LumaViewPro.
+
+Single platform, namespace-scoped registries, lifecycle-aware.
+Spec: Firmware/docs/PLUGIN_API_DESIGN_2026-05-09.md
+
+Four namespaces hardcoded for 4.x: ui, post_processing, live_processing,
+rest. Adding a fifth is a deliberate platform-spec change, not a runtime
+extension. Decision held at four because the surfaces map to where
+LumaViewPro can be extended: UI tree, batch processing of saved
+captures, per-frame processing during capture, and external HTTP
+clients. New extension surfaces should be considered against those
+axes before a new namespace is added.
+
+Plugin authors implement:
+    __version__ = "X.Y.Z"
+    spec = PluginSpec(...)
+    def register(ctx): ...
+    def unregister(ctx): ...                    # optional
+    def on_settings_changed(ctx, settings): ... # optional, fires per spec.subscribes_to
+
+The host discovers plugins via entry_points group 'lvp.plugins'.
+"""
+from __future__ import annotations
+
+import importlib.metadata
+import logging
+import re
+import threading
+from dataclasses import dataclass, field
+from typing import Any, Callable, Optional
+
+logger = logging.getLogger('lvp_logger')
+
+
+ENTRY_POINT_GROUP = 'lvp.plugins'
+
+# Mount points are locked to the set the host knows how to attach.
+# Additional names are added when a real consumer needs them, paired
+# with a widget-shape contract for that specific mount. Plugins that
+# pass an unknown name get a PluginRegistrationError, not a silent
+# attach to nothing.
+UI_MOUNT_POINTS = frozenset({
+    'left_sidebar.accordion',
+})
+
+
+# ---------------------------------------------------------------------------
+# Exceptions
+# ---------------------------------------------------------------------------
+
+
+class PluginRegistrationError(Exception):
+    """Raised when a plugin cannot be registered.
+
+    Causes: name collision within a namespace, unknown mount point,
+    version mismatch, malformed spec. The plugin is NOT loaded and the
+    app continues. Host wraps the raise in try/except and fires
+    notifications.error so the user sees the failure.
+    """
+
+
+# ---------------------------------------------------------------------------
+# Data classes
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class PluginSpec:
+    """Declarative metadata a plugin presents at registration time.
+
+    capabilities lists the API surfaces the plugin uses (dotted paths,
+    e.g. 'scope.imaging', 'modules.image_save'). Not enforced as a
+    sandbox in 4.x; used by the tech-support report and diagnostic
+    probes to record which plugins were loaded when data was collected.
+
+    subscribes_to lists settings-tree keys (dot-path notation, e.g.
+    'manual_video.max_fps'). The host fires on_settings_changed only
+    when one of those keys changes. Empty tuple = hook never fires.
+    """
+    name: str
+    version: str
+    requires_lvp_version: str
+    description: str
+    capabilities: tuple[str, ...] = ()
+    subscribes_to: tuple[str, ...] = ()
+    author: str = ''
+    url: str = ''
+
+
+@dataclass(frozen=True)
+class PluginStatus:
+    """Snapshot of a plugin's load state for health reports."""
+    name: str
+    version: str
+    namespace: str
+    loaded: bool
+    error: str = ''
+
+
+@dataclass(frozen=True)
+class PluginRuntimeError:
+    """A runtime error caught from a plugin handler.
+
+    Distinct from a load failure: the plugin loaded fine, but raised
+    while servicing a callback (e.g. on_settings_changed). Logged at
+    ERROR and surfaced via NamespaceHealth.last_runtime_errors so
+    diagnostic probes can attribute fault to the right plugin.
+    """
+    plugin_name: str
+    namespace: str
+    hook: str
+    exc_type: str
+    message: str
+
+
+@dataclass(frozen=True)
+class NamespaceHealth:
+    """Per-namespace snapshot for tech-support + diagnostic probes."""
+    namespace: str
+    loaded: tuple[PluginStatus, ...]
+    failed: tuple[PluginStatus, ...]
+    last_runtime_errors: tuple[PluginRuntimeError, ...]
+
+
+# Processor result for post_processing namespace.
+# Plugins return this from their processor callable so the host knows
+# what artifacts to surface in the run-complete dialog and where to
+# log success/failure.
+@dataclass(frozen=True)
+class ProcessorResult:
+    success: bool
+    outputs: tuple[str, ...] = ()    # absolute paths to produced files
+    message: str = ''                # one-line user-facing summary
+    metadata: dict = field(default_factory=dict)
+
+
+# ---------------------------------------------------------------------------
+# Per-namespace registries
+# ---------------------------------------------------------------------------
+
+
+class _BaseNamespace:
+    """Common state for the four namespace registries."""
+
+    NAMESPACE: str = ''
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._loaded: dict[str, PluginStatus] = {}
+        self._failed: list[PluginStatus] = []
+        self._runtime_errors: list[PluginRuntimeError] = []
+        self._handlers: dict[str, Any] = {}
+
+    def _record_loaded(self, spec: PluginSpec) -> None:
+        status = PluginStatus(
+            name=spec.name,
+            version=spec.version,
+            namespace=self.NAMESPACE,
+            loaded=True,
+        )
+        self._loaded[spec.name] = status
+
+    def _record_failed(self, name: str, version: str, error: str) -> None:
+        self._failed.append(PluginStatus(
+            name=name,
+            version=version,
+            namespace=self.NAMESPACE,
+            loaded=False,
+            error=error,
+        ))
+
+    def record_runtime_error(self, plugin_name: str, hook: str, exc: BaseException) -> None:
+        """Plugins do not call this directly. The host wraps callbacks
+        in try/except and feeds caught exceptions through here so the
+        diagnostic surface knows which plugin failed."""
+        self._runtime_errors.append(PluginRuntimeError(
+            plugin_name=plugin_name,
+            namespace=self.NAMESPACE,
+            hook=hook,
+            exc_type=type(exc).__name__,
+            message=str(exc),
+        ))
+
+    def health(self) -> NamespaceHealth:
+        with self._lock:
+            return NamespaceHealth(
+                namespace=self.NAMESPACE,
+                loaded=tuple(self._loaded.values()),
+                failed=tuple(self._failed),
+                last_runtime_errors=tuple(self._runtime_errors),
+            )
+
+    def _assert_unique(self, spec: PluginSpec) -> None:
+        if spec.name in self._loaded:
+            raise PluginRegistrationError(
+                f"Plugin '{spec.name}' already registered in '{self.NAMESPACE}'"
+            )
+
+
+class UIRegistry(_BaseNamespace):
+    """UI-extending plugins. Adds widgets at named mount points.
+
+    register(spec, mount_point, builder):
+        mount_point: a name from UI_MOUNT_POINTS
+        builder: callable returning a Kivy widget. Called by the host
+                 at attach time, not at registration time, so the host
+                 can defer instantiation until the mount-point widget
+                 exists in the tree.
+    """
+
+    NAMESPACE = 'ui'
+
+    def register(self, spec: PluginSpec, mount_point: str, builder: Callable[[], Any]) -> None:
+        if mount_point not in UI_MOUNT_POINTS:
+            raise PluginRegistrationError(
+                f"Unknown UI mount point '{mount_point}'. Known: "
+                f"{sorted(UI_MOUNT_POINTS)}"
+            )
+        with self._lock:
+            self._assert_unique(spec)
+            self._handlers[spec.name] = (mount_point, builder)
+            self._record_loaded(spec)
+
+    def mounts(self) -> tuple[tuple[str, str, Callable[[], Any]], ...]:
+        """Return (plugin_name, mount_point, builder) tuples for the host
+        to attach during widget-tree construction. Returned list is a
+        snapshot; subsequent registrations don't appear here."""
+        with self._lock:
+            return tuple(
+                (name, mp, builder)
+                for name, (mp, builder) in self._handlers.items()
+            )
+
+
+class PostProcessingRegistry(_BaseNamespace):
+    """Operate on saved files. Intern's primary surface.
+
+    register(spec, processor):
+        processor: callable
+            processor(input_dir, manifest, output_dir) -> ProcessorResult
+        Invoked from the user's 'Run Post-Processor' menu, or scheduled
+        at protocol-completion time if the plugin's spec opts in.
+    """
+
+    NAMESPACE = 'post_processing'
+
+    def register(
+        self,
+        spec: PluginSpec,
+        processor: Callable[[str, dict, str], ProcessorResult],
+    ) -> None:
+        with self._lock:
+            self._assert_unique(spec)
+            self._handlers[spec.name] = processor
+            self._record_loaded(spec)
+
+    def get(self, name: str) -> Optional[Callable]:
+        with self._lock:
+            return self._handlers.get(name)
+
+    def names(self) -> tuple[str, ...]:
+        with self._lock:
+            return tuple(self._handlers.keys())
+
+
+class LiveProcessingRegistry(_BaseNamespace):
+    """Per-frame listener plugins. Name locked; body ships in Wave 7 Phase 4.
+
+    The per-frame fire sites in the camera drivers (Pylon / IDS / FX2
+    / Sim) and the listener thread contract are deferred to the
+    ImagingAPI relocation. Until then, register() fails fast so plugin
+    authors get a clear signal that the surface isn't live yet.
+    """
+
+    NAMESPACE = 'live_processing'
+
+    def register(self, spec: PluginSpec, frame_handler: Callable) -> None:
+        raise PluginRegistrationError(
+            "ctx.plugins.live_processing is reserved but not yet implemented. "
+            "Per-frame listener infrastructure ships with Wave 7 Phase 4 "
+            "(ImagingAPI relocation). Plan to call this from a "
+            "post_processing plugin instead, or wait for the listener "
+            "registry to land."
+        )
+
+
+class RESTRegistry(_BaseNamespace):
+    """REST endpoint plugins. Name locked; body deferred to REST design session.
+
+    Plugin authors will register a sub-router mounted under
+    /plugins/<name>/. The dangerous-command middleware applies to
+    plugin endpoints same as core endpoints. Until the REST design
+    session locks the URL convention, register() raises so plugins
+    don't bake in assumptions that will need to be unwound.
+    """
+
+    NAMESPACE = 'rest'
+
+    def register(self, spec: PluginSpec, router: Any) -> None:
+        raise PluginRegistrationError(
+            "ctx.plugins.rest is reserved but not yet implemented. "
+            "REST URL convention is locked at the REST design session "
+            "(tracked at docs/TODO.md). Plan to register here when "
+            "REST_API_PLAN.md Phase 1 ships."
+        )
+
+
+# ---------------------------------------------------------------------------
+# Top-level registry container
+# ---------------------------------------------------------------------------
+
+
+class PluginRegistry:
+    """Single ctx.plugins entry point exposing the four namespaces.
+
+    Lifecycle:
+        - Constructed empty when AppContext is created.
+        - Populated by load_plugins(ctx) at app startup after the
+          widget tree + AppContext are initialized.
+        - Drained by unload_plugins(ctx) at app shutdown, reverse
+          order, exceptions swallowed past WARNING.
+    """
+
+    def __init__(self) -> None:
+        self.ui = UIRegistry()
+        self.post_processing = PostProcessingRegistry()
+        self.live_processing = LiveProcessingRegistry()
+        self.rest = RESTRegistry()
+        self._loaded_plugins: list[tuple[str, Any]] = []   # (name, module)
+        self._loaded_lock = threading.Lock()
+
+    def _track(self, name: str, module: Any) -> None:
+        with self._loaded_lock:
+            self._loaded_plugins.append((name, module))
+
+    def _drain(self) -> list[tuple[str, Any]]:
+        with self._loaded_lock:
+            out = list(self._loaded_plugins)
+            self._loaded_plugins.clear()
+        return out
+
+    def all_health(self) -> tuple[NamespaceHealth, ...]:
+        """Return per-namespace health snapshots for tech-support reports."""
+        return (
+            self.ui.health(),
+            self.post_processing.health(),
+            self.live_processing.health(),
+            self.rest.health(),
+        )
+
+
+# ---------------------------------------------------------------------------
+# Version compatibility
+# ---------------------------------------------------------------------------
+
+
+_SEMVER_RE = re.compile(r'^(\d+)\.(\d+)\.(\d+)')
+_REQ_RE = re.compile(r'^(>=|>|==|<=|<|~=)?\s*(\d+)\.(\d+)\.(\d+)')
+
+
+def _parse_semver(s: str) -> Optional[tuple[int, int, int]]:
+    """Parse leading semver triple from a string. '4.0.0-beta8' -> (4,0,0)."""
+    m = _SEMVER_RE.match(s.strip())
+    if not m:
+        return None
+    return int(m.group(1)), int(m.group(2)), int(m.group(3))
+
+
+def _parse_requirement(req: str) -> Optional[tuple[str, tuple[int, int, int]]]:
+    m = _REQ_RE.match(req.strip())
+    if not m:
+        return None
+    op = m.group(1) or '>='
+    return op, (int(m.group(2)), int(m.group(3)), int(m.group(4)))
+
+
+def is_version_compatible(requires: str, host: str) -> bool:
+    """Check if the host satisfies the plugin's requires_lvp_version.
+
+    Pre-release suffixes ('-beta8', '-rc1') are stripped before compare.
+    A malformed requirement string conservatively returns False so the
+    plugin gets visible-rejected rather than silently loaded.
+    """
+    req = _parse_requirement(requires)
+    have = _parse_semver(host)
+    if req is None or have is None:
+        return False
+    op, want = req
+    if op == '>=':
+        return have >= want
+    if op == '>':
+        return have > want
+    if op == '==':
+        return have == want
+    if op == '<=':
+        return have <= want
+    if op == '<':
+        return have < want
+    if op == '~=':
+        # Compatible release: same major, minor >= want.minor
+        return have[0] == want[0] and have >= want
+    return False
+
+
+# ---------------------------------------------------------------------------
+# Discovery + loading
+# ---------------------------------------------------------------------------
+
+
+def _extract_spec(module: Any) -> Optional[PluginSpec]:
+    """Plugins expose a module-level 'spec' attribute."""
+    spec = getattr(module, 'spec', None)
+    if isinstance(spec, PluginSpec):
+        return spec
+    return None
+
+
+def _notify_load_failure(ctx: Any, plugin_name: str, reason: str) -> None:
+    """Fire a user-facing notification per Rule 14 when a plugin fails to load.
+
+    Best-effort: if notifications aren't wired (e.g. headless test
+    harness), the failure is still logged and the function returns.
+    """
+    try:
+        from modules.notification_center import notifications
+        notifications.error(
+            category='Plugins',
+            title='Plugin load failed',
+            message=f"{plugin_name} did not load: {reason}. "
+                    f"Other features unaffected.",
+            source='modules.plugins',
+        )
+    except Exception:
+        logger.exception('[Plugins ] notification_center unavailable')
+
+
+def load_plugins(ctx: Any) -> None:
+    """Discover and load plugins via entry_points group 'lvp.plugins'.
+
+    Called once at app startup after AppContext is initialized and the
+    widget tree exists. Each plugin's register(ctx) is wrapped in
+    try/except; a failed plugin is logged + notified but does not
+    abort the app. The plugin module is tracked so unload_plugins can
+    call its unregister(ctx) at shutdown.
+    """
+    if ctx is None or not hasattr(ctx, 'plugins'):
+        logger.error('[Plugins ] load_plugins called without ctx.plugins')
+        return
+
+    host_version = getattr(ctx, 'version', '') or ''
+    try:
+        discovered = importlib.metadata.entry_points(group=ENTRY_POINT_GROUP)
+    except TypeError:
+        # Older importlib.metadata returns a dict.
+        discovered = importlib.metadata.entry_points().get(ENTRY_POINT_GROUP, [])
+
+    count = 0
+    for ep in discovered:
+        ep_name = getattr(ep, 'name', '<unknown>')
+        try:
+            module = ep.load()
+        except Exception as e:
+            logger.error(
+                f'[Plugins ] {ep_name}: import failed: {e}', exc_info=True,
+            )
+            _notify_load_failure(ctx, ep_name, f'import error ({type(e).__name__})')
+            continue
+
+        spec = _extract_spec(module)
+        if spec is None:
+            logger.warning(
+                f'[Plugins ] {ep_name}: no module-level PluginSpec, skipping',
+            )
+            continue
+
+        if not is_version_compatible(spec.requires_lvp_version, host_version):
+            logger.warning(
+                f'[Plugins ] {spec.name} v{spec.version} requires LVP '
+                f'{spec.requires_lvp_version}; have {host_version}; skipping',
+            )
+            ctx.plugins.ui._record_failed(
+                spec.name, spec.version,
+                f'requires {spec.requires_lvp_version}, have {host_version}',
+            )
+            continue
+
+        register_fn = getattr(module, 'register', None)
+        if not callable(register_fn):
+            logger.warning(
+                f'[Plugins ] {spec.name}: no register(ctx) function, skipping',
+            )
+            continue
+
+        try:
+            register_fn(ctx)
+        except Exception as e:
+            logger.error(
+                f'[Plugins ] {spec.name}: register() failed: {e}', exc_info=True,
+            )
+            _notify_load_failure(ctx, spec.name, f'{type(e).__name__}: {e}')
+            # Give the plugin a chance to clean up partial state.
+            unregister_fn = getattr(module, 'unregister', None)
+            if callable(unregister_fn):
+                try:
+                    unregister_fn(ctx)
+                except Exception:
+                    logger.warning(
+                        f'[Plugins ] {spec.name}: unregister after failed '
+                        f'register also failed', exc_info=True,
+                    )
+            continue
+
+        ctx.plugins._track(spec.name, module)
+        count += 1
+        logger.info(f'[Plugins ] {spec.name} v{spec.version} loaded')
+
+    logger.info(f'[Plugins ] discovery complete -- {count} loaded')
+
+
+def unload_plugins(ctx: Any) -> None:
+    """Call unregister(ctx) on every loaded plugin in reverse order.
+
+    Called from LumaViewProApp.on_stop. Exceptions are caught and
+    logged at WARNING; shutdown is not blocked by a plugin's
+    unregister failure.
+    """
+    if ctx is None or not hasattr(ctx, 'plugins'):
+        return
+    for name, module in reversed(ctx.plugins._drain()):
+        unregister_fn = getattr(module, 'unregister', None)
+        if not callable(unregister_fn):
+            continue
+        try:
+            unregister_fn(ctx)
+            logger.info(f'[Plugins ] {name}: unregister complete')
+        except Exception:
+            logger.warning(
+                f'[Plugins ] {name}: unregister failed', exc_info=True,
+            )
