@@ -102,16 +102,14 @@ class ProtocolStepExecutor:
             return
         if not p._run_in_progress_event.is_set():
             return
-        if p._autofocus_executor.in_progress():
+        if p._af_future is not None and not p._af_future.done():
             return
 
-        # #610 diagnostic: AF gate passed — capture can proceed
-        _af_complete = p._autofocus_executor.complete()
-        if _af_complete:
+        if p._af_future is not None and p._af_future.done():
             _cam_gain = p._scope.get_gain() if p._scope.camera_active else '?'
             _cam_exp = p._scope.get_exposure_time() if p._scope.camera_active else '?'
             logger.info(
-                f"[SCAN DIAG] AF gate passed: in_progress=False complete={_af_complete} "
+                f"[SCAN DIAG] AF gate passed: future.done()=True "
                 f"camera_gain={_cam_gain} camera_exp={_cam_exp} step={p._curr_step}"
             )
 
@@ -141,11 +139,12 @@ class ProtocolStepExecutor:
         if p._protocol_ended.is_set() or not p._scan_in_progress.is_set():
             return
 
-        # #563: if this step ran AF, the AF executor already scheduled the
-        # final Z UI update to best_focus_position. Do not overwrite with
-        # the pre-AF step['Z'].
+        # AF already pushed the Z UI to best_focus_position; do not
+        # overwrite with the pre-AF step['Z']. AFE.complete() being
+        # True at this point means the most recent AF run finished
+        # with a result that AFE has already scheduled to the UI.
         if step.get('Auto_Focus') and p._autofocus_executor.complete():
-            pass  # skip — AF owns the UI for this step
+            pass
         elif p._z_ui_update_func is not None:
             _schedule_ui(lambda dt: p._z_ui_update_func(float(step['Z'])))
 
@@ -177,8 +176,7 @@ class ProtocolStepExecutor:
                 step = dict(step)
                 step['Auto_Focus'] = False
 
-        # If autofocus selected, not running, not complete -- start it
-        if step['Auto_Focus'] and not p._autofocus_executor.complete() and not p._autofocus_executor.in_progress():
+        if step['Auto_Focus'] and p._af_future is None:
             if p._callbacks.autofocus_in_progress:
                 _schedule_ui(lambda dt: p._callbacks.autofocus_in_progress(), 0)
 
@@ -209,8 +207,7 @@ class ProtocolStepExecutor:
                 )
             return
 
-        # Still executing autofocus
-        if step['Auto_Focus'] and p._autofocus_executor.in_progress():
+        if step['Auto_Focus'] and p._af_future is not None and not p._af_future.done():
             return
 
         # Check if autogain has time-finished
@@ -281,9 +278,6 @@ class ProtocolStepExecutor:
                 # No saving — turn off LEDs manually (capture normally does this)
                 self.leds_off()
 
-        if not p._autofocus_executor.run_in_progress():
-            p._autofocus_executor.reset()
-
         # Disable autogain when moving between steps
         if step['Auto_Gain']:
             fut = p._io_executor.protocol_put(IOTask(
@@ -302,6 +296,7 @@ class ProtocolStepExecutor:
         if p._curr_step < num_steps - 1:
             with p._protocol_state_lock:
                 p._curr_step = min(p._curr_step + 1, num_steps - 1)
+                p._af_future = None
 
             if p._callbacks.update_step_number:
                 _schedule_ui(lambda dt: p._callbacks.update_step_number(p._curr_step + 1), 0)

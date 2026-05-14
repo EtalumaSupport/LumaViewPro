@@ -154,6 +154,10 @@ class SequencedCaptureExecutor:
         self._run_trigger_source = None
         self._run_in_progress_event.clear()
         self._curr_step = 0
+        # Per-step AF state pointer; None means AF has not been kicked
+        # off for the current step. Set by scan_iterate when AF starts;
+        # cleared at step transition and at scan start.
+        self._af_future = None
         self._n_scans = 0
         self._scan_count = 0
         self._scan_in_progress.clear()
@@ -469,8 +473,10 @@ class SequencedCaptureExecutor:
         self._update_z_pos_from_autofocus = update_z_pos_from_autofocus
         self._leds_state_at_end = leds_state_at_end
         self._video_as_frames = video_as_frames
-        if not self._autofocus_executor.run_in_progress():
-            self._autofocus_executor.reset()
+        # No AFE.reset() here -- AFE.run()'s own _reset_state() on
+        # entry handles stale state, and self._af_future is reset at
+        # scan start in protocol_run_loop. An external reset() here
+        # would race with AFE.run() on the AF thread.
 
         self._scan_iterate_running = False
         self._protocol_iterator = None

@@ -1963,7 +1963,6 @@ class ProtocolSettings(FloatLayout):
         try:
             sequenced_capture_executor = ctx.sequenced_capture_executor
             sequenced_capture_executor.reset()
-            sequenced_capture_executor._autofocus_executor.reset()
             live_histo_reverse()
             self.reset_autofocus_ui()
             self._autofocus_complete_callback()

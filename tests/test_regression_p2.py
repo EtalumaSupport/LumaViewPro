@@ -88,50 +88,44 @@ def _make_tiling_configs(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# #563: Autofocus race condition — protocol_end() after final move
+# #563: Autofocus race condition -- final move must complete before AF signals done
 # ---------------------------------------------------------------------------
 
 class TestAFRaceCondition:
-    """Verify that protocol_end() is called AFTER the final move_absolute_position.
+    """Verify the AF "done" signal is not raised until the final move is in.
 
-    Bug #563: If protocol_end() is called between the two final moves,
-    the second move is lost because the protocol executor stops processing.
+    The original bug: AFE.protocol_end() (the legacy "done" signal) fired
+    between the two final moves, so the protocol executor stopped processing
+    while the second move was still pending. The synchronous AutofocusThread
+    contract makes this structurally impossible -- AFE.run() returns to its
+    worker thread only AFTER the inline move_absolute_position calls
+    complete, and the Future resolves AFTER AFE.run() returns. The
+    protocol thread polls p._af_future.done(), so it cannot see "done"
+    before the final move is finished.
     """
 
-    def test_protocol_end_after_final_move(self):
-        """protocol_end() must be called after both move_absolute_position calls."""
-        # We can't easily run the full AF loop, but we can verify the
-        # source code ordering by inspecting the method.
+    def test_final_moves_inside_iterate_last_pass(self):
+        """Sanity-check the last-pass block still issues both moves inline.
+
+        AFE.run() is synchronous; protect against a future refactor that
+        accidentally offloads the final move to another thread and
+        re-introduces the race that the AutofocusThread + Future contract
+        currently prevents.
+        """
         import inspect
         from modules.autofocus_executor import AutofocusExecutor
 
         source = inspect.getsource(AutofocusExecutor._iterate)
-
-        # Extract just the last-pass block (from "self._last_pass:" to "return")
         last_pass_start = source.index('if self._last_pass:')
-        # Find the return that ends this block
         last_pass_block = source[last_pass_start:]
         return_idx = last_pass_block.index('\n                return\n')
         last_pass_block = last_pass_block[:return_idx]
 
-        # Find move_absolute_position calls within the last-pass block
-        move_positions = []
-        search_from = 0
-        while True:
-            idx = last_pass_block.find('self._move_absolute_position', search_from)
-            if idx == -1:
-                break
-            move_positions.append(idx)
-            search_from = idx + 1
-
-        protocol_end_pos = last_pass_block.find('self._autofocus_executor.protocol_end()')
-        clear_pending_pos = last_pass_block.find('self._autofocus_executor.clear_protocol_pending()')
-
-        assert len(move_positions) >= 2, "Expected at least 2 move_absolute_position calls in last-pass block"
-        assert protocol_end_pos > move_positions[-1], \
-            "protocol_end() must come AFTER the last move_absolute_position (bug #563)"
-        assert clear_pending_pos > move_positions[-1], \
-            "clear_protocol_pending() must come AFTER the last move_absolute_position"
+        move_count = last_pass_block.count('self._move_absolute_position')
+        assert move_count >= 2, (
+            f"Expected at least 2 move_absolute_position calls in the "
+            f"last-pass block, got {move_count}"
+        )
 
 
 # ---------------------------------------------------------------------------

@@ -531,36 +531,38 @@ class TestIntegrationAutofocus:
         scope.set_gain(20.0)
         scope.set_exposure_time(100.0)
 
-        # Start AF with BF camera settings — AF will save gain=20/exp=100,
-        # apply gain=1/exp=2 for scanning, then restore gain=20/exp=100.
-        executors['autofocus'].protocol_start()
-        af.run(
-            objective_id='10x Oly',
-            led_color='BF',
-            led_illumination=50.0,
-            camera_gain=1.0,
-            camera_exposure=2.0,
-        )
+        # Drive AF through AutofocusThread so the abort_event contract
+        # is satisfied and the Future resolves when AFE.run()'s finally
+        # block has fully restored camera state.
+        from modules.autofocus_thread import AutofocusThread
+        thread = AutofocusThread(afe=af)
+        thread.start()
+        try:
+            future = thread.run_autofocus(
+                objective_id='10x Oly',
+                led_color='BF',
+                led_illumination=50.0,
+                camera_gain=1.0,
+                camera_exposure=2.0,
+            )
+            future.result(timeout=15.0)
+        finally:
+            thread.stop(timeout=2.0)
 
-        # Wait for AF to complete
-        deadline = time.monotonic() + 15.0
-        while af.in_progress() and time.monotonic() < deadline:
-            time.sleep(0.05)
-        assert not af.in_progress(), "AF did not complete within timeout"
-
-        # THE KEY ASSERTION: the moment in_progress() returns False,
-        # camera state must already reflect the restored (pre-AF) values.
-        # Before the fix, there was a window where in_progress() was False
-        # but the camera was still at AF scanning values (gain=1.0).
+        # The moment the Future resolves, camera state must already
+        # reflect the restored (pre-AF) values. AFE.run()'s finally
+        # block restores camera state BEFORE clearing _af_in_progress;
+        # the Future resolves AFTER AFE.run() returns, so the read
+        # below cannot race the restoration.
         actual_gain = scope.get_gain()
         actual_exp = scope.get_exposure_time()
         assert abs(actual_gain - 20.0) < 0.1, (
             f"Camera gain should be restored to 20.0 (pre-AF) when "
-            f"in_progress() returns False, but got {actual_gain}"
+            f"the AF Future resolves, but got {actual_gain}"
         )
         assert abs(actual_exp - 100.0) < 0.1, (
             f"Camera exposure should be restored to 100.0ms (pre-AF) when "
-            f"in_progress() returns False, but got {actual_exp}"
+            f"the AF Future resolves, but got {actual_exp}"
         )
 
 

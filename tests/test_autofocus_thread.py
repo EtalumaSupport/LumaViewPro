@@ -1,7 +1,7 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """Regression tests for AutofocusThread.
 
-Covers the public API contract that Stage B2 ships:
+Covers the public API contract:
   - run_autofocus(**kwargs) -> Future that resolves to result or carries
     an exception (including AutofocusAborted on caller-requested abort).
   - abort() unwinds the in-flight run; Future surfaces AutofocusAborted.

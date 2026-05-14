@@ -314,20 +314,14 @@ class VerticalControl(BoxLayout):
     def _cleanup_at_end_of_autofocus(self):
         ctx = _app_ctx.ctx
 
+        # SequencedCaptureExecutor.reset() unwinds any running protocol
+        # (its _cleanup chain calls autofocus_thread.abort() on the AF
+        # thread). AFE state is reset implicitly on the next AFE.run().
         ctx.worker_pool.put(IOTask(
             action=ctx.sequenced_capture_executor.reset,
             callback=self._reset_run_autofocus_button,
             priority=PRIORITY_HIGH,
         ))
-
-        ctx.worker_pool.put(IOTask(
-            action=ctx.autofocus_executor.reset,
-            priority=PRIORITY_HIGH,
-        ))
-
-        # Resetting autofocus_executor before sequenced_capture_executor leads to possibility
-        # of sequenced_capture accidentally re-starting AF (sees it is finished, sequenced
-        # iterate is running, restarts AF). Reset order matters.
 
 
     def _autofocus_run_complete(self, **kwargs):

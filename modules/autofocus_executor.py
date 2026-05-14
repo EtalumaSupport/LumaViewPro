@@ -60,6 +60,18 @@ class AutofocusExecutor:
 
 
     def reset(self):
+        # Skip if a run is in flight: _reset_state() would wipe _params
+        # while AFE.run() reads it on the AF thread. AFE.run()'s own
+        # _reset_state() on entry covers deferred cleanup. Callers that
+        # need to stop the in-flight run should call
+        # autofocus_thread.abort() first; reset() succeeds once the AF
+        # thread's finally block clears _af_in_progress.
+        if self._af_in_progress.is_set():
+            logger.debug(
+                '[AF] reset() skipped: AF run in flight; '
+                'call autofocus_thread.abort() to unwind first'
+            )
+            return
         # Restore Z precision mode to the resting default (ON). AF
         # temporarily disables precision during coarse passes for speed
         # and re-enables for the fine pass; this restores ON regardless
@@ -177,7 +189,13 @@ class AutofocusExecutor:
         self._last_progress_ts = time.monotonic()
 
         self._save_results_to_file = save_results_to_file
-        self._results_dir = results_dir
+        # Per-run timestamped subdir under the caller's results_dir.
+        # Eager mkdir so aborted runs still leave a directory marker
+        # and successive runs do not collide on filenames.
+        if save_results_to_file:
+            self._results_dir = self._allocate_results_dir(results_dir)
+        else:
+            self._results_dir = None
         self._is_focusing_event.set()
         self._af_in_progress.set()
 
@@ -193,6 +211,14 @@ class AutofocusExecutor:
                      f'range={self._params["range"]:.1f} '
                      f'step={self._params["resolution"]:.1f} '
                      f'z=[{self._params["z_min"]:.1f}, {self._params["z_max"]:.1f}] ---')
+        # Snapshot Z so abort / exception exits can restore the user's
+        # pre-AF position. On success the fine-pass move overrides this
+        # with best_focus_position.
+        try:
+            self._saved_z_position = self._scope.get_current_position('Z')
+        except Exception as e:
+            logger.debug(f"[AF] Could not snapshot pre-AF Z position: {e}")
+            self._saved_z_position = None
         self._saved_led_state = self._scope.save_led_state('autofocus')
         self._saved_camera_state = self._scope.save_camera_state('autofocus')
         _af_log.info(f'[AF DIAG] Saved pre-AF camera state: '
@@ -216,6 +242,7 @@ class AutofocusExecutor:
         self._move_absolute_position(pos=self._params['z_min'])
 
         last_gc_time = time.monotonic()
+        completed_successfully = False
         try:
             while (self._af_in_progress.is_set()
                    and self._is_focusing_event.is_set()
@@ -236,6 +263,7 @@ class AutofocusExecutor:
                 _af_log.info('--- AF ABORTED by caller ---')
                 raise AutofocusAborted('autofocus aborted by caller')
 
+            completed_successfully = True
             return self._best_focus_position
 
         except AutofocusAborted:
@@ -267,15 +295,27 @@ class AutofocusExecutor:
             raise
 
         finally:
-            # Restore LED + camera state + Z precision regardless of
-            # exit path so the invariant "Z precision ON outside of AF"
-            # holds for abort, exception, and success. _af_in_progress
-            # clears LAST so any caller polling AFE.in_progress() does
-            # not race ahead before restoration finishes.
+            # Restore LED + camera + Z precision regardless of exit path
+            # so the invariant "Z precision ON + pre-AF camera + LED off
+            # outside of AF" holds for abort, exception, and success.
+            # On non-success exits, also restore Z to the pre-AF position
+            # so the user / protocol sees the state they started from.
+            # _af_in_progress clears LAST so any caller polling
+            # AFE.in_progress() does not race ahead before restoration
+            # finishes.
             try:
                 self._scope.set_motor_precision_mode('Z', True)
             except Exception:
                 logger.debug('[AF] precision restore in finally failed', exc_info=True)
+            if not completed_successfully and self._saved_z_position is not None:
+                try:
+                    self._scope.move_absolute_position('Z', self._saved_z_position)
+                    _af_log.info(
+                        f'[AF DIAG] Non-success exit: restored Z to '
+                        f'pre-AF position {self._saved_z_position:.2f}'
+                    )
+                except Exception:
+                    logger.debug('[AF] pre-AF Z restore in finally failed', exc_info=True)
             self._led_off()
             if self._saved_led_state:
                 self._scope.restore_led_state(
@@ -648,6 +688,7 @@ class AutofocusExecutor:
         self._is_complete_event = threading.Event()
         self._saved_led_state = None
         self._saved_camera_state = None
+        self._saved_z_position = None
         self._camera_gain = None
         self._camera_exposure = None
         self._af_in_progress.clear()
@@ -666,4 +707,27 @@ class AutofocusExecutor:
         results_dir.mkdir(exist_ok=True, parents=True)
         now = datetime.datetime.now()
         return now.strftime("%Y%m%d_%H%M%S")
+
+    def _allocate_results_dir(self, parent_dir: pathlib.Path) -> pathlib.Path:
+        """Allocate a per-run timestamped subdir under parent_dir.
+
+        Eager mkdir so aborted runs still leave a directory marker.
+        Same-second collisions retry with `_001`...`_999` suffixes so
+        two AF runs in the same wall-clock second do not collide.
+        """
+        parent_dir = pathlib.Path(parent_dir)
+        parent_dir.mkdir(parents=True, exist_ok=True)
+        base = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        candidates = [base] + [f"{base}_{i:03d}" for i in range(1, 1000)]
+        for candidate in candidates:
+            run_dir = parent_dir / candidate
+            try:
+                run_dir.mkdir(exist_ok=False)
+                return run_dir
+            except FileExistsError:
+                continue
+        raise RuntimeError(
+            f"Unable to allocate AF results subdir under {parent_dir}: "
+            f"exhausted 1000 collision suffixes within the same second"
+        )
 

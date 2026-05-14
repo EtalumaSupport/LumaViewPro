@@ -381,6 +381,10 @@ class TestSingleScanAutoFocus:
         af = executor._autofocus_executor
         af.complete.return_value = True
         af.in_progress.return_value = False
+        # Per-step Future tracks AF state; mock as done so scan_iterate
+        # skips kick-off and proceeds to consume the AF result.
+        executor._af_future = MagicMock()
+        executor._af_future.done.return_value = True
 
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed
@@ -395,6 +399,10 @@ class TestSingleScanAutoFocusNoneResult:
         af = executor._autofocus_executor
         af.complete.return_value = True
         af.in_progress.return_value = False
+        # Per-step Future tracks AF state; mock as done so scan_iterate
+        # skips kick-off and proceeds to consume the AF result.
+        executor._af_future = MagicMock()
+        executor._af_future.done.return_value = True
         af.best_focus_position.return_value = None  # autofocus failed
 
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
@@ -407,6 +415,10 @@ class TestSingleScanAutoFocusNoneResult:
         af = executor._autofocus_executor
         af.complete.return_value = True
         af.in_progress.return_value = False
+        # Per-step Future tracks AF state; mock as done so scan_iterate
+        # skips kick-off and proceeds to consume the AF result.
+        executor._af_future = MagicMock()
+        executor._af_future.done.return_value = True
         af.best_focus_position.return_value = None
 
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
@@ -426,6 +438,10 @@ class TestSingleScanAutoGainAndAutoFocus:
         af = executor._autofocus_executor
         af.complete.return_value = True
         af.in_progress.return_value = False
+        # Per-step Future tracks AF state; mock as done so scan_iterate
+        # skips kick-off and proceeds to consume the AF result.
+        executor._af_future = MagicMock()
+        executor._af_future.done.return_value = True
 
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed
@@ -448,6 +464,10 @@ class TestAFSliderRaceRegression:
         af = executor._autofocus_executor
         af.complete.return_value = True
         af.in_progress.return_value = False
+        # Per-step Future tracks AF state; mock as done so scan_iterate
+        # skips kick-off and proceeds to consume the AF result.
+        executor._af_future = MagicMock()
+        executor._af_future.done.return_value = True
         af.best_focus_position.return_value = pre_af_z + 15.0  # AF picked a different Z
 
         z_ui_calls = []
@@ -831,6 +851,10 @@ class TestZStackWithAutoFocus:
         af = executor._autofocus_executor
         af.complete.return_value = True
         af.in_progress.return_value = False
+        # Per-step Future tracks AF state; mock as done so scan_iterate
+        # skips kick-off and proceeds to consume the AF result.
+        executor._af_future = MagicMock()
+        executor._af_future.done.return_value = True
 
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed
@@ -940,6 +964,10 @@ class TestRunModeSingleAutofocusScan:
         af = executor._autofocus_executor
         af.complete.return_value = True
         af.in_progress.return_value = False
+        # Per-step Future tracks AF state; mock as done so scan_iterate
+        # skips kick-off and proceeds to consume the AF result.
+        executor._af_future = MagicMock()
+        executor._af_future.done.return_value = True
 
         completed, _ = _run_and_wait(
             executor, protocol, tmp_path,
@@ -1069,6 +1097,10 @@ class TestAutoFocusWithTiling:
         af = executor._autofocus_executor
         af.complete.return_value = True
         af.in_progress.return_value = False
+        # Per-step Future tracks AF state; mock as done so scan_iterate
+        # skips kick-off and proceeds to consume the AF result.
+        executor._af_future = MagicMock()
+        executor._af_future.done.return_value = True
 
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed
