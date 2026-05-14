@@ -475,25 +475,6 @@ class MotionAPI:
             logger.exception(f"[SCOPE API ] get_target_status({axis}) failed; treating as not at target: {e}")
             return False
 
-    def get_target_pos(self, axis: str) -> float:
-        """Get the target position for an axis (error-safe version).
-
-        Args:
-            axis: Axis name ("X", "Y", "Z", "T").
-
-        Returns:
-            float: Target position in um, or -1 on error/no turret.
-        """
-        if (axis == 'T') and (not self._driver.has_turret()):
-            return -1
-
-        try:
-            pos = self._driver.target_pos(axis)
-            return pos if pos is not None else -1
-        except Exception as e:
-            logger.exception(f"[SCOPE API ] get_target_pos({axis}) failed; returning -1: {e}")
-            return -1
-
     def get_reference_status(self, axis: str) -> str:
         """Get reference status register bits for an axis.
 

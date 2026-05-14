@@ -55,8 +55,9 @@ def main():
     scope.motion.move(axis='Z', steps=50000)
     print("Z axis moved by 50000 steps")
 
-    # Read current Z target position (returns um)
-    z_pos = scope.motion.target_pos(axis='Z')
+    # Read current Z target position (returns um). Zero serial I/O --
+    # the API serves this from the push-based position cache.
+    z_pos = scope.get_target_position(axis='Z')
     print(f"Z target position: {z_pos} um")
 
     # Capture an image (start grabbing, grab, access .array)

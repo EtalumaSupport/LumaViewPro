@@ -4491,10 +4491,6 @@ class Lumascope():
         """Backcompat forwarder -- see MotionAPI.get_target_status."""
         return self.motion.get_target_status(axis)
 
-    def get_target_pos(self, axis: str) -> float:
-        """Backcompat forwarder -- see MotionAPI.get_target_pos."""
-        return self.motion.get_target_pos(axis)
-
     def get_reference_status(self, axis: str) -> str:
         """Backcompat forwarder -- see MotionAPI.get_reference_status."""
         return self.motion.get_reference_status(axis)
