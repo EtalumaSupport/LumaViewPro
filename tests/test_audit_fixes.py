@@ -3459,6 +3459,119 @@ class TestPylonCancelHandlingDefensive:
         )
 
 
+class TestPylonPayloadDiscardedClassification:
+    """Payload-discarded (camera-side FIFO overflow) classification in
+    OnImageGrabbed. Distinct from the cancel branch above.
+
+    Payload-discarded events fire when the camera-side USB FIFO overflows
+    during a host stall (e.g. SetValue for gain/exposure inside an AF
+    cycle with MaxNumBuffer at its default). The dropped frame is one
+    that frame_validity would have rejected anyway: invalidate() runs
+    after each SetValue, so downstream consumers already wait for a
+    clean frame. The classification rule:
+
+    - Log at info (cause distribution stays visible) -- NOT warning.
+    - DO NOT call _record_failure. Acquisition is healthy; counting
+      these toward MAX_CONSECUTIVE_FAILURES would falsely trip the
+      128-consec auto-disconnect during AF-heavy protocols.
+
+    These tests lock the source-level shape so a future cleanup that
+    removes the elif branch or adds _record_failure inside it fires
+    the regression.
+    """
+
+    def _pyloncamera_source(self):
+        from pathlib import Path
+        return (Path(__file__).resolve().parent.parent
+                / "drivers" / "pyloncamera.py").read_text()
+
+    def test_payload_discarded_constant_value(self):
+        """The constant must match the bench-witnessed err_code from
+        Firmware DAILY_LOG (0xE2050012). If Basler renames or splits
+        the code in a future SDK rev, bump this and update the comment."""
+        from drivers.pyloncamera import _PYLON_ERR_PAYLOAD_DISCARDED
+        assert _PYLON_ERR_PAYLOAD_DISCARDED == 0xE2050012, (
+            "Payload-discarded constant must match the bench-witnessed "
+            "err_code 0xE2050012 from Firmware DAILY_LOG.md."
+        )
+
+    def test_payload_discarded_comment_explains_disposition(self):
+        """The source must document WHY this classification exists --
+        camera-side FIFO overflow during host stalls plus the
+        frame_validity coverage that makes the drop safe to ignore.
+        Comment is load-bearing per Rule 27 (workaround disposition)."""
+        src = self._pyloncamera_source()
+        assert "camera-side FIFO overflow" in src.lower() or (
+            "camera-side fifo" in src.lower()
+        ), (
+            "Source comment near _PYLON_ERR_PAYLOAD_DISCARDED must explain "
+            "the camera-side FIFO overflow mechanism."
+        )
+        assert "frame_validity" in src, (
+            "Source comment must reference frame_validity coverage -- the "
+            "reason payload-discarded events are safe to skip _record_failure."
+        )
+
+    def test_payload_discarded_branch_in_onimagegrabbed(self):
+        """The OnImageGrabbed body must contain the elif classification
+        branch. The check is structural: a future cleanup that drops the
+        elif (collapsing payload-discarded back into the warning fallback)
+        would reintroduce log noise + spurious failure-counter increments."""
+        src = self._pyloncamera_source()
+        body = _function_source(src, "OnImageGrabbed")
+        assert "_PYLON_ERR_PAYLOAD_DISCARDED" in body, (
+            "OnImageGrabbed must contain a classification branch for "
+            "_PYLON_ERR_PAYLOAD_DISCARDED. See class docstring."
+        )
+        assert "success_no_grab_payload_discarded" in body, (
+            "OnImageGrabbed payload-discarded branch must set its outcome "
+            "name to 'success_no_grab_payload_discarded' for trace gating."
+        )
+
+    def test_payload_discarded_branch_skips_record_failure(self):
+        """Key invariant: the payload-discarded branch MUST NOT call
+        _record_failure. The branch represents healthy acquisition where
+        the camera dropped a frame during a host stall; counting it
+        toward MAX_CONSECUTIVE_FAILURES would falsely trip
+        auto-disconnect during AF-heavy protocols.
+
+        Test approach: extract the elif block and assert _record_failure
+        does not appear in it. The OnImageGrabbed body has exactly 2
+        _record_failure calls total (GetArray exception + non-cancel
+        non-payload-discarded fallback); a third would mean the
+        invariant broke."""
+        src = self._pyloncamera_source()
+        body = _function_source(src, "OnImageGrabbed")
+        # Total count is the structural guard.
+        total_calls = body.count("self._base._record_failure()")
+        assert total_calls == 2, (
+            f"OnImageGrabbed must have exactly 2 _record_failure() calls "
+            f"(GetArray exception + non-cancel non-payload-discarded "
+            f"fallback), found {total_calls}. If a third was added inside "
+            f"the payload-discarded branch, remove it -- payload-discarded "
+            f"is healthy acquisition, not a counted failure."
+        )
+        # Extract just the elif block as belt-and-suspenders.
+        elif_marker = "elif err_code == _PYLON_ERR_PAYLOAD_DISCARDED:"
+        elif_idx = body.find(elif_marker)
+        assert elif_idx >= 0, "elif marker not found (precondition)"
+        # The branch ends at the next 'else:' or 'elif' at the same
+        # indentation. Heuristic: stop at the next line that starts with
+        # the same indent + 'else:' or 'elif '.
+        tail = body[elif_idx + len(elif_marker):]
+        end = len(tail)
+        for marker in ("\n                else:", "\n                elif "):
+            i = tail.find(marker)
+            if 0 <= i < end:
+                end = i
+        elif_block = tail[:end]
+        assert "_record_failure" not in elif_block, (
+            "Payload-discarded elif branch contains _record_failure() -- "
+            "that breaks the 'healthy acquisition, not a counted failure' "
+            "invariant. See class docstring."
+        )
+
+
 class TestPylonDisconnectDestroyDevice:
     """PylonCamera.disconnect() must release the SDK-side device handle
     explicitly via DetachDevice + DestroyDevice rather than relying on

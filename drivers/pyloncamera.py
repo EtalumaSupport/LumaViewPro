@@ -35,6 +35,15 @@ except ImportError:
 # or similar, replace this.
 _PYLON_ERR_BUFFER_CANCELED = 3791651074
 
+# Camera-side FIFO overflow: payload dropped before transmission because
+# the host stalled long enough that the camera's internal buffer filled.
+# In AF-heavy protocols, SetValue for gain/exposure inside an AF cycle
+# stalls the host briefly; with MaxNumBuffer at its default the camera-
+# side FIFO can overflow during the stall. The next frame is invalidated
+# via frame_validity, so consumers already wait for a clean frame -- the
+# dropped frame is one the AF runner would have rejected anyway.
+_PYLON_ERR_PAYLOAD_DISCARDED = 0xE2050012
+
 
 @camera_registry.register('pylon', priority=100)
 class PylonCamera(Camera):
@@ -3127,6 +3136,19 @@ class ImageHandler(pylon.ImageEventHandler):
                         f'device_removed={self._parent._device_removed}'
                     )
                     _outcome = 'success_no_grab_cancelled'
+                elif err_code == _PYLON_ERR_PAYLOAD_DISCARDED:
+                    # Camera-side FIFO overflow during host stalls. The dropped
+                    # frame is one frame_validity would have rejected anyway
+                    # (invalidate runs after each SetValue). Logged at info so
+                    # the cause distribution stays visible in camera.log without
+                    # raising the noise floor; not counted toward
+                    # MAX_CONSECUTIVE_FAILURES because acquisition is healthy.
+                    _cam_log.info(
+                        f'[CAM Class ] payload discarded (camera-side FIFO '
+                        f'overflow during host stall) err_code={err_code} '
+                        f'desc={err_desc!r}'
+                    )
+                    _outcome = 'success_no_grab_payload_discarded'
                 else:
                     # err_code/desc varies (USB CRC, partial frame, underrun);
                     # log each to preserve cause distribution.
