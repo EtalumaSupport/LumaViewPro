@@ -2173,7 +2173,9 @@ class TechSupportReport:
                 (tmp / 'metadata.json').write_text(json.dumps(self._meta, indent=2))
 
                 cb(95, "Creating ZIP file...")
-                zip_path = self._create_zip(tmp, sn_tag, output_dir)
+                zip_path = self._create_zip(
+                    tmp, sn_tag, output_dir, report_type='logs_only',
+                )
                 cb(100, f"Done -- {zip_path.name}")
                 return zip_path
         except Exception as e:
@@ -2181,7 +2183,7 @@ class TechSupportReport:
             cb(100, f"Error: {e}")
             return None
 
-    def _create_zip(self, tmp, sn, output_dir=None):
+    def _create_zip(self, tmp, sn, output_dir=None, report_type='tsr'):
         if output_dir is None:
             output_dir = _get_desktop()
         output_dir = pathlib.Path(output_dir)
@@ -2189,10 +2191,13 @@ class TechSupportReport:
 
         clean_sn = ''.join(c for c in str(sn) if c.isalnum() or c in '-_') or 'UNKNOWN'
         ts = datetime.datetime.now().strftime('%Y-%m-%d-%H%M%S')
-        # "TSR" token distinguishes this bundle from the user-action log
-        # dump (`SNlogs-...zip`) that ships with manual error reports;
-        # support engineers can sort the two apart by filename alone.
-        zip_path = output_dir / f"SN{clean_sn}-TSR-{ts}.zip"
+        # Full tech-support reports carry a "TSR" token so support
+        # engineers can visually distinguish them from logs-only user
+        # dumps (`SNlogs-<ts>.zip`) that ship with manual error reports.
+        # Logs-only bundles keep the plain shape -- they ARE the
+        # SNlogs/SN<sn>-<ts>.zip dumps.
+        token = '-TSR-' if report_type == 'tsr' else '-'
+        zip_path = output_dir / f"SN{clean_sn}{token}{ts}.zip"
 
         with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zf:
             # Include a privacy notice describing what data is collected

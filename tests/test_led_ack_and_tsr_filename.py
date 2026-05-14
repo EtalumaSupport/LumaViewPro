@@ -19,6 +19,7 @@ same bench session:
    user-dump bundle.
 """
 
+import threading
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -170,11 +171,144 @@ class TestTsrLedEngineeringRoutesThroughDriver:
         fake_scope.diagnostics.enter_led_engineering_mode.assert_not_called()
 
 
-class TestTsrFilenameHasTsrToken:
-    """TSR zip filename has 'TSR' between SN and timestamp so it's
-    visually distinct from SNlogs-... user-dump bundles."""
+class TestBundleFilenameByReportType:
+    """The TSR bundle gets a '-TSR-' token; the logs-only user-dump
+    bundle stays plain (no token). They're produced by the same
+    `_create_zip` helper -- the report_type parameter selects the
+    filename shape. Without per-type gating, the TSR token leaks into
+    the logs-only filename (the regression Eric flagged: a logs-only
+    dump landed as `SNlogs-TSR-...zip` instead of `SNlogs-...zip`)."""
 
-    def test_filename_pattern_in_source(self):
-        src = (REPO_ROOT / 'modules' / 'tech_support_report.py').read_text()
-        assert 'SN{clean_sn}-TSR-{ts}.zip' in src
-        assert 'SN{clean_sn}-{ts}.zip' not in src
+    def _build_report(self, tmp_path, report_type, sn='12062'):
+        """Construct a TechSupportReport stub and invoke _create_zip
+        with the given report_type. Returns the resulting zip path."""
+        from modules.tech_support_report import TechSupportReport
+        report = TechSupportReport.__new__(TechSupportReport)
+        # _create_zip just needs `tmp` to point at a populated dir; we
+        # provide an empty dir for naming-only assertions.
+        return report._create_zip(
+            tmp_path, sn, tmp_path, report_type=report_type
+        )
+
+    def test_tsr_filename_has_tsr_token(self, tmp_path):
+        zip_path = self._build_report(tmp_path, report_type='tsr')
+        assert '-TSR-' in zip_path.name, (
+            f"Full TSR bundle must contain '-TSR-' token; got {zip_path.name!r}"
+        )
+        assert zip_path.name.startswith('SN12062-TSR-')
+
+    def test_logs_only_filename_has_no_tsr_token(self, tmp_path):
+        zip_path = self._build_report(tmp_path, report_type='logs_only')
+        assert '-TSR-' not in zip_path.name, (
+            f"Logs-only bundle must NOT contain '-TSR-' token; "
+            f"got {zip_path.name!r}. The token leaking into logs-only "
+            f"bundles confuses support engineers who sort by filename."
+        )
+        assert zip_path.name.startswith('SN12062-')
+
+    def test_logs_only_with_sn_fallback_has_no_tsr_token(self, tmp_path):
+        """When no SN is available, logs-only uses sn='logs'. Resulting
+        filename must be `SNlogs-<ts>.zip`, NOT `SNlogs-TSR-<ts>.zip`."""
+        zip_path = self._build_report(tmp_path, report_type='logs_only', sn='logs')
+        assert '-TSR-' not in zip_path.name, (
+            f"SNlogs fallback must NOT contain '-TSR-'; got {zip_path.name!r}"
+        )
+        assert zip_path.name.startswith('SNlogs-')
+
+
+class TestLedExitEngineeringRecoversFromWedge:
+    """The EL-0925 Gen3 firmware (2024-06-05ESWEA) `factory()` function
+    sometimes doesn't exit on Q when the eng-mode body (e.g. LEDREADS)
+    has already timed out. The firmware is left stuck inside factory()
+    and standard LED commands return ''. exit_engineering_mode must
+    detect this via a post-Q INFO probe and run Ctrl-C/B/D soft reset
+    to bring the firmware back."""
+
+    def _make_led(self, info_responses, write_log):
+        """Build a real LEDBoard stub. info_responses is a list of
+        responses returned by exchange_command('INFO', ...). The Q
+        call is matched first and returns a sentinel."""
+        from drivers.ledboard import LEDBoard
+        led = LEDBoard.__new__(LEDBoard)
+        led._lock = threading.RLock()
+        led.driver = MagicMock()
+        led.driver.in_waiting = 0
+        led.driver.read = MagicMock(return_value=b'')
+
+        info_iter = iter(info_responses)
+
+        def fake_exchange(cmd, *args, **kwargs):
+            if cmd == 'Q':
+                return ''
+            if cmd == 'INFO':
+                try:
+                    return next(info_iter)
+                except StopIteration:
+                    return ''
+            return None
+
+        led.exchange_command = MagicMock(side_effect=fake_exchange)
+        led._safe_write = MagicMock(
+            side_effect=lambda data, context='': write_log.append(data)
+        )
+        return led
+
+    def test_happy_path_no_recovery_when_info_returns_banner(self):
+        """Post-Q INFO returns a healthy banner -> no Ctrl-D recovery
+        fires, no extra delay."""
+        write_log = []
+        led = self._make_led(
+            info_responses=['Version: EL-0925 Gen3 LED Controller'
+                            'Firmware: 2024-06-05ESWEA Copyright: Etaluma, Inc.'],
+            write_log=write_log,
+        )
+        led.exit_engineering_mode()
+
+        # Only Q + one INFO. No Ctrl-D bytes written.
+        assert led._safe_write.call_count == 0
+        assert all(b not in write_log for b in (b'\x03', b'\x02', b'\x04'))
+
+    def test_wedged_firmware_triggers_ctrl_d_recovery_and_succeeds(self):
+        """Post-Q INFO returns '' (firmware wedged in factory).
+        Recovery sequence Ctrl-C/Ctrl-C/Ctrl-B/Ctrl-D fires; second
+        INFO returns healthy banner; method returns normally."""
+        write_log = []
+        led = self._make_led(
+            info_responses=[
+                '',  # first probe: wedged
+                'Version: EL-0925 Gen3 LED Controller Etaluma, Inc.',  # post-recovery
+            ],
+            write_log=write_log,
+        )
+        # Patch time.sleep to skip the 5s firmware-boot wait.
+        import drivers.ledboard as ledboard_mod
+        original_sleep = ledboard_mod.time.sleep
+        ledboard_mod.time.sleep = MagicMock()
+        try:
+            led.exit_engineering_mode()
+        finally:
+            ledboard_mod.time.sleep = original_sleep
+
+        # Ctrl-C x2, Ctrl-B, Ctrl-D all written in order.
+        assert write_log == [b'\x03', b'\x03', b'\x02', b'\x04']
+
+    def test_wedged_firmware_unrecoverable_raises(self):
+        """Post-Q INFO returns '' and the post-recovery INFO still
+        returns '' -- firmware is genuinely unrecoverable. Method
+        raises HardwareError so the caller can surface the failure."""
+        from drivers.exceptions import HardwareError
+        import pytest as _pytest
+
+        write_log = []
+        led = self._make_led(
+            info_responses=['', ''],  # both probes wedged
+            write_log=write_log,
+        )
+        import drivers.ledboard as ledboard_mod
+        original_sleep = ledboard_mod.time.sleep
+        ledboard_mod.time.sleep = MagicMock()
+        try:
+            with _pytest.raises(HardwareError, match='wedged'):
+                led.exit_engineering_mode()
+        finally:
+            ledboard_mod.time.sleep = original_sleep
