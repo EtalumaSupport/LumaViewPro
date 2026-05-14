@@ -1162,26 +1162,38 @@ class TestG3_AutofocusFailureNotification:
     """G3: AF failures must notify the user (Rule 14)."""
 
     def test_af_exception_notifies_user(self, _mock_heavy_deps):
-        """AF exception handler must call notifications.error()."""
+        """AF exception handler must surface a user-facing notification.
+
+        Post-aceda41 (AF popup gate for issue #649), the direct
+        ``notifications.error`` call routes through
+        ``self._notify_af_failure(...)`` so unattended-protocol runs
+        can suppress the modal popup while non-protocol runs still
+        notify. The G3 / Rule 14 contract -- "AF failure surfaces to
+        the user" -- still holds; the helper is what enforces it.
+        Notify-or-suppress correctness is covered separately by
+        tests/test_autofocus_notify_gate.py.
+        """
         import pathlib
         source = pathlib.Path("modules/autofocus_runner.py").read_text()
-        # Find the exception handler block
         idx = source.find("Error during loop")
         assert idx != -1, "Exception handler must exist"
-        # Check notification exists near the error handler
-        nearby = source[idx:idx+300]
-        assert "notifications.error" in nearby, \
-            "AF exception handler must call notifications.error (G3 — Rule 14)"
+        nearby = source[idx:idx+400]
+        assert "_notify_af_failure" in nearby, \
+            "AF exception handler must call _notify_af_failure (G3 -- Rule 14)"
 
     def test_af_degenerate_curve_notifies_user(self, _mock_heavy_deps):
-        """AF degenerate curve detection must call notifications.error()."""
+        """AF degenerate curve handler must surface a user-facing notification.
+
+        Same _notify_af_failure routing as the exception path. See
+        test_af_exception_notifies_user for the rationale.
+        """
         import pathlib
         source = pathlib.Path("modules/autofocus_runner.py").read_text()
         idx = source.find("degenerate focus curve")
         assert idx != -1, "Degenerate curve handler must exist"
         nearby = source[idx:idx+500]
-        assert "notifications.error" in nearby, \
-            "AF degenerate curve handler must call notifications.error (G3 — Rule 14)"
+        assert "_notify_af_failure" in nearby, \
+            "AF degenerate curve handler must call _notify_af_failure (G3 -- Rule 14)"
 
     def test_af_imports_notifications(self, _mock_heavy_deps):
         """autofocus_runner must import notifications module."""
