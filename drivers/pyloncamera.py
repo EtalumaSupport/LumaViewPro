@@ -87,7 +87,7 @@ class PylonCamera(Camera):
                 logger.debug(f'[CAM Class ] Could not query exposure range: {e}')
 
         except Exception as e:
-            logger.warning(f'[CAM Class ] _query_dynamic_capabilities failed: {e}')
+            _cam_log.warning(f'[CAM Class ] _query_dynamic_capabilities failed: {e}')
 
     def disconnect(self) -> bool:
         """Tear down the active Pylon camera and release the SDK device.
@@ -102,7 +102,7 @@ class PylonCamera(Camera):
                     if self.is_grabbing():
                         self.stop_grabbing()
                 except Exception as e:
-                    logger.warning(
+                    _cam_log.warning(
                         f'[CAM Class ] stop_grabbing during disconnect raised: {e}; '
                         f'continuing teardown'
                     )
@@ -117,7 +117,7 @@ class PylonCamera(Camera):
                 try:
                     self.active.Close()
                 except Exception as e:
-                    logger.warning(
+                    _cam_log.warning(
                         f'[CAM Class ] Close() during disconnect raised: {e}; '
                         f'continuing teardown'
                     )
@@ -133,14 +133,14 @@ class PylonCamera(Camera):
                 try:
                     self.active.DetachDevice()
                 except Exception as e:
-                    logger.warning(
+                    _cam_log.warning(
                         f'[CAM Class ] DetachDevice() during disconnect raised: {e}; '
                         f'continuing teardown'
                     )
                 try:
                     self.active.DestroyDevice()
                 except Exception as e:
-                    logger.warning(
+                    _cam_log.warning(
                         f'[CAM Class ] DestroyDevice() during disconnect raised: {e}; '
                         f'continuing teardown'
                     )
@@ -154,7 +154,7 @@ class PylonCamera(Camera):
             else:
                 logger.info('[CAM Class ] Pylon camera not connected')
         except Exception as e:
-            logger.exception(f'[CAM Class ] Pylon camera disconnect failed: {e}')
+            _cam_log.exception(f'[CAM Class ] Pylon camera disconnect failed: {e}')
         return False
 
     # __del__() inherited from Camera base class
@@ -205,7 +205,7 @@ class PylonCamera(Camera):
             # warning surfaces it.
             existing.join(timeout=10.0)
             if existing.is_alive():
-                logger.warning(
+                _cam_log.warning(
                     '[INSTR PYLON ] prior stats poller did not exit within 10s; '
                     'starting new one anyway (CSV may briefly contain rows from both)'
                 )
@@ -239,7 +239,7 @@ class PylonCamera(Camera):
             # in a long node-read or thread-rename block.
             t.join(timeout=2.0)
             if t.is_alive():
-                logger.warning(
+                _cam_log.warning(
                     '[INSTR PYLON ] stats poller did not exit within 2s; '
                     'releasing reference anyway'
                 )
@@ -294,11 +294,11 @@ class PylonCamera(Camera):
                             f'{sorted(set(all_features))}'
                         )
                     except Exception as e:
-                        logger.warning(f'[INSTR PYLON ] NodeMap walk failed: {e}')
+                        _cam_log.warning(f'[INSTR PYLON ] NodeMap walk failed: {e}')
                 else:
-                    logger.warning('[INSTR PYLON ] start: active camera is None, no stat dump')
+                    _cam_log.warning('[INSTR PYLON ] start: active camera is None, no stat dump')
             except Exception as e:
-                logger.warning(f'[INSTR PYLON ] start: stat-node dump failed: {e}')
+                _cam_log.warning(f'[INSTR PYLON ] start: stat-node dump failed: {e}')
             finally:
                 # Mark done regardless of success/failure — don't retry
                 # the failing walk on every restart.
@@ -359,7 +359,7 @@ class PylonCamera(Camera):
             if isinstance(resync_value, (int, float)) and isinstance(prev_resync, (int, float)):
                 delta = resync_value - prev_resync
                 if delta > 0:
-                    logger.warning(
+                    _cam_log.warning(
                         f'[INSTR RESYNC] {self._RESYNC_NODE_NAME} delta={delta} '
                         f'(total={resync_value})'
                     )
@@ -378,7 +378,7 @@ class PylonCamera(Camera):
             if isinstance(missed_value, (int, float)) and isinstance(prev_missed, (int, float)):
                 delta = missed_value - prev_missed
                 if delta > 0:
-                    logger.warning(
+                    _cam_log.warning(
                         f'[INSTR MISSED] {self._MISSED_FRAME_NODE_NAME} delta={delta} '
                         f'(total={missed_value})'
                     )
@@ -395,7 +395,7 @@ class PylonCamera(Camera):
             prev_temp_state = getattr(self, '_prev_temp_state', None)
             if temp_state is not None and temp_state != prev_temp_state:
                 if temp_state in ('Critical', 'Error'):
-                    logger.warning(
+                    _cam_log.warning(
                         f'[INSTR TEMP] TemperatureState={temp_state!r} '
                         f'(was {prev_temp_state!r})'
                     )
@@ -459,7 +459,7 @@ class PylonCamera(Camera):
         except Exception as e:
             if _cam_log is not None:
                 _cam_log.warning(f'pylon StopGrabbing FAILED: {e}')
-            logger.warning(f'[CAM Class ] stop_grabbing ignored error: {e}')
+            _cam_log.warning(f'[CAM Class ] stop_grabbing ignored error: {e}')
 
     _ACQ_IDLE_POLL_INTERVAL_S = 0.020
 
@@ -511,7 +511,7 @@ class PylonCamera(Camera):
                 )
                 return False
             time.sleep(self._ACQ_IDLE_POLL_INTERVAL_S)
-        logger.warning(
+        _cam_log.warning(
             f'[CAM Class ] _wait_for_acquisition_idle: timed out after '
             f'{timeout_s}s waiting for AcquisitionActive=False; '
             f'proceeding with teardown'
@@ -622,7 +622,7 @@ class PylonCamera(Camera):
                 try:
                     self.set_max_transfer_size(int(_mts))
                 except Exception as e:
-                    logger.warning(
+                    _cam_log.warning(
                         f'[CAM Class ] set_max_transfer_size({_mts}) failed: {e}'
                     )
             _nqu = os.environ.get('LVP_PYLON_NUM_QUEUED_URBS')
@@ -630,7 +630,7 @@ class PylonCamera(Camera):
                 try:
                     self.set_num_max_queued_urbs(int(_nqu))
                 except Exception as e:
-                    logger.warning(
+                    _cam_log.warning(
                         f'[CAM Class ] set_num_max_queued_urbs({_nqu}) failed: {e}'
                     )
             # B20 / B23: snapshot StreamGrabber.Status into the trace
@@ -667,7 +667,7 @@ class PylonCamera(Camera):
         except Exception as e:
             if _cam_log is not None:
                 _cam_log.warning(f'pylon StartGrabbing FAILED: {e}')
-            logger.warning(f'[CAM Class ] start_grabbing ignored error: {e}')
+            _cam_log.warning(f'[CAM Class ] start_grabbing ignored error: {e}')
 
     def is_grabbing(self) -> bool:
         """Return True if the camera is currently in a grab loop.
@@ -736,7 +736,7 @@ class PylonCamera(Camera):
                         f'(actual={actual})'
                     )
             except Exception as e:
-                logger.warning(
+                _cam_log.warning(
                     f'[CAM Class ] MaxNumBuffer cap post-Open failed '
                     f'(window may have closed): {e}'
                 )
@@ -765,7 +765,7 @@ class PylonCamera(Camera):
                             _ver_str = '.'.join(str(x) for x in _v)
                         logger.info(f'[CAM Class ] Pylon SDK version: {_ver_str}')
                     except Exception as e:
-                        logger.warning(f'[CAM Class ] Could not read Pylon SDK version: {e}')
+                        _cam_log.warning(f'[CAM Class ] Could not read Pylon SDK version: {e}')
 
                     # Transport + device class identify the kernel
                     # driver stack Pylon is routing through — useful
@@ -818,7 +818,7 @@ class PylonCamera(Camera):
                         logger.info(f'[CAM Class ] Camera {name} Temperature : {temp:.2f} degC')
 
                 except Exception as e:
-                    logger.error(
+                    _cam_log.error(
                         f'[CAM Class ] Failed to read device info nodes: {e}', exc_info=True
                     )
 
@@ -841,13 +841,13 @@ class PylonCamera(Camera):
             return True
 
         except genicam.RuntimeException as ex:
-            logger.error(
+            _cam_log.error(
                 '[CAM Class ] Pylon camera connect failed (may be open in another '
                 f'application): {ex}'
             )
             self.active = None
         except Exception:
-            logger.exception('[CAM Class ] Pylon camera connect failed')
+            _cam_log.exception('[CAM Class ] Pylon camera connect failed')
             self.active = None
 
         return False
@@ -855,7 +855,7 @@ class PylonCamera(Camera):
     def get_all_temperatures(self) -> dict:
         """Return {selector: degC, ...} per DeviceTemperatureSelector entry; {} if unreadable."""
         if not self.active:
-            logger.warning('[CAM Class ] get_all_temperatures(): inactive camera')
+            _cam_log.warning('[CAM Class ] get_all_temperatures(): inactive camera')
             return {}
 
         try:
@@ -883,11 +883,11 @@ class PylonCamera(Camera):
 
             return temps
         except genicam.RuntimeException as e:
-            logger.error(f'[CAM Class ] Failed to read camera temperatures: {e}')
+            _cam_log.error(f'[CAM Class ] Failed to read camera temperatures: {e}')
             self._mark_disconnected()
             return {}
         except Exception as e:
-            logger.exception(f'[CAM Class ] Unexpected error reading temperatures: {e}')
+            _cam_log.exception(f'[CAM Class ] Unexpected error reading temperatures: {e}')
             return {}
 
     def init_camera_config(self) -> None:
@@ -921,7 +921,7 @@ class PylonCamera(Camera):
                         break
                     time.sleep(0.05)
                 else:
-                    logger.warning(
+                    _cam_log.warning(
                         '[CAM Class ] init_camera_config: camera still '
                         'grabbing 1 s after update_camera_config stop; '
                         'UserSetLoad may fail'
@@ -983,10 +983,12 @@ class PylonCamera(Camera):
                 # axis, the SetValue will clamp + warn from set_frame_size.
                 self.set_frame_size(w=1900, h=1900)
         except genicam.RuntimeException as e:
-            logger.error(f'[CAM Class ] Camera communication error during init_camera_config: {e}')
+            _cam_log.error(
+                f'[CAM Class ] Camera communication error during init_camera_config: {e}'
+            )
             self._mark_disconnected()
         except Exception as e:
-            logger.exception(f'[CAM Class ] Unexpected error in init_camera_config: {e}')
+            _cam_log.exception(f'[CAM Class ] Unexpected error in init_camera_config: {e}')
 
     # Frame-identity chunk candidates in preference order. Different
     # Basler models advertise different per-frame identity chunks
@@ -1030,7 +1032,7 @@ class PylonCamera(Camera):
         # falls back to skip_frames calibration when chunks aren't
         # enabled, so refusing the write is the safe default.
         if self.is_grabbing():
-            logger.warning(
+            _cam_log.warning(
                 '[CAM Class ] _enable_validity_chunks called while '
                 'grabbing; ChunkModeActive is locked. Skipping write. '
                 'frame_validity will fall back to skip_frames '
@@ -1043,7 +1045,7 @@ class PylonCamera(Camera):
         try:
             camera.ChunkModeActive.Value = True
         except Exception as e:
-            logger.warning(
+            _cam_log.warning(
                 f'[CAM Class ] could not enable ChunkModeActive: {e}; '
                 f'frame_validity will fall back to skip_frames calibration'
             )
@@ -1065,7 +1067,7 @@ class PylonCamera(Camera):
 
         for sel in targets:
             if sel not in advertised:
-                logger.warning(
+                _cam_log.warning(
                     f'[CAM Class ] Chunk{sel} not advertised by this '
                     f'camera; frame_validity will fall back to skip_frames '
                     f'for that source'
@@ -1075,7 +1077,7 @@ class PylonCamera(Camera):
                 camera.ChunkSelector.Value = sel
                 camera.ChunkEnable.Value = True
             except Exception as e:
-                logger.warning(
+                _cam_log.warning(
                     f'[CAM Class ] could not enable Chunk{sel}: {e}; '
                     f'frame_validity will fall back to skip_frames for that source'
                 )
@@ -1131,7 +1133,7 @@ class PylonCamera(Camera):
                 f'no TickFrequency node)'
             )
         else:
-            logger.warning(
+            _cam_log.warning(
                 f'[CAM Class ] Could not determine Timestamp tick frequency '
                 f'(transport={transport!r}, no TickFrequency node); '
                 f'ChunkTimestamp values will be unconvertible to seconds'
@@ -1148,7 +1150,7 @@ class PylonCamera(Camera):
             nm = camera.GetNodeMap()
             selector_node = nm.GetNode('ChunkSelector')
             if selector_node is None:
-                logger.warning(
+                _cam_log.warning(
                     '[CAM Class ] ChunkSelector node missing; '
                     'frame_validity will fall back to skip_frames calibration'
                 )
@@ -1163,7 +1165,7 @@ class PylonCamera(Camera):
                     )
             return advertised
         except Exception as e:
-            logger.warning(
+            _cam_log.warning(
                 f'[CAM Class ] ChunkSelector introspection failed: {e}; '
                 f'frame_validity will fall back to skip_frames calibration'
             )
@@ -1192,12 +1194,12 @@ class PylonCamera(Camera):
             if enabled:
                 self.active.AcquisitionFrameRate.Value = fps
         except genicam.RuntimeException as e:
-            logger.error(
+            _cam_log.error(
                 f'[CAM Class ] Camera communication error in set_max_acquisition_frame_rate: {e}'
             )
             self._mark_disconnected()
         except Exception as e:
-            logger.exception(
+            _cam_log.exception(
                 f'[CAM Class ] Unexpected error in set_max_acquisition_frame_rate: {e}'
             )
 
@@ -1273,7 +1275,7 @@ class PylonCamera(Camera):
         if not self.active:
             return False
         if mode not in ('On', 'Off'):
-            logger.error(
+            _cam_log.error(
                 f"[CAM Class ] set_device_link_throughput_limit: mode "
                 f"must be 'On' or 'Off'; got {mode!r}"
             )
@@ -1295,7 +1297,7 @@ class PylonCamera(Camera):
                     f'pylon set_device_link_throughput_limit({mode}, '
                     f'{value_bps}) FAILED: {e}'
                 )
-            logger.error(
+            _cam_log.error(
                 f'[CAM Class ] Camera communication error in '
                 f'set_device_link_throughput_limit: {e}'
             )
@@ -1305,7 +1307,7 @@ class PylonCamera(Camera):
                 f'failed: {e}'
             ) from e
         except Exception as e:
-            logger.exception(
+            _cam_log.exception(
                 f'[CAM Class ] Unexpected error in '
                 f'set_device_link_throughput_limit: {e}'
             )
@@ -1329,14 +1331,14 @@ class PylonCamera(Camera):
             )
             return value_bps
         if value_bps < lo:
-            logger.warning(
+            _cam_log.warning(
                 f'[CAM Class ] DLTL value {value_bps} below camera minimum '
                 f'{lo}; clamping. Per Basler doc, very low DLTL on rolling-'
                 f'shutter cameras can introduce image distortion.'
             )
             return lo
         if value_bps > hi:
-            logger.warning(
+            _cam_log.warning(
                 f'[CAM Class ] DLTL value {value_bps} above camera maximum '
                 f'{hi}; clamping. Per Basler doc, very high DLTL can cause '
                 f'corrupt or dropped frames.'
@@ -1394,7 +1396,7 @@ class PylonCamera(Camera):
             sg = self.active.GetStreamGrabberNodeMap()
             node = sg.GetNode(node_name)
             if node is None:
-                logger.error(
+                _cam_log.error(
                     f'[CAM Class ] {method_label}: StreamGrabber node '
                     f'{node_name!r} not present (likely GigE camera; '
                     f'this knob is USB3-only)'
@@ -1416,7 +1418,7 @@ class PylonCamera(Camera):
                 _cam_log.error(
                     f'pylon {method_label}({value}) FAILED: {e}'
                 )
-            logger.error(
+            _cam_log.error(
                 f'[CAM Class ] Camera communication error in '
                 f'{method_label}: {e}'
             )
@@ -1425,7 +1427,7 @@ class PylonCamera(Camera):
                 f'{method_label}({value}) failed: {e}'
             ) from e
         except Exception as e:
-            logger.exception(
+            _cam_log.exception(
                 f'[CAM Class ] Unexpected error in {method_label}: {e}'
             )
             return False
@@ -1447,7 +1449,7 @@ class PylonCamera(Camera):
         if not self.active:
             return False
         if mode not in self._ACQ_STOP_MODES:
-            logger.error(
+            _cam_log.error(
                 f"[CAM Class ] set_acquisition_stop_mode: mode must be one "
                 f"of {self._ACQ_STOP_MODES}; got {mode!r}"
             )
@@ -1459,7 +1461,7 @@ class PylonCamera(Camera):
                 )
             node = self.active.GetNodeMap().GetNode('BslAcquisitionStopMode')
             if node is None:
-                logger.warning(
+                _cam_log.warning(
                     f'[CAM Class ] BslAcquisitionStopMode node not exposed; '
                     f'set_acquisition_stop_mode({mode!r}) is a no-op on '
                     f'this camera'
@@ -1472,7 +1474,7 @@ class PylonCamera(Camera):
                 _cam_log.error(
                     f'pylon set_acquisition_stop_mode({mode!r}) FAILED: {e}'
                 )
-            logger.error(
+            _cam_log.error(
                 f'[CAM Class ] Camera communication error in '
                 f'set_acquisition_stop_mode: {e}'
             )
@@ -1481,7 +1483,7 @@ class PylonCamera(Camera):
                 f'set_acquisition_stop_mode({mode!r}) failed: {e}'
             ) from e
         except Exception as e:
-            logger.exception(
+            _cam_log.exception(
                 f'[CAM Class ] Unexpected error in '
                 f'set_acquisition_stop_mode: {e}'
             )
@@ -1503,7 +1505,7 @@ class PylonCamera(Camera):
         if not self.active:
             return False
         if mode not in self._BANDWIDTH_RESERVE_MODES:
-            logger.error(
+            _cam_log.error(
                 f"[CAM Class ] set_bandwidth_reserve_mode: mode must be one "
                 f"of {self._BANDWIDTH_RESERVE_MODES}; got {mode!r}"
             )
@@ -1521,7 +1523,7 @@ class PylonCamera(Camera):
                 _cam_log.error(
                     f'pylon set_bandwidth_reserve_mode({mode!r}) FAILED: {e}'
                 )
-            logger.error(
+            _cam_log.error(
                 f'[CAM Class ] Camera communication error in '
                 f'set_bandwidth_reserve_mode: {e}'
             )
@@ -1530,7 +1532,7 @@ class PylonCamera(Camera):
                 f'set_bandwidth_reserve_mode({mode!r}) failed: {e}'
             ) from e
         except Exception as e:
-            logger.exception(
+            _cam_log.exception(
                 f'[CAM Class ] Unexpected error in '
                 f'set_bandwidth_reserve_mode: {e}'
             )
@@ -1548,7 +1550,7 @@ class PylonCamera(Camera):
         if not self.active:
             return False
         if not isinstance(size_bytes, int) or size_bytes <= 0:
-            logger.error(
+            _cam_log.error(
                 f"[CAM Class ] set_gev_packet_size: size_bytes must be a "
                 f"positive int; got {size_bytes!r}"
             )
@@ -1566,7 +1568,7 @@ class PylonCamera(Camera):
                 _cam_log.error(
                     f'pylon set_gev_packet_size({size_bytes}) FAILED: {e}'
                 )
-            logger.error(
+            _cam_log.error(
                 f'[CAM Class ] Camera communication error in '
                 f'set_gev_packet_size: {e}'
             )
@@ -1575,7 +1577,7 @@ class PylonCamera(Camera):
                 f'set_gev_packet_size({size_bytes}) failed: {e}'
             ) from e
         except Exception as e:
-            logger.exception(
+            _cam_log.exception(
                 f'[CAM Class ] Unexpected error in set_gev_packet_size: {e}'
             )
             return False
@@ -1591,7 +1593,7 @@ class PylonCamera(Camera):
         if not self.active:
             return False
         if not isinstance(delay_ticks, int) or delay_ticks < 0:
-            logger.error(
+            _cam_log.error(
                 f"[CAM Class ] set_gev_inter_packet_delay: delay_ticks "
                 f"must be a non-negative int; got {delay_ticks!r}"
             )
@@ -1610,7 +1612,7 @@ class PylonCamera(Camera):
                     f'pylon set_gev_inter_packet_delay({delay_ticks}) '
                     f'FAILED: {e}'
                 )
-            logger.error(
+            _cam_log.error(
                 f'[CAM Class ] Camera communication error in '
                 f'set_gev_inter_packet_delay: {e}'
             )
@@ -1619,7 +1621,7 @@ class PylonCamera(Camera):
                 f'set_gev_inter_packet_delay({delay_ticks}) failed: {e}'
             ) from e
         except Exception as e:
-            logger.exception(
+            _cam_log.exception(
                 f'[CAM Class ] Unexpected error in '
                 f'set_gev_inter_packet_delay: {e}'
             )
@@ -1646,7 +1648,7 @@ class PylonCamera(Camera):
             return False
 
         if pixel_format not in self.get_supported_pixel_formats():
-            logger.error(f'[CAM Class ] Unsupported pixel format: {pixel_format}')
+            _cam_log.error(f'[CAM Class ] Unsupported pixel format: {pixel_format}')
             return False
 
         # Short-circuit redundant SetValue: update_camera_config() bounces
@@ -1675,7 +1677,7 @@ class PylonCamera(Camera):
         except genicam.RuntimeException as e:
             if _cam_log is not None:
                 _cam_log.error(f'pylon PixelFormat.SetValue({pixel_format!r}) FAILED: {e}')
-            logger.error(
+            _cam_log.error(
                 '[CAM Class ] Camera communication error during '
                 f'set_pixel_format({pixel_format}): {e}'
             )
@@ -1686,7 +1688,7 @@ class PylonCamera(Camera):
         except Exception as e:
             if _cam_log is not None:
                 _cam_log.error(f'pylon PixelFormat.SetValue({pixel_format!r}) FAILED: {e}')
-            logger.exception(f'[CAM Class ] Unexpected error in set_pixel_format: {e}')
+            _cam_log.exception(f'[CAM Class ] Unexpected error in set_pixel_format: {e}')
             raise HardwareError(
                 f'set_pixel_format({pixel_format}) failed: {type(e).__name__}: {e}'
             ) from e
@@ -1699,13 +1701,13 @@ class PylonCamera(Camera):
         try:
             return self.active.PixelFormat.GetValue()
         except genicam.RuntimeException as e:
-            logger.error(
+            _cam_log.error(
                 f'[CAM Class ] Failed to read pixel format: Camera may be disconnected - {e}'
             )
             self._mark_disconnected()
             return ''
         except Exception as e:
-            logger.exception(f'[CAM Class ] Unexpected error reading pixel format: {e}')
+            _cam_log.exception(f'[CAM Class ] Unexpected error reading pixel format: {e}')
             return ''
 
     def get_supported_pixel_formats(self) -> tuple:
@@ -1713,11 +1715,11 @@ class PylonCamera(Camera):
         try:
             return self.active.PixelFormat.GetSymbolics()
         except genicam.RuntimeException as e:
-            logger.error(f'[CAM Class ] Failed to read pixel formats: {e}')
+            _cam_log.error(f'[CAM Class ] Failed to read pixel formats: {e}')
             self._mark_disconnected()
             return ()
         except Exception as e:
-            logger.exception(f'[CAM Class ] Unexpected error reading pixel formats: {e}')
+            _cam_log.exception(f'[CAM Class ] Unexpected error reading pixel formats: {e}')
             return ()
 
     def set_binning_size(self, size: int) -> bool:
@@ -1741,7 +1743,7 @@ class PylonCamera(Camera):
             return False
 
         if size < 1 or size > 4:
-            logger.error(f'[CAM Class ] Unsupported bin size: {size}')
+            _cam_log.error(f'[CAM Class ] Unsupported bin size: {size}')
             return False
 
         try:
@@ -1768,12 +1770,12 @@ class PylonCamera(Camera):
         except genicam.TimeoutException as e:
             # USB roundtrip timed out. Transient -- do NOT mark disconnected,
             # single timeouts can recover. Caller can choose to retry.
-            logger.warning(f'[CAM Class ] set_binning_size({size}) timed out: {e}')
+            _cam_log.warning(f'[CAM Class ] set_binning_size({size}) timed out: {e}')
             raise HardwareError(
                 f'set_binning_size({size}) timed out: {e}'
             ) from e
         except genicam.RuntimeException as e:
-            logger.error(
+            _cam_log.error(
                 f'[CAM Class ] Camera communication error during set_binning_size({size}): {e}'
             )
             self._mark_disconnected()
@@ -1781,7 +1783,7 @@ class PylonCamera(Camera):
                 f'set_binning_size({size}) failed: {type(e).__name__}: {e}'
             ) from e
         except Exception as e:
-            logger.exception(f'[CAM Class ] Unexpected error in set_binning_size: {e}')
+            _cam_log.exception(f'[CAM Class ] Unexpected error in set_binning_size: {e}')
             raise HardwareError(
                 f'set_binning_size({size}) failed: {type(e).__name__}: {e}'
             ) from e
@@ -1799,20 +1801,20 @@ class PylonCamera(Camera):
             horiz_bin = self.active.BinningHorizontal.GetValue()
 
             if horiz_bin != vert_bin:
-                logger.warning(
+                _cam_log.warning(
                     '[CAM Class ] Binning mismatch detected between '
                     f'horizontal ({horiz_bin}) and vertical ({vert_bin})'
                 )
 
             return vert_bin
         except genicam.RuntimeException as e:
-            logger.error(
+            _cam_log.error(
                 f'[CAM Class ] Failed to read binning size: Camera may be disconnected - {e}'
             )
             self._mark_disconnected()
             return 1
         except Exception as e:
-            logger.exception(f'[CAM Class ] Unexpected error reading binning size: {e}')
+            _cam_log.exception(f'[CAM Class ] Unexpected error reading binning size: {e}')
             return 1
 
     def init_auto_gain_focus(
@@ -1857,12 +1859,12 @@ class PylonCamera(Camera):
             self.active.AutoGainUpperLimit.SetValue(max_gain)
             self.active.AutoFunctionProfile.SetValue('MinimizeExposureTime')
         except genicam.RuntimeException as e:
-            logger.error(
+            _cam_log.error(
                 f'[CAM Class ] Camera communication error during init_auto_gain_focus: {e}'
             )
             self._mark_disconnected()
         except Exception as e:
-            logger.exception(f'[CAM Class ] Unexpected error in init_auto_gain_focus: {e}')
+            _cam_log.exception(f'[CAM Class ] Unexpected error in init_auto_gain_focus: {e}')
 
     def update_auto_gain_target_brightness(
         self,
@@ -1892,7 +1894,7 @@ class PylonCamera(Camera):
                 _cam_log.error(
                     f'pylon AutoTargetBrightness.SetValue({auto_target_brightness}) FAILED: {e}'
                 )
-            logger.error(
+            _cam_log.error(
                 '[CAM Class ] Camera communication error during '
                 f'update_auto_gain_target_brightness({auto_target_brightness}): {e}'
             )
@@ -1902,7 +1904,7 @@ class PylonCamera(Camera):
                 _cam_log.error(
                     f'pylon AutoTargetBrightness.SetValue({auto_target_brightness}) FAILED: {e}'
                 )
-            logger.exception(
+            _cam_log.exception(
                 f'[CAM Class ] Unexpected error in update_auto_gain_target_brightness: {e}'
             )
 
@@ -1948,13 +1950,13 @@ class PylonCamera(Camera):
             self.active.AutoGainLowerLimit.SetValue(min_gain)
             self.active.AutoGainUpperLimit.SetValue(max_gain)
         except genicam.RuntimeException as e:
-            logger.error(
+            _cam_log.error(
                 '[CAM Class ] Camera communication error during '
                 f'update_auto_gain_min_max(min={min_gain}, max={max_gain}): {e}'
             )
             self._mark_disconnected()
         except Exception as e:
-            logger.exception(f'[CAM Class ] Unexpected error in update_auto_gain_min_max: {e}')
+            _cam_log.exception(f'[CAM Class ] Unexpected error in update_auto_gain_min_max: {e}')
 
     # grab() inherited from Camera base class
 
@@ -2018,14 +2020,14 @@ class PylonCamera(Camera):
                 # WARNING (not ERROR), no traceback -- the wait simply
                 # expired, no SDK fault to attribute.
                 _outcome = 'timeout'
-                logger.warning(
+                _cam_log.warning(
                     f'[CAM Class ] grab_new_capture timed out after '
                     f'{timeout:.1f}s (no frame queued; dropped {dropped} stale)'
                 )
                 return False, None
             except Exception as ex:
                 _outcome = 'exception'
-                logger.exception(
+                _cam_log.exception(
                     f'[CAM Class ] grab_new_capture raised '
                     f'{type(ex).__name__}: {ex}'
                 )
@@ -2056,7 +2058,7 @@ class PylonCamera(Camera):
         """
         camera = self.active
         if camera is None:
-            logger.warning(f'[CAM Class ] Cannot set frame size {w}x{h}: camera inactive')
+            _cam_log.warning(f'[CAM Class ] Cannot set frame size {w}x{h}: camera inactive')
             return
 
         try:
@@ -2097,12 +2099,12 @@ class PylonCamera(Camera):
 
             logger.info(f'[CAM Class ] Frame size set to {width}x{height}')
         except genicam.RuntimeException as e:
-            logger.error(
+            _cam_log.error(
                 f'[CAM Class ] Camera communication error during set_frame_size({w}x{h}): {e}'
             )
             self._mark_disconnected()
         except Exception as e:
-            logger.exception(f'[CAM Class ] Unexpected error in set_frame_size: {e}')
+            _cam_log.exception(f'[CAM Class ] Unexpected error in set_frame_size: {e}')
 
     def get_min_frame_size(self) -> dict:
         """Return min frame dims as {'width': int, 'height': int}; {} on inactive / read failure."""
@@ -2115,11 +2117,11 @@ class PylonCamera(Camera):
                 'height': camera.Height.GetMin(),
             }
         except genicam.RuntimeException as e:
-            logger.error(f'[CAM Class ] Failed to read min frame size: {e}')
+            _cam_log.error(f'[CAM Class ] Failed to read min frame size: {e}')
             self._mark_disconnected()
             return {}
         except Exception as e:
-            logger.exception(f'[CAM Class ] Unexpected error reading min frame size: {e}')
+            _cam_log.exception(f'[CAM Class ] Unexpected error reading min frame size: {e}')
             return {}
 
     def get_max_frame_size(self) -> dict:
@@ -2137,11 +2139,11 @@ class PylonCamera(Camera):
                 'height': camera.Height.GetMax(),
             }
         except genicam.RuntimeException as e:
-            logger.error(f'[CAM Class ] Failed to read max frame size: {e}')
+            _cam_log.error(f'[CAM Class ] Failed to read max frame size: {e}')
             self._mark_disconnected()
             return {}
         except Exception as e:
-            logger.exception(f'[CAM Class ] Unexpected error reading max frame size: {e}')
+            _cam_log.exception(f'[CAM Class ] Unexpected error reading max frame size: {e}')
             return {}
 
     def get_frame_size(self) -> dict | None:
@@ -2159,35 +2161,35 @@ class PylonCamera(Camera):
                 'height': height,
             }
         except genicam.RuntimeException as e:
-            logger.error(
+            _cam_log.error(
                 f'[CAM Class ] Failed to read frame size: Camera may be disconnected - {e}'
             )
             self._mark_disconnected()
             return None
         except Exception as e:
-            logger.exception(f'[CAM Class ] Unexpected error reading frame size: {e}')
+            _cam_log.exception(f'[CAM Class ] Unexpected error reading frame size: {e}')
             return None
 
     def get_gain(self) -> float:
         """Return current Gain (dB); -1.0 on any error so callers can treat < 0 as failure."""
         if self.active is None:
-            logger.warning('[CAM Class ] Cannot read gain: camera inactive')
+            _cam_log.warning('[CAM Class ] Cannot read gain: camera inactive')
             return -1
 
         try:
             return float(self.active.Gain.GetValue())
         except genicam.TimeoutException as e:
             # USB roundtrip timed out (transient). Don't mark disconnected; caller can retry.
-            logger.warning(f'[CAM Class ] get_gain timed out: {e}')
+            _cam_log.warning(f'[CAM Class ] get_gain timed out: {e}')
             return -1
         except genicam.RuntimeException as e:
-            logger.error(
+            _cam_log.error(
                 f'[CAM Class ] Failed to read gain value: Camera may be disconnected - {e}'
             )
             self._mark_disconnected()
             return -1
         except Exception as e:
-            logger.exception(f'[CAM Class ] Unexpected error reading gain: {e}')
+            _cam_log.exception(f'[CAM Class ] Unexpected error reading gain: {e}')
             return -1
 
     def is_connected(self) -> bool:
@@ -2216,7 +2218,7 @@ class PylonCamera(Camera):
         if self.active is None:
             if _cam_log is not None:
                 _cam_log.warning(f'pylon Gain.SetValue({value}) SKIPPED: active=None')
-            logger.warning(f'[CAM Class ] Cannot set gain {value}: camera inactive')
+            _cam_log.warning(f'[CAM Class ] Cannot set gain {value}: camera inactive')
             return
 
         try:
@@ -2249,12 +2251,12 @@ class PylonCamera(Camera):
         except genicam.RuntimeException as e:
             if _cam_log is not None:
                 _cam_log.error(f'pylon Gain.SetValue({value}) FAILED: {e}')
-            logger.error(f'[CAM Class ] Camera communication error during gain({value}): {e}')
+            _cam_log.error(f'[CAM Class ] Camera communication error during gain({value}): {e}')
             self._mark_disconnected()
         except Exception as e:
             if _cam_log is not None:
                 _cam_log.error(f'pylon Gain.SetValue({value}) FAILED: {e}')
-            logger.exception(f'[CAM Class ] Unexpected error in gain: {e}')
+            _cam_log.exception(f'[CAM Class ] Unexpected error in gain: {e}')
 
     def auto_gain(
         self,
@@ -2283,7 +2285,7 @@ class PylonCamera(Camera):
         """
 
         if self.active is None:
-            logger.warning(f'[CAM Class ] Cannot set auto_gain({state}): camera inactive')
+            _cam_log.warning(f'[CAM Class ] Cannot set auto_gain({state}): camera inactive')
             return
 
         try:
@@ -2308,10 +2310,10 @@ class PylonCamera(Camera):
                     _cam_log.info('pylon GainAuto.SetValue(Off) ExposureAuto.SetValue(Off)')
             logger.info(f'[CAM Class ] Auto gain {"enabled" if state else "disabled"}')
         except genicam.RuntimeException as e:
-            logger.error(f'[CAM Class ] Auto gain({state}) failed: {e}')
+            _cam_log.error(f'[CAM Class ] Auto gain({state}) failed: {e}')
             self._mark_disconnected()
         except Exception as e:
-            logger.exception(f'[CAM Class ] Unexpected error in auto_gain: {e}')
+            _cam_log.exception(f'[CAM Class ] Unexpected error in auto_gain: {e}')
 
     def auto_gain_once(
         self,
@@ -2338,7 +2340,7 @@ class PylonCamera(Camera):
         """
 
         if self.active is None:
-            logger.warning(f'[CAM Class ] Cannot set auto_gain_once({state}): camera inactive')
+            _cam_log.warning(f'[CAM Class ] Cannot set auto_gain_once({state}): camera inactive')
             return
 
         try:
@@ -2352,10 +2354,10 @@ class PylonCamera(Camera):
                 self.active.ExposureAuto.SetValue('Off')
             logger.info(f'[CAM Class ] Auto gain once {"enabled" if state else "disabled"}')
         except genicam.RuntimeException as e:
-            logger.error(f'[CAM Class ] Auto gain once({state}) failed: {e}')
+            _cam_log.error(f'[CAM Class ] Auto gain once({state}) failed: {e}')
             self._mark_disconnected()
         except Exception as e:
-            logger.exception(f'[CAM Class ] Unexpected error in auto_gain_once: {e}')
+            _cam_log.exception(f'[CAM Class ] Unexpected error in auto_gain_once: {e}')
 
     def exposure_t(self, t) -> None:
         """Set the camera's exposure time in milliseconds.
@@ -2371,7 +2373,7 @@ class PylonCamera(Camera):
         if self.active is None:
             if _cam_log is not None:
                 _cam_log.warning(f'pylon ExposureTime.SetValue({t}ms) SKIPPED: active=None')
-            logger.warning(f'[CAM Class ] Cannot set exposure {t}ms: camera inactive')
+            _cam_log.warning(f'[CAM Class ] Cannot set exposure {t}ms: camera inactive')
             return
 
         if t > self.max_exposure:
@@ -2379,7 +2381,7 @@ class PylonCamera(Camera):
                 _cam_log.warning(
                     f'pylon ExposureTime.SetValue({t}ms) SKIPPED: exceeds max {self.max_exposure}ms'
                 )
-            logger.warning(f'[CAM Class ] Exposure {t}ms exceeds max ({self.max_exposure}ms)')
+            _cam_log.warning(f'[CAM Class ] Exposure {t}ms exceeds max ({self.max_exposure}ms)')
             return
 
         # Pylon takes time in microseconds, so pass t*1000 to convert to us
@@ -2408,10 +2410,10 @@ class PylonCamera(Camera):
         except genicam.RuntimeException as e:
             if _cam_log is not None:
                 _cam_log.error(f'pylon ExposureTime.SetValue({t}ms) FAILED: {e}')
-            logger.error(f'[CAM Class ] Camera communication error during exposure_t({t}ms): {e}')
+            _cam_log.error(f'[CAM Class ] Camera communication error during exposure_t({t}ms): {e}')
             self._mark_disconnected()
         except Exception as e:
-            logger.exception(f'[CAM Class ] Unexpected error in exposure_t: {e}')
+            _cam_log.exception(f'[CAM Class ] Unexpected error in exposure_t: {e}')
 
     def get_exposure_t(self) -> float:
         """Read the camera's currently-active exposure time in ms.
@@ -2430,7 +2432,7 @@ class PylonCamera(Camera):
         """
 
         if self.active is None:
-            logger.warning('[CAM Class ] Cannot read exposure: camera inactive')
+            _cam_log.warning('[CAM Class ] Cannot read exposure: camera inactive')
             return -1
 
         try:
@@ -2450,7 +2452,7 @@ class PylonCamera(Camera):
             if microsec is None:
                 # Both nodes unreadable -- camera is unusable for any
                 # acquisition; treat as disconnected.
-                logger.error(
+                _cam_log.error(
                     '[CAM Class ] Failed to read exposure time: both '
                     'BslEffectiveExposureTime and ExposureTime nodes '
                     'unavailable. Camera may be disconnected.'
@@ -2460,16 +2462,16 @@ class PylonCamera(Camera):
             return microsec / 1000  # microseconds -> milliseconds
         except genicam.TimeoutException as e:
             # USB roundtrip timed out (transient). Don't mark disconnected; caller can retry.
-            logger.warning(f'[CAM Class ] get_exposure_t timed out: {e}')
+            _cam_log.warning(f'[CAM Class ] get_exposure_t timed out: {e}')
             return -1
         except genicam.RuntimeException as e:
-            logger.error(
+            _cam_log.error(
                 f'[CAM Class ] Failed to read exposure time: Camera may be disconnected - {e}'
             )
             self._mark_disconnected()
             return -1
         except Exception as e:
-            logger.exception(f'[CAM Class ] Unexpected error reading exposure time: {e}')
+            _cam_log.exception(f'[CAM Class ] Unexpected error reading exposure time: {e}')
             return -1
 
     def auto_exposure_t(self, state=True) -> None:
@@ -2486,7 +2488,7 @@ class PylonCamera(Camera):
         """
 
         if self.active is None:
-            logger.warning(f'[CAM Class ] Cannot set auto_exposure({state}): camera inactive')
+            _cam_log.warning(f'[CAM Class ] Cannot set auto_exposure({state}): camera inactive')
             return
 
         try:
@@ -2496,10 +2498,10 @@ class PylonCamera(Camera):
                 self.active.ExposureAuto.SetValue('Off')
             logger.info(f'[CAM Class ] Auto exposure {"enabled" if state else "disabled"}')
         except genicam.RuntimeException as e:
-            logger.error(f'[CAM Class ] Auto exposure({state}) failed: {e}')
+            _cam_log.error(f'[CAM Class ] Auto exposure({state}) failed: {e}')
             self._mark_disconnected()
         except Exception as e:
-            logger.exception(f'[CAM Class ] Unexpected error in auto_exposure_t: {e}')
+            _cam_log.exception(f'[CAM Class ] Unexpected error in auto_exposure_t: {e}')
 
     def set_test_pattern(
         self,
@@ -2526,12 +2528,12 @@ class PylonCamera(Camera):
             self.active.TestPattern.SetValue(pattern)
             self.grab()
         except genicam.RuntimeException as e:
-            logger.error(
+            _cam_log.error(
                 f'[CAM Class ] Camera communication error during set_test_pattern({pattern}): {e}'
             )
             self._mark_disconnected()
         except Exception as e:
-            logger.exception(f'[CAM Class ] Unexpected error in set_test_pattern: {e}')
+            _cam_log.exception(f'[CAM Class ] Unexpected error in set_test_pattern: {e}')
 
     # Chunks consumed by chunk-driven validity in modules.frame_validity.
     # LED has no chunk equivalent; motion is firmware-gated; these three
@@ -2629,7 +2631,7 @@ class PylonCamera(Camera):
                     camera.ChunkSelector.Value = sel
                     camera.ChunkEnable.Value = prior
                 except Exception as e:
-                    logger.warning(
+                    _cam_log.warning(
                         f'[CAM Class ] chunk_data_probe could not restore '
                         f'Chunk{sel} prior state ({prior}): {e}'
                     )
@@ -2637,7 +2639,7 @@ class PylonCamera(Camera):
                 try:
                     camera.ChunkModeActive.Value = prior_chunk_mode
                 except Exception as e:
-                    logger.warning(
+                    _cam_log.warning(
                         f'[CAM Class ] chunk_data_probe could not restore '
                         f'ChunkModeActive prior state ({prior_chunk_mode}): {e}'
                     )
@@ -3078,7 +3080,9 @@ class ImageHandler(pylon.ImageEventHandler):
             try:
                 grab_succeeded = grabResult.GrabSucceeded()
             except Exception as e:
-                logger.warning(f'[CAM Class ] GrabSucceeded() failed: {e}, assuming device removed')
+                _cam_log.warning(
+                    f'[CAM Class ] GrabSucceeded() failed: {e}, assuming device removed'
+                )
                 self._parent._mark_disconnected()
                 _outcome = 'exception_grabsucceeded'
                 return
@@ -3096,7 +3100,7 @@ class ImageHandler(pylon.ImageEventHandler):
                     self._frame_queue.put((True, img, ts))
                     _outcome = 'success_grabbed'
                 except Exception as e:
-                    logger.warning(
+                    _cam_log.warning(
                         f'[CAM Class ] GetArray() failed: {e}, marking device as removed'
                     )
                     self._parent._mark_disconnected()
@@ -3126,7 +3130,7 @@ class ImageHandler(pylon.ImageEventHandler):
                 else:
                     # err_code/desc varies (USB CRC, partial frame, underrun);
                     # log each to preserve cause distribution.
-                    logger.warning(
+                    _cam_log.warning(
                         f'[CAM Class ] grabResult.GrabSucceeded()=False '
                         f'err_code={err_code} desc={err_desc!r}'
                     )
@@ -3134,7 +3138,7 @@ class ImageHandler(pylon.ImageEventHandler):
                     should_stop = self._base._record_failure()
                     if should_stop:
                         try:
-                            logger.error(
+                            _cam_log.error(
                                 '[CAM Class ] Too many grab failures; '
                                 'stopping acquisition'
                             )
@@ -3142,13 +3146,13 @@ class ImageHandler(pylon.ImageEventHandler):
                                 self._parent.stop_grabbing()
                             self._parent._mark_disconnected()
                         except Exception as e:
-                            logger.warning(
+                            _cam_log.warning(
                                 f'[CAM Class ] OnImageGrabbed could not stop grabbing '
                                 f'after max failures: {e}'
                             )
         except Exception as e:
             _outcome = 'exception_outer'
-            logger.exception(f'[CAM Class ] OnImageGrabbed unexpected error: {e}')
+            _cam_log.exception(f'[CAM Class ] OnImageGrabbed unexpected error: {e}')
         finally:
             if _trace_enabled and _t0 is not None:
                 _dt_ms = (time.perf_counter() - _t0) * 1000.0
@@ -3177,7 +3181,7 @@ class ImageHandler(pylon.ImageEventHandler):
                 except queue.Empty:
                     break
         except Exception as e:
-            logger.warning(f'[CAM Class ] handler reset queue-drain failed: {e}')
+            _cam_log.warning(f'[CAM Class ] handler reset queue-drain failed: {e}')
         self._base.reset()
 
     def get_last_image(self) -> tuple:
@@ -3258,4 +3262,4 @@ class _CameraRemovalHandler(pylon.ConfigurationEventHandler):
             camera: SDK reference (unused; pylon contract).
         """
         self._parent._mark_disconnected()
-        logger.error('[CAM Class ] Camera physically removed (Pylon SDK callback)')
+        _cam_log.error('[CAM Class ] Camera physically removed (Pylon SDK callback)')

@@ -4567,7 +4567,7 @@ class TestPylonResyncProminentLog:
             "positive resync delta -- per Basler doc this is the "
             "most serious error case in USB 3.0 / USB3 Vision."
         )
-        assert "logger.warning" in body and "RESYNC" in body, (
+        assert "_cam_log.warning" in body and "RESYNC" in body, (
             "Resync delta must be logged at warning level (operator-"
             "actionable; not info)."
         )
