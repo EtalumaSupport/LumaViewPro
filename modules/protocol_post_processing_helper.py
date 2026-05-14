@@ -348,11 +348,15 @@ class ProtocolPostProcessingHelper:
         post_images_df['Raw'] = False
 
         if (len(raw_images_df) == 0) and (len(post_images_df) == 0):
-            msg = "No images found to process"
-            logger.error(f"{self._name}: {msg}")
+            log_msg = "No image files found in folder to process"
+            user_msg = (
+                "No image files were found in this folder to process. "
+                "Check that the folder contains captured scan images."
+            )
+            logger.error(f"{self._name}: {log_msg}")
             return {
                 'status': False,
-                'message': msg,
+                'message': user_msg,
             }
 
         df_list = [raw_images_df, post_images_df]

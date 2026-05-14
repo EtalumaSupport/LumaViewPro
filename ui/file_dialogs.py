@@ -6,12 +6,123 @@ import subprocess
 import sys
 
 from kivy.properties import ListProperty, StringProperty
+from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.button import Button
+from kivy.uix.filechooser import FileChooserListView
+from kivy.uix.label import Label
+from kivy.uix.popup import Popup
 
 from ui.hover_behavior import HoverBehavior
 import modules.app_context as _app_ctx
 
 logger = logging.getLogger('LVP.ui.file_dialogs')
+
+
+# ---------------------------------------------------------------------------
+# Kivy folder picker (cross-platform). Replaces the OS-native folder pickers
+# (tkinter askdirectory on Windows/Linux, osascript "choose folder" on macOS).
+# Both native pickers show only folders, so a folder containing only image
+# files renders as an empty mid-pane with "no items match your search" --
+# a least-astonishment violation when the user can see files in the folder
+# via Explorer/Finder. This picker shows files AND folders, with the user
+# confirming the current folder via "Select this folder" or clicking a child
+# folder. Clicking a file is interpreted as "use this file's parent folder."
+# ---------------------------------------------------------------------------
+
+class FolderPickerPopup(Popup):
+    """Kivy folder-picker popup. Shows files and folders; confirms current
+    folder, a clicked subfolder, or the parent of a clicked file."""
+
+    def __init__(self, title='Select folder', initial_path=None, on_select=None, **kwargs):
+        self._on_select_callback = on_select
+        self._result = None
+
+        if initial_path and os.path.isdir(initial_path):
+            start_path = str(initial_path)
+        else:
+            start_path = os.path.expanduser('~')
+
+        layout = BoxLayout(orientation='vertical', padding=8, spacing=6)
+
+        self._path_label = Label(
+            text=start_path,
+            size_hint_y=None,
+            height=24,
+            halign='left',
+            valign='middle',
+            shorten=True,
+            shorten_from='left',
+        )
+        self._path_label.bind(size=lambda w, s: setattr(w, 'text_size', s))
+        layout.add_widget(self._path_label)
+
+        self._chooser = FileChooserListView(
+            path=start_path,
+            dirselect=True,
+            show_hidden=False,
+        )
+        self._chooser.bind(path=self._on_path_change)
+        layout.add_widget(self._chooser)
+
+        button_row = BoxLayout(
+            orientation='horizontal',
+            size_hint_y=None,
+            height=44,
+            spacing=8,
+        )
+        select_btn = Button(text='Select this folder')
+        select_btn.bind(on_release=self._on_confirm)
+        button_row.add_widget(select_btn)
+
+        cancel_btn = Button(text='Cancel')
+        cancel_btn.bind(on_release=lambda *_: self.dismiss())
+        button_row.add_widget(cancel_btn)
+
+        layout.add_widget(button_row)
+
+        super().__init__(
+            title=title,
+            content=layout,
+            size_hint=(0.85, 0.85),
+            auto_dismiss=False,
+            **kwargs,
+        )
+
+    def _on_path_change(self, _instance, path):
+        self._path_label.text = str(path)
+
+    def _on_confirm(self, *_):
+        # Resolve the target folder:
+        #   1. If the user clicked a subfolder, use it.
+        #   2. If they clicked a file, use the file's parent folder.
+        #   3. Otherwise, use the current browse path (the folder they're in).
+        if self._chooser.selection:
+            target = self._chooser.selection[0]
+            if os.path.isdir(target):
+                self._result = target
+            else:
+                self._result = os.path.dirname(target)
+        else:
+            self._result = self._chooser.path
+
+        self.dismiss()
+        if self._on_select_callback and self._result:
+            self._on_select_callback(self._result)
+
+
+def _open_kivy_folder_picker(initial_dir, on_select, title='Select folder'):
+    """Open the Kivy folder picker. Cross-platform; non-blocking; the
+    on_select callback fires with the chosen folder path or is not called
+    if the user cancels."""
+    try:
+        popup = FolderPickerPopup(
+            title=title,
+            initial_path=initial_dir,
+            on_select=on_select,
+        )
+        popup.open()
+    except Exception as e:
+        logger.error(f'[LVP Main  ] Kivy folder picker error: {e}')
 
 
 # ---------------------------------------------------------------------------
@@ -53,25 +164,6 @@ def _macos_open_file(initial_dir=None, filetypes=None):
             return result.stdout.strip()
     except Exception as e:
         logger.warning(f'[LVP Main  ] macOS file dialog error: {e}')
-    return None
-
-
-def _macos_choose_folder(initial_dir=None):
-    """Show a native macOS choose-folder dialog. Returns path string or None."""
-    script = 'set theFolder to choose folder'
-    if initial_dir:
-        script += f' default location POSIX file "{_escape_applescript(initial_dir)}"'
-    script += '\nPOSIX path of theFolder'
-
-    try:
-        result = subprocess.run(
-            ['osascript', '-e', script],
-            capture_output=True, text=True, timeout=120
-        )
-        if result.returncode == 0 and result.stdout.strip():
-            return result.stdout.strip().rstrip('/')
-    except Exception as e:
-        logger.warning(f'[LVP Main  ] macOS folder dialog error: {e}')
     return None
 
 
@@ -201,26 +293,11 @@ class FolderChooseBTN(HoverBehavior, Button):
         else:
             selected_path = settings['live_folder']
 
-        if sys.platform == 'darwin':
-            path = _macos_choose_folder(initial_dir=selected_path)
-            if path:
-                self.handle_selection(selection=[path])
-            return
-
-        # Windows/Linux: tkinter
-        from tkinter import Tk, filedialog
-        root = Tk()
-        root.attributes('-alpha', 0.0)
-        root.attributes('-topmost', True)
-        selection = filedialog.askdirectory(
-            parent=root,
-            initialdir=selected_path
+        _open_kivy_folder_picker(
+            initial_dir=selected_path,
+            on_select=lambda chosen: self.handle_selection(selection=[chosen]),
+            title=f'Select folder ({context})',
         )
-        root.destroy()
-
-        if selection == '':
-            return
-        self.handle_selection(selection=[selection])
 
 
     def handle_selection(self, selection):

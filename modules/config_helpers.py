@@ -538,7 +538,7 @@ def log_system_metrics(settings: dict):
                 if exe is None or not hasattr(exe, 'caller_futures_stats'):
                     continue
                 allocs, pops, live = exe.caller_futures_stats()
-                futures_parts.append(f"{name}=A{allocs}/P{pops}/L{live}")
+                futures_parts.append(f"{name}: alloc={allocs} pop={pops} live={live}")
             except Exception:
                 continue
         if futures_parts:

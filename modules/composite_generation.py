@@ -216,7 +216,10 @@ class CompositeGeneration(ProtocolPostProcessor):
 
             if not channel_images and transmitted_image is None:
                 status = False
-                error = "Composite Generation Error: No images found"
+                error = (
+                    "Composite Generation Error: no channel images "
+                    "available for this group"
+                )
             else:
                 dtype = img_dtype or np.uint8
                 max_value = 255 if dtype == np.uint8 else 4095
