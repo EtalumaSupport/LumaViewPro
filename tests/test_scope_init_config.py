@@ -96,13 +96,12 @@ class TestFromSettings:
 # ---------- _notify_partial_hardware filter ----------
 
 def _make_scope_with_no_hardware():
-    """Sim scope, then strip drivers to Null* / no camera, then flip
-    `_simulated` off so the early-return doesn't fire."""
+    """Sim scope, strip drivers to Null* / no camera, flip `_simulated`
+    off so the early-return doesn't fire."""
     scope = Lumascope(simulate=True)
     scope._led_driver = NullLEDBoard()
     scope._motion_driver = NullMotionBoard()
-    if hasattr(scope, 'camera'):
-        delattr(scope, 'camera')
+    scope._camera_driver = None
     scope._simulated = False
     return scope
 
@@ -163,3 +162,22 @@ class TestNotifyPartialHardware:
         scope._notify_partial_hardware(config)
         assert len(captured_warnings) == 1
         assert "Motor Controller" in captured_warnings[0].message
+
+    def test_active_camera_does_not_warn(self, captured_warnings):
+        """Connected camera (driver.active=True) must not produce a
+        Camera warning. Guards against the pattern where a `hasattr`
+        check probes a name that no longer exists post-driver-rename
+        and the OR short-circuits to a false-positive missing-Camera."""
+        scope = _make_scope_with_no_hardware()
+        scope._led_driver = object()
+        scope._motion_driver = object()
+
+        class _ActiveCam:
+            active = True
+        scope._camera_driver = _ActiveCam()
+
+        config = ScopeInitConfig.from_settings(
+            _BASE_SETTINGS, labware=None, scope_config=_LS820_CONFIG,
+        )
+        scope._notify_partial_hardware(config)
+        assert captured_warnings == []

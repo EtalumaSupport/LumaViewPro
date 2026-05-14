@@ -619,7 +619,7 @@ class Lumascope():
             missing.append("LED Board")
         if config.expects_motion and isinstance(self._motion_driver, NullMotionBoard):
             missing.append("Motor Controller")
-        if not hasattr(self, 'camera') or not getattr(self._camera_driver, 'active', None):
+        if not getattr(self._camera_driver, 'active', None):
             missing.append("Camera")
         if missing:
             notifications.warning(
