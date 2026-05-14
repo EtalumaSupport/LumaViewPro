@@ -52,7 +52,7 @@
 			     REINSTALLMODE=amus re-deploys all files (a), rewrites machine + user
 			     registry (m,u), and refreshes shortcuts (s). MSI semantics: these
 			     properties are ignored on first install (no ProductCode present) but
-			     trigger repair-all when the ProductCode is already registered --
+			     trigger repair-all when the ProductCode is already registered,
 			     including the orphaned-ProductCode case where the driver INF was
 			     removed via Device Manager / pnputil while the MSI registration
 			     persisted. Without this, MSI rejects re-install with
