@@ -712,7 +712,7 @@ class TestHeadlessSession:
         """Headless session should support motor position queries."""
         session = ScopeSession.create_headless()
         scope = session.scope
-        pos = scope.get_current_position('Z')
+        pos = scope.motion.get_current_position('Z')
         assert isinstance(pos, (int, float))
 
     def test_create_protocol_runner(self):
