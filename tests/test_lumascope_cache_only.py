@@ -109,25 +109,25 @@ class TestPositionAccessorsCacheOnly:
 
     def test_get_target_position_single_axis_no_io(self, scope_with_io_traps):
         """LV-45 invariant: get_target_position('Z') is cache-only."""
-        scope_with_io_traps.get_target_position('Z')
+        scope_with_io_traps.motion.get_target_position('Z')
 
     def test_get_target_position_all_axes_no_io(self, scope_with_io_traps):
         """get_target_position(None) returns a dict snapshot — cache-only."""
-        result = scope_with_io_traps.get_target_position()
+        result = scope_with_io_traps.motion.get_target_position()
         assert isinstance(result, dict)
 
     def test_get_current_position_single_axis_no_io(self, scope_with_io_traps):
         """get_current_position uses the predicted-position cache during
         MOVING and the position cache during IDLE — both cache-only."""
-        scope_with_io_traps.get_current_position('X')
+        scope_with_io_traps.motion.get_current_position('X')
 
     def test_get_current_position_all_axes_no_io(self, scope_with_io_traps):
         """get_current_position(None) returns a dict snapshot — cache-only."""
-        result = scope_with_io_traps.get_current_position()
+        result = scope_with_io_traps.motion.get_current_position()
         assert isinstance(result, dict)
 
     def test_position_repeated_reads_no_io(self, scope_with_io_traps):
         """10Hz cadence simulation: repeated reads stay cache-only."""
         for _ in range(20):
-            scope_with_io_traps.get_target_position('Z')
-            scope_with_io_traps.get_current_position('Z')
+            scope_with_io_traps.motion.get_target_position('Z')
+            scope_with_io_traps.motion.get_current_position('Z')
