@@ -47,20 +47,14 @@
 
 		<MsiPackage Id="PylonDriver"
 					Permanent="yes"
-					SourceFile="$(var.PylonDriverDir)">
-			<!-- Force-repair Pylon driver on every bundle install. REINSTALL=ALL with
-			     REINSTALLMODE=amus re-deploys all files (a), rewrites machine + user
-			     registry (m,u), and refreshes shortcuts (s). MSI semantics: these
-			     properties are ignored on first install (no ProductCode present) but
-			     trigger repair-all when the ProductCode is already registered,
-			     including the orphaned-ProductCode case where the driver INF was
-			     removed via Device Manager / pnputil while the MSI registration
-			     persisted. Without this, MSI rejects re-install with
-			     "another version already installed" and the camera enumerates as an
-			     unknown USB device. -->
-			<MsiProperty Name="REINSTALL" Value="ALL" />
-			<MsiProperty Name="REINSTALLMODE" Value="amus" />
-		</MsiPackage>
+					SourceFile="$(var.PylonDriverDir)" />
+		<!-- Note: Pylon force-repair via MsiProperty REINSTALL=ALL was tried
+		     in dc26684 but WiX 6 rejects REINSTALL / REINSTALLMODE inside a
+		     bundle's MsiPackage (WIX0365: bootstrapper-controlled properties).
+		     Orphaned-ProductCode case (driver INF removed via Device Manager
+		     while MSI registration persists -> camera enumerates as unknown
+		     USB device) requires a different mechanism; tracked as a separate
+		     concern from the bench-build unblock. -->
 
 		<MsiPackage Id="AmazonCorretto8"
 					SourceFile="$(var.CorretoMsiDir)"
