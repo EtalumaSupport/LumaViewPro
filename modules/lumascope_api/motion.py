@@ -930,6 +930,22 @@ class MotionAPI:
         for ax in positions:
             self._fire_position_listeners(ax)
 
+    def _read_position_cache(self, axis: str | None) -> 'float | dict':
+        """Shared cache-read primitive for the position-query methods.
+
+        Pure cache access -- no T-axis policy here; callers decide their
+        own sentinel for the "axis requested but not present" case (see
+        get_target_position's None for no-turret-T).
+
+        axis=None -> dict copy of all cached axis positions
+        axis=<name> -> float (0.0 if axis missing from cache)
+        """
+        if axis is None:
+            with self._pos_cache_lock:
+                return dict(self._pos_cache)
+        with self._pos_cache_lock:
+            return self._pos_cache.get(axis, 0.0)
+
     def get_target_position(self, axis: str | None = None) -> 'float | dict | None':
         """Get the target position for an axis (where it is commanded to go).
 
@@ -943,13 +959,9 @@ class MotionAPI:
                 axis positions. Returns 0 if motion board inactive, None if
                 axis T requested but no turret present.
         """
-        if (not self._driver.has_turret()) and (axis == 'T'):
+        if axis == 'T' and not self._driver.has_turret():
             return None
-
-        with self._pos_cache_lock:
-            if axis is None:
-                return dict(self._pos_cache)
-            return self._pos_cache.get(axis, 0.0)
+        return self._read_position_cache(axis)
 
     def get_current_position(self, axis: str | None = None) -> 'float | dict':
         """Get the current position for an axis.
@@ -971,9 +983,6 @@ class MotionAPI:
                 result[ax] = self.get_current_position(ax)
             return result
 
-        # If axis is moving and we have a motion profile, return predicted position.
-        # The predictor gives smooth interpolation between 50Hz firmware polls.
-        # If prediction fails or isn't available, fall through to cached target.
         with self._axis_state_lock:
             state = self._axis_state.get(axis, AxisState.UNKNOWN)
         if state == AxisState.MOVING:
@@ -981,9 +990,7 @@ class MotionAPI:
             if predicted is not None:
                 return predicted
 
-        # IDLE or no profile: cached target position (confirmed by firmware)
-        with self._pos_cache_lock:
-            return self._pos_cache.get(axis, 0.0)
+        return self._read_position_cache(axis)
 
     def _predicted_position(self, axis: str) -> float | None:
         """Predict position during a move using the trapezoidal ramp profile.
