@@ -80,8 +80,8 @@ class ProtocolImageWriter:
         # Allocated lazily on first matching save; re-allocated on shape/dtype change.
         # file_io_executor runs single-threaded, so reuse across saves is safe.
         self._convert_buf_12to16 = None  # PIW-5: 2D uint16, eliminates image.copy() in convert
-        self._false_color_buf = None     # PF-3: 3D uint16 BGR, output of add_false_color
-        self._rgb_buf = None             # PIW-6: 3D uint16 RGB, output of cv2.cvtColor
+        self._false_color_buf = None     # 3D uint16 RGB, in-place destination for add_false_color
+        self._rgb_buf = None             # Retained for API compat; unused -- retire when callers drop it
         self._consecutive_capture_failures = 0
         self._MAX_CONSECUTIVE_CAPTURE_FAILURES = 3
 
