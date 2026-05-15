@@ -1426,8 +1426,16 @@ class MotorBoard(SerialBoard):
         firmware does not implement this query). Callers should treat
         None as "INCONCLUSIVE -- firmware does not support this
         diagnostic," NOT as a fault.
+
+        expect_unsupported=True is passed to exchange_command so that
+        firmware-not-found responses on legacy firmware (2024-09-10
+        and earlier) are downgraded to DEBUG, matching the motor_stop
+        capability probe pattern. Without this opt-in, the WARNING
+        fires from serialboard.exchange_command BEFORE this helper
+        gets to swallow the ERROR response, leaking noise into the
+        user-visible log on every TSR run against legacy firmware.
         """
-        resp = self.exchange_command(command)
+        resp = self.exchange_command(command, expect_unsupported=True)
         if resp is None:
             return None
         if resp.startswith('ERROR'):
