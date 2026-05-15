@@ -45,6 +45,7 @@ import pytest
 
 REPO = pathlib.Path(__file__).parent.parent
 LUMASCOPE_API = REPO / "modules" / "lumascope_api" / "_lumascope.py"
+MOTION_API = REPO / "modules" / "lumascope_api" / "motion.py"
 
 
 # ---------------------------------------------------------------------------
@@ -52,7 +53,13 @@ LUMASCOPE_API = REPO / "modules" / "lumascope_api" / "_lumascope.py"
 # ---------------------------------------------------------------------------
 
 def _find_method_source(class_name: str, method_name: str) -> str:
-    tree = ast.parse(LUMASCOPE_API.read_text(encoding="utf-8"))
+    # Wave 7 Phase 2c: stateful bodies live on MotionAPI in motion.py.
+    # Route by class name so existing call sites don't all need updating.
+    if class_name == "MotionAPI":
+        src_path = MOTION_API
+    else:
+        src_path = LUMASCOPE_API
+    tree = ast.parse(src_path.read_text(encoding="utf-8"))
     for node in ast.walk(tree):
         if isinstance(node, ast.ClassDef) and node.name == class_name:
             for child in node.body:
@@ -63,12 +70,18 @@ def _find_method_source(class_name: str, method_name: str) -> str:
 
 class TestSourceOrder_618:
     """#618 source pin: motion.move_abs_pos / move_rel_pos must appear
-    BEFORE _set_axis_state(MOVING) in their respective methods."""
+    BEFORE _set_axis_state(MOVING) in their respective methods.
+
+    Bodies live on MotionAPI (motion.py) after Wave 7 Phase 2c; the
+    Lumascope surface keeps a thin forwarder. The ordering invariant
+    that fixes the #618 race must be enforced at the canonical body,
+    not the forwarder.
+    """
 
     def test_move_absolute_position_writes_hardware_first(self):
-        body = _find_method_source("Lumascope", "move_absolute_position")
-        move_idx = body.find("self._motion_driver.move_abs_pos(")
-        state_idx = body.find("self._set_axis_state(axis, AxisState.MOVING)")
+        body = _find_method_source("MotionAPI", "move_absolute_position")
+        move_idx = body.find("self._driver.move_abs_pos(")
+        state_idx = body.find("self._scope._set_axis_state(axis, AxisState.MOVING)")
         assert move_idx != -1, "move_abs_pos call missing from move_absolute_position"
         assert state_idx != -1, "_set_axis_state(MOVING) call missing"
         assert move_idx < state_idx, (
@@ -77,9 +90,9 @@ class TestSourceOrder_618:
         )
 
     def test_move_relative_position_writes_hardware_first(self):
-        body = _find_method_source("Lumascope", "move_relative_position")
-        move_idx = body.find("self._motion_driver.move_rel_pos(")
-        state_idx = body.find("self._set_axis_state(axis, AxisState.MOVING)")
+        body = _find_method_source("MotionAPI", "move_relative_position")
+        move_idx = body.find("self._driver.move_rel_pos(")
+        state_idx = body.find("self._scope._set_axis_state(axis, AxisState.MOVING)")
         assert move_idx != -1, "move_rel_pos call missing from move_relative_position"
         assert state_idx != -1, "_set_axis_state(MOVING) call missing"
         assert move_idx < state_idx, (

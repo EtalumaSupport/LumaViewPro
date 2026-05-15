@@ -1477,14 +1477,20 @@ class TestHomeReturnsBool:
             "Lumascope.thome must declare `-> bool` (Wave 2 B8; Rule 37)"
 
     def test_lumascope_zhome_returns_driver_value(self):
-        """Method body must return True on success and False on failure paths."""
+        """Method body must return True on success and False on failure paths.
+
+        Body lives on MotionAPI (motion.py) after Wave 7 Phase 2c; the
+        Lumascope surface keeps a thin forwarder. Driver call uses
+        self._driver (the MotionAPI re-resolving property) per 2b/2c
+        convention, matching the home/thome tests at line 1500/1519.
+        """
         import pathlib
-        source = pathlib.Path("modules/lumascope_api/_lumascope.py").read_text()
+        source = pathlib.Path("modules/lumascope_api/motion.py").read_text()
         idx = source.find("def zhome(self) -> bool:")
         assert idx != -1
         next_def = source.find("\n    def ", idx + 1)
         body = source[idx:next_def] if next_def != -1 else source[idx:idx+2000]
-        assert "result = self._motion_driver.zhome()" in body, \
+        assert "result = self._driver.zhome()" in body, \
             "zhome must capture driver return into `result`"
         assert "return True" in body, \
             "zhome success path must `return True` (Wave 2 B9)"

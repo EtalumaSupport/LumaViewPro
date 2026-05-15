@@ -510,7 +510,10 @@ class TestLumascopeMotionAPI:
 
     def test_move_home_async_unknown_axis(self):
         scope, io_ex, _ = _make_real_scope_with_mock_executors()
-        with patch('modules.lumascope_api._lumascope.logger') as mock_log:
+        # move_home_async body lives on MotionAPI (motion.py) after the
+        # stateful relocation; the warning is logged through that module's
+        # logger, not _lumascope.py's.
+        with patch('modules.lumascope_api.motion.logger') as mock_log:
             scope.move_home_async('W')
         io_ex.put.assert_not_called()
         mock_log.warning.assert_called()

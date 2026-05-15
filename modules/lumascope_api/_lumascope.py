@@ -190,6 +190,129 @@ class Lumascope():
     # limits are enforced by the motor board itself.
     MOTOR_POSITION_LIMIT = 1_000_000  # 1 meter in um
 
+    # ------------------------------------------------------------------
+    # Transient @property shims for motion state slots (Wave 7 Phase 2c).
+    #
+    # State slots moved to MotionAPI in 2c; these forwarders keep existing
+    # non-motion code (frame_validity settle-check lambda, disconnect(),
+    # and any code that reads scope._pos_cache etc.) working without a
+    # mass rename. Both getter and setter are exposed so assignments like
+    # ``self._axis_state[ax] = ...`` continue to resolve to the right dict.
+    # Retire in Phase 2f along with the method forwarders.
+    # ------------------------------------------------------------------
+
+    @property
+    def _pos_cache(self):
+        return self.motion._pos_cache
+
+    @_pos_cache.setter
+    def _pos_cache(self, value):
+        self.motion._pos_cache = value
+
+    @property
+    def _pos_cache_lock(self):
+        return self.motion._pos_cache_lock
+
+    @_pos_cache_lock.setter
+    def _pos_cache_lock(self, value):
+        self.motion._pos_cache_lock = value
+
+    @property
+    def _axis_state(self):
+        return self.motion._axis_state
+
+    @_axis_state.setter
+    def _axis_state(self, value):
+        self.motion._axis_state = value
+
+    @property
+    def _axis_state_lock(self):
+        return self.motion._axis_state_lock
+
+    @_axis_state_lock.setter
+    def _axis_state_lock(self, value):
+        self.motion._axis_state_lock = value
+
+    @property
+    def _arrival_events(self):
+        return self.motion._arrival_events
+
+    @_arrival_events.setter
+    def _arrival_events(self, value):
+        self.motion._arrival_events = value
+
+    @property
+    def _move_profile(self):
+        return self.motion._move_profile
+
+    @_move_profile.setter
+    def _move_profile(self, value):
+        self.motion._move_profile = value
+
+    @property
+    def _move_profile_lock(self):
+        return self.motion._move_profile_lock
+
+    @_move_profile_lock.setter
+    def _move_profile_lock(self, value):
+        self.motion._move_profile_lock = value
+
+    @property
+    def _position_listeners(self):
+        return self.motion._position_listeners
+
+    @_position_listeners.setter
+    def _position_listeners(self, value):
+        self.motion._position_listeners = value
+
+    @property
+    def _position_listeners_lock(self):
+        return self.motion._position_listeners_lock
+
+    @_position_listeners_lock.setter
+    def _position_listeners_lock(self, value):
+        self.motion._position_listeners_lock = value
+
+    @property
+    def _motion_wake(self):
+        return self.motion._motion_wake
+
+    @_motion_wake.setter
+    def _motion_wake(self, value):
+        self.motion._motion_wake = value
+
+    @property
+    def _motion_monitor_stop(self):
+        return self.motion._motion_monitor_stop
+
+    @_motion_monitor_stop.setter
+    def _motion_monitor_stop(self, value):
+        self.motion._motion_monitor_stop = value
+
+    @property
+    def _motion_monitor_thread(self):
+        return self.motion._motion_monitor_thread
+
+    @_motion_monitor_thread.setter
+    def _motion_monitor_thread(self, value):
+        self.motion._motion_monitor_thread = value
+
+    @property
+    def _homing_event(self):
+        return self.motion._homing_event
+
+    @_homing_event.setter
+    def _homing_event(self, value):
+        self.motion._homing_event = value
+
+    @property
+    def _turreting_event(self):
+        return self.motion._turreting_event
+
+    @_turreting_event.setter
+    def _turreting_event(self, value):
+        self.motion._turreting_event = value
+
     def __init__(self, simulate: bool = False, camera_type: str = 'auto',
                  register_atexit: bool = True,
                  register_metrics: bool = True):
@@ -237,29 +360,6 @@ class Lumascope():
         self._coordinate_transformer = coord_transformations.CoordinateTransformer()
         self._objectives_loader = objectives_loader.ObjectiveLoader()
 
-        # Locks for the per-axis state dicts. The dicts themselves are
-        # built below, AFTER the motion driver is constructed, so they
-        # only contain the axes the hardware actually has.
-        self._pos_cache_lock = threading.Lock()
-        # Threading audit §10.2 — TimedLock on the hot axis-state lock records
-        # contention to lock_trace.csv when LVP_PROFILE_TRACE=1. §4.5 of the
-        # threading audit flagged the invariant "never hold _axis_state_lock
-        # across a serial call" — trace reveals whether that invariant holds
-        # under real workloads.
-        self._axis_state_lock = profile_trace.TimedLock(threading.Lock(), name="lumascope._axis_state_lock")
-
-        # Motion monitor wakeup — set when any axis starts MOVING, cleared when
-        # all axes are back to IDLE. The monitor thread sleeps on this.
-        self._motion_wake = threading.Event()
-
-        # Position change listeners — push-based UI update mechanism.
-        # Each listener is called with (axis: str, target: float, state: str)
-        # whenever a position cache update or axis state transition occurs.
-        # Listeners are called from the thread that caused the change (typically
-        # the IO executor), so they MUST schedule UI work via Clock.schedule_once.
-        self._position_listeners_lock = threading.Lock()
-        self._position_listeners = []
-
         # LED change listeners — push-based UI update mechanism.
         # Each listener is called with (color: str, enabled: bool, mA: float,
         # owner: str) whenever any LED channel changes state.  Fires from the
@@ -297,17 +397,12 @@ class Lumascope():
         self._camera_listeners_lock = threading.Lock()
         self._camera_listeners = []
 
-        # Lock for motion profile dict (built below, after motion driver init).
-        self._move_profile_lock = threading.Lock()
-
         # ----- Motion Control Board -----
-        # Constructed BEFORE the per-axis state dicts so we can size them
-        # to the axes the hardware actually has (audit B4). Constructed
-        # BEFORE the motion monitor thread so the thread always sees a
-        # valid `self._motion_driver`. Driver selection goes through the motor
-        # registry (audit B2) — 'auto' tries real drivers in descending
-        # priority order and falls back to NullMotionBoard if all fail,
-        # so no manual try/except needed.
+        # Constructed BEFORE MotionAPI so MotionAPI._driver resolves on
+        # the first call. Driver selection goes through the motor registry
+        # (audit B2) -- 'auto' tries real drivers in descending priority
+        # order and falls back to NullMotionBoard if all fail, so no
+        # manual try/except needed.
         motor_kwargs: dict = {}
         if simulate:
             from modules.settings_init import settings
@@ -322,29 +417,17 @@ class Lumascope():
                 f'(model={motor_kwargs.get("model")})'
             )
 
-        # ----- Per-axis state dicts (sized to actual hardware) -----
-        # NullMotionBoard.detect_present_axes() returns [], so a system
-        # with no motor hardware ends up with empty dicts. _set_axis_state
-        # and the move_*_position methods handle that case as a Rule 8
-        # silent no-op for absent axes.
+        # ----- MotionAPI (Wave 7 Phase 2c) -----
+        # Constructed AFTER the motion driver so _driver resolves correctly.
+        # init_axes() sizes per-axis dicts to detect_present_axes(); then
+        # start_monitor() spawns the background poll thread. NullMotionBoard
+        # returns [] from detect_present_axes(), so a system with no motor
+        # hardware ends up with empty dicts throughout.
+        from modules.lumascope_api.motion import MotionAPI  # local-import: avoid cycle
+        self.motion = MotionAPI(self, self._motion_driver)
         present_axes = self._motion_driver.detect_present_axes()
-        self._pos_cache = {ax: 0.0 for ax in present_axes}
-        self._axis_state = {ax: AxisState.UNKNOWN for ax in present_axes}
-        self._arrival_events = {ax: threading.Event() for ax in present_axes}
-        for ev in self._arrival_events.values():
-            ev.set()  # Start as "arrived" (not moving)
-        self._move_profile = {ax: None for ax in present_axes}
-
-        # ----- Motion monitor thread -----
-        # Started AFTER motion + per-axis dicts are populated so the
-        # thread never sees an inconsistent partial init state.
-        self._motion_monitor_stop = threading.Event()
-        self._motion_monitor_thread = threading.Thread(
-            target=self._motion_monitor_loop,
-            name='motion-monitor',
-            daemon=True,
-        )
-        self._motion_monitor_thread.start()
+        self.motion.init_axes(present_axes)
+        self.motion.start_monitor()
 
         # ----- LED Control Board -----
         # Same registry-based selection as motion (audit B2).
@@ -393,19 +476,15 @@ class Lumascope():
             led_max_ma=self.LED_MAX_MA,
         )
 
-        # ----- Sub-API wiring (Wave 7 Phase 1) -----
+        # ----- Sub-API wiring (Wave 7 Phase 1+) -----
         # Six sub-APIs: motion, illumination, imaging, diagnostics,
-        # capabilities, io. Phase 1 ships them as delegating facades
-        # over this composition root; bodies still live on Lumascope.
-        # Later Wave 7 phases physically relocate the bodies and
-        # migrate the ~70 caller sites. Sub-APIs imported lazily here
-        # to avoid a circular import at module load.
-        from modules.lumascope_api.motion import MotionAPI
+        # capabilities, io. motion was already constructed above (Phase 2c
+        # requires earlier construction so init_axes / start_monitor can run
+        # before the LED/camera drivers are set up). Remaining sub-APIs:
         from modules.lumascope_api.illumination import IlluminationAPI
         from modules.lumascope_api.imaging import ImagingAPI
         from modules.lumascope_api.diagnostics import DiagnosticsAPI
         from modules.lumascope_api.io import IOAPI
-        self.motion = MotionAPI(self, self._motion_driver)
         self.illumination = IlluminationAPI(self, self._led_driver)
         self.imaging = ImagingAPI(self, self._camera_driver)
         self.diagnostics = DiagnosticsAPI(self)
@@ -441,11 +520,11 @@ class Lumascope():
         # Only used by acquire_exclusive() — individual methods use per-device locks.
         self._hw_lock = threading.RLock()
 
-        # Boolean operation flags use threading.Event for wait/signal
-        self._homing_event = threading.Event()       # set => homing in progress
+        # Boolean operation flags use threading.Event for wait/signal.
+        # _homing_event and _turreting_event live on MotionAPI (Phase 2c);
+        # accessible via @property shims on Lumascope.
         self._capturing_event = threading.Event()    # set => capture in progress
         self._focusing_event = threading.Event()     # set => autofocus in progress
-        self._turreting_event = threading.Event()    # set => turret move in progress
 
         # Initialize scope status
         self._capture_return = False     # Will be image if capture is ready to pull, else False
@@ -628,72 +707,9 @@ class Lumascope():
             )
 
 
-    # --- Motion monitor (Phase 1A) ---
-
-    _MOTION_POLL_INTERVAL = 0.02  # 50 Hz
-
-    def _motion_monitor_loop(self):
-        """Background thread: polls firmware for axis arrival at 50 Hz.
-
-        Sleeps on ``_motion_wake`` when all axes are IDLE. Wakes when any
-        axis transitions to MOVING. Polls ``get_target_status()`` per
-        MOVING axis and transitions them to IDLE on arrival. This is the
-        single place where firmware target-status queries happen during
-        normal operation -- all other code reads the in-memory axis state.
-        """
-        while not self._motion_monitor_stop.is_set():
-            # Sleep until something starts moving (or shutdown)
-            self._motion_wake.wait()
-            if self._motion_monitor_stop.is_set():
-                break
-
-            # Poll moving axes until all arrive
-            while not self._motion_monitor_stop.is_set():
-                moving_axes = []
-                with self._axis_state_lock:
-                    moving_axes = [
-                        ax for ax, st in self._axis_state.items()
-                        if st == AxisState.MOVING
-                    ]
-
-                if not moving_axes:
-                    # Also check overshoot — if overshoot is active,
-                    # the monitor should keep running
-                    if hasattr(self._motion_driver, 'overshoot') and self._motion_driver.overshoot:
-                        time.sleep(self._MOTION_POLL_INTERVAL)
-                        continue
-                    # All axes arrived — go back to sleep
-                    self._motion_wake.clear()
-                    break
-
-                # Query firmware for each MOVING axis
-                with profile_trace.timer(
-                    "motion_trace.csv",
-                    "ts_ms,duration_ms,event,axis,detail",
-                    lambda: ["poll", ",".join(moving_axes), ""],
-                ):
-                    for ax in moving_axes:
-                        if self._motion_monitor_stop.is_set():
-                            break
-                        try:
-                            if self._motion_driver.is_connected() and self.get_target_status(ax):
-                                # Axis has arrived — transition to IDLE
-                                self._set_axis_state(ax, AxisState.IDLE)
-                            else:
-                                # Still moving — fire position listener so UI
-                                # updates crosshair during motion (fixes #601)
-                                self._fire_position_listeners(ax)
-                        except Exception as e:
-                            logger.warning(f'[SCOPE API ] Motion monitor: target_status({ax}) failed: {e}')
-
-                time.sleep(self._MOTION_POLL_INTERVAL)
-
     def _stop_motion_monitor(self):
-        """Stop the motion monitor thread (called during disconnect)."""
-        self._motion_monitor_stop.set()
-        self._motion_wake.set()  # unblock if sleeping
-        if self._motion_monitor_thread.is_alive():
-            self._motion_monitor_thread.join(timeout=1.0)
+        """Stop the motion monitor thread -- delegates to MotionAPI.disconnect."""
+        self.motion.disconnect()
 
     def _load_camera_timing(self):
         """Load per-camera timing config if available.
@@ -864,37 +880,23 @@ class Lumascope():
 
     @property
     def is_homing(self) -> bool:
-        """True while the microscope is homing.
-
-        Returns:
-            bool: True if a homing operation is in progress.
-        """
-        return self._homing_event.is_set()
+        """True while the microscope is homing. Backcompat forwarder -- see MotionAPI."""
+        return self.motion.is_homing
 
     @is_homing.setter
     def is_homing(self, value: bool) -> None:
-        """Set the homing-in-progress flag."""
-        if value:
-            self._homing_event.set()
-        else:
-            self._homing_event.clear()
+        """Set the homing-in-progress flag. Backcompat forwarder -- see MotionAPI."""
+        self.motion.is_homing = value
 
     @property
     def is_turreting(self) -> bool:
-        """True while the turret is moving.
-
-        Returns:
-            bool: True if a turret motion is in progress.
-        """
-        return self._turreting_event.is_set()
+        """True while the turret is moving. Backcompat forwarder -- see MotionAPI."""
+        return self.motion.is_turreting
 
     @is_turreting.setter
     def is_turreting(self, value: bool) -> None:
-        """Set the turret-motion-in-progress flag."""
-        if value:
-            self._turreting_event.set()
-        else:
-            self._turreting_event.clear()
+        """Set the turret-motion-in-progress flag. Backcompat forwarder -- see MotionAPI."""
+        self.motion.is_turreting = value
 
     @property
     def is_capturing(self) -> bool:
@@ -1359,142 +1361,47 @@ class Lumascope():
 
     def move_absolute_sync(self, axis, pos, *, wait_until_complete=True,
                            overshoot_enabled=True, timeout=30) -> None:
-        """Run ``move_absolute_position`` through the io_executor and block.
-
-        Blocks until both the IOTask completes and (when
-        ``wait_until_complete``) the stage has physically arrived.
-
-        Args:
-            axis: Axis name ("X", "Y", "Z", "T").
-            pos: Target position in um.
-            wait_until_complete: If True, block until move finishes.
-            overshoot_enabled: Allow Z overshoot for backlash compensation.
-            timeout: Max seconds to wait for completion.
-        """
-        ex = self._require_executor(self._io_executor, 'move_absolute_sync')
-        task = IOTask(
-            action=self.move_absolute_position,
-            kwargs={
-                'axis': axis,
-                'pos': pos,
-                'wait_until_complete': wait_until_complete,
-                'overshoot_enabled': overshoot_enabled,
-            },
+        """Backcompat forwarder -- see MotionAPI.move_absolute_sync."""
+        return self.motion.move_absolute_sync(
+            axis, pos,
+            wait_until_complete=wait_until_complete,
+            overshoot_enabled=overshoot_enabled,
+            timeout=timeout,
         )
-        fut = ex.put(task, return_future=True)
-        if fut:
-            fut.result(timeout=timeout)
 
     def move_relative_async(self, axis, um, *, wait_until_complete=False,
                             overshoot_enabled=True, callback=None,
                             cb_kwargs=None) -> None:
-        """Submit ``move_relative_position`` to the io_executor.
-
-        Args:
-            axis: Axis name ("X", "Y", "Z", "T").
-            um: Distance to move in um.
-            wait_until_complete: If True, block until move finishes.
-            overshoot_enabled: Allow Z overshoot for backlash compensation.
-            callback: Optional completion callback.
-            cb_kwargs: Optional kwargs passed to the callback.
-        """
-        ex = self._require_executor(self._io_executor, 'move_relative_async')
-        ex.put(IOTask(
-            action=self.move_relative_position,
-            kwargs={
-                'axis': axis,
-                'um': um,
-                'wait_until_complete': wait_until_complete,
-                'overshoot_enabled': overshoot_enabled,
-            },
+        """Backcompat forwarder -- see MotionAPI.move_relative_async."""
+        return self.motion.move_relative_async(
+            axis, um,
+            wait_until_complete=wait_until_complete,
+            overshoot_enabled=overshoot_enabled,
             callback=callback,
             cb_kwargs=cb_kwargs,
-        ))
+        )
 
     def move_home_async(self, axis, *, callback=None, cb_args=None) -> None:
-        """Home an axis (or the whole scope) via the io_executor.
-
-        Args:
-            axis: 'Z' or 'T' homes that single axis. 'ALL' (or legacy 'XY')
-                homes everything the board has via self.home() -- firmware
-                homes Z and T first as part of the same routine.
-            callback: Optional completion callback.
-            cb_args: Optional positional args passed to the callback.
-        """
-        ex = self._require_executor(self._io_executor, 'move_home_async')
-        a = axis.upper()
-        # Homing legitimately takes 10-60+ seconds depending on travel
-        # distance and starting position — well above the 5 sec default
-        # slow-task threshold. Bump to 120s; only a true stall warrants
-        # a warning here.
-        HOME_THRESHOLD = 120.0
-        if a == 'Z':
-            ex.put(IOTask(action=self.zhome, callback=callback, cb_args=cb_args,
-                          slow_task_threshold_sec=HOME_THRESHOLD))
-        elif a in ('ALL', 'XY'):
-            ex.put(IOTask(action=self.home, callback=callback, cb_args=cb_args,
-                          slow_task_threshold_sec=HOME_THRESHOLD))
-        elif a == 'T':
-            ex.put(IOTask(action=self.thome, callback=callback, cb_args=cb_args,
-                          slow_task_threshold_sec=HOME_THRESHOLD))
-        else:
-            logger.warning(f'[SCOPE API ] Unknown home axis: {axis}')
+        """Backcompat forwarder -- see MotionAPI.move_home_async."""
+        return self.motion.move_home_async(axis, callback=callback, cb_args=cb_args)
 
     # --- Axis state accessors (zero serial I/O) ---
 
     def get_axis_state(self, axis: str) -> str:
-        """Get the current state of an axis.
-
-        Args:
-            axis: Axis name ("X", "Y", "Z", "T").
-
-        Returns:
-            str: One of AxisState.UNKNOWN, IDLE, MOVING, HOMING.
-        """
-        with self._axis_state_lock:
-            return self._axis_state.get(axis, AxisState.UNKNOWN)
+        """Backcompat forwarder -- see MotionAPI.get_axis_state."""
+        return self.motion.get_axis_state(axis)
 
     def add_position_listener(self, listener) -> None:
-        """Register a callback for position/state changes on any axis.
-
-        The listener is called with ``(axis, target_pos, state)`` whenever
-        the position cache or axis state changes.  It fires from the thread
-        that caused the change (IO executor, motion monitor, etc.), so
-        listeners **must** schedule any UI work via ``Clock.schedule_once``.
-
-        Args:
-            listener: ``callable(axis: str, target: float, state: str)``
-        """
-        with self._position_listeners_lock:
-            self._position_listeners.append(listener)
+        """Backcompat forwarder -- see MotionAPI.add_position_listener."""
+        return self.motion.add_position_listener(listener)
 
     def remove_position_listener(self, listener) -> None:
-        """Unregister a position listener.
-
-        Args:
-            listener: A callable previously passed to
-                ``add_position_listener``. Silently ignores listeners that
-                are not currently registered.
-        """
-        with self._position_listeners_lock:
-            try:
-                self._position_listeners.remove(listener)
-            except ValueError:
-                pass
+        """Backcompat forwarder -- see MotionAPI.remove_position_listener."""
+        return self.motion.remove_position_listener(listener)
 
     def _fire_position_listeners(self, axis: str):
-        """Notify all position listeners of a change on *axis*."""
-        with self._pos_cache_lock:
-            target = self._pos_cache.get(axis, 0.0)
-        with self._axis_state_lock:
-            state = self._axis_state.get(axis, AxisState.UNKNOWN)
-        with self._position_listeners_lock:
-            listeners = list(self._position_listeners)
-        for fn in listeners:
-            try:
-                fn(axis, target, state)
-            except Exception as ex:
-                _api_log.debug(f'position listener error: {ex}')
+        """Backcompat forwarder -- see MotionAPI._fire_position_listeners."""
+        return self.motion._fire_position_listeners(axis)
 
     # ------------------------------------------------------------------
     # LED change listeners
@@ -1695,57 +1602,12 @@ class Lumascope():
                 _api_log.debug(f'camera listener error: {ex}')
 
     def _set_axis_state(self, axis: str, state: str):
-        """Set the state of an axis (internal use only).
-
-        When transitioning to MOVING/HOMING, clears the axis arrival event
-        and wakes the motion monitor. When transitioning to IDLE, sets the
-        arrival event so waiters unblock.  Fires position listeners on every
-        transition.
-
-        Silently no-ops for axes that are not present on this hardware
-        (Rule 8). Per-axis dicts are sized to `motion.detect_present_axes()`
-        at init, so hardcoded callers like `xycenter()` (X/Y) and `thome()`
-        (T) automatically degrade to no-ops on scopes that lack those axes.
-        """
-        if axis not in self._arrival_events:
-            return
-        with self._axis_state_lock:
-            old_state = self._axis_state.get(axis, AxisState.UNKNOWN)
-            self._axis_state[axis] = state
-        if profile_trace.ENABLE_PROFILE_TRACE and old_state != state:
-            profile_trace.trace(
-                "motion_trace.csv",
-                "ts_ms,duration_ms,event,axis,detail",
-                [int(time.time() * 1000), 0, "transition", axis, f"{old_state}->{state}"],
-            )
-
-        if state in (AxisState.MOVING, AxisState.HOMING):
-            # Clear arrival event — axis is now in motion
-            self._arrival_events[axis].clear()
-            # Wake the motion monitor to start polling
-            self._motion_wake.set()
-        elif state == AxisState.IDLE:
-            # Signal arrival — unblocks any wait_for_axis() callers
-            self._arrival_events[axis].set()
-            # Clear motion profile — predictor falls back to cache
-            with self._move_profile_lock:
-                self._move_profile[axis] = None
-
-        self._fire_position_listeners(axis)
+        """Backcompat forwarder -- see MotionAPI._set_axis_state."""
+        return self.motion._set_axis_state(axis, state)
 
     def is_any_axis_moving(self) -> bool:
-        """Check if any axis is currently MOVING or HOMING.
-
-        Reads from the in-memory state dict -- zero serial I/O.
-
-        Returns:
-            bool: True if any axis is in MOVING or HOMING state.
-        """
-        with self._axis_state_lock:
-            return any(
-                s in (AxisState.MOVING, AxisState.HOMING)
-                for s in self._axis_state.values()
-            )
+        """Backcompat forwarder -- see MotionAPI.is_any_axis_moving."""
+        return self.motion.is_any_axis_moving()
 
     def axes_present(self) -> list[str]:
         """Get list of axes physically present on this scope.
@@ -1869,16 +1731,10 @@ class Lumascope():
         # to remember.
         self.stop_motion()
 
-        # Stop the motion monitor before disconnecting the motor board
+        # Stop the motion monitor and reset axis states -- MotionAPI.disconnect()
+        # handles both: signals the monitor thread, waits for it, then resets
+        # all axes to UNKNOWN and sets arrival events so waiters unblock.
         self._stop_motion_monitor()
-
-        # Set all axes to UNKNOWN before disconnecting
-        with self._axis_state_lock:
-            for ax in self._axis_state:
-                self._axis_state[ax] = AxisState.UNKNOWN
-        # Set all arrival events so any blocked waiters unblock
-        for ev in self._arrival_events.values():
-            ev.set()
 
         # Each sub-system: only attempt disconnect on a driver that
         # has one. Skips both the canonical no-op states (NullLEDBoard,
@@ -4111,74 +3967,25 @@ class Lumascope():
         return self.motion.get_axes_config()
 
     def get_axis_limits(self, axis: str) -> dict:
-        """Get the travel limits for an axis.
-
-        Args:
-            axis: Axis name ("X", "Y", "Z", or "T").
-
-        Returns:
-            dict: Contains 'min' and 'max' positions in um.
-        """
-
-        return self._motion_driver.get_axis_limits(axis=axis)
+        """Backcompat forwarder -- see MotionAPI.get_axis_limits."""
+        return self.motion.get_axis_limits(axis)
 
 
     def zhome(self) -> bool:
-        """Home the Z axis (focus).
-
-        Returns:
-            bool: True on successful Z homing. False if the driver
-                returned False or raised (e.g. HardwareError on
-                no-response / firmware-error). The user is notified on
-                failure; programmatic callers can branch on the bool.
-        """
-        #if not self._motion_driver: return
-        _api_log.info('zhome START')
-        self._set_axis_state('Z', AxisState.HOMING)
-        self.frame_validity.invalidate('z_move')
-        try:
-            with self.reference_position_logger():
-                result = self._motion_driver.zhome()
-            if result is False:
-                logger.error('[SCOPE API ] Z homing failed')
-                notifications.error("Motion", "Homing Failed",
-                    "Z axis homing failed. Position is unknown.")
-                self._set_axis_state('Z', AxisState.UNKNOWN)
-                return False
-            self._set_axis_state('Z', AxisState.IDLE)
-            self.refresh_position_cache()
-            _api_log.info('zhome DONE')
-            return True
-        except Exception:
-            logger.exception('[SCOPE API ] Z homing exception')
-            self._set_axis_state('Z', AxisState.UNKNOWN)
-            notifications.error("Motion", "Homing Error",
-                "Z axis homing encountered an error. Position is unknown.")
-            _api_log.info('zhome DONE')
-            return False
+        """Backcompat forwarder -- see MotionAPI.zhome."""
+        return self.motion.zhome()
 
     def home(self) -> bool:
         """Backcompat forwarder -- see MotionAPI.home."""
         return self.motion.home()
 
     def has_homed(self) -> bool:
-        """Check if the scope has been homed since startup.
-
-        Returns:
-            bool: True if home() has succeeded at least once.
-        """
-        return self._motion_driver.has_homed()
+        """Backcompat forwarder -- see MotionAPI.has_homed."""
+        return self.motion.has_homed()
 
     def xycenter(self) -> None:
-        """Move the XY stage to center position."""
-
-        #if not self._motion_driver: return
-        self._set_axis_state('X', AxisState.MOVING)
-        self._set_axis_state('Y', AxisState.MOVING)
-        self._motion_driver.xycenter()
-        self._set_axis_state('X', AxisState.IDLE)
-        self._set_axis_state('Y', AxisState.IDLE)
-        self.refresh_position_cache()
+        """Backcompat forwarder -- see MotionAPI.xycenter."""
+        return self.motion.xycenter()
 
 
     def safe_turret_mover(self):
@@ -4204,149 +4011,20 @@ class Lumascope():
 
 
     def refresh_position_cache(self) -> None:
-        """Fetch all axis positions from hardware and update the cache.
-
-        Called after homing completes to sync the cache with actual hardware
-        positions.  During normal operation the cache is updated directly
-        by move commands -- no polling needed.
-        """
-        positions = {}
-        for ax in self.axes_present():
-            try:
-                pos = self._motion_driver.target_pos(axis=ax)
-                positions[ax] = pos if pos is not None else 0.0
-            except Exception:
-                positions[ax] = 0.0
-
-        with self._pos_cache_lock:
-            self._pos_cache.update(positions)
-        for ax in positions:
-            self._fire_position_listeners(ax)
+        """Backcompat forwarder -- see MotionAPI.refresh_position_cache."""
+        return self.motion.refresh_position_cache()
 
     def get_target_position(self, axis: str | None = None) -> 'float | dict | None':
-        """Get the target position for an axis (where it is commanded to go).
-
-        Reads from the push-based position cache -- zero serial I/O.
-
-        Args:
-            axis: Axis name ("X", "Y", "Z", "T"), or None for all axes.
-
-        Returns:
-            float | dict: Position in um for a single axis, or dict of all
-                axis positions. Returns 0 if motion board inactive, None if
-                axis T requested but no turret present.
-        """
-        if (not self._motion_driver.has_turret()) and (axis == 'T'):
-            return None
-
-        with self._pos_cache_lock:
-            if axis is None:
-                return dict(self._pos_cache)
-            return self._pos_cache.get(axis, 0.0)
+        """Backcompat forwarder -- see MotionAPI.get_target_position."""
+        return self.motion.get_target_position(axis)
 
     def get_current_position(self, axis: str | None = None) -> 'float | dict':
-        """Get the current position for an axis.
-
-        During MOVING: returns predicted position based on trapezoidal
-        ramp profile and elapsed time (smooth UI updates, zero serial I/O).
-        During IDLE: returns cached target position (confirmed by firmware).
-
-        Args:
-            axis: Axis name ("X", "Y", "Z", "T"), or None for all axes.
-
-        Returns:
-            float | dict: Position in um for a single axis, or dict of all
-                axis positions. Returns 0 if motion board inactive.
-        """
-        if axis is None:
-            result = {}
-            for ax in self.axes_present():
-                result[ax] = self.get_current_position(ax)
-            return result
-
-        # If axis is moving and we have a motion profile, return predicted position.
-        # The predictor gives smooth interpolation between 50Hz firmware polls.
-        # If prediction fails or isn't available, fall through to cached target.
-        with self._axis_state_lock:
-            state = self._axis_state.get(axis, AxisState.UNKNOWN)
-        if state == AxisState.MOVING:
-            predicted = self._predicted_position(axis)
-            if predicted is not None:
-                return predicted
-
-        # IDLE or no profile: cached target position (confirmed by firmware)
-        with self._pos_cache_lock:
-            return self._pos_cache.get(axis, 0.0)
+        """Backcompat forwarder -- see MotionAPI.get_current_position."""
+        return self.motion.get_current_position(axis)
 
     def _predicted_position(self, axis: str) -> float | None:
-        """Predict position during a move using the trapezoidal ramp profile.
-
-        Returns None if no motion profile is available (falls back to cache).
-        Supports simple trapezoidal (a1/v1/d1=0) and 6-point ramps.
-        """
-        with self._move_profile_lock:
-            profile = self._move_profile.get(axis)
-            if profile is None:
-                return None
-            start_time = profile['start_time']
-            start_pos = profile['start_pos']
-            target_pos = profile['target_pos']
-            ramp = profile['ramp']
-
-        elapsed = time.monotonic() - start_time
-        distance = abs(target_pos - start_pos)
-        if distance < 0.01:  # trivially short move
-            return target_pos
-        direction = 1.0 if target_pos > start_pos else -1.0
-
-        vmax = ramp['vmax']
-        amax = ramp['amax']
-        dmax = ramp['dmax']
-        if amax <= 0 or dmax <= 0 or vmax <= 0:
-            return None  # invalid ramp params
-
-        # Simple trapezoidal profile (a1/v1/d1 are zero)
-        t_accel = vmax / amax
-        t_decel = vmax / dmax
-        s_accel = 0.5 * amax * t_accel * t_accel
-        s_decel = 0.5 * dmax * t_decel * t_decel
-
-        if distance <= (s_accel + s_decel):
-            # Triangular profile — never reaches VMAX
-            import math
-            t_peak = math.sqrt(2.0 * distance / (amax + amax * amax / dmax))
-            v_peak = amax * t_peak
-            s_accel_tri = 0.5 * amax * t_peak * t_peak
-            t_decel_tri = v_peak / dmax
-            total_time = t_peak + t_decel_tri
-
-            if elapsed >= total_time:
-                return target_pos
-            elif elapsed <= t_peak:
-                s = 0.5 * amax * elapsed * elapsed
-            else:
-                dt = elapsed - t_peak
-                s = s_accel_tri + v_peak * dt - 0.5 * dmax * dt * dt
-        else:
-            # Full trapezoidal profile
-            s_cruise = distance - s_accel - s_decel
-            t_cruise = s_cruise / vmax
-            total_time = t_accel + t_cruise + t_decel
-
-            if elapsed >= total_time:
-                return target_pos
-            elif elapsed <= t_accel:
-                s = 0.5 * amax * elapsed * elapsed
-            elif elapsed <= (t_accel + t_cruise):
-                dt = elapsed - t_accel
-                s = s_accel + vmax * dt
-            else:
-                dt = elapsed - t_accel - t_cruise
-                s = s_accel + s_cruise + vmax * dt - 0.5 * dmax * dt * dt
-
-        # Clamp to [start, target] — never overshoot in prediction
-        s = max(0.0, min(s, distance))
-        return start_pos + direction * s
+        """Backcompat forwarder -- see MotionAPI._predicted_position."""
+        return self.motion._predicted_position(axis)
 
 
     def get_actual_position(self, axis: str) -> float:
@@ -4362,125 +4040,23 @@ class Lumascope():
                                wait_until_complete: bool = False,
                                overshoot_enabled: bool = True,
                                ignore_limits: bool = False) -> None:
-        """Move an axis to an absolute position.
-
-        Args:
-            axis (str): Axis name ("X", "Y", "Z", "T").
-            pos (float): Target position in um.
-            wait_until_complete: If True, block until move finishes.
-            overshoot_enabled: Allow Z overshoot for backlash compensation.
-            ignore_limits: If True, skip software limit checks.
-
-        Raises:
-            ValueError: If axis is invalid or pos is not numeric / out of bounds.
-        """
-        if axis not in self._VALID_AXIS_NAMES:
-            raise ValueError(f"Axis must be one of {self._VALID_AXIS_NAMES}, got {axis!r}")
-        if not isinstance(pos, (int, float)):
-            raise ValueError(f"Position must be numeric, got {type(pos).__name__}")
-        if abs(pos) > self.MOTOR_POSITION_LIMIT:
-            raise ValueError(f"Position {pos} um exceeds safety limit of +/-{self.MOTOR_POSITION_LIMIT} um")
-
-        # Rule 8: silently no-op for axes that aren't present on this
-        # hardware. _arrival_events is sized to detect_present_axes() at
-        # init, so this is the canonical "is this axis trackable" check.
-        if axis not in self._arrival_events:
-            _api_log.debug(f'move_abs ignored: {axis} not present on this scope')
-            return
-
-        # Store motion profile for position prediction before moving
-        with self._pos_cache_lock:
-            start_pos = self._pos_cache.get(axis, 0.0)
-        try:
-            ramp = self._motion_driver.motorconfig.ramp_params(axis)
-        except Exception:
-            ramp = None
-        if ramp:
-            with self._move_profile_lock:
-                self._move_profile[axis] = {
-                    'start_time': time.monotonic(),
-                    'start_pos': start_pos,
-                    'target_pos': float(pos),
-                    'ramp': ramp,
-                }
-
-        # Write the hardware target BEFORE transitioning the axis to MOVING.
-        # Previously the order was reversed: _set_axis_state(MOVING) cleared
-        # the arrival event and woke the motion monitor, then motion.move_abs_pos
-        # spent ~50ms on serial I/O (current_pos read + TARGET_W write) before
-        # the hardware actually received the new target. During that window
-        # the motion monitor could poll STATUS_R, observe the PRIOR move's
-        # still-valid position_reached bit, and falsely set the arrival
-        # event — causing wait_until_finished_moving to return before the
-        # new move even began. See issue #618. With this order, by the
-        # time the axis is marked MOVING the hardware XTARGET is already
-        # the new value, so position_reached is reliably False and the
-        # motion monitor polls until real arrival.
-        try:
-            self._motion_driver.move_abs_pos(axis, pos, overshoot_enabled=overshoot_enabled, ignore_limits=ignore_limits)
-        except Exception as e:
-            with self._move_profile_lock:
-                self._move_profile[axis] = None
-            _api_log.error(f'move_abs {axis}={pos:.1f}um FAILED: {e}')
-            raise
-        self._set_axis_state(axis, AxisState.MOVING)
-        with self._pos_cache_lock:
-            self._pos_cache[axis] = float(pos)
-        self._fire_position_listeners(axis)
-        self.frame_validity.invalidate('z_move' if axis == 'Z' else 'xy_move')
-        _api_log.info(f'move_abs {axis}={pos:.1f}um'
-                      f'{" wait" if wait_until_complete else ""}')
-
-        if wait_until_complete is True:
-            self.wait_until_finished_moving()
-            self._set_axis_state(axis, AxisState.IDLE)
-
+        """Backcompat forwarder -- see MotionAPI.move_absolute_position."""
+        return self.motion.move_absolute_position(
+            axis, pos,
+            wait_until_complete=wait_until_complete,
+            overshoot_enabled=overshoot_enabled,
+            ignore_limits=ignore_limits,
+        )
 
     def move_relative_position(self, axis: str, um: float,
                                wait_until_complete: bool = False,
                                overshoot_enabled: bool = False) -> None:
-        """Move an axis by a relative distance.
-
-        Args:
-            axis (str): Axis name ("X", "Y", "Z", "T").
-            um (float): Distance to move in um.
-            wait_until_complete: If True, block until move finishes.
-            overshoot_enabled: Allow Z overshoot for backlash compensation.
-
-        Raises:
-            ValueError: If axis is invalid or um is not numeric / out of bounds.
-        """
-        if axis not in self._VALID_AXIS_NAMES:
-            raise ValueError(f"Axis must be one of {self._VALID_AXIS_NAMES}, got {axis!r}")
-        if not isinstance(um, (int, float)):
-            raise ValueError(f"Distance must be numeric, got {type(um).__name__}")
-        if abs(um) > self.MOTOR_POSITION_LIMIT:
-            raise ValueError(f"Distance {um} um exceeds safety limit of +/-{self.MOTOR_POSITION_LIMIT} um")
-
-        # Rule 8: silently no-op for axes that aren't present on this
-        # hardware. See move_absolute_position for the rationale.
-        if axis not in self._arrival_events:
-            _api_log.debug(f'move_rel ignored: {axis} not present on this scope')
-            return
-
-        # Write hardware target BEFORE transitioning axis to MOVING —
-        # same race fix as move_absolute_position (#618).
-        try:
-            self._motion_driver.move_rel_pos(axis, um, overshoot_enabled=overshoot_enabled)
-        except Exception as e:
-            _api_log.error(f'move_rel {axis}={um:+.1f}um FAILED: {e}')
-            raise
-        self._set_axis_state(axis, AxisState.MOVING)
-        with self._pos_cache_lock:
-            self._pos_cache[axis] = self._pos_cache.get(axis, 0.0) + float(um)
-        self._fire_position_listeners(axis)
-        self.frame_validity.invalidate('z_move' if axis == 'Z' else 'xy_move')
-        _api_log.info(f'move_rel {axis}={um:+.1f}um'
-                      f'{" wait" if wait_until_complete else ""}')
-
-        if wait_until_complete is True:
-            self.wait_until_finished_moving()
-            self._set_axis_state(axis, AxisState.IDLE)
+        """Backcompat forwarder -- see MotionAPI.move_relative_position."""
+        return self.motion.move_relative_position(
+            axis, um,
+            wait_until_complete=wait_until_complete,
+            overshoot_enabled=overshoot_enabled,
+        )
 
 
     def get_home_status(self, axis: str) -> bool:
@@ -4512,36 +4088,8 @@ class Lumascope():
         return self.motion.is_moving()
 
     def wait_until_finished_moving(self, timeout: float = 120.0) -> bool:
-        """Block until all axes have reached their target positions.
-
-        Waits on per-axis arrival events set by the motion monitor thread.
-        Zero serial I/O from the calling thread -- all firmware queries
-        happen on the monitor thread at 50 Hz.
-
-        Args:
-            timeout: Maximum seconds to wait (default 120s).
-
-        Returns:
-            bool: True if all axes arrived, False if timed out.
-        """
-        deadline = time.monotonic() + timeout
-        # Iterate arrival events directly (not axes_present) so a transient
-        # motion.detect_present_axes() failure at call time can never cause
-        # this to return True without actually waiting for the in-flight
-        # move. _arrival_events was sized to detect_present_axes() at init
-        # and never changes shape thereafter, so iterating its keys is the
-        # canonical "every axis this scope can track" set. Events for
-        # non-moving axes are .set() by construction.
-        for ax in self._arrival_events:
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                logger.warning(f'[SCOPE API ] wait_until_finished_moving timed out on axis {ax}')
-                return False
-            if not self._arrival_events[ax].wait(timeout=remaining):
-                logger.warning(f'[SCOPE API ] wait_until_finished_moving timed out on axis {ax}')
-                return False
-
-        return True
+        """Backcompat forwarder -- see MotionAPI.wait_until_finished_moving."""
+        return self.motion.wait_until_finished_moving(timeout)
 
 
     def set_acceleration_limit(self, val_pct: int) -> None:
@@ -5344,18 +4892,10 @@ class Lumascope():
             Lumascope: Instance with led/motion connected, camera=None.
         """
         instance = cls.__new__(cls)
-        # Minimal init — just enough for board communication
+        # Minimal init -- just enough for board communication
         instance._simulated = False
         instance._objectives_loader = objectives_loader.ObjectiveLoader()
         instance._coordinate_transformer = coord_transformations.CoordinateTransformer()
-
-        # Threading infrastructure (locks first; per-axis dicts after motion init)
-        instance._pos_cache_lock = threading.Lock()
-        # Threading audit §10.2 — matches the __init__ path wrapping.
-        instance._axis_state_lock = profile_trace.TimedLock(threading.Lock(), name="lumascope._axis_state_lock.diag")
-        instance._move_profile_lock = threading.Lock()
-        instance._motion_wake = threading.Event()
-        instance._motion_monitor_stop = threading.Event()
 
         # Camera cache
         instance._camera_cache_lock = threading.Lock()
@@ -5370,48 +4910,35 @@ class Lumascope():
 
         # State locks
         instance._state_lock = threading.Lock()
-        instance._homing_event = threading.Event()
-        instance._turreting_event = threading.Event()
         instance._objective = None
         instance._objective_id = None
 
-        # Connect boards — motion before per-axis dicts so we can size them
-        # to the axes the hardware actually has (audit B4).
-        #
-        # #632/#539 surfaced the original silent-swallow bug. The helpers
-        # are now at module scope (see top of file) so __init__,
-        # create_diagnostic, and future callers share one code path.
+        # Connect boards -- motion driver first so MotionAPI._driver resolves
+        # correctly at construction time. The helpers are at module scope so
+        # __init__, create_diagnostic, and future callers share one code path.
         from drivers.null_ledboard import NullLEDBoard
         from drivers.null_motorboard import NullMotionBoard
-        instance.led = _try_connect_board('LED board', LEDBoard, NullLEDBoard)
-        instance.motion = _try_connect_board('Motor board', MotorBoard, NullMotionBoard)
+        instance._led_driver = _try_connect_board('LED board', LEDBoard, NullLEDBoard)
+        instance._motion_driver = _try_connect_board('Motor board', MotorBoard, NullMotionBoard)
 
-        # Per-axis state dicts sized to detect_present_axes() (audit B4).
-        present_axes = instance.motion.detect_present_axes()
-        instance._pos_cache = {ax: 0.0 for ax in present_axes}
-        instance._axis_state = {ax: AxisState.UNKNOWN for ax in present_axes}
-        instance._arrival_events = {ax: threading.Event() for ax in present_axes}
-        for ev in instance._arrival_events.values():
-            ev.set()
-        instance._move_profile = {ax: None for ax in present_axes}
+        # Construct MotionAPI and populate per-axis state (mirrors __init__ sequence).
+        from modules.lumascope_api.motion import MotionAPI  # local-import: avoid cycle
+        instance.motion = MotionAPI(instance, instance._motion_driver)
+        present_axes = instance._motion_driver.detect_present_axes()
+        instance.motion.init_axes(present_axes)
+        instance.motion.start_monitor()
 
         instance.camera = None
         instance._frame_buffer = None
 
-        # Build capabilities (audit B7) — diagnostic instances still need
-        # this so any code that reads `scope.capabilities.*` works.
+        # Build capabilities (audit B7) -- diagnostic instances still need
+        # this so any code that reads scope.capabilities.* works.
         instance.capabilities = ScopeCapabilities.from_drivers(
-            motion=instance.motion,
-            led=instance.led,
+            motion=instance._motion_driver,
+            led=instance._led_driver,
             camera=None,
             led_max_ma=cls.LED_MAX_MA,
         )
-
-        instance._motion_monitor_thread = threading.Thread(
-            target=instance._motion_monitor_loop,
-            name='motion-monitor', daemon=True,
-        )
-        instance._motion_monitor_thread.start()
 
         logger.info('[SCOPE API ] Diagnostic scope created '
                     f'(LED={instance.led_connected}, '
