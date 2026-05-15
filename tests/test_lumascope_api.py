@@ -109,7 +109,7 @@ class TestLumascopeHome:
         """
         received = self._capture_errors()
         scope = Lumascope(simulate=True)
-        scope.motion = NullMotionBoard()
+        scope._motion_driver = NullMotionBoard()
 
         scope.home()
 
@@ -131,7 +131,7 @@ class TestLumascopeHome:
         import time
         received = self._capture_errors()
         scope = Lumascope(simulate=True)
-        scope.motion = NullMotionBoard()
+        scope._motion_driver = NullMotionBoard()
 
         t0 = time.monotonic()
         scope.home()
@@ -152,7 +152,7 @@ class TestLumascopeHome:
         import time
         received = self._capture_errors()
         scope = Lumascope(simulate=True)
-        scope.motion = NullMotionBoard()
+        scope._motion_driver = NullMotionBoard()
 
         t0 = time.monotonic()
         scope.thome()
@@ -175,14 +175,14 @@ class TestLumascopeHome:
         scope = Lumascope(simulate=True)
 
         # Simulate LS820: only Z physically present.
-        scope.motion.detect_present_axes = lambda: ['Z']
+        scope._motion_driver.detect_present_axes = lambda: ['Z']
 
         # Driver returns True (the partial-home case is its responsibility).
         home_calls = []
         def fake_home(*args, **kwargs):
             home_calls.append((args, kwargs))
             return True
-        scope.motion.home = fake_home
+        scope._motion_driver.home = fake_home
 
         scope.home()
 
@@ -205,7 +205,7 @@ class TestLumascopeHome:
         received = self._capture_errors()
         scope = Lumascope(simulate=True)
 
-        scope.motion.home = lambda *a, **k: False
+        scope._motion_driver.home = lambda *a, **k: False
 
         scope.home()
 
@@ -222,15 +222,15 @@ class TestLumascopeHome:
         """Sanity: home() on a simulated LS850-style scope (X+Y+Z) must
         execute and mark all present axes IDLE on the success path."""
         scope = Lumascope(simulate=True)
-        present = scope.motion.detect_present_axes()
+        present = scope._motion_driver.detect_present_axes()
         assert 'X' in present and 'Y' in present
 
         home_called = []
-        original_home = scope.motion.home
+        original_home = scope._motion_driver.home
         def spy_home():
             home_called.append(True)
             return original_home()
-        scope.motion.home = spy_home
+        scope._motion_driver.home = spy_home
 
         scope.home()
 
@@ -385,7 +385,7 @@ class TestFrameValidityDuringHoming:
             captured['z_state'] = scope.get_axis_state('Z')
             captured['pending'] = dict(scope.frame_validity.pending_sources)
             return True
-        scope.motion.zhome = fake_zhome
+        scope._motion_driver.zhome = fake_zhome
 
         scope.zhome()
 
@@ -401,18 +401,18 @@ class TestFrameValidityDuringHoming:
 
     def test_home_marks_frame_invalid_during_motion_full_xyz(self):
         scope = Lumascope(simulate=True)
-        present = scope.motion.detect_present_axes()
+        present = scope._motion_driver.detect_present_axes()
         assert 'X' in present and 'Y' in present and 'Z' in present
         captured = {}
 
-        original_home = scope.motion.home
+        original_home = scope._motion_driver.home
         def spy_home():
             captured['is_valid'] = scope.frame_validity.is_valid
             captured['pending'] = dict(scope.frame_validity.pending_sources)
             captured['x_state'] = scope.get_axis_state('X')
             captured['z_state'] = scope.get_axis_state('Z')
             return original_home()
-        scope.motion.home = spy_home
+        scope._motion_driver.home = spy_home
 
         scope.home()
 
@@ -429,13 +429,13 @@ class TestFrameValidityDuringHoming:
         not xy_move or turret (those sources aren't in motion)."""
         from modules.scope_capabilities import ScopeCapabilities
         scope = Lumascope(simulate=True)
-        scope.motion.detect_present_axes = lambda: ['Z']
+        scope._motion_driver.detect_present_axes = lambda: ['Z']
         # Rebuild the capability snapshot after patching the driver —
         # post-B7, `axes_present()` reads from `capabilities.axes` (a
         # frozen snapshot built at init), so the test needs to
         # re-snapshot to reflect the patched motion.
         scope.capabilities = ScopeCapabilities.from_drivers(
-            motion=scope.motion, led=scope.led, camera=scope.camera,
+            motion=scope._motion_driver, led=scope._led_driver, camera=scope._camera_driver,
             led_max_ma=Lumascope.LED_MAX_MA,
         )
         captured = {}
@@ -444,7 +444,7 @@ class TestFrameValidityDuringHoming:
             captured['pending'] = dict(scope.frame_validity.pending_sources)
             captured['is_valid'] = scope.frame_validity.is_valid
             return True
-        scope.motion.home = fake_home
+        scope._motion_driver.home = fake_home
 
         scope.home()
 
@@ -460,8 +460,8 @@ class TestFrameValidityDuringHoming:
         # on is gone.
         from drivers.simulated_motorboard import SimulatedMotorBoard
         scope = Lumascope(simulate=True)
-        scope.motion = SimulatedMotorBoard(model='LS850T')
-        present = scope.motion.detect_present_axes()
+        scope._motion_driver = SimulatedMotorBoard(model='LS850T')
+        present = scope._motion_driver.detect_present_axes()
         assert 'T' in present
         scope._pos_cache = {ax: 0.0 for ax in present}
         scope._axis_state = {ax: AxisState.UNKNOWN for ax in present}
@@ -471,13 +471,13 @@ class TestFrameValidityDuringHoming:
         scope._move_profile = {ax: None for ax in present}
 
         captured = {}
-        original_thome = scope.motion.thome
+        original_thome = scope._motion_driver.thome
         def spy_thome():
             captured['is_valid'] = scope.frame_validity.is_valid
             captured['t_state'] = scope.get_axis_state('T')
             captured['pending'] = dict(scope.frame_validity.pending_sources)
             return original_thome()
-        scope.motion.thome = spy_thome
+        scope._motion_driver.thome = spy_thome
 
         scope.thome()
 
@@ -538,8 +538,8 @@ class TestProtocolConformance:
         attributes must satisfy the Protocols regardless of which concrete
         implementation got selected (Sim / Null / real)."""
         scope = Lumascope(simulate=True)
-        assert isinstance(scope.motion, MotorBoardProtocol)
-        assert isinstance(scope.led, LEDBoardProtocol)
+        assert isinstance(scope._motion_driver, MotorBoardProtocol)
+        assert isinstance(scope._led_driver, LEDBoardProtocol)
 
 
 class TestLEDChannelDiscovery:
@@ -586,7 +586,7 @@ class TestLEDChannelDiscovery:
         class FourChannelLED(SimulatedLEDBoard):
             _COLOR_TO_CH = {'Blue': 0, 'Green': 1, 'Red': 2, 'BF': 3}
             _CH_TO_COLOR = {v: k for k, v in _COLOR_TO_CH.items()}
-        scope.led = FourChannelLED()
+        scope._led_driver = FourChannelLED()
 
         scope.led_on(0, 100)  # Blue — valid on 4-channel driver
         with pytest.raises(ValueError, match=r"LED channel must be one of"):
@@ -603,7 +603,7 @@ class TestLEDChannelDiscovery:
         class TwoChannelLED(SimulatedLEDBoard):
             _COLOR_TO_CH = {'BF': 0, 'Blue': 1}
             _CH_TO_COLOR = {v: k for k, v in _COLOR_TO_CH.items()}
-        scope.led = TwoChannelLED()
+        scope._led_driver = TwoChannelLED()
 
         try:
             scope.led_on(3, 100)
@@ -640,7 +640,7 @@ class TestPerAxisDictsFromDriver:
 
     def test_xyz_scope_dicts_have_xyz_keys(self):
         scope = Lumascope(simulate=True)
-        present = set(scope.motion.detect_present_axes())
+        present = set(scope._motion_driver.detect_present_axes())
         assert present == {'X', 'Y', 'Z'}, (
             f"Default sim should be LS850 (XYZ no turret), got {present}"
         )
@@ -652,9 +652,9 @@ class TestPerAxisDictsFromDriver:
     def test_z_only_scope_dicts_have_only_z(self):
         """Simulate an LS820 / LVC LS720-like Z-only scope."""
         scope = Lumascope(simulate=True)
-        scope.motion.detect_present_axes = lambda: ['Z']
+        scope._motion_driver.detect_present_axes = lambda: ['Z']
         # Re-init the per-axis dicts to reflect the patched motion.
-        present = scope.motion.detect_present_axes()
+        present = scope._motion_driver.detect_present_axes()
         scope._pos_cache = {ax: 0.0 for ax in present}
         scope._axis_state = {ax: AxisState.UNKNOWN for ax in present}
         scope._arrival_events = {ax: threading.Event() for ax in present}
@@ -671,8 +671,8 @@ class TestPerAxisDictsFromDriver:
         """A scope with no motor hardware (NullMotionBoard) should have
         empty per-axis dicts — there's nothing to track."""
         scope = Lumascope(simulate=True)
-        scope.motion = NullMotionBoard()
-        present = scope.motion.detect_present_axes()
+        scope._motion_driver = NullMotionBoard()
+        present = scope._motion_driver.detect_present_axes()
         scope._pos_cache = {ax: 0.0 for ax in present}
         scope._axis_state = {ax: AxisState.UNKNOWN for ax in present}
         scope._arrival_events = {ax: threading.Event() for ax in present}
@@ -689,8 +689,8 @@ class TestPerAxisDictsFromDriver:
         a ValueError or HardwareError, regardless of whether they thought
         to call has_axis() first."""
         scope = Lumascope(simulate=True)
-        scope.motion.detect_present_axes = lambda: ['Z']
-        present = scope.motion.detect_present_axes()
+        scope._motion_driver.detect_present_axes = lambda: ['Z']
+        present = scope._motion_driver.detect_present_axes()
         scope._pos_cache = {ax: 0.0 for ax in present}
         scope._axis_state = {ax: AxisState.UNKNOWN for ax in present}
         scope._arrival_events = {ax: threading.Event() for ax in present}
@@ -714,7 +714,7 @@ class TestPerAxisDictsFromDriver:
         VALID_AXES validation passing through to NullMotionBoard.move_abs_pos
         no-op — this contract must be preserved."""
         scope = Lumascope(simulate=True)
-        scope.motion = NullMotionBoard()
+        scope._motion_driver = NullMotionBoard()
         scope._pos_cache = {}
         scope._axis_state = {}
         scope._arrival_events = {}
@@ -761,8 +761,8 @@ class TestRunGrabLifecycleBenchmark:
         scope = Lumascope(simulate=True)
         # SimulatedCamera is wired by the registry; ensure it is in the
         # active grabbing state the benchmark expects.
-        if scope.camera and not scope.camera.is_grabbing():
-            scope.camera.start_grabbing()
+        if scope._camera_driver and not scope._camera_driver.is_grabbing():
+            scope._camera_driver.start_grabbing()
         return scope
 
     def test_returns_required_dict_keys(self):
@@ -786,7 +786,7 @@ class TestRunGrabLifecycleBenchmark:
         """When self.camera is None or inactive, the method must surface
         an error instead of crashing or silently returning empty results."""
         scope = Lumascope(simulate=True)
-        scope.camera = None
+        scope._camera_driver = None
         r = scope.run_grab_lifecycle_benchmark(num_cycles=3)
         assert r['errors'], (
             'Inactive-camera path must populate errors so the operator '
@@ -886,9 +886,9 @@ class TestScopeCapabilities:
         from drivers.simulated_motorboard import SimulatedMotorBoard
         from modules.scope_capabilities import ScopeCapabilities
         scope = Lumascope(simulate=True)
-        scope.motion = SimulatedMotorBoard(model='LS850T')
+        scope._motion_driver = SimulatedMotorBoard(model='LS850T')
         scope.capabilities = ScopeCapabilities.from_drivers(
-            motion=scope.motion, led=scope.led, camera=scope.camera,
+            motion=scope._motion_driver, led=scope._led_driver, camera=scope._camera_driver,
             led_max_ma=Lumascope.LED_MAX_MA,
         )
         assert scope.capabilities.axes == ('X', 'Y', 'Z', 'T')
@@ -899,9 +899,9 @@ class TestScopeCapabilities:
         """LS820 / LVC LS620-style Z-only scope."""
         from modules.scope_capabilities import ScopeCapabilities
         scope = Lumascope(simulate=True)
-        scope.motion.detect_present_axes = lambda: ['Z']
+        scope._motion_driver.detect_present_axes = lambda: ['Z']
         scope.capabilities = ScopeCapabilities.from_drivers(
-            motion=scope.motion, led=scope.led, camera=scope.camera,
+            motion=scope._motion_driver, led=scope._led_driver, camera=scope._camera_driver,
             led_max_ma=Lumascope.LED_MAX_MA,
         )
         assert scope.capabilities.axes == ('Z',)
@@ -1001,7 +1001,7 @@ class TestSetExposureTimeValueWarningSuppression:
 
     def _patch_logger(self, monkeypatch):
         from unittest.mock import MagicMock
-        import modules.lumascope_api as lapi
+        import modules.lumascope_api._lumascope as lapi
         mock = MagicMock()
         monkeypatch.setattr(lapi, 'logger', mock)
         return mock

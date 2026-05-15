@@ -3,7 +3,7 @@
 """Image/video capture and file-write orchestration for protocol execution.
 
 Runs on the protocol-executor thread (_capture) and file-IO thread
-(_write_capture).  Extracted from ``sequenced_capture_executor.py``
+(_write_capture).  Extracted from ``sequenced_capture_runner.py``
 during the protocol-decomposition refactor.
 """
 
@@ -39,21 +39,21 @@ if TYPE_CHECKING:
 class ProtocolImageWriter:
     """Handles image/video capture and file writing during protocol runs.
 
-    Created by SequencedCaptureExecutor at the start of each run with
+    Created by SequencedCaptureRunner at the start of each run with
     the references it needs.  All state is borrowed from the executor --
     this class owns no mutable state of its own.
     """
 
-    LOGGER_NAME = "SequencedCaptureExecutor"
+    LOGGER_NAME = "SequencedCaptureRunner"
 
     def __init__(
         self,
         *,
         scope: Lumascope,
         callbacks: ProtocolCallbacks,
-        protocol_ended: threading.Event,
+        aborted: threading.Event,
         file_io_executor: SequentialIOExecutor,
-        protocol_executor,  # SequentialIOExecutor (protocol queue)
+        abort_fn,  # callable -- bound to protocol_thread.abort
         execution_record: ProtocolExecutionRecord,
         # Functions borrowed from the parent executor
         leds_off_fn,
@@ -66,9 +66,9 @@ class ProtocolImageWriter:
     ):
         self._scope = scope
         self._callbacks = callbacks
-        self._protocol_ended = protocol_ended
+        self._aborted = aborted
         self._file_io_executor = file_io_executor
-        self._protocol_executor = protocol_executor
+        self._abort_fn = abort_fn
         self._execution_record = execution_record
         self._leds_off = leds_off_fn
         self._led_on = led_on_fn
@@ -80,8 +80,8 @@ class ProtocolImageWriter:
         # Allocated lazily on first matching save; re-allocated on shape/dtype change.
         # file_io_executor runs single-threaded, so reuse across saves is safe.
         self._convert_buf_12to16 = None  # PIW-5: 2D uint16, eliminates image.copy() in convert
-        self._false_color_buf = None     # PF-3: 3D uint16 BGR, output of add_false_color
-        self._rgb_buf = None             # PIW-6: 3D uint16 RGB, output of cv2.cvtColor
+        self._false_color_buf = None     # 3D uint16 RGB, in-place destination for add_false_color
+        self._rgb_buf = None             # Retained for API compat; unused -- retire when callers drop it
         self._consecutive_capture_failures = 0
         self._MAX_CONSECUTIVE_CAPTURE_FAILURES = 3
 
@@ -153,11 +153,9 @@ class ProtocolImageWriter:
 
         Runs on the protocol-executor thread.
         """
-        if self._protocol_ended.is_set():
+        if self._aborted.is_set():
             return
         if not self._is_run_in_progress():
-            return
-        if not self._protocol_executor.is_protocol_running():
             return
 
         # N5 (STALL-1 H5 disambiguator): proto-state trace.
@@ -214,7 +212,7 @@ class ProtocolImageWriter:
                 # despite LVP-side processing being fast).
                 #
                 # AF code already sets gain/exposure without a wrapper
-                # (modules/autofocus_executor.py:200,202). This change brings
+                # (modules/autofocus_runner.py:200,202). This change brings
                 # protocol behavior in line with AF.
                 #
                 # If a "Node is locked while streaming" GenICam exception fires
@@ -293,7 +291,7 @@ class ProtocolImageWriter:
                         scope=self._scope,
                         step=step,
                         autogain_settings=autogain_settings,
-                        is_protocol_running_fn=self._protocol_executor.is_protocol_running,
+                        is_protocol_running_fn=self._is_run_in_progress,
                         callbacks=self._callbacks.to_dict(),
                         leds_off_fn=self._leds_off,
                         stim_profiling=self._stim_profiling,
@@ -381,7 +379,7 @@ class ProtocolImageWriter:
                             from modules.notification_center import notifications
                             notifications.critical("Protocol", "Camera Failure",
                                 f"Camera failed {self._consecutive_capture_failures} consecutive captures. Aborting protocol.")
-                            self._protocol_ended.set()
+                            self._abort_fn()
                         _proto_outcome = "capture_failed"
                         return
 
@@ -506,7 +504,7 @@ class ProtocolImageWriter:
                     from modules.notification_center import notifications
                     notifications.critical("FileIO", "Disk Space Critical",
                         f"Only {free_mb:.0f} MB free. Aborting protocol to prevent data loss.")
-                    self._protocol_ended.set()
+                    self._abort_fn()
                     return
             except Exception:
                 pass  # If we can't check, proceed anyway

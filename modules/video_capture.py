@@ -1,6 +1,6 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 
-"""Video capture and stimulation - extracted from sequenced_capture_executor.py.
+"""Video capture and stimulation - extracted from sequenced_capture_runner.py.
 
 Self-contained video recording: frame capture loop, stimulation threads,
 and video writing (MP4 and TIFF-frame paths).

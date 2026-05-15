@@ -116,6 +116,14 @@ Set-Location $build_dir
 $build_log_ts = (Get-Date -Format 'yyyyMMdd_HHmmss')
 if (-not (Test-Path $artifacts)) { New-Item -ItemType Directory -Path $artifacts -Force | Out-Null }
 $build_log = Join-Path $artifacts "build_$build_log_ts.log"
+# If a prior build.ps1 invocation in this PowerShell session crashed without
+# reaching its Stop-Transcript, an orphan transcript is still active and the
+# next Start-Transcript silently writes to nothing. Drain any stale transcript
+# stack before opening this run's log.
+while ($true) {
+    try { Stop-Transcript -ErrorAction Stop | Out-Null }
+    catch { break }
+}
 Start-Transcript -Path $build_log -IncludeInvocationHeader | Out-Null
 
 function Write-Phase {
@@ -142,6 +150,7 @@ Write-Host "================================================================"
 if (-not $Branch) {
     $branches = @(
         "4.0.0-beta"
+        "4.0.0-wave7-decomp"
         "4.1.0-dev"
         "main"
     )
@@ -150,10 +159,10 @@ if (-not $Branch) {
         Write-Host "  [$($i+1)] $($branches[$i])"
     }
     Write-Host "  [0] Enter custom branch"
-    $choice = Read-Host -Prompt "Select branch (1-$($branches.Count), or 0 for custom)"
+    $choice = Read-Host -Prompt "Select branch (1-$($branches.Count), 0 for custom, or type a branch name directly)"
     if ($choice -eq "0" -or -not $choice) {
         $Branch = Read-Host -Prompt "Branch name"
-    } else {
+    } elseif ($choice -match '^\d+$') {
         $idx = [int]$choice - 1
         if ($idx -ge 0 -and $idx -lt $branches.Count) {
             $Branch = $branches[$idx]
@@ -161,6 +170,8 @@ if (-not $Branch) {
             Write-Host "Invalid selection"
             Exit 1
         }
+    } else {
+        $Branch = $choice
     }
 }
 Write-Host "Building branch: $Branch"

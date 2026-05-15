@@ -7,7 +7,7 @@ Callers can still pass plain dicts — use ``ProtocolCallbacks.from_dict()``
 to convert.  The executor and sub-modules use attribute access instead of
 ``'key' in dict`` checks.
 
-Extracted from ``sequenced_capture_executor.py`` during the
+Extracted from ``sequenced_capture_runner.py`` during the
 protocol-decomposition refactor.
 """
 
@@ -35,7 +35,6 @@ class ProtocolCallbacks:
 
     # --- Autofocus ---
     autofocus_in_progress: Optional[Callable] = None   # () -> None
-    autofocus_completed: Optional[Callable] = None     # () -> None  (passed as 'complete' to AF executor)
     autofocus_complete: Optional[Callable] = None      # () -> None  (UI notification)
     reset_autofocus_btns: Optional[Callable] = None    # () -> None
     restore_autofocus_state: Optional[Callable] = None # (layer=, value=) -> None

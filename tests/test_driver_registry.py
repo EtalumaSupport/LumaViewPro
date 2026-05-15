@@ -262,17 +262,17 @@ class TestLumascopeUsesRegistry:
         from drivers.simulated_camera import SimulatedCamera
 
         scope = Lumascope(simulate=True)
-        assert isinstance(scope.motion, SimulatedMotorBoard)
-        assert isinstance(scope.led, SimulatedLEDBoard)
-        assert isinstance(scope.camera, SimulatedCamera)
+        assert isinstance(scope._motion_driver, SimulatedMotorBoard)
+        assert isinstance(scope._led_driver, SimulatedLEDBoard)
+        assert isinstance(scope._camera_driver, SimulatedCamera)
 
     def test_simulated_scope_satisfies_protocols(self):
         """Cross-check with B1: whatever the registry returns in
         simulate mode must still satisfy the driver protocols."""
         from modules.lumascope_api import Lumascope
         scope = Lumascope(simulate=True)
-        assert isinstance(scope.motion, MotorBoardProtocol)
-        assert isinstance(scope.led, LEDBoardProtocol)
+        assert isinstance(scope._motion_driver, MotorBoardProtocol)
+        assert isinstance(scope._led_driver, LEDBoardProtocol)
 
     def test_registries_know_about_current_drivers(self):
         """Sanity: the three global registries have all the expected

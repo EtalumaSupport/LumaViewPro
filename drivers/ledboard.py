@@ -282,12 +282,29 @@ class LEDBoard(SerialBoard):
             return True
 
         if block:
+            # Poll until the firmware echoes the command back, OR the
+            # response contains 'LED' + channel + mA as substrings (the
+            # firmware response shape: 'LED N set to X mA.'). An empty
+            # response is NOT treated as ack: empty responses are observed
+            # when the LED firmware is wedged (e.g. left mid-engineering-
+            # mode by a diagnostic flow that exited without draining), and
+            # in that state the LED is NOT actually energized. The
+            # substring check protects callers from silently succeeding
+            # while the hardware is dark.
             deadline = time.monotonic() + timeout
-            while response is None or (command not in response and not check_each_substr(['LED', str(int(channel)), str(int(mA))], response)):
+            while response is None or (
+                command not in response
+                and not check_each_substr(
+                    ['LED', str(int(channel)), str(int(mA))], response
+                )
+            ):
                 if time.monotonic() > deadline:
-                    logger.warning(f'[LED Class ] led_on(ch={channel}, mA={mA}, block=True) timed out after {timeout}s')
+                    logger.warning(
+                        f'[LED Class ] led_on(ch={channel}, mA={mA}, block=True) '
+                        f'timed out after {timeout}s'
+                    )
                     break
-                time.sleep(0.01)  # Prevent busy-wait CPU burn
+                time.sleep(0.01)
                 response = self.exchange_command(command)
                 if response is not None:
                     self._update_state_cache(color, mA)
@@ -408,20 +425,86 @@ class LEDBoard(SerialBoard):
     def exit_engineering_mode(self) -> str | None:
         """Exit engineering mode back to safe mode (Q command).
 
+        The EL-0925 Gen3 firmware (2024-06-05ESWEA) has a `factory()`
+        function that does not reliably exit on Q -- if the eng-mode
+        body (e.g. LEDREADS) timed out before we get to send Q, the
+        firmware input loop is left waiting for an eng-mode response
+        and standard commands return ''. In that state, only a Ctrl-D
+        soft reset rescues the board. This method probes for the wedge
+        via a post-Q INFO and, if wedged, drives the Ctrl-C/B/D
+        recovery inline.
+
         Returns:
-            str | None: Raw board response, or None if no response was
-                received.
+            str | None: Raw Q response, or None if no response was
+                received. Returns even when post-Q recovery had to
+                fire -- caller can ignore the value.
+
+        Raises:
+            HardwareError: Q failed AND the Ctrl-D soft reset did not
+                bring the firmware back. Power-cycle is needed.
         """
         resp = self.exchange_command('Q', timeout=3)
         time.sleep(0.3)
-        # Drain any remaining output
+        # Drain any remaining output from Q (firmware may print help).
         with self._lock:
             if self.driver is not None:
                 stale = self.driver.in_waiting
                 if stale > 0:
                     self.driver.read(stale)
-        logger.info('[LED Class ] Exited engineering mode')
-        return resp
+
+        # Verify firmware actually returned from factory(). INFO is the
+        # cheap responsiveness probe -- a wedged firmware returns ''
+        # or garbage; a healthy firmware responds with the version
+        # banner whose first line begins with 'Version:' (followed by
+        # 'EL-0925 Gen3 LED Controller' or similar -- the exact
+        # controller string depends on hardware revision, so 'Version:'
+        # is the stable marker across revisions).
+        info_resp = self.exchange_command('INFO', timeout=2)
+        if info_resp and 'Version' in info_resp:
+            logger.info('[LED Class ] Exited engineering mode')
+            return resp
+
+        # Wedged inside factory(). Run the Ctrl-C/B/D soft-reset
+        # recovery sequence inline. Same shape as SerialBoard
+        # _reset_firmware step 4; this narrower version skips the
+        # boot-state detection that doesn't apply mid-session.
+        logger.warning(
+            f'[LED Class ] exit_engineering_mode: INFO returned '
+            f'{info_resp!r}; firmware appears wedged in factory() -- '
+            f'attempting Ctrl-D recovery'
+        )
+        self._safe_write(b'\x03', context='eng-mode recovery Ctrl-C #1')
+        time.sleep(0.2)
+        self._safe_write(b'\x03', context='eng-mode recovery Ctrl-C #2')
+        time.sleep(0.2)
+        self._safe_write(b'\x02', context='eng-mode recovery Ctrl-B raw-REPL exit')
+        time.sleep(0.2)
+        self._safe_write(b'\x04', context='eng-mode recovery Ctrl-D soft reset')
+        time.sleep(5.0)  # firmware boot
+        # Drain boot output
+        with self._lock:
+            if self.driver is not None:
+                stale = self.driver.in_waiting
+                if stale > 0:
+                    self.driver.read(stale)
+
+        # Re-verify after recovery
+        info_resp2 = self.exchange_command('INFO', timeout=3)
+        if info_resp2 and 'Version' in info_resp2:
+            logger.info(
+                '[LED Class ] Exited engineering mode (after Ctrl-D recovery)'
+            )
+            return resp
+
+        logger.error(
+            f'[LED Class ] exit_engineering_mode: INFO still returns '
+            f'{info_resp2!r} after Ctrl-D recovery; LED firmware '
+            f'unrecoverable from eng-mode wedge'
+        )
+        raise HardwareError(
+            'LED firmware wedged in engineering mode and did not '
+            'recover after a Ctrl-D soft reset. Power-cycle the unit.'
+        )
 
     def selftest(self, timeout: float = 180) -> list:
         """Run LED SELFTEST and return parsed results.

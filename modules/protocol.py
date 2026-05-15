@@ -1416,10 +1416,14 @@ class Protocol:
                 raise ProtocolFormatError(f"Missing 'Period' row in protocol file")
             
             minutes = float(period_row[1])
-            if minutes <= 0:
-                logger.error(f"Invalid 'Period' value in protocol file {file_path}: must be > 0")
-                raise ProtocolFormatError(f"Invalid 'Period' value in protocol file: must be > 0")
-            
+            # Period == 0 is a valid single-scan / non-periodic marker
+            # (Z-stack, single-shot capture, autofocus characterization);
+            # downstream consumers in protocol_time_estimator already treat
+            # period_s == 0 as one scan rather than dividing by zero.
+            if minutes < 0:
+                logger.error(f"Invalid 'Period' value in protocol file {file_path}: must be >= 0")
+                raise ProtocolFormatError(f"Invalid 'Period' value in protocol file: must be >= 0")
+
             config['period'] = datetime.timedelta(minutes=minutes)
 
         except StopIteration:

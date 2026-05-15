@@ -6,6 +6,10 @@ import threading
 import numpy as np
 
 from lvp_logger import logger
+try:
+    from lvp_logger import camera_logger as _cam_log
+except ImportError:
+    _cam_log = None
 from drivers.camera_profiles import CameraProfile, lookup_profile
 
 default_max_exposure = 1_000 # in ms
@@ -137,7 +141,7 @@ class ImageHandlerBase:
             try:
                 cb(image, timestamp, chunks)
             except Exception as e:
-                logger.exception(f'[CAM Class ] frame callback raised: {e}')
+                _cam_log.exception(f'[CAM Class ] frame callback raised: {e}')
 
     def _record_failure(self):
         """Called by subclass when a grab fails.
@@ -149,7 +153,7 @@ class ImageHandlerBase:
             self.last_result = False
         self._failed_grabs += 1
         if self._failed_grabs % 5 == 1:
-            logger.warning(f'[CAM Class ] Grab failed ({self._failed_grabs} consecutive)')
+            _cam_log.warning(f'[CAM Class ] Grab failed ({self._failed_grabs} consecutive)')
         return self._failed_grabs >= self.MAX_CONSECUTIVE_FAILURES
 
 
@@ -224,7 +228,7 @@ class Camera(ABC):
             if is_active:
                 self.disconnect()
         except Exception as e:
-            logger.warning(f'[CAM Class ] __del__ disconnect failed: {e}')
+            _cam_log.warning(f'[CAM Class ] __del__ disconnect failed: {e}')
 
     def is_device_removed(self) -> bool:
         """Return whether the camera was marked as physically removed.
@@ -247,7 +251,7 @@ class Camera(ABC):
             self._device_removed = True
             self._active = None
         if was_connected:
-            logger.error('[CAM Class ] Camera disconnected')
+            _cam_log.error('[CAM Class ] Camera disconnected')
 
     @abstractmethod
     def connect(self) -> bool:
@@ -598,7 +602,7 @@ class Camera(ABC):
                 self.array = image
             return True, image_ts
         except Exception as ex:
-            logger.exception(f"[CAM Class ] grab() - get_last_image() failed: {ex}")
+            _cam_log.exception(f"[CAM Class ] grab() - get_last_image() failed: {ex}")
             return False, None
 
     def get_array(self) -> np.ndarray:
@@ -640,7 +644,7 @@ class Camera(ABC):
                 self.array = image
             return True, image, image_ts
         except Exception as ex:
-            logger.exception(f"[CAM Class ] grab_latest() failed: {ex}")
+            _cam_log.exception(f"[CAM Class ] grab_latest() failed: {ex}")
             return False, None, None
 
     def register_frame_callback(self, cb) -> None:
@@ -692,7 +696,7 @@ class Camera(ABC):
                 self.array = image
             return True, image, image_ts, chunks
         except Exception as ex:
-            logger.exception(f"[CAM Class ] grab_latest_with_chunks() failed: {ex}")
+            _cam_log.exception(f"[CAM Class ] grab_latest_with_chunks() failed: {ex}")
             return False, None, None, None
 
     @abstractmethod

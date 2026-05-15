@@ -12,13 +12,13 @@ import modules.common_utils as common_utils
 from modules.composite_builder import build_composite
 import modules.image_utils as image_utils
 from modules.common_utils import PostFunction
-from modules.protocol_post_processing_executor import ProtocolPostProcessingExecutor
+from modules.protocol_post_processor import ProtocolPostProcessor
 from modules.protocol_post_record import ProtocolPostRecord
 from modules.settings_init import settings
 from lvp_logger import logger
 
 
-class CompositeGeneration(ProtocolPostProcessingExecutor):
+class CompositeGeneration(ProtocolPostProcessor):
 
     def __init__(self, *args, **kwargs):
         super().__init__(
@@ -216,7 +216,10 @@ class CompositeGeneration(ProtocolPostProcessingExecutor):
 
             if not channel_images and transmitted_image is None:
                 status = False
-                error = "Composite Generation Error: No images found"
+                error = (
+                    "Composite Generation Error: no channel images "
+                    "available for this group"
+                )
             else:
                 dtype = img_dtype or np.uint8
                 max_value = 255 if dtype == np.uint8 else 4095

@@ -1,6 +1,6 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """
-Integration tests for protocol execution through SequencedCaptureExecutor.
+Integration tests for protocol execution through SequencedCaptureRunner.
 
 Tier 1: Core execution paths — verifies that the most common protocol
 configurations run to completion without crashing and produce the
@@ -23,7 +23,7 @@ import pytest
 # Heavy deps (lvp_logger, kivy, pypylon, ids_peak, ...) are mocked by
 # tests/conftest.py at module-import time. Test-specific mocks below.
 
-# Mock settings_init before sequenced_capture_executor imports it
+# Mock settings_init before sequenced_capture_runner imports it
 _mock_settings_init = MagicMock()
 _mock_settings_init.settings = {
     'BF': {'autofocus': False},
@@ -38,8 +38,8 @@ sys.modules.setdefault('modules.settings_init', _mock_settings_init)
 
 from modules.lumascope_api import Lumascope
 from modules.sequential_io_executor import SequentialIOExecutor
-from modules.sequenced_capture_executor import SequencedCaptureExecutor
-from modules.sequenced_capture_executor import SequencedCaptureRunMode
+from modules.sequenced_capture_runner import SequencedCaptureRunner
+from modules.sequenced_capture_runner import SequencedCaptureRunMode
 from modules.protocol import Protocol
 
 # ---------------------------------------------------------------------------
@@ -55,32 +55,38 @@ COMPLETION_TIMEOUT = 15  # seconds — generous for CI
 def _make_simulated_scope():
     """Create a Lumascope with simulated hardware in fast timing mode."""
     s = Lumascope(simulate=True)
-    s.led.set_timing_mode('fast')
-    s.motion.set_timing_mode('fast')
-    s.camera.set_timing_mode('fast')
-    s.camera.start_grabbing()
+    s._led_driver.set_timing_mode('fast')
+    s._motion_driver.set_timing_mode('fast')
+    s._camera_driver.set_timing_mode('fast')
+    s._camera_driver.start_grabbing()
     return s
 
 
 def _make_executors():
-    """Create and start the set of SequentialIOExecutors needed."""
+    """Create and start the SequentialIOExecutors + protocol_thread needed."""
+    from modules.protocol_thread import ProtocolThread
     execs = {
         'io': SequentialIOExecutor(name="TEST_IO"),
-        'protocol': SequentialIOExecutor(name="TEST_PROTOCOL"),
         'file_io': SequentialIOExecutor(name="TEST_FILE"),
         'camera': SequentialIOExecutor(name="TEST_CAMERA"),
         'autofocus': SequentialIOExecutor(name="TEST_AF"),
     }
     for e in execs.values():
         e.start()
+    pt = ProtocolThread()
+    pt.start()
+    execs['protocol'] = pt
     return execs
 
 
 def _shutdown_executors(execs):
-    """Shut down all executors."""
-    for e in execs.values():
+    """Shut down all executors + protocol_thread."""
+    for name, e in execs.items():
         try:
-            e.shutdown()
+            if name == 'protocol':
+                e.stop(timeout=2.0)
+            else:
+                e.shutdown()
         except Exception:
             pass
 
@@ -262,7 +268,7 @@ def _run_and_wait(executor, protocol, tmp_path, **run_kwargs):
 def scope():
     s = _make_simulated_scope()
     yield s
-    s.camera.stop_grabbing()
+    s._camera_driver.stop_grabbing()
     s.disconnect()
 
 
@@ -275,10 +281,10 @@ def executors():
 
 @pytest.fixture
 def executor(scope, executors):
-    """Create a SequencedCaptureExecutor with real simulated scope,
+    """Create a SequencedCaptureRunner with real simulated scope,
     real WellPlateLoader, and real CoordinateTransformer.
 
-    Only the AutofocusExecutor is mocked (real AF needs camera focus
+    Only the AutofocusRunner is mocked (real AF needs camera focus
     simulation which is only set up in dedicated AF test fixtures).
     """
     from modules.coord_transformations import CoordinateTransformer
@@ -293,15 +299,15 @@ def executor(scope, executors):
     mock_af.best_focus_position = MagicMock(return_value=5000.0)
     mock_af.run_in_progress = MagicMock(return_value=False)
 
-    exc = SequencedCaptureExecutor(
+    exc = SequencedCaptureRunner(
         scope=scope,
         stage_offset={'x': 0.0, 'y': 0.0},
         io_executor=executors['io'],
-        protocol_executor=executors['protocol'],
+        protocol_thread=executors['protocol'],
         file_io_executor=executors['file_io'],
         camera_executor=executors['camera'],
-        autofocus_io_executor=executors['autofocus'],
-        autofocus_executor=mock_af,
+        autofocus_thread=MagicMock(),
+        autofocus_runner=mock_af,
     )
     exc._wellplate_loader = WellPlateLoader()
     exc._coordinate_transformer = CoordinateTransformer()
@@ -322,22 +328,22 @@ class TestSingleScanBasicImage:
 
     def test_sets_gain_and_exposure(self, executor, scope, tmp_path):
         # Record original camera settings
-        original_gain = scope.camera.get_gain()
-        original_exposure = scope.camera.get_exposure_t()
+        original_gain = scope._camera_driver.get_gain()
+        original_exposure = scope._camera_driver.get_exposure_t()
         protocol = _make_single_step_protocol(color='BF', gain=5.0, exposure=50.0)
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed
         # After protocol cleanup, gain/exposure should be restored to original values
-        assert scope.camera.get_gain() == pytest.approx(original_gain, abs=0.1)
-        assert scope.camera.get_exposure_t() == pytest.approx(original_exposure, abs=0.1)
+        assert scope._camera_driver.get_gain() == pytest.approx(original_gain, abs=0.1)
+        assert scope._camera_driver.get_exposure_t() == pytest.approx(original_exposure, abs=0.1)
 
     def test_turns_led_on_and_off(self, executor, scope, tmp_path):
         protocol = _make_single_step_protocol(color='BF', illumination=75.0)
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed
         # After protocol with leds_state_at_end='off', all LEDs should be off
-        for color in scope.led.led_ma:
-            assert not scope.led.is_led_on(color), f"LED {color} still on after protocol"
+        for color in scope._led_driver.led_ma:
+            assert not scope._led_driver.is_led_on(color), f"LED {color} still on after protocol"
 
     def test_auto_gain_disabled_in_step(self, executor, scope, tmp_path):
         """When auto_gain=False, protocol should complete normally."""
@@ -360,7 +366,7 @@ class TestSingleScanAutoGain:
         assert completed
         # Auto gain cycle ran successfully — gain value should have been adjusted
         # from the initial value by the auto-gain convergence logic
-        assert scope.camera.get_gain() > 0
+        assert scope._camera_driver.get_gain() > 0
 
     def test_does_not_set_manual_gain_when_auto(self, executor, scope, tmp_path):
         """When auto_gain=True, manual set_gain should NOT be called in _scan_iterate."""
@@ -378,9 +384,13 @@ class TestSingleScanAutoFocus:
         protocol = _make_single_step_protocol(color='BF', auto_focus=True)
 
         # Simulate AF already complete so _scan_iterate proceeds past AF logic
-        af = executor._autofocus_executor
+        af = executor._autofocus_runner
         af.complete.return_value = True
         af.in_progress.return_value = False
+        # Per-step Future tracks AF state; mock as done so scan_iterate
+        # skips kick-off and proceeds to consume the AF result.
+        executor._af_future = MagicMock()
+        executor._af_future.done.return_value = True
 
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed
@@ -392,9 +402,13 @@ class TestSingleScanAutoFocusNoneResult:
     def test_completes_when_autofocus_returns_none(self, executor, scope, tmp_path):
         protocol = _make_single_step_protocol(color='BF', auto_focus=True)
 
-        af = executor._autofocus_executor
+        af = executor._autofocus_runner
         af.complete.return_value = True
         af.in_progress.return_value = False
+        # Per-step Future tracks AF state; mock as done so scan_iterate
+        # skips kick-off and proceeds to consume the AF result.
+        executor._af_future = MagicMock()
+        executor._af_future.done.return_value = True
         af.best_focus_position.return_value = None  # autofocus failed
 
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
@@ -404,9 +418,13 @@ class TestSingleScanAutoFocusNoneResult:
         protocol = _make_single_step_protocol(color='BF', auto_focus=True)
         original_z = protocol.step(idx=0)['Z']
 
-        af = executor._autofocus_executor
+        af = executor._autofocus_runner
         af.complete.return_value = True
         af.in_progress.return_value = False
+        # Per-step Future tracks AF state; mock as done so scan_iterate
+        # skips kick-off and proceeds to consume the AF result.
+        executor._af_future = MagicMock()
+        executor._af_future.done.return_value = True
         af.best_focus_position.return_value = None
 
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
@@ -423,9 +441,13 @@ class TestSingleScanAutoGainAndAutoFocus:
         protocol = _make_single_step_protocol(color='BF', auto_gain=True, auto_focus=True)
 
         # Simulate AF already complete
-        af = executor._autofocus_executor
+        af = executor._autofocus_runner
         af.complete.return_value = True
         af.in_progress.return_value = False
+        # Per-step Future tracks AF state; mock as done so scan_iterate
+        # skips kick-off and proceeds to consume the AF result.
+        executor._af_future = MagicMock()
+        executor._af_future.done.return_value = True
 
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed
@@ -445,9 +467,13 @@ class TestAFSliderRaceRegression:
         protocol = _make_single_step_protocol(color='BF', auto_focus=True)
         pre_af_z = protocol.step(idx=0)['Z']
 
-        af = executor._autofocus_executor
+        af = executor._autofocus_runner
         af.complete.return_value = True
         af.in_progress.return_value = False
+        # Per-step Future tracks AF state; mock as done so scan_iterate
+        # skips kick-off and proceeds to consume the AF result.
+        executor._af_future = MagicMock()
+        executor._af_future.done.return_value = True
         af.best_focus_position.return_value = pre_af_z + 15.0  # AF picked a different Z
 
         z_ui_calls = []
@@ -584,8 +610,8 @@ class TestLedStateAtEnd:
                                       leds_state_at_end='off')
         assert completed
         # Verify all LEDs are off via simulator public API
-        for color in scope.led.led_ma:
-            assert not scope.led.is_led_on(color), f"LED {color} still on"
+        for color in scope._led_driver.led_ma:
+            assert not scope._led_driver.is_led_on(color), f"LED {color} still on"
 
     def test_return_to_original_leds(self, executor, scope, tmp_path):
         # Turn on BF LED before protocol so executor captures it as original state
@@ -828,9 +854,13 @@ class TestZStackWithAutoFocus:
         steps = _make_zstack_steps(num_slices=3, auto_focus=True)
         protocol = _make_multi_step_protocol(steps)
 
-        af = executor._autofocus_executor
+        af = executor._autofocus_runner
         af.complete.return_value = True
         af.in_progress.return_value = False
+        # Per-step Future tracks AF state; mock as done so scan_iterate
+        # skips kick-off and proceeds to consume the AF result.
+        executor._af_future = MagicMock()
+        executor._af_future.done.return_value = True
 
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed
@@ -937,9 +967,13 @@ class TestRunModeSingleAutofocusScan:
     def test_completes(self, executor, scope, tmp_path):
         protocol = _make_single_step_protocol(color='BF', auto_focus=True)
 
-        af = executor._autofocus_executor
+        af = executor._autofocus_runner
         af.complete.return_value = True
         af.in_progress.return_value = False
+        # Per-step Future tracks AF state; mock as done so scan_iterate
+        # skips kick-off and proceeds to consume the AF result.
+        executor._af_future = MagicMock()
+        executor._af_future.done.return_value = True
 
         completed, _ = _run_and_wait(
             executor, protocol, tmp_path,
@@ -949,22 +983,10 @@ class TestRunModeSingleAutofocusScan:
         assert completed
 
 
-class TestRunModeSingleAutofocus:
-    """SINGLE_AUTOFOCUS run mode."""
-
-    def test_completes(self, executor, scope, tmp_path):
-        protocol = _make_single_step_protocol(color='BF', auto_focus=True)
-
-        af = executor._autofocus_executor
-        af.complete.return_value = True
-        af.in_progress.return_value = False
-
-        completed, _ = _run_and_wait(
-            executor, protocol, tmp_path,
-            run_mode=SequencedCaptureRunMode.SINGLE_AUTOFOCUS,
-            max_scans=1,
-        )
-        assert completed
+# SINGLE_AUTOFOCUS run mode retired -- standalone AF routes directly
+# through AutofocusThread.run_autofocus() from the UI, bypassing the
+# SequencedCapture path. Coverage for the standalone AF flow lives in
+# the autofocus_thread regression tests.
 
 
 # ---------------------------------------------------------------------------
@@ -1078,9 +1100,13 @@ class TestAutoFocusWithTiling:
         steps = _make_tile_grid_steps(rows=2, cols=2, auto_focus=True)
         protocol = _make_multi_step_protocol(steps)
 
-        af = executor._autofocus_executor
+        af = executor._autofocus_runner
         af.complete.return_value = True
         af.in_progress.return_value = False
+        # Per-step Future tracks AF state; mock as done so scan_iterate
+        # skips kick-off and proceeds to consume the AF result.
+        executor._af_future = MagicMock()
+        executor._af_future.done.return_value = True
 
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed
@@ -1282,9 +1308,9 @@ class TestDisconnectedScope:
 
     def test_run_aborts_when_not_connected(self, executor, scope, tmp_path):
         # Disconnect all boards so are_all_connected() returns False
-        scope.led.disconnect()
-        scope.motion.disconnect()
-        scope.camera.disconnect()
+        scope._led_driver.disconnect()
+        scope._motion_driver.disconnect()
+        scope._camera_driver.disconnect()
         protocol = _make_single_step_protocol(color='BF')
 
         done = threading.Event()
@@ -1490,7 +1516,7 @@ class TestWithTurret:
     """Scope with turret enabled — objective name included in filenames."""
 
     def test_turret_protocol_completes(self, executor, scope, tmp_path):
-        scope.motion._has_turret = True
+        scope._motion_driver._has_turret = True
         protocol = _make_single_step_protocol(color='BF')
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed
@@ -1712,11 +1738,11 @@ class TestStepTimeout:
 
     def test_stuck_motion_skips_step(self, executor, scope, tmp_path):
         """If motion never completes, the step times out and protocol continues."""
-        from modules.sequenced_capture_executor import SequencedCaptureExecutor
+        from modules.sequenced_capture_runner import SequencedCaptureRunner
 
         # Use a very short timeout for the test
-        original_timeout = SequencedCaptureExecutor.STEP_TIMEOUT_SECONDS
-        SequencedCaptureExecutor.STEP_TIMEOUT_SECONDS = 1  # 1 second
+        original_timeout = SequencedCaptureRunner.STEP_TIMEOUT_SECONDS
+        SequencedCaptureRunner.STEP_TIMEOUT_SECONDS = 1  # 1 second
 
         protocol = _make_multi_step_protocol([
             {'color': 'BF', 'x': 10.0}, {'color': 'Red', 'x': 20.0},
@@ -1737,7 +1763,7 @@ class TestStepTimeout:
 
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         # Restore
-        SequencedCaptureExecutor.STEP_TIMEOUT_SECONDS = original_timeout
+        SequencedCaptureRunner.STEP_TIMEOUT_SECONDS = original_timeout
         scope.get_target_status = original_get_target
 
         assert completed
@@ -1923,8 +1949,8 @@ class TestCleanupCorrectness:
         executor.reset()
         done.wait(timeout=COMPLETION_TIMEOUT)
 
-        for color in scope.led.led_ma:
-            assert not scope.led.is_led_on(color), f"LED {color} still on after abort"
+        for color in scope._led_driver.led_ma:
+            assert not scope._led_driver.is_led_on(color), f"LED {color} still on after abort"
 
     def test_back_to_back_runs_no_state_bleed(self, executor, scope, tmp_path):
         """Gain/exposure from run A don't leak into run B's restored values."""

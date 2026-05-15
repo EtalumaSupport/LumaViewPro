@@ -17,7 +17,19 @@ import modules.image_utils as image_utils
 from lvp_logger import logger
 
 
-class ProtocolPostProcessingExecutor(abc.ABC):
+# What each post-processing function needs to find in a folder to produce
+# output. Used in the empty-output user message so the popup explains which
+# capture dimension was missing instead of saying "No images found" in a
+# folder that visibly has images.
+_MULTI_FRAME_REQUIREMENT = {
+    PostFunction.VIDEO: "multiple time points per scan position",
+    PostFunction.ZPROJECT: "multiple Z-slices per scan position",
+    PostFunction.COMPOSITE: "multiple channels per scan position",
+    PostFunction.STITCHED: "multiple tile positions per scan",
+}
+
+
+class ProtocolPostProcessor(abc.ABC):
 
     def __init__(
         self,
@@ -108,7 +120,10 @@ class ProtocolPostProcessingExecutor(abc.ABC):
         if len(df) == 0:
             return {
                 'status': False,
-                'message': 'No images found in selected folder'
+                'message': (
+                    'No image files were found in the selected folder. '
+                    'Check that the folder contains captured scan images.'
+                ),
             }
         
         root_path = results['root_path']
@@ -201,10 +216,22 @@ class ProtocolPostProcessingExecutor(abc.ABC):
             popup.progress = 100
 
         if (new_count == 0) and (existing_count == 0):
-            logger.info(f"[{self._name} ] No sets of images found")
+            fname = self._post_function.value
+            needed = _MULTI_FRAME_REQUIREMENT.get(
+                self._post_function, "multiple frames per scan position"
+            )
+            logger.info(
+                f"[{self._name} ] No {fname} output generated -- "
+                f"no usable image groups (need {needed})"
+            )
             return {
                 'status': False,
-                'message': 'No images found'
+                'message': (
+                    f"No {fname} was generated. {fname} requires {needed}. "
+                    f"The folder may have image files but not the structure "
+                    f"this operation needs -- check the log if you expected "
+                    f"the folder to be compatible."
+                ),
             }
 
         end_ts = datetime.datetime.now()

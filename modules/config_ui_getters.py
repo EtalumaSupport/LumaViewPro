@@ -287,7 +287,7 @@ def create_hyperstacks_if_needed():
 
         logger.info("Building ImageJ Hyperstacks from captured data")
         _, objective = get_current_objective_info()
-        run_dir = ctx.sequenced_capture_executor.run_dir()
+        run_dir = ctx.sequenced_capture_runner.run_dir()
         tiling_loc = pathlib.Path(ctx.source_path) / "data" / "tiling.json"
         binning = get_binning_from_ui()
         has_turret = ctx.scope.has_turret()

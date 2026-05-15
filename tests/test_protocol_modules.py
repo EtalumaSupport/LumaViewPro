@@ -1,7 +1,7 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """Unit tests for decomposed protocol modules.
 
-Tests the 5 modules extracted from sequenced_capture_executor.py:
+Tests the 5 modules extracted from sequenced_capture_runner.py:
   - protocol_state_machine
   - protocol_callbacks
   - kivy_utils
@@ -40,7 +40,6 @@ class TestSequencedCaptureRunMode:
             'single_scan',
             'single_zstack',
             'single_autofocus_scan',
-            'single_autofocus',
         }
 
     def test_enum_access_by_name(self):
@@ -303,8 +302,9 @@ class TestRunCleanup:
 
         run_in_progress = [True]
         io_exec = _FakeExecutor()
-        proto_exec = _FakeExecutor()
-        af_exec = _FakeExecutor()
+        # autofocus_thread replaces autofocus_io_executor in Stage B2;
+        # MagicMock so the cleanup tests can assert abort() was called.
+        af_thread = MagicMock()
         file_exec = _FakeExecutor()
         camera_exec = _FakeExecutor()
 
@@ -312,7 +312,6 @@ class TestRunCleanup:
             get_state_fn=get_state,
             set_state_fn=set_state,
             run_lock=threading.Lock(),
-            protocol_ended=threading.Event(),
             scan_in_progress=threading.Event(),
             leds_state_at_end="off",
             original_led_states={},
@@ -329,8 +328,7 @@ class TestRunCleanup:
             default_move_fn=lambda **kw: None,
             cancel_scheduled_events_fn=lambda: None,
             io_executor=io_exec,
-            protocol_executor=proto_exec,
-            autofocus_io_executor=af_exec,
+            autofocus_thread=af_thread,
             file_io_executor=file_exec,
             camera_executor=camera_exec,
             set_run_in_progress_fn=lambda v: run_in_progress.__setitem__(0, v),
@@ -408,15 +406,8 @@ class TestRunCleanup:
         args, _, _ = self._make_cleanup_args()
         run_cleanup(**args)
         assert args['io_executor'].protocol_ended
-        assert args['protocol_executor'].protocol_ended
-        assert args['autofocus_io_executor'].protocol_ended
+        assert args['autofocus_thread'].abort.called
         assert args['camera_executor'].enabled
-
-    def test_cleanup_sets_protocol_ended_event(self):
-        from modules.protocol_cleanup import run_cleanup
-        args, _, _ = self._make_cleanup_args()
-        run_cleanup(**args)
-        assert args['protocol_ended'].is_set()
 
     def test_cleanup_clears_scan_in_progress(self):
         from modules.protocol_cleanup import run_cleanup
@@ -470,9 +461,9 @@ class TestProtocolImageWriterWriteCapture:
         writer = ProtocolImageWriter(
             scope=MagicMock(),
             callbacks=ProtocolCallbacks(),
-            protocol_ended=threading.Event(),
+            aborted=threading.Event(),
             file_io_executor=_FakeExecutor(),
-            protocol_executor=_FakeExecutor(),
+            abort_fn=lambda: None,
             execution_record=execution_record,
             leds_off_fn=lambda: None,
             led_on_fn=lambda **kw: None,

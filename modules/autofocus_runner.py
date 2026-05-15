@@ -3,30 +3,28 @@
 import datetime
 import logging
 import pathlib
-import time
-import typing
-
-from lvp_logger import logger
-
-from modules.kivy_utils import schedule_ui as _schedule_ui
-from modules.notification_center import notifications
-
 import threading
-
-_af_log = logging.getLogger('LVP.autofocus')
+import time
 
 from matplotlib.figure import Figure
 import numpy as np
 import pandas as pd
 
-from modules.sequential_io_executor import SequentialIOExecutor, IOTask
+from lvp_logger import logger
 
-import modules.lumascope_api as lumascope_api
 import modules.autofocus_functions as autofocus_functions
 import modules.common_utils as common_utils
+import modules.lumascope_api as lumascope_api
+from modules.exceptions import AutofocusAborted
+from modules.kivy_utils import schedule_ui as _schedule_ui
+from modules.notification_center import notifications
 from modules.objectives_loader import ObjectiveLoader
+from modules.sequential_io_executor import IOTask, SequentialIOExecutor
 
-class AutofocusExecutor:
+_af_log = logging.getLogger('LVP.autofocus')
+
+
+class AutofocusRunner:
 
     def __init__(
         self,
@@ -34,26 +32,23 @@ class AutofocusExecutor:
         camera_executor: SequentialIOExecutor,
         io_executor: SequentialIOExecutor,
         file_io_executor: SequentialIOExecutor,
-        autofocus_executor: SequentialIOExecutor,
-        clock_unschedule_fn: typing.Callable | None = None,
-        clock_schedule_interval_fn: typing.Callable | None = None,
-        ui_update_func = None
+        ui_update_func=None,
     ):
-        # Callback inversion (Architecture Rule 1, LV-31): caller passes
-        # the Kivy Clock primitives; this executor never imports kivy.
-        # Headless callers pass None — schedule_interval raises and
-        # unschedule is a no-op (the executor is then driven directly).
         self._scope = scope
         self._camera_executor = camera_executor
         self._io_executor = io_executor
         self._file_io_executor = file_io_executor
-        self._autofocus_executor = autofocus_executor
-        self._iterator_scheduled = None
         self.ui_update_func = ui_update_func
 
+        # Set by run() before the loop starts; consulted by _iterate
+        # each iteration. AutofocusThread owns the actual Event.
+        self._abort_event: threading.Event | None = None
+
+        # Guards _callbacks reads/writes -- the AF thread writes in
+        # run(); UI dispatches read via _schedule_ui in _iterate.
+        self._callbacks_lock = threading.Lock()
+
         self._af_in_progress = threading.Event()
-        self._clock_unschedule_fn = clock_unschedule_fn
-        self._clock_schedule_interval_fn = clock_schedule_interval_fn
 
         self._reset_state()
 
@@ -64,12 +59,32 @@ class AutofocusExecutor:
         self._reset_state()
 
 
+    def _notify_af_failure(self, title: str, message: str) -> None:
+        """Fire an AF failure user-notification IF the trigger is
+        interactive. Suppressed for unattended ('protocol') triggers
+        because protocols continue with the prior Z position and
+        should not block on modal popups -- per the
+        "protocols are unattended" product contract. Log lines are
+        emitted by the caller regardless of trigger source; this is
+        the popup-gate only."""
+        if self._run_trigger_source == 'protocol':
+            return
+        notifications.error("Autofocus", title, message)
+
+
     def reset(self):
-        if (self._clock_unschedule_fn is not None
-                and hasattr(self, '_iterator_scheduled')
-                and self._iterator_scheduled is not None):
-            self._clock_unschedule_fn(self._iterator_scheduled)
-            self._iterator_scheduled = None
+        # Skip if a run is in flight: _reset_state() would wipe _params
+        # while AFE.run() reads it on the AF thread. AFE.run()'s own
+        # _reset_state() on entry covers deferred cleanup. Callers that
+        # need to stop the in-flight run should call
+        # autofocus_thread.abort() first; reset() succeeds once the AF
+        # thread's finally block clears _af_in_progress.
+        if self._af_in_progress.is_set():
+            logger.debug(
+                '[AF] reset() skipped: AF run in flight; '
+                'call autofocus_thread.abort() to unwind first'
+            )
+            return
         # Restore Z precision mode to the resting default (ON). AF
         # temporarily disables precision during coarse passes for speed
         # and re-enables for the fine pass; this restores ON regardless
@@ -83,38 +98,6 @@ class AutofocusExecutor:
 
     def set_scope(self, scope: lumascope_api.Lumascope):
         self._scope = scope
-
-
-    def _schedule_interval_func(
-        self,
-        func: typing.Callable,
-        interval_sec: float
-    ):
-        if self._clock_schedule_interval_fn is not None:
-            # Create wrapper method to avoid lambda closure
-            def wrapper(dt):
-                self._autofocus_executor.protocol_put(IOTask(action=func))
-            return self._clock_schedule_interval_fn(wrapper, interval_sec)
-        else:
-            raise NotImplementedError(
-                "AutofocusExecutor was constructed without "
-                "clock_schedule_interval_fn; cannot schedule "
-                "interval-driven AF (headless mode)"
-            )
-
-
-    def _unschedule_func(
-        self,
-        func: typing.Callable,
-    ):
-        if self._clock_unschedule_fn is not None:
-            self._clock_unschedule_fn(func)
-        else:
-            raise NotImplementedError(
-                "AutofocusExecutor was constructed without "
-                "clock_unschedule_fn; cannot unschedule "
-                "interval-driven AF (headless mode)"
-            )
 
 
     def _calculate_params(self):
@@ -158,33 +141,74 @@ class AutofocusExecutor:
     def run(
         self,
         objective_id: str,
-        callbacks: dict = {},
+        callbacks: dict | None = None,
         save_results_to_file: bool = False,
-        run_trigger_source: str = None,
+        run_trigger_source: str | None = None,
         results_dir: pathlib.Path | None = None,
         led_color: str | None = None,
         led_illumination: float = 0,
         camera_gain: float | None = None,
         camera_exposure: float | None = None,
-    ):
+        abort_event: threading.Event | None = None,
+    ) -> float | None:
+        """Run autofocus to completion synchronously on the caller's thread.
+
+        Intended to be called by AutofocusThread; the abort_event ties
+        the AF loop to the thread's per-run abort signal.
+
+        Args:
+            objective_id: which objective profile to use.
+            callbacks: optional dict of UI hooks. Recognized keys:
+                'move_position' -- called per Z move on the UI thread.
+                The 'complete' hook from the prior API has been retired;
+                completion is signalled via the AutofocusThread Future.
+            save_results_to_file: if True, queue a save of AF results
+                to results_dir on file_io_executor at AF end.
+            run_trigger_source: free-form string recorded in saved data.
+            results_dir: required when save_results_to_file=True.
+            led_color, led_illumination, camera_gain, camera_exposure:
+                AF-scan settings applied at start, restored at end.
+            abort_event: signalled by caller to abort the run. Required.
+
+        Returns:
+            best_focus_position (float) on success, or None when the AF
+            curve was degenerate.
+
+        Raises:
+            AutofocusAborted: abort_event was set during the run.
+            Exception: any other AF failure; logged + user-notified
+                before re-raising.
+        """
         if self._af_in_progress.is_set():
-            return
+            raise RuntimeError('Autofocus already in progress')
+
+        if abort_event is None:
+            raise ValueError('abort_event is required')
+
+        if save_results_to_file and results_dir is None:
+            raise ValueError(
+                'Cannot save autofocus results to file if results_dir is None'
+            )
 
         self._reset_state()
-        self._callbacks = callbacks
+        with self._callbacks_lock:
+            self._callbacks = callbacks if callbacks is not None else {}
+        self._abort_event = abort_event
         self._run_trigger_source = run_trigger_source
         self._led_color = led_color
         self._led_illumination = led_illumination
         self._camera_gain = camera_gain
         self._camera_exposure = camera_exposure
-        self._autofocus_executor.protocol_start()
         self._last_progress_ts = time.monotonic()
 
-        if save_results_to_file and results_dir is None:
-            raise Exception(f"Cannot save autofocus results to file if results_dir is None")
-
         self._save_results_to_file = save_results_to_file
-        self._results_dir = results_dir
+        # Per-run timestamped subdir under the caller's results_dir.
+        # Eager mkdir so aborted runs still leave a directory marker
+        # and successive runs do not collide on filenames.
+        if save_results_to_file:
+            self._results_dir = self._allocate_results_dir(results_dir)
+        else:
+            self._results_dir = None
         self._is_focusing_event.set()
         self._af_in_progress.set()
 
@@ -200,139 +224,158 @@ class AutofocusExecutor:
                      f'range={self._params["range"]:.1f} '
                      f'step={self._params["resolution"]:.1f} '
                      f'z=[{self._params["z_min"]:.1f}, {self._params["z_max"]:.1f}] ---')
-        # Save LED + camera state before AF so we can restore after (#608, #610)
+        # Snapshot Z so abort / exception exits can restore the user's
+        # pre-AF position. On success the fine-pass move overrides this
+        # with best_focus_position.
+        try:
+            self._saved_z_position = self._scope.get_current_position('Z')
+        except Exception as e:
+            logger.debug(f"[AF] Could not snapshot pre-AF Z position: {e}")
+            self._saved_z_position = None
         self._saved_led_state = self._scope.save_led_state('autofocus')
         self._saved_camera_state = self._scope.save_camera_state('autofocus')
-        # #610 diagnostic: what state did AF just save?
         _af_log.info(f'[AF DIAG] Saved pre-AF camera state: '
                      f'gain={self._saved_camera_state.get("gain", "?")} '
                      f'exp={self._saved_camera_state.get("exposure", "?")} '
                      f'(step wants gain={self._camera_gain} exp={self._camera_exposure})')
-        # Apply the step's camera settings so AF scans with correct gain/exposure.
-        # Without this, AF inherits whatever the previous protocol step left behind
-        # (e.g., Green's gain=12.8/exp=100ms when AF needs BF's gain=0/exp=2ms).
+        # Apply the step's camera settings so AF scans with correct gain
+        # and exposure rather than inheriting the prior step's values.
         if self._camera_gain is not None:
             self._scope.set_gain(self._camera_gain)
         if self._camera_exposure is not None:
             self._scope.set_exposure_time(self._camera_exposure)
-        # Turn on LED for AF illumination with ownership (#602)
         self._led_on()
-        # Drop Z precision for the coarse passes -- the looser stop
-        # threshold (VSTOP=1000) saves ~tens of ms per move at the
-        # cost of overshoot tolerance, which is fine for the coarse
-        # search. The fine pass restores precision ON at line 526
-        # below; all exit paths (success, cancel, exception, abort)
-        # also restore ON via reset() / explicit setters.
+        # Drop Z precision for the coarse passes; the fine pass restores
+        # precision ON, and all exit paths (success, abort, exception)
+        # also restore ON via the finally block and reset().
         try:
             self._scope.set_motor_precision_mode('Z', False)
         except Exception as e:
             logger.debug(f"[AF] Could not drop precision mode for coarse passes: {e}")
         self._move_absolute_position(pos=self._params['z_min'])
 
-        # Queue single IOTask that runs the entire autofocus loop
-        self._autofocus_executor.protocol_put(IOTask(action=self._autofocus_loop))
-
-    def _autofocus_loop(self):
-        """Main autofocus loop - runs continuously until AF completes or is cancelled"""
         last_gc_time = time.monotonic()
-
+        completed_successfully = False
         try:
-            self._autofocus_loop_inner(last_gc_time)
-        finally:
-            # Restore LED and camera state to pre-AF values (#602/#608/#610)
-            self._led_off()
-            if self._saved_led_state:
-                self._scope.restore_led_state(self._saved_led_state,
-                                              owner='autofocus')
-            if self._saved_camera_state:
-                # #610 diagnostic: what state is AF about to restore?
-                _af_log.info(f'[AF DIAG] Restoring pre-AF camera state: '
-                             f'gain={self._saved_camera_state.get("gain", "?")} '
-                             f'exp={self._saved_camera_state.get("exposure", "?")}')
-                self._scope.restore_camera_state(self._saved_camera_state)
-            # Signal AF complete AFTER all state is restored. Previously
-            # this was in _iterate() before the finally block ran, creating
-            # a race where capture() read stale cached gain while this
-            # thread was still restoring the camera to pre-AF settings.
-            # (#610 race fix)
-            _af_log.info(f'[AF DIAG] Clearing _af_in_progress — '
-                         f'camera now at gain={self._scope.get_gain()} '
-                         f'exp={self._scope.get_exposure_time()}')
-            self._af_in_progress.clear()
-
-    def _autofocus_loop_inner(self, last_gc_time):
-        while self._af_in_progress.is_set() and self._is_focusing_event.is_set():
-            try:
+            while (self._af_in_progress.is_set()
+                   and self._is_focusing_event.is_set()
+                   and not abort_event.is_set()):
                 # Periodic maintenance: GC every 60 seconds
                 if time.monotonic() - last_gc_time > 60:
                     import gc
                     gc.collect()
                     last_gc_time = time.monotonic()
 
-                    # Log queue depths for monitoring
-                    try:
-                        af_queue_size = self._autofocus_executor.protocol_queue_size()
-                        logger.debug(f"[AF Watchdog] AF protocol queue: {af_queue_size}")
-                    except Exception:
-                        logger.debug("[AF Watchdog] Failed to read protocol queue size", exc_info=True)
-
-                # Run one iteration
                 self._iterate()
 
-                # Small delay to prevent CPU throttling
-                time.sleep(0.01)
+                # Small inter-iteration delay; wake early on abort.
+                if abort_event.wait(timeout=0.01):
+                    break
 
-            except Exception as ex:
-                # Any unexpected AF error: cleanup so UI is not stuck.
-                # Restore Z precision ON so subsequent protocol Z moves
-                # aren't left in the low-precision state from the
-                # coarse passes that were running when AF threw.
+            if abort_event.is_set() and not self._is_complete_event.is_set():
+                _af_log.info(
+                    f'--- AF ABORTED by caller (source={self._run_trigger_source}) ---'
+                )
+                raise AutofocusAborted('autofocus aborted by caller')
+
+            completed_successfully = True
+            return self._best_focus_position
+
+        except AutofocusAborted:
+            raise
+        except Exception as ex:
+            # Restore Z precision ON before propagating so the next
+            # protocol Z move stops accurately even if AF threw mid-
+            # coarse-pass with precision OFF.
+            try:
                 self._scope.set_motor_precision_mode('Z', True)
-                self._autofocus_executor.protocol_end()
-                self._autofocus_executor.clear_protocol_pending()
-                self._is_focusing_event.clear()
-                self._is_complete_event.clear()
-                # _af_in_progress is cleared in _autofocus_loop() after
-                # camera state is restored (#610 race fix).
-                # Surface traceback in both the main log and the AF-
-                # specific log so post-mortem readers find it from either
-                # entry point. logger.exception emits at ERROR level with
-                # the full stack frame; the bare repr of self._params is
-                # included so KeyError-on-params bugs identify the missing
-                # key + the surrounding state in one read.
-                params_repr = repr(getattr(self, '_params', None))[:500]
-                logger.exception(
-                    f"[AF] Error during loop: {type(ex).__name__}: {ex} "
-                    f"| _params={params_repr}"
-                )
-                _af_log.exception(
-                    f"AF loop raised: {type(ex).__name__}: {ex} "
-                    f"| _params={params_repr}"
-                )
-                notifications.error("Autofocus", "Autofocus Failed",
-                                    f"Unexpected error during autofocus: {ex}")
-                if 'complete' in self._callbacks:
-                    _schedule_ui(lambda dt: self._callbacks['complete']())
-                break
+            except Exception:
+                logger.debug('[AF] precision restore in error path failed', exc_info=True)
+            self._is_focusing_event.clear()
+            self._is_complete_event.clear()
+            params_repr = repr(getattr(self, '_params', None))[:500]
+            logger.exception(
+                f"[AF] Error during loop: {type(ex).__name__}: {ex} "
+                f"| _params={params_repr}"
+            )
+            _af_log.exception(
+                f"AF loop raised: {type(ex).__name__}: {ex} "
+                f"| _params={params_repr}"
+            )
+            self._notify_af_failure(
+                "Autofocus Failed",
+                f"Unexpected error during autofocus: {ex}",
+            )
+            raise
 
-    def cancel(self):
-        """Cancel an in-progress autofocus run."""
-        if not self._af_in_progress.is_set():
-            return
-        _af_log.info('--- AF CANCELLED ---')
-        # Restore Z precision ON so subsequent protocol moves stop
-        # accurately (coarse passes may have left it OFF).
-        self._scope.set_motor_precision_mode('Z', True)
-        self._led_off()
-        if self._saved_led_state:
-            self._scope.restore_led_state(self._saved_led_state,
-                                          owner='autofocus')
-        if self._saved_camera_state:
-            self._scope.restore_camera_state(self._saved_camera_state)
-        self._af_in_progress.clear()
-        self._is_focusing_event.clear()
-        self._autofocus_executor.protocol_end()
-        self._autofocus_executor.clear_protocol_pending()
+        finally:
+            # Save AF characterization data on EVERY exit path (success,
+            # abort, exception, degenerate-curve). Queued before the
+            # restore chain so the partial-pass data isn't lost if any
+            # restore step raises. _save_autofocus_data early-returns
+            # when both data lists are empty (true no-data abort).
+            if self._save_results_to_file:
+                # Promote any unpromoted in-pass samples so a mid-pass
+                # abort still leaves diagnostic data on disk.
+                if self._af_data_pass:
+                    self._af_data_full.extend(self._af_data_pass)
+                    self._af_data_pass = []
+                try:
+                    self._file_io_executor.protocol_put(
+                        IOTask(action=self._save_autofocus_data)
+                    )
+                except Exception as ex:
+                    logger.warning(
+                        f"[AF] Failed to queue autofocus data save: {ex}"
+                    )
+
+            # Restore LED + camera + Z precision regardless of exit path
+            # so the invariant "Z precision ON + pre-AF camera + LED off
+            # outside of AF" holds for abort, exception, and success.
+            # On non-success exits, also restore Z to the pre-AF position
+            # so the user / protocol sees the state they started from.
+            # _af_in_progress clears LAST so any caller polling
+            # AFE.in_progress() does not race ahead before restoration
+            # finishes.
+            try:
+                self._scope.set_motor_precision_mode('Z', True)
+            except Exception:
+                logger.debug('[AF] precision restore in finally failed', exc_info=True)
+            if not completed_successfully and self._saved_z_position is not None:
+                try:
+                    self._scope.move_absolute_position('Z', self._saved_z_position)
+                    _af_log.info(
+                        f'[AF DIAG] Non-success exit: restored Z to '
+                        f'pre-AF position {self._saved_z_position:.2f}'
+                    )
+                except Exception:
+                    logger.warning(
+                        '[AF] pre-AF Z restore in finally failed; the stage '
+                        'may be left at the last AF search position',
+                        exc_info=True,
+                    )
+                    notifications.warning(
+                        "Autofocus",
+                        "Could not restore Z position after autofocus stopped. "
+                        "Move Z manually if needed.",
+                    )
+            self._led_off()
+            if self._saved_led_state:
+                self._scope.restore_led_state(
+                    self._saved_led_state, owner='autofocus'
+                )
+            if self._saved_camera_state:
+                _af_log.info(f'[AF DIAG] Restoring pre-AF camera state: '
+                             f'gain={self._saved_camera_state.get("gain", "?")} '
+                             f'exp={self._saved_camera_state.get("exposure", "?")}')
+                self._scope.restore_camera_state(self._saved_camera_state)
+            _af_log.info(
+                f'[AF DIAG] Clearing _af_in_progress -- '
+                f'camera now at gain={self._scope.get_gain()} '
+                f'exp={self._scope.get_exposure_time()}'
+            )
+            self._af_in_progress.clear()
+            self._abort_event = None
 
     def get_status(self) -> dict:
         """Get current autofocus status.
@@ -357,7 +400,7 @@ class AutofocusExecutor:
     def run_in_progress(self) -> bool:
         return self._af_in_progress.is_set()
 
-    def _iterate(self, dt=None):
+    def _iterate(self):
             if not self._is_focusing_event.is_set():
                 return
 
@@ -369,7 +412,7 @@ class AutofocusExecutor:
             if self._scope.is_moving():
                 return
 
-            if not self._autofocus_executor.is_protocol_running():
+            if self._abort_event is not None and self._abort_event.is_set():
                 self._is_focusing_event.clear()
                 return
 
@@ -387,11 +430,11 @@ class AutofocusExecutor:
 
             height, width = image.shape
 
-            if not self._autofocus_executor.is_protocol_running():
+            if self._abort_event is not None and self._abort_event.is_set():
                 self._is_focusing_event.clear()
                 return
 
-            # Detect dark/blank frames — would score 0, corrupting the curve.
+            # Detect dark/blank frames -- would score 0, corrupting the curve.
             # Retry once; if still dark, accept (may be genuinely dark sample).
             mean_intensity = float(np.mean(image))
             if mean_intensity < 1.0:
@@ -418,24 +461,24 @@ class AutofocusExecutor:
             )
             _af_log.info(f'  Z={current_pos:.2f} score={focus_score:.1f}')
 
-            if not self._autofocus_executor.is_protocol_running():
+            if self._abort_event is not None and self._abort_event.is_set():
                 self._is_focusing_event.clear()
                 return
 
             resolution = self._params['resolution']
             next_target = self._scope.get_target_position('Z') + resolution
 
-            if not self._autofocus_executor.is_protocol_running():
+            if self._abort_event is not None and self._abort_event.is_set():
                 self._is_focusing_event.clear()
                 self._last_progress_ts = time.monotonic()
                 return
 
             # INTENTIONAL: No early termination on the coarse pass. Real
-            # samples have multiple focal planes (cells + debris, thick tissue).
-            # Early stop could miss the global peak. The full range must
-            # always be swept. See AF_OPTIMIZATION_PLAN.md "Full Range Sweep Required".
+            # samples have multiple focal planes (cells + debris, thick
+            # tissue). Early stop could miss the global peak. The full
+            # range must always be swept.
 
-            # Extend scan if peak is at the edge — we need both sides
+            # Extend scan if peak is at the edge -- we need both sides
             # of the peak for a reliable Gaussian fit. Keep going until
             # we see 2 consecutive drops below 50% of peak.
             if next_target > self._params['z_max'] and len(self._af_data_pass) >= 3:
@@ -444,7 +487,7 @@ class AutofocusExecutor:
                 if pass_scores:
                     pass_max = max(pass_scores)
                     peak_idx = pass_scores.index(pass_max)
-                    # Peak is in the last 2 positions — extend the scan
+                    # Peak is in the last 2 positions -- extend the scan
                     if peak_idx >= len(pass_scores) - 2 and pass_max > 0:
                         recent = pass_scores[-2:]
                         if not all(s < pass_max * 0.5 for s in recent):
@@ -484,10 +527,12 @@ class AutofocusExecutor:
             # Detect degenerate focus curve (all zeros, all NaN, or flat)
             scores = df['score']
             if scores.max() == 0 or scores.isna().all():
-                logger.warning("Autofocus: degenerate focus curve (all scores zero or NaN) — aborting, keeping current Z position")
+                logger.warning("Autofocus: degenerate focus curve (all scores zero or NaN) -- aborting, keeping current Z position")
                 _af_log.warning('--- AF ABORT: degenerate curve (all scores zero/NaN) ---')
-                notifications.error("Autofocus", "Autofocus Failed",
-                                    "Focus curve is flat or invalid — check sample and illumination")
+                self._notify_af_failure(
+                    "Autofocus Failed",
+                    "Focus curve is flat or invalid -- check sample and illumination",
+                )
                 # Restore Z precision ON before bailing so the held
                 # current-Z position is reached accurately on any
                 # subsequent move.
@@ -500,13 +545,9 @@ class AutofocusExecutor:
             best_focus_position = self._find_best(df=df)
 
             if self._last_pass:
-                if self._clock_unschedule_fn is not None:
-                    try:
-                        self._clock_unschedule_fn(self._iterator_scheduled)
-                    except Exception:
-                        logger.warning("[AF] Failed to unschedule Kivy Clock iterator", exc_info=True)
-
-                # Move just underneath focus position to ensure we move UP to final position
+                # Move just below the best position so the final approach
+                # is upward; this side of the curve is the one the fine
+                # pass measured most densely.
                 self._move_absolute_position(pos=(best_focus_position-self._params['resolution']))
 
                 af_elapsed = (time.monotonic() - self._af_start_time) * 1000
@@ -517,36 +558,26 @@ class AutofocusExecutor:
 
                 self._move_absolute_position(pos=best_focus_position)
 
-                # End protocol AFTER final move to prevent race condition (#563)
-                self._autofocus_executor.protocol_end()
-                self._autofocus_executor.clear_protocol_pending()
                 if self.ui_update_func is not None:
                     _schedule_ui(lambda dt: self.ui_update_func(pos=float(best_focus_position)), 0)
 
-                if self._save_results_to_file:
-                    # Push file/plot work off the UI thread using the file IO executor
-                    try:
-                        self._file_io_executor.protocol_put(IOTask(action=self._save_autofocus_data))
-                    except Exception as ex:
-                        logger.warning(f"[AF] Failed to queue autofocus data save: {ex}")
+                # Data save is queued from run()'s finally block so abort,
+                # exception, and degenerate-curve exits also produce a CSV
+                # + plot in the per-run subdir. AF Characterization is a
+                # diagnostic tool; the failure data is the whole point.
 
-                # Fine pass just set precision ON for the final move;
-                # set it again here as the explicit AF-exit handoff so
-                # the invariant "Z precision ON outside of AF" holds
-                # regardless of which exit path AF took. Idempotent
-                # when the fine-pass setter already ran.
+                # Restore Z precision ON as the explicit AF-exit handoff
+                # so the invariant "Z precision ON outside of AF" holds
+                # regardless of exit path. Idempotent when the fine pass
+                # already set it.
                 self._scope.set_motor_precision_mode('Z', True)
 
                 self._is_focusing_event.clear()
                 self._is_complete_event.set()
 
-                # _af_in_progress is cleared in _autofocus_loop() after
-                # camera state is restored (#610 race fix). Clearing it
-                # here let the protocol worker race ahead into capture()
-                # while the finally block was still restoring camera state.
-
-                if 'complete' in self._callbacks:
-                    _schedule_ui(lambda dt: self._callbacks['complete']())
+                # _af_in_progress is cleared in run()'s finally block
+                # after camera state is restored, so callers polling
+                # in_progress() do not race ahead before restoration.
 
                 self._best_focus_position = best_focus_position
                 return
@@ -559,46 +590,11 @@ class AutofocusExecutor:
 
             if self._params['resolution'] == af_min:
                 self._last_pass = True
-                # Enable precision mode for the fine pass — accurate
-                # motor stopping for reliable focus measurements
+                # Enable precision mode for the fine pass -- accurate
+                # motor stopping for reliable focus measurements.
                 self._scope.set_motor_precision_mode('Z', True)
                 _af_log.info('  PRECISION MODE ON for fine pass')
 
-
-    def _tick_iterate(self, dt=None):
-        """Callback-based iteration - triggers next iteration without Clock.schedule_interval"""
-        # Don't queue if AF is done or stopped
-        if not self._af_in_progress.is_set() or not self._is_focusing_event.is_set():
-            return
-
-        # Guard against queue buildup
-        try:
-            if hasattr(self._autofocus_executor, 'protocol_queue_size') and self._autofocus_executor.protocol_queue_size() > 3:
-                return
-        except Exception:
-            logger.debug("[AF] Failed to check protocol queue size", exc_info=True)
-
-        # Periodic maintenance: GC and watchdog logging every 60 seconds
-        if not hasattr(self, '_last_gc_time'):
-            self._last_gc_time = time.monotonic()
-
-        if time.monotonic() - self._last_gc_time > 60:
-            import gc
-            gc.collect()
-            self._last_gc_time = time.monotonic()
-
-            # Log queue depths for monitoring
-            try:
-                af_queue_size = self._autofocus_executor.protocol_queue_size()
-                logger.debug(f"[AF Watchdog] AF protocol queue: {af_queue_size}")
-            except Exception:
-                logger.debug("[AF Watchdog] Failed to read protocol queue size", exc_info=True)
-
-        # Queue next iteration with callback to continue the loop
-        self._autofocus_executor.protocol_put(IOTask(
-            action=self._iterate,
-            callback=self._tick_iterate
-        ))
 
     def best_focus_position(self) -> float | None:
         return self._best_focus_position
@@ -606,23 +602,26 @@ class AutofocusExecutor:
 
     def _move_absolute_position(self, pos):
         self._scope.move_absolute_position('Z', pos)
-        if 'move_position' in self._callbacks:
-            _schedule_ui(lambda dt: self._callbacks['move_position']('Z'))
+        with self._callbacks_lock:
+            cb = self._callbacks.get('move_position')
+        if cb is not None:
+            _schedule_ui(lambda dt: cb('Z'))
 
 
     def _move_relative_position(self, pos):
         self._scope.move_relative_position('Z', pos)
-        if 'move_position' in self._callbacks:
-            _schedule_ui(lambda dt: self._callbacks['move_position']('Z'))
+        with self._callbacks_lock:
+            cb = self._callbacks.get('move_position')
+        if cb is not None:
+            _schedule_ui(lambda dt: cb('Z'))
 
 
     def in_progress(self) -> bool:
         # Use _af_in_progress, not _is_focusing_event. _is_focusing_event
         # is cleared in _iterate() when AF finds the best focus, but the
-        # finally block in _autofocus_loop() still needs to restore camera
-        # state. _af_in_progress is cleared at the END of the finally block,
-        # so callers (protocol capture) won't proceed until restore is done.
-        # (#610 race fix)
+        # finally block still needs to restore camera state. _af_in_progress
+        # is cleared at the END of the finally block, so callers (protocol
+        # capture) won't proceed until restore is done.
         return self._af_in_progress.is_set()
 
 
@@ -671,7 +670,7 @@ class AutofocusExecutor:
         # Drop NaN/infinite scores before finding best
         valid = df[df['score'].apply(lambda x: np.isfinite(x))]
         if valid.empty:
-            logger.warning("Autofocus: all focus scores are NaN/infinite — returning first position")
+            logger.warning("Autofocus: all focus scores are NaN/infinite -- returning first position")
             return df['position'].iloc[0]
         max_score_idx = valid['score'].idxmax()
         raw_best = valid['position'].loc[max_score_idx]
@@ -703,7 +702,7 @@ class AutofocusExecutor:
                             # Sanity: fit shift must be less than the step
                             # spacing between measured points. A larger shift
                             # means the fit is extrapolating beyond the data
-                            # — likely an asymmetric curve fooling the Gaussian.
+                            # -- likely an asymmetric curve fooling the Gaussian.
                             z_diffs = np.diff(np.sort(z_vals))
                             max_shift = np.median(z_diffs) * 2 if len(z_diffs) > 0 else float('inf')
                             if shift <= max_shift:
@@ -724,31 +723,53 @@ class AutofocusExecutor:
 
     def _reset_state(self):
         self._objective = None
-        self._is_focusing_event = threading.Event()   # thread-safe (#607)
-        self._is_complete_event = threading.Event()    # thread-safe (#607)
+        # Events are recreated each reset so a fresh AF run starts from
+        # a known-clear state regardless of how the prior run exited.
+        self._is_focusing_event = threading.Event()
+        self._is_complete_event = threading.Event()
         self._saved_led_state = None
         self._saved_camera_state = None
+        self._saved_z_position = None
         self._camera_gain = None
         self._camera_exposure = None
         self._af_in_progress.clear()
         self._af_data_pass = []
         self._af_data_full = []
-        self._best_focus_position = None # Last / Previous focus score
-        self._last_pass = False         # Are we on the last scan for autofocus?
+        self._best_focus_position = None
+        self._last_pass = False
         self._params = {}
         self._run_trigger_source = None
         self._led_color = None
         self._led_illumination = 0
-        self._autofocus_executor.protocol_end()
-        self._autofocus_executor.clear_protocol_pending()
-        try:
-            if self._clock_unschedule_fn is not None:
-                self._clock_unschedule_fn(self._iterator_scheduled)
-        except Exception:
-            logger.warning("[AF] Failed to unschedule Kivy Clock iterator during stop", exc_info=True)
+        with self._callbacks_lock:
+            self._callbacks = {}
 
     def _init_results_dir_and_ts(self, results_dir: pathlib.Path) -> str:
         results_dir.mkdir(exist_ok=True, parents=True)
         now = datetime.datetime.now()
         return now.strftime("%Y%m%d_%H%M%S")
+
+    def _allocate_results_dir(self, parent_dir: pathlib.Path) -> pathlib.Path:
+        """Allocate a per-run timestamped subdir under parent_dir.
+
+        Eager mkdir so aborted runs still leave a directory marker.
+        Same-second collisions retry with `_001`...`_999` suffixes so
+        two AF runs in the same wall-clock second do not collide.
+        """
+        parent_dir = pathlib.Path(parent_dir)
+        parent_dir.mkdir(parents=True, exist_ok=True)
+        base = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        candidates = [base] + [f"{base}_{i:03d}" for i in range(1, 1000)]
+        for candidate in candidates:
+            run_dir = parent_dir / candidate
+            try:
+                run_dir.mkdir(exist_ok=False)
+                return run_dir
+            except FileExistsError:
+                continue
+        raise RuntimeError(
+            f"Could not allocate an autofocus results folder under "
+            f"{parent_dir} (1000 same-second collisions). Try running "
+            f"again; if the problem persists, free disk space or restart."
+        )
 

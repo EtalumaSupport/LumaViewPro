@@ -15,7 +15,7 @@ from modules.protocol_state_machine import (
 from modules.protocol_callbacks import ProtocolCallbacks
 from modules.protocol_image_writer import ProtocolImageWriter
 from modules.protocol_cleanup import run_cleanup
-from modules.protocol_step_executor import ProtocolStepExecutor
+from modules.protocol_step_runner import ProtocolStepRunner
 from modules.protocol_run_loop import ProtocolRunLoop
 
 from modules.kivy_utils import schedule_ui as _schedule_ui
@@ -27,7 +27,7 @@ import modules.common_utils as common_utils
 import modules.coord_transformations as coord_transformations
 
 import modules.labware_loader as labware_loader
-from modules.autofocus_executor import AutofocusExecutor
+from modules.autofocus_runner import AutofocusRunner
 from modules.protocol import Protocol
 from modules.protocol_execution_record import ProtocolExecutionRecord
 
@@ -65,7 +65,7 @@ step_dict = {
 }
 """
 
-class SequencedCaptureExecutor:
+class SequencedCaptureRunner:
 
     LOGGER_NAME = "SeqCapExec"
     STEP_TIMEOUT_SECONDS = 120  # Max time to wait for a single step (motion + capture)
@@ -75,11 +75,11 @@ class SequencedCaptureExecutor:
         scope: Lumascope,
         stage_offset: dict,
         io_executor: SequentialIOExecutor,
-        protocol_executor: SequentialIOExecutor,
+        protocol_thread,
         file_io_executor: SequentialIOExecutor,
         camera_executor: SequentialIOExecutor,
-        autofocus_io_executor: SequentialIOExecutor,
-        autofocus_executor: AutofocusExecutor | None = None,
+        autofocus_thread,
+        autofocus_runner: AutofocusRunner | None = None,
         z_ui_update_func: typing.Callable | None = None,
     ):
         self._coordinate_transformer = coord_transformations.CoordinateTransformer()
@@ -91,39 +91,46 @@ class SequencedCaptureExecutor:
         self._stage_offset_source = stage_offset
         self._stage_offset = stage_offset
         self._io_executor = io_executor
-        self.protocol_executor = protocol_executor
+        self.protocol_thread = protocol_thread
         self.file_io_executor = file_io_executor
         self.camera_executor = camera_executor
-        self.autofocus_io_executor = autofocus_io_executor
+        self.autofocus_thread = autofocus_thread
         self._z_ui_update_func = z_ui_update_func
         self._scan_in_progress = threading.Event()
-        self._protocol_ended = threading.Event()
+        # Abort signal. Owned by protocol_thread; SCE holds a reference
+        # assigned in run() from protocol_thread.aborted. Tests that
+        # construct SCE without a real protocol_thread can still read
+        # this Event because it defaults to a local Event before run().
+        self._aborted: threading.Event = threading.Event()
         self._run_in_progress_event = threading.Event()  # GIL-free safe replacement for _run_in_progress bool
         self._cleanup_lock = threading.Lock()
         self._run_lock = threading.Lock()
         self._grease_redistribution_event = threading.Event()
         self._grease_redistribution_event.set()
 
-        if autofocus_executor is None:
-            # No clock_*_fn — fallback path for headless / test usage.
-            # _schedule_interval_func will raise if anyone tries to
-            # use the interval-driven AF path; that's intentional.
-            self._autofocus_executor = AutofocusExecutor(
+        if autofocus_runner is None:
+            # Headless / test fallback. Caller may construct a private
+            # AFE that bypasses the AutofocusThread for unit tests that
+            # only need the protocol state machine.
+            self._autofocus_runner = AutofocusRunner(
                 scope=scope,
                 camera_executor=camera_executor,
                 io_executor=io_executor,
                 file_io_executor=file_io_executor,
-                autofocus_executor=autofocus_io_executor,
             )
         else:
-            self._autofocus_executor = autofocus_executor
+            self._autofocus_runner = autofocus_runner
 
         self._scope = scope
         self._run_trigger_source = None
         self._protocol_state_lock = threading.Lock()
         self._state = ProtocolState.IDLE
+        # Defensive default so attribute access before the first run()
+        # (e.g. from a test that drives scan_iterate directly) returns
+        # a no-op callbacks object instead of AttributeError.
+        self._callbacks = ProtocolCallbacks()
         self._reset_vars()
-        self._step_executor = ProtocolStepExecutor(self)
+        self._step_executor = ProtocolStepRunner(self)
         self._run_loop_executor = ProtocolRunLoop(self)
 
 
@@ -155,6 +162,10 @@ class SequencedCaptureExecutor:
         self._run_trigger_source = None
         self._run_in_progress_event.clear()
         self._curr_step = 0
+        # Per-step AF state pointer; None means AF has not been kicked
+        # off for the current step. Set by scan_iterate when AF starts;
+        # cleared at step transition and at scan start.
+        self._af_future = None
         self._n_scans = 0
         self._scan_count = 0
         self._scan_in_progress.clear()
@@ -167,7 +178,10 @@ class SequencedCaptureExecutor:
         self._target_x_pos = -1
         self._target_y_pos = -1
         self._target_z_pos = -1
-        self._protocol_ended.clear()
+        # _aborted is owned by protocol_thread; cleared there when a new
+        # run is enqueued via run_protocol(). Do not clear here -- doing
+        # so would race a concurrent abort() request that fired between
+        # the abort and the next run kickoff.
         
 
     @staticmethod
@@ -470,8 +484,10 @@ class SequencedCaptureExecutor:
         self._update_z_pos_from_autofocus = update_z_pos_from_autofocus
         self._leds_state_at_end = leds_state_at_end
         self._video_as_frames = video_as_frames
-        if not self._autofocus_executor.run_in_progress():
-            self._autofocus_executor.reset()
+        # No AFE.reset() here -- AFE.run()'s own _reset_state() on
+        # entry handles stale state, and self._af_future is reset at
+        # scan start in protocol_run_loop. An external reset() here
+        # would race with AFE.run() on the AF thread.
 
         self._scan_iterate_running = False
         self._protocol_iterator = None
@@ -498,12 +514,18 @@ class SequencedCaptureExecutor:
         else:
             false_color_16bit = False
 
+        # Borrow protocol_thread's abort Event as SCE's _aborted reference.
+        # Cross-thread readers (protocol_step_runner, protocol_run_loop)
+        # consult self._aborted.is_set() each tick. PIW receives a callable
+        # bound to protocol_thread.abort so its capture-failure / disk-fail
+        # paths abort the run.
+        self._aborted = self.protocol_thread.aborted
         self._image_writer = ProtocolImageWriter(
             scope=self._scope,
             callbacks=self._callbacks,
-            protocol_ended=self._protocol_ended,
+            aborted=self._aborted,
             file_io_executor=self.file_io_executor,
-            protocol_executor=self.protocol_executor,
+            abort_fn=self.protocol_thread.abort,
             execution_record=self._protocol_execution_record,
             leds_off_fn=self._step_executor.leds_off,
             led_on_fn=self._step_executor.led_on,
@@ -518,22 +540,17 @@ class SequencedCaptureExecutor:
             self._set_state(ProtocolState.RUNNING)
             self._run_in_progress_event.set()
         self.camera_executor.disable()
-        self.protocol_executor.protocol_start()
         self._io_executor.protocol_start()
         self.file_io_executor.protocol_start()
         # Not IO
         self._scope.update_auto_gain_target_brightness(self._autogain_settings['target_brightness'])
 
-        # Start the main run loop which manages all scan timing and execution.
-        # `slow_task_threshold_sec=None` -> use the higher long-running default;
-        # protocol runs commonly take minutes-to-hours, far above the 5 sec
-        # default threshold that's appropriate for individual hardware tasks.
-        # 24h (86400 sec) effectively disables the warning for the run loop —
-        # if a single protocol exceeds 24 hours something genuinely is wrong.
-        self.protocol_executor.protocol_put(IOTask(
-            action=self._run_loop_executor.run_loop,
-            slow_task_threshold_sec=86400.0,
-        ))
+        # Dispatch the main run loop onto protocol_thread. The returned
+        # Future is fire-and-forget here -- completion is signalled via
+        # _run_in_progress_event clearing inside _cleanup. run_protocol
+        # also clears _aborted under its state lock atomically with
+        # publishing the new Future, mirroring the AutofocusThread fix.
+        self.protocol_thread.run_protocol(self._run_loop_executor.run_loop)
     
     def run_in_progress(self) -> bool:
         with self._run_lock:
@@ -574,7 +591,6 @@ class SequencedCaptureExecutor:
             get_state_fn=lambda: self._state,
             set_state_fn=self._set_state,
             run_lock=self._run_lock,
-            protocol_ended=self._protocol_ended,
             scan_in_progress=self._scan_in_progress,
             leds_state_at_end=self._leds_state_at_end,
             original_led_states=self._original_led_states,
@@ -591,8 +607,7 @@ class SequencedCaptureExecutor:
             default_move_fn=self._step_executor.default_move,
             cancel_scheduled_events_fn=self._cancel_all_scheduled_events,
             io_executor=self._io_executor,
-            protocol_executor=self.protocol_executor,
-            autofocus_io_executor=self.autofocus_io_executor,
+            autofocus_thread=self.autofocus_thread,
             file_io_executor=self.file_io_executor,
             camera_executor=self.camera_executor,
             set_run_in_progress_fn=lambda v: self._run_in_progress_event.set() if v else self._run_in_progress_event.clear(),

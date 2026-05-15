@@ -648,59 +648,75 @@ class FirmwareDiagnostics:
 
     @property
     def led_board(self):
-        """Backward-compat accessor — prefer ``self._cmd('led', ...)``.
-
-        Tech-support code that needs raw-REPL access (a separate cluster
-        outside LAYER-D) still requires the underlying board handle. New
-        diagnostic code MUST go through ``send_diagnostic_command``.
-        """
-        return getattr(self._scope, 'led', None) if self._scope else None
+        """Backward-compat accessor returning a stable per-scope reference
+        used by ``_target_str`` identity matching only. New diagnostic
+        code MUST go through ``send_diagnostic_command``. Returns the
+        post-Wave-7 illumination sub-API namespace (was ``scope.led``
+        pre-Wave-7 -- that attribute no longer exists)."""
+        return getattr(self._scope, 'illumination', None) if self._scope else None
 
     @property
     def motor_board(self):
-        """Backward-compat accessor — prefer ``self._cmd('motor', ...)``.
-
-        See ``led_board`` docstring.
-        """
+        """Backward-compat accessor returning a stable per-scope reference
+        used by ``_target_str`` identity matching only. New diagnostic
+        code MUST go through ``send_diagnostic_command``."""
         return getattr(self._scope, 'motion', None) if self._scope else None
 
-    def _led_ok(self):
-        if not self._scope:
-            return False
-        board = getattr(self._scope, 'led', None)
-        return board is not None and getattr(board, 'found', False)
+    def _led_ok(self) -> bool:
+        """True when a real LED board is connected to this scope.
 
-    def _motor_ok(self):
+        Post-Wave-7 the truthy probe lives on the Lumascope live property
+        ``led_connected`` (the sub-API namespace ``scope.illumination``
+        is non-None even when only a NullLEDBoard is installed, so
+        checking sub-API truthiness is not enough). Falls back to the
+        underlying driver's ``found`` attribute when the live property
+        is unavailable (e.g. legacy diagnostic scopes).
+        """
         if not self._scope:
             return False
-        board = getattr(self._scope, 'motion', None)
-        return board is not None and getattr(board, 'found', False)
+        live = getattr(self._scope, 'led_connected', None)
+        if isinstance(live, bool):
+            return live
+        drv = getattr(self._scope, '_led_driver', None)
+        return drv is not None and getattr(drv, 'found', False)
+
+    def _motor_ok(self) -> bool:
+        """True when a real motor board is connected to this scope.
+
+        Mirrors ``_led_ok`` -- the live ``motor_connected`` property is
+        the post-Wave-7 truthy probe. The sub-API namespace
+        ``scope.motion`` does not have a ``.found`` attribute, so the
+        pre-Wave-7 ``getattr(scope.motion, 'found', False)`` shape
+        always returned False after the rename.
+        """
+        if not self._scope:
+            return False
+        live = getattr(self._scope, 'motor_connected', None)
+        if isinstance(live, bool):
+            return live
+        drv = getattr(self._scope, '_motion_driver', None)
+        return drv is not None and getattr(drv, 'found', False)
 
     def _enter_engineering(self):
-        """Enter LED engineering mode (send FACTORY + Y confirmation).
+        """Enter LED engineering mode via the diagnostics sub-API.
 
-        Routes through the API's ``send_diagnostic_command`` (Rule 13).
+        Routes through ``scope.diagnostics.enter_led_engineering_mode``
+        so the driver-canonical FACTORY + Y handshake (with end-marker
+        detection + post-Y drain) is the single canonical implementation.
         """
         if not self._led_ok():
             return False
-        try:
-            # Send FACTORY — firmware echoes prompt and waits for Y/N
-            self._scope.send_diagnostic_command(
-                'led', 'FACTORY', response_numlines=1, timeout=5)
-            time.sleep(0.3)
-            # Send Y confirmation — firmware enters engineering mode
-            self._scope.send_diagnostic_command(
-                'led', 'Y', response_numlines=1, timeout=5)
-            return True
-        except Exception as e:
-            logger.warning(f"Enter engineering mode failed: {e}")
-            return False
+        return self._scope.diagnostics.enter_led_engineering_mode(timeout=5)
 
     def _exit_engineering(self):
-        """Exit LED engineering mode (send Q)."""
+        """Exit LED engineering mode via the diagnostics sub-API.
+
+        Driver-canonical exit drains and sleeps after Q so the LED
+        firmware actually transitions out of eng mode.
+        """
         if not self._led_ok():
             return
-        self._cmd('led', 'Q')
+        self._scope.diagnostics.exit_led_engineering_mode()
 
     def _cmd(self, target, command, timeout=None):
         """Send command and return response string, or error string.
@@ -744,9 +760,12 @@ class FirmwareDiagnostics:
         if target is None:
             return None
         # Board object — match by identity to the API's references.
+        # Post-Wave-7 the LED namespace is ``scope.illumination``; the
+        # legacy ``scope.led`` attribute was retired. Motor namespace
+        # remained ``scope.motion``.
         if self._scope is None:
             return None
-        if target is getattr(self._scope, 'led', None):
+        if target is getattr(self._scope, 'illumination', None):
             return 'led'
         if target is getattr(self._scope, 'motion', None):
             return 'motor'
@@ -830,11 +849,27 @@ class FirmwareDiagnostics:
         )
 
     def get_voltages(self):
-        return self._cmd(self.motor_board, 'VOLTAGE')
+        """Read parsed power-rail dict via the diagnostics sub-API.
+
+        Returns ``{rail_label: float | None}`` or ``None`` when the
+        firmware does not support the VOLTAGE diagnostic (legacy
+        firmware predating diagnostic queries). Driver-side parsing
+        per Rule 10 -- the firmware response shape lives on
+        MotorBoard.read_voltages, not here.
+        """
+        if not self._scope:
+            return None
+        return self._scope.diagnostics.read_motor_voltages()
 
     def get_driver_status_all(self):
-        """DRVSTAT for all 4 axes."""
-        return {ax: self._cmd(self.motor_board, f'DRVSTAT_{ax}')
+        """DRVSTAT for all 4 axes (raw 32-bit register values).
+
+        Returns ``{axis: int | None}``. None means firmware does not
+        support DRVSTAT_<axis> on this axis (legacy firmware).
+        """
+        if not self._scope:
+            return {ax: None for ax in 'XYZT'}
+        return {ax: self._scope.diagnostics.read_motor_drv_status(ax)
                 for ax in 'XYZT'}
 
     def get_motor_positions_all(self):
@@ -849,7 +884,13 @@ class FirmwareDiagnostics:
         return result
 
     def get_fan_status(self):
-        return self._cmd(self.motor_board, 'FANSPEED')
+        """Read fan tachometer RPM via the diagnostics sub-API.
+
+        Returns int RPM, or None if firmware does not support FANSPEED.
+        """
+        if not self._scope:
+            return None
+        return self._scope.diagnostics.read_motor_fanspeed()
 
     def get_i2c_scan(self):
         return self._cmd(self.led_board, 'I2CSCAN')
@@ -961,35 +1002,43 @@ class FirmwareDiagnostics:
         return results
 
     def check_voltage_tolerance(self):
-        """Read voltages and check against nominal ±tolerance.
+        """Compare power-rail readings against nominal +/- tolerance.
 
-        Returns dict with per-rail readings, status (PASS/WARN/FAIL),
-        and deviation percentage.
+        Returns a dict with three distinct outcome states for ``passed``:
+            True       -> all parseable rails within tolerance (PASS)
+            False      -> at least one rail out of tolerance (FAIL/WARN)
+            None       -> INCONCLUSIVE -- no rail could be measured
+                          (firmware does not support the VOLTAGE
+                          diagnostic, or every rail returned a
+                          non-numeric sentinel like N/A / OK)
+        ``supported`` is False when the firmware itself rejected the
+        VOLTAGE query (legacy 2024-09-10 firmware). Distinguished from
+        "supported but unparseable" so the report writer can render
+        an actionable hint instead of "PASS" over an empty table.
         """
-        raw = self.get_voltages()
-        if not raw or 'not connected' in raw.lower() or 'Error' in raw:
-            return {'error': raw, 'passed': False}
+        if not self._motor_ok():
+            return {
+                'supported': False, 'passed': None, 'rails': {},
+                'message': 'Motor board not connected',
+            }
 
-        results = {'raw_response': raw, 'rails': {}, 'passed': True}
+        rails_dict = self.get_voltages()
+        if rails_dict is None:
+            return {
+                'supported': False, 'passed': None, 'rails': {},
+                'message': (
+                    'Firmware does not support the VOLTAGE diagnostic. '
+                    'Upgrade motor firmware to v3.1+ to enable this '
+                    'check.'
+                ),
+            }
 
-        # Parse voltage response — format: "24V=OK  5V=N/A  3V3=N/A  1V2=N/A"
-        # or "24V=OK  5V=5.18  3V3=3.31  1V2=1.24"
+        results = {
+            'supported': True, 'passed': True, 'rails': {},
+        }
+        any_parsed = False
         for rail_name, nominal in VOLTAGE_NOMINAL.items():
-            reading = None
-            # Try to find this rail in the response
-            if rail_name in raw:
-                idx = raw.index(rail_name)
-                after = raw[idx + len(rail_name):]
-                after = after.lstrip('=: ')
-                # Stop at next whitespace or rail name — don't read into next value
-                token = after.split()[0] if after.split() else ''
-                token = token.rstrip('V')  # Strip trailing 'V' unit
-                if token and token not in ('N/A', 'OK', 'MISSING', 'ERROR'):
-                    try:
-                        reading = float(token)
-                    except ValueError:
-                        pass
-
+            reading = rails_dict.get(rail_name)
             if reading is None:
                 results['rails'][rail_name] = {
                     'nominal': nominal, 'reading': None,
@@ -997,6 +1046,7 @@ class FirmwareDiagnostics:
                 }
                 continue
 
+            any_parsed = True
             deviation_pct = abs(reading - nominal) / nominal * 100
             if deviation_pct > VOLTAGE_FAIL_PCT:
                 status = 'FAIL'
@@ -1012,6 +1062,18 @@ class FirmwareDiagnostics:
                 'deviation_pct': round(deviation_pct, 2),
                 'status': status,
             }
+
+        if not any_parsed:
+            # Firmware accepted VOLTAGE but every nominal rail came
+            # back non-numeric (e.g. all rails reported N/A on a board
+            # without populated sense lines). Distinguished from
+            # firmware-not-supported but rendered the same way for
+            # the user: INCONCLUSIVE, not PASS.
+            results['passed'] = None
+            results['message'] = (
+                'Firmware accepted VOLTAGE but no rail returned a '
+                'numeric reading (all rails reported N/A or similar).'
+            )
 
         return results
 
@@ -1064,49 +1126,57 @@ class FirmwareDiagnostics:
     def verify_fan_tachometer(self):
         """Set fan to known duty, wait, read tachometer.
 
-        This is a non-critical / informational test. Many units in the
-        field do not have a tachometer wire installed, so a zero RPM
-        reading does not necessarily indicate a fault.
-
-        Returns dict with RPM readings (never sets passed=False).
+        Informational test only -- many units lack a tachometer wire,
+        so RPM=0 is not a fault. Returns ``supported=False`` (with no
+        readings) when firmware does not implement FAN: / FANSPEED.
         """
         if not self._motor_ok():
-            return {'error': 'Motor board not connected'}
+            return {
+                'supported': False,
+                'message': 'Motor board not connected',
+                'tests': [],
+            }
 
-        results = {'tests': [], 'note': 'Informational only — many units lack tachometer hardware'}
+        # Probe first: if the driver rejects FAN:0 (always a safe
+        # baseline) the firmware doesn't implement fan duty control,
+        # and the rest of this test would just emit firmware errors.
+        if not self._scope.diagnostics.set_motor_fan_duty(0):
+            return {
+                'supported': False,
+                'message': (
+                    'Firmware does not support fan duty control '
+                    '(FAN:<duty> / FANSPEED). Upgrade motor firmware '
+                    'to v3.1+ to enable this check.'
+                ),
+                'tests': [],
+            }
+
+        results = {
+            'supported': True,
+            'tests': [],
+            'note': 'Informational only -- many units lack tachometer hardware',
+        }
 
         # Test 1: Set fan to ~50% duty, read RPM
-        self._cmd(self.motor_board, 'FAN:50')
-        time.sleep(2.0)  # Wait for fan to spin up
-        rpm_response = self._cmd(self.motor_board, 'FANSPEED')
+        self._scope.diagnostics.set_motor_fan_duty(50)
+        time.sleep(2.0)
+        rpm_50 = self._scope.diagnostics.read_motor_fanspeed()
 
-        rpm_value = None
-        if rpm_response and 'Error' not in rpm_response:
-            for token in rpm_response.replace('=', ' ').replace(':', ' ').split():
-                try:
-                    val = float(token)
-                    if val >= 0:
-                        rpm_value = val
-                        break
-                except ValueError:
-                    continue
-
-        has_tach = rpm_value is not None and rpm_value > 100
+        has_tach = rpm_50 is not None and rpm_50 > 100
         results['tests'].append({
             'duty_pct': 50,
-            'rpm': rpm_value,
-            'raw_response': rpm_response,
+            'rpm': rpm_50,
             'tachometer_detected': has_tach,
         })
 
         # Test 2: Fan off, read RPM
-        self._cmd(self.motor_board, 'FAN:0')
+        self._scope.diagnostics.set_motor_fan_duty(0)
         time.sleep(3.0)
-        rpm_off = self._cmd(self.motor_board, 'FANSPEED')
+        rpm_off = self._scope.diagnostics.read_motor_fanspeed()
 
         results['tests'].append({
             'duty_pct': 0,
-            'raw_response': rpm_off,
+            'rpm': rpm_off,
         })
 
         results['tachometer_present'] = has_tach
@@ -1522,13 +1592,17 @@ class TechSupportReport:
         d = tmp / 'hardware_checks'
         d.mkdir()
 
-        # Voltage tolerance
+        # Voltage tolerance. `passed` is tri-state:
+        #   True  -> PASS, False -> FAIL/WARN, None -> INCONCLUSIVE
+        # (firmware does not implement VOLTAGE, or every rail came back
+        # non-numeric). Per feedback_least_astonishment the writer must
+        # not say "PASS" when no rail was actually measured.
         vtol = self.diag.check_voltage_tolerance()
         with open(d / 'voltage_tolerance.txt', 'w') as f:
             f.write("Power Rail Voltage Tolerance Check\n" + "=" * 45 + "\n\n")
-            f.write(f"Raw response: {vtol.get('raw_response', 'N/A')}\n\n")
-            if 'error' in vtol:
-                f.write(f"Error: {vtol['error']}\n")
+            if vtol.get('passed') is None:
+                msg = vtol.get('message', 'No voltage readings available.')
+                f.write(f"Overall: INCONCLUSIVE\n  {msg}\n")
             else:
                 for rail, data in vtol.get('rails', {}).items():
                     r = data.get('reading')
@@ -1602,16 +1676,18 @@ class TechSupportReport:
             f.write("Note: Many units in the field do not have a tachometer\n")
             f.write("wire installed. Zero RPM does not necessarily mean the\n")
             f.write("fan is broken.\n\n")
-            if 'error' in fan:
-                f.write(f"Error: {fan['error']}\n")
+            if not fan.get('supported', True):
+                msg = fan.get('message', 'Fan diagnostic not available.')
+                f.write(f"INCONCLUSIVE: {msg}\n")
             else:
                 tach = fan.get('tachometer_present', False)
                 f.write(f"Tachometer detected: {'Yes' if tach else 'No'}\n\n")
                 for t in fan.get('tests', []):
-                    f.write(f"  Duty {t.get('duty_pct', '?')}%: ")
-                    if 'rpm' in t:
-                        f.write(f"RPM={t.get('rpm', '?')}  ")
-                    f.write(f"raw={t.get('raw_response', '?')}\n")
+                    rpm = t.get('rpm')
+                    rpm_str = 'unknown' if rpm is None else str(rpm)
+                    f.write(
+                        f"  Duty {t.get('duty_pct', '?')}%:  RPM={rpm_str}\n"
+                    )
 
     def _step_serial_latency(self, tmp):
         """Measure serial round-trip latency on both boards."""
@@ -2097,7 +2173,9 @@ class TechSupportReport:
                 (tmp / 'metadata.json').write_text(json.dumps(self._meta, indent=2))
 
                 cb(95, "Creating ZIP file...")
-                zip_path = self._create_zip(tmp, sn_tag, output_dir)
+                zip_path = self._create_zip(
+                    tmp, sn_tag, output_dir, report_type='logs_only',
+                )
                 cb(100, f"Done -- {zip_path.name}")
                 return zip_path
         except Exception as e:
@@ -2105,7 +2183,7 @@ class TechSupportReport:
             cb(100, f"Error: {e}")
             return None
 
-    def _create_zip(self, tmp, sn, output_dir=None):
+    def _create_zip(self, tmp, sn, output_dir=None, report_type='tsr'):
         if output_dir is None:
             output_dir = _get_desktop()
         output_dir = pathlib.Path(output_dir)
@@ -2113,7 +2191,13 @@ class TechSupportReport:
 
         clean_sn = ''.join(c for c in str(sn) if c.isalnum() or c in '-_') or 'UNKNOWN'
         ts = datetime.datetime.now().strftime('%Y-%m-%d-%H%M%S')
-        zip_path = output_dir / f"SN{clean_sn}-{ts}.zip"
+        # Full tech-support reports carry a "TSR" token so support
+        # engineers can visually distinguish them from logs-only user
+        # dumps (`SNlogs-<ts>.zip`) that ship with manual error reports.
+        # Logs-only bundles keep the plain shape -- they ARE the
+        # SNlogs/SN<sn>-<ts>.zip dumps.
+        token = '-TSR-' if report_type == 'tsr' else '-'
+        zip_path = output_dir / f"SN{clean_sn}{token}{ts}.zip"
 
         with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zf:
             # Include a privacy notice describing what data is collected

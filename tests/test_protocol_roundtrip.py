@@ -26,7 +26,7 @@ import pandas as pd
 import pytest
 
 from modules.protocol import Protocol
-from modules.sequenced_capture_executor import SequencedCaptureExecutor, SequencedCaptureRunMode
+from modules.sequenced_capture_runner import SequencedCaptureRunner, SequencedCaptureRunMode
 from modules.sequential_io_executor import SequentialIOExecutor
 from modules.lumascope_api import Lumascope
 from unittest.mock import MagicMock
@@ -185,30 +185,36 @@ def _save_and_reload(protocol, tmp_path):
 @pytest.fixture
 def scope():
     s = Lumascope(simulate=True)
-    s.led.set_timing_mode('fast')
-    s.motion.set_timing_mode('fast')
-    s.camera.set_timing_mode('fast')
-    s.camera.start_grabbing()
+    s._led_driver.set_timing_mode('fast')
+    s._motion_driver.set_timing_mode('fast')
+    s._camera_driver.set_timing_mode('fast')
+    s._camera_driver.start_grabbing()
     yield s
-    s.camera.stop_grabbing()
+    s._camera_driver.stop_grabbing()
     s.disconnect()
 
 
 @pytest.fixture
 def executors():
+    from modules.protocol_thread import ProtocolThread
     execs = {
         'io': SequentialIOExecutor(name="RT_IO"),
-        'protocol': SequentialIOExecutor(name="RT_PROTOCOL"),
         'file_io': SequentialIOExecutor(name="RT_FILE"),
         'camera': SequentialIOExecutor(name="RT_CAMERA"),
         'autofocus': SequentialIOExecutor(name="RT_AF"),
     }
     for e in execs.values():
         e.start()
+    pt = ProtocolThread()
+    pt.start()
+    execs['protocol'] = pt
     yield execs
-    for e in execs.values():
+    for name, e in execs.items():
         try:
-            e.shutdown()
+            if name == 'protocol':
+                e.stop(timeout=2.0)
+            else:
+                e.shutdown()
         except Exception:
             pass
 
@@ -224,15 +230,15 @@ def executor(scope, executors):
     mock_af.best_focus_position = MagicMock(return_value=5000.0)
     mock_af.run_in_progress = MagicMock(return_value=False)
 
-    exc = SequencedCaptureExecutor(
+    exc = SequencedCaptureRunner(
         scope=scope,
         stage_offset={'x': 0.0, 'y': 0.0},
         io_executor=executors['io'],
-        protocol_executor=executors['protocol'],
+        protocol_thread=executors['protocol'],
         file_io_executor=executors['file_io'],
         camera_executor=executors['camera'],
-        autofocus_io_executor=executors['autofocus'],
-        autofocus_executor=mock_af,
+        autofocus_thread=MagicMock(),
+        autofocus_runner=mock_af,
     )
     mock_loader = MagicMock()
     mock_transformer = MagicMock()
@@ -261,15 +267,15 @@ def real_executor(scope, executors):
     mock_af.best_focus_position = MagicMock(return_value=5000.0)
     mock_af.run_in_progress = MagicMock(return_value=False)
 
-    exc = SequencedCaptureExecutor(
+    exc = SequencedCaptureRunner(
         scope=scope,
         stage_offset={'x': 0.0, 'y': 0.0},
         io_executor=executors['io'],
-        protocol_executor=executors['protocol'],
+        protocol_thread=executors['protocol'],
         file_io_executor=executors['file_io'],
         camera_executor=executors['camera'],
-        autofocus_io_executor=executors['autofocus'],
-        autofocus_executor=mock_af,
+        autofocus_thread=MagicMock(),
+        autofocus_runner=mock_af,
     )
     exc._wellplate_loader = WellPlateLoader()
     exc._coordinate_transformer = CoordinateTransformer()
@@ -905,6 +911,37 @@ class TestRoundTripMetadata:
         reloaded = _save_and_reload(proto, tmp_path)
         assert reloaded.period() == datetime.timedelta(minutes=5)
 
+    def test_period_zero_accepted_as_single_scan(self, tmp_path):
+        """Z-stack and single-shot capture write Period=0 in their TSV;
+        loader must accept this. Pre-fix the loader raised
+        ProtocolFormatError 'Period must be > 0', which blocked
+        Apply-Z-Projection on every Z-stack folder. Downstream
+        protocol_time_estimator already treats period_s == 0 as 1 scan."""
+        proto = _build_protocol([_make_step()], period_min=0.0)
+        reloaded = _save_and_reload(proto, tmp_path)
+        assert reloaded.period() == datetime.timedelta(0)
+
+    def test_period_negative_still_rejected(self, tmp_path):
+        """Period < 0 stays a hard error -- meaningless and likely a
+        corrupted TSV. Constructs the file by hand-editing a known-good
+        save because _build_protocol/datetime.timedelta won't carry a
+        negative-minutes value into the on-disk Period row directly."""
+        from modules.protocol import ProtocolFormatError
+        tmp_path.mkdir(parents=True, exist_ok=True)
+        proto = _build_protocol([_make_step()], period_min=1.0)
+        filepath = tmp_path / "neg_period.tsv"
+        proto.to_file(filepath)
+        # Hand-edit the Period row to a negative value.
+        text = filepath.read_text(encoding='utf-8')
+        patched = text.replace('Period\t1', 'Period\t-1', 1)
+        filepath.write_text(patched, encoding='utf-8')
+
+        with pytest.raises(ProtocolFormatError):
+            Protocol.from_file(
+                file_path=filepath,
+                tiling_configs_file_loc=TILING_CONFIGS,
+            )
+
     def test_duration_preserved(self, tmp_path):
         proto = _build_protocol([_make_step()], duration_hrs=12.0)
         reloaded = _save_and_reload(proto, tmp_path)
@@ -1269,9 +1306,11 @@ class TestExecuteCancellation:
             },
         )
 
-        # Let it run for a moment then cancel
+        # Let it run for a moment then cancel via the protocol_thread
+        # abort path (B3: _protocol_ended Event retired; abort signal
+        # owned by protocol_thread).
         time.sleep(0.5)
-        executor._protocol_ended.set()
+        executor.protocol_thread.abort()
 
         # Should still fire run_complete callback
         completed = done.wait(timeout=COMPLETION_TIMEOUT)
@@ -1719,7 +1758,7 @@ class TestExecutorEdgeCases:
 
     def test_executor_state_idle_after_run(self, real_executor, scope, tmp_path):
         """Executor returns to IDLE state after protocol completes."""
-        from modules.sequenced_capture_executor import ProtocolState
+        from modules.sequenced_capture_runner import ProtocolState
         proto = _build_protocol([_make_step()])
         completed, _ = _run_and_wait(real_executor, proto, tmp_path)
         assert completed
@@ -2029,9 +2068,9 @@ class TestLumascapeAPILed:
 
     def test_led_on_off(self, scope):
         scope.led_on(channel=0, mA=100)
-        assert scope.led.is_led_on('Blue')
+        assert scope._led_driver.is_led_on('Blue')
         scope.led_off(channel=0)
-        assert not scope.led.is_led_on('Blue')
+        assert not scope._led_driver.is_led_on('Blue')
 
     def test_led_on_by_color_name(self, scope):
         scope.led_on(channel='Green', mA=200)

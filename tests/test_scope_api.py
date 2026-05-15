@@ -79,11 +79,11 @@ def _make_settings(layers=None, with_stim=False):
 def _make_mock_scope(led_available=True):
     """Build a mock scope object."""
     scope = MagicMock()
-    scope.led = led_available
+    scope._led_driver = led_available
     type(scope).led_connected = PropertyMock(return_value=bool(led_available))
     type(scope).motor_connected = PropertyMock(return_value=True)
-    scope.motion = MagicMock()
-    scope.motion.driver = True
+    scope._motion_driver = MagicMock()
+    scope._motion_driver.driver = True
     scope.leds_off = MagicMock()
     scope.led_on = MagicMock()
     scope.led_off = MagicMock()
@@ -116,10 +116,10 @@ def _make_real_scope_with_mock_executors(led=True, motor=True):
     scope = lumascope_api.Lumascope(simulate=True)
     if not led:
         from drivers.null_ledboard import NullLEDBoard
-        scope.led = NullLEDBoard()
+        scope._led_driver = NullLEDBoard()
     if not motor:
         from drivers.null_motorboard import NullMotionBoard
-        scope.motion = NullMotionBoard()
+        scope._motion_driver = NullMotionBoard()
     io_ex = _make_mock_executor()
     cam_ex = _make_mock_executor()
     scope.register_executors(io_executor=io_ex, camera_executor=cam_ex)
@@ -322,7 +322,7 @@ class TestBlockWaitForThreads:
 class TestGetCurrentPlatePosition:
     def test_returns_zeros_when_no_driver(self):
         scope = MagicMock()
-        scope.motion = None  # No motor board connected
+        scope._motion_driver = None  # No motor board connected
         type(scope).motor_connected = PropertyMock(return_value=False)
         result = config_helpers.get_current_plate_position(
             scope, _make_settings(), MagicMock(), MagicMock(),
@@ -510,7 +510,10 @@ class TestLumascopeMotionAPI:
 
     def test_move_home_async_unknown_axis(self):
         scope, io_ex, _ = _make_real_scope_with_mock_executors()
-        with patch('modules.lumascope_api.logger') as mock_log:
+        # move_home_async body lives on MotionAPI (motion.py) after the
+        # stateful relocation; the warning is logged through that module's
+        # logger, not _lumascope.py's.
+        with patch('modules.lumascope_api.motion.logger') as mock_log:
             scope.move_home_async('W')
         io_ex.put.assert_not_called()
         mock_log.warning.assert_called()

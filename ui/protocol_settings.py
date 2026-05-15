@@ -38,8 +38,8 @@ from modules.config_ui_getters import (
     is_image_saving_enabled,
 )
 from modules.path_utils import get_source_root
-from modules.sequenced_capture_executor import SequencedCaptureRunMode
-from modules.sequential_io_executor import IOTask
+from modules.sequenced_capture_runner import SequencedCaptureRunMode
+from modules.sequential_io_executor import IOTask, PRIORITY_MED
 from modules.step_navigation import go_to_step
 from modules.tiling_config import TilingConfig
 from modules.timedelta_formatter import strfdelta
@@ -450,12 +450,14 @@ class ProtocolSettings(FloatLayout):
             )
             return
 
-        protocol_executor = _app_ctx.ctx.protocol_executor
-        protocol_executor.put(IOTask(
+        # new_protocol_ex builds the step table from the labware + scan
+        # parameters; bounded work, fits on worker_pool MED so the UI
+        # remains responsive while it runs.
+        _app_ctx.ctx.worker_pool.put(IOTask(
             action=self.new_protocol_ex,
             args=(protocol),
             callback=self.update_step_ui,
-
+            priority=PRIORITY_MED,
         ))
 
     def new_protocol_ex(self, protocol):
@@ -1356,10 +1358,10 @@ class ProtocolSettings(FloatLayout):
             run_not_started_func = self._reset_run_autofocus_scan_button
 
             ctx = _app_ctx.ctx
-            sequenced_capture_executor = ctx.sequenced_capture_executor
+            sequenced_capture_runner = ctx.sequenced_capture_runner
             file_io_executor = ctx.file_io_executor
 
-            run_trigger_source = sequenced_capture_executor.run_trigger_source()
+            run_trigger_source = sequenced_capture_runner.run_trigger_source()
 
             live_histo_off()
             ctx.stage.set_motion_capability(False)
@@ -1375,11 +1377,11 @@ class ProtocolSettings(FloatLayout):
                 )
                 return
 
-            if self.ids['run_autofocus_btn'].state == 'normal' or (sequenced_capture_executor.run_in_progress() and run_trigger_source == trigger_source):
+            if self.ids['run_autofocus_btn'].state == 'normal' or (sequenced_capture_runner.run_in_progress() and run_trigger_source == trigger_source):
                 self._cleanup_at_end_of_protocol(autofocus_scan=True)
                 return
 
-            if sequenced_capture_executor.run_in_progress() and \
+            if sequenced_capture_runner.run_in_progress() and \
                 (run_trigger_source != trigger_source):
                 run_not_started_func()
                 live_histo_reverse()
@@ -1429,7 +1431,7 @@ class ProtocolSettings(FloatLayout):
             sequence = copy.deepcopy(self._protocol)
             sequence.modify_autofocus_all_steps(enabled=True)
 
-            sequenced_capture_executor.run(
+            sequenced_capture_runner.run(
                 protocol=sequence,
                 run_mode=SequencedCaptureRunMode.SINGLE_AUTOFOCUS_SCAN,
                 run_trigger_source=trigger_source,
@@ -1565,7 +1567,7 @@ class ProtocolSettings(FloatLayout):
         run_not_started_func = self._reset_run_scan_button
 
         ctx = _app_ctx.ctx
-        sequenced_capture_executor = ctx.sequenced_capture_executor
+        sequenced_capture_runner = ctx.sequenced_capture_runner
         file_io_executor = ctx.file_io_executor
 
         # Only block if starting NEW scan (button is 'down'), not if aborting (button is 'normal')
@@ -1579,13 +1581,13 @@ class ProtocolSettings(FloatLayout):
             return
 
         # State of button immediately changed upon press, so we are checking if the button was previously not pressed, and if autofocus is happening
-        if self.ids['run_scan_btn'].state == 'down' and sequenced_capture_executor._autofocus_executor.in_progress():
+        if self.ids['run_scan_btn'].state == 'down' and ctx.autofocus_thread.is_running:
             run_not_started_func()
             logger.warning(f"Cannot start scan. Autofocus still in progress.")
             return
 
-        run_trigger_source = sequenced_capture_executor.run_trigger_source()
-        if (sequenced_capture_executor.run_in_progress() and (run_trigger_source != trigger_source)):
+        run_trigger_source = sequenced_capture_runner.run_trigger_source()
+        if (sequenced_capture_runner.run_in_progress() and (run_trigger_source != trigger_source)):
             run_not_started_func()
             logger.warning(f"Cannot start scan. Run already in progress from {run_trigger_source}")
             return
@@ -1752,7 +1754,7 @@ class ProtocolSettings(FloatLayout):
             run_not_started_func = self._reset_run_protocol_button
 
             ctx = _app_ctx.ctx
-            sequenced_capture_executor = ctx.sequenced_capture_executor
+            sequenced_capture_runner = ctx.sequenced_capture_runner
             file_io_executor = ctx.file_io_executor
 
             # Only block if starting NEW protocol run (button is 'down'), not if aborting (button is 'normal')
@@ -1765,15 +1767,15 @@ class ProtocolSettings(FloatLayout):
                 )
                 return
 
-            run_trigger_source = sequenced_capture_executor.run_trigger_source()
+            run_trigger_source = sequenced_capture_runner.run_trigger_source()
 
             # State of button immediately changed upon press, so we are checking if the button was previously not pressed, and if autofocus is happening
-            if self.ids['run_protocol_btn'].state == 'down' and sequenced_capture_executor._autofocus_executor.in_progress():
+            if self.ids['run_protocol_btn'].state == 'down' and ctx.autofocus_thread.is_running:
                 run_not_started_func()
                 logger.warning(f"Cannot start protocol run. Autofocus still in progress.")
                 return
 
-            if (sequenced_capture_executor.run_in_progress() and (run_trigger_source != trigger_source)):
+            if (sequenced_capture_runner.run_in_progress() and (run_trigger_source != trigger_source)):
                 run_not_started_func()
                 logger.warning(f"Cannot start protocol run. Run already in progress from {run_trigger_source}")
                 return
@@ -1901,7 +1903,7 @@ class ProtocolSettings(FloatLayout):
 
         settings = _app_ctx.ctx.settings
         ctx = _app_ctx.ctx
-        sequenced_capture_executor = ctx.sequenced_capture_executor
+        sequenced_capture_runner = ctx.sequenced_capture_runner
 
         callbacks.update(
             {
@@ -1929,7 +1931,7 @@ class ProtocolSettings(FloatLayout):
         # Snapshot autofocus states from settings on the UI thread before passing to protocol thread
         initial_autofocus_states = {layer: settings[layer]['autofocus'] for layer in common_utils.get_layers()}
 
-        sequenced_capture_executor.run(
+        sequenced_capture_runner.run(
             protocol=self._protocol,
             run_mode=run_mode,
             run_trigger_source=run_trigger_source,
@@ -1948,12 +1950,12 @@ class ProtocolSettings(FloatLayout):
             initial_autofocus_states=initial_autofocus_states,
         )
 
-        set_last_save_folder(dir=sequenced_capture_executor.run_dir())
+        set_last_save_folder(dir=sequenced_capture_runner.run_dir())
 
         if run_mode == SequencedCaptureRunMode.FULL_PROTOCOL:
             self._update_protocol_run_button_status(
-                remaining_scans=sequenced_capture_executor.remaining_scans(),
-                interval=sequenced_capture_executor.protocol_interval(),
+                remaining_scans=sequenced_capture_runner.remaining_scans(),
+                interval=sequenced_capture_runner.protocol_interval(),
             )
 
 
@@ -1961,9 +1963,8 @@ class ProtocolSettings(FloatLayout):
         ctx = _app_ctx.ctx
 
         try:
-            sequenced_capture_executor = ctx.sequenced_capture_executor
-            sequenced_capture_executor.reset()
-            sequenced_capture_executor._autofocus_executor.reset()
+            sequenced_capture_runner = ctx.sequenced_capture_runner
+            sequenced_capture_runner.reset()
             live_histo_reverse()
             self.reset_autofocus_ui()
             self._autofocus_complete_callback()

@@ -19,3 +19,9 @@ class ConfigError(Exception):
 class CaptureError(Exception):
     """Image capture, save, or processing failure."""
     pass
+
+
+class AutofocusAborted(Exception):
+    """Autofocus run aborted by caller (e.g. user cancelled, protocol
+    aborted, or app teardown)."""
+    pass

@@ -11,11 +11,11 @@ import modules.common_utils as common_utils
 import modules.image_utils as image_utils
 
 from modules.common_utils import PostFunction
-from modules.protocol_post_processing_executor import ProtocolPostProcessingExecutor
+from modules.protocol_post_processor import ProtocolPostProcessor
 from modules.protocol_post_record import ProtocolPostRecord
 
 
-class Stitcher(ProtocolPostProcessingExecutor):
+class Stitcher(ProtocolPostProcessor):
 
     def __init__(self, *args, **kwargs):
         super().__init__(

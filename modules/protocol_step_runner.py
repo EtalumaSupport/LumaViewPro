@@ -3,7 +3,7 @@
 """Per-step execution logic for protocol runs.
 
 Handles scan iteration, motion, LED control, autofocus orchestration,
-and grease redistribution.  Extracted from ``sequenced_capture_executor.py``
+and grease redistribution.  Extracted from ``sequenced_capture_runner.py``
 during the protocol-decomposition refactor.
 
 Thread ownership:
@@ -24,20 +24,20 @@ from modules.protocol_state_machine import ProtocolState
 from modules.sequential_io_executor import IOTask
 
 if TYPE_CHECKING:
-    from modules.sequenced_capture_executor import SequencedCaptureExecutor
+    from modules.sequenced_capture_runner import SequencedCaptureRunner
 
 from modules.kivy_utils import schedule_ui as _schedule_ui
 
 
-class ProtocolStepExecutor:
+class ProtocolStepRunner:
     """Executes individual protocol steps within a scan.
 
-    Receives a reference to the parent ``SequencedCaptureExecutor`` to
+    Receives a reference to the parent ``SequencedCaptureRunner`` to
     access shared state (protocol, scope, events, executors).  This keeps
     the step-execution logic in its own file without duplicating state.
     """
 
-    def __init__(self, parent: SequencedCaptureExecutor):
+    def __init__(self, parent: SequencedCaptureRunner):
         self._p = parent
 
     # ------------------------------------------------------------------
@@ -48,43 +48,31 @@ class ProtocolStepExecutor:
         """Iterate through all protocol steps until scan completes.
 
         Blocks until the scan is done (all steps executed or aborted).
+        Exceptions propagate to the outer run-loop so it can classify
+        the failure as fatal (hardware disconnected -> abort + notify)
+        or transient (everything else -> silent retry on next period).
+        Catching exceptions here at the inner layer fires a
+        notification at the wrong level and turns transient faults
+        into protocol-halting popups.
         """
         last_maintenance_time = time.monotonic()
 
-        while self._p._scan_in_progress.is_set() and not self._p._protocol_ended.is_set():
-            try:
-                # Periodic cleanup and watchdog logging for long runs
-                now_mono = time.monotonic()
-                if now_mono - last_maintenance_time > 60:
-                    last_maintenance_time = now_mono
+        while self._p._scan_in_progress.is_set() and not self._p._aborted.is_set():
+            # Periodic cleanup and watchdog logging for long runs
+            now_mono = time.monotonic()
+            if now_mono - last_maintenance_time > 60:
+                last_maintenance_time = now_mono
 
-                    collected = gc.collect()
-                    if collected > 0:
-                        logger.info(f"[Scan Watchdog] GC collected {collected} objects")
+                collected = gc.collect()
+                if collected > 0:
+                    logger.info(f"[Scan Watchdog] GC collected {collected} objects")
 
-                    try:
-                        protocol_queue_size = self._p.protocol_executor.protocol_queue_size()
-                        logger.debug(f"[Scan Watchdog] Protocol queue: {protocol_queue_size}")
-                    except Exception as e:
-                        logger.debug(f"[Scan Watchdog] Could not read protocol queue size: {e}")
+            # Run one step iteration. Exceptions propagate to the
+            # outer run loop for fatal/transient classification.
+            self.scan_iterate()
 
-                # Run one step iteration
-                self.scan_iterate()
-
-                # Small delay to prevent CPU throttling
-                time.sleep(0.001)
-
-            except Exception as ex:
-                logger.error(f"[Scan] Error during scan loop: {ex}", exc_info=True)
-                from modules.notification_center import notifications
-                ex_msg = str(ex) or "An unexpected error occurred"
-                notifications.error(
-                    "Protocol",
-                    "Protocol scan stopped",
-                    f"{ex_msg}. The protocol is halted; check the main log for details and restart the scan if needed.",
-                )
-                self._p._scan_in_progress.clear()
-                break
+            # Small delay to prevent CPU throttling
+            time.sleep(0.001)
 
     # ------------------------------------------------------------------
     # Single step iteration
@@ -94,7 +82,7 @@ class ProtocolStepExecutor:
         """Execute one iteration of the scan state machine."""
         p = self._p  # shorthand
 
-        if p._protocol_ended.is_set():
+        if p._aborted.is_set():
             return
         # Video encoding runs on FILE_WORKER in background — do NOT block
         # the next step waiting for it. Frames are already captured and queued.
@@ -102,16 +90,14 @@ class ProtocolStepExecutor:
             return
         if not p._run_in_progress_event.is_set():
             return
-        if p._autofocus_executor.in_progress():
+        if p._af_future is not None and not p._af_future.done():
             return
 
-        # #610 diagnostic: AF gate passed — capture can proceed
-        _af_complete = p._autofocus_executor.complete()
-        if _af_complete:
+        if p._af_future is not None and p._af_future.done():
             _cam_gain = p._scope.get_gain() if p._scope.camera_active else '?'
             _cam_exp = p._scope.get_exposure_time() if p._scope.camera_active else '?'
             logger.info(
-                f"[SCAN DIAG] AF gate passed: in_progress=False complete={_af_complete} "
+                f"[SCAN DIAG] AF gate passed: future.done()=True "
                 f"camera_gain={_cam_gain} camera_exp={_cam_exp} step={p._curr_step}"
             )
 
@@ -138,14 +124,15 @@ class ProtocolStepExecutor:
         if not p._grease_redistribution_event.is_set():
             return
 
-        if p._protocol_ended.is_set() or not p._scan_in_progress.is_set():
+        if p._aborted.is_set() or not p._scan_in_progress.is_set():
             return
 
-        # #563: if this step ran AF, the AF executor already scheduled the
-        # final Z UI update to best_focus_position. Do not overwrite with
-        # the pre-AF step['Z'].
-        if step.get('Auto_Focus') and p._autofocus_executor.complete():
-            pass  # skip — AF owns the UI for this step
+        # AF already pushed the Z UI to best_focus_position; do not
+        # overwrite with the pre-AF step['Z']. AFE.complete() being
+        # True at this point means the most recent AF run finished
+        # with a result that AFE has already scheduled to the UI.
+        if step.get('Auto_Focus') and p._autofocus_runner.complete():
+            pass
         elif p._z_ui_update_func is not None:
             _schedule_ui(lambda dt: p._z_ui_update_func(float(step['Z'])))
 
@@ -156,8 +143,8 @@ class ProtocolStepExecutor:
 
         # Camera settings (gain, exposure) and LED_ON are handled by
         # protocol_image_writer.capture() right before the actual frame grab.
-        # Setting them here caused duplicate commands (issue #587, #588).
-        if p._protocol_ended.is_set() or not p._scan_in_progress.is_set():
+        # Setting them here would duplicate the commands.
+        if p._aborted.is_set() or not p._scan_in_progress.is_set():
             return
 
         # BF AF for fluorescence
@@ -169,29 +156,26 @@ class ProtocolStepExecutor:
         except Exception as e:
             logger.debug(f"[Capture   ] Could not read bf_af_for_fluorescence setting: {e}")
         if bf_af_for_fluor and step['Color'] != 'BF':
-            if p._autofocus_executor.best_focus_position() is not None:
+            if p._autofocus_runner.best_focus_position() is not None:
                 if p._update_z_pos_from_autofocus:
-                    new_z_pos = p._autofocus_executor.best_focus_position()
+                    new_z_pos = p._autofocus_runner.best_focus_position()
                     p._protocol.modify_step_z_height(step_idx=p._curr_step, z=new_z_pos)
-                logger.info(f'[Capture   ] Skipping AF on {step["Color"]} — using BF result Z={p._autofocus_executor.best_focus_position()}')
+                logger.info(f'[Capture   ] Skipping AF on {step["Color"]} — using BF result Z={p._autofocus_runner.best_focus_position()}')
                 step = dict(step)
                 step['Auto_Focus'] = False
 
-        # If autofocus selected, not running, not complete — start it
-        if step['Auto_Focus'] and not p._autofocus_executor.complete() and not p._autofocus_executor.in_progress():
+        if step['Auto_Focus'] and p._af_future is None:
             if p._callbacks.autofocus_in_progress:
                 _schedule_ui(lambda dt: p._callbacks.autofocus_in_progress(), 0)
 
             af_executor_callbacks = {}
             if p._callbacks.move_position:
                 af_executor_callbacks['move_position'] = p._callbacks.move_position
-            if p._callbacks.autofocus_completed:
-                af_executor_callbacks['complete'] = p._callbacks.autofocus_completed
 
-            if p._protocol_ended.is_set() or not p._scan_in_progress.is_set():
+            if p._aborted.is_set() or not p._scan_in_progress.is_set():
                 return
 
-            p._autofocus_executor.run(
+            p._af_future = p.autofocus_thread.run_autofocus(
                 objective_id=step['Objective'],
                 save_results_to_file=p._save_autofocus_data,
                 results_dir=p._parent_dir,
@@ -204,8 +188,7 @@ class ProtocolStepExecutor:
             )
             return
 
-        # Still executing autofocus
-        if step['Auto_Focus'] and p._autofocus_executor.in_progress():
+        if step['Auto_Focus'] and p._af_future is not None and not p._af_future.done():
             return
 
         # Check if autogain has time-finished
@@ -217,7 +200,7 @@ class ProtocolStepExecutor:
 
         # Update Z position with autofocus results
         if step['Auto_Focus'] and p._update_z_pos_from_autofocus:
-            new_z_pos = p._autofocus_executor.best_focus_position()
+            new_z_pos = p._autofocus_runner.best_focus_position()
             if new_z_pos is not None:
                 p._protocol.modify_step_z_height(step_idx=p._curr_step, z=new_z_pos)
             else:
@@ -276,9 +259,6 @@ class ProtocolStepExecutor:
                 # No saving — turn off LEDs manually (capture normally does this)
                 self.leds_off()
 
-        if not p._autofocus_executor.run_in_progress():
-            p._autofocus_executor.reset()
-
         # Disable autogain when moving between steps
         if step['Auto_Gain']:
             fut = p._io_executor.protocol_put(IOTask(
@@ -297,6 +277,7 @@ class ProtocolStepExecutor:
         if p._curr_step < num_steps - 1:
             with p._protocol_state_lock:
                 p._curr_step = min(p._curr_step + 1, num_steps - 1)
+                p._af_future = None
 
             if p._callbacks.update_step_number:
                 _schedule_ui(lambda dt: p._callbacks.update_step_number(p._curr_step + 1), 0)
@@ -317,14 +298,13 @@ class ProtocolStepExecutor:
     def default_move(self, px=None, py=None, z=None):
         """Move to plate coordinates, converting to stage coordinates.
 
-        Threading-cleanup: the previous implementation called
-        ``scope.move_absolute_position`` directly from PROTOCOL_WORKER,
-        which made motor serial writes from this thread interleave with
-        any IO_WORKER-queued motor command (UI sliders, manual moves)
-        mid-step. AUDIT_THREADING.md C3 / AUDIT_SUMMARY.md C2. Now each
-        axis move is submitted through ``io_executor.protocol_put`` and
-        the protocol thread waits on the future, so all motor I/O is
-        serialized to one worker.
+        Each axis move is submitted through ``io_executor.protocol_put``
+        and the protocol thread waits on the future, so all motor I/O
+        is serialized to one worker. Calling
+        ``scope.move_absolute_position`` directly from PROTOCOL_WORKER
+        instead would let motor serial writes from this thread
+        interleave with any io_executor-queued motor command (UI
+        sliders, manual moves) mid-step.
         """
         p = self._p
         labware = p._wellplate_loader.get_plate(plate_key=p._protocol.labware())
@@ -384,7 +364,7 @@ class ProtocolStepExecutor:
         """Move to the position for a given protocol step."""
         p = self._p
         p._step_start_time = time.monotonic()
-        if p._protocol_ended.is_set():
+        if p._aborted.is_set():
             return
 
         if p._callbacks.go_to_step:
@@ -469,7 +449,7 @@ class ProtocolStepExecutor:
         UI update is handled by the LED observer — no manual callback needed.
         """
         p = self._p
-        if p._protocol_ended.is_set() and not force:
+        if p._aborted.is_set() and not force:
             return
 
         fut = p._io_executor.protocol_put(IOTask(

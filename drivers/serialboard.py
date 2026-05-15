@@ -691,18 +691,24 @@ class SerialBoard:
     # Serial communication
     # ------------------------------------------------------------------
     def exchange_command(self, command, response_numlines=1, timeout=None,
-                         stop_on_empty=False):
+                         stop_on_empty=False, expect_unsupported=False):
         if profile_trace is not None and profile_trace.ENABLE_PROFILE_TRACE:
             with profile_trace.timer(
                 "serial_trace.csv",
                 "ts_ms,duration_ms,board,command,response_lines",
                 lambda: [self._label.strip("[] "), command.strip().replace(",", ";")[:40], response_numlines],
             ):
-                return self._exchange_command_impl(command, response_numlines, timeout, stop_on_empty)
-        return self._exchange_command_impl(command, response_numlines, timeout, stop_on_empty)
+                return self._exchange_command_impl(
+                    command, response_numlines, timeout, stop_on_empty,
+                    expect_unsupported,
+                )
+        return self._exchange_command_impl(
+            command, response_numlines, timeout, stop_on_empty,
+            expect_unsupported,
+        )
 
     def _exchange_command_impl(self, command, response_numlines=1, timeout=None,
-                                stop_on_empty=False):
+                                stop_on_empty=False, expect_unsupported=False):
         """Send command and read response(s).
 
         Handles auto-reconnect, LED echo detection (RE: prefix),
@@ -846,7 +852,13 @@ class SerialBoard:
 
                 resp_str = str(response)
                 if 'ERROR' in resp_str or 'FAIL' in resp_str or 'exceeds safe' in resp_str:
-                    _serial_log.warning(f'{self._label} FIRMWARE ERROR: {command} -> {response}')
+                    # Capability probes (e.g. motor_stop sending STOP to
+                    # firmware that may or may not support it) pass
+                    # expect_unsupported=True so the warning doesn't
+                    # surface a false-alarm at the call site that's
+                    # already handling the unsupported case.
+                    if not expect_unsupported:
+                        _serial_log.warning(f'{self._label} FIRMWARE ERROR: {command} -> {response}')
 
                 return response
 

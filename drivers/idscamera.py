@@ -69,7 +69,7 @@ class IDSCamera(Camera):
                 logger.info(f'[CAM Class ] Camera Serial Number: {self._device_serial}')
                 logger.info(f'[CAM Class ] Camera Firmware Version: {self.remote_nodemap.FindNode("DeviceFirmwareVersion").Value()}')
             except Exception:
-                logger.warning('[CAM Class ] Could not read all IDS camera information')
+                _cam_log.warning('[CAM Class ] Could not read all IDS camera information')
 
             # Load camera profile and query dynamic capabilities
             self._load_profile()
@@ -84,9 +84,9 @@ class IDSCamera(Camera):
             return True
 
         except ConnectionError as er:
-            logger.warning(f'[CAM Class ] IDS camera connect failed: {er}')
+            _cam_log.warning(f'[CAM Class ] IDS camera connect failed: {er}')
         except Exception as ex:
-            logger.exception(f'[CAM Class ] IDS camera connect failed: {ex}')
+            _cam_log.exception(f'[CAM Class ] IDS camera connect failed: {ex}')
             # Clean up partial state on failure
             self.active = None
             self.remote_nodemap = None
@@ -112,7 +112,7 @@ class IDSCamera(Camera):
             else:
                 logger.info('[CAM Class ] IDS camera not connected')
         except Exception as e:
-            logger.exception(f'[CAM Class ] IDS camera disconnect failed: {e}')
+            _cam_log.exception(f'[CAM Class ] IDS camera disconnect failed: {e}')
         return False
 
     def is_connected(self) -> bool:
@@ -171,7 +171,7 @@ class IDSCamera(Camera):
                 logger.debug(f'[CAM Class ] Could not query exposure range: {e}')
 
         except Exception as e:
-            logger.warning(f'[CAM Class ] _query_dynamic_capabilities failed: {e}')
+            _cam_log.warning(f'[CAM Class ] _query_dynamic_capabilities failed: {e}')
 
     def init_camera_config(self):
         if not self.active:
@@ -234,7 +234,7 @@ class IDSCamera(Camera):
                 except Exception as e:
                     logger.debug(f'[CAM Class ] AcquisitionFrameRate not available: {e}')
         except Exception as e:
-            logger.error(f'[CAM Class ] init_camera_config failed: {e}')
+            _cam_log.error(f'[CAM Class ] init_camera_config failed: {e}')
 
     def is_grabbing(self):
         if not self.data_stream:
@@ -257,7 +257,7 @@ class IDSCamera(Camera):
                 self.data_stream.RevokeBuffer(buffer)
         except Exception as e:
             if _cam_log is not None: _cam_log.warning(f'ids stop_grabbing FAILED: {e}')
-            logger.warning(f'[CAM Class ] stop_grabbing ignored error: {e}')
+            _cam_log.warning(f'[CAM Class ] stop_grabbing ignored error: {e}')
 
     def start_grabbing(self):
         if _cam_log is not None: _cam_log.info('ids start_grabbing: alloc buffers + StartAcquisition + AcquisitionStart')
@@ -279,7 +279,7 @@ class IDSCamera(Camera):
                 fr.SetValue(fr.Maximum())
                 logger.info(f'[CAM Class ] AcquisitionFrameRate {old_val:.1f} -> {fr.Value():.1f} (max={fr.Maximum():.1f})')
             except Exception as e:
-                logger.warning(f'[CAM Class ] Failed to re-maximize AcquisitionFrameRate: {e}')
+                _cam_log.warning(f'[CAM Class ] Failed to re-maximize AcquisitionFrameRate: {e}')
 
             self.data_stream.StartAcquisition()
             self.remote_nodemap.FindNode("AcquisitionStart").Execute()
@@ -290,7 +290,7 @@ class IDSCamera(Camera):
 
             logger.info('[CAM Class ] start_grabbing succeeded')
         except Exception as e:
-            logger.warning(f'[CAM Class ] start_grabbing ignored error: {e}')
+            _cam_log.warning(f'[CAM Class ] start_grabbing ignored error: {e}')
 
     def set_frame_size(self, w, h):
         try:
@@ -298,7 +298,7 @@ class IDSCamera(Camera):
             maxs = self.get_max_frame_size()
 
             if not mins or not maxs:
-                logger.error('[CAM Class ] set_frame_size: could not read frame size limits')
+                _cam_log.error('[CAM Class ] set_frame_size: could not read frame size limits')
                 return
 
             #Convert w and h to closest valid values
@@ -309,7 +309,7 @@ class IDSCamera(Camera):
                 self.remote_nodemap.FindNode("Width").SetValue(width)
                 self.remote_nodemap.FindNode("Height").SetValue(height)
         except Exception as e:
-            logger.error(f'[CAM Class ] set_frame_size failed: {e}')
+            _cam_log.error(f'[CAM Class ] set_frame_size failed: {e}')
 
     def get_min_frame_size(self) -> dict:
         if not self.active:
@@ -321,7 +321,7 @@ class IDSCamera(Camera):
                 'height': self.remote_nodemap.FindNode("Height").Minimum(),
             }
         except Exception as e:
-            logger.error(f'[CAM Class ] get_min_frame_size failed: {e}')
+            _cam_log.error(f'[CAM Class ] get_min_frame_size failed: {e}')
             return {}
 
 
@@ -335,7 +335,7 @@ class IDSCamera(Camera):
                 'height': self.remote_nodemap.FindNode("Height").Maximum(),
             }
         except Exception as e:
-            logger.error(f'[CAM Class ] get_max_frame_size failed: {e}')
+            _cam_log.error(f'[CAM Class ] get_max_frame_size failed: {e}')
             return {}
 
 
@@ -351,7 +351,7 @@ class IDSCamera(Camera):
                 'height': height,
             }
         except Exception as e:
-            logger.error(f'[CAM Class ] get_frame_size failed: {e}')
+            _cam_log.error(f'[CAM Class ] get_frame_size failed: {e}')
             return None
 
     @staticmethod
@@ -419,7 +419,7 @@ class IDSCamera(Camera):
         resolved = self._resolve_logical_format(pixel_format)
         if resolved is None:
             supported = self.get_supported_pixel_formats()
-            logger.error(
+            _cam_log.error(
                 f"[CAM Class ] Unsupported pixel format: {pixel_format} "
                 f"(camera supports: {list(supported)})")
             return False
@@ -434,7 +434,7 @@ class IDSCamera(Camera):
                 self.remote_nodemap.FindNode("PixelFormat").SetCurrentEntry(resolved)
             return True
         except Exception as e:
-            logger.error(f'[CAM Class ] set_pixel_format({resolved}) failed: {e}')
+            _cam_log.error(f'[CAM Class ] set_pixel_format({resolved}) failed: {e}')
             self._mark_disconnected()
             raise HardwareError(
                 f'set_pixel_format({resolved}) failed: {type(e).__name__}: {e}'
@@ -444,23 +444,23 @@ class IDSCamera(Camera):
         try:
             return self.remote_nodemap.FindNode("PixelFormat").CurrentEntry().SymbolicValue()
         except Exception as e:
-            logger.error(f'[CAM Class ] get_pixel_format failed: {e}')
+            _cam_log.error(f'[CAM Class ] get_pixel_format failed: {e}')
             return None
 
     def get_supported_pixel_formats(self):
         try:
             return tuple(pf.SymbolicValue() for pf in self.remote_nodemap.FindNode("PixelFormat").AvailableEntries())
         except Exception as e:
-            logger.error(f'[CAM Class ] get_supported_pixel_formats failed: {e}')
+            _cam_log.error(f'[CAM Class ] get_supported_pixel_formats failed: {e}')
             return ()
 
     def exposure_t(self, t):
         if not self.active:
-            logger.warning(f'[CAM Class ] Cannot set exposure {t}ms: camera inactive')
+            _cam_log.warning(f'[CAM Class ] Cannot set exposure {t}ms: camera inactive')
             return
 
         if t > self.max_exposure:
-            logger.warning(f'[CAM Class ] Exposure {t}ms exceeds max ({self.max_exposure}ms)')
+            _cam_log.warning(f'[CAM Class ] Exposure {t}ms exceeds max ({self.max_exposure}ms)')
             return
 
         # IDS allows changing exposure while acquisition is running —
@@ -476,11 +476,11 @@ class IDSCamera(Camera):
             logger.info(f'[CAM Class ] Exposure set to {t}ms')
         except Exception as e:
             if _cam_log is not None: _cam_log.error(f'ids ExposureTime.SetValue({t}ms) FAILED: {e}')
-            logger.error(f'[CAM Class ] Exposure set failed (likely out of bounds): {e}')
+            _cam_log.error(f'[CAM Class ] Exposure set failed (likely out of bounds): {e}')
 
     def get_exposure_t(self):
         if not self.active:
-            logger.warning('[CAM Class ] Cannot read exposure: camera inactive')
+            _cam_log.warning('[CAM Class ] Cannot read exposure: camera inactive')
             return -1
 
         try:
@@ -488,7 +488,7 @@ class IDSCamera(Camera):
             millisec = microsec / 1000
             return millisec
         except Exception as e:
-            logger.error(f'[CAM Class ] get_exposure_t failed: {e}')
+            _cam_log.error(f'[CAM Class ] get_exposure_t failed: {e}')
             return -1
 
     def auto_exposure_t(self, state = True):
@@ -496,7 +496,7 @@ class IDSCamera(Camera):
         try:
             return self.remote_nodemap.HasNode("ExposureAuto")
         except Exception as e:
-            logger.error(f'[CAM Class ] auto_exposure_t failed: {e}')
+            _cam_log.error(f'[CAM Class ] auto_exposure_t failed: {e}')
             return False
 
     def get_all_temperatures(self):
@@ -533,7 +533,7 @@ class IDSCamera(Camera):
                 return False
             return True
         except Exception as e:
-            logger.warning(
+            _cam_log.warning(
                 f'[CAM Class ] IDS set_device_link_throughput_limit('
                 f'{mode}, {value_bps}) failed: {e}'
             )
@@ -568,7 +568,7 @@ class IDSCamera(Camera):
 
     def set_max_acquisition_frame_rate(self, enabled: bool, fps: float=1.0):
         if not self.active:
-            logger.warning('[CAM Class ] set_max_acquisition_frame_rate(): inactive camera')
+            _cam_log.warning('[CAM Class ] set_max_acquisition_frame_rate(): inactive camera')
             return
 
         # IDS allows changing AcquisitionFrameRateTargetEnable +
@@ -588,7 +588,7 @@ class IDSCamera(Camera):
         except Exception as e:
             if _cam_log is not None:
                 _cam_log.error(f'ids AcquisitionFrameRateTarget*({enabled}, {fps}) FAILED: {e}')
-            logger.error(f'[CAM Class ] set_max_acquisition_frame_rate failed: {e}')
+            _cam_log.error(f'[CAM Class ] set_max_acquisition_frame_rate failed: {e}')
 
     def set_binning_size(self, size: int) -> bool:
         """Set camera pixel binning size.
@@ -608,7 +608,7 @@ class IDSCamera(Camera):
             return False
 
         if size < 1 or size > 2:
-            logger.error(f"[CAM Class ] Unsupported bin size: {size}")
+            _cam_log.error(f"[CAM Class ] Unsupported bin size: {size}")
             return False
 
         try:
@@ -620,7 +620,7 @@ class IDSCamera(Camera):
             logger.debug(f"[CAM Class ] Binning set to {self.get_binning_size()}, frame now {self.get_frame_size()}")
             return True
         except Exception as e:
-            logger.error(f'[CAM Class ] set_binning_size failed: {e}')
+            _cam_log.error(f'[CAM Class ] set_binning_size failed: {e}')
             raise HardwareError(
                 f'set_binning_size({size}) failed: {type(e).__name__}: {e}'
             ) from e
@@ -634,11 +634,11 @@ class IDSCamera(Camera):
             horiz_bin = self.remote_nodemap.FindNode("BinningHorizontal").Value()
 
             if horiz_bin != vert_bin:
-                logger.error(f"[CAM Class ] Binning mismatch detected between horizontal ({horiz_bin}) and vertical ({vert_bin})")
+                _cam_log.error(f"[CAM Class ] Binning mismatch detected between horizontal ({horiz_bin}) and vertical ({vert_bin})")
 
             return vert_bin
         except Exception as e:
-            logger.error(f'[CAM Class ] get_binning_size failed: {e}')
+            _cam_log.error(f'[CAM Class ] get_binning_size failed: {e}')
             return 1
 
     # grab() inherited from Camera base class
@@ -665,7 +665,7 @@ class IDSCamera(Camera):
             return True, img_ts
 
         except Exception as e:
-            logger.warning(f'[CAM Class ] grab_new_capture failed: {e}')
+            _cam_log.warning(f'[CAM Class ] grab_new_capture failed: {e}')
             return False, None
 
     def update_auto_gain_target_brightness(self, auto_target_brightness: float):
@@ -673,7 +673,7 @@ class IDSCamera(Camera):
         try:
             return self.remote_nodemap.HasNode("GainAuto")
         except Exception as e:
-            logger.error(f'[CAM Class ] update_auto_gain_target_brightness failed: {e}')
+            _cam_log.error(f'[CAM Class ] update_auto_gain_target_brightness failed: {e}')
             return False
 
     def update_auto_gain_min_max(self, min_gain: float | None, max_gain: float | None):
@@ -681,25 +681,25 @@ class IDSCamera(Camera):
         try:
             return self.remote_nodemap.HasNode("GainAuto")
         except Exception as e:
-            logger.error(f'[CAM Class ] update_auto_gain_min_max failed: {e}')
+            _cam_log.error(f'[CAM Class ] update_auto_gain_min_max failed: {e}')
             return False
 
     def get_gain(self):
         if not self.active:
-            logger.warning('[CAM Class ] Cannot read gain: camera inactive')
+            _cam_log.warning('[CAM Class ] Cannot read gain: camera inactive')
             return -1
 
         try:
             value = self.remote_nodemap.FindNode("Gain").Value()
             return float(value)
         except Exception as e:
-            logger.error(f'[CAM Class ] Read gain failed: {e}')
+            _cam_log.error(f'[CAM Class ] Read gain failed: {e}')
             return -1
 
     def gain(self, gain):
         if not self.active:
             if _cam_log is not None: _cam_log.warning(f'ids Gain.SetValue({gain}) SKIPPED: active=None')
-            logger.warning(f'[CAM Class ] Cannot set gain {gain}: camera inactive')
+            _cam_log.warning(f'[CAM Class ] Cannot set gain {gain}: camera inactive')
             return
 
         try:
@@ -709,7 +709,7 @@ class IDSCamera(Camera):
             logger.info(f'[CAM Class ] Gain set to {gain}')
         except Exception as e:
             if _cam_log is not None: _cam_log.error(f'ids Gain.SetValue({gain}) FAILED: {e}')
-            logger.error(f'[CAM Class ] Gain set failed (likely out of bounds): {e}')
+            _cam_log.error(f'[CAM Class ] Gain set failed (likely out of bounds): {e}')
             return
 
 
@@ -724,7 +724,7 @@ class IDSCamera(Camera):
         try:
             return self.remote_nodemap.HasNode("GainAuto")
         except Exception as e:
-            logger.error(f'[CAM Class ] auto_gain failed: {e}')
+            _cam_log.error(f'[CAM Class ] auto_gain failed: {e}')
             return False
 
     def auto_gain_once(
@@ -738,7 +738,7 @@ class IDSCamera(Camera):
         try:
             return self.remote_nodemap.HasNode("GainAuto")
         except Exception as e:
-            logger.error(f'[CAM Class ] auto_gain_once failed: {e}')
+            _cam_log.error(f'[CAM Class ] auto_gain_once failed: {e}')
             return False
 
     def set_test_pattern(self, enabled: bool = False, pattern: str = 'Black'):
@@ -793,14 +793,14 @@ class ImageHandler(ImageHandlerBase):
                         bcap = buffer.Size() if hasattr(buffer, 'Size') else None
                     except Exception as _bintrospect:
                         bsize, bcap = None, f'<introspect failed: {_bintrospect!r}>'
-                    logger.warning(
+                    _cam_log.warning(
                         f'[CAM Class ] IDS buffer.IsIncomplete()=True '
                         f'filled={bsize} capacity={bcap}'
                     )
                     self.data_stream.QueueBuffer(buffer)
                     should_stop = self._record_failure()
                     if should_stop:
-                        logger.error('[CAM Class ] Too many grab failures; marking device as removed')
+                        _cam_log.error('[CAM Class ] Too many grab failures; marking device as removed')
                         self._parent._mark_disconnected()
                         break
                     continue
@@ -822,19 +822,19 @@ class ImageHandler(ImageHandlerBase):
             except Exception as e:
                 err_str = str(e).lower()
                 if 'abort' in err_str or 'removed' in err_str or 'device' in err_str:
-                    logger.warning(f'[CAM Class ] Device removal detected in grab loop: {e}')
+                    _cam_log.warning(f'[CAM Class ] Device removal detected in grab loop: {e}')
                     self._parent._mark_disconnected()
                     break
                 # Log every grab-loop exception. Type + message may vary
                 # between failures (timeout vs malformed buffer vs SDK-internal
                 # fault); throttling loses the distribution. !r on `e` so
                 # any non-ASCII in the SDK message is escaped at format time.
-                logger.warning(
+                _cam_log.warning(
                     f'[CAM Class ] ImageHandler grab loop exception: '
                     f'{type(e).__name__}: {e!r}'
                 )
                 should_stop = self._record_failure()
                 if should_stop:
-                    logger.error('[CAM Class ] Too many grab exceptions; marking device as removed')
+                    _cam_log.error('[CAM Class ] Too many grab exceptions; marking device as removed')
                     self._parent._mark_disconnected()
                     break

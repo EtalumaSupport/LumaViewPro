@@ -52,18 +52,18 @@ class AppContext:
     settings: dict = field(default_factory=dict)
     settings_lock: threading.Lock = field(default_factory=threading.Lock)
     session: object = None             # ScopeSession
-    sequenced_capture_executor: object = None
-    autofocus_executor: object = None
+    sequenced_capture_runner: object = None
+    autofocus_runner: object = None
     version: str = ""
     source_path: str = ""
 
-    # Executors
+    # Executors + long-lived threads
     io_executor: object = None
     camera_executor: object = None
-    protocol_executor: object = None
+    protocol_thread: object = None
     file_io_executor: object = None
-    autofocus_thread_executor: object = None
     scope_display_thread: object = None
+    autofocus_thread: object = None
     worker_pool: object = None
 
     # Helpers

@@ -98,9 +98,10 @@ if __name__ == '__main__':
     import modules.objectives_loader as objectives_loader
     import modules.profiling_utils as profiling_utils
     from modules.app_context import AppContext
-    from modules.autofocus_executor import AutofocusExecutor
+    from modules.autofocus_runner import AutofocusRunner
+    from modules.autofocus_thread import AutofocusThread
     from modules.scope_session import ScopeSession
-    from modules.sequenced_capture_executor import SequencedCaptureExecutor
+    from modules.sequenced_capture_runner import SequencedCaptureRunner
 
     global profiling_helper
     profiling_helper = None
@@ -223,9 +224,9 @@ if __name__ == '__main__':
     # these named globals for backwards compat with existing readers.
     io_executor = None
     camera_executor = None
-    protocol_executor = None
+    protocol_thread = None
     file_io_executor = None
-    autofocus_thread_executor = None
+    autofocus_thread = None
     scope_display_thread = None
     worker_pool = None
     executor_bundle = None
@@ -495,11 +496,29 @@ class LumaViewProApp(TooltipMixin, App):
             pyi_splash.close()
 
     def shutdown_threads(self) -> None:
-        """Stop profiling and shut down every executor in the bundle."""
+        """Stop profiling and shut down every executor in the bundle.
+
+        Order matters: long-lived consumer threads (autofocus_thread,
+        scope_display_thread) stop BEFORE the SequentialIOExecutor
+        lanes they consume. Otherwise a consumer mid-iteration can
+        find its lane already shut down and either hang waiting for
+        a queue dispatch that never fires or surface a misleading
+        post-shutdown exception. AF holds io_executor + camera_executor;
+        scope_display holds camera_executor.
+        """
         logger.info('[LVP Main  ] Shutting down threads...')
 
         if profiling_helper is not None:
             profiling_helper.stop()
+
+        if autofocus_thread is not None:
+            autofocus_thread.stop(timeout=2.0)
+
+        if scope_display_thread is not None:
+            scope_display_thread.stop()
+
+        if protocol_thread is not None:
+            protocol_thread.stop(timeout=2.0)
 
         if io_executor is not None:
             io_executor.shutdown(wait=False)
@@ -507,17 +526,8 @@ class LumaViewProApp(TooltipMixin, App):
         if camera_executor is not None:
             camera_executor.shutdown(wait=False)
 
-        if protocol_executor is not None:
-            protocol_executor.shutdown(wait=False)
-
         if file_io_executor is not None:
             file_io_executor.shutdown(wait=False)
-
-        if autofocus_thread_executor is not None:
-            autofocus_thread_executor.shutdown(wait=False)
-
-        if scope_display_thread is not None:
-            scope_display_thread.stop()
 
         if worker_pool is not None:
             worker_pool.shutdown(wait=False)
@@ -617,11 +627,12 @@ class LumaViewProApp(TooltipMixin, App):
 
         objective_helper = objectives_loader.ObjectiveLoader(source_path=source_path)
 
-        # ExecutorRegistry.create_default constructs all 7 executors (plus stage
-        # and turret aliases) and starts them; every entry point shares this
-        # topology so the watchdog snapshot and engineering plugin see one truth.
-        global io_executor, camera_executor, protocol_executor
-        global file_io_executor, autofocus_thread_executor, scope_display_thread
+        # ExecutorRegistry.create_default constructs all SequentialIOExecutor
+        # lanes (plus stage and turret aliases) and the protocol_thread, then
+        # starts them; every entry point shares this topology so the watchdog
+        # snapshot and engineering plugin see one truth.
+        global io_executor, camera_executor, protocol_thread
+        global file_io_executor, autofocus_thread, scope_display_thread
         global worker_pool
         global executor_bundle
         # Clock.schedule_once is passed as the UI dispatcher so executors can post
@@ -640,9 +651,8 @@ class LumaViewProApp(TooltipMixin, App):
         executor_bundle = _create_executors(_ui)
         io_executor = executor_bundle.io_executor
         camera_executor = executor_bundle.camera_executor
-        protocol_executor = executor_bundle.protocol_executor
+        protocol_thread = executor_bundle.protocol_thread
         file_io_executor = executor_bundle.file_io_executor
-        autofocus_thread_executor = executor_bundle.autofocus_thread_executor
         scope_display_thread = executor_bundle.scope_display_thread
         worker_pool = executor_bundle.worker_pool
 
@@ -667,32 +677,38 @@ class LumaViewProApp(TooltipMixin, App):
             camera_executor=camera_executor,
             io_executor=io_executor,
             file_io_executor=file_io_executor,
-            autofocus_io_executor=autofocus_thread_executor,
         )
         # Register source_path so scope.load_protocol / create_protocol
         # can resolve data/tiling.json without callers passing the path.
         lumaview.scope.register_source_path(source_path)
 
-        autofocus_executor = AutofocusExecutor(
+        autofocus_runner = AutofocusRunner(
             scope=lumaview.scope,
             camera_executor=camera_executor,
             io_executor=io_executor,
             file_io_executor=file_io_executor,
-            autofocus_executor=autofocus_thread_executor,
-            clock_unschedule_fn=Clock.unschedule,
-            clock_schedule_interval_fn=Clock.schedule_interval,
             ui_update_func=_handle_autofocus_ui,
         )
 
-        sequenced_capture_executor = SequencedCaptureExecutor(
+        # AutofocusThread owns the actual AF worker thread; AFE is the
+        # per-iteration state machine the thread drives. Construct after
+        # AFE so the wiring is one-way (thread holds AFE, AFE is unaware
+        # of the thread except via the abort_event passed to run()).
+        autofocus_thread = AutofocusThread(
+            afe=autofocus_runner,
+            ui_dispatcher=_ui,
+        )
+        autofocus_thread.start()
+
+        sequenced_capture_runner = SequencedCaptureRunner(
             scope=lumaview.scope,
             stage_offset=settings['stage_offset'],
-            autofocus_executor=autofocus_executor,
+            autofocus_runner=autofocus_runner,
             io_executor=io_executor,
-            protocol_executor=protocol_executor,
+            protocol_thread=protocol_thread,
             file_io_executor=file_io_executor,
             camera_executor=camera_executor,
-            autofocus_io_executor=autofocus_thread_executor,
+            autofocus_thread=autofocus_thread,
             z_ui_update_func=_handle_autofocus_ui,
         )
 
@@ -702,15 +718,15 @@ class LumaViewProApp(TooltipMixin, App):
             lumaview=lumaview,
             settings=settings,
             session=scope_session,
-            sequenced_capture_executor=sequenced_capture_executor,
-            autofocus_executor=autofocus_executor,
+            sequenced_capture_runner=sequenced_capture_runner,
+            autofocus_runner=autofocus_runner,
             version=version,
             source_path=source_path,
             io_executor=io_executor,
             camera_executor=camera_executor,
-            protocol_executor=protocol_executor,
+            protocol_thread=protocol_thread,
             file_io_executor=file_io_executor,
-            autofocus_thread_executor=autofocus_thread_executor,
+            autofocus_thread=autofocus_thread,
             scope_display_thread=scope_display_thread,
             worker_pool=worker_pool,
             wellplate_loader=wellplate_loader,

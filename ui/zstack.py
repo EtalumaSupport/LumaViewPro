@@ -25,7 +25,7 @@ from modules.config_ui_getters import (
     get_zstack_positions,
     is_image_saving_enabled,
 )
-from modules.sequenced_capture_executor import SequencedCaptureRunMode
+from modules.sequenced_capture_runner import SequencedCaptureRunMode
 from modules.tiling_config import TilingConfig
 from ui.ui_helpers import (
     _handle_ui_update_for_axis,
@@ -99,7 +99,7 @@ class ZStack(FloatLayout):
 
     def _cleanup_at_end_of_acquire(self):
         ctx = _app_ctx.ctx
-        ctx.sequenced_capture_executor.reset()
+        ctx.sequenced_capture_runner.reset()
         self._reset_run_zstack_acquire_button()
         live_histo_reverse()
 
@@ -124,8 +124,8 @@ class ZStack(FloatLayout):
             run_not_started_func = self._reset_run_zstack_acquire_button
             run_complete_func = self._zstack_run_complete
 
-            run_trigger_source = ctx.sequenced_capture_executor.run_trigger_source()
-            if ctx.sequenced_capture_executor.run_in_progress() and \
+            run_trigger_source = ctx.sequenced_capture_runner.run_trigger_source()
+            if ctx.sequenced_capture_runner.run_in_progress() and \
                 (run_trigger_source != trigger_source):
                 run_not_started_func()
                 logger.warning(f"Cannot start Z-Stack acquire. Run already in progress from {run_trigger_source}")
@@ -135,7 +135,9 @@ class ZStack(FloatLayout):
                 self._cleanup_at_end_of_acquire()
                 return
 
-            # Note: This will be quickly overwritten by the remaining number of scans
+            # Immediate text while the first slice is being prepared.
+            # _zstack_progress (below) overwrites this with "Z {n}/{total}"
+            # as soon as the protocol_step_runner starts the first slice.
             self.ids['zstack_aqr_btn'].text = 'Running Z-Stack'
 
             config = get_sequenced_capture_config_from_ui()
@@ -193,11 +195,26 @@ class ZStack(FloatLayout):
 
             autogain_settings = get_auto_gain_settings()
 
+            # Per-step progress indicator on the Acquire button. The
+            # protocol_step_runner fires update_step_number(step) per slice,
+            # where step is 1-indexed; the lambda captures total once at
+            # construction time. Clock.schedule_once marshals the text
+            # update back to the main thread because update_step_number
+            # fires from the protocol thread.
+            total_slices = zstack_sequence.num_steps()
+            zstack_btn = self.ids['zstack_aqr_btn']
+            def _zstack_progress(step_num):
+                Clock.schedule_once(
+                    lambda dt: setattr(zstack_btn, 'text', f'Z {step_num}/{total_slices}'),
+                    0,
+                )
+
             callbacks = {
                 'move_position': _handle_ui_update_for_axis,
                 # Stage B1: update_scopedisplay retired -- thread runs continuously
                 'update_scope_display': lambda dt=0: None,
                 'run_complete': run_complete_func,
+                'update_step_number': _zstack_progress,
                 # LED observer handles UI sync — no manual callbacks needed
                 'reset_autofocus_btns': update_autofocus_selection_after_protocol,
                 'set_recording_title': set_recording_title,
@@ -219,7 +236,7 @@ class ZStack(FloatLayout):
             initial_position = get_current_plate_position()
             image_capture_config = get_image_capture_config_from_ui()
 
-            ctx.sequenced_capture_executor.run(
+            ctx.sequenced_capture_runner.run(
                 protocol=zstack_sequence,
                 run_mode=SequencedCaptureRunMode.SINGLE_ZSTACK,
                 run_trigger_source=trigger_source,
@@ -236,7 +253,7 @@ class ZStack(FloatLayout):
                 video_as_frames = settings['video_as_frames']
             )
 
-            set_last_save_folder(dir=ctx.sequenced_capture_executor.run_dir())
+            set_last_save_folder(dir=ctx.sequenced_capture_runner.run_dir())
         except Exception as e:
             logger.error(f'[UI] run_zstack_acquire_from_ui failed: {e}', exc_info=True)
             from ui.notification_popup import show_notification_popup

@@ -405,7 +405,7 @@ class SequentialIOExecutor:
         # the process alive. Cooperative shutdown is still preferred:
         # long-running task implementations may close over the executor
         # and poll `executor.pending_shutdown` to bail early (the pattern
-        # already used by _protocol_ended.is_set() in scan_loop).
+        # used by protocol_thread.aborted.is_set() in scan_loop).
         self._worker_thread = threading.Thread(
             target=self._run_loop,
             name=self.executor_name,

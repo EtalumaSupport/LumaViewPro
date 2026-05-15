@@ -496,13 +496,13 @@ def log_system_metrics(settings: dict):
         queue_parts = []
         # Walk known executors. Each may use a queue.Queue (qsize) or a
         # ThreadPoolExecutor (_work_queue.qsize). Both expose qsize().
-        for name in ('sequenced_capture_executor', 'autofocus_executor',
-                     'protocol_executor', 'io_executor', 'camera_executor',
-                     'file_io_executor', 'autofocus_thread_executor',
+        for name in ('sequenced_capture_runner',
+                     'io_executor', 'camera_executor', 'file_io_executor',
                      'worker_pool'):
-            # scope_display_thread retired from these queue/futures
-            # scans (Stage B1: it's a bare Thread, no queue, no
-            # caller_futures).
+            # protocol_thread, scope_display_thread, autofocus_thread,
+            # autofocus_runner excluded: they are bare Threads (or a
+            # plain algorithm runner) with no queue and no
+            # caller_futures.
             try:
                 exe = getattr(ctx, name, None)
                 if exe is None:
@@ -526,19 +526,19 @@ def log_system_metrics(settings: dict):
         # invariant: alloc == pop within a few per cadence (each
         # in-flight task is one of the few "live" entries).
         futures_parts = []
-        for name in ('sequenced_capture_executor', 'autofocus_executor',
-                     'protocol_executor', 'io_executor', 'camera_executor',
-                     'file_io_executor', 'autofocus_thread_executor',
+        for name in ('sequenced_capture_runner',
+                     'io_executor', 'camera_executor', 'file_io_executor',
                      'worker_pool'):
-            # scope_display_thread retired from these queue/futures
-            # scans (Stage B1: it's a bare Thread, no queue, no
-            # caller_futures).
+            # protocol_thread, scope_display_thread, autofocus_thread,
+            # autofocus_runner excluded: they are bare Threads (or a
+            # plain algorithm runner) with no queue and no
+            # caller_futures.
             try:
                 exe = getattr(ctx, name, None)
                 if exe is None or not hasattr(exe, 'caller_futures_stats'):
                     continue
                 allocs, pops, live = exe.caller_futures_stats()
-                futures_parts.append(f"{name}=A{allocs}/P{pops}/L{live}")
+                futures_parts.append(f"{name}: alloc={allocs} pop={pops} live={live}")
             except Exception:
                 continue
         if futures_parts:

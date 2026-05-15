@@ -160,8 +160,8 @@ class MicroscopeSettings(BoxLayout):
         config = ScopeInitConfig.from_settings(settings, labware, scope_config=scope_config)
         lumaview.scope.initialize(config)
 
-        ctx.sequenced_capture_executor.set_scope(lumaview.scope)
-        ctx.autofocus_executor.set_scope(lumaview.scope)
+        ctx.sequenced_capture_runner.set_scope(lumaview.scope)
+        ctx.autofocus_runner.set_scope(lumaview.scope)
 
         # Restart display
 

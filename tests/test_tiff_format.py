@@ -310,7 +310,7 @@ class TestTiff16BitFalseColorOn:
         assert img[:, :, 2].sum() == 0, "Blue channel should be zero"
 
     def test_red_channel_data_correct(self, img_16bit, metadata, tmp_tiff):
-        """Red false color: R=data, G=0, B=0. Note: add_false_color maps Red to channel 2 (BGR)."""
+        """Red false color: R=data, G=0, B=0. add_false_color is RGB-native so Red lands at channel 0."""
         path = tmp_tiff()
         with self._mock_settings():
             image_utils.write_tiff(data=img_16bit, file_loc=path, metadata=metadata, ome=False, color='Red')
@@ -600,3 +600,30 @@ class TestAddFalseColor:
         data = np.ones((10, 10, 3), dtype=np.uint8) * 128
         result = image_utils.add_false_color(data, 'Green')
         assert result.shape == (10, 10, 3)
+
+    def test_red_indexed_at_0(self):
+        """RGB convention: Red channel data lands at index 0."""
+        data = np.ones((10, 10), dtype=np.uint16) * 1000
+        result = image_utils.add_false_color(data, 'Red')
+        assert result.shape == (10, 10, 3)
+        assert result[:, :, 0].sum() > 0, "Red channel (index 0) should have data"
+        assert result[:, :, 1].sum() == 0, "Green channel (index 1) should be zero"
+        assert result[:, :, 2].sum() == 0, "Blue channel (index 2) should be zero"
+
+    def test_blue_indexed_at_2(self):
+        """RGB convention: Blue channel data lands at index 2."""
+        data = np.ones((10, 10), dtype=np.uint16) * 1000
+        result = image_utils.add_false_color(data, 'Blue')
+        assert result.shape == (10, 10, 3)
+        assert result[:, :, 0].sum() == 0, "Red channel (index 0) should be zero"
+        assert result[:, :, 1].sum() == 0, "Green channel (index 1) should be zero"
+        assert result[:, :, 2].sum() > 0, "Blue channel (index 2) should have data"
+
+    def test_lumi_indexed_at_2(self):
+        """RGB convention: Lumi maps to Blue (index 2)."""
+        data = np.ones((10, 10), dtype=np.uint16) * 1000
+        result = image_utils.add_false_color(data, 'Lumi')
+        assert result.shape == (10, 10, 3)
+        assert result[:, :, 0].sum() == 0, "Red channel (index 0) should be zero"
+        assert result[:, :, 1].sum() == 0, "Green channel (index 1) should be zero"
+        assert result[:, :, 2].sum() > 0, "Blue channel (index 2) should have data"

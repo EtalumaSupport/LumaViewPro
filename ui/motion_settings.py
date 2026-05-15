@@ -357,7 +357,7 @@ class XYStageControl(BoxLayout):
 
     def update_gui(self, dt=0, full_redraw: bool = False):
         ctx = _app_ctx.ctx
-        if ctx.sequenced_capture_executor.run_in_progress():
+        if ctx.sequenced_capture_runner.run_in_progress():
             # During protocol: update crosshair directly from position cache
             # (zero serial I/O). Don't go through IO executor — its callback
             # runs on a worker thread which can't touch Kivy widgets.

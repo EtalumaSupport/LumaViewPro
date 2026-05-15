@@ -3,7 +3,7 @@
 """Protocol execution state machine.
 
 Pure logic — no threading, no I/O.  Extracted from
-``sequenced_capture_executor.py`` during the protocol-decomposition refactor.
+``sequenced_capture_runner.py`` during the protocol-decomposition refactor.
 """
 
 import enum
@@ -16,7 +16,6 @@ class SequencedCaptureRunMode(enum.Enum):
     SINGLE_SCAN = 'single_scan'
     SINGLE_ZSTACK = 'single_zstack'
     SINGLE_AUTOFOCUS_SCAN = 'single_autofocus_scan'
-    SINGLE_AUTOFOCUS = 'single_autofocus'
 
 
 class ProtocolState(enum.Enum):
@@ -54,7 +53,7 @@ PROTOCOL_STATE_TRANSITIONS: dict[ProtocolState, set[ProtocolState]] = {
 def validate_transition(
     old_state: ProtocolState,
     new_state: ProtocolState,
-    logger_name: str = "SequencedCaptureExecutor",
+    logger_name: str = "SequencedCaptureRunner",
 ) -> None:
     """Raise ``ValueError`` if *old_state* → *new_state* is not allowed."""
     if old_state == new_state:

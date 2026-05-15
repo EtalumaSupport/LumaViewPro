@@ -3,7 +3,7 @@
 """Protocol cleanup / shutdown logic.
 
 Restores LED, autofocus, camera state and fires completion callbacks.
-Extracted from ``sequenced_capture_executor.py`` during the
+Extracted from ``sequenced_capture_runner.py`` during the
 protocol-decomposition refactor.
 """
 
@@ -31,7 +31,6 @@ def run_cleanup(
     get_state_fn,
     set_state_fn,
     run_lock: threading.Lock,
-    protocol_ended: threading.Event,
     scan_in_progress: threading.Event,
     # Saved original states
     leds_state_at_end: str,
@@ -52,17 +51,16 @@ def run_cleanup(
     cancel_scheduled_events_fn,
     # IO executors
     io_executor,
-    protocol_executor,
-    autofocus_io_executor,
+    autofocus_thread,
     file_io_executor,
     camera_executor,
     # Mutable flag — set to False when done
     set_run_in_progress_fn,
-    logger_name: str = "SequencedCaptureExecutor",
+    logger_name: str = "SequencedCaptureRunner",
 ):
     """Core cleanup logic — restores state, fires callbacks, ends executors.
 
-    Called from ``SequencedCaptureExecutor._cleanup_inner()``.
+    Called from ``SequencedCaptureRunner._cleanup_inner()``.
     """
     # PF-2: capture initial state BEFORE the COMPLETING transition below so we
     # can distinguish abort (ERROR) from normal end. On abort (e.g. hardware
@@ -75,8 +73,10 @@ def run_cleanup(
     if get_state_fn() not in (ProtocolState.COMPLETING, ProtocolState.ERROR, ProtocolState.IDLE):
         set_state_fn(ProtocolState.COMPLETING)
 
-    # Signal the scan/protocol loops to stop BEFORE turning off LEDs.
-    protocol_ended.set()
+    # Cleanup runs because abort already fired (or the run is finishing
+    # naturally). The abort signal -- now owned by protocol_thread -- is
+    # already set if this is an abort; setting it again here would be
+    # redundant and was dropped in B3.
     scan_in_progress.clear()
 
     # Collect cleanup-step failures so a single summary notification at
@@ -206,16 +206,16 @@ def run_cleanup(
 
     # --- End executors ---
     scan_in_progress.clear()
-    protocol_ended.set()
 
     io_executor.protocol_end()
-    protocol_executor.protocol_end()
-    autofocus_io_executor.protocol_end()
+    if autofocus_thread is not None:
+        # Signal any lingering AF run to unwind. abort() is a no-op when
+        # the thread is idle, so this is always safe to call.
+        autofocus_thread.abort()
     camera_executor.enable()
     logger.info(f"[{logger_name}] Cleanup: protocol_end called on all executors")
 
     io_executor.clear_protocol_pending()
-    protocol_executor.clear_protocol_pending()
     if is_aborted:
         # PF-2: drop pending writes on abort. Drain (the COMPLETING-path default)
         # would write everything queued to disk before releasing memory — fine on

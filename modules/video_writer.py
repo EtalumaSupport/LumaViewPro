@@ -136,10 +136,10 @@ class VideoWriter:
 
             if self._use_pyav and self._stream is not None:
                 try:
-                    # PyAV expects RGB for color, gray for mono
+                    # PyAV expects RGB for color, gray for mono. Callers pass
+                    # RGB by the canonical save-path convention.
                     if image.ndim == 3:
-                        # OpenCV uses BGR — convert to RGB for PyAV
-                        frame = av.VideoFrame.from_ndarray(image[:, :, ::-1], format='rgb24')
+                        frame = av.VideoFrame.from_ndarray(image, format='rgb24')
                     else:
                         frame = av.VideoFrame.from_ndarray(image, format='gray')
                     for packet in self._stream.encode(frame):
@@ -148,7 +148,13 @@ class VideoWriter:
                 except Exception as e:
                     logger.error(f"VideoWriter: PyAV encode error: {e}")
             elif self._cv2_video is not None:
-                success = self._cv2_video.write(image)
+                # cv2.VideoWriter is the only BGR consumer in the save path;
+                # callers pass RGB so we convert at this cv2 boundary.
+                if image.ndim == 3:
+                    image_for_cv2 = image[:, :, ::-1]
+                else:
+                    image_for_cv2 = image
+                success = self._cv2_video.write(image_for_cv2)
                 if success is False:
                     logger.error("VideoWriter: cv2.VideoWriter.write() returned failure — frame may be lost")
                 self._frame_count += 1

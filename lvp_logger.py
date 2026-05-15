@@ -463,14 +463,43 @@ def log_environment_banner(source_path: str, version_str: str):
     API, headless test runner, CLI tools all get the same fingerprint
     without copy-paste.
     """
-    import time
     import sys as _sys
 
     logger.info('[LVP Main  ] -----------------------------------------')
-    logger.info(f'[LVP Main  ] Version: {version_str}')
+    logger.info(f'[LVP Main  ] Version:   {version_str}')
 
-    # Git commit so logs always identify exact code version. Try live
-    # git first, fall back to version.txt (ZIP downloads).
+    # Build identity: branch + commit timestamp from version.txt. The
+    # pre-commit hook rewrites lines 2-3 on every commit so these are
+    # always present in source clones, ZIP downloads, and installer
+    # bundles alike. Triage Chris's reports via
+    # `git log --before=<Built>+1m <Branch>` to find the exact commit.
+    _built = ''
+    _branch = ''
+    try:
+        with open(os.path.join(source_path, 'version.txt')) as _vf:
+            _lines = _vf.read().splitlines()
+            if len(_lines) >= 2:
+                _built = _lines[1].strip()
+            if len(_lines) >= 3:
+                _branch = _lines[2].strip()
+    except Exception:
+        pass
+    logger.info(f'[LVP Main  ] Built:     {_built or "unknown"}')
+    logger.info(f'[LVP Main  ] Branch:    {_branch or "unknown"}')
+
+    # Runtime: distinguish installed .exe from running directly from a
+    # source clone. The presence of marker.lvpinstalled means the MSI
+    # ran (the marker is dropped by the installer). Without it, this is
+    # a developer running `python lumaviewpro.py` from a clone.
+    logger.info(
+        f'[LVP Main  ] Runtime:   '
+        f'{"installed exe" if lvp_installed else "source / dev"}'
+    )
+
+    # Live `git rev-parse` is a best-effort exact-SHA fallback that only
+    # works in source clones with .git present. Installer builds wipe
+    # .git, so this line stays "unknown" there -- triage uses Branch +
+    # Built above instead.
     _git_hash = None
     try:
         import subprocess
@@ -479,15 +508,8 @@ def log_environment_banner(source_path: str, version_str: str):
             cwd=source_path, stderr=subprocess.DEVNULL, timeout=2
         ).decode().strip()
     except Exception:
-        try:
-            with open(os.path.join(source_path, 'version.txt')) as _vf:
-                _lines = _vf.read().strip().splitlines()
-                if len(_lines) >= 3:
-                    _git_hash = _lines[2].strip()
-        except Exception:
-            pass
-    logger.info(f'[LVP Main  ] Git: {_git_hash or "unknown"}')
-    logger.info('[LVP Main  ] Run Time: ' + time.strftime("%Y %m %d %H:%M:%S"))
+        pass
+    logger.info(f'[LVP Main  ] Git:       {_git_hash or "unknown (use Branch + Built)"}')
 
     # Host + OS + Python + key library versions.
     try:

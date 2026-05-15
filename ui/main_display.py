@@ -301,8 +301,8 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
         # finalize time to convert ChunkTimestamp ticks to seconds; None
         # if the camera doesn't expose a Timestamp chunk.
         self.timestamp_tick_freq_hz = getattr(
-            self.scope.camera, 'timestamp_tick_frequency_hz', None
-        ) if self.scope.camera else None
+            self.scope._camera_driver, 'timestamp_tick_frequency_hz', None
+        ) if self.scope._camera_driver else None
 
         logger.info(f"Manual-Video] Capturing video...")
 
@@ -687,9 +687,9 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
                     camera_serial = None
                     try:
                         scope = _app_ctx.ctx.scope
-                        if scope is not None and scope.camera is not None:
-                            camera_model = getattr(scope.camera, 'model_name', None)
-                            camera_serial = getattr(scope.camera, '_device_serial', None)
+                        if scope is not None and scope._camera_driver is not None:
+                            camera_model = getattr(scope._camera_driver, 'model_name', None)
+                            camera_serial = getattr(scope._camera_driver, '_device_serial', None)
                     except Exception:
                         pass
                     manifest = build_session_manifest(

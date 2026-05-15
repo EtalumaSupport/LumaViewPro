@@ -96,13 +96,12 @@ class TestFromSettings:
 # ---------- _notify_partial_hardware filter ----------
 
 def _make_scope_with_no_hardware():
-    """Sim scope, then strip drivers to Null* / no camera, then flip
-    `_simulated` off so the early-return doesn't fire."""
+    """Sim scope, strip drivers to Null* / no camera, flip `_simulated`
+    off so the early-return doesn't fire."""
     scope = Lumascope(simulate=True)
-    scope.led = NullLEDBoard()
-    scope.motion = NullMotionBoard()
-    if hasattr(scope, 'camera'):
-        delattr(scope, 'camera')
+    scope._led_driver = NullLEDBoard()
+    scope._motion_driver = NullMotionBoard()
+    scope._camera_driver = None
     scope._simulated = False
     return scope
 
@@ -115,7 +114,7 @@ def captured_warnings(monkeypatch):
     received = []
     fresh_nc.add_listener(lambda n: received.append(n),
                           min_severity=Severity.WARNING)
-    monkeypatch.setattr('modules.lumascope_api.notifications', fresh_nc)
+    monkeypatch.setattr('modules.lumascope_api._lumascope.notifications', fresh_nc)
     return received
 
 
@@ -133,7 +132,7 @@ class TestNotifyPartialHardware:
         scope = _make_scope_with_no_hardware()
         # LS620 has Layers — pretend the LED board did connect by
         # swapping Null out for a real-ish object.
-        scope.led = object()  # truthy non-Null sentinel
+        scope._led_driver = object()  # truthy non-Null sentinel
         config = ScopeInitConfig.from_settings(
             _BASE_SETTINGS, labware=None, scope_config=_LS620_CONFIG,
         )
@@ -146,7 +145,7 @@ class TestNotifyPartialHardware:
 
     def test_ls820_motor_failed_warns(self, captured_warnings):
         scope = _make_scope_with_no_hardware()
-        scope.led = object()
+        scope._led_driver = object()
         config = ScopeInitConfig.from_settings(
             _BASE_SETTINGS, labware=None, scope_config=_LS820_CONFIG,
         )
@@ -158,8 +157,27 @@ class TestNotifyPartialHardware:
         """Backward-compat: callers that don't supply scope_config get
         the pre-filter behavior (any Null driver → warning)."""
         scope = _make_scope_with_no_hardware()
-        scope.led = object()
+        scope._led_driver = object()
         config = ScopeInitConfig.from_settings(_BASE_SETTINGS, labware=None)
         scope._notify_partial_hardware(config)
         assert len(captured_warnings) == 1
         assert "Motor Controller" in captured_warnings[0].message
+
+    def test_active_camera_does_not_warn(self, captured_warnings):
+        """Connected camera (driver.active=True) must not produce a
+        Camera warning. Guards against the pattern where a `hasattr`
+        check probes a name that no longer exists post-driver-rename
+        and the OR short-circuits to a false-positive missing-Camera."""
+        scope = _make_scope_with_no_hardware()
+        scope._led_driver = object()
+        scope._motion_driver = object()
+
+        class _ActiveCam:
+            active = True
+        scope._camera_driver = _ActiveCam()
+
+        config = ScopeInitConfig.from_settings(
+            _BASE_SETTINGS, labware=None, scope_config=_LS820_CONFIG,
+        )
+        scope._notify_partial_hardware(config)
+        assert captured_warnings == []

@@ -57,14 +57,15 @@ def add_false_color(array, color, output=None):
             img[:] = 0
         else:
             img = np.zeros((array.shape[0], array.shape[1], 3), dtype=src_dtype)
-        # BGR ordering (OpenCV convention): index 0=Blue, 1=Green, 2=Red.
-        # Callers using tifffile (RGB) must convert with cv2.COLOR_BGR2RGB.
+        # RGB ordering: index 0=Red, 1=Green, 2=Blue. Matches the canonical
+        # save-path convention shared with composite_builder. OpenCV consumers
+        # (cv2.VideoWriter) convert RGB->BGR at their own boundary.
         if color in ('Blue', 'Lumi'):
-            img[:,:,0] = array
+            img[:,:,2] = array
         elif color == 'Green':
             img[:,:,1] = array
         elif color == 'Red':
-            img[:,:,2] = array
+            img[:,:,0] = array
 
         # For HSL colorspace
         # elif color == 'Lumi':
@@ -288,13 +289,11 @@ def write_tiff(
         extratags = []
 
     # Convert 16-bit fluorescence to 3-channel RGB for false color in all viewers.
-    # This increases file size ~3x but provides color in Windows Preview and FIJI.
-    # Caller may pass the resolved bool to skip the per-save settings_lock acquire
-    # (PIW-3); falls back to a one-shot lock read when None for ad-hoc callers.
-    # PF-3: caller-supplied false_color_buf reuses the BGR output of add_false_color.
-    # PIW-6: caller-supplied rgb_buf receives cv2.cvtColor's BGR->RGB output, retiring
-    # the silent ~36 MB ascontiguousarray allocation that tifffile would otherwise do
-    # on the non-contiguous `data[:, :, ::-1]` stride-reversed view.
+    # File size grows ~3x in exchange for color in Windows Preview and FIJI.
+    # Caller may pass the resolved bool to skip the per-save settings_lock acquire;
+    # falls back to a one-shot lock read when None for ad-hoc callers.
+    # false_color_buf is the in-place RGB destination for add_false_color; rgb_buf
+    # is retained for API compat and will be retired once callers drop it.
     if (data.dtype == np.uint16
             and not is_color_image(data)
             and color in common_utils.get_image_layers()):
@@ -304,18 +303,7 @@ def write_tiff(
                 with _app_ctx.ctx.settings_lock:
                     use_false_color_16bit = _app_ctx.ctx.settings.get('false_color_16bit', False)
             if use_false_color_16bit:
-                bgr = add_false_color(data, color, output=false_color_buf)
-                # tifffile expects RGB; convert via cv2.cvtColor (idiomatic for a
-                # cv2-based pipeline) into the caller's pre-allocated rgb_buf when
-                # available, falling back to fresh allocation otherwise.
-                expected_shape = (data.shape[0], data.shape[1], 3)
-                if (rgb_buf is not None
-                        and rgb_buf.shape == expected_shape
-                        and rgb_buf.dtype == data.dtype):
-                    cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB, dst=rgb_buf)
-                    data = rgb_buf
-                else:
-                    data = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
+                data = add_false_color(data, color, output=false_color_buf)
         except Exception:
             pass
 

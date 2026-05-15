@@ -7,7 +7,7 @@ the import and runtime level:
   1. No module under modules/ imports Kivy directly (image_utils_kivy
      used to live there as an exception; it now lives at
      ui/image_utils_kivy.py per Rule 15).
-  2. A full protocol can be executed through SequencedCaptureExecutor
+  2. A full protocol can be executed through SequencedCaptureRunner
      without any Kivy module loaded in sys.modules.
   3. kivy_utils.schedule_ui() falls back to direct invocation when no
      GUI dispatcher has been set.
@@ -64,8 +64,8 @@ _purge_kivy_from_sys_modules()
 # Now import the protocol execution chain — these MUST not require Kivy
 from modules.lumascope_api import Lumascope
 from modules.sequential_io_executor import SequentialIOExecutor
-from modules.sequenced_capture_executor import (
-    SequencedCaptureExecutor,
+from modules.sequenced_capture_runner import (
+    SequencedCaptureRunner,
     SequencedCaptureRunMode,
 )
 from modules.protocol import Protocol
@@ -88,7 +88,7 @@ class TestHeadlessImports:
         # be a no-op, so reload their state by dropping them first if needed)
         import importlib
         import modules.lumascope_api
-        import modules.sequenced_capture_executor
+        import modules.sequenced_capture_runner
         import modules.protocol
         import modules.kivy_utils
 
@@ -135,16 +135,23 @@ class TestHeadlessProtocolExecution:
     """Verify a full protocol runs end-to-end without Kivy loaded."""
 
     def _make_executors(self):
-        names = ['io', 'protocol', 'file_io', 'camera', 'autofocus']
+        from modules.protocol_thread import ProtocolThread
+        names = ['io', 'file_io', 'camera', 'autofocus']
         execs = {n: SequentialIOExecutor(name=f"HEADLESS_{n.upper()}") for n in names}
         for e in execs.values():
             e.start()
+        pt = ProtocolThread()
+        pt.start()
+        execs['protocol'] = pt
         return execs
 
     def _shutdown_executors(self, execs):
-        for e in execs.values():
+        for name, e in execs.items():
             try:
-                e.shutdown()
+                if name == 'protocol':
+                    e.stop(timeout=2.0)
+                else:
+                    e.shutdown()
             except Exception:
                 pass
 
@@ -200,10 +207,10 @@ class TestHeadlessProtocolExecution:
 
         scope = Lumascope(simulate=True)
         # Speed up the simulator for test runtime
-        scope.led.set_timing_mode('fast')
-        scope.motion.set_timing_mode('fast')
-        scope.camera.set_timing_mode('fast')
-        scope.camera.grab()
+        scope._led_driver.set_timing_mode('fast')
+        scope._motion_driver.set_timing_mode('fast')
+        scope._camera_driver.set_timing_mode('fast')
+        scope._camera_driver.grab()
 
         execs = self._make_executors()
         try:
@@ -216,15 +223,15 @@ class TestHeadlessProtocolExecution:
             mock_af.best_focus_position = MagicMock(return_value=5000.0)
             mock_af.run_in_progress = MagicMock(return_value=False)
 
-            executor = SequencedCaptureExecutor(
+            executor = SequencedCaptureRunner(
                 scope=scope,
                 stage_offset={'x': 0.0, 'y': 0.0},
                 io_executor=execs['io'],
-                protocol_executor=execs['protocol'],
+                protocol_thread=execs['protocol'],
                 file_io_executor=execs['file_io'],
                 camera_executor=execs['camera'],
-                autofocus_io_executor=execs['autofocus'],
-                autofocus_executor=mock_af,
+                autofocus_thread=MagicMock(),
+                autofocus_runner=mock_af,
             )
             executor._wellplate_loader = WellPlateLoader()
             executor._coordinate_transformer = CoordinateTransformer()

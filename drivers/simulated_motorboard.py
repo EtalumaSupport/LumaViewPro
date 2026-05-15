@@ -1187,6 +1187,27 @@ class SimulatedMotorBoard:
         """
         return {'raw': '24V=OK 5V=N/A 3V3=N/A 1V2=N/A', '24V': 'OK'}
 
+    def read_voltages(self) -> dict[str, float | None] | None:
+        """Simulated power-rail voltage diagnostic -- returns nominal values."""
+        return {'5V': 5.0, '3.3V': 3.3, '1.2V': 1.2, '24V': 24.0}
+
+    def read_drv_status(self, axis: str) -> int | None:
+        """Simulated TMC5072 DRV_STATUS register -- returns 0 (no fault flags)."""
+        axis = axis.upper()
+        if axis not in ('X', 'Y', 'Z', 'T'):
+            raise ValueError(f"Invalid axis: {axis!r}")
+        return 0
+
+    def read_fanspeed(self) -> int | None:
+        """Simulated fan tachometer -- returns nominal RPM."""
+        return 1200
+
+    def set_fan_duty(self, duty_pct: int) -> bool:
+        """Simulated fan PWM duty -- accepts any valid 0..100 setting."""
+        if not 0 <= duty_pct <= 100:
+            raise ValueError(f"Fan duty must be 0..100, got {duty_pct}")
+        return True
+
     def wait_for_position(self, axis: str, timeout: float = 5.0) -> bool:
         """Simulated wait -- position is always reached instantly.
 
