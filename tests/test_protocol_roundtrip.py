@@ -2110,20 +2110,20 @@ class TestLumascapeAPIMotor:
     """Direct tests on Lumascope motor API with simulated hardware."""
 
     def test_move_absolute_z(self, scope):
-        scope.move_absolute_position('Z', 3000.0)
+        scope.motion.move_absolute_position('Z', 3000.0)
         # Simulated motor moves instantly in fast mode
-        pos = scope.get_target_position('Z')
+        pos = scope.motion.get_target_position('Z')
         assert pos == pytest.approx(3000.0, abs=1.0)
 
     def test_get_target_position_from_cache(self, scope):
         """get_target_position uses cache — zero serial I/O."""
-        scope.move_absolute_position('Z', 5000.0)
-        pos = scope.get_target_position('Z')
+        scope.motion.move_absolute_position('Z', 5000.0)
+        pos = scope.motion.get_target_position('Z')
         assert pos == pytest.approx(5000.0, abs=1.0)
 
     def test_all_axes_have_target(self, scope):
         """All axes return a position (even if 0)."""
-        positions = scope.get_target_position(axis=None)
+        positions = scope.motion.get_target_position(axis=None)
         assert isinstance(positions, dict)
         for ax in ('X', 'Y', 'Z'):
             assert ax in positions
