@@ -447,12 +447,12 @@ class Lumascope():
             # block frame validity for sources that don't apply.
             idle_or_absent = (AxisState.IDLE, AxisState.UNKNOWN)
             if source == 'z_move':
-                return self.get_axis_state('Z') in idle_or_absent
+                return self.motion.get_axis_state('Z') in idle_or_absent
             elif source == 'xy_move':
-                return (self.get_axis_state('X') in idle_or_absent and
-                        self.get_axis_state('Y') in idle_or_absent)
+                return (self.motion.get_axis_state('X') in idle_or_absent and
+                        self.motion.get_axis_state('Y') in idle_or_absent)
             elif source == 'turret':
-                return self.get_axis_state('T') in idle_or_absent
+                return self.motion.get_axis_state('T') in idle_or_absent
             return True
         self.frame_validity.set_settle_check(_motion_settle_check)
         self._load_camera_timing()
@@ -490,7 +490,7 @@ class Lumascope():
         # creating Lumascope (e.g., backlash characterization).
         if self.motor_connected:
             try:
-                self.refresh_position_cache()
+                self.motion.refresh_position_cache()
             except Exception:
                 pass  # OK — cache stays at 0.0 if firmware unresponsive
 
@@ -558,7 +558,7 @@ class Lumascope():
         self.set_frame_size(config.frame_width, config.frame_height)
         self.set_stage_offset(config.stage_offset)
         self.set_scale_bar(enabled=config.scale_bar_enabled)
-        self.set_acceleration_limit(val_pct=config.acceleration_pct)
+        self.motion.set_acceleration_limit(val_pct=config.acceleration_pct)
         logger.info('[SCOPE API ] Scope initialized')
 
     def _notify_partial_hardware(self, config) -> None:
@@ -752,28 +752,6 @@ class Lumascope():
         """
         with self._camera_cache_lock:
             return self._camera_cache.get('pixel_format', 'Mono8')
-
-    # --- CR-2: Thread-safe properties for shared state ---
-
-    @property
-    def is_homing(self) -> bool:
-        """True while the microscope is homing. Backcompat forwarder -- see MotionAPI."""
-        return self.motion.is_homing
-
-    @is_homing.setter
-    def is_homing(self, value: bool) -> None:
-        """Set the homing-in-progress flag. Backcompat forwarder -- see MotionAPI."""
-        self.motion.is_homing = value
-
-    @property
-    def is_turreting(self) -> bool:
-        """True while the turret is moving. Backcompat forwarder -- see MotionAPI."""
-        return self.motion.is_turreting
-
-    @is_turreting.setter
-    def is_turreting(self, value: bool) -> None:
-        """Set the turret-motion-in-progress flag. Backcompat forwarder -- see MotionAPI."""
-        self.motion.is_turreting = value
 
     @property
     def is_capturing(self) -> bool:
@@ -1216,70 +1194,6 @@ class Lumascope():
             return fut.result(timeout=timeout)
         return None
 
-    # --- Motion command API ---
-
-    # ---- Rule-30 backcompat forwarders -- motion sub-API ----
-    # Bodies live on MotionAPI (modules/lumascope_api/motion.py) per
-    # Wave 7 Phase 2b decomposition. This cluster (and its scattered
-    # siblings further down the file) retires in Phase 2f once
-    # production + test callers migrate to scope.motion.<name> in
-    # 2d / 2e.
-    def move_absolute_async(self, axis, pos, *, wait_until_complete=False,
-                            overshoot_enabled=True, callback=None,
-                            cb_kwargs=None) -> None:
-        """Backcompat forwarder -- see MotionAPI.move_absolute_async."""
-        return self.motion.move_absolute_async(
-            axis, pos,
-            wait_until_complete=wait_until_complete,
-            overshoot_enabled=overshoot_enabled,
-            callback=callback,
-            cb_kwargs=cb_kwargs,
-        )
-
-    def move_absolute_sync(self, axis, pos, *, wait_until_complete=True,
-                           overshoot_enabled=True, timeout=30) -> None:
-        """Backcompat forwarder -- see MotionAPI.move_absolute_sync."""
-        return self.motion.move_absolute_sync(
-            axis, pos,
-            wait_until_complete=wait_until_complete,
-            overshoot_enabled=overshoot_enabled,
-            timeout=timeout,
-        )
-
-    def move_relative_async(self, axis, um, *, wait_until_complete=False,
-                            overshoot_enabled=True, callback=None,
-                            cb_kwargs=None) -> None:
-        """Backcompat forwarder -- see MotionAPI.move_relative_async."""
-        return self.motion.move_relative_async(
-            axis, um,
-            wait_until_complete=wait_until_complete,
-            overshoot_enabled=overshoot_enabled,
-            callback=callback,
-            cb_kwargs=cb_kwargs,
-        )
-
-    def move_home_async(self, axis, *, callback=None, cb_args=None) -> None:
-        """Backcompat forwarder -- see MotionAPI.move_home_async."""
-        return self.motion.move_home_async(axis, callback=callback, cb_args=cb_args)
-
-    # --- Axis state accessors (zero serial I/O) ---
-
-    def get_axis_state(self, axis: str) -> str:
-        """Backcompat forwarder -- see MotionAPI.get_axis_state."""
-        return self.motion.get_axis_state(axis)
-
-    def add_position_listener(self, listener) -> None:
-        """Backcompat forwarder -- see MotionAPI.add_position_listener."""
-        return self.motion.add_position_listener(listener)
-
-    def remove_position_listener(self, listener) -> None:
-        """Backcompat forwarder -- see MotionAPI.remove_position_listener."""
-        return self.motion.remove_position_listener(listener)
-
-    def _fire_position_listeners(self, axis: str):
-        """Backcompat forwarder -- see MotionAPI._fire_position_listeners."""
-        return self.motion._fire_position_listeners(axis)
-
     # ------------------------------------------------------------------
     # LED change listeners
     # ------------------------------------------------------------------
@@ -1478,14 +1392,6 @@ class Lumascope():
             except Exception as ex:
                 _api_log.debug(f'camera listener error: {ex}')
 
-    def _set_axis_state(self, axis: str, state: str):
-        """Backcompat forwarder -- see MotionAPI._set_axis_state."""
-        return self.motion._set_axis_state(axis, state)
-
-    def is_any_axis_moving(self) -> bool:
-        """Backcompat forwarder -- see MotionAPI.is_any_axis_moving."""
-        return self.motion.is_any_axis_moving()
-
     def axes_present(self) -> list[str]:
         """Get list of axes physically present on this scope.
 
@@ -1579,10 +1485,6 @@ class Lumascope():
         finally:
             self._hw_lock.release()
 
-    def stop_motion(self) -> None:
-        """Backcompat forwarder -- see MotionAPI.stop_motion."""
-        return self.motion.stop_motion()
-
     def disconnect(self) -> bool:
         """Disconnect from all hardware (LED, motion, camera).
 
@@ -1606,7 +1508,7 @@ class Lumascope():
         # the host stops responding to status polls. Defense in depth --
         # every disconnect path benefits without relying on the caller
         # to remember.
-        self.stop_motion()
+        self.motion.stop_motion()
 
         # Stop the motion monitor and reset axis states -- MotionAPI.disconnect()
         # handles both: signals the monitor thread, waits for it, then resets
@@ -1830,23 +1732,6 @@ class Lumascope():
             dict: Mapping of turret position to objective ID.
         """
         return self._turret_config
-
-    def get_turret_position_for_objective_id(
-        self,
-        objective_id: str,
-        prefer_current: bool = True,
-        persisted_position: int | None = None,
-    ) -> int | None:
-        """Backcompat forwarder -- see MotionAPI.get_turret_position_for_objective_id."""
-        return self.motion.get_turret_position_for_objective_id(
-            objective_id,
-            prefer_current=prefer_current,
-            persisted_position=persisted_position,
-        )
-
-    def is_current_turret_position_objective_set(self) -> bool:
-        """Backcompat forwarder -- see MotionAPI.is_current_turret_position_objective_set."""
-        return self.motion.is_current_turret_position_objective_set()
 
     def set_scale_bar(self, enabled: bool, color: str = None) -> None:
         """Configure the scale bar overlay on captured images.
@@ -3124,8 +3009,8 @@ class Lumascope():
 
         # Get target position
         try:
-            x_target = self.get_target_position('X')
-            y_target = self.get_target_position('Y')
+            x_target = self.motion.get_target_position('X')
+            y_target = self.motion.get_target_position('Y')
         except Exception:
             logger.exception('[LVP API  ] Error getting target position.')
             raise
@@ -3833,146 +3718,11 @@ class Lumascope():
         Emits forced-INFO log lines so the limit-switch state pre/post
         homing is preserved for diagnostics.
         """
-        before = self.get_limit_switch_status_all_axes()
+        before = self.motion.get_limit_switch_status_all_axes()
         logger.info(f"Limit switch status before homing: {before}", extra={'force_error': True})
         yield
-        after = self.get_limit_switch_status_all_axes()
+        after = self.motion.get_limit_switch_status_all_axes()
         logger.info(f"Limit switch status after homing: {after}", extra={'force_error': True})
-
-    def get_axes_config(self) -> dict:
-        """Backcompat forwarder -- see MotionAPI.get_axes_config."""
-        return self.motion.get_axes_config()
-
-    def get_axis_limits(self, axis: str) -> dict:
-        """Backcompat forwarder -- see MotionAPI.get_axis_limits."""
-        return self.motion.get_axis_limits(axis)
-
-
-    def zhome(self) -> bool:
-        """Backcompat forwarder -- see MotionAPI.zhome."""
-        return self.motion.zhome()
-
-    def home(self) -> bool:
-        """Backcompat forwarder -- see MotionAPI.home."""
-        return self.motion.home()
-
-    def has_homed(self) -> bool:
-        """Backcompat forwarder -- see MotionAPI.has_homed."""
-        return self.motion.has_homed()
-
-    def xycenter(self) -> None:
-        """Backcompat forwarder -- see MotionAPI.xycenter."""
-        return self.motion.xycenter()
-
-
-    def safe_turret_mover(self):
-        """Backcompat forwarder -- see MotionAPI.safe_turret_move."""
-        return self.motion.safe_turret_move()
-
-
-    def thome(self) -> bool:
-        """Backcompat forwarder -- see MotionAPI.thome."""
-        return self.motion.thome()
-
-    def has_thomed(self) -> bool:
-        """Backcompat forwarder -- see MotionAPI.has_thomed."""
-        return self.motion.has_thomed()
-
-    def tmove(self, position: int) -> None:
-        """Backcompat forwarder -- see MotionAPI.tmove."""
-        return self.motion.tmove(position)
-
-    def has_turret(self) -> bool:
-        """Backcompat forwarder -- see MotionAPI.has_turret."""
-        return self.motion.has_turret()
-
-
-    def refresh_position_cache(self) -> None:
-        """Backcompat forwarder -- see MotionAPI.refresh_position_cache."""
-        return self.motion.refresh_position_cache()
-
-    def get_target_position(self, axis: str | None = None) -> 'float | dict | None':
-        """Backcompat forwarder -- see MotionAPI.get_target_position."""
-        return self.motion.get_target_position(axis)
-
-    def get_current_position(self, axis: str | None = None) -> 'float | dict':
-        """Backcompat forwarder -- see MotionAPI.get_current_position."""
-        return self.motion.get_current_position(axis)
-
-    def _predicted_position(self, axis: str) -> float | None:
-        """Backcompat forwarder -- see MotionAPI._predicted_position."""
-        return self.motion._predicted_position(axis)
-
-
-    def get_actual_position(self, axis: str) -> float:
-        """Backcompat forwarder -- see MotionAPI.get_actual_position."""
-        return self.motion.get_actual_position(axis)
-
-    def set_motor_precision_mode(self, axis: str, enabled: bool) -> None:
-        """Backcompat forwarder -- see MotionAPI.set_motor_precision_mode."""
-        return self.motion.set_motor_precision_mode(axis, enabled)
-
-
-    def move_absolute_position(self, axis: str, pos: float,
-                               wait_until_complete: bool = False,
-                               overshoot_enabled: bool = True,
-                               ignore_limits: bool = False) -> None:
-        """Backcompat forwarder -- see MotionAPI.move_absolute_position."""
-        return self.motion.move_absolute_position(
-            axis, pos,
-            wait_until_complete=wait_until_complete,
-            overshoot_enabled=overshoot_enabled,
-            ignore_limits=ignore_limits,
-        )
-
-    def move_relative_position(self, axis: str, um: float,
-                               wait_until_complete: bool = False,
-                               overshoot_enabled: bool = False) -> None:
-        """Backcompat forwarder -- see MotionAPI.move_relative_position."""
-        return self.motion.move_relative_position(
-            axis, um,
-            wait_until_complete=wait_until_complete,
-            overshoot_enabled=overshoot_enabled,
-        )
-
-
-    def get_home_status(self, axis: str) -> bool:
-        """Backcompat forwarder -- see MotionAPI.get_home_status."""
-        return self.motion.get_home_status(axis)
-
-    def get_target_status(self, axis: str) -> bool:
-        """Backcompat forwarder -- see MotionAPI.get_target_status."""
-        return self.motion.get_target_status(axis)
-
-    def get_reference_status(self, axis: str) -> str:
-        """Backcompat forwarder -- see MotionAPI.get_reference_status."""
-        return self.motion.get_reference_status(axis)
-
-    def get_limit_switch_status(self, axis: str):
-        """Backcompat forwarder -- see MotionAPI.get_limit_switch_status."""
-        return self.motion.get_limit_switch_status(axis)
-
-    def get_limit_switch_status_all_axes(self) -> dict:
-        """Backcompat forwarder -- see MotionAPI.get_limit_switch_status_all_axes."""
-        return self.motion.get_limit_switch_status_all_axes()
-
-    def get_overshoot(self) -> bool:
-        """Backcompat forwarder -- see MotionAPI.get_overshoot."""
-        return self.motion.get_overshoot()
-
-    def is_moving(self) -> bool:
-        """Backcompat forwarder -- see MotionAPI.is_moving."""
-        return self.motion.is_moving()
-
-    def wait_until_finished_moving(self, timeout: float = 120.0) -> bool:
-        """Backcompat forwarder -- see MotionAPI.wait_until_finished_moving."""
-        return self.motion.wait_until_finished_moving(timeout)
-
-
-    def set_acceleration_limit(self, val_pct: int) -> None:
-        """Backcompat forwarder -- see MotionAPI.set_acceleration_limit."""
-        return self.motion.set_acceleration_limit(val_pct)
-
 
     def get_microscope_model(self) -> str | None:
         """Get the microscope model identifier from the motion board.
