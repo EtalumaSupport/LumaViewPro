@@ -214,6 +214,13 @@ class VideoBuilder(ProtocolPostProcessor):
                 logger.error(f"[{self._name}] Failed to read image: {image_path}")
                 continue
 
+            # cv2.imread returns BGR for 3-channel images regardless of source
+            # file format. VideoWriter expects RGB per the canonical save-path
+            # convention; without this conversion the false-colored blue
+            # channel saved to TIFF lands in the red channel of the mp4.
+            if image.ndim == 3:
+                image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+
             # Timestamp overlay and 8-bit conversion handled by VideoWriter.add_frame()
             frame_ts = row['Timestamp'].to_pydatetime() if enable_timestamp_overlay else None
             video.add_frame(image=image, timestamp=frame_ts)
