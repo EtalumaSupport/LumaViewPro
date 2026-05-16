@@ -2392,33 +2392,27 @@ class TestPIW6_PF3_FalseColorRgbPreallocated:
       - data[:, :, ::-1] returns a stride-reversed VIEW; tifffile silently
         calls np.ascontiguousarray on write (~36 MB uint16 alloc)               — PIW-6
 
-    After:
-      - add_false_color(data, color, output=false_color_buf) reuses caller buf  — PF-3
-      - cv2.cvtColor(bgr, COLOR_BGR2RGB, dst=rgb_buf) writes in-place           — PIW-6
+    After (final, post-e2ef49e):
+      - add_false_color(data, color, output=false_color_buf) reuses caller buf
+        AND returns the canonical RGB ordering directly — PF-3 + #657 fix.
+      - write_tiff no longer needs a BGR->RGB conversion step; the stride-
+        reverse anti-pattern is gone and the cv2.cvtColor intermediate was
+        retired by e2ef49e once add_false_color became RGB-native.
 
-    ProtocolImageWriter holds both buffers per run, lazy-allocated together
-    on first uint16 2D save when false-color is enabled. Mismatched shape/dtype
+    ProtocolImageWriter holds the false_color_buf per run (rgb_buf param on
+    write_tiff is retained for API compat per the comment in image_utils.py
+    and will retire once callers drop it). Buffer is lazy-allocated on first
+    uint16 2D save when false-color is enabled. Mismatched shape/dtype
     re-allocates on demand. file_io_executor runs single-threaded so reuse
     across sequential saves is safe.
-
-    The cv2.cvtColor approach is more idiomatic in a cv2-based pipeline than
-    the previous numpy stride-reversal + ascontiguousarray pattern.
     """
 
-    def test_write_tiff_uses_cv2_cvtColor_into_rgb_buf(self):
+    def test_write_tiff_calls_add_false_color_with_output_buf(self):
         from pathlib import Path
         src = (Path(__file__).resolve().parent.parent / "modules" / "image_utils.py").read_text()
-        # Old form (as code, not as comment-reference) gone.
+        # Old stride-reverse view-of-BGR anti-pattern gone.
         assert "data = data[:, :, ::-1]" not in src, (
             "PIW-6: old stride-reversed-view BGR->RGB assignment should be replaced."
-        )
-        # New form: cv2.cvtColor with dst kwarg.
-        assert "cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB, dst=rgb_buf)" in src, (
-            "PIW-6: BGR->RGB should use cv2.cvtColor with dst=rgb_buf for in-place conversion."
-        )
-        # Fallback path when no rgb_buf supplied.
-        assert "cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)" in src, (
-            "PIW-6: fallback path should still call cv2.cvtColor for ad-hoc callers."
         )
         # add_false_color is called with the output buffer.
         assert "add_false_color(data, color, output=false_color_buf)" in src, (
@@ -2470,16 +2464,18 @@ class TestPIW6_PF3_FalseColorRgbPreallocated:
         )
 
     def test_add_false_color_uses_output_buffer(self):
-        """Functional: add_false_color writes into the supplied output buffer."""
+        """Functional: add_false_color writes into the supplied output buffer.
+        Channel layout is RGB (index 0=Red, 1=Green, 2=Blue) post-e2ef49e.
+        """
         import numpy as np
         from modules.image_utils import add_false_color
         src = np.full((4, 4), 100, dtype=np.uint16)
         buf = np.full((4, 4, 3), 999, dtype=np.uint16)
         result = add_false_color(src, 'Blue', output=buf)
         assert result is buf, "PF-3: add_false_color should return the supplied buffer."
-        np.testing.assert_array_equal(result[:, :, 0], src)
+        np.testing.assert_array_equal(result[:, :, 2], src)
         assert np.all(result[:, :, 1] == 0), "PF-3: green channel should be zeroed."
-        assert np.all(result[:, :, 2] == 0), "PF-3: red channel should be zeroed."
+        assert np.all(result[:, :, 0] == 0), "PF-3: red channel should be zeroed."
 
     def test_cv2_cvtColor_dst_writes_in_place(self):
         """Functional: cv2.cvtColor with dst= writes BGR->RGB in-place."""
