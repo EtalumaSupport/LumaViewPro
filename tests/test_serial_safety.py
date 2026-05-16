@@ -1023,6 +1023,18 @@ class TestMotorBoardMovement:
         board.driver.readline.return_value = b"0\n"
         assert board.target_status('Z') is False
 
+    def test_target_status_raises_hardware_error_on_none(self):
+        """target_status() must raise HardwareError when STATUS_R returns
+        None (timeout / disconnect). Issue #653: untyped ValueError leaked
+        past the API layer as a raw stack trace into the motion-monitor
+        thread without a user-facing notification."""
+        from drivers.exceptions import HardwareError
+
+        board = self._make_board()
+        board.driver.write.side_effect = serial.SerialTimeoutException("timeout")
+        with pytest.raises(HardwareError, match="STATUS_R returned None"):
+            board.target_status('Z')
+
     def test_get_axis_limits(self):
         """get_axis_limits should return the configured limits."""
         board = self._make_board()
