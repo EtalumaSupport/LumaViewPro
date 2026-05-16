@@ -60,7 +60,7 @@ class StitchControls(BoxLayout):
         popup.auto_dismiss = False
 
         stitcher = Stitcher(
-            has_turret=ctx.lumaview.scope.has_turret(),
+            has_turret=ctx.lumaview.scope.motion.has_turret(),
         )
         ctx.file_io_executor.put(IOTask(action=stitcher.load_folder,
                              args=(pathlib.Path(path),
@@ -188,7 +188,7 @@ class ZProjectionControls(BoxLayout):
         popup.text = "Generating Z-Projection images..."
 
         zproj = zprojector.ZProjector(
-            has_turret=ctx.lumaview.scope.has_turret(),
+            has_turret=ctx.lumaview.scope.motion.has_turret(),
             ij_helper=ctx.ij_helper
         )
         ctx.file_io_executor.put(IOTask(action=zproj.load_folder,
@@ -256,7 +256,7 @@ class CompositeGenControls(BoxLayout):
         popup.auto_dismiss = False
 
         composite_gen = CompositeGeneration(
-            has_turret=ctx.lumaview.scope.has_turret(),
+            has_turret=ctx.lumaview.scope.motion.has_turret(),
         )
 
         # For now, progress is only updated on the generation of each composite image, not each image that is used to generate the composite
@@ -329,7 +329,7 @@ class VideoCreationControls(BoxLayout):
             return
 
         video_builder = VideoBuilder(
-            has_turret=ctx.lumaview.scope.has_turret(),
+            has_turret=ctx.lumaview.scope.motion.has_turret(),
         )
 
         ctx.file_io_executor.put(IOTask(action=video_builder.load_folder,

@@ -37,7 +37,7 @@ during the transition.
 import ast
 import pathlib
 
-BANNED_ATTRS = frozenset({'camera', 'led', 'motion'})
+BANNED_ATTRS = frozenset({'camera', 'led'})
 
 # Production code roots; tests/ deliberately excluded (see docstring).
 PROD_ROOTS = ('modules', 'ui')

@@ -594,7 +594,7 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
                     include_hyperstack_generation = True
                     _, objective = ui_snapshot['objective_info']
                     stack_builder = StackBuilder(
-                        has_turret=_app_ctx.ctx.scope.has_turret(),
+                        has_turret=_app_ctx.ctx.scope.motion.has_turret(),
                     )
                     frame_metadata = []
 
@@ -645,7 +645,7 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
                             metadata['frame_id'] = int(frame_id)
 
                     if include_hyperstack_generation:
-                        current_position = _app_ctx.ctx.scope.get_current_position()
+                        current_position = _app_ctx.ctx.scope.motion.get_current_position()
                         frame_metadata.append(
                             {
                                 'Filepath': output_file_loc.name,

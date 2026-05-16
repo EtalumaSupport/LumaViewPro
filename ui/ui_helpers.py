@@ -129,7 +129,7 @@ def move_absolute_position(
             ctx.motion_settings.ids['verticalcontrol_id'].turret_select(selected_position=pos, protocol=True)
     else:
         if not protocol:
-            ctx.scope.move_absolute_async(
+            ctx.scope.motion.move_absolute_async(
                 axis, pos,
                 wait_until_complete=wait_until_complete,
                 overshoot_enabled=overshoot_enabled,
@@ -140,7 +140,7 @@ def move_absolute_position(
             # Already running on the io_executor (protocol thread) —
             # call the scope primitive directly. Submitting to the
             # same executor would deadlock.
-            ctx.scope.move_absolute_position(
+            ctx.scope.motion.move_absolute_position(
                 axis=axis, pos=pos,
                 wait_until_complete=wait_until_complete,
                 overshoot_enabled=overshoot_enabled,
@@ -156,7 +156,7 @@ def move_relative_position(
     overshoot_enabled: bool = True
 ):
     ctx = _app_ctx.ctx
-    ctx.scope.move_relative_async(
+    ctx.scope.motion.move_relative_async(
         axis, um,
         wait_until_complete=wait_until_complete,
         overshoot_enabled=overshoot_enabled,
@@ -169,7 +169,7 @@ def move_home(axis: str):
     ctx = _app_ctx.ctx
     axis = axis.upper()
     set_title_event_text("Homing, please wait...")
-    ctx.scope.move_home_async(axis, callback=move_home_cb, cb_args=(axis))
+    ctx.scope.motion.move_home_async(axis, callback=move_home_cb, cb_args=(axis))
 
 
 # ============================================================================

@@ -81,7 +81,7 @@ class TestSourceOrder_618:
     def test_move_absolute_position_writes_hardware_first(self):
         body = _find_method_source("MotionAPI", "move_absolute_position")
         move_idx = body.find("self._driver.move_abs_pos(")
-        state_idx = body.find("self._scope._set_axis_state(axis, AxisState.MOVING)")
+        state_idx = body.find("self._set_axis_state(axis, AxisState.MOVING)")
         assert move_idx != -1, "move_abs_pos call missing from move_absolute_position"
         assert state_idx != -1, "_set_axis_state(MOVING) call missing"
         assert move_idx < state_idx, (
@@ -92,7 +92,7 @@ class TestSourceOrder_618:
     def test_move_relative_position_writes_hardware_first(self):
         body = _find_method_source("MotionAPI", "move_relative_position")
         move_idx = body.find("self._driver.move_rel_pos(")
-        state_idx = body.find("self._scope._set_axis_state(axis, AxisState.MOVING)")
+        state_idx = body.find("self._set_axis_state(axis, AxisState.MOVING)")
         assert move_idx != -1, "move_rel_pos call missing from move_relative_position"
         assert state_idx != -1, "_set_axis_state(MOVING) call missing"
         assert move_idx < state_idx, (
@@ -111,13 +111,16 @@ class TestRuntimeOrder_618:
 
     def _track_calls(self, scope, axis):
         """Wrap motion.move_abs_pos / move_rel_pos and _set_axis_state to
-        record the order in which they're called."""
+        record the order in which they're called. The _set_axis_state wrap
+        targets scope.motion._set_axis_state (the canonical surface) because
+        intra-motion calls reference self._set_axis_state directly after
+        the 2c band-aid revert."""
         from modules.lumascope_api import AxisState
 
         call_order = []
         orig_move_abs = scope._motion_driver.move_abs_pos
         orig_move_rel = scope._motion_driver.move_rel_pos
-        orig_set_state = scope._set_axis_state
+        orig_set_state = scope.motion._set_axis_state
 
         def track_move_abs(*args, **kwargs):
             call_order.append("motion.move_abs_pos")
@@ -136,7 +139,7 @@ class TestRuntimeOrder_618:
 
         scope._motion_driver.move_abs_pos = track_move_abs
         scope._motion_driver.move_rel_pos = track_move_rel
-        scope._set_axis_state = track_set_state
+        scope.motion._set_axis_state = track_set_state
         return call_order
 
     def test_move_absolute_position_order_z(self):
@@ -144,7 +147,7 @@ class TestRuntimeOrder_618:
         scope = Lumascope(simulate=True)
         scope._motion_driver.set_timing_mode("fast")
         call_order = self._track_calls(scope, "Z")
-        scope.move_absolute_position("Z", 5000.0, wait_until_complete=False)
+        scope.motion.move_absolute_position("Z", 5000.0, wait_until_complete=False)
         # The hardware write must come before the MOVING transition
         assert "motion.move_abs_pos" in call_order
         assert "set_state_MOVING" in call_order
@@ -160,7 +163,7 @@ class TestRuntimeOrder_618:
         scope = Lumascope(simulate=True)
         scope._motion_driver.set_timing_mode("fast")
         call_order = self._track_calls(scope, "Z")
-        scope.move_relative_position("Z", 100.0, wait_until_complete=False)
+        scope.motion.move_relative_position("Z", 100.0, wait_until_complete=False)
         assert "motion.move_rel_pos" in call_order
         assert "set_state_MOVING" in call_order
         move_idx = call_order.index("motion.move_rel_pos")
@@ -201,19 +204,19 @@ class TestRaceSimulation_618:
             #   - arrival event should still be SET (from prior move)
             # That means the motion monitor would NOT poll Z (state != MOVING)
             # and could not falsely conclude arrival.
-            state = scope._axis_state["Z"]
-            arrival_set = scope._arrival_events["Z"].is_set()
+            state = scope.motion._axis_state["Z"]
+            arrival_set = scope.motion._arrival_events["Z"].is_set()
             observations.append((state, arrival_set))
             return orig_move_abs(*args, **kwargs)
 
         scope._motion_driver.move_abs_pos = observe_during_move
 
         # Prime: do one move to set Z to a known IDLE state
-        scope.move_absolute_position("Z", 1000.0, wait_until_complete=True)
+        scope.motion.move_absolute_position("Z", 1000.0, wait_until_complete=True)
         observations.clear()  # reset after the priming move
 
         # Now do a back-to-back move
-        scope.move_absolute_position("Z", 5000.0, wait_until_complete=False)
+        scope.motion.move_absolute_position("Z", 5000.0, wait_until_complete=False)
 
         assert len(observations) == 1, (
             f"motion.move_abs_pos should be called once, got {len(observations)}"
@@ -245,11 +248,11 @@ class TestBackToBackMoves_618:
         scope = Lumascope(simulate=True)
         scope._motion_driver.set_timing_mode("fast")
 
-        scope.move_absolute_position("Z", 2000.0, wait_until_complete=True)
+        scope.motion.move_absolute_position("Z", 2000.0, wait_until_complete=True)
         pos1 = scope._motion_driver.current_pos("Z")
         assert abs(pos1 - 2000.0) < 5.0, f"first move ended at {pos1}, expected ~2000"
 
-        scope.move_absolute_position("Z", 8000.0, wait_until_complete=True)
+        scope.motion.move_absolute_position("Z", 8000.0, wait_until_complete=True)
         pos2 = scope._motion_driver.current_pos("Z")
         assert abs(pos2 - 8000.0) < 5.0, f"second move ended at {pos2}, expected ~8000"
 
@@ -261,7 +264,7 @@ class TestBackToBackMoves_618:
         # 20 rapid back-to-back moves, alternating direction
         targets = [3000.0, 7000.0] * 10
         for target in targets:
-            scope.move_absolute_position("Z", target, wait_until_complete=True)
+            scope.motion.move_absolute_position("Z", target, wait_until_complete=True)
             actual = scope._motion_driver.current_pos("Z")
             assert abs(actual - target) < 5.0, (
                 f"move to {target} ended at {actual}"

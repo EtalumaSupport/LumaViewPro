@@ -892,7 +892,7 @@ class LumaViewProApp(TooltipMixin, App):
         # disconnect, and any in-flight motion should stop before we tear down the
         # executors that own the move callbacks. Revisit if shutdown_threads and disconnect
         # are consolidated into one teardown.
-        lumaview.scope.stop_motion()
+        lumaview.scope.motion.stop_motion()
 
         logger.info('[LVP Main  ] lumaview.scope.leds_off()')
         try:

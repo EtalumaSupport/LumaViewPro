@@ -241,7 +241,7 @@ class ScopeSession:
 
     def move_absolute(self, axis, pos, wait_until_complete=False,
                       overshoot_enabled=True, callback=None, cb_kwargs=None):
-        self.scope.move_absolute_async(
+        self.scope.motion.move_absolute_async(
             axis, pos,
             wait_until_complete=wait_until_complete,
             overshoot_enabled=overshoot_enabled,
@@ -250,7 +250,7 @@ class ScopeSession:
 
     def move_relative(self, axis, um, wait_until_complete=False,
                       overshoot_enabled=True, callback=None, cb_kwargs=None):
-        self.scope.move_relative_async(
+        self.scope.motion.move_relative_async(
             axis, um,
             wait_until_complete=wait_until_complete,
             overshoot_enabled=overshoot_enabled,
@@ -258,7 +258,7 @@ class ScopeSession:
         )
 
     def move_home(self, axis, callback=None, cb_args=None):
-        self.scope.move_home_async(
+        self.scope.motion.move_home_async(
             axis, callback=callback, cb_args=cb_args,
         )
 
@@ -305,7 +305,7 @@ class ScopeSession:
            Firmware homes Z, T, X, Y in one routine; on Z-only boards
            it homes what it has and reports the missing axes.
 
-        2. (when ``self.scope.has_turret()`` is True) Absolute T-axis
+        2. (when ``self.scope.motion.has_turret()`` is True) Absolute T-axis
            move to the position that matches ``settings['objective_id']``
            -- falls back to position 1 if the objective isn't in the
            turret config. Updates ``settings['turret_position']`` so
@@ -330,9 +330,9 @@ class ScopeSession:
         if not disable_homing:
             self.io_executor.put(IOTask(move_home, args=('ALL',)))
 
-        if self.scope.has_turret():
+        if self.scope.motion.has_turret():
             objective_id = self.settings.get('objective_id')
-            turret_position = self.scope.get_turret_position_for_objective_id(
+            turret_position = self.scope.motion.get_turret_position_for_objective_id(
                 objective_id=objective_id,
                 persisted_position=self.settings.get('turret_position'),
             )

@@ -44,8 +44,8 @@ class CompositeCapture(FloatLayout):
 
         # Get target position
         try:
-            x_target = ctx.scope.get_target_position('X')
-            y_target = ctx.scope.get_target_position('Y')
+            x_target = ctx.scope.motion.get_target_position('X')
+            y_target = ctx.scope.motion.get_target_position('Y')
         except Exception:
             logger.exception('[LVP Main  ] Error talking to Motor board.')
             raise
@@ -341,7 +341,7 @@ class CompositeCapture(FloatLayout):
 
                 if z_stage_present:
                     focus_pos = layer_settings[trans_layer]['focus']
-                    ctx.scope.move_absolute_sync(
+                    ctx.scope.motion.move_absolute_sync(
                         'Z', focus_pos, wait_until_complete=True,
                     )
 
@@ -376,7 +376,7 @@ class CompositeCapture(FloatLayout):
 
                 if z_stage_present:
                     focus_pos = layer_settings[layer]['focus']
-                    ctx.scope.move_absolute_sync(
+                    ctx.scope.motion.move_absolute_sync(
                         'Z', focus_pos, wait_until_complete=True,
                     )
 

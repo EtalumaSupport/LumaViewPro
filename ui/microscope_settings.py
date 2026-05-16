@@ -268,7 +268,7 @@ class MicroscopeSettings(BoxLayout):
         if scope is None:
             return
         ctx.io_executor.put(IOTask(
-            action=scope.set_acceleration_limit,
+            action=scope.motion.set_acceleration_limit,
             kwargs={'val_pct': val_pct},
         ))
 
@@ -448,7 +448,7 @@ class MicroscopeSettings(BoxLayout):
             # Mutate turret config keys from str to int for cleaner handling
             settings['turret_objectives'] = {int(k):v for k,v in settings['turret_objectives'].items()}
 
-            if lumaview.scope.has_turret():
+            if lumaview.scope.motion.has_turret():
                 turret_objectives = list(settings["turret_objectives"].values())
                 assigned = [obj for obj in turret_objectives if obj is not None]
                 if not assigned:
@@ -468,6 +468,17 @@ class MicroscopeSettings(BoxLayout):
             objective_helper = ctx.objective_helper
             objective = objective_helper.get_objective_info(objective_id=objective_id)
             self.ids['magnification_id'].text = f"{objective['magnification']}"
+
+            # Populate FOV fields at startup; otherwise the fields stay blank
+            # until the user clicks Frame Size or selects an objective (both
+            # have their own FOV-recalc handlers).
+            fov_size = common_utils.get_field_of_view(
+                focal_length=objective['focal_length'],
+                frame_size=settings['frame'],
+                binning_size=binning_size,
+            )
+            self.ids['field_of_view_width_id'].text = str(round(fov_size['width'], 0))
+            self.ids['field_of_view_height_id'].text = str(round(fov_size['height'], 0))
 
             # Load previous turret position objectives
             for turret_pos, objective_id in settings["turret_objectives"].items():
@@ -1114,7 +1125,7 @@ class MicroscopeSettings(BoxLayout):
             objective_helper = ctx.objective_helper
 
             # If turret is present, objective must be assigned to a turret position (#606)
-            if lumaview.scope.has_turret():
+            if lumaview.scope.motion.has_turret():
                 turret_objectives = list(settings.get("turret_objectives", {}).values())
                 assigned = [obj for obj in turret_objectives if obj is not None]
                 if assigned and objective_id not in assigned:
@@ -1133,7 +1144,7 @@ class MicroscopeSettings(BoxLayout):
             vc_objective_spinner = ctx.motion_settings.ids['verticalcontrol_id'].ids['objective_spinner2']
             vc_objective_spinner.text = objective_id
 
-            if lumaview.scope.has_turret():
+            if lumaview.scope.motion.has_turret():
                 lumaview.scope.set_turret_config(turret_config=settings["turret_objectives"])
 
             lumaview.scope.set_objective(objective_id=objective_id)

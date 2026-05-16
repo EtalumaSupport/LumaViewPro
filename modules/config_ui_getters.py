@@ -70,7 +70,7 @@ def get_zstack_positions() -> tuple[bool, dict]:
     config = get_zstack_params()
 
     ctx = _app_ctx.ctx
-    current_pos = ctx.scope.get_current_position('Z')
+    current_pos = ctx.scope.motion.get_current_position('Z')
 
     zstack_config = ZStackConfig(
         range=config['range'],
@@ -133,7 +133,7 @@ def get_current_plate_position():
             'z': 0
         }
 
-    pos = ctx.scope.get_current_position(axis=None)
+    pos = ctx.scope.motion.get_current_position(axis=None)
     _, labware_obj = get_selected_labware()
     px, py = ctx.coordinate_transformer.stage_to_plate(
         labware=labware_obj,
@@ -290,7 +290,7 @@ def create_hyperstacks_if_needed():
         run_dir = ctx.sequenced_capture_runner.run_dir()
         tiling_loc = pathlib.Path(ctx.source_path) / "data" / "tiling.json"
         binning = get_binning_from_ui()
-        has_turret = ctx.scope.has_turret()
+        has_turret = ctx.scope.motion.has_turret()
         focal_length = objective['focal_length']
 
         def _build():

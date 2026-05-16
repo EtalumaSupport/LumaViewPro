@@ -301,7 +301,7 @@ class ProtocolStepRunner:
         Each axis move is submitted through ``io_executor.protocol_put``
         and the protocol thread waits on the future, so all motor I/O
         is serialized to one worker. Calling
-        ``scope.move_absolute_position`` directly from PROTOCOL_WORKER
+        ``scope.motion.move_absolute_position`` directly from PROTOCOL_WORKER
         instead would let motor serial writes from this thread
         interleave with any io_executor-queued motor command (UI
         sliders, manual moves) mid-step.

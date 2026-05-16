@@ -444,13 +444,13 @@ class Stage(Widget):
         y_current = None
 
         try:
-            if scope.has_homed():
+            if scope.motion.has_homed():
                 # Position cache auto-refreshes on first read if stale (>80ms)
-                x_target = scope.get_target_position('X')
-                y_target = scope.get_target_position('Y')
+                x_target = scope.motion.get_target_position('X')
+                y_target = scope.motion.get_target_position('Y')
                 x_max, y_max = self._stage_limits_um()
-                x_current = np.clip(scope.get_current_position('X'), 0, x_max)
-                y_current = np.clip(scope.get_current_position('Y'), 0, y_max)
+                x_current = np.clip(scope.motion.get_current_position('X'), 0, x_max)
+                y_current = np.clip(scope.motion.get_current_position('Y'), 0, y_max)
                 position_available = True
         except Exception:
             # If we can't get positions (not homed yet), we'll still draw the labware
@@ -675,8 +675,8 @@ class Stage(Widget):
     def get_target_xy(self):
         scope = _app_ctx.ctx.scope
         try:
-            target_stage_x = scope.get_target_position('X')
-            target_stage_y = scope.get_target_position('Y')
+            target_stage_x = scope.motion.get_target_position('X')
+            target_stage_y = scope.motion.get_target_position('Y')
         except Exception:
             logger.exception('[LVP Main  ] Error talking to Motor board.')
             return None
@@ -737,10 +737,10 @@ class Stage(Widget):
     def motion_enabled_io(self):
         scope = _app_ctx.ctx.scope
         try:
-            x_current = scope.get_current_position('X')
+            x_current = scope.motion.get_current_position('X')
             x_max, y_max = self._stage_limits_um()
             x_current = np.clip(x_current, 0, x_max)
-            y_current = scope.get_current_position('Y')
+            y_current = scope.motion.get_current_position('Y')
             y_current = np.clip(y_current, 0, y_max)
         except Exception:
             logger.exception('[LVP Main  ] Error talking to Motor board.')

@@ -26,19 +26,19 @@ def _make_scope_with_turret(turret_config, current_pos=None):
     """
     scope = Lumascope.__new__(Lumascope)
     scope._turret_config = turret_config
+    # MotionAPI hosts the relocated body. __new__ skips __init__,
+    # which is what sets scope.motion in production, so the test
+    # installs the sub-API first so monkeypatches land on the canonical
+    # surface. driver=None is OK -- this lookup reads only scope-side
+    # state, no driver calls.
+    scope.motion = MotionAPI(scope, None)
     if current_pos is not None:
         # Bypass the full position-cache plumbing for the test.
-        scope.get_current_position = lambda axis=None: current_pos
+        scope.motion.get_current_position = lambda axis=None: current_pos
     else:
         def _raise(*_a, **_kw):
             raise RuntimeError('current pos unavailable in test')
-        scope.get_current_position = _raise
-    # MotionAPI hosts the relocated body; the Lumascope forwarder
-    # routes through scope.motion. __new__ skips __init__, which is
-    # what sets scope.motion in production, so the test installs the
-    # sub-API directly. driver=None is OK -- this lookup reads only
-    # scope-side state, no driver calls.
-    scope.motion = MotionAPI(scope, None)
+        scope.motion.get_current_position = _raise
     return scope
 
 
@@ -50,7 +50,7 @@ def test_persisted_position_wins_over_first_match():
         turret_config={1: '4x Oly', 2: '10x Oly', 3: '20x Oly', 4: '4x Oly'},
         current_pos=1,
     )
-    result = scope.get_turret_position_for_objective_id(
+    result = scope.motion.get_turret_position_for_objective_id(
         objective_id='4x Oly',
         persisted_position=4,
     )
@@ -69,7 +69,7 @@ def test_current_position_still_wins_when_it_matches():
         turret_config={1: '4x Oly', 2: '10x Oly', 3: '20x Oly', 4: '4x Oly'},
         current_pos=4,
     )
-    result = scope.get_turret_position_for_objective_id(objective_id='4x Oly')
+    result = scope.motion.get_turret_position_for_objective_id(objective_id='4x Oly')
     assert result == 4
 
 
@@ -82,7 +82,7 @@ def test_persisted_position_ignored_when_objective_changed():
         turret_config={1: '4x Oly', 2: '10x Oly', 3: '20x Oly', 4: '40x Oly'},
         current_pos=1,
     )
-    result = scope.get_turret_position_for_objective_id(
+    result = scope.motion.get_turret_position_for_objective_id(
         objective_id='4x Oly',
         persisted_position=4,
     )
@@ -103,7 +103,7 @@ def test_no_persisted_falls_back_to_first_match():
     )
     # current_pos=1 holds '4x Oly' so prefer_current returns 1 first;
     # disable that to exercise the pure first-match fallback.
-    result = scope.get_turret_position_for_objective_id(
+    result = scope.motion.get_turret_position_for_objective_id(
         objective_id='4x Oly',
         prefer_current=False,
         persisted_position=None,
@@ -116,7 +116,7 @@ def test_objective_not_in_turret_returns_none():
         turret_config={1: '4x Oly', 2: '10x Oly'},
         current_pos=1,
     )
-    result = scope.get_turret_position_for_objective_id(
+    result = scope.motion.get_turret_position_for_objective_id(
         objective_id='100x Oly',
         persisted_position=2,  # not matching
     )

@@ -55,7 +55,7 @@ class VerticalControl(BoxLayout):
             return
         if not vertical_control:
             ctx.io_executor.put(IOTask(
-                action=ctx.lumaview.scope.get_target_position,
+                action=ctx.lumaview.scope.motion.get_target_position,
                 args=('Z'),
                 callback=self.execute_kivy_gui,
                 cb_kwargs={"vertical_control":vertical_control},
@@ -191,7 +191,7 @@ class VerticalControl(BoxLayout):
 
     def ex_set_bookmark(self):
         ctx = _app_ctx.ctx
-        height = ctx.lumaview.scope.get_current_position('Z')  # Get current z height in um
+        height = ctx.lumaview.scope.motion.get_current_position('Z')  # Get current z height in um
         with ctx.settings_lock:
             ctx.settings['bookmark']['z'] = height
 
@@ -203,7 +203,7 @@ class VerticalControl(BoxLayout):
 
     def ex_set_all_bookmarks(self):
         ctx = _app_ctx.ctx
-        height = ctx.lumaview.scope.get_current_position('Z')  # Get current z height in um
+        height = ctx.lumaview.scope.motion.get_current_position('Z')  # Get current z height in um
         with ctx.settings_lock:
             settings = ctx.settings
             settings['bookmark']['z'] = height
@@ -279,7 +279,7 @@ class VerticalControl(BoxLayout):
             ms_objective_spinner.text = objective_id
 
             # Set objective in lumascope
-            if ctx.lumaview.scope.has_turret():
+            if ctx.lumaview.scope.motion.has_turret():
                 ctx.lumaview.scope.set_turret_config(turret_config=settings["turret_objectives"])
 
             ctx.lumaview.scope.set_objective(objective_id=objective_id)
@@ -332,7 +332,7 @@ class VerticalControl(BoxLayout):
         # Update per-layer focus in settings so new protocol steps use the
         # AF result, not the stale pre-AF Z value.
         try:
-            focus_z = ctx.scope.get_current_position('Z')
+            focus_z = ctx.scope.motion.get_current_position('Z')
             for layer in common_utils.get_layers():
                 accordion_item = ctx.image_settings.accordion_item_lookup(layer=layer)
                 if not accordion_item.collapse:
@@ -456,7 +456,7 @@ class VerticalControl(BoxLayout):
             Clock.schedule_once(lambda dt: self._reset_turret_buttons(), 0)
 
         ctx.io_executor.put(IOTask(
-            action=ctx.lumaview.scope.thome,
+            action=ctx.lumaview.scope.motion.thome,
             callback=_on_turret_homed,
         ))
 
@@ -533,11 +533,11 @@ class VerticalControl(BoxLayout):
                 gui_logger.button(f'TURRET_POS_{selected_position}')
             ctx = _app_ctx.ctx
             settings = ctx.settings
-            if not ctx.lumaview.scope.has_thomed():
+            if not ctx.lumaview.scope.motion.has_thomed():
                 if not protocol:
-                    ctx.io_executor.put(IOTask(ctx.lumaview.scope.thome))
+                    ctx.io_executor.put(IOTask(ctx.lumaview.scope.motion.thome))
                 else:
-                    ctx.lumaview.scope.thome()
+                    ctx.lumaview.scope.motion.thome()
 
             if not isinstance(selected_position, int) and not isinstance(selected_position, float):
                 if not selected_position.isdigit():
@@ -546,9 +546,9 @@ class VerticalControl(BoxLayout):
                 selected_position = int(selected_position)
 
             if not protocol:
-                ctx.io_executor.put(IOTask(ctx.lumaview.scope.tmove, kwargs={'position':selected_position}))
+                ctx.io_executor.put(IOTask(ctx.lumaview.scope.motion.tmove, kwargs={'position':selected_position}))
             else:
-                ctx.lumaview.scope.tmove(position=selected_position)
+                ctx.lumaview.scope.motion.tmove(position=selected_position)
 
             # Persist user's explicit turret choice so the next session
             # (or any post-home lookup) prefers this position when the

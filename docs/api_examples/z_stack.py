@@ -77,10 +77,10 @@ def main():
 
     for i in range(num_slices):
         # Move Z to target position and wait for completion
-        scope.move_absolute_position('Z', pos=z_pos, wait_until_complete=True)
+        scope.motion.move_absolute_position('Z', pos=z_pos, wait_until_complete=True)
 
         # Read back the actual position
-        actual_z = scope.get_current_position(axis='Z')
+        actual_z = scope.motion.get_current_position(axis='Z')
 
         # Capture image at this Z position
         image = scope.get_image(force_to_8bit=True)
