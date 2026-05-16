@@ -144,7 +144,7 @@ class TestRuntimeOrder_618:
         scope = Lumascope(simulate=True)
         scope._motion_driver.set_timing_mode("fast")
         call_order = self._track_calls(scope, "Z")
-        scope.move_absolute_position("Z", 5000.0, wait_until_complete=False)
+        scope.motion.move_absolute_position("Z", 5000.0, wait_until_complete=False)
         # The hardware write must come before the MOVING transition
         assert "motion.move_abs_pos" in call_order
         assert "set_state_MOVING" in call_order
@@ -160,7 +160,7 @@ class TestRuntimeOrder_618:
         scope = Lumascope(simulate=True)
         scope._motion_driver.set_timing_mode("fast")
         call_order = self._track_calls(scope, "Z")
-        scope.move_relative_position("Z", 100.0, wait_until_complete=False)
+        scope.motion.move_relative_position("Z", 100.0, wait_until_complete=False)
         assert "motion.move_rel_pos" in call_order
         assert "set_state_MOVING" in call_order
         move_idx = call_order.index("motion.move_rel_pos")
@@ -209,11 +209,11 @@ class TestRaceSimulation_618:
         scope._motion_driver.move_abs_pos = observe_during_move
 
         # Prime: do one move to set Z to a known IDLE state
-        scope.move_absolute_position("Z", 1000.0, wait_until_complete=True)
+        scope.motion.move_absolute_position("Z", 1000.0, wait_until_complete=True)
         observations.clear()  # reset after the priming move
 
         # Now do a back-to-back move
-        scope.move_absolute_position("Z", 5000.0, wait_until_complete=False)
+        scope.motion.move_absolute_position("Z", 5000.0, wait_until_complete=False)
 
         assert len(observations) == 1, (
             f"motion.move_abs_pos should be called once, got {len(observations)}"
@@ -245,11 +245,11 @@ class TestBackToBackMoves_618:
         scope = Lumascope(simulate=True)
         scope._motion_driver.set_timing_mode("fast")
 
-        scope.move_absolute_position("Z", 2000.0, wait_until_complete=True)
+        scope.motion.move_absolute_position("Z", 2000.0, wait_until_complete=True)
         pos1 = scope._motion_driver.current_pos("Z")
         assert abs(pos1 - 2000.0) < 5.0, f"first move ended at {pos1}, expected ~2000"
 
-        scope.move_absolute_position("Z", 8000.0, wait_until_complete=True)
+        scope.motion.move_absolute_position("Z", 8000.0, wait_until_complete=True)
         pos2 = scope._motion_driver.current_pos("Z")
         assert abs(pos2 - 8000.0) < 5.0, f"second move ended at {pos2}, expected ~8000"
 
@@ -261,7 +261,7 @@ class TestBackToBackMoves_618:
         # 20 rapid back-to-back moves, alternating direction
         targets = [3000.0, 7000.0] * 10
         for target in targets:
-            scope.move_absolute_position("Z", target, wait_until_complete=True)
+            scope.motion.move_absolute_position("Z", target, wait_until_complete=True)
             actual = scope._motion_driver.current_pos("Z")
             assert abs(actual - target) < 5.0, (
                 f"move to {target} ended at {actual}"
