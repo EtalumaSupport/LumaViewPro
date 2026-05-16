@@ -6,10 +6,13 @@ Wave 7 Phase 2c: 18 stateful method bodies + all motion state slots
     (_pos_cache, _axis_state, _arrival_events, _move_profile,
     _position_listeners, _motion_wake, _motion_monitor_stop,
     _motion_monitor_thread, _homing_event, _turreting_event) relocated
-    from _lumascope.py to this surface. Lumascope keeps transient
-    @property forwarders for the state slots and one-line Rule-30
-    forwarders for the method names; both retire in Phase 2f once
-    production + test callers migrate (2d / 2e).
+    from _lumascope.py to this surface.
+Wave 7 Phase 2c.5: test callers migrated to scope.motion.X; intra-motion
+    self._scope.X band-aid forwarders removed (this surface now calls
+    its own methods directly); Lumascope @property shims for the state
+    slots deleted. Lumascope still keeps one-line method-name forwarders
+    (zhome, home, thome, move_absolute_position, etc.) for production
+    callers; those retire in Phase 2e/2f as production migrates.
 
 Constructor signature:
     MotionAPI(scope, driver) -- scope is the Lumascope back-ref;
@@ -196,7 +199,7 @@ class MotionAPI:
         from modules.sequential_io_executor import IOTask  # local-import: avoid cycle
         ex = self._scope._require_executor(self._scope._io_executor, 'move_absolute_async')
         ex.put(IOTask(
-            action=self._scope.move_absolute_position,
+            action=self.move_absolute_position,
             kwargs={
                 'axis': axis,
                 'pos': pos,
@@ -291,7 +294,7 @@ class MotionAPI:
 
         if prefer_current:
             try:
-                current_pos = self._scope.get_current_position(axis='T')
+                current_pos = self.get_current_position(axis='T')
                 if self._scope._turret_config.get(current_pos) == objective_id:
                     return current_pos
             except Exception:
@@ -310,7 +313,7 @@ class MotionAPI:
             bool: True if the current turret position has a configured
                 objective ID; False if the slot is unconfigured.
         """
-        position = self._scope.get_current_position(axis='T')
+        position = self.get_current_position(axis='T')
         if self._scope._turret_config[position] is None:
             return False
 
@@ -361,14 +364,14 @@ class MotionAPI:
         present_axes = self._scope.axes_present()
         _api_log.info('home START')
         for ax in present_axes:
-            self._scope._set_axis_state(ax, AxisState.HOMING)
+            self._set_axis_state(ax, AxisState.HOMING)
         if 'Z' in present_axes:
             self._scope.frame_validity.invalidate('z_move')
         if 'X' in present_axes or 'Y' in present_axes:
             self._scope.frame_validity.invalidate('xy_move')
         if 'T' in present_axes:
             self._scope.frame_validity.invalidate('turret')
-        self._scope.is_homing = True
+        self.is_homing = True
         try:
             with self._scope.reference_position_logger():
                 result = self._driver.home()
@@ -377,21 +380,21 @@ class MotionAPI:
                 notifications.error("Motion", "Homing Failed",
                     "Homing failed. Position is unknown.")
                 for ax in present_axes:
-                    self._scope._set_axis_state(ax, AxisState.UNKNOWN)
+                    self._set_axis_state(ax, AxisState.UNKNOWN)
                 return False
             for ax in present_axes:
-                self._scope._set_axis_state(ax, AxisState.IDLE)
-            self._scope.refresh_position_cache()
+                self._set_axis_state(ax, AxisState.IDLE)
+            self.refresh_position_cache()
             return True
         except Exception:
             logger.exception('[SCOPE API ] Homing exception')
             for ax in present_axes:
-                self._scope._set_axis_state(ax, AxisState.UNKNOWN)
+                self._set_axis_state(ax, AxisState.UNKNOWN)
             notifications.error("Motion", "Homing Error",
                 "Homing encountered an error. Position is unknown.")
             return False
         finally:
-            self._scope.is_homing = False
+            self.is_homing = False
             _api_log.info('home DONE')
 
     @contextlib.contextmanager
@@ -404,9 +407,9 @@ class MotionAPI:
         """
         # Save off current Z position before moving Z to 0
         logger.info('[SCOPE API ] Moving Z to 0', extra={'force_error': True})
-        initial_z = self._scope.get_current_position(axis='Z')
-        self._scope.move_absolute_position('Z', pos=0, wait_until_complete=True)
-        self._scope.is_turreting = True
+        initial_z = self.get_current_position(axis='Z')
+        self.move_absolute_position('Z', pos=0, wait_until_complete=True)
+        self.is_turreting = True
         try:
             yield
         finally:
@@ -414,9 +417,9 @@ class MotionAPI:
             # (e.g. driver HardwareError from thome). Without this, a failed
             # turret home would leave is_turreting=True and the stage stuck
             # at Z=0.
-            self._scope.is_turreting = False
+            self.is_turreting = False
             logger.info(f'[SCOPE API ] Restoring Z to {initial_z}', extra={'force_error': True})
-            self._scope.move_absolute_position('Z', pos=initial_z, wait_until_complete=True)
+            self.move_absolute_position('Z', pos=initial_z, wait_until_complete=True)
 
     def thome(self) -> bool:
         """Home the turret axis. Moves Z to 0 during turret motion for safety.
@@ -451,22 +454,22 @@ class MotionAPI:
         try:
             with self._scope.reference_position_logger():
                 with self.safe_turret_move():
-                    self._scope._set_axis_state('T', AxisState.HOMING)
+                    self._set_axis_state('T', AxisState.HOMING)
                     self._scope.frame_validity.invalidate('turret')
                     result = self._driver.thome()
             if result is False:
                 logger.error('[SCOPE API ] Turret homing failed')
                 notifications.error("Motion", "Homing Failed",
                     "Turret homing failed. Position is unknown.")
-                self._scope._set_axis_state('T', AxisState.UNKNOWN)
+                self._set_axis_state('T', AxisState.UNKNOWN)
                 return False
-            self._scope._set_axis_state('T', AxisState.IDLE)
-            self._scope.refresh_position_cache()
+            self._set_axis_state('T', AxisState.IDLE)
+            self.refresh_position_cache()
             _api_log.info('thome DONE')
             return True
         except Exception:
             logger.exception('[SCOPE API ] Turret homing exception')
-            self._scope._set_axis_state('T', AxisState.UNKNOWN)
+            self._set_axis_state('T', AxisState.UNKNOWN)
             notifications.error("Motion", "Homing Error",
                 "Turret homing encountered an error. Position is unknown.")
             _api_log.info('thome DONE')
@@ -494,7 +497,7 @@ class MotionAPI:
 
         with self.safe_turret_move():
             logger.info(f'[SCOPE API ] Moving T to position {position}')
-            self._scope.move_absolute_position('T', position, wait_until_complete=True)
+            self.move_absolute_position('T', position, wait_until_complete=True)
             self._scope._last_turret_position = position
 
     def has_turret(self) -> bool:
@@ -712,7 +715,7 @@ class MotionAPI:
         from modules.sequential_io_executor import IOTask  # local-import: avoid cycle
         ex = self._scope._require_executor(self._scope._io_executor, 'move_absolute_sync')
         task = IOTask(
-            action=self._scope.move_absolute_position,
+            action=self.move_absolute_position,
             kwargs={
                 'axis': axis,
                 'pos': pos,
@@ -740,7 +743,7 @@ class MotionAPI:
         from modules.sequential_io_executor import IOTask  # local-import: avoid cycle
         ex = self._scope._require_executor(self._scope._io_executor, 'move_relative_async')
         ex.put(IOTask(
-            action=self._scope.move_relative_position,
+            action=self.move_relative_position,
             kwargs={
                 'axis': axis,
                 'um': um,
@@ -770,13 +773,13 @@ class MotionAPI:
         # a warning here.
         HOME_THRESHOLD = 120.0
         if a == 'Z':
-            ex.put(IOTask(action=self._scope.zhome, callback=callback, cb_args=cb_args,
+            ex.put(IOTask(action=self.zhome, callback=callback, cb_args=cb_args,
                           slow_task_threshold_sec=HOME_THRESHOLD))
         elif a in ('ALL', 'XY'):
-            ex.put(IOTask(action=self._scope.home, callback=callback, cb_args=cb_args,
+            ex.put(IOTask(action=self.home, callback=callback, cb_args=cb_args,
                           slow_task_threshold_sec=HOME_THRESHOLD))
         elif a == 'T':
-            ex.put(IOTask(action=self._scope.thome, callback=callback, cb_args=cb_args,
+            ex.put(IOTask(action=self.thome, callback=callback, cb_args=cb_args,
                           slow_task_threshold_sec=HOME_THRESHOLD))
         else:
             logger.warning(f'[SCOPE API ] Unknown home axis: {axis}')
@@ -870,7 +873,7 @@ class MotionAPI:
                 failure; programmatic callers can branch on the bool.
         """
         _api_log.info('zhome START')
-        self._scope._set_axis_state('Z', AxisState.HOMING)
+        self._set_axis_state('Z', AxisState.HOMING)
         self._scope.frame_validity.invalidate('z_move')
         try:
             with self._scope.reference_position_logger():
@@ -879,15 +882,15 @@ class MotionAPI:
                 logger.error('[SCOPE API ] Z homing failed')
                 notifications.error("Motion", "Homing Failed",
                     "Z axis homing failed. Position is unknown.")
-                self._scope._set_axis_state('Z', AxisState.UNKNOWN)
+                self._set_axis_state('Z', AxisState.UNKNOWN)
                 return False
-            self._scope._set_axis_state('Z', AxisState.IDLE)
+            self._set_axis_state('Z', AxisState.IDLE)
             self.refresh_position_cache()
             _api_log.info('zhome DONE')
             return True
         except Exception:
             logger.exception('[SCOPE API ] Z homing exception')
-            self._scope._set_axis_state('Z', AxisState.UNKNOWN)
+            self._set_axis_state('Z', AxisState.UNKNOWN)
             notifications.error("Motion", "Homing Error",
                 "Z axis homing encountered an error. Position is unknown.")
             _api_log.info('zhome DONE')
@@ -903,11 +906,11 @@ class MotionAPI:
 
     def xycenter(self) -> None:
         """Move the XY stage to center position."""
-        self._scope._set_axis_state('X', AxisState.MOVING)
-        self._scope._set_axis_state('Y', AxisState.MOVING)
+        self._set_axis_state('X', AxisState.MOVING)
+        self._set_axis_state('Y', AxisState.MOVING)
         self._driver.xycenter()
-        self._scope._set_axis_state('X', AxisState.IDLE)
-        self._scope._set_axis_state('Y', AxisState.IDLE)
+        self._set_axis_state('X', AxisState.IDLE)
+        self._set_axis_state('Y', AxisState.IDLE)
         self.refresh_position_cache()
 
     def refresh_position_cache(self) -> None:
@@ -1128,7 +1131,7 @@ class MotionAPI:
                 self._move_profile[axis] = None
             _api_log.error(f'move_abs {axis}={pos:.1f}um FAILED: {e}')
             raise
-        self._scope._set_axis_state(axis, AxisState.MOVING)
+        self._set_axis_state(axis, AxisState.MOVING)
         with self._pos_cache_lock:
             self._pos_cache[axis] = float(pos)
         self._fire_position_listeners(axis)
@@ -1138,7 +1141,7 @@ class MotionAPI:
 
         if wait_until_complete is True:
             self.wait_until_finished_moving()
-            self._scope._set_axis_state(axis, AxisState.IDLE)
+            self._set_axis_state(axis, AxisState.IDLE)
 
     def move_relative_position(self, axis: str, um: float,
                                wait_until_complete: bool = False,
@@ -1175,7 +1178,7 @@ class MotionAPI:
         except Exception as e:
             _api_log.error(f'move_rel {axis}={um:+.1f}um FAILED: {e}')
             raise
-        self._scope._set_axis_state(axis, AxisState.MOVING)
+        self._set_axis_state(axis, AxisState.MOVING)
         with self._pos_cache_lock:
             self._pos_cache[axis] = self._pos_cache.get(axis, 0.0) + float(um)
         self._fire_position_listeners(axis)
@@ -1185,7 +1188,7 @@ class MotionAPI:
 
         if wait_until_complete is True:
             self.wait_until_finished_moving()
-            self._scope._set_axis_state(axis, AxisState.IDLE)
+            self._set_axis_state(axis, AxisState.IDLE)
 
     def wait_until_finished_moving(self, timeout: float = 120.0) -> bool:
         """Block until all axes have reached their target positions.
@@ -1304,7 +1307,7 @@ class MotionAPI:
                         try:
                             if self._driver.is_connected() and self.get_target_status(ax):
                                 # Axis has arrived -- transition to IDLE
-                                self._scope._set_axis_state(ax, AxisState.IDLE)
+                                self._set_axis_state(ax, AxisState.IDLE)
                             else:
                                 # Still moving -- fire position listener so UI
                                 # updates crosshair during motion (fixes #601)
