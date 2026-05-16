@@ -139,7 +139,7 @@ def get_current_plate_position(
         logger.error("Cannot retrieve current plate position")
         return {'x': 0, 'y': 0, 'z': 0}
 
-    pos = scope.get_current_position(axis=None)
+    pos = scope.motion.get_current_position(axis=None)
 
     labware_id = settings.get('protocol', {}).get('labware', '')
     try:

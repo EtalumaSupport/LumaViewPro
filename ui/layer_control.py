@@ -680,7 +680,7 @@ class LayerControl(BoxLayout):
         ctx = _app_ctx.ctx
         settings = ctx.settings
         try:
-            pos = ctx.scope.get_current_position('Z')
+            pos = ctx.scope.motion.get_current_position('Z')
             settings[self.layer]['focus'] = pos
         except Exception as e:
             logger.exception(

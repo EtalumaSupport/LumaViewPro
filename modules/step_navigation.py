@@ -67,9 +67,9 @@ def go_to_step(
         )
 
         turret_pos = None
-        if ctx.scope.has_turret():
+        if ctx.scope.motion.has_turret():
             step_objective_id = step["Objective"]
-            turret_pos = ctx.scope.get_turret_position_for_objective_id(
+            turret_pos = ctx.scope.motion.get_turret_position_for_objective_id(
                 objective_id=step_objective_id,
                 persisted_position=settings.get('turret_position'),
             )

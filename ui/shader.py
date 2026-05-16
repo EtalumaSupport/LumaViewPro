@@ -316,7 +316,7 @@ void main (void) {
                         dx_um = (self._mouse_pixel_x - tex_w / 2) * pixel_size_um
                         dy_um = (self._mouse_pixel_y - tex_h / 2) * pixel_size_um
                         if ctx.lumaview.scope.motor_connected:
-                            pos = ctx.lumaview.scope.get_current_position(axis=None)
+                            pos = ctx.lumaview.scope.motion.get_current_position(axis=None)
                             _, labware = get_selected_labware()
                             px, py = ctx.coordinate_transformer.stage_to_plate(
                                 labware=labware,

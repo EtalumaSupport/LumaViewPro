@@ -375,9 +375,9 @@ class XYStageControl(BoxLayout):
         ctx = _app_ctx.ctx
         try:
             scope = ctx.lumaview.scope
-            x_target = scope.get_target_position('X')
+            x_target = scope.motion.get_target_position('X')
             x_target = np.clip(x_target, 0, scope.travel_limit_um('X'))
-            y_target = scope.get_target_position('Y')
+            y_target = scope.motion.get_target_position('Y')
             y_target = np.clip(y_target, 0, scope.travel_limit_um('Y'))
         except Exception:
             logger.exception('[LVP Main  ] Error talking to Motor board.')
@@ -545,7 +545,7 @@ class XYStageControl(BoxLayout):
         ctx = _app_ctx.ctx
 
         # Get current stage x-position in um
-        x_pos = ctx.lumaview.scope.get_current_position('X')
+        x_pos = ctx.lumaview.scope.motion.get_current_position('X')
 
         # Save plate x-position to settings
         _, labware = get_selected_labware()
@@ -569,7 +569,7 @@ class XYStageControl(BoxLayout):
 
     def ex_set_ybookmark(self):
         ctx = _app_ctx.ctx
-        y_pos = ctx.lumaview.scope.get_current_position('Y')  # Get current y pos in um
+        y_pos = ctx.lumaview.scope.motion.get_current_position('Y')  # Get current y pos in um
 
         # Save plate y-position to settings
         _, labware = get_selected_labware()

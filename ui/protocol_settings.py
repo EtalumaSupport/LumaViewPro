@@ -334,7 +334,7 @@ class ProtocolSettings(FloatLayout):
 
             logger.info('[LVP Main  ] Apply tiling to protocol')
 
-            axes_config = ctx.lumaview.scope.get_axes_config()
+            axes_config = ctx.lumaview.scope.motion.get_axes_config()
             _, labware = get_selected_labware()
             stage_offset = settings['stage_offset']
 
@@ -464,7 +464,7 @@ class ProtocolSettings(FloatLayout):
         settings = _app_ctx.ctx.settings
         ctx = _app_ctx.ctx
 
-        if (ctx.lumaview.scope.has_turret()) and (not ctx.lumaview.scope.is_current_turret_position_objective_set()):
+        if (ctx.lumaview.scope.motion.has_turret()) and (not ctx.lumaview.scope.motion.is_current_turret_position_objective_set()):
             error_msg = f"Cannot create new protocol. Please set objective for current turret position."
             logger.error(error_msg)
 
@@ -753,7 +753,7 @@ class ProtocolSettings(FloatLayout):
 
         step = self.get_curr_step()
 
-        if ctx.lumaview.scope.has_turret():
+        if ctx.lumaview.scope.motion.has_turret():
             objective_id = step['Objective']
             objective_info = ctx.objective_helper.get_objective_info(objective_id=objective_id)
             if objective_info is None:
@@ -985,7 +985,7 @@ class ProtocolSettings(FloatLayout):
 
             #logger.error(f"CURRENT Z POSITION IN UM {plate_position['z']}")
 
-            if (ctx.lumaview.scope.has_turret()) and (not ctx.lumaview.scope.is_current_turret_position_objective_set()):
+            if (ctx.lumaview.scope.motion.has_turret()) and (not ctx.lumaview.scope.motion.is_current_turret_position_objective_set()):
                 error_msg = f"Cannot modify protocol step. Please set objective for current turret position."
                 logger.error(error_msg)
                 show_notification_popup(title="Protocol Step Modification Error", message=error_msg)
@@ -1055,7 +1055,7 @@ class ProtocolSettings(FloatLayout):
             plate_position = get_current_plate_position()
             objective_id, _ = get_current_objective_info()
 
-            if (ctx.lumaview.scope.has_turret()) and (not ctx.lumaview.scope.is_current_turret_position_objective_set()):
+            if (ctx.lumaview.scope.motion.has_turret()) and (not ctx.lumaview.scope.motion.is_current_turret_position_objective_set()):
                 error_msg = f"Cannot add step to protocol. Please set objective for current turret position."
                 logger.error(error_msg)
                 Clock.schedule_once(lambda dt: show_notification_popup(title="Protocol Add Step Error", message=error_msg), 0)
@@ -1122,7 +1122,7 @@ class ProtocolSettings(FloatLayout):
                     objective_id=objective_id,
                     before_step=before_step,
                     after_step=after_step,
-                    include_objective_in_step_name=ctx.lumaview.scope.has_turret(),
+                    include_objective_in_step_name=ctx.lumaview.scope.motion.has_turret(),
                 )
 
                 if after_current_step or (self.curr_step < 0):
@@ -1246,7 +1246,7 @@ class ProtocolSettings(FloatLayout):
 
         # If turret is present, validate all protocol objectives are assigned (#606)
         ctx = _app_ctx.ctx
-        if ctx.lumaview.scope.has_turret():
+        if ctx.lumaview.scope.motion.has_turret():
             if not self._validate_objectives_in_protocol(protocol_df=self._protocol.steps()):
                 turret_objectives = settings.get("turret_objectives", {})
                 assigned = [v for v in turret_objectives.values() if v is not None]
