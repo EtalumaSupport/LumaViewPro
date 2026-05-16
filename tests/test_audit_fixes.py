@@ -73,6 +73,7 @@ def _kivy_mock_modules():
         'kivy.graphics.instructions', 'kivy.graphics.vertex_instructions',
         'kivy.lang', 'kivy.metrics',
         'kivy.uix', 'kivy.uix.boxlayout',
+        'kivy.uix.filechooser',
         'kivy.uix.floatlayout', 'kivy.uix.gridlayout', 'kivy.uix.image',
         'kivy.uix.label', 'kivy.uix.popup', 'kivy.uix.scrollview',
         'kivy.uix.slider', 'kivy.uix.spinner', 'kivy.uix.textinput',
