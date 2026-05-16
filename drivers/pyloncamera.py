@@ -44,6 +44,19 @@ _PYLON_ERR_BUFFER_CANCELED = 3791651074
 # dropped frame is one the AF runner would have rejected anyway.
 _PYLON_ERR_PAYLOAD_DISCARDED = 0xE2050012
 
+# Device-not-found: USB-Vision transport returns this when the device
+# handle no longer resolves on the bus (cable unplug, USB hub power
+# loss, OS-level device removal). Bench-witnessed value 433 (decimal,
+# from the LVP_Logbumped.wire bench session): "A device which does not
+# exist was specified". Cascade rate observed at ~100+ events in <2s
+# after disconnect, which would take ~4.3s to trip the slow-path
+# MAX_CONSECUTIVE_FAILURES auto-disconnect (128 frames at 30fps). Fast
+# classification short-circuits the cascade so the disconnect surfaces
+# in 1 frame instead of 128, and the user notification (driven by
+# _mark_disconnected -> API layer per Rule 14) fires immediately
+# instead of 4 seconds late behind a wall of WARNING log lines.
+_PYLON_ERR_DEVICE_NOT_FOUND = 433
+
 
 @camera_registry.register('pylon', priority=100)
 class PylonCamera(Camera):
@@ -3149,6 +3162,35 @@ class ImageHandler(pylon.ImageEventHandler):
                         f'desc={err_desc!r}'
                     )
                     _outcome = 'success_no_grab_payload_discarded'
+                elif err_code == _PYLON_ERR_DEVICE_NOT_FOUND:
+                    # USB-Vision device removal (cable unplug / hub power
+                    # loss / OS-level removal). Bench cascade was ~100+
+                    # events in <2s -- the generic fallback would wait
+                    # for MAX_CONSECUTIVE_FAILURES (128 frames at 30fps
+                    # = ~4.3s) and spam WARNING lines the whole time.
+                    # Fast-path: log once at ERROR, mark disconnected
+                    # immediately, stop grabbing. The API-layer
+                    # notification fires off the disconnect flag per
+                    # Rule 14. Not counted toward the consecutive-
+                    # failure counter -- physical removal has its own
+                    # signal (the disconnect flag); the counter exists
+                    # to detect transport degradation, not single-event
+                    # removals.
+                    _cam_log.error(
+                        f'[CAM Class ] Camera device not found '
+                        f'(USB disconnect / device removed) '
+                        f'err_code={err_code} desc={err_desc!r}'
+                    )
+                    self._parent._mark_disconnected()
+                    try:
+                        if self._parent.active and self._parent.is_grabbing():
+                            self._parent.stop_grabbing()
+                    except Exception as e:
+                        _cam_log.warning(
+                            f'[CAM Class ] OnImageGrabbed could not stop '
+                            f'grabbing after device-not-found: {e}'
+                        )
+                    _outcome = 'success_no_grab_device_not_found'
                 else:
                     # err_code/desc varies (USB CRC, partial frame, underrun);
                     # log each to preserve cause distribution.
