@@ -52,8 +52,21 @@ except FileNotFoundError:
 except Exception as e:
     print(f"[lvp_logger] WARNING: Failed to read version.txt: {e}", file=sys.stderr)
 
+# Under PyInstaller (sys.frozen=True), this module's __file__ points
+# into the bundle's extract dir -- _MEI<random> (onefile mode) or
+# <install>/_internal (onedir 6+) -- NOT the install root where the
+# WiX MSI drops marker.lvpinstalled. version.txt above works because
+# it's bundled into the same dir via the .spec datas list; the marker
+# is intentionally NOT bundled (it exists to distinguish "MSI-installed
+# build" from "PyInstaller dev build"). Use sys.executable's directory
+# when frozen so the probe lands on the install root.
+if getattr(sys, 'frozen', False):
+    _marker_dir = os.path.dirname(os.path.abspath(sys.executable))
+else:
+    _marker_dir = script_path.rstrip(os.sep) or '.'
+
 try:
-    with open(os.path.join(script_path, "marker.lvpinstalled")) as f:
+    with open(os.path.join(_marker_dir, "marker.lvpinstalled")) as f:
         lvp_installed = True
 except FileNotFoundError:
     lvp_installed = False  # Expected when running from source
