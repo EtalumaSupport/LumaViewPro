@@ -1750,7 +1750,7 @@ class TestStepTimeout:
 
         # Make get_target_status always return False for first step
         call_count = [0]
-        original_get_target = scope.get_target_status
+        original_get_target = scope.motion.get_target_status
 
         def slow_target(axis):
             call_count[0] += 1
@@ -1759,12 +1759,12 @@ class TestStepTimeout:
                 return False
             return original_get_target(axis)
 
-        scope.get_target_status = slow_target
+        scope.motion.get_target_status = slow_target
 
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         # Restore
         SequencedCaptureRunner.STEP_TIMEOUT_SECONDS = original_timeout
-        scope.get_target_status = original_get_target
+        scope.motion.get_target_status = original_get_target
 
         assert completed
 
