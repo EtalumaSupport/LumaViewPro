@@ -993,6 +993,14 @@ class ProtocolSettings(FloatLayout):
 
             step_name = self.ids['step_name_input'].text
 
+            # Auto-named custom steps have step_name_input.text blanked by
+            # generate_step_name_input so the default appears as hint, not
+            # text. Treat an empty input as "no rename intended" and keep
+            # the existing name; otherwise modify_step would clobber the
+            # custom#### name with an empty string.
+            if not step_name:
+                step_name = self._protocol.step(idx=self.curr_step)['Name']
+
             # If the stim layer was active and the original acquire channel remains enabled,
             # preserve the existing step name to avoid unintended renaming.
             if stim_was_active:
