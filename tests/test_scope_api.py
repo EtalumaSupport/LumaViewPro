@@ -87,12 +87,12 @@ def _make_mock_scope(led_available=True):
     scope.leds_off = MagicMock()
     scope.led_on = MagicMock()
     scope.led_off = MagicMock()
-    scope.move_absolute_position = MagicMock()
-    scope.move_relative_position = MagicMock()
-    scope.zhome = MagicMock()
-    scope.home = MagicMock()
-    scope.thome = MagicMock()
-    scope.get_current_position = MagicMock(return_value={'X': 1000, 'Y': 2000, 'Z': 500})
+    scope.motion.move_absolute_position = MagicMock()
+    scope.motion.move_relative_position = MagicMock()
+    scope.motion.zhome = MagicMock()
+    scope.motion.home = MagicMock()
+    scope.motion.thome = MagicMock()
+    scope.motion.get_current_position = MagicMock(return_value={'X': 1000, 'Y': 2000, 'Z': 500})
     return scope
 
 
@@ -444,7 +444,7 @@ class TestLumascopeLedAPI:
 class TestLumascopeMotionAPI:
     def test_move_absolute_async_dispatches(self):
         scope, io_ex, _ = _make_real_scope_with_mock_executors()
-        scope.move_absolute_async('Z', 5000.0)
+        scope.motion.move_absolute_async('Z', 5000.0)
         task = io_ex.put.call_args[0][0]
         assert task.action == scope.motion.move_absolute_position
         assert task.kwargs['axis'] == 'Z'
@@ -453,7 +453,7 @@ class TestLumascopeMotionAPI:
     def test_move_absolute_async_with_options(self):
         scope, io_ex, _ = _make_real_scope_with_mock_executors()
         cb = MagicMock()
-        scope.move_absolute_async(
+        scope.motion.move_absolute_async(
             'X', 1000,
             wait_until_complete=True,
             overshoot_enabled=False,
@@ -468,7 +468,7 @@ class TestLumascopeMotionAPI:
 
     def test_move_relative_async_dispatches(self):
         scope, io_ex, _ = _make_real_scope_with_mock_executors()
-        scope.move_relative_async('Y', -500.0)
+        scope.motion.move_relative_async('Y', -500.0)
         task = io_ex.put.call_args[0][0]
         assert task.action == scope.motion.move_relative_position
         assert task.kwargs['axis'] == 'Y'
@@ -476,13 +476,13 @@ class TestLumascopeMotionAPI:
 
     def test_move_home_async_z(self):
         scope, io_ex, _ = _make_real_scope_with_mock_executors()
-        scope.move_home_async('Z')
+        scope.motion.move_home_async('Z')
         task = io_ex.put.call_args[0][0]
         assert task.action == scope.motion.zhome
 
     def test_move_home_async_all(self):
         scope, io_ex, _ = _make_real_scope_with_mock_executors()
-        scope.move_home_async('all')  # lowercase should work
+        scope.motion.move_home_async('all')  # lowercase should work
         task = io_ex.put.call_args[0][0]
         assert task.action == scope.motion.home
 
@@ -490,20 +490,20 @@ class TestLumascopeMotionAPI:
         """Legacy 'XY' axis label still dispatches to scope.motion.home() so
         existing callers keep working during the rename window."""
         scope, io_ex, _ = _make_real_scope_with_mock_executors()
-        scope.move_home_async('XY')
+        scope.motion.move_home_async('XY')
         task = io_ex.put.call_args[0][0]
         assert task.action == scope.motion.home
 
     def test_move_home_async_turret(self):
         scope, io_ex, _ = _make_real_scope_with_mock_executors()
-        scope.move_home_async('T')
+        scope.motion.move_home_async('T')
         task = io_ex.put.call_args[0][0]
         assert task.action == scope.motion.thome
 
     def test_move_home_async_with_callback(self):
         scope, io_ex, _ = _make_real_scope_with_mock_executors()
         cb = MagicMock()
-        scope.move_home_async('Z', callback=cb, cb_args=('Z',))
+        scope.motion.move_home_async('Z', callback=cb, cb_args=('Z',))
         task = io_ex.put.call_args[0][0]
         assert task.callback == cb
         assert task.cb_args == ('Z',)
@@ -514,7 +514,7 @@ class TestLumascopeMotionAPI:
         # stateful relocation; the warning is logged through that module's
         # logger, not _lumascope.py's.
         with patch('modules.lumascope_api.motion.logger') as mock_log:
-            scope.move_home_async('W')
+            scope.motion.move_home_async('W')
         io_ex.put.assert_not_called()
         mock_log.warning.assert_called()
 
