@@ -19,7 +19,7 @@ Issue #616 / #618 follow-up — the rename of `xyhome` to `home`:
   into the driver layer where the firmware response is already known.
   - drivers/motorboard.py::home() recognizes 'ERROR: X not present' /
     'Y not present' as a partial-home success and returns True.
-  - Lumascope.home() trusts the driver's verdict — no host-side
+  - Lumascope.motion.home() trusts the driver's verdict — no host-side
     presence check, no False interpretation.
   - The misnamed method was the conceptual trap that allowed both #616
     and #618 to land. The rename retires the trap.
@@ -79,7 +79,7 @@ def _clear_notification_dedup():
 
 
 class TestLumascopeHome:
-    """#616 / #618 follow-up: Lumascope.home() must reach the firmware so
+    """#616 / #618 follow-up: Lumascope.motion.home() must reach the firmware so
     the firmware can home every axis the board has, and must not emit a
     Homing Failed popup when the only failure is X/Y missing on a Z-only
     board (the driver layer recognizes this case and returns True)."""
@@ -111,7 +111,7 @@ class TestLumascopeHome:
         scope = Lumascope(simulate=True)
         scope._motion_driver = NullMotionBoard()
 
-        scope.home()
+        scope.motion.home()
 
         assert received, (
             "home() on NullMotionBoard must notify 'Motor Not Connected' "
@@ -134,7 +134,7 @@ class TestLumascopeHome:
         scope._motion_driver = NullMotionBoard()
 
         t0 = time.monotonic()
-        scope.home()
+        scope.motion.home()
         elapsed = time.monotonic() - t0
 
         assert elapsed < 0.5, (
@@ -155,7 +155,7 @@ class TestLumascopeHome:
         scope._motion_driver = NullMotionBoard()
 
         t0 = time.monotonic()
-        scope.thome()
+        scope.motion.thome()
         elapsed = time.monotonic() - t0
 
         assert elapsed < 0.5, (
@@ -184,18 +184,18 @@ class TestLumascopeHome:
             return True
         scope._motion_driver.home = fake_home
 
-        scope.home()
+        scope.motion.home()
 
         assert home_calls, (
-            "Lumascope.home() must call motion.home() so firmware can "
+            "Lumascope.motion.home() must call motion.home() so firmware can "
             "home the axes the board has (#618 follow-up)"
         )
         assert received == [], (
             f"home() on Z-only board with True driver return must not "
             f"notify: {received}"
         )
-        assert scope.get_axis_state('Z') == AxisState.IDLE, (
-            f"Z must be marked IDLE on success, got {scope.get_axis_state('Z')}"
+        assert scope.motion.get_axis_state('Z') == AxisState.IDLE, (
+            f"Z must be marked IDLE on success, got {scope.motion.get_axis_state('Z')}"
         )
 
     def test_home_real_failure_DOES_notify(self):
@@ -207,14 +207,14 @@ class TestLumascopeHome:
 
         scope._motion_driver.home = lambda *a, **k: False
 
-        scope.home()
+        scope.motion.home()
 
         assert received, (
             "Real homing failure (driver returned False) must raise the "
             "Homing Failed notification"
         )
         for ax in scope.axes_present():
-            assert scope.get_axis_state(ax) == AxisState.UNKNOWN, (
+            assert scope.motion.get_axis_state(ax) == AxisState.UNKNOWN, (
                 f"{ax} must be UNKNOWN after real homing failure"
             )
 
@@ -232,11 +232,11 @@ class TestLumascopeHome:
             return original_home()
         scope._motion_driver.home = spy_home
 
-        scope.home()
+        scope.motion.home()
 
         assert home_called, "home() on full XYZ hardware must call motion.home"
         for ax in ('X', 'Y', 'Z'):
-            assert scope.get_axis_state(ax) == AxisState.IDLE
+            assert scope.motion.get_axis_state(ax) == AxisState.IDLE
 
 
 class TestMotorBoardGetMicroscopeModelDisconnect:
@@ -382,12 +382,12 @@ class TestFrameValidityDuringHoming:
 
         def fake_zhome():
             captured['is_valid'] = scope.frame_validity.is_valid
-            captured['z_state'] = scope.get_axis_state('Z')
+            captured['z_state'] = scope.motion.get_axis_state('Z')
             captured['pending'] = dict(scope.frame_validity.pending_sources)
             return True
         scope._motion_driver.zhome = fake_zhome
 
-        scope.zhome()
+        scope.motion.zhome()
 
         assert captured['z_state'] == AxisState.HOMING
         assert 'z_move' in captured['pending'], (
@@ -409,12 +409,12 @@ class TestFrameValidityDuringHoming:
         def spy_home():
             captured['is_valid'] = scope.frame_validity.is_valid
             captured['pending'] = dict(scope.frame_validity.pending_sources)
-            captured['x_state'] = scope.get_axis_state('X')
-            captured['z_state'] = scope.get_axis_state('Z')
+            captured['x_state'] = scope.motion.get_axis_state('X')
+            captured['z_state'] = scope.motion.get_axis_state('Z')
             return original_home()
         scope._motion_driver.home = spy_home
 
-        scope.home()
+        scope.motion.home()
 
         assert captured['x_state'] == AxisState.HOMING
         assert captured['z_state'] == AxisState.HOMING
@@ -446,7 +446,7 @@ class TestFrameValidityDuringHoming:
             return True
         scope._motion_driver.home = fake_home
 
-        scope.home()
+        scope.motion.home()
 
         assert 'z_move' in captured['pending']
         assert 'xy_move' not in captured['pending']
@@ -463,23 +463,23 @@ class TestFrameValidityDuringHoming:
         scope._motion_driver = SimulatedMotorBoard(model='LS850T')
         present = scope._motion_driver.detect_present_axes()
         assert 'T' in present
-        scope._pos_cache = {ax: 0.0 for ax in present}
-        scope._axis_state = {ax: AxisState.UNKNOWN for ax in present}
-        scope._arrival_events = {ax: threading.Event() for ax in present}
-        for ev in scope._arrival_events.values():
+        scope.motion._pos_cache = {ax: 0.0 for ax in present}
+        scope.motion._axis_state = {ax: AxisState.UNKNOWN for ax in present}
+        scope.motion._arrival_events = {ax: threading.Event() for ax in present}
+        for ev in scope.motion._arrival_events.values():
             ev.set()
-        scope._move_profile = {ax: None for ax in present}
+        scope.motion._move_profile = {ax: None for ax in present}
 
         captured = {}
         original_thome = scope._motion_driver.thome
         def spy_thome():
             captured['is_valid'] = scope.frame_validity.is_valid
-            captured['t_state'] = scope.get_axis_state('T')
+            captured['t_state'] = scope.motion.get_axis_state('T')
             captured['pending'] = dict(scope.frame_validity.pending_sources)
             return original_thome()
         scope._motion_driver.thome = spy_thome
 
-        scope.thome()
+        scope.motion.thome()
 
         assert captured['t_state'] == AxisState.HOMING
         assert 'turret' in captured['pending'], (
@@ -644,10 +644,10 @@ class TestPerAxisDictsFromDriver:
         assert present == {'X', 'Y', 'Z'}, (
             f"Default sim should be LS850 (XYZ no turret), got {present}"
         )
-        assert set(scope._pos_cache.keys()) == present
-        assert set(scope._axis_state.keys()) == present
-        assert set(scope._arrival_events.keys()) == present
-        assert set(scope._move_profile.keys()) == present
+        assert set(scope.motion._pos_cache.keys()) == present
+        assert set(scope.motion._axis_state.keys()) == present
+        assert set(scope.motion._arrival_events.keys()) == present
+        assert set(scope.motion._move_profile.keys()) == present
 
     def test_z_only_scope_dicts_have_only_z(self):
         """Simulate an LS820 / LVC LS720-like Z-only scope."""
@@ -655,17 +655,17 @@ class TestPerAxisDictsFromDriver:
         scope._motion_driver.detect_present_axes = lambda: ['Z']
         # Re-init the per-axis dicts to reflect the patched motion.
         present = scope._motion_driver.detect_present_axes()
-        scope._pos_cache = {ax: 0.0 for ax in present}
-        scope._axis_state = {ax: AxisState.UNKNOWN for ax in present}
-        scope._arrival_events = {ax: threading.Event() for ax in present}
-        for ev in scope._arrival_events.values():
+        scope.motion._pos_cache = {ax: 0.0 for ax in present}
+        scope.motion._axis_state = {ax: AxisState.UNKNOWN for ax in present}
+        scope.motion._arrival_events = {ax: threading.Event() for ax in present}
+        for ev in scope.motion._arrival_events.values():
             ev.set()
-        scope._move_profile = {ax: None for ax in present}
+        scope.motion._move_profile = {ax: None for ax in present}
 
-        assert set(scope._pos_cache.keys()) == {'Z'}
-        assert set(scope._axis_state.keys()) == {'Z'}
-        assert set(scope._arrival_events.keys()) == {'Z'}
-        assert set(scope._move_profile.keys()) == {'Z'}
+        assert set(scope.motion._pos_cache.keys()) == {'Z'}
+        assert set(scope.motion._axis_state.keys()) == {'Z'}
+        assert set(scope.motion._arrival_events.keys()) == {'Z'}
+        assert set(scope.motion._move_profile.keys()) == {'Z'}
 
     def test_null_motor_yields_empty_dicts(self):
         """A scope with no motor hardware (NullMotionBoard) should have
@@ -673,15 +673,15 @@ class TestPerAxisDictsFromDriver:
         scope = Lumascope(simulate=True)
         scope._motion_driver = NullMotionBoard()
         present = scope._motion_driver.detect_present_axes()
-        scope._pos_cache = {ax: 0.0 for ax in present}
-        scope._axis_state = {ax: AxisState.UNKNOWN for ax in present}
-        scope._arrival_events = {ax: threading.Event() for ax in present}
-        scope._move_profile = {ax: None for ax in present}
+        scope.motion._pos_cache = {ax: 0.0 for ax in present}
+        scope.motion._axis_state = {ax: AxisState.UNKNOWN for ax in present}
+        scope.motion._arrival_events = {ax: threading.Event() for ax in present}
+        scope.motion._move_profile = {ax: None for ax in present}
 
-        assert scope._pos_cache == {}
-        assert scope._axis_state == {}
-        assert scope._arrival_events == {}
-        assert scope._move_profile == {}
+        assert scope.motion._pos_cache == {}
+        assert scope.motion._axis_state == {}
+        assert scope.motion._arrival_events == {}
+        assert scope.motion._move_profile == {}
 
     def test_move_absolute_on_absent_axis_is_silent_noop_rule_8(self):
         """Rule 8: API silently no-ops for absent axes. An LS820 user
@@ -691,22 +691,22 @@ class TestPerAxisDictsFromDriver:
         scope = Lumascope(simulate=True)
         scope._motion_driver.detect_present_axes = lambda: ['Z']
         present = scope._motion_driver.detect_present_axes()
-        scope._pos_cache = {ax: 0.0 for ax in present}
-        scope._axis_state = {ax: AxisState.UNKNOWN for ax in present}
-        scope._arrival_events = {ax: threading.Event() for ax in present}
-        for ev in scope._arrival_events.values():
+        scope.motion._pos_cache = {ax: 0.0 for ax in present}
+        scope.motion._axis_state = {ax: AxisState.UNKNOWN for ax in present}
+        scope.motion._arrival_events = {ax: threading.Event() for ax in present}
+        for ev in scope.motion._arrival_events.values():
             ev.set()
-        scope._move_profile = {ax: None for ax in present}
+        scope.motion._move_profile = {ax: None for ax in present}
 
-        scope.move_absolute_position('X', 100)
-        scope.move_absolute_position('Y', 100)
-        scope.move_absolute_position('T', 0)
-        assert 'X' not in scope._pos_cache
-        assert 'Y' not in scope._pos_cache
-        assert 'T' not in scope._pos_cache
+        scope.motion.move_absolute_position('X', 100)
+        scope.motion.move_absolute_position('Y', 100)
+        scope.motion.move_absolute_position('T', 0)
+        assert 'X' not in scope.motion._pos_cache
+        assert 'Y' not in scope.motion._pos_cache
+        assert 'T' not in scope.motion._pos_cache
 
-        scope.move_relative_position('X', 50)
-        assert 'X' not in scope._pos_cache
+        scope.motion.move_relative_position('X', 50)
+        assert 'X' not in scope.motion._pos_cache
 
     def test_move_on_null_motor_is_silent_noop_rule_8(self):
         """Same Rule 8 contract on a system with NO motor hardware at
@@ -715,23 +715,23 @@ class TestPerAxisDictsFromDriver:
         no-op — this contract must be preserved."""
         scope = Lumascope(simulate=True)
         scope._motion_driver = NullMotionBoard()
-        scope._pos_cache = {}
-        scope._axis_state = {}
-        scope._arrival_events = {}
-        scope._move_profile = {}
+        scope.motion._pos_cache = {}
+        scope.motion._axis_state = {}
+        scope.motion._arrival_events = {}
+        scope.motion._move_profile = {}
 
-        scope.move_absolute_position('Z', 100)
-        scope.move_absolute_position('X', 0)
-        scope.move_relative_position('Z', 10)
+        scope.motion.move_absolute_position('Z', 100)
+        scope.motion.move_absolute_position('X', 0)
+        scope.motion.move_relative_position('Z', 10)
 
     def test_move_with_invalid_axis_name_still_raises(self):
         """Input sanity check still rejects non-axis names. _VALID_AXIS_NAMES
         is the input vocabulary; axes_present() is the capability query."""
         scope = Lumascope(simulate=True)
         with pytest.raises(ValueError, match=r"Axis must be one of"):
-            scope.move_absolute_position('Q', 0)
+            scope.motion.move_absolute_position('Q', 0)
         with pytest.raises(ValueError, match=r"Axis must be one of"):
-            scope.move_relative_position('Q', 0)
+            scope.motion.move_relative_position('Q', 0)
 
     def test_no_hardcoded_VALID_AXES_constant(self):
         """The misnamed `VALID_AXES` class constant has been deleted.
@@ -961,7 +961,7 @@ class TestScopeCapabilities:
         using the new field — exactly the fragmentation B7 aims to retire."""
         scope = Lumascope(simulate=True)
         assert scope.axes_present() == list(scope.capabilities.axes)
-        assert scope.has_turret() == scope.capabilities.has_turret
+        assert scope.motion.has_turret() == scope.capabilities.has_turret
         assert scope.has_axis('Z') == ('Z' in scope.capabilities.axes)
         assert scope.has_axis('Q') is False
 
