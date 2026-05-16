@@ -469,6 +469,17 @@ class MicroscopeSettings(BoxLayout):
             objective = objective_helper.get_objective_info(objective_id=objective_id)
             self.ids['magnification_id'].text = f"{objective['magnification']}"
 
+            # Populate FOV fields at startup; otherwise the fields stay blank
+            # until the user clicks Frame Size or selects an objective (both
+            # have their own FOV-recalc handlers).
+            fov_size = common_utils.get_field_of_view(
+                focal_length=objective['focal_length'],
+                frame_size=settings['frame'],
+                binning_size=binning_size,
+            )
+            self.ids['field_of_view_width_id'].text = str(round(fov_size['width'], 0))
+            self.ids['field_of_view_height_id'].text = str(round(fov_size['height'], 0))
+
             # Load previous turret position objectives
             for turret_pos, objective_id in settings["turret_objectives"].items():
                 if objective_id is None:
