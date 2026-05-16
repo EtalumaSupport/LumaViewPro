@@ -219,24 +219,24 @@ class TestMoveAbsolutePositionValidation:
 
     def test_rejects_invalid_axis(self, sim_scope):
         with pytest.raises(ValueError, match="Axis"):
-            sim_scope.move_absolute_position(axis='Q', pos=100)
+            sim_scope.motion.move_absolute_position(axis='Q', pos=100)
 
     def test_rejects_position_above_limit(self, sim_scope):
         from modules.lumascope_api import Lumascope
         with pytest.raises(ValueError, match="exceeds safety limit"):
-            sim_scope.move_absolute_position(
+            sim_scope.motion.move_absolute_position(
                 axis='Z', pos=Lumascope.MOTOR_POSITION_LIMIT + 1
             )
 
     def test_rejects_large_negative_position(self, sim_scope):
         from modules.lumascope_api import Lumascope
         with pytest.raises(ValueError, match="exceeds safety limit"):
-            sim_scope.move_absolute_position(
+            sim_scope.motion.move_absolute_position(
                 axis='Z', pos=-(Lumascope.MOTOR_POSITION_LIMIT + 1)
             )
 
     def test_accepts_valid_input(self, sim_scope):
-        sim_scope.move_absolute_position(axis='Z', pos=1000)
+        sim_scope.motion.move_absolute_position(axis='Z', pos=1000)
 
 
 # ===========================================================================
@@ -720,39 +720,39 @@ class TestPositionCache:
 
     def test_initial_cache_is_zero(self, sim_scope):
         """Cache starts at 0 for all axes before any moves."""
-        assert sim_scope.get_target_position('X') == 0.0
-        assert sim_scope.get_target_position('Y') == 0.0
-        assert sim_scope.get_target_position('Z') == 0.0
+        assert sim_scope.motion.get_target_position('X') == 0.0
+        assert sim_scope.motion.get_target_position('Y') == 0.0
+        assert sim_scope.motion.get_target_position('Z') == 0.0
 
     def test_move_absolute_updates_cache(self, sim_scope):
         """move_absolute_position should push the new position into the cache."""
-        sim_scope.move_absolute_position('Z', 5000.0)
-        assert sim_scope.get_target_position('Z') == 5000.0
+        sim_scope.motion.move_absolute_position('Z', 5000.0)
+        assert sim_scope.motion.get_target_position('Z') == 5000.0
 
     def test_move_absolute_only_updates_target_axis(self, sim_scope):
         """Moving Z should not affect X or Y cache."""
-        sim_scope.move_absolute_position('Z', 5000.0)
-        assert sim_scope.get_target_position('X') == 0.0
-        assert sim_scope.get_target_position('Y') == 0.0
+        sim_scope.motion.move_absolute_position('Z', 5000.0)
+        assert sim_scope.motion.get_target_position('X') == 0.0
+        assert sim_scope.motion.get_target_position('Y') == 0.0
 
     def test_move_relative_updates_cache(self, sim_scope):
         """move_relative_position should accumulate into the cache."""
-        sim_scope.move_absolute_position('X', 1000.0)
-        sim_scope.move_relative_position('X', 500.0)
-        assert sim_scope.get_target_position('X') == 1500.0
+        sim_scope.motion.move_absolute_position('X', 1000.0)
+        sim_scope.motion.move_relative_position('X', 500.0)
+        assert sim_scope.motion.get_target_position('X') == 1500.0
 
     def test_move_relative_negative(self, sim_scope):
         """Negative relative moves should subtract from cache."""
-        sim_scope.move_absolute_position('Z', 3000.0)
-        sim_scope.move_relative_position('Z', -1000.0)
-        assert sim_scope.get_target_position('Z') == 2000.0
+        sim_scope.motion.move_absolute_position('Z', 3000.0)
+        sim_scope.motion.move_relative_position('Z', -1000.0)
+        assert sim_scope.motion.get_target_position('Z') == 2000.0
 
     def test_get_all_axes(self, sim_scope):
         """get_target_position(None) returns dict of all axes."""
-        sim_scope.move_absolute_position('X', 100.0)
-        sim_scope.move_absolute_position('Y', 200.0)
-        sim_scope.move_absolute_position('Z', 300.0)
-        result = sim_scope.get_target_position()
+        sim_scope.motion.move_absolute_position('X', 100.0)
+        sim_scope.motion.move_absolute_position('Y', 200.0)
+        sim_scope.motion.move_absolute_position('Z', 300.0)
+        result = sim_scope.motion.get_target_position()
         assert isinstance(result, dict)
         assert result['X'] == 100.0
         assert result['Y'] == 200.0
@@ -760,8 +760,8 @@ class TestPositionCache:
 
     def test_get_current_position_matches_target(self, sim_scope):
         """After a blocking move, get_current_position returns the target."""
-        sim_scope.move_absolute_position('Z', 7777.0, wait_until_complete=True)
-        assert sim_scope.get_current_position('Z') == 7777.0
+        sim_scope.motion.move_absolute_position('Z', 7777.0, wait_until_complete=True)
+        assert sim_scope.motion.get_current_position('Z') == 7777.0
 
     def test_refresh_after_homing(self, sim_scope):
         """refresh_position_cache syncs cache from hardware (used after homing)."""
@@ -770,19 +770,19 @@ class TestPositionCache:
         # Use move_abs_pos to set a known position, then verify refresh reads it.
         sim_scope._motion_driver.move_abs_pos('Z', 5000.0)
         # Cache still has old value since we bypassed move_absolute_position
-        assert sim_scope.get_target_position('Z') != 5000.0
+        assert sim_scope.motion.get_target_position('Z') != 5000.0
         # Now refresh from hardware
-        sim_scope.refresh_position_cache()
+        sim_scope.motion.refresh_position_cache()
         # Should now match what the motor reports
-        pos = sim_scope.get_target_position('Z')
+        pos = sim_scope.motion.get_target_position('Z')
         assert abs(pos - 5000.0) < 1.0  # allow microstep rounding
 
     def test_cache_returns_copy(self, sim_scope):
         """get_target_position(None) should return a copy, not the internal dict."""
-        result = sim_scope.get_target_position()
+        result = sim_scope.motion.get_target_position()
         result['X'] = 99999.0
         # Internal cache should be unaffected
-        assert sim_scope.get_target_position('X') == 0.0
+        assert sim_scope.motion.get_target_position('X') == 0.0
 
 
 # ===========================================================================
@@ -796,19 +796,19 @@ class TestAxisState:
         """All axes start in UNKNOWN state before homing."""
         from modules.lumascope_api import AxisState
         for ax in ('X', 'Y', 'Z', 'T'):
-            assert sim_scope.get_axis_state(ax) == AxisState.UNKNOWN
+            assert sim_scope.motion.get_axis_state(ax) == AxisState.UNKNOWN
 
     def test_axis_state_idle_after_move_with_wait(self, sim_scope):
         """After move_absolute_position with wait_until_complete, axis is IDLE."""
         from modules.lumascope_api import AxisState
-        sim_scope.move_absolute_position('Z', 1000, wait_until_complete=True)
-        assert sim_scope.get_axis_state('Z') == AxisState.IDLE
+        sim_scope.motion.move_absolute_position('Z', 1000, wait_until_complete=True)
+        assert sim_scope.motion.get_axis_state('Z') == AxisState.IDLE
 
     def test_axis_state_moving_during_fire_and_forget(self, sim_scope):
         """After fire-and-forget move, axis is initially MOVING then transitions to IDLE."""
         from modules.lumascope_api import AxisState
-        sim_scope.move_absolute_position('Z', 500, wait_until_complete=False)
-        state = sim_scope.get_axis_state('Z')
+        sim_scope.motion.move_absolute_position('Z', 500, wait_until_complete=False)
+        state = sim_scope.motion.get_axis_state('Z')
         # Simulated move completes instantly; motion monitor may or may not have
         # polled yet. Both MOVING and IDLE are valid states at this point.
         assert state in (AxisState.MOVING, AxisState.IDLE)
@@ -816,15 +816,15 @@ class TestAxisState:
     def test_axis_state_homing_zhome(self, sim_scope):
         """After zhome, Z axis should be IDLE (homing is blocking)."""
         from modules.lumascope_api import AxisState
-        sim_scope.zhome()
-        assert sim_scope.get_axis_state('Z') == AxisState.IDLE
+        sim_scope.motion.zhome()
+        assert sim_scope.motion.get_axis_state('Z') == AxisState.IDLE
 
     def test_axis_state_homing_home(self, sim_scope):
         """After home(), present axes should be IDLE."""
         from modules.lumascope_api import AxisState
-        sim_scope.home()
+        sim_scope.motion.home()
         for ax in sim_scope.axes_present():
-            assert sim_scope.get_axis_state(ax) == AxisState.IDLE
+            assert sim_scope.motion.get_axis_state(ax) == AxisState.IDLE
 
     def test_axis_state_homing_thome(self, _mock_heavy_deps):
         """After thome on a turret-equipped scope, T axis should be IDLE.
@@ -841,15 +841,15 @@ class TestAxisState:
         scope._motion_driver = SimulatedMotorBoard(model='LS850T')
         present = scope._motion_driver.detect_present_axes()
         assert 'T' in present, "LS850T sim must report T present"
-        scope._pos_cache = {ax: 0.0 for ax in present}
-        scope._axis_state = {ax: AxisState.UNKNOWN for ax in present}
-        scope._arrival_events = {ax: threading.Event() for ax in present}
-        for ev in scope._arrival_events.values():
+        scope.motion._pos_cache = {ax: 0.0 for ax in present}
+        scope.motion._axis_state = {ax: AxisState.UNKNOWN for ax in present}
+        scope.motion._arrival_events = {ax: threading.Event() for ax in present}
+        for ev in scope.motion._arrival_events.values():
             ev.set()
-        scope._move_profile = {ax: None for ax in present}
+        scope.motion._move_profile = {ax: None for ax in present}
 
-        scope.thome()
-        assert scope.get_axis_state('T') == AxisState.IDLE
+        scope.motion.thome()
+        assert scope.motion.get_axis_state('T') == AxisState.IDLE
 
     def test_thome_on_no_turret_scope_is_silent_noop(self, sim_scope):
         """Audit B4 + Rule 8: calling thome() on a scope without a
@@ -858,15 +858,15 @@ class TestAxisState:
         from modules.lumascope_api import AxisState
         assert 'T' not in sim_scope.axes_present()
         # Must not raise — Rule 8 silent no-op:
-        sim_scope.thome()
-        assert sim_scope.get_axis_state('T') == AxisState.UNKNOWN
+        sim_scope.motion.thome()
+        assert sim_scope.motion.get_axis_state('T') == AxisState.UNKNOWN
 
     def test_is_any_axis_moving_false_when_all_idle(self, sim_scope):
         """is_any_axis_moving() returns False when all axes are IDLE."""
         from modules.lumascope_api import AxisState
         # Home all axes to set them IDLE
-        sim_scope.zhome()
-        sim_scope.home()
+        sim_scope.motion.zhome()
+        sim_scope.motion.home()
         assert not sim_scope.is_any_axis_moving()
 
     def test_is_any_axis_moving_true_when_moving(self, sim_scope):
@@ -880,20 +880,20 @@ class TestAxisState:
     def test_monitor_reconciles_state(self, sim_scope):
         """Motion monitor thread should detect arrival and set state to IDLE."""
         from modules.lumascope_api import AxisState
-        sim_scope.move_absolute_position('Z', 1000, wait_until_complete=False)
+        sim_scope.motion.move_absolute_position('Z', 1000, wait_until_complete=False)
         # In simulation, the move completes instantly. The motion monitor thread
         # detects arrival at 50Hz and transitions state to IDLE.
         sim_scope.wait_until_finished_moving(timeout=2.0)
-        assert not sim_scope.is_moving()
-        assert sim_scope.get_axis_state('Z') == AxisState.IDLE
+        assert not sim_scope.motion.is_moving()
+        assert sim_scope.motion.get_axis_state('Z') == AxisState.IDLE
 
     def test_disconnect_sets_unknown(self, sim_scope):
         """After disconnect, all axes should be UNKNOWN."""
         from modules.lumascope_api import AxisState
-        sim_scope.zhome()  # Set to IDLE first
+        sim_scope.motion.zhome()  # Set to IDLE first
         sim_scope.disconnect()
         for ax in ('X', 'Y', 'Z', 'T'):
-            assert sim_scope.get_axis_state(ax) == AxisState.UNKNOWN
+            assert sim_scope.motion.get_axis_state(ax) == AxisState.UNKNOWN
 
     def test_axes_present(self, sim_scope):
         """axes_present() delegates to motion.detect_present_axes() (Rule 9).
@@ -914,15 +914,15 @@ class TestAxisState:
     def test_move_relative_state_tracking(self, sim_scope):
         """move_relative_position tracks axis state correctly."""
         from modules.lumascope_api import AxisState
-        sim_scope.move_relative_position('Z', 100, wait_until_complete=True)
-        assert sim_scope.get_axis_state('Z') == AxisState.IDLE
+        sim_scope.motion.move_relative_position('Z', 100, wait_until_complete=True)
+        assert sim_scope.motion.get_axis_state('Z') == AxisState.IDLE
 
     def test_xycenter_state_tracking(self, sim_scope):
         """xycenter sets X/Y to IDLE after completion."""
         from modules.lumascope_api import AxisState
         sim_scope.xycenter()
-        assert sim_scope.get_axis_state('X') == AxisState.IDLE
-        assert sim_scope.get_axis_state('Y') == AxisState.IDLE
+        assert sim_scope.motion.get_axis_state('X') == AxisState.IDLE
+        assert sim_scope.motion.get_axis_state('Y') == AxisState.IDLE
 
 
 # ===========================================================================
@@ -1134,7 +1134,7 @@ class TestB5_GetCurrentPositionUsesAxesPresent:
         """get_current_position(None) should return dict keyed by present axes only."""
         from modules.lumascope_api import Lumascope
         scope = Lumascope(simulate=True)
-        result = scope.get_current_position(axis=None)
+        result = scope.motion.get_current_position(axis=None)
         assert set(result.keys()) == set(scope.axes_present()), \
             "get_current_position(None) should use axes_present(), not a hardcoded axis list"
 
