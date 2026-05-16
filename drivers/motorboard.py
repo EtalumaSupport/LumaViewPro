@@ -1100,7 +1100,8 @@ class MotorBoard(SerialBoard):
             bool: True when the firmware reports current == target.
 
         Raises:
-            Exception: Re-raises any error from the STATUS_R query.
+            HardwareError: No response from the motor board (timeout or
+                disconnect); re-raised after logging.
         """
 
         # logger.info('[XYZ Class ] MotorBoard.target_status('+axis+')')
@@ -1108,14 +1109,16 @@ class MotorBoard(SerialBoard):
             payload = 'STATUS_R' + axis
             response = self.exchange_command(payload)
             if response is None:
-                raise ValueError("STATUS_R returned None")
+                raise HardwareError(
+                    f'target_status({axis}): no response from motor board '
+                    '(STATUS_R returned None -- timeout or disconnect)')
             data = int( response )
             bits = format(data, 'b').zfill(32)
 
             return bits[22] == '1'
 
         except Exception:
-            logger.error('[XYZ Class ] MotorBoard.get_limit_status('+axis+') inactive')
+            logger.error('[XYZ Class ] MotorBoard.target_status('+axis+') inactive')
             raise
 
 
