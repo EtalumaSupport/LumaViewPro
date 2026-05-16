@@ -989,6 +989,17 @@ class LayerControl(BoxLayout):
 
         if not protocol_running_global.is_set():
             auto_gain_enabled = settings[self.layer]['auto_gain']
+            # Sync the toggle CheckBox + dependent slider-disabled state to
+            # the settings value before applying to the camera. The .kv has
+            # no Kivy binding from settings to auto_gain.active, so when the
+            # JSON loads at startup with auto_gain=True the CheckBox stays
+            # at its default False; apply_settings would then send AG=True
+            # to the camera while the toggle continues to read OFF in the
+            # UI. Programmatic .active = bool fires no on_release (CheckBox
+            # only binds on_release in the .kv), so this does not re-enter.
+            self.ids['auto_gain'].active = auto_gain_enabled
+            for slider_item in ('gain_slider', 'gain_text', 'exp_slider', 'exp_text'):
+                self.ids[slider_item].disabled = auto_gain_enabled
             autogain_settings = None
             if not ignore_auto_gain:
                 from modules.config_ui_getters import get_auto_gain_settings
