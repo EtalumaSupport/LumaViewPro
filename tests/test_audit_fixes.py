@@ -3550,8 +3550,11 @@ class TestPylonPayloadDiscardedClassification:
 
         Test approach: extract the elif block and assert _record_failure
         does not appear in it. The OnImageGrabbed body has exactly 2
-        _record_failure calls total (GetArray exception + non-cancel
-        non-payload-discarded fallback); a third would mean the
+        _record_failure calls total (GetArray exception + the generic
+        non-classified fallback); the cancel, payload-discarded, and
+        device-not-found classification branches all skip _record_failure
+        for branch-specific reasons (lifecycle / healthy-FIFO-drop /
+        fast-disconnect respectively). A third call would mean the
         invariant broke."""
         src = self._pyloncamera_source()
         body = _function_source(src, "OnImageGrabbed")
@@ -3559,10 +3562,11 @@ class TestPylonPayloadDiscardedClassification:
         total_calls = body.count("self._base._record_failure()")
         assert total_calls == 2, (
             f"OnImageGrabbed must have exactly 2 _record_failure() calls "
-            f"(GetArray exception + non-cancel non-payload-discarded "
-            f"fallback), found {total_calls}. If a third was added inside "
-            f"the payload-discarded branch, remove it -- payload-discarded "
-            f"is healthy acquisition, not a counted failure."
+            f"(GetArray exception + generic non-classified fallback), "
+            f"found {total_calls}. If a third was added inside the "
+            f"payload-discarded or device-not-found classification "
+            f"branches, remove it -- those branches are by-design not "
+            f"counted toward MAX_CONSECUTIVE_FAILURES."
         )
         # Extract just the elif block as belt-and-suspenders.
         elif_marker = "elif err_code == _PYLON_ERR_PAYLOAD_DISCARDED:"
@@ -3582,6 +3586,135 @@ class TestPylonPayloadDiscardedClassification:
             "Payload-discarded elif branch contains _record_failure() -- "
             "that breaks the 'healthy acquisition, not a counted failure' "
             "invariant. See class docstring."
+        )
+
+
+class TestPylonDeviceNotFoundClassification:
+    """Device-not-found (USB-Vision physical removal) classification in
+    OnImageGrabbed. Third classification branch alongside cancel and
+    payload-discarded.
+
+    Bench evidence: a USB cable bump during live preview produced
+    err_code=433 ("A device which does not exist was specified") at
+    ~100+ events in <2s. The generic fallback would have logged
+    WARNING for each and only fired auto-disconnect after 128
+    consecutive failures (~4.3s at 30fps). The user-visible result
+    was a 3-second wall of WARNING log lines followed by a delayed
+    notification.
+
+    Fast-classification rule:
+    - Log once at ERROR (real disconnect, user-actionable).
+    - Call _mark_disconnected immediately so the API-layer Rule-14
+      notification fires off the disconnect flag on the next is_connected
+      poll (~30 ms typical) instead of 4 seconds late.
+    - Stop grabbing immediately so the SDK doesn't keep firing
+      OnImageGrabbed callbacks at the wedged handle.
+    - Skip _record_failure -- the consecutive-failure counter exists to
+      detect transport degradation (incomplete buffers, CRC errors).
+      Physical removal is a different class with its own signal.
+
+    These tests lock the source-level shape so a future cleanup that
+    drops the branch or adds _record_failure inside it fires the
+    regression. Behavioral test (full cascade simulation) would
+    require a Pylon SDK callback harness; static lock is the primary
+    regression gate.
+    """
+
+    def _pyloncamera_source(self):
+        from pathlib import Path
+        return (Path(__file__).resolve().parent.parent
+                / "drivers" / "pyloncamera.py").read_text()
+
+    def test_device_not_found_constant_value(self):
+        """The constant must match the bench-witnessed err_code (433)
+        from the LVP_Logbumped.wire session. If Basler renames the code
+        in a future SDK rev, bump this and update the comment."""
+        from drivers.pyloncamera import _PYLON_ERR_DEVICE_NOT_FOUND
+        assert _PYLON_ERR_DEVICE_NOT_FOUND == 433, (
+            "Device-not-found constant must match the bench-witnessed "
+            "err_code 433 from the LVP_Logbumped.wire cascade."
+        )
+
+    def test_device_not_found_comment_explains_fast_classification(self):
+        """The source must document WHY this branch exists -- bench
+        cascade rate, slow-path delay, and the user-notification
+        timing impact. Comment is load-bearing: a future cleanup
+        without the WHY would risk collapsing the branch back into
+        the generic fallback and re-introducing the 4-second log
+        spam window."""
+        src = self._pyloncamera_source()
+        assert "cascade" in src.lower(), (
+            "Source comment near _PYLON_ERR_DEVICE_NOT_FOUND must "
+            "explain the cascade rate that motivates fast classification."
+        )
+        assert "MAX_CONSECUTIVE_FAILURES" in src, (
+            "Source comment must reference MAX_CONSECUTIVE_FAILURES -- "
+            "the slow-path mechanism that fast classification short-circuits."
+        )
+
+    def test_device_not_found_branch_in_onimagegrabbed(self):
+        """The OnImageGrabbed body must contain the elif classification
+        branch. Structural check: a future cleanup that drops the elif
+        would reintroduce the 4-second cascade delay + log spam."""
+        src = self._pyloncamera_source()
+        body = _function_source(src, "OnImageGrabbed")
+        assert "_PYLON_ERR_DEVICE_NOT_FOUND" in body, (
+            "OnImageGrabbed must contain a classification branch for "
+            "_PYLON_ERR_DEVICE_NOT_FOUND. See class docstring."
+        )
+        assert "success_no_grab_device_not_found" in body, (
+            "OnImageGrabbed device-not-found branch must set its "
+            "outcome name to 'success_no_grab_device_not_found' for "
+            "trace gating."
+        )
+
+    def test_device_not_found_branch_marks_disconnected(self):
+        """The device-not-found branch must call _mark_disconnected.
+        That is the entire structural point of fast classification:
+        flip the connection flag in 1 frame instead of 128 so the
+        API-layer notification fires immediately per Rule 14."""
+        src = self._pyloncamera_source()
+        body = _function_source(src, "OnImageGrabbed")
+        elif_marker = "elif err_code == _PYLON_ERR_DEVICE_NOT_FOUND:"
+        elif_idx = body.find(elif_marker)
+        assert elif_idx >= 0, "elif marker not found (precondition)"
+        tail = body[elif_idx + len(elif_marker):]
+        end = len(tail)
+        for marker in ("\n                else:", "\n                elif "):
+            i = tail.find(marker)
+            if 0 <= i < end:
+                end = i
+        elif_block = tail[:end]
+        assert "_mark_disconnected" in elif_block, (
+            "Device-not-found elif branch must call "
+            "self._parent._mark_disconnected() -- that is the structural "
+            "point of fast classification. See class docstring."
+        )
+
+    def test_device_not_found_branch_skips_record_failure(self):
+        """Physical removal is not a counted failure; the consecutive-
+        failure counter exists for transport degradation. Counting
+        device-not-found toward MAX_CONSECUTIVE_FAILURES is at best
+        redundant (we've already marked disconnected) and at worst
+        misleading (failure count inflates from a single physical
+        event)."""
+        src = self._pyloncamera_source()
+        body = _function_source(src, "OnImageGrabbed")
+        elif_marker = "elif err_code == _PYLON_ERR_DEVICE_NOT_FOUND:"
+        elif_idx = body.find(elif_marker)
+        assert elif_idx >= 0, "elif marker not found (precondition)"
+        tail = body[elif_idx + len(elif_marker):]
+        end = len(tail)
+        for marker in ("\n                else:", "\n                elif "):
+            i = tail.find(marker)
+            if 0 <= i < end:
+                end = i
+        elif_block = tail[:end]
+        assert "_record_failure" not in elif_block, (
+            "Device-not-found elif branch contains _record_failure() -- "
+            "physical removal is a different class of event with its "
+            "own signal (_mark_disconnected); double-counting inflates "
+            "the failure counter from one physical event. See class docstring."
         )
 
 
