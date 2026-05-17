@@ -244,6 +244,13 @@ class AutofocusRunner:
             self._scope.set_gain(self._camera_gain)
         if self._camera_exposure is not None:
             self._scope.set_exposure_time(self._camera_exposure)
+        # Clean LED state before AF's _led_on fires. led_on is additive
+        # at the API + driver layers; a Live-mode LED on a different
+        # channel would otherwise stay lit alongside the AF channel and
+        # corrupt the focus metric with mixed illumination. Pre-AF state
+        # is already snapshotted into self._saved_led_state above and
+        # restored on AF exit, so this leds_off is non-destructive.
+        self._scope.leds_off()
         self._led_on()
         # Drop Z precision for the coarse passes; the fine pass restores
         # precision ON, and all exit paths (success, abort, exception)

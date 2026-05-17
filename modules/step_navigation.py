@@ -148,8 +148,13 @@ def go_to_step(
             layer_obj.apply_settings(ignore_auto_gain=ignore_auto_gain, protocol=True)
 
         if not called_from_protocol and settings['protocol_led_on']:
-            # Turn off previous channel before switching — one LED at a time,
-            # same pattern as composite capture and protocol capture (#605).
+            # Turn off any previously-on channel before turning on the
+            # new one. led_on is additive at the API + driver layers, so
+            # without this leds_off the previous step's LED would stay
+            # lit alongside the new channel and double-illuminate the
+            # preview. Same convention applied at protocol scan-start
+            # (protocol_run_loop), autofocus-run-start (autofocus_runner),
+            # and per-layer composite capture (composite_capture).
             ctx.scope.leds_off_async()
             ctx.scope.led_on_async(color, step['Illumination'])
             _schedule_ui(lambda dt: temp(), 0)
