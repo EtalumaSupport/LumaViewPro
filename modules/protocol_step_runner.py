@@ -269,7 +269,11 @@ class ProtocolStepRunner:
                 }
             ), return_future=True)
             if fut:
-                fut.result(timeout=5)
+                # 30s window: leaves headroom under Pylon USB3 stress where
+                # a single io_executor task can stretch past 5s without
+                # being a real failure. Cluster with leds_off / led_on
+                # below and restore_camera_state in protocol_cleanup.
+                fut.result(timeout=30)
 
         logger.debug(f"[TIMING] Step {p._curr_step} total: {(time.monotonic() - p._step_start_time)*1000:.1f}ms")
 
@@ -435,7 +439,7 @@ class ProtocolStepRunner:
             action=p._scope.leds_off
         ), return_future=True)
         if fut:
-            fut.result(timeout=5)
+            fut.result(timeout=30)
         else:
             try:
                 p._scope.leds_off()
@@ -462,7 +466,7 @@ class ProtocolStepRunner:
             },
         ), return_future=True)
         if fut:
-            fut.result(timeout=5)
+            fut.result(timeout=30)
         # Sleep for 5 ms to ensure that LED properly turns on before next action
         time.sleep(0.005)
         # LED observer handles UI sync — no manual callback

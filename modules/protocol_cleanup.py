@@ -166,7 +166,7 @@ def run_cleanup(
                 return_future=True,
             )
             if fut is not None:
-                fut.result(timeout=5)
+                fut.result(timeout=30)
             else:
                 # Executor disabled / protocol already ended — fall back to
                 # a direct call so state is still restored. Real-hardware

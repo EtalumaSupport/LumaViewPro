@@ -7464,4 +7464,51 @@ class TestSCEResetSignalsAbort:
         runner._cleanup.assert_not_called()
 
 
-# F_E2_TEST_CLASS_PLACEHOLDER -- restored after F-B1 commit
+class TestProtocolIOTimeoutsAreNotShort:
+    """The protocol_step_runner + protocol_cleanup `fut.result(timeout=N)`
+    sites that wait on io_executor / camera_executor work must use a
+    long-enough window to survive Pylon USB3 stress (payload-discard
+    cascades that push a single hardware op past 5s without being a
+    real failure). This test pins the floor at 30 so a future revert
+    won't silently bring back the popup storm.
+    """
+
+    _FILES = (
+        'modules/protocol_step_runner.py',
+        'modules/protocol_cleanup.py',
+    )
+    _MIN_TIMEOUT_S = 30
+
+    def test_no_short_timeouts_on_protocol_io_futures(self):
+        import ast
+        import pathlib
+
+        offenders: list[str] = []
+        for rel in self._FILES:
+            source = pathlib.Path(rel).read_text(encoding='utf-8')
+            tree = ast.parse(source, filename=rel)
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.Call):
+                    continue
+                # Match `<x>.result(timeout=<int>)` calls.
+                func = node.func
+                if not (isinstance(func, ast.Attribute) and func.attr == 'result'):
+                    continue
+                for kw in node.keywords:
+                    if kw.arg != 'timeout':
+                        continue
+                    if not isinstance(kw.value, ast.Constant):
+                        continue
+                    if not isinstance(kw.value.value, (int, float)):
+                        continue
+                    if kw.value.value < self._MIN_TIMEOUT_S:
+                        offenders.append(
+                            f"{rel}:{node.lineno}: timeout={kw.value.value} "
+                            f"(min {self._MIN_TIMEOUT_S})"
+                        )
+
+        assert not offenders, (
+            "Protocol IO futures must use timeout >= "
+            f"{self._MIN_TIMEOUT_S}s -- short windows pop up storms "
+            "under Pylon USB3 stress:\n  " + "\n  ".join(offenders)
+        )
