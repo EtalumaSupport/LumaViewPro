@@ -523,15 +523,18 @@ class ImageSettings(BoxLayout):
         if ctx.initializing:
             return
 
-        # Don't turn off LEDs if "Protocol LEDs On" is active and we're
-        # stepping through a protocol. The accordion collapse fires when
-        # go_to_step_update_ui opens the step's channel — this would kill
-        # the LED that step_navigation just turned on. (fixes #605)
-        if ctx.settings.get('protocol_led_on', False):
-            return
-
         # Skip during protocol run: user clicking a different panel
-        # shouldn't override the layer the protocol is actively driving.
+        # shouldn't override the layer the protocol is actively driving,
+        # and the "Protocol LEDs On" feature relies on step_navigation
+        # having just turned the step's LED on -- killing it here would
+        # negate that. The original guard checked protocol_led_on alone,
+        # but that setting persists across protocol runs; combined with
+        # the prior shape it incorrectly skipped LED cleanup during pure
+        # Live-mode accordion switches whenever the user had previously
+        # enabled Protocol LEDs On. Live-mode users then saw a
+        # previously-enabled channel's LED stay lit until they enabled
+        # the new channel (issue #659). Gating on protocol_running.is_set
+        # collapses both checks and matches the original intent.
         # set_expanded_layer() already bails for programmatic paths; this
         # covers the user-click path so a mid-capture click doesn't kill
         # the running-step LED or apply a different layer's settings.
