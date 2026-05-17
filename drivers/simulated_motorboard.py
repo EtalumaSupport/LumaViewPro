@@ -1072,22 +1072,23 @@ class SimulatedMotorBoard:
         """
         return self.axes_config
 
-    def get_axis_limits(self, axis: str) -> dict:
+    def get_axis_limits(self, axis: str) -> dict | None:
         """Return the configured min/max travel limits for an axis.
 
         Args:
-            axis: Axis letter ('X', 'Y', 'Z'). T has no configured limits.
+            axis: Axis letter ('X', 'Y', 'Z', 'T').
 
         Returns:
-            dict: ``{'min': float, 'max': float}`` in axis user units.
+            dict: ``{'min': float, 'max': float}`` in axis user units,
+                or ``None`` if the axis has no configured limits.
 
         Raises:
-            Exception: ``axis`` is unsupported or has no defined limits.
+            Exception: ``axis`` is not a supported axis at all.
         """
         if axis not in self.axes_config:
             raise Exception(f"Unsupported axis ({axis})")
         if 'limits' not in self.axes_config[axis]:
-            raise Exception(f"Axis {axis} does not have defined limits")
+            return None
         return self.axes_config[axis]['limits']
 
     # ------------------------------------------------------------------

@@ -421,10 +421,13 @@ class SequencedCaptureRunner:
         try:
             axis_limits = {}
             for axis in self._scope.capabilities.axes:
-                try:
-                    axis_limits[axis] = self._scope.motion.get_axis_limits(axis)
-                except Exception:
-                    pass  # skip axis if limits unavailable
+                # get_axis_limits returns None for axes without
+                # software-enforced bounds (T axis is the canonical
+                # case). Skip those — validate_for_run only checks
+                # axes present in the dict.
+                limits = self._scope.motion.get_axis_limits(axis)
+                if limits is not None:
+                    axis_limits[axis] = limits
             validation_errors = protocol.validate_for_run(axis_limits=axis_limits)
             if validation_errors:
                 for err in validation_errors:

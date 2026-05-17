@@ -1384,18 +1384,21 @@ class MotorBoard(SerialBoard):
         """
         return self.axes_config
 
-    def get_axis_limits(self, axis: str) -> dict:
+    def get_axis_limits(self, axis: str) -> dict | None:
         """Return the configured min/max travel limits for an axis.
 
         Args:
-            axis: Axis letter ('X', 'Y', 'Z'). T has no configured limits.
+            axis: Axis letter ('X', 'Y', 'Z', 'T').
 
         Returns:
-            dict: ``{'min': float, 'max': float}`` in axis user units.
+            dict: ``{'min': float, 'max': float}`` in axis user units,
+                or ``None`` if the axis has no configured limits (the
+                turret axis T is the typical "no limits" case — it
+                rotates freely with no software-enforced bounds).
 
         Raises:
-            HardwareError: ``axis`` is unsupported or has no defined
-                limits.
+            HardwareError: ``axis`` is not a supported axis at all
+                (programmer error, not a configuration variant).
         """
         AXES_CONFIG = self.axes_config
         if axis not in AXES_CONFIG:
@@ -1404,8 +1407,9 @@ class MotorBoard(SerialBoard):
 
         axis_config = AXES_CONFIG[axis]
         if 'limits' not in axis_config:
-            logger.error(f"[XYZ Class ] MotorBoard.get_axis_limits(): No limits defined for axis ({axis})")
-            raise HardwareError(f"Axis {axis} does not have defined limits")
+            # Expected for axes without software-enforced bounds (T axis
+            # is the canonical case). Callers must handle None.
+            return None
 
         return axis_config['limits']
 

@@ -856,14 +856,16 @@ class MotionAPI:
                 for s in self._axis_state.values()
             )
 
-    def get_axis_limits(self, axis: str) -> dict:
+    def get_axis_limits(self, axis: str) -> dict | None:
         """Get the travel limits for an axis.
 
         Args:
             axis: Axis name ("X", "Y", "Z", or "T").
 
         Returns:
-            dict: Contains 'min' and 'max' positions in um.
+            dict with 'min' and 'max' positions in um, or ``None`` if
+            the axis has no configured limits (typical for the turret
+            T axis). Callers must handle the None case.
         """
         return self._driver.get_axis_limits(axis=axis)
 
