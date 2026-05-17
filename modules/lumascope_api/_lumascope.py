@@ -3493,11 +3493,19 @@ class Lumascope():
         # Skip redundant SDK call if exposure hasn't changed
         if abs(float(t) - self.camera_exposure_ms) < 0.001:
             return
-        if t < 0.1 and not self._suppress_value_warnings:
+        # Sanity-check threshold: 5 microseconds. Pylon physical
+        # ExposureTime minimum across Basler USB3 sensors is 10-35 us;
+        # below 5 us is impossible on any sensor we ship with and
+        # indicates a unit-confusion bug (e.g. seconds-treated-as-ms).
+        # Bright-field captures legitimately use 0.03 ms (30 us) on
+        # bright samples, so the threshold sits below that range.
+        if t < 0.005 and not self._suppress_value_warnings:
             import traceback
             _caller = ''.join(traceback.format_stack(limit=6)[-4:-1]).strip()
-            logger.warning(f'[SCOPE API ] set_exposure_time({t}ms) is very low -- '
-                           f'image will be nearly black. Value should be in milliseconds.\n'
+            logger.warning(f'[SCOPE API ] set_exposure_time({t}ms) is below '
+                           f'any Basler sensor physical minimum -- camera '
+                           f'will clamp the request. Confirm the value is '
+                           f'in milliseconds, not seconds or microseconds.\n'
                            f'Call stack:\n{_caller}')
         with self._cam_lock:
             self._camera_driver.exposure_t(t)
