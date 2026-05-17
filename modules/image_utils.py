@@ -439,11 +439,16 @@ def generate_tiff_data(data, metadata: dict, image_type: str, color: str,):
 
     # Video frames pass through metadata as-is with no structured fields
     if image_type == 'video_frame':
+        # maxworkers=0 mirrors the imagej + default/ome paths below for
+        # the same Windows kernel-handle-leak reason -- tifffile's per-
+        # write ThreadPoolExecutor holds an Event handle that outlives
+        # cleanup. No production workflow saturates this path today;
+        # added for adjacent-symmetry with the other two save paths.
         options = dict(
             photometric=photometric,
             compression='lzw',
             resolutionunit='CENTIMETER',
-            maxworkers=2,
+            maxworkers=0,
         )
         if data.dtype == np.uint8:
             options['tile'] = (128, 128)

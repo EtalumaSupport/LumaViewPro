@@ -7464,6 +7464,49 @@ class TestSCEResetSignalsAbort:
         runner._cleanup.assert_not_called()
 
 
+class TestImageUtilsMaxWorkersIsZero:
+    """tifffile's per-write ThreadPoolExecutor holds a Windows kernel
+    Event handle that outlives cleanup -- ~1 leaked handle per save
+    over a 28-min bench run. All three save paths in image_utils.py
+    must use maxworkers=0 to retire the per-write executor. This test
+    pins the floor; a future revert to maxworkers>=1 fails it.
+    """
+
+    def test_all_dict_maxworkers_are_zero(self):
+        import ast
+        import pathlib
+
+        rel = 'modules/image_utils.py'
+        source = pathlib.Path(rel).read_text(encoding='utf-8')
+        tree = ast.parse(source, filename=rel)
+
+        offenders: list[str] = []
+        # Walk dict() Call nodes; check keyword arg `maxworkers=N`.
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            func = node.func
+            is_dict_call = (
+                isinstance(func, ast.Name) and func.id == 'dict'
+            )
+            if not is_dict_call:
+                continue
+            for kw in node.keywords:
+                if kw.arg != 'maxworkers':
+                    continue
+                if not isinstance(kw.value, ast.Constant):
+                    continue
+                if kw.value.value != 0:
+                    offenders.append(
+                        f"{rel}:{node.lineno}: maxworkers={kw.value.value}"
+                    )
+
+        assert not offenders, (
+            "All tifffile dict() maxworkers must be 0 to avoid the "
+            "Windows kernel-handle leak:\n  " + "\n  ".join(offenders)
+        )
+
+
 class TestProtocolIOTimeoutsAreNotShort:
     """The protocol_step_runner + protocol_cleanup `fut.result(timeout=N)`
     sites that wait on io_executor / camera_executor work must use a
