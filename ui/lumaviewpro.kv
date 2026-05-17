@@ -2595,9 +2595,13 @@
 					on_release: root.update_bullseye_state()
 
 			# Support Report
+			# Stacked vertically so 'Generate Support Report' fits at
+			# the panel's narrow horizontal width without clipping into
+			# the adjacent button. Both labels read fully at 12sp now.
 			BoxLayout:
+				orientation: 'vertical'
 				size_hint_y: None
-				height: dp(48)
+				height: dp(80)
 				padding: dp(8)
 				spacing: dp(4)
 				RoundedButton:
