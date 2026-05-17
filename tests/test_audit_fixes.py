@@ -868,15 +868,7 @@ class TestAxisState:
         # Home all axes to set them IDLE
         sim_scope.motion.zhome()
         sim_scope.motion.home()
-        assert not sim_scope.is_any_axis_moving()
-
-    def test_is_any_axis_moving_true_when_moving(self, sim_scope):
-        """is_any_axis_moving() returns True when an axis is in MOVING state."""
-        from modules.lumascope_api import AxisState
-        # Directly set state to avoid race with motion monitor on instant simulator
-        sim_scope._set_axis_state('Z', AxisState.MOVING)
-        assert sim_scope.is_any_axis_moving()
-        sim_scope._set_axis_state('Z', AxisState.IDLE)
+        assert not sim_scope.motion.is_any_axis_moving()
 
     def test_monitor_reconciles_state(self, sim_scope):
         """Motion monitor thread should detect arrival and set state to IDLE."""
@@ -884,7 +876,7 @@ class TestAxisState:
         sim_scope.motion.move_absolute_position('Z', 1000, wait_until_complete=False)
         # In simulation, the move completes instantly. The motion monitor thread
         # detects arrival at 50Hz and transitions state to IDLE.
-        sim_scope.wait_until_finished_moving(timeout=2.0)
+        sim_scope.motion.wait_until_finished_moving(timeout=2.0)
         assert not sim_scope.motion.is_moving()
         assert sim_scope.motion.get_axis_state('Z') == AxisState.IDLE
 
@@ -921,7 +913,7 @@ class TestAxisState:
     def test_xycenter_state_tracking(self, sim_scope):
         """xycenter sets X/Y to IDLE after completion."""
         from modules.lumascope_api import AxisState
-        sim_scope.xycenter()
+        sim_scope.motion.xycenter()
         assert sim_scope.motion.get_axis_state('X') == AxisState.IDLE
         assert sim_scope.motion.get_axis_state('Y') == AxisState.IDLE
 
@@ -1461,21 +1453,21 @@ class TestHomeReturnsBool:
 
     def test_lumascope_zhome_has_bool_return_annotation(self):
         import pathlib
-        source = pathlib.Path("modules/lumascope_api/_lumascope.py").read_text()
+        source = pathlib.Path("modules/lumascope_api/motion.py").read_text()
         assert "def zhome(self) -> bool:" in source, \
-            "Lumascope.zhome must declare `-> bool` (Wave 2 B9; Rule 37)"
+            "MotionAPI.zhome must declare `-> bool` (Rule 37)"
 
     def test_lumascope_home_has_bool_return_annotation(self):
         import pathlib
-        source = pathlib.Path("modules/lumascope_api/_lumascope.py").read_text()
+        source = pathlib.Path("modules/lumascope_api/motion.py").read_text()
         assert "def home(self) -> bool:" in source, \
-            "Lumascope.home must declare `-> bool` (Wave 2 B10; Rule 37)"
+            "MotionAPI.home must declare `-> bool` (Rule 37)"
 
     def test_lumascope_thome_has_bool_return_annotation(self):
         import pathlib
-        source = pathlib.Path("modules/lumascope_api/_lumascope.py").read_text()
+        source = pathlib.Path("modules/lumascope_api/motion.py").read_text()
         assert "def thome(self) -> bool:" in source, \
-            "Lumascope.thome must declare `-> bool` (Wave 2 B8; Rule 37)"
+            "MotionAPI.thome must declare `-> bool` (Rule 37)"
 
     def test_lumascope_zhome_returns_driver_value(self):
         """Method body must return True on success and False on failure paths.

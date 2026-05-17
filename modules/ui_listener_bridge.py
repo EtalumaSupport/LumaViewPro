@@ -204,11 +204,11 @@ class UIListenerBridge:
     def register_all(self):
         """Register every listener on the underlying Lumascope.
 
-        Idempotent? Lumascope's add_*_listener does not de-duplicate, so
-        calling this twice would double-fire each listener. Call once at
-        application startup.
+        Idempotent? The underlying add_*_listener methods do not
+        de-duplicate, so calling this twice would double-fire each
+        listener. Call once at application startup.
         """
-        self._scope.add_position_listener(self._on_position_change)
+        self._scope.motion.add_position_listener(self._on_position_change)
         self._scope.add_led_listener(self._on_led_state_changed)
         self._scope.add_camera_listener(self._on_camera_setting_changed)
         logger.info(

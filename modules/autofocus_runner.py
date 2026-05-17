@@ -91,7 +91,7 @@ class AutofocusRunner:
         # of which AF phase was interrupted so subsequent protocol Z
         # moves stop accurately.
         try:
-            self._scope.set_motor_precision_mode('Z', True)
+            self._scope.motion.set_motor_precision_mode('Z', True)
         except Exception as e:
             logger.debug(f"[AF] Could not restore precision mode during reset (scope may be unavailable): {e}")
         self._reset_state()
@@ -101,7 +101,7 @@ class AutofocusRunner:
 
 
     def _calculate_params(self):
-        center = self._scope.get_current_position('Z')
+        center = self._scope.motion.get_current_position('Z')
 
         range = self._objective['AF_range']
 
@@ -228,7 +228,7 @@ class AutofocusRunner:
         # pre-AF position. On success the fine-pass move overrides this
         # with best_focus_position.
         try:
-            self._saved_z_position = self._scope.get_current_position('Z')
+            self._saved_z_position = self._scope.motion.get_current_position('Z')
         except Exception as e:
             logger.debug(f"[AF] Could not snapshot pre-AF Z position: {e}")
             self._saved_z_position = None
@@ -249,7 +249,7 @@ class AutofocusRunner:
         # precision ON, and all exit paths (success, abort, exception)
         # also restore ON via the finally block and reset().
         try:
-            self._scope.set_motor_precision_mode('Z', False)
+            self._scope.motion.set_motor_precision_mode('Z', False)
         except Exception as e:
             logger.debug(f"[AF] Could not drop precision mode for coarse passes: {e}")
         self._move_absolute_position(pos=self._params['z_min'])
@@ -288,7 +288,7 @@ class AutofocusRunner:
             # protocol Z move stops accurately even if AF threw mid-
             # coarse-pass with precision OFF.
             try:
-                self._scope.set_motor_precision_mode('Z', True)
+                self._scope.motion.set_motor_precision_mode('Z', True)
             except Exception:
                 logger.debug('[AF] precision restore in error path failed', exc_info=True)
             self._is_focusing_event.clear()
@@ -338,12 +338,12 @@ class AutofocusRunner:
             # AFE.in_progress() does not race ahead before restoration
             # finishes.
             try:
-                self._scope.set_motor_precision_mode('Z', True)
+                self._scope.motion.set_motor_precision_mode('Z', True)
             except Exception:
                 logger.debug('[AF] precision restore in finally failed', exc_info=True)
             if not completed_successfully and self._saved_z_position is not None:
                 try:
-                    self._scope.move_absolute_position('Z', self._saved_z_position)
+                    self._scope.motion.move_absolute_position('Z', self._saved_z_position)
                     _af_log.info(
                         f'[AF DIAG] Non-success exit: restored Z to '
                         f'pre-AF position {self._saved_z_position:.2f}'
@@ -409,7 +409,7 @@ class AutofocusRunner:
 
             # Check if Z is still moving (in-memory state check, zero serial I/O
             # when IDLE). Covers both target arrival and overshoot.
-            if self._scope.is_moving():
+            if self._scope.motion.is_moving():
                 return
 
             if self._abort_event is not None and self._abort_event.is_set():
@@ -448,7 +448,7 @@ class AutofocusRunner:
             image = image[int(height/4):int(3*height/4),int(width/4):int(3*width/4)]
 
             focus_score = autofocus_functions.focus_function(image=image)
-            current_pos = round(self._scope.get_current_position('Z'), common_utils.max_decimal_precision('z'))
+            current_pos = round(self._scope.motion.get_current_position('Z'), common_utils.max_decimal_precision('z'))
 
             if self.ui_update_func is not None:
                 _schedule_ui(lambda dt: self.ui_update_func(pos=current_pos), 0)
@@ -466,7 +466,7 @@ class AutofocusRunner:
                 return
 
             resolution = self._params['resolution']
-            next_target = self._scope.get_target_position('Z') + resolution
+            next_target = self._scope.motion.get_target_position('Z') + resolution
 
             if self._abort_event is not None and self._abort_event.is_set():
                 self._is_focusing_event.clear()
@@ -536,7 +536,7 @@ class AutofocusRunner:
                 # Restore Z precision ON before bailing so the held
                 # current-Z position is reached accurately on any
                 # subsequent move.
-                self._scope.set_motor_precision_mode('Z', True)
+                self._scope.motion.set_motor_precision_mode('Z', True)
                 self._is_focusing_event.clear()
                 self._is_complete_event.set()
                 self._best_focus_position = self._params['center']
@@ -570,7 +570,7 @@ class AutofocusRunner:
                 # so the invariant "Z precision ON outside of AF" holds
                 # regardless of exit path. Idempotent when the fine pass
                 # already set it.
-                self._scope.set_motor_precision_mode('Z', True)
+                self._scope.motion.set_motor_precision_mode('Z', True)
 
                 self._is_focusing_event.clear()
                 self._is_complete_event.set()
@@ -592,7 +592,7 @@ class AutofocusRunner:
                 self._last_pass = True
                 # Enable precision mode for the fine pass -- accurate
                 # motor stopping for reliable focus measurements.
-                self._scope.set_motor_precision_mode('Z', True)
+                self._scope.motion.set_motor_precision_mode('Z', True)
                 _af_log.info('  PRECISION MODE ON for fine pass')
 
 
@@ -601,7 +601,7 @@ class AutofocusRunner:
 
 
     def _move_absolute_position(self, pos):
-        self._scope.move_absolute_position('Z', pos)
+        self._scope.motion.move_absolute_position('Z', pos)
         with self._callbacks_lock:
             cb = self._callbacks.get('move_position')
         if cb is not None:
@@ -609,7 +609,7 @@ class AutofocusRunner:
 
 
     def _move_relative_position(self, pos):
-        self._scope.move_relative_position('Z', pos)
+        self._scope.motion.move_relative_position('Z', pos)
         with self._callbacks_lock:
             cb = self._callbacks.get('move_position')
         if cb is not None:

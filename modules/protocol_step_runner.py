@@ -108,7 +108,7 @@ class ProtocolStepRunner:
         step = p._protocol.step(idx=p._curr_step)
 
         # Check motion timeout
-        if p._scope.is_moving():
+        if p._scope.motion.is_moving():
             if time.monotonic() - p._step_start_time > p.STEP_TIMEOUT_SECONDS:
                 timeout_msg = f"Step {p._curr_step} timed out waiting for motion ({p.STEP_TIMEOUT_SECONDS}s)."
                 logger.error(f"[PROTOCOL] {timeout_msg} — transitioning to ERROR state")
@@ -351,10 +351,10 @@ class ProtocolStepRunner:
             'overshoot_enabled': overshoot_enabled,
         }
         if p._io_executor is None:
-            p._scope.move_absolute_position(**kwargs)
+            p._scope.motion.move_absolute_position(**kwargs)
             return
         fut = p._io_executor.protocol_put(
-            IOTask(action=p._scope.move_absolute_position, kwargs=kwargs),
+            IOTask(action=p._scope.motion.move_absolute_position, kwargs=kwargs),
             return_future=True,
         )
         if fut:
@@ -394,7 +394,7 @@ class ProtocolStepRunner:
         # get_current_position is a cache read (LAYER-L pinned that as a
         # zero-serial-IO accessor); safe to call directly from any thread
         # that needs the live z position.
-        z_orig = p._scope.get_current_position(axis=axis)
+        z_orig = p._scope.motion.get_current_position(axis=axis)
         self._move_axis_through_io(
             axis, 0,
             wait_until_complete=True, overshoot_enabled=True,

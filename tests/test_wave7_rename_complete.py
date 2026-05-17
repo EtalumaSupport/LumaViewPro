@@ -104,3 +104,69 @@ def test_no_legacy_scope_driver_accesses_in_production():
         "pre-rename driver attribute names:\n  "
         + "\n  ".join(failures)
     )
+
+
+# Methods that live ONLY on the MotionAPI sub-API. Production callers
+# must reach them via `scope.motion.<name>(...)`, never `scope.<name>(...)`.
+# Derived by diffing dir(scope.motion) against dir(scope) on a
+# `Lumascope(simulate=True)` instance; hardcoded here so the test is
+# pure-AST (no simulator instantiation at collection time).
+MOTION_ONLY_METHODS = frozenset({
+    'add_position_listener', 'get_actual_position', 'get_axes_config',
+    'get_axis_limits', 'get_axis_state', 'get_current_position',
+    'get_home_status', 'get_limit_switch_status',
+    'get_limit_switch_status_all_axes', 'get_overshoot',
+    'get_reference_status', 'get_target_position', 'get_target_status',
+    'get_turret_position_for_objective_id', 'has_homed', 'has_thomed',
+    'has_turret', 'home', 'init_axes', 'is_any_axis_moving',
+    'is_current_turret_position_objective_set', 'is_moving',
+    'move_absolute_async', 'move_absolute_position', 'move_absolute_sync',
+    'move_home_async', 'move_relative_async', 'move_relative_position',
+    'refresh_position_cache', 'remove_position_listener',
+    'safe_turret_move', 'set_acceleration_limit',
+    'set_motor_precision_mode', 'stop_motion', 'thome', 'tmove',
+    'wait_until_finished_moving', 'xycenter', 'zhome',
+})
+
+
+def _find_motion_method_accesses(tree: ast.AST) -> list[tuple[int, str]]:
+    """Find `<chain ending in scope>.<motion_only_method>` accesses.
+
+    The chain-ending logic mirrors _chain_ends_in_scope so we catch
+    `scope.zhome`, `self._scope.zhome`, `p._scope.zhome`,
+    `_app_ctx.ctx.scope.zhome`, etc.
+    """
+    hits: list[tuple[int, str]] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Attribute):
+            continue
+        if node.attr not in MOTION_ONLY_METHODS:
+            continue
+        if _chain_ends_in_scope(node.value):
+            hits.append((node.lineno, node.attr))
+    return hits
+
+
+def test_no_motion_method_calls_on_bare_scope_in_production():
+    failures: list[str] = []
+    for path in _iter_prod_files():
+        try:
+            source = path.read_text(encoding='utf-8')
+        except (OSError, UnicodeDecodeError) as e:
+            failures.append(f"{path}: read failed: {e}")
+            continue
+        try:
+            tree = ast.parse(source, filename=str(path))
+        except SyntaxError as e:
+            failures.append(f"{path}: parse failed: {e}")
+            continue
+        for lineno, attr in _find_motion_method_accesses(tree):
+            rel = path.relative_to(_REPO_ROOT)
+            failures.append(
+                f"{rel}:{lineno}: scope.{attr} -- use scope.motion.{attr}"
+            )
+    assert not failures, (
+        "Motion methods reached on bare scope -- production code must "
+        "go through scope.motion.<method>:\n  "
+        + "\n  ".join(failures)
+    )

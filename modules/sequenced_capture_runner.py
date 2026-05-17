@@ -418,7 +418,7 @@ class SequencedCaptureRunner:
             axis_limits = {}
             for axis in self._scope.capabilities.axes:
                 try:
-                    axis_limits[axis] = self._scope.get_axis_limits(axis)
+                    axis_limits[axis] = self._scope.motion.get_axis_limits(axis)
                 except Exception:
                     pass  # skip axis if limits unavailable
             validation_errors = protocol.validate_for_run(axis_limits=axis_limits)

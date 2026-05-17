@@ -227,7 +227,7 @@ class ProtocolImageWriter:
 
             # Objective short name for filename
             objective_short_name = None
-            if self._scope.has_turret():
+            if self._scope.motion.has_turret():
                 obj_info = self._scope.get_objective_info(objective_id=step["Objective"])
                 if obj_info is not None:
                     objective_short_name = obj_info.get('short_name')
@@ -250,9 +250,9 @@ class ProtocolImageWriter:
 
             # In engineering mode, include turret position in filename
             turret_pos = None
-            if self._scope.engineering_mode and self._scope.has_turret():
+            if self._scope.engineering_mode and self._scope.motion.has_turret():
                 try:
-                    turret_pos = int(self._scope.get_current_position('T'))
+                    turret_pos = int(self._scope.motion.get_current_position('T'))
                 except Exception:
                     pass
 
