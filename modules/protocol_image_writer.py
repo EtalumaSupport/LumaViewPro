@@ -538,14 +538,19 @@ class ProtocolImageWriter:
                         )
                     return
 
-                # PIW-5: pass per-run convert buffer for uint16 saves.
-                # PF-3 / PIW-6: pass per-run false-color + RGB buffers when the
-                # protocol enables false-color and the capture is uint16 2D.
+                # Pass per-run convert buffer for uint16 saves only (12->16
+                # conversion doesn't apply to uint8). Pass per-run false-
+                # color + RGB buffers for any 2D single-channel capture
+                # (uint8 or uint16) when false-color is enabled -- the
+                # write_tiff gate accepts both bit depths now.
                 is_uint16_2d = (hasattr(captured_image, 'dtype')
                                 and captured_image.dtype == np.uint16
                                 and getattr(captured_image, 'ndim', 0) == 2)
+                is_2d_single_channel = (hasattr(captured_image, 'dtype')
+                                        and captured_image.dtype in (np.uint8, np.uint16)
+                                        and getattr(captured_image, 'ndim', 0) == 2)
                 out_12to16 = self._get_convert_buf_12to16(captured_image) if is_uint16_2d else None
-                if self._false_color_16bit and is_uint16_2d:
+                if self._false_color_16bit and is_2d_single_channel:
                     false_color_buf, rgb_buf = self._get_false_color_bufs(captured_image)
                 else:
                     false_color_buf, rgb_buf = None, None

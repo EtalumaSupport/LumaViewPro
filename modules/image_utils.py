@@ -288,13 +288,19 @@ def write_tiff(
     if extratags is None:
         extratags = []
 
-    # Convert 16-bit fluorescence to 3-channel RGB for false color in all viewers.
-    # File size grows ~3x in exchange for color in Windows Preview and FIJI.
-    # Caller may pass the resolved bool to skip the per-save settings_lock acquire;
-    # falls back to a one-shot lock read when None for ad-hoc callers.
-    # false_color_buf is the in-place RGB destination for add_false_color; rgb_buf
-    # is retained for API compat and will be retired once callers drop it.
-    if (data.dtype == np.uint16
+    # Convert single-channel fluorescence to 3-channel RGB for false color
+    # in all viewers. File size grows ~3x in exchange for color in Windows
+    # Preview and FIJI. Caller may pass the resolved bool to skip the
+    # per-save settings_lock acquire; falls back to a one-shot lock read
+    # when None for ad-hoc callers. The setting key
+    # ``false_color_16bit`` is legacy -- the feature now applies to both
+    # 8-bit (uint8) and 12/16-bit (uint16) captures because 8-bit
+    # fluorescence z-stacks and z-projections were saving grayscale too
+    # (the original 16-bit-only gate was an oversight).
+    # false_color_buf is the in-place RGB destination for add_false_color;
+    # rgb_buf is retained for API compat and will be retired once callers
+    # drop it.
+    if (data.dtype in (np.uint8, np.uint16)
             and not is_color_image(data)
             and color in common_utils.get_image_layers()):
         try:
