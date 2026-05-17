@@ -16,6 +16,7 @@ from drivers.motorboard import MotorBoard
 from drivers.ledboard import LEDBoard
 from drivers.pyloncamera import PylonCamera
 from modules.exceptions import CaptureError, ConfigError
+from modules.lumascope_api import _constants as _api_constants
 try:
     from drivers.idscamera import IDSCamera
 except ImportError:
@@ -177,18 +178,12 @@ class Lumascope():
     # --- Input validation constants ---
     LED_MAX_MA = 1000       # Maximum LED current in milliamps (matches firmware CH_MAX)
     # LED channel set comes from self._led_driver.available_channels() — varies by
-    # hardware (RP2040 = 6, FX2/Lumaview Classic = 4).
-    # Per-axis state dicts (_pos_cache, _axis_state, _arrival_events,
-    # _move_profile) are built from self._motion_driver.detect_present_axes() at
-    # init — they reflect actual hardware. This `_VALID_AXIS_NAMES` tuple
-    # is the structural axis-name vocabulary used only for input sanity
-    # checks ("did the caller pass a real axis letter?"), not for
-    # capability queries. Use `axes_present()` for "what does this scope
-    # have?".
-    _VALID_AXIS_NAMES = ('X', 'Y', 'Z', 'T')
-    # Absolute position bounds (um) — generous outer limits; per-axis travel
-    # limits are enforced by the motor board itself.
-    MOTOR_POSITION_LIMIT = 1_000_000  # 1 meter in um
+    # Canonical home for these is `_constants.py`; alias on the class so
+    # existing callers (`scope._VALID_AXIS_NAMES`, `Lumascope.MOTOR_POSITION_LIMIT`)
+    # keep working. Sub-API modules import from `_constants.py` directly
+    # to avoid a circular dep with this file.
+    _VALID_AXIS_NAMES = _api_constants._VALID_AXIS_NAMES
+    MOTOR_POSITION_LIMIT = _api_constants.MOTOR_POSITION_LIMIT
 
     def __init__(self, simulate: bool = False, camera_type: str = 'auto',
                  register_atexit: bool = True,
@@ -583,10 +578,6 @@ class Lumascope():
                 f"Not connected: {', '.join(missing)}. Some features will be unavailable.",
             )
 
-
-    def _stop_motion_monitor(self):
-        """Stop the motion monitor thread -- delegates to MotionAPI.disconnect."""
-        self.motion.disconnect()
 
     def _load_camera_timing(self):
         """Load per-camera timing config if available.
@@ -1513,7 +1504,7 @@ class Lumascope():
         # Stop the motion monitor and reset axis states -- MotionAPI.disconnect()
         # handles both: signals the monitor thread, waits for it, then resets
         # all axes to UNKNOWN and sets arrival events so waiters unblock.
-        self._stop_motion_monitor()
+        self.motion.disconnect()
 
         # Each sub-system: only attempt disconnect on a driver that
         # has one. Skips both the canonical no-op states (NullLEDBoard,

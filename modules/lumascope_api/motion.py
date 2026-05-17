@@ -51,6 +51,10 @@ _api_log = _logging.getLogger('LVP.api')
 # only constructed inside Lumascope.__init__ which means _lumascope.py
 # is fully initialized by the time motion.py first loads.
 from modules.lumascope_api._lumascope import AxisState
+from modules.lumascope_api._constants import (
+    MOTOR_POSITION_LIMIT,
+    _VALID_AXIS_NAMES,
+)
 
 if TYPE_CHECKING:
     from modules.lumascope_api._lumascope import Lumascope
@@ -1081,13 +1085,12 @@ class MotionAPI:
         Raises:
             ValueError: If axis is invalid or pos is not numeric / out of bounds.
         """
-        from modules.lumascope_api._lumascope import Lumascope as _Lumascope  # noqa: PLC0415
-        if axis not in _Lumascope._VALID_AXIS_NAMES:
-            raise ValueError(f"Axis must be one of {_Lumascope._VALID_AXIS_NAMES}, got {axis!r}")
+        if axis not in _VALID_AXIS_NAMES:
+            raise ValueError(f"Axis must be one of {_VALID_AXIS_NAMES}, got {axis!r}")
         if not isinstance(pos, (int, float)):
             raise ValueError(f"Position must be numeric, got {type(pos).__name__}")
-        if abs(pos) > _Lumascope.MOTOR_POSITION_LIMIT:
-            raise ValueError(f"Position {pos} um exceeds safety limit of +/-{_Lumascope.MOTOR_POSITION_LIMIT} um")
+        if abs(pos) > MOTOR_POSITION_LIMIT:
+            raise ValueError(f"Position {pos} um exceeds safety limit of +/-{MOTOR_POSITION_LIMIT} um")
 
         # Rule 8: silently no-op for axes that aren't present on this
         # hardware. _arrival_events is sized to detect_present_axes() at
@@ -1157,13 +1160,12 @@ class MotionAPI:
         Raises:
             ValueError: If axis is invalid or um is not numeric / out of bounds.
         """
-        from modules.lumascope_api._lumascope import Lumascope as _Lumascope  # noqa: PLC0415
-        if axis not in _Lumascope._VALID_AXIS_NAMES:
-            raise ValueError(f"Axis must be one of {_Lumascope._VALID_AXIS_NAMES}, got {axis!r}")
+        if axis not in _VALID_AXIS_NAMES:
+            raise ValueError(f"Axis must be one of {_VALID_AXIS_NAMES}, got {axis!r}")
         if not isinstance(um, (int, float)):
             raise ValueError(f"Distance must be numeric, got {type(um).__name__}")
-        if abs(um) > _Lumascope.MOTOR_POSITION_LIMIT:
-            raise ValueError(f"Distance {um} um exceeds safety limit of +/-{_Lumascope.MOTOR_POSITION_LIMIT} um")
+        if abs(um) > MOTOR_POSITION_LIMIT:
+            raise ValueError(f"Distance {um} um exceeds safety limit of +/-{MOTOR_POSITION_LIMIT} um")
 
         # Rule 8: silently no-op for axes that aren't present on this
         # hardware. See move_absolute_position for the rationale.
