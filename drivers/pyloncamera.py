@@ -1907,6 +1907,22 @@ class PylonCamera(Camera):
         # start_grabbing cycle on every call -- a needless over-stop
         # of the same structural class as wrapping any other
         # live-writable parameter.
+        # Short-circuit when already at target. Matches the e042c7f pattern
+        # on gain / exposure_t -- avoids redundant SetValue serialization
+        # against the grab thread during LED-toggle storms.
+        try:
+            if abs(float(self.active.AutoTargetBrightness.GetValue()) - float(auto_target_brightness)) < 1e-3:
+                if _cam_log is not None:
+                    _cam_log.info(
+                        f'pylon AutoTargetBrightness.SetValue({auto_target_brightness:.3f}) short-circuited'
+                    )
+                return
+        except (genicam.RuntimeException, genicam.TimeoutException) as e:
+            logger.debug(
+                f'[CAM Class ] AutoTargetBrightness short-circuit read failed; '
+                f'falling through to SetValue path: {e}'
+            )
+
         try:
             if _cam_log is not None:
                 _cam_log.info(f'pylon AutoTargetBrightness.SetValue({auto_target_brightness:.3f})')
@@ -1963,6 +1979,23 @@ class PylonCamera(Camera):
 
             if max_gain is None:
                 max_gain = self.active.AutoGainUpperLimit.Max
+
+            # Short-circuit when both bounds already at target. Matches
+            # the e042c7f pattern on gain / exposure_t.
+            try:
+                cur_min = float(self.active.AutoGainLowerLimit.GetValue())
+                cur_max = float(self.active.AutoGainUpperLimit.GetValue())
+                if abs(cur_min - float(min_gain)) < 1e-3 and abs(cur_max - float(max_gain)) < 1e-3:
+                    if _cam_log is not None:
+                        _cam_log.info(
+                            f'pylon AutoGainLowerLimit/UpperLimit.SetValue({min_gain}, {max_gain}) short-circuited'
+                        )
+                    return
+            except (genicam.RuntimeException, genicam.TimeoutException) as e:
+                logger.debug(
+                    f'[CAM Class ] AutoGain min/max short-circuit read failed; '
+                    f'falling through to SetValue path: {e}'
+                )
 
             if _cam_log is not None:
                 _cam_log.info(

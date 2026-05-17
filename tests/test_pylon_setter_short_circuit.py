@@ -162,5 +162,63 @@ class TestFrameSizeShortCircuit(unittest.TestCase):
         cam.update_camera_config.assert_not_called()
 
 
+class TestAutoTargetBrightnessShortCircuit(unittest.TestCase):
+    def test_short_circuits_when_already_set(self):
+        cam = _mock_camera()
+        cam.active.AutoTargetBrightness.GetValue.return_value = 0.5
+
+        cam.update_auto_gain_target_brightness(0.5)
+
+        cam.active.AutoTargetBrightness.SetValue.assert_not_called()
+
+    def test_short_circuits_within_tolerance(self):
+        cam = _mock_camera()
+        cam.active.AutoTargetBrightness.GetValue.return_value = 0.5005  # within 1e-3
+
+        cam.update_auto_gain_target_brightness(0.5)
+
+        cam.active.AutoTargetBrightness.SetValue.assert_not_called()
+
+    def test_writes_when_outside_tolerance(self):
+        cam = _mock_camera()
+        cam.active.AutoTargetBrightness.GetValue.return_value = 0.5
+
+        cam.update_auto_gain_target_brightness(0.7)
+
+        cam.active.AutoTargetBrightness.SetValue.assert_called_once_with(0.7)
+
+
+class TestAutoGainMinMaxShortCircuit(unittest.TestCase):
+    def test_short_circuits_when_both_at_target(self):
+        cam = _mock_camera()
+        cam.active.AutoGainLowerLimit.GetValue.return_value = 0.0
+        cam.active.AutoGainUpperLimit.GetValue.return_value = 24.0
+
+        cam.update_auto_gain_min_max(0.0, 24.0)
+
+        cam.active.AutoGainLowerLimit.SetValue.assert_not_called()
+        cam.active.AutoGainUpperLimit.SetValue.assert_not_called()
+
+    def test_writes_when_min_changes(self):
+        cam = _mock_camera()
+        cam.active.AutoGainLowerLimit.GetValue.return_value = 0.0
+        cam.active.AutoGainUpperLimit.GetValue.return_value = 24.0
+
+        cam.update_auto_gain_min_max(1.0, 24.0)
+
+        cam.active.AutoGainLowerLimit.SetValue.assert_called_once_with(1.0)
+        cam.active.AutoGainUpperLimit.SetValue.assert_called_once_with(24.0)
+
+    def test_writes_when_max_changes(self):
+        cam = _mock_camera()
+        cam.active.AutoGainLowerLimit.GetValue.return_value = 0.0
+        cam.active.AutoGainUpperLimit.GetValue.return_value = 24.0
+
+        cam.update_auto_gain_min_max(0.0, 30.0)
+
+        cam.active.AutoGainLowerLimit.SetValue.assert_called_once_with(0.0)
+        cam.active.AutoGainUpperLimit.SetValue.assert_called_once_with(30.0)
+
+
 if __name__ == '__main__':
     unittest.main()
