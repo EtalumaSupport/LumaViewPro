@@ -7405,3 +7405,63 @@ class TestSequencedCaptureRunnerRunDirCollision:
         result = exc._create_run_dir()
         assert result['status'] is False
         assert 'accessible capture location' in result['error']
+
+
+class TestSCEResetSignalsAbort:
+    """UI-initiated abort path (cancel_all_protocols / abort-scan button)
+    must signal protocol_thread.abort() before cleanup tears down LEDs /
+    camera / position. Without this, cleanup races the in-flight scan
+    step (visible as LED flicker, camera config bouncing, return-to-
+    position racing the next step's motion).
+    """
+
+    def _make_runner(self):
+        from modules.sequenced_capture_runner import SequencedCaptureRunner
+        runner = SequencedCaptureRunner(
+            scope=MagicMock(),
+            stage_offset={'x': 0.0, 'y': 0.0, 'z': 0.0},
+            io_executor=MagicMock(),
+            protocol_thread=MagicMock(),
+            file_io_executor=MagicMock(),
+            camera_executor=MagicMock(),
+            autofocus_thread=MagicMock(),
+        )
+        return runner
+
+    def test_reset_calls_protocol_thread_abort_when_in_progress(self):
+        runner = self._make_runner()
+        runner._run_in_progress_event.set()
+        # _cleanup() has side effects we don't want to actually run; patch it.
+        runner._cleanup = MagicMock()
+
+        runner.reset()
+
+        runner.protocol_thread.abort.assert_called_once()
+        runner._cleanup.assert_called_once()
+
+    def test_reset_abort_called_before_cleanup(self):
+        runner = self._make_runner()
+        runner._run_in_progress_event.set()
+
+        order: list[str] = []
+        runner.protocol_thread.abort.side_effect = lambda: order.append('abort')
+        runner._cleanup = MagicMock(side_effect=lambda: order.append('cleanup'))
+
+        runner.reset()
+
+        assert order == ['abort', 'cleanup'], (
+            f"abort must be called before cleanup; got {order}"
+        )
+
+    def test_reset_noop_when_no_run_in_progress(self):
+        runner = self._make_runner()
+        # Run not in progress -- reset() should be a no-op.
+        runner._cleanup = MagicMock()
+
+        runner.reset()
+
+        runner.protocol_thread.abort.assert_not_called()
+        runner._cleanup.assert_not_called()
+
+
+# F_E2_TEST_CLASS_PLACEHOLDER -- restored after F-B1 commit

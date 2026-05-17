@@ -336,7 +336,11 @@ class SequencedCaptureRunner:
     def reset(self):
         if not self._run_in_progress_event.is_set():
             return
-        
+
+        # Signal abort before cleanup runs hardware. Without this, UI-
+        # initiated aborts tear down LEDs / camera / position while the
+        # protocol thread is still mid-step.
+        self.protocol_thread.abort()
         self._cleanup()
 
 
