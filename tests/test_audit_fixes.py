@@ -2914,10 +2914,16 @@ class TestFrameValidity_CompositeEngineeringBranchDrains:
 
 
 class TestFrameValidity_AllLedMutatorsInvalidate:
-    """Defensive coverage: every LED state-mutator on Lumascope must call
-    frame_validity.invalidate('led'). All 6 currently invalidate; this
-    test locks the invariant so a future cleanup that removes any call
-    fires the regression."""
+    """Defensive coverage: every LED state-mutator on IlluminationAPI
+    must call frame_validity.invalidate('led'). All 6 currently
+    invalidate; this test locks the invariant so a future cleanup that
+    removes any call fires the regression.
+
+    Post-Wave-7-Phase-3d: bodies live on IlluminationAPI and reach
+    frame_validity via `self._scope.frame_validity.invalidate(...)`
+    because frame_validity is still owned by Lumascope (relocates to
+    ImagingAPI in Phase 4).
+    """
 
     LED_MUTATORS = (
         "led_on",
@@ -2930,19 +2936,15 @@ class TestFrameValidity_AllLedMutatorsInvalidate:
 
     def test_each_led_mutator_invalidates_validity(self):
         from pathlib import Path
-        src = (Path(__file__).resolve().parent.parent / "modules" / "lumascope_api" / "_lumascope.py").read_text()
+        src = (Path(__file__).resolve().parent.parent / "modules" / "lumascope_api" / "illumination.py").read_text()
         missing = []
         for func in self.LED_MUTATORS:
-            calls = _function_body_calls(src, func)
-            # invalidate() is called as self.frame_validity.invalidate(...) which
-            # resolves to attribute "invalidate" on self.frame_validity. Use
-            # a chained attribute walk via raw source check too as belt+suspenders.
             method_src = _function_source(src, func)
-            if "self.frame_validity.invalidate(" not in method_src:
+            if "self._scope.frame_validity.invalidate(" not in method_src:
                 missing.append(func)
         assert not missing, (
-            "LED mutator coverage: each Lumascope LED state-mutator must call "
-            "self.frame_validity.invalidate('led') so frame_validity sees the "
+            "LED mutator coverage: each IlluminationAPI LED state-mutator must call "
+            "self._scope.frame_validity.invalidate('led') so frame_validity sees the "
             f"transition. Missing: {missing!r}."
         )
 
