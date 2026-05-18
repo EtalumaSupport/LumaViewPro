@@ -988,15 +988,21 @@ def dataclasses_fields(cls):
 
 
 class TestSetExposureTimeValueWarningSuppression:
-    """`set_exposure_time` warns at < 0.1 ms exposures because the
-    L1-researcher failure mode is typing 0.05 thinking microseconds and
-    getting a black image (lumascope_api.py:3761). Sweep-style internal
-    callers (camera characterization dynamic_range / linearity stages)
-    walk that range deliberately and need a way to silence the warning.
-    The `suppress_value_warnings()` context manager flips an instance
-    flag that gates the warning. Tests verify the gate, the flag's
-    restore-on-exit semantics (including exception path), and that the
-    warning still fires by default for L1-typed values.
+    """`set_exposure_time` warns at < 0.005 ms (5us) exposures -- the
+    Basler sensor physical minimum. Sub-5us requests indicate a
+    unit-confusion bug (seconds-as-ms, ms-as-us). Bright-field at
+    0.03 ms is legitimate, so the threshold sits below that range.
+    Sweep-style internal callers (camera characterization
+    dynamic_range / linearity stages) walk that range deliberately and
+    need a way to silence the warning. The `suppress_value_warnings()`
+    context manager flips an instance flag that gates the warning.
+    Tests verify the gate, the flag's restore-on-exit semantics
+    (including exception path), and that the warning still fires by
+    default for L1-typed values.
+
+    Threshold history: was 0.1 ms (L1 unit-confusion guard); lowered
+    to 0.005 ms by c9961e5 (2026-05-17) so legitimate 0.03 ms
+    bright-BF captures stop spamming the warning.
     """
 
     def _patch_logger(self, monkeypatch):
@@ -1006,25 +1012,25 @@ class TestSetExposureTimeValueWarningSuppression:
         monkeypatch.setattr(lapi, 'logger', mock)
         return mock
 
-    def test_warning_fires_by_default_at_sub_0_1_ms(self, monkeypatch):
+    def test_warning_fires_by_default_at_sub_0_005_ms(self, monkeypatch):
         mock_logger = self._patch_logger(monkeypatch)
         scope = Lumascope(simulate=True)
-        scope.set_exposure_time(0.05)
+        scope.set_exposure_time(0.003)
         # Find the warning among any other logger calls
         warn_msgs = [str(c) for c in mock_logger.warning.call_args_list]
-        assert any('set_exposure_time(0.05ms)' in m and 'very low' in m
+        assert any('set_exposure_time(0.003ms)' in m and 'below' in m
                    for m in warn_msgs), (
-            f'expected sub-0.1ms warning but got: {warn_msgs}')
+            f'expected sub-0.005ms warning but got: {warn_msgs}')
 
     def test_warning_suppressed_inside_context_manager(self, monkeypatch):
         mock_logger = self._patch_logger(monkeypatch)
         scope = Lumascope(simulate=True)
         with scope.suppress_value_warnings():
-            scope.set_exposure_time(0.05)
+            scope.set_exposure_time(0.003)
         warn_msgs = [str(c) for c in mock_logger.warning.call_args_list]
-        assert not any('set_exposure_time(0.05ms)' in m
+        assert not any('set_exposure_time(0.003ms)' in m
                        for m in warn_msgs), (
-            f'expected no sub-0.1ms warning inside context, got: {warn_msgs}')
+            f'expected no sub-0.005ms warning inside context, got: {warn_msgs}')
 
     def test_flag_restored_after_normal_exit(self):
         scope = Lumascope(simulate=True)
