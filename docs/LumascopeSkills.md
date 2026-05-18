@@ -288,22 +288,22 @@ Channels available depend on the scope — always check `scope.capabilities.led_
 **Luminescence** (`Lumi`): not an LED channel. In luminescence mode, all LEDs must be off — the image captures emitted light only.
 
 ```python
-scope.leds_enable()
-scope.led_on('Blue', 200)                 # Blue LED at 200 mA
-scope.led_on(0, 200)                      # same, by channel number
-scope.led_on('Blue', 200, block=True)     # wait for firmware confirmation
-scope.led_off('Blue')
-scope.leds_off()                          # turn off all LEDs
-scope.leds_disable()
+scope.illumination.leds_enable()
+scope.illumination.led_on('Blue', 200)                 # Blue LED at 200 mA
+scope.illumination.led_on(0, 200)                      # same, by channel number
+scope.illumination.led_on('Blue', 200, block=True)     # wait for firmware confirmation
+scope.illumination.led_off('Blue')
+scope.illumination.leds_off()                          # turn off all LEDs
+scope.illumination.leds_disable()
 
 # Fast path (no response wait — timing-critical code only)
-scope.led_on_fast('Red', 100)
-scope.led_off_fast('Red')
-scope.leds_off_fast()
+scope.illumination.led_on_fast('Red', 100)
+scope.illumination.led_off_fast('Red')
+scope.illumination.leds_off_fast()
 
 # Channel mapping
-scope.color2ch('Blue')                    # 0  (or -1 if the scope doesn't have this color)
-scope.ch2color(0)                         # 'Blue'
+scope.illumination.color2ch('Blue')                    # 0  (or -1 if the scope doesn't have this color)
+scope.illumination.ch2color(0)                         # 'Blue'
 ```
 
 **Safety limits** (enforced by firmware on RP2040 boards): per-channel max 1000 mA, board total max 3000 mA. FX2 boards have their own per-channel cap declared in the camera profile.
@@ -313,10 +313,10 @@ scope.ch2color(0)                         # 'Blue'
 Lumascope holds the authoritative LED state in an internal cache. The API layer's `get_led_state()` / `led_enabled()` / `led_illumination()` read from that cache. **Never call the driver's state methods directly** — for FX2 scopes the driver is a pure command translator and its state queries return sentinels.
 
 ```python
-scope.led_enabled('Blue')                 # True / False
-scope.led_illumination('Blue')            # current mA, or -1 if off
-scope.get_led_state('Blue')               # {'enabled': True, 'illumination': 200, 'owner': '…'}
-scope.get_led_states()                    # all channels
+scope.illumination.led_enabled('Blue')                 # True / False
+scope.illumination.led_illumination('Blue')            # current mA, or -1 if off
+scope.illumination.get_led_state('Blue')               # {'enabled': True, 'illumination': 200, 'owner': '…'}
+scope.illumination.get_led_states()                    # all channels
 ```
 
 #### Ownership — prevents subsystems from clobbering each other
@@ -324,13 +324,13 @@ scope.get_led_states()                    # all channels
 Tag each LED operation with a subsystem name. Only an owner can turn off a channel they own.
 
 ```python
-scope.led_on('BF', 200, owner='autofocus')
+scope.illumination.led_on('BF', 200, owner='autofocus')
 
-scope.led_off('BF', owner='protocol')     # no-op — wrong owner
-scope.led_off('BF', owner='autofocus')    # works
+scope.illumination.led_off('BF', owner='protocol')     # no-op — wrong owner
+scope.illumination.led_off('BF', owner='autofocus')    # works
 
-scope.leds_off_owned('autofocus')         # turn off only channels owned by this subsystem
-scope.leds_off()                          # unconditional off (shutdown / cleanup)
+scope.illumination.leds_off_owned('autofocus')         # turn off only channels owned by this subsystem
+scope.illumination.leds_off()                          # unconditional off (shutdown / cleanup)
 ```
 
 #### Save / restore — the autofocus pattern
@@ -339,10 +339,10 @@ Preserve the user's LED state while a subsystem does its own work, then restore:
 
 ```python
 # User has Red on at 150 mA. Autofocus needs BF:
-snapshot = scope.save_led_state('autofocus')        # capture current state
-scope.led_on('BF', 100, owner='autofocus')
+snapshot = scope.illumination.save_led_state('autofocus')        # capture current state
+scope.illumination.led_on('BF', 100, owner='autofocus')
 # ... autofocus runs: changes Z, captures frames, evaluates focus ...
-scope.restore_led_state(snapshot, owner='autofocus')  # Red back on at 150 mA, BF off
+scope.illumination.restore_led_state(snapshot, owner='autofocus')  # Red back on at 150 mA, BF off
 ```
 
 `save_led_state(tag)` returns a snapshot dict; `restore_led_state(snapshot, owner='…')` reverts. The owner must match the subsystem that did the save.
@@ -355,9 +355,9 @@ Prefer listeners over polling. Listeners fire on every LED state change (enable,
 def on_led(color: str, enabled: bool, mA: float, owner: str):
     print(f"{color} {'ON' if enabled else 'OFF'} {mA}mA owner={owner!r}")
 
-scope.add_led_listener(on_led)
+scope.illumination.add_led_listener(on_led)
 # ... later ...
-scope.remove_led_listener(on_led)
+scope.illumination.remove_led_listener(on_led)
 ```
 
 Use polling only when you specifically need the current value at a moment in time (e.g., settling a UI field to match hardware after a reconnect). For "did anything change?" questions, always use listeners.
@@ -660,9 +660,9 @@ scope.move_absolute_position('X', 60000, wait_until_complete=True)
 scope.move_absolute_position('Y', 40000, wait_until_complete=True)
 scope.move_absolute_position('Z', 5000, wait_until_complete=True)
 
-scope.led_on('BF', 100)
+scope.illumination.led_on('BF', 100)
 image = scope.capture_and_wait()
-scope.leds_off()
+scope.illumination.leds_off()
 
 scope.save_image(
     array=image, save_folder='./output',
@@ -685,16 +685,16 @@ for color, mA, exp_ms, gain_db in [
 ]:
     scope.set_exposure_time(exp_ms)
     scope.set_gain(gain_db)
-    scope.led_on(color, mA)
+    scope.illumination.led_on(color, mA)
     channel_images[color] = scope.capture_and_wait()
-    scope.led_off(color)
+    scope.illumination.led_off(color)
 
 # Transmitted (brightfield) base image
 scope.set_exposure_time(2.0)
 scope.set_gain(1.0)
-scope.led_on('BF', 100)
+scope.illumination.led_on('BF', 100)
 bf_image = scope.capture_and_wait()
-scope.leds_off()
+scope.illumination.leds_off()
 
 composite = build_composite(
     channel_images=channel_images,
@@ -713,7 +713,7 @@ scope.save_image(array=composite, save_folder='./output',
 ```python
 z_start, z_end, z_step = 4000, 6000, 50    # µm
 
-scope.led_on('BF', 100)
+scope.illumination.led_on('BF', 100)
 z = z_start
 while z <= z_end:
     scope.move_absolute_position('Z', z, wait_until_complete=True)
@@ -724,7 +724,7 @@ while z <= z_end:
         output_format='TIFF', z=z,
     )
     z += z_step
-scope.leds_off()
+scope.illumination.leds_off()
 ```
 
 ### Well-plate scan
@@ -735,7 +735,7 @@ ct = CoordinateTransformer()
 
 wells = [('A1', 10.0, 20.0), ('A2', 19.0, 20.0), ('A3', 28.0, 20.0)]
 
-scope.led_on('BF', 100)
+scope.illumination.led_on('BF', 100)
 for well_name, px, py in wells:
     sx, sy = ct.plate_to_stage(labware=labware_obj, stage_offset=offset, px=px, py=py)
     scope.move_absolute_position('X', sx, wait_until_complete=True)
@@ -747,7 +747,7 @@ for well_name, px, py in wells:
         file_root=f'{well_name}_BF', color='BF',
         output_format='TIFF', x=sx, y=sy,
     )
-scope.leds_off()
+scope.illumination.leds_off()
 ```
 
 ### Headless protocol run
@@ -783,7 +783,7 @@ scope = Lumascope(simulate=True)
 scope.camera.start_grabbing()
 
 # All API calls work identically:
-scope.led_on('Blue', 200)
+scope.illumination.led_on('Blue', 200)
 scope.move_absolute_position('Z', 5000)
 image = scope.get_image()
 ```
