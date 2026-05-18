@@ -369,11 +369,6 @@ class TestLogSystemMetrics:
 # ===========================================================================
 
 class TestLumascopeLedAPI:
-    @pytest.mark.xfail(
-        strict=True,
-        reason="IOTask wraps Lumascope.leds_off until Wave 7 Phase 3c "
-               "moves async methods to IlluminationAPI; remove xfail in 3c.",
-    )
     def test_leds_off_async_dispatches(self):
         scope, io_ex, _ = _make_real_scope_with_mock_executors()
         scope.illumination.leds_off_async()
@@ -393,11 +388,6 @@ class TestLumascopeLedAPI:
         scope.illumination.leds_off_async()
         io_ex.put.assert_not_called()
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="IOTask wraps Lumascope.led_on until Wave 7 Phase 3c "
-               "moves async methods to IlluminationAPI; remove xfail in 3c.",
-    )
     def test_led_on_async_dispatches(self):
         scope, io_ex, _ = _make_real_scope_with_mock_executors()
         scope.illumination.led_on_async(channel=2, illumination=100)
@@ -418,11 +408,6 @@ class TestLumascopeLedAPI:
         scope.illumination.led_on_async(0, 50)
         io_ex.put.assert_not_called()
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="IOTask wraps Lumascope.led_off until Wave 7 Phase 3c "
-               "moves async methods to IlluminationAPI; remove xfail in 3c.",
-    )
     def test_led_off_async_dispatches(self):
         scope, io_ex, _ = _make_real_scope_with_mock_executors()
         scope.illumination.led_off_async(channel=3)

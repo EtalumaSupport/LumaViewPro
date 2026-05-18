@@ -1041,104 +1041,30 @@ class Lumascope():
     # --- LED command API ---
 
     def leds_off_async(self, *, callback=None) -> None:
-        """Submit ``leds_off`` to the io_executor.
-
-        No-op if LED disconnected.
-
-        Args:
-            callback: Optional completion callback.
-        """
-        if not self.led_connected:
-            logger.warning('[SCOPE API ] LED controller not available.')
-            return
-        ex = self._require_executor(self._io_executor, 'leds_off_async')
-        ex.put(IOTask(action=self.leds_off, callback=callback))
-        logger.info('[SCOPE API ] leds_off_async()')
+        return self.illumination.leds_off_async(callback=callback)
 
     def led_on_async(self, channel, illumination, *, callback=None,
                      cb_kwargs=None, owner: str = '') -> None:
-        """Submit ``led_on(channel, illumination)`` to the io_executor.
-
-        Args:
-            channel: Channel number or color name.
-            illumination: Illumination current in mA.
-            callback: Optional completion callback.
-            cb_kwargs: Optional kwargs passed to the callback.
-            owner: Optional ownership tag for the LED state.
-        """
-        if not self.led_connected:
-            logger.warning('[SCOPE API ] LED controller not available.')
-            return
-        kwargs = {'owner': owner} if owner else {}
-        ex = self._require_executor(self._io_executor, 'led_on_async')
-        ex.put(IOTask(
-            action=self.led_on,
-            args=(channel, illumination),
-            kwargs=kwargs,
-            callback=callback,
-            cb_kwargs=cb_kwargs,
-        ))
+        return self.illumination.led_on_async(
+            channel, illumination,
+            callback=callback, cb_kwargs=cb_kwargs, owner=owner,
+        )
 
     def led_off_async(self, channel, *, callback=None, cb_kwargs=None,
                       owner: str = '') -> None:
-        """Submit ``led_off(channel)`` to the io_executor.
-
-        Args:
-            channel: Channel number or color name.
-            callback: Optional completion callback.
-            cb_kwargs: Optional kwargs passed to the callback.
-            owner: Optional ownership tag; only matching owner can turn
-                off the channel.
-        """
-        if not self.led_connected:
-            logger.warning('[SCOPE API ] LED controller not available.')
-            return
-        kwargs = {'channel': channel}
-        if owner:
-            kwargs['owner'] = owner
-        ex = self._require_executor(self._io_executor, 'led_off_async')
-        ex.put(IOTask(
-            action=self.led_off,
-            kwargs=kwargs,
-            callback=callback,
-            cb_kwargs=cb_kwargs,
-        ))
+        return self.illumination.led_off_async(
+            channel,
+            callback=callback, cb_kwargs=cb_kwargs, owner=owner,
+        )
 
     def led_on_sync(self, channel, illumination, *, timeout=5,
                     owner: str = '') -> None:
-        """Run ``led_on`` through the io_executor and block until done.
-
-        Args:
-            channel: Channel number or color name.
-            illumination: Illumination current in mA.
-            timeout: Max seconds to wait for completion.
-            owner: Optional ownership tag for the LED state.
-        """
-        if not self.led_connected:
-            logger.warning('[SCOPE API ] LED controller not available.')
-            return
-        kwargs = {'owner': owner} if owner else {}
-        ex = self._require_executor(self._io_executor, 'led_on_sync')
-        task = IOTask(action=self.led_on, args=(channel, illumination),
-                      kwargs=kwargs)
-        fut = ex.put(task, return_future=True)
-        if fut:
-            fut.result(timeout=timeout)
+        return self.illumination.led_on_sync(
+            channel, illumination, timeout=timeout, owner=owner,
+        )
 
     def leds_off_sync(self, *, timeout=5) -> None:
-        """Run ``leds_off`` through the io_executor and block until done.
-
-        Args:
-            timeout: Max seconds to wait for completion.
-        """
-        if not self.led_connected:
-            logger.warning('[SCOPE API ] LED controller not available.')
-            return
-        ex = self._require_executor(self._io_executor, 'leds_off_sync')
-        task = IOTask(action=self.leds_off)
-        fut = ex.put(task, return_future=True)
-        if fut:
-            fut.result(timeout=timeout)
+        return self.illumination.leds_off_sync(timeout=timeout)
 
     # --- Camera command API ---
 
@@ -2277,14 +2203,10 @@ class Lumascope():
     ########################################################################
 
     def leds_enable(self) -> None:
-        """Enable all LED channels (allows them to be turned on)."""
-        if not self._led_driver: return
-        self._led_driver.leds_enable()
+        return self.illumination.leds_enable()
 
     def leds_disable(self) -> None:
-        """Disable all LED channels (prevents them from turning on)."""
-        if not self._led_driver: return
-        self._led_driver.leds_disable()
+        return self.illumination.leds_disable()
 
     def get_led_ma(self, color: str) -> float:
         """Get the current illumination level for an LED channel.
@@ -2593,43 +2515,16 @@ class Lumascope():
             self._fire_led_listeners(color, False, 0.0, '')
 
     def get_led_status(self):
-        """Get the LED board status register.
-
-        Returns:
-            Driver-defined status object (typically int bitfield), or
-            None if no LED board is connected.
-        """
-        if not self._led_driver: return
-        return self._led_driver.get_status()
+        return self.illumination.get_led_status()
 
     def wait_until_led_on(self) -> None:
-        """Block until the LED board confirms an LED is on."""
-        if not self._led_driver: return
-        self._led_driver.wait_until_on()
+        return self.illumination.wait_until_led_on()
 
     def ch2color(self, channel: int) -> str | None:
-        """Convert a channel number to its color name string.
-
-        Args:
-            channel (int): Channel number (0=Blue, 1=Green, 2=Red, 3=BF, 4=PC, 5=DF).
-
-        Returns:
-            str: Color name (e.g. "Blue", "BF"), or None if LED board unavailable.
-        """
-        if not self._led_driver: return
-        return self._led_driver.ch2color(channel)
+        return self.illumination.ch2color(channel)
 
     def color2ch(self, color: str) -> int | None:
-        """Convert a color name string to its channel number.
-
-        Args:
-            color (str): Color name ("Blue", "Green", "Red", "BF", "PC", "DF").
-
-        Returns:
-            int: Channel number (0-5), or None if LED board unavailable.
-        """
-        if not self._led_driver: return
-        return self._led_driver.color2ch(color)
+        return self.illumination.color2ch(color)
 
     ########################################################################
     # CAMERA FUNCTIONS
