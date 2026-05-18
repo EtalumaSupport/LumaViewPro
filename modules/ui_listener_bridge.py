@@ -209,7 +209,7 @@ class UIListenerBridge:
         listener. Call once at application startup.
         """
         self._scope.motion.add_position_listener(self._on_position_change)
-        self._scope.add_led_listener(self._on_led_state_changed)
+        self._scope.illumination.add_led_listener(self._on_led_state_changed)
         self._scope.add_camera_listener(self._on_camera_setting_changed)
         logger.info(
             '[UIListenerBridge] registered position + LED + camera listeners')

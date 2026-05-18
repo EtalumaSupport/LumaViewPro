@@ -200,19 +200,19 @@ class TestLedOnValidation:
 
     def test_rejects_channel_out_of_range(self, sim_scope):
         with pytest.raises(ValueError, match="channel"):
-            sim_scope.led_on(channel=99, mA=10)
+            sim_scope.illumination.led_on(channel=99, mA=10)
 
     def test_rejects_negative_current(self, sim_scope):
         with pytest.raises(ValueError, match="current"):
-            sim_scope.led_on(channel=0, mA=-1)
+            sim_scope.illumination.led_on(channel=0, mA=-1)
 
     def test_rejects_current_above_max(self, sim_scope):
         from modules.lumascope_api import Lumascope
         with pytest.raises(ValueError, match="current"):
-            sim_scope.led_on(channel=0, mA=Lumascope.LED_MAX_MA + 1)
+            sim_scope.illumination.led_on(channel=0, mA=Lumascope.LED_MAX_MA + 1)
 
     def test_accepts_valid_input(self, sim_scope):
-        sim_scope.led_on(channel=0, mA=50)
+        sim_scope.illumination.led_on(channel=0, mA=50)
 
 
 class TestMoveAbsolutePositionValidation:
@@ -991,10 +991,10 @@ class TestIssue602_AFExecutorLED:
         abort_event.set()  # pre-set so AFE.run() unwinds via abort path
         with patch.object(af, '_led_off') as mock_led_off, \
              patch.object(af, '_move_absolute_position'), \
-             patch.object(scope, 'save_led_state', return_value={}), \
+             patch.object(scope.illumination, 'save_led_state', return_value={}), \
              patch.object(scope, 'save_camera_state', return_value={}), \
              patch.object(scope.motion, 'set_motor_precision_mode'), \
-             patch.object(scope, 'restore_led_state'), \
+             patch.object(scope.illumination, 'restore_led_state'), \
              patch.object(scope, 'restore_camera_state'):
             with pytest.raises(AutofocusAborted):
                 af.run(objective_id='4x', abort_event=abort_event)
@@ -1048,9 +1048,9 @@ class TestAFPrecisionModeRestoresOn:
         with patch.object(scope.motion, 'set_motor_precision_mode') as mock_set, \
              patch.object(af, '_led_off'), \
              patch.object(af, '_move_absolute_position'), \
-             patch.object(scope, 'save_led_state', return_value={}), \
+             patch.object(scope.illumination, 'save_led_state', return_value={}), \
              patch.object(scope, 'save_camera_state', return_value={}), \
-             patch.object(scope, 'restore_led_state'), \
+             patch.object(scope.illumination, 'restore_led_state'), \
              patch.object(scope, 'restore_camera_state'):
             with pytest.raises(AutofocusAborted):
                 af.run(objective_id='4x', abort_event=abort_event)

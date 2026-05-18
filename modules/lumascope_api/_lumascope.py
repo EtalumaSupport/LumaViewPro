@@ -1014,32 +1014,8 @@ class Lumascope():
         return executor
 
     # --- LED command API ---
-
-    def leds_off_async(self, *, callback=None) -> None:
-        return self.illumination.leds_off_async(callback=callback)
-
-    def led_on_async(self, channel, illumination, *, callback=None,
-                     cb_kwargs=None, owner: str = '') -> None:
-        return self.illumination.led_on_async(
-            channel, illumination,
-            callback=callback, cb_kwargs=cb_kwargs, owner=owner,
-        )
-
-    def led_off_async(self, channel, *, callback=None, cb_kwargs=None,
-                      owner: str = '') -> None:
-        return self.illumination.led_off_async(
-            channel,
-            callback=callback, cb_kwargs=cb_kwargs, owner=owner,
-        )
-
-    def led_on_sync(self, channel, illumination, *, timeout=5,
-                    owner: str = '') -> None:
-        return self.illumination.led_on_sync(
-            channel, illumination, timeout=timeout, owner=owner,
-        )
-
-    def leds_off_sync(self, *, timeout=5) -> None:
-        return self.illumination.leds_off_sync(timeout=timeout)
+    # All LED methods relocated to IlluminationAPI in Wave 7 Phase
+    # 3c/3d; forwarders retired in 3f. Callers use scope.illumination.
 
     # --- Camera command API ---
 
@@ -1086,25 +1062,8 @@ class Lumascope():
             return fut.result(timeout=timeout)
         return None
 
-    # ------------------------------------------------------------------
-    # LED change listeners
-    # ------------------------------------------------------------------
-
-    def add_led_listener(self, listener) -> None:
-        return self.illumination.add_led_listener(listener)
-
-    def remove_led_listener(self, listener) -> None:
-        return self.illumination.remove_led_listener(listener)
-
-    # ------------------------------------------------------------------
-    # LED ownership
-    # ------------------------------------------------------------------
-
-    def save_led_state(self, tag: str) -> dict:
-        return self.illumination.save_led_state(tag)
-
-    def restore_led_state(self, snapshot: dict, owner: str = '') -> None:
-        return self.illumination.restore_led_state(snapshot, owner=owner)
+    # LED change listeners + LED ownership: relocated to IlluminationAPI
+    # in Wave 7 Phase 3d; forwarders retired in 3f.
 
     def save_camera_state(self, tag: str) -> dict:
         """Snapshot the current camera gain and exposure for later restoration.
@@ -1137,9 +1096,6 @@ class Lumascope():
             self.set_gain(gain)
         if exposure > 0:
             self.set_exposure_time(exposure)
-
-    def leds_off_owned(self, owner: str) -> None:
-        return self.illumination.leds_off_owned(owner)
 
     # ------------------------------------------------------------------
     # Camera change listeners
@@ -2077,63 +2033,9 @@ class Lumascope():
 
     ########################################################################
     # LED BOARD FUNCTIONS
+    # Methods relocated to IlluminationAPI in Wave 7 Phase 3c / 3d;
+    # forwarders retired in 3f. Callers use scope.illumination.<method>.
     ########################################################################
-
-    def leds_enable(self) -> None:
-        return self.illumination.leds_enable()
-
-    def leds_disable(self) -> None:
-        return self.illumination.leds_disable()
-
-    def get_led_ma(self, color: str) -> float:
-        return self.illumination.get_led_ma(color)
-
-    def led_enabled(self, color: str) -> bool:
-        return self.illumination.led_enabled(color)
-
-    def led_illumination(self, color: str) -> float:
-        return self.illumination.led_illumination(color)
-
-    @property
-    def led_states(self) -> dict:
-        return self.illumination.led_states
-
-    def get_led_state(self, color: str) -> dict:
-        return self.illumination.get_led_state(color)
-
-    def get_led_states(self) -> dict:
-        return self.illumination.get_led_states()
-
-
-    def led_on(self, channel, mA, block: bool = False, owner: str = '') -> None:
-        return self.illumination.led_on(channel, mA, block=block, owner=owner)
-
-    def led_off(self, channel, owner: str = '') -> None:
-        return self.illumination.led_off(channel, owner=owner)
-
-    def led_on_fast(self, channel, mA) -> None:
-        return self.illumination.led_on_fast(channel, mA)
-
-    def led_off_fast(self, channel) -> None:
-        return self.illumination.led_off_fast(channel)
-
-    def leds_off_fast(self) -> None:
-        return self.illumination.leds_off_fast()
-
-    def leds_off(self) -> None:
-        return self.illumination.leds_off()
-
-    def get_led_status(self):
-        return self.illumination.get_led_status()
-
-    def wait_until_led_on(self) -> None:
-        return self.illumination.wait_until_led_on()
-
-    def ch2color(self, channel: int) -> str | None:
-        return self.illumination.ch2color(channel)
-
-    def color2ch(self, color: str) -> int | None:
-        return self.illumination.color2ch(color)
 
     ########################################################################
     # CAMERA FUNCTIONS

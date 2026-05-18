@@ -450,7 +450,7 @@ class StimulationController:
                 logger.warning(f"[STIMULATOR] {color}: pulse_width ({pulse_width}ms) >= period ({period_s*1000:.1f}ms). Clamping pulse to 90% of period.")
                 pulse_s = period_s * 0.9
 
-            channel = self._scope.color2ch(color=color)
+            channel = self._scope.illumination.color2ch(color=color)
             active_channels[color] = channel
 
             for i in range(pulse_count):
@@ -505,14 +505,14 @@ class StimulationController:
         """Dispatch a single stim edge. Returns perf_counter timestamp after the call."""
         if edge.action == "on":
             if hasattr(self._scope, 'led_on_fast'):
-                self._scope.led_on_fast(channel=edge.channel, mA=edge.mA)
+                self._scope.illumination.led_on_fast(channel=edge.channel, mA=edge.mA)
             else:
-                self._scope.led_on(channel=edge.channel, mA=edge.mA)
+                self._scope.illumination.led_on(channel=edge.channel, mA=edge.mA)
         else:
             if hasattr(self._scope, 'led_off_fast'):
-                self._scope.led_off_fast(channel=edge.channel)
+                self._scope.illumination.led_off_fast(channel=edge.channel)
             else:
-                self._scope.led_off(channel=edge.channel)
+                self._scope.illumination.led_off(channel=edge.channel)
         return time.perf_counter()
 
     def run(self, start_event: threading.Event,
@@ -617,9 +617,9 @@ class StimulationController:
             for color, channel in self._active_channels:
                 try:
                     if hasattr(self._scope, 'led_off_fast'):
-                        self._scope.led_off_fast(channel=channel)
+                        self._scope.illumination.led_off_fast(channel=channel)
                     else:
-                        self._scope.led_off(channel=channel)
+                        self._scope.illumination.led_off(channel=channel)
                 except Exception as ex:
                     logger.error(f"[STIMULATOR] {color}: failed to turn off LED in cleanup: {ex}")
 

@@ -129,14 +129,14 @@ class AutofocusRunner:
         Uses owner='autofocus' so only AF can turn this LED off.
         """
         if self._led_color is not None and self._scope.led_connected:
-            ch = self._scope.color2ch(self._led_color)
-            self._scope.led_on(channel=ch, mA=self._led_illumination,
+            ch = self._scope.illumination.color2ch(self._led_color)
+            self._scope.illumination.led_on(channel=ch, mA=self._led_illumination,
                                block=True, owner='autofocus')
 
     def _led_off(self):
         """Turn off only the LED(s) that AF owns (not all LEDs)."""
         if self._led_color is not None and self._scope.led_connected:
-            self._scope.leds_off_owned('autofocus')
+            self._scope.illumination.leds_off_owned('autofocus')
 
     def run(
         self,
@@ -232,7 +232,7 @@ class AutofocusRunner:
         except Exception as e:
             logger.debug(f"[AF] Could not snapshot pre-AF Z position: {e}")
             self._saved_z_position = None
-        self._saved_led_state = self._scope.save_led_state('autofocus')
+        self._saved_led_state = self._scope.illumination.save_led_state('autofocus')
         self._saved_camera_state = self._scope.save_camera_state('autofocus')
         _af_log.info(f'[AF DIAG] Saved pre-AF camera state: '
                      f'gain={self._saved_camera_state.get("gain", "?")} '
@@ -250,7 +250,7 @@ class AutofocusRunner:
         # corrupt the focus metric with mixed illumination. Pre-AF state
         # is already snapshotted into self._saved_led_state above and
         # restored on AF exit, so this leds_off is non-destructive.
-        self._scope.leds_off()
+        self._scope.illumination.leds_off()
         self._led_on()
         # Drop Z precision for the coarse passes; the fine pass restores
         # precision ON, and all exit paths (success, abort, exception)
@@ -368,7 +368,7 @@ class AutofocusRunner:
                     )
             self._led_off()
             if self._saved_led_state:
-                self._scope.restore_led_state(
+                self._scope.illumination.restore_led_state(
                     self._saved_led_state, owner='autofocus'
                 )
             if self._saved_camera_state:

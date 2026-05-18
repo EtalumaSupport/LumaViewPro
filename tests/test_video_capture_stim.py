@@ -19,6 +19,11 @@ class FakeScope:
     def __init__(self):
         self.frame_validity = FakeFrameValidity()
         self.calls = []
+        # Wave 7 Phase 3f: production code now reaches LED methods via
+        # `self._scope.illumination.<method>`. Aliasing illumination to
+        # self lets the existing led_on/led_off/color2ch methods serve
+        # both call shapes.
+        self.illumination = self
 
     # LAYER-F: production code now reads frame validity through the
     # Lumascope API rather than reaching into self.frame_validity
@@ -203,6 +208,9 @@ class TimestampingScope:
     def __init__(self):
         self.frame_validity = FakeFrameValidity()
         self.events = []  # list of (action, channel, mA, t_perf)
+        # Wave 7 Phase 3f: production code now reaches LED methods via
+        # `self._scope.illumination.<method>`.
+        self.illumination = self
 
     # LAYER-F: production code now reads frame validity through the
     # Lumascope API rather than reaching into self.frame_validity

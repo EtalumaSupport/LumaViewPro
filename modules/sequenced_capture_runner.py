@@ -465,7 +465,7 @@ class SequencedCaptureRunner:
         self._snapshot_run_state()
 
         # Snapshot hardware state for restoration after protocol
-        self._original_led_states = self._scope.get_led_states()
+        self._original_led_states = self._scope.illumination.get_led_states()
         self._saved_camera_state = self._scope.save_camera_state('protocol')
         if initial_autofocus_states is not None:
             self._original_autofocus_states = initial_autofocus_states

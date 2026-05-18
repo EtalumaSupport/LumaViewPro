@@ -436,13 +436,13 @@ class ProtocolStepRunner:
         """
         p = self._p
         fut = p._io_executor.protocol_put(IOTask(
-            action=p._scope.leds_off
+            action=p._scope.illumination.leds_off
         ), return_future=True)
         if fut:
             fut.result(timeout=30)
         else:
             try:
-                p._scope.leds_off()
+                p._scope.illumination.leds_off()
             except Exception as ex:
                 logger.warning(f"[{p.LOGGER_NAME}] Direct leds_off fallback failed: {ex}")
         # LED observer handles UI sync — no manual callback
@@ -457,9 +457,9 @@ class ProtocolStepRunner:
             return
 
         fut = p._io_executor.protocol_put(IOTask(
-            action=p._scope.led_on,
+            action=p._scope.illumination.led_on,
             kwargs={
-                "channel": p._scope.color2ch(color),
+                "channel": p._scope.illumination.color2ch(color),
                 "mA": illumination,
                 "block": block,
                 "owner": "protocol",
