@@ -102,40 +102,8 @@ class NullLEDBoard:
         """Null implementation: no-op."""
         pass
 
-    # ------------------------------------------------------------------
-    # State queries (return safe defaults)
-    # ------------------------------------------------------------------
-    def get_led_ma(self, color) -> int:
-        """Null implementation: returns sentinel value.
-
-        Returns:
-            int: Always -1 (channel off / unknown).
-        """
-        return -1
-
-    def is_led_on(self, color) -> bool:
-        """Null implementation: returns sentinel value.
-
-        Returns:
-            bool: Always False.
-        """
-        return False
-
-    def get_led_state(self, color) -> dict:
-        """Null implementation: returns sentinel value.
-
-        Returns:
-            dict: ``{'enabled': False, 'illumination': -1}``.
-        """
-        return {'enabled': False, 'illumination': -1}
-
-    def get_led_states(self) -> dict:
-        """Null implementation: returns sentinel value.
-
-        Returns:
-            dict: Per-color snapshot with every channel off.
-        """
-        return {c: {'enabled': False, 'illumination': -1} for c in self.led_ma}
+    # State-query methods retired in Wave 7 Phase 3d.5; see ledboard.py
+    # for rationale.
 
     def get_status(self):
         """Null implementation: returns sentinel value.

@@ -327,50 +327,8 @@ class SimulatedLEDBoard:
         while "STATUS" not in status:
             status = self.get_status()
 
-    def get_led_ma(self, color: str) -> int:
-        """Return the cached current setting for a color channel.
-
-        Args:
-            color: LED color name.
-
-        Returns:
-            int: Current in mA, or -1 when the channel is off / unknown.
-        """
-        return self.led_ma.get(color, -1)
-
-    def is_led_on(self, color: str) -> bool:
-        """Return whether a color channel is currently on (cached).
-
-        Args:
-            color: LED color name.
-
-        Returns:
-            bool: True when the cached current is positive.
-        """
-        return self.led_ma.get(color, -1) > 0
-
-    def get_led_state(self, color: str) -> dict:
-        """Return the cached state of a single LED color channel.
-
-        Args:
-            color: LED color name.
-
-        Returns:
-            dict: ``{'enabled': bool, 'illumination': int}``.
-        """
-        return {
-            'enabled': self.is_led_on(color),
-            'illumination': self.get_led_ma(color),
-        }
-
-    def get_led_states(self) -> dict:
-        """Return cached state for every LED color channel.
-
-        Returns:
-            dict: Snapshot keyed by color name; each value is
-                ``{'enabled': bool, 'illumination': int}``.
-        """
-        return {color: self.get_led_state(color) for color in self.led_ma}
+    # State-query methods retired in Wave 7 Phase 3d.5; see ledboard.py
+    # for rationale.
 
     def led_on(self, channel: int, mA: int, block: bool = False) -> None:
         """Turn on the LED on a channel at a given current.

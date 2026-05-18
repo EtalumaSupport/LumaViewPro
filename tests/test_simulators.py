@@ -40,59 +40,13 @@ class TestSimulatedLEDBoard:
         missing = real_methods - sim_methods
         assert not missing, f"SimulatedLEDBoard missing methods: {missing}"
 
-    def test_initial_state(self):
-        board = SimulatedLEDBoard()
-        assert board.found is True
-        assert board.is_connected()
-        for color in ('BF', 'PC', 'DF', 'Red', 'Blue', 'Green'):
-            assert board.get_led_ma(color) == -1
-            assert board.is_led_on(color) is False
-
-    def test_led_on_off(self):
-        board = SimulatedLEDBoard()
-        board.led_on(channel=0, mA=100)
-        assert board.is_led_on('Blue') is True
-        assert board.get_led_ma('Blue') == 100
-
-        board.led_off(channel=0)
-        assert board.is_led_on('Blue') is False
-        assert board.get_led_ma('Blue') == -1
-
-    def test_led_on_fast(self):
-        board = SimulatedLEDBoard()
-        board.led_on_fast(channel=2, mA=50)
-        assert board.get_led_ma('Red') == 50
-        board.led_off_fast(channel=2)
-        assert board.get_led_ma('Red') == -1
-
-    def test_leds_off_all(self):
-        board = SimulatedLEDBoard()
-        board.led_on(0, 100)
-        board.led_on(1, 200)
-        board.led_on(2, 300)
-        board.leds_off()
-        for color in board.led_ma:
-            assert board.get_led_ma(color) == -1
-
-    def test_leds_off_fast(self):
-        board = SimulatedLEDBoard()
-        board.led_on_fast(0, 100)
-        board.leds_off_fast()
-        assert board.is_led_on('Blue') is False
-
-    def test_get_led_state(self):
-        board = SimulatedLEDBoard()
-        board.led_on(3, 50)
-        state = board.get_led_state('BF')
-        assert state['enabled'] is True
-        assert state['illumination'] == 50
-
-    def test_get_led_states(self):
-        board = SimulatedLEDBoard()
-        board.led_on(0, 100)
-        states = board.get_led_states()
-        assert states['Blue']['enabled'] is True
-        assert states['Red']['enabled'] is False
+    # Driver-side state-query tests (test_initial_state, test_led_on_off,
+    # test_led_on_fast, test_leds_off_all, test_leds_off_fast,
+    # test_get_led_state, test_get_led_states) retired in Wave 7 Phase
+    # 3d.5 -- get_led_ma / is_led_on / get_led_state / get_led_states
+    # are no longer on the driver protocol. Equivalent API-side coverage
+    # lives in tests/test_lumascope_api.py and
+    # tests/test_state_observer.py.
 
     def test_exchange_command(self):
         board = SimulatedLEDBoard()
@@ -138,9 +92,11 @@ class TestSimulatedLEDBoard:
             t.join(timeout=10)
 
         assert not errors, f"Thread safety errors: {errors}"
-        # All LEDs should be off after all toggles complete
-        for color in board.led_ma:
-            assert board.get_led_ma(color) == -1
+        # All LEDs should be off after all toggles complete; check the
+        # driver-internal cache (now Phase-3d.5 dead state) directly
+        # since the protocol-level reader was retired.
+        for color, mA in board.led_ma.items():
+            assert mA == -1, f"{color} not reset after concurrent toggle"
 
 
 # ---------------------------------------------------------------------------

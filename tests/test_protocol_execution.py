@@ -343,7 +343,7 @@ class TestSingleScanBasicImage:
         assert completed
         # After protocol with leds_state_at_end='off', all LEDs should be off
         for color in scope._led_driver.led_ma:
-            assert not scope._led_driver.is_led_on(color), f"LED {color} still on after protocol"
+            assert not scope.illumination.led_enabled(color), f"LED {color} still on after protocol"
 
     def test_auto_gain_disabled_in_step(self, executor, scope, tmp_path):
         """When auto_gain=False, protocol should complete normally."""
@@ -611,7 +611,7 @@ class TestLedStateAtEnd:
         assert completed
         # Verify all LEDs are off via simulator public API
         for color in scope._led_driver.led_ma:
-            assert not scope._led_driver.is_led_on(color), f"LED {color} still on"
+            assert not scope.illumination.led_enabled(color), f"LED {color} still on"
 
     def test_return_to_original_leds(self, executor, scope, tmp_path):
         # Turn on BF LED before protocol so executor captures it as original state
@@ -1950,7 +1950,7 @@ class TestCleanupCorrectness:
         done.wait(timeout=COMPLETION_TIMEOUT)
 
         for color in scope._led_driver.led_ma:
-            assert not scope._led_driver.is_led_on(color), f"LED {color} still on after abort"
+            assert not scope.illumination.led_enabled(color), f"LED {color} still on after abort"
 
     def test_back_to_back_runs_no_state_bleed(self, executor, scope, tmp_path):
         """Gain/exposure from run A don't leak into run B's restored values."""

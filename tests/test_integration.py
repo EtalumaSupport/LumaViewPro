@@ -317,7 +317,7 @@ class TestIntegrationSingleStep:
 
         # All LED channels should be off
         for color in ('BF', 'PC', 'DF', 'Red', 'Green', 'Blue'):
-            assert not scope._led_driver.is_led_on(color), f"LED {color} still on after protocol"
+            assert not scope.illumination.led_enabled(color), f"LED {color} still on after protocol"
 
     def test_camera_settings_applied(self, executor, scope, tmp_path):
         """Verify gain and exposure are set on the real camera simulator."""
@@ -424,7 +424,7 @@ class TestIntegrationMultiChannel:
         assert completed
 
         for color in ('BF', 'PC', 'DF', 'Red', 'Green', 'Blue'):
-            assert not scope._led_driver.is_led_on(color), f"LED {color} still on"
+            assert not scope.illumination.led_enabled(color), f"LED {color} still on"
 
 
 class TestIntegrationZStack:
@@ -585,21 +585,21 @@ class TestIntegrationStateAssertions:
         protocol = _make_protocol([{'color': 'BF', 'illumination': 75.0}])
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed
-        assert not scope._led_driver.is_led_on('BF')
+        assert not scope.illumination.led_enabled('BF')
 
     def test_led_green_channel(self, executor, scope, tmp_path):
         """Verify Green LED is driven and turned off after protocol."""
         protocol = _make_protocol([{'color': 'Green', 'illumination': 75.0}])
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed
-        assert not scope._led_driver.is_led_on('Green')
+        assert not scope.illumination.led_enabled('Green')
 
     def test_led_red_channel(self, executor, scope, tmp_path):
         """Verify Red LED is driven and turned off after protocol."""
         protocol = _make_protocol([{'color': 'Red', 'illumination': 75.0}])
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed
-        assert not scope._led_driver.is_led_on('Red')
+        assert not scope.illumination.led_enabled('Red')
 
     def test_scope_connected_throughout(self, executor, scope, tmp_path):
         """Scope remains connected after protocol run."""
@@ -702,9 +702,9 @@ class TestHeadlessSession:
         try:
             scope = session.scope
             scope.illumination.led_on(channel=0, mA=100)
-            assert scope._led_driver.get_led_ma('Blue') == 100
+            assert scope.illumination.get_led_ma('Blue') == 100
             scope.illumination.led_off(channel=0)
-            assert scope._led_driver.get_led_ma('Blue') == -1
+            assert scope.illumination.get_led_ma('Blue') == -1
         finally:
             session.shutdown_executors()
 

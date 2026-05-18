@@ -176,59 +176,12 @@ class LEDBoard(SerialBoard):
         logger.warning('[LED Class ] wait_until_on() called but STATUS command not implemented in firmware')
         return
 
-    def get_led_ma(self, color: str) -> int:
-        """Return the cached current setting for a color channel.
-
-        Args:
-            color: LED color name (e.g. 'BF', 'Red').
-
-        Returns:
-            int: Current in mA, or -1 when the channel is off / unknown.
-        """
-        with self._state_lock:
-            return self.led_ma.get(color, -1)
-
-    def is_led_on(self, color: str) -> bool:
-        """Return whether a color channel is currently on (cached).
-
-        Args:
-            color: LED color name.
-
-        Returns:
-            bool: True when the cached current is positive.
-        """
-        with self._state_lock:
-            return self.led_ma.get(color, -1) > 0
-
-    def get_led_state(self, color: str) -> dict:
-        """Return the cached state of a single LED color channel.
-
-        Args:
-            color: LED color name.
-
-        Returns:
-            dict: ``{'enabled': bool, 'illumination': int}`` where
-                illumination is mA (or -1 when off / unknown).
-        """
-        with self._state_lock:
-            mA = self.led_ma.get(color, -1)
-            enabled = mA > 0
-        return {
-            'enabled': enabled,
-            'illumination': mA,
-        }
-
-    def get_led_states(self) -> dict:
-        """Return cached state for every LED color channel.
-
-        Returns:
-            dict: Snapshot keyed by color name; each value is
-                ``{'enabled': bool, 'illumination': int}``.
-        """
-        with self._state_lock:
-            snapshot = {color: {'enabled': mA > 0, 'illumination': mA}
-                        for color, mA in self.led_ma.items()}
-        return snapshot
+    # State-query methods (get_led_ma / is_led_on / get_led_state /
+    # get_led_states) retired in Wave 7 Phase 3d.5. LED state is
+    # API-primary (single SoT on IlluminationAPI). The `self.led_ma`
+    # dict + `_update_state_cache` writes remain as driver-internal
+    # state with no external readers; eligible for follow-up dead-code
+    # removal.
 
     # Safety limits — defense-in-depth validation at driver level.
     # The API layer (lumascope_api.py) also validates, but the driver

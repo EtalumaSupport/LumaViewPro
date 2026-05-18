@@ -428,112 +428,10 @@ class TestLEDBoardCommands:
 # LEDBoard State Tracking
 # ---------------------------------------------------------------------------
 
-class TestLEDBoardState:
-    """Verify LEDBoard tracks LED on/off state correctly."""
-
-    def _make_board(self):
-        board = LEDBoard.__new__(LEDBoard)
-        board.found = False
-        board._lock = threading.RLock()
-        board._label = '[LED Class ]'
-        board.port = '/dev/fake'
-        board.baudrate = 115200
-        board.bytesize = serial.EIGHTBITS
-        board.parity = serial.PARITY_NONE
-        board.stopbits = serial.STOPBITS_ONE
-        board.timeout = 0.1
-        board.write_timeout = 0.1
-        board.driver = _make_mock_serial()
-        board.led_ma = {'BF': -1, 'PC': -1, 'DF': -1, 'Red': -1, 'Blue': -1, 'Green': -1}
-        board._state_lock = threading.Lock()
-        return board
-
-    def test_led_on_updates_state(self):
-        """led_on should update led_ma for the correct color."""
-        board = self._make_board()
-        board.led_on(channel=0, mA=100)
-        assert board.get_led_ma('Blue') == 100
-        assert board.is_led_on('Blue') is True
-
-    def test_led_off_clears_state(self):
-        """led_off should set led_ma to -1."""
-        board = self._make_board()
-        board.led_on(channel=0, mA=100)
-        board.led_off(channel=0)
-        assert board.get_led_ma('Blue') == -1
-        assert board.is_led_on('Blue') is False
-
-    def test_leds_off_clears_all(self):
-        """leds_off should clear all channels."""
-        board = self._make_board()
-        board.led_on(channel=0, mA=100)
-        board.led_on(channel=1, mA=200)
-        board.led_on(channel=2, mA=300)
-        board.leds_off()
-        for color in board.led_ma:
-            assert board.get_led_ma(color) == -1
-
-    def test_leds_disable_clears_all(self):
-        """leds_disable should clear all channels."""
-        board = self._make_board()
-        board.led_on(channel=0, mA=100)
-        board.led_on(channel=3, mA=50)
-        board.leds_disable()
-        for color in board.led_ma:
-            assert board.get_led_ma(color) == -1
-
-    def test_led_on_fast_updates_state(self):
-        """led_on_fast should track state the same as led_on."""
-        board = self._make_board()
-        board.led_on_fast(channel=2, mA=75)
-        assert board.get_led_ma('Red') == 75
-        assert board.is_led_on('Red') is True
-
-    def test_led_off_fast_clears_state(self):
-        """led_off_fast should clear state."""
-        board = self._make_board()
-        board.led_on_fast(channel=2, mA=75)
-        board.led_off_fast(channel=2)
-        assert board.get_led_ma('Red') == -1
-
-    def test_leds_off_fast_clears_all(self):
-        """leds_off_fast should clear all channels."""
-        board = self._make_board()
-        board.led_on_fast(channel=0, mA=100)
-        board.led_on_fast(channel=1, mA=200)
-        board.leds_off_fast()
-        for color in board.led_ma:
-            assert board.get_led_ma(color) == -1
-
-    def test_get_led_state_dict(self):
-        """get_led_state should return dict with enabled and illumination."""
-        board = self._make_board()
-        board.led_on(channel=3, mA=50)
-        state = board.get_led_state('BF')
-        assert state == {'enabled': True, 'illumination': 50}
-
-    def test_get_led_states_all(self):
-        """get_led_states should return state for all channels."""
-        board = self._make_board()
-        board.led_on(channel=0, mA=100)
-        states = board.get_led_states()
-        assert states['Blue']['enabled'] is True
-        assert states['Blue']['illumination'] == 100
-        assert states['Red']['enabled'] is False
-        assert states['Red']['illumination'] == -1
-
-    def test_multiple_channels_independent(self):
-        """Turning on one channel should not affect others."""
-        board = self._make_board()
-        board.led_on(channel=0, mA=100)
-        board.led_on(channel=2, mA=200)
-        assert board.get_led_ma('Blue') == 100
-        assert board.get_led_ma('Red') == 200
-        assert board.get_led_ma('Green') == -1
-
-        board.led_off(channel=0)
-        assert board.get_led_ma('Blue') == -1
-        assert board.get_led_ma('Red') == 200
+# TestLEDBoardState (driver-side state-cache queries) retired in
+# Wave 7 Phase 3d.5. LED state is API-primary (Rule 2 SoT on
+# IlluminationAPI). Equivalent API-side coverage lives in
+# tests/test_lumascope_api.py and tests/test_state_observer.py.
 
 
 # ---------------------------------------------------------------------------
@@ -1396,15 +1294,8 @@ class TestLEDBoardStateLock:
         board.led_off(channel=0)
         assert board.led_ma['Blue'] == 200, "State cache should not update on serial failure"
 
-    def test_get_led_states_returns_consistent_snapshot(self):
-        """get_led_states() should return a consistent snapshot under _state_lock."""
-        board = self._make_board()
-        board.led_ma['Blue'] = 100
-        board.led_ma['Red'] = 200
-        states = board.get_led_states()
-        assert states['Blue'] == {'enabled': True, 'illumination': 100}
-        assert states['Red'] == {'enabled': True, 'illumination': 200}
-        assert states['BF'] == {'enabled': False, 'illumination': -1}
+    # test_get_led_states_returns_consistent_snapshot retired in Wave 7
+    # Phase 3d.5 -- get_led_states is no longer on the driver protocol.
 
     def test_concurrent_led_on_off(self):
         """Concurrent led_on and led_off should not corrupt led_ma."""
@@ -1470,20 +1361,9 @@ class TestLEDBoardStateLock:
         board.led_off_fast(channel=2)
         assert board.led_ma['Red'] == -1
 
-    def test_get_led_ma_thread_safe(self):
-        """get_led_ma() should read under _state_lock."""
-        board = self._make_board()
-        board.led_ma['Green'] = 150
-        assert board.get_led_ma('Green') == 150
-        assert board.get_led_ma('BF') == -1
-        assert board.get_led_ma('nonexistent') == -1
-
-    def test_is_led_on_thread_safe(self):
-        """is_led_on() should read under _state_lock."""
-        board = self._make_board()
-        board.led_ma['Green'] = 150
-        assert board.is_led_on('Green') is True
-        assert board.is_led_on('BF') is False
+    # test_get_led_ma_thread_safe + test_is_led_on_thread_safe retired
+    # in Wave 7 Phase 3d.5 -- get_led_ma / is_led_on are no longer on
+    # the driver protocol.
 
 
 class TestSerialDesyncRecovery:
