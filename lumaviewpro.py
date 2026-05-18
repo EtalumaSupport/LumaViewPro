@@ -738,6 +738,7 @@ class LumaViewProApp(TooltipMixin, App):
             ij_helper=ij_helper,
             protocol_running=protocol_running_global,
             engineering_mode=ENGINEERING_MODE,
+            no_engineering=no_engineering,
             show_tooltips=show_tooltips,
             live_histo_setting=live_histo_setting,
             last_save_folder=last_save_folder,
@@ -767,38 +768,9 @@ class LumaViewProApp(TooltipMixin, App):
         # Creates and manages Tooltips
         self.init_tooltips(lumaview)
 
-        # Engineering plugin hook — adds engineering tab when installed
-        try:
-            import etaluma_engineering
-
-            # Check version compatibility
-            REQUIRED_PLUGIN_VERSION = '0.1.0'
-            plugin_version = getattr(etaluma_engineering, '__version__', '0.0.0')
-            if plugin_version < REQUIRED_PLUGIN_VERSION:
-                logger.warning(
-                    f'[LVP Main  ] Engineering plugin {plugin_version} outdated, '
-                    f'need {REQUIRED_PLUGIN_VERSION}. '
-                    f'Please update: pip install -e path/to/etaluma-engineering'
-                )
-            etaluma_engineering.register(ctx)
-            # Auto-enable engineering mode when plugin is present
-            # (unless --no-engineering was passed on command line)
-            if not ENGINEERING_MODE and not no_engineering:
-                ENGINEERING_MODE = True
-                lumaview.scope.engineering_mode = True
-                ctx.engineering_mode = True
-                logger.info('[LVP Main  ] Engineering mode auto-enabled (plugin detected)')
-            logger.info(f'[LVP Main  ] Engineering plugin v{plugin_version} loaded')
-        except ImportError:
-            pass  # Expected — plugin not installed
-        except Exception as e:  # grain: ignore NAKED_EXCEPT
-            logger.warning(f'[LVP Main  ] Engineering plugin failed to register: {e}')
-
-        # Discover any plugins installed via entry_points group 'lvp.plugins'.
-        # The etaluma_engineering import above is the legacy import-by-name path
-        # and will retire once it ships with [project.entry-points]; until then
-        # both paths coexist and load_plugins is a no-op if no entry-points
-        # are registered.
+        # Discover plugins via entry_points group 'lvp.plugins'.
+        # Engineering plugin (etaluma-engineering, dev/bench-only) loads
+        # here; customer installs find nothing in the group.
         from modules.plugins import load_plugins
         load_plugins(ctx)
 
@@ -811,10 +783,27 @@ class LumaViewProApp(TooltipMixin, App):
         from modules.plugins.builtin import register_builtins
         register_builtins(ctx)
 
-        # Enable engineering-only log files (autofocus.log, api.log)
+        # Attach UI-namespace plugin mounts now that the widget tree
+        # exists. Each registered (name, mount, builder) tuple is
+        # invoked here; builder() returns the Kivy widget which is
+        # added to the named mount point.
+        motionsettings_accordion = ctx.motion_settings.ids['motionsettings_accordion_id']
+        for plugin_name, mount_point, builder in ctx.plugins.ui.mounts():
+            if mount_point == 'left_sidebar.accordion':
+                try:
+                    motionsettings_accordion.add_widget(builder())
+                    logger.info(f'[LVP Main  ] Mounted {plugin_name} at {mount_point}')
+                except Exception as e:
+                    logger.error(
+                        f'[LVP Main  ] {plugin_name} mount failed: {e}', exc_info=True,
+                    )
+
+        # Enable engineering-only log files (autofocus.log, api.log).
+        # Read from ctx since the engineering plugin's register(ctx)
+        # may have flipped ctx.engineering_mode during load_plugins.
         from lvp_logger import enable_engineering_logs
 
-        enable_engineering_logs(ENGINEERING_MODE)
+        enable_engineering_logs(ctx.engineering_mode)
 
         # NotificationCenter -> UI popup bridge was registered at the
         # top of build(), BEFORE MainDisplay() / Lumascope() / hardware
