@@ -78,12 +78,12 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
                 # so the texture stays on the last rendered frame.
                 scope_display.pause()
                 if self.scope.led_connected:
-                    self._pause_led_snapshot = self.scope.save_led_state('camera_pause')
-                    self.scope.leds_off_async()
+                    self._pause_led_snapshot = self.scope.illumination.save_led_state('camera_pause')
+                    self.scope.illumination.leds_off_async()
                     # LED observer handles UI button sync
             else:
                 if self._pause_led_snapshot:
-                    self.scope.restore_led_state(self._pause_led_snapshot)
+                    self.scope.illumination.restore_led_state(self._pause_led_snapshot)
                     self._pause_led_snapshot = None
                     # LED observer handles UI button sync
 

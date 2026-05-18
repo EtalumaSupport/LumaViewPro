@@ -60,7 +60,7 @@ def main():
         print(f"\n--- Channel: {color} ---")
 
         # Configure LED illumination for this channel
-        scope.led_on(channel=color, mA=ch["mA"])
+        scope.illumination.led_on(channel=color, mA=ch["mA"])
         print(f"  LED on: {ch['mA']} mA")
 
         # Set exposure time
@@ -77,10 +77,10 @@ def main():
         print(f"  Pixel stats: min={image.min()}, max={image.max()}, mean={image.mean():.1f}")
 
         # Turn off LED before switching channels
-        scope.led_off(channel=color)
+        scope.illumination.led_off(channel=color)
 
     # Turn off all LEDs
-    scope.leds_off()
+    scope.illumination.leds_off()
     print("\nAll LEDs off")
 
     # Stop camera and disconnect

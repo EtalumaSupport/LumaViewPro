@@ -222,20 +222,20 @@ class ScopeSession:
     # --- LED commands (thin shims around Lumascope's executor-backed API) ---
 
     def leds_off(self, callback=None):
-        self.scope.leds_off_async(callback=callback)
+        self.scope.illumination.leds_off_async(callback=callback)
 
     def led_on(self, channel, illumination, callback=None, cb_kwargs=None):
-        self.scope.led_on_async(
+        self.scope.illumination.led_on_async(
             channel, illumination, callback=callback, cb_kwargs=cb_kwargs,
         )
 
     def led_off(self, channel, callback=None, cb_kwargs=None):
-        self.scope.led_off_async(
+        self.scope.illumination.led_off_async(
             channel, callback=callback, cb_kwargs=cb_kwargs,
         )
 
     def led_on_sync(self, channel, illumination, timeout=5):
-        self.scope.led_on_sync(channel, illumination, timeout=timeout)
+        self.scope.illumination.led_on_sync(channel, illumination, timeout=timeout)
 
     # --- Motion commands ---
 

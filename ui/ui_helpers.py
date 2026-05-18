@@ -68,7 +68,7 @@ def scope_leds_off(no_callback: bool = False):
     # LED observer handles UI button sync — no manual callback needed.
     # The no_callback parameter is kept for API compatibility but is now
     # effectively always True (observer replaces the callback).
-    ctx.scope.leds_off_async()
+    ctx.scope.illumination.leds_off_async()
 
 
 # ============================================================================

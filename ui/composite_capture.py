@@ -229,7 +229,7 @@ class CompositeCapture(FloatLayout):
 
         initial_layer = common_utils.get_opened_layer(ctx.image_settings)
 
-        if ctx.scope.get_led_state(initial_layer)['enabled']:
+        if ctx.scope.illumination.get_led_state(initial_layer)['enabled']:
             led_restore_state = True
         else:
             led_restore_state = False
@@ -351,8 +351,8 @@ class CompositeCapture(FloatLayout):
                 ctx.scope.set_exposure_sync(exposure)
                 illumination = layer_settings[trans_layer]['ill']
 
-                ctx.scope.led_on_sync(
-                    ctx.scope.color2ch(trans_layer), illumination,
+                ctx.scope.illumination.led_on_sync(
+                    ctx.scope.illumination.color2ch(trans_layer), illumination,
                 )
 
                 transmitted_image = np.array(
@@ -361,12 +361,12 @@ class CompositeCapture(FloatLayout):
                     ),
                     dtype=dtype,
                 )
-                ctx.scope.leds_off_sync()
+                ctx.scope.illumination.leds_off_sync()
 
                 # Can only use one transmitted channel per composite
                 break
 
-        ctx.scope.leds_off_sync()
+        ctx.scope.illumination.leds_off_sync()
 
         # Capture fluorescence and luminescence channels
         for layer in (*common_utils.get_fluorescence_layers(), *common_utils.get_luminescence_layers()):
@@ -395,8 +395,8 @@ class CompositeCapture(FloatLayout):
 
                 # Luminescence channels don't use an LED
                 if layer not in common_utils.get_transmitted_layers():
-                    ctx.scope.led_on_sync(
-                        ctx.scope.color2ch(layer), illumination,
+                    ctx.scope.illumination.led_on_sync(
+                        ctx.scope.illumination.color2ch(layer), illumination,
                     )
 
                 img_gray = ctx.scope.capture_and_wait_sync(
@@ -405,11 +405,11 @@ class CompositeCapture(FloatLayout):
                     sum_delay_s=exposure/1000,
                     sum_iteration_callback=sum_iteration_callback,
                 )
-                ctx.scope.leds_off_sync()
+                ctx.scope.illumination.leds_off_sync()
 
                 channel_images[layer] = np.array(img_gray)
 
-            ctx.scope.leds_off_sync()
+            ctx.scope.illumination.leds_off_sync()
 
             # Unschedule histogram on main thread — widget access must not happen from worker
             def _unschedule_histo(dt, layer_name=layer):

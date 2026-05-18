@@ -909,11 +909,11 @@ class LumaViewProApp(TooltipMixin, App):
         # are consolidated into one teardown.
         lumaview.scope.motion.stop_motion()
 
-        logger.info('[LVP Main  ] lumaview.scope.leds_off()')
+        logger.info('[LVP Main  ] lumaview.scope.illumination.leds_off()')
         try:
             # Run leds_off on a thread with timeout so MainThread doesn't block
             # if workers still hold _hw_lock during teardown.
-            t = threading.Thread(target=lumaview.scope.leds_off, daemon=True)
+            t = threading.Thread(target=lumaview.scope.illumination.leds_off, daemon=True)
             t.start()
             t.join(timeout=2.0)
             if t.is_alive():

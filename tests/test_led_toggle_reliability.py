@@ -103,13 +103,6 @@ class TestFixA_DisableLedsForOtherLayersGuard:
             "any_other_on check must come before leds_off_async call (#617 Fix A)"
         )
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="ui/layer_control.py uses ctx.scope.leds_off_async() / "
-               "led_on_async() until Wave 7 Phase 3e migrates production "
-               "callers to ctx.scope.illumination.<method>; remove xfail "
-               "in 3e.",
-    )
     def test_disable_leds_preserves_614_semantics(self):
         """The fix must still call leds_off + led_on when another layer is
         on — preserving the #614 guarantee that only one LED is physically

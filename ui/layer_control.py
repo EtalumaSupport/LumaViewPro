@@ -770,15 +770,15 @@ class LayerControl(BoxLayout):
         # try/except + log + notify pattern rationale.
         ctx = _app_ctx.ctx
         try:
-            channel = ctx.scope.color2ch(self.layer)
+            channel = ctx.scope.illumination.color2ch(self.layer)
             if not enabled:
-                ctx.scope.led_off_async(channel)
+                ctx.scope.illumination.led_off_async(channel)
             else:
                 logger.info(
-                    f'[LVP Main  ] lumaview.scope.led_on('
-                    f'lumaview.scope.color2ch({self.layer}), {illumination})'
+                    f'[LVP Main  ] lumaview.scope.illumination.led_on('
+                    f'lumaview.scope.illumination.color2ch({self.layer}), {illumination})'
                 )
-                ctx.scope.led_on_async(channel, illumination)
+                ctx.scope.illumination.led_on_async(channel, illumination)
         except Exception as e:
             logger.exception(
                 f'[LVP Main  ] set_led_state failed for layer '
@@ -924,7 +924,7 @@ class LayerControl(BoxLayout):
                         if layer == self.layer:
                             continue
                         try:
-                            state = ctx.scope.get_led_state(color=layer)
+                            state = ctx.scope.illumination.get_led_state(color=layer)
                             if state.get('enabled', False):
                                 any_other_on = True
                                 break
@@ -940,9 +940,9 @@ class LayerControl(BoxLayout):
                                 f'failed during disable_leds_for_other_layers: {e}'
                             )
                     if any_other_on:
-                        ctx.scope.leds_off_async()
+                        ctx.scope.illumination.leds_off_async()
                         # Re-enable this layer's LED (leds_off turned it off too)
-                        ctx.scope.led_on_async(
+                        ctx.scope.illumination.led_on_async(
                             self.layer, settings[self.layer]['ill'],
                         )
                 # Update button states (visual only — hardware already handled)

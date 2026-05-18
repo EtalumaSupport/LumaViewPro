@@ -155,8 +155,8 @@ def go_to_step(
             # preview. Same convention applied at protocol scan-start
             # (protocol_run_loop), autofocus-run-start (autofocus_runner),
             # and per-layer composite capture (composite_capture).
-            ctx.scope.leds_off_async()
-            ctx.scope.led_on_async(color, step['Illumination'])
+            ctx.scope.illumination.leds_off_async()
+            ctx.scope.illumination.led_on_async(color, step['Illumination'])
             _schedule_ui(lambda dt: temp(), 0)
         else:
             layer_obj.apply_settings(ignore_auto_gain=ignore_auto_gain, protocol=True)

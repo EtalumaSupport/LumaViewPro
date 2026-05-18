@@ -131,7 +131,7 @@ class UIListenerBridge:
                 return
             # Read CURRENT state from driver (not event args, which
             # may be stale).
-            state = scope.get_led_state(color=c)
+            state = scope.illumination.get_led_state(color=c)
             target = 'down' if state.get('enabled', False) else 'normal'
             if layer_obj.ids['enable_led_btn'].state != target:
                 LayerControl._suppressing_led_log = True

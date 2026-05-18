@@ -60,7 +60,7 @@ def main():
     print("Scope initialized (simulate=True)")
 
     # Configure illumination
-    scope.led_on(channel=LED_COLOR, mA=LED_MA)
+    scope.illumination.led_on(channel=LED_COLOR, mA=LED_MA)
     scope.set_exposure_time(EXPOSURE_MS)
     print(f"LED: {LED_COLOR} at {LED_MA} mA, exposure: {EXPOSURE_MS} ms")
 
@@ -106,7 +106,7 @@ def main():
     # This automatically sweeps Z and moves to the best focus position.
 
     # Clean up
-    scope.leds_off()
+    scope.illumination.leds_off()
     scope.camera.stop_grabbing()
     scope.disconnect()
     print("Scope disconnected")

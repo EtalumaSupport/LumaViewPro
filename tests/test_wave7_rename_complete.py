@@ -205,11 +205,6 @@ def _find_illumination_method_accesses(tree: ast.AST) -> list[tuple[int, str]]:
     return hits
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="Production callers migrate in Wave 7 Phase 3e; remove this "
-           "xfail marker in that commit.",
-)
 def test_no_illumination_method_calls_on_bare_scope_in_production():
     failures: list[str] = []
     for path in _iter_prod_files():
