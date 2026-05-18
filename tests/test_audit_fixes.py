@@ -993,7 +993,7 @@ class TestIssue602_AFExecutorLED:
              patch.object(af, '_move_absolute_position'), \
              patch.object(scope, 'save_led_state', return_value={}), \
              patch.object(scope, 'save_camera_state', return_value={}), \
-             patch.object(scope, 'set_motor_precision_mode'), \
+             patch.object(scope.motion, 'set_motor_precision_mode'), \
              patch.object(scope, 'restore_led_state'), \
              patch.object(scope, 'restore_camera_state'):
             with pytest.raises(AutofocusAborted):
@@ -1032,7 +1032,7 @@ class TestAFPrecisionModeRestoresOn:
     def test_reset_restores_precision_on(self, _mock_heavy_deps):
         from unittest.mock import patch
         af, scope = self._build_af()
-        with patch.object(scope, 'set_motor_precision_mode') as mock_set:
+        with patch.object(scope.motion, 'set_motor_precision_mode') as mock_set:
             af.reset()
             mock_set.assert_called_with('Z', True)
 
@@ -1045,7 +1045,7 @@ class TestAFPrecisionModeRestoresOn:
         af, scope = self._build_af()
         abort_event = threading.Event()
         abort_event.set()  # pre-set so AFE.run() unwinds via abort
-        with patch.object(scope, 'set_motor_precision_mode') as mock_set, \
+        with patch.object(scope.motion, 'set_motor_precision_mode') as mock_set, \
              patch.object(af, '_led_off'), \
              patch.object(af, '_move_absolute_position'), \
              patch.object(scope, 'save_led_state', return_value={}), \
