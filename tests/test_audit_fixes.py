@@ -2434,9 +2434,10 @@ class TestPIW6_PF3_FalseColorRgbPreallocated:
         assert "_get_false_color_bufs" in src, (
             "PF-3 + PIW-6: helper that returns (false_color_buf, rgb_buf) tuple should exist."
         )
-        # Buffers only allocated when false-color is enabled AND capture is uint16 2D.
-        assert "if self._false_color_16bit and is_uint16_2d:" in src, (
-            "PF-3 + PIW-6: buffer allocation should be gated on false_color_16bit AND uint16 2D."
+        # Buffers only allocated when false-color is enabled AND capture is single-channel 2D.
+        # Gate covers uint8 + uint16 (relaxed from uint16-only by #669 fix).
+        assert "if self._false_color_16bit and is_2d_single_channel:" in src, (
+            "PF-3 + PIW-6: buffer allocation should be gated on false_color_16bit AND 2D single-channel."
         )
         # Both buffers passed to save_image.
         assert "false_color_buf=false_color_buf" in src, (
