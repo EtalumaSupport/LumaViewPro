@@ -65,6 +65,15 @@ def test_plugin_spec_defaults():
     assert spec.subscribes_to == ()
     assert spec.author == ''
     assert spec.url == ''
+    assert spec.auto_run_on_protocol_complete is False
+
+
+def test_plugin_spec_auto_run_opt_in():
+    spec = PluginSpec(
+        name='x', version='0.1.0', requires_lvp_version='>=4.0.0',
+        description='d', auto_run_on_protocol_complete=True,
+    )
+    assert spec.auto_run_on_protocol_complete is True
 
 
 # ---------------------------------------------------------------------------
@@ -145,6 +154,116 @@ def test_post_processing_duplicate_name_raises(harness_ctx):
 
 def test_post_processing_get_missing_returns_none(harness_ctx):
     assert harness_ctx.plugins.post_processing.get('not_registered') is None
+
+
+def test_post_processing_handlers_returns_spec_processor_pairs(harness_ctx):
+    spec_a = _make_spec(name='pp_a')
+    spec_b = _make_spec(name='pp_b')
+    harness_ctx.plugins.post_processing.register(spec_a, _trivial_processor)
+    harness_ctx.plugins.post_processing.register(spec_b, _trivial_processor)
+    handlers = harness_ctx.plugins.post_processing.handlers()
+    assert len(handlers) == 2
+    names = {h[0].name for h in handlers}
+    assert names == {'pp_a', 'pp_b'}
+    for spec, processor in handlers:
+        assert isinstance(spec, PluginSpec)
+        assert callable(processor)
+
+
+# ---------------------------------------------------------------------------
+# run_protocol_complete_processors() dispatcher
+# ---------------------------------------------------------------------------
+
+
+def test_auto_run_dispatcher_invokes_only_opted_in(harness_ctx):
+    from modules.plugins import run_protocol_complete_processors
+
+    calls = []
+
+    def opted_in(input_dir, manifest, output_dir):
+        calls.append(('opted_in', input_dir, manifest, output_dir))
+        return ProcessorResult(success=True, message='did the work')
+
+    def not_opted_in(input_dir, manifest, output_dir):
+        calls.append(('not_opted_in',))
+        return ProcessorResult(success=True, message='should not run')
+
+    spec_opt = _make_spec(name='opted')
+    # Re-create with auto_run set since _make_spec doesn't take it
+    spec_opt = PluginSpec(
+        name='opted', version='0.1.0', requires_lvp_version='>=4.0.0',
+        description='d', auto_run_on_protocol_complete=True,
+    )
+    spec_skip = _make_spec(name='skipped')
+
+    harness_ctx.plugins.post_processing.register(spec_opt, opted_in)
+    harness_ctx.plugins.post_processing.register(spec_skip, not_opted_in)
+
+    run_protocol_complete_processors(
+        harness_ctx, input_dir='/in', manifest={'k': 'v'}, output_dir='/out',
+    )
+
+    assert len(calls) == 1
+    assert calls[0] == ('opted_in', '/in', {'k': 'v'}, '/out')
+
+
+def test_auto_run_dispatcher_swallows_processor_exception(harness_ctx, caplog):
+    from modules.plugins import run_protocol_complete_processors
+
+    calls = []
+
+    def boom(input_dir, manifest, output_dir):
+        raise RuntimeError('processor exploded')
+
+    def runs_after(input_dir, manifest, output_dir):
+        calls.append('runs_after')
+        return ProcessorResult(success=True, message='ok')
+
+    spec_a = PluginSpec(
+        name='boomer', version='0.1.0', requires_lvp_version='>=4.0.0',
+        description='d', auto_run_on_protocol_complete=True,
+    )
+    spec_b = PluginSpec(
+        name='good_citizen', version='0.1.0', requires_lvp_version='>=4.0.0',
+        description='d', auto_run_on_protocol_complete=True,
+    )
+    harness_ctx.plugins.post_processing.register(spec_a, boom)
+    harness_ctx.plugins.post_processing.register(spec_b, runs_after)
+
+    # Should not raise; runs_after should still execute despite boomer failing.
+    run_protocol_complete_processors(
+        harness_ctx, input_dir='/in', manifest={}, output_dir='/out',
+    )
+
+    assert calls == ['runs_after']
+
+
+def test_auto_run_dispatcher_handles_no_ctx_plugins():
+    from modules.plugins import run_protocol_complete_processors
+    # Should silently return without raising when ctx has no .plugins attr.
+    from types import SimpleNamespace
+    ctx = SimpleNamespace()
+    run_protocol_complete_processors(
+        ctx, input_dir='/in', manifest={}, output_dir='/out',
+    )
+    # No assertion needed -- absence of exception is the contract.
+
+
+def test_auto_run_dispatcher_skips_when_all_opt_out(harness_ctx):
+    from modules.plugins import run_protocol_complete_processors
+
+    calls = []
+
+    def proc(input_dir, manifest, output_dir):
+        calls.append('ran')
+        return ProcessorResult(success=True, message='ok')
+
+    spec = _make_spec(name='not_opted')  # default False
+    harness_ctx.plugins.post_processing.register(spec, proc)
+    run_protocol_complete_processors(
+        harness_ctx, input_dir='/in', manifest={}, output_dir='/out',
+    )
+    assert calls == []
 
 
 # ---------------------------------------------------------------------------

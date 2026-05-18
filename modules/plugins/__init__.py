@@ -77,6 +77,12 @@ class PluginSpec:
     subscribes_to lists settings-tree keys (dot-path notation, e.g.
     'manual_video.max_fps'). The host fires on_settings_changed only
     when one of those keys changes. Empty tuple = hook never fires.
+
+    auto_run_on_protocol_complete (post_processing namespace only):
+    when True, the host invokes the registered processor automatically
+    after every protocol run finishes writing files to disk. Defaults
+    to False so registration is metadata-only; plugins opt in
+    explicitly. See run_protocol_complete_processors().
     """
     name: str
     version: str
@@ -86,6 +92,7 @@ class PluginSpec:
     subscribes_to: tuple[str, ...] = ()
     author: str = ''
     url: str = ''
+    auto_run_on_protocol_complete: bool = False
 
 
 @dataclass(frozen=True)
@@ -239,8 +246,9 @@ class PostProcessingRegistry(_BaseNamespace):
     register(spec, processor):
         processor: callable
             processor(input_dir, manifest, output_dir) -> ProcessorResult
-        Invoked from the user's 'Run Post-Processor' menu, or scheduled
-        at protocol-completion time if the plugin's spec opts in.
+        Invoked from run_protocol_complete_processors() at the end of
+        every protocol run when spec.auto_run_on_protocol_complete=True.
+        Ad-hoc invocation: callers fetch via .get(name) and call directly.
     """
 
     NAMESPACE = 'post_processing'
@@ -252,16 +260,29 @@ class PostProcessingRegistry(_BaseNamespace):
     ) -> None:
         with self._lock:
             self._assert_unique(spec)
-            self._handlers[spec.name] = processor
+            # Store (spec, processor) so .handlers() can hand the spec
+            # back to consumers that need its flags (e.g. auto-run gate).
+            self._handlers[spec.name] = (spec, processor)
             self._record_loaded(spec)
 
     def get(self, name: str) -> Optional[Callable]:
         with self._lock:
-            return self._handlers.get(name)
+            entry = self._handlers.get(name)
+            return entry[1] if entry is not None else None
 
     def names(self) -> tuple[str, ...]:
         with self._lock:
             return tuple(self._handlers.keys())
+
+    def handlers(self) -> tuple[tuple[PluginSpec, Callable], ...]:
+        """Return (spec, processor) tuples for every registered plugin.
+
+        Snapshot semantics: subsequent registrations won't appear in
+        the returned tuple. Consumers iterate and apply per-plugin
+        gates (e.g. spec.auto_run_on_protocol_complete).
+        """
+        with self._lock:
+            return tuple(self._handlers.values())
 
 
 class LiveProcessingRegistry(_BaseNamespace):
@@ -537,4 +558,59 @@ def unload_plugins(ctx: Any) -> None:
         except Exception:
             logger.warning(
                 f'[Plugins ] {name}: unregister failed', exc_info=True,
+            )
+
+
+def run_protocol_complete_processors(
+    ctx: Any,
+    input_dir: str,
+    manifest: dict,
+    output_dir: str,
+) -> None:
+    """Invoke every post_processing plugin that opted in via
+    PluginSpec.auto_run_on_protocol_complete=True.
+
+    Called once per protocol run after all output files are written
+    to disk. Each plugin's processor runs in turn; per-plugin
+    exceptions are caught and logged so one failure does not block
+    others or the rest of the completion handler. ProcessorResult is
+    logged at INFO on success, WARNING on reported failure.
+
+    Today this is invoked from the UI-side protocol-completion
+    handler. When REST-triggered protocol runs land, the dispatcher
+    moves down to the orchestration layer so all trigger sources
+    benefit uniformly.
+    """
+    if ctx is None or not hasattr(ctx, 'plugins'):
+        return
+    for spec, processor in ctx.plugins.post_processing.handlers():
+        if not spec.auto_run_on_protocol_complete:
+            continue
+        try:
+            result = processor(input_dir, manifest, output_dir)
+        except Exception as e:
+            logger.error(
+                f'[Plugins ] {spec.name} processor raised '
+                f'{type(e).__name__}: {e}',
+                exc_info=True,
+            )
+            ctx.plugins.post_processing.record_runtime_error(
+                spec.name, 'auto_run_on_protocol_complete', e,
+            )
+            continue
+        if not isinstance(result, ProcessorResult):
+            logger.warning(
+                f'[Plugins ] {spec.name} processor returned '
+                f'{type(result).__name__}, expected ProcessorResult',
+            )
+            continue
+        if result.success:
+            logger.info(
+                f'[Plugins ] {spec.name} auto-run succeeded: '
+                f'{result.message}'
+            )
+        else:
+            logger.warning(
+                f'[Plugins ] {spec.name} auto-run reported failure: '
+                f'{result.message}'
             )

@@ -1685,6 +1685,9 @@ class ProtocolSettings(FloatLayout):
             reset_acquire_ui()
             self.reset_autofocus_ui()
             ctx.stage.set_motion_capability(True)
+            # Auto-run opted-in post_processing plugins. Mirrors the
+            # files-pending path's call from _protocol_files_complete.
+            self._dispatch_post_processing_auto_run(ctx, **kwargs)
 
 
     def _update_protocol_write_status(self, dt):
@@ -1735,6 +1738,34 @@ class ProtocolSettings(FloatLayout):
         self.reset_autofocus_ui()
         ctx.stage.set_motion_capability(True)
         reset_title()
+
+        # Auto-run post_processing plugins that opted in.
+        self._dispatch_post_processing_auto_run(ctx, **kwargs)
+
+
+    def _dispatch_post_processing_auto_run(self, ctx, **kwargs):
+        """Fire post_processing plugins opted into
+        PluginSpec.auto_run_on_protocol_complete=True. UI-trigger only
+        today; REST-triggered runs gain this when the dispatch moves
+        down to the orchestration layer.
+        """
+        from modules.plugins import run_protocol_complete_processors
+        run_dir = ctx.sequenced_capture_runner.run_dir()
+        if run_dir is None:
+            return
+        run_dir_str = str(run_dir)
+        protocol = kwargs.get('protocol')
+        manifest = {
+            'protocol_name': getattr(protocol, 'name', '') if protocol else '',
+            'run_dir': run_dir_str,
+            'trigger_source': 'ui_protocol_button',
+        }
+        run_protocol_complete_processors(
+            ctx,
+            input_dir=run_dir_str,
+            manifest=manifest,
+            output_dir=run_dir_str,
+        )
 
 
     _protocol_starting = False  # Re-entry guard for double-click prevention
