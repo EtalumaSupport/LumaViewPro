@@ -37,6 +37,8 @@ during the transition.
 import ast
 import pathlib
 
+import pytest
+
 BANNED_ATTRS = frozenset({'camera', 'led'})
 
 # Production code roots; tests/ deliberately excluded (see docstring).
@@ -168,5 +170,66 @@ def test_no_motion_method_calls_on_bare_scope_in_production():
     assert not failures, (
         "Motion methods reached on bare scope -- production code must "
         "go through scope.motion.<method>:\n  "
+        + "\n  ".join(failures)
+    )
+
+
+# Methods that live ONLY on the IlluminationAPI sub-API. Production
+# callers must reach them via `scope.illumination.<name>(...)`, never
+# `scope.<name>(...)`. Derived by diffing dir(scope.illumination)
+# against dir(scope) on a `Lumascope(simulate=True)` instance;
+# hardcoded here so the test is pure-AST (no simulator instantiation
+# at collection time).
+ILLUMINATION_ONLY_METHODS = frozenset({
+    'add_led_listener', 'ch2color', 'color2ch', 'get_led_ma',
+    'get_led_state', 'get_led_states', 'get_led_status', 'led_enabled',
+    'led_illumination', 'led_off', 'led_off_async', 'led_off_fast',
+    'led_on', 'led_on_async', 'led_on_fast', 'led_on_sync',
+    'led_states', 'leds_disable', 'leds_enable', 'leds_off',
+    'leds_off_async', 'leds_off_fast', 'leds_off_owned',
+    'leds_off_sync', 'remove_led_listener', 'restore_led_state',
+    'save_led_state', 'wait_until_led_on',
+})
+
+
+def _find_illumination_method_accesses(tree: ast.AST) -> list[tuple[int, str]]:
+    """Find `<chain ending in scope>.<illumination_only_method>` accesses."""
+    hits: list[tuple[int, str]] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Attribute):
+            continue
+        if node.attr not in ILLUMINATION_ONLY_METHODS:
+            continue
+        if _chain_ends_in_scope(node.value):
+            hits.append((node.lineno, node.attr))
+    return hits
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="Production callers migrate in Wave 7 Phase 3e; remove this "
+           "xfail marker in that commit.",
+)
+def test_no_illumination_method_calls_on_bare_scope_in_production():
+    failures: list[str] = []
+    for path in _iter_prod_files():
+        try:
+            source = path.read_text(encoding='utf-8')
+        except (OSError, UnicodeDecodeError) as e:
+            failures.append(f"{path}: read failed: {e}")
+            continue
+        try:
+            tree = ast.parse(source, filename=str(path))
+        except SyntaxError as e:
+            failures.append(f"{path}: parse failed: {e}")
+            continue
+        for lineno, attr in _find_illumination_method_accesses(tree):
+            rel = path.relative_to(_REPO_ROOT)
+            failures.append(
+                f"{rel}:{lineno}: scope.{attr} -- use scope.illumination.{attr}"
+            )
+    assert not failures, (
+        "Illumination methods reached on bare scope -- production code "
+        "must go through scope.illumination.<method>:\n  "
         + "\n  ".join(failures)
     )

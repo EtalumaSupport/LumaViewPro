@@ -3,7 +3,7 @@
 Tests for the GUI-independent scope API modules:
 - modules/config_helpers.py
 - modules/lumascope_api.py executor-backed command API
-  (scope.led_on_async, scope.move_absolute_async, etc.)
+  (scope.illumination.led_on_async, scope.move_absolute_async, etc.)
 - modules/scope_session.py
 
 Uses mock objects + Lumascope(simulate=True) — no hardware or Kivy needed.
@@ -84,9 +84,9 @@ def _make_mock_scope(led_available=True):
     type(scope).motor_connected = PropertyMock(return_value=True)
     scope._motion_driver = MagicMock()
     scope._motion_driver.driver = True
-    scope.leds_off = MagicMock()
-    scope.led_on = MagicMock()
-    scope.led_off = MagicMock()
+    scope.illumination.leds_off = MagicMock()
+    scope.illumination.led_on = MagicMock()
+    scope.illumination.led_off = MagicMock()
     scope.motion.move_absolute_position = MagicMock()
     scope.motion.move_relative_position = MagicMock()
     scope.motion.zhome = MagicMock()
@@ -369,67 +369,82 @@ class TestLogSystemMetrics:
 # ===========================================================================
 
 class TestLumascopeLedAPI:
+    @pytest.mark.xfail(
+        strict=True,
+        reason="IOTask wraps Lumascope.leds_off until Wave 7 Phase 3c "
+               "moves async methods to IlluminationAPI; remove xfail in 3c.",
+    )
     def test_leds_off_async_dispatches(self):
         scope, io_ex, _ = _make_real_scope_with_mock_executors()
-        scope.leds_off_async()
+        scope.illumination.leds_off_async()
         io_ex.put.assert_called_once()
         task = io_ex.put.call_args[0][0]
-        assert task.action == scope.leds_off
+        assert task.action == scope.illumination.leds_off
 
     def test_leds_off_async_with_callback(self):
         scope, io_ex, _ = _make_real_scope_with_mock_executors()
         cb = MagicMock()
-        scope.leds_off_async(callback=cb)
+        scope.illumination.leds_off_async(callback=cb)
         task = io_ex.put.call_args[0][0]
         assert task.callback == cb
 
     def test_leds_off_async_skips_when_no_led(self):
         scope, io_ex, _ = _make_real_scope_with_mock_executors(led=False)
-        scope.leds_off_async()
+        scope.illumination.leds_off_async()
         io_ex.put.assert_not_called()
 
+    @pytest.mark.xfail(
+        strict=True,
+        reason="IOTask wraps Lumascope.led_on until Wave 7 Phase 3c "
+               "moves async methods to IlluminationAPI; remove xfail in 3c.",
+    )
     def test_led_on_async_dispatches(self):
         scope, io_ex, _ = _make_real_scope_with_mock_executors()
-        scope.led_on_async(channel=2, illumination=100)
+        scope.illumination.led_on_async(channel=2, illumination=100)
         task = io_ex.put.call_args[0][0]
-        assert task.action == scope.led_on
+        assert task.action == scope.illumination.led_on
         assert task.args == (2, 100)
 
     def test_led_on_async_with_callback(self):
         scope, io_ex, _ = _make_real_scope_with_mock_executors()
         cb = MagicMock()
-        scope.led_on_async(1, 50, callback=cb, cb_kwargs={'layer': 'Red'})
+        scope.illumination.led_on_async(1, 50, callback=cb, cb_kwargs={'layer': 'Red'})
         task = io_ex.put.call_args[0][0]
         assert task.callback == cb
         assert task.cb_kwargs == {'layer': 'Red'}
 
     def test_led_on_async_skips_when_no_led(self):
         scope, io_ex, _ = _make_real_scope_with_mock_executors(led=False)
-        scope.led_on_async(0, 50)
+        scope.illumination.led_on_async(0, 50)
         io_ex.put.assert_not_called()
 
+    @pytest.mark.xfail(
+        strict=True,
+        reason="IOTask wraps Lumascope.led_off until Wave 7 Phase 3c "
+               "moves async methods to IlluminationAPI; remove xfail in 3c.",
+    )
     def test_led_off_async_dispatches(self):
         scope, io_ex, _ = _make_real_scope_with_mock_executors()
-        scope.led_off_async(channel=3)
+        scope.illumination.led_off_async(channel=3)
         task = io_ex.put.call_args[0][0]
-        assert task.action == scope.led_off
+        assert task.action == scope.illumination.led_off
         assert task.kwargs == {'channel': 3}
 
     def test_led_off_async_skips_when_no_led(self):
         scope, io_ex, _ = _make_real_scope_with_mock_executors(led=False)
-        scope.led_off_async(0)
+        scope.illumination.led_off_async(0)
         io_ex.put.assert_not_called()
 
     def test_led_on_sync_blocks(self):
         scope, io_ex, _ = _make_real_scope_with_mock_executors()
-        scope.led_on_sync(channel=1, illumination=75)
+        scope.illumination.led_on_sync(channel=1, illumination=75)
         io_ex.put.assert_called_once()
         _, kwargs = io_ex.put.call_args
         assert kwargs.get('return_future') is True
 
     def test_led_on_sync_skips_when_no_led(self):
         scope, io_ex, _ = _make_real_scope_with_mock_executors(led=False)
-        scope.led_on_sync(0, 50)
+        scope.illumination.led_on_sync(0, 50)
         io_ex.put.assert_not_called()
 
     def test_unregistered_io_executor_raises(self):
@@ -438,7 +453,7 @@ class TestLumascopeLedAPI:
         dispatching to None)."""
         scope = lumascope_api.Lumascope(simulate=True)
         with pytest.raises(RuntimeError, match="register_executors"):
-            scope.leds_off_async()
+            scope.illumination.leds_off_async()
 
 
 class TestLumascopeMotionAPI:

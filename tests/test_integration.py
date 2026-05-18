@@ -701,9 +701,9 @@ class TestHeadlessSession:
         session.start_executors()
         try:
             scope = session.scope
-            scope.led_on(channel=0, mA=100)
+            scope.illumination.led_on(channel=0, mA=100)
             assert scope._led_driver.get_led_ma('Blue') == 100
-            scope.led_off(channel=0)
+            scope.illumination.led_off(channel=0)
             assert scope._led_driver.get_led_ma('Blue') == -1
         finally:
             session.shutdown_executors()

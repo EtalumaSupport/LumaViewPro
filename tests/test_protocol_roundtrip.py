@@ -1328,7 +1328,7 @@ class TestExecuteLEDRestore:
         assert completed
 
         # All LEDs should be off after protocol
-        states = scope.get_led_states()
+        states = scope.illumination.get_led_states()
         for color, state in states.items():
             assert not state['enabled'], f"LED {color} still on after protocol"
 
@@ -1776,7 +1776,7 @@ class TestExecutorEdgeCases:
         assert completed
         import time
         time.sleep(0.5)
-        states = scope.get_led_states()
+        states = scope.illumination.get_led_states()
         for color, state in states.items():
             assert not state['enabled'], f"LED {color} still on after protocol"
 
@@ -2067,39 +2067,39 @@ class TestLumascapeAPILed:
     """Direct tests on Lumascope LED API with simulated hardware."""
 
     def test_led_on_off(self, scope):
-        scope.led_on(channel=0, mA=100)
+        scope.illumination.led_on(channel=0, mA=100)
         assert scope._led_driver.is_led_on('Blue')
-        scope.led_off(channel=0)
+        scope.illumination.led_off(channel=0)
         assert not scope._led_driver.is_led_on('Blue')
 
     def test_led_on_by_color_name(self, scope):
-        scope.led_on(channel='Green', mA=200)
-        state = scope.get_led_state('Green')
+        scope.illumination.led_on(channel='Green', mA=200)
+        state = scope.illumination.get_led_state('Green')
         assert state['enabled']
         assert state['illumination'] == 200
 
     def test_leds_off(self, scope):
-        scope.led_on(channel='BF', mA=50)
-        scope.led_on(channel='Red', mA=100)
-        scope.leds_off()
-        states = scope.get_led_states()
+        scope.illumination.led_on(channel='BF', mA=50)
+        scope.illumination.led_on(channel='Red', mA=100)
+        scope.illumination.leds_off()
+        states = scope.illumination.get_led_states()
         for color, state in states.items():
             assert not state['enabled'], f"LED {color} still on after leds_off"
 
     def test_led_current_validation(self, scope):
         with pytest.raises(ValueError):
-            scope.led_on(channel=0, mA=-1)
+            scope.illumination.led_on(channel=0, mA=-1)
         with pytest.raises(ValueError):
-            scope.led_on(channel=0, mA=1001)
+            scope.illumination.led_on(channel=0, mA=1001)
 
     def test_led_channel_validation(self, scope):
         with pytest.raises(ValueError):
-            scope.led_on(channel=99, mA=100)
+            scope.illumination.led_on(channel=99, mA=100)
 
     def test_led_states_snapshot(self, scope):
-        scope.led_on(channel='Green', mA=200)
-        scope.led_on(channel='Red', mA=150)
-        states = scope.get_led_states()
+        scope.illumination.led_on(channel='Green', mA=200)
+        scope.illumination.led_on(channel='Red', mA=150)
+        states = scope.illumination.get_led_states()
         assert states['Green']['enabled']
         assert states['Green']['illumination'] == 200
         assert states['Red']['enabled']

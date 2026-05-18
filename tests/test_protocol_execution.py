@@ -615,8 +615,8 @@ class TestLedStateAtEnd:
 
     def test_return_to_original_leds(self, executor, scope, tmp_path):
         # Turn on BF LED before protocol so executor captures it as original state
-        bf_ch = scope.color2ch(color='BF')
-        scope.led_on(bf_ch, 25)
+        bf_ch = scope.illumination.color2ch(color='BF')
+        scope.illumination.led_on(bf_ch, 25)
         protocol = _make_single_step_protocol(color='BF')
         completed, _ = _run_and_wait(executor, protocol, tmp_path,
                                       leds_state_at_end='return_to_original')

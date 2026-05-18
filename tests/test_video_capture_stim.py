@@ -279,7 +279,7 @@ def test_scheduler_pulse_width_jitter_within_tolerance():
     thread.join(timeout=15.0)
     assert not thread.is_alive(), "Scheduler thread did not exit in time"
 
-    green_ch = scope.color2ch("Green")
+    green_ch = scope.illumination.color2ch("Green")
     ons = [t for (a, c, _mA, t) in scope.events if a == "on" and c == green_ch]
     offs = [t for (a, c, _mA, t) in scope.events if a == "off" and c == green_ch]
     # Scheduler issues a final cleanup `led_off_fast` in its finally block, so

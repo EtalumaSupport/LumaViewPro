@@ -588,11 +588,11 @@ class TestLEDChannelDiscovery:
             _CH_TO_COLOR = {v: k for k, v in _COLOR_TO_CH.items()}
         scope._led_driver = FourChannelLED()
 
-        scope.led_on(0, 100)  # Blue — valid on 4-channel driver
+        scope.illumination.led_on(0, 100)  # Blue — valid on 4-channel driver
         with pytest.raises(ValueError, match=r"LED channel must be one of"):
-            scope.led_on(5, 100)  # DF — out of range on 4-channel driver
+            scope.illumination.led_on(5, 100)  # DF — out of range on 4-channel driver
         with pytest.raises(ValueError, match=r"LED channel must be one of"):
-            scope.led_on(4, 100)  # PC — out of range too
+            scope.illumination.led_on(4, 100)  # PC — out of range too
 
     def test_api_validation_error_message_reflects_actual_channels(self):
         """Error messages must describe the actual valid range (the
@@ -606,7 +606,7 @@ class TestLEDChannelDiscovery:
         scope._led_driver = TwoChannelLED()
 
         try:
-            scope.led_on(3, 100)
+            scope.illumination.led_on(3, 100)
         except ValueError as e:
             msg = str(e)
             assert "(0, 1)" in msg, f"error message must list actual channels, got: {msg}"
