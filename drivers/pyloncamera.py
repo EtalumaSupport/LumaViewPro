@@ -1911,10 +1911,12 @@ class PylonCamera(Camera):
         # on gain / exposure_t -- avoids redundant SetValue serialization
         # against the grab thread during LED-toggle storms.
         try:
-            if abs(float(self.active.AutoTargetBrightness.GetValue()) - float(auto_target_brightness)) < 1e-3:
+            current = float(self.active.AutoTargetBrightness.GetValue())
+            if abs(current - float(auto_target_brightness)) < 1e-3:
                 if _cam_log is not None:
                     _cam_log.info(
-                        f'pylon AutoTargetBrightness.SetValue({auto_target_brightness:.3f}) short-circuited'
+                        f'pylon AutoTargetBrightness.SetValue'
+                        f'({auto_target_brightness:.3f}) short-circuited'
                     )
                 return
         except (genicam.RuntimeException, genicam.TimeoutException) as e:
@@ -1985,10 +1987,12 @@ class PylonCamera(Camera):
             try:
                 cur_min = float(self.active.AutoGainLowerLimit.GetValue())
                 cur_max = float(self.active.AutoGainUpperLimit.GetValue())
-                if abs(cur_min - float(min_gain)) < 1e-3 and abs(cur_max - float(max_gain)) < 1e-3:
+                if (abs(cur_min - float(min_gain)) < 1e-3
+                        and abs(cur_max - float(max_gain)) < 1e-3):
                     if _cam_log is not None:
                         _cam_log.info(
-                            f'pylon AutoGainLowerLimit/UpperLimit.SetValue({min_gain}, {max_gain}) short-circuited'
+                            f'pylon AutoGainLowerLimit/UpperLimit.SetValue'
+                            f'({min_gain}, {max_gain}) short-circuited'
                         )
                     return
             except (genicam.RuntimeException, genicam.TimeoutException) as e:
