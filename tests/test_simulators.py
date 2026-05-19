@@ -554,7 +554,7 @@ class TestScaleBarObjectiveInit:
         from modules.lumascope_api import Lumascope
         scope = Lumascope(simulate=True)
         scope.imaging.set_scale_bar(enabled=True)
-        assert scope._scale_bar['enabled'] is True
+        assert scope.imaging._scale_bar['enabled'] is True
         assert scope._objective is None
         # Internal logic forces use_scale_bar = False when _objective is None
 
@@ -564,7 +564,7 @@ class TestScaleBarObjectiveInit:
         scope = Lumascope(simulate=True)
         scope.set_objective('20x Oly')
         scope.imaging.set_scale_bar(enabled=True)
-        assert scope._scale_bar['enabled'] is True
+        assert scope.imaging._scale_bar['enabled'] is True
         assert scope._objective is not None
 
 

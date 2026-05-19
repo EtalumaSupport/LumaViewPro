@@ -11,7 +11,7 @@ max_exposure` branch where `max_exposure == 0` caused every stored
 exposure to be clamped to 0. Shutdown's `save_settings()` then wrote
 zeros back to disk, corrupting the settings file for future sessions.
 
-Structural fix (4.1): `Lumascope.camera_max_exposure` now returns `None`
+Structural fix (4.1): `ImagingAPI.camera_max_exposure` now returns `None`
 (not 0.0) when no camera is connected, so callers can distinguish
 "camera missing" from a real driver value. `load_settings` falls back to
 `DEFAULT_MAX_EXPOSURE_MS` with `scope.imaging.camera_max_exposure or DEFAULT`.
@@ -21,10 +21,11 @@ import threading
 from unittest.mock import MagicMock
 
 from modules.config_helpers import DEFAULT_MAX_EXPOSURE_MS
+from modules.lumascope_api.imaging import ImagingAPI
 
 
 class TestCameraMaxExposureContract:
-    """Pin the Lumascope.camera_max_exposure no-camera contract.
+    """Pin the ImagingAPI.camera_max_exposure no-camera contract.
 
     The contract is: the property returns None when no camera is
     connected or the cache has not been populated with a real value.
@@ -40,9 +41,9 @@ class TestCameraMaxExposureContract:
         scope = Lumascope(simulate=True)
         # Simulator connects an active camera by default. Force the exact
         # no-camera state that load_settings sees on a real missing camera.
-        with scope._camera_cache_lock:
-            scope._camera_cache['active'] = False
-            scope._camera_cache['max_exposure'] = None
+        with scope.imaging._camera_cache_lock:
+            scope.imaging._camera_cache['active'] = False
+            scope.imaging._camera_cache['max_exposure'] = None
 
         assert scope.imaging.camera_max_exposure is None
 
@@ -56,8 +57,8 @@ class TestCameraMaxExposureContract:
         from modules.lumascope_api import Lumascope
 
         scope = Lumascope(simulate=True)
-        with scope._camera_cache_lock:
-            scope._camera_cache['max_exposure'] = 0.0
+        with scope.imaging._camera_cache_lock:
+            scope.imaging._camera_cache['max_exposure'] = 0.0
 
         assert scope.imaging.camera_max_exposure is None
 
@@ -66,8 +67,8 @@ class TestCameraMaxExposureContract:
         from modules.lumascope_api import Lumascope
 
         scope = Lumascope(simulate=True)
-        with scope._camera_cache_lock:
-            scope._camera_cache['max_exposure'] = 500.0
+        with scope.imaging._camera_cache_lock:
+            scope.imaging._camera_cache['max_exposure'] = 500.0
 
         assert scope.imaging.camera_max_exposure == 500.0
         assert isinstance(scope.imaging.camera_max_exposure, float)
@@ -77,8 +78,8 @@ class TestCameraMaxExposureContract:
         from modules.lumascope_api import Lumascope
 
         scope = Lumascope(simulate=True)
-        with scope._camera_cache_lock:
-            scope._camera_cache['max_exposure'] = 750
+        with scope.imaging._camera_cache_lock:
+            scope.imaging._camera_cache['max_exposure'] = 750
 
         assert scope.imaging.camera_max_exposure == 750.0
         assert isinstance(scope.imaging.camera_max_exposure, float)

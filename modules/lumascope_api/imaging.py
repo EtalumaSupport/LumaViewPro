@@ -212,6 +212,32 @@ class ImagingAPI:
             except Exception as ex:
                 _api_log.debug(f'camera listener error: {ex}')
 
+    def _get_latest_chunks(self) -> dict | None:
+        """Return per-frame chunk metadata for the most recent successful
+        grab, or None if chunks aren't available.
+
+        Camera handlers expose chunks differently:
+          - PylonCamera.ImageHandler: composition -- chunks at handler._base
+          - IDSCamera.ImageHandler: inheritance -- chunks at handler directly
+          - FX2 / simulators: no chunks at all -> None
+
+        Always returns None on any access path failure -- frame_validity
+        falls back to skip-frames calibration when chunks aren't available.
+        """
+        if self._driver is None:
+            return None
+        handler = getattr(self._driver, 'cam_image_handler', None)
+        if handler is None:
+            return None
+        # Composition (Pylon) first, then inheritance (IDS / direct base).
+        base = getattr(handler, '_base', handler)
+        if not hasattr(base, 'get_last_chunks'):
+            return None
+        try:
+            return base.get_last_chunks()
+        except Exception:
+            return None
+
     # --- Setters ---
     def set_gain(self, gain: float) -> None:
         """Set the camera gain.
@@ -1193,13 +1219,13 @@ class ImagingAPI:
             image = np.clip(combined, None, max_value).astype(orig_dtype)
 
         use_scale_bar = self._scale_bar['enabled']
-        if self._objective is None:
+        if self._scope._objective is None:
             use_scale_bar = False
 
         if use_scale_bar:
             image = image_utils.add_scale_bar(
                 image=image,
-                objective=self._objective,
+                objective=self._scope._objective,
                 binning_size=self._binning_size,
                 color=self._scale_bar.get('color'),
             )
@@ -1237,13 +1263,13 @@ class ImagingAPI:
             self._frame_buffer = tmp
 
         use_scale_bar = self._scale_bar['enabled']
-        if self._objective is None:
+        if self._scope._objective is None:
             use_scale_bar = False
 
         if use_scale_bar:
             tmp = image_utils.add_scale_bar(
                 image=tmp,
-                objective=self._objective,
+                objective=self._scope._objective,
                 binning_size=self._binning_size,
                 color=self._scale_bar.get('color'),
             )
@@ -1288,13 +1314,13 @@ class ImagingAPI:
             self._frame_buffer = tmp
 
         use_scale_bar = self._scale_bar['enabled']
-        if self._objective is None:
+        if self._scope._objective is None:
             use_scale_bar = False
 
         if use_scale_bar:
             tmp = image_utils.add_scale_bar(
                 image=tmp,
-                objective=self._objective,
+                objective=self._scope._objective,
                 binning_size=self._binning_size,
                 color=self._scale_bar.get('color'),
             )

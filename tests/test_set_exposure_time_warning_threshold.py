@@ -29,8 +29,9 @@ import pathlib
 
 
 def _set_exposure_time_source() -> str:
+    # Phase 4d relocated set_exposure_time's body from _lumascope.py to imaging.py.
     src_path = (pathlib.Path(__file__).resolve().parent.parent
-                / "modules" / "lumascope_api" / "_lumascope.py")
+                / "modules" / "lumascope_api" / "imaging.py")
     source = src_path.read_text()
     tree = ast.parse(source)
     for node in ast.walk(tree):
@@ -38,7 +39,7 @@ def _set_exposure_time_source() -> str:
             text = ast.get_source_segment(source, node)
             assert text is not None
             return text
-    raise AssertionError("set_exposure_time not found in _lumascope.py")
+    raise AssertionError("set_exposure_time not found in imaging.py")
 
 
 class TestSetExposureTimeWarningThreshold:

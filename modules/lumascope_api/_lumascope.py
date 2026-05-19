@@ -507,102 +507,6 @@ class Lumascope():
             )
 
 
-
-    # --- Camera state cache accessors (zero SDK calls) ---
-
-
-
-    @property
-    def camera_active(self) -> bool:
-        return self.imaging.camera_active
-
-    @property
-    def camera_gain(self) -> float:
-        return self.imaging.camera_gain
-
-    @property
-    def camera_exposure_ms(self) -> float:
-        return self.imaging.camera_exposure_ms
-
-    @property
-    def camera_frame_size(self) -> dict:
-        return self.imaging.camera_frame_size
-
-    @property
-    def camera_max_frame_size(self) -> dict:
-        return self.imaging.camera_max_frame_size
-
-    @property
-    def camera_min_frame_size(self) -> dict:
-        return self.imaging.camera_min_frame_size
-
-    @property
-    def camera_max_exposure(self) -> float | None:
-        return self.imaging.camera_max_exposure
-
-    @property
-    def camera_max_gain(self) -> float | None:
-        return self.imaging.camera_max_gain
-
-    @property
-    def camera_pixel_format(self) -> str:
-        return self.imaging.camera_pixel_format
-
-    @property
-    def is_capturing(self) -> bool:
-        return self.imaging.is_capturing
-
-    @is_capturing.setter
-    def is_capturing(self, value: bool) -> None:
-        self.imaging.is_capturing = value
-
-    @property
-    def is_focusing(self) -> bool:
-        return self.imaging.is_focusing
-
-    @is_focusing.setter
-    def is_focusing(self, value: bool) -> None:
-        self.imaging.is_focusing = value
-
-    @property
-    def capture_return(self):
-        return self.imaging.capture_return
-
-    @capture_return.setter
-    def capture_return(self, value) -> None:
-        self.imaging.capture_return = value
-
-    @property
-    def autofocus_return(self):
-        return self.imaging.autofocus_return
-
-    @autofocus_return.setter
-    def autofocus_return(self, value) -> None:
-        self.imaging.autofocus_return = value
-
-    @property
-    def scale_bar_config(self) -> dict:
-        return self.imaging.scale_bar_config
-
-    @property
-    def scale_bar_enabled(self) -> bool:
-        return self.imaging.scale_bar_enabled
-
-    # --- Frame validity accessors (per LAYER-F / Rule 1) ---
-    # External callers must use these instead of reaching through
-    # `self.frame_validity.X` directly. The frame_validity attribute
-    # remains accessible for tests that need to introspect pending state.
-
-    @property
-    def frame_is_valid(self) -> bool:
-        return self.imaging.frame_is_valid
-
-    def frames_until_valid(self, exclude_sources: tuple=()) -> int:
-        return self.imaging.frames_until_valid(exclude_sources)
-
-    def count_frame(self) -> None:
-        return self.imaging.count_frame()
-
     # --- Executor-backed command API (LAYER-A' / Rule 2) ---
     #
     # Single canonical path for hardware operations that need executor
@@ -771,39 +675,14 @@ class Lumascope():
         return executor
 
     # --- LED command API ---
-    # All LED methods relocated to IlluminationAPI in Wave 7 Phase
-    # 3c/3d; forwarders retired in 3f. Callers use scope.illumination.
+    # All LED methods + change-listener registry relocated to IlluminationAPI
+    # in Wave 7 Phase 3c/3d; forwarders retired in 3f. Callers use
+    # scope.illumination.
 
     # --- Camera command API ---
-
-    def set_gain_sync(self, gain, *, timeout=5) -> None:
-        return self.imaging.set_gain_sync(gain, timeout=timeout)
-
-    def set_exposure_sync(self, exposure, *, timeout=5) -> None:
-        return self.imaging.set_exposure_sync(exposure, timeout=timeout)
-
-    def capture_and_wait_sync(self, *, timeout: float=30, **kwargs) -> 'np.ndarray | bool | None':
-        return self.imaging.capture_and_wait_sync(timeout=timeout, **kwargs)
-
-    # LED change listeners + LED ownership: relocated to IlluminationAPI
-    # in Wave 7 Phase 3d; forwarders retired in 3f.
-
-    def save_camera_state(self, tag: str) -> dict:
-        return self.imaging.save_camera_state(tag)
-
-    def restore_camera_state(self, snapshot: dict) -> None:
-        return self.imaging.restore_camera_state(snapshot)
-
-    # ------------------------------------------------------------------
-    # Camera change listeners
-    # ------------------------------------------------------------------
-
-    def add_camera_listener(self, listener) -> None:
-        return self.imaging.add_camera_listener(listener)
-
-    def remove_camera_listener(self, listener) -> None:
-        return self.imaging.remove_camera_listener(listener)
-
+    # All camera/imaging methods + state slots + change-listener registry
+    # relocated to ImagingAPI in Wave 7 Phase 4c/4d; forwarders retired in
+    # 4f. Callers use scope.imaging.
 
     def axes_present(self) -> list[str]:
         """Get list of axes physically present on this scope.
@@ -1146,8 +1025,6 @@ class Lumascope():
         """
         return self._turret_config
 
-    def set_scale_bar(self, enabled: bool, color: str=None) -> None:
-        return self.imaging.set_scale_bar(enabled, color)
 
     def set_stage_offset(self, stage_offset) -> None:
         """Set the stage offset for coordinate transformations.
@@ -1156,54 +1033,6 @@ class Lumascope():
             stage_offset: Stage offset dict with axis offsets.
         """
         self._stage_offset = stage_offset
-
-    def get_available_binning_sizes(self) -> list:
-        return self.imaging.get_available_binning_sizes()
-
-    def set_binning_size(self, size: int) -> bool:
-        return self.imaging.set_binning_size(size)
-
-    def get_binning_size(self) -> int:
-        return self.imaging.get_binning_size()
-
-    def get_pixel_format(self) -> str | None:
-        return self.imaging.get_pixel_format()
-
-    def set_pixel_format(self, pixel_format: str) -> bool:
-        return self.imaging.set_pixel_format(pixel_format)
-
-    def get_supported_pixel_formats(self) -> tuple:
-        return self.imaging.get_supported_pixel_formats()
-
-    def set_device_link_throughput_limit(self, mode: str, value_bps: int | None=None) -> bool:
-        return self.imaging.set_device_link_throughput_limit(mode, value_bps)
-
-    def set_acquisition_stop_mode(self, mode: str) -> bool:
-        return self.imaging.set_acquisition_stop_mode(mode)
-
-    def set_max_acquisition_frame_rate(self, enabled: bool, fps: float=1.0) -> None:
-        return self.imaging.set_max_acquisition_frame_rate(enabled, fps)
-
-    def register_frame_callback(self, cb) -> None:
-        return self.imaging.register_frame_callback(cb)
-
-    def unregister_frame_callback(self, cb) -> None:
-        return self.imaging.unregister_frame_callback(cb)
-
-    def set_bandwidth_reserve_mode(self, mode: str) -> bool:
-        return self.imaging.set_bandwidth_reserve_mode(mode)
-
-    def set_gev_packet_size(self, size_bytes: int) -> bool:
-        return self.imaging.set_gev_packet_size(size_bytes)
-
-    def set_gev_inter_packet_delay(self, delay_ticks: int) -> bool:
-        return self.imaging.set_gev_inter_packet_delay(delay_ticks)
-
-    def set_max_transfer_size(self, value_bytes: int) -> bool:
-        return self.imaging.set_max_transfer_size(value_bytes)
-
-    def set_num_max_queued_urbs(self, value: int) -> bool:
-        return self.imaging.set_num_max_queued_urbs(value)
 
 
     ########################################################################
@@ -1216,14 +1045,6 @@ class Lumascope():
     # CAMERA FUNCTIONS
     ########################################################################
 
-    def get_image(self, force_to_8bit: bool=True, earliest_image_ts: datetime.datetime | None=None, timeout: datetime.timedelta=datetime.timedelta(seconds=5), all_ones_check: bool=False, sum_count: int=1, sum_delay_s: float=0, sum_iteration_callback=None, force_new_capture: bool=False, new_capture_timeout: int=1000) -> 'np.ndarray | bool':
-        return self.imaging.get_image(force_to_8bit, earliest_image_ts, timeout, all_ones_check, sum_count, sum_delay_s, sum_iteration_callback, force_new_capture, new_capture_timeout)
-
-    def get_image_with_chunks_from_buffer(self, force_to_8bit: bool=True) -> tuple:
-        return self.imaging.get_image_with_chunks_from_buffer(force_to_8bit)
-
-    def get_image_from_buffer(self, force_to_8bit: bool=True) -> tuple:
-        return self.imaging.get_image_from_buffer(force_to_8bit)
 
     def get_next_save_path(self, path) -> str:
         """Get the next save path given an existing save path.
@@ -1696,75 +1517,8 @@ class Lumascope():
         return self.save_image(array, save_folder, file_root, append, color, tail_id_mode, output_format=output_format, true_color=true_color)
 
 
-    def get_max_width(self) -> int:
-        return self.imaging.get_max_width()
-
-    def get_max_height(self) -> int:
-        return self.imaging.get_max_height()
-
-    def get_width(self) -> int:
-        return self.imaging.get_width()
-
-    def get_height(self) -> int:
-        return self.imaging.get_height()
-
-    def set_frame_size(self, w: int, h: int) -> None:
-        return self.imaging.set_frame_size(w, h)
-
-    def get_frame_size(self) -> dict | None:
-        return self.imaging.get_frame_size()
-
-
-    def get_gain(self) -> float:
-        return self.imaging.get_gain()
-
-    def set_gain(self, gain: float) -> None:
-        return self.imaging.set_gain(gain)
-
-    def set_auto_gain(self, state: bool, settings: dict) -> None:
-        return self.imaging.set_auto_gain(state, settings)
-
-    @contextlib.contextmanager
-    def suppress_value_warnings(self):
-        return self.imaging.suppress_value_warnings()
-
-    def set_exposure_time(self, t: float) -> None:
-        return self.imaging.set_exposure_time(t)
-
-    def get_exposure_time(self) -> float:
-        return self.imaging.get_exposure_time()
-
-    def set_auto_exposure_time(self, state: bool=True) -> None:
-        return self.imaging.set_auto_exposure_time(state)
-
-    def apply_layer_camera_settings(self, gain: float, exposure_ms: float, auto_gain: bool=False, auto_gain_settings: dict | None=None) -> None:
-        return self.imaging.apply_layer_camera_settings(gain, exposure_ms, auto_gain, auto_gain_settings)
-
-    def update_auto_gain_target_brightness(self, target_brightness: float) -> None:
-        return self.imaging.update_auto_gain_target_brightness(target_brightness)
-
-    def auto_gain_once(self, state: bool, target_brightness: float, min_gain: float, max_gain: float) -> None:
-        return self.imaging.auto_gain_once(state, target_brightness, min_gain, max_gain)
-
-    def update_camera_config(self):
-        return self.imaging.update_camera_config()
-
-    def camera_is_connected(self) -> bool:
-        return self.imaging.camera_is_connected()
-
         #return True
 
-    def get_camera_temps(self) -> dict:
-        return self.imaging.get_camera_temps()
-
-    def log_camera_temps(self) -> None:
-        return self.imaging.log_camera_temps()
-
-    def start_camera_temp_logging(self, schedule_interval_fn, unschedule_fn, *, interval_s: float=14400.0) -> None:
-        return self.imaging.start_camera_temp_logging(schedule_interval_fn, unschedule_fn, interval_s=interval_s)
-
-    def stop_camera_temp_logging(self, unschedule_fn=None) -> None:
-        return self.imaging.stop_camera_temp_logging(unschedule_fn)
 
     ########################################################################
     # MOTION CONTROL FUNCTIONS
@@ -2683,44 +2437,7 @@ class Lumascope():
     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     # ILLUMINATE AND CAPTURE
     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-    def capture(self) -> None:
-        return self.imaging.capture()
 
-    def capture_complete(self) -> None:
-        return self.imaging.capture_complete()
-
-
-    def capture_blocking(self) -> 'np.ndarray | bool | None':
-        return self.imaging.capture_blocking()
-
-    def _get_latest_chunks(self) -> dict | None:
-        """Return per-frame chunk metadata for the most recent successful
-        grab, or None if chunks aren't available.
-
-        Camera handlers expose chunks differently:
-          - PylonCamera.ImageHandler: composition -- chunks at handler._base
-          - IDSCamera.ImageHandler: inheritance -- chunks at handler directly
-          - FX2 / simulators: no chunks at all -> None
-
-        Always returns None on any access path failure -- frame_validity
-        falls back to skip-frames calibration when chunks aren't available.
-        """
-        if self._camera_driver is None:
-            return None
-        handler = getattr(self._camera_driver, 'cam_image_handler', None)
-        if handler is None:
-            return None
-        # Composition (Pylon) first, then inheritance (IDS / direct base).
-        base = getattr(handler, '_base', handler)
-        if not hasattr(base, 'get_last_chunks'):
-            return None
-        try:
-            return base.get_last_chunks()
-        except Exception:
-            return None
-
-    def capture_and_wait(self, force_to_8bit: bool=True, *, exclude_sources: tuple=(), all_ones_check: bool=False, earliest_image_ts: datetime.datetime | None=None, timeout: datetime.timedelta=datetime.timedelta(seconds=0), sum_count: int=1, sum_delay_s: float=0, sum_iteration_callback=None) -> 'np.ndarray | bool':
-        return self.imaging.capture_and_wait(force_to_8bit, exclude_sources=exclude_sources, all_ones_check=all_ones_check, earliest_image_ts=earliest_image_ts, timeout=timeout, sum_count=sum_count, sum_delay_s=sum_delay_s, sum_iteration_callback=sum_iteration_callback)
 
     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     # AUTOFOCUS Functionality

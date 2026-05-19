@@ -371,7 +371,7 @@ class TestFrameValidityDuringHoming:
     The settle-check callback correctly rejects HOMING state, but only if
     the source is actually in _pending — which requires invalidate().
 
-    These tests capture scope.frame_validity.is_valid at the moment the
+    These tests capture scope.imaging.frame_validity.is_valid at the moment the
     motion driver method is executing (axis state is HOMING, motion is in
     progress). They fail before the fix and pass after.
     """
@@ -381,9 +381,9 @@ class TestFrameValidityDuringHoming:
         captured = {}
 
         def fake_zhome():
-            captured['is_valid'] = scope.frame_validity.is_valid
+            captured['is_valid'] = scope.imaging.frame_validity.is_valid
             captured['z_state'] = scope.motion.get_axis_state('Z')
-            captured['pending'] = dict(scope.frame_validity.pending_sources)
+            captured['pending'] = dict(scope.imaging.frame_validity.pending_sources)
             return True
         scope._motion_driver.zhome = fake_zhome
 
@@ -407,8 +407,8 @@ class TestFrameValidityDuringHoming:
 
         original_home = scope._motion_driver.home
         def spy_home():
-            captured['is_valid'] = scope.frame_validity.is_valid
-            captured['pending'] = dict(scope.frame_validity.pending_sources)
+            captured['is_valid'] = scope.imaging.frame_validity.is_valid
+            captured['pending'] = dict(scope.imaging.frame_validity.pending_sources)
             captured['x_state'] = scope.motion.get_axis_state('X')
             captured['z_state'] = scope.motion.get_axis_state('Z')
             return original_home()
@@ -441,8 +441,8 @@ class TestFrameValidityDuringHoming:
         captured = {}
 
         def fake_home(*args, **kwargs):
-            captured['pending'] = dict(scope.frame_validity.pending_sources)
-            captured['is_valid'] = scope.frame_validity.is_valid
+            captured['pending'] = dict(scope.imaging.frame_validity.pending_sources)
+            captured['is_valid'] = scope.imaging.frame_validity.is_valid
             return True
         scope._motion_driver.home = fake_home
 
@@ -473,9 +473,9 @@ class TestFrameValidityDuringHoming:
         captured = {}
         original_thome = scope._motion_driver.thome
         def spy_thome():
-            captured['is_valid'] = scope.frame_validity.is_valid
+            captured['is_valid'] = scope.imaging.frame_validity.is_valid
             captured['t_state'] = scope.motion.get_axis_state('T')
-            captured['pending'] = dict(scope.frame_validity.pending_sources)
+            captured['pending'] = dict(scope.imaging.frame_validity.pending_sources)
             return original_thome()
         scope._motion_driver.thome = spy_thome
 
@@ -1007,9 +1007,11 @@ class TestSetExposureTimeValueWarningSuppression:
 
     def _patch_logger(self, monkeypatch):
         from unittest.mock import MagicMock
-        import modules.lumascope_api._lumascope as lapi
+        # Phase 4d relocated set_exposure_time's body to imaging.py; the
+        # warning is now emitted via imaging.py's `logger` import.
+        import modules.lumascope_api.imaging as imaging_mod
         mock = MagicMock()
-        monkeypatch.setattr(lapi, 'logger', mock)
+        monkeypatch.setattr(imaging_mod, 'logger', mock)
         return mock
 
     def test_warning_fires_by_default_at_sub_0_005_ms(self, monkeypatch):
@@ -1034,19 +1036,19 @@ class TestSetExposureTimeValueWarningSuppression:
 
     def test_flag_restored_after_normal_exit(self):
         scope = Lumascope(simulate=True)
-        assert scope._suppress_value_warnings is False
+        assert scope.imaging._suppress_value_warnings is False
         with scope.imaging.suppress_value_warnings():
-            assert scope._suppress_value_warnings is True
-        assert scope._suppress_value_warnings is False
+            assert scope.imaging._suppress_value_warnings is True
+        assert scope.imaging._suppress_value_warnings is False
 
     def test_flag_restored_after_exception_in_context(self):
         scope = Lumascope(simulate=True)
-        assert scope._suppress_value_warnings is False
+        assert scope.imaging._suppress_value_warnings is False
         with pytest.raises(RuntimeError, match='boom'):
             with scope.imaging.suppress_value_warnings():
-                assert scope._suppress_value_warnings is True
+                assert scope.imaging._suppress_value_warnings is True
                 raise RuntimeError('boom')
-        assert scope._suppress_value_warnings is False
+        assert scope.imaging._suppress_value_warnings is False
 
     def test_nested_context_managers_restore_to_outer_value(self):
         """Nested `with` blocks restore to prior, not unconditionally False --
@@ -1054,10 +1056,10 @@ class TestSetExposureTimeValueWarningSuppression:
         scope = Lumascope(simulate=True)
         with scope.imaging.suppress_value_warnings():
             with scope.imaging.suppress_value_warnings():
-                assert scope._suppress_value_warnings is True
+                assert scope.imaging._suppress_value_warnings is True
             # After inner exit, outer is still suppressing
-            assert scope._suppress_value_warnings is True
-        assert scope._suppress_value_warnings is False
+            assert scope.imaging._suppress_value_warnings is True
+        assert scope.imaging._suppress_value_warnings is False
 
     def test_warning_does_not_fire_at_or_above_threshold(self, monkeypatch):
         mock_logger = self._patch_logger(monkeypatch)

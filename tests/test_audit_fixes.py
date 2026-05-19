@@ -162,6 +162,7 @@ from modules.exceptions import (
     ConfigError,
     ProtocolError,
 )
+from modules.lumascope_api.imaging import ImagingAPI
 
 
 class TestDomainExceptions:
@@ -992,10 +993,10 @@ class TestIssue602_AFExecutorLED:
         with patch.object(af, '_led_off') as mock_led_off, \
              patch.object(af, '_move_absolute_position'), \
              patch.object(scope.illumination, 'save_led_state', return_value={}), \
-             patch.object(scope, 'save_camera_state', return_value={}), \
+             patch.object(scope.imaging, 'save_camera_state', return_value={}), \
              patch.object(scope.motion, 'set_motor_precision_mode'), \
              patch.object(scope.illumination, 'restore_led_state'), \
-             patch.object(scope, 'restore_camera_state'):
+             patch.object(scope.imaging, 'restore_camera_state'):
             with pytest.raises(AutofocusAborted):
                 af.run(objective_id='4x', abort_event=abort_event)
             mock_led_off.assert_called_once()
@@ -1049,9 +1050,9 @@ class TestAFPrecisionModeRestoresOn:
              patch.object(af, '_led_off'), \
              patch.object(af, '_move_absolute_position'), \
              patch.object(scope.illumination, 'save_led_state', return_value={}), \
-             patch.object(scope, 'save_camera_state', return_value={}), \
+             patch.object(scope.imaging, 'save_camera_state', return_value={}), \
              patch.object(scope.illumination, 'restore_led_state'), \
-             patch.object(scope, 'restore_camera_state'):
+             patch.object(scope.imaging, 'restore_camera_state'):
             with pytest.raises(AutofocusAborted):
                 af.run(objective_id='4x', abort_event=abort_event)
             calls = [tuple(c.args) for c in mock_set.call_args_list]
@@ -1345,7 +1346,7 @@ class TestRule14_A9_SetBinningSizeNotify:
 
 
 class TestSetBinningSizeReturnsBool:
-    """Wave 1 / B1: Lumascope.set_binning_size must propagate the driver's bool.
+    """Wave 1 / B1: ImagingAPI.set_binning_size must propagate the driver's bool.
 
     Bench session 2026-05-05 surfaced a phantom-failure bug where the API
     method dropped the driver's True return and implicitly returned None;
@@ -2707,11 +2708,14 @@ class TestPF1_CpuPoolRetired:
 
 
 def _function_body_calls(source: str, func_name: str) -> set[str]:
-    """Return the set of `self.<method>(...)` attribute calls in a named function's body.
+    """Return the set of `self.<method>(...)` (or `self.<subapi>.<method>(...)`)
+    attribute calls in a named function's body.
 
-    Used by frame-validity ship-gate tests to assert that capture call sites
-    route through the canonical drain-then-grab helper. AST-based so the
-    assertion survives whitespace / argument-order changes.
+    Post-Wave-7 Phase 4: routes through sub-APIs (e.g. `self.imaging.capture_and_wait`)
+    are recognized as semantically equivalent to bare `self.capture_and_wait` --
+    the helper returns the leaf method name in either case. The frame-validity
+    ship-gate assertion is "the function reaches X somewhere through the API,"
+    independent of whether X is a forwarder or a sub-API method.
     """
     import ast
     tree = ast.parse(source)
@@ -2726,7 +2730,13 @@ def _function_body_calls(source: str, func_name: str) -> set[str]:
     for sub in ast.walk(target):
         if isinstance(sub, ast.Call) and isinstance(sub.func, ast.Attribute):
             value = sub.func.value
+            # Bare self.<method>
             if isinstance(value, ast.Name) and value.id == "self":
+                calls.add(sub.func.attr)
+            # self.<subapi>.<method> (e.g. self.imaging.capture_and_wait)
+            elif (isinstance(value, ast.Attribute)
+                  and isinstance(value.value, ast.Name)
+                  and value.value.id == "self"):
                 calls.add(sub.func.attr)
     return calls
 
@@ -2779,7 +2789,7 @@ class TestFrameValidity_SaveLiveImageDrainsBeforeGrab:
         import inspect
 
         from modules import lumascope_api
-        sig = inspect.signature(lumascope_api.Lumascope.capture_and_wait)
+        sig = inspect.signature(ImagingAPI.capture_and_wait)
         assert "earliest_image_ts" in sig.parameters, (
             "capture_and_wait must accept earliest_image_ts so save_live_image "
             "can forward its existing parameter."
@@ -2787,9 +2797,11 @@ class TestFrameValidity_SaveLiveImageDrainsBeforeGrab:
 
 
 def _scope_attribute_calls(source: str, func_name: str) -> set[str]:
-    """Return the set of `self._scope.<method>(...)` attribute calls in a
-    named function's body. Mirrors `_function_body_calls` for AF executor's
-    indirect-via-_scope grab pattern."""
+    """Return the set of `self._scope.<method>(...)` (or
+    `self._scope.<subapi>.<method>(...)`) attribute calls in a named function's
+    body. Mirrors `_function_body_calls` for the AF executor's indirect-via-_scope
+    grab pattern. Post-Wave-7 Phase 4: walks through `self._scope.imaging.<method>`
+    too -- the leaf method name is returned regardless of sub-API hop."""
     import ast
     tree = ast.parse(source)
     target = None
@@ -2806,6 +2818,13 @@ def _scope_attribute_calls(source: str, func_name: str) -> set[str]:
             # match self._scope.<method>
             if (isinstance(value, ast.Attribute) and value.attr == "_scope"
                     and isinstance(value.value, ast.Name) and value.value.id == "self"):
+                calls.add(sub.func.attr)
+            # match self._scope.<subapi>.<method>
+            elif (isinstance(value, ast.Attribute)
+                  and isinstance(value.value, ast.Attribute)
+                  and value.value.attr == "_scope"
+                  and isinstance(value.value.value, ast.Name)
+                  and value.value.value.id == "self"):
                 calls.add(sub.func.attr)
     return calls
 
@@ -2848,7 +2867,7 @@ class TestFrameValidity_AutofocusDrainsBeforeScore:
 
 
 class TestFrameValidity_LegacyCaptureRoutesThroughCaptureAndWait:
-    """Lumascope.capture_complete and Lumascope.capture_blocking previously
+    """ImagingAPI.capture_complete and ImagingAPI.capture_blocking previously
     did fixed-time-sleep + bare get_image -- the v3.0.x anti-pattern.
     Both methods are deprecated (no production callers, not in
     LumascopeSkills.md). Implementation now routes through capture_and_wait
@@ -2982,14 +3001,16 @@ class TestCaptureAndWaitPassesChunksToValidity:
 
     def test_get_latest_chunks_helper_exists(self):
         """The _get_latest_chunks helper abstracts handler shape (Pylon
-        composition vs IDS inheritance) and returns None for non-chunk cameras."""
+        composition vs IDS inheritance) and returns None for non-chunk cameras.
+        Phase 4 relocation: helper moved from Lumascope to ImagingAPI; the
+        contract (no required params besides self, returns dict | None) is
+        unchanged."""
         import inspect
-        from modules import lumascope_api
-        assert hasattr(lumascope_api.Lumascope, '_get_latest_chunks'), (
-            "Lumascope must expose _get_latest_chunks() helper."
+        assert hasattr(ImagingAPI, '_get_latest_chunks'), (
+            "ImagingAPI must expose _get_latest_chunks() helper."
         )
-        sig = inspect.signature(lumascope_api.Lumascope._get_latest_chunks)
-        # No required params (besides self) -- it reads from self.camera state
+        sig = inspect.signature(ImagingAPI._get_latest_chunks)
+        # No required params (besides self) -- reads from self._driver state
         non_self = [p for p in sig.parameters if p != 'self']
         assert len(non_self) == 0, (
             f"_get_latest_chunks should take no args; got {non_self}"
@@ -2997,12 +3018,16 @@ class TestCaptureAndWaitPassesChunksToValidity:
 
     def test_get_latest_chunks_returns_none_when_no_camera(self):
         """Defensive: helper returns None instead of raising when camera
-        isn't connected (FX2 fallback / pre-connect / disconnected state)."""
+        isn't connected (FX2 fallback / pre-connect / disconnected state).
+        Post-4d: ImagingAPI._driver is a @property re-resolving
+        self._scope._camera_driver; with no camera driver attached the
+        helper returns None instead of AttributeError."""
         from modules.lumascope_api import Lumascope
         # Construct without going through full init -- attributes set by hand
         scope = Lumascope.__new__(Lumascope)
         scope._camera_driver = None
-        assert scope._get_latest_chunks() is None
+        scope.imaging = ImagingAPI(scope, None)
+        assert scope.imaging._get_latest_chunks() is None
 
 
 class TestLumascopeRecordsTargetForChunkMatch:
@@ -3985,7 +4010,7 @@ class TestPylonDiagnosticProbe:
 
 
 class TestDeviceLinkThroughputLimitSetter:
-    """Lumascope.set_device_link_throughput_limit and the underlying
+    """ImagingAPI.set_device_link_throughput_limit and the underlying
     PylonCamera / IDSCamera implementations exist so the bench-probe
     sweep can vary DLTL across cells without dropping below the API
     layer (Rule 1) or writing /tmp/probe.py (Rule 22).
@@ -4005,8 +4030,8 @@ class TestDeviceLinkThroughputLimitSetter:
 
     def test_lumascope_method_exists(self):
         from modules.lumascope_api import Lumascope
-        assert hasattr(Lumascope, 'set_device_link_throughput_limit')
-        assert callable(Lumascope.set_device_link_throughput_limit)
+        assert hasattr(ImagingAPI, 'set_device_link_throughput_limit')
+        assert callable(ImagingAPI.set_device_link_throughput_limit)
 
     def test_no_camera_returns_false(self):
         from modules.lumascope_api import Lumascope
@@ -5970,7 +5995,7 @@ class TestDltlSetterDocstringGigeCaveat:
         body = _function_source(self._lumascope_api_source(),
                                 "set_device_link_throughput_limit")
         assert "GigE" in body and "wire limit" in body, (
-            "Lumascope.set_device_link_throughput_limit docstring "
+            "ImagingAPI.set_device_link_throughput_limit docstring "
             "must surface the GigE wire-limit caveat (D8)."
         )
 
@@ -6054,7 +6079,7 @@ class TestPylonChunkSelectorProbeWithFramecounterFallback:
 
 
 class TestAcquisitionStopModeSetter:
-    """Lumascope.set_acquisition_stop_mode + driver setters give the
+    """ImagingAPI.set_acquisition_stop_mode + driver setters give the
     bench-probe sweep a way to compare BslAcquisitionStopMode='Complete'
     (default) vs 'AbortExposure' on the same cell.
 
@@ -6080,8 +6105,8 @@ class TestAcquisitionStopModeSetter:
 
     def test_lumascope_method_exists(self):
         from modules.lumascope_api import Lumascope
-        assert hasattr(Lumascope, 'set_acquisition_stop_mode')
-        assert callable(Lumascope.set_acquisition_stop_mode)
+        assert hasattr(ImagingAPI, 'set_acquisition_stop_mode')
+        assert callable(ImagingAPI.set_acquisition_stop_mode)
 
     def test_no_camera_returns_false(self):
         from modules.lumascope_api import Lumascope
@@ -6210,17 +6235,18 @@ class TestGigeSetters:
         return scope
 
     def test_lumascope_methods_exist(self):
-        from modules.lumascope_api import Lumascope
+        # Phase 4 relocation: methods now live on ImagingAPI; the bench
+        # sweep reaches them via scope.imaging.<method>.
         for name in (
             'set_bandwidth_reserve_mode',
             'set_gev_packet_size',
             'set_gev_inter_packet_delay',
         ):
-            assert hasattr(Lumascope, name), (
-                f"Lumascope must implement {name} for the GigE bench "
+            assert hasattr(ImagingAPI, name), (
+                f"ImagingAPI must implement {name} for the GigE bench "
                 f"sweep to vary the knob without bypassing the API layer."
             )
-            assert callable(getattr(Lumascope, name))
+            assert callable(getattr(ImagingAPI, name))
 
     def test_no_camera_returns_false_for_all(self):
         from modules.lumascope_api import Lumascope
@@ -6388,7 +6414,7 @@ class TestPylonCameraNoSilentExcept:
 
 
 class TestStreamGrabberSetters:
-    """Lumascope.set_max_transfer_size + set_num_max_queued_urbs and the
+    """ImagingAPI.set_max_transfer_size + set_num_max_queued_urbs and the
     underlying PylonCamera / IDSCamera implementations exist so the
     bench-probe sweep can vary the StreamGrabber USB3 knobs across cells
     without dropping below the API layer (Rule 1) or writing /tmp/probe.py
@@ -6413,10 +6439,10 @@ class TestStreamGrabberSetters:
         return scope
 
     def test_lumascope_methods_exist(self):
-        from modules.lumascope_api import Lumascope
+        # Phase 4 relocation: methods now live on ImagingAPI.
         for name in ('set_max_transfer_size', 'set_num_max_queued_urbs'):
-            assert hasattr(Lumascope, name), name
-            assert callable(getattr(Lumascope, name))
+            assert hasattr(ImagingAPI, name), name
+            assert callable(getattr(ImagingAPI, name))
 
     def test_no_camera_returns_false_for_both(self):
         from modules.lumascope_api import Lumascope

@@ -150,7 +150,7 @@ session.move_relative('X', 500)
 ### Capture
 
 ```python
-image = session.scope.capture_and_wait()
+image = session.scope.imaging.capture_and_wait()
 session.scope.save_image(
     array=image, save_folder='./output',
     file_root='capture', append='_BF', color='BF',
@@ -242,7 +242,7 @@ scope.initialize(config)
 scope.are_all_connected()                 # LED + motor + camera all up
 scope.motor_connected                     # motor board
 scope.led_connected                       # LED board
-scope.camera_is_connected()               # camera
+scope.imaging.camera_is_connected()               # camera
 scope.no_hardware                         # True if all-null (no real hardware found)
 scope.disconnect()
 ```
@@ -428,16 +428,20 @@ scope.remove_position_listener(on_position)
 
 ### Camera control
 
+Camera capture and configuration live on the `scope.imaging` sub-API
+namespace. The methods below are the L2-stable surface; the underlying
+driver is `scope.imaging._driver` (private; reach through the API).
+
 ```python
 # Raw frame grab (no validity wait — use capture_and_wait instead in most cases)
-image = scope.get_image()
-image = scope.get_image(force_to_8bit=False)   # keep native 12/16-bit
+image = scope.imaging.get_image()
+image = scope.imaging.get_image(force_to_8bit=False)   # keep native 12/16-bit
 
 # Frame-validity capture — PREFERRED for all real captures.
 # Waits for all pending changes (LED, gain, exposure, motion) to settle,
 # drains stale frames, returns a valid frame.
-image = scope.capture_and_wait()
-image = scope.capture_and_wait(
+image = scope.imaging.capture_and_wait()
+image = scope.imaging.capture_and_wait(
     force_to_8bit=True,
     all_ones_check=True,                   # detect saturated frames
     sum_count=4,                           # average 4 frames
@@ -447,36 +451,36 @@ image = scope.capture_and_wait(
 )
 
 # Exposure (milliseconds) + gain (dB)
-scope.set_exposure_time(50)
-scope.get_exposure_time()
-scope.set_gain(10.0)
-scope.get_gain()
+scope.imaging.set_exposure_time(50)
+scope.imaging.get_exposure_time()
+scope.imaging.set_gain(10.0)
+scope.imaging.get_gain()
 
 # `set_exposure_time` warns + logs a stack trace at < 0.1 ms (the
 # common L1 failure is typing 0.05 thinking microseconds and getting
 # a black image). Internal sweep callers that walk that range
 # deliberately wrap their loop in `suppress_value_warnings()`:
-with scope.suppress_value_warnings():
+with scope.imaging.suppress_value_warnings():
     for exp_ms in (0.05, 0.1, 0.5, 5.0, 50.0):
-        scope.set_exposure_time(exp_ms)
+        scope.imaging.set_exposure_time(exp_ms)
         # ... grab + measure ...
 # Flag is restored on context exit (incl. exception).
 
 # Batched settings (gain + exposure + auto-gain in one call)
-scope.apply_layer_camera_settings(
+scope.imaging.apply_layer_camera_settings(
     gain=5.0, exposure_ms=50,
     auto_gain=False, auto_gain_settings=None,
 )
 
 # Frame size
-scope.set_frame_size(2048, 2048)
-scope.get_frame_size()                     # {'width': ..., 'height': ...}
-scope.get_max_width()
-scope.get_max_height()
+scope.imaging.set_frame_size(2048, 2048)
+scope.imaging.get_frame_size()                     # {'width': ..., 'height': ...}
+scope.imaging.get_max_width()
+scope.imaging.get_max_height()
 
 # Binning
-scope.set_binning_size(2)
-scope.get_binning_size()
+scope.imaging.set_binning_size(2)
+scope.imaging.get_binning_size()
 ```
 
 #### Dynamic camera capabilities
@@ -484,8 +488,8 @@ scope.get_binning_size()
 Cameras advertise their real limits at connect time. Use these to size UI sliders and clamp auto-exposure / auto-gain:
 
 ```python
-scope.camera_max_exposure                  # ms, None if no camera connected
-scope.camera_max_gain                      # dB, None if no camera connected
+scope.imaging.camera_max_exposure                  # ms, None if no camera connected
+scope.imaging.camera_max_gain                      # dB, None if no camera connected
 ```
 
 These are derived from the camera's profile, which is populated at connect via `_query_dynamic_capabilities()` — live SDK queries for Pylon / IDS, hardcoded-from-datasheet for FX2. Per-camera values observed in practice: LS620 FX2 = 42.1 dB gain / 178 ms exposure cap; Pylon/IDS ranges are driver-reported.
@@ -493,9 +497,9 @@ These are derived from the camera's profile, which is populated at connect via `
 #### Save / restore camera state
 
 ```python
-snapshot = scope.save_camera_state('autofocus')
+snapshot = scope.imaging.save_camera_state('autofocus')
 # ... change gain/exposure ...
-scope.restore_camera_state(snapshot)
+scope.imaging.restore_camera_state(snapshot)
 ```
 
 Symmetric to the LED version, but `restore_camera_state` takes only the snapshot (no `owner` arg — camera state is single-owner by nature).
@@ -506,16 +510,16 @@ Symmetric to the LED version, but `restore_camera_state` takes only the snapshot
 def on_camera(param: str, value: float):
     print(f"Camera {param} = {value}")
 
-scope.add_camera_listener(on_camera)       # fires on set_gain / set_exposure
-scope.remove_camera_listener(on_camera)
+scope.imaging.add_camera_listener(on_camera)       # fires on set_gain / set_exposure
+scope.imaging.remove_camera_listener(on_camera)
 ```
 
 #### Camera info
 
 ```python
-scope.camera_is_connected()
-scope.camera_active                        # True if grabbing
-scope.get_camera_temps()                   # temperature sensors (SDK-dependent)
+scope.imaging.camera_is_connected()
+scope.imaging.camera_active                        # True if grabbing
+scope.imaging.get_camera_temps()                   # temperature sensors (SDK-dependent)
 scope.get_camera_info()                    # model, serial, firmware
 scope.get_camera_profile_info()            # sensor specs + dynamic ranges; returns:
 # {
@@ -533,9 +537,9 @@ scope.get_camera_profile_info()            # sensor specs + dynamic ranges; retu
 Frame validity is the single source of truth for "is the next frame still what I asked for?" Every hardware state change invalidates pending frames. `capture_and_wait()` drains stale frames until all sources settle.
 
 ```python
-scope.frame_is_valid                       # True if next frame is valid
-scope.frames_until_valid()                 # 0 = ready, >0 = keep draining
-scope.count_frame()                        # record that you grabbed a frame
+scope.imaging.frame_is_valid                       # True if next frame is valid
+scope.imaging.frames_until_valid()                 # 0 = ready, >0 = keep draining
+scope.imaging.count_frame()                        # record that you grabbed a frame
                                            # (advances the drain count;
                                            # only callers who run their own
                                            # grab loop need this; capture_and_wait
@@ -543,7 +547,7 @@ scope.count_frame()                        # record that you grabbed a frame
 ```
 
 `pending_sources` (mapping of `{source: frames_remaining}`) is currently
-accessed as `scope.frame_validity.pending_sources` -- this is an internal
+accessed as `scope.imaging.frame_validity.pending_sources` -- this is an internal
 diagnostic and not part of the L2-stable API surface; use it for debug,
 not for production control flow.
 
@@ -653,15 +657,15 @@ scope.home()
 scope.wait_until_finished_moving()
 
 scope.set_objective('10x Oly')
-scope.set_exposure_time(50)
-scope.set_gain(5.0)
+scope.imaging.set_exposure_time(50)
+scope.imaging.set_gain(5.0)
 
 scope.move_absolute_position('X', 60000, wait_until_complete=True)
 scope.move_absolute_position('Y', 40000, wait_until_complete=True)
 scope.move_absolute_position('Z', 5000, wait_until_complete=True)
 
 scope.illumination.led_on('BF', 100)
-image = scope.capture_and_wait()
+image = scope.imaging.capture_and_wait()
 scope.illumination.leds_off()
 
 scope.save_image(
@@ -683,17 +687,17 @@ for color, mA, exp_ms, gain_db in [
     ('Green', 150,  80, 12),
     ('Red',   180,  90, 10),
 ]:
-    scope.set_exposure_time(exp_ms)
-    scope.set_gain(gain_db)
+    scope.imaging.set_exposure_time(exp_ms)
+    scope.imaging.set_gain(gain_db)
     scope.illumination.led_on(color, mA)
-    channel_images[color] = scope.capture_and_wait()
+    channel_images[color] = scope.imaging.capture_and_wait()
     scope.illumination.led_off(color)
 
 # Transmitted (brightfield) base image
-scope.set_exposure_time(2.0)
-scope.set_gain(1.0)
+scope.imaging.set_exposure_time(2.0)
+scope.imaging.set_gain(1.0)
 scope.illumination.led_on('BF', 100)
-bf_image = scope.capture_and_wait()
+bf_image = scope.imaging.capture_and_wait()
 scope.illumination.leds_off()
 
 composite = build_composite(
@@ -717,7 +721,7 @@ scope.illumination.led_on('BF', 100)
 z = z_start
 while z <= z_end:
     scope.move_absolute_position('Z', z, wait_until_complete=True)
-    image = scope.capture_and_wait()
+    image = scope.imaging.capture_and_wait()
     scope.save_image(
         array=image, save_folder='./zstack',
         file_root='z', append=f'_{int(z)}', color='BF',
@@ -741,7 +745,7 @@ for well_name, px, py in wells:
     scope.move_absolute_position('X', sx, wait_until_complete=True)
     scope.move_absolute_position('Y', sy, wait_until_complete=True)
 
-    image = scope.capture_and_wait()
+    image = scope.imaging.capture_and_wait()
     scope.save_image(
         array=image, save_folder='./scan',
         file_root=f'{well_name}_BF', color='BF',
@@ -785,7 +789,7 @@ scope.camera.start_grabbing()
 # All API calls work identically:
 scope.illumination.led_on('Blue', 200)
 scope.move_absolute_position('Z', 5000)
-image = scope.get_image()
+image = scope.imaging.get_image()
 ```
 
 **Only in `simulate=True`**: `set_timing_mode('fast')` lets simulator tests run faster by skipping artificial serial / motor / camera delays:
