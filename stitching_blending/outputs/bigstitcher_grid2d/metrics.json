@@ -1,0 +1,14 @@
+{
+  "alignment_acceptance_rate": 1.0,
+  "alignment_count": 7,
+  "approx_memory_bytes": 8936547,
+  "mse": null,
+  "overlap_consistency_error": 17.164356036694915,
+  "placement_mode": "optimized",
+  "psnr_db": null,
+  "registration_rmse_px": null,
+  "runtime_seconds": 0.18329762504436076,
+  "seam_energy": 14.926870528063986,
+  "ssim": null,
+  "ssim_note": "reference unavailable"
+}

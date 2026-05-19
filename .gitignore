@@ -28,3 +28,4 @@ scripts/appBuild/buildvenv/
 scripts/appBuild/.build_config
 .claude/settings.local.json
 .venv/
+data/
