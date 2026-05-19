@@ -535,8 +535,8 @@ class TestIntegrationAutofocus:
 
         # Simulate the multi-channel scenario: camera is at Green settings
         # when BF AF starts. This is the state AF will save and later restore.
-        scope.set_gain(20.0)
-        scope.set_exposure_time(100.0)
+        scope.imaging.set_gain(20.0)
+        scope.imaging.set_exposure_time(100.0)
 
         # Drive AF through AutofocusThread so the abort_event contract
         # is satisfied and the Future resolves when AFE.run()'s finally
@@ -561,8 +561,8 @@ class TestIntegrationAutofocus:
         # block restores camera state BEFORE clearing _af_in_progress;
         # the Future resolves AFTER AFE.run() returns, so the read
         # below cannot race the restoration.
-        actual_gain = scope.get_gain()
-        actual_exp = scope.get_exposure_time()
+        actual_gain = scope.imaging.get_gain()
+        actual_exp = scope.imaging.get_exposure_time()
         assert abs(actual_gain - 20.0) < 0.1, (
             f"Camera gain should be restored to 20.0 (pre-AF) when "
             f"the AF Future resolves, but got {actual_gain}"
@@ -780,27 +780,27 @@ class TestRestAPIPrep:
     def test_get_pixel_format(self):
         """get_pixel_format() should return format string from simulated camera."""
         session = ScopeSession.create_headless()
-        fmt = session.scope.get_pixel_format()
+        fmt = session.scope.imaging.get_pixel_format()
         assert isinstance(fmt, str)
         assert fmt in ('Mono8', 'Mono10', 'Mono12')
 
     def test_set_pixel_format(self):
         """set_pixel_format() should change the camera format."""
         session = ScopeSession.create_headless()
-        result = session.scope.set_pixel_format('Mono12')
+        result = session.scope.imaging.set_pixel_format('Mono12')
         assert result is True
-        assert session.scope.get_pixel_format() == 'Mono12'
+        assert session.scope.imaging.get_pixel_format() == 'Mono12'
 
     def test_set_pixel_format_invalid(self):
         """set_pixel_format() with invalid format should return False."""
         session = ScopeSession.create_headless()
-        result = session.scope.set_pixel_format('InvalidFormat')
+        result = session.scope.imaging.set_pixel_format('InvalidFormat')
         assert result is False
 
     def test_get_supported_pixel_formats(self):
         """get_supported_pixel_formats() should return tuple of format strings."""
         session = ScopeSession.create_headless()
-        formats = session.scope.get_supported_pixel_formats()
+        formats = session.scope.imaging.get_supported_pixel_formats()
         assert isinstance(formats, tuple)
         assert len(formats) > 0
         assert 'Mono8' in formats
@@ -809,9 +809,9 @@ class TestRestAPIPrep:
         """Pixel format methods should handle inactive camera gracefully."""
         session = ScopeSession.create_headless()
         session.scope._camera_driver = None
-        assert session.scope.get_pixel_format() is None
-        assert session.scope.set_pixel_format('Mono8') is False
-        assert session.scope.get_supported_pixel_formats() == ()
+        assert session.scope.imaging.get_pixel_format() is None
+        assert session.scope.imaging.set_pixel_format('Mono8') is False
+        assert session.scope.imaging.get_supported_pixel_formats() == ()
 
     def test_get_motor_info(self):
         """get_motor_info() should return model, serial, firmware."""

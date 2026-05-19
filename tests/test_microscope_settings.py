@@ -14,7 +14,7 @@ zeros back to disk, corrupting the settings file for future sessions.
 Structural fix (4.1): `Lumascope.camera_max_exposure` now returns `None`
 (not 0.0) when no camera is connected, so callers can distinguish
 "camera missing" from a real driver value. `load_settings` falls back to
-`DEFAULT_MAX_EXPOSURE_MS` with `scope.camera_max_exposure or DEFAULT`.
+`DEFAULT_MAX_EXPOSURE_MS` with `scope.imaging.camera_max_exposure or DEFAULT`.
 """
 
 import threading
@@ -44,7 +44,7 @@ class TestCameraMaxExposureContract:
             scope._camera_cache['active'] = False
             scope._camera_cache['max_exposure'] = None
 
-        assert scope.camera_max_exposure is None
+        assert scope.imaging.camera_max_exposure is None
 
     def test_zero_in_cache_yields_none_max_exposure(self):
         """Legacy 0.0 in cache (driver returned 0) is coerced to None.
@@ -59,7 +59,7 @@ class TestCameraMaxExposureContract:
         with scope._camera_cache_lock:
             scope._camera_cache['max_exposure'] = 0.0
 
-        assert scope.camera_max_exposure is None
+        assert scope.imaging.camera_max_exposure is None
 
     def test_populated_value_passes_through(self):
         """A real positive value in the cache is returned as float."""
@@ -69,8 +69,8 @@ class TestCameraMaxExposureContract:
         with scope._camera_cache_lock:
             scope._camera_cache['max_exposure'] = 500.0
 
-        assert scope.camera_max_exposure == 500.0
-        assert isinstance(scope.camera_max_exposure, float)
+        assert scope.imaging.camera_max_exposure == 500.0
+        assert isinstance(scope.imaging.camera_max_exposure, float)
 
     def test_integer_in_cache_is_coerced_to_float(self):
         """Integer from a driver is returned as float for caller consistency."""
@@ -80,8 +80,8 @@ class TestCameraMaxExposureContract:
         with scope._camera_cache_lock:
             scope._camera_cache['max_exposure'] = 750
 
-        assert scope.camera_max_exposure == 750.0
-        assert isinstance(scope.camera_max_exposure, float)
+        assert scope.imaging.camera_max_exposure == 750.0
+        assert isinstance(scope.imaging.camera_max_exposure, float)
 
 
 class TestLoadSettingsFallback:
