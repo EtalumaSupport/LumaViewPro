@@ -555,10 +555,6 @@ def test_no_image_save_method_calls_on_bare_scope_in_production():
     )
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="Phase 6c retires the *_static chain in modules/lumascope_api/_lumascope.py",
-)
 def test_no_lumascope_class_static_method_calls():
     failures: list[str] = []
     for path in _iter_prod_files():
@@ -587,10 +583,6 @@ def test_no_lumascope_class_static_method_calls():
     )
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="Phase 6c moves image_save bodies to modules.image_save; Lumascope wrappers stop self-calling",
-)
 def test_no_self_image_save_calls_in_lumascope():
     """Lumascope's own methods must not reach image_save methods via
     bare `self.X` -- after Phase 6c the bodies live in

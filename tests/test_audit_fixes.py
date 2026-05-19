@@ -2281,14 +2281,25 @@ class TestPIW3_FalseColor16bitCachedAtRunStart:
 
     def test_save_image_threads_param_to_write_tiff(self):
         from pathlib import Path
-        src = (Path(__file__).resolve().parent.parent / "modules" / "lumascope_api" / "_lumascope.py").read_text()
-        # Both save_image() (instance method) and save_image_static() must accept the param.
-        assert src.count("use_false_color_16bit: bool | None = None") >= 2, (
-            "PIW-3: save_image and save_image_static should both accept use_false_color_16bit."
-        )
-        # Both should pass it through to write_tiff. Count the kwarg passes; expect >= 2.
-        assert src.count("use_false_color_16bit=use_false_color_16bit") >= 2, (
-            "PIW-3: save_image and save_image_static should pass the param to write_tiff."
+        # Wave 7 Phase 6c (2026-05-19) retired the *_static chain as
+        # dead code. save_image is now the sole carrier of the
+        # use_false_color_16bit plumbing; the count-form parity check
+        # that previously enforced instance/static synchronization is
+        # vestigial. Presence-only ('in src') preserves the semantic
+        # intent: the param is accepted by save_image AND threaded to
+        # write_tiff.
+        api_src = (Path(__file__).resolve().parent.parent / "modules" / "lumascope_api" / "_lumascope.py").read_text()
+        module_src = (Path(__file__).resolve().parent.parent / "modules" / "image_save.py").read_text()
+        # save_image accepts the param (defined on Lumascope wrapper or
+        # the free function in modules.image_save -- either source carries
+        # the signature; the wrapper retires in 6f).
+        assert (
+            "use_false_color_16bit: bool | None = None" in api_src
+            or "use_false_color_16bit: bool | None = None" in module_src
+        ), "PIW-3: save_image should accept use_false_color_16bit."
+        # save_image threads the param through to write_tiff.
+        assert "use_false_color_16bit=use_false_color_16bit" in module_src, (
+            "PIW-3: save_image should pass use_false_color_16bit to write_tiff."
         )
 
     def test_protocol_image_writer_caches_at_init(self):
@@ -2373,8 +2384,13 @@ class TestPIW5_Convert12to16OutBuffer:
         )
 
     def test_save_image_threads_out_12to16_to_prepare(self):
+        # Phase 6c (2026-05-19) relocated save_image +
+        # prepare_image_for_saving bodies from Lumascope to
+        # modules.image_save. Path retarget per Rule 48 (c); semantic
+        # intent (out_12to16 plumbing from save_image through
+        # prepare_image_for_saving to convert_12bit_to_16bit) preserved.
         from pathlib import Path
-        src = (Path(__file__).resolve().parent.parent / "modules" / "lumascope_api" / "_lumascope.py").read_text()
+        src = (Path(__file__).resolve().parent.parent / "modules" / "image_save.py").read_text()
         # save_image accepts the param.
         assert "out_12to16: np.ndarray | None = None" in src, (
             "PIW-5: save_image / prepare_image_for_saving should accept out_12to16."
@@ -2707,15 +2723,24 @@ class TestPF1_CpuPoolRetired:
         )
 
 
+_SCOPE_LIKE_RECEIVERS = frozenset({"self", "scope"})
+
+
 def _function_body_calls(source: str, func_name: str) -> set[str]:
-    """Return the set of `self.<method>(...)` (or `self.<subapi>.<method>(...)`)
-    attribute calls in a named function's body.
+    """Return the set of `<scope>.<method>(...)` (or `<scope>.<subapi>.<method>(...)`)
+    attribute calls in a named function's body, where `<scope>` is either `self`
+    (instance method) or `scope` (module-level free function with scope as first arg).
 
     Post-Wave-7 Phase 4: routes through sub-APIs (e.g. `self.imaging.capture_and_wait`)
     are recognized as semantically equivalent to bare `self.capture_and_wait` --
     the helper returns the leaf method name in either case. The frame-validity
     ship-gate assertion is "the function reaches X somewhere through the API,"
     independent of whether X is a forwarder or a sub-API method.
+
+    Post-Wave-7 Phase 6: module-level free functions in `modules.image_save`
+    (and any future class-to-module-functions extraction) take `scope` as their
+    first arg and reach the API through `scope.<subapi>.<method>`; the same
+    leaf-name recognition applies.
     """
     import ast
     tree = ast.parse(source)
@@ -2730,13 +2755,14 @@ def _function_body_calls(source: str, func_name: str) -> set[str]:
     for sub in ast.walk(target):
         if isinstance(sub, ast.Call) and isinstance(sub.func, ast.Attribute):
             value = sub.func.value
-            # Bare self.<method>
-            if isinstance(value, ast.Name) and value.id == "self":
+            # Bare <receiver>.<method> -- receiver is self or scope.
+            if isinstance(value, ast.Name) and value.id in _SCOPE_LIKE_RECEIVERS:
                 calls.add(sub.func.attr)
-            # self.<subapi>.<method> (e.g. self.imaging.capture_and_wait)
+            # <receiver>.<subapi>.<method> (e.g. self.imaging.capture_and_wait
+            # or scope.imaging.capture_and_wait).
             elif (isinstance(value, ast.Attribute)
                   and isinstance(value.value, ast.Name)
-                  and value.value.id == "self"):
+                  and value.value.id in _SCOPE_LIKE_RECEIVERS):
                 calls.add(sub.func.attr)
     return calls
 
@@ -2765,22 +2791,27 @@ class TestFrameValidity_SaveLiveImageDrainsBeforeGrab:
     manual save; the canonical helper is self.capture_and_wait(...)."""
 
     def test_save_live_image_calls_capture_and_wait(self):
-        # save_live_image stays on Lumascope; it composes labware + position
-        # with imaging.capture_and_wait. Not relocated in Phase 4.
+        # Phase 6c (2026-05-19) relocated save_live_image body from
+        # Lumascope to modules.image_save (composes scope.imaging
+        # rather than self.imaging). Path retarget per Rule 48 (c);
+        # semantic intent (drain-then-grab via capture_and_wait)
+        # preserved.
         from pathlib import Path
-        src = (Path(__file__).resolve().parent.parent / "modules" / "lumascope_api" / "_lumascope.py").read_text()
+        src = (Path(__file__).resolve().parent.parent / "modules" / "image_save.py").read_text()
         calls = _function_body_calls(src, "save_live_image")
         assert "capture_and_wait" in calls, (
-            "save_live_image must call self.capture_and_wait(...) for drain-then-grab."
+            "save_live_image must call scope.imaging.capture_and_wait(...) for drain-then-grab."
         )
 
     def test_save_live_image_does_not_call_bare_get_image(self):
+        # Phase 6c (2026-05-19) path retarget per Rule 48 (c); see
+        # companion test_save_live_image_calls_capture_and_wait above.
         from pathlib import Path
-        src = (Path(__file__).resolve().parent.parent / "modules" / "lumascope_api" / "_lumascope.py").read_text()
+        src = (Path(__file__).resolve().parent.parent / "modules" / "image_save.py").read_text()
         calls = _function_body_calls(src, "save_live_image")
         assert "get_image" not in calls, (
-            "save_live_image must not call self.get_image(...) directly -- "
-            "that bypasses frame_validity. Route through self.capture_and_wait(...)."
+            "save_live_image must not call scope.imaging.get_image(...) directly -- "
+            "that bypasses frame_validity. Route through scope.imaging.capture_and_wait(...)."
         )
 
     def test_capture_and_wait_accepts_earliest_image_ts(self):

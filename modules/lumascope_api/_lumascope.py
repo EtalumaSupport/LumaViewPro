@@ -53,6 +53,7 @@ import modules.common_utils as common_utils
 import modules.coord_transformations as coord_transformations
 from lib import profile_trace
 import modules.objectives_loader as objectives_loader
+import modules.image_save as image_save
 import modules.image_utils as image_utils
 from modules.sequential_io_executor import SequentialIOExecutor, IOTask
 from modules.frame_validity import FrameValidity
@@ -1050,106 +1051,27 @@ class Lumascope():
         """Get the next save path given an existing save path.
 
         Increments the trailing numeric ID component on the filename and
-        returns the new path string.
-
-        Args:
-            path: Path of the format
-                ``./{save_folder}/{well_label}_{color}_{file_id}.tiff``.
-
-        Returns:
-            str: Next save path with ``file_id`` incremented.
+        returns the new path string. Thin wrapper around
+        `modules.image_save.get_next_save_path`; retires in Phase 6f.
         """
-
-        NUM_SEQ_DIGITS = 6
-        # Handle both .tiff and .ome.tiff by detecting multiple extensions if present
-        # pathlib doesn't seem to handle multiple extensions natively
-        path2 = pathlib.Path(path)
-        extension = ''.join(path2.suffixes)
-        stem = path2.name[:len(path2.name)-len(extension)]
-        seq_separator_idx = stem.rfind('_')
-        stem_base = stem[:seq_separator_idx]
-        seq_num_str = stem[seq_separator_idx+1:]
-        seq_num = int(seq_num_str)
-
-        next_seq_num = seq_num + 1
-        next_seq_num_str = f"{next_seq_num:0>{NUM_SEQ_DIGITS}}"
-
-        new_path = path2.parent / f"{stem_base}_{next_seq_num_str}{extension}"
-        return str(new_path)
+        return image_save.get_next_save_path(self, path)
 
 
     def generate_image_save_path(self, save_folder, file_root, append,
                                  tail_id_mode, output_format) -> 'pathlib.Path':
         """Generate a unique save path for an image given the naming inputs.
 
-        Resolves collisions per ``tail_id_mode`` ("increment" auto-numbers
-        until free, "if_collision" only adds a suffix on actual collision,
-        ``None`` returns the bare path).
-
-        Args:
-            save_folder: Directory to save into (str or Path).
-            file_root: Filename prefix.
-            append: String appended to filename (e.g. color label).
-            tail_id_mode: One of ``"increment"``, ``"if_collision"``, or
-                ``None``.
-            output_format: ``"TIFF"`` or ``"OME-TIFF"``.
-
-        Returns:
-            pathlib.Path: Full save path with appropriate extension and
-                disambiguation suffix.
-
-        Raises:
-            ConfigError: If ``tail_id_mode`` is not implemented.
+        Thin wrapper around `modules.image_save.generate_image_save_path`;
+        retires in Phase 6f.
         """
-        if isinstance(save_folder, str):
-            save_folder = pathlib.Path(save_folder)
-
-        if file_root is None:
-            file_root = ""
-
-        # Append turret position in engineering mode
-        if self.engineering_mode and self._last_turret_position is not None:
-            append = f"{append}_T{self._last_turret_position}"
-
-        if output_format == 'OME-TIFF':
-            file_extension = ".ome.tiff"
-        else:
-            file_extension = ".tiff"
-
-        # generate filename and save path string
-        if tail_id_mode == "increment":
-            initial_id = '_000001'
-            filename =  f"{file_root}{append}{initial_id}{file_extension}"
-            path = save_folder / filename
-
-            # Obtain next save path if current directory already exists
-            while os.path.exists(path):
-                path = self.get_next_save_path(path)
-
-        elif tail_id_mode == "if_collision":
-            # Write-time defense for duplicate step Names (#636). Use the
-            # plain filename when no file exists; only add a numeric
-            # suffix on actual collision. Keeps happy-path filenames
-            # unchanged for well-formed protocols.
-            base_path = save_folder / f"{file_root}{append}{file_extension}"
-            if not os.path.exists(base_path):
-                path = base_path
-            else:
-                n = 1
-                while True:
-                    path = save_folder / f"{file_root}{append}_{n:06d}{file_extension}"
-                    if not os.path.exists(path):
-                        break
-                    n += 1
-
-        elif tail_id_mode is None:
-            filename =  f"{file_root}{append}{file_extension}"
-            path = save_folder / filename
-
-        else:
-            raise ConfigError(f"tail_id_mode: {tail_id_mode} not implemented")
-
-        return path
+        return image_save.generate_image_save_path(
+            self,
+            save_folder=save_folder,
+            file_root=file_root,
+            append=append,
+            tail_id_mode=tail_id_mode,
+            output_format=output_format,
+        )
 
     def get_well_label(self) -> str:
         """Get the well label for the current stage XY position.
@@ -1187,105 +1109,10 @@ class Lumascope():
     def generate_image_metadata(self, color, x, y, z) -> dict:
         """Build TIFF metadata dict for the current capture settings and position.
 
-        Args:
-            color (str): Channel color name (e.g. "Blue", "BF").
-            x (float): Stage X position in um (or None).
-            y (float): Stage Y position in um (or None).
-            z (float): Stage Z position in um (or None).
-
-        Returns:
-            dict: Metadata including channel, positions, exposure, gain, pixel size.
-
-        Raises:
-            ConfigError: If objective, labware, or stage offset are not set.
+        Thin wrapper around `modules.image_save.generate_image_metadata`;
+        retires in Phase 6f.
         """
-        def _validate():
-            if self._objective is None:
-                raise ConfigError(f"[SCOPE API ] Objective not set")
-
-            if 'focal_length' not in self._objective:
-                raise ConfigError(f"[SCOPE API ] Objective focal length not provided")
-
-            if self._labware is None:
-                raise ConfigError(f"[SCOPE API ] Labware not set")
-
-            if self._stage_offset is None:
-                raise ConfigError(f"[SCOPE API ] Stage offset not set")
-
-        _validate()
-
-        if x is None:
-            x = 0
-        if y is None:
-            y = 0
-        if z is None:
-            z = 0
-
-        px, py = self._coordinate_transformer.stage_to_plate(
-            labware=self._labware,
-            stage_offset=self._stage_offset,
-            sx=x,
-            sy=y
-        )
-        well_label = self.get_well_label()
-
-        px = round(px, common_utils.max_decimal_precision('x'))
-        py = round(py, common_utils.max_decimal_precision('y'))
-        z  = round(z,  common_utils.max_decimal_precision('z'))
-
-        pixel_size_um = round(
-            common_utils.get_pixel_size(
-                focal_length=self._objective['focal_length'],
-                binning_size=self.imaging._binning_size,
-            ),
-            common_utils.max_decimal_precision('pixel_size'),
-        )
-
-        now_host = datetime.datetime.now()
-        metadata = {
-            'camera_make': 'Etaluma',
-            'microscope': self.get_microscope_model(),
-            'software': f'LumaViewPro {version}',
-            'channel': color,
-            'datetime': now_host.strftime("%Y:%m:%d %H:%M:%S"),      # Format for metadata
-            'sub_sec_time': f"{now_host.microsecond // 1000:03d}",
-            'objective': self._objective,
-            'focal_length': self._objective['focal_length'],
-            'plate_pos_mm': {'x': px, 'y': py},
-            'x_pos': px,
-            'y_pos': py,
-            'z_pos_um': z,
-            'exposure_time_ms': round(self.imaging.get_exposure_time(), common_utils.max_decimal_precision('exposure')),
-            'gain_db': round(self.imaging.get_gain(), common_utils.max_decimal_precision('gain')),
-            'illumination_ma': round(self.illumination.get_led_ma(color=color), common_utils.max_decimal_precision('illumination')),
-            'binning_size': self.imaging._binning_size,
-            'pixel_size_um': pixel_size_um,
-            'well_label': well_label,
-            'timestamp_iso': now_host.isoformat(timespec='microseconds'),
-        }
-
-        # Camera-side timestamp + frame-id provenance, when the camera
-        # supports chunk data (Pylon ace 2 / dart M / dart R always; IDS
-        # has ExposureTime/Gain but no ChunkTimestamp yet -- Stage 2 work).
-        # Read the most recent chunks; they're captured at-grab-time and
-        # are the right values for the most recent frame on this thread.
-        try:
-            handler = getattr(self._camera_driver, 'cam_image_handler', None)
-            chunks = handler.get_last_chunks() if handler is not None else None
-        except Exception:
-            chunks = None
-        if chunks is not None:
-            ts_ticks = chunks.get('Timestamp')
-            if ts_ticks is not None:
-                metadata['timestamp_camera_ticks'] = int(ts_ticks)
-            tick_hz = getattr(self._camera_driver, 'timestamp_tick_frequency_hz', None)
-            if tick_hz is not None:
-                metadata['timestamp_camera_tick_hz'] = int(tick_hz)
-            frame_id = chunks.get('FrameID')
-            if frame_id is not None:
-                metadata['frame_id'] = int(frame_id)
-
-        return metadata
+        return image_save.generate_image_metadata(self, color=color, x=x, y=y, z=z)
 
     def prepare_image_for_saving(
         self,
@@ -1304,46 +1131,24 @@ class Lumascope():
     ) -> dict:
         """Prepare an image array and metadata for saving to disk.
 
-        Flips the image vertically, converts bit depth if needed, generates
-        the save path and metadata.
-
-        Args:
-            array: Raw image array from drivers.
-            save_folder: Directory to save into.
-            file_root: Filename prefix.
-            append: String appended to filename (e.g. color label).
-            color: Color label for the filename.
-            tail_id_mode: "increment" for auto-numbered files, or None.
-            output_format: "TIFF" or "OME-TIFF".
-            true_color: Actual channel color for metadata.
-            x: Stage X position in um.
-            y: Stage Y position in um.
-            z: Stage Z position in um.
-
-        Returns:
-            dict: Contains 'image' (ndarray) and 'metadata' (dict with 'file_loc').
+        Thin wrapper around `modules.image_save.prepare_image_for_saving`;
+        retires in Phase 6f.
         """
-        metadata = self.generate_image_metadata(color=true_color, x=x, y=y, z=z)
-
-        if array.dtype == np.uint16:
-            array = image_utils.convert_12bit_to_16bit(array, out=out_12to16)
-
-        array = np.flip(array, 0)
-
-        path = self.generate_image_save_path(
+        return image_save.prepare_image_for_saving(
+            self,
+            array=array,
             save_folder=save_folder,
             file_root=file_root,
             append=append,
+            color=color,
             tail_id_mode=tail_id_mode,
-            output_format=output_format
+            output_format=output_format,
+            true_color=true_color,
+            x=x,
+            y=y,
+            z=z,
+            out_12to16=out_12to16,
         )
-
-        metadata['file_loc'] = path
-
-        return {
-            'image': array,
-            'metadata': metadata,
-        }
 
 
     def save_image(
@@ -1366,40 +1171,12 @@ class Lumascope():
     ) -> str:
         """Save an image array to a TIFF file with metadata.
 
-        Args:
-            array: Image array to save.
-            save_folder: Directory to save into.
-            file_root: Filename prefix.
-            append: String appended to filename.
-            color: Color label for the filename.
-            tail_id_mode: "increment" for auto-numbered files, or None.
-            output_format: "TIFF" or "OME-TIFF".
-            true_color: Actual channel color for metadata.
-            x: Stage X position in um.
-            y: Stage Y position in um.
-            z: Stage Z position in um.
-
-        Returns:
-            str: Path to the saved file.
+        Thin wrapper around `modules.image_save.save_image`; retires in
+        Phase 6f.
         """
-
-        # PIW-2: removed redundant `check_disk_space("/")` warn — checked the wrong
-        # path (root, not save_folder), only logged, and protocol_image_writer.py
-        # already aborts on save-folder space exhaustion. Actual write failures
-        # surface through the try/except below.
-
-        # Camera silent-stuck or grab-timeout produces None; raise typed
-        # exception so the IOTask popup carries a user-friendly message
-        # instead of a raw AttributeError. The deeper recovery work
-        # (camera reset / USB reset on persistent stuck) lives elsewhere.
-        if array is None:
-            raise CaptureError(
-                "Camera did not return an image. The capture was skipped; "
-                "the protocol will retry on the next step."
-            )
-
-        image_data = self.prepare_image_for_saving(
-            array=array,
+        return image_save.save_image(
+            self,
+            array,
             save_folder=save_folder,
             file_root=file_root,
             append=append,
@@ -1410,43 +1187,11 @@ class Lumascope():
             x=x,
             y=y,
             z=z,
+            use_false_color_16bit=use_false_color_16bit,
             out_12to16=out_12to16,
+            false_color_buf=false_color_buf,
+            rgb_buf=rgb_buf,
         )
-
-        image = image_data['image']
-        metadata = image_data['metadata']
-        file_loc = metadata['file_loc']
-
-        if output_format == 'OME-TIFF':
-            ome=True
-        else:
-            ome=False
-
-        try:
-            image_utils.write_tiff(
-                data=image,
-                file_loc=file_loc,
-                metadata=metadata,
-                ome=ome,
-                color=color,
-                use_false_color_16bit=use_false_color_16bit,
-                false_color_buf=false_color_buf,
-                rgb_buf=rgb_buf,
-            )
-
-            logger.info(f'[SCOPE API ] Saving Image to {file_loc}')
-        except Exception:
-            logger.exception("[SCOPE API ] Error: Unable to save. Perhaps save folder does not exist?")
-            notifications.error("FileIO", "Image Save Failed",
-                f"Failed to save image to {file_loc}. Check disk space and permissions.")
-            raise
-
-        # Env-gated handle-leak tracking; zero overhead when disabled.
-        # Enable with LVP_HANDLE_TRACE=1.
-        from lib.handle_trace import tick as _h_tick
-        _h_tick('save_image')
-
-        return file_loc
 
 
     def save_live_image(
@@ -1468,56 +1213,30 @@ class Lumascope():
             turn_off_all_leds_after: bool = False,
             use_executor: bool = False,
         ) -> str | None:
-
         """Grab the current live image from the camera and save to a TIFF file.
 
-        Combines get_image() and save_image() in one call. Optionally turns off
-        all LEDs after capture.
-
-        Args:
-            save_folder: Directory to save into.
-            file_root: Filename prefix.
-            append: String appended to filename.
-            color: Color label for the filename.
-            tail_id_mode: "increment" for auto-numbered files, or None.
-            force_to_8bit: Convert 12-bit images to 8-bit.
-            output_format: "TIFF" or "OME-TIFF".
-            true_color: Actual channel color for metadata.
-            earliest_image_ts: Reject frames before this timestamp.
-            timeout: Max time to wait for a valid frame.
-            all_ones_check: Reject saturated frames.
-            sum_count: Number of frames to sum.
-            sum_delay_s: Delay between summed frames.
-            sum_iteration_callback: Called after each summed frame.
-            turn_off_all_leds_after: Turn off all LEDs after capture.
-            use_executor: Reserved for future use.
-
-        Returns:
-            str | None: Path to saved file, or None on failure.
+        Thin wrapper around `modules.image_save.save_live_image`; retires
+        in Phase 6f.
         """
-
-        # PIW-2: removed redundant `check_disk_space("/")` warn — see save_image() above.
-
-        array = self.imaging.capture_and_wait(
+        return image_save.save_live_image(
+            self,
+            save_folder=save_folder,
+            file_root=file_root,
+            append=append,
+            color=color,
+            tail_id_mode=tail_id_mode,
             force_to_8bit=force_to_8bit,
+            output_format=output_format,
+            true_color=true_color,
             earliest_image_ts=earliest_image_ts,
             timeout=timeout,
             all_ones_check=all_ones_check,
             sum_count=sum_count,
             sum_delay_s=sum_delay_s,
             sum_iteration_callback=sum_iteration_callback,
+            turn_off_all_leds_after=turn_off_all_leds_after,
+            use_executor=use_executor,
         )
-
-        if turn_off_all_leds_after:
-            self.illumination.leds_off()
-
-        if array is False:
-            return
-
-        return self.save_image(array, save_folder, file_root, append, color, tail_id_mode, output_format=output_format, true_color=true_color)
-
-
-        #return True
 
 
     ########################################################################
@@ -1714,351 +1433,3 @@ class Lumascope():
     # Legacy autofocus methods (autofocus, autofocus_iterate, focus_best) removed
     # 2026-03-31 — superseded by AutofocusRunner. No callers remained.
 
-# Static methods for save_image functionality
-    @staticmethod
-    def get_next_save_path_static(path) -> str:
-        """Get the next save path given an existing save path (static version).
-
-        Static counterpart to ``get_next_save_path``; usable without a
-        Lumascope instance.
-
-        Args:
-            path: Path of the format
-                ``./{save_folder}/{well_label}_{color}_{file_id}.tiff``.
-
-        Returns:
-            str: Next save path with ``file_id`` incremented.
-        """
-        NUM_SEQ_DIGITS = 6
-        # Handle both .tiff and .ome.tiff by detecting multiple extensions if present
-        # pathlib doesn't seem to handle multiple extensions natively
-        path2 = pathlib.Path(path)
-        extension = ''.join(path2.suffixes)
-        stem = path2.name[:len(path2.name)-len(extension)]
-        seq_separator_idx = stem.rfind('_')
-        stem_base = stem[:seq_separator_idx]
-        seq_num_str = stem[seq_separator_idx+1:]
-        seq_num = int(seq_num_str)
-
-        next_seq_num = seq_num + 1
-        next_seq_num_str = f"{next_seq_num:0>{NUM_SEQ_DIGITS}}"
-
-        new_path = path2.parent / f"{stem_base}_{next_seq_num_str}{extension}"
-        return str(new_path)
-
-    @staticmethod
-    def generate_image_save_path_static(save_folder, file_root, append,
-                                        tail_id_mode, output_format) -> 'pathlib.Path':
-        """Generate a unique save path for an image (static version).
-
-        Static counterpart to ``generate_image_save_path``; usable without
-        a Lumascope instance. Resolves collisions per ``tail_id_mode``.
-
-        Args:
-            save_folder: Directory to save into (str or Path).
-            file_root: Filename prefix.
-            append: String appended to filename.
-            tail_id_mode: ``"increment"`` or ``None``.
-            output_format: ``"TIFF"`` or ``"OME-TIFF"``.
-
-        Returns:
-            pathlib.Path: Full save path.
-
-        Raises:
-            ConfigError: If ``tail_id_mode`` is not implemented.
-        """
-        if isinstance(save_folder, str):
-            save_folder = pathlib.Path(save_folder)
-
-        if file_root is None:
-            file_root = ""
-
-        if output_format == 'OME-TIFF':
-            file_extension = ".ome.tiff"
-        else:
-            file_extension = ".tiff"
-
-        # generate filename and save path string
-        if tail_id_mode == "increment":
-            initial_id = '_000001'
-            filename =  f"{file_root}{append}{initial_id}{file_extension}"
-            path = save_folder / filename
-
-            # Obtain next save path if current directory already exists
-            while os.path.exists(path):
-                path = Lumascope.get_next_save_path_static(path)
-
-        elif tail_id_mode is None:
-            filename =  f"{file_root}{append}{file_extension}"
-            path = save_folder / filename
-
-        else:
-            raise ConfigError(f"tail_id_mode: {tail_id_mode} not implemented")
-
-        return path
-
-    @staticmethod
-    def generate_image_metadata_static(
-        color, x, y, z, objective, labware, stage_offset, coordinate_transformer,
-        binning_size, exposure_time_ms, gain_db, illumination_ma
-    ) -> dict:
-        """Build TIFF metadata dict (static version).
-
-        Static counterpart to ``generate_image_metadata``; usable without
-        a Lumascope instance. Validates that objective, labware, and
-        stage_offset are provided.
-
-        Args:
-            color: Channel color name.
-            x: Stage X position in um (or None).
-            y: Stage Y position in um (or None).
-            z: Stage Z position in um (or None).
-            objective: Objective dict containing ``focal_length``.
-            labware: Labware configuration object.
-            stage_offset: Stage offset configuration.
-            coordinate_transformer: CoordinateTransformer instance.
-            binning_size: Camera binning factor.
-            exposure_time_ms: Exposure time in ms.
-            gain_db: Gain in dB.
-            illumination_ma: Illumination current in mA.
-
-        Returns:
-            dict: TIFF metadata dict with channel, positions, exposure,
-                gain, pixel size, and well label.
-
-        Raises:
-            ConfigError: If objective, labware, or stage_offset are missing.
-        """
-        def _validate():
-            if objective is None:
-                raise ConfigError(f"[SCOPE API ] Objective not set")
-
-            if 'focal_length' not in objective:
-                raise ConfigError(f"[SCOPE API ] Objective focal length not provided")
-
-            if labware is None:
-                raise ConfigError(f"[SCOPE API ] Labware not set")
-
-            if stage_offset is None:
-                raise ConfigError(f"[SCOPE API ] Stage offset not set")
-
-        _validate()
-
-        if x is None:
-            x = 0
-        if y is None:
-            y = 0
-        if z is None:
-            z = 0
-
-        px, py = coordinate_transformer.stage_to_plate(
-            labware=labware,
-            stage_offset=stage_offset,
-            sx=x,
-            sy=y
-        )
-
-        px = round(px, common_utils.max_decimal_precision('x'))
-        py = round(py, common_utils.max_decimal_precision('y'))
-        z  = round(z,  common_utils.max_decimal_precision('z'))
-
-        pixel_size_um = round(
-            common_utils.get_pixel_size(
-                focal_length=objective['focal_length'],
-                binning_size=binning_size,
-            ),
-            common_utils.max_decimal_precision('pixel_size'),
-        )
-
-        metadata = {
-            'camera_make': 'Etaluma',
-            'software': f'LumaViewPro {version}',
-            'channel': color,
-            'datetime': datetime.datetime.now().strftime("%Y:%m:%d %H:%M:%S"),      # Format for metadata
-            'sub_sec_time': f"{datetime.datetime.now().microsecond // 1000:03d}",
-            'objective': objective,
-            'focal_length': objective['focal_length'],
-            'plate_pos_mm': {'x': px, 'y': py},
-            'x_pos': px,
-            'y_pos': py,
-            'z_pos_um': z,
-            'exposure_time_ms': round(exposure_time_ms, common_utils.max_decimal_precision('exposure')),
-            'gain_db': round(gain_db, common_utils.max_decimal_precision('gain')),
-            'illumination_ma': round(illumination_ma, common_utils.max_decimal_precision('illumination')),
-            'binning_size': binning_size,
-            'pixel_size_um': pixel_size_um,
-        }
-
-        return metadata
-
-    @staticmethod
-    def prepare_image_for_saving_static(
-        array: np.ndarray,
-        save_folder: str,
-        file_root: str,
-        append: str,
-        color: str,
-        tail_id_mode: str,
-        output_format: str,
-        true_color: str,
-        x, y, z,
-        objective, labware, stage_offset, coordinate_transformer,
-        binning_size, exposure_time_ms, gain_db, illumination_ma
-    ) -> dict:
-        """Prepare an image array and metadata for saving (static version).
-
-        Static counterpart to ``prepare_image_for_saving``; usable without
-        a Lumascope instance. Generates the save path, applies false
-        color, and flips the image vertically.
-
-        Args:
-            array: Raw image array from the driver.
-            save_folder: Directory to save into.
-            file_root: Filename prefix.
-            append: String appended to filename.
-            color: Color label for the filename.
-            tail_id_mode: ``"increment"`` or ``None``.
-            output_format: ``"TIFF"`` or ``"OME-TIFF"``.
-            true_color: Actual channel color for metadata.
-            x: Stage X position in um.
-            y: Stage Y position in um.
-            z: Stage Z position in um.
-            objective: Objective dict.
-            labware: Labware configuration.
-            stage_offset: Stage offset configuration.
-            coordinate_transformer: CoordinateTransformer instance.
-            binning_size: Camera binning factor.
-            exposure_time_ms: Exposure time in ms.
-            gain_db: Gain in dB.
-            illumination_ma: Illumination current in mA.
-
-        Returns:
-            dict: Contains ``'image'`` (ndarray) and ``'metadata'``
-                (dict including ``'file_loc'``).
-        """
-        metadata = Lumascope.generate_image_metadata_static(
-            color=true_color, x=x, y=y, z=z,
-            objective=objective, labware=labware, stage_offset=stage_offset,
-            coordinate_transformer=coordinate_transformer, binning_size=binning_size,
-            exposure_time_ms=exposure_time_ms, gain_db=gain_db, illumination_ma=illumination_ma
-        )
-
-        if array.dtype == np.uint16:
-            array = image_utils.convert_12bit_to_16bit(array)
-
-        img = image_utils.add_false_color(array=array, color=color)
-        img = np.flip(img, 0)
-
-        path = Lumascope.generate_image_save_path_static(
-            save_folder=save_folder,
-            file_root=file_root,
-            append=append,
-            tail_id_mode=tail_id_mode,
-            output_format=output_format
-        )
-
-        metadata['file_loc'] = path
-
-        return {
-            'image': img,
-            'metadata': metadata,
-        }
-
-    @staticmethod
-    def save_image_static(
-        array,
-        save_folder='./capture',
-        file_root='img_',
-        append='ms',
-        color='BF',
-        tail_id_mode="increment",
-        output_format: str = "TIFF",
-        true_color: str = 'BF',
-        x=None, y=None, z=None,
-        objective=None, labware=None, stage_offset=None, coordinate_transformer=None,
-        binning_size=None, exposure_time_ms=None, gain_db=None, illumination_ma=None,
-        use_false_color_16bit: bool | None = None,
-    ) -> str:
-        """Save an image array to a TIFF file with metadata (static version).
-
-        Static counterpart to ``save_image``; doesn't require a Lumascope
-        instance.
-
-        Args:
-            array: Image array to save.
-            save_folder: Directory to save in.
-            file_root: Filename prefix.
-            append: String appended to filename.
-            color: Color channel identifier for the filename.
-            tail_id_mode: How to handle filename incrementing.
-            output_format: ``"TIFF"`` or ``"OME-TIFF"``.
-            true_color: True color for metadata.
-            x: Stage X position in um.
-            y: Stage Y position in um.
-            z: Stage Z position in um.
-            objective: Objective dict containing ``focal_length``.
-            labware: Labware configuration.
-            stage_offset: Stage offset configuration.
-            coordinate_transformer: CoordinateTransformer instance.
-            binning_size: Camera binning factor.
-            exposure_time_ms: Exposure time in milliseconds.
-            gain_db: Camera gain in dB.
-            illumination_ma: LED illumination in mA.
-            use_false_color_16bit: Optional override for false-color
-                rendering at 16-bit depth.
-
-        Returns:
-            str: Path to the saved file.
-
-        Raises:
-            CaptureError: If the image cannot be written.
-        """
-
-        # Same None-gate as save_image; this static dupe retires alongside
-        # the instance method when image-save helpers move out of the API.
-        if array is None:
-            raise CaptureError(
-                "Camera did not return an image. The capture was skipped; "
-                "the protocol will retry on the next step."
-            )
-
-        image_data = Lumascope.prepare_image_for_saving_static(
-            array=array,
-            save_folder=save_folder,
-            file_root=file_root,
-            append=append,
-            color=color,
-            tail_id_mode=tail_id_mode,
-            output_format=output_format,
-            true_color=true_color,
-            x=x, y=y, z=z,
-            objective=objective, labware=labware, stage_offset=stage_offset,
-            coordinate_transformer=coordinate_transformer, binning_size=binning_size,
-            exposure_time_ms=exposure_time_ms, gain_db=gain_db, illumination_ma=illumination_ma
-        )
-
-        image = image_data['image']
-        metadata = image_data['metadata']
-        file_loc = metadata['file_loc']
-
-        if output_format == 'OME-TIFF':
-            ome=True
-        else:
-            ome=False
-
-        try:
-            image_utils.write_tiff(
-                data=image,
-                file_loc=file_loc,
-                metadata=metadata,
-                ome=ome,
-                color=color,
-                use_false_color_16bit=use_false_color_16bit,
-            )
-
-            logger.info(f'[SCOPE API ] Saving Image to {file_loc}')
-        except Exception:
-            logger.error(f"[SCOPE API ] Error: Unable to save. Perhaps save folder does not exist? {file_loc}")
-            raise CaptureError(f"Unable to save image to {file_loc}")
-
-        return file_loc
