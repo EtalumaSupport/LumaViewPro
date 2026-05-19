@@ -9,12 +9,12 @@ Runs on the **protocol-executor** thread.  Extracted from
 from __future__ import annotations
 
 import datetime
-import shutil
 import time
 from typing import TYPE_CHECKING
 
 from lvp_logger import logger
 
+from modules.common_utils import check_disk_space_ok
 from modules.protocol_state_machine import ProtocolState
 
 if TYPE_CHECKING:
@@ -113,8 +113,6 @@ class ProtocolRunLoop:
                 # Check disk space once per scan
                 try:
                     if p._parent_dir is not None:
-                        disk_usage = shutil.disk_usage(str(p._parent_dir))
-                        free_mb = disk_usage.free / (1024 * 1024)
                         estimated_mb = 0
                         num_steps = p._protocol.num_steps()
                         for i in range(num_steps):
@@ -124,10 +122,11 @@ class ProtocolRunLoop:
                             else:
                                 estimated_mb += ESTIMATED_IMAGE_STEP_MB
                         required_mb = max(MIN_REQUIRED_DISK_MB, estimated_mb)
-                        if free_mb < required_mb:
+                        ok, free_mb = check_disk_space_ok(p._parent_dir, required_mb)
+                        if not ok:
                             msg = (f"Insufficient disk space: {free_mb:.0f} MB free, "
                                    f"need ~{required_mb:.0f} MB for {num_steps} steps.")
-                            logger.error(f"[PROTOCOL] {msg} — aborting protocol")
+                            logger.error(f"[PROTOCOL] {msg} -- aborting protocol")
                             from modules.notification_center import notifications
                             notifications.error("Protocol", "Protocol Aborted", msg)
                             # p._aborted IS protocol_thread.aborted; setting

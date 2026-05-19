@@ -1649,36 +1649,36 @@ class TestCleanupConcurrency:
 # ---------------------------------------------------------------------------
 
 class TestDiskSpaceCheck:
-    """P0-2: Protocol aborts when disk space is below 2 GB."""
+    """P0-2: Protocol aborts when disk space is below 2 GB.
 
-    @patch('modules.protocol_run_loop.shutil.disk_usage')
-    def test_low_disk_aborts_image_protocol(self, mock_disk_usage, executor, scope, tmp_path):
+    Rule-35 audit 2026-05-19 finding 3 consolidated the disk probe onto
+    common_utils.check_disk_space_ok; mocks target the imported alias in
+    protocol_run_loop's namespace and return the helper's (ok, free_mb)
+    tuple shape.
+    """
+
+    @patch('modules.protocol_run_loop.check_disk_space_ok')
+    def test_low_disk_aborts_image_protocol(self, mock_check, executor, scope, tmp_path):
         """With very low disk space, image capture should abort without hanging."""
-        fake_usage = MagicMock()
-        fake_usage.free = 500 * 1024 * 1024  # 500 MB
-        mock_disk_usage.return_value = fake_usage
+        mock_check.return_value = (False, 500.0)  # 500 MB free, threshold exceeded
 
         protocol = _make_single_step_protocol(color='BF')
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed, "Protocol did not abort within timeout when disk space is low"
 
-    @patch('modules.protocol_run_loop.shutil.disk_usage')
-    def test_large_protocol_needs_more_than_2gb(self, mock_disk_usage, executor, scope, tmp_path):
+    @patch('modules.protocol_run_loop.check_disk_space_ok')
+    def test_large_protocol_needs_more_than_2gb(self, mock_check, executor, scope, tmp_path):
         """300 image steps need 2400 MB (300 * 8 MB), so 2.0 GB free should abort."""
-        fake_usage = MagicMock()
-        fake_usage.free = 2000 * 1024 * 1024  # 2.0 GB — below max(2048, 300*8=2400) = 2400 MB
-        mock_disk_usage.return_value = fake_usage
+        mock_check.return_value = (False, 2000.0)  # 2.0 GB free vs max(2048, 2400) MB
 
         protocol = _make_multi_step_protocol([{'color': 'BF'} for _ in range(300)])
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed, "Protocol did not abort within timeout when disk space is low for large protocol"
 
-    @patch('modules.protocol_run_loop.shutil.disk_usage')
-    def test_video_steps_need_500mb_each(self, mock_disk_usage, executor, scope, tmp_path):
+    @patch('modules.protocol_run_loop.check_disk_space_ok')
+    def test_video_steps_need_500mb_each(self, mock_check, executor, scope, tmp_path):
         """5 video steps need 2.5 GB (5 * 500 MB), so 2.2 GB free should abort."""
-        fake_usage = MagicMock()
-        fake_usage.free = 2200 * 1024 * 1024  # 2.2 GB — enough for 2 GB floor but not 5*500 MB
-        mock_disk_usage.return_value = fake_usage
+        mock_check.return_value = (False, 2200.0)  # 2.2 GB free; 5*500=2500 MB required
 
         protocol = _make_multi_step_protocol([
             {'color': 'BF', 'acquire': 'video', 'video_config': {'duration': 1, 'fps': 5}}
@@ -1687,9 +1687,9 @@ class TestDiskSpaceCheck:
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed, "Protocol did not abort for video steps requiring more disk space"
 
-    @patch('modules.protocol_run_loop.shutil.disk_usage', side_effect=OSError("disk error"))
-    def test_disk_check_exception_does_not_crash(self, mock_disk_usage, executor, scope, tmp_path):
-        """If disk_usage raises OSError, protocol continues."""
+    @patch('modules.protocol_run_loop.check_disk_space_ok', side_effect=OSError("disk error"))
+    def test_disk_check_exception_does_not_crash(self, mock_check, executor, scope, tmp_path):
+        """If the probe raises OSError, protocol continues (swallow in caller)."""
         protocol = _make_single_step_protocol(color='BF')
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed

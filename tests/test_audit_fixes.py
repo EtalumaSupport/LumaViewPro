@@ -2569,7 +2569,9 @@ class TestPIW2_DisksUsageDeduped:
         from pathlib import Path
         src = (Path(__file__).resolve().parent.parent / "modules" / "protocol_image_writer.py").read_text()
         # The useful check (correct path + abort on exhaustion) must remain.
-        assert "shutil.disk_usage(str(save_folder)).free" in src, (
+        # Rule-35 audit 2026-05-19 finding 3 consolidated the probe call onto
+        # common_utils.check_disk_space_ok; the abort policy stayed local.
+        assert "common_utils.check_disk_space_ok(save_folder" in src, (
             "PIW-2: protocol_image_writer's save-folder disk check should be kept (it's the useful one)."
         )
         assert "self._abort_fn()" in src, (

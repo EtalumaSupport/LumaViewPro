@@ -9,7 +9,6 @@ import json
 import logging
 import math
 import pathlib
-import shutil
 import threading
 import time
 
@@ -235,14 +234,17 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
         # running out of breathing room mid-record.
         _DISK_SAFETY_MB = 256
         try:
-            free_bytes = shutil.disk_usage(self.memmap_location.parent).free
-            if expected_size + _DISK_SAFETY_MB * 1024 * 1024 > free_bytes:
+            expected_mb = expected_size / (1024 * 1024)
+            required_mb = expected_mb + _DISK_SAFETY_MB
+            ok, free_mb = common_utils.check_disk_space_ok(
+                self.memmap_location.parent, required_mb)
+            if not ok:
                 from modules.notification_center import notifications
                 notifications.error(
                     "Recording",
                     "Insufficient disk space",
-                    f"Recording would need {expected_size / 1e9:.1f} GB but only "
-                    f"{free_bytes / 1e9:.1f} GB free. Free up space or reduce "
+                    f"Recording would need {expected_mb / 1024:.1f} GB but only "
+                    f"{free_mb / 1024:.1f} GB free. Free up space or reduce "
                     f"FPS / duration / pixel depth."
                 )
                 self.recording.clear()

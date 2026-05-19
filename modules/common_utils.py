@@ -824,11 +824,38 @@ def system_metrics(path="/"):
 def check_disk_space(path="/") -> float:
     """
     Returns free disk space in MB
-    """ 
-    
+    """
+
     disk = psutil.disk_usage(path)
     free_space_mb = disk.free / (1024**2)
     return free_space_mb
+
+
+def check_disk_space_ok(path, required_mb: float) -> tuple[bool, float]:
+    """Probe free disk space and compare against a threshold.
+
+    Single canonical disk probe shared by protocol_image_writer, the
+    protocol scan loop, and the record pre-flight in main_display. Each
+    caller keeps its own threshold + abort/notification policy; only
+    the probe itself is shared so the three sites cannot drift on
+    backend choice (shutil vs psutil disagree on Windows partition
+    mounts) or unit conversion.
+
+    Args:
+        path: Filesystem path to probe (str or pathlib.Path).
+        required_mb: Minimum free space the caller needs, in MB.
+
+    Returns:
+        (ok, free_mb) -- ok is True iff free_mb >= required_mb.
+
+    Raises:
+        OSError / PermissionError: propagated from psutil.disk_usage so
+            callers can decide whether to swallow (best-effort probes)
+            or abort (load-bearing probes).
+    """
+    disk = psutil.disk_usage(str(path))
+    free_mb = disk.free / (1024**2)
+    return (free_mb >= required_mb, free_mb)
 
 
 def get_extra_disks_info(exclude_path: str = "/") -> str | None:
