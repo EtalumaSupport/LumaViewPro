@@ -289,3 +289,127 @@ def test_no_self_motion_calls_in_lumascope():
         "migrate to self.motion.<method>:\n  "
         + "\n  ".join(failures)
     )
+
+
+# Methods that will live ONLY on the ImagingAPI sub-API after the
+# Wave 7 Phase 4 imaging body relocation completes. Hardcoded from the
+# Phase 4a inventory (docs/WAVE7_PHASE_4_PLAN.md section 11.6) -- 71
+# forwarders on the imaging.py facade as of 2026-05-19. Same shape as
+# MOTION_ONLY_METHODS / ILLUMINATION_ONLY_METHODS.
+#
+# Names track the CURRENT method surface; renames locked for Phase 4d.5
+# (`add_camera_listener` -> `add_camera_setting_listener`,
+# `register_frame_callback` -> `add_frame_listener`, etc.) update this
+# set in the same commit that lands the rename.
+IMAGING_ONLY_METHODS = frozenset({
+    'add_camera_listener', 'apply_layer_camera_settings', 'auto_gain_once',
+    'autofocus_return', 'camera_active', 'camera_exposure_ms',
+    'camera_frame_size', 'camera_gain', 'camera_is_connected',
+    'camera_max_exposure', 'camera_max_frame_size', 'camera_max_gain',
+    'camera_min_frame_size', 'camera_pixel_format', 'capture',
+    'capture_and_wait', 'capture_and_wait_sync', 'capture_blocking',
+    'capture_complete', 'capture_return', 'count_frame',
+    'frame_is_valid', 'frames_until_valid', 'get_available_binning_sizes',
+    'get_binning_size', 'get_camera_temps', 'get_exposure_time',
+    'get_frame_size', 'get_gain', 'get_height', 'get_image',
+    'get_image_from_buffer', 'get_image_with_chunks_from_buffer',
+    'get_max_height', 'get_max_width', 'get_pixel_format',
+    'get_supported_pixel_formats', 'get_width', 'is_capturing',
+    'is_focusing', 'log_camera_temps', 'register_frame_callback',
+    'remove_camera_listener', 'restore_camera_state', 'save_camera_state',
+    'scale_bar_config', 'scale_bar_enabled', 'set_acquisition_stop_mode',
+    'set_auto_exposure_time', 'set_auto_gain', 'set_bandwidth_reserve_mode',
+    'set_binning_size', 'set_device_link_throughput_limit',
+    'set_exposure_sync', 'set_exposure_time', 'set_frame_size', 'set_gain',
+    'set_gain_sync', 'set_gev_inter_packet_delay', 'set_gev_packet_size',
+    'set_max_acquisition_frame_rate', 'set_max_transfer_size',
+    'set_num_max_queued_urbs', 'set_pixel_format', 'set_scale_bar',
+    'start_camera_temp_logging', 'stop_camera_temp_logging',
+    'suppress_value_warnings', 'unregister_frame_callback',
+    'update_auto_gain_target_brightness', 'update_camera_config',
+})
+
+
+def _find_imaging_method_accesses(tree: ast.AST) -> list[tuple[int, str]]:
+    """Find `<chain ending in scope>.<imaging_only_method>` accesses.
+
+    Mirrors the motion / illumination chain check above -- catches
+    `scope.set_gain`, `self.scope.set_gain`, `p.scope.set_gain`, etc.
+    Does NOT catch `self._scope.set_gain` (sub-API back-reference
+    pattern) -- those are addressed by the bulk word-boundary sed in
+    Phase 4e production migration; carried-forward Phase 3 limitation.
+    """
+    hits: list[tuple[int, str]] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Attribute):
+            continue
+        if node.attr not in IMAGING_ONLY_METHODS:
+            continue
+        if _chain_ends_in_scope(node.value):
+            hits.append((node.lineno, node.attr))
+    return hits
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason=(
+        "Phase 4b guard staged ahead of body relocation. Production code "
+        "still calls scope.<imaging-method> via the imaging.py forwarders. "
+        "Failures flip to passing after Phase 4e production caller migration; "
+        "when this xfail strict=True ERRORs (unexpectedly passed), remove "
+        "the decorator -- Phase 4 imaging migration is complete."
+    ),
+)
+def test_no_imaging_method_calls_on_bare_scope_in_production():
+    failures: list[str] = []
+    for path in _iter_prod_files():
+        try:
+            source = path.read_text(encoding='utf-8')
+        except (OSError, UnicodeDecodeError) as e:
+            failures.append(f"{path}: read failed: {e}")
+            continue
+        try:
+            tree = ast.parse(source, filename=str(path))
+        except SyntaxError as e:
+            failures.append(f"{path}: parse failed: {e}")
+            continue
+        for lineno, attr in _find_imaging_method_accesses(tree):
+            rel = path.relative_to(_REPO_ROOT)
+            failures.append(
+                f"{rel}:{lineno}: scope.{attr} -- use scope.imaging.{attr}"
+            )
+    assert not failures, (
+        "Imaging methods reached on bare scope -- production code must "
+        "go through scope.imaging.<method>:\n  "
+        + "\n  ".join(failures)
+    )
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason=(
+        "Phase 4b guard staged ahead of body relocation. _lumascope.py "
+        "still calls self.<imaging-method> inside Lumascope's own methods "
+        "(46 sites per docs/WAVE7_PHASE_4_PLAN.md section 11.8). The pair "
+        "of this guard with the bare-scope guard above is the post-#670 "
+        "lesson -- Phase 3f shipped bare-scope only and missed 4 inside-class "
+        "self.X calls, causing beta12 DOA. Flips to passing after Phase 4e "
+        "inside-class migration; remove the decorator when xfail strict ERRORs."
+    ),
+)
+def test_no_self_imaging_calls_in_lumascope():
+    """Lumascope's own methods must not reach imaging-only methods via
+    bare `self.X` -- they belong on `self.imaging.X` after Phase 4f
+    forwarder retirement."""
+    source = _LUMASCOPE_PATH.read_text(encoding='utf-8')
+    tree = ast.parse(source, filename=str(_LUMASCOPE_PATH))
+    hits = _find_self_method_accesses(tree, IMAGING_ONLY_METHODS)
+    failures = [
+        f"_lumascope.py:{lineno}: self.{attr} -- use self.imaging.{attr}"
+        for lineno, attr in hits
+    ]
+    assert not failures, (
+        "Lumascope reached imaging-only methods via bare self -- "
+        "migrate to self.imaging.<method>:\n  "
+        + "\n  ".join(failures)
+    )
