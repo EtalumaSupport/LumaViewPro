@@ -228,3 +228,64 @@ def test_no_illumination_method_calls_on_bare_scope_in_production():
         "must go through scope.illumination.<method>:\n  "
         + "\n  ".join(failures)
     )
+
+
+# Inside-Lumascope guard: catches self.<sub-API-method> calls within
+# _lumascope.py itself. The scope-chain guards above target callers in
+# OTHER files; this one targets Lumascope's own methods reaching for
+# sub-API methods via bare self. Both classes of miss have the same
+# fix shape (route through the sub-API attribute), but the bare-scope
+# guard never fired on inside-Lumascope calls because the chain
+# terminates in `self`, not `scope`. Issue #670 (beta12 DOA) was the
+# motivating incident: Lumascope.initialize() called self.leds_off()
+# which was retired in Phase 3f.
+
+_LUMASCOPE_PATH = _REPO_ROOT / 'modules' / 'lumascope_api' / '_lumascope.py'
+
+
+def _find_self_method_accesses(tree: ast.AST, banned: frozenset[str]) -> list[tuple[int, str]]:
+    """Find `self.<banned_method>` accesses (bare self, not self.foo.bar)."""
+    hits: list[tuple[int, str]] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Attribute):
+            continue
+        if node.attr not in banned:
+            continue
+        if isinstance(node.value, ast.Name) and node.value.id == 'self':
+            hits.append((node.lineno, node.attr))
+    return hits
+
+
+def test_no_self_illumination_calls_in_lumascope():
+    """Lumascope's own methods must not reach illumination-only methods
+    via bare `self.X` -- they belong on `self.illumination.X` after
+    Phase 3f forwarder retirement."""
+    source = _LUMASCOPE_PATH.read_text(encoding='utf-8')
+    tree = ast.parse(source, filename=str(_LUMASCOPE_PATH))
+    hits = _find_self_method_accesses(tree, ILLUMINATION_ONLY_METHODS)
+    failures = [
+        f"_lumascope.py:{lineno}: self.{attr} -- use self.illumination.{attr}"
+        for lineno, attr in hits
+    ]
+    assert not failures, (
+        "Lumascope reached illumination-only methods via bare self -- "
+        "migrate to self.illumination.<method>:\n  "
+        + "\n  ".join(failures)
+    )
+
+
+def test_no_self_motion_calls_in_lumascope():
+    """Same shape for motion methods retired in Phase 2f -- Lumascope
+    must reach them via `self.motion.X`, not bare `self.X`."""
+    source = _LUMASCOPE_PATH.read_text(encoding='utf-8')
+    tree = ast.parse(source, filename=str(_LUMASCOPE_PATH))
+    hits = _find_self_method_accesses(tree, MOTION_ONLY_METHODS)
+    failures = [
+        f"_lumascope.py:{lineno}: self.{attr} -- use self.motion.{attr}"
+        for lineno, attr in hits
+    ]
+    assert not failures, (
+        "Lumascope reached motion-only methods via bare self -- "
+        "migrate to self.motion.<method>:\n  "
+        + "\n  ".join(failures)
+    )

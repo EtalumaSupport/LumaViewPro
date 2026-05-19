@@ -519,7 +519,7 @@ class Lumascope():
             config: ScopeInitConfig instance with all scope-level settings.
         """
         self._notify_partial_hardware(config)
-        self.leds_off()
+        self.illumination.leds_off()
         self.set_labware(config.labware)
         if config.turret_config:
             self.set_turret_config(config.turret_config)
@@ -1345,7 +1345,7 @@ class Lumascope():
         access is already torn down.
         """
         try:
-            self.leds_off()
+            self.illumination.leds_off()
         except Exception:
             pass
         try:
@@ -2494,7 +2494,7 @@ class Lumascope():
             'z_pos_um': z,
             'exposure_time_ms': round(self.get_exposure_time(), common_utils.max_decimal_precision('exposure')),
             'gain_db': round(self.get_gain(), common_utils.max_decimal_precision('gain')),
-            'illumination_ma': round(self.get_led_ma(color=color), common_utils.max_decimal_precision('illumination')),
+            'illumination_ma': round(self.illumination.get_led_ma(color=color), common_utils.max_decimal_precision('illumination')),
             'binning_size': self._binning_size,
             'pixel_size_um': pixel_size_um,
             'well_label': well_label,
@@ -2746,7 +2746,7 @@ class Lumascope():
         )
 
         if turn_off_all_leds_after:
-            self.leds_off()
+            self.illumination.leds_off()
 
         if array is False:
             return
