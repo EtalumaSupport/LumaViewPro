@@ -136,3 +136,27 @@ class DiagnosticsAPI:
             return drv.exit_engineering_mode()
         except Exception:
             return None
+
+    # --- Phase 5 helper forwarders (5b-introduced; bodies co-relocate 5c) ---
+    # These four helpers are exclusive to diagnostic methods. 5b adds
+    # forwarders so tests can target DiagnosticsAPI._X(...) directly;
+    # 5c moves the bodies here and retires the Lumascope copies. Lazy
+    # imports avoid the diagnostics.py <-> _lumascope.py cycle.
+
+    @staticmethod
+    def _safe_pylon_versions() -> dict:
+        from modules.lumascope_api._lumascope import Lumascope
+        return Lumascope._safe_pylon_versions()
+
+    @staticmethod
+    def _human_os_version() -> str:
+        from modules.lumascope_api._lumascope import Lumascope
+        return Lumascope._human_os_version()
+
+    @staticmethod
+    def _dltl_filename_token(config: dict) -> str:
+        from modules.lumascope_api._lumascope import Lumascope
+        return Lumascope._dltl_filename_token(config)
+
+    def _diagnostic_target_board(self, target: str):
+        return self._scope._diagnostic_target_board(target)

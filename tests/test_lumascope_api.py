@@ -749,7 +749,7 @@ class TestPerAxisDictsFromDriver:
 
 
 class TestRunGrabLifecycleBenchmark:
-    """CAM-1 step (0a): regression tests for ``Lumascope.run_grab_lifecycle_benchmark``.
+    """CAM-1 step (0a): regression tests for ``Lumascope.diagnostics.run_grab_lifecycle_benchmark``.
 
     The API method shipped 2026-05-04 (LVP `56f094b`) without tests. This
     class pins the contract: dict shape, num_cycles loop count, slow-cycle
@@ -767,7 +767,7 @@ class TestRunGrabLifecycleBenchmark:
 
     def test_returns_required_dict_keys(self):
         scope = self._scope_with_camera()
-        r = scope.run_grab_lifecycle_benchmark(num_cycles=3,
+        r = scope.diagnostics.run_grab_lifecycle_benchmark(num_cycles=3,
                                                 inter_cycle_delay_ms=0)
         for k in ('num_cycles', 'inter_cycle_delay_ms', 'vary_settings',
                   'slow_threshold_s', 'slow_cycle_count', 'slow_cycles',
@@ -787,7 +787,7 @@ class TestRunGrabLifecycleBenchmark:
         an error instead of crashing or silently returning empty results."""
         scope = Lumascope(simulate=True)
         scope._camera_driver = None
-        r = scope.run_grab_lifecycle_benchmark(num_cycles=3)
+        r = scope.diagnostics.run_grab_lifecycle_benchmark(num_cycles=3)
         assert r['errors'], (
             'Inactive-camera path must populate errors so the operator '
             'sees why the benchmark produced no data')
@@ -800,7 +800,7 @@ class TestRunGrabLifecycleBenchmark:
         """slow_threshold_s=0.0 forces every cycle to count as slow,
         verifying the slow-cycle accounting + 50-entry cap."""
         scope = self._scope_with_camera()
-        r = scope.run_grab_lifecycle_benchmark(num_cycles=4,
+        r = scope.diagnostics.run_grab_lifecycle_benchmark(num_cycles=4,
                                                 inter_cycle_delay_ms=0,
                                                 slow_threshold_s=0.0)
         assert r['slow_cycle_count'] == 4
@@ -821,7 +821,7 @@ class TestRunGrabLifecycleBenchmark:
             return original_set_gain(gain)
         scope.imaging.set_gain = _track
 
-        scope.run_grab_lifecycle_benchmark(num_cycles=4,
+        scope.diagnostics.run_grab_lifecycle_benchmark(num_cycles=4,
                                             inter_cycle_delay_ms=0,
                                             vary_settings=True)
         # 4 in-loop calls + restore at end (if vary_settings AND original_gain)
@@ -837,7 +837,7 @@ class TestRunGrabLifecycleBenchmark:
         import json
         import os
         scope = self._scope_with_camera()
-        r = scope.run_grab_lifecycle_benchmark(num_cycles=2,
+        r = scope.diagnostics.run_grab_lifecycle_benchmark(num_cycles=2,
                                                 inter_cycle_delay_ms=0)
         assert r['written_to'] is not None, \
             f'JSON persistence path empty; errors: {r.get("errors")}'

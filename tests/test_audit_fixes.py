@@ -3847,7 +3847,7 @@ class TestPylonDisconnectDestroyDevice:
 
 
 class TestPylonDiagnosticProbe:
-    """Lumascope.run_pylon_diagnostic_probe captures a one-shot
+    """DiagnosticsAPI.run_pylon_diagnostic_probe captures a one-shot
     cross-host / cross-camera / cross-firmware diagnostic snapshot
     and writes it to data/pylon_probe/<...>.json. Designed for
     bench-wave comparison; replaces /tmp/probe.py-style bespoke
@@ -3861,25 +3861,29 @@ class TestPylonDiagnosticProbe:
 
     def _make_scope_with_fake_camera(self, fake_camera):
         """Construct a Lumascope without running its full __init__,
-        attach the supplied fake camera. Same pattern as
-        test_get_latest_chunks_returns_none_when_no_camera."""
+        attach the supplied fake camera. Phase 5b: also inject
+        DiagnosticsAPI so callers can use scope.diagnostics.X."""
         from modules.lumascope_api import Lumascope
+        from modules.lumascope_api.diagnostics import DiagnosticsAPI
         scope = Lumascope.__new__(Lumascope)
         scope._camera_driver = fake_camera
+        scope.diagnostics = DiagnosticsAPI(scope)
         return scope
 
-    def test_method_exists_on_lumascope(self):
-        """The API method is callable from a fresh Lumascope class."""
-        from modules.lumascope_api import Lumascope
-        assert hasattr(Lumascope, 'run_pylon_diagnostic_probe')
-        assert callable(Lumascope.run_pylon_diagnostic_probe)
+    def test_method_exists_on_diagnostics_api(self):
+        """The API method is callable from the DiagnosticsAPI class."""
+        from modules.lumascope_api.diagnostics import DiagnosticsAPI
+        assert hasattr(DiagnosticsAPI, 'run_pylon_diagnostic_probe')
+        assert callable(DiagnosticsAPI.run_pylon_diagnostic_probe)
 
     def test_no_camera_returns_disconnected(self):
         """Returns {'connected': False, 'errors': [...]} when no camera."""
         from modules.lumascope_api import Lumascope
+        from modules.lumascope_api.diagnostics import DiagnosticsAPI
         scope = Lumascope.__new__(Lumascope)
         scope._camera_driver = None
-        result = scope.run_pylon_diagnostic_probe(duration_s=0.0)
+        scope.diagnostics = DiagnosticsAPI(scope)
+        result = scope.diagnostics.run_pylon_diagnostic_probe(duration_s=0.0)
         assert result['connected'] is False
         assert isinstance(result.get('errors'), list)
 
@@ -3887,7 +3891,7 @@ class TestPylonDiagnosticProbe:
         """Camera object exists but inactive -> disconnected."""
         class _Fake:
             active = None
-        result = self._make_scope_with_fake_camera(_Fake()).run_pylon_diagnostic_probe(
+        result = self._make_scope_with_fake_camera(_Fake()).diagnostics.run_pylon_diagnostic_probe(
             duration_s=0.0
         )
         assert result['connected'] is False
@@ -3906,7 +3910,7 @@ class TestPylonDiagnosticProbe:
                     'reason': 'stub driver',
                     'errors': [],
                 }
-        result = self._make_scope_with_fake_camera(_StubDriver()).run_pylon_diagnostic_probe(
+        result = self._make_scope_with_fake_camera(_StubDriver()).diagnostics.run_pylon_diagnostic_probe(
             duration_s=0.0
         )
         assert result.get('supported') is False
@@ -3922,20 +3926,20 @@ class TestPylonDiagnosticProbe:
             active = True
         result = self._make_scope_with_fake_camera(
             _NoMethodDriver()
-        ).run_pylon_diagnostic_probe(duration_s=0.0)
+        ).diagnostics.run_pylon_diagnostic_probe(duration_s=0.0)
         assert result['connected'] is False
         assert result.get('supported') is False
 
     def test_dltl_filename_token_off(self):
         """Mode=Off -> 'dltloff'."""
-        from modules.lumascope_api import Lumascope
-        token = Lumascope._dltl_filename_token({'dltl_mode': 'Off'})
+        from modules.lumascope_api.diagnostics import DiagnosticsAPI
+        token = DiagnosticsAPI._dltl_filename_token({'dltl_mode': 'Off'})
         assert token == 'dltloff'
 
     def test_dltl_filename_token_on_round(self):
         """Mode=On with 160 MB/s -> 'dltl160M'."""
-        from modules.lumascope_api import Lumascope
-        token = Lumascope._dltl_filename_token({
+        from modules.lumascope_api.diagnostics import DiagnosticsAPI
+        token = DiagnosticsAPI._dltl_filename_token({
             'dltl_mode': 'On',
             'dltl_value_bps': 160_000_000,
         })
@@ -3946,8 +3950,8 @@ class TestPylonDiagnosticProbe:
         v4 author flagged the case where a sweep value has sub-MB
         precision; bare int() would render 197.99 MB/s as dltl197M
         which is wrong-by-1; round() avoids that."""
-        from modules.lumascope_api import Lumascope
-        token = Lumascope._dltl_filename_token({
+        from modules.lumascope_api.diagnostics import DiagnosticsAPI
+        token = DiagnosticsAPI._dltl_filename_token({
             'dltl_mode': 'On',
             'dltl_value_bps': 197_999_000,
         })
@@ -3958,25 +3962,25 @@ class TestPylonDiagnosticProbe:
 
     def test_dltl_filename_token_unknown(self):
         """Missing config -> 'dltlunknown'."""
-        from modules.lumascope_api import Lumascope
-        assert Lumascope._dltl_filename_token({}) == 'dltlunknown'
-        assert Lumascope._dltl_filename_token(
+        from modules.lumascope_api.diagnostics import DiagnosticsAPI
+        assert DiagnosticsAPI._dltl_filename_token({}) == 'dltlunknown'
+        assert DiagnosticsAPI._dltl_filename_token(
             {'dltl_mode': '<missing>'}
         ) == 'dltlunknown'
 
     def test_human_os_version_does_not_raise(self):
         """The OS-version helper must never raise, even on platforms
         where mac_ver/win32_ver return empty tuples."""
-        from modules.lumascope_api import Lumascope
-        v = Lumascope._human_os_version()
+        from modules.lumascope_api.diagnostics import DiagnosticsAPI
+        v = DiagnosticsAPI._human_os_version()
         assert isinstance(v, str)
         assert len(v) > 0
 
     def test_safe_pylon_versions_returns_dict(self):
         """The version helper returns a dict with both keys, even when
         pypylon is absent (returns Nones)."""
-        from modules.lumascope_api import Lumascope
-        result = Lumascope._safe_pylon_versions()
+        from modules.lumascope_api.diagnostics import DiagnosticsAPI
+        result = DiagnosticsAPI._safe_pylon_versions()
         assert isinstance(result, dict)
         assert 'pypylon_version' in result
         assert 'pylon_sdk_version' in result
@@ -3989,7 +3993,7 @@ class TestPylonDiagnosticProbe:
                / "drivers" / "pyloncamera.py").read_text()
         assert "def read_diagnostic_snapshot(" in src, (
             "PylonCamera must implement read_diagnostic_snapshot for "
-            "Lumascope.run_pylon_diagnostic_probe to function."
+            "DiagnosticsAPI.run_pylon_diagnostic_probe to function."
         )
 
     def test_ids_camera_has_read_diagnostic_snapshot_stub(self):

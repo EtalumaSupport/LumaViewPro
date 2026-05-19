@@ -391,3 +391,87 @@ def test_no_self_imaging_calls_in_lumascope():
         "migrate to self.imaging.<method>:\n  "
         + "\n  ".join(failures)
     )
+
+
+# Methods that will live ONLY on the DiagnosticsAPI sub-API after the
+# Wave 7 Phase 5 diagnostics body relocation completes. Hardcoded from
+# Phase 5 plan section 3.1 -- 7 stateless probes on the diagnostics.py
+# facade as of 2026-05-19. Same shape as IMAGING_ONLY_METHODS /
+# MOTION_ONLY_METHODS / ILLUMINATION_ONLY_METHODS.
+DIAGNOSTICS_ONLY_METHODS = frozenset({
+    'get_camera_temperatures', 'get_camera_diagnostic_info',
+    'run_camera_bandwidth_test', 'run_grab_lifecycle_benchmark',
+    'run_pylon_diagnostic_probe', 'send_diagnostic_command',
+    'send_diagnostic_command_multiline',
+})
+
+
+def _find_diagnostics_method_accesses(tree: ast.AST) -> list[tuple[int, str]]:
+    """Find `<chain ending in scope>.<diagnostics_only_method>` accesses.
+
+    Mirrors the imaging / motion / illumination chain checks above.
+    """
+    hits: list[tuple[int, str]] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Attribute):
+            continue
+        if node.attr not in DIAGNOSTICS_ONLY_METHODS:
+            continue
+        if _chain_ends_in_scope(node.value):
+            hits.append((node.lineno, node.attr))
+    return hits
+
+
+@pytest.mark.xfail(strict=True, reason=(
+    "Phase 5 transition: production callers (tech_support_report.py) "
+    "still reach diagnostic methods on bare scope. xfail-strict flips "
+    "(marker removed) at the 5e production migration commit."
+))
+def test_no_diagnostics_method_calls_on_bare_scope_in_production():
+    failures: list[str] = []
+    for path in _iter_prod_files():
+        try:
+            source = path.read_text(encoding='utf-8')
+        except (OSError, UnicodeDecodeError) as e:
+            failures.append(f"{path}: read failed: {e}")
+            continue
+        try:
+            tree = ast.parse(source, filename=str(path))
+        except SyntaxError as e:
+            failures.append(f"{path}: parse failed: {e}")
+            continue
+        for lineno, attr in _find_diagnostics_method_accesses(tree):
+            rel = path.relative_to(_REPO_ROOT)
+            failures.append(
+                f"{rel}:{lineno}: scope.{attr} -- use scope.diagnostics.{attr}"
+            )
+    assert not failures, (
+        "Diagnostics methods reached on bare scope -- production code "
+        "must go through scope.diagnostics.<method>:\n  "
+        + "\n  ".join(failures)
+    )
+
+
+@pytest.mark.xfail(strict=True, reason=(
+    "Phase 5 transition: Lumascope's get_camera_diagnostic_info / "
+    "run_camera_bandwidth_test / run_grab_lifecycle_benchmark bodies "
+    "still contain inside-class self.<diag> sibling calls. xfail-strict "
+    "flips at the 5c body relocation commit (sibling calls become "
+    "intra-DiagnosticsAPI)."
+))
+def test_no_self_diagnostics_calls_in_lumascope():
+    """Lumascope's own methods must not reach diagnostics-only methods
+    via bare `self.X` -- they belong on `self.diagnostics.X` after
+    Phase 5f forwarder retirement."""
+    source = _LUMASCOPE_PATH.read_text(encoding='utf-8')
+    tree = ast.parse(source, filename=str(_LUMASCOPE_PATH))
+    hits = _find_self_method_accesses(tree, DIAGNOSTICS_ONLY_METHODS)
+    failures = [
+        f"_lumascope.py:{lineno}: self.{attr} -- use self.diagnostics.{attr}"
+        for lineno, attr in hits
+    ]
+    assert not failures, (
+        "Lumascope reached diagnostics-only methods via bare self -- "
+        "migrate to self.diagnostics.<method>:\n  "
+        + "\n  ".join(failures)
+    )

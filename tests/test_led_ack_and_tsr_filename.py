@@ -130,7 +130,7 @@ class TestTsrLedEngineeringRoutesThroughDriver:
         fake_scope.diagnostics.enter_led_engineering_mode.assert_called_once()
         # Must NOT use the open-coded send_diagnostic_command path with
         # 'FACTORY' or 'Y' as the command.
-        for call in fake_scope.send_diagnostic_command.call_args_list:
+        for call in fake_scope.diagnostics.send_diagnostic_command.call_args_list:
             args, _ = call
             assert 'FACTORY' not in args and 'Y' not in args, (
                 f"Open-coded FACTORY/Y send_diagnostic_command call leaked: {call}"
@@ -150,7 +150,7 @@ class TestTsrLedEngineeringRoutesThroughDriver:
         fake_scope.diagnostics.exit_led_engineering_mode.assert_called_once()
         # Must NOT use the open-coded send_diagnostic_command path with
         # 'Q' as the command.
-        for call in fake_scope.send_diagnostic_command.call_args_list:
+        for call in fake_scope.diagnostics.send_diagnostic_command.call_args_list:
             args, _ = call
             assert 'Q' not in args, (
                 f"Open-coded Q send_diagnostic_command call leaked: {call}"
