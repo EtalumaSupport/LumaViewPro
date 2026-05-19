@@ -422,11 +422,6 @@ def _find_diagnostics_method_accesses(tree: ast.AST) -> list[tuple[int, str]]:
     return hits
 
 
-@pytest.mark.xfail(strict=True, reason=(
-    "Phase 5 transition: production callers (tech_support_report.py) "
-    "still reach diagnostic methods on bare scope. xfail-strict flips "
-    "(marker removed) at the 5e production migration commit."
-))
 def test_no_diagnostics_method_calls_on_bare_scope_in_production():
     failures: list[str] = []
     for path in _iter_prod_files():

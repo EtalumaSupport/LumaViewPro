@@ -600,7 +600,7 @@ class CameraBandwidthTest:
                 'errors': ['No scope available'],
                 'passed': False,
             }
-        return self.scope.run_camera_bandwidth_test(
+        return self.scope.diagnostics.run_camera_bandwidth_test(
             num_frames=self.num_frames,
             timeout_s=BANDWIDTH_TEST_TIMEOUT_S,
             progress_cb=progress_callback,
@@ -736,7 +736,7 @@ class FirmwareDiagnostics:
             return 'Board not connected'
         if self._scope is None:
             return 'Board not connected'
-        return self._scope.send_diagnostic_command(
+        return self._scope.diagnostics.send_diagnostic_command(
             target_str, command, timeout=timeout)
 
     def _read_multiline(self, target, command, timeout=60, end_markers=None):
@@ -746,7 +746,7 @@ class FirmwareDiagnostics:
             return 'Board not connected'
         if self._scope is None:
             return 'Board not connected'
-        return self._scope.send_diagnostic_command_multiline(
+        return self._scope.diagnostics.send_diagnostic_command_multiline(
             target_str, command, timeout=timeout, end_markers=end_markers)
 
     def _target_str(self, target):
@@ -1351,7 +1351,7 @@ class TechSupportReport:
             return False
         try:
             return bool(
-                self.scope.get_camera_diagnostic_info().get('connected', False)
+                self.scope.diagnostics.get_camera_diagnostic_info().get('connected', False)
             )
         except Exception:
             return False
@@ -1754,7 +1754,7 @@ class TechSupportReport:
             (d / 'no_camera.txt').write_text("No camera available.\n")
             return
 
-        api_info = self.scope.get_camera_diagnostic_info()
+        api_info = self.scope.diagnostics.get_camera_diagnostic_info()
 
         # Flatten temperatures into the top-level info block so the
         # output file format matches the historical layout (one
