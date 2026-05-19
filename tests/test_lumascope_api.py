@@ -814,18 +814,12 @@ class TestRunGrabLifecycleBenchmark:
         and 4.0 dB (odd cycles)."""
         scope = self._scope_with_camera()
         gain_calls = []
-        # Monkeypatch the Lumascope forwarder (scope.set_gain), NOT the
-        # ImagingAPI surface (scope.imaging.set_gain). run_grab_lifecycle_
-        # benchmark's body lives on Lumascope and calls self.set_gain()
-        # internally; the imaging.set_gain forwarder isn't on that path
-        # until Phase 4e production migration. Re-target to scope.imaging
-        # when 4e ships.
-        original_set_gain = scope.set_gain
+        original_set_gain = scope.imaging.set_gain
 
         def _track(gain):
             gain_calls.append(gain)
             return original_set_gain(gain)
-        scope.set_gain = _track
+        scope.imaging.set_gain = _track
 
         scope.run_grab_lifecycle_benchmark(num_cycles=4,
                                             inter_cycle_delay_ms=0,

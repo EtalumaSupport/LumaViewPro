@@ -477,10 +477,10 @@ class Lumascope():
         if config.turret_config:
             self.set_turret_config(config.turret_config)
         self.set_objective(config.objective_id)
-        self.set_binning_size(config.binning_size)
-        self.set_frame_size(config.frame_width, config.frame_height)
+        self.imaging.set_binning_size(config.binning_size)
+        self.imaging.set_frame_size(config.frame_width, config.frame_height)
         self.set_stage_offset(config.stage_offset)
-        self.set_scale_bar(enabled=config.scale_bar_enabled)
+        self.imaging.set_scale_bar(enabled=config.scale_bar_enabled)
         self.motion.set_acceleration_limit(val_pct=config.acceleration_pct)
         logger.info('[SCOPE API ] Scope initialized')
 
@@ -890,7 +890,7 @@ class Lumascope():
 
             with scope.acquire_exclusive():
                 scope.set_led_ma('Blue', 10)
-                image = scope.capture_and_wait()
+                image = scope.imaging.capture_and_wait()
         """
         self._hw_lock.acquire()
         try:
@@ -1434,8 +1434,8 @@ class Lumascope():
             'x_pos': px,
             'y_pos': py,
             'z_pos_um': z,
-            'exposure_time_ms': round(self.get_exposure_time(), common_utils.max_decimal_precision('exposure')),
-            'gain_db': round(self.get_gain(), common_utils.max_decimal_precision('gain')),
+            'exposure_time_ms': round(self.imaging.get_exposure_time(), common_utils.max_decimal_precision('exposure')),
+            'gain_db': round(self.imaging.get_gain(), common_utils.max_decimal_precision('gain')),
             'illumination_ma': round(self.illumination.get_led_ma(color=color), common_utils.max_decimal_precision('illumination')),
             'binning_size': self.imaging._binning_size,
             'pixel_size_um': pixel_size_um,
@@ -1677,7 +1677,7 @@ class Lumascope():
 
         # PIW-2: removed redundant `check_disk_space("/")` warn — see save_image() above.
 
-        array = self.capture_and_wait(
+        array = self.imaging.capture_and_wait(
             force_to_8bit=force_to_8bit,
             earliest_image_ts=earliest_image_ts,
             timeout=timeout,
@@ -1894,8 +1894,8 @@ class Lumascope():
         except Exception as e:
             info['resolution'] = f'Error: {e}'
 
-        _try('gain', lambda: self.get_gain())
-        _try('exposure_ms', lambda: self.get_exposure_time())
+        _try('gain', lambda: self.imaging.get_gain())
+        _try('exposure_ms', lambda: self.imaging.get_exposure_time())
         _try('max_gain', lambda: self._camera_driver.get_max_gain())
         _try('max_exposure_ms', lambda: self._camera_driver.get_max_exposure())
 
@@ -1969,7 +1969,7 @@ class Lumascope():
             try:
                 # force_to_8bit=False keeps native depth so frame size
                 # reflects the actual bytes the SDK delivered.
-                frame = self.get_image(force_to_8bit=False, force_new_capture=True)
+                frame = self.imaging.get_image(force_to_8bit=False, force_new_capture=True)
                 if frame is None or frame is False:
                     results['num_frames_none'] += 1
                 else:
@@ -2119,11 +2119,11 @@ class Lumascope():
                     # not to dominate the cycle, large enough that GenICam
                     # node-map writes are real.
                     if i % 2 == 0:
-                        self.set_gain(1.0)
-                        self.set_exposure_time(10.0)
+                        self.imaging.set_gain(1.0)
+                        self.imaging.set_exposure_time(10.0)
                     else:
-                        self.set_gain(4.0)
-                        self.set_exposure_time(50.0)
+                        self.imaging.set_gain(4.0)
+                        self.imaging.set_exposure_time(50.0)
 
                 t1 = time.monotonic()
                 self._camera_driver.start_grabbing()
@@ -2157,9 +2157,9 @@ class Lumascope():
         # Restore caller's gain/exposure so vary_settings doesn't leak state.
         try:
             if vary_settings and original_gain is not None:
-                self.set_gain(float(original_gain))
+                self.imaging.set_gain(float(original_gain))
             if vary_settings and original_exposure is not None:
-                self.set_exposure_time(float(original_exposure))
+                self.imaging.set_exposure_time(float(original_exposure))
         except Exception as e:
             results['errors'].append(
                 f"Restore settings failed: {type(e).__name__}: {e}")
@@ -2655,7 +2655,7 @@ class Lumascope():
                 'gain_max_db': profile.gain.total_max_db,
                 'exposure_min_us': exposure_min_us,
                 'exposure_min_ms': exposure_min_ms,
-                'max_exposure_ms': self.camera_max_exposure,
+                'max_exposure_ms': self.imaging.camera_max_exposure,
                 'binning_sizes': profile.binning_sizes,
             }
         except Exception as e:

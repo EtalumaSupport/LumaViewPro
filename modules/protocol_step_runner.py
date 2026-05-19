@@ -94,8 +94,8 @@ class ProtocolStepRunner:
             return
 
         if p._af_future is not None and p._af_future.done():
-            _cam_gain = p._scope.get_gain() if p._scope.camera_active else '?'
-            _cam_exp = p._scope.get_exposure_time() if p._scope.camera_active else '?'
+            _cam_gain = p._scope.imaging.get_gain() if p._scope.imaging.camera_active else '?'
+            _cam_exp = p._scope.imaging.get_exposure_time() if p._scope.imaging.camera_active else '?'
             logger.info(
                 f"[SCAN DIAG] AF gate passed: future.done()=True "
                 f"camera_gain={_cam_gain} camera_exp={_cam_exp} step={p._curr_step}"
@@ -262,7 +262,7 @@ class ProtocolStepRunner:
         # Disable autogain when moving between steps
         if step['Auto_Gain']:
             fut = p._io_executor.protocol_put(IOTask(
-                action=p._scope.set_auto_gain,
+                action=p._scope.imaging.set_auto_gain,
                 kwargs={
                     "state": False,
                     "settings": p._autogain_settings,

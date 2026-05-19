@@ -147,7 +147,7 @@ class CompositeCapture(FloatLayout):
                     turn_off_all_leds_after=False,
                 )
 
-            image_orig = ctx.scope.capture_and_wait(force_to_8bit=force_to_8bit_pixel_depth)
+            image_orig = ctx.scope.imaging.capture_and_wait(force_to_8bit=force_to_8bit_pixel_depth)
             if image_orig is False:
                 return
 
@@ -236,7 +236,7 @@ class CompositeCapture(FloatLayout):
 
         live_histo_off()
 
-        if not ctx.scope.camera_active:
+        if not ctx.scope.imaging.camera_active:
             return
 
         scope_display = self.ids['viewer_id'].ids['scope_display_id']
@@ -346,9 +346,9 @@ class CompositeCapture(FloatLayout):
                     )
 
                 gain = layer_settings[trans_layer]['gain']
-                ctx.scope.set_gain_sync(gain)
+                ctx.scope.imaging.set_gain_sync(gain)
                 exposure = layer_settings[trans_layer]['exp']
-                ctx.scope.set_exposure_sync(exposure)
+                ctx.scope.imaging.set_exposure_sync(exposure)
                 illumination = layer_settings[trans_layer]['ill']
 
                 ctx.scope.illumination.led_on_sync(
@@ -356,7 +356,7 @@ class CompositeCapture(FloatLayout):
                 )
 
                 transmitted_image = np.array(
-                    ctx.scope.capture_and_wait_sync(
+                    ctx.scope.imaging.capture_and_wait_sync(
                         force_to_8bit=not use_full_pixel_depth,
                     ),
                     dtype=dtype,
@@ -381,9 +381,9 @@ class CompositeCapture(FloatLayout):
                     )
 
                 gain = layer_settings[layer]['gain']
-                ctx.scope.set_gain_sync(gain)
+                ctx.scope.imaging.set_gain_sync(gain)
                 exposure = layer_settings[layer]['exp']
-                ctx.scope.set_exposure_sync(exposure)
+                ctx.scope.imaging.set_exposure_sync(exposure)
                 sum_count = layer_settings[layer]['sum']
                 # Stage B1: see comment above; update_scopedisplay retired.
                 sum_iteration_callback = None
@@ -399,7 +399,7 @@ class CompositeCapture(FloatLayout):
                         ctx.scope.illumination.color2ch(layer), illumination,
                     )
 
-                img_gray = ctx.scope.capture_and_wait_sync(
+                img_gray = ctx.scope.imaging.capture_and_wait_sync(
                     force_to_8bit=not use_full_pixel_depth,
                     sum_count=sum_count,
                     sum_delay_s=exposure/1000,

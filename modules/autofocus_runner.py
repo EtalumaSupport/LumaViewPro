@@ -52,7 +52,7 @@ class AutofocusRunner:
 
         self._reset_state()
 
-        if not self._scope.camera_active:
+        if not self._scope.imaging.camera_active:
             return
 
         self._objective_loader = ObjectiveLoader()
@@ -111,7 +111,7 @@ class AutofocusRunner:
         z_min = max(0, center-range)
         z_max = center+range
         resolution = self._objective['AF_max']
-        exposure = self._scope.get_exposure_time()
+        exposure = self._scope.imaging.get_exposure_time()
 
         self._params = {
             'center': center,
@@ -233,7 +233,7 @@ class AutofocusRunner:
             logger.debug(f"[AF] Could not snapshot pre-AF Z position: {e}")
             self._saved_z_position = None
         self._saved_led_state = self._scope.illumination.save_led_state('autofocus')
-        self._saved_camera_state = self._scope.save_camera_state('autofocus')
+        self._saved_camera_state = self._scope.imaging.save_camera_state('autofocus')
         _af_log.info(f'[AF DIAG] Saved pre-AF camera state: '
                      f'gain={self._saved_camera_state.get("gain", "?")} '
                      f'exp={self._saved_camera_state.get("exposure", "?")} '
@@ -241,9 +241,9 @@ class AutofocusRunner:
         # Apply the step's camera settings so AF scans with correct gain
         # and exposure rather than inheriting the prior step's values.
         if self._camera_gain is not None:
-            self._scope.set_gain(self._camera_gain)
+            self._scope.imaging.set_gain(self._camera_gain)
         if self._camera_exposure is not None:
-            self._scope.set_exposure_time(self._camera_exposure)
+            self._scope.imaging.set_exposure_time(self._camera_exposure)
         # Clean LED state before AF's _led_on fires. led_on is additive
         # at the API + driver layers; a Live-mode LED on a different
         # channel would otherwise stay lit alongside the AF channel and
@@ -375,11 +375,11 @@ class AutofocusRunner:
                 _af_log.info(f'[AF DIAG] Restoring pre-AF camera state: '
                              f'gain={self._saved_camera_state.get("gain", "?")} '
                              f'exp={self._saved_camera_state.get("exposure", "?")}')
-                self._scope.restore_camera_state(self._saved_camera_state)
+                self._scope.imaging.restore_camera_state(self._saved_camera_state)
             _af_log.info(
                 f'[AF DIAG] Clearing _af_in_progress -- '
-                f'camera now at gain={self._scope.get_gain()} '
-                f'exp={self._scope.get_exposure_time()}'
+                f'camera now at gain={self._scope.imaging.get_gain()} '
+                f'exp={self._scope.imaging.get_exposure_time()}'
             )
             self._af_in_progress.clear()
             self._abort_event = None
@@ -427,7 +427,7 @@ class AutofocusRunner:
             num_retries = 5
             count = 0
             while True:
-                image = self._scope.capture_and_wait(exclude_sources=('z_move',))
+                image = self._scope.imaging.capture_and_wait(exclude_sources=('z_move',))
                 count += 1
                 if isinstance(image, np.ndarray):
                     break
@@ -446,7 +446,7 @@ class AutofocusRunner:
             mean_intensity = float(np.mean(image))
             if mean_intensity < 1.0:
                 _af_log.warning(f'  DARK FRAME: mean={mean_intensity:.2f}, retrying')
-                retry = self._scope.capture_and_wait(exclude_sources=('z_move',))
+                retry = self._scope.imaging.capture_and_wait(exclude_sources=('z_move',))
                 if isinstance(retry, np.ndarray):
                     image = retry
 

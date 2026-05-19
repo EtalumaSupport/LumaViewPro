@@ -190,8 +190,8 @@ class ProtocolImageWriter:
 
             # #610 diagnostic: trace camera settings decision at each capture
             _ag = step['Auto_Gain']
-            _curr_gain = self._scope.get_gain()
-            _curr_exp = self._scope.get_exposure_time()
+            _curr_gain = self._scope.imaging.get_gain()
+            _curr_exp = self._scope.imaging.get_exposure_time()
             logger.debug(
                 f"[CAPTURE DIAG] step={step.get('Name','?')} color={step['Color']} "
                 f"Auto_Gain={_ag!r} (type={type(_ag).__name__}) "
@@ -201,7 +201,7 @@ class ProtocolImageWriter:
 
             if not step['Auto_Gain']:
                 logger.debug(f"[CAPTURE DIAG] Applying step camera settings: gain={step['Gain']}, exp={step['Exposure']}")
-                # STALL-1 fix: removed the `with self._scope.update_camera_config():`
+                # STALL-1 fix: removed the `with self._scope.imaging.update_camera_config():`
                 # wrapper that was here. update_camera_config() does StopGrabbing +
                 # StartGrabbing, which Pylon SDK only requires for buffer-geometry
                 # changes (Width/Height/PixelFormat/Binning/Offset) — NOT for Gain
@@ -220,8 +220,8 @@ class ProtocolImageWriter:
                 # SDK/firmware combo — revert this change and add a
                 # `requires_buffer_realloc=True` audit. Per Basler convention
                 # both should be live-changeable.
-                self._scope.set_gain(step['Gain'])
-                self._scope.set_exposure_time(step['Exposure'])
+                self._scope.imaging.set_gain(step['Gain'])
+                self._scope.imaging.set_exposure_time(step['Exposure'])
             else:
                 logger.warning(f"[CAPTURE DIAG] SKIPPING camera settings -- Auto_Gain is truthy: {_ag!r}")
 
@@ -340,7 +340,7 @@ class ProtocolImageWriter:
 
                 else:
                     # Frame validity drains stale frames, then grabs a valid one
-                    captured_image = self._scope.capture_and_wait(
+                    captured_image = self._scope.imaging.capture_and_wait(
                         force_to_8bit=not use_full_pixel_depth,
                         all_ones_check=True,
                         timeout=datetime.timedelta(seconds=1.0),

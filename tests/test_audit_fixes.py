@@ -2908,17 +2908,6 @@ class TestFrameValidity_CompositeEngineeringBranchDrains:
     image to disk via the subsequent save_image call. Must route through
     capture_and_wait."""
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason=(
-            "Phase 4b test-first migration: asserts production source contains "
-            "the new scope.imaging.capture_and_wait( call form, but ui/"
-            "composite_capture.py still has the bare scope.capture_and_wait( "
-            "form until Phase 4e production caller migration. Flips to xpass "
-            "(then ERROR via xfail strict) when 4e ships; remove the decorator "
-            "at that point."
-        ),
-    )
     def test_live_capture_impl_uses_capture_and_wait(self):
         from pathlib import Path
         src = (Path(__file__).resolve().parent.parent / "ui" / "composite_capture.py").read_text()

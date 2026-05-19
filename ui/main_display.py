@@ -67,7 +67,7 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
             settings = ctx.settings
 
             scope_display = self.ids['viewer_id'].ids['scope_display_id']
-            if not self.scope.camera_active:
+            if not self.scope.imaging.camera_active:
                 return
 
             if scope_display.play:
@@ -149,7 +149,7 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
             logger.warning('[LVP Main  ] Recording already in progress, ignoring duplicate record_init()')
             return
 
-        if not self.scope.camera_active:
+        if not self.scope.imaging.camera_active:
             return
 
         # Atomically claim the recording operation
@@ -170,8 +170,8 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
         # that gates pre-flight + camera-rate-toggle below.
         self._user_requested_fps_limit = max_fps > 0
 
-        frame_size = self.scope.camera_frame_size
-        exposure = self.scope.camera_exposure_ms
+        frame_size = self.scope.imaging.camera_frame_size
+        exposure = self.scope.imaging.camera_exposure_ms
         exposure_freq = 1.0 / (exposure / 1000)
         # Pre-flight: warn if the user requested an FPS limit that
         # exposure can't hit. Accept the achievable rate either way.
@@ -326,7 +326,7 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
         capture_interval = 1.0 / video_fps
         self.recording_title_update = Clock.schedule_interval(self.update_recording_title, 0.1)
         self.recording_check = Clock.schedule_interval(self.check_recording_state, capture_interval)
-        self.scope.register_frame_callback(self._on_camera_frame)
+        self.scope.imaging.register_frame_callback(self._on_camera_frame)
 
     def _on_camera_frame(self, image, frame_ts, chunks):
         """Camera-SDK-thread callback: reserve next save slot and enqueue write.
@@ -391,7 +391,7 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
         queued ahead of the finalize task complete first.
         """
         try:
-            self.scope.unregister_frame_callback(self._on_camera_frame)
+            self.scope.imaging.unregister_frame_callback(self._on_camera_frame)
         except Exception as e:
             logger.warning(f'[LVP Main  ] unregister_frame_callback failed: {e}')
         if self.recording_check is not None:
@@ -464,7 +464,7 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
         # enable, to avoid touching a knob the user may have set elsewhere.
         if getattr(self, '_fps_limit_was_enabled', False):
             try:
-                self.scope.set_max_acquisition_frame_rate(False, 0.0)
+                self.scope.imaging.set_max_acquisition_frame_rate(False, 0.0)
                 self._fps_limit_was_enabled = False
                 logger.info('Manual-Video] Camera FPS limit disabled (free-run restored)')
             except Exception as e:
@@ -856,7 +856,7 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
 
     def fit_image(self):
         logger.info('[LVP Main  ] MainDisplay.fit_image()')
-        if not self.scope.camera_active:
+        if not self.scope.imaging.camera_active:
             return
         self.ids['viewer_id'].scale = 1
         self.ids['viewer_id'].pos = (0,0)
@@ -864,13 +864,13 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
     def one2one_image(self):
         try:
             logger.info('[LVP Main  ] MainDisplay.one2one_image()')
-            if not self.scope.camera_active:
+            if not self.scope.imaging.camera_active:
                 return
             scope = _app_ctx.ctx.scope
             w = self.width
             h = self.height
-            scale_hor = float(scope.get_width()) / float(w)
-            scale_ver = float(scope.get_height()) / float(h)
+            scale_hor = float(scope.imaging.get_width()) / float(w)
+            scale_ver = float(scope.imaging.get_height()) / float(h)
             scale = max(scale_hor, scale_ver)
             self.ids['viewer_id'].scale = scale
             self.ids['viewer_id'].pos = (int((w-scale*w)/2),int((h-scale*h)/2))

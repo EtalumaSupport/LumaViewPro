@@ -357,7 +357,7 @@ class ImagingAPI:
             bool: True on success. False if the camera is absent /
                 inactive, the driver returned False (unsupported format),
                 or the driver raised. Never raises -- caller may safely
-                check `if not scope.set_pixel_format(...)` for fallback.
+                check `if not scope.imaging.set_pixel_format(...)` for fallback.
         """
         if not self._driver or not self._driver.active:
             return False
@@ -1511,9 +1511,9 @@ class ImagingAPI:
 
         Usage::
 
-            with scope.update_camera_config():
-                scope.set_gain(5.0)
-                scope.set_exposure_time(100)
+            with scope.imaging.update_camera_config():
+                scope.imaging.set_gain(5.0)
+                scope.imaging.set_exposure_time(100)
 
         Returns:
             A context manager. Falls back to ``contextlib.nullcontext()``

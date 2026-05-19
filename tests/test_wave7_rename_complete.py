@@ -350,16 +350,6 @@ def _find_imaging_method_accesses(tree: ast.AST) -> list[tuple[int, str]]:
     return hits
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "Phase 4b guard staged ahead of body relocation. Production code "
-        "still calls scope.<imaging-method> via the imaging.py forwarders. "
-        "Failures flip to passing after Phase 4e production caller migration; "
-        "when this xfail strict=True ERRORs (unexpectedly passed), remove "
-        "the decorator -- Phase 4 imaging migration is complete."
-    ),
-)
 def test_no_imaging_method_calls_on_bare_scope_in_production():
     failures: list[str] = []
     for path in _iter_prod_files():
@@ -385,18 +375,6 @@ def test_no_imaging_method_calls_on_bare_scope_in_production():
     )
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "Phase 4b guard staged ahead of body relocation. _lumascope.py "
-        "still calls self.<imaging-method> inside Lumascope's own methods "
-        "(46 sites per docs/WAVE7_PHASE_4_PLAN.md section 11.8). The pair "
-        "of this guard with the bare-scope guard above is the post-#670 "
-        "lesson -- Phase 3f shipped bare-scope only and missed 4 inside-class "
-        "self.X calls, causing beta12 DOA. Flips to passing after Phase 4e "
-        "inside-class migration; remove the decorator when xfail strict ERRORs."
-    ),
-)
 def test_no_self_imaging_calls_in_lumascope():
     """Lumascope's own methods must not reach imaging-only methods via
     bare `self.X` -- they belong on `self.imaging.X` after Phase 4f
