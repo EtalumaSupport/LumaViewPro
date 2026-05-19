@@ -605,6 +605,62 @@ scope.pixel_size()                         # µm per pixel (method — depends o
 scope.lens_focal_length()                  # current tube-lens focal length (method)
 ```
 
+### Diagnostics
+
+Hardware diagnostic probes live on the `scope.diagnostics` sub-API.
+Per-call (no persistent state); meant for tech-support reports,
+bench tooling, and bring-up scripts that want one-shot snapshots of
+camera / motor / LED state.
+
+```python
+# Camera diagnostic snapshot. Returns dict with model, resolution,
+# pixel_format, gain, exposure_ms, max_gain, max_exposure_ms,
+# temperatures (Celsius), and per-field error strings when a probe
+# fails. Returns {'connected': False} when no camera is active.
+info = scope.diagnostics.get_camera_diagnostic_info()
+
+# Camera temperature sensors. Returns dict {sensor_name: degC} or
+# empty when the camera lacks temperature sensors or is inactive.
+temps = scope.diagnostics.get_camera_temperatures()
+
+# Camera bandwidth + grab-cycle benchmarks. Both write a JSON
+# artifact to data/camera_timing/ keyed on model + SDK + delay so a
+# sweep across delays / num_cycles produces one file per data point.
+bw = scope.diagnostics.run_camera_bandwidth_test(num_frames=1000)
+gc = scope.diagnostics.run_grab_lifecycle_benchmark(
+    num_cycles=100, inter_cycle_delay_ms=200, vary_settings=False,
+)
+
+# Pylon-specific cross-host / cross-camera / cross-firmware probe.
+# Captures camera identity, current config, stream-grabber stats
+# deltas over duration_s. Writes JSON to data/pylon_probe/. Returns
+# the driver's {'supported': False, ...} shape unchanged for IDS or
+# other non-Pylon drivers. Does NOT change grab state.
+probe = scope.diagnostics.run_pylon_diagnostic_probe(
+    duration_s=3.0, drain_camera_side_errors=True,
+)
+
+# Engineering-mode firmware diagnostic commands. Routes through the
+# canonical driver path (Rule 13 logging, Rule 14 error visibility).
+# target is 'led' or 'motor'.
+resp = scope.diagnostics.send_diagnostic_command('led', 'INFO')
+lines = scope.diagnostics.send_diagnostic_command_multiline(
+    'led', 'SELFTEST', timeout=60,
+)
+
+# Motor-board power / driver / fan diagnostics (already on
+# DiagnosticsAPI pre-Phase-5; documented here for completeness).
+voltages = scope.diagnostics.read_motor_voltages()         # dict {rail: V} or None
+status = scope.diagnostics.read_motor_drv_status('Z')       # int register or None
+rpm = scope.diagnostics.read_motor_fanspeed()              # RPM or None
+ok = scope.diagnostics.set_motor_fan_duty(50)              # bool
+
+# LED engineering-mode handshake (FACTORY / Y / Q with post-Q drain).
+# Use these in place of open-coded send_diagnostic_command sequences.
+ok = scope.diagnostics.enter_led_engineering_mode(timeout=5.0)
+scope.diagnostics.exit_led_engineering_mode()
+```
+
 ### Coordinate transformations
 
 ```python

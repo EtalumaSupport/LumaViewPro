@@ -1588,38 +1588,6 @@ class Lumascope():
             'connected': True,
         }
 
-    def get_camera_temperatures(self) -> dict:
-        return self.diagnostics.get_camera_temperatures()
-
-    # ------------------------------------------------------------------
-    # Diagnostic API (LAYER-D / LV-23, LV-24, LV-32, LV-40)
-    # Tech-support / bring-up / bench tools route diagnostics through
-    # these methods so the API layer owns Rule-13 logging and Rule-14
-    # error visibility. Modules MUST NOT call `self._camera_driver.get_image()`,
-    # `scope.led.exchange_command()`, etc. directly — see audit doc
-    # `docs/AUDIT_LAYER_VIOLATIONS_2026-05-01.md` Cluster D.
-    # ------------------------------------------------------------------
-
-    def get_camera_diagnostic_info(self) -> dict:
-        return self.diagnostics.get_camera_diagnostic_info()
-
-    def run_camera_bandwidth_test(self, num_frames: int, *, timeout_s: float=60.0, progress_cb=None) -> dict:
-        return self.diagnostics.run_camera_bandwidth_test(num_frames, timeout_s=timeout_s, progress_cb=progress_cb)
-
-    def run_grab_lifecycle_benchmark(self, num_cycles: int=100, inter_cycle_delay_ms: float=0.0, vary_settings: bool=False, *, slow_threshold_s: float=3.0, progress_cb=None) -> dict:
-        return self.diagnostics.run_grab_lifecycle_benchmark(num_cycles, inter_cycle_delay_ms, vary_settings, slow_threshold_s=slow_threshold_s, progress_cb=progress_cb)
-
-
-    def run_pylon_diagnostic_probe(self, duration_s: float=3.0, *, drain_camera_side_errors: bool=True, progress_cb=None) -> dict:
-        return self.diagnostics.run_pylon_diagnostic_probe(duration_s, drain_camera_side_errors=drain_camera_side_errors, progress_cb=progress_cb)
-
-
-    def send_diagnostic_command(self, target: str, command: str, *, response_numlines: int | None=None, timeout: float | None=None) -> str:
-        return self.diagnostics.send_diagnostic_command(target, command, response_numlines=response_numlines, timeout=timeout)
-
-    def send_diagnostic_command_multiline(self, target: str, command: str, *, timeout: float=60, end_markers: list[str] | None=None) -> 'str | list[str]':
-        return self.diagnostics.send_diagnostic_command_multiline(target, command, timeout=timeout, end_markers=end_markers)
-
     @classmethod
     def create_diagnostic(cls) -> 'Lumascope':
         """Create a minimal Lumascope for diagnostics (no camera init).
