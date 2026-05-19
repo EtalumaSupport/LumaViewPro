@@ -1331,9 +1331,10 @@ class TestRule14_A9_SetBinningSizeNotify:
 
     def test_set_binning_size_exception_notifies(self):
         """lumascope_api.set_binning_size must call notifications.error when
-        the underlying SDK call raises."""
+        the underlying SDK call raises. Body relocated to imaging.py in
+        Wave 7 Phase 4d."""
         import pathlib
-        source = pathlib.Path("modules/lumascope_api/_lumascope.py").read_text()
+        source = pathlib.Path("modules/lumascope_api/imaging.py").read_text()
         idx = source.find("def set_binning_size(self, size: int) -> bool:")
         assert idx != -1, "set_binning_size must exist with `-> bool` annotation"
         method_body = source[idx:idx+1500]
@@ -1354,23 +1355,26 @@ class TestSetBinningSizeReturnsBool:
     """
 
     def test_set_binning_size_has_bool_return_annotation(self):
+        # Body relocated to imaging.py in Wave 7 Phase 4d.
         import pathlib
-        source = pathlib.Path("modules/lumascope_api/_lumascope.py").read_text()
+        source = pathlib.Path("modules/lumascope_api/imaging.py").read_text()
         idx = source.find("def set_binning_size(self, size: int) -> bool:")
         assert idx != -1, \
-            "Lumascope.set_binning_size must declare `-> bool` (Wave 1 B1; Rule 37)"
+            "ImagingAPI.set_binning_size must declare `-> bool` (Wave 1 B1; Rule 37)"
 
     def test_set_binning_size_returns_driver_value(self):
         """Method body must capture and return the driver's return value
-        on the success path, not drop it."""
+        on the success path, not drop it. Body relocated to imaging.py in
+        Wave 7 Phase 4d; driver access switched from self._camera_driver
+        to self._driver (the @property)."""
         import pathlib
-        source = pathlib.Path("modules/lumascope_api/_lumascope.py").read_text()
+        source = pathlib.Path("modules/lumascope_api/imaging.py").read_text()
         idx = source.find("def set_binning_size(self, size: int) -> bool:")
         assert idx != -1
         # End the slice at the next def at module column 4 to scope the body
         next_def = source.find("\n    def ", idx + 1)
         body = source[idx:next_def] if next_def != -1 else source[idx:idx+2000]
-        assert "ok = self._camera_driver.set_binning_size(size=size)" in body, \
+        assert "ok = self._driver.set_binning_size(size=size)" in body, \
             "set_binning_size must capture driver return into `ok`"
         assert "return ok" in body, \
             "set_binning_size success path must `return ok` (Wave 1 B1)"
@@ -1380,7 +1384,7 @@ class TestSetBinningSizeReturnsBool:
     def test_set_binning_size_has_returns_docstring_section(self):
         """Rule 38: public methods declare what they return."""
         import pathlib
-        source = pathlib.Path("modules/lumascope_api/_lumascope.py").read_text()
+        source = pathlib.Path("modules/lumascope_api/imaging.py").read_text()
         idx = source.find("def set_binning_size(self, size: int) -> bool:")
         next_def = source.find("\n    def ", idx + 1)
         body = source[idx:next_def] if next_def != -1 else source[idx:idx+2000]
@@ -2156,8 +2160,9 @@ class TestAOC1_SaturationCheckShortCircuit:
     """
 
     def test_source_uses_not_any_form(self):
+        # get_image body relocated to imaging.py in Wave 7 Phase 4d.
         from pathlib import Path
-        src = (Path(__file__).resolve().parent.parent / "modules" / "lumascope_api" / "_lumascope.py").read_text()
+        src = (Path(__file__).resolve().parent.parent / "modules" / "lumascope_api" / "imaging.py").read_text()
         assert "not np.any(tmp != np.iinfo(tmp.dtype).max)" in src, (
             "AOC-1: get_image() saturation check should use the short-circuit "
             "`not np.any(tmp != max)` form."
@@ -2211,8 +2216,9 @@ class TestAOC2_RetrySaturationCheckOutsideCamLock:
     """
 
     def test_retry_saturation_walk_is_outside_cam_lock(self):
+        # get_image body relocated to imaging.py in Wave 7 Phase 4d.
         from pathlib import Path
-        src = (Path(__file__).resolve().parent.parent / "modules" / "lumascope_api" / "_lumascope.py").read_text()
+        src = (Path(__file__).resolve().parent.parent / "modules" / "lumascope_api" / "imaging.py").read_text()
         # The old form: np.all(retry_frame == ...) inside the with self._cam_lock: block
         assert "np.all(retry_frame == np.iinfo(retry_frame.dtype).max)" not in src, (
             "AOC-2: old `np.all(retry_frame == max)` form should be replaced."
@@ -2229,12 +2235,17 @@ class TestAOC2_RetrySaturationCheckOutsideCamLock:
 
     def test_retry_frame_initialized_before_lock_block(self):
         """Structural: retry_frame must be initialized before the with block so the
-        outside-lock check can reference it whether or not the grab succeeded."""
+        outside-lock check can reference it whether or not the grab succeeded.
+
+        get_image body relocated to imaging.py in Wave 7 Phase 4d; cam_lock
+        access went from self._cam_lock to self._scope._cam_lock (the lock
+        stays on Lumascope; ImagingAPI reaches it via the back-reference).
+        """
         from pathlib import Path
-        src = (Path(__file__).resolve().parent.parent / "modules" / "lumascope_api" / "_lumascope.py").read_text()
+        src = (Path(__file__).resolve().parent.parent / "modules" / "lumascope_api" / "imaging.py").read_text()
         # Find the retry block; verify retry_frame = None precedes the with statement.
         idx_init = src.find("retry_frame = None")
-        idx_lock = src.find("with self._cam_lock:", idx_init)
+        idx_lock = src.find("with self._scope._cam_lock:", idx_init)
         idx_retry_grab = src.find("retry_status", idx_lock)
         assert idx_init != -1, "AOC-2: expected `retry_frame = None` initializer."
         assert idx_init < idx_lock < idx_retry_grab, (
@@ -2632,8 +2643,9 @@ class TestPF5_ImageBufferRetired:
         )
 
     def test_get_image_returns_local_variable(self):
+        # get_image body relocated to imaging.py in Wave 7 Phase 4d.
         from pathlib import Path
-        src = (Path(__file__).resolve().parent.parent / "modules" / "lumascope_api" / "_lumascope.py").read_text()
+        src = (Path(__file__).resolve().parent.parent / "modules" / "lumascope_api" / "imaging.py").read_text()
         # The chain must use a local `image` variable.
         assert "image = image_utils.add_scale_bar(" in src, (
             "PF-5: scale-bar step should bind to local `image` instead of self.image_buffer."
@@ -2743,6 +2755,8 @@ class TestFrameValidity_SaveLiveImageDrainsBeforeGrab:
     manual save; the canonical helper is self.capture_and_wait(...)."""
 
     def test_save_live_image_calls_capture_and_wait(self):
+        # save_live_image stays on Lumascope; it composes labware + position
+        # with imaging.capture_and_wait. Not relocated in Phase 4.
         from pathlib import Path
         src = (Path(__file__).resolve().parent.parent / "modules" / "lumascope_api" / "_lumascope.py").read_text()
         calls = _function_body_calls(src, "save_live_image")
@@ -2843,7 +2857,7 @@ class TestFrameValidity_LegacyCaptureRoutesThroughCaptureAndWait:
 
     def test_capture_complete_calls_capture_and_wait(self):
         from pathlib import Path
-        src = (Path(__file__).resolve().parent.parent / "modules" / "lumascope_api" / "_lumascope.py").read_text()
+        src = (Path(__file__).resolve().parent.parent / "modules" / "lumascope_api" / "imaging.py").read_text()
         body = _function_source(src, "capture_complete")
         assert "self.capture_and_wait(" in body, (
             "capture_complete must call self.capture_and_wait(...) -- previously "
@@ -2871,7 +2885,7 @@ class TestFrameValidity_LegacyCaptureRoutesThroughCaptureAndWait:
 
     def test_capture_emits_deprecation_warning(self):
         from pathlib import Path
-        src = (Path(__file__).resolve().parent.parent / "modules" / "lumascope_api" / "_lumascope.py").read_text()
+        src = (Path(__file__).resolve().parent.parent / "modules" / "lumascope_api" / "imaging.py").read_text()
         body = _function_source(src, "capture")
         assert "DeprecationWarning" in body, (
             "capture must emit a DeprecationWarning so callers migrate to capture_and_wait."
@@ -2932,10 +2946,9 @@ class TestFrameValidity_AllLedMutatorsInvalidate:
     invalidate; this test locks the invariant so a future cleanup that
     removes any call fires the regression.
 
-    Post-Wave-7-Phase-3d: bodies live on IlluminationAPI and reach
-    frame_validity via `self._scope.frame_validity.invalidate(...)`
-    because frame_validity is still owned by Lumascope (relocates to
-    ImagingAPI in Phase 4).
+    Post-Wave-7-Phase-4d: frame_validity instance lives on ImagingAPI;
+    IlluminationAPI reaches it via
+    `self._scope.imaging.frame_validity.invalidate(...)`.
     """
 
     LED_MUTATORS = (
@@ -2953,12 +2966,12 @@ class TestFrameValidity_AllLedMutatorsInvalidate:
         missing = []
         for func in self.LED_MUTATORS:
             method_src = _function_source(src, func)
-            if "self._scope.frame_validity.invalidate(" not in method_src:
+            if "self._scope.imaging.frame_validity.invalidate(" not in method_src:
                 missing.append(func)
         assert not missing, (
             "LED mutator coverage: each IlluminationAPI LED state-mutator must call "
-            "self._scope.frame_validity.invalidate('led') so frame_validity sees the "
-            f"transition. Missing: {missing!r}."
+            "self._scope.imaging.frame_validity.invalidate('led') so frame_validity sees "
+            f"the transition. Missing: {missing!r}."
         )
 
 
@@ -2970,7 +2983,7 @@ class TestCaptureAndWaitPassesChunksToValidity:
 
     def test_capture_and_wait_passes_chunk_data_to_count_frame(self):
         from pathlib import Path
-        src = (Path(__file__).resolve().parent.parent / "modules" / "lumascope_api" / "_lumascope.py").read_text()
+        src = (Path(__file__).resolve().parent.parent / "modules" / "lumascope_api" / "imaging.py").read_text()
         body = _function_source(src, "capture_and_wait")
         # Source mentions count_frame call site with chunk_data kwarg
         assert "count_frame(chunk_data=" in body, (
@@ -3015,7 +3028,7 @@ class TestLumascopeRecordsTargetForChunkMatch:
 
     def test_set_gain_records_target(self):
         from pathlib import Path
-        src = (Path(__file__).resolve().parent.parent / "modules" / "lumascope_api" / "_lumascope.py").read_text()
+        src = (Path(__file__).resolve().parent.parent / "modules" / "lumascope_api" / "imaging.py").read_text()
         body = _function_source(src, "set_gain")
         assert "self.frame_validity.set_target('gain'" in body, (
             "set_gain must record gain target via frame_validity.set_target."
@@ -3026,7 +3039,7 @@ class TestLumascopeRecordsTargetForChunkMatch:
         Conversion (* 1000) must happen at the seam so chunk-match's
         tolerance is in matching units."""
         from pathlib import Path
-        src = (Path(__file__).resolve().parent.parent / "modules" / "lumascope_api" / "_lumascope.py").read_text()
+        src = (Path(__file__).resolve().parent.parent / "modules" / "lumascope_api" / "imaging.py").read_text()
         body = _function_source(src, "set_exposure_time")
         assert "self.frame_validity.set_target('exposure'" in body, (
             "set_exposure_time must record target via set_target."
@@ -3038,7 +3051,7 @@ class TestLumascopeRecordsTargetForChunkMatch:
 
     def test_set_auto_gain_clears_target(self):
         from pathlib import Path
-        src = (Path(__file__).resolve().parent.parent / "modules" / "lumascope_api" / "_lumascope.py").read_text()
+        src = (Path(__file__).resolve().parent.parent / "modules" / "lumascope_api" / "imaging.py").read_text()
         body = _function_source(src, "set_auto_gain")
         assert "set_target('gain', None)" in body, (
             "set_auto_gain must clear gain target (None) so chunk-match doesn't "
@@ -3047,7 +3060,7 @@ class TestLumascopeRecordsTargetForChunkMatch:
 
     def test_set_auto_exposure_time_clears_target(self):
         from pathlib import Path
-        src = (Path(__file__).resolve().parent.parent / "modules" / "lumascope_api" / "_lumascope.py").read_text()
+        src = (Path(__file__).resolve().parent.parent / "modules" / "lumascope_api" / "imaging.py").read_text()
         body = _function_source(src, "set_auto_exposure_time")
         assert "set_target('exposure', None)" in body, (
             "set_auto_exposure_time must clear exposure target (None)."

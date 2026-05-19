@@ -1,11 +1,11 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """ImagingAPI -- sub-API for camera capture / image acquisition.
 
-Wave 7 Phase 4c -- stateless bodies relocated from Lumascope. The
-remaining ~30 stateful bodies + state slots (_camera_cache, _frame_buffer,
+Wave 7 Phase 4d -- stateful bodies and state slots fully relocated
+from Lumascope. ImagingAPI owns _camera_cache, _frame_buffer,
 _scale_bar, _capturing_event, _focusing_event, _camera_listeners,
-frame_validity instance) relocate in Phase 4d. Lumascope keeps Rule-30
-one-line forwarders until Phase 4f.
+_camera_temp_event, _binning_size, _suppress_value_warnings,
+_capture_return, _autofocus_return, and the frame_validity instance.
 
 See docs/PLUGIN_API_DESIGN_2026-05-09.md sec 2.3 for the canonical
 method list. Frame-listener registry and live_processing plugin
@@ -14,10 +14,24 @@ infrastructure ship in Wave 7 Phase 4d.5.
 
 from __future__ import annotations
 
+import contextlib
+import datetime
 import logging as _logging
+import os
+import pathlib
+import threading
+import time
+import warnings
 from typing import TYPE_CHECKING
 
+import numpy as np
+
 from lvp_logger import logger
+import modules.common_utils as common_utils
+import modules.image_utils as image_utils
+from modules.frame_validity import FrameValidity
+from modules.notification_center import notifications
+from modules.sequential_io_executor import IOTask
 
 if TYPE_CHECKING:
     from modules.lumascope_api._lumascope import Lumascope
@@ -27,8 +41,9 @@ _api_log = _logging.getLogger('LVP.api')
 
 
 class ImagingAPI:
-    """Imaging sub-API. Owns stateless camera setters/getters/passthroughs
-    after Phase 4c; full body + state ownership in Phase 4d/4f.
+    """Imaging sub-API. Owns camera setters/getters/orchestration plus
+    camera state slots (cache, frame_buffer, scale_bar, listeners,
+    capture/focus events) and the frame_validity instance.
     """
 
     def __init__(self, scope: 'Lumascope', driver: 'Camera | None') -> None:
@@ -40,6 +55,81 @@ class ImagingAPI:
         # IlluminationAPI._driver (Wave 7 Phase 2b / 3c precedent).
         del driver  # noqa -- intentionally unused, kept for backward call sites
 
+        # Camera change listeners -- push-based UI update mechanism.
+        # Each listener is called with (param: str, value: float) whenever
+        # camera gain or exposure changes. param is 'gain' or 'exposure'.
+        # Fires from the thread that caused the change, so listeners MUST
+        # schedule UI work via Clock.schedule_once.
+        self._camera_listeners_lock = threading.Lock()
+        self._camera_listeners: list = []
+
+        # Latest captured frame; populated by get_image_from_buffer /
+        # get_image_with_chunks_from_buffer.
+        self._frame_buffer = None
+
+        # Boolean operation flags -- threading.Event for wait/signal.
+        self._capturing_event = threading.Event()   # set => capture in progress
+        self._focusing_event = threading.Event()    # set => autofocus in progress
+
+        # Capture / autofocus return slots. Reads/writes under
+        # self._scope._state_lock (shared with other Lumascope state).
+        self._capture_return = False
+        self._autofocus_return = False
+
+        # When True, programmatic value-range warnings (sub-0.1ms exposure,
+        # future similar setters) are silenced. Internal callers that sweep
+        # full ranges (camera characterization, dynamic-range tests) enter
+        # this via suppress_value_warnings(); the warnings exist for L1
+        # researchers who type microsecond values thinking ms.
+        self._suppress_value_warnings = False
+
+        # Frame validity instance -- ground-truth for "is this frame
+        # ready to score / save?" Phase 4d closes the cross-API loop
+        # from Phase 3 where motion.py / illumination.py referenced
+        # self._scope.frame_validity. Lumascope.__init__ wires up the
+        # motion-settle check after this slot is set.
+        self.frame_validity = FrameValidity()
+
+        # Camera temp logging scheduler handle.
+        self._camera_temp_event = None
+        self._camera_temp_unschedule_fn = None
+
+        # Binning size cache -- read live from driver if camera is
+        # connected, otherwise default to 1. Defensive against fake/test
+        # cameras that may not implement get_binning_size.
+        if self._driver and hasattr(self._driver, 'get_binning_size'):
+            try:
+                self._binning_size = self._driver.get_binning_size()
+            except Exception:
+                self._binning_size = 1
+        else:
+            self._binning_size = 1
+
+        # Scale-bar overlay config -- defaults disabled; users opt in via
+        # set_scale_bar(...). Reads/writes under self._scope._state_lock.
+        self._scale_bar = {
+            'enabled': False,
+            'color': None,
+        }
+
+        # Camera state cache -- push-based, not polled.
+        # Updated when camera connects and after every
+        # set_gain/set_exposure/etc. UI reads from cache with zero SDK calls.
+        self._camera_cache_lock = threading.Lock()
+        self._camera_cache = {
+            'active': False,
+            'gain': 0.0,
+            'exposure_ms': 0.0,
+            'frame_size': {'width': 0, 'height': 0},
+            'max_frame_size': {'width': 0, 'height': 0},
+            'min_frame_size': {'width': 0, 'height': 0},
+            'max_exposure': 0.0,
+            'max_gain': 0.0,
+            'pixel_format': None,
+            'binning': 1,
+        }
+        self._populate_camera_cache()
+
     @property
     def _driver(self) -> 'Camera | None':
         """Resolve the camera driver via the composition root each access.
@@ -50,27 +140,243 @@ class ImagingAPI:
         """
         return self._scope._camera_driver
 
+    # --- Private helpers (Wave 7 Phase 4d relocated from Lumascope) ---
+
+    def _load_camera_timing(self) -> None:
+        """Load per-camera timing config if available.
+
+        Looks for data/camera_timing/<model>.json and overrides
+        FrameValidity.SKIP_FRAMES with measured values.
+        """
+        if not self._driver or not self._driver.active:
+            return
+        try:
+            import json
+            import os
+            import pathlib
+            model = getattr(self._driver, 'model_name', None)
+            if not model:
+                return
+            safe_name = model.replace(' ', '_')
+            timing_dir = pathlib.Path(os.path.dirname(__file__)).parent.parent / 'data' / 'camera_timing'
+            timing_path = timing_dir / f'{safe_name}.json'
+            if not timing_path.exists():
+                return
+            with open(timing_path) as f:
+                config = json.load(f)
+            self.frame_validity.load_camera_timing(config)
+            logger.info(f'[SCOPE API ] Loaded camera timing config from {timing_path}')
+        except Exception as e:
+            logger.warning(f'[SCOPE API ] Failed to load camera timing config: {e}')
+
+    def _populate_camera_cache(self) -> None:
+        """Populate camera cache from hardware. Called at init and on reconnect."""
+        if not self._driver or not self._driver.active:
+            with self._camera_cache_lock:
+                self._camera_cache['active'] = False
+            return
+
+        try:
+            cache = {
+                'active': True,
+                'gain': self._driver.get_gain() or 0.0,
+                'exposure_ms': self._driver.get_exposure_t() or 0.0,
+                'frame_size': self._driver.get_frame_size() or {'width': 0, 'height': 0},
+                'max_frame_size': self._driver.get_max_frame_size() or {'width': 0, 'height': 0},
+                'min_frame_size': self._driver.get_min_frame_size() or {'width': 0, 'height': 0},
+                'max_exposure': self._driver.get_max_exposure() or None,
+                'max_gain': self._driver.get_max_gain() if hasattr(self._driver, 'get_max_gain') else None,
+                'pixel_format': self._driver.get_pixel_format() if hasattr(self._driver, 'get_pixel_format') else None,
+                'binning': self._driver.get_binning_size() if hasattr(self._driver, 'get_binning_size') else 1,
+            }
+            with self._camera_cache_lock:
+                self._camera_cache.update(cache)
+            logger.info('[SCOPE API ] Camera cache populated')
+        except Exception as e:
+            logger.warning(f'[SCOPE API ] Failed to populate camera cache: {e}')
+            with self._camera_cache_lock:
+                self._camera_cache['active'] = bool(self._driver and self._driver.active)
+
+    def _invalidate_camera_cache(self) -> None:
+        """Mark camera cache as inactive (e.g. on disconnect)."""
+        with self._camera_cache_lock:
+            self._camera_cache['active'] = False
+
+    def _fire_camera_listeners(self, param: str, value: float) -> None:
+        """Notify all camera listeners of a setting change."""
+        with self._camera_listeners_lock:
+            listeners = list(self._camera_listeners)
+        for fn in listeners:
+            try:
+                fn(param, value)
+            except Exception as ex:
+                _api_log.debug(f'camera listener error: {ex}')
+
     # --- Setters ---
-    def set_gain(self, *args, **kwargs):
-        return self._scope.set_gain(*args, **kwargs)
+    def set_gain(self, gain: float) -> None:
+        """Set the camera gain.
 
-    def set_exposure_time(self, *args, **kwargs):
-        return self._scope.set_exposure_time(*args, **kwargs)
+        Args:
+            gain: Gain value in dB.
+        """
+        if not self._driver or not self._driver.active: return
+        # Skip redundant SDK call if gain hasn't changed
+        if abs(float(gain) - self.camera_gain) < 0.001:
+            return
+        with self._scope._cam_lock:
+            self._driver.gain(gain)
+        self.frame_validity.invalidate('gain')
+        # Record requested gain so capture_and_wait's chunk-match can clear
+        # the pending source once a frame's ChunkGain matches.
+        self.frame_validity.set_target('gain', float(gain))
+        with self._camera_cache_lock:
+            self._camera_cache['gain'] = float(gain)
+        _api_log.info(f'set_gain {gain}dB')
+        self._fire_camera_listeners('gain', float(gain))
 
-    def set_auto_gain(self, *args, **kwargs):
-        return self._scope.set_auto_gain(*args, **kwargs)
+    def set_exposure_time(self, t: float) -> None:
+        """Set the camera exposure time.
 
-    def set_auto_exposure_time(self, *args, **kwargs):
-        return self._scope.set_auto_exposure_time(*args, **kwargs)
+        Args:
+            t: Exposure time in milliseconds.
+        """
+        if not self._driver or not self._driver.active: return
+        # Skip redundant SDK call if exposure hasn't changed
+        if abs(float(t) - self.camera_exposure_ms) < 0.001:
+            return
+        # Sanity-check threshold: 5 microseconds. Pylon physical
+        # ExposureTime minimum across Basler USB3 sensors is 10-35 us;
+        # below 5 us is impossible on any sensor we ship with and
+        # indicates a unit-confusion bug (e.g. seconds-treated-as-ms).
+        # Bright-field captures legitimately use 0.03 ms (30 us) on
+        # bright samples, so the threshold sits below that range.
+        if t < 0.005 and not self._suppress_value_warnings:
+            import traceback
+            _caller = ''.join(traceback.format_stack(limit=6)[-4:-1]).strip()
+            logger.warning(f'[SCOPE API ] set_exposure_time({t}ms) is below '
+                           f'any Basler sensor physical minimum -- camera '
+                           f'will clamp the request. Confirm the value is '
+                           f'in milliseconds, not seconds or microseconds.\n'
+                           f'Call stack:\n{_caller}')
+        with self._scope._cam_lock:
+            self._driver.exposure_t(t)
+        self.frame_validity.invalidate('exposure')
+        # Record requested exposure for chunk-match. ChunkExposureTime is
+        # microseconds; the API takes milliseconds. Convert at the seam so
+        # the chunk value and frame_validity's tolerance share units.
+        self.frame_validity.set_target('exposure', float(t) * 1000.0)
+        with self._camera_cache_lock:
+            self._camera_cache['exposure_ms'] = float(t)
+        _api_log.info(f'set_exposure {t}ms')
+        self._fire_camera_listeners('exposure', float(t))
 
-    def set_frame_size(self, *args, **kwargs):
-        return self._scope.set_frame_size(*args, **kwargs)
+    def set_auto_gain(self, state: bool, settings: dict) -> None:
+        """Enable or disable automatic gain adjustment.
 
-    def set_binning_size(self, *args, **kwargs):
-        return self._scope.set_binning_size(*args, **kwargs)
+        Args:
+            state: True to enable auto gain, False to disable.
+            settings: Dict with 'target_brightness', 'min_gain', 'max_gain'.
+        """
 
-    def set_pixel_format(self, *args, **kwargs):
-        return self._scope.set_pixel_format(*args, **kwargs)
+        if not self._driver or not self._driver.active: return
+        self._driver.auto_gain(
+            state,
+            target_brightness=settings['target_brightness'],
+            min_gain=settings['min_gain'],
+            max_gain=settings['max_gain'],
+        )
+        self.frame_validity.invalidate('gain')
+        # Auto-gain dynamically adjusts the value; clear the manual target
+        # so chunk-match falls back to skip-frames calibration.
+        self.frame_validity.set_target('gain', None)
+
+    def set_auto_exposure_time(self, state: bool = True) -> None:
+        """Enable or disable automatic exposure adjustment.
+
+        Args:
+            state: True to enable auto exposure, False to disable.
+        """
+
+        if not self._driver or not self._driver.active: return
+        self._driver.auto_exposure_t(state)
+        self.frame_validity.invalidate('exposure')
+        # Auto-exposure dynamically adjusts the value; clear the manual
+        # target so chunk-match falls back to skip-frames calibration.
+        self.frame_validity.set_target('exposure', None)
+
+    def set_frame_size(self, w: int, h: int) -> None:
+        """Set the camera frame size in pixels.
+
+        Args:
+            w: Frame width in pixels.
+            h: Frame height in pixels.
+        """
+
+        if not self._driver or not self._driver.active: return
+        self._driver.set_frame_size(w, h)
+        with self._camera_cache_lock:
+            self._camera_cache['frame_size'] = {'width': int(w), 'height': int(h)}
+
+    def set_binning_size(self, size: int) -> bool:
+        """Set camera pixel binning size.
+
+        Args:
+            size: Binning factor (1 = no binning, 2 = 2x2, etc.).
+
+        Returns:
+            bool: True if the driver applied the binning. False if the
+                camera is absent, the driver returned False (size out of
+                range, camera inactive), or the driver raised an
+                exception. Caller can use the result to decide whether to
+                proceed with operations that depend on the new binning.
+        """
+        try:
+            self._binning_size = size
+
+            if self._driver:
+                ok = self._driver.set_binning_size(size=size)
+            else:
+                ok = False
+            _api_log.info(f'set_binning {size}x{size} -> {ok}')
+            return ok
+        except Exception as ex:
+            logger.exception(f"[SCOPE API ] Error setting binning size: {ex}")
+            from modules.notification_center import notifications
+            notifications.error("Camera", "Binning change failed",
+                f"Could not set binning to {size}x{size}: {type(ex).__name__}: {ex}. "
+                f"Camera may still be at previous binning -- verify actual frame size.")
+            return False
+
+    def set_pixel_format(self, pixel_format: str) -> bool:
+        """Set the camera pixel format.
+
+        Args:
+            pixel_format: Format string (e.g. 'Mono8', 'Mono12').
+
+        Returns:
+            bool: True on success. False if the camera is absent /
+                inactive, the driver returned False (unsupported format),
+                or the driver raised. Never raises -- caller may safely
+                check `if not scope.set_pixel_format(...)` for fallback.
+        """
+        if not self._driver or not self._driver.active:
+            return False
+        try:
+            result = self._driver.set_pixel_format(pixel_format)
+        except Exception as ex:
+            logger.exception(f"[SCOPE API ] Error setting pixel format: {ex}")
+            from modules.notification_center import notifications
+            notifications.error(
+                "Camera",
+                "Pixel format change failed",
+                f"Could not set pixel format to {pixel_format}: "
+                f"{type(ex).__name__}: {ex}. Camera may still be at the "
+                f"previous format.")
+            return False
+        if result:
+            with self._camera_cache_lock:
+                self._camera_cache['pixel_format'] = pixel_format
+        return result
 
     def set_acquisition_stop_mode(self, mode: str) -> bool:
         """Set BslAcquisitionStopMode (Pylon-only; no-op on IDS).
@@ -600,11 +906,44 @@ class ImagingAPI:
             return [1]
 
     # --- Capture ---
-    def capture(self, *args, **kwargs):
-        return self._scope.capture(*args, **kwargs)
+    def capture(self) -> None:
+        """Capture an image with illumination, asynchronously. DEPRECATED.
 
-    def capture_complete(self, *args, **kwargs):
-        return self._scope.capture_complete(*args, **kwargs)
+        Schedules a deferred grab; the captured image lands in
+        ``self.capture_return`` and ``is_capturing`` is True until the
+        deferred completion fires.
+
+        Deprecated: use ``capture_and_wait`` for synchronous capture, or
+        run ``capture_and_wait`` in a worker thread for async semantics.
+        Will be removed in a future release.
+        """
+        warnings.warn(
+            "Lumascope.capture is deprecated. Use capture_and_wait() instead "
+            "(or run it in a worker thread for async semantics).",
+            DeprecationWarning, stacklevel=2,
+        )
+
+        if not self._scope._led_driver: return
+        if not self._driver or not self._driver.active: return
+
+        self.is_capturing = True
+        self.capture_return = False
+
+        # Async grab via timer thread; capture_and_wait inside the timer
+        # handles the drain. delay=0 because validity drains adaptively
+        # rather than waiting a fixed exposure-derived interval.
+        capture_timer = threading.Timer(0, self.capture_complete)
+        capture_timer.start()
+
+    def capture_complete(self) -> None:
+        """Deferred completion handler for ``capture``. DEPRECATED.
+
+        Grabs the image into ``self.capture_return`` and clears
+        ``is_capturing``. Called from a background timer thread; not
+        intended to be called directly.
+        """
+        self.capture_return = self.capture_and_wait()
+        self.is_capturing = False
 
     def capture_blocking(self) -> 'np.ndarray | bool | None':
         """Capture an image with illumination, blocking until the frame is ready. DEPRECATED.
@@ -625,8 +964,86 @@ class ImagingAPI:
 
         return self.capture_and_wait()
 
-    def capture_and_wait(self, *args, **kwargs):
-        return self._scope.capture_and_wait(*args, **kwargs)
+    def capture_and_wait(self, force_to_8bit: bool = True, *,
+                         exclude_sources: tuple = (),
+                         all_ones_check: bool = False,
+                         earliest_image_ts: datetime.datetime | None = None,
+                         timeout: datetime.timedelta = datetime.timedelta(seconds=0),
+                         sum_count: int = 1, sum_delay_s: float = 0,
+                         sum_iteration_callback=None) -> 'np.ndarray | bool':
+        """Capture a frame guaranteed to reflect the current hardware state.
+
+        Uses frame-based settling: drains stale frames from the camera pipeline
+        until frame_validity confirms all pending state changes (LED, gain,
+        exposure, motion) have settled. Then grabs a fresh valid frame.
+
+        Frame-based settling automatically adapts to the camera's frame rate --
+        fast exposures drain quickly, slow exposures drain slowly, matching
+        the actual camera pipeline depth.
+
+        Args:
+            force_to_8bit: Convert to 8-bit output.
+            exclude_sources: Sources to ignore for validity (e.g. ('z_move',)
+                for autofocus where Z motion doesn't need to fully settle).
+            all_ones_check: Reject all-max-value frames (camera hardware issue).
+            earliest_image_ts: Reject frames captured before this timestamp.
+                Forwarded to the final get_image call; complements the
+                frame-validity drain for callers that also want a wall-clock
+                lower bound on the returned frame.
+            timeout: Timeout for the final get_image call.
+            sum_count: Number of frames to sum for noise reduction.
+            sum_delay_s: Delay between summed frames.
+            sum_iteration_callback: Called after each summed frame.
+
+        Returns:
+            numpy.ndarray | False: Captured image array on success, False
+                on camera-inactive or frame-drain failure.
+        """
+        if not self._driver or not self._driver.active:
+            return False
+
+        exposure_s = self.get_exposure_time() / 1000
+        grab_timeout = max(exposure_s * 3, 1.0)
+
+        # Drain stale frames until all pending state changes have settled.
+        # Per-frame chunk metadata flows into count_frame so chunks short-
+        # circuit skip-frames for chunk-validatable sources (gain, exposure).
+        # Cameras without chunks return None and fall back to the existing
+        # skip-frames + settle-check path.
+        drain_iterations = 0
+        while self.frame_validity.frames_until_valid(exclude_sources=exclude_sources) > 0:
+            status, _ = self._driver.grab_new_capture(timeout=grab_timeout)
+            if status:
+                self.frame_validity.count_frame(chunk_data=self._get_latest_chunks())
+                drain_iterations += 1
+            else:
+                remaining = self.frame_validity.frames_until_valid(
+                    exclude_sources=exclude_sources)
+                device_removed = (
+                    self._driver.is_device_removed()
+                    if self._driver and hasattr(self._driver, 'is_device_removed')
+                    else None
+                )
+                logger.warning(
+                    f'[SCOPE API ] capture_and_wait: frame drain failed -- '
+                    f'grab_new_capture returned status=False after '
+                    f'{grab_timeout:.1f}s timeout '
+                    f'(drained={drain_iterations}, frames_until_valid={remaining}, '
+                    f'device_removed={device_removed})'
+                )
+                return False
+
+        return self.get_image(
+            force_to_8bit=force_to_8bit,
+            earliest_image_ts=earliest_image_ts,
+            all_ones_check=all_ones_check,
+            timeout=timeout,
+            sum_count=sum_count,
+            sum_delay_s=sum_delay_s,
+            sum_iteration_callback=sum_iteration_callback,
+            force_new_capture=True,
+            new_capture_timeout=grab_timeout,
+        )
 
     def capture_and_wait_sync(self, *, timeout: float = 30, **kwargs) -> 'np.ndarray | bool | None':
         """Run ``capture_and_wait`` through the camera_executor and block.
@@ -645,19 +1062,258 @@ class ImagingAPI:
             return fut.result(timeout=timeout)
         return None
 
-    def get_image(self, *args, **kwargs):
-        return self._scope.get_image(*args, **kwargs)
+    def get_image(
+        self,
+        force_to_8bit: bool = True,
+        earliest_image_ts: datetime.datetime | None = None,
+        timeout: datetime.timedelta = datetime.timedelta(seconds=5),
+        all_ones_check: bool = False,
+        sum_count: int = 1,
+        sum_delay_s: float = 0,
+        sum_iteration_callback = None,
+        force_new_capture: bool = False,
+        new_capture_timeout: int = 1000,
+    ) -> 'np.ndarray | bool':
+        """Grab and return an image from the camera.
 
-    def get_image_with_chunks_from_buffer(self, *args, **kwargs):
-        return self._scope.get_image_with_chunks_from_buffer(*args, **kwargs)
+        By default returns the last buffered frame. Set force_new_capture=True
+        to trigger a fresh capture. Multiple frames can be summed for noise
+        reduction via sum_count.
 
-    def get_image_from_buffer(self, *args, **kwargs):
-        return self._scope.get_image_from_buffer(*args, **kwargs)
+        Args:
+            force_to_8bit: Convert 12-bit images to 8-bit output.
+            earliest_image_ts: Reject frames captured before this timestamp.
+            timeout: Max time to wait for a valid frame.
+            all_ones_check: Reject saturated (all-max-value) frames.
+            sum_count: Number of frames to sum for noise reduction.
+            sum_delay_s: Delay in seconds between summed frames.
+            sum_iteration_callback: Called after each summed frame.
+            force_new_capture: If True, wait for a new camera capture.
+            new_capture_timeout: Timeout (ms) for new capture grab.
+
+        Returns:
+            numpy.ndarray | False: Captured image array, or False on failure.
+        """
+
+        if not self._driver or not self._driver.active:
+            return False
+
+        tmp_buffer = []
+        for idx in range(sum_count):
+            start_time = datetime.datetime.now()
+            stop_time = start_time + timeout
+
+            while True:
+                # Acquire cam_lock for camera grab — prevents concurrent
+                # set_gain/set_exposure from another thread mid-frame.
+                with self._scope._cam_lock:
+                    if force_new_capture:
+                        grab_status, grab_image_ts = self._driver.grab_new_capture(new_capture_timeout)
+                    else:
+                        grab_status, grab_image_ts = self._driver.grab()
+
+                    if grab_status:
+                        self.frame_validity.count_frame()
+                        tmp = self._driver.get_array()  # thread-safe copy
+
+                if not grab_status:
+                    # Check if camera disconnected — don't retry for 5 seconds
+                    # if the camera is gone (H20).
+                    if not self._driver.active:
+                        logger.error("[SCOPE API ] get_image: camera disconnected")
+                        from modules.notification_center import notifications
+                        notifications.error("Camera", "Camera Disconnected",
+                            "Camera is no longer available. Check USB connection.")
+                        return False
+                    if datetime.datetime.now() > stop_time:
+                        logger.error(f"[SCOPE API ] get_image timeout ({stop_time}) exceeded")
+                        return False
+                    logger.debug("[SCOPE API ] get_image grab failed, retrying")
+                    time.sleep(0.05)
+                    continue
+
+                if all_ones_check and not np.any(tmp != np.iinfo(tmp.dtype).max):
+                    # Saturated frame — retry once to confirm, then accept.
+                    # Saturated images are valid data (exposure/illumination
+                    # too high), not a camera error. Don't loop until timeout.
+                    retry_frame = None
+                    with self._scope._cam_lock:
+                        retry_status, _ = self._driver.grab_new_capture(new_capture_timeout) if force_new_capture else self._driver.grab()
+                        if retry_status:
+                            self.frame_validity.count_frame()
+                            retry_frame = self._driver.get_array()
+                    # Saturation walk is outside cam_lock — no camera state needed,
+                    # and the walk would otherwise block concurrent set_gain/set_exposure.
+                    if retry_frame is not None:
+                        if np.any(retry_frame != np.iinfo(retry_frame.dtype).max):
+                            tmp = retry_frame  # retry was OK, use it
+                        else:
+                            logger.debug("[SCOPE API ] get_image: saturated frame confirmed on retry")
+
+                # Accept the frame
+                if earliest_image_ts is None:
+                    tmp_buffer.append(tmp)
+                    break
+
+                if grab_image_ts > earliest_image_ts:
+                    tmp_buffer.append(tmp)
+                    break
+
+                logger.warning(f"[SCOPE API ] get_image earliest_image_time {earliest_image_ts} not met -> Image TS: {grab_image_ts}")
+
+                # Timestamp not met — check timeout then retry
+                if datetime.datetime.now() > stop_time:
+                    logger.error(f"[SCOPE API ] get_image timeout ({stop_time}) exceeded")
+                    return False
+                time.sleep(0.05)
+
+            if sum_count > 1:
+                earliest_image_ts = grab_image_ts + datetime.timedelta(milliseconds=1)
+                if sum_iteration_callback is not None:
+                    sum_iteration_callback()
+
+                time.sleep(sum_delay_s)
+
+        # PF-5: chain via a local variable instead of self.image_buffer. The
+        # old field was a permanent shadow copy of the latest get_image result,
+        # only ever read by get_image itself — Rule 2 violation that pinned a
+        # frame indefinitely between calls. The _state_lock around per-write
+        # didn't actually serialize concurrent get_image calls anyway (chained
+        # writes from different threads could still interleave).
+        if sum_count == 1:
+            image = tmp if len(tmp_buffer) < 1 else tmp_buffer[0]
+        else:
+            orig_dtype = tmp_buffer[0].dtype
+            max_value = np.iinfo(orig_dtype).max
+
+            combined = np.zeros_like(tmp_buffer[0], dtype=np.uint32)
+            for img in tmp_buffer:
+                combined += img
+
+            image = np.clip(combined, None, max_value).astype(orig_dtype)
+
+        use_scale_bar = self._scale_bar['enabled']
+        if self._objective is None:
+            use_scale_bar = False
+
+        if use_scale_bar:
+            image = image_utils.add_scale_bar(
+                image=image,
+                objective=self._objective,
+                binning_size=self._binning_size,
+                color=self._scale_bar.get('color'),
+            )
+
+        if force_to_8bit and image.dtype != np.uint8:
+            image = image_utils.convert_12bit_to_8bit(image)
+
+        return image
+
+    def get_image_with_chunks_from_buffer(
+        self,
+        force_to_8bit: bool = True,
+    ) -> tuple:
+        """Like ``get_image_from_buffer`` but also returns the per-frame chunks dict.
+
+        Atomic snapshot: image + timestamp + chunks all came from the same
+        grab. Used by the manual-record path so per-frame TIFF metadata
+        reflects the camera-side chunk values for that exact frame (not
+        a later frame's chunks paired with this frame's image).
+
+        Returns:
+            tuple: ``(image, timestamp, chunks)`` or ``(False, None, None)``
+                if no frame is available. Chunks may be None for cameras
+                without chunk support.
+        """
+        if not self._driver or not self._driver.active:
+            return False, None, None
+
+        grab_status, tmp, grab_image_ts, chunks = self._driver.grab_latest_with_chunks()
+        if not grab_status or tmp is None:
+            return False, None, None
+        self.frame_validity.count_frame(chunk_data=chunks)
+
+        with self._scope._state_lock:
+            self._frame_buffer = tmp
+
+        use_scale_bar = self._scale_bar['enabled']
+        if self._objective is None:
+            use_scale_bar = False
+
+        if use_scale_bar:
+            tmp = image_utils.add_scale_bar(
+                image=tmp,
+                objective=self._objective,
+                binning_size=self._binning_size,
+                color=self._scale_bar.get('color'),
+            )
+
+        if force_to_8bit and tmp.dtype != np.uint8:
+            tmp = image_utils.convert_12bit_to_8bit(tmp)
+
+        return tmp, grab_image_ts, chunks
+
+    def get_image_from_buffer(
+        self,
+        force_to_8bit: bool = True
+        ) -> tuple:
+        """Grab the latest buffered frame from the camera without forcing a new capture.
+
+        Copy budget (per frame):
+          - grab_latest(): 0 copies (returns reference from ImageHandler)
+          - add_scale_bar(): 0 copies (modifies array in-place)
+          - convert_12bit_to_8bit(): 1 copy (LUT indexing creates new array)
+          - Total: 0 copies (8-bit) or 1 copy (12-bit with force_to_8bit)
+          The caller adds 1 more copy via tobytes() for GPU blit.
+
+        Args:
+            force_to_8bit: Convert 12-bit images to 8-bit output.
+
+        Returns:
+            tuple: (image, timestamp) where image is numpy.ndarray and timestamp
+                   is from the camera SDK, or (False, None) if unavailable.
+        """
+        if not self._driver or not self._driver.active:
+            return False, None
+
+        # Single-copy grab: grab_latest() returns the image directly,
+        # avoiding the extra copy that grab() + get_array() would make.
+        # This saves ~2.3MB copy + 1 lock acquisition per frame.
+        grab_status, tmp, grab_image_ts = self._driver.grab_latest()
+        if not grab_status or tmp is None:
+            return False, None
+        self.frame_validity.count_frame()
+
+        with self._scope._state_lock:
+            self._frame_buffer = tmp
+
+        use_scale_bar = self._scale_bar['enabled']
+        if self._objective is None:
+            use_scale_bar = False
+
+        if use_scale_bar:
+            tmp = image_utils.add_scale_bar(
+                image=tmp,
+                objective=self._objective,
+                binning_size=self._binning_size,
+                color=self._scale_bar.get('color'),
+            )
+
+        if force_to_8bit and tmp.dtype != np.uint8:
+            tmp = image_utils.convert_12bit_to_8bit(tmp)
+
+        return tmp, grab_image_ts
 
     # --- State / lifecycle properties ---
     @property
     def camera_active(self) -> bool:
-        return self._scope.camera_active
+        """Whether the camera is connected and active (reads cache).
+
+        Returns:
+            bool: True if the camera is currently active.
+        """
+        with self._camera_cache_lock:
+            return self._camera_cache['active']
 
     def camera_is_connected(self) -> bool:
         """Check if the camera is active and connected.
@@ -672,35 +1328,97 @@ class ImagingAPI:
 
     @property
     def camera_gain(self) -> float:
-        return self._scope.camera_gain
+        """Current camera gain in dB (reads cache).
+
+        Returns:
+            float: Cached gain value in dB.
+        """
+        with self._camera_cache_lock:
+            return self._camera_cache['gain']
 
     @property
     def camera_exposure_ms(self) -> float:
-        return self._scope.camera_exposure_ms
+        """Current camera exposure time in ms (reads cache).
+
+        Returns:
+            float: Cached exposure time in milliseconds.
+        """
+        with self._camera_cache_lock:
+            return self._camera_cache['exposure_ms']
 
     @property
     def camera_frame_size(self) -> dict:
-        return self._scope.camera_frame_size
+        """Current camera frame size as {'width': int, 'height': int} (reads cache).
+
+        Returns:
+            dict: Copy of the cached frame size dict.
+        """
+        with self._camera_cache_lock:
+            return dict(self._camera_cache['frame_size'])
 
     @property
     def camera_max_frame_size(self) -> dict:
-        return self._scope.camera_max_frame_size
+        """Maximum camera frame size (reads cache).
+
+        Returns:
+            dict: Copy of the cached max frame size dict.
+        """
+        with self._camera_cache_lock:
+            return dict(self._camera_cache['max_frame_size'])
 
     @property
     def camera_min_frame_size(self) -> dict:
-        return self._scope.camera_min_frame_size
+        """Minimum camera frame size (reads cache).
+
+        Returns:
+            dict: Copy of the cached min frame size dict.
+        """
+        with self._camera_cache_lock:
+            return dict(self._camera_cache['min_frame_size'])
 
     @property
-    def camera_max_exposure(self):
-        return self._scope.camera_max_exposure
+    def camera_max_exposure(self) -> float | None:
+        """Maximum camera exposure time in ms, or None if no camera is connected.
+
+        Returns None (not a sentinel 0.0) so callers can distinguish
+        "camera missing" from a real driver value. See #616.
+
+        Returns:
+            float | None: Max exposure time in ms, or None if unavailable.
+        """
+        with self._camera_cache_lock:
+            value = self._camera_cache.get('max_exposure')
+        if not value or value <= 0:
+            return None
+        return float(value)
 
     @property
-    def camera_max_gain(self):
-        return self._scope.camera_max_gain
+    def camera_max_gain(self) -> float | None:
+        """Maximum camera gain in dB, or None if no camera is connected.
+
+        Parallel to camera_max_exposure -- lets the UI size the gain
+        slider to the connected camera's profile-declared cap instead
+        of a universal hardcoded 48 dB that can drive the image past
+        the sensor's usable range (observed on LS620 2026-04-16).
+
+        Returns:
+            float | None: Max gain in dB, or None if unavailable.
+        """
+        with self._camera_cache_lock:
+            value = self._camera_cache.get('max_gain')
+        if value is None or value <= 0:
+            return None
+        return float(value)
 
     @property
     def camera_pixel_format(self) -> str:
-        return self._scope.camera_pixel_format
+        """Current camera pixel format (e.g. 'Mono8', 'Mono12') (reads cache).
+
+        Returns:
+            str: Cached pixel format string.
+        """
+        with self._camera_cache_lock:
+            return self._camera_cache.get('pixel_format', 'Mono8')
 
     # --- Save / restore ---
     def save_camera_state(self, tag: str) -> dict:
@@ -805,48 +1523,164 @@ class ImagingAPI:
             return contextlib.nullcontext()
         return self._driver.update_camera_config()
 
-    def suppress_value_warnings(self, *args, **kwargs):
-        return self._scope.suppress_value_warnings(*args, **kwargs)
+    @contextlib.contextmanager
+    def suppress_value_warnings(self):
+        """Suppress programmatic value-range warnings (sub-0.1ms exposure
+        and similar) for the duration of the `with` block.
+
+        Used by sweep-style internal callers (camera characterization
+        dynamic_range / linearity stages) that walk the full setting
+        range deliberately. The warnings exist for L1 researchers who
+        type microsecond values thinking ms; they're noise when the
+        char tool is exercising the API as designed.
+
+        Restores the prior flag value (not unconditionally False) so
+        nested `with` blocks behave correctly. Restoration runs on
+        exception too -- exiting an exception-aborted char run leaves
+        the API in a clean state for the next user action.
+        """
+        prior = self._suppress_value_warnings
+        self._suppress_value_warnings = True
+        try:
+            yield
+        finally:
+            self._suppress_value_warnings = prior
 
     # --- Operation flags ---
     @property
     def is_capturing(self) -> bool:
-        return self._scope.is_capturing
+        """True while the microscope is capturing an image.
+
+        Returns:
+            bool: True if a capture is in progress.
+        """
+        return self._capturing_event.is_set()
+
+    @is_capturing.setter
+    def is_capturing(self, value: bool) -> None:
+        """Set the capture-in-progress flag."""
+        if value:
+            self._capturing_event.set()
+        else:
+            self._capturing_event.clear()
 
     @property
     def is_focusing(self) -> bool:
-        return self._scope.is_focusing
+        """True while the microscope is running autofocus.
+
+        Returns:
+            bool: True if an autofocus run is in progress.
+        """
+        return self._focusing_event.is_set()
+
+    @is_focusing.setter
+    def is_focusing(self, value: bool) -> None:
+        """Set the autofocus-in-progress flag."""
+        if value:
+            self._focusing_event.set()
+        else:
+            self._focusing_event.clear()
 
     @property
     def capture_return(self):
-        return self._scope.capture_return
+        """Latest capture result (image array or False/None).
+
+        Returns:
+            Image array on success, or False/None when no capture has
+            completed yet.
+        """
+        with self._scope._state_lock:
+            return self._capture_return
+
+    @capture_return.setter
+    def capture_return(self, value) -> None:
+        """Store the latest capture result."""
+        with self._scope._state_lock:
+            self._capture_return = value
 
     @property
     def autofocus_return(self):
-        return self._scope.autofocus_return
+        """Latest autofocus result.
+
+        Returns:
+            The most recent autofocus return value (driver-defined), or
+            None if autofocus has not run.
+        """
+        with self._scope._state_lock:
+            return self._autofocus_return
+
+    @autofocus_return.setter
+    def autofocus_return(self, value) -> None:
+        """Store the latest autofocus result."""
+        with self._scope._state_lock:
+            self._autofocus_return = value
 
     # --- Frame validity ---
     @property
     def frame_is_valid(self) -> bool:
-        return self._scope.frame_is_valid
+        """True if all pending hardware state changes have settled.
 
-    def frames_until_valid(self, *args, **kwargs):
-        return self._scope.frames_until_valid(*args, **kwargs)
+        ``frame_validity`` is the SSOT (see modules/frame_validity.py).
 
-    def count_frame(self, *args, **kwargs):
-        return self._scope.count_frame(*args, **kwargs)
+        Returns:
+            bool: True when no pending state changes are outstanding.
+        """
+        return self.frame_validity.is_valid
+
+    def frames_until_valid(self, exclude_sources: tuple = ()) -> int:
+        """Number of frames that must be grabbed before the next valid frame.
+
+        Delegates to frame_validity.
+
+        Args:
+            exclude_sources: Sources to exclude from the validity check.
+
+        Returns:
+            int: Number of additional frames to drain before validity. 0 if
+                already valid.
+        """
+        return self.frame_validity.frames_until_valid(
+            exclude_sources=exclude_sources,
+        )
+
+    def count_frame(self) -> None:
+        """Record that a frame was grabbed from the camera.
+
+        Delegates to frame_validity (no driver call).
+        """
+        self.frame_validity.count_frame()
 
     # --- Scale bar ---
     @property
     def scale_bar_config(self) -> dict:
-        return self._scope.scale_bar_config
+        """Return a snapshot of scale bar settings.
+
+        Returns:
+            dict: Copy of the scale bar config (e.g. enabled, color).
+        """
+        with self._scope._state_lock:
+            return dict(self._scale_bar)
 
     @property
     def scale_bar_enabled(self) -> bool:
-        return self._scope.scale_bar_enabled
+        """Whether the scale bar overlay is enabled.
 
-    def set_scale_bar(self, *args, **kwargs):
-        return self._scope.set_scale_bar(*args, **kwargs)
+        Returns:
+            bool: True if the scale bar is enabled.
+        """
+        with self._scope._state_lock:
+            return bool(self._scale_bar.get('enabled', False))
+
+    def set_scale_bar(self, enabled: bool, color: str = None) -> None:
+        """Configure the scale bar overlay on captured images.
+
+        Args:
+            enabled: Whether to draw the scale bar.
+            color: Scale bar color (e.g. "white"). Uses default if None.
+        """
+        self._scale_bar['enabled'] = enabled
+        if color is not None:
+            self._scale_bar['color'] = color
 
     # --- Camera diagnostics (live, in-flight; cold probes live on DiagnosticsAPI) ---
     def get_camera_temps(self) -> dict:
@@ -873,18 +1707,93 @@ class ImagingAPI:
             logger.info(
                 f'[CAM Class ] Camera {source} Temperature : {temp:.2f} degC')
 
-    def start_camera_temp_logging(self, *args, **kwargs):
-        return self._scope.start_camera_temp_logging(*args, **kwargs)
+    def start_camera_temp_logging(
+        self, schedule_interval_fn, unschedule_fn, *,
+        interval_s: float = 14400.0) -> None:
+        """LVP-A-2: own the periodic camera-temp logging schedule.
 
-    def stop_camera_temp_logging(self, *args, **kwargs):
-        return self._scope.stop_camera_temp_logging(*args, **kwargs)
+        Was previously a Clock.schedule_interval registered by the App
+        and stored as a fresh attribute on the MainDisplay widget -- if
+        MainDisplay was ever recreated (LS850/LS620 scope swap), the
+        Clock event became orphaned and continued logging temps from a
+        now-disconnected camera.
+
+        Args:
+            schedule_interval_fn: Callable matching ``Clock.schedule_interval(func, interval)``.
+                Passed in so this module stays GUI-agnostic per Rule 15.
+            unschedule_fn: Callable matching ``Clock.unschedule(event)``,
+                used by ``stop_camera_temp_logging`` and on
+                disconnect-while-logging.
+            interval_s: Seconds between log emissions; default 4 hours.
+        """
+        # Defensive: if a previous logger is already running, stop it
+        # before starting a new one (idempotent — safe to call repeatedly).
+        if getattr(self, '_camera_temp_event', None) is not None:
+            self.stop_camera_temp_logging(unschedule_fn)
+
+        self._camera_temp_unschedule_fn = unschedule_fn
+        self.log_camera_temps()  # one immediate sample
+
+        def _tick(_dt=0):
+            # Self-unschedule when the camera disconnects so a stale
+            # event doesn't survive scope switches.
+            if not self.camera_is_connected():
+                self.stop_camera_temp_logging(unschedule_fn)
+                return
+            self.log_camera_temps()
+
+        self._camera_temp_event = schedule_interval_fn(_tick, interval_s)
+        logger.info(
+            f'[SCOPE API ] start_camera_temp_logging: interval={interval_s}s')
+
+    def stop_camera_temp_logging(self, unschedule_fn=None) -> None:
+        """Cancel the periodic camera-temp logger if active.
+
+        Idempotent -- safe to call when no logger is running. The
+        unschedule_fn arg is optional; falls back to the function passed
+        at start_camera_temp_logging time.
+        """
+        ev = getattr(self, '_camera_temp_event', None)
+        if ev is None:
+            return
+        try:
+            (unschedule_fn or self._camera_temp_unschedule_fn)(ev)
+        except Exception as e:
+            logger.warning(
+                f'[SCOPE API ] stop_camera_temp_logging unschedule failed: {e}')
+        self._camera_temp_event = None
 
     # --- Frame-flow listeners ---
-    def add_camera_listener(self, *args, **kwargs):
-        return self._scope.add_camera_listener(*args, **kwargs)
+    def add_camera_listener(self, listener) -> None:
+        """Register a callback for camera setting changes.
 
-    def remove_camera_listener(self, *args, **kwargs):
-        return self._scope.remove_camera_listener(*args, **kwargs)
+        The listener is called with ``(param, value)`` whenever camera
+        gain or exposure changes.  *param* is ``'gain'`` or ``'exposure'``.
+        It fires from the thread that caused the change, so listeners
+        **must** schedule UI work via ``Clock.schedule_once``.
+
+        Note: this fires on set_gain/set_exposure_time (user actions),
+        NOT on every camera frame grab -- zero overhead on display framerate.
+
+        Args:
+            listener: ``callable(param: str, value: float)``
+        """
+        with self._camera_listeners_lock:
+            self._camera_listeners.append(listener)
+
+    def remove_camera_listener(self, listener) -> None:
+        """Unregister a camera listener.
+
+        Args:
+            listener: A callable previously passed to
+                ``add_camera_listener``. Silently ignores listeners that
+                are not currently registered.
+        """
+        with self._camera_listeners_lock:
+            try:
+                self._camera_listeners.remove(listener)
+            except ValueError:
+                pass
 
     def register_frame_callback(self, cb) -> None:
         """Register a per-frame callback fired on every successful grab.
