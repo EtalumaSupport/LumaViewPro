@@ -452,17 +452,11 @@ def test_no_diagnostics_method_calls_on_bare_scope_in_production():
     )
 
 
-@pytest.mark.xfail(strict=True, reason=(
-    "Phase 5 transition: Lumascope's get_camera_diagnostic_info / "
-    "run_camera_bandwidth_test / run_grab_lifecycle_benchmark bodies "
-    "still contain inside-class self.<diag> sibling calls. xfail-strict "
-    "flips at the 5c body relocation commit (sibling calls become "
-    "intra-DiagnosticsAPI)."
-))
 def test_no_self_diagnostics_calls_in_lumascope():
     """Lumascope's own methods must not reach diagnostics-only methods
     via bare `self.X` -- they belong on `self.diagnostics.X` after
-    Phase 5f forwarder retirement."""
+    Phase 5c body relocation moved the 3 inside-class sibling calls
+    into DiagnosticsAPI (they now resolve intra-DiagnosticsAPI)."""
     source = _LUMASCOPE_PATH.read_text(encoding='utf-8')
     tree = ast.parse(source, filename=str(_LUMASCOPE_PATH))
     hits = _find_self_method_accesses(tree, DIAGNOSTICS_ONLY_METHODS)
