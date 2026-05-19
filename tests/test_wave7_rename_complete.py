@@ -464,3 +464,149 @@ def test_no_self_diagnostics_calls_in_lumascope():
         "migrate to self.diagnostics.<method>:\n  "
         + "\n  ".join(failures)
     )
+
+
+# Phase 6 (image_save extraction) retires 6 instance methods + 5 *_static
+# duplicates from Lumascope, replacing them with free functions in
+# `modules/image_save.py`. See docs/WAVE7_PHASE_6_PLAN.md. Three guards
+# stage the migration:
+#   1. Bare-scope guard -- no `scope.<image_save_method>(` in production.
+#      Flips at 6e (production caller migration).
+#   2. Static-method guard -- no `Lumascope.<X>_static(` anywhere.
+#      Flips at 6c (static chain retirement).
+#   3. Inside-class self-guard -- no `self.<image_save_method>` in
+#      _lumascope.py. Flips at 6c (instance bodies move to module;
+#      wrappers are thin forwarders that don't self-call).
+IMAGE_SAVE_METHODS = frozenset({
+    'save_image', 'save_live_image', 'get_next_save_path',
+    'generate_image_save_path', 'generate_image_metadata',
+    'prepare_image_for_saving',
+})
+
+IMAGE_SAVE_STATIC_METHODS = frozenset({
+    'save_image_static', 'get_next_save_path_static',
+    'generate_image_save_path_static', 'generate_image_metadata_static',
+    'prepare_image_for_saving_static',
+})
+
+
+def _find_image_save_method_accesses(tree: ast.AST) -> list[tuple[int, str]]:
+    """Find `<chain ending in scope>.<image_save_method>` accesses.
+
+    Mirrors the imaging / motion / illumination / diagnostics chain
+    checks above.
+    """
+    hits: list[tuple[int, str]] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Attribute):
+            continue
+        if node.attr not in IMAGE_SAVE_METHODS:
+            continue
+        if _chain_ends_in_scope(node.value):
+            hits.append((node.lineno, node.attr))
+    return hits
+
+
+def _find_lumascope_static_method_accesses(tree: ast.AST) -> list[tuple[int, str]]:
+    """Find `Lumascope.<static_method>` attribute accesses.
+
+    Catches the class-method-style calls used to invoke the *_static
+    duplicates (e.g., `Lumascope.save_image_static(...)`). These have
+    no chain-ends-in-scope analog -- the base is the class name itself.
+    """
+    hits: list[tuple[int, str]] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Attribute):
+            continue
+        if node.attr not in IMAGE_SAVE_STATIC_METHODS:
+            continue
+        if isinstance(node.value, ast.Name) and node.value.id == 'Lumascope':
+            hits.append((node.lineno, node.attr))
+    return hits
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="Phase 6e migrates production callers to modules.image_save free functions",
+)
+def test_no_image_save_method_calls_on_bare_scope_in_production():
+    failures: list[str] = []
+    for path in _iter_prod_files():
+        try:
+            source = path.read_text(encoding='utf-8')
+        except (OSError, UnicodeDecodeError) as e:
+            failures.append(f"{path}: read failed: {e}")
+            continue
+        try:
+            tree = ast.parse(source, filename=str(path))
+        except SyntaxError as e:
+            failures.append(f"{path}: parse failed: {e}")
+            continue
+        for lineno, attr in _find_image_save_method_accesses(tree):
+            rel = path.relative_to(_REPO_ROOT)
+            failures.append(
+                f"{rel}:{lineno}: scope.{attr} -- "
+                f"use `from modules.image_save import {attr}; {attr}(scope, ...)`"
+            )
+    assert not failures, (
+        "image_save methods reached on bare scope -- production code "
+        "must import the free functions from modules.image_save:\n  "
+        + "\n  ".join(failures)
+    )
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="Phase 6c retires the *_static chain in modules/lumascope_api/_lumascope.py",
+)
+def test_no_lumascope_class_static_method_calls():
+    failures: list[str] = []
+    for path in _iter_prod_files():
+        try:
+            source = path.read_text(encoding='utf-8')
+        except (OSError, UnicodeDecodeError) as e:
+            failures.append(f"{path}: read failed: {e}")
+            continue
+        try:
+            tree = ast.parse(source, filename=str(path))
+        except SyntaxError as e:
+            failures.append(f"{path}: parse failed: {e}")
+            continue
+        for lineno, attr in _find_lumascope_static_method_accesses(tree):
+            rel = path.relative_to(_REPO_ROOT)
+            bare_name = attr.removesuffix('_static')
+            failures.append(
+                f"{rel}:{lineno}: Lumascope.{attr} retired -- "
+                f"use `from modules.image_save import {bare_name}`"
+            )
+    assert not failures, (
+        "Lumascope.*_static methods called -- the static chain is "
+        "retired in Phase 6c; use the free functions in "
+        "modules.image_save:\n  "
+        + "\n  ".join(failures)
+    )
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="Phase 6c moves image_save bodies to modules.image_save; Lumascope wrappers stop self-calling",
+)
+def test_no_self_image_save_calls_in_lumascope():
+    """Lumascope's own methods must not reach image_save methods via
+    bare `self.X` -- after Phase 6c the bodies live in
+    `modules.image_save` and the Lumascope wrappers are thin forwarders
+    that call the free function directly with `self` as the scope arg."""
+    source = _LUMASCOPE_PATH.read_text(encoding='utf-8')
+    tree = ast.parse(source, filename=str(_LUMASCOPE_PATH))
+    hits = _find_self_method_accesses(tree, IMAGE_SAVE_METHODS)
+    failures = [
+        f"_lumascope.py:{lineno}: self.{attr} -- "
+        f"use `from modules.image_save import {attr}; {attr}(self, ...)`"
+        for lineno, attr in hits
+    ]
+    assert not failures, (
+        "Lumascope reached image_save methods via bare self -- the "
+        "bodies live in modules.image_save after Phase 6c; call the "
+        "free function with self as the scope arg:\n  "
+        + "\n  ".join(failures)
+    )
