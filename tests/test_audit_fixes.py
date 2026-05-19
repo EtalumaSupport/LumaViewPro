@@ -2476,8 +2476,12 @@ class TestPIW6_PF3_FalseColorRgbPreallocated:
         )
 
     def test_save_image_threads_buffers_to_write_tiff(self):
+        # Phase 6f (2026-05-19) retired the Lumascope.save_image wrapper;
+        # the free function in modules.image_save is the sole carrier of
+        # the false_color_buf / rgb_buf signature. Path retarget per
+        # Rule 48 (c); semantic intent preserved.
         from pathlib import Path
-        src = (Path(__file__).resolve().parent.parent / "modules" / "lumascope_api" / "_lumascope.py").read_text()
+        src = (Path(__file__).resolve().parent.parent / "modules" / "image_save.py").read_text()
         assert "false_color_buf: np.ndarray | None = None" in src, (
             "PF-3: save_image should accept false_color_buf."
         )

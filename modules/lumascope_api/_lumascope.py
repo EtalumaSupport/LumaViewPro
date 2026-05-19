@@ -53,7 +53,6 @@ import modules.common_utils as common_utils
 import modules.coord_transformations as coord_transformations
 from lib import profile_trace
 import modules.objectives_loader as objectives_loader
-import modules.image_save as image_save
 import modules.image_utils as image_utils
 from modules.sequential_io_executor import SequentialIOExecutor, IOTask
 from modules.frame_validity import FrameValidity
@@ -1047,32 +1046,6 @@ class Lumascope():
     ########################################################################
 
 
-    def get_next_save_path(self, path) -> str:
-        """Get the next save path given an existing save path.
-
-        Increments the trailing numeric ID component on the filename and
-        returns the new path string. Thin wrapper around
-        `modules.image_save.get_next_save_path`; retires in Phase 6f.
-        """
-        return image_save.get_next_save_path(self, path)
-
-
-    def generate_image_save_path(self, save_folder, file_root, append,
-                                 tail_id_mode, output_format) -> 'pathlib.Path':
-        """Generate a unique save path for an image given the naming inputs.
-
-        Thin wrapper around `modules.image_save.generate_image_save_path`;
-        retires in Phase 6f.
-        """
-        return image_save.generate_image_save_path(
-            self,
-            save_folder=save_folder,
-            file_root=file_root,
-            append=append,
-            tail_id_mode=tail_id_mode,
-            output_format=output_format,
-        )
-
     def get_well_label(self) -> str:
         """Get the well label for the current stage XY position.
 
@@ -1105,139 +1078,6 @@ class Lumascope():
         )
 
         return labware.get_well_label(x=x_target, y=y_target)
-
-    def generate_image_metadata(self, color, x, y, z) -> dict:
-        """Build TIFF metadata dict for the current capture settings and position.
-
-        Thin wrapper around `modules.image_save.generate_image_metadata`;
-        retires in Phase 6f.
-        """
-        return image_save.generate_image_metadata(self, color=color, x=x, y=y, z=z)
-
-    def prepare_image_for_saving(
-        self,
-        array: np.ndarray,
-        save_folder: str,
-        file_root: str,
-        append: str,
-        color: str,
-        tail_id_mode: str,
-        output_format: str,
-        true_color: str,
-        x,
-        y,
-        z,
-        out_12to16: np.ndarray | None = None,
-    ) -> dict:
-        """Prepare an image array and metadata for saving to disk.
-
-        Thin wrapper around `modules.image_save.prepare_image_for_saving`;
-        retires in Phase 6f.
-        """
-        return image_save.prepare_image_for_saving(
-            self,
-            array=array,
-            save_folder=save_folder,
-            file_root=file_root,
-            append=append,
-            color=color,
-            tail_id_mode=tail_id_mode,
-            output_format=output_format,
-            true_color=true_color,
-            x=x,
-            y=y,
-            z=z,
-            out_12to16=out_12to16,
-        )
-
-
-    def save_image(
-        self,
-        array,
-        save_folder = './capture',
-        file_root = 'img_',
-        append = 'ms',
-        color = 'BF',
-        tail_id_mode = "increment",
-        output_format: str = "TIFF",
-        true_color: str = 'BF',
-        x=None,
-        y=None,
-        z=None,
-        use_false_color_16bit: bool | None = None,
-        out_12to16: np.ndarray | None = None,
-        false_color_buf: np.ndarray | None = None,
-        rgb_buf: np.ndarray | None = None,
-    ) -> str:
-        """Save an image array to a TIFF file with metadata.
-
-        Thin wrapper around `modules.image_save.save_image`; retires in
-        Phase 6f.
-        """
-        return image_save.save_image(
-            self,
-            array,
-            save_folder=save_folder,
-            file_root=file_root,
-            append=append,
-            color=color,
-            tail_id_mode=tail_id_mode,
-            output_format=output_format,
-            true_color=true_color,
-            x=x,
-            y=y,
-            z=z,
-            use_false_color_16bit=use_false_color_16bit,
-            out_12to16=out_12to16,
-            false_color_buf=false_color_buf,
-            rgb_buf=rgb_buf,
-        )
-
-
-    def save_live_image(
-            self,
-            save_folder = './capture',
-            file_root = 'img_',
-            append = 'ms',
-            color = 'BF',
-            tail_id_mode = "increment",
-            force_to_8bit: bool = True,
-            output_format: str = "TIFF",
-            true_color: str = 'BF',
-            earliest_image_ts: datetime.datetime | None = None,
-            timeout: datetime.timedelta = datetime.timedelta(seconds=5),
-            all_ones_check: bool = False,
-            sum_count: int = 1,
-            sum_delay_s: float = 0,
-            sum_iteration_callback = None,
-            turn_off_all_leds_after: bool = False,
-            use_executor: bool = False,
-        ) -> str | None:
-        """Grab the current live image from the camera and save to a TIFF file.
-
-        Thin wrapper around `modules.image_save.save_live_image`; retires
-        in Phase 6f.
-        """
-        return image_save.save_live_image(
-            self,
-            save_folder=save_folder,
-            file_root=file_root,
-            append=append,
-            color=color,
-            tail_id_mode=tail_id_mode,
-            force_to_8bit=force_to_8bit,
-            output_format=output_format,
-            true_color=true_color,
-            earliest_image_ts=earliest_image_ts,
-            timeout=timeout,
-            all_ones_check=all_ones_check,
-            sum_count=sum_count,
-            sum_delay_s=sum_delay_s,
-            sum_iteration_callback=sum_iteration_callback,
-            turn_off_all_leds_after=turn_off_all_leds_after,
-            use_executor=use_executor,
-        )
-
 
     ########################################################################
     # MOTION CONTROL FUNCTIONS

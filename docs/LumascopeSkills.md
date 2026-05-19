@@ -150,8 +150,11 @@ session.move_relative('X', 500)
 ### Capture
 
 ```python
+from modules.image_save import save_image
+
 image = session.scope.imaging.capture_and_wait()
-session.scope.save_image(
+save_image(
+    session.scope,
     array=image, save_folder='./output',
     file_root='capture', append='_BF', color='BF',
 )
@@ -581,8 +584,16 @@ scope.get_turret_position_for_objective_id('10x Oly')   # returns 2
 
 ### Image saving
 
+Image-save helpers are free functions in `modules.image_save` (extracted
+from the Lumascope class in Wave 7 Phase 6, 2026-05). Each function
+takes the `scope` (a `Lumascope` instance) as its first argument; the
+remaining arguments are the per-call settings:
+
 ```python
-scope.save_image(
+from modules.image_save import save_image
+
+save_image(
+    scope,
     array=image,
     save_folder='/path/to/output',
     file_root='experiment1',
@@ -593,6 +604,17 @@ scope.save_image(
     x=60000, y=40000, z=5000,              # stage position metadata (µm)
 )
 ```
+
+The full set of free functions in `modules.image_save`:
+
+| Function | Purpose |
+|---|---|
+| `save_image(scope, array, ...)` | Save a numpy array to TIFF / OME-TIFF with metadata. |
+| `save_live_image(scope, save_folder, ...)` | Grab the current live frame from the camera and save (composes `capture_and_wait` + `save_image`). |
+| `prepare_image_for_saving(scope, array, ...)` | Flip / bit-convert / build metadata + path; returns `{'image', 'metadata'}`. |
+| `generate_image_metadata(scope, color, x, y, z)` | Build the TIFF metadata dict for the current capture settings + position. |
+| `generate_image_save_path(scope, save_folder, ...)` | Generate the next unused file path under `tail_id_mode`. |
+| `get_next_save_path(scope, path)` | Increment the trailing numeric ID on an existing path. |
 
 ### System info
 
@@ -720,11 +742,14 @@ scope.move_absolute_position('X', 60000, wait_until_complete=True)
 scope.move_absolute_position('Y', 40000, wait_until_complete=True)
 scope.move_absolute_position('Z', 5000, wait_until_complete=True)
 
+from modules.image_save import save_image
+
 scope.illumination.led_on('BF', 100)
 image = scope.imaging.capture_and_wait()
 scope.illumination.leds_off()
 
-scope.save_image(
+save_image(
+    scope,
     array=image, save_folder='./output',
     file_root='capture', append='_BF', color='BF',
     output_format='TIFF', x=60000, y=40000, z=5000,
@@ -736,6 +761,7 @@ scope.disconnect()
 
 ```python
 from modules.composite_builder import build_composite
+from modules.image_save import save_image
 
 channel_images = {}
 for color, mA, exp_ms, gain_db in [
@@ -762,8 +788,8 @@ composite = build_composite(
     brightness_thresholds={'Blue': 20, 'Green': 15, 'Red': 10},
 )
 
-scope.save_image(array=composite, save_folder='./output',
-                 file_root='composite', color=None, output_format='TIFF')
+save_image(scope, array=composite, save_folder='./output',
+           file_root='composite', color=None, output_format='TIFF')
 ```
 
 `build_composite` accepts fluorescence keys `'Red'`, `'Green'`, `'Blue'`, `'Lumi'`.
@@ -771,6 +797,8 @@ scope.save_image(array=composite, save_folder='./output',
 ### Z-stack
 
 ```python
+from modules.image_save import save_image
+
 z_start, z_end, z_step = 4000, 6000, 50    # µm
 
 scope.illumination.led_on('BF', 100)
@@ -778,7 +806,8 @@ z = z_start
 while z <= z_end:
     scope.move_absolute_position('Z', z, wait_until_complete=True)
     image = scope.imaging.capture_and_wait()
-    scope.save_image(
+    save_image(
+        scope,
         array=image, save_folder='./zstack',
         file_root='z', append=f'_{int(z)}', color='BF',
         output_format='TIFF', z=z,
@@ -791,6 +820,7 @@ scope.illumination.leds_off()
 
 ```python
 from modules.coord_transformations import CoordinateTransformer
+from modules.image_save import save_image
 ct = CoordinateTransformer()
 
 wells = [('A1', 10.0, 20.0), ('A2', 19.0, 20.0), ('A3', 28.0, 20.0)]
@@ -802,7 +832,8 @@ for well_name, px, py in wells:
     scope.move_absolute_position('Y', sy, wait_until_complete=True)
 
     image = scope.imaging.capture_and_wait()
-    scope.save_image(
+    save_image(
+        scope,
         array=image, save_folder='./scan',
         file_root=f'{well_name}_BF', color='BF',
         output_format='TIFF', x=sx, y=sy,
