@@ -19,6 +19,7 @@ import modules.app_context as _app_ctx
 import modules.common_utils as common_utils
 from modules import gui_logger
 from modules.composite_builder import build_composite
+from modules.image_save import save_image, save_live_image
 import modules.image_utils as image_utils
 from modules.sequential_io_executor import IOTask, PRIORITY_MED
 from ui.ui_helpers import (
@@ -116,7 +117,8 @@ class CompositeCapture(FloatLayout):
         sum_count=layer_configs[layer]['sum']
 
         if ctx.engineering_mode is False:
-            return ctx.scope.save_live_image(
+            return save_live_image(
+                ctx.scope,
                 save_folder,
                 file_root,
                 append,
@@ -134,7 +136,8 @@ class CompositeCapture(FloatLayout):
             use_crosshairs = ctx.scope_display.use_crosshairs
 
             if not use_bullseye and not use_crosshairs:
-                return ctx.scope.save_live_image(
+                return save_live_image(
+                    ctx.scope,
                     save_folder,
                     file_root,
                     append,
@@ -163,7 +166,8 @@ class CompositeCapture(FloatLayout):
                 image = image_orig
 
             # Original image may be in 8 or 12-bit
-            ctx.scope.save_image(
+            save_image(
+                ctx.scope,
                 array=image_orig,
                 save_folder=save_folder,
                 file_root=file_root,
@@ -184,7 +188,8 @@ class CompositeCapture(FloatLayout):
                 crosshairs_image = bullseye_image
 
             # Overlay image is in 8-bits
-            ctx.scope.save_image(
+            save_image(
+                ctx.scope,
                 array=crosshairs_image,
                 save_folder=save_folder,
                 file_root=file_root,
@@ -443,7 +448,8 @@ class CompositeCapture(FloatLayout):
         set_last_save_folder(dir=save_folder)
 
         if acquired_channel_count != 1 and acquired_channel_count != 0:
-            ctx.scope.save_image(
+            save_image(
+                ctx.scope,
                 array=img,
                 save_folder=save_folder,
                 file_root='composite_',
@@ -453,7 +459,8 @@ class CompositeCapture(FloatLayout):
                 output_format=image_output_format['live']
             )
         elif acquired_channel_count != 0:
-            ctx.scope.save_image(
+            save_image(
+                ctx.scope,
                 array=img,
                 save_folder=save_folder,
                 file_root=f"{most_recent_aq_channel}_Image_",

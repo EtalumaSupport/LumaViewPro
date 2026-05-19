@@ -525,10 +525,6 @@ def _find_lumascope_static_method_accesses(tree: ast.AST) -> list[tuple[int, str
     return hits
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="Phase 6e migrates production callers to modules.image_save free functions",
-)
 def test_no_image_save_method_calls_on_bare_scope_in_production():
     failures: list[str] = []
     for path in _iter_prod_files():

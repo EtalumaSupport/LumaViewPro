@@ -20,6 +20,7 @@ import numpy as np
 from lvp_logger import logger
 
 import modules.common_utils as common_utils
+from modules.image_save import save_image
 from modules.protocol import Protocol
 from modules.video_capture import VideoCaptureSession, write_video
 from modules.sequential_io_executor import IOTask, PROTOCOL_QUEUE_FULL
@@ -554,7 +555,8 @@ class ProtocolImageWriter:
                     false_color_buf, rgb_buf = self._get_false_color_bufs(captured_image)
                 else:
                     false_color_buf, rgb_buf = None, None
-                capture_result = self._scope.save_image(
+                capture_result = save_image(
+                    self._scope,
                     array=captured_image,
                     save_folder=save_folder,
                     file_root=None,
