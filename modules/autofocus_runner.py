@@ -211,6 +211,12 @@ class AutofocusRunner:
             self._results_dir = None
         self._is_focusing_event.set()
         self._af_in_progress.set()
+        # Mirror to the public ImagingAPI surface so callers can ask
+        # scope.imaging.is_focusing and get the right answer during AF.
+        # Tracks _af_in_progress (cleared LAST in the finally block) rather
+        # than _is_focusing_event (cleared mid-flight in _iterate before
+        # camera-state restore).
+        self._scope.imaging.is_focusing = True
 
         self._objective = self._objective_loader.get_objective_info(
             objective_id=objective_id
@@ -382,6 +388,9 @@ class AutofocusRunner:
                 f'exp={self._scope.imaging.get_exposure_time()}'
             )
             self._af_in_progress.clear()
+            # Clear the public ImagingAPI mirror AFTER camera/LED/Z restore
+            # finishes, matching _af_in_progress lifecycle.
+            self._scope.imaging.is_focusing = False
             self._abort_event = None
 
     def get_status(self) -> dict:
