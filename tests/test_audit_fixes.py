@@ -2854,8 +2854,9 @@ class TestFrameValidity_LegacyCaptureRoutesThroughCaptureAndWait:
         )
 
     def test_capture_blocking_calls_capture_and_wait(self):
+        # capture_blocking body relocated to ImagingAPI in Wave 7 Phase 4c.
         from pathlib import Path
-        src = (Path(__file__).resolve().parent.parent / "modules" / "lumascope_api" / "_lumascope.py").read_text()
+        src = (Path(__file__).resolve().parent.parent / "modules" / "lumascope_api" / "imaging.py").read_text()
         body = _function_source(src, "capture_blocking")
         assert "self.capture_and_wait(" in body, (
             "capture_blocking must call self.capture_and_wait(...)."
@@ -2877,8 +2878,9 @@ class TestFrameValidity_LegacyCaptureRoutesThroughCaptureAndWait:
         )
 
     def test_capture_blocking_emits_deprecation_warning(self):
+        # capture_blocking body relocated to ImagingAPI in Wave 7 Phase 4c.
         from pathlib import Path
-        src = (Path(__file__).resolve().parent.parent / "modules" / "lumascope_api" / "_lumascope.py").read_text()
+        src = (Path(__file__).resolve().parent.parent / "modules" / "lumascope_api" / "imaging.py").read_text()
         body = _function_source(src, "capture_blocking")
         assert "DeprecationWarning" in body, (
             "capture_blocking must emit a DeprecationWarning."
@@ -5936,9 +5938,11 @@ class TestDltlSetterDocstringGigeCaveat:
                 / "drivers" / "pyloncamera.py").read_text()
 
     def _lumascope_api_source(self):
+        # set_device_link_throughput_limit body relocated to ImagingAPI
+        # in Wave 7 Phase 4c. Helper name kept for diff-readability.
         from pathlib import Path
         return (Path(__file__).resolve().parent.parent
-                / "modules" / "lumascope_api" / "_lumascope.py").read_text()
+                / "modules" / "lumascope_api" / "imaging.py").read_text()
 
     def test_pylon_setter_docstring_mentions_gige_wire_limit(self):
         body = _function_source(self._pyloncamera_source(),
