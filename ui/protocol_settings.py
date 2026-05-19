@@ -164,7 +164,7 @@ class ProtocolSettings(FloatLayout):
                 filepath=filepath, suppress_popup=True)
 
             if not protocol_success:
-                logger.info('[LVP Main  ] No saved protocol loaded at startup — using empty protocol')
+                logger.info('[LVP Main  ] No saved protocol loaded at startup -- using empty protocol')
                 # If protocol file is missing or incomplete, file name and path are cleared from memory.
                 filepath=''
                 settings['protocol']['filepath']=''
@@ -1557,7 +1557,7 @@ class ProtocolSettings(FloatLayout):
 
     def run_scan_from_ui(self):
         if ProtocolSettings._scan_starting:
-            logger.warning('[LVP Main  ] run_scan_from_ui() ignored — already starting')
+            logger.warning('[LVP Main  ] run_scan_from_ui() ignored -- already starting')
             return
         ProtocolSettings._scan_starting = True
         try:
@@ -1774,7 +1774,7 @@ class ProtocolSettings(FloatLayout):
         # Prevent double-click: if we're already in the process of starting,
         # ignore the second click entirely.
         if ProtocolSettings._protocol_starting:
-            logger.warning('[LVP Main  ] run_protocol_from_ui() ignored — already starting')
+            logger.warning('[LVP Main  ] run_protocol_from_ui() ignored -- already starting')
             return
         ProtocolSettings._protocol_starting = True
         try:

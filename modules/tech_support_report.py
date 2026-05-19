@@ -2372,7 +2372,7 @@ def main():
 
     logger.info("")
     logger.info("=" * 56)
-    logger.info("  Etaluma Diagnostics — Tech Support Report Generator")
+    logger.info("  Etaluma Diagnostics -- Tech Support Report Generator")
     logger.info("=" * 56)
     logger.info("")
 

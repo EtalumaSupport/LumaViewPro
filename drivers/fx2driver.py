@@ -1565,7 +1565,7 @@ class FX2Camera(Camera):
         )
         self._bulk_reader_thread.start()
 
-        logger.info('[FX2 Cam   ] streaming started (bulk alt 0, EP 0x82) — fallback mode')
+        logger.info('[FX2 Cam   ] streaming started (bulk alt 0, EP 0x82) -- fallback mode')
 
     def stop_grabbing(self):
         if not self._grabbing:

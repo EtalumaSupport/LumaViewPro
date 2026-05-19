@@ -347,7 +347,7 @@ def _wait_for_drive_disappear(drive_path, timeout=DRIVE_DISAPPEAR_TIMEOUT):
     deadline = time.time() + timeout
     while time.time() < deadline:
         if not drive_path.is_dir():
-            logger.info("BOOTSEL drive disappeared — UF2 accepted")
+            logger.info("BOOTSEL drive disappeared -- UF2 accepted")
             return True
         time.sleep(0.5)
     logger.warning("BOOTSEL drive still present after timeout")
@@ -402,7 +402,7 @@ def _flash_uf2_picotool(uf2_path, picotool_path=None, reboot=True):
     if picotool_path is None:
         picotool_path = _find_picotool()
     if picotool_path is None:
-        logger.warning("picotool not found — cannot use direct USB flash")
+        logger.warning("picotool not found -- cannot use direct USB flash")
         return False
 
     try:
@@ -483,11 +483,11 @@ def _send_fwupdate_command(board, board_config):
             # If we got "not recognized" or "not found", FWUPDATE isn't
             # supported — fall back to raw REPL machine.bootloader()
             if 'not recognized' in text.lower() or 'not found' in text.lower():
-                logger.info("FWUPDATE not supported — using raw REPL fallback")
+                logger.info("FWUPDATE not supported -- using raw REPL fallback")
                 _bootloader_via_raw_repl(board)
         else:
             # No response — board may have already rebooted (expected)
-            logger.info("No response from FWUPDATE — board may have rebooted")
+            logger.info("No response from FWUPDATE -- board may have rebooted")
 
         board.disconnect()
 
@@ -523,7 +523,7 @@ def _bootloader_via_raw_repl(board):
     # repl_exec may return None if board disconnects before response
     board.repl_exec('import machine\nmachine.bootloader()', timeout=5)
     time.sleep(2.0)
-    logger.info("machine.bootloader() sent — board entering BOOTSEL")
+    logger.info("machine.bootloader() sent -- board entering BOOTSEL")
 
 
 # ---------------------------------------------------------------------------
@@ -554,7 +554,7 @@ def _backup_configs(board, board_config, backup_dir, callback=None):
 
         for filename in board_config.config_files:
             if filename not in board_files:
-                logger.info(f"Config file {filename} not on board — skipping")
+                logger.info(f"Config file {filename} not on board -- skipping")
                 continue
 
             _report_progress(
@@ -849,7 +849,7 @@ def update_firmware(
         logger.info(f"Current firmware: {current_version}")
 
         if current_version == target_version and current_version is not None:
-            logger.info("Firmware already at target version — no update needed")
+            logger.info("Firmware already at target version -- no update needed")
             result.success = True
             result.new_version = current_version
             _report_progress(progress_callback, UpdateStage.COMPLETE,
@@ -889,7 +889,7 @@ def update_firmware(
                     progress_callback, UpdateStage.COPYING_UF2,
                     "Note: macOS may show 'disk not ejected properly' — "
                     "this is normal (board reboots after flashing).", 0.40)
-            logger.info(f"Copying {uf2_path} → {bootsel_drive}")
+            logger.info(f"Copying {uf2_path} -> {bootsel_drive}")
 
             dest = bootsel_drive / uf2_path.name
             shutil.copy2(uf2_path, dest)
@@ -903,7 +903,7 @@ def update_firmware(
                     "The UF2 may not have been accepted.")
         else:
             # ---- Stage 6 fallback: Try picotool ----
-            logger.info("BOOTSEL drive not mounted — trying picotool")
+            logger.info("BOOTSEL drive not mounted -- trying picotool")
             _report_progress(progress_callback, UpdateStage.COPYING_UF2,
                              "BOOTSEL drive not mounted, trying picotool...",
                              0.35)
@@ -1108,7 +1108,7 @@ def nuke_board(
             logger.info(f"Nuke UF2 copied to {bootsel_drive}")
         else:
             # Fallback: try picotool
-            logger.info("BOOTSEL drive not mounted — trying picotool")
+            logger.info("BOOTSEL drive not mounted -- trying picotool")
             _report_progress(progress_callback, UpdateStage.COPYING_UF2,
                              "BOOTSEL drive not mounted, trying picotool...",
                              0.35)
@@ -1150,7 +1150,7 @@ def nuke_board(
             _report_progress(progress_callback, UpdateStage.COMPLETE,
                              f"Flash erased. Board is in BOOTSEL mode at "
                              f"{bootsel_drive} — ready for new UF2.", 1.0)
-            logger.info("Flash nuke complete — board in BOOTSEL mode")
+            logger.info("Flash nuke complete -- board in BOOTSEL mode")
         else:
             # Board may have nuked successfully but not remounted.
             # Check for serial port (would mean it booted with no firmware).

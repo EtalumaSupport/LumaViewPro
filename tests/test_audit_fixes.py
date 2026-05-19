@@ -1783,11 +1783,11 @@ class TestRule1_MotorBoardNoNotifications:
         import pathlib
         source = pathlib.Path("drivers/motorboard.py").read_text()
         assert "notifications.error" not in source, \
-            "MotorBoard must not call notifications.error — Rule 1"
+            "MotorBoard must not call notifications.error -- Rule 1"
         assert "notifications.warning" not in source, \
-            "MotorBoard must not call notifications.warning — Rule 1"
+            "MotorBoard must not call notifications.warning -- Rule 1"
         assert "notifications.info" not in source, \
-            "MotorBoard must not call notifications.info — Rule 1"
+            "MotorBoard must not call notifications.info -- Rule 1"
 
 
 class TestRule1_CameraNoNotifications:
@@ -1806,7 +1806,7 @@ class TestRule1_CameraNoNotifications:
         import pathlib
         source = pathlib.Path("drivers/camera.py").read_text()
         assert "notifications.error" not in source, \
-            "drivers/camera.py must not call notifications.error — Rule 1"
+            "drivers/camera.py must not call notifications.error -- Rule 1"
         assert "notifications.warning" not in source
         assert "notifications.info" not in source
 
@@ -1828,7 +1828,7 @@ class TestRule1_PylonCameraNoNotifications:
         import pathlib
         source = pathlib.Path("drivers/pyloncamera.py").read_text()
         assert "notifications.error" not in source, \
-            "drivers/pyloncamera.py must not call notifications.error — Rule 1"
+            "drivers/pyloncamera.py must not call notifications.error -- Rule 1"
         assert "notifications.warning" not in source
         assert "notifications.info" not in source
 
@@ -1851,7 +1851,7 @@ class TestRule1_SerialBoardNoNotifications:
         import pathlib
         source = pathlib.Path("drivers/serialboard.py").read_text()
         assert "notifications.error" not in source, \
-            "drivers/serialboard.py must not call notifications.error — Rule 1"
+            "drivers/serialboard.py must not call notifications.error -- Rule 1"
         assert "notifications.warning" not in source
         assert "notifications.info" not in source
 

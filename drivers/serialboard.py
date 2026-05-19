@@ -331,7 +331,7 @@ class SerialBoard:
         # robust as possible on startup. Try the cheap read-only
         # path first (steps 1-3). If that fails, run the recovery
         # fallback (this step) before declaring the board dead.**
-        logger.info(f'{self._label} Firmware not responding — attempting recovery (Ctrl-C/Ctrl-B/Ctrl-D)')
+        logger.info(f'{self._label} Firmware not responding -- attempting recovery (Ctrl-C/Ctrl-B/Ctrl-D)')
         _serial_log.info(f'{self._label} RESET step4 soft-reset recovery begin')
         t0 = time.monotonic()
         self._safe_write(b'\x03', context='RESET step4 Ctrl-C #1')

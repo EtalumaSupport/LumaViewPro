@@ -111,9 +111,9 @@ class ProtocolStepRunner:
         if p._scope.motion.is_moving():
             if time.monotonic() - p._step_start_time > p.STEP_TIMEOUT_SECONDS:
                 timeout_msg = f"Step {p._curr_step} timed out waiting for motion ({p.STEP_TIMEOUT_SECONDS}s)."
-                logger.error(f"[PROTOCOL] {timeout_msg} — transitioning to ERROR state")
+                logger.error(f"[PROTOCOL] {timeout_msg} -- transitioning to ERROR state")
                 from modules.notification_center import notifications
-                notifications.error("Protocol", "Protocol Error — Motion Timeout", timeout_msg)
+                notifications.error("Protocol", "Protocol Error -- Motion Timeout", timeout_msg)
                 p._scan_in_progress.clear()
                 try:
                     p._set_state(ProtocolState.ERROR)
@@ -160,7 +160,7 @@ class ProtocolStepRunner:
                 if p._update_z_pos_from_autofocus:
                     new_z_pos = p._autofocus_runner.best_focus_position()
                     p._protocol.modify_step_z_height(step_idx=p._curr_step, z=new_z_pos)
-                logger.info(f'[Capture   ] Skipping AF on {step["Color"]} — using BF result Z={p._autofocus_runner.best_focus_position()}')
+                logger.info(f'[Capture   ] Skipping AF on {step["Color"]} -- using BF result Z={p._autofocus_runner.best_focus_position()}')
                 step = dict(step)
                 step['Auto_Focus'] = False
 
@@ -204,7 +204,7 @@ class ProtocolStepRunner:
             if new_z_pos is not None:
                 p._protocol.modify_step_z_height(step_idx=p._curr_step, z=new_z_pos)
             else:
-                logger.warning('[Capture   ] Autofocus returned no position — keeping current Z')
+                logger.warning('[Capture   ] Autofocus returned no position -- keeping current Z')
 
         if p._callbacks.autofocus_complete:
             _schedule_ui(lambda dt: p._callbacks.autofocus_complete(), 0)

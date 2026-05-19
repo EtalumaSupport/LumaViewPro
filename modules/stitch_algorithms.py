@@ -124,14 +124,14 @@ def feature_stitch(images, n_results=N_RESULTS):
                 break
 
     if not results:
-        logger.warning("[Stitch] Feature stitching failed — insufficient "
+        logger.warning("[Stitch] Feature stitching failed -- insufficient "
                        "matching keypoints or no overlap detected")
         return None
 
     # Pick the result with highest total luminance (best coverage)
     im_total_luminance = np.array([im.sum() for im in results])
     best = results[np.argmax(im_total_luminance)]
-    logger.info(f"[Stitch] Feature stitch succeeded — {len(results)}/{n_results} "
+    logger.info(f"[Stitch] Feature stitch succeeded -- {len(results)}/{n_results} "
                 f"attempts produced results")
     return best
 

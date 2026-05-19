@@ -163,7 +163,7 @@ class SimulatedCamera(Camera):
                             except Exception as e:
                                 logger.warning(f'[SimCamera ] Could not load {fp}: {e}')
                 except ImportError:
-                    logger.warning('[SimCamera ] Pillow not available — cannot load cycle images')
+                    logger.warning('[SimCamera ] Pillow not available -- cannot load cycle images')
 
         if not images:
             # Generate 4 synthetic patterns as fallback

@@ -16,7 +16,7 @@ try:
     _HAS_PYAV = True
 except ImportError:
     _HAS_PYAV = False
-    logger.info("VideoWriter: PyAV not available — falling back to OpenCV VideoWriter")
+    logger.info("VideoWriter: PyAV not available -- falling back to OpenCV VideoWriter")
 
 
 class VideoWriter:
@@ -99,7 +99,7 @@ class VideoWriter:
             logger.error(f"VideoWriter: cv2 fallback ALSO failed to open {fallback_path}. "
                          f"No video will be written.")
         else:
-            logger.info(f"VideoWriter: Using cv2 XVID fallback → {fallback_path}")
+            logger.info(f"VideoWriter: Using cv2 XVID fallback -> {fallback_path}")
 
     def _init_video(self, image: np.ndarray):
         (height, width), is_color = self._get_image_info(image=image)
@@ -156,7 +156,7 @@ class VideoWriter:
                     image_for_cv2 = image
                 success = self._cv2_video.write(image_for_cv2)
                 if success is False:
-                    logger.error("VideoWriter: cv2.VideoWriter.write() returned failure — frame may be lost")
+                    logger.error("VideoWriter: cv2.VideoWriter.write() returned failure -- frame may be lost")
                 self._frame_count += 1
 
     def finish(self):

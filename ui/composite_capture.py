@@ -423,7 +423,7 @@ class CompositeCapture(FloatLayout):
             from modules.notification_center import notifications
             notifications.warning("Composite", "No Channels Selected",
                 "No channels are selected for capture. Enable at least one channel before using Composite Capture.")
-            logger.warning("[COMPOSITE] No channels selected — nothing to capture")
+            logger.warning("[COMPOSITE] No channels selected -- nothing to capture")
             return
 
         # Build composite image from collected channels

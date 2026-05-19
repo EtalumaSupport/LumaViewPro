@@ -64,7 +64,7 @@ class ProtocolRunLoop:
                     last_connection_check = now
                     try:
                         if not p._scope.are_all_connected():
-                            logger.error("[PROTOCOL] Hardware disconnected during run — aborting protocol")
+                            logger.error("[PROTOCOL] Hardware disconnected during run -- aborting protocol")
                             from modules.notification_center import notifications
                             notifications.error("Protocol", "Protocol Aborted",
                                 "Hardware disconnected during protocol run.")
@@ -127,7 +127,7 @@ class ProtocolRunLoop:
                         if free_mb < required_mb:
                             msg = (f"Insufficient disk space: {free_mb:.0f} MB free, "
                                    f"need ~{required_mb:.0f} MB for {num_steps} steps.")
-                            logger.error(f"[PROTOCOL] {msg} — aborting protocol")
+                            logger.error(f"[PROTOCOL] {msg} -- aborting protocol")
                             from modules.notification_center import notifications
                             notifications.error("Protocol", "Protocol Aborted", msg)
                             # p._aborted IS protocol_thread.aborted; setting

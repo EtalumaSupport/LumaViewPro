@@ -101,7 +101,7 @@ def _drain_input(serial_port):
             if not leftover:
                 break
     else:
-        logger.warning("_drain_input: hit iteration limit — device may be in an output loop")
+        logger.warning("_drain_input: hit iteration limit -- device may be in an output loop")
 
 
 def _send_chunked(serial_port, data):
@@ -373,7 +373,7 @@ def read_file(serial_port, filename, verify=True):
         time.sleep(0.2)  # Brief pause between reads
         data2 = _do_read()
         if data2 is None:
-            logger.warning(f"Verification read of {filename} failed — "
+            logger.warning(f"Verification read of {filename} failed -- "
                            f"using first read ({len(data)} bytes)")
             # Still return first read — better than nothing for diagnostics
         elif data != data2:
@@ -385,9 +385,9 @@ def read_file(serial_port, filename, verify=True):
             time.sleep(0.5)
             data3 = _do_read()
             if data3 == data:
-                logger.info(f"Third read matches first — using first read")
+                logger.info(f"Third read matches first -- using first read")
             elif data3 == data2:
-                logger.info(f"Third read matches second — using second read")
+                logger.info(f"Third read matches second -- using second read")
                 data = data2
             else:
                 logger.error(

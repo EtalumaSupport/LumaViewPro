@@ -100,7 +100,7 @@ class CoordinateTransformer:
         dim_max = labware.get_dimensions()
 
         if px < 0 or py < 0:
-            logger.warning(f"Plate coordinates negative: ({px:.2f}, {py:.2f})mm — may be out of bounds")
+            logger.warning(f"Plate coordinates negative: ({px:.2f}, {py:.2f})mm -- may be out of bounds")
         if px > dim_max['x'] or py > dim_max['y']:
             logger.warning(
                 f"Plate coordinates ({px:.2f}, {py:.2f})mm exceed labware dimensions "
