@@ -49,6 +49,8 @@ import tempfile
 import time
 import zipfile
 
+import platformdirs
+
 from modules.path_utils import get_script_root, get_source_root
 
 logger = logging.getLogger(__name__)
@@ -119,8 +121,13 @@ def _get_app_root():
 
 
 def _get_user_documents():
-    """Return the user's Documents directory."""
-    return pathlib.Path.home() / 'Documents'
+    """Return the user's Documents directory.
+
+    Uses platformdirs to honor localized folder names (e.g. "Dokumente"
+    on a German Windows install) and match the resolvers used by
+    app_environment.init_environment and path_utils.get_source_root.
+    """
+    return pathlib.Path(platformdirs.user_documents_dir())
 
 
 def _get_lvp_data_dir():
@@ -171,8 +178,12 @@ def _get_protocol_dir():
 
 
 def _get_desktop():
-    """Return the Desktop path (fallback: home directory)."""
-    desktop = pathlib.Path.home() / 'Desktop'
+    """Return the Desktop path (fallback: home directory).
+
+    Uses platformdirs to honor localized folder names ("Schreibtisch"
+    on German Windows, etc.); same rationale as _get_user_documents.
+    """
+    desktop = pathlib.Path(platformdirs.user_desktop_dir())
     return desktop if desktop.is_dir() else pathlib.Path.home()
 
 
