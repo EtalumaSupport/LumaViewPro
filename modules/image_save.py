@@ -446,7 +446,7 @@ def save_live_image(
     output_format: str = "TIFF",
     true_color: str = 'BF',
     earliest_image_ts: datetime.datetime | None = None,
-    timeout: datetime.timedelta = datetime.timedelta(seconds=5),
+    timeout: float = 5.0,
     all_ones_check: bool = False,
     sum_count: int = 1,
     sum_delay_s: float = 0,

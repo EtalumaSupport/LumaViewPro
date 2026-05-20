@@ -7795,3 +7795,56 @@ class TestImagingGetCameraTempsRetired:
     def test_imaging_log_camera_temps_still_exists(self):
         from modules.lumascope_api.imaging import ImagingAPI
         assert callable(getattr(ImagingAPI, 'log_camera_temps', None))
+
+
+class TestSaveLiveImageTimeoutIsFloat:
+    """Phase-2 units-audit Finding P2-1 -- save_live_image's `timeout`
+    must be a float (seconds), not a datetime.timedelta. The Phase 1
+    audit #11 rename of capture_and_wait/get_image to float seconds
+    introduced a latent regression: the caller `image_save.save_live_image`
+    kept its `datetime.timedelta` default, which then flowed through
+    `capture_and_wait(timeout=...)` -> `get_image(timeout=...)` ->
+    `datetime.timedelta(seconds=timeout)` where `seconds=` rejects
+    timedelta with TypeError. Both UI callers (composite_capture.py)
+    use the default; the live-capture path crashes."""
+
+    def test_signature_is_float(self):
+        import inspect
+        from modules.image_save import save_live_image
+
+        sig = inspect.signature(save_live_image)
+        timeout_param = sig.parameters['timeout']
+        # Reject the previous timedelta default.
+        assert not isinstance(timeout_param.default, __import__('datetime').timedelta), (
+            'save_live_image.timeout default must be float seconds, not timedelta'
+        )
+        assert isinstance(timeout_param.default, float)
+        assert timeout_param.default == 5.0
+
+    def test_default_timeout_flows_through_capture_and_wait_without_crash(self, sim_scope):
+        # The original regression was: save_live_image's timedelta default
+        # flowed unchanged through capture_and_wait -> get_image, where
+        # `datetime.timedelta(seconds=timeout)` rejected timedelta with
+        # TypeError. This test exercises the same forwarding path that
+        # save_live_image uses (line 484-491), with the new float default.
+        # If a future revert restores `timeout: datetime.timedelta`, the
+        # signature test above fails first; if some other regression
+        # restores the TypeError at the get_image conversion, this fails.
+        import inspect
+        from modules.image_save import save_live_image
+
+        timeout_default = inspect.signature(save_live_image).parameters['timeout'].default
+        try:
+            sim_scope.imaging.capture_and_wait(
+                force_to_8bit=True,
+                all_ones_check=False,
+                timeout=timeout_default,
+                sum_count=1,
+                sum_delay_s=0,
+            )
+        except TypeError as e:
+            raise AssertionError(
+                f'capture_and_wait raised TypeError when given save_live_image\'s '
+                f'default timeout ({timeout_default!r}): {e}. '
+                f'Phase-2 audit P2-1 regression has returned.'
+            )
