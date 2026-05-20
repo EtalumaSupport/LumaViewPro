@@ -585,22 +585,22 @@ class TestScopeSession:
 
     def test_leds_off_delegates(self):
         session = self._make_session()
-        session.leds_off()
+        session.leds_off_async()
         session.io_executor.put.assert_called_once()
 
     def test_led_on_delegates(self):
         session = self._make_session()
-        session.led_on(channel=2, mA=100)
+        session.led_on_async(channel=2, mA=100)
         session.io_executor.put.assert_called_once()
 
     def test_led_off_delegates(self):
         session = self._make_session()
-        session.led_off(channel=1)
+        session.led_off_async(channel=1)
         session.io_executor.put.assert_called_once()
 
     def test_move_absolute_delegates(self):
         session = self._make_session()
-        session.move_absolute('Z', 3000)
+        session.move_absolute_async('Z', 3000)
         session.io_executor.put.assert_called_once()
         task = session.io_executor.put.call_args[0][0]
         assert task.kwargs['axis'] == 'Z'
@@ -608,21 +608,21 @@ class TestScopeSession:
 
     def test_move_relative_delegates(self):
         session = self._make_session()
-        session.move_relative('X', 100)
+        session.move_relative_async('X', 100)
         session.io_executor.put.assert_called_once()
 
     def test_move_home_delegates(self):
         session = self._make_session()
-        session.move_home('Z')
+        session.move_home_async('Z')
         session.io_executor.put.assert_called_once()
         task = session.io_executor.put.call_args[0][0]
         assert task.action == session.scope.motion.zhome
 
     def test_no_led_skips_commands(self):
         session = self._make_session(scope=_make_mock_scope(led_available=False))
-        session.leds_off()
-        session.led_on(0, 50)
-        session.led_off(0)
+        session.leds_off_async()
+        session.led_on_async(0, 50)
+        session.led_off_async(0)
         session.io_executor.put.assert_not_called()
 
     def test_protocol_running_event(self):

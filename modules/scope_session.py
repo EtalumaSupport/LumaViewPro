@@ -233,16 +233,18 @@ class ScopeSession:
         config_helpers.log_system_metrics(self.settings)
 
     # --- LED commands (thin shims around Lumascope's executor-backed API) ---
+    # All async-by-default; *_sync counterparts call the matching
+    # scope.illumination.*_sync method.
 
-    def leds_off(self, callback=None) -> None:
+    def leds_off_async(self, callback=None) -> None:
         self.scope.illumination.leds_off_async(callback=callback)
 
-    def led_on(self, channel, mA, callback=None, cb_kwargs=None) -> None:
+    def led_on_async(self, channel, mA, callback=None, cb_kwargs=None) -> None:
         self.scope.illumination.led_on_async(
             channel, mA, callback=callback, cb_kwargs=cb_kwargs,
         )
 
-    def led_off(self, channel, callback=None, cb_kwargs=None) -> None:
+    def led_off_async(self, channel, callback=None, cb_kwargs=None) -> None:
         self.scope.illumination.led_off_async(
             channel, callback=callback, cb_kwargs=cb_kwargs,
         )
@@ -252,8 +254,8 @@ class ScopeSession:
 
     # --- Motion commands ---
 
-    def move_absolute(self, axis, pos, wait_until_complete=False,
-                      overshoot_enabled=True, callback=None, cb_kwargs=None) -> None:
+    def move_absolute_async(self, axis, pos, wait_until_complete=False,
+                            overshoot_enabled=True, callback=None, cb_kwargs=None) -> None:
         self.scope.motion.move_absolute_async(
             axis, pos,
             wait_until_complete=wait_until_complete,
@@ -261,8 +263,8 @@ class ScopeSession:
             callback=callback, cb_kwargs=cb_kwargs,
         )
 
-    def move_relative(self, axis, um, wait_until_complete=False,
-                      overshoot_enabled=True, callback=None, cb_kwargs=None) -> None:
+    def move_relative_async(self, axis, um, wait_until_complete=False,
+                            overshoot_enabled=True, callback=None, cb_kwargs=None) -> None:
         self.scope.motion.move_relative_async(
             axis, um,
             wait_until_complete=wait_until_complete,
@@ -270,7 +272,7 @@ class ScopeSession:
             callback=callback, cb_kwargs=cb_kwargs,
         )
 
-    def move_home(self, axis, callback=None, cb_args=None) -> None:
+    def move_home_async(self, axis, callback=None, cb_args=None) -> None:
         self.scope.motion.move_home_async(
             axis, callback=callback, cb_args=cb_args,
         )

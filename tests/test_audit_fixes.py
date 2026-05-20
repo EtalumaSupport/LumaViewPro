@@ -8222,7 +8222,7 @@ class TestSessionImagingWrappersSymmetric:
     """Freeze audit Finding #32 -- ScopeSession had wrappers for LED
     (led_on, led_on_sync, led_off, leds_off) + motion (move_absolute,
     move_relative, move_home) but no imaging wrappers. L2 callers had
-    a 2-path surface: session.led_on vs session.scope.imaging.set_gain.
+    a 2-path surface: session.led_on_async vs session.scope.imaging.set_gain.
     Symmetric path chosen: session gains set_gain / set_exposure_time /
     capture_and_wait thin forwarders mirroring the existing pattern."""
 
@@ -8476,3 +8476,42 @@ class TestCameraMaxFrameSizeOnCapabilities:
             motion=NullMotionBoard(), led=NullLEDBoard(), camera=None,
         )
         assert caps.camera_max_frame_size == (0, 0)
+
+
+class TestSessionAsyncRename:
+    """Freeze audit Finding #6 -- session.led_on / move_absolute /
+    move_relative / move_home / leds_off were async-by-default
+    forwarders to scope.X_async, but the bare name suggested sync.
+    Renamed to *_async so L2 callers read the contract directly.
+    Sync counterparts (led_on_sync) keep their existing names."""
+
+    EXPECTED_ASYNC_NAMES = (
+        'leds_off_async', 'led_on_async', 'led_off_async',
+        'move_absolute_async', 'move_relative_async', 'move_home_async',
+    )
+
+    EXPECTED_RETIRED_NAMES = (
+        'leds_off', 'led_on', 'led_off',
+        'move_absolute', 'move_relative', 'move_home',
+    )
+
+    def test_async_methods_exist(self):
+        from modules.scope_session import ScopeSession
+        for name in self.EXPECTED_ASYNC_NAMES:
+            assert callable(getattr(ScopeSession, name, None)), (
+                f'ScopeSession.{name} must exist per audit #6.'
+            )
+
+    def test_bare_names_are_retired(self):
+        from modules.scope_session import ScopeSession
+        for name in self.EXPECTED_RETIRED_NAMES:
+            assert not hasattr(ScopeSession, name), (
+                f'ScopeSession.{name} must be retired per audit #6; '
+                f'use {name}_async instead.'
+            )
+
+    def test_led_on_sync_still_exists(self):
+        """The sync counterpart keeps its name; only the bare-async
+        forwarders gained the explicit _async suffix."""
+        from modules.scope_session import ScopeSession
+        assert callable(getattr(ScopeSession, 'led_on_sync', None))

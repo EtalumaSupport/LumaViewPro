@@ -189,18 +189,20 @@ session.start_executors()
 ### LED control
 
 ```python
-session.led_on('Blue', 200)              # non-blocking
+session.led_on_async('Blue', 200)        # non-blocking; returns immediately
 session.led_on_sync('Blue', 200)         # blocks until firmware confirms
-session.led_off('Blue')
-session.leds_off()
+session.led_off_async('Blue')
+session.leds_off_async()
 ```
+
+All Session wrappers are async-by-default; the `*_async` suffix is explicit so L2 callers don't read `session.led_on(...)` as "blocking" when it actually queues to an executor. Sync counterparts are available where blocking is the right shape (see `session.led_on_sync`); add an issue if you need a sync counterpart for one that doesn't have one.
 
 ### Motion
 
 ```python
-session.move_home('ALL')
-session.move_absolute('Z', 5000, wait_until_complete=True)
-session.move_relative('X', 500)
+session.move_home_async('ALL')
+session.move_absolute_async('Z', 5000, wait_until_complete=True)
+session.move_relative_async('X', 500)
 ```
 
 ### Imaging (symmetric with LED + motion forwarders)
