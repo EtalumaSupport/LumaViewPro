@@ -4,8 +4,8 @@
 
 Demonstrates:
 - Capturing images across multiple fluorescence channels (Blue, Green, Red)
-- Setting per-channel LED illumination and exposure
-- Saving individual channel images as TIFF files
+- Setting per-channel LED illumination (mA) and exposure (ms)
+- Reading the captured frame via scope.imaging.capture_and_wait
 """
 
 import sys
@@ -51,24 +51,24 @@ def main():
     scope = Lumascope(simulate=True)
     print("Scope initialized (simulate=True)")
 
-    # Start camera grabbing
-    scope.camera.start_grabbing()
+    # Simulator-mode setup: kick the simulated camera into grabbing.
+    scope._camera_driver.start_grabbing()
 
     # Capture each fluorescence channel
     for ch in CHANNELS:
         color = ch["color"]
         print(f"\n--- Channel: {color} ---")
 
-        # Configure LED illumination for this channel
+        # Configure LED illumination for this channel (mA)
         scope.illumination.led_on(channel=color, mA=ch["mA"])
         print(f"  LED on: {ch['mA']} mA")
 
-        # Set exposure time
-        scope.set_exposure_time(ch["exposure_ms"])
+        # Set exposure time (ms)
+        scope.imaging.set_exposure_time(ch["exposure_ms"])
         print(f"  Exposure: {ch['exposure_ms']} ms")
 
-        # Capture image through the API (returns numpy array)
-        image = scope.get_image(force_to_8bit=True)
+        # Capture a frame valid for the current LED + exposure state
+        image = scope.imaging.capture_and_wait(force_to_8bit=True)
         if image is False:
             print(f"  ERROR: Failed to capture {color} channel")
             continue
@@ -76,15 +76,13 @@ def main():
         print(f"  Captured: shape={image.shape}, dtype={image.dtype}")
         print(f"  Pixel stats: min={image.min()}, max={image.max()}, mean={image.mean():.1f}")
 
-        # Turn off LED before switching channels
+        # Turn off this channel before switching colors
         scope.illumination.led_off(channel=color)
 
-    # Turn off all LEDs
+    # Turn off all LEDs and disconnect
     scope.illumination.leds_off()
     print("\nAll LEDs off")
 
-    # Stop camera and disconnect
-    scope.camera.stop_grabbing()
     scope.disconnect()
     print("Scope disconnected")
 
@@ -92,8 +90,8 @@ def main():
     #     from modules.image_save import save_image, save_live_image
     #     save_image(scope, array=image, save_folder='./out', ...)
     # These require setting an objective, labware, and stage offset
-    # for metadata generation. See the protocol_execution.py example
-    # for a more complete workflow.
+    # for metadata generation. See protocol_execution.py for a more
+    # complete workflow.
 
 
 if __name__ == '__main__':

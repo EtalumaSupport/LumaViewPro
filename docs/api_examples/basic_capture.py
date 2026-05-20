@@ -4,9 +4,9 @@
 
 Demonstrates:
 - Initializing the scope in simulate mode
-- Setting LED illumination
-- Moving the Z axis
-- Capturing and saving an image
+- Setting LED illumination via scope.illumination
+- Moving the Z axis via scope.motion (positions in micrometers)
+- Capturing an image via scope.imaging
 """
 
 import sys
@@ -40,37 +40,39 @@ from modules.lumascope_api import Lumascope
 
 
 def main():
-    # Create scope in simulate mode — no hardware required
+    # Create scope in simulate mode -- no hardware required
     scope = Lumascope(simulate=True)
     print("Scope initialized (simulate=True)")
-    print(f"  LED board: {type(scope.led).__name__}")
-    print(f"  Motor board: {type(scope.motion).__name__}")
-    print(f"  Camera: {type(scope.camera).__name__}")
+
+    # Simulator-mode setup: kick the simulated camera into grabbing.
+    # Production cameras auto-start their stream; this is the one
+    # L2-known private-driver touch (see LumascopeSkills 'Camera info').
+    scope._camera_driver.start_grabbing()
 
     # Set LED channel 0 (BF) to 100 mA
-    scope.led.led_on(channel=0, mA=100)
-    print("\nLED 0 set to 100 mA")
+    scope.illumination.led_on(channel=0, mA=100)
+    print("LED 0 set to 100 mA")
 
-    # Move Z axis (steps as unsigned 32-bit integer)
-    scope.motion.move(axis='Z', steps=50000)
-    print("Z axis moved by 50000 steps")
+    # Move Z axis to 5000 um and wait for the move to complete
+    scope.motion.move_absolute_position('Z', 5000, wait_until_complete=True)
 
-    # Read current Z target position (returns um). Zero serial I/O --
+    # Read the target Z position (returns um). Zero serial I/O --
     # the API serves this from the push-based position cache.
-    z_pos = scope.get_target_position(axis='Z')
-    print(f"Z target position: {z_pos} um")
+    z_target = scope.motion.get_target_position('Z')
+    print(f"Z target position: {z_target} um")
 
-    # Capture an image (start grabbing, grab, access .array)
-    scope.camera.start_grabbing()
-    success, timestamp = scope.camera.grab()
-    image = scope.camera.array
-    print(f"\nCaptured image: success={success}, shape={image.shape}, dtype={image.dtype}")
-    print(f"  Min={image.min()}, Max={image.max()}, Mean={image.mean():.1f}")
-    scope.camera.stop_grabbing()
+    # Capture an image. capture_and_wait drains stale frames and
+    # returns a frame valid for the current LED + exposure state.
+    image = scope.imaging.capture_and_wait(force_to_8bit=True)
+    if image is False:
+        print("Capture failed")
+    else:
+        print(f"Captured image: shape={image.shape}, dtype={image.dtype}")
+        print(f"  Min={image.min()}, Max={image.max()}, Mean={image.mean():.1f}")
 
     # Turn off LEDs
-    scope.led.leds_off()
-    print("\nAll LEDs off")
+    scope.illumination.leds_off()
+    print("All LEDs off")
 
     # Disconnect
     scope.disconnect()

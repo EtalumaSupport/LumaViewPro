@@ -714,7 +714,10 @@ class TestSimulatedCamera:
 
     def test_grab_new_capture(self):
         cam = SimulatedCamera()
-        result, ts = cam.grab_new_capture(timeout=1000)
+        # Driver contract is float seconds (verified across all five camera
+        # drivers). `timeout=1000` here would have been 1000 seconds and
+        # passed only because the simulator doesn't honor the timeout.
+        result, ts = cam.grab_new_capture(timeout=5.0)
         assert result is True
         assert ts is not None
         assert isinstance(cam.array, np.ndarray)

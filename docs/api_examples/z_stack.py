@@ -3,8 +3,8 @@
 """Z-stack capture example.
 
 Demonstrates:
-- Moving the Z axis through a range of positions
-- Capturing an image at each Z slice
+- Moving the Z axis through a range of positions (all in um)
+- Capturing an image at each Z slice via scope.imaging.capture_and_wait
 - Building a Z-stack for 3D analysis or extended depth of focus
 
 Note: The Lumascope API also provides a built-in autofocus method
@@ -44,14 +44,14 @@ from modules.lumascope_api import Lumascope
 
 
 # Z-stack parameters (all values in micrometers)
-Z_START = 4000.0    # Starting Z position (um)
-Z_END = 6000.0      # Ending Z position (um)
-Z_STEP = 200.0      # Step size between slices (um)
+Z_START_UM = 4000.0    # Starting Z position (um)
+Z_END_UM = 6000.0      # Ending Z position (um)
+Z_STEP_UM = 200.0      # Step size between slices (um)
 
 # Illumination settings
-LED_COLOR = "BF"    # Brightfield
-LED_MA = 100        # LED current (mA)
-EXPOSURE_MS = 50    # Exposure time (ms)
+LED_COLOR = "BF"       # Brightfield
+LED_MA = 100           # LED current (mA)
+EXPOSURE_MS = 50       # Exposure time (ms)
 
 
 def main():
@@ -59,41 +59,44 @@ def main():
     scope = Lumascope(simulate=True)
     print("Scope initialized (simulate=True)")
 
+    # Simulator-mode setup: kick the simulated camera into grabbing.
+    scope._camera_driver.start_grabbing()
+
     # Configure illumination
     scope.illumination.led_on(channel=LED_COLOR, mA=LED_MA)
-    scope.set_exposure_time(EXPOSURE_MS)
+    scope.imaging.set_exposure_time(EXPOSURE_MS)
     print(f"LED: {LED_COLOR} at {LED_MA} mA, exposure: {EXPOSURE_MS} ms")
 
-    # Start camera
-    scope.camera.start_grabbing()
-
     # Calculate the number of slices
-    num_slices = int((Z_END - Z_START) / Z_STEP) + 1
-    print(f"\nZ-stack: {Z_START} to {Z_END} um, step={Z_STEP} um ({num_slices} slices)")
+    num_slices = int((Z_END_UM - Z_START_UM) / Z_STEP_UM) + 1
+    print(f"\nZ-stack: {Z_START_UM} to {Z_END_UM} um, step={Z_STEP_UM} um "
+          f"({num_slices} slices)")
 
     # Capture Z-stack
     z_stack_images = []
-    z_pos = Z_START
+    z_pos_um = Z_START_UM
 
     for i in range(num_slices):
-        # Move Z to target position and wait for completion
-        scope.motion.move_absolute_position('Z', pos=z_pos, wait_until_complete=True)
+        # Move Z to target position (um) and wait for completion
+        scope.motion.move_absolute_position(
+            'Z', z_pos_um, wait_until_complete=True,
+        )
 
-        # Read back the actual position
-        actual_z = scope.motion.get_current_position(axis='Z')
+        # Read back the actual position (um, from the push-based cache)
+        actual_z_um = scope.motion.get_current_position('Z')
 
-        # Capture image at this Z position
-        image = scope.get_image(force_to_8bit=True)
+        # Capture a frame valid for the current Z + LED + exposure state
+        image = scope.imaging.capture_and_wait(force_to_8bit=True)
         if image is False:
-            print(f"  Slice {i:3d}: FAILED at Z={z_pos:.1f} um")
-            z_pos += Z_STEP
+            print(f"  Slice {i:3d}: FAILED at Z={z_pos_um:.1f} um")
+            z_pos_um += Z_STEP_UM
             continue
 
         z_stack_images.append(image)
-        print(f"  Slice {i:3d}: Z={actual_z:.1f} um, "
+        print(f"  Slice {i:3d}: Z={actual_z_um:.1f} um, "
               f"shape={image.shape}, mean={image.mean():.1f}")
 
-        z_pos += Z_STEP
+        z_pos_um += Z_STEP_UM
 
     print(f"\nCaptured {len(z_stack_images)} / {num_slices} slices")
 
@@ -109,7 +112,6 @@ def main():
 
     # Clean up
     scope.illumination.leds_off()
-    scope.camera.stop_grabbing()
     scope.disconnect()
     print("Scope disconnected")
 
