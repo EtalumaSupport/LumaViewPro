@@ -32,23 +32,28 @@ LumaViewPro controls Etaluma microscopes: LED illumination, XYZ stage + turret m
 └──────────────┬──────────────────────────────────┘
                │
 ┌──────────────▼──────────────────────────────────┐
-│  Level 1: REST API  (HTTP/JSON, any language)   │
+│  REST surface  (HTTP/JSON, any language)        │
 └──────────────┬──────────────────────────────────┘
                │
 ┌──────────────▼──────────────────────────────────┐
-│  Level 2: ScopeSession  (Python, headless)      │
-│  └─ Executor-routed commands, protocol runner   │
+│  ScopeSession session layer  (Python, headless) │
+│  └─ executor-routed commands, protocol runner   │
 └──────────────┬──────────────────────────────────┘
                │
 ┌──────────────▼──────────────────────────────────┐
-│  Level 3: Lumascope API  (Python)               │
-│  ├─ capabilities  ├─ LED / motion / camera      │
-│  ├─ observers     ├─ save / restore state       │
-│  └─ frame validity                              │
+│  Lumascope composition root  (Python)           │
+│  ├─ scope.motion        ├─ scope.diagnostics    │
+│  ├─ scope.illumination  ├─ scope.capabilities   │
+│  ├─ scope.imaging       └─ scope.io             │
+└──────────────┬──────────────────────────────────┘
+               │
+┌──────────────▼──────────────────────────────────┐
+│  modules/  (image_save, coord_transformations,  │
+│             composite_builder, autofocus, …)    │
 └─────────────────────────────────────────────────┘
 ```
 
-Each level wraps the one below. Higher = easier. Lower = more control.
+Each layer wraps the one below. Higher = easier. Lower = more control.
 
 For internal serial-protocol details (firmware updates, bring-up tooling), see **Appendix A** at the end of this document — not intended for application integration.
 
@@ -56,51 +61,90 @@ For internal serial-protocol details (firmware updates, bring-up tooling), see *
 
 ## Integration Levels
 
-Pick the level that fits your use case:
+Pick the layer that fits your use case:
 
-| Level | Interface | Language | Best for |
+| Layer | Interface | Language | Best for |
 |---|---|---|---|
-| **1. REST API** | HTTP (JSON) | Any | External apps, cross-language control |
-| **2. ScopeSession** | Python | Python | Headless scripts, automation, tests |
-| **3. Lumascope API** | Python | Python | Full hardware control, custom applications |
+| **REST surface** | HTTP (JSON) | Any | External apps, cross-language control |
+| **ScopeSession session layer** | Python | Python | Headless scripts, automation, tests |
+| **Lumascope + sub-APIs** | Python | Python | Full hardware control, custom applications |
+
+The remainder of this document is organized as the sub-API reference (one section per sub-API), then the modules layer, plugin platform pointers, REST surface, and finally practical patterns + appendices.
 
 ---
 
-## Level 1: REST API
+## Lumascope composition root
 
-> **Status (2026-04):** In development on `4.1.0-dev`. When it ships it will be **disabled by default** — customers enable per-deployment via a feature flag. Treat the example below as design preview, not yet-callable code.
+The `Lumascope` class is the **hardware-composition-root**. It constructs and holds the six sub-APIs (`scope.motion`, `scope.illumination`, `scope.imaging`, `scope.diagnostics`, `scope.capabilities`, `scope.io`), wires them together, and owns lifecycle (connect / disconnect / emergency shutdown).
 
-HTTP endpoints wrap the Python API. Control the microscope from any language — MATLAB, LabVIEW, JavaScript, curl.
+**When to use directly:** you need fine-grained control beyond ScopeSession, or you're building a custom application. The GUI, ScopeSession, and REST surface all go through this class.
 
+### Initialization
+
+```python
+from modules.lumascope_api import Lumascope
+from modules.scope_init_config import ScopeInitConfig
+
+scope = Lumascope()                       # real hardware (auto-detect camera)
+scope = Lumascope(simulate=True)          # simulated (no hardware)
+scope = Lumascope(camera_type='pylon')    # force Basler Pylon
+scope = Lumascope(camera_type='ids')      # force IDS
 ```
-GET  /api/status                    → system status
-POST /api/led/on    {color, mA}     → turn on LED
-POST /api/led/off                   → turn off all LEDs
-POST /api/move      {axis, pos}     → move stage
-POST /api/capture                   → capture image, returns file path
-GET  /api/live/frame                → grab live frame (binary)
-POST /api/protocol/run              → run a protocol file
-POST /api/protocol/abort            → abort running protocol
+
+Valid `camera_type` values: `'auto'` (default), `'pylon'`, `'ids'`, `'sim'`.
+
+Then apply runtime configuration (frame size, objective, binning, stage offset). The preferred factory is `ScopeInitConfig.from_settings(settings, labware, scope_config=...)`, which reads from your LVP settings dict; you can also construct one directly:
+
+```python
+config = ScopeInitConfig(
+    labware=labware_obj,
+    objective_id='10x Oly',
+    turret_config=None,
+    binning_size=1,
+    frame_width=3840,
+    frame_height=2160,
+    acceleration_pct=100,
+    stage_offset={'x': 0, 'y': 0},
+    scale_bar_enabled=False,
+    # expects_motion / expects_led default to True; override for
+    # models that legitimately have no motor / no LED (e.g. LS620
+    # has no motor, so expects_motion=False avoids a spurious
+    # "Partial Hardware Detected" popup).
+)
+scope.initialize(config)
 ```
 
-**MATLAB example (preview — API not yet live):**
+### Connection
 
-```matlab
-url = "http://localhost:8000/api";
+```python
+scope.are_all_connected()                 # LED + motor + camera all up
+scope.motor_connected                     # motor board
+scope.led_connected                       # LED board
+scope.imaging.camera_is_connected()       # camera
+scope.no_hardware                         # True if all-null (no real hardware found)
+scope.disconnect()
+```
 
-webwrite(url + "/move", struct('axis','Z','pos',5000,'wait',true));
-webwrite(url + "/led/on", struct('color','BF','mA',100));
-result = webwrite(url + "/capture", struct('format','tiff'));
+### Objective management
 
-img = imread(result.file_path);
-imshow(img);
+Objective / labware / turret-config / stage-offset stay on the composition root for now (microscope configuration, not live hardware).
 
-webwrite(url + "/led/off", struct());
+```python
+scope.set_objective('10x Oly')
+scope.get_current_objective_id()
+scope.get_objective_info('10x Oly')        # {focal_length, magnification, NA, ...}
+scope.get_available_objectives()
+scope.get_current_objective()
+
+# Turret integration
+scope.set_turret_config({1: '4x Oly', 2: '10x Oly', 3: '20x Oly', 4: '40x w/collar'})
+scope.get_turret_config()
+scope.get_turret_position_for_objective_id('10x Oly')   # returns 2
 ```
 
 ---
 
-## Level 2: ScopeSession (Headless Python)
+## ScopeSession session layer
 
 GUI-free session container. All hardware commands route through executor threads for thread safety. Use this for scripts and automation.
 
@@ -198,174 +242,7 @@ session.scope.disconnect()
 
 ---
 
-## Level 3: Lumascope API (Direct Hardware)
-
-The `Lumascope` class is the hardware abstraction layer. **All hardware state lives here** — LED on/off and illumination, motor positions, camera settings. The GUI, ScopeSession, and REST API all go through this class.
-
-**When to use:** You need fine-grained control beyond ScopeSession, or you're building a custom application.
-
-### Initialization
-
-```python
-from modules.lumascope_api import Lumascope
-from modules.scope_init_config import ScopeInitConfig
-
-scope = Lumascope()                       # real hardware (auto-detect camera)
-scope = Lumascope(simulate=True)          # simulated (no hardware)
-scope = Lumascope(camera_type='pylon')    # force Basler Pylon
-scope = Lumascope(camera_type='ids')      # force IDS
-```
-
-Valid `camera_type` values: `'auto'` (default), `'pylon'`, `'ids'`, `'sim'`.
-
-Then apply runtime configuration (frame size, objective, binning, stage offset). The preferred factory is `ScopeInitConfig.from_settings(settings, labware, scope_config=...)`, which reads from your LVP settings dict; you can also construct one directly:
-
-```python
-config = ScopeInitConfig(
-    labware=labware_obj,
-    objective_id='10x Oly',
-    turret_config=None,
-    binning_size=1,
-    frame_width=3840,
-    frame_height=2160,
-    acceleration_pct=100,
-    stage_offset={'x': 0, 'y': 0},
-    scale_bar_enabled=False,
-    # expects_motion / expects_led default to True; override for
-    # models that legitimately have no motor / no LED (e.g. LS620
-    # has no motor, so expects_motion=False avoids a spurious
-    # "Partial Hardware Detected" popup).
-)
-scope.initialize(config)
-```
-
-### Connection
-
-```python
-scope.are_all_connected()                 # LED + motor + camera all up
-scope.motor_connected                     # motor board
-scope.led_connected                       # LED board
-scope.imaging.camera_is_connected()               # camera
-scope.no_hardware                         # True if all-null (no real hardware found)
-scope.disconnect()
-```
-
-### Capabilities — **query, don't assume**
-
-`scope.capabilities` is a `ScopeCapabilities` dataclass populated at connect time. **Use this to learn what the connected hardware can do** — don't hardcode axis lists, LED channel counts, or camera caps.
-
-```python
-caps = scope.capabilities
-
-# Motion
-caps.axes                       # ('X', 'Y', 'Z', 'T') on LS850T; ()         on LS620
-caps.has_focus                  # True if Z is motorized
-caps.has_xy_stage               # True if X/Y are motorized
-caps.has_turret                 # True if the turret axis is present
-caps.motor_model                # e.g. 'RP2040' or '' if no motor
-
-# LED
-caps.led_channels               # e.g. (0, 1, 2, 3) for FX2 scopes; (0..5) for RP2040
-caps.led_colors                 # e.g. ('BF', 'Blue', 'Green', 'Red') — what THIS scope can do
-caps.led_max_ma                 # per-channel current cap
-
-# Camera
-caps.camera_model               # 'MT9P031-LS620', 'acA2500-60um', etc.
-caps.camera_supports_auto_gain
-caps.camera_supports_auto_exposure
-caps.camera_pixel_formats       # e.g. ('Mono8',) or ('Mono8', 'Mono12')
-caps.camera_binning_sizes       # e.g. (1, 2, 4)
-caps.camera_max_exposure_ms     # per-camera exposure ceiling (e.g. 178 ms on FX2)
-caps.camera_pixel_size_um       # physical sensor pixel size
-```
-
-Two important consequences:
-
-- **LED channel count varies by scope.** LS560/LS620 (FX2 driver) expose 4 channels (`BF`, `Blue`, `Green`, `Red`); RP2040-based scopes expose 6 (`BF`, `PC`, `DF`, `Blue`, `Green`, `Red`). Don't iterate over a hardcoded list — iterate over `caps.led_colors`.
-- **Some scopes have no motor at all.** LS560/LS620 have `caps.axes == ()`. Calling `scope.move_absolute_position('X', …)` against such a scope is a no-op, not an error — but your UI should hide motion controls based on `caps.has_xy_stage` etc.
-
-### LED control
-
-Channels available depend on the scope — always check `scope.capabilities.led_colors`.
-
-**Luminescence** (`Lumi`): not an LED channel. In luminescence mode, all LEDs must be off — the image captures emitted light only.
-
-```python
-scope.illumination.leds_enable()
-scope.illumination.led_on('Blue', 200)                 # Blue LED at 200 mA
-scope.illumination.led_on(0, 200)                      # same, by channel number
-scope.illumination.led_on('Blue', 200, block=True)     # wait for firmware confirmation
-scope.illumination.led_off('Blue')
-scope.illumination.leds_off()                          # turn off all LEDs
-scope.illumination.leds_disable()
-
-# Fast path (no response wait — timing-critical code only)
-scope.illumination.led_on_fast('Red', 100)
-scope.illumination.led_off_fast('Red')
-scope.illumination.leds_off_fast()
-
-# Channel mapping
-scope.illumination.color2ch('Blue')                    # 0  (or -1 if the scope doesn't have this color)
-scope.illumination.ch2color(0)                         # 'Blue'
-```
-
-**Safety limits** (enforced by firmware on RP2040 boards): per-channel max 1000 mA, board total max 3000 mA. FX2 boards have their own per-channel cap declared in the camera profile.
-
-#### State queries — read from the API, never the driver
-
-Lumascope holds the authoritative LED state in an internal cache. The API layer's `get_led_state()` / `led_enabled()` / `led_illumination()` read from that cache. **Never call the driver's state methods directly** — for FX2 scopes the driver is a pure command translator and its state queries return sentinels.
-
-```python
-scope.illumination.led_enabled('Blue')                 # True / False
-scope.illumination.led_illumination('Blue')            # current mA, or -1 if off
-scope.illumination.get_led_state('Blue')               # {'enabled': True, 'illumination': 200, 'owner': '…'}
-scope.illumination.get_led_states()                    # all channels
-```
-
-#### Ownership — prevents subsystems from clobbering each other
-
-Tag each LED operation with a subsystem name. Only an owner can turn off a channel they own.
-
-```python
-scope.illumination.led_on('BF', 200, owner='autofocus')
-
-scope.illumination.led_off('BF', owner='protocol')     # no-op — wrong owner
-scope.illumination.led_off('BF', owner='autofocus')    # works
-
-scope.illumination.leds_off_owned('autofocus')         # turn off only channels owned by this subsystem
-scope.illumination.leds_off()                          # unconditional off (shutdown / cleanup)
-```
-
-#### Save / restore — the autofocus pattern
-
-Preserve the user's LED state while a subsystem does its own work, then restore:
-
-```python
-# User has Red on at 150 mA. Autofocus needs BF:
-snapshot = scope.illumination.save_led_state('autofocus')        # capture current state
-scope.illumination.led_on('BF', 100, owner='autofocus')
-# ... autofocus runs: changes Z, captures frames, evaluates focus ...
-scope.illumination.restore_led_state(snapshot, owner='autofocus')  # Red back on at 150 mA, BF off
-```
-
-`save_led_state(tag)` returns a snapshot dict; `restore_led_state(snapshot, owner='…')` reverts. The owner must match the subsystem that did the save.
-
-#### Listeners — push-based notifications
-
-Prefer listeners over polling. Listeners fire on every LED state change (enable, disable, illumination change, ownership change) with no serial I/O cost:
-
-```python
-def on_led(color: str, enabled: bool, mA: float, owner: str):
-    print(f"{color} {'ON' if enabled else 'OFF'} {mA}mA owner={owner!r}")
-
-scope.illumination.add_led_listener(on_led)
-# ... later ...
-scope.illumination.remove_led_listener(on_led)
-```
-
-Use polling only when you specifically need the current value at a moment in time (e.g., settling a UI field to match hardware after a reconnect). For "did anything change?" questions, always use listeners.
-
-### Motion control
+## scope.motion
 
 Axes available depend on the scope — always check `scope.capabilities.axes`.
 
@@ -429,7 +306,92 @@ scope.add_position_listener(on_position)
 scope.remove_position_listener(on_position)
 ```
 
-### Camera control
+---
+
+## scope.illumination
+
+Channels available depend on the scope — always check `scope.capabilities.led_colors`.
+
+**Luminescence** (`Lumi`): not an LED channel. In luminescence mode, all LEDs must be off — the image captures emitted light only.
+
+```python
+scope.illumination.leds_enable()
+scope.illumination.led_on('Blue', 200)                 # Blue LED at 200 mA
+scope.illumination.led_on(0, 200)                      # same, by channel number
+scope.illumination.led_on('Blue', 200, block=True)     # wait for firmware confirmation
+scope.illumination.led_off('Blue')
+scope.illumination.leds_off()                          # turn off all LEDs
+scope.illumination.leds_disable()
+
+# Fast path (no response wait — timing-critical code only)
+scope.illumination.led_on_fast('Red', 100)
+scope.illumination.led_off_fast('Red')
+scope.illumination.leds_off_fast()
+
+# Channel mapping
+scope.illumination.color2ch('Blue')                    # 0  (or -1 if the scope doesn't have this color)
+scope.illumination.ch2color(0)                         # 'Blue'
+```
+
+**Safety limits** (enforced by firmware on RP2040 boards): per-channel max 1000 mA, board total max 3000 mA. FX2 boards have their own per-channel cap declared in the camera profile.
+
+### State queries — read from the API, never the driver
+
+Lumascope holds the authoritative LED state in an internal cache. The API layer's `get_led_state()` / `led_enabled()` / `led_illumination()` read from that cache. **Never call the driver's state methods directly** — for FX2 scopes the driver is a pure command translator and its state queries return sentinels.
+
+```python
+scope.illumination.led_enabled('Blue')                 # True / False
+scope.illumination.led_illumination('Blue')            # current mA, or -1 if off
+scope.illumination.get_led_state('Blue')               # {'enabled': True, 'illumination': 200, 'owner': '…'}
+scope.illumination.get_led_states()                    # all channels
+```
+
+### Ownership — prevents subsystems from clobbering each other
+
+Tag each LED operation with a subsystem name. Only an owner can turn off a channel they own.
+
+```python
+scope.illumination.led_on('BF', 200, owner='autofocus')
+
+scope.illumination.led_off('BF', owner='protocol')     # no-op — wrong owner
+scope.illumination.led_off('BF', owner='autofocus')    # works
+
+scope.illumination.leds_off_owned('autofocus')         # turn off only channels owned by this subsystem
+scope.illumination.leds_off()                          # unconditional off (shutdown / cleanup)
+```
+
+### Save / restore — the autofocus pattern
+
+Preserve the user's LED state while a subsystem does its own work, then restore:
+
+```python
+# User has Red on at 150 mA. Autofocus needs BF:
+snapshot = scope.illumination.save_led_state('autofocus')        # capture current state
+scope.illumination.led_on('BF', 100, owner='autofocus')
+# ... autofocus runs: changes Z, captures frames, evaluates focus ...
+scope.illumination.restore_led_state(snapshot, owner='autofocus')  # Red back on at 150 mA, BF off
+```
+
+`save_led_state(tag)` returns a snapshot dict; `restore_led_state(snapshot, owner='…')` reverts. The owner must match the subsystem that did the save.
+
+### Listeners — push-based notifications
+
+Prefer listeners over polling. Listeners fire on every LED state change (enable, disable, illumination change, ownership change) with no serial I/O cost:
+
+```python
+def on_led(color: str, enabled: bool, mA: float, owner: str):
+    print(f"{color} {'ON' if enabled else 'OFF'} {mA}mA owner={owner!r}")
+
+scope.illumination.add_led_listener(on_led)
+# ... later ...
+scope.illumination.remove_led_listener(on_led)
+```
+
+Use polling only when you specifically need the current value at a moment in time (e.g., settling a UI field to match hardware after a reconnect). For "did anything change?" questions, always use listeners.
+
+---
+
+## scope.imaging
 
 Camera capture and configuration live on the `scope.imaging` sub-API
 namespace. The methods below are the L2-stable surface; the underlying
@@ -486,7 +448,7 @@ scope.imaging.set_binning_size(2)
 scope.imaging.get_binning_size()
 ```
 
-#### Dynamic camera capabilities
+### Dynamic camera capabilities
 
 Cameras advertise their real limits at connect time. Use these to size UI sliders and clamp auto-exposure / auto-gain:
 
@@ -497,7 +459,7 @@ scope.imaging.camera_max_gain                      # dB, None if no camera conne
 
 These are derived from the camera's profile, which is populated at connect via `_query_dynamic_capabilities()` — live SDK queries for Pylon / IDS, hardcoded-from-datasheet for FX2. Per-camera values observed in practice: LS620 FX2 = 42.1 dB gain / 178 ms exposure cap; Pylon/IDS ranges are driver-reported.
 
-#### Save / restore camera state
+### Save / restore camera state
 
 ```python
 snapshot = scope.imaging.save_camera_state('autofocus')
@@ -507,7 +469,7 @@ scope.imaging.restore_camera_state(snapshot)
 
 Symmetric to the LED version, but `restore_camera_state` takes only the snapshot (no `owner` arg — camera state is single-owner by nature).
 
-#### Camera listeners
+### Camera listeners
 
 ```python
 def on_camera(param: str, value: float):
@@ -517,7 +479,7 @@ scope.imaging.add_camera_listener(on_camera)       # fires on set_gain / set_exp
 scope.imaging.remove_camera_listener(on_camera)
 ```
 
-#### Camera info
+### Camera info
 
 ```python
 scope.imaging.camera_is_connected()
@@ -567,72 +529,20 @@ turret     — turret move
 
 When you need to capture *during* a source's active motion (e.g., autofocus captures while Z is moving), pass that source to `exclude_sources` in `capture_and_wait()`.
 
-### Objective management
+---
 
-```python
-scope.set_objective('10x Oly')
-scope.get_current_objective_id()
-scope.get_objective_info('10x Oly')        # {focal_length, magnification, NA, ...}
-scope.get_available_objectives()
-scope.get_current_objective()
+## scope.diagnostics
 
-# Turret integration
-scope.set_turret_config({1: '4x Oly', 2: '10x Oly', 3: '20x Oly', 4: '40x w/collar'})
-scope.get_turret_config()
-scope.get_turret_position_for_objective_id('10x Oly')   # returns 2
-```
-
-### Image saving
-
-Image-save helpers are free functions in `modules.image_save` (extracted
-from the Lumascope class in Wave 7 Phase 6, 2026-05). Each function
-takes the `scope` (a `Lumascope` instance) as its first argument; the
-remaining arguments are the per-call settings:
-
-```python
-from modules.image_save import save_image
-
-save_image(
-    scope,
-    array=image,
-    save_folder='/path/to/output',
-    file_root='experiment1',
-    append='_BF_A1',
-    color='BF',
-    tail_id_mode='increment',              # auto-number files
-    output_format='TIFF',                  # 'TIFF' or 'OME-TIFF'
-    x=60000, y=40000, z=5000,              # stage position metadata (µm)
-)
-```
-
-The full set of free functions in `modules.image_save`:
-
-| Function | Purpose |
-|---|---|
-| `save_image(scope, array, ...)` | Save a numpy array to TIFF / OME-TIFF with metadata. |
-| `save_live_image(scope, save_folder, ...)` | Grab the current live frame from the camera and save (composes `capture_and_wait` + `save_image`). |
-| `prepare_image_for_saving(scope, array, ...)` | Flip / bit-convert / build metadata + path; returns `{'image', 'metadata'}`. |
-| `generate_image_metadata(scope, color, x, y, z)` | Build the TIFF metadata dict for the current capture settings + position. |
-| `generate_image_save_path(scope, save_folder, ...)` | Generate the next unused file path under `tail_id_mode`. |
-| `get_next_save_path(scope, path)` | Increment the trailing numeric ID on an existing path. |
-
-### System info
+Hardware diagnostic probes and identity getters live on the `scope.diagnostics` sub-API. Per-call (no persistent state); meant for tech-support reports, bench tooling, and bring-up scripts that want one-shot snapshots of camera / motor / LED state.
 
 ```python
 scope.diagnostics.get_microscope_model()   # 'LS850'
 scope.diagnostics.get_motor_info()         # model, serial, firmware, axis config
 scope.diagnostics.get_led_info()           # firmware, cal status
 scope.diagnostics.get_system_info()        # combined summary
-scope.pixel_size()                         # um per pixel (method -- depends on objective)
-scope.lens_focal_length()                  # current tube-lens focal length (method)
+scope.pixel_size()                         # um per pixel (method -- depends on objective; stays on composition root)
+scope.lens_focal_length()                  # current tube-lens focal length (method; stays on composition root)
 ```
-
-### Diagnostics
-
-Hardware diagnostic probes live on the `scope.diagnostics` sub-API.
-Per-call (no persistent state); meant for tech-support reports,
-bench tooling, and bring-up scripts that want one-shot snapshots of
-camera / motor / LED state.
 
 ```python
 # Camera diagnostic snapshot. Returns dict with model, resolution,
@@ -683,7 +593,94 @@ ok = scope.diagnostics.enter_led_engineering_mode(timeout=5.0)
 scope.diagnostics.exit_led_engineering_mode()
 ```
 
-### Coordinate transformations
+---
+
+## scope.capabilities
+
+`scope.capabilities` is a `ScopeCapabilities` dataclass populated at connect time. **Use this to learn what the connected hardware can do** — don't hardcode axis lists, LED channel counts, or camera caps.
+
+```python
+caps = scope.capabilities
+
+# Motion
+caps.axes                       # ('X', 'Y', 'Z', 'T') on LS850T; ()         on LS620
+caps.has_focus                  # True if Z is motorized
+caps.has_xy_stage               # True if X/Y are motorized
+caps.has_turret                 # True if the turret axis is present
+caps.motor_model                # e.g. 'RP2040' or '' if no motor
+
+# LED
+caps.led_channels               # e.g. (0, 1, 2, 3) for FX2 scopes; (0..5) for RP2040
+caps.led_colors                 # e.g. ('BF', 'Blue', 'Green', 'Red') — what THIS scope can do
+caps.led_max_ma                 # per-channel current cap
+
+# Camera
+caps.camera_model               # 'MT9P031-LS620', 'acA2500-60um', etc.
+caps.camera_supports_auto_gain
+caps.camera_supports_auto_exposure
+caps.camera_pixel_formats       # e.g. ('Mono8',) or ('Mono8', 'Mono12')
+caps.camera_binning_sizes       # e.g. (1, 2, 4)
+caps.camera_max_exposure_ms     # per-camera exposure ceiling (e.g. 178 ms on FX2)
+caps.camera_pixel_size_um       # physical sensor pixel size
+```
+
+Two important consequences:
+
+- **LED channel count varies by scope.** LS560/LS620 (FX2 driver) expose 4 channels (`BF`, `Blue`, `Green`, `Red`); RP2040-based scopes expose 6 (`BF`, `PC`, `DF`, `Blue`, `Green`, `Red`). Don't iterate over a hardcoded list — iterate over `caps.led_colors`.
+- **Some scopes have no motor at all.** LS560/LS620 have `caps.axes == ()`. Calling `scope.move_absolute_position('X', …)` against such a scope is a no-op, not an error — but your UI should hide motion controls based on `caps.has_xy_stage` etc.
+
+---
+
+## scope.io
+
+**Reserved.** Not populated in LumaViewPro 4.0.x.
+
+The `scope.io` sub-API is named in the locked sub-API decomposition per `Firmware/docs/PLUGIN_API_DESIGN_2026-05-09.md` §6.6. It will document future I/O surfaces (trigger devices, USB-to-IO trigger boards, external sync) once those surfaces ship. See `caps.hardware_features` for the hardware-capability tokens that gate trigger-device features today.
+
+---
+
+## modules
+
+The `modules/` package holds helpers that ride alongside the API surface but are not sub-API methods. Two patterns:
+
+- **Take `scope` as first argument**: orchestration helpers that compose sub-API calls (image-save, composite capture, protocol runner).
+- **Pure functions**: stateless utilities that take frame arrays or geometry parameters (coord transformations, optical calculations, focus scoring).
+
+### Image saving (`modules.image_save`)
+
+Image-save helpers are free functions in `modules.image_save` (extracted
+from the Lumascope class in Wave 7 Phase 6, 2026-05). Each function
+takes the `scope` (a `Lumascope` instance) as its first argument; the
+remaining arguments are the per-call settings:
+
+```python
+from modules.image_save import save_image
+
+save_image(
+    scope,
+    array=image,
+    save_folder='/path/to/output',
+    file_root='experiment1',
+    append='_BF_A1',
+    color='BF',
+    tail_id_mode='increment',              # auto-number files
+    output_format='TIFF',                  # 'TIFF' or 'OME-TIFF'
+    x=60000, y=40000, z=5000,              # stage position metadata (µm)
+)
+```
+
+The full set of free functions in `modules.image_save`:
+
+| Function | Purpose |
+|---|---|
+| `save_image(scope, array, ...)` | Save a numpy array to TIFF / OME-TIFF with metadata. |
+| `save_live_image(scope, save_folder, ...)` | Grab the current live frame from the camera and save (composes `capture_and_wait` + `save_image`). |
+| `prepare_image_for_saving(scope, array, ...)` | Flip / bit-convert / build metadata + path; returns `{'image', 'metadata'}`. |
+| `generate_image_metadata(scope, color, x, y, z)` | Build the TIFF metadata dict for the current capture settings + position. |
+| `generate_image_save_path(scope, save_folder, ...)` | Generate the next unused file path under `tail_id_mode`. |
+| `get_next_save_path(scope, path)` | Increment the trailing numeric ID on an existing path. |
+
+### Coordinate transformations (`modules.coord_transformations`)
 
 ```python
 from modules.coord_transformations import CoordinateTransformer
@@ -702,7 +699,7 @@ stage_x, stage_y = ct.plate_to_stage(
 
 `labware` is a `LabWare` object loaded from `data/labware.json` via `WellPlateLoader`, not a raw dict. `stage_offset` is a dict like `{'x': 0.0, 'y': 0.0}`.
 
-### Optical calculations
+### Optical calculations (`modules.common_utils`)
 
 ```python
 import modules.common_utils as common_utils
@@ -720,6 +717,80 @@ fov = common_utils.get_field_of_view(
 ```
 
 These helpers read `scope.pixel_size()` / `scope.lens_focal_length()` when an LVP context is active, and fall back to defaults (47.8 mm, 2.0 µm/px) otherwise. In a bare script that never constructs a `Lumascope`, you'll get the defaults — pass your objective's focal length explicitly.
+
+### Composite capture (`modules.composite_builder`)
+
+`build_composite()` composes multi-channel frames into a single false-color image. See the [Multi-channel composite](#multi-channel-composite) pattern under Common patterns for a runnable example.
+
+```python
+from modules.composite_builder import build_composite
+```
+
+### Autofocus (`modules.autofocus_functions`)
+
+`focus_function(image=...)` computes a Brenner-gradient focus score from a frame array. Pure function; no scope state needed.
+
+```python
+from modules.autofocus_functions import focus_function
+
+score = focus_function(image=frame, skip_score_logging=True)
+```
+
+Used by autofocus iteration code paths (was previously available as `scope.compute_focus_score(image)`; retired in Wave 7 Phase 7 per the rule that frame-analysis functions are pure helpers, not API methods).
+
+### Protocol (`modules.protocol`)
+
+`Protocol.from_file(...)` loads multi-step acquisition sequences. See the [Headless protocol run](#headless-protocol-run) pattern for a runnable example.
+
+```python
+from modules.protocol import Protocol
+```
+
+---
+
+## plugin platform reference
+
+Plugin platform spec and tutorials live in the Firmware repo internal docs.
+
+- **Design**: `Firmware/docs/PLUGIN_API_DESIGN_2026-05-09.md` — the locked platform spec (PluginSpec, namespaces, registry contracts, loading sequence).
+- **Live-processing tutorial**: `Firmware/docs/LIVE_PROCESSING_TUTORIAL.md` — walkthrough for writing a `ctx.plugins.live_processing` plugin.
+- **Namespaces (4.x)**: `ctx.plugins.ui`, `ctx.plugins.post_processing`, `ctx.plugins.live_processing`, `ctx.plugins.rest`.
+
+The engineering plugin (`etaluma-engineering/`) is the first production consumer of the plugin platform; see its `pyproject.toml` `entry_points` for a concrete example of how a plugin declares itself.
+
+---
+
+## REST surface reference
+
+> **Status (2026-04):** In development on `4.1.0-dev`. When it ships it will be **disabled by default** — customers enable per-deployment via a feature flag. Treat the example below as design preview, not yet-callable code.
+
+HTTP endpoints wrap the Python API. Control the microscope from any language — MATLAB, LabVIEW, JavaScript, curl.
+
+```
+GET  /api/status                    → system status
+POST /api/led/on    {color, mA}     → turn on LED
+POST /api/led/off                   → turn off all LEDs
+POST /api/move      {axis, pos}     → move stage
+POST /api/capture                   → capture image, returns file path
+GET  /api/live/frame                → grab live frame (binary)
+POST /api/protocol/run              → run a protocol file
+POST /api/protocol/abort            → abort running protocol
+```
+
+**MATLAB example (preview — API not yet live):**
+
+```matlab
+url = "http://localhost:8000/api";
+
+webwrite(url + "/move", struct('axis','Z','pos',5000,'wait',true));
+webwrite(url + "/led/on", struct('color','BF','mA',100));
+result = webwrite(url + "/capture", struct('format','tiff'));
+
+img = imread(result.file_path);
+imshow(img);
+
+webwrite(url + "/led/off", struct());
+```
 
 ---
 
@@ -953,7 +1024,7 @@ ColorChannel.Lumi   # 6  — luminescence (all LEDs off, sensitive mode)
 
 ## Appendix A: Internal serial-protocol interfaces (firmware tooling only)
 
-This appendix documents direct serial commands used by firmware update tools, board bring-up scripts, and factory calibration. **These are not intended for integration code** — they bypass safety limits, depend on chip-internal register semantics that can change across firmware versions, and can leave the hardware in unsafe states if misused. Application code should stay at Level 2 or Level 3.
+This appendix documents direct serial commands used by firmware update tools, board bring-up scripts, and factory calibration. **These are not intended for integration code** — they bypass safety limits, depend on chip-internal register semantics that can change across firmware versions, and can leave the hardware in unsafe states if misused. Application code should stay at the ScopeSession or Lumascope sub-API layer.
 
 <details>
 <summary>Show internal interfaces</summary>
