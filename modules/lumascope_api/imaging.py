@@ -842,7 +842,7 @@ class ImagingAPI:
             )
             raise
 
-    def set_gain_sync(self, gain, *, timeout=5) -> None:
+    def set_gain_sync(self, gain, *, timeout: float = 5.0) -> None:
         """Run ``set_gain`` through the camera_executor and block until done.
 
         Args:
@@ -855,7 +855,7 @@ class ImagingAPI:
         if fut:
             fut.result(timeout=timeout)
 
-    def set_exposure_sync(self, exposure, *, timeout=5) -> None:
+    def set_exposure_sync(self, exposure, *, timeout: float = 5.0) -> None:
         """Run ``set_exposure_time`` through the camera_executor and block.
 
         Args:
@@ -1090,7 +1090,7 @@ class ImagingAPI:
                          exclude_sources: tuple = (),
                          all_ones_check: bool = False,
                          earliest_image_ts: datetime.datetime | None = None,
-                         timeout: datetime.timedelta = datetime.timedelta(seconds=0),
+                         timeout: float = 0.0,
                          sum_count: int = 1, sum_delay_s: float = 0,
                          sum_iteration_callback=None) -> 'np.ndarray | bool':
         """Capture a frame guaranteed to reflect the current hardware state.
@@ -1167,7 +1167,7 @@ class ImagingAPI:
             new_capture_timeout=grab_timeout,
         )
 
-    def capture_and_wait_sync(self, *, timeout: float = 30, **kwargs) -> 'np.ndarray | bool | None':
+    def capture_and_wait_sync(self, *, timeout: float = 30.0, **kwargs) -> 'np.ndarray | bool | None':
         """Run ``capture_and_wait`` through the camera_executor and block.
 
         Args:
@@ -1188,13 +1188,13 @@ class ImagingAPI:
         self,
         force_to_8bit: bool = True,
         earliest_image_ts: datetime.datetime | None = None,
-        timeout: datetime.timedelta = datetime.timedelta(seconds=5),
+        timeout: float = 5.0,
         all_ones_check: bool = False,
         sum_count: int = 1,
         sum_delay_s: float = 0,
         sum_iteration_callback = None,
         force_new_capture: bool = False,
-        new_capture_timeout: int = 1000,
+        new_capture_timeout: float = 5.0,
     ) -> 'np.ndarray | bool':
         """Grab and return an image from the camera.
 
@@ -1205,13 +1205,15 @@ class ImagingAPI:
         Args:
             force_to_8bit: Convert 12-bit images to 8-bit output.
             earliest_image_ts: Reject frames captured before this timestamp.
-            timeout: Max time to wait for a valid frame.
+            timeout: Max seconds to wait for a valid frame.
             all_ones_check: Reject saturated (all-max-value) frames.
             sum_count: Number of frames to sum for noise reduction.
             sum_delay_s: Delay in seconds between summed frames.
             sum_iteration_callback: Called after each summed frame.
             force_new_capture: If True, wait for a new camera capture.
-            new_capture_timeout: Timeout (ms) for new capture grab.
+            new_capture_timeout: Max seconds to wait for the new-capture grab
+                (passed directly to driver.grab_new_capture). Was historically
+                labeled "ms" but the value path is seconds; corrected pre-freeze.
 
         Returns:
             numpy.ndarray | False: Captured image array, or False on failure.
@@ -1221,9 +1223,10 @@ class ImagingAPI:
             return False
 
         tmp_buffer = []
+        timeout_td = datetime.timedelta(seconds=timeout)
         for idx in range(sum_count):
             start_time = datetime.datetime.now()
-            stop_time = start_time + timeout
+            stop_time = start_time + timeout_td
 
             while True:
                 # Acquire cam_lock for camera grab — prevents concurrent

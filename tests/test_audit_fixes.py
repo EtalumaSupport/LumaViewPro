@@ -7714,3 +7714,61 @@ class TestSessionLedOnArgNameIsMa:
         params = inspect.signature(ScopeSession.led_on_sync).parameters
         assert 'mA' in params
         assert 'illumination' not in params
+
+
+class TestImagingTimeoutsAreFloatSeconds:
+    """Audit Finding #11 -- imaging timeout convention unified to
+    float seconds. Pre-freeze, the four cited shapes (`timedelta`,
+    `int ms`, `float s`, untyped) collapse to `float` seconds.
+    Also surfaces a unit fix on `get_image.new_capture_timeout`,
+    which historically defaulted to `1000` (claiming "ms" in the
+    docstring) but the value flowed unchanged into the driver
+    `grab_new_capture(timeout: float)` which is seconds."""
+
+    _METHODS_AND_TIMEOUTS = (
+        ('set_gain_sync', 'timeout', 5.0),
+        ('set_exposure_sync', 'timeout', 5.0),
+        ('capture_and_wait', 'timeout', 0.0),
+        ('capture_and_wait_sync', 'timeout', 30.0),
+    )
+
+    def test_timeout_default_is_float(self):
+        import inspect
+        from modules.lumascope_api.imaging import ImagingAPI
+
+        for method_name, kwarg, expected in self._METHODS_AND_TIMEOUTS:
+            method = getattr(ImagingAPI, method_name)
+            sig = inspect.signature(method)
+            assert kwarg in sig.parameters, f'{method_name} lost {kwarg}'
+            default = sig.parameters[kwarg].default
+            assert isinstance(default, float), (
+                f'{method_name}.{kwarg} default {default!r} not float'
+            )
+            assert default == expected, (
+                f'{method_name}.{kwarg} default {default} != {expected}'
+            )
+
+    def test_get_image_timeout_is_float_seconds(self):
+        import inspect
+        from modules.lumascope_api.imaging import ImagingAPI
+
+        sig = inspect.signature(ImagingAPI.get_image)
+        timeout = sig.parameters['timeout']
+        assert isinstance(timeout.default, float), (
+            f'get_image.timeout default {timeout.default!r} not float seconds; '
+            f'previously datetime.timedelta'
+        )
+        assert timeout.default == 5.0
+
+    def test_get_image_new_capture_timeout_is_float_seconds(self):
+        # The audit said "rename to *_ms if SDK demands ms"; verification
+        # showed the driver takes seconds, so we keep the name + canonicalize
+        # to float seconds. Default was 1000 (an int interpreted as 1000s by
+        # the driver path -- never exercised). Now 5.0 seconds.
+        import inspect
+        from modules.lumascope_api.imaging import ImagingAPI
+
+        sig = inspect.signature(ImagingAPI.get_image)
+        nct = sig.parameters['new_capture_timeout']
+        assert isinstance(nct.default, float)
+        assert nct.default == 5.0
