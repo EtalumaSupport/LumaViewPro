@@ -8177,3 +8177,42 @@ class TestConnectionCheckShapeUniformOnLumascope:
         the property gracefully degrades regardless)."""
         sim_scope._camera_driver = None
         assert sim_scope.camera_connected is False
+
+
+class TestFrameValidityIsL2Stable:
+    """Freeze audit Finding #40 -- scope.imaging.frame_validity was
+    publicly accessible (no underscore prefix) but LumascopeSkills said
+    "internal diagnostic and not part of L2-stable API surface." Two
+    options: prefix as _frame_validity OR formally promote. Promoted:
+    L2 callers (plugin authors, diagnostic tooling, custom capture
+    loops) can rely on the FrameValidity surface."""
+
+    L2_STABLE_FRAME_VALIDITY_SURFACE = (
+        'is_valid', 'is_valid_for', 'frames_until_valid',
+        'pending_sources', 'invalidate', 'count_frame',
+    )
+
+    def test_frame_validity_exposes_l2_surface(self, sim_scope):
+        """Every documented L2 method/property is present on the
+        FrameValidity instance. Promoting locks the contract; this test
+        catches accidental retirement."""
+        fv = sim_scope.imaging.frame_validity
+        for name in self.L2_STABLE_FRAME_VALIDITY_SURFACE:
+            assert hasattr(fv, name), (
+                f'FrameValidity.{name} must exist per audit #40 promotion; '
+                'L2 callers depend on it.'
+            )
+
+    def test_frame_validity_is_publicly_named(self):
+        """The attribute is `frame_validity`, not `_frame_validity` --
+        signals 'documented L2 surface' per Rule 27 underscore convention."""
+        from modules.lumascope_api.imaging import ImagingAPI
+        src = inspect.getsource(ImagingAPI.__init__)
+        assert 'self.frame_validity = FrameValidity()' in src, (
+            'ImagingAPI.frame_validity attribute name must remain public '
+            'per audit #40 promotion.'
+        )
+        assert 'self._frame_validity' not in src, (
+            'frame_validity must not be prefixed -- the audit chose formal '
+            'L2 promotion, not internal hiding.'
+        )

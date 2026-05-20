@@ -552,12 +552,23 @@ scope.imaging.count_frame()                        # record that you grabbed a f
                                            # handles it internally)
 ```
 
-`pending_sources` (mapping of `{source: frames_remaining}`) is currently
-accessed as `scope.imaging.frame_validity.pending_sources` -- this is an internal
-diagnostic and not part of the L2-stable API surface; use it for debug,
-not for production control flow.
+For deeper introspection (diagnostic tooling, plugin authors writing custom capture loops, advanced timing analysis), the underlying `FrameValidity` instance is available as `scope.imaging.frame_validity` and is part of the L2-stable surface:
 
-Invalidation is automatic — you don't need to call it yourself. The sources that invalidate frames are:
+```python
+fv = scope.imaging.frame_validity
+
+fv.is_valid                                # bool property -- next frame valid right now?
+fv.is_valid_for(exclude_sources=('z_move',))  # bool -- valid if you don't care about Z motion
+fv.frames_until_valid()                    # int -- drains remaining
+fv.frames_until_valid(exclude_sources=('z_move',))
+fv.pending_sources                         # dict {source: target_frame_counter} (snapshot)
+fv.invalidate('led')                       # mark a source dirty (usually called by API setters)
+fv.count_frame(chunk_data=None)            # mark a frame as drained (capture_and_wait does this)
+```
+
+`set_settle_check(fn)` is the API-only registration hook for motion-completion gating and is not used by L2 callers directly. Everything else is fair game for plugin / SDK consumers.
+
+Invalidation is automatic for normal flows — you don't need to call `invalidate()` yourself unless you're writing a custom hardware setter outside the API. The sources that invalidate frames are:
 
 ```
 led        — LED turn on/off or illumination change
