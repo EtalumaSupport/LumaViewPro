@@ -209,6 +209,19 @@ class ScopeSession:
         import modules.config_helpers as config_helpers
         return config_helpers.get_current_objective_info(self.settings, self.objective_helper)
 
+    def set_objective(self, objective_id: str) -> None:
+        """Set the active objective by ID.
+
+        Thin Session-layer forwarder so L2 callers (REST / SDK /
+        MATLAB / micromanager) can drive objective selection without
+        reaching across to the composition root. Pairs with
+        ``get_current_objective_info()``.
+
+        Args:
+            objective_id: Objective identifier (e.g. "10x Oly").
+        """
+        self.scope.set_objective(objective_id)
+
     def get_current_plate_position(self):
         import modules.config_helpers as config_helpers
         return config_helpers.get_current_plate_position(

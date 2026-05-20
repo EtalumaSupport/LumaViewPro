@@ -127,10 +127,12 @@ scope.disconnect()
 
 ### Objective management
 
-Objective / labware / turret-config / stage-offset stay on the composition root for now (microscope configuration, not live hardware).
+Objective / labware / turret-config / stage-offset stay on the composition root for now (microscope configuration, not live hardware). The Session layer exposes a thin `set_objective(id)` forwarder so L2 SDK callers can drive objective selection without reaching across into `scope`.
 
 ```python
-scope.set_objective('10x Oly')
+session.set_objective('10x Oly')           # L2-canonical setter (thin Session forwarder)
+scope.set_objective('10x Oly')             # equivalent; composition-root surface
+
 scope.get_current_objective_id()
 scope.get_objective_info('10x Oly')        # {focal_length, magnification, NA, ...}
 scope.get_available_objectives()

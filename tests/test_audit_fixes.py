@@ -8021,3 +8021,32 @@ class TestTimeoutParamNamesUseSecondSuffix:
         params = set(inspect.signature(Camera.grab_new_capture).parameters)
         assert 'timeout_s' in params
         assert 'timeout' not in params
+
+
+class TestSessionSetObjectiveForwarder:
+    """Freeze audit Finding #47 -- LumascopeSkills.md said
+    `scope.set_objective('10x Oly')` but the Session layer is the L2
+    entry point per design-doc 6.6; `session.set_objective` did not
+    exist, so the doc led L2 callers across to the composition root.
+    Fix: thin forwarder on ScopeSession plus doc note that both
+    surfaces work."""
+
+    def test_session_has_set_objective_method(self):
+        from modules.scope_session import ScopeSession
+        assert callable(getattr(ScopeSession, 'set_objective', None)), (
+            'ScopeSession.set_objective forwarder must exist per audit #47'
+        )
+
+    def test_session_set_objective_forwards_to_scope(self):
+        """Calling the Session forwarder updates the composition root's
+        objective state -- same path as scope.set_objective() directly."""
+        from modules.scope_session import ScopeSession
+
+        session = ScopeSession.create_headless()
+        available = session.scope.get_available_objectives()
+        if not available:
+            return  # no objectives loaded in this sim profile
+        target = available[0] if isinstance(available, list) else next(iter(available))
+
+        session.set_objective(target)
+        assert session.scope.get_current_objective_id() == target
