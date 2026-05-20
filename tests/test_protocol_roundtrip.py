@@ -1782,8 +1782,8 @@ class TestExecutorEdgeCases:
 
     def test_camera_settings_restored_after_protocol(self, real_executor, scope, tmp_path):
         """Camera gain and exposure are restored after protocol."""
-        original_gain = scope.get_gain()
-        original_exposure = scope.get_exposure_time()
+        original_gain = scope.imaging.get_gain()
+        original_exposure = scope.imaging.get_exposure_time()
 
         proto = _build_protocol([_make_step(gain=5.0, exposure=50.0)])
         completed, _ = _run_and_wait(real_executor, proto, tmp_path)
@@ -1791,8 +1791,8 @@ class TestExecutorEdgeCases:
         import time
         time.sleep(0.5)
 
-        restored_gain = scope.get_gain()
-        restored_exposure = scope.get_exposure_time()
+        restored_gain = scope.imaging.get_gain()
+        restored_exposure = scope.imaging.get_exposure_time()
         assert restored_gain == pytest.approx(original_gain, abs=0.1), \
             f"Gain not restored: {restored_gain} vs {original_gain}"
         assert restored_exposure == pytest.approx(original_exposure, abs=0.1), \
@@ -2133,25 +2133,25 @@ class TestLumascapeAPICamera:
     """Direct tests on Lumascope camera API with simulated hardware."""
 
     def test_camera_connected(self, scope):
-        assert scope.camera_is_connected()
+        assert scope.imaging.camera_is_connected()
 
     def test_get_image_returns_array(self, scope):
         import numpy as np
-        img = scope.get_image()
+        img = scope.imaging.get_image()
         assert isinstance(img, np.ndarray), f"get_image returned {type(img)}"
         assert img.ndim == 2  # grayscale
 
     def test_set_gain(self, scope):
-        scope.set_gain(5.0)
-        assert scope.get_gain() == pytest.approx(5.0, abs=0.1)
+        scope.imaging.set_gain(5.0)
+        assert scope.imaging.get_gain() == pytest.approx(5.0, abs=0.1)
 
     def test_set_exposure(self, scope):
-        scope.set_exposure_time(25.0)
-        assert scope.get_exposure_time() == pytest.approx(25.0, abs=0.1)
+        scope.imaging.set_exposure_time(25.0)
+        assert scope.imaging.get_exposure_time() == pytest.approx(25.0, abs=0.1)
 
     def test_capture_and_wait(self, scope):
         import numpy as np
-        result = scope.capture_and_wait()
+        result = scope.imaging.capture_and_wait()
         assert isinstance(result, np.ndarray), f"capture_and_wait returned {type(result)}"
 
 

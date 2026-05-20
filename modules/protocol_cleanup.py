@@ -160,7 +160,7 @@ def run_cleanup(
             )
             fut = camera_executor.protocol_put(
                 IOTask(
-                    action=scope.restore_camera_state,
+                    action=scope.imaging.restore_camera_state,
                     args=(saved_camera_state,),
                 ),
                 return_future=True,
@@ -172,7 +172,7 @@ def run_cleanup(
                 # a direct call so state is still restored. Real-hardware
                 # path normally hits the executor branch above; this branch
                 # mostly covers tests / shutdown races.
-                scope.restore_camera_state(saved_camera_state)
+                scope.imaging.restore_camera_state(saved_camera_state)
     except Exception as ex:
         logger.error(f"[PROTOCOL] Error restoring camera gain/exposure during cleanup: {ex}")
         cleanup_errors.append(f"Restore camera gain/exposure: {type(ex).__name__}: {ex}")

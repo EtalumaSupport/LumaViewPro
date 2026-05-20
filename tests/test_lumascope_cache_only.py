@@ -86,20 +86,20 @@ class TestCameraPropertiesCacheOnly:
         """Reading camera_frame_size must not call any driver-side SDK
         method. If this fails, scope_display's per-frame readout has
         become a per-frame Pylon SDK call."""
-        result = scope_with_io_traps.camera_frame_size
+        result = scope_with_io_traps.imaging.camera_frame_size
         assert isinstance(result, dict)
 
     def test_camera_pixel_format_no_io(self, scope_with_io_traps):
         """Reading camera_pixel_format must not call any driver-side SDK
         method. Same risk as camera_frame_size."""
-        result = scope_with_io_traps.camera_pixel_format
+        result = scope_with_io_traps.imaging.camera_pixel_format
         assert isinstance(result, str)
 
     def test_camera_frame_size_repeated_reads(self, scope_with_io_traps):
         """Repeated reads must remain cache-only — no lazy refresh that
         flips to SDK after first call."""
         for _ in range(5):
-            scope_with_io_traps.camera_frame_size
+            scope_with_io_traps.imaging.camera_frame_size
 
 
 class TestPositionAccessorsCacheOnly:

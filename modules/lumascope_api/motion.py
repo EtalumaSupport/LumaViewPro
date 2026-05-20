@@ -370,11 +370,11 @@ class MotionAPI:
         for ax in present_axes:
             self._set_axis_state(ax, AxisState.HOMING)
         if 'Z' in present_axes:
-            self._scope.frame_validity.invalidate('z_move')
+            self._scope.imaging.frame_validity.invalidate('z_move')
         if 'X' in present_axes or 'Y' in present_axes:
-            self._scope.frame_validity.invalidate('xy_move')
+            self._scope.imaging.frame_validity.invalidate('xy_move')
         if 'T' in present_axes:
-            self._scope.frame_validity.invalidate('turret')
+            self._scope.imaging.frame_validity.invalidate('turret')
         self.is_homing = True
         try:
             with self._scope.reference_position_logger():
@@ -459,7 +459,7 @@ class MotionAPI:
             with self._scope.reference_position_logger():
                 with self.safe_turret_move():
                     self._set_axis_state('T', AxisState.HOMING)
-                    self._scope.frame_validity.invalidate('turret')
+                    self._scope.imaging.frame_validity.invalidate('turret')
                     result = self._driver.thome()
             if result is False:
                 logger.error('[SCOPE API ] Turret homing failed')
@@ -880,7 +880,7 @@ class MotionAPI:
         """
         _api_log.info('zhome START')
         self._set_axis_state('Z', AxisState.HOMING)
-        self._scope.frame_validity.invalidate('z_move')
+        self._scope.imaging.frame_validity.invalidate('z_move')
         try:
             with self._scope.reference_position_logger():
                 result = self._driver.zhome()
@@ -1140,7 +1140,7 @@ class MotionAPI:
         with self._pos_cache_lock:
             self._pos_cache[axis] = float(pos)
         self._fire_position_listeners(axis)
-        self._scope.frame_validity.invalidate('z_move' if axis == 'Z' else 'xy_move')
+        self._scope.imaging.frame_validity.invalidate('z_move' if axis == 'Z' else 'xy_move')
         _api_log.info(f'move_abs {axis}={pos:.1f}um'
                       f'{" wait" if wait_until_complete else ""}')
 
@@ -1186,7 +1186,7 @@ class MotionAPI:
         with self._pos_cache_lock:
             self._pos_cache[axis] = self._pos_cache.get(axis, 0.0) + float(um)
         self._fire_position_listeners(axis)
-        self._scope.frame_validity.invalidate('z_move' if axis == 'Z' else 'xy_move')
+        self._scope.imaging.frame_validity.invalidate('z_move' if axis == 'Z' else 'xy_move')
         _api_log.info(f'move_rel {axis}={um:+.1f}um'
                       f'{" wait" if wait_until_complete else ""}')
 

@@ -71,17 +71,17 @@ class VideoCaptureSession:
         step = self._step
 
         # Drain stale frames before video capture starts
-        while self._scope.frames_until_valid() > 0:
-            self._scope.get_image(force_new_capture=True)
-            self._scope.count_frame()
+        while self._scope.imaging.frames_until_valid() > 0:
+            self._scope.imaging.get_image(force_new_capture=True)
+            self._scope.imaging.count_frame()
         # Additional settle for auto-gain first frame
         time.sleep(max(step['Exposure'] / 1000, 0.05))
 
         # Disable autogain and then reenable it only for the first frame
         if step["Auto_Gain"]:
-            self._scope.set_auto_gain(state=False,
+            self._scope.imaging.set_auto_gain(state=False,
                                       settings=self._autogain_settings)
-            self._scope.auto_gain_once(
+            self._scope.imaging.auto_gain_once(
                 state=True,
                 target_brightness=self._autogain_settings['target_brightness'],
                 min_gain=self._autogain_settings['min_gain'],
@@ -174,7 +174,7 @@ class VideoCaptureSession:
                 return None
 
             # Currently only support 8-bit images for video
-            image = self._scope.get_image(force_to_8bit=True)
+            image = self._scope.imaging.get_image(force_to_8bit=True)
 
             if not isinstance(image, np.ndarray):
                 logger.warning(

@@ -24,6 +24,7 @@ class FakeScope:
         # self lets the existing led_on/led_off/color2ch methods serve
         # both call shapes.
         self.illumination = self
+        self.imaging = self
 
     # LAYER-F: production code now reads frame validity through the
     # Lumascope API rather than reaching into self.frame_validity

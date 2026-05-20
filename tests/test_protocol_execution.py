@@ -1649,36 +1649,36 @@ class TestCleanupConcurrency:
 # ---------------------------------------------------------------------------
 
 class TestDiskSpaceCheck:
-    """P0-2: Protocol aborts when disk space is below 2 GB."""
+    """P0-2: Protocol aborts when disk space is below 2 GB.
 
-    @patch('modules.protocol_run_loop.shutil.disk_usage')
-    def test_low_disk_aborts_image_protocol(self, mock_disk_usage, executor, scope, tmp_path):
+    Rule-35 audit 2026-05-19 finding 3 consolidated the disk probe onto
+    common_utils.check_disk_space_ok; mocks target the imported alias in
+    protocol_run_loop's namespace and return the helper's (ok, free_mb)
+    tuple shape.
+    """
+
+    @patch('modules.protocol_run_loop.check_disk_space_ok')
+    def test_low_disk_aborts_image_protocol(self, mock_check, executor, scope, tmp_path):
         """With very low disk space, image capture should abort without hanging."""
-        fake_usage = MagicMock()
-        fake_usage.free = 500 * 1024 * 1024  # 500 MB
-        mock_disk_usage.return_value = fake_usage
+        mock_check.return_value = (False, 500.0)  # 500 MB free, threshold exceeded
 
         protocol = _make_single_step_protocol(color='BF')
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed, "Protocol did not abort within timeout when disk space is low"
 
-    @patch('modules.protocol_run_loop.shutil.disk_usage')
-    def test_large_protocol_needs_more_than_2gb(self, mock_disk_usage, executor, scope, tmp_path):
+    @patch('modules.protocol_run_loop.check_disk_space_ok')
+    def test_large_protocol_needs_more_than_2gb(self, mock_check, executor, scope, tmp_path):
         """300 image steps need 2400 MB (300 * 8 MB), so 2.0 GB free should abort."""
-        fake_usage = MagicMock()
-        fake_usage.free = 2000 * 1024 * 1024  # 2.0 GB — below max(2048, 300*8=2400) = 2400 MB
-        mock_disk_usage.return_value = fake_usage
+        mock_check.return_value = (False, 2000.0)  # 2.0 GB free vs max(2048, 2400) MB
 
         protocol = _make_multi_step_protocol([{'color': 'BF'} for _ in range(300)])
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed, "Protocol did not abort within timeout when disk space is low for large protocol"
 
-    @patch('modules.protocol_run_loop.shutil.disk_usage')
-    def test_video_steps_need_500mb_each(self, mock_disk_usage, executor, scope, tmp_path):
+    @patch('modules.protocol_run_loop.check_disk_space_ok')
+    def test_video_steps_need_500mb_each(self, mock_check, executor, scope, tmp_path):
         """5 video steps need 2.5 GB (5 * 500 MB), so 2.2 GB free should abort."""
-        fake_usage = MagicMock()
-        fake_usage.free = 2200 * 1024 * 1024  # 2.2 GB — enough for 2 GB floor but not 5*500 MB
-        mock_disk_usage.return_value = fake_usage
+        mock_check.return_value = (False, 2200.0)  # 2.2 GB free; 5*500=2500 MB required
 
         protocol = _make_multi_step_protocol([
             {'color': 'BF', 'acquire': 'video', 'video_config': {'duration': 1, 'fps': 5}}
@@ -1687,9 +1687,9 @@ class TestDiskSpaceCheck:
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed, "Protocol did not abort for video steps requiring more disk space"
 
-    @patch('modules.protocol_run_loop.shutil.disk_usage', side_effect=OSError("disk error"))
-    def test_disk_check_exception_does_not_crash(self, mock_disk_usage, executor, scope, tmp_path):
-        """If disk_usage raises OSError, protocol continues."""
+    @patch('modules.protocol_run_loop.check_disk_space_ok', side_effect=OSError("disk error"))
+    def test_disk_check_exception_does_not_crash(self, mock_check, executor, scope, tmp_path):
+        """If the probe raises OSError, protocol continues (swallow in caller)."""
         protocol = _make_single_step_protocol(color='BF')
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed
@@ -1706,13 +1706,13 @@ class TestCaptureFailure:
         """When capture_and_wait returns False, protocol completes (doesn't hang)."""
         protocol = _make_single_step_protocol(color='BF')
 
-        original_capture = scope.capture_and_wait
-        scope.capture_and_wait = MagicMock(return_value=False)
+        original_capture = scope.imaging.capture_and_wait
+        scope.imaging.capture_and_wait = MagicMock(return_value=False)
 
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed
 
-        scope.capture_and_wait = original_capture
+        scope.imaging.capture_and_wait = original_capture
 
     def test_multiple_capture_failures_still_complete(self, executor, scope, tmp_path):
         """Three steps all fail capture — protocol runs to completion."""
@@ -1720,13 +1720,13 @@ class TestCaptureFailure:
             {'color': 'BF'}, {'color': 'Red'}, {'color': 'Green'},
         ])
 
-        original_capture = scope.capture_and_wait
-        scope.capture_and_wait = MagicMock(return_value=False)
+        original_capture = scope.imaging.capture_and_wait
+        scope.imaging.capture_and_wait = MagicMock(return_value=False)
 
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed
 
-        scope.capture_and_wait = original_capture
+        scope.imaging.capture_and_wait = original_capture
 
 
 # ---------------------------------------------------------------------------
@@ -1812,35 +1812,35 @@ class TestCameraStateRestoration:
 
     def test_gain_restored_after_protocol(self, executor, scope, tmp_path):
         """Gain is restored to original value after protocol completes."""
-        scope.set_gain(3.0)
-        scope.set_exposure_time(25.0)
-        original_gain = scope.get_gain()
-        original_exposure = scope.get_exposure_time()
+        scope.imaging.set_gain(3.0)
+        scope.imaging.set_exposure_time(25.0)
+        original_gain = scope.imaging.get_gain()
+        original_exposure = scope.imaging.get_exposure_time()
 
         protocol = _make_single_step_protocol(color='BF', gain=10.0, exposure=100.0)
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed
 
-        assert scope.get_gain() == pytest.approx(original_gain, abs=0.1)
-        assert scope.get_exposure_time() == pytest.approx(original_exposure, abs=0.1)
+        assert scope.imaging.get_gain() == pytest.approx(original_gain, abs=0.1)
+        assert scope.imaging.get_exposure_time() == pytest.approx(original_exposure, abs=0.1)
 
     def test_gain_restored_with_auto_gain(self, executor, scope, tmp_path):
         """Even with auto_gain enabled, original gain is restored after cleanup."""
-        scope.set_gain(5.0)
-        original_gain = scope.get_gain()
+        scope.imaging.set_gain(5.0)
+        original_gain = scope.imaging.get_gain()
 
         protocol = _make_single_step_protocol(color='BF', auto_gain=True)
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed
 
-        assert scope.get_gain() == pytest.approx(original_gain, abs=0.1)
+        assert scope.imaging.get_gain() == pytest.approx(original_gain, abs=0.1)
 
     def test_gain_restored_after_multi_step(self, executor, scope, tmp_path):
         """Multi-step protocol with varying gains restores to original."""
-        scope.set_gain(2.0)
-        scope.set_exposure_time(15.0)
-        original_gain = scope.get_gain()
-        original_exposure = scope.get_exposure_time()
+        scope.imaging.set_gain(2.0)
+        scope.imaging.set_exposure_time(15.0)
+        original_gain = scope.imaging.get_gain()
+        original_exposure = scope.imaging.get_exposure_time()
 
         protocol = _make_multi_step_protocol([
             {'color': 'BF', 'gain': 5.0, 'exposure': 50.0},
@@ -1850,15 +1850,15 @@ class TestCameraStateRestoration:
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed
 
-        assert scope.get_gain() == pytest.approx(original_gain, abs=0.1)
-        assert scope.get_exposure_time() == pytest.approx(original_exposure, abs=0.1)
+        assert scope.imaging.get_gain() == pytest.approx(original_gain, abs=0.1)
+        assert scope.imaging.get_exposure_time() == pytest.approx(original_exposure, abs=0.1)
 
     def test_gain_restored_after_cancellation(self, executor, scope, tmp_path):
         """Gain is restored even when protocol is cancelled mid-run."""
-        scope.set_gain(4.0)
-        scope.set_exposure_time(30.0)
-        original_gain = scope.get_gain()
-        original_exposure = scope.get_exposure_time()
+        scope.imaging.set_gain(4.0)
+        scope.imaging.set_exposure_time(30.0)
+        original_gain = scope.imaging.get_gain()
+        original_exposure = scope.imaging.get_exposure_time()
 
         protocol = _make_multi_step_protocol([
             {'color': c, 'gain': 12.0, 'exposure': 80.0}
@@ -1889,8 +1889,8 @@ class TestCameraStateRestoration:
         executor.reset()
         done.wait(timeout=COMPLETION_TIMEOUT)
 
-        assert scope.get_gain() == pytest.approx(original_gain, abs=0.1)
-        assert scope.get_exposure_time() == pytest.approx(original_exposure, abs=0.1)
+        assert scope.imaging.get_gain() == pytest.approx(original_gain, abs=0.1)
+        assert scope.imaging.get_exposure_time() == pytest.approx(original_exposure, abs=0.1)
 
 
 # ---------------------------------------------------------------------------
@@ -1955,13 +1955,13 @@ class TestCleanupCorrectness:
     def test_back_to_back_runs_no_state_bleed(self, executor, scope, tmp_path):
         """Gain/exposure from run A don't leak into run B's restored values."""
         # Run A: set gain to 8
-        scope.set_gain(8.0)
-        scope.set_exposure_time(80.0)
+        scope.imaging.set_gain(8.0)
+        scope.imaging.set_exposure_time(80.0)
         protocol_a = _make_single_step_protocol(color='BF', gain=15.0, exposure=150.0)
         completed_a, _ = _run_and_wait(executor, protocol_a, tmp_path)
         assert completed_a
         # Should restore to 8.0/80.0
-        assert scope.get_gain() == pytest.approx(8.0, abs=0.1)
+        assert scope.imaging.get_gain() == pytest.approx(8.0, abs=0.1)
 
         # Wait for file queue to drain before starting next run
         deadline = time.monotonic() + 5.0
@@ -1971,11 +1971,11 @@ class TestCleanupCorrectness:
             time.sleep(0.05)
 
         # Run B: change gain before second run
-        scope.set_gain(2.0)
-        scope.set_exposure_time(20.0)
+        scope.imaging.set_gain(2.0)
+        scope.imaging.set_exposure_time(20.0)
         protocol_b = _make_single_step_protocol(color='Red', gain=12.0, exposure=120.0)
         completed_b, _ = _run_and_wait(executor, protocol_b, tmp_path / 'run2')
         assert completed_b
         # Should restore to 2.0/20.0, NOT to 8.0/80.0 from run A
-        assert scope.get_gain() == pytest.approx(2.0, abs=0.1)
-        assert scope.get_exposure_time() == pytest.approx(20.0, abs=0.1)
+        assert scope.imaging.get_gain() == pytest.approx(2.0, abs=0.1)
+        assert scope.imaging.get_exposure_time() == pytest.approx(20.0, abs=0.1)

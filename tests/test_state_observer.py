@@ -241,39 +241,39 @@ class TestCameraListener:
 
     def test_listener_fires_on_set_gain(self, scope):
         events = []
-        scope.add_camera_listener(lambda p, v: events.append((p, v)))
-        scope.set_gain(5.0)
+        scope.imaging.add_camera_listener(lambda p, v: events.append((p, v)))
+        scope.imaging.set_gain(5.0)
         assert len(events) == 1
         assert events[0] == ('gain', 5.0)
 
     def test_listener_fires_on_set_exposure(self, scope):
         events = []
-        scope.add_camera_listener(lambda p, v: events.append((p, v)))
-        scope.set_exposure_time(25.0)  # Different from default 10ms
+        scope.imaging.add_camera_listener(lambda p, v: events.append((p, v)))
+        scope.imaging.set_exposure_time(25.0)  # Different from default 10ms
         assert len(events) == 1
         assert events[0] == ('exposure', 25.0)
 
     def test_listener_not_fired_on_redundant_gain(self, scope):
         """Skip-check: same gain value should not fire listener."""
-        scope.set_gain(5.0)
+        scope.imaging.set_gain(5.0)
         events = []
-        scope.add_camera_listener(lambda p, v: events.append((p, v)))
-        scope.set_gain(5.0)  # redundant
+        scope.imaging.add_camera_listener(lambda p, v: events.append((p, v)))
+        scope.imaging.set_gain(5.0)  # redundant
         assert len(events) == 0
 
     def test_remove_camera_listener(self, scope):
         events = []
         listener = lambda p, v: events.append((p, v))
-        scope.add_camera_listener(listener)
-        scope.remove_camera_listener(listener)
-        scope.set_gain(5.0)
+        scope.imaging.add_camera_listener(listener)
+        scope.imaging.remove_camera_listener(listener)
+        scope.imaging.set_gain(5.0)
         assert len(events) == 0
 
     def test_camera_listener_exception_does_not_propagate(self, scope):
         def bad_listener(p, v):
             raise RuntimeError("broken")
-        scope.add_camera_listener(bad_listener)
-        scope.set_gain(5.0)  # should not raise
+        scope.imaging.add_camera_listener(bad_listener)
+        scope.imaging.set_gain(5.0)  # should not raise
 
 
 # ---------------------------------------------------------------------------
@@ -284,27 +284,27 @@ class TestCameraSaveRestore:
     """Tests for save_camera_state / restore_camera_state."""
 
     def test_save_restore_roundtrip(self, scope):
-        scope.set_gain(5.0)
-        scope.set_exposure_time(25.0)
-        snapshot = scope.save_camera_state('test')
+        scope.imaging.set_gain(5.0)
+        scope.imaging.set_exposure_time(25.0)
+        snapshot = scope.imaging.save_camera_state('test')
         # Change to different values
-        scope.set_gain(10.0)
-        scope.set_exposure_time(50.0)
-        assert scope.get_gain() != 5.0
+        scope.imaging.set_gain(10.0)
+        scope.imaging.set_exposure_time(50.0)
+        assert scope.imaging.get_gain() != 5.0
         # Restore
-        scope.restore_camera_state(snapshot)
-        assert abs(scope.get_gain() - 5.0) < 0.01
-        assert abs(scope.get_exposure_time() - 25.0) < 0.01
+        scope.imaging.restore_camera_state(snapshot)
+        assert abs(scope.imaging.get_gain() - 5.0) < 0.01
+        assert abs(scope.imaging.get_exposure_time() - 25.0) < 0.01
 
     def test_restore_empty_snapshot(self, scope):
-        scope.set_gain(5.0)
-        scope.restore_camera_state(None)
-        assert abs(scope.get_gain() - 5.0) < 0.01  # unchanged
-        scope.restore_camera_state({})
-        assert abs(scope.get_gain() - 5.0) < 0.01  # unchanged
+        scope.imaging.set_gain(5.0)
+        scope.imaging.restore_camera_state(None)
+        assert abs(scope.imaging.get_gain() - 5.0) < 0.01  # unchanged
+        scope.imaging.restore_camera_state({})
+        assert abs(scope.imaging.get_gain() - 5.0) < 0.01  # unchanged
 
     def test_snapshot_contains_tag(self, scope):
-        snapshot = scope.save_camera_state('protocol')
+        snapshot = scope.imaging.save_camera_state('protocol')
         assert snapshot['tag'] == 'protocol'
         assert 'gain' in snapshot
         assert 'exposure' in snapshot

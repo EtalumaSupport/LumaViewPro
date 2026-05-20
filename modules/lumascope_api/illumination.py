@@ -149,7 +149,7 @@ class IlluminationAPI:
 
         with self._led_lock:
             self._driver.led_on(channel, mA, block=block)
-        self._scope.frame_validity.invalidate('led')
+        self._scope.imaging.frame_validity.invalidate('led')
         _api_log.info(f'led_on ch={channel} mA={mA} owner={owner!r}')
 
         # Update API-level state cache + ownership (Rule 2). Unconditional
@@ -210,7 +210,7 @@ class IlluminationAPI:
 
         with self._led_lock:
             self._driver.led_off(channel)
-        self._scope.frame_validity.invalidate('led')
+        self._scope.imaging.frame_validity.invalidate('led')
         _api_log.info(f'led_off ch={channel} owner={owner!r}')
 
         # Clear from API-level state cache + ownership
@@ -229,7 +229,7 @@ class IlluminationAPI:
         with self._led_owner_lock:
             self._led_owners.clear()
             self._led_state.clear()
-        self._scope.frame_validity.invalidate('led')
+        self._scope.imaging.frame_validity.invalidate('led')
         _api_log.info('leds_off')
         for color in self._driver.available_colors():
             self._fire_led_listeners(color, False, 0.0, '')
@@ -255,7 +255,7 @@ class IlluminationAPI:
             raise ValueError(f"LED current must be 0-{self._scope.LED_MAX_MA} mA, got {mA}")
         with self._led_lock:
             self._driver.led_on_fast(channel, mA)
-        self._scope.frame_validity.invalidate('led')
+        self._scope.imaging.frame_validity.invalidate('led')
         color_name = self.ch2color(channel)
         if color_name:
             self._fire_led_listeners(color_name, True, float(mA), '')
@@ -278,7 +278,7 @@ class IlluminationAPI:
             raise ValueError(f"LED channel must be one of {valid_channels}, got {channel}")
         with self._led_lock:
             self._driver.led_off_fast(channel)
-        self._scope.frame_validity.invalidate('led')
+        self._scope.imaging.frame_validity.invalidate('led')
         color_name = self.ch2color(channel)
         if color_name:
             self._fire_led_listeners(color_name, False, 0.0, '')
@@ -289,7 +289,7 @@ class IlluminationAPI:
             return
         with self._led_lock:
             self._driver.leds_off_fast()
-        self._scope.frame_validity.invalidate('led')
+        self._scope.imaging.frame_validity.invalidate('led')
         with self._led_owner_lock:
             self._led_state.clear()
         for color in self._driver.available_colors():
@@ -588,7 +588,7 @@ class IlluminationAPI:
             if ch is not None:
                 with self._led_lock:
                     self._driver.led_off(ch)
-                self._scope.frame_validity.invalidate('led')
+                self._scope.imaging.frame_validity.invalidate('led')
                 _api_log.info(f'led_off ch={ch} (owned release by {owner})')
                 self._fire_led_listeners(color, False, 0.0, owner=owner)
 

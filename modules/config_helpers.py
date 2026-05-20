@@ -601,7 +601,7 @@ def block_wait_for_threads(futures: list, log_loc: str = "LVP") -> None:
 
 # Fallback exposure slider upper bound used when no camera is connected.
 # Lumascope.camera_max_exposure returns None in that case; callers pattern
-# is `scope.camera_max_exposure or DEFAULT_MAX_EXPOSURE_MS`. See #616.
+# is `scope.imaging.camera_max_exposure or DEFAULT_MAX_EXPOSURE_MS`. See #616.
 DEFAULT_MAX_EXPOSURE_MS = 1000.0
 
 # Fallback gain slider upper bound used when no camera is connected.

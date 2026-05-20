@@ -125,28 +125,12 @@ def get_enabled_stim_configs() -> dict:
 
 def get_current_plate_position():
     ctx = _app_ctx.ctx
-    if not ctx.scope.motor_connected:
-        logger.error(f"Cannot retrieve current plate position")
-        return {
-            'x': 0,
-            'y': 0,
-            'z': 0
-        }
-
-    pos = ctx.scope.motion.get_current_position(axis=None)
-    _, labware_obj = get_selected_labware()
-    px, py = ctx.coordinate_transformer.stage_to_plate(
-        labware=labware_obj,
-        stage_offset=ctx.settings['stage_offset'],
-        sx=pos['X'],
-        sy=pos['Y'],
+    return config_helpers.get_current_plate_position(
+        scope=ctx.scope,
+        settings=ctx.settings,
+        coordinate_transformer=ctx.coordinate_transformer,
+        wellplate_loader=ctx.wellplate_loader,
     )
-
-    return {
-        'x': round(px, common_utils.max_decimal_precision('x')),
-        'y': round(py, common_utils.max_decimal_precision('y')),
-        'z': round(pos['Z'], common_utils.max_decimal_precision('z'))
-    }
 
 
 def get_current_frame_dimensions() -> dict:
