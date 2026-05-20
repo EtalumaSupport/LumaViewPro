@@ -44,8 +44,8 @@ TILING_CONFIGS = pathlib.Path(__file__).parent.parent / "data" / "tiling.json"
 def _make_autogain_settings():
     return {
         'target_brightness': 0.3,
-        'min_gain': 0.0,
-        'max_gain': 20.0,
+        'min_gain_db': 0.0,
+        'max_gain_db': 20.0,
         'max_duration': datetime.timedelta(seconds=1),
     }
 
@@ -2076,7 +2076,7 @@ class TestLumascapeAPILed:
         scope.illumination.led_on(channel='Green', mA=200)
         state = scope.illumination.get_led_state('Green')
         assert state['enabled']
-        assert state['illumination'] == 200
+        assert state['illumination_ma'] == 200
 
     def test_leds_off(self, scope):
         scope.illumination.led_on(channel='BF', mA=50)
@@ -2101,7 +2101,7 @@ class TestLumascapeAPILed:
         scope.illumination.led_on(channel='Red', mA=150)
         states = scope.illumination.get_led_states()
         assert states['Green']['enabled']
-        assert states['Green']['illumination'] == 200
+        assert states['Green']['illumination_ma'] == 200
         assert states['Red']['enabled']
         assert not states['BF']['enabled']
 

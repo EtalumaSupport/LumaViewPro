@@ -330,8 +330,8 @@ class MicroscopeSettings(BoxLayout):
                 settings['protocol']['autogain'] = {
                     'max_duration_seconds': 1.0,
                     'target_brightness': 0.3,
-                    'min_gain': 0.0,
-                    'max_gain': 20.0,
+                    'min_gain_db': 0.0,
+                    'max_gain_db': 20.0,
                 }
 
             try:

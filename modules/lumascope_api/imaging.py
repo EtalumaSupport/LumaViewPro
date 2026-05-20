@@ -214,13 +214,13 @@ class ImagingAPI:
         self._camera_cache_lock = threading.Lock()
         self._camera_cache = {
             'active': False,
-            'gain': 0.0,
+            'gain_db': 0.0,
             'exposure_ms': 0.0,
             'frame_size': {'width': 0, 'height': 0},
             'max_frame_size': {'width': 0, 'height': 0},
             'min_frame_size': {'width': 0, 'height': 0},
-            'max_exposure': 0.0,
-            'max_gain': 0.0,
+            'max_exposure_ms': 0.0,
+            'max_gain_db': 0.0,
             'pixel_format': None,
             'binning': 1,
         }
@@ -275,13 +275,13 @@ class ImagingAPI:
         try:
             cache = {
                 'active': True,
-                'gain': self._driver.get_gain() or 0.0,
+                'gain_db': self._driver.get_gain() or 0.0,
                 'exposure_ms': self._driver.get_exposure_t() or 0.0,
                 'frame_size': self._driver.get_frame_size() or {'width': 0, 'height': 0},
                 'max_frame_size': self._driver.get_max_frame_size() or {'width': 0, 'height': 0},
                 'min_frame_size': self._driver.get_min_frame_size() or {'width': 0, 'height': 0},
-                'max_exposure': self._driver.get_max_exposure() or None,
-                'max_gain': self._driver.get_max_gain() if hasattr(self._driver, 'get_max_gain') else None,
+                'max_exposure_ms': self._driver.get_max_exposure() or None,
+                'max_gain_db': self._driver.get_max_gain() if hasattr(self._driver, 'get_max_gain') else None,
                 'pixel_format': self._driver.get_pixel_format() if hasattr(self._driver, 'get_pixel_format') else None,
                 'binning': self._driver.get_binning_size() if hasattr(self._driver, 'get_binning_size') else 1,
             }
@@ -352,7 +352,7 @@ class ImagingAPI:
         # the pending source once a frame's ChunkGain matches.
         self.frame_validity.set_target('gain', float(gain))
         with self._camera_cache_lock:
-            self._camera_cache['gain'] = float(gain)
+            self._camera_cache['gain_db'] = float(gain)
         _api_log.info(f'set_gain {gain}dB')
         self._fire_camera_listeners('gain', float(gain))
 
@@ -397,15 +397,15 @@ class ImagingAPI:
 
         Args:
             state: True to enable auto gain, False to disable.
-            settings: Dict with 'target_brightness', 'min_gain', 'max_gain'.
+            settings: Dict with 'target_brightness', 'min_gain_db', 'max_gain_db'.
         """
 
         if not self._driver or not self._driver.active: return
         self._driver.auto_gain(
             state,
             target_brightness=settings['target_brightness'],
-            min_gain=settings['min_gain'],
-            max_gain=settings['max_gain'],
+            min_gain=settings['min_gain_db'],
+            max_gain=settings['max_gain_db'],
         )
         self.frame_validity.invalidate('gain')
         # Auto-gain dynamically adjusts the value; clear the manual target
@@ -1459,7 +1459,7 @@ class ImagingAPI:
             float: Cached gain value in dB.
         """
         with self._camera_cache_lock:
-            return self._camera_cache['gain']
+            return self._camera_cache['gain_db']
 
     @property
     def camera_exposure_ms(self) -> float:
@@ -1512,7 +1512,7 @@ class ImagingAPI:
             float | None: Max exposure time in ms, or None if unavailable.
         """
         with self._camera_cache_lock:
-            value = self._camera_cache.get('max_exposure')
+            value = self._camera_cache.get('max_exposure_ms')
         if not value or value <= 0:
             return None
         return float(value)
@@ -1530,7 +1530,7 @@ class ImagingAPI:
             float | None: Max gain in dB, or None if unavailable.
         """
         with self._camera_cache_lock:
-            value = self._camera_cache.get('max_gain')
+            value = self._camera_cache.get('max_gain_db')
         if value is None or value <= 0:
             return None
         return float(value)
@@ -1555,10 +1555,10 @@ class ImagingAPI:
         Returns:
             dict: Snapshot suitable for passing to ``restore_camera_state``.
         """
-        gain = self.get_gain()
-        exposure = self.get_exposure_time()
-        snapshot = {'tag': tag, 'gain': gain, 'exposure': exposure}
-        _api_log.info(f'save_camera_state tag={tag}: gain={gain} exp={exposure}')
+        gain_db = self.get_gain()
+        exposure_ms = self.get_exposure_time()
+        snapshot = {'tag': tag, 'gain_db': gain_db, 'exposure_ms': exposure_ms}
+        _api_log.info(f'save_camera_state tag={tag}: gain={gain_db} exp={exposure_ms}')
         return snapshot
 
     def restore_camera_state(self, snapshot: dict) -> None:
@@ -1571,12 +1571,12 @@ class ImagingAPI:
             return
         tag = snapshot.get('tag', '?')
         _api_log.info(f'restore_camera_state tag={tag}')
-        gain = snapshot.get('gain', -1)
-        exposure = snapshot.get('exposure', 0)
-        if gain >= 0:
-            self.set_gain(gain)
-        if exposure > 0:
-            self.set_exposure_time(exposure)
+        gain_db = snapshot.get('gain_db', -1)
+        exposure_ms = snapshot.get('exposure_ms', 0)
+        if gain_db >= 0:
+            self.set_gain(gain_db)
+        if exposure_ms > 0:
+            self.set_exposure_time(exposure_ms)
 
     # --- Camera config orchestration ---
     def apply_layer_camera_settings(self, gain: float, exposure_ms: float,

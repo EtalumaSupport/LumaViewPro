@@ -57,8 +57,8 @@ class DiagnosticsAPI:
 
         Returns:
             dict: Camera diagnostic snapshot. Keys may include
-                'model', 'resolution', 'pixel_format', 'gain', 'exposure_ms',
-                'max_gain', 'max_exposure_ms', 'temperatures', plus per-key
+                'model', 'resolution', 'pixel_format', 'gain_db', 'exposure_ms',
+                'max_gain_db', 'max_exposure_ms', 'temperatures', plus per-key
                 error strings for fields the driver couldn't supply.
                 Returns ``{'connected': False}`` if the camera is inactive.
         """
@@ -83,9 +83,9 @@ class DiagnosticsAPI:
         except Exception as e:
             info['resolution'] = f'Error: {e}'
 
-        _try('gain', lambda: self._scope.imaging.get_gain())
+        _try('gain_db', lambda: self._scope.imaging.get_gain())
         _try('exposure_ms', lambda: self._scope.imaging.get_exposure_time())
-        _try('max_gain', lambda: self._scope._camera_driver.get_max_gain())
+        _try('max_gain_db', lambda: self._scope._camera_driver.get_max_gain())
         _try('max_exposure_ms', lambda: self._scope._camera_driver.get_max_exposure())
 
         info['temperatures'] = self.get_camera_temperatures()

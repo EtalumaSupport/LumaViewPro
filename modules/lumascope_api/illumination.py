@@ -61,7 +61,7 @@ class IlluminationAPI:
         # to _pos_cache for motor position. Updated inside led_on /
         # led_off / leds_off; read by all state-query methods. See
         # docs/AUDIT_LED_STATE_FX2.md.
-        # Each entry: color -> {'enabled': True, 'illumination': float, 'owner': str}
+        # Each entry: color -> {'enabled': True, 'illumination_ma': float, 'owner': str}
         self._led_state: dict[str, dict] = {}
 
         # LED ownership tracking -- prevents subsystems from turning
@@ -161,7 +161,7 @@ class IlluminationAPI:
             with self._led_owner_lock:
                 self._led_state[color_name] = {
                     'enabled': True,
-                    'illumination': float(mA),
+                    'illumination_ma': float(mA),
                     'owner': owner,
                 }
                 self._led_owners[color_name] = owner
@@ -414,7 +414,7 @@ class IlluminationAPI:
             return -1
         with self._led_owner_lock:
             entry = self._led_state.get(color)
-            return entry['illumination'] if entry else -1.0
+            return entry['illumination_ma'] if entry else -1.0
 
     def led_enabled(self, color: str) -> bool:
         """Whether a specific LED channel is currently on.
@@ -451,14 +451,14 @@ class IlluminationAPI:
         """Snapshot of all LED states {color: {enabled, illumination}}.
 
         Returns:
-            Mapping of color -> {'enabled': bool, 'illumination': float}.
+            Mapping of color -> {'enabled': bool, 'illumination_ma': float}.
             Empty if no LED board is connected.
         """
         if not self._driver:
             return {}
         with self._led_owner_lock:
             return {
-                color: {'enabled': True, 'illumination': entry['illumination']}
+                color: {'enabled': True, 'illumination_ma': entry['illumination_ma']}
                 for color, entry in self._led_state.items()
             }
 
@@ -471,15 +471,15 @@ class IlluminationAPI:
             color: Channel color name (e.g. "Blue", "Green", "Red", "BF").
 
         Returns:
-            {'enabled': bool, 'illumination': float}.
+            {'enabled': bool, 'illumination_ma': float}.
         """
         if not self._driver:
-            return {'enabled': False, 'illumination': -1}
+            return {'enabled': False, 'illumination_ma': -1}
         with self._led_owner_lock:
             entry = self._led_state.get(color)
             if entry is None:
-                return {'enabled': False, 'illumination': -1}
-            return {'enabled': True, 'illumination': entry['illumination']}
+                return {'enabled': False, 'illumination_ma': -1}
+            return {'enabled': True, 'illumination_ma': entry['illumination_ma']}
 
     def get_led_states(self) -> dict:
         """Get state and illumination for all LED channels.
@@ -488,7 +488,7 @@ class IlluminationAPI:
         currently-on channels).
 
         Returns:
-            Mapping of color -> {'enabled': bool, 'illumination': float}
+            Mapping of color -> {'enabled': bool, 'illumination_ma': float}
             for every channel the driver supports. Empty if no LED
             board is connected.
         """
@@ -498,9 +498,9 @@ class IlluminationAPI:
         with self._led_owner_lock:
             return {
                 color: (
-                    {'enabled': True, 'illumination': self._led_state[color]['illumination']}
+                    {'enabled': True, 'illumination_ma': self._led_state[color]['illumination_ma']}
                     if color in self._led_state
-                    else {'enabled': False, 'illumination': -1}
+                    else {'enabled': False, 'illumination_ma': -1}
                 )
                 for color in all_colors
             }
@@ -560,7 +560,7 @@ class IlluminationAPI:
         # Restore channels that were on in the snapshot
         for color, state in saved_states.items():
             if state.get('enabled', False):
-                mA = state.get('illumination', 0)
+                mA = state.get('illumination_ma', 0)
                 if mA and mA > 0:
                     ch = self.color2ch(color)
                     if ch is not None:

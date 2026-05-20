@@ -2261,10 +2261,10 @@ class FX2LEDController:
         return False
 
     def get_led_state(self, color: str) -> dict:
-        return {'enabled': False, 'illumination': -1}
+        return {'enabled': False, 'illumination_ma': -1}
 
     def get_led_states(self) -> dict:
-        return {c: {'enabled': False, 'illumination': -1} for c in self._COLOR_TO_CH}
+        return {c: {'enabled': False, 'illumination_ma': -1} for c in self._COLOR_TO_CH}
 
     # -- Connection no-ops (USB owned by _FX2Connection) ------------------
 

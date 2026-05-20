@@ -86,8 +86,8 @@ def _shutdown_executors(execs):
 def _make_autogain_settings():
     return {
         'target_brightness': 0.3,
-        'min_gain': 0.0,
-        'max_gain': 20.0,
+        'min_gain_db': 0.0,
+        'max_gain_db': 20.0,
         'max_duration': datetime.timedelta(seconds=2),
     }
 
@@ -735,8 +735,8 @@ class TestHeadlessSession:
                 'autogain': {
                     'target_brightness': 0.3,
                     'max_duration_seconds': 1.0,
-                    'min_gain': 0.0,
-                    'max_gain': 20.0,
+                    'min_gain_db': 0.0,
+                    'max_gain_db': 20.0,
                 },
             },
         }

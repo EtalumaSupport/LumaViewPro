@@ -1116,12 +1116,12 @@ class Lumascope():
         # Camera cache
         instance._camera_cache_lock = threading.Lock()
         instance._camera_cache = {
-            'active': False, 'gain': 0.0, 'exposure_ms': 20.0,
+            'active': False, 'gain_db': 0.0, 'exposure_ms': 20.0,
             'frame_size': {'width': 0, 'height': 0},
             'max_frame_size': {'width': 0, 'height': 0},
             'min_frame_size': {'width': 0, 'height': 0},
-            'max_exposure': None,
-            'max_gain': None,
+            'max_exposure_ms': None,
+            'max_gain_db': None,
         }
 
         # State locks

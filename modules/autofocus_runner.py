@@ -241,8 +241,8 @@ class AutofocusRunner:
         self._saved_led_state = self._scope.illumination.save_led_state('autofocus')
         self._saved_camera_state = self._scope.imaging.save_camera_state('autofocus')
         _af_log.info(f'[AF DIAG] Saved pre-AF camera state: '
-                     f'gain={self._saved_camera_state.get("gain", "?")} '
-                     f'exp={self._saved_camera_state.get("exposure", "?")} '
+                     f'gain={self._saved_camera_state.get("gain_db", "?")} '
+                     f'exp={self._saved_camera_state.get("exposure_ms", "?")} '
                      f'(step wants gain={self._camera_gain} exp={self._camera_exposure})')
         # Apply the step's camera settings so AF scans with correct gain
         # and exposure rather than inheriting the prior step's values.
@@ -379,8 +379,8 @@ class AutofocusRunner:
                 )
             if self._saved_camera_state:
                 _af_log.info(f'[AF DIAG] Restoring pre-AF camera state: '
-                             f'gain={self._saved_camera_state.get("gain", "?")} '
-                             f'exp={self._saved_camera_state.get("exposure", "?")}')
+                             f'gain={self._saved_camera_state.get("gain_db", "?")} '
+                             f'exp={self._saved_camera_state.get("exposure_ms", "?")}')
                 self._scope.imaging.restore_camera_state(self._saved_camera_state)
             _af_log.info(
                 f'[AF DIAG] Clearing _af_in_progress -- '
