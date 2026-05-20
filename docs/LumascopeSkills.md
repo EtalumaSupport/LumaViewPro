@@ -282,10 +282,19 @@ scope.motion.tmove(2)                            # turret position 2
 # Stage
 scope.motion.xycenter()                          # move to stage center
 scope.motion.get_axis_limits('Z')                # {'min': 0, 'max': 14000}
-scope.motion.get_axes_config()                   # all axes with limits + conversions
+scope.motion.get_axes_config()                   # per-axis config dict: limits + ustep-conversion funcs (motion-driver shape)
 scope.motion.axes_present()                      # e.g. ['X', 'Y', 'Z', 'T']
 scope.motion.has_axis('T')
 ```
+
+**Axes: two different questions, two different surfaces.** Asking *what
+axes does this scope have* uses `scope.capabilities.axes` (tuple of
+names; immutable identity). Asking *what is the per-axis runtime config*
+(travel limits, ustep-per-mm conversion functions) uses
+`scope.motion.get_axes_config()` (dict of dicts; driver-level config).
+The first is frozen at boot and answers UI-gating questions; the second
+exposes the motor-board's per-axis configuration for tiling /
+coordinate-transform work. They are not redundant.
 
 **Z overshoot:** firmware moves below target then approaches from below, eliminating leadscrew backlash for consistent focus.
 
