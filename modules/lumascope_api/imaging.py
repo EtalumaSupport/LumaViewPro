@@ -1821,16 +1821,21 @@ class ImagingAPI:
             except ValueError:
                 pass
 
-    def register_frame_callback(self, cb) -> None:
-        """Register a per-frame callback fired on every successful grab.
+    def add_frame_listener(self, cb) -> None:
+        """Register a per-frame listener fired on every successful grab.
 
+        The canonical entry point for live_processing plugins (see
+        ``ctx.plugins.live_processing``) and the manual-record path.
         Passthrough to the driver. Callback signature is
         ``cb(image, timestamp, chunks)``; runs on the SDK callback
         thread (Pylon ``PylonImageGrab`` / IDS grab loop / simulated
-        pump). Callbacks MUST NOT block -- heavy work belongs on an
-        executor. No-op when no camera is connected. Used by the
-        manual-record path to drive saves on camera ticks instead of
-        Kivy Clock.
+        pump). Listeners MUST NOT block -- heavy work belongs on an
+        executor. No-op when no camera is connected.
+
+        The ``image`` array is shared across all listeners (don't-mutate
+        contract); write to your own output buffer if you need to keep
+        results. Mutating the supplied array affects later listeners
+        plus downstream display / capture consumers.
         """
         if not self._driver or not self._driver.active:
             return
@@ -1838,14 +1843,14 @@ class ImagingAPI:
             self._driver.register_frame_callback(cb)
         except Exception as ex:
             logger.exception(
-                f"[SCOPE API ] register_frame_callback failed: {ex}"
+                f"[SCOPE API ] add_frame_listener failed: {ex}"
             )
 
-    def unregister_frame_callback(self, cb) -> None:
-        """Remove a callback registered via ``register_frame_callback``.
+    def remove_frame_listener(self, cb) -> None:
+        """Remove a listener registered via ``add_frame_listener``.
 
         Passthrough to the driver. No-op when no camera is connected
-        or the callback was never registered.
+        or the listener was never registered.
         """
         if not self._driver:
             return
@@ -1853,5 +1858,18 @@ class ImagingAPI:
             self._driver.unregister_frame_callback(cb)
         except Exception as ex:
             logger.exception(
-                f"[SCOPE API ] unregister_frame_callback failed: {ex}"
+                f"[SCOPE API ] remove_frame_listener failed: {ex}"
             )
+
+    # Considered immediate removal of register/unregister_frame_callback;
+    # rejected because 1 LVP caller (ui/main_display.py recording path)
+    # still calls the old names. Forwarders retire in Phase 4d.5e after
+    # caller migration; same commit removes them from
+    # IMAGING_ONLY_METHODS in tests/test_wave7_rename_complete.py.
+    def register_frame_callback(self, cb) -> None:
+        """Deprecated alias for :meth:`add_frame_listener`. Retires in Phase 4d.5e."""
+        self.add_frame_listener(cb)
+
+    def unregister_frame_callback(self, cb) -> None:
+        """Deprecated alias for :meth:`remove_frame_listener`. Retires in Phase 4d.5e."""
+        self.remove_frame_listener(cb)

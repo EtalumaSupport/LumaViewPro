@@ -297,18 +297,21 @@ def test_no_self_motion_calls_in_lumascope():
 # forwarders on the imaging.py facade as of 2026-05-19. Same shape as
 # MOTION_ONLY_METHODS / ILLUMINATION_ONLY_METHODS.
 #
-# Names track the CURRENT method surface; renames locked for Phase 4d.5
-# (`add_camera_listener` -> `add_camera_setting_listener`,
-# `register_frame_callback` -> `add_frame_listener`, etc.) update this
-# set in the same commit that lands the rename.
+# Names track the CURRENT method surface. Phase 4d.5b landed the
+# `register_frame_callback` -> `add_frame_listener` /
+# `unregister_frame_callback` -> `remove_frame_listener` rename; both
+# the new names AND the old forwarders are present below. Forwarders
+# retire in Phase 4d.5e (same commit removes
+# `register_frame_callback` + `unregister_frame_callback` from this
+# set).
 IMAGING_ONLY_METHODS = frozenset({
-    'add_camera_listener', 'apply_layer_camera_settings', 'auto_gain_once',
-    'autofocus_return', 'camera_active', 'camera_exposure_ms',
-    'camera_frame_size', 'camera_gain', 'camera_is_connected',
-    'camera_max_exposure', 'camera_max_frame_size', 'camera_max_gain',
-    'camera_min_frame_size', 'camera_pixel_format', 'capture',
-    'capture_and_wait', 'capture_and_wait_sync', 'capture_blocking',
-    'capture_complete', 'capture_return', 'count_frame',
+    'add_camera_listener', 'add_frame_listener', 'apply_layer_camera_settings',
+    'auto_gain_once', 'autofocus_return', 'camera_active',
+    'camera_exposure_ms', 'camera_frame_size', 'camera_gain',
+    'camera_is_connected', 'camera_max_exposure', 'camera_max_frame_size',
+    'camera_max_gain', 'camera_min_frame_size', 'camera_pixel_format',
+    'capture', 'capture_and_wait', 'capture_and_wait_sync',
+    'capture_blocking', 'capture_complete', 'capture_return', 'count_frame',
     'frame_is_valid', 'frames_until_valid', 'get_available_binning_sizes',
     'get_binning_size', 'get_camera_temps', 'get_exposure_time',
     'get_frame_size', 'get_gain', 'get_height', 'get_image',
@@ -316,12 +319,13 @@ IMAGING_ONLY_METHODS = frozenset({
     'get_max_height', 'get_max_width', 'get_pixel_format',
     'get_supported_pixel_formats', 'get_width', 'is_capturing',
     'is_focusing', 'log_camera_temps', 'register_frame_callback',
-    'remove_camera_listener', 'restore_camera_state', 'save_camera_state',
-    'scale_bar_config', 'scale_bar_enabled', 'set_acquisition_stop_mode',
-    'set_auto_exposure_time', 'set_auto_gain', 'set_bandwidth_reserve_mode',
-    'set_binning_size', 'set_device_link_throughput_limit',
-    'set_exposure_sync', 'set_exposure_time', 'set_frame_size', 'set_gain',
-    'set_gain_sync', 'set_gev_inter_packet_delay', 'set_gev_packet_size',
+    'remove_camera_listener', 'remove_frame_listener', 'restore_camera_state',
+    'save_camera_state', 'scale_bar_config', 'scale_bar_enabled',
+    'set_acquisition_stop_mode', 'set_auto_exposure_time', 'set_auto_gain',
+    'set_bandwidth_reserve_mode', 'set_binning_size',
+    'set_device_link_throughput_limit', 'set_exposure_sync',
+    'set_exposure_time', 'set_frame_size', 'set_gain', 'set_gain_sync',
+    'set_gev_inter_packet_delay', 'set_gev_packet_size',
     'set_max_acquisition_frame_rate', 'set_max_transfer_size',
     'set_num_max_queued_urbs', 'set_pixel_format', 'set_scale_bar',
     'start_camera_temp_logging', 'stop_camera_temp_logging',
