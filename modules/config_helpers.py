@@ -76,10 +76,10 @@ def get_layer_configs(settings: dict, specific_layers: list | None = None) -> di
             'stim_config': stim_config,
             'autofocus': autofocus,
             'false_color': false_color,
-            'illumination': illumination,
-            'gain': gain,
+            'illumination_ma': illumination,
+            'gain_db': gain,
             'auto_gain': auto_gain,
-            'exposure': exposure,
+            'exposure_ms': exposure,
             'sum': sum_count,
             'focus': focus,
         }

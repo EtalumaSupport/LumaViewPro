@@ -89,7 +89,7 @@ class CompositeCapture(FloatLayout):
         sum_iteration_callback = None
 
         layer_configs = get_layer_configs(specific_layers=layer)
-        sum_delay_s=layer_configs[layer]['exposure']/1000
+        sum_delay_s=layer_configs[layer]['exposure_ms']/1000
         sum_count=layer_configs[layer]['sum']
 
         if ctx.engineering_mode is False:

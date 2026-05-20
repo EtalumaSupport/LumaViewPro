@@ -149,7 +149,7 @@ class TestGetLayerConfigs:
         precision = max_decimal_precision('illumination')
         for cfg in configs.values():
             # Value should be rounded to the expected precision
-            assert cfg['illumination'] == round(50.123456, precision)
+            assert cfg['illumination_ma'] == round(50.123456, precision)
 
     def test_gain_rounded(self):
         settings = _make_settings()
@@ -157,7 +157,7 @@ class TestGetLayerConfigs:
         from modules.common_utils import max_decimal_precision
         precision = max_decimal_precision('gain')
         for cfg in configs.values():
-            assert cfg['gain'] == round(1.23456, precision)
+            assert cfg['gain_db'] == round(1.23456, precision)
 
     def test_exposure_rounded(self):
         settings = _make_settings()
@@ -165,7 +165,7 @@ class TestGetLayerConfigs:
         from modules.common_utils import max_decimal_precision
         precision = max_decimal_precision('exposure')
         for cfg in configs.values():
-            assert cfg['exposure'] == round(10.56789, precision)
+            assert cfg['exposure_ms'] == round(10.56789, precision)
 
     def test_stim_config_none_when_absent(self):
         settings = _make_settings(with_stim=False)
@@ -178,6 +178,8 @@ class TestGetLayerConfigs:
 
         The stim brightness slider controls stim_config['illumination']
         directly -- it is NOT force-synced to the layer's imaging illumination.
+        Stim config key stays bare 'illumination' (pre-freeze defer per
+        units audit; stim is on its own evolution track).
         """
         settings = _make_settings(with_stim=True)
         # Set stim illumination to a different value than layer illumination
@@ -188,7 +190,7 @@ class TestGetLayerConfigs:
         for cfg in configs.values():
             assert cfg['stim_config']['illumination'] == 200
             # Layer illumination is different (50.123456 rounded)
-            assert cfg['illumination'] != 200
+            assert cfg['illumination_ma'] != 200
 
     def test_auto_gain_bool_conversion(self):
         settings = _make_settings()
@@ -206,8 +208,8 @@ class TestGetLayerConfigs:
         configs = config_helpers.get_layer_configs(settings, specific_layers=['BF'])
         expected_keys = {
             'acquire', 'video_config', 'stim_config', 'autofocus',
-            'false_color', 'illumination', 'gain', 'auto_gain',
-            'exposure', 'sum', 'focus',
+            'false_color', 'illumination_ma', 'gain_db', 'auto_gain',
+            'exposure_ms', 'sum', 'focus',
         }
         assert set(configs['BF'].keys()) == expected_keys
 

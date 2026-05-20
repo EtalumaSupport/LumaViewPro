@@ -1812,10 +1812,10 @@ def _layer_config(
     return {
         'autofocus': autofocus,
         'false_color': false_color,
-        'illumination': illumination,
-        'gain': gain,
+        'illumination_ma': illumination,
+        'gain_db': gain,
         'auto_gain': auto_gain,
-        'exposure': exposure,
+        'exposure_ms': exposure,
         'sum': sum,
         'acquire': acquire,
         'video_config': video_config or {'duration': 1, 'fps': 5},

@@ -116,7 +116,7 @@ def _make_protocol(steps_config):
     import pandas as pd
 
     defaults = {
-        'color': 'BF', 'illumination': 50.0, 'gain': 1.0, 'exposure': 10.0,
+        'color': 'BF', 'illumination_ma': 50.0, 'gain_db': 1.0, 'exposure_ms': 10.0,
         'auto_gain': False, 'auto_focus': False, 'acquire': 'image',
         'false_color': False, 'sum_count': 1,
         'video_config': {'duration': 1, 'fps': 5}, 'stim_config': {},
@@ -135,10 +135,10 @@ def _make_protocol(steps_config):
             'Auto_Focus': merged['auto_focus'],
             'Color': merged['color'],
             'False_Color': merged['false_color'],
-            'Illumination': merged['illumination'],
-            'Gain': merged['gain'],
+            'Illumination': merged['illumination_ma'],
+            'Gain': merged['gain_db'],
             'Auto_Gain': merged['auto_gain'],
-            'Exposure': merged['exposure'],
+            'Exposure': merged['exposure_ms'],
             'Sum': merged['sum_count'],
             'Objective': merged['objective'],
             'Well': merged['well'],
@@ -305,13 +305,13 @@ class TestIntegrationSingleStep:
 
     def test_completes_with_simulated_scope(self, executor, scope, tmp_path):
         """Most basic integration test — protocol runs to completion on simulated hardware."""
-        protocol = _make_protocol([{'color': 'BF', 'illumination': 100.0}])
+        protocol = _make_protocol([{'color': 'BF', 'illumination_ma': 100.0}])
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed, "Protocol did not complete within timeout"
 
     def test_leds_off_after_completion(self, executor, scope, tmp_path):
         """After protocol completes with leds_state_at_end='off', all LEDs should be off."""
-        protocol = _make_protocol([{'color': 'BF', 'illumination': 100.0}])
+        protocol = _make_protocol([{'color': 'BF', 'illumination_ma': 100.0}])
         completed, _ = _run_and_wait(executor, protocol, tmp_path, leds_state_at_end='off')
         assert completed
 
@@ -322,7 +322,7 @@ class TestIntegrationSingleStep:
     def test_camera_settings_applied(self, executor, scope, tmp_path):
         """Verify gain and exposure are set on the real camera simulator."""
         protocol = _make_protocol([{
-            'color': 'BF', 'gain': 5.0, 'exposure': 25.0, 'illumination': 50.0,
+            'color': 'BF', 'gain_db': 5.0, 'exposure_ms': 25.0, 'illumination_ma': 50.0,
         }])
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed
@@ -336,7 +336,7 @@ class TestIntegrationSingleStep:
         """Verify the motor moves to the protocol step position."""
         z_target = 7000.0  # um
         protocol = _make_protocol([{
-            'color': 'BF', 'z': z_target, 'illumination': 50.0,
+            'color': 'BF', 'z': z_target, 'illumination_ma': 50.0,
         }])
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed
@@ -347,7 +347,7 @@ class TestIntegrationSingleStep:
 
     def test_image_captured(self, executor, scope, tmp_path):
         """Verify that an image was actually captured during the protocol."""
-        protocol = _make_protocol([{'color': 'BF', 'illumination': 50.0}])
+        protocol = _make_protocol([{'color': 'BF', 'illumination_ma': 50.0}])
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed
 
@@ -367,7 +367,7 @@ class TestIntegrationAutoGain:
     def test_auto_gain_completes(self, executor, scope, tmp_path):
         """Auto-gain protocol step completes without error."""
         protocol = _make_protocol([{
-            'color': 'BF', 'auto_gain': True, 'illumination': 50.0,
+            'color': 'BF', 'auto_gain': True, 'illumination_ma': 50.0,
         }])
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed
@@ -379,7 +379,7 @@ class TestIntegrationAutoGain:
         initial_gain = scope._camera_driver.get_gain()
 
         protocol = _make_protocol([{
-            'color': 'BF', 'auto_gain': True, 'illumination': 50.0,
+            'color': 'BF', 'auto_gain': True, 'illumination_ma': 50.0,
         }])
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed
@@ -397,8 +397,8 @@ class TestIntegrationMultiChannel:
     def test_two_channel_completes(self, executor, scope, tmp_path):
         """BF + Green two-channel protocol completes."""
         protocol = _make_protocol([
-            {'color': 'BF', 'illumination': 100.0},
-            {'color': 'Green', 'illumination': 75.0},
+            {'color': 'BF', 'illumination_ma': 100.0},
+            {'color': 'Green', 'illumination_ma': 75.0},
         ])
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed
@@ -406,9 +406,9 @@ class TestIntegrationMultiChannel:
     def test_three_channel_completes(self, executor, scope, tmp_path):
         """BF + Green + Red three-channel protocol completes."""
         protocol = _make_protocol([
-            {'color': 'BF', 'illumination': 100.0},
-            {'color': 'Green', 'illumination': 75.0},
-            {'color': 'Red', 'illumination': 50.0},
+            {'color': 'BF', 'illumination_ma': 100.0},
+            {'color': 'Green', 'illumination_ma': 75.0},
+            {'color': 'Red', 'illumination_ma': 50.0},
         ])
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed
@@ -416,9 +416,9 @@ class TestIntegrationMultiChannel:
     def test_all_leds_off_after_multi_channel(self, executor, scope, tmp_path):
         """After multi-channel protocol, all LEDs should be off."""
         protocol = _make_protocol([
-            {'color': 'BF', 'illumination': 100.0},
-            {'color': 'Green', 'illumination': 75.0},
-            {'color': 'Red', 'illumination': 50.0},
+            {'color': 'BF', 'illumination_ma': 100.0},
+            {'color': 'Green', 'illumination_ma': 75.0},
+            {'color': 'Red', 'illumination_ma': 50.0},
         ])
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed
@@ -435,7 +435,7 @@ class TestIntegrationZStack:
         z_positions = [4000.0, 5000.0, 6000.0]
         steps = [
             {'color': 'BF', 'z': z, 'z_slice': i, 'zstack_group_id': 1,
-             'illumination': 50.0}
+             'illumination_ma': 50.0}
             for i, z in enumerate(z_positions)
         ]
         protocol = _make_protocol(steps)
@@ -448,7 +448,7 @@ class TestIntegrationZStack:
         z_positions = [4000.0, 5000.0, 6000.0]
         steps = [
             {'color': 'BF', 'z': z, 'z_slice': i, 'zstack_group_id': 1,
-             'illumination': 50.0}
+             'illumination_ma': 50.0}
             for i, z in enumerate(z_positions)
         ]
         protocol = _make_protocol(steps)
@@ -467,8 +467,8 @@ class TestIntegrationMultiWell:
     def test_two_wells_completes(self, executor, scope, tmp_path):
         """Two-well protocol completes (different XY positions)."""
         protocol = _make_protocol([
-            {'color': 'BF', 'x': 10.0, 'y': 20.0, 'well': 'A1', 'illumination': 50.0},
-            {'color': 'BF', 'x': 30.0, 'y': 40.0, 'well': 'A2', 'illumination': 50.0},
+            {'color': 'BF', 'x': 10.0, 'y': 20.0, 'well': 'A1', 'illumination_ma': 50.0},
+            {'color': 'BF', 'x': 30.0, 'y': 40.0, 'well': 'A2', 'illumination_ma': 50.0},
         ])
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed
@@ -481,7 +481,7 @@ class TestIntegrationTiling:
         """1x3 tile pattern completes."""
         steps = [
             {'color': 'BF', 'x': 10.0 + i * 1.0, 'y': 20.0,
-             'tile': f'T{i}', 'tile_group_id': 1, 'illumination': 50.0}
+             'tile': f'T{i}', 'tile_group_id': 1, 'illumination_ma': 50.0}
             for i in range(3)
         ]
         protocol = _make_protocol(steps)
@@ -504,7 +504,7 @@ class TestIntegrationAutofocus:
 
         protocol = _make_protocol([{
             'color': 'BF', 'auto_focus': True, 'z': 5000.0,
-            'illumination': 100.0,
+            'illumination_ma': 100.0,
         }])
         completed, _ = _run_and_wait(af_executor, protocol, tmp_path,
                                       update_z_pos_from_autofocus=True)
@@ -582,28 +582,28 @@ class TestIntegrationStateAssertions:
 
     def test_led_bf_channel(self, executor, scope, tmp_path):
         """Verify BF LED is driven and turned off after protocol."""
-        protocol = _make_protocol([{'color': 'BF', 'illumination': 75.0}])
+        protocol = _make_protocol([{'color': 'BF', 'illumination_ma': 75.0}])
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed
         assert not scope.illumination.led_enabled('BF')
 
     def test_led_green_channel(self, executor, scope, tmp_path):
         """Verify Green LED is driven and turned off after protocol."""
-        protocol = _make_protocol([{'color': 'Green', 'illumination': 75.0}])
+        protocol = _make_protocol([{'color': 'Green', 'illumination_ma': 75.0}])
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed
         assert not scope.illumination.led_enabled('Green')
 
     def test_led_red_channel(self, executor, scope, tmp_path):
         """Verify Red LED is driven and turned off after protocol."""
-        protocol = _make_protocol([{'color': 'Red', 'illumination': 75.0}])
+        protocol = _make_protocol([{'color': 'Red', 'illumination_ma': 75.0}])
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed
         assert not scope.illumination.led_enabled('Red')
 
     def test_scope_connected_throughout(self, executor, scope, tmp_path):
         """Scope remains connected after protocol run."""
-        protocol = _make_protocol([{'color': 'BF', 'illumination': 50.0}])
+        protocol = _make_protocol([{'color': 'BF', 'illumination_ma': 50.0}])
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed
 
@@ -613,7 +613,7 @@ class TestIntegrationStateAssertions:
 
     def test_camera_still_grabbing(self, executor, scope, tmp_path):
         """Camera should still be in grabbing state after protocol."""
-        protocol = _make_protocol([{'color': 'BF', 'illumination': 50.0}])
+        protocol = _make_protocol([{'color': 'BF', 'illumination_ma': 50.0}])
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed
 
@@ -629,7 +629,7 @@ class TestIntegrationStateAssertions:
                              "dispatch. Needs executor simplification in 4.1.")
     def test_second_run_after_first(self, executor, scope, tmp_path):
         """A second protocol run completes after the first finishes."""
-        protocol = _make_protocol([{'color': 'BF', 'illumination': 50.0}])
+        protocol = _make_protocol([{'color': 'BF', 'illumination_ma': 50.0}])
 
         # First run
         completed_1, _ = _run_and_wait(executor, protocol, tmp_path)
@@ -646,7 +646,7 @@ class TestIntegrationStateAssertions:
     def test_different_exposure_per_step(self, executor, scope, tmp_path):
         """Protocol with varying exposure times completes."""
         steps = [
-            {'color': 'BF', 'exposure': exp, 'illumination': 50.0}
+            {'color': 'BF', 'exposure_ms': exp, 'illumination_ma': 50.0}
             for exp in [5.0, 10.0, 50.0, 100.0]
         ]
         protocol = _make_protocol(steps)
@@ -656,7 +656,7 @@ class TestIntegrationStateAssertions:
     def test_different_gain_per_step(self, executor, scope, tmp_path):
         """Protocol with varying gain values completes."""
         steps = [
-            {'color': 'BF', 'gain': g, 'illumination': 50.0}
+            {'color': 'BF', 'gain_db': g, 'illumination_ma': 50.0}
             for g in [1.0, 2.0, 5.0, 10.0]
         ]
         protocol = _make_protocol(steps)
@@ -744,7 +744,7 @@ class TestHeadlessSession:
         session.start_executors()
         try:
             runner = session.create_protocol_runner()
-            protocol = _make_protocol([{'color': 'BF', 'illumination': 100.0}])
+            protocol = _make_protocol([{'color': 'BF', 'illumination_ma': 100.0}])
 
             done = threading.Event()
             def on_complete(**kwargs):
