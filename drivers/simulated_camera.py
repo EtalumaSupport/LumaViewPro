@@ -446,25 +446,26 @@ class SimulatedCamera(Camera):
     # ------------------------------------------------------------------
     # Exposure
     # ------------------------------------------------------------------
-    def exposure_t(self, t: float) -> None:
+    def exposure_t(self, exposure_ms: float) -> None:
         """Set exposure time in milliseconds.
 
-        Silently clamps when ``t`` exceeds ``max_exposure`` (logs a
-        warning); silently no-ops when the simulator is not active.
+        Silently clamps when ``exposure_ms`` exceeds ``max_exposure``
+        (logs a warning); silently no-ops when the simulator is not
+        active.
 
         Args:
-            t: Exposure time in milliseconds.
+            exposure_ms: Exposure time in milliseconds.
         """
         if not self.active:
             return
-        if t > self.max_exposure:
-            if _cam_log is not None: _cam_log.warning(f'sim ExposureTime.SetValue({t}ms) CLAMPED max={self.max_exposure}ms')
-            logger.warning(f'[CAM Sim   ] Exposure {t}ms exceeds max ({self.max_exposure}ms)')
+        if exposure_ms > self.max_exposure:
+            if _cam_log is not None: _cam_log.warning(f'sim ExposureTime.SetValue({exposure_ms}ms) CLAMPED max={self.max_exposure}ms')
+            logger.warning(f'[CAM Sim   ] Exposure {exposure_ms}ms exceeds max ({self.max_exposure}ms)')
             return
         with self._lock:
-            self._exposure_us = float(t) * 1000.0
-            if _cam_log is not None: _cam_log.info(f'sim ExposureTime.SetValue({float(t) * 1000.0:.0f}us) (={t}ms)')
-            logger.info(f'[CAM Sim   ] Exposure set to {t}ms')
+            self._exposure_us = float(exposure_ms) * 1000.0
+            if _cam_log is not None: _cam_log.info(f'sim ExposureTime.SetValue({float(exposure_ms) * 1000.0:.0f}us) (={exposure_ms}ms)')
+            logger.info(f'[CAM Sim   ] Exposure set to {exposure_ms}ms')
 
     def get_exposure_t(self) -> float:
         """Return exposure time in milliseconds.

@@ -434,11 +434,11 @@ class Camera(ABC):
         pass
 
     @abstractmethod
-    def exposure_t(self, t: float) -> None:
+    def exposure_t(self, exposure_ms: float) -> None:
         """Set exposure time.
 
         Args:
-            t: Exposure time in milliseconds.
+            exposure_ms: Exposure time in milliseconds.
         """
         pass
 

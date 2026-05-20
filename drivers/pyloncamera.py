@@ -995,7 +995,7 @@ class PylonCamera(Camera):
                 camera.ReverseX.SetValue(True)
                 if not self._use_camera_emulation:
                     self.init_auto_gain_focus()
-                self.exposure_t(t=10)
+                self.exposure_t(exposure_ms=10)
                 # 1900x1900: bench-witnessed driver-init default. Both
                 # production cameras (a2A3536 ace 2 and daA3840 dart)
                 # support this size; the 2100x2100 production-max ROI
@@ -2418,7 +2418,7 @@ class PylonCamera(Camera):
         except Exception as e:
             _cam_log.exception(f'[CAM Class ] Unexpected error in auto_gain_once: {e}')
 
-    def exposure_t(self, t) -> None:
+    def exposure_t(self, exposure_ms) -> None:
         """Set the camera's exposure time in milliseconds.
 
         Pylon's ``ExposureTime`` node uses microseconds; this method
@@ -2427,25 +2427,25 @@ class PylonCamera(Camera):
         values are clamped to ``ExposureTime.Min``.
 
         Args:
-            t: Exposure time in milliseconds.
+            exposure_ms: Exposure time in milliseconds.
         """
         if self.active is None:
             if _cam_log is not None:
-                _cam_log.warning(f'pylon ExposureTime.SetValue({t}ms) SKIPPED: active=None')
-            _cam_log.warning(f'[CAM Class ] Cannot set exposure {t}ms: camera inactive')
+                _cam_log.warning(f'pylon ExposureTime.SetValue({exposure_ms}ms) SKIPPED: active=None')
+            _cam_log.warning(f'[CAM Class ] Cannot set exposure {exposure_ms}ms: camera inactive')
             return
 
-        if t > self.max_exposure:
+        if exposure_ms > self.max_exposure:
             if _cam_log is not None:
                 _cam_log.warning(
-                    f'pylon ExposureTime.SetValue({t}ms) SKIPPED: exceeds max {self.max_exposure}ms'
+                    f'pylon ExposureTime.SetValue({exposure_ms}ms) SKIPPED: exceeds max {self.max_exposure}ms'
                 )
-            _cam_log.warning(f'[CAM Class ] Exposure {t}ms exceeds max ({self.max_exposure}ms)')
+            _cam_log.warning(f'[CAM Class ] Exposure {exposure_ms}ms exceeds max ({self.max_exposure}ms)')
             return
 
-        # Pylon takes time in microseconds, so pass t*1000 to convert to us
+        # Pylon takes time in microseconds, so multiply by 1000 to convert
         try:
-            us_value = max(float(t) * 1000, self.active.ExposureTime.Min)
+            us_value = max(float(exposure_ms) * 1000, self.active.ExposureTime.Min)
             # Short-circuit when already at target us. SDK rounds to its clock
             # grid so same target ms maps to same us count; 1 us tolerance is
             # below ExposureTime increment on ace 2 / dart.
@@ -2455,7 +2455,7 @@ class PylonCamera(Camera):
                         _cam_log.info(
                             f'pylon ExposureTime.SetValue({us_value:.0f}us) short-circuited'
                         )
-                    logger.info(f'[CAM Class ] Exposure already at {t}ms')
+                    logger.info(f'[CAM Class ] Exposure already at {exposure_ms}ms')
                     return
             except (genicam.RuntimeException, genicam.TimeoutException) as e:
                 logger.debug(
@@ -2463,13 +2463,13 @@ class PylonCamera(Camera):
                     f'falling through to SetValue path: {e}'
                 )
             if _cam_log is not None:
-                _cam_log.info(f'pylon ExposureTime.SetValue({us_value:.0f}us) (={t}ms)')
+                _cam_log.info(f'pylon ExposureTime.SetValue({us_value:.0f}us) (={exposure_ms}ms)')
             self.active.ExposureTime.SetValue(us_value)
-            logger.info(f'[CAM Class ] Exposure set to {t}ms')
+            logger.info(f'[CAM Class ] Exposure set to {exposure_ms}ms')
         except genicam.RuntimeException as e:
             if _cam_log is not None:
-                _cam_log.error(f'pylon ExposureTime.SetValue({t}ms) FAILED: {e}')
-            _cam_log.error(f'[CAM Class ] Camera communication error during exposure_t({t}ms): {e}')
+                _cam_log.error(f'pylon ExposureTime.SetValue({exposure_ms}ms) FAILED: {e}')
+            _cam_log.error(f'[CAM Class ] Camera communication error during exposure_t({exposure_ms}ms): {e}')
             self._mark_disconnected()
         except Exception as e:
             _cam_log.exception(f'[CAM Class ] Unexpected error in exposure_t: {e}')

@@ -7851,13 +7851,14 @@ class TestSaveLiveImageTimeoutIsFloat:
 
 
 class TestImagingParamNamesUseUnitSuffix:
-    """Audit U3 -- API method param names carry unit suffix (gain_db /
-    exposure_ms / min_gain_db / max_gain_db). Pre-freeze, the L2 surface
-    drops bare ``gain`` / ``t`` / ``exposure`` / ``min_gain`` / ``max_gain``
-    parameter names that fail to disambiguate units from the four parallel
-    namespaces uncovered by the 2026-05-20 units-consistency audit (raw
-    settings, derived layer_config, camera-cache, API-param). Lock these
-    so a revert breaking the L2 contract trips immediately."""
+    """Audit U3 + U4 -- imaging API + driver method param names carry unit
+    suffix (gain_db / exposure_ms / min_gain_db / max_gain_db). Pre-freeze,
+    the L2 surface and the driver contract drop bare ``gain`` / ``t`` /
+    ``exposure`` / ``min_gain`` / ``max_gain`` parameter names that fail to
+    disambiguate units from the four parallel namespaces uncovered by the
+    2026-05-20 units-consistency audit (raw settings, derived layer_config,
+    camera-cache, API-param). Lock these so a revert breaking either the
+    L2 contract or the driver contract trips immediately."""
 
     _IMAGING_PARAMS = (
         # (method, expected_param_name_set, banned_param_name_set)
@@ -7909,3 +7910,17 @@ class TestImagingParamNamesUseUnitSuffix:
             assert 'max_gain' not in params, (
                 f'Camera.{method_name} still has bare max_gain param'
             )
+
+    def test_driver_exposure_t_param_name(self):
+        """Driver-side exposure_t uses ``exposure_ms`` -- the abstract Camera
+        contract plus all concrete drivers (Pylon, IDS, simulated, FX2).
+        Caught by the U4 driver rename sweep (paired with U3's API-side
+        rename). The historical bare ``t`` name is banned -- ambiguous on
+        a method whose body multiplies by 1000 to reach microseconds."""
+        import inspect
+        from drivers.camera import Camera
+
+        method = getattr(Camera, 'exposure_t')
+        params = set(inspect.signature(method).parameters)
+        assert 'exposure_ms' in params, 'Camera.exposure_t missing exposure_ms param'
+        assert 't' not in params, 'Camera.exposure_t still has bare `t` param'

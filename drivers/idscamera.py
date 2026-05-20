@@ -454,28 +454,28 @@ class IDSCamera(Camera):
             _cam_log.error(f'[CAM Class ] get_supported_pixel_formats failed: {e}')
             return ()
 
-    def exposure_t(self, t):
+    def exposure_t(self, exposure_ms):
         if not self.active:
-            _cam_log.warning(f'[CAM Class ] Cannot set exposure {t}ms: camera inactive')
+            _cam_log.warning(f'[CAM Class ] Cannot set exposure {exposure_ms}ms: camera inactive')
             return
 
-        if t > self.max_exposure:
-            _cam_log.warning(f'[CAM Class ] Exposure {t}ms exceeds max ({self.max_exposure}ms)')
+        if exposure_ms > self.max_exposure:
+            _cam_log.warning(f'[CAM Class ] Exposure {exposure_ms}ms exceeds max ({self.max_exposure}ms)')
             return
 
-        # IDS allows changing exposure while acquisition is running —
+        # IDS allows changing exposure while acquisition is running --
         # no need for update_camera_config() stop/start cycle.
         try:
-            us_value = float(t)*1000
-            if _cam_log is not None: _cam_log.info(f'ids ExposureTime.SetValue({us_value:.0f}us) (={t}ms)')
+            us_value = float(exposure_ms)*1000
+            if _cam_log is not None: _cam_log.info(f'ids ExposureTime.SetValue({us_value:.0f}us) (={exposure_ms}ms)')
             self.remote_nodemap.FindNode("ExposureTime").SetValue(us_value)
-            self._last_exposure_ms = float(t)
+            self._last_exposure_ms = float(exposure_ms)
             # Update grab timeout so long exposures don't cause perpetual timeouts
             if self.cam_image_handler:
-                self.cam_image_handler.timeout_ms = max(2000, int(t * 2 + 500))
-            logger.info(f'[CAM Class ] Exposure set to {t}ms')
+                self.cam_image_handler.timeout_ms = max(2000, int(exposure_ms * 2 + 500))
+            logger.info(f'[CAM Class ] Exposure set to {exposure_ms}ms')
         except Exception as e:
-            if _cam_log is not None: _cam_log.error(f'ids ExposureTime.SetValue({t}ms) FAILED: {e}')
+            if _cam_log is not None: _cam_log.error(f'ids ExposureTime.SetValue({exposure_ms}ms) FAILED: {e}')
             _cam_log.error(f'[CAM Class ] Exposure set failed (likely out of bounds): {e}')
 
     def get_exposure_t(self):

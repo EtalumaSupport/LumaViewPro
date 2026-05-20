@@ -1937,7 +1937,7 @@ class FX2Camera(Camera):
 
     # -- Exposure ----------------------------------------------------------
 
-    def exposure_t(self, t):
+    def exposure_t(self, exposure_ms):
         """Set exposure time in milliseconds.
 
         Formula from MT9P031 datasheet DS_F p31:
@@ -1960,7 +1960,7 @@ class FX2Camera(Camera):
         (autofocus, protocol captures) must wait ≥2 frames after an
         exposure change before relying on the new value.
         """
-        target_ms = float(t)
+        target_ms = float(exposure_ms)
         rows = max(
             1,
             min(
