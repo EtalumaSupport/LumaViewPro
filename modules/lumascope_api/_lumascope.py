@@ -874,6 +874,18 @@ class Lumascope():
                 f'[SCOPE API ] Microscope disconnected with errors '
                 f'(led_ok={led_ok}, motion_ok={motion_ok}, '
                 f'camera_ok={camera_ok})')
+
+        # Symmetric to atexit.register in __init__: each instance removes its
+        # own hook on disconnect so test fixtures that construct + disconnect
+        # many Lumascope instances do not leak atexit registrations.
+        # atexit.unregister silently no-ops if the hook was never registered.
+        try:
+            import atexit
+            atexit.unregister(self._emergency_shutdown)
+        except Exception as _e:
+            logger.warning(
+                f'[SCOPE API ] atexit unregister failed: {_e}')
+
         return all_ok
 
     def _emergency_shutdown(self):
