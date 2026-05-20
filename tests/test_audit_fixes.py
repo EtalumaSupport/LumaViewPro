@@ -8263,3 +8263,62 @@ class TestSessionImagingWrappersSymmetric:
             assert session.scope.imaging.camera_exposure_ms == 42.0
         finally:
             session.scope.disconnect()
+
+
+class TestCreateDiagnosticSharesInitMinimal:
+    """Freeze audit Finding #35 -- create_diagnostic bypassed __init__
+    via cls.__new__(cls) and open-coded a subset of __init__'s state
+    assignments, leaving ~12 instance attributes unset. #22's
+    camera_connected work surfaced one concrete instance (_camera_driver
+    missing). The audit-recommended fix: extract a shared _init_minimal
+    helper that both __init__ and create_diagnostic call. The slot list
+    is now single-pointed-of-truth."""
+
+    # Slots that _init_minimal sets on every Lumascope instance, regardless
+    # of which constructor path was used. If a future refactor drops one,
+    # this guard catches it.
+    REQUIRED_SHARED_SLOTS = (
+        '_simulated', '_coordinate_transformer', '_objectives_loader',
+        '_state_lock', '_cam_lock', '_camera_cache_lock', '_camera_cache',
+        '_camera_driver',
+        '_labware', '_objective', '_objective_id',
+        '_turret_config', '_stage_offset', '_last_turret_position',
+        'engineering_mode', 'last_focus_score',
+        '_camera_executor', '_io_executor', '_file_io_executor',
+        '_executor_bundle', '_source_path', 'metrics_logger',
+    )
+
+    def test_init_sets_all_shared_slots(self):
+        from modules.lumascope_api import Lumascope
+        scope = Lumascope(simulate=True, register_atexit=False, register_metrics=False)
+        try:
+            for slot in self.REQUIRED_SHARED_SLOTS:
+                assert hasattr(scope, slot), (
+                    f'__init__ must set {slot} (via _init_minimal) per audit #35.'
+                )
+        finally:
+            scope.disconnect()
+
+    def test_create_diagnostic_sets_all_shared_slots(self):
+        from modules.lumascope_api import Lumascope
+        instance = Lumascope.create_diagnostic()
+        try:
+            for slot in self.REQUIRED_SHARED_SLOTS:
+                assert hasattr(instance, slot), (
+                    f'create_diagnostic must set {slot} (via _init_minimal) '
+                    'per audit #35.'
+                )
+        finally:
+            instance.disconnect()
+
+    def test_create_diagnostic_camera_driver_is_none(self):
+        """The diagnostic path leaves _camera_driver=None (the
+        _init_minimal default); camera_connected returns False without
+        the getattr-default belt-and-suspenders firing."""
+        from modules.lumascope_api import Lumascope
+        instance = Lumascope.create_diagnostic()
+        try:
+            assert instance._camera_driver is None
+            assert instance.camera_connected is False
+        finally:
+            instance.disconnect()
