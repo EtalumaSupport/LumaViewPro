@@ -81,11 +81,6 @@ class ProtocolSettings(FloatLayout):
         ctx = _app_ctx.ctx
         source_root = get_source_root(ctx.source_path if ctx is not None else None)
 
-        # Labware definitions: route through the canonical WellPlateLoader
-        # owned by ScopeSession; avoids a second parse of labware.json and
-        # ensures any future validation rule applies uniformly.
-        self.labware = ctx.wellplate_loader.labware
-
         self.curr_step = -1
 
         self.tiling_config = TilingConfig(
