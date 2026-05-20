@@ -40,6 +40,92 @@ if TYPE_CHECKING:
 _api_log = _logging.getLogger('LVP.api')
 
 
+# Per Firmware/docs/PERFORMANCE_BUDGETS.md plugin_live_processing_handler_ms
+# row + WAVE7_PHASE_4D5_PLAN sec 9 alignment 2026-05-19. Budget anchors to
+# the 30 fps realistic-cap target (per FRAME_VALIDITY_RIG_COMPARISON_2026-
+# 05-19.md: daA3840 max sustained median 17.6 fps; a2A3536 49.9 fps).
+# Plugin gets ~70% of the inter-frame window; driver keeps ~10 ms headroom.
+HANDLER_BUDGET_MS = 24
+
+# K consecutive over-budget invocations before auto-removal. ~1 second at
+# 30 fps. Forgiving enough to absorb a single bursty frame; strict enough
+# to protect the imaging pipeline from a hung plugin.
+HANDLER_DROP_K = 30
+
+
+class _BudgetedHandler:
+    """Wraps a user-supplied frame listener with budget + drop-policy
+    enforcement. Created by ImagingAPI.add_frame_listener; transparent
+    to plugin authors -- the wrapper itself is what gets registered with
+    the driver, not the user's handler.
+
+    Re-entrancy: not a concern. Each driver's fire-site is single-
+    threaded (Pylon SDK contract / IDS grab loop / Sim pump). Auto-
+    removal calls ImagingAPI._remove_wrapper which takes the driver
+    lock, but the driver's _store_frame snapshots callbacks under
+    lock and invokes outside -- no deadlock risk on the same-thread
+    auto-remove path.
+    """
+
+    __slots__ = ('_imaging', '_handler', '_name', '_consecutive_over', '_removed')
+
+    def __init__(self, imaging: 'ImagingAPI', handler, name: str) -> None:
+        self._imaging = imaging
+        self._handler = handler
+        self._name = name
+        self._consecutive_over = 0
+        self._removed = False
+
+    def __call__(self, image, timestamp, chunks) -> None:
+        if self._removed:
+            return
+        t0 = time.perf_counter()
+        try:
+            self._handler(image, timestamp, chunks)
+        except Exception as e:
+            # Rule 5: log every error with context. Exception does not
+            # count toward budget -- a handler that crashes is a
+            # different failure class from a handler that's too slow.
+            logger.exception(
+                f"[SCOPE API ] live_processing handler '{self._name}' raised: {e}"
+            )
+            return
+        elapsed_ms = (time.perf_counter() - t0) * 1000.0
+        if elapsed_ms > HANDLER_BUDGET_MS:
+            self._consecutive_over += 1
+            logger.warning(
+                f"[SCOPE API ] live_processing handler '{self._name}' "
+                f"over budget: {elapsed_ms:.1f}ms (budget {HANDLER_BUDGET_MS}ms) "
+                f"-- consecutive {self._consecutive_over}/{HANDLER_DROP_K}"
+            )
+            if self._consecutive_over >= HANDLER_DROP_K:
+                self._auto_remove(elapsed_ms)
+        else:
+            self._consecutive_over = 0
+
+    def _auto_remove(self, last_elapsed_ms: float) -> None:
+        """Drop trigger: K consecutive over-budget hits. Removes self
+        from ImagingAPI's listener registry and fires a warning
+        notification so L1 sees the degradation."""
+        self._removed = True
+        try:
+            self._imaging._remove_wrapper(self)
+        except Exception as e:
+            logger.warning(
+                f"[SCOPE API ] live_processing handler '{self._name}' "
+                f"auto-remove cleanup failed: {e}"
+            )
+        notifications.warning(
+            "Live Processing",
+            f"Plugin '{self._name}' removed",
+            f"The plugin's frame handler exceeded the {HANDLER_BUDGET_MS}ms "
+            f"budget for {HANDLER_DROP_K} consecutive frames "
+            f"(last: {last_elapsed_ms:.0f}ms). It has been disabled to "
+            f"protect the imaging pipeline. Reduce the handler's per-frame "
+            f"cost and re-register, or restart the application."
+        )
+
+
 class ImagingAPI:
     """Imaging sub-API. Owns camera setters/getters/orchestration plus
     camera state slots (cache, frame_buffer, scale_bar, listeners,
@@ -62,6 +148,16 @@ class ImagingAPI:
         # schedule UI work via Clock.schedule_once.
         self._camera_listeners_lock = threading.Lock()
         self._camera_listeners: list = []
+
+        # Per-frame listener registry. Each user handler is wrapped in
+        # a _BudgetedHandler; the wrapper is what's registered with the
+        # driver's _frame_callbacks list. The dict keys are the user
+        # handlers so remove_frame_listener(handler) can look up the
+        # wrapper. Lock protects register + remove + auto-remove
+        # mutations -- the read path (driver fan-out) doesn't touch
+        # this dict.
+        self._frame_listener_lock = threading.Lock()
+        self._frame_listener_wrappers: dict = {}
 
         # Latest captured frame; populated by get_image_from_buffer /
         # get_image_with_chunks_from_buffer.
@@ -1821,45 +1917,94 @@ class ImagingAPI:
             except ValueError:
                 pass
 
-    def add_frame_listener(self, cb) -> None:
+    def add_frame_listener(self, cb, name: str | None = None) -> None:
         """Register a per-frame listener fired on every successful grab.
 
         The canonical entry point for live_processing plugins (see
         ``ctx.plugins.live_processing``) and the manual-record path.
-        Passthrough to the driver. Callback signature is
-        ``cb(image, timestamp, chunks)``; runs on the SDK callback
-        thread (Pylon ``PylonImageGrab`` / IDS grab loop / simulated
-        pump). Listeners MUST NOT block -- heavy work belongs on an
-        executor. No-op when no camera is connected.
+        The supplied handler is wrapped in a budget enforcer
+        (``HANDLER_BUDGET_MS`` per call; ``HANDLER_DROP_K`` consecutive
+        over-budget invocations triggers auto-removal). Callback
+        signature is ``cb(image, timestamp, chunks)``; runs on the SDK
+        callback thread (Pylon ``PylonImageGrab`` / IDS grab loop /
+        simulated pump). Listeners MUST NOT block -- heavy work belongs
+        on an executor. No-op when no camera is connected.
+
+        Args:
+            cb: Per-frame handler. Signature ``cb(image, timestamp, chunks)``.
+            name: Display name for log + notification messages on
+                  over-budget / auto-removal. Defaults to the handler's
+                  qualname.
 
         The ``image`` array is shared across all listeners (don't-mutate
         contract); write to your own output buffer if you need to keep
         results. Mutating the supplied array affects later listeners
         plus downstream display / capture consumers.
+
+        Registration is idempotent for the same callable -- a second
+        call with the same ``cb`` is a no-op (the original wrapper +
+        name are kept).
         """
         if not self._driver or not self._driver.active:
             return
+        if name is None:
+            name = getattr(cb, '__qualname__', None) or repr(cb)
+        with self._frame_listener_lock:
+            if cb in self._frame_listener_wrappers:
+                return  # idempotent
+            wrapper = _BudgetedHandler(self, cb, name)
+            self._frame_listener_wrappers[cb] = wrapper
         try:
-            self._driver.register_frame_callback(cb)
+            self._driver.register_frame_callback(wrapper)
         except Exception as ex:
+            # Rollback the dict entry if the driver registration
+            # failed so a future register attempt can retry.
+            with self._frame_listener_lock:
+                self._frame_listener_wrappers.pop(cb, None)
             logger.exception(
-                f"[SCOPE API ] add_frame_listener failed: {ex}"
+                f"[SCOPE API ] add_frame_listener failed for '{name}': {ex}"
             )
 
     def remove_frame_listener(self, cb) -> None:
         """Remove a listener registered via ``add_frame_listener``.
 
-        Passthrough to the driver. No-op when no camera is connected
-        or the listener was never registered.
+        No-op when no camera is connected or the listener was never
+        registered. The user supplies the original handler; this
+        method looks up the wrapper and unregisters that.
         """
         if not self._driver:
             return
+        with self._frame_listener_lock:
+            wrapper = self._frame_listener_wrappers.pop(cb, None)
+        if wrapper is None:
+            return
         try:
-            self._driver.unregister_frame_callback(cb)
+            self._driver.unregister_frame_callback(wrapper)
         except Exception as ex:
             logger.exception(
                 f"[SCOPE API ] remove_frame_listener failed: {ex}"
             )
+
+    def _remove_wrapper(self, wrapper: '_BudgetedHandler') -> None:
+        """Internal: auto-removal path. Called by _BudgetedHandler when
+        K consecutive over-budget hits trigger drop. Idempotent --
+        callable safely from the SDK callback thread."""
+        with self._frame_listener_lock:
+            cb_to_remove = None
+            for cb, w in self._frame_listener_wrappers.items():
+                if w is wrapper:
+                    cb_to_remove = cb
+                    break
+            if cb_to_remove is None:
+                return
+            self._frame_listener_wrappers.pop(cb_to_remove, None)
+        if self._driver:
+            try:
+                self._driver.unregister_frame_callback(wrapper)
+            except Exception as ex:
+                logger.exception(
+                    f"[SCOPE API ] _remove_wrapper driver-unregister failed: {ex}"
+                )
 
     # Considered immediate removal of register/unregister_frame_callback;
     # rejected because 1 LVP caller (ui/main_display.py recording path)
