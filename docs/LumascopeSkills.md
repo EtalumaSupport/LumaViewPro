@@ -640,6 +640,7 @@ caps.has_focus                  # True if Z is motorized
 caps.has_xy_stage               # True if X/Y are motorized
 caps.has_turret                 # True if the turret axis is present
 caps.motor_model                # e.g. 'RP2040' or '' if no motor
+caps.axis_travel_limits_um      # {'X': 120000.0, 'Y': 80000.0, 'Z': 14000.0} -- present axes only
 
 # LED
 caps.led_channels               # e.g. (0, 1, 2, 3) for FX2 scopes; (0..5) for RP2040
@@ -660,6 +661,7 @@ Two important consequences:
 
 - **LED channel count varies by scope.** LS560/LS620 (FX2 driver) expose 4 channels (`BF`, `Blue`, `Green`, `Red`); RP2040-based scopes expose 6 (`BF`, `PC`, `DF`, `Blue`, `Green`, `Red`). Don't iterate over a hardcoded list — iterate over `caps.led_colors`.
 - **Some scopes have no motor at all.** LS560/LS620 have `caps.axes == ()`. Calling `scope.motion.move_absolute_position('X', …)` against such a scope is a no-op, not an error — but your UI should hide motion controls based on `caps.has_xy_stage` etc.
+- **`axis_travel_limits_um` is populated only for present axes.** On a Z-only scope, `'X' in caps.axis_travel_limits_um` is `False`; indexing `caps.axis_travel_limits_um['X']` raises `KeyError`. Check `caps.has_xy_stage` (or `axis in caps.axes`) before reading. The mapping is read-only (`MappingProxyType`); mutation attempts raise `TypeError`.
 
 ---
 

@@ -130,8 +130,8 @@ class TilingConfig:
         import modules.app_context as _app_ctx
         ctx = _app_ctx.ctx
         if ctx is not None and ctx.scope is not None:
-            x_center = ctx.scope.travel_limit_um('X') / 2
-            y_center = ctx.scope.travel_limit_um('Y') / 2
+            x_center = ctx.scope.capabilities.axis_travel_limits_um['X'] / 2
+            y_center = ctx.scope.capabilities.axis_travel_limits_um['Y'] / 2
         else:
             x_center = 60000
             y_center = 40000

@@ -32,6 +32,8 @@ properties, not frozen snapshot fields.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from types import MappingProxyType
+from typing import Mapping
 
 
 # Canonical home for the LED current cap (matches firmware CH_MAX).
@@ -64,6 +66,21 @@ class ScopeCapabilities:
     motor_model: str
     """Scope model string reported by `motion.get_microscope_model()`, or
     empty string if unknown / not connected."""
+
+    axis_travel_limits_um: Mapping[str, float]
+    """Per-axis travel limit in um, populated only for present axes.
+
+    Read-only mapping (MappingProxyType wrapper) so the frozen-dataclass
+    immutability contract holds for the contents as well as the field
+    binding. A caller passing an absent axis gets KeyError -- which is
+    the correct contract per the Rule 8 capability-probe corollary
+    (test `axis in caps.axes` first; the travel-limit query is only
+    meaningful for present axes).
+
+    Values come from `motion.motorconfig.travel_limit_um(axis)` (mm in
+    motorconfig.json, multiplied by 1000 for um). Empty mapping if
+    motion driver has no motorconfig (NullMotionBoard) or all axes
+    failed to read."""
 
     # ---- LED ----
     led_channels: tuple[int, ...]
@@ -147,6 +164,17 @@ class ScopeCapabilities:
         except Exception:
             model = ''
 
+        # Travel limits per present axis (read once at boot; motorconfig
+        # is loaded once at driver init and is immutable for the run).
+        travel_limits: dict[str, float] = {}
+        motorconfig = getattr(motion, 'motorconfig', None)
+        if motorconfig is not None:
+            for ax in axes:
+                try:
+                    travel_limits[ax] = float(motorconfig.travel_limit_um(ax))
+                except Exception:
+                    pass
+
         # LED
         try:
             led_channels = tuple(led.available_channels())
@@ -183,6 +211,7 @@ class ScopeCapabilities:
             has_xy_stage=('X' in axes and 'Y' in axes),
             has_turret='T' in axes,
             motor_model=model,
+            axis_travel_limits_um=MappingProxyType(travel_limits),
             led_channels=led_channels,
             led_colors=led_colors,
             led_max_ma=led_max_ma,

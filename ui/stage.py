@@ -88,7 +88,9 @@ class Stage(Widget):
         """Return (x_max_um, y_max_um) from motorconfig, with fallback defaults."""
         ctx = _app_ctx.ctx
         if ctx is not None and hasattr(ctx, 'scope') and ctx.scope is not None:
-            return (ctx.scope.travel_limit_um('X'), ctx.scope.travel_limit_um('Y'))
+            if ctx.scope.capabilities.has_xy_stage:
+                limits = ctx.scope.capabilities.axis_travel_limits_um
+                return (limits['X'], limits['Y'])
         from modules.common_utils import DEFAULT_STAGE_TRAVEL_UM
         return (DEFAULT_STAGE_TRAVEL_UM["x"], DEFAULT_STAGE_TRAVEL_UM["y"])
 

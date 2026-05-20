@@ -111,7 +111,7 @@ lock.
 **Driver handle**: `_motion_driver` (was `scope.motion`, class `MotorBoard`)
 
 **Cross-sub-API calls**: reads `scope.capabilities.axes`,
-`scope.capabilities.travel_limit_um`. None outbound to other sub-APIs.
+`scope.capabilities.axis_travel_limits_um`. None outbound to other sub-APIs.
 
 ### 2.2 `scope.illumination`
 

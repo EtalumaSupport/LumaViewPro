@@ -712,20 +712,6 @@ class Lumascope():
         """
         return axis in self.capabilities.axes
 
-    def travel_limit_um(self, axis: str) -> float:
-        """Get the travel limit for an axis in um.
-
-        Args:
-            axis: Axis name ("X", "Y", "Z", "T").
-
-        Returns:
-            float: Travel limit in um, or MOTOR_POSITION_LIMIT if unknown.
-        """
-        try:
-            return float(self._motion_driver.motorconfig.travel_limit_um(axis))
-        except Exception:
-            return float(self.MOTOR_POSITION_LIMIT)
-
     @property
     def motor_connected(self) -> bool:
         """Whether the motor controller is connected.
