@@ -1,7 +1,0 @@
-tile_id,filepath,row,col,nominal_x_px,nominal_y_px,channel,expected_overlap_fraction,metadata_x_px,metadata_y_px
-MAX_73,MAX_73.tif,0,0,0.0,0.0,planar_3ch,0.1,0.0,0.0
-MAX_74,MAX_74.tif,0,1,460.8,0.0,planar_3ch,0.1,460.8,0.0
-MAX_75,MAX_75.tif,1,0,0.0,460.8,planar_3ch,0.1,0.0,460.8
-MAX_76,MAX_76.tif,1,1,460.8,460.8,planar_3ch,0.1,460.8,460.8
-MAX_77,MAX_77.tif,2,0,0.0,921.6,planar_3ch,0.1,0.0,921.6
-MAX_78,MAX_78.tif,2,1,460.8,921.6,planar_3ch,0.1,460.8,921.6
