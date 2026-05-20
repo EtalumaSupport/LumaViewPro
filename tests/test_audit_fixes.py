@@ -7647,16 +7647,17 @@ class TestWaitUntilLedOnSymmetry:
 
 
 class TestSessionLedOnArgNameIsMa:
-    """Audit Finding #33 -- ScopeSession.led_on / led_on_sync use `mA`,
+    """Audit Finding #33 -- ScopeSession.led_on_async / led_on_sync use `mA`,
     matching the canonical Lumascope.illumination.led_on(channel, mA, ...)
-    name. The old `illumination=` keyword is retired."""
+    name. The old `illumination=` keyword is retired. (Method renamed
+    from `led_on` -> `led_on_async` per Finding #6 async-naming sweep.)"""
 
     def test_led_on_signature_uses_mA(self):
         import inspect
         from modules.scope_session import ScopeSession
 
-        params = inspect.signature(ScopeSession.led_on).parameters
-        assert 'mA' in params, "ScopeSession.led_on must accept mA kwarg"
+        params = inspect.signature(ScopeSession.led_on_async).parameters
+        assert 'mA' in params, "ScopeSession.led_on_async must accept mA kwarg"
         assert 'illumination' not in params, "old `illumination` kwarg must be retired"
 
     def test_led_on_sync_signature_uses_mA(self):
