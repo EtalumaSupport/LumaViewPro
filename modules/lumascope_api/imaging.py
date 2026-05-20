@@ -1383,17 +1383,6 @@ class ImagingAPI:
         with self._camera_cache_lock:
             return self._camera_cache['active']
 
-    def camera_is_connected(self) -> bool:
-        """Check if the camera is active and connected.
-
-        Returns:
-            bool: True if camera is connected and active.
-        """
-        if not self._driver or not self._driver.active:
-            return False
-
-        return self._driver.is_connected()
-
     @property
     def camera_gain(self) -> float:
         """Current camera gain in dB (reads cache).
@@ -1759,7 +1748,7 @@ class ImagingAPI:
         through `scope.diagnostics.get_camera_temperatures` -- the canonical
         camera-temp probe (cold probes live on DiagnosticsAPI).
         """
-        if not self.camera_is_connected():
+        if not self._scope.camera_connected:
             return
         for source, temp in self._scope.diagnostics.get_camera_temperatures().items():
             logger.info(
@@ -1795,7 +1784,7 @@ class ImagingAPI:
         def _tick(_dt=0):
             # Self-unschedule when the camera disconnects so a stale
             # event doesn't survive scope switches.
-            if not self.camera_is_connected():
+            if not self._scope.camera_connected:
                 self.stop_camera_temp_logging(unschedule_fn)
                 return
             self.log_camera_temps()

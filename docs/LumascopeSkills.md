@@ -118,9 +118,9 @@ scope.initialize(config)
 
 ```python
 scope.are_all_connected()                 # LED + motor + camera all up
-scope.motor_connected                     # motor board
-scope.led_connected                       # LED board
-scope.imaging.camera_is_connected()       # camera
+scope.motor_connected                     # motor board (property)
+scope.led_connected                       # LED board (property)
+scope.camera_connected                    # camera (property)
 scope.no_hardware                         # True if all-null (no real hardware found)
 scope.disconnect()
 ```
@@ -523,7 +523,7 @@ scope.imaging.remove_frame_listener(on_frame)
 ### Camera info
 
 ```python
-scope.imaging.camera_is_connected()
+scope.camera_connected                             # bool property (mirror of motor_connected / led_connected)
 scope.imaging.camera_active                        # True if grabbing
 scope.diagnostics.get_camera_temperatures()        # temperature sensors (SDK-dependent)
 scope.diagnostics.get_camera_info()                # model, serial, firmware

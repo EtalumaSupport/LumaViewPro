@@ -725,6 +725,21 @@ class Lumascope():
         """
         return not isinstance(self._led_driver, NullLEDBoard) and self._led_driver.is_connected()
 
+    @property
+    def camera_connected(self) -> bool:
+        """Whether the camera is connected and active.
+
+        Returns:
+            bool: True if a real camera driver is connected and active.
+        """
+        driver = getattr(self, '_camera_driver', None)
+        if driver is None or not getattr(driver, 'active', False):
+            return False
+        try:
+            return driver.is_connected()
+        except Exception:
+            return False
+
     def disconnect(self) -> bool:
         """Disconnect from all hardware (LED, motion, camera).
 

@@ -2133,7 +2133,7 @@ class TestLumascapeAPICamera:
     """Direct tests on Lumascope camera API with simulated hardware."""
 
     def test_camera_connected(self, scope):
-        assert scope.imaging.camera_is_connected()
+        assert scope.camera_connected
 
     def test_get_image_returns_array(self, scope):
         import numpy as np

@@ -925,7 +925,7 @@ class MicroscopeSettings(BoxLayout):
             scope = ctx.lumaview.scope if ctx.lumaview else None
             had_hardware = bool(
                 scope and (
-                    scope.imaging.camera_is_connected()
+                    scope.camera_connected
                     or scope.motor_connected
                     or scope.led_connected
                 )
@@ -1169,7 +1169,7 @@ class MicroscopeSettings(BoxLayout):
         settings = ctx.settings
         objective_helper = ctx.objective_helper
 
-        if not lumaview.scope.imaging.camera_is_connected():
+        if not lumaview.scope.camera_connected:
             return
 
         try:

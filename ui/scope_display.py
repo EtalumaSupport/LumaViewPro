@@ -499,7 +499,7 @@ class ScopeDisplay(Image):
 
         # SHUTDOWN-RACE-1: thread can dequeue here after ctx / ctx.scope
         # has been torn down. Early-return rather than NPE through
-        # camera_is_connected().
+        # scope.camera_connected.
         if ctx is None or ctx.scope is None:
             return STATUS_NOT_READY
 
@@ -517,7 +517,7 @@ class ScopeDisplay(Image):
         display_counter = self._display_update_counter + 1
         Clock.schedule_once(self._increment_display_counter, 0)
 
-        if not ctx.scope.imaging.camera_is_connected():
+        if not ctx.scope.camera_connected:
             if not self.camera_disconnected_display_set:
                 Clock.schedule_once(lambda dt: self.set_camera_disconnected_display(), 0)
             return STATUS_NOT_READY

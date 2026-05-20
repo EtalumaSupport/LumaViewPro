@@ -15,6 +15,7 @@ IMPORTANT: This file does NOT manipulate sys.modules at module level.
 All mocking is done inside fixtures/test methods and cleaned up afterward.
 """
 
+import inspect
 import sys
 import threading
 from unittest.mock import MagicMock
@@ -8136,3 +8137,43 @@ class TestOpticsOnCapabilities:
         )
         assert caps.pixel_size_um == 2.0
         assert caps.lens_focal_length_mm == 47.8
+
+
+class TestConnectionCheckShapeUniformOnLumascope:
+    """Freeze audit Finding #22 -- motor_connected / led_connected were
+    Lumascope properties while camera connection was a method on
+    ImagingAPI (imaging.camera_is_connected()). Two shapes (property vs
+    method) and two locations (composition root vs sub-API) for the
+    same question. Unified: all three are now properties on Lumascope.
+    Internal imaging callers route through self._scope.camera_connected."""
+
+    def test_imaging_class_does_not_carry_camera_is_connected(self):
+        from modules.lumascope_api.imaging import ImagingAPI
+        assert not hasattr(ImagingAPI, 'camera_is_connected'), (
+            'ImagingAPI.camera_is_connected must be retired per audit #22; '
+            'callers read scope.camera_connected (property) instead.'
+        )
+
+    def test_lumascope_has_camera_connected_property(self):
+        from modules.lumascope_api import Lumascope
+        attr = inspect.getattr_static(Lumascope, 'camera_connected', None)
+        assert isinstance(attr, property), (
+            'Lumascope.camera_connected must be a property (matches motor_connected / '
+            'led_connected shape).'
+        )
+
+    def test_sim_scope_camera_connected_matches_driver_state(self, sim_scope):
+        """On the default sim, the camera driver is real (SimulatedCamera);
+        camera_connected reflects driver.active + is_connected()."""
+        # SimulatedCamera should be active + connected after Lumascope init
+        assert sim_scope.camera_connected is True
+
+    def test_camera_connected_false_when_no_camera_driver(self, sim_scope):
+        """The property must be defensive against a missing / None camera
+        driver -- mirrors motor_connected / led_connected falling back to
+        False rather than raising. Forcing _camera_driver=None proves the
+        getattr-default path: this matches the shape of create_diagnostic
+        instances (which today leave _camera_driver unset per audit #35;
+        the property gracefully degrades regardless)."""
+        sim_scope._camera_driver = None
+        assert sim_scope.camera_connected is False

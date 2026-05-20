@@ -175,7 +175,7 @@ config.
   `capture_and_wait`, `capture_and_wait_sync`, `get_image`,
   `get_image_with_chunks_from_buffer`, `get_image_from_buffer`,
   `_get_latest_chunks`
-- State + lifecycle: `camera_active`, `camera_is_connected`,
+- State + lifecycle: `camera_active`,
   `camera_gain`, `camera_exposure_ms`, `camera_frame_size`,
   `camera_max_frame_size`, `camera_min_frame_size`, `camera_max_exposure`,
   `camera_max_gain`, `camera_pixel_format`, `_load_camera_timing`,
