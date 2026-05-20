@@ -83,6 +83,34 @@ class ScopeCapabilities:
     camera_max_exposure_ms: int
     camera_pixel_size_um: float
 
+    def supports(self, feature: str) -> bool:
+        """Return True if the scope advertises the named feature.
+
+        Cross-surface helper that the Rule 8 capability-probe corollary
+        cites: callers test for a feature by token rather than by
+        knowing which surface owns it. Searches the boolean
+        `has_<feature>` fields (motion-shape: focus / xy_stage /
+        turret) and the boolean `camera_supports_<feature>` fields
+        (camera-shape: auto_gain / auto_exposure) for a match. Unknown
+        feature names return False, never raise.
+
+        Example:
+            caps.supports('turret')      # True if has_turret
+            caps.supports('xy_stage')    # True if has_xy_stage
+            caps.supports('auto_gain')   # True if camera_supports_auto_gain
+            caps.supports('warp_drive')  # False (unknown)
+
+        When `firmware_features` and `hardware_features` ship (design
+        doc §2.5 + §10), this method extends to search those dicts;
+        the empty-default contract means unknown features still
+        return False.
+        """
+        if getattr(self, f'has_{feature}', False):
+            return True
+        if getattr(self, f'camera_supports_{feature}', False):
+            return True
+        return False
+
     @classmethod
     def from_drivers(cls, motion, led, camera, led_max_ma: int) -> 'ScopeCapabilities':
         """Build a ScopeCapabilities snapshot from the three drivers.

@@ -920,6 +920,28 @@ class TestScopeCapabilities:
         assert caps.has_xy_stage is False
         assert caps.has_turret is False
 
+    def test_supports_helper_searches_has_and_camera_supports_fields(self):
+        """Rule 8 corollary helper -- one cross-surface entry point for
+        capability probes. caps.supports('turret') returns has_turret;
+        caps.supports('auto_gain') returns camera_supports_auto_gain.
+        Unknown feature returns False, never raises."""
+        from modules.scope_capabilities import ScopeCapabilities
+        from drivers.simulated_motorboard import SimulatedMotorBoard
+        caps = ScopeCapabilities.from_drivers(
+            motion=SimulatedMotorBoard(), led=NullLEDBoard(), camera=None,
+            led_max_ma=1000,
+        )
+        # has_X fields
+        assert caps.supports('focus') is caps.has_focus
+        assert caps.supports('xy_stage') is caps.has_xy_stage
+        assert caps.supports('turret') is caps.has_turret
+        # camera_supports_X fields (camera=None -> defaults to False)
+        assert caps.supports('auto_gain') is False
+        assert caps.supports('auto_exposure') is False
+        # Unknown feature returns False, does not raise
+        assert caps.supports('warp_drive') is False
+        assert caps.supports('') is False
+
     def test_null_led_still_reports_six_channels_for_compat(self):
         """Per B3 compat: NullLEDBoard reports 6 channels so Rule 8
         silent no-ops work on channels 0-5. Capabilities mirrors that."""
