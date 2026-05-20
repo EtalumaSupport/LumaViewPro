@@ -466,7 +466,7 @@ class SequencedCaptureRunner:
 
         # Snapshot hardware state for restoration after protocol
         self._original_led_states = self._scope.illumination.get_led_states()
-        self._saved_camera_state = self._scope.save_camera_state('protocol')
+        self._saved_camera_state = self._scope.imaging.save_camera_state('protocol')
         if initial_autofocus_states is not None:
             self._original_autofocus_states = initial_autofocus_states
         else:
@@ -550,7 +550,7 @@ class SequencedCaptureRunner:
         self._io_executor.protocol_start()
         self.file_io_executor.protocol_start()
         # Not IO
-        self._scope.update_auto_gain_target_brightness(self._autogain_settings['target_brightness'])
+        self._scope.imaging.update_auto_gain_target_brightness(self._autogain_settings['target_brightness'])
 
         # Dispatch the main run loop onto protocol_thread. The returned
         # Future is fire-and-forget here -- completion is signalled via

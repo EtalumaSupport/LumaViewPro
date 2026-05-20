@@ -41,6 +41,7 @@ from kivy.uix.widget import Widget
 from kivy.input import MotionEvent
 
 from modules.contrast_stretcher import ContrastStretcher
+import modules.autofocus_functions as autofocus_functions
 import modules.common_utils as common_utils
 import modules.app_context as _app_ctx
 
@@ -516,7 +517,7 @@ class ScopeDisplay(Image):
         display_counter = self._display_update_counter + 1
         Clock.schedule_once(self._increment_display_counter, 0)
 
-        if not ctx.scope.camera_is_connected():
+        if not ctx.scope.imaging.camera_is_connected():
             if not self.camera_disconnected_display_set:
                 Clock.schedule_once(lambda dt: self.set_camera_disconnected_display(), 0)
             return STATUS_NOT_READY
@@ -526,11 +527,11 @@ class ScopeDisplay(Image):
 
         # Update scale bar color based on active channel (black for transmitted, white for fluorescence)
         if active_layer is not None:
-            ctx.scope.set_scale_bar(enabled=ctx.scope.scale_bar_enabled, color=active_layer)
+            ctx.scope.imaging.set_scale_bar(enabled=ctx.scope.imaging.scale_bar_enabled, color=active_layer)
 
         # Likely not an IO call as image will be stored in buffer
         t_grab_start = time.monotonic()
-        image, frame_ts = ctx.scope.get_image_from_buffer(force_to_8bit=True)
+        image, frame_ts = ctx.scope.imaging.get_image_from_buffer(force_to_8bit=True)
         if (image is False) or (image is None) or (image.size == 0):
             return STATUS_EMPTY
 
@@ -552,8 +553,8 @@ class ScopeDisplay(Image):
         # displayed data rate reflects actual camera throughput, not the
         # post-conversion display throughput.
         self._capture_fps_count += 1
-        fs = ctx.scope.camera_frame_size
-        pixel_format = ctx.scope.camera_pixel_format
+        fs = ctx.scope.imaging.camera_frame_size
+        pixel_format = ctx.scope.imaging.camera_pixel_format
         bpp = 2 if pixel_format in ('Mono10', 'Mono10g40IDS', 'Mono12', 'Mono12g24IDS') else 1
         self._last_frame_nbytes = fs.get('width', 0) * fs.get('height', 0) * bpp
         now = time.monotonic()
@@ -580,7 +581,7 @@ class ScopeDisplay(Image):
         t_eng_stats = 0
         if ctx.engineering_mode:
             # Frame validity indicator: update every frame (lightweight canvas op)
-            fv_valid = ctx.scope.frame_is_valid
+            fv_valid = ctx.scope.imaging.frame_is_valid
             Clock.schedule_once(lambda dt, v=fv_valid: self._update_validity_dot(v), 0)
 
             # Engineering stats: 2x per second (time-based, not frame-based)
@@ -590,7 +591,9 @@ class ScopeDisplay(Image):
                 t_eng_start = time.monotonic()
                 mean = round(np.mean(a=image), 2)
                 stddev = round(np.std(a=image), 2)
-                af_score = ctx.scope.compute_focus_score(image)
+                af_score = autofocus_functions.focus_function(
+                    image=image, skip_score_logging=True
+                )
                 t_eng_stats = time.monotonic() - t_eng_start
 
                 if open_layer is not None:
@@ -767,8 +770,8 @@ class ScopeDisplay(Image):
 
     def get_true_gain_exp(self, layer):
         ctx = _app_ctx.ctx
-        actual_gain = ctx.scope.camera_gain
-        actual_exp = ctx.scope.camera_exposure_ms
+        actual_gain = ctx.scope.imaging.camera_gain
+        actual_exp = ctx.scope.imaging.camera_exposure_ms
         Clock.schedule_once(lambda dt: self.update_auto_gain_ui(layer, actual_gain, actual_exp), 0)
 
     def update_auto_gain_ui(self, layer, actual_gain, actual_exp):

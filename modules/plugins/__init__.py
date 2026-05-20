@@ -2,7 +2,7 @@
 """Plugin platform for LumaViewPro.
 
 Single platform, namespace-scoped registries, lifecycle-aware.
-Spec: Firmware/docs/PLUGIN_API_DESIGN_2026-05-09.md
+Spec: docs/PLUGIN_API_DESIGN_2026-05-09.md
 
 Four namespaces hardcoded for 4.x: ui, post_processing, live_processing,
 rest. Adding a fifth is a deliberate platform-spec change, not a runtime

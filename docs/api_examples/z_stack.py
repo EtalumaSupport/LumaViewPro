@@ -97,8 +97,10 @@ def main():
 
     print(f"\nCaptured {len(z_stack_images)} / {num_slices} slices")
 
-    # NOTE: To save each slice as a file, you would call:
-    #   scope.save_image(image, save_folder='./zstack', append=f'_Z{i:03d}', ...)
+    # NOTE: To save each slice as a file, import from modules.image_save:
+    #   from modules.image_save import save_image
+    #   save_image(scope, array=image, save_folder='./zstack',
+    #              append=f'_Z{i:03d}', ...)
     # This requires setting objective, labware, and stage offset first.
 
     # NOTE: For autofocus, you can use the built-in method:

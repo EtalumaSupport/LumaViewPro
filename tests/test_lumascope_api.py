@@ -371,7 +371,7 @@ class TestFrameValidityDuringHoming:
     The settle-check callback correctly rejects HOMING state, but only if
     the source is actually in _pending — which requires invalidate().
 
-    These tests capture scope.frame_validity.is_valid at the moment the
+    These tests capture scope.imaging.frame_validity.is_valid at the moment the
     motion driver method is executing (axis state is HOMING, motion is in
     progress). They fail before the fix and pass after.
     """
@@ -381,9 +381,9 @@ class TestFrameValidityDuringHoming:
         captured = {}
 
         def fake_zhome():
-            captured['is_valid'] = scope.frame_validity.is_valid
+            captured['is_valid'] = scope.imaging.frame_validity.is_valid
             captured['z_state'] = scope.motion.get_axis_state('Z')
-            captured['pending'] = dict(scope.frame_validity.pending_sources)
+            captured['pending'] = dict(scope.imaging.frame_validity.pending_sources)
             return True
         scope._motion_driver.zhome = fake_zhome
 
@@ -407,8 +407,8 @@ class TestFrameValidityDuringHoming:
 
         original_home = scope._motion_driver.home
         def spy_home():
-            captured['is_valid'] = scope.frame_validity.is_valid
-            captured['pending'] = dict(scope.frame_validity.pending_sources)
+            captured['is_valid'] = scope.imaging.frame_validity.is_valid
+            captured['pending'] = dict(scope.imaging.frame_validity.pending_sources)
             captured['x_state'] = scope.motion.get_axis_state('X')
             captured['z_state'] = scope.motion.get_axis_state('Z')
             return original_home()
@@ -441,8 +441,8 @@ class TestFrameValidityDuringHoming:
         captured = {}
 
         def fake_home(*args, **kwargs):
-            captured['pending'] = dict(scope.frame_validity.pending_sources)
-            captured['is_valid'] = scope.frame_validity.is_valid
+            captured['pending'] = dict(scope.imaging.frame_validity.pending_sources)
+            captured['is_valid'] = scope.imaging.frame_validity.is_valid
             return True
         scope._motion_driver.home = fake_home
 
@@ -473,9 +473,9 @@ class TestFrameValidityDuringHoming:
         captured = {}
         original_thome = scope._motion_driver.thome
         def spy_thome():
-            captured['is_valid'] = scope.frame_validity.is_valid
+            captured['is_valid'] = scope.imaging.frame_validity.is_valid
             captured['t_state'] = scope.motion.get_axis_state('T')
-            captured['pending'] = dict(scope.frame_validity.pending_sources)
+            captured['pending'] = dict(scope.imaging.frame_validity.pending_sources)
             return original_thome()
         scope._motion_driver.thome = spy_thome
 
@@ -749,7 +749,7 @@ class TestPerAxisDictsFromDriver:
 
 
 class TestRunGrabLifecycleBenchmark:
-    """CAM-1 step (0a): regression tests for ``Lumascope.run_grab_lifecycle_benchmark``.
+    """CAM-1 step (0a): regression tests for ``Lumascope.diagnostics.run_grab_lifecycle_benchmark``.
 
     The API method shipped 2026-05-04 (LVP `56f094b`) without tests. This
     class pins the contract: dict shape, num_cycles loop count, slow-cycle
@@ -767,7 +767,7 @@ class TestRunGrabLifecycleBenchmark:
 
     def test_returns_required_dict_keys(self):
         scope = self._scope_with_camera()
-        r = scope.run_grab_lifecycle_benchmark(num_cycles=3,
+        r = scope.diagnostics.run_grab_lifecycle_benchmark(num_cycles=3,
                                                 inter_cycle_delay_ms=0)
         for k in ('num_cycles', 'inter_cycle_delay_ms', 'vary_settings',
                   'slow_threshold_s', 'slow_cycle_count', 'slow_cycles',
@@ -787,7 +787,7 @@ class TestRunGrabLifecycleBenchmark:
         an error instead of crashing or silently returning empty results."""
         scope = Lumascope(simulate=True)
         scope._camera_driver = None
-        r = scope.run_grab_lifecycle_benchmark(num_cycles=3)
+        r = scope.diagnostics.run_grab_lifecycle_benchmark(num_cycles=3)
         assert r['errors'], (
             'Inactive-camera path must populate errors so the operator '
             'sees why the benchmark produced no data')
@@ -800,7 +800,7 @@ class TestRunGrabLifecycleBenchmark:
         """slow_threshold_s=0.0 forces every cycle to count as slow,
         verifying the slow-cycle accounting + 50-entry cap."""
         scope = self._scope_with_camera()
-        r = scope.run_grab_lifecycle_benchmark(num_cycles=4,
+        r = scope.diagnostics.run_grab_lifecycle_benchmark(num_cycles=4,
                                                 inter_cycle_delay_ms=0,
                                                 slow_threshold_s=0.0)
         assert r['slow_cycle_count'] == 4
@@ -814,14 +814,14 @@ class TestRunGrabLifecycleBenchmark:
         and 4.0 dB (odd cycles)."""
         scope = self._scope_with_camera()
         gain_calls = []
-        original_set_gain = scope.set_gain
+        original_set_gain = scope.imaging.set_gain
 
         def _track(gain):
             gain_calls.append(gain)
             return original_set_gain(gain)
-        scope.set_gain = _track
+        scope.imaging.set_gain = _track
 
-        scope.run_grab_lifecycle_benchmark(num_cycles=4,
+        scope.diagnostics.run_grab_lifecycle_benchmark(num_cycles=4,
                                             inter_cycle_delay_ms=0,
                                             vary_settings=True)
         # 4 in-loop calls + restore at end (if vary_settings AND original_gain)
@@ -837,7 +837,7 @@ class TestRunGrabLifecycleBenchmark:
         import json
         import os
         scope = self._scope_with_camera()
-        r = scope.run_grab_lifecycle_benchmark(num_cycles=2,
+        r = scope.diagnostics.run_grab_lifecycle_benchmark(num_cycles=2,
                                                 inter_cycle_delay_ms=0)
         assert r['written_to'] is not None, \
             f'JSON persistence path empty; errors: {r.get("errors")}'
@@ -1007,15 +1007,17 @@ class TestSetExposureTimeValueWarningSuppression:
 
     def _patch_logger(self, monkeypatch):
         from unittest.mock import MagicMock
-        import modules.lumascope_api._lumascope as lapi
+        # Phase 4d relocated set_exposure_time's body to imaging.py; the
+        # warning is now emitted via imaging.py's `logger` import.
+        import modules.lumascope_api.imaging as imaging_mod
         mock = MagicMock()
-        monkeypatch.setattr(lapi, 'logger', mock)
+        monkeypatch.setattr(imaging_mod, 'logger', mock)
         return mock
 
     def test_warning_fires_by_default_at_sub_0_005_ms(self, monkeypatch):
         mock_logger = self._patch_logger(monkeypatch)
         scope = Lumascope(simulate=True)
-        scope.set_exposure_time(0.003)
+        scope.imaging.set_exposure_time(0.003)
         # Find the warning among any other logger calls
         warn_msgs = [str(c) for c in mock_logger.warning.call_args_list]
         assert any('set_exposure_time(0.003ms)' in m and 'below' in m
@@ -1025,8 +1027,8 @@ class TestSetExposureTimeValueWarningSuppression:
     def test_warning_suppressed_inside_context_manager(self, monkeypatch):
         mock_logger = self._patch_logger(monkeypatch)
         scope = Lumascope(simulate=True)
-        with scope.suppress_value_warnings():
-            scope.set_exposure_time(0.003)
+        with scope.imaging.suppress_value_warnings():
+            scope.imaging.set_exposure_time(0.003)
         warn_msgs = [str(c) for c in mock_logger.warning.call_args_list]
         assert not any('set_exposure_time(0.003ms)' in m
                        for m in warn_msgs), (
@@ -1034,36 +1036,36 @@ class TestSetExposureTimeValueWarningSuppression:
 
     def test_flag_restored_after_normal_exit(self):
         scope = Lumascope(simulate=True)
-        assert scope._suppress_value_warnings is False
-        with scope.suppress_value_warnings():
-            assert scope._suppress_value_warnings is True
-        assert scope._suppress_value_warnings is False
+        assert scope.imaging._suppress_value_warnings is False
+        with scope.imaging.suppress_value_warnings():
+            assert scope.imaging._suppress_value_warnings is True
+        assert scope.imaging._suppress_value_warnings is False
 
     def test_flag_restored_after_exception_in_context(self):
         scope = Lumascope(simulate=True)
-        assert scope._suppress_value_warnings is False
+        assert scope.imaging._suppress_value_warnings is False
         with pytest.raises(RuntimeError, match='boom'):
-            with scope.suppress_value_warnings():
-                assert scope._suppress_value_warnings is True
+            with scope.imaging.suppress_value_warnings():
+                assert scope.imaging._suppress_value_warnings is True
                 raise RuntimeError('boom')
-        assert scope._suppress_value_warnings is False
+        assert scope.imaging._suppress_value_warnings is False
 
     def test_nested_context_managers_restore_to_outer_value(self):
         """Nested `with` blocks restore to prior, not unconditionally False --
         an outer `with` followed by an inner-then-exit must leave True."""
         scope = Lumascope(simulate=True)
-        with scope.suppress_value_warnings():
-            with scope.suppress_value_warnings():
-                assert scope._suppress_value_warnings is True
+        with scope.imaging.suppress_value_warnings():
+            with scope.imaging.suppress_value_warnings():
+                assert scope.imaging._suppress_value_warnings is True
             # After inner exit, outer is still suppressing
-            assert scope._suppress_value_warnings is True
-        assert scope._suppress_value_warnings is False
+            assert scope.imaging._suppress_value_warnings is True
+        assert scope.imaging._suppress_value_warnings is False
 
     def test_warning_does_not_fire_at_or_above_threshold(self, monkeypatch):
         mock_logger = self._patch_logger(monkeypatch)
         scope = Lumascope(simulate=True)
-        scope.set_exposure_time(0.5)
-        scope.set_exposure_time(20.0)
+        scope.imaging.set_exposure_time(0.5)
+        scope.imaging.set_exposure_time(20.0)
         warn_msgs = [str(c) for c in mock_logger.warning.call_args_list]
         assert not any('very low' in m for m in warn_msgs), (
             f'no sub-0.1ms warning expected, got: {warn_msgs}')

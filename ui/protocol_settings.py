@@ -1,6 +1,5 @@
 # Copyright Etaluma, Inc.
 import copy
-import json
 import logging
 import os
 import pathlib
@@ -82,15 +81,10 @@ class ProtocolSettings(FloatLayout):
         ctx = _app_ctx.ctx
         source_root = get_source_root(ctx.source_path if ctx is not None else None)
 
-        try:
-            with open(source_root / 'data' / 'labware.json', "r") as read_file:
-                self.labware = json.load(read_file)
-        except Exception:
-            logger.exception("[LVP Main  ] Error reading labware definition file 'data/labware.json'")
-            if not (source_root / 'data').is_dir():
-                raise FileNotFoundError("Couldn't find 'data' directory.")
-            else:
-                raise
+        # Labware definitions: route through the canonical WellPlateLoader
+        # owned by ScopeSession; avoids a second parse of labware.json and
+        # ensures any future validation rule applies uniformly.
+        self.labware = ctx.wellplate_loader.labware
 
         self.curr_step = -1
 

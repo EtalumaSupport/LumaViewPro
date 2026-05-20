@@ -88,10 +88,12 @@ def main():
     scope.disconnect()
     print("Scope disconnected")
 
-    # NOTE: To save images, you would use scope.save_image() or
-    # scope.save_live_image(). These require setting an objective,
-    # labware, and stage offset for metadata generation. See the
-    # protocol_execution.py example for a more complete workflow.
+    # NOTE: To save images, import from modules.image_save:
+    #     from modules.image_save import save_image, save_live_image
+    #     save_image(scope, array=image, save_folder='./out', ...)
+    # These require setting an objective, labware, and stage offset
+    # for metadata generation. See the protocol_execution.py example
+    # for a more complete workflow.
 
 
 if __name__ == '__main__':

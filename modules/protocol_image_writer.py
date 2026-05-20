@@ -20,6 +20,7 @@ import numpy as np
 from lvp_logger import logger
 
 import modules.common_utils as common_utils
+from modules.image_save import save_image
 from modules.protocol import Protocol
 from modules.video_capture import VideoCaptureSession, write_video
 from modules.sequential_io_executor import IOTask, PROTOCOL_QUEUE_FULL
@@ -190,8 +191,8 @@ class ProtocolImageWriter:
 
             # #610 diagnostic: trace camera settings decision at each capture
             _ag = step['Auto_Gain']
-            _curr_gain = self._scope.get_gain()
-            _curr_exp = self._scope.get_exposure_time()
+            _curr_gain = self._scope.imaging.get_gain()
+            _curr_exp = self._scope.imaging.get_exposure_time()
             logger.debug(
                 f"[CAPTURE DIAG] step={step.get('Name','?')} color={step['Color']} "
                 f"Auto_Gain={_ag!r} (type={type(_ag).__name__}) "
@@ -201,7 +202,7 @@ class ProtocolImageWriter:
 
             if not step['Auto_Gain']:
                 logger.debug(f"[CAPTURE DIAG] Applying step camera settings: gain={step['Gain']}, exp={step['Exposure']}")
-                # STALL-1 fix: removed the `with self._scope.update_camera_config():`
+                # STALL-1 fix: removed the `with self._scope.imaging.update_camera_config():`
                 # wrapper that was here. update_camera_config() does StopGrabbing +
                 # StartGrabbing, which Pylon SDK only requires for buffer-geometry
                 # changes (Width/Height/PixelFormat/Binning/Offset) — NOT for Gain
@@ -220,8 +221,8 @@ class ProtocolImageWriter:
                 # SDK/firmware combo — revert this change and add a
                 # `requires_buffer_realloc=True` audit. Per Basler convention
                 # both should be live-changeable.
-                self._scope.set_gain(step['Gain'])
-                self._scope.set_exposure_time(step['Exposure'])
+                self._scope.imaging.set_gain(step['Gain'])
+                self._scope.imaging.set_exposure_time(step['Exposure'])
             else:
                 logger.warning(f"[CAPTURE DIAG] SKIPPING camera settings -- Auto_Gain is truthy: {_ag!r}")
 
@@ -340,7 +341,7 @@ class ProtocolImageWriter:
 
                 else:
                     # Frame validity drains stale frames, then grabs a valid one
-                    captured_image = self._scope.capture_and_wait(
+                    captured_image = self._scope.imaging.capture_and_wait(
                         force_to_8bit=not use_full_pixel_depth,
                         all_ones_check=True,
                         timeout=datetime.timedelta(seconds=1.0),
@@ -495,12 +496,11 @@ class ProtocolImageWriter:
         captured_frames = 0
         duration_sec = 0.0
 
-        # M8: Check disk space before writing — long protocols can fill disk.
+        # M8: Check disk space before writing -- long protocols can fill disk.
         if save_folder is not None:
             try:
-                import shutil
-                free_mb = shutil.disk_usage(str(save_folder)).free / (1024 * 1024)
-                if free_mb < 500:  # 500 MB floor
+                ok, free_mb = common_utils.check_disk_space_ok(save_folder, 500)
+                if not ok:
                     from modules.notification_center import notifications
                     notifications.critical("FileIO", "Disk Space Critical",
                         f"Only {free_mb:.0f} MB free. Aborting protocol to prevent data loss.")
@@ -554,7 +554,8 @@ class ProtocolImageWriter:
                     false_color_buf, rgb_buf = self._get_false_color_bufs(captured_image)
                 else:
                     false_color_buf, rgb_buf = None, None
-                capture_result = self._scope.save_image(
+                capture_result = save_image(
+                    self._scope,
                     array=captured_image,
                     save_folder=save_folder,
                     file_root=None,

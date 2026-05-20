@@ -19,6 +19,7 @@ import modules.app_context as _app_ctx
 import modules.common_utils as common_utils
 from modules import gui_logger
 from modules.composite_builder import build_composite
+from modules.image_save import save_image, save_live_image
 import modules.image_utils as image_utils
 from modules.sequential_io_executor import IOTask, PRIORITY_MED
 from ui.ui_helpers import (
@@ -34,30 +35,6 @@ class CompositeCapture(FloatLayout):
 
     def __init__(self, **kwargs):
         super(CompositeCapture,self).__init__(**kwargs)
-
-    # Gets the current well label (ex. A1, C2, ...)
-    def get_well_label(self):
-        from modules.config_ui_getters import get_selected_labware
-
-        ctx = _app_ctx.ctx
-        _, labware = get_selected_labware()
-
-        # Get target position
-        try:
-            x_target = ctx.scope.motion.get_target_position('X')
-            y_target = ctx.scope.motion.get_target_position('Y')
-        except Exception:
-            logger.exception('[LVP Main  ] Error talking to Motor board.')
-            raise
-
-        x_target, y_target = ctx.coordinate_transformer.stage_to_plate(
-            labware=labware,
-            stage_offset=ctx.settings['stage_offset'],
-            sx=x_target,
-            sy=y_target
-        )
-
-        return labware.get_well_label(x=x_target, y=y_target)
 
 
     def live_capture(self):
@@ -82,7 +59,7 @@ class CompositeCapture(FloatLayout):
 
         file_root = 'live_'
         color = 'BF'
-        well_label = self.get_well_label()
+        well_label = ctx.scope.get_well_label()
 
         use_full_pixel_depth = ctx.scope_display.use_full_pixel_depth
         force_to_8bit_pixel_depth = not use_full_pixel_depth
@@ -116,7 +93,8 @@ class CompositeCapture(FloatLayout):
         sum_count=layer_configs[layer]['sum']
 
         if ctx.engineering_mode is False:
-            return ctx.scope.save_live_image(
+            return save_live_image(
+                ctx.scope,
                 save_folder,
                 file_root,
                 append,
@@ -134,7 +112,8 @@ class CompositeCapture(FloatLayout):
             use_crosshairs = ctx.scope_display.use_crosshairs
 
             if not use_bullseye and not use_crosshairs:
-                return ctx.scope.save_live_image(
+                return save_live_image(
+                    ctx.scope,
                     save_folder,
                     file_root,
                     append,
@@ -147,7 +126,7 @@ class CompositeCapture(FloatLayout):
                     turn_off_all_leds_after=False,
                 )
 
-            image_orig = ctx.scope.capture_and_wait(force_to_8bit=force_to_8bit_pixel_depth)
+            image_orig = ctx.scope.imaging.capture_and_wait(force_to_8bit=force_to_8bit_pixel_depth)
             if image_orig is False:
                 return
 
@@ -163,7 +142,8 @@ class CompositeCapture(FloatLayout):
                 image = image_orig
 
             # Original image may be in 8 or 12-bit
-            ctx.scope.save_image(
+            save_image(
+                ctx.scope,
                 array=image_orig,
                 save_folder=save_folder,
                 file_root=file_root,
@@ -184,7 +164,8 @@ class CompositeCapture(FloatLayout):
                 crosshairs_image = bullseye_image
 
             # Overlay image is in 8-bits
-            ctx.scope.save_image(
+            save_image(
+                ctx.scope,
                 array=crosshairs_image,
                 save_folder=save_folder,
                 file_root=file_root,
@@ -236,7 +217,7 @@ class CompositeCapture(FloatLayout):
 
         live_histo_off()
 
-        if not ctx.scope.camera_active:
+        if not ctx.scope.imaging.camera_active:
             return
 
         scope_display = self.ids['viewer_id'].ids['scope_display_id']
@@ -346,9 +327,9 @@ class CompositeCapture(FloatLayout):
                     )
 
                 gain = layer_settings[trans_layer]['gain']
-                ctx.scope.set_gain_sync(gain)
+                ctx.scope.imaging.set_gain_sync(gain)
                 exposure = layer_settings[trans_layer]['exp']
-                ctx.scope.set_exposure_sync(exposure)
+                ctx.scope.imaging.set_exposure_sync(exposure)
                 illumination = layer_settings[trans_layer]['ill']
 
                 ctx.scope.illumination.led_on_sync(
@@ -356,7 +337,7 @@ class CompositeCapture(FloatLayout):
                 )
 
                 transmitted_image = np.array(
-                    ctx.scope.capture_and_wait_sync(
+                    ctx.scope.imaging.capture_and_wait_sync(
                         force_to_8bit=not use_full_pixel_depth,
                     ),
                     dtype=dtype,
@@ -381,9 +362,9 @@ class CompositeCapture(FloatLayout):
                     )
 
                 gain = layer_settings[layer]['gain']
-                ctx.scope.set_gain_sync(gain)
+                ctx.scope.imaging.set_gain_sync(gain)
                 exposure = layer_settings[layer]['exp']
-                ctx.scope.set_exposure_sync(exposure)
+                ctx.scope.imaging.set_exposure_sync(exposure)
                 sum_count = layer_settings[layer]['sum']
                 # Stage B1: see comment above; update_scopedisplay retired.
                 sum_iteration_callback = None
@@ -399,7 +380,7 @@ class CompositeCapture(FloatLayout):
                         ctx.scope.illumination.color2ch(layer), illumination,
                     )
 
-                img_gray = ctx.scope.capture_and_wait_sync(
+                img_gray = ctx.scope.imaging.capture_and_wait_sync(
                     force_to_8bit=not use_full_pixel_depth,
                     sum_count=sum_count,
                     sum_delay_s=exposure/1000,
@@ -436,14 +417,15 @@ class CompositeCapture(FloatLayout):
         )
 
         # File saving can run on this thread (no UI dependency)
-        append = f'{self.get_well_label()}'
+        append = f'{ctx.scope.get_well_label()}'
 
         save_folder = pathlib.Path(live_folder) / "Manual"
         save_folder.mkdir(parents=True, exist_ok=True)
         set_last_save_folder(dir=save_folder)
 
         if acquired_channel_count != 1 and acquired_channel_count != 0:
-            ctx.scope.save_image(
+            save_image(
+                ctx.scope,
                 array=img,
                 save_folder=save_folder,
                 file_root='composite_',
@@ -453,7 +435,8 @@ class CompositeCapture(FloatLayout):
                 output_format=image_output_format['live']
             )
         elif acquired_channel_count != 0:
-            ctx.scope.save_image(
+            save_image(
+                ctx.scope,
                 array=img,
                 save_folder=save_folder,
                 file_root=f"{most_recent_aq_channel}_Image_",

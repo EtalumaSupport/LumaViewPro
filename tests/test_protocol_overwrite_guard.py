@@ -29,9 +29,13 @@ TILING_CONFIGS = REPO_ROOT / "data" / "tiling.json"
 # ---------------------------------------------------------------------------
 
 def test_lumascope_api_supports_if_collision_mode():
-    src = (REPO_ROOT / "modules" / "lumascope_api" / "_lumascope.py").read_text()
+    # Phase 6c (2026-05-19) relocated generate_image_save_path body
+    # from Lumascope to modules.image_save; the if_collision branch
+    # lives there now. Path retarget per Rule 48 (c); semantic intent
+    # ("generate_image_save_path supports if_collision mode") preserved.
+    src = (REPO_ROOT / "modules" / "image_save.py").read_text()
     assert 'tail_id_mode == "if_collision"' in src, (
-        "lumascope_api.generate_image_save_path must support the "
+        "image_save.generate_image_save_path must support the "
         '"if_collision" tail_id_mode for write-time defense against '
         "duplicate filenames. (#636)"
     )

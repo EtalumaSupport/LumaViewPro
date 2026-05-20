@@ -80,7 +80,7 @@ class MetricsLogger:
 
         Args:
             scope: ``Lumascope`` API instance -- used by the camera-temp
-                tick (delegates to ``scope.log_camera_temps``) and any
+                tick (delegates to ``scope.imaging.log_camera_temps``) and any
                 future tick that needs hardware access.
             executor_bundle: ``modules.executor_registry.ExecutorBundle``
                 -- the executor watchdog reads ``.snapshot()`` and prunes
@@ -308,7 +308,7 @@ class MetricsLogger:
                 ``Lumascope.start_camera_temp_logging`` so the API still
                 owns the camera-temp event handle (LVP-A-2).
             start_camera_temp: If None (default), starts the camera-temp
-                logger only when ``scope.camera_is_connected()``. Pass
+                logger only when ``scope.imaging.camera_is_connected()``. Pass
                 False to skip even when connected (rare; mostly tests).
         """
         # Normalize scheduler argument: Scheduler instance, callable
@@ -343,7 +343,7 @@ class MetricsLogger:
 
         if start_camera_temp is False:
             return
-        if start_camera_temp is None and not self._scope.camera_is_connected():
+        if start_camera_temp is None and not self._scope.imaging.camera_is_connected():
             return
 
         # Camera-temp scheduling stays inside Lumascope (LVP-A-2) so the
@@ -351,7 +351,7 @@ class MetricsLogger:
         # unschedules cleanly when the camera disconnects mid-run.
         # Hand it adapter callables matching the Scheduler so Lumascope
         # doesn't need to learn about Scheduler.
-        self._scope.start_camera_temp_logging(
+        self._scope.imaging.start_camera_temp_logging(
             self._scheduler.schedule_interval,
             self._scheduler.unschedule,
             interval_s=camera_temp_interval_s)
@@ -373,7 +373,7 @@ class MetricsLogger:
                     f'[MetricsLogger] unschedule {name} failed: {e}')
         self._handles.clear()
         try:
-            self._scope.stop_camera_temp_logging(self._scheduler.unschedule)
+            self._scope.imaging.stop_camera_temp_logging(self._scheduler.unschedule)
         except Exception as e:
             logger.warning(
                 f'[MetricsLogger] stop_camera_temp_logging failed: {e}')

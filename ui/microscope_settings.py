@@ -360,7 +360,7 @@ class MicroscopeSettings(BoxLayout):
             # update GUI values from JSON data:
 
             # Scope auto-detection
-            detected_model = lumaview.scope.get_microscope_model()
+            detected_model = lumaview.scope.diagnostics.get_microscope_model()
             if detected_model in self.scopes.keys():
                 logger.info(f'[LVP Main  ] Auto-detected scope as {detected_model}')
                 self.ids['scope_spinner'].text = detected_model
@@ -394,7 +394,7 @@ class MicroscopeSettings(BoxLayout):
 
             # camera_max_exposure returns None when no camera is connected;
             # fall back to the default slider upper bound. See #616.
-            max_exposure = lumaview.scope.camera_max_exposure or DEFAULT_MAX_EXPOSURE_MS
+            max_exposure = lumaview.scope.imaging.camera_max_exposure or DEFAULT_MAX_EXPOSURE_MS
 
             ctx.max_exposure = max_exposure
 
@@ -403,7 +403,7 @@ class MicroscopeSettings(BoxLayout):
             # which let users overdrive LS620 past its usable range (the
             # image went black at high gain). Pulling the cap from the
             # camera profile keeps the slider honest per-camera.
-            max_gain = lumaview.scope.camera_max_gain or DEFAULT_MAX_GAIN_DB
+            max_gain = lumaview.scope.imaging.camera_max_gain or DEFAULT_MAX_GAIN_DB
             ctx.max_gain = max_gain
 
             if not settings['video_as_frames']:
@@ -438,7 +438,7 @@ class MicroscopeSettings(BoxLayout):
             self.ids['frame_width_id'].text = str(settings['frame']['width'] * binning_size)
             self.ids['frame_height_id'].text = str(settings['frame']['height'] * binning_size)
 
-            # Pixel Binning — UI recalculation only, scope.set_binning_size()
+            # Pixel Binning — UI recalculation only, scope.imaging.set_binning_size()
             # handled by scope.initialize() below
             self.ids['binning_spinner'].text = binning_size_str
             self.select_binning_size()
@@ -496,7 +496,7 @@ class MicroscopeSettings(BoxLayout):
                 self.ids['enable_scale_bar_btn'].state = 'normal'
 
             # Single hardware initialization call — replaces scattered
-            # scope.set_frame_size / set_binning_size / set_stage_offset /
+            # scope.imaging.set_frame_size / set_binning_size / set_stage_offset /
             # set_turret_config / set_objective / set_scale_bar / set_acceleration_limit
             labware_id, labware = get_selected_labware()
             scope_config = self.scopes.get(settings.get('microscope'))
@@ -731,15 +731,15 @@ class MicroscopeSettings(BoxLayout):
         # Route through camera executor to prevent race with live view grab loop
         def _set_pixel_format():
             if use_full_pixel_depth:
-                if not ctx.lumaview.scope.set_pixel_format('Mono12'):
-                    formats = ctx.lumaview.scope.get_supported_pixel_formats()
+                if not ctx.lumaview.scope.imaging.set_pixel_format('Mono12'):
+                    formats = ctx.lumaview.scope.imaging.get_supported_pixel_formats()
                     if formats:
-                        ctx.lumaview.scope.set_pixel_format(formats[0])
+                        ctx.lumaview.scope.imaging.set_pixel_format(formats[0])
             else:
-                if not ctx.lumaview.scope.set_pixel_format('Mono8'):
-                    formats = ctx.lumaview.scope.get_supported_pixel_formats()
+                if not ctx.lumaview.scope.imaging.set_pixel_format('Mono8'):
+                    formats = ctx.lumaview.scope.imaging.get_supported_pixel_formats()
                     if formats:
-                        ctx.lumaview.scope.set_pixel_format(formats[0])
+                        ctx.lumaview.scope.imaging.set_pixel_format(formats[0])
         ctx.camera_executor.put(IOTask(action=_set_pixel_format))
 
         settings['use_full_pixel_depth'] = use_full_pixel_depth
@@ -824,7 +824,7 @@ class MicroscopeSettings(BoxLayout):
             enabled = False
         gui_logger.toggle('SCALE_BAR', enabled)
 
-        ctx.lumaview.scope.set_scale_bar(enabled=enabled)
+        ctx.lumaview.scope.imaging.set_scale_bar(enabled=enabled)
         settings['scale_bar']['enabled'] = enabled
 
     def update_crosshairs_state(self):
@@ -925,7 +925,7 @@ class MicroscopeSettings(BoxLayout):
             scope = ctx.lumaview.scope if ctx.lumaview else None
             had_hardware = bool(
                 scope and (
-                    scope.camera_is_connected()
+                    scope.imaging.camera_is_connected()
                     or scope.motor_connected
                     or scope.led_connected
                 )
@@ -957,7 +957,7 @@ class MicroscopeSettings(BoxLayout):
         spinner = self.ids['binning_spinner']
         # Use Lumascope API to get available binning sizes
         try:
-            sizes = _app_ctx.ctx.lumaview.scope.get_available_binning_sizes()
+            sizes = _app_ctx.ctx.lumaview.scope.imaging.get_available_binning_sizes()
         except Exception:
             logger.warning('[LVP Main  ] Could not read camera binning sizes, using defaults.')
             sizes = [1, 2, 4]
@@ -969,7 +969,7 @@ class MicroscopeSettings(BoxLayout):
         settings = ctx.settings
 
         lumaview = ctx.lumaview
-        orig_binning_size = lumaview.scope.get_binning_size()
+        orig_binning_size = lumaview.scope.imaging.get_binning_size()
         orig_frame_size = get_current_frame_dimensions()
 
         new_binning_size_str = self.ids['binning_spinner'].text
@@ -990,7 +990,7 @@ class MicroscopeSettings(BoxLayout):
 
         # Route through camera executor to prevent race with live view grab loop
         ctx.camera_executor.put(IOTask(
-            action=lumaview.scope.set_binning_size,
+            action=lumaview.scope.imaging.set_binning_size,
             kwargs={'size': new_binning_size}
         ))
         self.frame_size()
@@ -1169,7 +1169,7 @@ class MicroscopeSettings(BoxLayout):
         settings = ctx.settings
         objective_helper = ctx.objective_helper
 
-        if not lumaview.scope.camera_is_connected():
+        if not lumaview.scope.imaging.camera_is_connected():
             return
 
         try:
@@ -1180,15 +1180,15 @@ class MicroscopeSettings(BoxLayout):
                 'height': settings['frame']['height'],
             }
 
-        width = int(min(current_frame_size['width'], lumaview.scope.get_max_width()))
-        height = int(min(current_frame_size['height'], lumaview.scope.get_max_height()))
+        width = int(min(current_frame_size['width'], lumaview.scope.imaging.get_max_width()))
+        height = int(min(current_frame_size['height'], lumaview.scope.imaging.get_max_height()))
 
         try:
-            min_frame_size = lumaview.scope.camera_min_frame_size
+            min_frame_size = lumaview.scope.imaging.camera_min_frame_size
             width = max(width, min_frame_size['width'])
             height = max(height, min_frame_size['height'])
 
-            max_frame_size = lumaview.scope.camera_max_frame_size
+            max_frame_size = lumaview.scope.imaging.camera_max_frame_size
             width = min(width, max_frame_size['width'])
             height = min(height, max_frame_size['height'])
         except Exception:
@@ -1222,7 +1222,7 @@ class MicroscopeSettings(BoxLayout):
         if self._frame_size_applier.submit((width, height)):
             ctx.camera_executor.put(IOTask(
                 action=self._frame_size_applier.apply_pending,
-                args=(lambda wh: scope.set_frame_size(*wh),),
+                args=(lambda wh: scope.imaging.set_frame_size(*wh),),
             ))
 
     def generate_support_report(self):
