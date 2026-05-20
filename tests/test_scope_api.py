@@ -34,10 +34,10 @@ def _make_layer_settings(**overrides):
         'video_config': {'enabled': False},
         'autofocus': False,
         'false_color': [1, 1, 1, 1],
-        'ill': 50.123456,
-        'gain': 1.23456,
+        'ill_ma': 50.123456,
+        'gain_db': 1.23456,
         'auto_gain': False,
-        'exp': 10.56789,
+        'exp_ms': 10.56789,
         'sum': 1,
         'focus': 0.0,
     }

@@ -99,7 +99,7 @@ class LayerControl(BoxLayout):
         Args:
             text_id: Kivy widget id for the text input (e.g., 'gain_text')
             slider_id: Kivy widget id for the slider (e.g., 'gain_slider')
-            settings_key: Key in settings[self.layer] (e.g., 'gain')
+            settings_key: Key in settings[self.layer] (e.g., 'gain_db')
             cast: Type to cast the text value (float or int)
             settings_path: Dot-separated sub-path for nested settings
                           (e.g., 'video_config.duration' or 'stim_config.frequency')
@@ -235,7 +235,7 @@ class LayerControl(BoxLayout):
                 illumination, type(illumination).__name__,
             )
         gui_logger.slider(f'ILLUMINATION_{self.layer}', illumination)
-        settings[self.layer]['ill'] = illumination
+        settings[self.layer]['ill_ma'] = illumination
 
         # Update text only if changed to reduce ScrollView recalculations
         new_text = str(illumination)
@@ -259,7 +259,7 @@ class LayerControl(BoxLayout):
             # Show current valid value so user knows input was rejected (M21)
             self._initializing = True
             try:
-                self.ids['ill_text'].text = str(settings[self.layer]['ill'])
+                self.ids['ill_text'].text = str(settings[self.layer]['ill_ma'])
             finally:
                 self._initializing = False
             return
@@ -276,7 +276,7 @@ class LayerControl(BoxLayout):
                 self.layer, self.ids['ill_text'].text, ill_val,
                 illumination, type(illumination).__name__,
             )
-        settings[self.layer]['ill'] = illumination
+        settings[self.layer]['ill_ma'] = illumination
 
         # Wrap programmatic widget writes so on_value does not re-enter
         # ill_slider and re-fire apply_settings (#617).
@@ -399,8 +399,8 @@ class LayerControl(BoxLayout):
                     exp_min = max(exp_min, TRANSMITTED_MIN_EXPOSURE_MS)
                 exp = float(np.clip(exp, exp_min, exp_max))
 
-                settings[self.layer]['gain'] = gain
-                settings[self.layer]['exp'] = exp
+                settings[self.layer]['gain_db'] = gain
+                settings[self.layer]['exp_ms'] = exp
                 # Update sliders/text to show the auto-adjusted values
                 self.ids['gain_slider'].value = gain
                 self.ids['gain_text'].text = str(round(gain, 1))
@@ -425,7 +425,7 @@ class LayerControl(BoxLayout):
         logger.info('[LVP Main  ] LayerControl.gain_slider()')
         gain = round(self.ids['gain_slider'].value, 1)  # Round to 1 decimal (step=0.1)
         gui_logger.slider(f'GAIN_{self.layer}', gain)
-        settings[self.layer]['gain'] = gain
+        settings[self.layer]['gain_db'] = gain
         # Update text only if changed to reduce ScrollView recalculations
         new_text = str(gain)
         if self.ids['gain_text'].text != new_text:
@@ -436,7 +436,7 @@ class LayerControl(BoxLayout):
 
     def gain_text(self):
         logger.info('[LVP Main  ] LayerControl.gain_text()')
-        if self._validate_and_apply_text_input('gain_text', 'gain_slider', 'gain'):
+        if self._validate_and_apply_text_input('gain_text', 'gain_slider', 'gain_db'):
             self.apply_gain_slider()
 
     def composite_threshold_slider(self):
@@ -465,7 +465,7 @@ class LayerControl(BoxLayout):
         exposure = round(self.ids['exp_slider'].value, 2)  # Round to 2 decimals (step=0.01)
         gui_logger.slider(f'EXPOSURE_{self.layer}', exposure)
         # exposure = 10 ** self.ids['exp_slider'].value # slider is log_10(ms)
-        settings[self.layer]['exp'] = exposure        # exposure in ms
+        settings[self.layer]['exp_ms'] = exposure        # exposure in ms
         # Update text only if changed to reduce ScrollView recalculations
         new_text = str(exposure)
         if self.ids['exp_text'].text != new_text:
@@ -490,14 +490,14 @@ class LayerControl(BoxLayout):
             # Show current valid value so user knows input was rejected (M21)
             self._initializing = True
             try:
-                self.ids['exp_text'].text = str(settings[self.layer]['exp'])
+                self.ids['exp_text'].text = str(settings[self.layer]['exp_ms'])
             finally:
                 self._initializing = False
             return
 
         exposure = float(np.clip(exp_val, exp_min, exp_max))
 
-        settings[self.layer]['exp'] = exposure
+        settings[self.layer]['exp_ms'] = exposure
 
         # Wrap programmatic widget writes so on_value does not re-enter
         # exp_slider and re-fire apply_exp_slider (#617).
@@ -748,7 +748,7 @@ class LayerControl(BoxLayout):
         camera_executor = _app_ctx.ctx.camera_executor
         enabled = True if self.ids['enable_led_btn'].state == 'down' else False
         gui_logger.toggle(f'LED_{self.layer}', enabled)
-        illumination = settings[self.layer]['ill']
+        illumination = settings[self.layer]['ill_ma']
 
         if apply_settings:
             self.apply_settings(update_led=False)
@@ -943,7 +943,7 @@ class LayerControl(BoxLayout):
                         ctx.scope.illumination.leds_off_async()
                         # Re-enable this layer's LED (leds_off turned it off too)
                         ctx.scope.illumination.led_on_async(
-                            self.layer, settings[self.layer]['ill'],
+                            self.layer, settings[self.layer]['ill_ma'],
                         )
                 # Update button states (visual only — hardware already handled)
                 LayerControl._suppressing_led_log = True
@@ -1002,8 +1002,8 @@ class LayerControl(BoxLayout):
         # update exposure to currently selected settings
         # -----------------------------------------------------
 
-        exposure = settings[self.layer]['exp']
-        gain = settings[self.layer]['gain']
+        exposure = settings[self.layer]['exp_ms']
+        gain = settings[self.layer]['gain_db']
 
         if not protocol_running_global.is_set():
             auto_gain_enabled = settings[self.layer]['auto_gain']

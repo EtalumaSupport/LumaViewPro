@@ -406,8 +406,8 @@ class LumaViewProApp(TooltipMixin, App):
                     for layer in common_utils.get_layers():
                         ls = settings.get(layer, {})
                         logger.info(
-                            f'[INIT      ] {layer:6s}: gain={ls.get("gain", "?"):>6}, '
-                            f'exp={ls.get("exp", "?"):>8}ms, ill={ls.get("ill", "?"):>6}mA, '
+                            f'[INIT      ] {layer:6s}: gain={ls.get("gain_db", "?"):>6}, '
+                            f'exp={ls.get("exp_ms", "?"):>8}ms, ill={ls.get("ill_ma", "?"):>6}mA, '
                             f'af={ls.get("autofocus", "?")}, acquire={ls.get("acquire", "?")}'
                         )
                 except Exception as e:  # grain: ignore NAKED_EXCEPT

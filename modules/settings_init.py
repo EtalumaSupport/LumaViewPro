@@ -44,9 +44,9 @@ def _validate_settings(settings: dict, filepath: str, logger) -> None:
     # Validate layer settings have expected structure
     from modules.common_utils import get_layers
     _REQUIRED_LAYER_FIELDS = {
-        'ill': (int, float),
-        'gain': (int, float),
-        'exp': (int, float),
+        'ill_ma': (int, float),
+        'gain_db': (int, float),
+        'exp_ms': (int, float),
         'acquire': (str, type(None)),
         'autofocus': bool,
         'false_color': (bool, list),

@@ -32,11 +32,11 @@
         "focus": 4950.0,
         "autofocus": false,
         "false_color": false,
-        "ill": 5.0,
+        "ill_ma": 5.0,
         "sum": 1,
-        "gain": 1.0,
+        "gain_db": 1.0,
         "auto_gain": false,
-        "exp": 2.0,
+        "exp_ms": 2.0,
         "acquire": null,
         "video_config": {
             "duration": 5
@@ -47,11 +47,11 @@
         "focus": 4950.0,
         "autofocus": false,
         "false_color": false,
-        "ill": 50.0,
+        "ill_ma": 50.0,
         "sum": 1,
-        "gain": 1.0,
+        "gain_db": 1.0,
         "auto_gain": false,
-        "exp": 5.0,
+        "exp_ms": 5.0,
         "acquire": null,
         "video_config": {
             "duration": 5
@@ -62,11 +62,11 @@
         "focus": 4950.0,
         "autofocus": false,
         "false_color": false,
-        "ill": 100.0,
+        "ill_ma": 100.0,
         "sum": 1,
-        "gain": 1.0,
+        "gain_db": 1.0,
         "auto_gain": false,
-        "exp": 30.0,
+        "exp_ms": 30.0,
         "acquire": null,
         "video_config": {
             "duration": 5
@@ -77,11 +77,11 @@
         "focus": 4950.0,
         "autofocus": false,
         "false_color": true,
-        "ill": 250.0,
+        "ill_ma": 250.0,
         "sum": 1,
-        "gain": 10.0,
+        "gain_db": 10.0,
         "auto_gain": false,
-        "exp": 100.0,
+        "exp_ms": 100.0,
         "acquire": null,
         "video_config": {
             "duration": 5
@@ -100,11 +100,11 @@
         "focus": 4950.0,
         "autofocus": false,
         "false_color": true,
-        "ill": 250.0,
+        "ill_ma": 250.0,
         "sum": 1,
-        "gain": 20.0,
+        "gain_db": 20.0,
         "auto_gain": false,
-        "exp": 100.0,
+        "exp_ms": 100.0,
         "acquire": null,
         "video_config": {
             "duration": 5
@@ -123,11 +123,11 @@
         "focus": 4950.0,
         "autofocus": false,
         "false_color": true,
-        "ill": 350.0,
+        "ill_ma": 350.0,
         "sum": 1,
-        "gain": 30.0,
+        "gain_db": 30.0,
         "auto_gain": false,
-        "exp": 100.0,
+        "exp_ms": 100.0,
         "acquire": null,
         "video_config": {
             "duration": 5
@@ -146,11 +146,11 @@
         "focus": 4950.0,
         "autofocus": false,
         "false_color": true,
-        "ill": 0.0,
+        "ill_ma": 0.0,
         "sum": 1,
-        "gain": 48.0,
+        "gain_db": 48.0,
         "auto_gain": false,
-        "exp": 100.0,
+        "exp_ms": 100.0,
         "acquire": null,
         "video_config": {
             "duration": 5
@@ -203,7 +203,7 @@
     },
     "manual_video": {
         "max_fps": 0,
-        "max_duration": 30
+        "max_duration_seconds": 30
     },
 
     "show_tooltips": false,
