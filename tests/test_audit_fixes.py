@@ -8216,3 +8216,50 @@ class TestFrameValidityIsL2Stable:
             'frame_validity must not be prefixed -- the audit chose formal '
             'L2 promotion, not internal hiding.'
         )
+
+
+class TestSessionImagingWrappersSymmetric:
+    """Freeze audit Finding #32 -- ScopeSession had wrappers for LED
+    (led_on, led_on_sync, led_off, leds_off) + motion (move_absolute,
+    move_relative, move_home) but no imaging wrappers. L2 callers had
+    a 2-path surface: session.led_on vs session.scope.imaging.set_gain.
+    Symmetric path chosen: session gains set_gain / set_exposure_time /
+    capture_and_wait thin forwarders mirroring the existing pattern."""
+
+    def test_session_has_set_gain_forwarder(self):
+        from modules.scope_session import ScopeSession
+        assert callable(getattr(ScopeSession, 'set_gain', None)), (
+            'ScopeSession.set_gain forwarder must exist per audit #32.'
+        )
+
+    def test_session_has_set_exposure_time_forwarder(self):
+        from modules.scope_session import ScopeSession
+        assert callable(getattr(ScopeSession, 'set_exposure_time', None)), (
+            'ScopeSession.set_exposure_time forwarder must exist per audit #32.'
+        )
+
+    def test_session_has_capture_and_wait_forwarder(self):
+        from modules.scope_session import ScopeSession
+        assert callable(getattr(ScopeSession, 'capture_and_wait', None)), (
+            'ScopeSession.capture_and_wait forwarder must exist per audit #32.'
+        )
+
+    def test_session_set_gain_forwards_to_imaging(self):
+        """Calling the forwarder updates the imaging cache -- same path
+        as scope.imaging.set_gain directly."""
+        from modules.scope_session import ScopeSession
+        session = ScopeSession.create_headless()
+        try:
+            session.set_gain(5.5)
+            assert session.scope.imaging.camera_gain == 5.5
+        finally:
+            session.scope.disconnect()
+
+    def test_session_set_exposure_time_forwards_to_imaging(self):
+        from modules.scope_session import ScopeSession
+        session = ScopeSession.create_headless()
+        try:
+            session.set_exposure_time(42.0)
+            assert session.scope.imaging.camera_exposure_ms == 42.0
+        finally:
+            session.scope.disconnect()

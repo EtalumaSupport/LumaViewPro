@@ -275,6 +275,25 @@ class ScopeSession:
             axis, callback=callback, cb_args=cb_args,
         )
 
+    # --- Imaging commands (symmetric with illumination + motion wrappers) ---
+
+    def set_gain(self, gain_db: float) -> None:
+        """Set camera gain in dB. Thin forwarder to scope.imaging.set_gain."""
+        self.scope.imaging.set_gain(gain_db)
+
+    def set_exposure_time(self, exposure_ms: float) -> None:
+        """Set camera exposure in ms. Thin forwarder to scope.imaging.set_exposure_time."""
+        self.scope.imaging.set_exposure_time(exposure_ms)
+
+    def capture_and_wait(self, force_to_8bit: bool = True, **kwargs):
+        """Capture a frame after the camera pipeline settles. Thin forwarder
+        to scope.imaging.capture_and_wait. Accepts the same keyword arguments
+        (exclude_sources, all_ones_check, earliest_image_ts, timeout_s,
+        sum_count, sum_delay_s, sum_iteration_callback)."""
+        return self.scope.imaging.capture_and_wait(
+            force_to_8bit=force_to_8bit, **kwargs,
+        )
+
     # ------------------------------------------------------------------
     # Protocol runner
     # ------------------------------------------------------------------

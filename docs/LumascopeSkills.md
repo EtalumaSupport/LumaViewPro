@@ -193,6 +193,14 @@ session.move_absolute('Z', 5000, wait_until_complete=True)
 session.move_relative('X', 500)
 ```
 
+### Imaging (symmetric with LED + motion forwarders)
+
+```python
+session.set_gain(8.0)                    # dB
+session.set_exposure_time(50.0)          # ms
+image = session.capture_and_wait()       # frame-valid grab, all keyword args forwarded
+```
+
 ### Capture
 
 ```python
