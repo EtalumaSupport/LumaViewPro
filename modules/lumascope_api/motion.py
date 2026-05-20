@@ -1320,11 +1320,3 @@ class MotionAPI:
                             logger.warning(f'[SCOPE API ] Motion monitor: target_status({ax}) failed: {e}')
 
                 time.sleep(self._MOTION_POLL_INTERVAL)
-
-    # ------------------------------------------------------------------
-    # Aliases preserved for caller compatibility.
-    # ------------------------------------------------------------------
-
-    def stop(self) -> None:
-        """Alias for ``stop_motion`` -- preserves the original facade name."""
-        return self.stop_motion()
