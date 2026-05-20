@@ -656,6 +656,10 @@ caps.led_channels               # e.g. (0, 1, 2, 3) for FX2 scopes; (0..5) for R
 caps.led_colors                 # e.g. ('BF', 'Blue', 'Green', 'Red') — what THIS scope can do
 caps.led_max_ma                 # per-channel current cap
 
+# Optics (per-installation, sourced from motorconfig.json Optics section)
+caps.pixel_size_um              # um/pixel (default 2.0; configurable per install)
+caps.lens_focal_length_mm       # tube lens focal length (default 47.8 mm)
+
 # Camera
 caps.camera_model               # 'MT9P031-LS620', 'acA2500-60um', etc.
 caps.camera_supports_auto_gain
@@ -663,7 +667,6 @@ caps.camera_supports_auto_exposure
 caps.camera_pixel_formats       # e.g. ('Mono8',) or ('Mono8', 'Mono12')
 caps.camera_binning_sizes       # e.g. (1, 2, 4)
 caps.camera_max_exposure_ms     # per-camera exposure ceiling (e.g. 178 ms on FX2)
-caps.camera_pixel_size_um       # physical sensor pixel size
 ```
 
 Two important consequences:

@@ -8081,3 +8081,58 @@ class TestAxisTravelLimitsOnCapabilities:
             motion=NullMotionBoard(), led=NullLEDBoard(), camera=None,
         )
         assert dict(caps.axis_travel_limits_um) == {}
+
+
+class TestOpticsOnCapabilities:
+    """Freeze audit Finding #21 -- Lumascope.pixel_size() and
+    Lumascope.lens_focal_length() were both motorconfig-sourced
+    optical accessors living on the composition root. Canonical home is
+    now capabilities.pixel_size_um + capabilities.lens_focal_length_mm
+    (sibling shape to #20 / #38; sourced from motorconfig at boot).
+    The Lumascope wrappers are retired. The previously-unused
+    camera_pixel_size_um field (camera-SDK-sourced; no production
+    readers) is retired in the same move."""
+
+    def test_lumascope_class_does_not_carry_pixel_size_or_focal_length(self):
+        from modules.lumascope_api import Lumascope
+        assert not hasattr(Lumascope, 'pixel_size'), (
+            'Lumascope.pixel_size must be retired per audit #21; '
+            'callers read scope.capabilities.pixel_size_um instead.'
+        )
+        assert not hasattr(Lumascope, 'lens_focal_length'), (
+            'Lumascope.lens_focal_length must be retired per audit #21; '
+            'callers read scope.capabilities.lens_focal_length_mm instead.'
+        )
+
+    def test_capabilities_camera_pixel_size_um_field_removed(self):
+        """The camera-SDK-sourced field had zero production readers and
+        was retired in the same commit -- a single canonical pixel_size_um
+        sourced from motorconfig replaces it."""
+        from modules.scope_capabilities import ScopeCapabilities
+        from dataclasses import fields
+        names = {f.name for f in fields(ScopeCapabilities)}
+        assert 'camera_pixel_size_um' not in names, (
+            'camera_pixel_size_um must be retired per audit #21; '
+            'pixel_size_um is the canonical motorconfig-sourced field.'
+        )
+        assert 'pixel_size_um' in names
+        assert 'lens_focal_length_mm' in names
+
+    def test_capabilities_optics_defaults_match_motorconfig(self, sim_scope):
+        """Default sim motorconfig has Optics.PixelSize=2.0 and
+        Optics.LensFocalLength=47.8; capabilities surfaces those values."""
+        assert sim_scope.capabilities.pixel_size_um == 2.0
+        assert sim_scope.capabilities.lens_focal_length_mm == 47.8
+
+    def test_null_motor_optics_defaults(self):
+        """A NullMotionBoard has no motorconfig; capabilities falls back
+        to the Etaluma reference defaults (47.8 mm / 2.0 um) so callers
+        don't need to special-case the no-hardware path."""
+        from drivers.null_ledboard import NullLEDBoard
+        from drivers.null_motorboard import NullMotionBoard
+        from modules.scope_capabilities import ScopeCapabilities
+        caps = ScopeCapabilities.from_drivers(
+            motion=NullMotionBoard(), led=NullLEDBoard(), camera=None,
+        )
+        assert caps.pixel_size_um == 2.0
+        assert caps.lens_focal_length_mm == 47.8

@@ -725,22 +725,6 @@ class Lumascope():
         """
         return not isinstance(self._led_driver, NullLEDBoard) and self._led_driver.is_connected()
 
-    def lens_focal_length(self) -> float:
-        """Get tube lens focal length from motorconfig.
-
-        Returns:
-            float: Focal length in mm (default 47.8).
-        """
-        return self._motion_driver.motorconfig.lens_focal_length()
-
-    def pixel_size(self) -> float:
-        """Get camera pixel size from motorconfig.
-
-        Returns:
-            float: Pixel size in um/pixel (default 2.0).
-        """
-        return self._motion_driver.motorconfig.pixel_size()
-
     def disconnect(self) -> bool:
         """Disconnect from all hardware (LED, motion, camera).
 

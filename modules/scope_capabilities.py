@@ -82,6 +82,20 @@ class ScopeCapabilities:
     motion driver has no motorconfig (NullMotionBoard) or all axes
     failed to read."""
 
+    pixel_size_um: float
+    """Per-scope camera pixel size in um/pixel, sourced from
+    motorconfig.json's Optics.PixelSize. Per-installation override of
+    the camera SDK's reported value -- some sites adjust this for
+    calibration. Used by FOV / scale-bar / coordinate-transform
+    helpers. Default 2.0 if motorconfig is unavailable."""
+
+    lens_focal_length_mm: float
+    """Tube lens focal length in mm, sourced from motorconfig.json's
+    Optics.LensFocalLength. Per-installation override (default Etaluma
+    47.8 mm). Used together with pixel_size_um and the objective focal
+    length to compute per-objective effective um/pixel. Default 47.8
+    if motorconfig is unavailable."""
+
     # ---- LED ----
     led_channels: tuple[int, ...]
     """LED channel indices available — from `led.available_channels()`.
@@ -105,7 +119,6 @@ class ScopeCapabilities:
     camera_pixel_formats: tuple[str, ...]
     camera_binning_sizes: tuple[int, ...]
     camera_max_exposure_ms: int
-    camera_pixel_size_um: float
 
     def supports(self, feature: str) -> bool:
         """Return True if the scope advertises the named feature.
@@ -164,8 +177,9 @@ class ScopeCapabilities:
         except Exception:
             model = ''
 
-        # Travel limits per present axis (read once at boot; motorconfig
-        # is loaded once at driver init and is immutable for the run).
+        # Travel limits + optics per present axis (read once at boot;
+        # motorconfig is loaded once at driver init and is immutable
+        # for the run).
         travel_limits: dict[str, float] = {}
         motorconfig = getattr(motion, 'motorconfig', None)
         if motorconfig is not None:
@@ -174,6 +188,14 @@ class ScopeCapabilities:
                     travel_limits[ax] = float(motorconfig.travel_limit_um(ax))
                 except Exception:
                     pass
+        try:
+            pixel_size_um = float(motorconfig.pixel_size()) if motorconfig is not None else 2.0
+        except Exception:
+            pixel_size_um = 2.0
+        try:
+            lens_focal_length_mm = float(motorconfig.lens_focal_length()) if motorconfig is not None else 47.8
+        except Exception:
+            lens_focal_length_mm = 47.8
 
         # LED
         try:
@@ -192,7 +214,6 @@ class ScopeCapabilities:
         camera_pixel_formats: tuple[str, ...] = ()
         camera_binning_sizes: tuple[int, ...] = ()
         camera_max_exposure_ms = 0
-        camera_pixel_size_um = 0.0
         if camera is not None:
             profile = getattr(camera, 'profile', None)
             if profile is not None:
@@ -203,7 +224,6 @@ class ScopeCapabilities:
                 camera_binning_sizes = tuple(getattr(profile, 'binning_sizes', ()) or ())
                 exposure_max_us = getattr(profile, 'exposure_max_us', 0) or 0
                 camera_max_exposure_ms = int(exposure_max_us / 1000)
-                camera_pixel_size_um = float(getattr(profile, 'pixel_size_um', 0.0) or 0.0)
 
         return cls(
             axes=axes,
@@ -212,6 +232,8 @@ class ScopeCapabilities:
             has_turret='T' in axes,
             motor_model=model,
             axis_travel_limits_um=MappingProxyType(travel_limits),
+            pixel_size_um=pixel_size_um,
+            lens_focal_length_mm=lens_focal_length_mm,
             led_channels=led_channels,
             led_colors=led_colors,
             led_max_ma=led_max_ma,
@@ -221,5 +243,4 @@ class ScopeCapabilities:
             camera_pixel_formats=camera_pixel_formats,
             camera_binning_sizes=camera_binning_sizes,
             camera_max_exposure_ms=camera_max_exposure_ms,
-            camera_pixel_size_um=camera_pixel_size_um,
         )
