@@ -399,7 +399,7 @@ class IlluminationAPI:
             fut.result(timeout=timeout_s)
 
     # --- State ---
-    def get_led_ma(self, color: str) -> float:
+    def get_led_ma(self, color: str) -> 'float | None':
         """Get the current illumination level for an LED channel.
 
         Reads from the API-level _led_state cache (Rule 2). Does NOT
@@ -409,14 +409,16 @@ class IlluminationAPI:
             color: Channel color name (e.g. "Blue", "Green", "Red", "BF").
 
         Returns:
-            Illumination in milliamps, or -1 if channel is off or
-            LED board unavailable.
+            Illumination in milliamps when the channel has an active
+            value set; None when the LED board is absent or the channel
+            is off / never set. Use ``led_enabled(color)`` to distinguish
+            "off but reachable" from "no LED board."
         """
         if not self._driver:
-            return -1
+            return None
         with self._led_owner_lock:
             entry = self._led_state.get(color)
-            return entry['illumination_ma'] if entry else -1.0
+            return entry['illumination_ma'] if entry else None
 
     def led_enabled(self, color: str) -> bool:
         """Whether a specific LED channel is currently on.
@@ -437,14 +439,17 @@ class IlluminationAPI:
         with self._led_owner_lock:
             return self._led_state.get(color) is not None
 
-    def led_illumination(self, color: str) -> float:
-        """Current mA for an LED channel, or -1 if off.
+    def led_illumination(self, color: str) -> 'float | None':
+        """Current mA for an LED channel, or None if off / unavailable.
+
+        Thin wrapper over ``get_led_ma``; see that method for the
+        None-vs-float contract.
 
         Args:
             color: Channel color name (e.g. "Blue", "Green", "Red", "BF").
 
         Returns:
-            Illumination in milliamps, or -1 if off / unavailable.
+            Illumination in milliamps when set; None otherwise.
         """
         return self.get_led_ma(color)
 

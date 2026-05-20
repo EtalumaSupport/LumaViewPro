@@ -704,7 +704,7 @@ class TestHeadlessSession:
             scope.illumination.led_on(channel=0, mA=100)
             assert scope.illumination.get_led_ma('Blue') == 100
             scope.illumination.led_off(channel=0)
-            assert scope.illumination.get_led_ma('Blue') == -1
+            assert scope.illumination.get_led_ma('Blue') is None
         finally:
             session.shutdown_executors()
 

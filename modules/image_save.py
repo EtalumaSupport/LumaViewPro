@@ -230,7 +230,11 @@ def generate_image_metadata(scope: 'Lumascope', color, x, y, z) -> dict:
         'z_pos_um': z,
         'exposure_time_ms': round(scope.imaging.get_exposure_time(), common_utils.max_decimal_precision('exposure')),
         'gain_db': round(scope.imaging.get_gain(), common_utils.max_decimal_precision('gain')),
-        'illumination_ma': round(scope.illumination.get_led_ma(color=color), common_utils.max_decimal_precision('illumination')),
+        'illumination_ma': (
+            round(_ma, common_utils.max_decimal_precision('illumination'))
+            if (_ma := scope.illumination.get_led_ma(color=color)) is not None
+            else 0
+        ),
         'binning_size': scope.imaging._binning_size,
         'pixel_size_um': pixel_size_um,
         'well_label': well_label,
