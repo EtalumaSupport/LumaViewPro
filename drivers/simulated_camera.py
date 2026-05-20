@@ -850,19 +850,19 @@ class SimulatedCamera(Camera):
         self,
         state: bool = True,
         target_brightness: float = 0.5,
-        min_gain: float | None = None,
-        max_gain: float | None = None,
+        min_gain_db: float | None = None,
+        max_gain_db: float | None = None,
     ) -> bool:
         """Enable or disable simulated continuous auto-gain.
 
         On enable, the simulator converges immediately by setting gain
-        to the midpoint of [min_gain, max_gain].
+        to the midpoint of [min_gain_db, max_gain_db].
 
         Args:
             state: True to enable, False to disable.
             target_brightness: Normalized brightness target (0.0-1.0).
-            min_gain: Optional lower bound in dB.
-            max_gain: Optional upper bound in dB.
+            min_gain_db: Optional lower bound in dB.
+            max_gain_db: Optional upper bound in dB.
 
         Returns:
             bool: Always True.
@@ -871,31 +871,31 @@ class SimulatedCamera(Camera):
             self._auto_gain_enabled = state
             if state:
                 self._auto_gain_target_brightness = target_brightness
-                if min_gain is not None:
-                    self._auto_gain_min = min_gain
-                if max_gain is not None:
-                    self._auto_gain_max = max_gain
+                if min_gain_db is not None:
+                    self._auto_gain_min = min_gain_db
+                if max_gain_db is not None:
+                    self._auto_gain_max = max_gain_db
                 # Simulate convergence: set gain to mid-range
                 self._gain = (self._auto_gain_min + self._auto_gain_max) / 2.0
-            if _cam_log is not None: _cam_log.info(f'sim auto_gain(state={state}, target={target_brightness}, min={min_gain}, max={max_gain})')
+            if _cam_log is not None: _cam_log.info(f'sim auto_gain(state={state}, target={target_brightness}, min_db={min_gain_db}, max_db={max_gain_db})')
         return True
 
     def auto_gain_once(
         self,
         state: bool = True,
         target_brightness: float = 0.5,
-        min_gain: float | None = None,
-        max_gain: float | None = None,
+        min_gain_db: float | None = None,
+        max_gain_db: float | None = None,
     ) -> bool:
         """Run a single simulated auto-gain iteration.
 
-        Converges by setting gain to the midpoint of [min_gain, max_gain].
+        Converges by setting gain to the midpoint of [min_gain_db, max_gain_db].
 
         Args:
             state: True to run, False to no-op.
             target_brightness: Normalized brightness target (0.0-1.0).
-            min_gain: Optional lower bound in dB.
-            max_gain: Optional upper bound in dB.
+            min_gain_db: Optional lower bound in dB.
+            max_gain_db: Optional upper bound in dB.
 
         Returns:
             bool: Always True.
@@ -903,10 +903,10 @@ class SimulatedCamera(Camera):
         if state:
             with self._lock:
                 self._auto_gain_target_brightness = target_brightness
-                if min_gain is not None:
-                    self._auto_gain_min = min_gain
-                if max_gain is not None:
-                    self._auto_gain_max = max_gain
+                if min_gain_db is not None:
+                    self._auto_gain_min = min_gain_db
+                if max_gain_db is not None:
+                    self._auto_gain_max = max_gain_db
                 # One-shot: converge gain toward target
                 self._gain = (self._auto_gain_min + self._auto_gain_max) / 2.0
         return True
@@ -924,21 +924,21 @@ class SimulatedCamera(Camera):
             self._auto_gain_target_brightness = auto_target_brightness
         return True
 
-    def update_auto_gain_min_max(self, min_gain: float | None, max_gain: float | None) -> bool:
+    def update_auto_gain_min_max(self, min_gain_db: float | None, max_gain_db: float | None) -> bool:
         """Update auto-gain bounds.
 
         Args:
-            min_gain: Minimum gain in dB, or None to leave unchanged.
-            max_gain: Maximum gain in dB, or None to leave unchanged.
+            min_gain_db: Minimum gain in dB, or None to leave unchanged.
+            max_gain_db: Maximum gain in dB, or None to leave unchanged.
 
         Returns:
             bool: Always True.
         """
         with self._lock:
-            if min_gain is not None:
-                self._auto_gain_min = min_gain
-            if max_gain is not None:
-                self._auto_gain_max = max_gain
+            if min_gain_db is not None:
+                self._auto_gain_min = min_gain_db
+            if max_gain_db is not None:
+                self._auto_gain_max = max_gain_db
         return True
 
     # ------------------------------------------------------------------

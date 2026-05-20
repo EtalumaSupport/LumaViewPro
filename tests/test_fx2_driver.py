@@ -398,7 +398,7 @@ class TestFX2LEDThinTranslator:
         led = fx2driver.FX2LEDController()
         assert led.get_led_ma('Blue') == -1
         assert led.is_led_on('Blue') is False
-        assert led.get_led_state('Blue') == {'enabled': False, 'illumination': -1}
+        assert led.get_led_state('Blue') == {'enabled': False, 'illumination_ma': -1}
 
     def test_led_on_does_not_update_state_query(self, fake_fx2_conn):
         """The critical regression guard.
@@ -433,7 +433,7 @@ class TestFX2LEDThinTranslator:
         led.led_on(1, 50)
         states = led.get_led_states()
         for color, state in states.items():
-            assert state == {'enabled': False, 'illumination': -1}, \
+            assert state == {'enabled': False, 'illumination_ma': -1}, \
                 f'{color} leaked state from led_on'
 
     def test_no_led_ma_attribute(self, fake_fx2_conn):

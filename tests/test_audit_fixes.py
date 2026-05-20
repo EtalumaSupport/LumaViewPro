@@ -7848,3 +7848,64 @@ class TestSaveLiveImageTimeoutIsFloat:
                 f'default timeout ({timeout_default!r}): {e}. '
                 f'Phase-2 audit P2-1 regression has returned.'
             )
+
+
+class TestImagingParamNamesUseUnitSuffix:
+    """Audit U3 -- API method param names carry unit suffix (gain_db /
+    exposure_ms / min_gain_db / max_gain_db). Pre-freeze, the L2 surface
+    drops bare ``gain`` / ``t`` / ``exposure`` / ``min_gain`` / ``max_gain``
+    parameter names that fail to disambiguate units from the four parallel
+    namespaces uncovered by the 2026-05-20 units-consistency audit (raw
+    settings, derived layer_config, camera-cache, API-param). Lock these
+    so a revert breaking the L2 contract trips immediately."""
+
+    _IMAGING_PARAMS = (
+        # (method, expected_param_name_set, banned_param_name_set)
+        ('set_gain', frozenset({'gain_db'}), frozenset({'gain'})),
+        ('set_exposure_time', frozenset({'exposure_ms'}), frozenset({'t', 'exposure'})),
+        ('set_gain_sync', frozenset({'gain_db'}), frozenset({'gain'})),
+        ('set_exposure_sync', frozenset({'exposure_ms'}), frozenset({'exposure', 't'})),
+        ('apply_layer_camera_settings', frozenset({'gain_db', 'exposure_ms'}), frozenset({'gain'})),
+        ('auto_gain_once', frozenset({'min_gain_db', 'max_gain_db'}), frozenset({'min_gain', 'max_gain'})),
+    )
+
+    def test_imaging_method_param_names(self):
+        import inspect
+        from modules.lumascope_api.imaging import ImagingAPI
+
+        for method_name, expected, banned in self._IMAGING_PARAMS:
+            method = getattr(ImagingAPI, method_name)
+            params = set(inspect.signature(method).parameters)
+            missing = expected - params
+            present_banned = banned & params
+            assert not missing, (
+                f'ImagingAPI.{method_name} missing unit-suffixed params {missing}'
+            )
+            assert not present_banned, (
+                f'ImagingAPI.{method_name} still has bare-name params '
+                f'{present_banned}; should use unit-suffixed names per audit U3'
+            )
+
+    def test_driver_auto_gain_param_names(self):
+        """Driver-side auto_gain / auto_gain_once / update_auto_gain_min_max
+        use ``min_gain_db`` / ``max_gain_db`` -- the abstract Camera contract
+        plus all concrete drivers (Pylon, IDS, simulated, FX2). Caught by
+        the U3 mechanical rename sweep."""
+        import inspect
+        from drivers.camera import Camera
+
+        for method_name in ('auto_gain', 'auto_gain_once', 'update_auto_gain_min_max'):
+            method = getattr(Camera, method_name)
+            params = set(inspect.signature(method).parameters)
+            assert 'min_gain_db' in params, (
+                f'Camera.{method_name} missing min_gain_db param'
+            )
+            assert 'max_gain_db' in params, (
+                f'Camera.{method_name} missing max_gain_db param'
+            )
+            assert 'min_gain' not in params, (
+                f'Camera.{method_name} still has bare min_gain param'
+            )
+            assert 'max_gain' not in params, (
+                f'Camera.{method_name} still has bare max_gain param'
+            )

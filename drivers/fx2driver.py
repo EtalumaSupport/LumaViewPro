@@ -1992,16 +1992,16 @@ class FX2Camera(Camera):
         _, db = _register_to_gain_db(self._gain_reg)
         return db
 
-    def auto_gain(self, state=True, target_brightness=0.5, min_gain=None, max_gain=None):
+    def auto_gain(self, state=True, target_brightness=0.5, min_gain_db=None, max_gain_db=None):
         pass  # no hardware auto-gain
 
-    def auto_gain_once(self, state=True, target_brightness=0.5, min_gain=None, max_gain=None):
+    def auto_gain_once(self, state=True, target_brightness=0.5, min_gain_db=None, max_gain_db=None):
         pass
 
     def update_auto_gain_target_brightness(self, auto_target_brightness: float):
         pass
 
-    def update_auto_gain_min_max(self, min_gain=None, max_gain=None):
+    def update_auto_gain_min_max(self, min_gain_db=None, max_gain_db=None):
         pass
 
     # -- Misc (no-op or trivial) ------------------------------------------

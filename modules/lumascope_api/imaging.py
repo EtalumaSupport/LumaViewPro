@@ -335,36 +335,36 @@ class ImagingAPI:
             return None
 
     # --- Setters ---
-    def set_gain(self, gain: float) -> None:
+    def set_gain(self, gain_db: float) -> None:
         """Set the camera gain.
 
         Args:
-            gain: Gain value in dB.
+            gain_db: Gain value in dB.
         """
         if not self._driver or not self._driver.active: return
         # Skip redundant SDK call if gain hasn't changed
-        if abs(float(gain) - self.camera_gain) < 0.001:
+        if abs(float(gain_db) - self.camera_gain) < 0.001:
             return
         with self._scope._cam_lock:
-            self._driver.gain(gain)
+            self._driver.gain(gain_db)
         self.frame_validity.invalidate('gain')
         # Record requested gain so capture_and_wait's chunk-match can clear
         # the pending source once a frame's ChunkGain matches.
-        self.frame_validity.set_target('gain', float(gain))
+        self.frame_validity.set_target('gain', float(gain_db))
         with self._camera_cache_lock:
-            self._camera_cache['gain_db'] = float(gain)
-        _api_log.info(f'set_gain {gain}dB')
-        self._fire_camera_listeners('gain', float(gain))
+            self._camera_cache['gain_db'] = float(gain_db)
+        _api_log.info(f'set_gain {gain_db}dB')
+        self._fire_camera_listeners('gain', float(gain_db))
 
-    def set_exposure_time(self, t: float) -> None:
+    def set_exposure_time(self, exposure_ms: float) -> None:
         """Set the camera exposure time.
 
         Args:
-            t: Exposure time in milliseconds.
+            exposure_ms: Exposure time in milliseconds.
         """
         if not self._driver or not self._driver.active: return
         # Skip redundant SDK call if exposure hasn't changed
-        if abs(float(t) - self.camera_exposure_ms) < 0.001:
+        if abs(float(exposure_ms) - self.camera_exposure_ms) < 0.001:
             return
         # Sanity-check threshold: 5 microseconds. Pylon physical
         # ExposureTime minimum across Basler USB3 sensors is 10-35 us;
@@ -372,25 +372,25 @@ class ImagingAPI:
         # indicates a unit-confusion bug (e.g. seconds-treated-as-ms).
         # Bright-field captures legitimately use 0.03 ms (30 us) on
         # bright samples, so the threshold sits below that range.
-        if t < 0.005 and not self._suppress_value_warnings:
+        if exposure_ms < 0.005 and not self._suppress_value_warnings:
             import traceback
             _caller = ''.join(traceback.format_stack(limit=6)[-4:-1]).strip()
-            logger.warning(f'[SCOPE API ] set_exposure_time({t}ms) is below '
+            logger.warning(f'[SCOPE API ] set_exposure_time({exposure_ms}ms) is below '
                            f'any Basler sensor physical minimum -- camera '
                            f'will clamp the request. Confirm the value is '
                            f'in milliseconds, not seconds or microseconds.\n'
                            f'Call stack:\n{_caller}')
         with self._scope._cam_lock:
-            self._driver.exposure_t(t)
+            self._driver.exposure_t(exposure_ms)
         self.frame_validity.invalidate('exposure')
         # Record requested exposure for chunk-match. ChunkExposureTime is
         # microseconds; the API takes milliseconds. Convert at the seam so
         # the chunk value and frame_validity's tolerance share units.
-        self.frame_validity.set_target('exposure', float(t) * 1000.0)
+        self.frame_validity.set_target('exposure', float(exposure_ms) * 1000.0)
         with self._camera_cache_lock:
-            self._camera_cache['exposure_ms'] = float(t)
-        _api_log.info(f'set_exposure {t}ms')
-        self._fire_camera_listeners('exposure', float(t))
+            self._camera_cache['exposure_ms'] = float(exposure_ms)
+        _api_log.info(f'set_exposure {exposure_ms}ms')
+        self._fire_camera_listeners('exposure', float(exposure_ms))
 
     def set_auto_gain(self, state: bool, settings: dict) -> None:
         """Enable or disable automatic gain adjustment.
@@ -404,8 +404,8 @@ class ImagingAPI:
         self._driver.auto_gain(
             state,
             target_brightness=settings['target_brightness'],
-            min_gain=settings['min_gain_db'],
-            max_gain=settings['max_gain_db'],
+            min_gain_db=settings['min_gain_db'],
+            max_gain_db=settings['max_gain_db'],
         )
         self.frame_validity.invalidate('gain')
         # Auto-gain dynamically adjusts the value; clear the manual target
@@ -842,28 +842,28 @@ class ImagingAPI:
             )
             raise
 
-    def set_gain_sync(self, gain, *, timeout: float = 5.0) -> None:
+    def set_gain_sync(self, gain_db, *, timeout: float = 5.0) -> None:
         """Run ``set_gain`` through the camera_executor and block until done.
 
         Args:
-            gain: Gain value in dB.
+            gain_db: Gain value in dB.
             timeout: Max seconds to wait for completion.
         """
         ex = self._scope._require_executor(self._scope._camera_executor, 'set_gain_sync')
-        task = IOTask(action=self.set_gain, args=(gain,))
+        task = IOTask(action=self.set_gain, args=(gain_db,))
         fut = ex.put(task, return_future=True)
         if fut:
             fut.result(timeout=timeout)
 
-    def set_exposure_sync(self, exposure, *, timeout: float = 5.0) -> None:
+    def set_exposure_sync(self, exposure_ms, *, timeout: float = 5.0) -> None:
         """Run ``set_exposure_time`` through the camera_executor and block.
 
         Args:
-            exposure: Exposure time in milliseconds.
+            exposure_ms: Exposure time in milliseconds.
             timeout: Max seconds to wait for completion.
         """
         ex = self._scope._require_executor(self._scope._camera_executor, 'set_exposure_sync')
-        task = IOTask(action=self.set_exposure_time, args=(exposure,))
+        task = IOTask(action=self.set_exposure_time, args=(exposure_ms,))
         fut = ex.put(task, return_future=True)
         if fut:
             fut.result(timeout=timeout)
@@ -1579,7 +1579,7 @@ class ImagingAPI:
             self.set_exposure_time(exposure_ms)
 
     # --- Camera config orchestration ---
-    def apply_layer_camera_settings(self, gain: float, exposure_ms: float,
+    def apply_layer_camera_settings(self, gain_db: float, exposure_ms: float,
                                      auto_gain: bool = False,
                                      auto_gain_settings: dict | None = None) -> None:
         """Apply per-layer camera settings in a single batched call.
@@ -1588,19 +1588,19 @@ class ImagingAPI:
         IOTask queues with a single call for atomicity.
 
         Args:
-            gain: Camera gain in dB.
+            gain_db: Camera gain in dB.
             exposure_ms: Exposure time in milliseconds.
             auto_gain: Whether auto-gain is enabled for this layer.
-            auto_gain_settings: Dict with target_brightness, min_gain, max_gain
+            auto_gain_settings: Dict with target_brightness, min_gain_db, max_gain_db
                                (required if auto_gain is True).
         """
         if not self._driver or not self._driver.active:
             return
-        self.set_gain(gain)
+        self.set_gain(gain_db)
         self.set_exposure_time(exposure_ms)
         if auto_gain_settings is not None:
             self.set_auto_gain(auto_gain, settings=auto_gain_settings)
-        _api_log.info(f'apply_layer_camera_settings gain={gain}dB exp={exposure_ms}ms auto_gain={auto_gain}')
+        _api_log.info(f'apply_layer_camera_settings gain={gain_db}dB exp={exposure_ms}ms auto_gain={auto_gain}')
 
     def update_auto_gain_target_brightness(self, target_brightness: float) -> None:
         """Set the auto-gain target brightness on the camera.
@@ -1613,22 +1613,22 @@ class ImagingAPI:
         self._driver.update_auto_gain_target_brightness(target_brightness)
 
     def auto_gain_once(self, state: bool, target_brightness: float,
-                       min_gain: float, max_gain: float) -> None:
+                       min_gain_db: float, max_gain_db: float) -> None:
         """Run auto-gain for a single frame on the camera.
 
         Args:
             state: True to enable one-shot auto-gain.
             target_brightness: Target brightness (0.0 to 1.0).
-            min_gain: Minimum gain in dB.
-            max_gain: Maximum gain in dB.
+            min_gain_db: Minimum gain in dB.
+            max_gain_db: Maximum gain in dB.
         """
         if not self._driver or not self._driver.active:
             return
         self._driver.auto_gain_once(
             state=state,
             target_brightness=target_brightness,
-            min_gain=min_gain,
-            max_gain=max_gain,
+            min_gain_db=min_gain_db,
+            max_gain_db=max_gain_db,
         )
 
     def update_camera_config(self):

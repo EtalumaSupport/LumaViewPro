@@ -1950,8 +1950,8 @@ class PylonCamera(Camera):
 
     def update_auto_gain_min_max(
         self,
-        min_gain: float | None,
-        max_gain: float | None,
+        min_gain_db: float | None,
+        max_gain_db: float | None,
     ) -> None:
         """Update auto-gain min/max bounds without an over-stop cycle.
 
@@ -1960,8 +1960,8 @@ class PylonCamera(Camera):
         ones are written.
 
         Args:
-            min_gain: Lower bound in dB, or ``None`` to leave unchanged.
-            max_gain: Upper bound in dB, or ``None`` to leave unchanged.
+            min_gain_db: Lower bound in dB, or ``None`` to leave unchanged.
+            max_gain_db: Upper bound in dB, or ``None`` to leave unchanged.
         """
         if not self.active:
             return
@@ -1976,23 +1976,23 @@ class PylonCamera(Camera):
         # wrapped form stop/started twice per auto_gain invocation;
         # both wraps removed so the whole chain stays online.
         try:
-            if min_gain is None:
-                min_gain = self.active.AutoGainLowerLimit.Min
+            if min_gain_db is None:
+                min_gain_db = self.active.AutoGainLowerLimit.Min
 
-            if max_gain is None:
-                max_gain = self.active.AutoGainUpperLimit.Max
+            if max_gain_db is None:
+                max_gain_db = self.active.AutoGainUpperLimit.Max
 
             # Short-circuit when both bounds already at target. Matches
             # the e042c7f pattern on gain / exposure_t.
             try:
                 cur_min = float(self.active.AutoGainLowerLimit.GetValue())
                 cur_max = float(self.active.AutoGainUpperLimit.GetValue())
-                if (abs(cur_min - float(min_gain)) < 1e-3
-                        and abs(cur_max - float(max_gain)) < 1e-3):
+                if (abs(cur_min - float(min_gain_db)) < 1e-3
+                        and abs(cur_max - float(max_gain_db)) < 1e-3):
                     if _cam_log is not None:
                         _cam_log.info(
                             f'pylon AutoGainLowerLimit/UpperLimit.SetValue'
-                            f'({min_gain}, {max_gain}) short-circuited'
+                            f'({min_gain_db}, {max_gain_db}) short-circuited'
                         )
                     return
             except (genicam.RuntimeException, genicam.TimeoutException) as e:
@@ -2003,15 +2003,15 @@ class PylonCamera(Camera):
 
             if _cam_log is not None:
                 _cam_log.info(
-                    f'pylon AutoGainLowerLimit.SetValue({min_gain}) '
-                    f'AutoGainUpperLimit.SetValue({max_gain})'
+                    f'pylon AutoGainLowerLimit.SetValue({min_gain_db}) '
+                    f'AutoGainUpperLimit.SetValue({max_gain_db})'
                 )
-            self.active.AutoGainLowerLimit.SetValue(min_gain)
-            self.active.AutoGainUpperLimit.SetValue(max_gain)
+            self.active.AutoGainLowerLimit.SetValue(min_gain_db)
+            self.active.AutoGainUpperLimit.SetValue(max_gain_db)
         except genicam.RuntimeException as e:
             _cam_log.error(
                 '[CAM Class ] Camera communication error during '
-                f'update_auto_gain_min_max(min={min_gain}, max={max_gain}): {e}'
+                f'update_auto_gain_min_max(min_db={min_gain_db}, max_db={max_gain_db}): {e}'
             )
             self._mark_disconnected()
         except Exception as e:
@@ -2321,25 +2321,25 @@ class PylonCamera(Camera):
         self,
         state=True,
         target_brightness: float = 0.5,
-        min_gain: float | None = None,
-        max_gain: float | None = None,
+        min_gain_db: float | None = None,
+        max_gain_db: float | None = None,
     ) -> None:
         """Enable or disable continuous auto-gain + auto-exposure.
 
         When enabled, ``GainAuto`` and ``ExposureAuto`` are set to
         ``Continuous`` -- the camera continuously adjusts based on the
         live image's brightness. When disabled, both are set to
-        ``Off``. Caller-supplied ``target_brightness`` / ``min_gain``
-        / ``max_gain`` are applied via ``update_auto_gain_*`` helpers
+        ``Off``. Caller-supplied ``target_brightness`` / ``min_gain_db``
+        / ``max_gain_db`` are applied via ``update_auto_gain_*`` helpers
         before enabling.
 
         Args:
             state: ``True`` to enable Continuous mode, ``False`` to
                 disable.
             target_brightness: Target brightness in 0..1.
-            min_gain: Lower bound in dB, or ``None`` to leave
+            min_gain_db: Lower bound in dB, or ``None`` to leave
                 unchanged.
-            max_gain: Upper bound in dB, or ``None`` to leave
+            max_gain_db: Upper bound in dB, or ``None`` to leave
                 unchanged.
         """
 
@@ -2351,11 +2351,11 @@ class PylonCamera(Camera):
             if _cam_log is not None:
                 _cam_log.info(
                     f'pylon auto_gain(state={state}, target={target_brightness}, '
-                    f'min={min_gain}, max={max_gain})'
+                    f'min_db={min_gain_db}, max_db={max_gain_db})'
                 )
             if state:
                 self.update_auto_gain_target_brightness(auto_target_brightness=target_brightness)
-                self.update_auto_gain_min_max(min_gain=min_gain, max_gain=max_gain)
+                self.update_auto_gain_min_max(min_gain_db=min_gain_db, max_gain_db=max_gain_db)
                 self.active.GainAuto.SetValue('Continuous')  # 'Off' 'Once' 'Continuous'
                 self.active.ExposureAuto.SetValue('Continuous')  # 'Off' 'Once' 'Continuous'
                 if _cam_log is not None:
@@ -2378,8 +2378,8 @@ class PylonCamera(Camera):
         self,
         state=True,
         target_brightness: float = 0.5,
-        min_gain: float | None = None,
-        max_gain: float | None = None,
+        min_gain_db: float | None = None,
+        max_gain_db: float | None = None,
     ) -> None:
         """Run a single-shot auto-gain + auto-exposure pass.
 
@@ -2392,9 +2392,9 @@ class PylonCamera(Camera):
             state: ``True`` to fire a single Once-mode adjustment,
                 ``False`` to disable.
             target_brightness: Target brightness in 0..1.
-            min_gain: Lower bound in dB, or ``None`` to leave
+            min_gain_db: Lower bound in dB, or ``None`` to leave
                 unchanged.
-            max_gain: Upper bound in dB, or ``None`` to leave
+            max_gain_db: Upper bound in dB, or ``None`` to leave
                 unchanged.
         """
 
@@ -2405,7 +2405,7 @@ class PylonCamera(Camera):
         try:
             if state:
                 self.update_auto_gain_target_brightness(auto_target_brightness=target_brightness)
-                self.update_auto_gain_min_max(min_gain=min_gain, max_gain=max_gain)
+                self.update_auto_gain_min_max(min_gain_db=min_gain_db, max_gain_db=max_gain_db)
                 self.active.GainAuto.SetValue('Once')  # 'Off' 'Once' 'Continuous'
                 self.active.ExposureAuto.SetValue('Once')  # 'Off' 'Once' 'Continuous'
             else:

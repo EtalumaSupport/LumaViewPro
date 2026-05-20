@@ -1025,7 +1025,7 @@ class LayerControl(BoxLayout):
             camera_executor.put(IOTask(
                 action=lumaview.scope.imaging.apply_layer_camera_settings,
                 kwargs={
-                    'gain': gain,
+                    'gain_db': gain,
                     'exposure_ms': exposure,
                     'auto_gain': auto_gain_enabled,
                     'auto_gain_settings': autogain_settings,

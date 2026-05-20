@@ -676,7 +676,7 @@ class IDSCamera(Camera):
             _cam_log.error(f'[CAM Class ] update_auto_gain_target_brightness failed: {e}')
             return False
 
-    def update_auto_gain_min_max(self, min_gain: float | None, max_gain: float | None):
+    def update_auto_gain_min_max(self, min_gain_db: float | None, max_gain_db: float | None):
         #TODO: Implement for IDS cameras that support auto gain
         try:
             return self.remote_nodemap.HasNode("GainAuto")
@@ -717,8 +717,8 @@ class IDSCamera(Camera):
         self,
         state = True,
         target_brightness: float = 0.5,
-        min_gain: float | None = None,
-        max_gain: float | None = None
+        min_gain_db: float | None = None,
+        max_gain_db: float | None = None
     ):
         #TODO: Implement functionality for IDS cameras that support auto gain
         try:
@@ -731,8 +731,8 @@ class IDSCamera(Camera):
         self,
         state = True,
         target_brightness: float = 0.5,
-        min_gain: float | None = None,
-        max_gain: float | None = None
+        min_gain_db: float | None = None,
+        max_gain_db: float | None = None
     ):
         #TODO: Implement functionality for IDS cameras that support auto gain
         try:

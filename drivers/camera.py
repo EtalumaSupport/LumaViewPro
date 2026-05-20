@@ -726,12 +726,12 @@ class Camera(ABC):
         pass
 
     @abstractmethod
-    def update_auto_gain_min_max(self, min_gain: float | None, max_gain: float | None) -> None:
+    def update_auto_gain_min_max(self, min_gain_db: float | None, max_gain_db: float | None) -> None:
         """Update the auto-gain bounds.
 
         Args:
-            min_gain: Minimum gain in dB, or None to leave unchanged.
-            max_gain: Maximum gain in dB, or None to leave unchanged.
+            min_gain_db: Minimum gain in dB, or None to leave unchanged.
+            max_gain_db: Maximum gain in dB, or None to leave unchanged.
         """
         pass
 
@@ -758,16 +758,16 @@ class Camera(ABC):
         self,
         state: bool = True,
         target_brightness: float = 0.5,
-        min_gain: float | None = None,
-        max_gain: float | None = None
+        min_gain_db: float | None = None,
+        max_gain_db: float | None = None
     ) -> None:
         """Enable or disable continuous auto-gain.
 
         Args:
             state: True to enable, False to disable.
             target_brightness: Normalized brightness target (0.0-1.0).
-            min_gain: Optional lower bound in dB.
-            max_gain: Optional upper bound in dB.
+            min_gain_db: Optional lower bound in dB.
+            max_gain_db: Optional upper bound in dB.
         """
         pass
 
@@ -776,16 +776,16 @@ class Camera(ABC):
         self,
         state: bool = True,
         target_brightness: float = 0.5,
-        min_gain: float | None = None,
-        max_gain: float | None = None
+        min_gain_db: float | None = None,
+        max_gain_db: float | None = None
     ) -> None:
         """Run a single auto-gain iteration.
 
         Args:
             state: True to run, False to no-op.
             target_brightness: Normalized brightness target (0.0-1.0).
-            min_gain: Optional lower bound in dB.
-            max_gain: Optional upper bound in dB.
+            min_gain_db: Optional lower bound in dB.
+            max_gain_db: Optional upper bound in dB.
         """
         pass
 

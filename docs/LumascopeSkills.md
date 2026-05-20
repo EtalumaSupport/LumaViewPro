@@ -419,12 +419,12 @@ image = scope.imaging.capture_and_wait(
 )
 
 # Exposure (milliseconds) + gain (dB)
-scope.imaging.set_exposure_time(50)
+scope.imaging.set_exposure_time(exposure_ms=50)
 scope.imaging.get_exposure_time()
-scope.imaging.set_gain(10.0)
+scope.imaging.set_gain(gain_db=10.0)
 scope.imaging.get_gain()
 
-# `set_exposure_time` warns + logs a stack trace at < 0.1 ms (the
+# `set_exposure_time` warns + logs a stack trace at < 0.005 ms (the
 # common L1 failure is typing 0.05 thinking microseconds and getting
 # a black image). Internal sweep callers that walk that range
 # deliberately wrap their loop in `suppress_value_warnings()`:
@@ -436,7 +436,7 @@ with scope.imaging.suppress_value_warnings():
 
 # Batched settings (gain + exposure + auto-gain in one call)
 scope.imaging.apply_layer_camera_settings(
-    gain=5.0, exposure_ms=50,
+    gain_db=5.0, exposure_ms=50,
     auto_gain=False, auto_gain_settings=None,
 )
 

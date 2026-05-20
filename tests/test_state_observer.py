@@ -306,5 +306,5 @@ class TestCameraSaveRestore:
     def test_snapshot_contains_tag(self, scope):
         snapshot = scope.imaging.save_camera_state('protocol')
         assert snapshot['tag'] == 'protocol'
-        assert 'gain' in snapshot
-        assert 'exposure' in snapshot
+        assert 'gain_db' in snapshot
+        assert 'exposure_ms' in snapshot

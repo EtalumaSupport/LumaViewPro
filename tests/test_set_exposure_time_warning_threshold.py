@@ -56,17 +56,17 @@ class TestSetExposureTimeWarningThreshold:
         thresholds = []
         for node in ast.walk(tree):
             # Walk every Compare in the function body, find any
-            # `t < <Num>` form
+            # `exposure_ms < <Num>` form
             if isinstance(node, ast.Compare):
                 if (len(node.ops) == 1
                         and isinstance(node.ops[0], ast.Lt)
                         and isinstance(node.left, ast.Name)
-                        and node.left.id == "t"
+                        and node.left.id == "exposure_ms"
                         and isinstance(node.comparators[0], ast.Constant)
                         and isinstance(node.comparators[0].value, (int, float))):
                     thresholds.append(node.comparators[0].value)
         assert thresholds, (
-            "set_exposure_time must contain a `t < <threshold>` "
+            "set_exposure_time must contain a `exposure_ms < <threshold>` "
             "comparison for the sanity-check warning gate."
         )
         # The new threshold must be no higher than 0.01 ms (10 us).
