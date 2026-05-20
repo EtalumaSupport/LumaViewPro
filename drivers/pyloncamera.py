@@ -2019,24 +2019,24 @@ class PylonCamera(Camera):
 
     # grab() inherited from Camera base class
 
-    def grab_new_capture(self, timeout: float) -> tuple:
+    def grab_new_capture(self, timeout_s: float) -> tuple:
         """Drain queued frames, then block for a genuinely new one.
 
         Drops every frame already queued in the image handler, then
-        blocks up to ``timeout`` seconds waiting for the next callback.
+        blocks up to ``timeout_s`` seconds waiting for the next callback.
         Used by AF / characterization paths that need the freshest
         possible frame -- previously dropped only one queued frame,
         which could return a stale frame when the consumer had fallen
         behind.
 
         Args:
-            timeout: Wall-clock seconds to wait for a new frame after
+            timeout_s: Wall-clock seconds to wait for a new frame after
                 draining queued frames.
 
         Returns:
             tuple: ``(success: bool, timestamp: float | None)``.
                 ``success=False`` if the camera is inactive, the handler
-                is missing, or no frame arrived within ``timeout``.
+                is missing, or no frame arrived within ``timeout_s``.
                 ``timestamp`` is the host-side capture timestamp on
                 success, ``None`` otherwise.
         """
@@ -2052,7 +2052,7 @@ class PylonCamera(Camera):
                 return False, None
 
             try:
-                # Drain all frames captured before this call — we only want
+                # Drain all frames captured before this call -- we only want
                 # the next one produced after we started waiting.
                 while True:
                     try:
@@ -2064,7 +2064,7 @@ class PylonCamera(Camera):
                     logger.debug(f'[CAM Class ] grab_new_capture drained {dropped} stale frames')
 
                 result, image, image_ts = self.cam_image_handler._frame_queue.get(
-                    block=True, timeout=timeout
+                    block=True, timeout=timeout_s
                 )
                 if result is False:
                     _outcome = 'result_false'
@@ -2431,16 +2431,24 @@ class PylonCamera(Camera):
         """
         if self.active is None:
             if _cam_log is not None:
-                _cam_log.warning(f'pylon ExposureTime.SetValue({exposure_ms}ms) SKIPPED: active=None')
-            _cam_log.warning(f'[CAM Class ] Cannot set exposure {exposure_ms}ms: camera inactive')
+                _cam_log.warning(
+                    f'pylon ExposureTime.SetValue({exposure_ms}ms) SKIPPED: active=None'
+                )
+            _cam_log.warning(
+                f'[CAM Class ] Cannot set exposure {exposure_ms}ms: camera inactive'
+            )
             return
 
         if exposure_ms > self.max_exposure:
             if _cam_log is not None:
                 _cam_log.warning(
-                    f'pylon ExposureTime.SetValue({exposure_ms}ms) SKIPPED: exceeds max {self.max_exposure}ms'
+                    f'pylon ExposureTime.SetValue({exposure_ms}ms) SKIPPED: '
+                    f'exceeds max {self.max_exposure}ms'
                 )
-            _cam_log.warning(f'[CAM Class ] Exposure {exposure_ms}ms exceeds max ({self.max_exposure}ms)')
+            _cam_log.warning(
+                f'[CAM Class ] Exposure {exposure_ms}ms exceeds max '
+                f'({self.max_exposure}ms)'
+            )
             return
 
         # Pylon takes time in microseconds, so multiply by 1000 to convert
@@ -2469,7 +2477,10 @@ class PylonCamera(Camera):
         except genicam.RuntimeException as e:
             if _cam_log is not None:
                 _cam_log.error(f'pylon ExposureTime.SetValue({exposure_ms}ms) FAILED: {e}')
-            _cam_log.error(f'[CAM Class ] Camera communication error during exposure_t({exposure_ms}ms): {e}')
+            _cam_log.error(
+                f'[CAM Class ] Camera communication error during '
+                f'exposure_t({exposure_ms}ms): {e}'
+            )
             self._mark_disconnected()
         except Exception as e:
             _cam_log.exception(f'[CAM Class ] Unexpected error in exposure_t: {e}')

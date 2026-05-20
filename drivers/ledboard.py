@@ -164,11 +164,11 @@ class LEDBoard(SerialBoard):
         logger.warning('[LED Class ] get_status() called but LED firmware has no STATUS command')
         return None
 
-    def wait_until_on(self, timeout: float = 5.0) -> bool:
+    def wait_until_on(self, timeout_s: float = 5.0) -> bool:
         """Stub -- depends on STATUS command which the firmware lacks.
 
         Args:
-            timeout: Maximum wait time in seconds (currently unused).
+            timeout_s: Maximum wait time in seconds (currently unused).
 
         Returns:
             bool: True if LED confirmed on, False on timeout / unsupported.
@@ -211,15 +211,15 @@ class LEDBoard(SerialBoard):
         with self._state_lock:
             self.led_ma[color] = mA
 
-    def led_on(self, channel: int, mA: int, block: bool = False, timeout: float = 5.0) -> None:
+    def led_on(self, channel: int, mA: int, block: bool = False, timeout_s: float = 5.0) -> None:
         """Turn on the LED on a channel at a given current.
 
         Args:
             channel: Channel number (0-5).
             mA: Drive current in milliamps (0-1000).
             block: When True, poll until the firmware echoes the command
-                or until ``timeout`` elapses.
-            timeout: Block timeout in seconds.
+                or until ``timeout_s`` elapses.
+            timeout_s: Block timeout in seconds.
 
         Raises:
             ValueError: ``channel`` or ``mA`` is outside the safe range.
@@ -248,7 +248,7 @@ class LEDBoard(SerialBoard):
             # in that state the LED is NOT actually energized. The
             # substring check protects callers from silently succeeding
             # while the hardware is dark.
-            deadline = time.monotonic() + timeout
+            deadline = time.monotonic() + timeout_s
             while response is None or (
                 command not in response
                 and not check_each_substr(
@@ -258,7 +258,7 @@ class LEDBoard(SerialBoard):
                 if time.monotonic() > deadline:
                     logger.warning(
                         f'[LED Class ] led_on(ch={channel}, mA={mA}, block=True) '
-                        f'timed out after {timeout}s'
+                        f'timed out after {timeout_s}s'
                     )
                     break
                 time.sleep(0.01)

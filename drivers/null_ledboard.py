@@ -70,7 +70,7 @@ class NullLEDBoard:
     # ------------------------------------------------------------------
     # Core LED methods (no-ops)
     # ------------------------------------------------------------------
-    def led_on(self, channel, mA, block=False, timeout=5.0) -> None:
+    def led_on(self, channel, mA, block=False, timeout_s=5.0) -> None:
         """Null implementation: no-op."""
         pass
 
@@ -113,7 +113,7 @@ class NullLEDBoard:
         """
         return None
 
-    def wait_until_on(self, timeout=5.0) -> None:
+    def wait_until_on(self, timeout_s=5.0) -> None:
         """Null implementation: no-op."""
         pass
 

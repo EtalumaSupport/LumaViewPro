@@ -360,14 +360,14 @@ class IlluminationAPI:
             cb_kwargs=cb_kwargs,
         ))
 
-    def led_on_sync(self, channel, mA, *, timeout=5,
+    def led_on_sync(self, channel, mA, *, timeout_s=5,
                     owner: str = '') -> None:
         """Run ``led_on`` through the io_executor and block until done.
 
         Args:
             channel: Channel number or color name.
             mA: LED current in milliamps.
-            timeout: Max seconds to wait for completion.
+            timeout_s: Max seconds to wait for completion.
             owner: Optional ownership tag for the LED state.
         """
         if not self._scope.led_connected:
@@ -379,13 +379,13 @@ class IlluminationAPI:
                       kwargs=kwargs)
         fut = ex.put(task, return_future=True)
         if fut:
-            fut.result(timeout=timeout)
+            fut.result(timeout=timeout_s)
 
-    def leds_off_sync(self, *, timeout=5) -> None:
+    def leds_off_sync(self, *, timeout_s=5) -> None:
         """Run ``leds_off`` through the io_executor and block until done.
 
         Args:
-            timeout: Max seconds to wait for completion.
+            timeout_s: Max seconds to wait for completion.
         """
         if not self._scope.led_connected:
             logger.warning('[SCOPE API ] LED controller not available.')
@@ -394,7 +394,7 @@ class IlluminationAPI:
         task = IOTask(action=self.leds_off)
         fut = ex.put(task, return_future=True)
         if fut:
-            fut.result(timeout=timeout)
+            fut.result(timeout=timeout_s)
 
     # --- State ---
     def get_led_ma(self, color: str) -> float:
@@ -606,13 +606,13 @@ class IlluminationAPI:
         self._driver.leds_disable()
 
     # --- Wait ---
-    def wait_until_led_on(self, timeout: float = 5.0) -> bool:
+    def wait_until_led_on(self, timeout_s: float = 5.0) -> bool:
         """Block until the LED board confirms an LED is on.
 
         Mirrors motion.wait_until_finished_moving in shape.
 
         Args:
-            timeout: Maximum seconds to wait (default 5s).
+            timeout_s: Maximum seconds to wait (default 5s).
 
         Returns:
             bool: True if confirmed on, False on timeout / no driver /
@@ -620,7 +620,7 @@ class IlluminationAPI:
         """
         if not self._driver:
             return False
-        return self._driver.wait_until_on(timeout)
+        return self._driver.wait_until_on(timeout_s)
 
     # --- Channel mapping ---
     def ch2color(self, channel: int) -> 'str | None':

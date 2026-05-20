@@ -773,11 +773,11 @@ class SimulatedCamera(Camera):
 
         return True, img, self._last_grab_ts
 
-    def grab_new_capture(self, timeout: float) -> tuple:
+    def grab_new_capture(self, timeout_s: float) -> tuple:
         """Generate a fresh image (blocking with timeout).
 
         Args:
-            timeout: Accepted for API parity; a small per-call delay
+            timeout_s: Accepted for API parity; a small per-call delay
                 proportional to exposure is applied (capped at 0.1 s).
 
         Returns:

@@ -842,31 +842,31 @@ class ImagingAPI:
             )
             raise
 
-    def set_gain_sync(self, gain_db, *, timeout: float = 5.0) -> None:
+    def set_gain_sync(self, gain_db, *, timeout_s: float = 5.0) -> None:
         """Run ``set_gain`` through the camera_executor and block until done.
 
         Args:
             gain_db: Gain value in dB.
-            timeout: Max seconds to wait for completion.
+            timeout_s: Max seconds to wait for completion.
         """
         ex = self._scope._require_executor(self._scope._camera_executor, 'set_gain_sync')
         task = IOTask(action=self.set_gain, args=(gain_db,))
         fut = ex.put(task, return_future=True)
         if fut:
-            fut.result(timeout=timeout)
+            fut.result(timeout=timeout_s)
 
-    def set_exposure_sync(self, exposure_ms, *, timeout: float = 5.0) -> None:
+    def set_exposure_sync(self, exposure_ms, *, timeout_s: float = 5.0) -> None:
         """Run ``set_exposure_time`` through the camera_executor and block.
 
         Args:
             exposure_ms: Exposure time in milliseconds.
-            timeout: Max seconds to wait for completion.
+            timeout_s: Max seconds to wait for completion.
         """
         ex = self._scope._require_executor(self._scope._camera_executor, 'set_exposure_sync')
         task = IOTask(action=self.set_exposure_time, args=(exposure_ms,))
         fut = ex.put(task, return_future=True)
         if fut:
-            fut.result(timeout=timeout)
+            fut.result(timeout=timeout_s)
 
     def set_max_acquisition_frame_rate(
         self,
@@ -1090,7 +1090,7 @@ class ImagingAPI:
                          exclude_sources: tuple = (),
                          all_ones_check: bool = False,
                          earliest_image_ts: datetime.datetime | None = None,
-                         timeout: float = 0.0,
+                         timeout_s: float = 0.0,
                          sum_count: int = 1, sum_delay_s: float = 0,
                          sum_iteration_callback=None) -> 'np.ndarray | bool':
         """Capture a frame guaranteed to reflect the current hardware state.
@@ -1112,7 +1112,7 @@ class ImagingAPI:
                 Forwarded to the final get_image call; complements the
                 frame-validity drain for callers that also want a wall-clock
                 lower bound on the returned frame.
-            timeout: Timeout for the final get_image call.
+            timeout_s: Timeout (seconds) for the final get_image call.
             sum_count: Number of frames to sum for noise reduction.
             sum_delay_s: Delay between summed frames.
             sum_iteration_callback: Called after each summed frame.
@@ -1125,7 +1125,7 @@ class ImagingAPI:
             return False
 
         exposure_s = self.get_exposure_time() / 1000
-        grab_timeout = max(exposure_s * 3, 1.0)
+        grab_timeout_s = max(exposure_s * 3, 1.0)
 
         # Drain stale frames until all pending state changes have settled.
         # Per-frame chunk metadata flows into count_frame so chunks short-
@@ -1134,7 +1134,7 @@ class ImagingAPI:
         # skip-frames + settle-check path.
         drain_iterations = 0
         while self.frame_validity.frames_until_valid(exclude_sources=exclude_sources) > 0:
-            status, _ = self._driver.grab_new_capture(timeout=grab_timeout)
+            status, _ = self._driver.grab_new_capture(timeout_s=grab_timeout_s)
             if status:
                 self.frame_validity.count_frame(chunk_data=self._get_latest_chunks())
                 drain_iterations += 1
@@ -1149,7 +1149,7 @@ class ImagingAPI:
                 logger.warning(
                     f'[SCOPE API ] capture_and_wait: frame drain failed -- '
                     f'grab_new_capture returned status=False after '
-                    f'{grab_timeout:.1f}s timeout '
+                    f'{grab_timeout_s:.1f}s timeout '
                     f'(drained={drain_iterations}, frames_until_valid={remaining}, '
                     f'device_removed={device_removed})'
                 )
@@ -1159,19 +1159,19 @@ class ImagingAPI:
             force_to_8bit=force_to_8bit,
             earliest_image_ts=earliest_image_ts,
             all_ones_check=all_ones_check,
-            timeout=timeout,
+            timeout_s=timeout_s,
             sum_count=sum_count,
             sum_delay_s=sum_delay_s,
             sum_iteration_callback=sum_iteration_callback,
             force_new_capture=True,
-            new_capture_timeout=grab_timeout,
+            new_capture_timeout_s=grab_timeout_s,
         )
 
-    def capture_and_wait_sync(self, *, timeout: float = 30.0, **kwargs) -> 'np.ndarray | bool | None':
+    def capture_and_wait_sync(self, *, timeout_s: float = 30.0, **kwargs) -> 'np.ndarray | bool | None':
         """Run ``capture_and_wait`` through the camera_executor and block.
 
         Args:
-            timeout: Max seconds to wait for completion.
+            timeout_s: Max seconds to wait for completion.
             **kwargs: Forwarded to ``capture_and_wait``.
 
         Returns:
@@ -1181,20 +1181,20 @@ class ImagingAPI:
         task = IOTask(action=self.capture_and_wait, kwargs=kwargs)
         fut = ex.put(task, return_future=True)
         if fut:
-            return fut.result(timeout=timeout)
+            return fut.result(timeout=timeout_s)
         return None
 
     def get_image(
         self,
         force_to_8bit: bool = True,
         earliest_image_ts: datetime.datetime | None = None,
-        timeout: float = 5.0,
+        timeout_s: float = 5.0,
         all_ones_check: bool = False,
         sum_count: int = 1,
         sum_delay_s: float = 0,
         sum_iteration_callback = None,
         force_new_capture: bool = False,
-        new_capture_timeout: float = 5.0,
+        new_capture_timeout_s: float = 5.0,
     ) -> 'np.ndarray | bool':
         """Grab and return an image from the camera.
 
@@ -1205,15 +1205,17 @@ class ImagingAPI:
         Args:
             force_to_8bit: Convert 12-bit images to 8-bit output.
             earliest_image_ts: Reject frames captured before this timestamp.
-            timeout: Max seconds to wait for a valid frame.
+            timeout_s: Max seconds to wait for a valid frame.
             all_ones_check: Reject saturated (all-max-value) frames.
             sum_count: Number of frames to sum for noise reduction.
             sum_delay_s: Delay in seconds between summed frames.
             sum_iteration_callback: Called after each summed frame.
             force_new_capture: If True, wait for a new camera capture.
-            new_capture_timeout: Max seconds to wait for the new-capture grab
-                (passed directly to driver.grab_new_capture). Was historically
-                labeled "ms" but the value path is seconds; corrected pre-freeze.
+            new_capture_timeout_s: Max seconds to wait for the new-capture
+                grab (passed positionally to driver.grab_new_capture). The
+                historical bare name `new_capture_timeout` claimed "ms" in
+                docs while the value flowed unchanged into a seconds API;
+                the unit-suffix rename closes the contract ambiguity.
 
         Returns:
             numpy.ndarray | False: Captured image array, or False on failure.
@@ -1223,17 +1225,17 @@ class ImagingAPI:
             return False
 
         tmp_buffer = []
-        timeout_td = datetime.timedelta(seconds=timeout)
+        timeout_td = datetime.timedelta(seconds=timeout_s)
         for idx in range(sum_count):
             start_time = datetime.datetime.now()
             stop_time = start_time + timeout_td
 
             while True:
-                # Acquire cam_lock for camera grab — prevents concurrent
+                # Acquire cam_lock for camera grab -- prevents concurrent
                 # set_gain/set_exposure from another thread mid-frame.
                 with self._scope._cam_lock:
                     if force_new_capture:
-                        grab_status, grab_image_ts = self._driver.grab_new_capture(new_capture_timeout)
+                        grab_status, grab_image_ts = self._driver.grab_new_capture(new_capture_timeout_s)
                     else:
                         grab_status, grab_image_ts = self._driver.grab()
 
@@ -1263,7 +1265,7 @@ class ImagingAPI:
                     # too high), not a camera error. Don't loop until timeout.
                     retry_frame = None
                     with self._scope._cam_lock:
-                        retry_status, _ = self._driver.grab_new_capture(new_capture_timeout) if force_new_capture else self._driver.grab()
+                        retry_status, _ = self._driver.grab_new_capture(new_capture_timeout_s) if force_new_capture else self._driver.grab()
                         if retry_status:
                             self.frame_validity.count_frame()
                             retry_frame = self._driver.get_array()

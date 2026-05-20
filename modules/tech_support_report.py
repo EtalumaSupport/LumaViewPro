@@ -717,7 +717,7 @@ class FirmwareDiagnostics:
         """
         if not self._led_ok():
             return False
-        return self._scope.diagnostics.enter_led_engineering_mode(timeout=5)
+        return self._scope.diagnostics.enter_led_engineering_mode(timeout_s=5)
 
     def _exit_engineering(self):
         """Exit LED engineering mode via the diagnostics sub-API.

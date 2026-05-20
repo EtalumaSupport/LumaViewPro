@@ -703,7 +703,7 @@ class MotionAPI:
             self._turreting_event.clear()
 
     def move_absolute_sync(self, axis, pos, *, wait_until_complete=True,
-                           overshoot_enabled=True, timeout=30) -> None:
+                           overshoot_enabled=True, timeout_s=30) -> None:
         """Run ``move_absolute_position`` through the io_executor and block.
 
         Blocks until both the IOTask completes and (when
@@ -714,7 +714,7 @@ class MotionAPI:
             pos: Target position in um.
             wait_until_complete: If True, block until move finishes.
             overshoot_enabled: Allow Z overshoot for backlash compensation.
-            timeout: Max seconds to wait for completion.
+            timeout_s: Max seconds to wait for completion.
         """
         from modules.sequential_io_executor import IOTask  # local-import: avoid cycle
         ex = self._scope._require_executor(self._scope._io_executor, 'move_absolute_sync')
@@ -729,7 +729,7 @@ class MotionAPI:
         )
         fut = ex.put(task, return_future=True)
         if fut:
-            fut.result(timeout=timeout)
+            fut.result(timeout=timeout_s)
 
     def move_relative_async(self, axis, um, *, wait_until_complete=False,
                             overshoot_enabled=True, callback=None,
@@ -1194,7 +1194,7 @@ class MotionAPI:
             self.wait_until_finished_moving()
             self._set_axis_state(axis, AxisState.IDLE)
 
-    def wait_until_finished_moving(self, timeout: float = 120.0) -> bool:
+    def wait_until_finished_moving(self, timeout_s: float = 120.0) -> bool:
         """Block until all axes have reached their target positions.
 
         Waits on per-axis arrival events set by the motion monitor thread.
@@ -1202,12 +1202,12 @@ class MotionAPI:
         happen on the monitor thread at 50 Hz.
 
         Args:
-            timeout: Maximum seconds to wait (default 120s).
+            timeout_s: Maximum seconds to wait (default 120s).
 
         Returns:
             bool: True if all axes arrived, False if timed out.
         """
-        deadline = time.monotonic() + timeout
+        deadline = time.monotonic() + timeout_s
         # Iterate arrival events directly (not axes_present) so a transient
         # motion.detect_present_axes() failure at call time can never cause
         # this to return True without actually waiting for the in-flight

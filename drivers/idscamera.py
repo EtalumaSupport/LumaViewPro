@@ -643,12 +643,12 @@ class IDSCamera(Camera):
 
     # grab() inherited from Camera base class
 
-    def grab_new_capture(self, timeout):
+    def grab_new_capture(self, timeout_s):
         if not self.cam_image_handler:
             return False, None
 
         try:
-            buffer = self.data_stream.WaitForFinishedBuffer(timeout)
+            buffer = self.data_stream.WaitForFinishedBuffer(timeout_s)
             result = not buffer.IsIncomplete()
             if not result:
                 self.data_stream.QueueBuffer(buffer)

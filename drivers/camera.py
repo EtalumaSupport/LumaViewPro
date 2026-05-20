@@ -700,14 +700,14 @@ class Camera(ABC):
             return False, None, None, None
 
     @abstractmethod
-    def grab_new_capture(self, timeout: float) -> tuple:
+    def grab_new_capture(self, timeout_s: float) -> tuple:
         """Grab a fresh capture-quality frame, waiting if necessary.
 
         Used by the still-capture path to guarantee the returned frame
         was acquired after the call (not a stale live-preview frame).
 
         Args:
-            timeout: Maximum wait in seconds.
+            timeout_s: Maximum wait in seconds.
 
         Returns:
             tuple: ``(success: bool, image: np.ndarray | None,

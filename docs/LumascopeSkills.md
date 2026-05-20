@@ -333,7 +333,7 @@ scope.illumination.color2ch('Blue')                    # 0  (or -1 if the scope 
 scope.illumination.ch2color(0)                         # 'Blue'
 
 # Wait for firmware confirmation (mirrors motion.wait_until_finished_moving)
-scope.illumination.wait_until_led_on(timeout=5.0)      # True if confirmed on, False on timeout
+scope.illumination.wait_until_led_on(timeout_s=5.0)    # True if confirmed on, False on timeout
 ```
 
 **Safety limits** (enforced by firmware on RP2040 boards): per-channel max 1000 mA, board total max 3000 mA. FX2 boards have their own per-channel cap declared in the camera profile.
@@ -607,7 +607,7 @@ probe = scope.diagnostics.run_pylon_diagnostic_probe(
 # target is 'led' or 'motor'.
 resp = scope.diagnostics.send_diagnostic_command('led', 'INFO')
 lines = scope.diagnostics.send_diagnostic_command_multiline(
-    'led', 'SELFTEST', timeout=60,
+    'led', 'SELFTEST', timeout_s=60,
 )
 
 # Motor-board power / driver / fan diagnostics (already on
@@ -619,7 +619,7 @@ ok = scope.diagnostics.set_motor_fan_duty(50)              # bool
 
 # LED engineering-mode handshake (FACTORY / Y / Q with post-Q drain).
 # Use these in place of open-coded send_diagnostic_command sequences.
-ok = scope.diagnostics.enter_led_engineering_mode(timeout=5.0)
+ok = scope.diagnostics.enter_led_engineering_mode(timeout_s=5.0)
 scope.diagnostics.exit_led_engineering_mode()
 ```
 

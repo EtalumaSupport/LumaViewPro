@@ -877,7 +877,7 @@ class TestAxisState:
         sim_scope.motion.move_absolute_position('Z', 1000, wait_until_complete=False)
         # In simulation, the move completes instantly. The motion monitor thread
         # detects arrival at 50Hz and transitions state to IDLE.
-        sim_scope.motion.wait_until_finished_moving(timeout=2.0)
+        sim_scope.motion.wait_until_finished_moving(timeout_s=2.0)
         assert not sim_scope.motion.is_moving()
         assert sim_scope.motion.get_axis_state('Z') == AxisState.IDLE
 
@@ -7662,8 +7662,9 @@ class TestProtocolIOTimeoutsAreNotShort:
 
 class TestWaitUntilLedOnSymmetry:
     """Audit Finding #8 -- illumination.wait_until_led_on mirrors
-    motion.wait_until_finished_moving in shape: takes a `timeout` kwarg
-    and returns a bool."""
+    motion.wait_until_finished_moving in shape: takes a `timeout_s`
+    kwarg (renamed from bare `timeout` in audit U6) and returns a
+    bool."""
 
     def test_signature_has_timeout_kwarg_with_default(self):
         import inspect
@@ -7671,10 +7672,13 @@ class TestWaitUntilLedOnSymmetry:
 
         sig = inspect.signature(IlluminationAPI.wait_until_led_on)
         params = sig.parameters
-        assert 'timeout' in params, "wait_until_led_on must accept timeout kwarg"
-        assert params['timeout'].default == 5.0
+        assert 'timeout_s' in params, "wait_until_led_on must accept timeout_s kwarg"
+        assert 'timeout' not in params, (
+            "wait_until_led_on must not still expose bare `timeout` (audit U6)"
+        )
+        assert params['timeout_s'].default == 5.0
         # `from __future__ import annotations` -> string forms.
-        assert params['timeout'].annotation in (float, 'float')
+        assert params['timeout_s'].annotation in (float, 'float')
 
     def test_returns_bool_annotation(self):
         import inspect
@@ -7688,7 +7692,7 @@ class TestWaitUntilLedOnSymmetry:
         original = sim_scope._led_driver
         sim_scope._led_driver = None
         try:
-            result = sim_scope.illumination.wait_until_led_on(timeout=0.1)
+            result = sim_scope.illumination.wait_until_led_on(timeout_s=0.1)
         finally:
             sim_scope._led_driver = original
         assert result is False
@@ -7742,10 +7746,10 @@ class TestImagingTimeoutsAreFloatSeconds:
     `grab_new_capture(timeout: float)` which is seconds."""
 
     _METHODS_AND_TIMEOUTS = (
-        ('set_gain_sync', 'timeout', 5.0),
-        ('set_exposure_sync', 'timeout', 5.0),
-        ('capture_and_wait', 'timeout', 0.0),
-        ('capture_and_wait_sync', 'timeout', 30.0),
+        ('set_gain_sync', 'timeout_s', 5.0),
+        ('set_exposure_sync', 'timeout_s', 5.0),
+        ('capture_and_wait', 'timeout_s', 0.0),
+        ('capture_and_wait_sync', 'timeout_s', 30.0),
     )
 
     def test_timeout_default_is_float(self):
@@ -7769,25 +7773,31 @@ class TestImagingTimeoutsAreFloatSeconds:
         from modules.lumascope_api.imaging import ImagingAPI
 
         sig = inspect.signature(ImagingAPI.get_image)
-        timeout = sig.parameters['timeout']
-        assert isinstance(timeout.default, float), (
-            f'get_image.timeout default {timeout.default!r} not float seconds; '
+        timeout_s = sig.parameters['timeout_s']
+        assert isinstance(timeout_s.default, float), (
+            f'get_image.timeout_s default {timeout_s.default!r} not float seconds; '
             f'previously datetime.timedelta'
         )
-        assert timeout.default == 5.0
+        assert timeout_s.default == 5.0
+        assert 'timeout' not in sig.parameters, (
+            "get_image must not still expose bare `timeout` (audit U6 rename)"
+        )
 
     def test_get_image_new_capture_timeout_is_float_seconds(self):
         # The audit said "rename to *_ms if SDK demands ms"; verification
-        # showed the driver takes seconds, so we keep the name + canonicalize
+        # showed the driver takes seconds, so we kept the name + canonicalized
         # to float seconds. Default was 1000 (an int interpreted as 1000s by
-        # the driver path -- never exercised). Now 5.0 seconds.
+        # the driver path -- never exercised). Now 5.0 seconds. U6 added the
+        # _s unit suffix to make the documented seconds unit explicit on the
+        # parameter name itself.
         import inspect
         from modules.lumascope_api.imaging import ImagingAPI
 
         sig = inspect.signature(ImagingAPI.get_image)
-        nct = sig.parameters['new_capture_timeout']
+        nct = sig.parameters['new_capture_timeout_s']
         assert isinstance(nct.default, float)
         assert nct.default == 5.0
+        assert 'new_capture_timeout' not in sig.parameters
 
 
 class TestImagingGetCameraTempsRetired:
@@ -7829,13 +7839,16 @@ class TestSaveLiveImageTimeoutIsFloat:
         from modules.image_save import save_live_image
 
         sig = inspect.signature(save_live_image)
-        timeout_param = sig.parameters['timeout']
+        timeout_param = sig.parameters['timeout_s']
         # Reject the previous timedelta default.
         assert not isinstance(timeout_param.default, __import__('datetime').timedelta), (
-            'save_live_image.timeout default must be float seconds, not timedelta'
+            'save_live_image.timeout_s default must be float seconds, not timedelta'
         )
         assert isinstance(timeout_param.default, float)
         assert timeout_param.default == 5.0
+        assert 'timeout' not in sig.parameters, (
+            "save_live_image must not still expose bare `timeout` (audit U6 rename)"
+        )
 
     def test_default_timeout_flows_through_capture_and_wait_without_crash(self, sim_scope):
         # The original regression was: save_live_image's timedelta default
@@ -7843,25 +7856,27 @@ class TestSaveLiveImageTimeoutIsFloat:
         # `datetime.timedelta(seconds=timeout)` rejected timedelta with
         # TypeError. This test exercises the same forwarding path that
         # save_live_image uses (line 484-491), with the new float default.
-        # If a future revert restores `timeout: datetime.timedelta`, the
+        # If a future revert restores `timeout_s: datetime.timedelta`, the
         # signature test above fails first; if some other regression
         # restores the TypeError at the get_image conversion, this fails.
+        # U6 renamed the keyword from `timeout` to `timeout_s` across the
+        # imaging API; this test follows.
         import inspect
         from modules.image_save import save_live_image
 
-        timeout_default = inspect.signature(save_live_image).parameters['timeout'].default
+        timeout_default = inspect.signature(save_live_image).parameters['timeout_s'].default
         try:
             sim_scope.imaging.capture_and_wait(
                 force_to_8bit=True,
                 all_ones_check=False,
-                timeout=timeout_default,
+                timeout_s=timeout_default,
                 sum_count=1,
                 sum_delay_s=0,
             )
         except TypeError as e:
             raise AssertionError(
                 f'capture_and_wait raised TypeError when given save_live_image\'s '
-                f'default timeout ({timeout_default!r}): {e}. '
+                f'default timeout_s ({timeout_default!r}): {e}. '
                 f'Phase-2 audit P2-1 regression has returned.'
             )
 
@@ -7940,3 +7955,69 @@ class TestImagingParamNamesUseUnitSuffix:
         params = set(inspect.signature(method).parameters)
         assert 'exposure_ms' in params, 'Camera.exposure_t missing exposure_ms param'
         assert 't' not in params, 'Camera.exposure_t still has bare `t` param'
+
+
+class TestTimeoutParamNamesUseSecondSuffix:
+    """Audit U6 timeout sweep -- L2 API methods carrying a wall-clock
+    timeout parameter use ``timeout_s`` (seconds-unit suffix) rather
+    than the historical bare ``timeout``. Lock the rename so a revert
+    breaks the L2 contract visibly.
+
+    fx2driver is explicitly exempt (pyusb-native uses int ms with
+    distinct semantics; documented at the audit's Finding #49). The
+    deep board-protocol-internal timeouts (serialboard, motorboard,
+    raw_repl, firmware_updater) keep bare ``timeout`` to match the
+    underlying pyserial / stdlib API names."""
+
+    _SECONDS_TIMEOUT_METHODS = (
+        # (module-path, class-or-fn, method_name_or_None)
+        ('modules.lumascope_api.motion', 'MotionAPI', 'wait_until_finished_moving'),
+        ('modules.lumascope_api.motion', 'MotionAPI', 'move_absolute_sync'),
+        ('modules.lumascope_api.illumination', 'IlluminationAPI', 'led_on_sync'),
+        ('modules.lumascope_api.illumination', 'IlluminationAPI', 'leds_off_sync'),
+        ('modules.lumascope_api.illumination', 'IlluminationAPI', 'wait_until_led_on'),
+        ('modules.lumascope_api.imaging', 'ImagingAPI', 'set_gain_sync'),
+        ('modules.lumascope_api.imaging', 'ImagingAPI', 'set_exposure_sync'),
+        ('modules.lumascope_api.imaging', 'ImagingAPI', 'capture_and_wait'),
+        ('modules.lumascope_api.imaging', 'ImagingAPI', 'capture_and_wait_sync'),
+        ('modules.lumascope_api.imaging', 'ImagingAPI', 'get_image'),
+        ('modules.lumascope_api.diagnostics', 'DiagnosticsAPI',
+         'enter_led_engineering_mode'),
+        ('modules.scope_session', 'ScopeSession', 'led_on_sync'),
+    )
+
+    def test_api_methods_use_timeout_s(self):
+        import importlib
+        import inspect
+
+        for module_path, class_name, method_name in self._SECONDS_TIMEOUT_METHODS:
+            module = importlib.import_module(module_path)
+            cls = getattr(module, class_name)
+            method = getattr(cls, method_name)
+            params = set(inspect.signature(method).parameters)
+            assert 'timeout_s' in params, (
+                f'{class_name}.{method_name} must accept `timeout_s` per audit U6'
+            )
+            assert 'timeout' not in params, (
+                f'{class_name}.{method_name} still has bare `timeout` (U6 rename incomplete)'
+            )
+
+    def test_save_live_image_uses_timeout_s(self):
+        """The save_live_image helper participates in the same sweep."""
+        import inspect
+        from modules.image_save import save_live_image
+
+        params = set(inspect.signature(save_live_image).parameters)
+        assert 'timeout_s' in params
+        assert 'timeout' not in params
+
+    def test_driver_grab_new_capture_uses_timeout_s(self):
+        """L2-mirror driver method -- grab_new_capture is invoked from
+        ImagingAPI.capture_and_wait and ImagingAPI.get_image with a
+        seconds value, and now exposes that unit on the signature."""
+        import inspect
+        from drivers.camera import Camera
+
+        params = set(inspect.signature(Camera.grab_new_capture).parameters)
+        assert 'timeout_s' in params
+        assert 'timeout' not in params
