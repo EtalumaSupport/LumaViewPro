@@ -684,11 +684,6 @@ def test_no_diagnostic_facade_getter_calls_on_bare_scope_in_production():
     )
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="flips at Phase 7c when get_system_info body relocates -- "
-           "3 self.X self-calls go with it (per plan §9 #5)",
-)
 def test_no_self_diagnostic_facade_getter_calls_in_lumascope():
     """Lumascope's own methods must not reach diagnostic facade getters
     via bare `self.X` -- get_system_info's 3 self-calls migrate naturally
