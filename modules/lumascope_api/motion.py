@@ -535,7 +535,7 @@ class MotionAPI:
         pos = self._driver.current_pos(axis)
         return pos if pos is not None else 0.0
 
-    def set_motor_precision_mode(self, axis: str, enabled: bool) -> None:
+    def set_precision_mode(self, axis: str, enabled: bool) -> None:
         """Set motor precision mode for an axis.
 
         Precision mode uses accurate but slightly slower motor stopping.

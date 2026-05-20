@@ -126,7 +126,7 @@ MOTION_ONLY_METHODS = frozenset({
     'move_home_async', 'move_relative_async', 'move_relative_position',
     'refresh_position_cache', 'remove_position_listener',
     'safe_turret_move', 'set_acceleration_limit',
-    'set_motor_precision_mode', 'stop_motion', 'thome', 'tmove',
+    'set_precision_mode', 'stop_motion', 'thome', 'tmove',
     'wait_until_finished_moving', 'xycenter', 'zhome',
 })
 
