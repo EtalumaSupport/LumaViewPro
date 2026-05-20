@@ -36,30 +36,6 @@ class CompositeCapture(FloatLayout):
     def __init__(self, **kwargs):
         super(CompositeCapture,self).__init__(**kwargs)
 
-    # Gets the current well label (ex. A1, C2, ...)
-    def get_well_label(self):
-        from modules.config_ui_getters import get_selected_labware
-
-        ctx = _app_ctx.ctx
-        _, labware = get_selected_labware()
-
-        # Get target position
-        try:
-            x_target = ctx.scope.motion.get_target_position('X')
-            y_target = ctx.scope.motion.get_target_position('Y')
-        except Exception:
-            logger.exception('[LVP Main  ] Error talking to Motor board.')
-            raise
-
-        x_target, y_target = ctx.coordinate_transformer.stage_to_plate(
-            labware=labware,
-            stage_offset=ctx.settings['stage_offset'],
-            sx=x_target,
-            sy=y_target
-        )
-
-        return labware.get_well_label(x=x_target, y=y_target)
-
 
     def live_capture(self):
         gui_logger.button('LIVE_CAPTURE')
@@ -83,7 +59,7 @@ class CompositeCapture(FloatLayout):
 
         file_root = 'live_'
         color = 'BF'
-        well_label = self.get_well_label()
+        well_label = ctx.scope.get_well_label()
 
         use_full_pixel_depth = ctx.scope_display.use_full_pixel_depth
         force_to_8bit_pixel_depth = not use_full_pixel_depth
@@ -441,7 +417,7 @@ class CompositeCapture(FloatLayout):
         )
 
         # File saving can run on this thread (no UI dependency)
-        append = f'{self.get_well_label()}'
+        append = f'{ctx.scope.get_well_label()}'
 
         save_folder = pathlib.Path(live_folder) / "Manual"
         save_folder.mkdir(parents=True, exist_ok=True)
