@@ -5,7 +5,7 @@
 | Phase | Status | Branch | Notes |
 |---|---|---|---|
 | Plugin platform Phase A -- registry + namespaces + test harness | **shipped (LVP `143fec1` cherry-pick onto `4.0.0-beta`)** | `4.0.0-beta` | `modules/plugins/__init__.py` + AppContext.plugins field + startup/shutdown wire-up + plugin test harness fixture. Originally on `4.0.0-plugin-platform` as `b5f9354`; cherry-picked onto beta 2026-05-17 evening via `4.0.0-plugin-consolidated` then merged. |
-| Plugin platform Phase B1 -- entry-points config in etaluma-engineering | **shipped (Firmware `b95624c`)** | `3.0-firmware` | `[project.entry-points."lvp.plugins"]` block added to `etaluma-engineering/pyproject.toml` 2026-05-17 evening. Both legacy import-by-name and new entry-points discovery paths coexisted briefly; B2 then retired the legacy path. Operational requirement: every dev/bench machine must re-run `pip install -e Firmware/etaluma-engineering/` once to register the entry-point. |
+| Plugin platform Phase B1 -- entry-points config in etaluma-engineering | **shipped (`b95624c`)** | `3.0-firmware` | `[project.entry-points."lvp.plugins"]` block added to `etaluma-engineering/pyproject.toml` 2026-05-17 evening. Both legacy import-by-name and new entry-points discovery paths coexisted briefly; B2 then retired the legacy path. |
 | Plugin platform Phase B2 -- LVP retires import-by-name fallback + engineering plugin refactor | **shipped (Firmware `d3a7d57` + LVP `87cf33f` integrated landing)** | beta + `3.0-firmware` | etaluma_engineering 0.7.0: module-level `PluginSpec`, `register(ctx)` calls `ctx.plugins.ui.register(spec, 'left_sidebar.accordion', builder)`, owns the engineering-mode auto-enable side effect (gated on `ctx.no_engineering`). LVP-side: deleted `try: import etaluma_engineering` block at lumaviewpro.py:770-797, added UI-mount consumer that iterates `ctx.plugins.ui.mounts()` and attaches widgets, switched `enable_engineering_logs` to read `ctx.engineering_mode` (the plugin may have flipped it). End-to-end verified: uninstalled vs reinstalled launches behave correctly (no plugin discovered/mounted vs `[Plugins ] etaluma_engineering v0.7.1 loaded` + `[LVP Main  ] Mounted etaluma_engineering at left_sidebar.accordion`). |
 | Plugin platform -- auto-run on protocol complete | **shipped (LVP `312d755`)** | `4.0.0-beta` | New `PluginSpec.auto_run_on_protocol_complete: bool = False` field + `PostProcessingRegistry.handlers()` iterator + `run_protocol_complete_processors()` dispatcher + UI hook in `_dispatch_post_processing_auto_run()` (called from both completion paths). Per-plugin exceptions caught + logged + recorded via `record_runtime_error`. UI-trigger only today; REST-trigger expansion deferred until orchestration-layer relocation. Default False -- stitcher canary opted out so behavior at startup is identical. |
 | Post-processing canary (Stitcher) | **shipped (LVP `c83e3ec` cherry-pick onto `4.0.0-beta`)** | `4.0.0-beta` | Stitcher canary as worked example for the intern tutorial. Cherry-picked onto beta 2026-05-17 evening via `4.0.0-plugin-consolidated`. Canary stays at `auto_run_on_protocol_complete=False` so it remains a registration validator, not a workhorse that would stitch every protocol unexpectedly. |
@@ -708,7 +708,7 @@ retire old + forwarders".
 - Skeleton + driver-rename sweep: 1-2 days
 - Test triage (per-site decision: migrate to sub-API per Rule 22 OR keep private-handle access with comment): 3-5 days
 - conftest fixture updates: 1 day
-- Cross-repo coordination (Firmware + Firmware/etaluma-engineering + LVP -- see pass-3 layer-audit Fact 2: engineering plugin lives in the Firmware repo, not in LVP): 1-2 days
+- Cross-repo coordination with the engineering plugin (paired API-migration commits + dev/bench reinstall): 1-2 days
 - **Total Phase 1**: 5-7 days, not 1-2
 
 Work items:
@@ -724,8 +724,8 @@ Work items:
 - Driver attribute renames: `self.motion -> self._motion_driver`,
   `self.led -> self._led_driver`, `self.camera -> self._camera_driver`.
   Sweep all 268 internal call sites
-- Update `etaluma_engineering` plugin (in the Firmware repo, not LVP): any `scope.motion` driver-direct
-  access becomes `scope._motion_driver` (same-commit edit; the engineering plugin lives at `Firmware/etaluma-engineering/etaluma_engineering/` and ships its own `pip install -e` cycle separately from LVP)
+- Update `etaluma_engineering` plugin: any `scope.motion` driver-direct
+  access becomes `scope._motion_driver` (same-commit edit; the plugin ships its own `pip install -e` cycle separately from LVP)
 - Update tests: 259 driver-direct sites across 14 files get per-site triage; migrate to sub-API per Rule 22 OR keep private-handle access (`scope._motion_driver.<method>()`) with a comment justifying the driver-internal test. Update `scope_capabilities.py:9-10` docstring same-commit (per pass-2 M-5)
 - Methods stay on `Lumascope` for this phase; nothing moves yet
 - All existing public callers still work (sub-APIs exist but empty)
@@ -736,7 +736,7 @@ Work items:
 - Smoke assertion in conftest: `isinstance(scope.motion, MotionAPI)` (not a driver instance)
 - `scope.motion`, `scope.illumination`, `scope.imaging`, `scope.diagnostics`, `scope.capabilities`, `scope.io` all accessible as sub-API instances; `scope._motion_driver`, `scope._led_driver`, `scope._camera_driver` accessible as driver instances
 - `scope_capabilities.py:9-10` docstring updated to reference new private-handle pattern (pass-2 M-5)
-- Engineering plugin builds + loads cleanly from the Firmware repo against the updated LVP
+- Engineering plugin builds + loads cleanly against the updated LVP
 
 ### Phase 2 -- Move motion methods to scope.motion (2-3 days)
 
@@ -817,17 +817,17 @@ Work items:
 - Phase 4 includes live_processing infrastructure (+3-4 days per D1)
 - Phase 3 includes IlluminationAPI channel-spec rename + ScopeCapabilities `illuminators` widening (+3-5 days per D3)
 - LumascopeSkills.md TOC restructure (per §6.6, +1-2 days)
-- Cross-repo coordination LVP + Firmware + Firmware/etaluma-engineering (3-repo per pass-3 layer-audit Fact 2)
+- Cross-repo coordination with the engineering plugin (paired commits + dev/bench reinstall)
 - ScopeSession Session-layer integration (one-line Rule 1 edit but the conceptual shift carries through every Phase's L2 contract update)
 
 ### Plugin platform implementation phases (separate, post-design)
 
-**Pass-3 amendment (2026-05-11) -- Phase B split (resolves pass-2 C-9 + C-13; THREE-repo coupling per pass-3 layer-audit Fact 2)**: Phase B splits into B1 + B2 to acknowledge that the engineering plugin lives in the Firmware repo (not LVP) and crosses THREE repos: LVP / Firmware / Firmware/etaluma-engineering (which is a sub-package of Firmware).
+**Pass-3 amendment (2026-05-11) -- Phase B split (resolves pass-2 C-9 + C-13)**: Phase B splits into B1 + B2 to acknowledge that the engineering plugin ships separately from LVP and must be reinstalled on every dev/bench machine in sequence with LVP's discovery change.
 
 - **Phase A (1-2 days)**: build `modules/plugins/__init__.py` with
   registry-of-registries; implement `ctx.plugins.<namespace>`,
   PluginSpec, mount points (one initial name per D10), loading flow per §4
-- **Phase B1 (1-2 days, was Phase B part 1)**: ship updated `Firmware/etaluma-engineering/` with `[project.entry-points]` block in `pyproject.toml` declaring the new entry-point group `lvp.plugins`. The plugin code itself still uses today's `register(ctx)` shape; BOTH discovery paths (entry-points + import-by-name fallback) work. Install on every dev machine via `pip install -e Firmware/etaluma-engineering/`. Verify no behavior change.
+- **Phase B1 (1-2 days, was Phase B part 1)**: ship the engineering-plugin update with `[project.entry-points]` block in `pyproject.toml` declaring the new entry-point group `lvp.plugins`. The plugin code itself still uses today's `register(ctx)` shape; BOTH discovery paths (entry-points + import-by-name fallback) work. Reinstall the plugin via `pip install -e` on every dev/bench machine after this lands. Verify no behavior change.
 - **Phase B2 (1 day, was Phase B part 2)**: LVP-side switches discovery to `entry_points` group `lvp.plugins`; retire the import-by-name fallback. Engineering plugin (now refactored to register against `ctx.plugins.ui` with the locked `left_sidebar.accordion` mount point) loads via entry-points only. Requires every dev/bench/lab machine to have completed Phase B1's `pip install -e` first; the operational sequence is "B1 lands -> reinstall on every machine -> B2 lands."
 - **Phase C (intern's work, weeks)**: first NEW post-processing plugin built
   against the platform. Hardens the contract; reveals gaps for fix-up.

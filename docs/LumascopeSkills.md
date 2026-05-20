@@ -10,7 +10,7 @@ The Lumascope SDK API documented in this file is **subject to breaking changes**
 
 If you are using this API before stabilization, **contact Etaluma support** so we know to consult you before structural changes. Internal LumaViewPro use does not trigger this requirement.
 
-The warning retires when (1) a tagged release publishes to PyPI / a public binary distribution channel AND (2) we have at least one named external consumer on record. See `Firmware/docs/CLAUDE.md` Rule 30 for the internal freeze trigger.
+The warning retires when (1) a tagged release publishes to PyPI / a public binary distribution channel AND (2) we have at least one named external consumer on record. Until both conditions hold, the API surface stays structurally fluid -- methods may be renamed, moved into sub-APIs, or retired without a deprecation cycle.
 
 ---
 
@@ -504,7 +504,7 @@ scope.imaging.remove_frame_listener(on_frame)
 - **Budget.** Each handler must complete within ~24 ms (anchored to a 30 fps target, half the inter-frame window). Over-budget invocations log a WARNING. After 30 consecutive over-budget hits, the handler is auto-removed and the user sees a notification.
 - **Re-entrancy.** A handler will not be re-entered on the same thread; the driver's fire-site is single-threaded.
 - **Plugin authors**: use `ctx.plugins.live_processing.register(spec, handler)` rather than calling `add_frame_listener` directly. The registry forwards through to this API and surfaces the plugin name in the budget-violation log.
-- **Tutorial**: `Firmware/docs/LIVE_PROCESSING_TUTORIAL.md` -- minimum-viable plugin example + failure-injection example + common pitfalls.
+- **Tutorial**: `docs/LIVE_PROCESSING_TUTORIAL.md` -- minimum-viable plugin example + failure-injection example + common pitfalls.
 
 ### Camera info
 
@@ -777,13 +777,13 @@ from modules.protocol import Protocol
 
 ## plugin platform reference
 
-Plugin platform spec lives alongside LumaViewPro; the live-processing tutorial lives in the Firmware repo internal docs.
+Plugin platform spec and live-processing tutorial both live alongside LumaViewPro.
 
 - **Design**: `docs/PLUGIN_API_DESIGN_2026-05-09.md` — the locked platform spec (PluginSpec, namespaces, registry contracts, loading sequence).
-- **Live-processing tutorial**: `Firmware/docs/LIVE_PROCESSING_TUTORIAL.md` — walkthrough for writing a `ctx.plugins.live_processing` plugin.
+- **Live-processing tutorial**: `docs/LIVE_PROCESSING_TUTORIAL.md` — walkthrough for writing a `ctx.plugins.live_processing` plugin.
 - **Namespaces (4.x)**: `ctx.plugins.ui`, `ctx.plugins.post_processing`, `ctx.plugins.live_processing`, `ctx.plugins.rest`.
 
-The engineering plugin (`etaluma-engineering/`) is the first production consumer of the plugin platform; see its `pyproject.toml` `entry_points` for a concrete example of how a plugin declares itself.
+A worked plugin example ships in `etaluma-engineering/`; see its `pyproject.toml` `entry_points` for how a plugin declares itself.
 
 ---
 

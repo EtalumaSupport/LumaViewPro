@@ -305,8 +305,8 @@ class LiveProcessingRegistry(_BaseNamespace):
 
     Handler signature is cb(image, timestamp, chunks). It runs on the
     camera SDK thread; see imaging.add_frame_listener docstring +
-    Firmware/docs/LIVE_PROCESSING_TUTORIAL.md (4d.5f) for the budget +
-    don't-mutate contract.
+    docs/LIVE_PROCESSING_TUTORIAL.md for the budget + don't-mutate
+    contract.
     """
 
     NAMESPACE = 'live_processing'
