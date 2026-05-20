@@ -248,41 +248,41 @@ Axes available depend on the scope — always check `scope.capabilities.axes`.
 
 ```python
 # Homing (required before movement)
-scope.home()                              # home everything the board has
-scope.zhome()                             # Z only
-scope.thome()                             # turret only
-scope.has_homed()                         # True if home() has ever succeeded
-scope.has_thomed()                        # turret-specific
+scope.motion.home()                              # home everything the board has
+scope.motion.zhome()                             # Z only
+scope.motion.thome()                             # turret only
+scope.motion.has_homed()                         # True if home() has ever succeeded
+scope.motion.has_thomed()                        # turret-specific
 
 # Position queries (µm for XYZ, 1–4 for turret). Read cache, no serial I/O.
-scope.get_current_position('Z')           # predicted position during motion, confirmed when idle
-scope.get_current_position()              # dict of all axes
-scope.get_target_position('Z')            # target µm
-scope.get_actual_position('Z')            # hardware position via serial (slow; use sparingly)
+scope.motion.get_current_position('Z')           # predicted position during motion, confirmed when idle
+scope.motion.get_current_position()              # dict of all axes
+scope.motion.get_target_position('Z')            # target µm
+scope.motion.get_actual_position('Z')            # hardware position via serial (slow; use sparingly)
 
 # Absolute moves (µm)
-scope.move_absolute_position('Z', 5000)
-scope.move_absolute_position('X', 60000, wait_until_complete=True)
+scope.motion.move_absolute_position('Z', 5000)
+scope.motion.move_absolute_position('X', 60000, wait_until_complete=True)
 
 # Relative moves (µm)
-scope.move_relative_position('Z', 100)
+scope.motion.move_relative_position('Z', 100)
 
 # Status
-scope.get_target_status('Z')              # True if target reached
-scope.is_moving()                         # any axis moving?
-scope.wait_until_finished_moving()        # block until all idle
-scope.get_overshoot()                     # Z overshoot in progress?
+scope.motion.get_target_status('Z')              # True if target reached
+scope.motion.is_moving()                         # any axis moving?
+scope.motion.wait_until_finished_moving()        # block until all idle
+scope.motion.get_overshoot()                     # Z overshoot in progress?
 
 # Turret
-scope.has_turret()
-scope.tmove(2)                            # turret position 2
+scope.motion.has_turret()
+scope.motion.tmove(2)                            # turret position 2
 
 # Stage
-scope.xycenter()                          # move to stage center
-scope.get_axis_limits('Z')                # {'min': 0, 'max': 14000}
-scope.get_axes_config()                   # all axes with limits + conversions
-scope.axes_present()                      # e.g. ['X', 'Y', 'Z', 'T']
-scope.has_axis('T')
+scope.motion.xycenter()                          # move to stage center
+scope.motion.get_axis_limits('Z')                # {'min': 0, 'max': 14000}
+scope.motion.get_axes_config()                   # all axes with limits + conversions
+scope.motion.axes_present()                      # e.g. ['X', 'Y', 'Z', 'T']
+scope.motion.has_axis('T')
 ```
 
 **Z overshoot:** firmware moves below target then approaches from below, eliminating leadscrew backlash for consistent focus.
@@ -292,8 +292,8 @@ scope.has_axis('T')
 ```python
 from modules.lumascope_api import AxisState
 
-scope.get_axis_state('Z')                 # 'idle', 'moving', 'homing', or 'unknown'
-scope.is_any_axis_moving()
+scope.motion.get_axis_state('Z')          # 'idle', 'moving', 'homing', or 'unknown'
+scope.motion.is_any_axis_moving()
 ```
 
 **Position listeners** (push-based):
@@ -302,8 +302,8 @@ scope.is_any_axis_moving()
 def on_position(axis: str, target: float, state: str):
     print(f"{axis} → {target:.1f}µm ({state})")
 
-scope.add_position_listener(on_position)
-scope.remove_position_listener(on_position)
+scope.motion.add_position_listener(on_position)
+scope.motion.remove_position_listener(on_position)
 ```
 
 ---
@@ -446,7 +446,13 @@ scope.imaging.get_max_height()
 # Binning
 scope.imaging.set_binning_size(2)
 scope.imaging.get_binning_size()
+
+# Acquisition frame-rate cap (camera-side; clamps sensor-readout pace)
+scope.imaging.set_max_acquisition_frame_rate(enabled=True, fps=10.0)
+scope.imaging.set_max_acquisition_frame_rate(enabled=False)   # remove cap
 ```
+
+The acquisition frame-rate cap lives on the camera driver and clamps frame production regardless of sensor-readout capability. Used by the manual-record path to match user-requested video FPS, and by characterization tools to bound capture rate during long-running probes. No-op on drivers that do not implement the underlying setter (warning logged). Distinct from `set_exposure_time` (per-frame integration time) and from any host-side throttling.
 
 ### Dynamic camera capabilities
 
@@ -627,7 +633,7 @@ caps.camera_pixel_size_um       # physical sensor pixel size
 Two important consequences:
 
 - **LED channel count varies by scope.** LS560/LS620 (FX2 driver) expose 4 channels (`BF`, `Blue`, `Green`, `Red`); RP2040-based scopes expose 6 (`BF`, `PC`, `DF`, `Blue`, `Green`, `Red`). Don't iterate over a hardcoded list — iterate over `caps.led_colors`.
-- **Some scopes have no motor at all.** LS560/LS620 have `caps.axes == ()`. Calling `scope.move_absolute_position('X', …)` against such a scope is a no-op, not an error — but your UI should hide motion controls based on `caps.has_xy_stage` etc.
+- **Some scopes have no motor at all.** LS560/LS620 have `caps.axes == ()`. Calling `scope.motion.move_absolute_position('X', …)` against such a scope is a no-op, not an error — but your UI should hide motion controls based on `caps.has_xy_stage` etc.
 
 ---
 
@@ -802,16 +808,16 @@ webwrite(url + "/led/off", struct());
 from modules.lumascope_api import Lumascope
 
 scope = Lumascope()
-scope.home()
-scope.wait_until_finished_moving()
+scope.motion.home()
+scope.motion.wait_until_finished_moving()
 
 scope.set_objective('10x Oly')
 scope.imaging.set_exposure_time(50)
 scope.imaging.set_gain(5.0)
 
-scope.move_absolute_position('X', 60000, wait_until_complete=True)
-scope.move_absolute_position('Y', 40000, wait_until_complete=True)
-scope.move_absolute_position('Z', 5000, wait_until_complete=True)
+scope.motion.move_absolute_position('X', 60000, wait_until_complete=True)
+scope.motion.move_absolute_position('Y', 40000, wait_until_complete=True)
+scope.motion.move_absolute_position('Z', 5000, wait_until_complete=True)
 
 from modules.image_save import save_image
 
@@ -875,7 +881,7 @@ z_start, z_end, z_step = 4000, 6000, 50    # µm
 scope.illumination.led_on('BF', 100)
 z = z_start
 while z <= z_end:
-    scope.move_absolute_position('Z', z, wait_until_complete=True)
+    scope.motion.move_absolute_position('Z', z, wait_until_complete=True)
     image = scope.imaging.capture_and_wait()
     save_image(
         scope,
@@ -899,8 +905,8 @@ wells = [('A1', 10.0, 20.0), ('A2', 19.0, 20.0), ('A3', 28.0, 20.0)]
 scope.illumination.led_on('BF', 100)
 for well_name, px, py in wells:
     sx, sy = ct.plate_to_stage(labware=labware_obj, stage_offset=offset, px=px, py=py)
-    scope.move_absolute_position('X', sx, wait_until_complete=True)
-    scope.move_absolute_position('Y', sy, wait_until_complete=True)
+    scope.motion.move_absolute_position('X', sx, wait_until_complete=True)
+    scope.motion.move_absolute_position('Y', sy, wait_until_complete=True)
 
     image = scope.imaging.capture_and_wait()
     save_image(
@@ -942,20 +948,22 @@ Use for development, CI, and unit tests without hardware.
 
 ```python
 scope = Lumascope(simulate=True)
-scope.camera.start_grabbing()
+scope._camera_driver.start_grabbing()   # simulator test setup; see note below
 
 # All API calls work identically:
 scope.illumination.led_on('Blue', 200)
-scope.move_absolute_position('Z', 5000)
+scope.motion.move_absolute_position('Z', 5000)
 image = scope.imaging.get_image()
 ```
 
-**Only in `simulate=True`**: `set_timing_mode('fast')` lets simulator tests run faster by skipping artificial serial / motor / camera delays:
+The `start_grabbing()` call reaches through to the private camera driver because the simulator does not auto-start streaming (production camera drivers do). This is the only direct private-driver access an L2 caller needs in simulator-mode test setup — a future release may add a public `scope.imaging.start_grabbing()` for symmetry.
+
+**Only in `simulate=True`**: `set_timing_mode('fast')` lets simulator tests run faster by skipping artificial serial / motor / camera delays. Same private-driver access pattern: timing-mode control is a simulator test-infrastructure feature, not an L2 surface.
 
 ```python
-scope.led.set_timing_mode('fast')
-scope.motion.set_timing_mode('fast')
-scope.camera.set_timing_mode('fast')
+scope._led_driver.set_timing_mode('fast')
+scope._motion_driver.set_timing_mode('fast')
+scope._camera_driver.set_timing_mode('fast')
 ```
 
 These attributes only exist on the simulated drivers. Don't call them on a real-hardware `Lumascope` — you'll get `AttributeError`.
@@ -1095,7 +1103,7 @@ Engineering-mode commands (`FACTORY`, `RAW…`, `ADCREAD`, `CALIBRATE`, `CALSAVE
 | `VOLTAGE` | Rail status |
 | `CURRENT` | Per-axis motor current telemetry |
 
-Axes: `X`, `Y`, `Z`, `T`. Position conversion (µsteps ↔ µm) is in `motorconfig.json`; prefer `scope.get_axes_config()` over reading that file directly.
+Axes: `X`, `Y`, `Z`, `T`. Position conversion (µsteps ↔ µm) is in `motorconfig.json`; prefer `scope.motion.get_axes_config()` over reading that file directly.
 
 During homing, `STOP` aborts. `INFO`, `ACTUAL_R`, `STATUS_R`, `VOLTAGE` respond normally. Other commands return `BUSY`.
 

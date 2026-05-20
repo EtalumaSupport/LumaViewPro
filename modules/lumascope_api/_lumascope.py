@@ -767,7 +767,7 @@ class Lumascope():
         Usage::
 
             with scope.acquire_exclusive():
-                scope.set_led_ma('Blue', 10)
+                scope.illumination.led_on('Blue', mA=10)
                 image = scope.imaging.capture_and_wait()
         """
         self._hw_lock.acquire()
