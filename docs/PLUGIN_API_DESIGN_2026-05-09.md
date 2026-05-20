@@ -278,7 +278,7 @@ After the split, `Lumascope` is a thin facade with ~30 methods:
   registers atexit emergency shutdown)
 - Composition: holds `motion`, `illumination`, `imaging`, `diagnostics`,
   `capabilities`, **`io`** as public attributes (six sub-APIs per pass-3 D2)
-- Lifecycle: `disconnect`, `_emergency_shutdown`, `acquire_exclusive`
+- Lifecycle: `disconnect`, `_emergency_shutdown`
 - Hardware presence: `motor_connected`, `led_connected`,
   `_no_hardware`, `are_all_connected`, `_notify_partial_hardware`
 - Executor wiring: `register_executors`, `register_executor_bundle`,

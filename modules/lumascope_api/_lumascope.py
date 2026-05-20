@@ -342,18 +342,14 @@ class Lumascope():
         if self._no_hardware:
             logger.warning('[SCOPE API ] No hardware detected (LED, motor, and camera all failed to initialize)')
 
-        # --- Thread synchronization (CR-2 / CR-6) ---
+        # --- Thread synchronization ---
         # _state_lock protects individual shared-state reads/writes
         self._state_lock = threading.Lock()
-        # Per-device locks — each device communicates over a different port
-        # and can operate independently. Split from the old global _hw_lock
-        # to allow LED stim pulses during camera grabs and motor moves.
-        # Threading audit §10.2 — wrapped with TimedLock for contention tracing.
-        # _led_lock relocated to IlluminationAPI per Wave 7 Phase 3d.
+        # Per-device locks -- each device communicates over a different port
+        # and can operate independently, so LED stim pulses can interleave
+        # with camera grabs and motor moves. _led_lock lives on
+        # IlluminationAPI.
         self._cam_lock = profile_trace.TimedLock(threading.RLock(), name="lumascope._cam_lock")
-        # Global lock for multi-device atomic operations (e.g., LED on + capture + LED off).
-        # Only used by acquire_exclusive() — individual methods use per-device locks.
-        self._hw_lock = threading.RLock()
 
         # _capturing_event, _focusing_event, _capture_return,
         # _autofocus_return moved to ImagingAPI in Wave 7 Phase 4d.
@@ -745,27 +741,6 @@ class Lumascope():
             float: Pixel size in um/pixel (default 2.0).
         """
         return self._motion_driver.motorconfig.pixel_size()
-
-    # --- CR-6: Exclusive lock for multi-step hardware operations ---
-
-    @contextlib.contextmanager
-    def acquire_exclusive(self):
-        """Context manager for multi-step hardware operations.
-
-        Prevents interleaving of compound operations (e.g., set gain + capture).
-        Uses RLock so a thread that already holds the lock can re-enter.
-
-        Usage::
-
-            with scope.acquire_exclusive():
-                scope.illumination.led_on('Blue', mA=10)
-                image = scope.imaging.capture_and_wait()
-        """
-        self._hw_lock.acquire()
-        try:
-            yield
-        finally:
-            self._hw_lock.release()
 
     def disconnect(self) -> bool:
         """Disconnect from all hardware (LED, motion, camera).

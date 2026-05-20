@@ -72,9 +72,9 @@ class IlluminationAPI:
         self._led_owner_lock = threading.Lock()
         self._led_owners: dict[str, str] = {}  # color -> owner tag
 
-        # LED driver I/O serialization. Split from the old global
-        # _hw_lock to allow LED stim pulses during camera grabs and
-        # motor moves. Threading audit sec 10.2 -- wrapped with
+        # Per-device LED I/O serialization, so LED stim pulses can
+        # interleave with camera grabs and motor moves on their own
+        # per-device locks. Threading audit sec 10.2 -- wrapped with
         # TimedLock for contention tracing.
         self._led_lock = profile_trace.TimedLock(
             threading.RLock(), name="illumination._led_lock"

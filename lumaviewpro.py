@@ -912,7 +912,7 @@ class LumaViewProApp(TooltipMixin, App):
         logger.info('[LVP Main  ] lumaview.scope.illumination.leds_off()')
         try:
             # Run leds_off on a thread with timeout so MainThread doesn't block
-            # if workers still hold _hw_lock during teardown.
+            # on slow serial / firmware during teardown.
             t = threading.Thread(target=lumaview.scope.illumination.leds_off, daemon=True)
             t.start()
             t.join(timeout=2.0)
