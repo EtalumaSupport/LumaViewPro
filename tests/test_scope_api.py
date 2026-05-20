@@ -588,7 +588,7 @@ class TestScopeSession:
 
     def test_led_on_delegates(self):
         session = self._make_session()
-        session.led_on(channel=2, illumination=100)
+        session.led_on(channel=2, mA=100)
         session.io_executor.put.assert_called_once()
 
     def test_led_off_delegates(self):

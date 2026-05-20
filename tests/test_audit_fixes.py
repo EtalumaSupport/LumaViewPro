@@ -7692,3 +7692,25 @@ class TestWaitUntilLedOnSymmetry:
         finally:
             sim_scope._led_driver = original
         assert result is False
+
+
+class TestSessionLedOnArgNameIsMa:
+    """Audit Finding #33 -- ScopeSession.led_on / led_on_sync use `mA`,
+    matching the canonical Lumascope.illumination.led_on(channel, mA, ...)
+    name. The old `illumination=` keyword is retired."""
+
+    def test_led_on_signature_uses_mA(self):
+        import inspect
+        from modules.scope_session import ScopeSession
+
+        params = inspect.signature(ScopeSession.led_on).parameters
+        assert 'mA' in params, "ScopeSession.led_on must accept mA kwarg"
+        assert 'illumination' not in params, "old `illumination` kwarg must be retired"
+
+    def test_led_on_sync_signature_uses_mA(self):
+        import inspect
+        from modules.scope_session import ScopeSession
+
+        params = inspect.signature(ScopeSession.led_on_sync).parameters
+        assert 'mA' in params
+        assert 'illumination' not in params

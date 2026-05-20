@@ -224,9 +224,9 @@ class ScopeSession:
     def leds_off(self, callback=None):
         self.scope.illumination.leds_off_async(callback=callback)
 
-    def led_on(self, channel, illumination, callback=None, cb_kwargs=None):
+    def led_on(self, channel, mA, callback=None, cb_kwargs=None):
         self.scope.illumination.led_on_async(
-            channel, illumination, callback=callback, cb_kwargs=cb_kwargs,
+            channel, mA, callback=callback, cb_kwargs=cb_kwargs,
         )
 
     def led_off(self, channel, callback=None, cb_kwargs=None):
@@ -234,8 +234,8 @@ class ScopeSession:
             channel, callback=callback, cb_kwargs=cb_kwargs,
         )
 
-    def led_on_sync(self, channel, illumination, timeout=5):
-        self.scope.illumination.led_on_sync(channel, illumination, timeout=timeout)
+    def led_on_sync(self, channel, mA, timeout=5):
+        self.scope.illumination.led_on_sync(channel, mA, timeout=timeout)
 
     # --- Motion commands ---
 
