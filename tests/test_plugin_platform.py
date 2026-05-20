@@ -271,13 +271,54 @@ def test_auto_run_dispatcher_skips_when_all_opt_out(harness_ctx):
 # ---------------------------------------------------------------------------
 
 
-def test_live_processing_register_raises_with_phase4_message(harness_ctx):
-    spec = _make_spec(name='live_attempt')
+def test_live_processing_register_forwards_to_imaging(harness_ctx):
+    """register(spec, handler) forwards to scope.imaging.add_frame_listener
+    with the plugin name attached."""
+    spec = _make_spec(name='live_demo')
+    def handler(image, ts, chunks):
+        return None
+    harness_ctx.plugins.live_processing.register(spec, handler)
+    harness_ctx.scope.imaging.add_frame_listener.assert_called_once_with(
+        handler, name='live_demo'
+    )
+    assert harness_ctx.plugins.live_processing.names() == ('live_demo',)
+
+
+def test_live_processing_unregister_forwards_to_imaging(harness_ctx):
+    """unregister(name) forwards to scope.imaging.remove_frame_listener
+    with the original handler."""
+    spec = _make_spec(name='live_demo')
+    def handler(image, ts, chunks):
+        return None
+    harness_ctx.plugins.live_processing.register(spec, handler)
+    harness_ctx.plugins.live_processing.unregister('live_demo')
+    harness_ctx.scope.imaging.remove_frame_listener.assert_called_once_with(handler)
+    assert harness_ctx.plugins.live_processing.names() == ()
+
+
+def test_live_processing_unregister_unknown_name_is_noop(harness_ctx):
+    """unregister(name) for an un-registered plugin is a silent no-op."""
+    harness_ctx.plugins.live_processing.unregister('not_registered')
+    harness_ctx.scope.imaging.remove_frame_listener.assert_not_called()
+
+
+def test_live_processing_register_duplicate_name_raises(harness_ctx):
+    """Re-registering with the same plugin name raises (same shape as
+    UI / post_processing registries)."""
+    spec = _make_spec(name='live_dup')
+    harness_ctx.plugins.live_processing.register(spec, lambda i, t, c: None)
+    with pytest.raises(PluginRegistrationError):
+        harness_ctx.plugins.live_processing.register(spec, lambda i, t, c: None)
+
+
+def test_live_processing_register_without_bind_raises(harness_ctx):
+    """register() on an unbound registry raises a PluginRegistrationError
+    naming the bind_scope contract."""
+    harness_ctx.plugins.live_processing._scope = None
+    spec = _make_spec(name='unbound')
     with pytest.raises(PluginRegistrationError) as exc:
-        harness_ctx.plugins.live_processing.register(spec, lambda f, m: None)
-    msg = str(exc.value)
-    assert 'live_processing' in msg
-    assert 'Wave 7 Phase 4' in msg
+        harness_ctx.plugins.live_processing.register(spec, lambda i, t, c: None)
+    assert 'bind_scope' in str(exc.value)
 
 
 def test_rest_register_raises_with_design_session_message(harness_ctx):

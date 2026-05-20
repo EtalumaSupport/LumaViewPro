@@ -62,6 +62,11 @@ def _make_ctx(version: str = '4.0.0') -> types.SimpleNamespace:
     ctx.engineering_mode = False
     ctx.lumaview = MagicMock(name='lumaview')
     ctx.session = MagicMock(name='session')
+    # live_processing registry needs scope wired (load_plugins does this
+    # in production; tests use the harness without load_plugins so do it
+    # here). Tests that need an unbound registry can reset
+    # ctx.plugins.live_processing._scope = None.
+    ctx.plugins.live_processing.bind_scope(ctx.scope)
     return ctx
 
 

@@ -485,6 +485,27 @@ scope.imaging.add_camera_listener(on_camera)       # fires on set_gain / set_exp
 scope.imaging.remove_camera_listener(on_camera)
 ```
 
+### Live frame listeners
+
+Sync per-frame handlers fire on every successful camera grab (Pylon `PylonImageGrab` thread / IDS grab loop / simulated pump). This is the canonical entry point for live image-processing plugins (see `ctx.plugins.live_processing`) and the manual-record path.
+
+```python
+def on_frame(image, timestamp, chunks):
+    # Runs on the SDK callback thread. MUST NOT block. Heavy work
+    # belongs on an executor.
+    queue_write(image)
+
+scope.imaging.add_frame_listener(on_frame, name='my_recorder')
+# ...
+scope.imaging.remove_frame_listener(on_frame)
+```
+
+- **Don't-mutate contract.** The `image` array is shared across all listeners. Write to your own output buffer if you need to keep results; mutating the array affects later listeners + downstream display / capture consumers.
+- **Budget.** Each handler must complete within ~24 ms (anchored to a 30 fps target, half the inter-frame window). Over-budget invocations log a WARNING. After 30 consecutive over-budget hits, the handler is auto-removed and the user sees a notification.
+- **Re-entrancy.** A handler will not be re-entered on the same thread; the driver's fire-site is single-threaded.
+- **Plugin authors**: use `ctx.plugins.live_processing.register(spec, handler)` rather than calling `add_frame_listener` directly. The registry forwards through to this API and surfaces the plugin name in the budget-violation log.
+- **Tutorial**: `Firmware/docs/LIVE_PROCESSING_TUTORIAL.md` -- minimum-viable plugin example + failure-injection example + common pitfalls.
+
 ### Camera info
 
 ```python

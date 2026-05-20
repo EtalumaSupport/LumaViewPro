@@ -328,7 +328,9 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
         capture_interval = 1.0 / video_fps
         self.recording_title_update = Clock.schedule_interval(self.update_recording_title, 0.1)
         self.recording_check = Clock.schedule_interval(self.check_recording_state, capture_interval)
-        self.scope.imaging.register_frame_callback(self._on_camera_frame)
+        self.scope.imaging.add_frame_listener(
+            self._on_camera_frame, name='manual_recording'
+        )
 
     def _on_camera_frame(self, image, frame_ts, chunks):
         """Camera-SDK-thread callback: reserve next save slot and enqueue write.
@@ -393,9 +395,9 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
         queued ahead of the finalize task complete first.
         """
         try:
-            self.scope.imaging.unregister_frame_callback(self._on_camera_frame)
+            self.scope.imaging.remove_frame_listener(self._on_camera_frame)
         except Exception as e:
-            logger.warning(f'[LVP Main  ] unregister_frame_callback failed: {e}')
+            logger.warning(f'[LVP Main  ] remove_frame_listener failed: {e}')
         if self.recording_check is not None:
             Clock.unschedule(self.recording_check)
             self.recording_check = None
