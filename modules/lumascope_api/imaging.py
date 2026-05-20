@@ -21,7 +21,6 @@ import os
 import pathlib
 import threading
 import time
-import warnings
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -1028,64 +1027,6 @@ class ImagingAPI:
             return [1]
 
     # --- Capture ---
-    def capture(self) -> None:
-        """Capture an image with illumination, asynchronously. DEPRECATED.
-
-        Schedules a deferred grab; the captured image lands in
-        ``self.capture_return`` and ``is_capturing`` is True until the
-        deferred completion fires.
-
-        Deprecated: use ``capture_and_wait`` for synchronous capture, or
-        run ``capture_and_wait`` in a worker thread for async semantics.
-        Will be removed in a future release.
-        """
-        warnings.warn(
-            "Lumascope.capture is deprecated. Use capture_and_wait() instead "
-            "(or run it in a worker thread for async semantics).",
-            DeprecationWarning, stacklevel=2,
-        )
-
-        if not self._scope._led_driver: return
-        if not self._driver or not self._driver.active: return
-
-        self.is_capturing = True
-        self.capture_return = False
-
-        # Async grab via timer thread; capture_and_wait inside the timer
-        # handles the drain. delay=0 because validity drains adaptively
-        # rather than waiting a fixed exposure-derived interval.
-        capture_timer = threading.Timer(0, self.capture_complete)
-        capture_timer.start()
-
-    def capture_complete(self) -> None:
-        """Deferred completion handler for ``capture``. DEPRECATED.
-
-        Grabs the image into ``self.capture_return`` and clears
-        ``is_capturing``. Called from a background timer thread; not
-        intended to be called directly.
-        """
-        self.capture_return = self.capture_and_wait()
-        self.is_capturing = False
-
-    def capture_blocking(self) -> 'np.ndarray | bool | None':
-        """Capture an image with illumination, blocking until the frame is ready. DEPRECATED.
-
-        Deprecated: use ``capture_and_wait`` directly. Will be removed in
-        a future release.
-
-        Returns:
-            numpy.ndarray | False | None: Captured image array, False on
-                grab failure, or None if LED/camera are unavailable.
-        """
-        warnings.warn(
-            "Lumascope.capture_blocking is deprecated. Use capture_and_wait() instead.",
-            DeprecationWarning, stacklevel=2,
-        )
-        if not self._scope._led_driver: return
-        if not self._driver or not self._driver.active: return
-
-        return self.capture_and_wait()
-
     def capture_and_wait(self, force_to_8bit: bool = True, *,
                          exclude_sources: tuple = (),
                          all_ones_check: bool = False,

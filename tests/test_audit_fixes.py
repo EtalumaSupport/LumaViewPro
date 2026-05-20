@@ -2904,60 +2904,6 @@ class TestFrameValidity_AutofocusDrainsBeforeScore:
         )
 
 
-class TestFrameValidity_LegacyCaptureRoutesThroughCaptureAndWait:
-    """ImagingAPI.capture_complete and ImagingAPI.capture_blocking previously
-    did fixed-time-sleep + bare get_image -- the v3.0.x anti-pattern.
-    Both methods are deprecated (no production callers, not in
-    LumascopeSkills.md). Implementation now routes through capture_and_wait
-    so that during the deprecation cycle they grab valid frames. A
-    DeprecationWarning fires on each call."""
-
-    def test_capture_complete_calls_capture_and_wait(self):
-        from pathlib import Path
-        src = (Path(__file__).resolve().parent.parent / "modules" / "lumascope_api" / "imaging.py").read_text()
-        body = _function_source(src, "capture_complete")
-        assert "self.capture_and_wait(" in body, (
-            "capture_complete must call self.capture_and_wait(...) -- previously "
-            "called bare self.get_image() after a fixed-time sleep."
-        )
-        assert "self.get_image(" not in body, (
-            "capture_complete must not call self.get_image(...) directly."
-        )
-
-    def test_capture_blocking_calls_capture_and_wait(self):
-        # capture_blocking body relocated to ImagingAPI in Wave 7 Phase 4c.
-        from pathlib import Path
-        src = (Path(__file__).resolve().parent.parent / "modules" / "lumascope_api" / "imaging.py").read_text()
-        body = _function_source(src, "capture_blocking")
-        assert "self.capture_and_wait(" in body, (
-            "capture_blocking must call self.capture_and_wait(...)."
-        )
-        assert "self.get_image(" not in body, (
-            "capture_blocking must not call self.get_image(...) directly."
-        )
-        assert "time.sleep(" not in body, (
-            "capture_blocking must not contain a fixed-time sleep -- validity "
-            "drain replaces the v3.0.x wait_time anti-pattern."
-        )
-
-    def test_capture_emits_deprecation_warning(self):
-        from pathlib import Path
-        src = (Path(__file__).resolve().parent.parent / "modules" / "lumascope_api" / "imaging.py").read_text()
-        body = _function_source(src, "capture")
-        assert "DeprecationWarning" in body, (
-            "capture must emit a DeprecationWarning so callers migrate to capture_and_wait."
-        )
-
-    def test_capture_blocking_emits_deprecation_warning(self):
-        # capture_blocking body relocated to ImagingAPI in Wave 7 Phase 4c.
-        from pathlib import Path
-        src = (Path(__file__).resolve().parent.parent / "modules" / "lumascope_api" / "imaging.py").read_text()
-        body = _function_source(src, "capture_blocking")
-        assert "DeprecationWarning" in body, (
-            "capture_blocking must emit a DeprecationWarning."
-        )
-
-
 class TestFrameValidity_CompositeEngineeringBranchDrains:
     """The engineering-mode branch of composite_capture's live_capture path
     (bullseye / crosshairs enabled) grabs an extra image_orig for overlay
