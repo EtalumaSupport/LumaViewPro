@@ -436,7 +436,6 @@ class TestFrameValidityDuringHoming:
         # re-snapshot to reflect the patched motion.
         scope.capabilities = ScopeCapabilities.from_drivers(
             motion=scope._motion_driver, led=scope._led_driver, camera=scope._camera_driver,
-            led_max_ma=Lumascope.LED_MAX_MA,
         )
         captured = {}
 
@@ -880,7 +879,8 @@ class TestScopeCapabilities:
         assert caps.has_xy_stage is True
         assert caps.has_turret is False
         assert len(caps.led_channels) == 6
-        assert caps.led_max_ma == Lumascope.LED_MAX_MA
+        from modules.scope_capabilities import LED_MAX_MA
+        assert caps.led_max_ma == LED_MAX_MA
 
     def test_ls850t_capabilities_has_turret(self):
         from drivers.simulated_motorboard import SimulatedMotorBoard
@@ -889,7 +889,6 @@ class TestScopeCapabilities:
         scope._motion_driver = SimulatedMotorBoard(model='LS850T')
         scope.capabilities = ScopeCapabilities.from_drivers(
             motion=scope._motion_driver, led=scope._led_driver, camera=scope._camera_driver,
-            led_max_ma=Lumascope.LED_MAX_MA,
         )
         assert scope.capabilities.axes == ('X', 'Y', 'Z', 'T')
         assert scope.capabilities.has_turret is True
@@ -902,7 +901,6 @@ class TestScopeCapabilities:
         scope._motion_driver.detect_present_axes = lambda: ['Z']
         scope.capabilities = ScopeCapabilities.from_drivers(
             motion=scope._motion_driver, led=scope._led_driver, camera=scope._camera_driver,
-            led_max_ma=Lumascope.LED_MAX_MA,
         )
         assert scope.capabilities.axes == ('Z',)
         assert scope.capabilities.has_focus is True
@@ -913,7 +911,6 @@ class TestScopeCapabilities:
         from modules.scope_capabilities import ScopeCapabilities
         caps = ScopeCapabilities.from_drivers(
             motion=NullMotionBoard(), led=NullLEDBoard(), camera=None,
-            led_max_ma=1000,
         )
         assert caps.axes == ()
         assert caps.has_focus is False
@@ -944,7 +941,6 @@ class TestScopeCapabilities:
         from drivers.simulated_motorboard import SimulatedMotorBoard
         caps = ScopeCapabilities.from_drivers(
             motion=SimulatedMotorBoard(), led=NullLEDBoard(), camera=None,
-            led_max_ma=1000,
         )
         # has_X fields
         assert caps.supports('focus') is caps.has_focus
@@ -963,7 +959,6 @@ class TestScopeCapabilities:
         from modules.scope_capabilities import ScopeCapabilities
         caps = ScopeCapabilities.from_drivers(
             motion=NullMotionBoard(), led=NullLEDBoard(), camera=None,
-            led_max_ma=1000,
         )
         assert len(caps.led_channels) == 6
         assert caps.led_channels == (0, 1, 2, 3, 4, 5)
@@ -978,7 +973,6 @@ class TestScopeCapabilities:
 
         caps = ScopeCapabilities.from_drivers(
             motion=NullMotionBoard(), led=FourChannelLED(), camera=None,
-            led_max_ma=1000,
         )
         assert caps.led_channels == (0, 1, 2, 3)
         assert set(caps.led_colors) == {'Blue', 'Green', 'Red', 'BF'}

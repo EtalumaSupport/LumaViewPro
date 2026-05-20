@@ -175,8 +175,12 @@ def _notify_camera_failure(exc):
 class Lumascope():
 
     # --- Input validation constants ---
-    LED_MAX_MA = 1000       # Maximum LED current in milliamps (matches firmware CH_MAX)
-    # LED channel set comes from self._led_driver.available_channels() — varies by
+    # `LED_MAX_MA` retired here per freeze-audit Finding #38. Canonical
+    # home is `modules.scope_capabilities.LED_MAX_MA` (also surfaced
+    # at `scope.capabilities.led_max_ma`). Callers that need the cap
+    # read from capabilities; the class constant created a parallel
+    # SoT with the same value.
+    # LED channel set comes from self._led_driver.available_channels() -- varies by
     # Canonical home for these is `_constants.py`; alias on the class so
     # existing callers (`scope._VALID_AXIS_NAMES`, `Lumascope.MOTOR_POSITION_LIMIT`)
     # keep working. Sub-API modules import from `_constants.py` directly
@@ -303,7 +307,6 @@ class Lumascope():
             motion=self._motion_driver,
             led=self._led_driver,
             camera=self._camera_driver,
-            led_max_ma=self.LED_MAX_MA,
         )
 
         # ----- Sub-API wiring (Wave 7 Phase 1+) -----
@@ -1153,7 +1156,6 @@ class Lumascope():
             motion=instance._motion_driver,
             led=instance._led_driver,
             camera=None,
-            led_max_ma=cls.LED_MAX_MA,
         )
 
         logger.info('[SCOPE API ] Diagnostic scope created '

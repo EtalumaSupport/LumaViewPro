@@ -208,9 +208,10 @@ class TestLedOnValidation:
             sim_scope.illumination.led_on(channel=0, mA=-1)
 
     def test_rejects_current_above_max(self, sim_scope):
-        from modules.lumascope_api import Lumascope
         with pytest.raises(ValueError, match="current"):
-            sim_scope.illumination.led_on(channel=0, mA=Lumascope.LED_MAX_MA + 1)
+            sim_scope.illumination.led_on(
+                channel=0, mA=sim_scope.capabilities.led_max_ma + 1,
+            )
 
     def test_accepts_valid_input(self, sim_scope):
         sim_scope.illumination.led_on(channel=0, mA=50)
@@ -8021,6 +8022,36 @@ class TestTimeoutParamNamesUseSecondSuffix:
         params = set(inspect.signature(Camera.grab_new_capture).parameters)
         assert 'timeout_s' in params
         assert 'timeout' not in params
+
+
+class TestLedMaxMaCanonicalHomeIsCapabilities:
+    """Freeze audit Finding #38 -- `Lumascope.LED_MAX_MA` was a class
+    constant that duplicated `capabilities.led_max_ma` (same value,
+    two SoTs). The class constant is retired; the canonical home is
+    `modules.scope_capabilities.LED_MAX_MA` (module-level) which
+    `capabilities.led_max_ma` mirrors per-instance."""
+
+    def test_lumascope_class_does_not_carry_led_max_ma(self):
+        from modules.lumascope_api import Lumascope
+        assert not hasattr(Lumascope, 'LED_MAX_MA'), (
+            'Lumascope.LED_MAX_MA must be retired per audit #38; '
+            'callers read scope.capabilities.led_max_ma instead.'
+        )
+
+    def test_capabilities_led_max_ma_matches_canonical_constant(self, sim_scope):
+        from modules.scope_capabilities import LED_MAX_MA
+        assert sim_scope.capabilities.led_max_ma == LED_MAX_MA
+
+    def test_illumination_validation_reads_capabilities(self, sim_scope):
+        """The validation gate inside IlluminationAPI.led_on must read
+        the cap from capabilities, not from a retired class constant.
+        A capability override (test-only) is reflected by the gate."""
+        import pytest as _pytest
+        # Cap at 50 mA for this test; 51 must reject.
+        from dataclasses import replace
+        sim_scope.capabilities = replace(sim_scope.capabilities, led_max_ma=50)
+        with _pytest.raises(ValueError, match="current"):
+            sim_scope.illumination.led_on(channel=0, mA=51)
 
 
 class TestSessionSetObjectiveForwarder:

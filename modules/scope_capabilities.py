@@ -34,6 +34,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 
+# Canonical home for the LED current cap (matches firmware CH_MAX).
+# Lumascope previously carried this as a `LED_MAX_MA` class constant
+# (freeze-audit Finding #38) which surfaced the same value on two
+# layers with inconsistent SoT; capabilities is the right home.
+LED_MAX_MA: int = 1000
+
+
 @dataclass(frozen=True)
 class ScopeCapabilities:
     """Immutable snapshot of what a scope has.
@@ -112,10 +119,10 @@ class ScopeCapabilities:
         return False
 
     @classmethod
-    def from_drivers(cls, motion, led, camera, led_max_ma: int) -> 'ScopeCapabilities':
+    def from_drivers(cls, motion, led, camera, led_max_ma: int = LED_MAX_MA) -> 'ScopeCapabilities':
         """Build a ScopeCapabilities snapshot from the three drivers.
 
-        Tolerant of None / Null implementations. Never raises — if a
+        Tolerant of None / Null implementations. Never raises -- if a
         driver method blows up or returns something unexpected, the
         corresponding field gets a safe default (empty tuple, empty
         string, False).
@@ -125,7 +132,10 @@ class ScopeCapabilities:
                 NullMotionBoard).
             led: An `LEDBoardProtocol` implementation (may be NullLEDBoard).
             camera: A camera object or None.
-            led_max_ma: The API's LED current cap (today a class constant).
+            led_max_ma: The API's LED current cap. Defaults to the
+                module-level ``LED_MAX_MA`` (1000 mA, matches firmware
+                CH_MAX); callers may override per-board if a future
+                driver advertises a different cap.
         """
         # Motion
         try:

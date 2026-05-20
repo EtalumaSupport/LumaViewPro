@@ -115,8 +115,9 @@ class IlluminationAPI:
         valid_channels = self._driver.available_channels()
         if channel not in valid_channels:
             raise ValueError(f"LED channel must be one of {valid_channels}, got {channel}")
-        if not isinstance(mA, (int, float)) or mA < 0 or mA > self._scope.LED_MAX_MA:
-            raise ValueError(f"LED current must be 0-{self._scope.LED_MAX_MA} mA, got {mA}")
+        led_max_ma = self._scope.capabilities.led_max_ma
+        if not isinstance(mA, (int, float)) or mA < 0 or mA > led_max_ma:
+            raise ValueError(f"LED current must be 0-{led_max_ma} mA, got {mA}")
 
         # Skip redundant command if channel is already on at the same current
         color_name = self.ch2color(channel)
@@ -251,8 +252,9 @@ class IlluminationAPI:
         valid_channels = self._driver.available_channels()
         if channel not in valid_channels:
             raise ValueError(f"LED channel must be one of {valid_channels}, got {channel}")
-        if not isinstance(mA, (int, float)) or mA < 0 or mA > self._scope.LED_MAX_MA:
-            raise ValueError(f"LED current must be 0-{self._scope.LED_MAX_MA} mA, got {mA}")
+        led_max_ma = self._scope.capabilities.led_max_ma
+        if not isinstance(mA, (int, float)) or mA < 0 or mA > led_max_ma:
+            raise ValueError(f"LED current must be 0-{led_max_ma} mA, got {mA}")
         with self._led_lock:
             self._driver.led_on_fast(channel, mA)
         self._scope.imaging.frame_validity.invalidate('led')
