@@ -164,17 +164,21 @@ class LEDBoard(SerialBoard):
         logger.warning('[LED Class ] get_status() called but LED firmware has no STATUS command')
         return None
 
-    def wait_until_on(self, timeout: float = 5.0) -> None:
+    def wait_until_on(self, timeout: float = 5.0) -> bool:
         """Stub -- depends on STATUS command which the firmware lacks.
 
         Args:
             timeout: Maximum wait time in seconds (currently unused).
+
+        Returns:
+            bool: True if LED confirmed on, False on timeout / unsupported.
+            Currently always False until v3.1 firmware ships STATUS.
         """
         # NOTE: Relies on get_status() which is not implemented in LED firmware.
-        # This always times out. Do not use.
+        # This always returns False. Do not use.
         # TODO: Implement in 4.1 with v3.1 protocol, or remove.
         logger.warning('[LED Class ] wait_until_on() called but STATUS command not implemented in firmware')
-        return
+        return False
 
     # State-query methods (get_led_ma / is_led_on / get_led_state /
     # get_led_states) retired in Wave 7 Phase 3d.5. LED state is

@@ -606,11 +606,21 @@ class IlluminationAPI:
         self._driver.leds_disable()
 
     # --- Wait ---
-    def wait_until_led_on(self) -> None:
-        """Block until the LED board confirms an LED is on."""
+    def wait_until_led_on(self, timeout: float = 5.0) -> bool:
+        """Block until the LED board confirms an LED is on.
+
+        Mirrors motion.wait_until_finished_moving in shape.
+
+        Args:
+            timeout: Maximum seconds to wait (default 5s).
+
+        Returns:
+            bool: True if confirmed on, False on timeout / no driver /
+            firmware lacks STATUS (current state until v3.1 firmware).
+        """
         if not self._driver:
-            return
-        self._driver.wait_until_on()
+            return False
+        return self._driver.wait_until_on(timeout)
 
     # --- Channel mapping ---
     def ch2color(self, channel: int) -> 'str | None':

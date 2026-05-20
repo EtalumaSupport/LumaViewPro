@@ -7658,3 +7658,37 @@ class TestProtocolIOTimeoutsAreNotShort:
             f"{self._MIN_TIMEOUT_S}s -- short windows pop up storms "
             "under Pylon USB3 stress:\n  " + "\n  ".join(offenders)
         )
+
+
+class TestWaitUntilLedOnSymmetry:
+    """Audit Finding #8 -- illumination.wait_until_led_on mirrors
+    motion.wait_until_finished_moving in shape: takes a `timeout` kwarg
+    and returns a bool."""
+
+    def test_signature_has_timeout_kwarg_with_default(self):
+        import inspect
+        from modules.lumascope_api.illumination import IlluminationAPI
+
+        sig = inspect.signature(IlluminationAPI.wait_until_led_on)
+        params = sig.parameters
+        assert 'timeout' in params, "wait_until_led_on must accept timeout kwarg"
+        assert params['timeout'].default == 5.0
+        # `from __future__ import annotations` -> string forms.
+        assert params['timeout'].annotation in (float, 'float')
+
+    def test_returns_bool_annotation(self):
+        import inspect
+        from modules.lumascope_api.illumination import IlluminationAPI
+
+        sig = inspect.signature(IlluminationAPI.wait_until_led_on)
+        assert sig.return_annotation in (bool, 'bool')
+
+    def test_no_driver_returns_false(self, sim_scope):
+        # Force the no-driver branch (driver resolved via scope._led_driver).
+        original = sim_scope._led_driver
+        sim_scope._led_driver = None
+        try:
+            result = sim_scope.illumination.wait_until_led_on(timeout=0.1)
+        finally:
+            sim_scope._led_driver = original
+        assert result is False
