@@ -635,7 +635,7 @@ Two important consequences:
 
 **Reserved.** Not populated in LumaViewPro 4.0.x.
 
-The `scope.io` sub-API is named in the locked sub-API decomposition per `Firmware/docs/PLUGIN_API_DESIGN_2026-05-09.md` §6.6. It will document future I/O surfaces (trigger devices, USB-to-IO trigger boards, external sync) once those surfaces ship. See `caps.hardware_features` for the hardware-capability tokens that gate trigger-device features today.
+The `scope.io` sub-API is named in the locked sub-API decomposition per `docs/PLUGIN_API_DESIGN_2026-05-09.md` §6.6. It will document future I/O surfaces (trigger devices, USB-to-IO trigger boards, external sync) once those surfaces ship. See `caps.hardware_features` for the hardware-capability tokens that gate trigger-device features today.
 
 ---
 
@@ -750,9 +750,9 @@ from modules.protocol import Protocol
 
 ## plugin platform reference
 
-Plugin platform spec and tutorials live in the Firmware repo internal docs.
+Plugin platform spec lives alongside LumaViewPro; the live-processing tutorial lives in the Firmware repo internal docs.
 
-- **Design**: `Firmware/docs/PLUGIN_API_DESIGN_2026-05-09.md` — the locked platform spec (PluginSpec, namespaces, registry contracts, loading sequence).
+- **Design**: `docs/PLUGIN_API_DESIGN_2026-05-09.md` — the locked platform spec (PluginSpec, namespaces, registry contracts, loading sequence).
 - **Live-processing tutorial**: `Firmware/docs/LIVE_PROCESSING_TUTORIAL.md` — walkthrough for writing a `ctx.plugins.live_processing` plugin.
 - **Namespaces (4.x)**: `ctx.plugins.ui`, `ctx.plugins.post_processing`, `ctx.plugins.live_processing`, `ctx.plugins.rest`.
 
