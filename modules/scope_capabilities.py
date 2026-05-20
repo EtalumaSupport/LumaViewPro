@@ -120,6 +120,13 @@ class ScopeCapabilities:
     camera_binning_sizes: tuple[int, ...]
     camera_max_exposure_ms: int
 
+    camera_max_frame_size: 'tuple[int, int]'
+    """Maximum camera frame size as ``(width, height)`` in pixels.
+    Per-camera-immutable: sourced from the camera driver's
+    get_max_frame_size() at boot. (0, 0) when no camera driver is
+    connected. Use ``scope.imaging.set_frame_size`` to request a
+    smaller-than-max region; this field gives the upper bound."""
+
     # ---- Cross-cutting feature flags ----
     hardware_features: frozenset[str] = frozenset()
     """Set of hardware-feature tokens this scope advertises. Per Rule 8
@@ -233,6 +240,7 @@ class ScopeCapabilities:
         camera_pixel_formats: tuple[str, ...] = ()
         camera_binning_sizes: tuple[int, ...] = ()
         camera_max_exposure_ms = 0
+        camera_max_frame_size: tuple[int, int] = (0, 0)
         if camera is not None:
             profile = getattr(camera, 'profile', None)
             if profile is not None:
@@ -243,6 +251,12 @@ class ScopeCapabilities:
                 camera_binning_sizes = tuple(getattr(profile, 'binning_sizes', ()) or ())
                 exposure_max_us = getattr(profile, 'exposure_max_us', 0) or 0
                 camera_max_exposure_ms = int(exposure_max_us / 1000)
+            try:
+                size = camera.get_max_frame_size()
+                if size:
+                    camera_max_frame_size = (int(size.get('width', 0)), int(size.get('height', 0)))
+            except Exception:
+                pass
 
         return cls(
             axes=axes,
@@ -262,4 +276,5 @@ class ScopeCapabilities:
             camera_pixel_formats=camera_pixel_formats,
             camera_binning_sizes=camera_binning_sizes,
             camera_max_exposure_ms=camera_max_exposure_ms,
+            camera_max_frame_size=camera_max_frame_size,
         )

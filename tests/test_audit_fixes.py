@@ -8444,3 +8444,35 @@ class TestHardwareFeaturesCapability:
         assert caps.supports('trigger_in') is True
         # Other unknown tokens still False
         assert caps.supports('warp_drive') is False
+
+
+class TestCameraMaxFrameSizeOnCapabilities:
+    """Freeze audit Finding #4 (sub-item: camera_max_frame_size) +
+    sibling shape to #21. The property lived on ImagingAPI but read
+    per-camera-immutable data sourced from the camera driver at boot.
+    Canonical home is now capabilities.camera_max_frame_size:
+    tuple[int, int]. The ImagingAPI wrapper is retired."""
+
+    def test_imaging_class_does_not_carry_camera_max_frame_size(self):
+        from modules.lumascope_api.imaging import ImagingAPI
+        assert not hasattr(ImagingAPI, 'camera_max_frame_size'), (
+            'ImagingAPI.camera_max_frame_size must be retired per audit #4; '
+            'callers read scope.capabilities.camera_max_frame_size instead.'
+        )
+
+    def test_capabilities_camera_max_frame_size_is_tuple(self, sim_scope):
+        size = sim_scope.capabilities.camera_max_frame_size
+        assert isinstance(size, tuple)
+        assert len(size) == 2
+        # Sim camera reports nonzero max size
+        assert size[0] > 0
+        assert size[1] > 0
+
+    def test_no_camera_yields_zero_max_frame_size(self):
+        from drivers.null_motorboard import NullMotionBoard
+        from drivers.null_ledboard import NullLEDBoard
+        from modules.scope_capabilities import ScopeCapabilities
+        caps = ScopeCapabilities.from_drivers(
+            motion=NullMotionBoard(), led=NullLEDBoard(), camera=None,
+        )
+        assert caps.camera_max_frame_size == (0, 0)

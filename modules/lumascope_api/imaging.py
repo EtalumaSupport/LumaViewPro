@@ -1431,16 +1431,6 @@ class ImagingAPI:
             return dict(self._camera_cache['frame_size'])
 
     @property
-    def camera_max_frame_size(self) -> dict:
-        """Maximum camera frame size (reads cache).
-
-        Returns:
-            dict: Copy of the cached max frame size dict.
-        """
-        with self._camera_cache_lock:
-            return dict(self._camera_cache['max_frame_size'])
-
-    @property
     def camera_min_frame_size(self) -> dict:
         """Minimum camera frame size (reads cache).
 

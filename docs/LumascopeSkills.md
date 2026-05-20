@@ -700,6 +700,7 @@ caps.camera_supports_auto_exposure
 caps.camera_pixel_formats       # e.g. ('Mono8',) or ('Mono8', 'Mono12')
 caps.camera_binning_sizes       # e.g. (1, 2, 4)
 caps.camera_max_exposure_ms     # per-camera exposure ceiling (e.g. 178 ms on FX2)
+caps.camera_max_frame_size      # (width, height) tuple in pixels; (0, 0) if no camera
 ```
 
 Two important consequences:

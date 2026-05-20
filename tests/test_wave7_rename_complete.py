@@ -305,7 +305,7 @@ IMAGING_ONLY_METHODS = frozenset({
     'add_camera_listener', 'add_frame_listener', 'apply_layer_camera_settings',
     'auto_gain_once', 'autofocus_return', 'camera_active',
     'camera_exposure_ms', 'camera_frame_size', 'camera_gain',
-    'camera_max_exposure', 'camera_max_frame_size',
+    'camera_max_exposure',
     'camera_max_gain', 'camera_min_frame_size', 'camera_pixel_format',
     'capture_and_wait', 'capture_and_wait_sync',
     'capture_return', 'count_frame',

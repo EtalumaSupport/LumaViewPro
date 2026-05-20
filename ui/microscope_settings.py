@@ -1188,9 +1188,9 @@ class MicroscopeSettings(BoxLayout):
             width = max(width, min_frame_size['width'])
             height = max(height, min_frame_size['height'])
 
-            max_frame_size = lumaview.scope.imaging.camera_max_frame_size
-            width = min(width, max_frame_size['width'])
-            height = min(height, max_frame_size['height'])
+            max_w, max_h = lumaview.scope.capabilities.camera_max_frame_size
+            width = min(width, max_w)
+            height = min(height, max_h)
         except Exception:
             logger.warning('[LVP Main  ] Could not clamp frame size to camera limits.')
 
