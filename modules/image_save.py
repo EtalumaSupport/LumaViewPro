@@ -217,7 +217,7 @@ def generate_image_metadata(scope: 'Lumascope', color, x, y, z) -> dict:
     now_host = datetime.datetime.now()
     metadata = {
         'camera_make': 'Etaluma',
-        'microscope': scope.get_microscope_model(),
+        'microscope': scope.diagnostics.get_microscope_model(),
         'software': f'LumaViewPro {version}',
         'channel': color,
         'datetime': now_host.strftime("%Y:%m:%d %H:%M:%S"),

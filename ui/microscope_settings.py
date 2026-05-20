@@ -360,7 +360,7 @@ class MicroscopeSettings(BoxLayout):
             # update GUI values from JSON data:
 
             # Scope auto-detection
-            detected_model = lumaview.scope.get_microscope_model()
+            detected_model = lumaview.scope.diagnostics.get_microscope_model()
             if detected_model in self.scopes.keys():
                 logger.info(f'[LVP Main  ] Auto-detected scope as {detected_model}')
                 self.ids['scope_spinner'].text = detected_model

@@ -651,11 +651,6 @@ def _find_chain_method_accesses(
     return hits
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="flips at Phase 7e when production callers migrate to "
-           "scope.diagnostics.<getter>",
-)
 def test_no_diagnostic_facade_getter_calls_on_bare_scope_in_production():
     failures: list[str] = []
     for path in _iter_prod_files():
@@ -703,12 +698,6 @@ def test_no_self_diagnostic_facade_getter_calls_in_lumascope():
     )
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="flips at Phase 7e when production callers migrate to "
-           "modules.autofocus_functions.focus_function (compute_focus_score "
-           "retires outright per plan §9 #3)",
-)
 def test_no_compute_focus_score_calls_on_scope_in_production():
     failures: list[str] = []
     for path in _iter_prod_files():
