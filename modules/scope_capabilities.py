@@ -120,6 +120,23 @@ class ScopeCapabilities:
     camera_binning_sizes: tuple[int, ...]
     camera_max_exposure_ms: int
 
+    # ---- Cross-cutting feature flags ----
+    hardware_features: frozenset[str] = frozenset()
+    """Set of hardware-feature tokens this scope advertises. Per Rule 8
+    empty-default semantic: empty means 'feature set unknown / no
+    features advertised,' not 'feature X is absent.' Use
+    ``caps.supports(feature)`` to test for a token; that helper also
+    searches has_X / camera_supports_X fields so callers don't need to
+    know which surface owns a particular capability.
+
+    Reserved tokens (populated as drivers mature):
+      'trigger_in', 'trigger_out'    -- external trigger hardware
+      'temperature_sensor'           -- camera temp probe
+      'cooled_sensor'                -- TEC / Peltier camera
+      'global_shutter'               -- non-rolling shutter
+    Tokens are deliberately documented per L2 contract; new tokens
+    require a LumascopeSkills entry."""
+
     def supports(self, feature: str) -> bool:
         """Return True if the scope advertises the named feature.
 
@@ -137,14 +154,16 @@ class ScopeCapabilities:
             caps.supports('auto_gain')   # True if camera_supports_auto_gain
             caps.supports('warp_drive')  # False (unknown)
 
-        When `firmware_features` and `hardware_features` ship (design
-        doc §2.5 + §10), this method extends to search those dicts;
-        the empty-default contract means unknown features still
-        return False.
+        Also searches the ``hardware_features`` frozenset by token:
+        ``caps.supports('trigger_in')`` returns True iff 'trigger_in' is
+        in ``caps.hardware_features``. The empty-default contract means
+        an empty set yields False for any token -- never raises.
         """
         if getattr(self, f'has_{feature}', False):
             return True
         if getattr(self, f'camera_supports_{feature}', False):
+            return True
+        if feature in self.hardware_features:
             return True
         return False
 

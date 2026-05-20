@@ -689,6 +689,10 @@ caps.led_max_ma                 # per-channel current cap
 caps.pixel_size_um              # um/pixel (default 2.0; configurable per install)
 caps.lens_focal_length_mm       # tube lens focal length (default 47.8 mm)
 
+# Hardware features (cross-cutting capability tokens)
+caps.hardware_features          # frozenset({'trigger_in', 'cooled_sensor', ...}); empty default
+caps.supports('trigger_in')     # also searches has_X / camera_supports_X / hardware_features
+
 # Camera
 caps.camera_model               # 'MT9P031-LS620', 'acA2500-60um', etc.
 caps.camera_supports_auto_gain

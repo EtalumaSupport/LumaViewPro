@@ -8406,3 +8406,41 @@ class TestGetterSetterSymmetry:
         snap['enabled'] = False
         # Internal state untouched
         assert sim_scope.imaging.scale_bar_enabled is True
+
+
+class TestHardwareFeaturesCapability:
+    """Freeze audit Finding #4 (sub-item: hardware_features) -- the
+    design doc 2.5 spec'd a hardware_features frozenset for cross-cutting
+    capability tokens (trigger_in, temperature_sensor, etc.) but the
+    field was never shipped. The supports() helper had a forward-
+    reference in its docstring to this field; this commit makes that
+    contract real."""
+
+    def test_hardware_features_field_is_frozenset(self, sim_scope):
+        assert isinstance(sim_scope.capabilities.hardware_features, frozenset)
+
+    def test_hardware_features_defaults_to_empty(self, sim_scope):
+        """Per Rule 8 empty-default semantic: empty means 'feature set
+        unknown,' not 'feature X is absent.' No drivers populate the
+        set today; the field exists so plugin / SDK callers can
+        probe via caps.supports(token) without raising."""
+        assert sim_scope.capabilities.hardware_features == frozenset()
+
+    def test_supports_searches_hardware_features(self):
+        """caps.supports('trigger_in') checks the frozenset; if the
+        token is present, returns True even when no has_X / camera_supports_X
+        field matches."""
+        from dataclasses import replace
+        from modules.scope_capabilities import ScopeCapabilities
+        from drivers.null_motorboard import NullMotionBoard
+        from drivers.null_ledboard import NullLEDBoard
+        caps = ScopeCapabilities.from_drivers(
+            motion=NullMotionBoard(), led=NullLEDBoard(), camera=None,
+        )
+        # Empty set: unknown token -> False
+        assert caps.supports('trigger_in') is False
+        # Inject a token via dataclasses.replace (preserves frozen contract)
+        caps = replace(caps, hardware_features=frozenset({'trigger_in'}))
+        assert caps.supports('trigger_in') is True
+        # Other unknown tokens still False
+        assert caps.supports('warp_drive') is False
