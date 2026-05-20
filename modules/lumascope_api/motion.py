@@ -36,7 +36,7 @@ import contextlib
 import logging as _logging
 import threading
 import time
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Iterator
 
 from lib import profile_trace
 from lvp_logger import logger
@@ -332,7 +332,7 @@ class MotionAPI:
         return self._driver.get_axes_config()
 
     @contextlib.contextmanager
-    def reference_position_logger(self):
+    def reference_position_logger(self) -> Iterator[None]:
         """Context manager that logs limit-switch status before and after homing.
 
         Use as ``with scope.motion.reference_position_logger(): ... home ...``.
@@ -416,7 +416,7 @@ class MotionAPI:
             _api_log.info('home DONE')
 
     @contextlib.contextmanager
-    def safe_turret_move(self):
+    def safe_turret_move(self) -> Iterator[None]:
         """Context manager that lowers Z to 0 before turret motion and restores after.
 
         Use as ``with scope.motion.safe_turret_move(): ... move turret ...``.
@@ -612,7 +612,7 @@ class MotionAPI:
         """
         return self._driver.reference_status(axis=axis)
 
-    def get_limit_switch_status(self, axis: str):
+    def get_limit_switch_status(self, axis: str) -> 'tuple[int, int]':
         """Get the limit switch status for an axis.
 
         Args:

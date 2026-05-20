@@ -7,6 +7,7 @@ import pathlib
 import threading
 import time
 import warnings
+from typing import Any
 
 import numpy as np
 
@@ -951,7 +952,7 @@ class Lumascope():
         """
         self._labware = labware
 
-    def get_labware(self):
+    def get_labware(self) -> 'Any | None':
         """Get the currently installed labware.
 
         Returns:
@@ -1028,7 +1029,7 @@ class Lumascope():
         """
         self._stage_offset = stage_offset
 
-    def get_stage_offset(self):
+    def get_stage_offset(self) -> 'dict | None':
         """Get the stage offset for coordinate transformations.
 
         Returns:

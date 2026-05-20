@@ -674,7 +674,7 @@ class DiagnosticsAPI:
     # diagnostic endpoint) read None as "INCONCLUSIVE -- firmware
     # does not support this probe."
 
-    def read_motor_voltages(self):
+    def read_motor_voltages(self) -> 'dict | None':
         """Read motor-board power rail tolerance diagnostic.
 
         Returns a dict mapping rail label to volts (or None per rail
@@ -686,7 +686,7 @@ class DiagnosticsAPI:
             return None
         return drv.read_voltages()
 
-    def read_motor_drv_status(self, axis: str):
+    def read_motor_drv_status(self, axis: str) -> 'int | None':
         """Read TMC5072 DRV_STATUS register for an axis.
 
         Returns the raw register value as int (caller decodes bits),
@@ -697,7 +697,7 @@ class DiagnosticsAPI:
             return None
         return drv.read_drv_status(axis)
 
-    def read_motor_fanspeed(self):
+    def read_motor_fanspeed(self) -> 'int | None':
         """Read motor-board fan tachometer RPM.
 
         Returns RPM as int (0 if no tach wire) or None when firmware
@@ -747,7 +747,7 @@ class DiagnosticsAPI:
         except Exception:
             return False
 
-    def exit_led_engineering_mode(self):
+    def exit_led_engineering_mode(self) -> 'bool | None':
         """Exit LED engineering mode via the driver-canonical handshake.
 
         Driver method drains and sleeps after Q so the LED firmware

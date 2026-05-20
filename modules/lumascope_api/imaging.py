@@ -21,7 +21,7 @@ import os
 import pathlib
 import threading
 import time
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, ContextManager, Iterator
 
 import numpy as np
 
@@ -1580,7 +1580,7 @@ class ImagingAPI:
             max_gain_db=max_gain_db,
         )
 
-    def update_camera_config(self):
+    def update_camera_config(self) -> ContextManager[Any]:
         """Context manager for batched camera config updates.
 
         Usage::
@@ -1598,7 +1598,7 @@ class ImagingAPI:
         return self._driver.update_camera_config()
 
     @contextlib.contextmanager
-    def suppress_value_warnings(self):
+    def suppress_value_warnings(self) -> Iterator[None]:
         """Suppress programmatic value-range warnings (sub-0.1ms exposure
         and similar) for the duration of the `with` block.
 
@@ -1656,7 +1656,7 @@ class ImagingAPI:
             self._focusing_event.clear()
 
     @property
-    def capture_return(self):
+    def capture_return(self) -> 'np.ndarray | bool | None':
         """Latest capture result (image array or False/None).
 
         Returns:
@@ -1673,7 +1673,7 @@ class ImagingAPI:
             self._capture_return = value
 
     @property
-    def autofocus_return(self):
+    def autofocus_return(self) -> 'Any | None':
         """Latest autofocus result.
 
         Returns:
