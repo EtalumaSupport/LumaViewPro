@@ -286,24 +286,72 @@ class PostProcessingRegistry(_BaseNamespace):
 
 
 class LiveProcessingRegistry(_BaseNamespace):
-    """Per-frame listener plugins. Name locked; body ships in Wave 7 Phase 4.
+    """Per-frame listener plugins. Thin proxy to scope.imaging.
 
-    The per-frame fire sites in the camera drivers (Pylon / IDS / FX2
-    / Sim) and the listener thread contract are deferred to the
-    ImagingAPI relocation. Until then, register() fails fast so plugin
-    authors get a clear signal that the surface isn't live yet.
+    Per WAVE7_PHASE_4D5_PLAN sec 9 alignment (2026-05-19): registry
+    forwards register / unregister to the canonical listener registry
+    on ImagingAPI (Rule 35 -- one source of truth for the fan-out
+    list). This class only keeps a name -> (spec, handler) lookup
+    table so unregister-by-plugin-name can resolve to the original
+    handler that ImagingAPI was given.
+
+    Host wires the live Lumascope via bind_scope() before plugin
+    discovery; load_plugins() does this automatically. Register() on
+    an unbound registry raises so the failure is loud.
+
+    Plugin authors call:
+        ctx.plugins.live_processing.register(spec, handler)
+        ctx.plugins.live_processing.unregister(spec.name)
+
+    Handler signature is cb(image, timestamp, chunks). It runs on the
+    camera SDK thread; see imaging.add_frame_listener docstring +
+    Firmware/docs/LIVE_PROCESSING_TUTORIAL.md (4d.5f) for the budget +
+    don't-mutate contract.
     """
 
     NAMESPACE = 'live_processing'
 
+    def __init__(self) -> None:
+        super().__init__()
+        # Set by bind_scope() before any register() can succeed. Kept
+        # as a plain attribute (not state-on-fan-out) because the
+        # listener registry of record lives on ImagingAPI; this is
+        # just a lookup channel for unregister-by-name.
+        self._scope: Any = None
+
+    def bind_scope(self, scope: Any) -> None:
+        """Wire the live Lumascope. Called by load_plugins() at startup."""
+        self._scope = scope
+
     def register(self, spec: PluginSpec, frame_handler: Callable) -> None:
-        raise PluginRegistrationError(
-            "ctx.plugins.live_processing is reserved but not yet implemented. "
-            "Per-frame listener infrastructure ships with Wave 7 Phase 4 "
-            "(ImagingAPI relocation). Plan to call this from a "
-            "post_processing plugin instead, or wait for the listener "
-            "registry to land."
-        )
+        if self._scope is None:
+            raise PluginRegistrationError(
+                "ctx.plugins.live_processing not yet bound to a scope. "
+                "The host must call bind_scope(scope) before plugin "
+                "discovery; this is normally done inside load_plugins()."
+            )
+        with self._lock:
+            self._assert_unique(spec)
+            self._handlers[spec.name] = (spec, frame_handler)
+            self._record_loaded(spec)
+        # Forward to the canonical listener list on ImagingAPI. The
+        # name= param surfaces in WARNING logs and the auto-remove
+        # notification body so L1 can identify which plugin misbehaved.
+        self._scope.imaging.add_frame_listener(frame_handler, name=spec.name)
+
+    def unregister(self, name: str) -> None:
+        """Remove the listener registered by plugin `name`. No-op if not registered."""
+        with self._lock:
+            entry = self._handlers.pop(name, None)
+        if entry is None or self._scope is None:
+            return
+        _spec, handler = entry
+        self._scope.imaging.remove_frame_listener(handler)
+
+    def names(self) -> tuple[str, ...]:
+        """Return the names of all currently-registered live_processing plugins."""
+        with self._lock:
+            return tuple(self._handlers.keys())
 
 
 class RESTRegistry(_BaseNamespace):
@@ -468,6 +516,15 @@ def load_plugins(ctx: Any) -> None:
     if ctx is None or not hasattr(ctx, 'plugins'):
         logger.error('[Plugins ] load_plugins called without ctx.plugins')
         return
+
+    # Wire the live_processing registry's scope reference before any
+    # plugin's register(ctx) can call ctx.plugins.live_processing.register.
+    # ctx.scope is expected to be the live Lumascope by this point
+    # (LumaViewProApp.build sets it before this call).
+    try:
+        ctx.plugins.live_processing.bind_scope(getattr(ctx, 'scope', None))
+    except Exception:
+        logger.exception('[Plugins ] live_processing bind_scope failed')
 
     host_version = getattr(ctx, 'version', '') or ''
     try:

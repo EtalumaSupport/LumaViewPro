@@ -2006,15 +2006,3 @@ class ImagingAPI:
                     f"[SCOPE API ] _remove_wrapper driver-unregister failed: {ex}"
                 )
 
-    # Considered immediate removal of register/unregister_frame_callback;
-    # rejected because 1 LVP caller (ui/main_display.py recording path)
-    # still calls the old names. Forwarders retire in Phase 4d.5e after
-    # caller migration; same commit removes them from
-    # IMAGING_ONLY_METHODS in tests/test_wave7_rename_complete.py.
-    def register_frame_callback(self, cb) -> None:
-        """Deprecated alias for :meth:`add_frame_listener`. Retires in Phase 4d.5e."""
-        self.add_frame_listener(cb)
-
-    def unregister_frame_callback(self, cb) -> None:
-        """Deprecated alias for :meth:`remove_frame_listener`. Retires in Phase 4d.5e."""
-        self.remove_frame_listener(cb)

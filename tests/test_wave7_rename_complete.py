@@ -297,13 +297,10 @@ def test_no_self_motion_calls_in_lumascope():
 # forwarders on the imaging.py facade as of 2026-05-19. Same shape as
 # MOTION_ONLY_METHODS / ILLUMINATION_ONLY_METHODS.
 #
-# Names track the CURRENT method surface. Phase 4d.5b landed the
-# `register_frame_callback` -> `add_frame_listener` /
-# `unregister_frame_callback` -> `remove_frame_listener` rename; both
-# the new names AND the old forwarders are present below. Forwarders
-# retire in Phase 4d.5e (same commit removes
-# `register_frame_callback` + `unregister_frame_callback` from this
-# set).
+# Names track the CURRENT method surface. Phase 4d.5e retired the
+# `register_frame_callback` / `unregister_frame_callback` deprecated
+# aliases that 4d.5b had kept as forwarders; only the new names
+# (`add_frame_listener` / `remove_frame_listener`) remain.
 IMAGING_ONLY_METHODS = frozenset({
     'add_camera_listener', 'add_frame_listener', 'apply_layer_camera_settings',
     'auto_gain_once', 'autofocus_return', 'camera_active',
@@ -318,7 +315,7 @@ IMAGING_ONLY_METHODS = frozenset({
     'get_image_from_buffer', 'get_image_with_chunks_from_buffer',
     'get_max_height', 'get_max_width', 'get_pixel_format',
     'get_supported_pixel_formats', 'get_width', 'is_capturing',
-    'is_focusing', 'log_camera_temps', 'register_frame_callback',
+    'is_focusing', 'log_camera_temps',
     'remove_camera_listener', 'remove_frame_listener', 'restore_camera_state',
     'save_camera_state', 'scale_bar_config', 'scale_bar_enabled',
     'set_acquisition_stop_mode', 'set_auto_exposure_time', 'set_auto_gain',
@@ -329,7 +326,7 @@ IMAGING_ONLY_METHODS = frozenset({
     'set_max_acquisition_frame_rate', 'set_max_transfer_size',
     'set_num_max_queued_urbs', 'set_pixel_format', 'set_scale_bar',
     'start_camera_temp_logging', 'stop_camera_temp_logging',
-    'suppress_value_warnings', 'unregister_frame_callback',
+    'suppress_value_warnings',
     'update_auto_gain_target_brightness', 'update_camera_config',
 })
 
