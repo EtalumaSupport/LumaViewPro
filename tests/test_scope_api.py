@@ -392,7 +392,7 @@ class TestLumascopeLedAPI:
 
     def test_led_on_async_dispatches(self):
         scope, io_ex, _ = _make_real_scope_with_mock_executors()
-        scope.illumination.led_on_async(channel=2, illumination=100)
+        scope.illumination.led_on_async(channel=2, mA=100)
         task = io_ex.put.call_args[0][0]
         assert task.action == scope.illumination.led_on
         assert task.args == (2, 100)
@@ -424,7 +424,7 @@ class TestLumascopeLedAPI:
 
     def test_led_on_sync_blocks(self):
         scope, io_ex, _ = _make_real_scope_with_mock_executors()
-        scope.illumination.led_on_sync(channel=1, illumination=75)
+        scope.illumination.led_on_sync(channel=1, mA=75)
         io_ex.put.assert_called_once()
         _, kwargs = io_ex.put.call_args
         assert kwargs.get('return_future') is True

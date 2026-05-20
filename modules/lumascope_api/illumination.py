@@ -311,13 +311,13 @@ class IlluminationAPI:
         ex.put(IOTask(action=self.leds_off, callback=callback))
         logger.info('[SCOPE API ] leds_off_async()')
 
-    def led_on_async(self, channel, illumination, *, callback=None,
+    def led_on_async(self, channel, mA, *, callback=None,
                      cb_kwargs=None, owner: str = '') -> None:
-        """Submit ``led_on(channel, illumination)`` to the io_executor.
+        """Submit ``led_on(channel, mA)`` to the io_executor.
 
         Args:
             channel: Channel number or color name.
-            illumination: Illumination current in mA.
+            mA: LED current in milliamps.
             callback: Optional completion callback.
             cb_kwargs: Optional kwargs passed to the callback.
             owner: Optional ownership tag for the LED state.
@@ -329,7 +329,7 @@ class IlluminationAPI:
         ex = self._scope._require_executor(self._scope._io_executor, 'led_on_async')
         ex.put(IOTask(
             action=self.led_on,
-            args=(channel, illumination),
+            args=(channel, mA),
             kwargs=kwargs,
             callback=callback,
             cb_kwargs=cb_kwargs,
@@ -360,13 +360,13 @@ class IlluminationAPI:
             cb_kwargs=cb_kwargs,
         ))
 
-    def led_on_sync(self, channel, illumination, *, timeout=5,
+    def led_on_sync(self, channel, mA, *, timeout=5,
                     owner: str = '') -> None:
         """Run ``led_on`` through the io_executor and block until done.
 
         Args:
             channel: Channel number or color name.
-            illumination: Illumination current in mA.
+            mA: LED current in milliamps.
             timeout: Max seconds to wait for completion.
             owner: Optional ownership tag for the LED state.
         """
@@ -375,7 +375,7 @@ class IlluminationAPI:
             return
         kwargs = {'owner': owner} if owner else {}
         ex = self._scope._require_executor(self._scope._io_executor, 'led_on_sync')
-        task = IOTask(action=self.led_on, args=(channel, illumination),
+        task = IOTask(action=self.led_on, args=(channel, mA),
                       kwargs=kwargs)
         fut = ex.put(task, return_future=True)
         if fut:

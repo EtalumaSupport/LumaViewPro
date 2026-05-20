@@ -7715,6 +7715,22 @@ class TestSessionLedOnArgNameIsMa:
         assert 'mA' in params
         assert 'illumination' not in params
 
+    def test_illumination_api_led_on_async_signature_uses_mA(self):
+        """U6 paired with Finding #33 (was: ScopeSession only). The
+        async/sync surface on IlluminationAPI proper also drops the
+        ambiguous `illumination=` keyword. The drift had been at the
+        sub-API layer (not just the Session forwarder) and U6 closes
+        it pre-freeze."""
+        import inspect
+        from modules.lumascope_api.illumination import IlluminationAPI
+
+        for method_name in ('led_on_async', 'led_on_sync'):
+            params = inspect.signature(getattr(IlluminationAPI, method_name)).parameters
+            assert 'mA' in params, f'IlluminationAPI.{method_name} must accept mA'
+            assert 'illumination' not in params, (
+                f'IlluminationAPI.{method_name} must retire `illumination` kwarg'
+            )
+
 
 class TestImagingTimeoutsAreFloatSeconds:
     """Audit Finding #11 -- imaging timeout convention unified to
