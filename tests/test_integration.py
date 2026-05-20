@@ -816,7 +816,7 @@ class TestRestAPIPrep:
     def test_get_motor_info(self):
         """get_motor_info() should return model, serial, firmware."""
         session = ScopeSession.create_headless()
-        info = session.scope.get_motor_info()
+        info = session.scope.diagnostics.get_motor_info()
         assert 'model' in info
         assert 'serial_number' in info
         assert 'firmware_version' in info
@@ -825,21 +825,21 @@ class TestRestAPIPrep:
     def test_get_led_info(self):
         """get_led_info() should return firmware and connection status."""
         session = ScopeSession.create_headless()
-        info = session.scope.get_led_info()
+        info = session.scope.diagnostics.get_led_info()
         assert info['connected'] is True
         assert info['firmware_version'] is not None
 
     def test_get_camera_info(self):
         """get_camera_info() should return model and connection status."""
         session = ScopeSession.create_headless()
-        info = session.scope.get_camera_info()
+        info = session.scope.diagnostics.get_camera_info()
         assert info['connected'] is True
         assert info['model'] is not None
 
     def test_get_system_info(self):
         """get_system_info() should return consolidated info for all hardware."""
         session = ScopeSession.create_headless()
-        info = session.scope.get_system_info()
+        info = session.scope.diagnostics.get_system_info()
         assert 'motor' in info
         assert 'led' in info
         assert 'camera' in info
@@ -853,7 +853,7 @@ class TestRestAPIPrep:
         session.scope._motion_driver = NullMotionBoard()
         session.scope._led_driver = None
         session.scope._camera_driver = None
-        info = session.scope.get_system_info()
+        info = session.scope.diagnostics.get_system_info()
         assert info['motor']['model'] is None
         assert info['led']['connected'] is False
         assert info['camera']['connected'] is False

@@ -598,3 +598,169 @@ def test_no_self_image_save_calls_in_lumascope():
         "free function with self as the scope arg:\n  "
         + "\n  ".join(failures)
     )
+
+
+# Phase 7 (composition root cleanup) -- see docs/WAVE7_PHASE_7_PLAN.md.
+# Two distinct migrations stage four guards:
+#
+#   1. Six diagnostic facade getters RELOCATE from Lumascope to
+#      DiagnosticsAPI. Bare-scope guard + inside-class self.X guard,
+#      both `xfail strict=True` until their respective flip stages.
+#      Bare-scope flips at 7e (production caller migration); inside-
+#      class flips at 7c (get_system_info body relocates with its 3
+#      self.X self-calls per WAVE7_PHASE_7_PLAN §9 #5).
+#
+#   2. compute_focus_score RETIRES outright (no replacement on a
+#      sub-API; callers migrate to
+#      modules.autofocus_functions.focus_function directly). Bare-
+#      scope guard `xfail strict=True` until 7e; inside-class guard
+#      passes plain today (the wrapper has zero internal self-callers
+#      verified at 7a) and stays green through 7f retirement.
+#
+# The DIAGNOSTICS_ONLY_METHODS frozenset above covers the 7 Phase 5
+# diagnostic probes (camera temperatures, bandwidth tests, etc.).
+# DIAGNOSTIC_FACADE_GETTERS below covers the 6 thin facade getters
+# Phase 5 deliberately left on Lumascope -- Phase 7 finishes the
+# migration. Kept separate so the two phases' guard staging stays
+# obvious.
+DIAGNOSTIC_FACADE_GETTERS = frozenset({
+    'get_motor_info', 'get_led_info', 'get_camera_info',
+    'get_camera_profile_info', 'get_system_info', 'get_microscope_model',
+})
+
+COMPUTE_FOCUS_SCORE_RETIRED = frozenset({'compute_focus_score'})
+
+
+def _find_chain_method_accesses(
+    tree: ast.AST, banned: frozenset[str]
+) -> list[tuple[int, str]]:
+    """Find `<chain ending in scope>.<banned_method>` accesses.
+
+    Parameterized variant of the per-sub-API finders above. Same shape
+    as _find_imaging_method_accesses / _find_diagnostics_method_accesses
+    / etc. but takes the frozenset as an argument.
+    """
+    hits: list[tuple[int, str]] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Attribute):
+            continue
+        if node.attr not in banned:
+            continue
+        if _chain_ends_in_scope(node.value):
+            hits.append((node.lineno, node.attr))
+    return hits
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="flips at Phase 7e when production callers migrate to "
+           "scope.diagnostics.<getter>",
+)
+def test_no_diagnostic_facade_getter_calls_on_bare_scope_in_production():
+    failures: list[str] = []
+    for path in _iter_prod_files():
+        try:
+            source = path.read_text(encoding='utf-8')
+        except (OSError, UnicodeDecodeError) as e:
+            failures.append(f"{path}: read failed: {e}")
+            continue
+        try:
+            tree = ast.parse(source, filename=str(path))
+        except SyntaxError as e:
+            failures.append(f"{path}: parse failed: {e}")
+            continue
+        for lineno, attr in _find_chain_method_accesses(
+            tree, DIAGNOSTIC_FACADE_GETTERS
+        ):
+            rel = path.relative_to(_REPO_ROOT)
+            failures.append(
+                f"{rel}:{lineno}: scope.{attr} -- "
+                f"use scope.diagnostics.{attr}"
+            )
+    assert not failures, (
+        "Diagnostic facade getters reached on bare scope -- production "
+        "code must go through scope.diagnostics.<getter> after Phase 7e:\n  "
+        + "\n  ".join(failures)
+    )
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="flips at Phase 7c when get_system_info body relocates -- "
+           "3 self.X self-calls go with it (per plan §9 #5)",
+)
+def test_no_self_diagnostic_facade_getter_calls_in_lumascope():
+    """Lumascope's own methods must not reach diagnostic facade getters
+    via bare `self.X` -- get_system_info's 3 self-calls migrate naturally
+    when its body relocates to DiagnosticsAPI at Phase 7c."""
+    source = _LUMASCOPE_PATH.read_text(encoding='utf-8')
+    tree = ast.parse(source, filename=str(_LUMASCOPE_PATH))
+    hits = _find_self_method_accesses(tree, DIAGNOSTIC_FACADE_GETTERS)
+    failures = [
+        f"_lumascope.py:{lineno}: self.{attr} -- "
+        f"use self.diagnostics.{attr}"
+        for lineno, attr in hits
+    ]
+    assert not failures, (
+        "Lumascope reached diagnostic facade getters via bare self -- "
+        "migrate to self.diagnostics.<getter>:\n  "
+        + "\n  ".join(failures)
+    )
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="flips at Phase 7e when production callers migrate to "
+           "modules.autofocus_functions.focus_function (compute_focus_score "
+           "retires outright per plan §9 #3)",
+)
+def test_no_compute_focus_score_calls_on_scope_in_production():
+    failures: list[str] = []
+    for path in _iter_prod_files():
+        try:
+            source = path.read_text(encoding='utf-8')
+        except (OSError, UnicodeDecodeError) as e:
+            failures.append(f"{path}: read failed: {e}")
+            continue
+        try:
+            tree = ast.parse(source, filename=str(path))
+        except SyntaxError as e:
+            failures.append(f"{path}: parse failed: {e}")
+            continue
+        for lineno, attr in _find_chain_method_accesses(
+            tree, COMPUTE_FOCUS_SCORE_RETIRED
+        ):
+            rel = path.relative_to(_REPO_ROOT)
+            failures.append(
+                f"{rel}:{lineno}: scope.{attr} retired -- "
+                f"use `from modules import autofocus_functions; "
+                f"autofocus_functions.focus_function(image=..., "
+                f"skip_score_logging=True)`"
+            )
+    assert not failures, (
+        "compute_focus_score reached on scope -- the wrapper retires in "
+        "Phase 7f; callers must use modules.autofocus_functions."
+        "focus_function directly:\n  "
+        + "\n  ".join(failures)
+    )
+
+
+def test_no_self_compute_focus_score_calls_in_lumascope():
+    """Lumascope's own methods must not reach compute_focus_score via
+    bare `self.X`. Today there are zero internal callers (verified at
+    Phase 7a); this guard locks the invariant through 7f retirement so
+    a stray new self.compute_focus_score call doesn't sneak in before
+    the wrapper deletes."""
+    source = _LUMASCOPE_PATH.read_text(encoding='utf-8')
+    tree = ast.parse(source, filename=str(_LUMASCOPE_PATH))
+    hits = _find_self_method_accesses(tree, COMPUTE_FOCUS_SCORE_RETIRED)
+    failures = [
+        f"_lumascope.py:{lineno}: self.{attr} -- the wrapper retires "
+        f"in Phase 7f; do not add new internal callers"
+        for lineno, attr in hits
+    ]
+    assert not failures, (
+        "Lumascope reached compute_focus_score via bare self -- the "
+        "wrapper retires in Phase 7f and has no internal callers:\n  "
+        + "\n  ".join(failures)
+    )

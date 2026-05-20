@@ -755,6 +755,31 @@ class DiagnosticsAPI:
         except Exception:
             return None
 
+    # --- Phase 7 facade getter forwarders (7b-introduced; bodies co-relocate 7c) ---
+    # Six thin getters Phase 5 deliberately left on Lumascope. Phase 7
+    # finishes the migration: 7b adds forwarders so tests can target
+    # scope.diagnostics.<getter> directly; 7c moves the bodies here and
+    # leaves Lumascope with thin wrappers calling down; 7f retires the
+    # Lumascope wrappers.
+
+    def get_microscope_model(self):
+        return self._scope.get_microscope_model()
+
+    def get_motor_info(self) -> dict:
+        return self._scope.get_motor_info()
+
+    def get_led_info(self) -> dict:
+        return self._scope.get_led_info()
+
+    def get_camera_info(self) -> dict:
+        return self._scope.get_camera_info()
+
+    def get_camera_profile_info(self) -> dict | None:
+        return self._scope.get_camera_profile_info()
+
+    def get_system_info(self) -> dict:
+        return self._scope.get_system_info()
+
     # --- Phase 5 helper forwarders (5b-introduced; bodies co-relocate 5c) ---
     # These four helpers are exclusive to diagnostic methods. 5b adds
     # forwarders so tests can target DiagnosticsAPI._X(...) directly;
