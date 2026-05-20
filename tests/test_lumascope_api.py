@@ -920,6 +920,21 @@ class TestScopeCapabilities:
         assert caps.has_xy_stage is False
         assert caps.has_turret is False
 
+    def test_runtime_state_placeholder_ships_with_empty_fields(self):
+        """Audit Finding #5: scope.runtime_state ships as an empty
+        placeholder per design doc §10. Both fields are empty dicts
+        with the documented types. Callers treat empty as 'feature
+        unknown' per Rule 8 corollary."""
+        from modules.lumascope_api.runtime_state import RuntimeState
+        scope_stub = object()
+        rs = RuntimeState(scope_stub)
+        assert rs.firmware_versions == {}
+        assert isinstance(rs.firmware_versions, dict)
+        assert rs.firmware_features == {}
+        assert isinstance(rs.firmware_features, dict)
+        # Empty-default contract: callers use .get(..., default) without KeyError
+        assert rs.firmware_features.get('motor', frozenset()) == frozenset()
+
     def test_supports_helper_searches_has_and_camera_supports_fields(self):
         """Rule 8 corollary helper -- one cross-surface entry point for
         capability probes. caps.supports('turret') returns has_turret;

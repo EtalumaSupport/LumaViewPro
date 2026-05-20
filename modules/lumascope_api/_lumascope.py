@@ -315,10 +315,12 @@ class Lumascope():
         from modules.lumascope_api.imaging import ImagingAPI
         from modules.lumascope_api.diagnostics import DiagnosticsAPI
         from modules.lumascope_api.io import IOAPI
+        from modules.lumascope_api.runtime_state import RuntimeState
         self.illumination = IlluminationAPI(self, self._led_driver)
         self.imaging = ImagingAPI(self, self._camera_driver)
         self.diagnostics = DiagnosticsAPI(self)
         self.io = IOAPI(self)
+        self.runtime_state = RuntimeState(self)
 
         # Partial-hardware notification deferred to initialize(config) —
         # we need scope-config knowledge to distinguish "LS620 correctly

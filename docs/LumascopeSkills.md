@@ -666,6 +666,23 @@ The `scope.io` sub-API is named in the locked sub-API decomposition per `docs/PL
 
 ---
 
+## scope.runtime_state
+
+Mutable counterpart to `scope.capabilities`. Where `capabilities` holds the immutable per-scope identity (axes, led channels, camera model), `runtime_state` holds the runtime-mutable facts that legitimately change mid-session — firmware versions (after a reflash), firmware feature flags (after FW4.0 ships), and future reconnect-aware fields.
+
+The split exists because firmware version is not a frozen scope identity — a tech-support engineer can reflash mid-session, and the version surface should reflect that. A single frozen capabilities surface would lie post-flash.
+
+```python
+scope.runtime_state.firmware_versions       # dict[str, str]
+scope.runtime_state.firmware_features       # dict[str, frozenset[str]]
+```
+
+**Status in 4.0.x: empty placeholder.** Both fields ship as empty dicts. Real content lands when FW4.0 populates `INFO.features` (firmware_features) and when reconnect-aware versioning hooks are added to the driver layer (firmware_versions). Callers treat empty as "feature unknown" per the Rule 8 capability-probe contract — `scope.runtime_state.firmware_features.get('motor', frozenset())` returns the empty set today, never `KeyError`.
+
+Until the real content ships, query firmware version via `scope.diagnostics.get_motor_info()['version']` / `scope.diagnostics.get_led_info()['version']`. The diagnostic-getter path is the live query; `runtime_state` will become the cached snapshot once reflash hooks fire it.
+
+---
+
 ## modules
 
 The `modules/` package holds helpers that ride alongside the API surface but are not sub-API methods. Two patterns:

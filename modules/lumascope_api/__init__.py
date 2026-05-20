@@ -34,6 +34,7 @@ from modules.lumascope_api.illumination import IlluminationAPI
 from modules.lumascope_api.imaging import ImagingAPI
 from modules.lumascope_api.io import IOAPI
 from modules.lumascope_api.motion import MotionAPI
+from modules.lumascope_api.runtime_state import RuntimeState
 
 __all__ = [
     'AxisState',
@@ -44,4 +45,5 @@ __all__ = [
     'IOAPI',
     'Lumascope',
     'MotionAPI',
+    'RuntimeState',
 ]
