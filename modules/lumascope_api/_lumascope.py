@@ -48,7 +48,6 @@ import logging as _logging
 
 _api_log = _logging.getLogger('LVP.api')
 
-import modules.autofocus_functions as autofocus_functions
 import modules.common_utils as common_utils
 import modules.coord_transformations as coord_transformations
 from lib import profile_trace
@@ -996,19 +995,6 @@ class Lumascope():
         """
         return self._objective
 
-    def compute_focus_score(self, image) -> float:
-        """Compute focus score (Vollath F4) on an image.
-
-        Args:
-            image: numpy array (grayscale).
-
-        Returns:
-            float: Focus score. Higher = sharper.
-        """
-        return autofocus_functions.focus_function(
-            image=image, skip_score_logging=True
-        )
-
     def set_turret_config(self, turret_config: dict[int,str]) -> None:
         """Set the turret objective configuration.
 
@@ -1096,22 +1082,6 @@ class Lumascope():
         after = self.motion.get_limit_switch_status_all_axes()
         logger.info(f"Limit switch status after homing: {after}", extra={'force_error': True})
 
-    def get_microscope_model(self) -> str | None:
-        """Get the microscope model; see DiagnosticsAPI.get_microscope_model."""
-        return self.diagnostics.get_microscope_model()
-
-    def get_motor_info(self) -> dict:
-        """Get motor controller info; see DiagnosticsAPI.get_motor_info."""
-        return self.diagnostics.get_motor_info()
-
-    def get_led_info(self) -> dict:
-        """Get LED controller info; see DiagnosticsAPI.get_led_info."""
-        return self.diagnostics.get_led_info()
-
-    def get_camera_info(self) -> dict:
-        """Get camera info; see DiagnosticsAPI.get_camera_info."""
-        return self.diagnostics.get_camera_info()
-
     @classmethod
     def create_diagnostic(cls) -> 'Lumascope':
         """Create a minimal Lumascope for diagnostics (no camera init).
@@ -1176,14 +1146,6 @@ class Lumascope():
                     f'(LED={instance.led_connected}, '
                     f'Motor={instance.motor_connected})')
         return instance
-
-    def get_camera_profile_info(self) -> dict | None:
-        """Get detailed camera profile; see DiagnosticsAPI.get_camera_profile_info."""
-        return self.diagnostics.get_camera_profile_info()
-
-    def get_system_info(self) -> dict:
-        """Get consolidated system info; see DiagnosticsAPI.get_system_info."""
-        return self.diagnostics.get_system_info()
 
     ########################################################################
     # INTEGRATED SCOPE FUNCTIONS

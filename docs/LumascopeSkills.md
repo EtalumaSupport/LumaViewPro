@@ -523,8 +523,8 @@ scope.imaging.remove_camera_listener(on_camera)
 scope.imaging.camera_is_connected()
 scope.imaging.camera_active                        # True if grabbing
 scope.imaging.get_camera_temps()                   # temperature sensors (SDK-dependent)
-scope.get_camera_info()                    # model, serial, firmware
-scope.get_camera_profile_info()            # sensor specs + dynamic ranges; returns:
+scope.diagnostics.get_camera_info()                # model, serial, firmware
+scope.diagnostics.get_camera_profile_info()        # sensor specs + dynamic ranges; returns:
 # {
 #   'model': 'MT9P031-LS620', 'sensor': 'Aptina MT9P031',
 #   'pixel_size_um': 2.2, 'shutter': 'rolling',
@@ -619,11 +619,11 @@ The full set of free functions in `modules.image_save`:
 ### System info
 
 ```python
-scope.get_microscope_model()               # 'LS850'
-scope.get_motor_info()                     # model, serial, firmware, axis config
-scope.get_led_info()                       # firmware, cal status
-scope.get_system_info()                    # combined summary
-scope.pixel_size()                         # µm per pixel (method — depends on objective)
+scope.diagnostics.get_microscope_model()   # 'LS850'
+scope.diagnostics.get_motor_info()         # model, serial, firmware, axis config
+scope.diagnostics.get_led_info()           # firmware, cal status
+scope.diagnostics.get_system_info()        # combined summary
+scope.pixel_size()                         # um per pixel (method -- depends on objective)
 scope.lens_focal_length()                  # current tube-lens focal length (method)
 ```
 
