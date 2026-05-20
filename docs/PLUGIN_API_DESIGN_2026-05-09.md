@@ -188,8 +188,9 @@ config.
   `autofocus_return` (via `_capturing_event`, `_focusing_event`)
 - Frame validity: `frame_is_valid`, `frames_until_valid`, `count_frame`
 - Scale bar: `scale_bar_config`, `scale_bar_enabled`, `set_scale_bar`
-- Camera diagnostics: `get_camera_temps`, `log_camera_temps`,
+- Camera diagnostics: `log_camera_temps`,
   `start_camera_temp_logging`, `stop_camera_temp_logging`
+  (cold-probe temperatures live at `scope.diagnostics.get_camera_temperatures`)
 - Frame-flow listeners: `add_frame_listener`, `remove_frame_listener`,
   `_fire_camera_listeners`
 **Driver handle**: `_camera_driver` (was `scope.camera`, class
@@ -778,8 +779,10 @@ Work items:
 - Move ~50 camera methods from `Lumascope` to `ImagingAPI`
 - Move `_camera_cache`, `_frame_buffer`, camera listeners, frame_validity,
   scale_bar
-- Move camera diagnostics (`get_camera_temps`, etc.) -- keep with imaging
-  per audit recommendation
+- Move camera-diagnostic *logging* (`log_camera_temps`, `start_camera_temp_logging`)
+  -- keep with imaging. Cold-probe `get_camera_temperatures` lives on
+  DiagnosticsAPI; imaging-side `get_camera_temps` was retired pre-freeze
+  (duplicate path; see API-freeze audit Finding #2).
 - Operation flags (`is_capturing`, `is_focusing`) get one-line forwarders
 - `compute_focus_score` moves to `modules/focus.py` (per pass-1 C-4 amendment, not into ImagingAPI)
 - **Per-frame listener registry on `ImagingAPI`**: `add_frame_listener(handler)` / `remove_frame_listener(handler)` / `_fire_frame_listeners(frame, metadata)`. Sync-fire-from-calling-thread per Rule 33; drop policy when handler exceeds 16ms budget (per Rule 42 budget entry `plugin_live_processing_handler_ms` in `docs/PERFORMANCE_BUDGETS.md`)

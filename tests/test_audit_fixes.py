@@ -7772,3 +7772,26 @@ class TestImagingTimeoutsAreFloatSeconds:
         nct = sig.parameters['new_capture_timeout']
         assert isinstance(nct.default, float)
         assert nct.default == 5.0
+
+
+class TestImagingGetCameraTempsRetired:
+    """Audit Finding #2 -- imaging.get_camera_temps was a duplicate path
+    for the diagnostics.get_camera_temperatures probe. Retired pre-freeze.
+    log_camera_temps (the live-in-flight logger) stays on imaging and now
+    routes through diagnostics for the data read."""
+
+    def test_imaging_get_camera_temps_is_gone(self):
+        from modules.lumascope_api.imaging import ImagingAPI
+        assert not hasattr(ImagingAPI, 'get_camera_temps'), (
+            "imaging.get_camera_temps must be retired; "
+            "callers route through scope.diagnostics.get_camera_temperatures"
+        )
+
+    def test_diagnostics_get_camera_temperatures_still_callable(self, sim_scope):
+        # Sim drivers may not expose temperatures; method must return a dict.
+        result = sim_scope.diagnostics.get_camera_temperatures()
+        assert isinstance(result, dict)
+
+    def test_imaging_log_camera_temps_still_exists(self):
+        from modules.lumascope_api.imaging import ImagingAPI
+        assert callable(getattr(ImagingAPI, 'log_camera_temps', None))

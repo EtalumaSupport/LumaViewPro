@@ -1807,28 +1807,18 @@ class ImagingAPI:
         if color is not None:
             self._scale_bar['color'] = color
 
-    # --- Camera diagnostics (live, in-flight; cold probes live on DiagnosticsAPI) ---
-    def get_camera_temps(self) -> dict:
-        """Get camera temperature readings.
-
-        Returns:
-            dict: Mapping of sensor name to temperature in Celsius. Empty if inactive.
-        """
-
-        if not self._driver or not self._driver.active:
-            return {}
-
-        return self._driver.get_all_temperatures()
-
+    # --- Camera diagnostics (live in-flight only; data source = DiagnosticsAPI) ---
     def log_camera_temps(self) -> None:
         """Emit one INFO line per camera temperature sensor.
 
         No-op when no camera is connected. Called once on startup and
-        periodically by ``start_camera_temp_logging``.
+        periodically by ``start_camera_temp_logging``. Reads temperatures
+        through `scope.diagnostics.get_camera_temperatures` -- the canonical
+        camera-temp probe (cold probes live on DiagnosticsAPI).
         """
         if not self.camera_is_connected():
             return
-        for source, temp in self.get_camera_temps().items():
+        for source, temp in self._scope.diagnostics.get_camera_temperatures().items():
             logger.info(
                 f'[CAM Class ] Camera {source} Temperature : {temp:.2f} degC')
 

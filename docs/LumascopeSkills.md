@@ -514,7 +514,7 @@ scope.imaging.remove_frame_listener(on_frame)
 ```python
 scope.imaging.camera_is_connected()
 scope.imaging.camera_active                        # True if grabbing
-scope.imaging.get_camera_temps()                   # temperature sensors (SDK-dependent)
+scope.diagnostics.get_camera_temperatures()        # temperature sensors (SDK-dependent)
 scope.diagnostics.get_camera_info()                # model, serial, firmware
 scope.diagnostics.get_camera_profile_info()        # sensor specs + dynamic ranges; returns:
 # {

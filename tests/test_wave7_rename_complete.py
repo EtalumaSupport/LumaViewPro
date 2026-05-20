@@ -310,7 +310,7 @@ IMAGING_ONLY_METHODS = frozenset({
     'capture', 'capture_and_wait', 'capture_and_wait_sync',
     'capture_blocking', 'capture_complete', 'capture_return', 'count_frame',
     'frame_is_valid', 'frames_until_valid', 'get_available_binning_sizes',
-    'get_binning_size', 'get_camera_temps', 'get_exposure_time',
+    'get_binning_size', 'get_exposure_time',
     'get_frame_size', 'get_gain', 'get_height', 'get_image',
     'get_image_from_buffer', 'get_image_with_chunks_from_buffer',
     'get_max_height', 'get_max_width', 'get_pixel_format',
