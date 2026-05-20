@@ -499,6 +499,23 @@ class ImagingAPI:
                 self._camera_cache['pixel_format'] = pixel_format
         return result
 
+    # --- SDK-perf knobs (write-only by design) ---
+    #
+    # Considered get_X companions for the cluster below
+    # (set_acquisition_stop_mode, set_bandwidth_reserve_mode,
+    #  set_device_link_throughput_limit, set_max_transfer_size,
+    #  set_num_max_queued_urbs, set_gev_packet_size,
+    #  set_gev_inter_packet_delay, set_max_acquisition_frame_rate).
+    # Rejected because: these are Pylon / GEV / USB SDK perf knobs
+    # the customer typically configures once at startup; the SDK
+    # exposes them as nodemap writes and readback either returns a
+    # stale value or raises depending on the camera firmware. The
+    # write-only shape matches the Pylon Configuration class pattern.
+    # Revisit if a future caller has a concrete need to read the
+    # current setting (e.g. a self-tuning bandwidth limiter); the
+    # capability tokens for "supports readback" would belong on
+    # scope.capabilities.
+
     def set_acquisition_stop_mode(self, mode: str) -> bool:
         """Set BslAcquisitionStopMode (Pylon-only; no-op on IDS).
 
@@ -1738,6 +1755,20 @@ class ImagingAPI:
         self._scale_bar['enabled'] = enabled
         if color is not None:
             self._scale_bar['color'] = color
+
+    def get_scale_bar(self) -> dict:
+        """Get the full scale-bar configuration.
+
+        Companion getter to ``set_scale_bar``; ``scale_bar_enabled`` covers
+        just the on/off flag, but this returns the full
+        ``{'enabled', 'color', ...}`` snapshot so a caller can read what
+        was previously set.
+
+        Returns:
+            Snapshot dict (defensive copy) of the scale-bar state.
+        """
+        with self._scope._state_lock:
+            return dict(self._scale_bar)
 
     # --- Camera diagnostics (live in-flight only; data source = DiagnosticsAPI) ---
     def log_camera_temps(self) -> None:

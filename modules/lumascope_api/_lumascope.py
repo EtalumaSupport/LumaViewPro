@@ -1028,6 +1028,14 @@ class Lumascope():
         """
         self._stage_offset = stage_offset
 
+    def get_stage_offset(self):
+        """Get the stage offset for coordinate transformations.
+
+        Returns:
+            Stage offset dict with axis offsets, or None if unset.
+        """
+        return self._stage_offset
+
 
     ########################################################################
     # LED BOARD FUNCTIONS

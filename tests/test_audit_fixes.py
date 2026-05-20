@@ -8370,3 +8370,39 @@ class TestLedSentinelReturnsAreNone:
             sim_scope.illumination.get_led_ma('Green')
         sim_scope.illumination._led_state.pop('Green', None)
         assert sim_scope.illumination.led_illumination('Green') is None
+
+
+class TestGetterSetterSymmetry:
+    """Freeze audit Finding #36 -- the L2 surface had set_X methods
+    without matching get_X across several sub-APIs. The widest gaps
+    were on the composition root (set_stage_offset) and ImagingAPI
+    (set_scale_bar). Added: get_stage_offset, get_scale_bar.
+
+    The Pylon / GEV / USB SDK-perf knob cluster (set_acquisition_stop_mode,
+    set_bandwidth_reserve_mode, set_device_link_throughput_limit,
+    set_max_transfer_size, set_num_max_queued_urbs, set_gev_packet_size,
+    set_gev_inter_packet_delay, set_max_acquisition_frame_rate) is
+    deliberately write-only -- see the in-source Rule 33 decision
+    comment above set_acquisition_stop_mode."""
+
+    def test_lumascope_get_stage_offset_exists(self, sim_scope):
+        assert callable(getattr(sim_scope, 'get_stage_offset', None))
+        # Round-trip: set then get returns the same value.
+        sim_scope.set_stage_offset({'x': 1.0, 'y': 2.0})
+        assert sim_scope.get_stage_offset() == {'x': 1.0, 'y': 2.0}
+
+    def test_imaging_get_scale_bar_exists(self, sim_scope):
+        assert callable(getattr(sim_scope.imaging, 'get_scale_bar', None))
+        # Round-trip: set then get reflects the change.
+        sim_scope.imaging.set_scale_bar(enabled=True, color='white')
+        snap = sim_scope.imaging.get_scale_bar()
+        assert snap['enabled'] is True
+        assert snap['color'] == 'white'
+
+    def test_get_scale_bar_returns_defensive_copy(self, sim_scope):
+        """Mutating the returned dict must not affect internal state."""
+        sim_scope.imaging.set_scale_bar(enabled=True, color='white')
+        snap = sim_scope.imaging.get_scale_bar()
+        snap['enabled'] = False
+        # Internal state untouched
+        assert sim_scope.imaging.scale_bar_enabled is True
