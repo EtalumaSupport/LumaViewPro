@@ -331,6 +331,20 @@ class MotionAPI:
         """
         return self._driver.get_axes_config()
 
+    @contextlib.contextmanager
+    def reference_position_logger(self):
+        """Context manager that logs limit-switch status before and after homing.
+
+        Use as ``with scope.motion.reference_position_logger(): ... home ...``.
+        Emits forced-INFO log lines so the limit-switch state pre/post
+        homing is preserved for diagnostics.
+        """
+        before = self.get_limit_switch_status_all_axes()
+        logger.info(f"Limit switch status before homing: {before}", extra={'force_error': True})
+        yield
+        after = self.get_limit_switch_status_all_axes()
+        logger.info(f"Limit switch status after homing: {after}", extra={'force_error': True})
+
     def home(self) -> bool:
         """Home every axis the motor board has.
 
@@ -377,7 +391,7 @@ class MotionAPI:
             self._scope.imaging.frame_validity.invalidate('turret')
         self.is_homing = True
         try:
-            with self._scope.reference_position_logger():
+            with self.reference_position_logger():
                 result = self._driver.home()
             if result is False:
                 logger.error('[SCOPE API ] Homing failed')
@@ -456,7 +470,7 @@ class MotionAPI:
         # wait_until_finished_moving() inside safe_turret_move's Z move.
         _api_log.info('thome START')
         try:
-            with self._scope.reference_position_logger():
+            with self.reference_position_logger():
                 with self.safe_turret_move():
                     self._set_axis_state('T', AxisState.HOMING)
                     self._scope.imaging.frame_validity.invalidate('turret')
@@ -882,7 +896,7 @@ class MotionAPI:
         self._set_axis_state('Z', AxisState.HOMING)
         self._scope.imaging.frame_validity.invalidate('z_move')
         try:
-            with self._scope.reference_position_logger():
+            with self.reference_position_logger():
                 result = self._driver.zhome()
             if result is False:
                 logger.error('[SCOPE API ] Z homing failed')

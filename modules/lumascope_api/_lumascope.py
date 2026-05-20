@@ -1,7 +1,6 @@
 #!/usr/bin/python3
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 
-import contextlib
 import datetime
 import os
 import pathlib
@@ -1042,23 +1041,6 @@ class Lumascope():
         )
 
         return labware.get_well_label(x=x_target, y=y_target)
-
-    ########################################################################
-    # MOTION CONTROL FUNCTIONS
-    ########################################################################
-    @contextlib.contextmanager
-    def reference_position_logger(self):
-        """Context manager that logs limit-switch status before and after homing.
-
-        Use as ``with scope.reference_position_logger(): ... home ...``.
-        Emits forced-INFO log lines so the limit-switch state pre/post
-        homing is preserved for diagnostics.
-        """
-        before = self.motion.get_limit_switch_status_all_axes()
-        logger.info(f"Limit switch status before homing: {before}", extra={'force_error': True})
-        yield
-        after = self.motion.get_limit_switch_status_all_axes()
-        logger.info(f"Limit switch status after homing: {after}", extra={'force_error': True})
 
     @classmethod
     def create_diagnostic(cls) -> 'Lumascope':
