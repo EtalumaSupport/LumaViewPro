@@ -9268,3 +9268,67 @@ class TestAutogainSettingsSnapshottedAtRunStart:
             'autogain_settings None-guard must exist so deepcopy(None) '
             'cannot raise. Got: ' + block[:200]
         )
+
+
+class TestProtocolPeriodZeroDoesNotCrashFullProtocolMode:
+    """Per protocol-workflow audit F2: _calculate_num_scans for
+    FULL_PROTOCOL mode divided protocol.duration()/protocol.period()
+    without guarding against period==0. Protocol.from_file explicitly
+    permits period==0 as a "valid single-scan marker" and
+    protocol_time_estimator handles it; the runner did not. Loading +
+    running such a protocol in FULL_PROTOCOL mode raised
+    ZeroDivisionError silently, returned early from run(), and the
+    user saw nothing happen after pressing Start.
+
+    The fix treats period==0 as 1 scan in FULL_PROTOCOL mode, matching
+    the protocol_time_estimator contract.
+    """
+
+    def _make_protocol_stub(self, *, duration: float, period: float):
+        from unittest.mock import MagicMock
+        proto = MagicMock()
+        proto.duration.return_value = duration
+        proto.period.return_value = period
+        return proto
+
+    def test_period_zero_returns_one_scan(self):
+        from modules.sequenced_capture_runner import (
+            SequencedCaptureRunner, SequencedCaptureRunMode,
+        )
+        proto = self._make_protocol_stub(duration=60.0, period=0)
+        n = SequencedCaptureRunner._calculate_num_scans(
+            protocol=proto,
+            run_mode=SequencedCaptureRunMode.FULL_PROTOCOL,
+            max_scans=None,
+        )
+        assert n == 1, (
+            'period==0 in FULL_PROTOCOL mode must return 1 scan '
+            '(single-scan marker semantics), not raise ZeroDivisionError.'
+        )
+
+    def test_period_nonzero_unchanged(self):
+        from modules.sequenced_capture_runner import (
+            SequencedCaptureRunner, SequencedCaptureRunMode,
+        )
+        # 60s duration / 10s period = 6 scans (baseline behavior preserved).
+        proto = self._make_protocol_stub(duration=60.0, period=10.0)
+        n = SequencedCaptureRunner._calculate_num_scans(
+            protocol=proto,
+            run_mode=SequencedCaptureRunMode.FULL_PROTOCOL,
+            max_scans=None,
+        )
+        assert n == 6
+
+    def test_period_zero_respects_max_scans(self):
+        # If max_scans is provided, period==0 should still respect the
+        # min(1, max_scans) clamp. max_scans=0 means "no scans" -> 0.
+        from modules.sequenced_capture_runner import (
+            SequencedCaptureRunner, SequencedCaptureRunMode,
+        )
+        proto = self._make_protocol_stub(duration=60.0, period=0)
+        n = SequencedCaptureRunner._calculate_num_scans(
+            protocol=proto,
+            run_mode=SequencedCaptureRunMode.FULL_PROTOCOL,
+            max_scans=0,
+        )
+        assert n == 0

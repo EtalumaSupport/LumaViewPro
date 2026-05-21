@@ -199,7 +199,16 @@ class SequencedCaptureRunner:
         if run_mode in (
             SequencedCaptureRunMode.FULL_PROTOCOL,
         ):
-            n_scans = int(protocol.duration()/protocol.period())
+            # Protocol.from_file permits period==0 as a "valid single-scan
+            # marker"; protocol_time_estimator handles it. Treating it as
+            # 1 scan here matches that contract -- otherwise a valid TSV
+            # silently no-ops on Start with a ZeroDivisionError logged
+            # but no popup.
+            period_s = protocol.period()
+            if period_s == 0:
+                n_scans = 1
+            else:
+                n_scans = int(protocol.duration()/period_s)
 
             if max_scans is not None:
                 n_scans = min(n_scans, max_scans)
