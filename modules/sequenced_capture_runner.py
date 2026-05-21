@@ -488,8 +488,11 @@ class SequencedCaptureRunner:
         self._image_capture_config = image_capture_config
         self._enable_image_saving = enable_image_saving
         self._separate_folder_per_channel = separate_folder_per_channel
-        # Immutable after assignment — do not mutate from protocol thread (M4 GIL-free safety)
-        self._autogain_settings = autogain_settings
+        # Snapshot at run() entry so mid-run UI mutations of the autogain
+        # settings dict (target_brightness, max_duration, min/max_gain_db)
+        # do not leak into the in-flight scan. Mirrors the false_color_16bit
+        # snapshot pattern below.
+        self._autogain_settings = copy.deepcopy(autogain_settings) if autogain_settings is not None else {}
         self._callbacks = ProtocolCallbacks.from_dict(callbacks) if isinstance(callbacks, dict) else (callbacks or ProtocolCallbacks())
         self._return_to_position = return_to_position
         self._disable_saving_artifacts = disable_saving_artifacts

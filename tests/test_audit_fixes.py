@@ -9225,3 +9225,46 @@ class TestScopeSessionBuildsFullExecutorBundle:
         finally:
             io.shutdown()
             cam.shutdown()
+
+
+class TestAutogainSettingsSnapshottedAtRunStart:
+    """Per protocol-workflow audit F15: autogain_settings dict was
+    referenced not snapshotted, so mid-run UI mutations of fields like
+    target_brightness or max_duration leaked into the in-flight scan.
+    The comment claimed "Immutable after assignment" but no deepcopy
+    enforced the immutability.
+
+    The fix deepcopies autogain_settings at run() entry, matching the
+    false_color_16bit + stage_offset snapshot pattern already used in
+    the runner.
+    """
+
+    def test_autogain_settings_deepcopied_in_run(self):
+        # Drive the runner up to the autogain_settings assignment in run()
+        # by inspecting the source -- a full run() call requires the whole
+        # protocol-thread context. The audit's recommendation is the
+        # 1-line copy.deepcopy(autogain_settings) at assignment site.
+        import pathlib
+        src = pathlib.Path('modules/sequenced_capture_runner.py').read_text()
+        idx = src.find('self._autogain_settings =')
+        assert idx >= 0
+        # Look at the next ~150 chars (the assignment + neighborhood).
+        block = src[idx:idx + 150]
+        assert 'copy.deepcopy(autogain_settings)' in block, (
+            'self._autogain_settings must be assigned via copy.deepcopy '
+            'so mid-run UI mutations do not leak into the in-flight scan '
+            '(audit F15). Got: ' + block[:200]
+        )
+
+    def test_autogain_settings_none_safe(self):
+        # When the caller passes autogain_settings=None (rare but the
+        # parameter signature allows it), the snapshot must not raise --
+        # falls through to {} so the AG path sees an empty dict.
+        import pathlib
+        src = pathlib.Path('modules/sequenced_capture_runner.py').read_text()
+        idx = src.find('self._autogain_settings =')
+        block = src[idx:idx + 200]
+        assert 'autogain_settings is not None' in block or 'autogain_settings or {}' in block, (
+            'autogain_settings None-guard must exist so deepcopy(None) '
+            'cannot raise. Got: ' + block[:200]
+        )
