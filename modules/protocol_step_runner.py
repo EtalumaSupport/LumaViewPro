@@ -147,14 +147,11 @@ class ProtocolStepRunner:
         if p._aborted.is_set() or not p._scan_in_progress.is_set():
             return
 
-        # BF AF for fluorescence
-        bf_af_for_fluor = False
-        try:
-            import modules.app_context as _app_ctx
-            with _app_ctx.ctx.settings_lock:
-                bf_af_for_fluor = _app_ctx.ctx.settings.get('protocol', {}).get('bf_af_for_fluorescence', False)
-        except Exception as e:
-            logger.debug(f"[Capture   ] Could not read bf_af_for_fluorescence setting: {e}")
+        # BF AF for fluorescence -- read from the runner snapshot so
+        # mid-run UI toggles cannot produce inconsistent AF behavior
+        # across steps within one scan. Snapshot is taken in
+        # SequencedCaptureRunner.run() under settings_lock.
+        bf_af_for_fluor = getattr(p, '_bf_af_for_fluorescence', False)
         if bf_af_for_fluor and step['Color'] != 'BF':
             if p._autofocus_runner.best_focus_position() is not None:
                 if p._update_z_pos_from_autofocus:

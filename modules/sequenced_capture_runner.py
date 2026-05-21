@@ -533,11 +533,16 @@ class SequencedCaptureRunner:
         # PIW-3: read once per run under settings_lock to avoid per-save lock acquires
         # in image_utils.write_tiff. Mid-run UI changes intentionally do not retro-affect
         # an in-flight protocol — saves use the value as of run-start.
+        # bf_af_for_fluorescence shares the same snapshot lane so mid-run
+        # toggles do not produce inconsistent AF behavior across steps
+        # within one scan; protocol_step_runner reads p._bf_af_for_fluorescence.
         if ctx is not None:
             with ctx.settings_lock:
                 false_color_16bit = ctx.settings.get('false_color_16bit', False)
+                self._bf_af_for_fluorescence = ctx.settings.get('protocol', {}).get('bf_af_for_fluorescence', False)
         else:
             false_color_16bit = False
+            self._bf_af_for_fluorescence = False
 
         # Borrow protocol_thread's abort Event as SCE's _aborted reference.
         # Cross-thread readers (protocol_step_runner, protocol_run_loop)

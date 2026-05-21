@@ -9332,3 +9332,54 @@ class TestProtocolPeriodZeroDoesNotCrashFullProtocolMode:
             max_scans=0,
         )
         assert n == 0
+
+
+class TestBfAfForFluorescenceSnapshottedAtRunStart:
+    """Per protocol-workflow audit F5: scan_iterate read
+    ctx.settings['protocol']['bf_af_for_fluorescence'] under
+    settings_lock on every tick. Two costs: per-tick lock contention
+    with the UI thread, AND mid-run user toggles took effect partway
+    through a scan -- producing inconsistent AF behavior across steps
+    within one protocol run.
+
+    The fix snapshots the setting in SequencedCaptureRunner.run()
+    (alongside false_color_16bit, under the same settings_lock take)
+    onto self._bf_af_for_fluorescence; protocol_step_runner reads from
+    the snapshot via getattr(p, '_bf_af_for_fluorescence', False).
+    """
+
+    def test_runner_snapshots_bf_af_for_fluorescence_attr(self):
+        # Static-source check: the runner's run() body must contain
+        # a snapshot assignment of self._bf_af_for_fluorescence.
+        import pathlib
+        src = pathlib.Path('modules/sequenced_capture_runner.py').read_text()
+        assert 'self._bf_af_for_fluorescence' in src, (
+            'SequencedCaptureRunner.run() must snapshot '
+            'bf_af_for_fluorescence onto self for per-tick reads.'
+        )
+        # The snapshot must take settings_lock (alongside false_color_16bit).
+        idx = src.find('self._bf_af_for_fluorescence =')
+        assert idx >= 0
+        # Look backwards ~300 chars; settings_lock should appear there.
+        ctx_block = src[max(0, idx - 300):idx + 200]
+        assert 'settings_lock' in ctx_block, (
+            'bf_af_for_fluorescence snapshot must be taken under '
+            'settings_lock for consistent UI/protocol-thread read.'
+        )
+
+    def test_protocol_step_runner_reads_from_snapshot(self):
+        # Static-source check: protocol_step_runner.scan_iterate must
+        # read from p._bf_af_for_fluorescence (the runner snapshot),
+        # not from ctx.settings directly.
+        import pathlib
+        src = pathlib.Path('modules/protocol_step_runner.py').read_text()
+        assert "p, '_bf_af_for_fluorescence'" in src or 'p._bf_af_for_fluorescence' in src, (
+            'protocol_step_runner.scan_iterate must read '
+            'bf_af_for_fluorescence from the runner snapshot, '
+            'not from ctx.settings each tick.'
+        )
+        # The old per-tick settings.get path must be gone.
+        assert "ctx.settings.get('protocol', {}).get('bf_af_for_fluorescence'" not in src, (
+            'Per-tick ctx.settings read for bf_af_for_fluorescence '
+            'must be removed (replaced by snapshot read).'
+        )
