@@ -194,7 +194,26 @@ def _iter_comments(source: str) -> list[tokenize.TokenInfo]:
     return comments
 
 
+def _is_test_path(path: str) -> bool:
+    """Test files are exempt from Rule 27a / 27b because naming the
+    bug / issue / audit finding under regression IS the point of the
+    test. ``test_issue_671_...`` and docstrings that cite the failing
+    code path are load-bearing for the test's purpose; Rule 27's "no
+    chronology" goal is the opposite shape -- production code.
+
+    Matches files under any directory named ``tests`` OR whose basename
+    starts with ``test_`` (the pytest convention).
+    """
+    norm = path.replace('\\', '/')
+    if '/tests/' in norm or norm.startswith('tests/'):
+        return True
+    basename = norm.rsplit('/', 1)[-1]
+    return basename.startswith('test_')
+
+
 def _check_rule_27a(source: str, path: str) -> list[Violation]:
+    if _is_test_path(path):
+        return []
     violations: list[Violation] = []
     for tok in _iter_comments(source):
         text = tok.string
@@ -216,6 +235,8 @@ def _check_rule_27a(source: str, path: str) -> list[Violation]:
 
 
 def _check_rule_27b(source: str, path: str) -> list[Violation]:
+    if _is_test_path(path):
+        return []
     violations: list[Violation] = []
     for tok in _iter_comments(source):
         for pat, label in _COMMENT_ID_PATTERNS:
