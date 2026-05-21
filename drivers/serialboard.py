@@ -457,10 +457,24 @@ class SerialBoard:
             return 0
 
     def _safe_in_waiting(self) -> int:
-        """Return driver.in_waiting with exception handling for logging."""
+        """Return driver.in_waiting; -1 if the underlying read fails.
+
+        Used exclusively in diagnostic log format strings during board
+        detection and reset. Propagating the exception would break
+        logging at exactly the moments (a serial port in a weird
+        state) when diagnostic visibility matters most; returning -1
+        as a sentinel keeps the log lines well-formed and the byte-
+        count obviously-not-real for a reader. The swallowed
+        exception class is captured at debug level so a developer
+        investigating a connect failure can see WHAT failed.
+        """
         try:
             return self.driver.in_waiting
-        except Exception:
+        except Exception as e:
+            _serial_log.debug(
+                f'{self._label} in_waiting read failed: '
+                f'{type(e).__name__}: {e}'
+            )
             return -1
 
     # ------------------------------------------------------------------
