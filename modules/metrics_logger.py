@@ -133,11 +133,14 @@ class MetricsLogger:
                 f'[MetricsLogger] tick_system_metrics failed: '
                 f'{type(e).__name__}: {e}')
         # Heartbeat is best-effort and never propagates exceptions out
-        # of the metrics tick (would lose all subsequent ticks).
+        # of the metrics tick (would lose all subsequent ticks). Warning
+        # (not debug) so a broken stalled-grab detector is visible in the
+        # main log -- otherwise a silently-broken heartbeat masks the
+        # silent-grab failure mode the heartbeat is meant to catch.
         try:
             self._check_frame_flow_heartbeat()
         except Exception as e:
-            logger.debug(
+            logger.warning(
                 f'[MetricsLogger] frame-flow heartbeat failed: '
                 f'{type(e).__name__}: {e}')
 
