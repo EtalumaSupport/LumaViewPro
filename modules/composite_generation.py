@@ -6,6 +6,7 @@ import pathlib
 import cv2
 import numpy as np
 import pandas as pd
+import tifffile as tf
 
 import modules.app_context as _app_ctx
 import modules.common_utils as common_utils
@@ -94,9 +95,18 @@ class CompositeGeneration(ProtocolPostProcessor):
         df: pd.DataFrame,
         **kwargs,
     ):
+        # output_file_loc is set by the base class _process_group_callback
+        # before dispatch (protocol_post_processor.py:169). Forward it so the
+        # composite save happens inside _create_composite_image via tifffile
+        # RGB-native, mirroring the manual composite path's tifffile-based
+        # save. Returning {'image': None, ...} from _create_composite_image
+        # tells the base class to skip its cv2.imwrite (which would swap
+        # channels because cv2.imwrite is BGR-oriented).
+        output_file_loc_rel = kwargs.get('output_file_loc')
         return CompositeGeneration._create_composite_image(
             path=path,
-            df=df[['Filepath','Color']]
+            df=df[['Filepath','Color']],
+            output_file_loc=path / output_file_loc_rel if output_file_loc_rel else None,
         )
     
 
@@ -130,7 +140,7 @@ class CompositeGeneration(ProtocolPostProcessor):
 
 
     @staticmethod
-    def _create_composite_image(path: pathlib.Path, df: pd.DataFrame):
+    def _create_composite_image(path: pathlib.Path, df: pd.DataFrame, output_file_loc: pathlib.Path = None):
 
         BF_present = False
         BF_channel = ""
@@ -148,11 +158,15 @@ class CompositeGeneration(ProtocolPostProcessor):
 
         df = df[df['Color'].isin(allowed_layers)]
 
-        # Load source images
+        # Load source images via tifffile (RGB-native, returns mono 2D for
+        # single-channel TIFFs; no BGR upconvert -> no downstream cvtColor
+        # ceremony to undo it). Mirrors the manual composite path's
+        # in-memory mono inputs so build_composite consumes the same
+        # shape from both orchestrators.
         images = {}
         for _, row in df.iterrows():
             image_filepath = path / row['Filepath']
-            images[row['Filepath']] = cv2.imread(str(image_filepath), cv2.IMREAD_UNCHANGED)
+            images[row['Filepath']] = tf.imread(str(image_filepath))
 
         error = None
         status = True
@@ -169,9 +183,12 @@ class CompositeGeneration(ProtocolPostProcessor):
                 BF_image_filename = BF_row['Filepath'].iloc[0]
                 BF_image = images[BF_image_filename]
                 img_dtype = BF_image.dtype
-                # cv2.imread returns BGR — convert grayscale transmitted to plain 2D array
+                # tifffile returns mono 2D for single-channel TIFFs. For
+                # legacy 3-channel false-colored TIFFs (saved by older
+                # LVP versions), collapse to mono via RGB2GRAY weights
+                # (NOT BGR2GRAY -- tifffile is RGB-native, unlike cv2).
                 if image_utils.is_color_image(BF_image):
-                    transmitted_image = cv2.cvtColor(BF_image, cv2.COLOR_BGR2GRAY)
+                    transmitted_image = cv2.cvtColor(BF_image, cv2.COLOR_RGB2GRAY)
                 else:
                     transmitted_image = BF_image
             else:
@@ -192,9 +209,11 @@ class CompositeGeneration(ProtocolPostProcessor):
                 if img_dtype is None:
                     img_dtype = f_image.dtype
 
-                # Convert color images to grayscale
+                # Same legacy-3-channel collapse as the transmitted path.
+                # Single-channel TIFFs come through as 2D; legacy
+                # 3-channel false-colored TIFFs collapse via RGB2GRAY.
                 if image_utils.is_color_image(f_image):
-                    img_gray = cv2.cvtColor(f_image, cv2.COLOR_BGR2GRAY)
+                    img_gray = cv2.cvtColor(f_image, cv2.COLOR_RGB2GRAY)
                 else:
                     img_gray = np.array(f_image)
 
@@ -224,29 +243,54 @@ class CompositeGeneration(ProtocolPostProcessor):
                 dtype = img_dtype or np.uint8
                 max_value = 255 if dtype == np.uint8 else 4095
 
-                # build_composite returns RGB — convert to BGR for cv2.imwrite output
-                img_rgb = build_composite(
+                # build_composite returns RGB. Both the manual composite
+                # path (ui/composite_capture.py) and this protocol
+                # post-processing path now save RGB-native via tifffile;
+                # no cvtColor RGB->BGR detour (which the old cv2.imwrite
+                # path required and which produced the R/B channel swap
+                # at the heart of #672). Save here so the base-class
+                # cv2.imwrite branch (protocol_post_processor.py:190) is
+                # bypassed for the composite case -- returning
+                # 'image': None below tells the base class the subclass
+                # has already written.
+                img = build_composite(
                     channel_images=channel_images,
                     transmitted_image=transmitted_image,
                     brightness_thresholds=brightness_thresholds,
                     dtype=dtype,
                     max_value=max_value,
                 )
-                img = cv2.cvtColor(img_rgb, cv2.COLOR_RGB2BGR)
+                if output_file_loc is not None:
+                    output_file_loc.parent.mkdir(parents=True, exist_ok=True)
+                    tf.imwrite(
+                        str(output_file_loc),
+                        img,
+                        photometric='rgb',
+                        compression='lzw',
+                    )
 
         except Exception as e:
             logger.error(f"CompositeGeneration] Error generating composite: {e}")
             error = f"Error generating composite: {e}"
             status = False
 
-        if img is None and status:
-            status = False
-            error = "Composite Generation Error: No final image"
+        # When output_file_loc is provided: this subclass wrote the
+        # composite TIFF itself; signal to the base-class
+        # _process_group_callback that no further write is needed by
+        # returning 'image': None. When no output_file_loc (legacy /
+        # test callers): return the RGB array so the caller can save.
+        if output_file_loc is not None:
+            return_image = None
+        else:
+            return_image = img if status else None
+            if status and return_image is None:
+                status = False
+                error = "Composite Generation Error: No final image"
 
         return {
             'status': status,
             'error': error,
-            'image': img,
+            'image': return_image,
             'metadata': {
                 'color': 'Composite',
             }

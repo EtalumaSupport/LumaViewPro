@@ -9427,3 +9427,147 @@ class TestRunPreValidationFiresNotificationOnException:
             'validate_for_run exception path must return early after '
             'firing the notification.'
         )
+
+
+class TestCompositeOrchestrationByteEqualManualVsProtocol:
+    """Per #672 root-cause hunt (AUDIT_COLOR_CONVENTION_2026-05-15 F0.5g):
+    the manual composite path and the protocol post-processing composite
+    path used to produce visibly different TIFF bytes at the same input.
+    The cause was orchestration divergence:
+      - Manual: build_composite -> RGB array -> tifffile (RGB-native).
+      - Protocol: cv2.imread (BGR) -> cv2.cvtColor(BGR2GRAY) per channel
+        -> build_composite -> cv2.cvtColor(RGB2BGR) -> cv2.imwrite (BGR).
+
+    The structural fix collapses both paths to the same shape: mono
+    channel arrays in, build_composite RGB out, tifffile.imwrite at
+    save. This test guards against any future regression that reintroduces
+    a cvtColor or a cv2.imwrite on the composite path -- byte-equality of
+    the two saved composites is the falsifying instrument.
+    """
+
+    def test_manual_and_protocol_composite_paths_produce_byte_equal_tiffs(self):
+        import pathlib
+        import tempfile
+        import numpy as np
+        import pandas as pd
+        import tifffile as tf
+        from modules.composite_builder import build_composite
+        from modules.composite_generation import CompositeGeneration
+
+        # Three known mono channels: a Red gradient, a Green stripe, a
+        # Blue checkerboard. Deterministic, distinct per channel, so
+        # the channel-order bug would manifest as visible RGB swap.
+        H, W = 32, 48
+        red = np.zeros((H, W), dtype=np.uint8)
+        green = np.zeros((H, W), dtype=np.uint8)
+        blue = np.zeros((H, W), dtype=np.uint8)
+        # Red: horizontal gradient.
+        for x in range(W):
+            red[:, x] = int(255 * x / max(W - 1, 1))
+        # Green: vertical stripes (every other column = 200).
+        green[:, ::2] = 200
+        # Blue: checkerboard (every other 4x4 block = 180).
+        for r in range(0, H, 4):
+            for c in range(0, W, 4):
+                if ((r // 4) + (c // 4)) % 2 == 0:
+                    blue[r:r + 4, c:c + 4] = 180
+
+        channel_images = {'Red': red, 'Green': green, 'Blue': blue}
+
+        # Path A: manual composite path. build_composite -> tifffile.
+        manual_rgb = build_composite(
+            channel_images=channel_images,
+            transmitted_image=None,
+            brightness_thresholds=None,
+            dtype=np.uint8,
+            max_value=255,
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp = pathlib.Path(tmpdir)
+            manual_tiff = tmp / 'manual_composite.tiff'
+            tf.imwrite(
+                str(manual_tiff),
+                manual_rgb,
+                photometric='rgb',
+                compression='lzw',
+            )
+
+            # Path B: protocol composite path. Round-trip the channels
+            # through per-channel TIFFs (as the live protocol would
+            # have done at scan time), then call
+            # _create_composite_image which reads them back, builds
+            # the composite, and saves via tifffile.
+            channel_dir = tmp / 'protocol_channels'
+            channel_dir.mkdir()
+            rows = []
+            for layer_name, arr in channel_images.items():
+                fname = f'{layer_name}.tiff'
+                tf.imwrite(str(channel_dir / fname), arr, compression='lzw')
+                # _create_composite_image expects Filepath relative to
+                # the root path argument.
+                rows.append({
+                    'Filepath': f'protocol_channels/{fname}',
+                    'Color': layer_name,
+                })
+            df = pd.DataFrame(rows)
+
+            protocol_tiff = tmp / 'protocol_composite.tiff'
+            result = CompositeGeneration._create_composite_image(
+                path=tmp, df=df, output_file_loc=protocol_tiff,
+            )
+            assert result['status'] is True, (
+                f'Protocol composite generation must succeed; got '
+                f'error: {result.get("error")}'
+            )
+            assert result['image'] is None, (
+                'When output_file_loc is provided, _create_composite_image '
+                'must save internally + return image=None so the base '
+                'class _process_group_callback skips its cv2.imwrite.'
+            )
+
+            # Read both back and compare. tifffile imread returns
+            # the exact array that was written (LZW is lossless).
+            manual_read = tf.imread(str(manual_tiff))
+            protocol_read = tf.imread(str(protocol_tiff))
+
+            assert manual_read.shape == protocol_read.shape, (
+                f'Composite shape divergence: manual {manual_read.shape} '
+                f'vs protocol {protocol_read.shape}. Both paths must '
+                f'produce the same output shape.'
+            )
+            assert np.array_equal(manual_read, protocol_read), (
+                'Manual and protocol composite paths must produce '
+                'byte-equal RGB arrays at the same input. The #672 '
+                'root cause was a cv2.cvtColor(RGB2BGR) on the protocol '
+                'side; if this test fails, a cvtColor or BGR-write has '
+                'been reintroduced.'
+            )
+
+    def test_create_composite_image_returns_image_array_when_no_output_path(self):
+        # Legacy / test callers that don't pass output_file_loc must
+        # still get the RGB array back so they can save themselves.
+        # This preserves the old return contract for any caller still
+        # depending on it.
+        import numpy as np
+        import pandas as pd
+        import pathlib
+        import tempfile
+        import tifffile as tf
+        from modules.composite_generation import CompositeGeneration
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp = pathlib.Path(tmpdir)
+            arr = np.full((8, 8), 100, dtype=np.uint8)
+            tf.imwrite(str(tmp / 'Red.tiff'), arr, compression='lzw')
+            df = pd.DataFrame([{'Filepath': 'Red.tiff', 'Color': 'Red'}])
+
+            result = CompositeGeneration._create_composite_image(
+                path=tmp, df=df, output_file_loc=None,
+            )
+            assert result['status'] is True
+            assert result['image'] is not None, (
+                'When output_file_loc is None, _create_composite_image '
+                'must return the RGB array so legacy callers can save it.'
+            )
+            assert result['image'].shape == (8, 8, 3)
