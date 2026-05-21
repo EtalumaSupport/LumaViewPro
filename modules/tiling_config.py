@@ -126,15 +126,23 @@ class TilingConfig:
         x_fov = fill_factor * fov_size['width']
         y_fov = fill_factor * fov_size['height']
 
-        # Stage center derived from motorconfig travel limits
+        # Stage center derived from motorconfig travel limits.
+        # Guards: ctx not initialized (CLI / headless startup), scope
+        # not built, or no XY stage (NullMotionBoard fallback when
+        # motor is absent). Each falls to DEFAULT_STAGE_TRAVEL_UM rather
+        # than KeyError'ing on an empty axis_travel_limits_um dict.
         import modules.app_context as _app_ctx
         ctx = _app_ctx.ctx
+        caps = None
         if ctx is not None and ctx.scope is not None:
-            x_center = ctx.scope.capabilities.axis_travel_limits_um['X'] / 2
-            y_center = ctx.scope.capabilities.axis_travel_limits_um['Y'] / 2
+            caps = ctx.scope.capabilities
+        if caps is not None and caps.has_xy_stage:
+            x_center = caps.axis_travel_limits_um['X'] / 2
+            y_center = caps.axis_travel_limits_um['Y'] / 2
         else:
-            x_center = 60000
-            y_center = 40000
+            from modules.common_utils import DEFAULT_STAGE_TRAVEL_UM
+            x_center = DEFAULT_STAGE_TRAVEL_UM['x'] / 2
+            y_center = DEFAULT_STAGE_TRAVEL_UM['y'] / 2
         tiling_min = {
             "x": x_center - tiling_mxn["n"]*x_fov/2,
             "y": y_center - tiling_mxn["m"]*y_fov/2

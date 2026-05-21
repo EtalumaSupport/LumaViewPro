@@ -373,8 +373,14 @@ class XYStageControl(BoxLayout):
 
     def get_xy_targets(self):
         ctx = _app_ctx.ctx
+        scope = ctx.lumaview.scope
+        # Cold-start without motor leaves axis_travel_limits_um empty;
+        # gate on has_xy_stage so the KeyError doesn't get swallowed by
+        # the broad except below into a misleading "Error talking to
+        # Motor board" log line.
+        if not scope.capabilities.has_xy_stage:
+            return None
         try:
-            scope = ctx.lumaview.scope
             x_target = scope.motion.get_target_position('X')
             x_target = np.clip(x_target, 0, scope.capabilities.axis_travel_limits_um['X'])
             y_target = scope.motion.get_target_position('Y')

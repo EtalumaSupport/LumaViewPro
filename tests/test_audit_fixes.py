@@ -8197,11 +8197,13 @@ class TestAxisTravelLimitsOnCapabilities:
         """Per Rule 8 capability-probe corollary, querying an absent
         axis is a caller bug -- contract is KeyError, not a sentinel."""
         limits = sim_scope.capabilities.axis_travel_limits_um
-        # Default sim has no turret; 'T' must not be in the mapping.
-        assert 'T' not in sim_scope.capabilities.axes
+        # 'Q' is guaranteed absent (no motorconfig advertises it); the
+        # test originally used 'T' but the sim default migrated to
+        # LS850T which has a real turret, so 'T' is no longer absent.
+        assert 'Q' not in sim_scope.capabilities.axes
         import pytest as _pytest
         with _pytest.raises(KeyError):
-            _ = limits['T']
+            _ = limits['Q']
 
     def test_mapping_is_read_only(self, sim_scope):
         """MappingProxyType wrapper enforces the frozen-dataclass
@@ -8223,6 +8225,13 @@ class TestAxisTravelLimitsOnCapabilities:
             motion=NullMotionBoard(), led=NullLEDBoard(), camera=None,
         )
         assert dict(caps.axis_travel_limits_um) == {}
+        # The empty-mapping contract pairs with has_xy_stage=False;
+        # tiling_config / motion_settings / stage consumers gate on the
+        # capability and fall back to DEFAULT_STAGE_TRAVEL_UM. Pin both
+        # halves so a regression that flips one without the other is
+        # caught at unit-test time, not at cold-start without hardware.
+        assert caps.has_xy_stage is False
+        assert caps.has_focus is False
 
 
 class TestOpticsOnCapabilities:
