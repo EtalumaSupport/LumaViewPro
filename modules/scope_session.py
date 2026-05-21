@@ -128,11 +128,20 @@ class ScopeSession:
         coordinate_transformer = None
         objective_helper = None
 
+        # Loader failures disable a major feature (plate UI / coord
+        # conversion / objective lookup). Log at error + exc_info so
+        # the traceback lands in the main log; notification level
+        # stays at warning to match the existing regression-test
+        # contract. Broad Exception catch is legitimate at this
+        # top-level boundary -- each loader raises a mix of ValueError /
+        # RuntimeError / FileNotFoundError / json.JSONDecodeError plus
+        # generic Exception() paths inside objectives_loader.
+
         try:
             from modules import labware_loader
             wellplate_loader = labware_loader.WellPlateLoader(source_path=source_path)
         except Exception as e:
-            logger.warning(f"[ScopeSession] Could not load wellplate loader: {e}")
+            logger.error(f"[ScopeSession] Could not load wellplate loader: {e}", exc_info=True)
             notifications.warning("Configuration", "Wellplate loader unavailable",
                 f"Labware configuration could not load: {type(e).__name__}: {e}. "
                 f"Plate-based UI (tile plans, well picker) will not work. "
@@ -142,7 +151,7 @@ class ScopeSession:
             from modules import coord_transformations
             coordinate_transformer = coord_transformations.CoordinateTransformer()
         except Exception as e:
-            logger.warning(f"[ScopeSession] Could not load coordinate transformer: {e}")
+            logger.error(f"[ScopeSession] Could not load coordinate transformer: {e}", exc_info=True)
             notifications.warning("Configuration", "Coordinate transformer unavailable",
                 f"Coordinate transformer could not load: {type(e).__name__}: {e}. "
                 f"Stage coordinate conversion (plate <-> stage) will not work.")
@@ -151,7 +160,7 @@ class ScopeSession:
             from modules import objectives_loader
             objective_helper = objectives_loader.ObjectiveLoader(source_path=source_path)
         except Exception as e:
-            logger.warning(f"[ScopeSession] Could not load objective helper: {e}")
+            logger.error(f"[ScopeSession] Could not load objective helper: {e}", exc_info=True)
             notifications.warning("Configuration", "Objective helper unavailable",
                 f"Objective configuration could not load: {type(e).__name__}: {e}. "
                 f"Objective selection and lookup will not work. "
