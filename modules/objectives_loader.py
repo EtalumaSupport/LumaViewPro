@@ -6,6 +6,7 @@ import pathlib
 
 import pandas as pd
 
+from modules.exceptions import ConfigError
 from modules.path_utils import resolve_data_file
 
 logger = logging.getLogger('LVP.modules.objectives_loader')
@@ -151,8 +152,10 @@ class ObjectiveLoader:
                     logger.error(f"No close match found for objective ID {objective_id}")
                     return None
 
-        except Exception:
-            raise Exception(f"Unable to retrieve information for objective {objective_id}")
+        except Exception as e:
+            raise ConfigError(
+                f"Unable to retrieve information for objective {objective_id}"
+            ) from e
         
         return objective_info
     
