@@ -8639,3 +8639,41 @@ class TestSessionAsyncRename:
         forwarders gained the explicit _async suffix."""
         from modules.scope_session import ScopeSession
         assert callable(getattr(ScopeSession, 'led_on_sync', None))
+
+
+class TestLumascopeSkillsRetiredOpticalMethods:
+    """LumascopeSkills must not cite the retired optical-info methods
+    (API plugin audit F1). Canonical home for pixel size and tube
+    lens focal length is `scope.capabilities.pixel_size_um` /
+    `.lens_focal_length_mm`. An L2 consumer copy-pasting a doc line
+    that calls the retired methods used to get AttributeError.
+    """
+
+    def _doc(self):
+        import pathlib
+        return pathlib.Path("docs/LumascopeSkills.md").read_text()
+
+    def test_pixel_size_method_not_cited(self):
+        doc = self._doc()
+        assert "scope.pixel_size()" not in doc, (
+            "LumascopeSkills.md must not cite `scope.pixel_size()` -- "
+            "the method was retired. Use `scope.capabilities.pixel_size_um`."
+        )
+
+    def test_lens_focal_length_method_not_cited(self):
+        doc = self._doc()
+        assert "scope.lens_focal_length()" not in doc, (
+            "LumascopeSkills.md must not cite `scope.lens_focal_length()` -- "
+            "the method was retired. Use `scope.capabilities.lens_focal_length_mm`."
+        )
+
+    def test_capability_fields_documented(self):
+        doc = self._doc()
+        assert "scope.capabilities.pixel_size_um" in doc, (
+            "LumascopeSkills.md must document the canonical capability "
+            "field `scope.capabilities.pixel_size_um`."
+        )
+        assert "scope.capabilities.lens_focal_length_mm" in doc, (
+            "LumascopeSkills.md must document the canonical capability "
+            "field `scope.capabilities.lens_focal_length_mm`."
+        )

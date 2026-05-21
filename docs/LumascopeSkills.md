@@ -612,8 +612,8 @@ scope.diagnostics.get_microscope_model()   # 'LS850'
 scope.diagnostics.get_motor_info()         # model, serial, firmware, axis config
 scope.diagnostics.get_led_info()           # firmware, cal status
 scope.diagnostics.get_system_info()        # combined summary
-scope.pixel_size()                         # um per pixel (method -- depends on objective; stays on composition root)
-scope.lens_focal_length()                  # current tube-lens focal length (method; stays on composition root)
+scope.capabilities.pixel_size_um           # raw per-installation um/pixel (Capabilities field). For an objective-adjusted effective um/pixel, call common_utils.get_pixel_size(focal_length, binning_size).
+scope.capabilities.lens_focal_length_mm    # tube-lens focal length, mm (Capabilities field)
 ```
 
 ```python
@@ -815,7 +815,7 @@ fov = common_utils.get_field_of_view(
 # Returns: {'width': ..., 'height': ...} in µm
 ```
 
-These helpers read `scope.pixel_size()` / `scope.lens_focal_length()` when an LVP context is active, and fall back to defaults (47.8 mm, 2.0 µm/px) otherwise. In a bare script that never constructs a `Lumascope`, you'll get the defaults — pass your objective's focal length explicitly.
+These helpers read `scope.capabilities.pixel_size_um` / `scope.capabilities.lens_focal_length_mm` when an LVP context is active, and fall back to defaults (47.8 mm, 2.0 µm/px) otherwise. In a bare script that never constructs a `Lumascope`, you'll get the defaults — pass your objective's focal length explicitly. Note: `capabilities.pixel_size_um` is the raw per-installation pixel pitch; for an effective µm/px adjusted for current objective + binning, call `common_utils.get_pixel_size(focal_length, binning_size)`.
 
 ### Composite capture (`modules.composite_builder`)
 
