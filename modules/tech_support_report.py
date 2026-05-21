@@ -2161,11 +2161,14 @@ class TechSupportReport:
                 self._step_protocols(tmp)
 
                 cb(85, "Writing metadata...")
-                # Pull cached serial from the motor driver's motorconfig;
-                # populated at boot when the motor board's get_config()
-                # ran during _load_board_config. Cache-read, no wire I/O.
-                # Falls back to 'logs' when running standalone or when
-                # motorconfig couldn't read the per-unit values.
+                # SN lookup chain:
+                # 1. motorconfig cache (populated at boot; no wire I/O).
+                # 2. FULLINFO via diag.get_serial_number() (one wire round
+                #    trip on first call per session; cached after). Same
+                #    path the full TSR uses, so an SN reachable via
+                #    FULLINFO surfaces here too.
+                # 3. 'logs' fallback only when both are unavailable
+                #    (standalone runs, motor not connected).
                 sn_tag = None
                 try:
                     mb = self.diag.motor_board
@@ -2175,6 +2178,13 @@ class TechSupportReport:
                             sn_tag = sn
                 except Exception:
                     sn_tag = None
+                if not sn_tag:
+                    try:
+                        sn = self.diag.get_serial_number()
+                        if sn and sn != 'UNKNOWN':
+                            sn_tag = sn
+                    except Exception:
+                        sn_tag = None
                 if not sn_tag:
                     sn_tag = 'logs'
                 self._meta['report_type'] = 'logs_only'

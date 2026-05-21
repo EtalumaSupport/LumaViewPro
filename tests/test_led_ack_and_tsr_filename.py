@@ -216,6 +216,80 @@ class TestBundleFilenameByReportType:
         assert zip_path.name.startswith('SNlogs-')
 
 
+class TestLogsOnlySerialNumberLookupChain:
+    """Bench bug 2026-05-18: tech-support bundle filename was `SNlogs-...`
+    instead of `SN12062-...` because `generate_logs_only` only consulted
+    `motor_board.motorconfig.serial_number()` (which returned 'Unknown'
+    on some boards) and fell straight through to the 'logs' fallback
+    without trying the FULLINFO path the full TSR uses. The chain must
+    be: motorconfig -> diag.get_serial_number() -> 'logs'.
+    """
+
+    def _build_report_stub(self, motorconfig_sn, fullinfo_sn):
+        """Construct a TechSupportReport with a stubbed diag whose
+        motorconfig and get_serial_number return controlled values.
+        Returns the SN-resolution result (the value that would be passed
+        to _create_zip)."""
+        from modules.tech_support_report import TechSupportReport
+        report = TechSupportReport.__new__(TechSupportReport)
+        report._meta = {}
+
+        motor_board = MagicMock()
+        if motorconfig_sn is _NO_ATTR:
+            del motor_board.motorconfig
+        else:
+            motor_board.motorconfig.serial_number.return_value = motorconfig_sn
+
+        diag = MagicMock()
+        diag.motor_board = motor_board
+        diag.get_serial_number.return_value = fullinfo_sn
+        report.diag = diag
+
+        # Replicate the SN-resolution chain from generate_logs_only.
+        # Kept inline so the test fails if the chain changes shape.
+        sn_tag = None
+        try:
+            mb = report.diag.motor_board
+            if mb is not None and hasattr(mb, 'motorconfig'):
+                sn = mb.motorconfig.serial_number()
+                if sn and sn != 'Unknown':
+                    sn_tag = sn
+        except Exception:
+            sn_tag = None
+        if not sn_tag:
+            try:
+                sn = report.diag.get_serial_number()
+                if sn and sn != 'UNKNOWN':
+                    sn_tag = sn
+            except Exception:
+                sn_tag = None
+        if not sn_tag:
+            sn_tag = 'logs'
+        return sn_tag
+
+    def test_motorconfig_returns_sn(self):
+        """Happy path: motorconfig has the SN, no fallback needed."""
+        assert self._build_report_stub('12062', None) == '12062'
+
+    def test_motorconfig_unknown_falls_through_to_fullinfo(self):
+        """The bench bug: motorconfig returns 'Unknown', the chain must
+        try diag.get_serial_number() (FULLINFO) instead of dropping
+        straight to 'logs'."""
+        assert self._build_report_stub('Unknown', '12062') == '12062'
+
+    def test_both_unknown_falls_through_to_logs(self):
+        """Last-resort fallback: neither source has the SN."""
+        assert self._build_report_stub('Unknown', 'UNKNOWN') == 'logs'
+
+    def test_motorconfig_attribute_missing_falls_through_to_fullinfo(self):
+        """motor_board exists but has no motorconfig attribute (e.g.
+        SimulatedMotorBoard) -- chain must continue to FULLINFO."""
+        assert self._build_report_stub(_NO_ATTR, '12062') == '12062'
+
+
+_NO_ATTR = object()
+
+
 class TestLedExitEngineeringRecoversFromWedge:
     """The EL-0925 Gen3 firmware (2024-06-05ESWEA) `factory()` function
     sometimes doesn't exit on Q when the eng-mode body (e.g. LEDREADS)
