@@ -42,8 +42,23 @@ class CompositeCapture(FloatLayout):
         if CompositeCapture._capturing.is_set():
             logger.warning('[LVP Main  ] Capture already in progress, ignoring')
             return
-        CompositeCapture._capturing.set()
         ctx = _app_ctx.ctx
+        # Gate on camera-connected before enqueuing. Without this, a
+        # rapidly-clicked button after camera disconnect queues many
+        # tasks that each raise CaptureError and flood the error log;
+        # the F17 sentinel migration made the failure loud where it
+        # used to be a silent no-op, which is correct but exposes the
+        # missing UI gate.
+        if not getattr(ctx.scope, 'camera_connected', True):
+            from modules.notification_center import notifications
+            notifications.warning(
+                "Camera",
+                "Camera not connected",
+                "Cannot capture -- camera is not connected. Check USB "
+                "and reconnect, then try again.",
+            )
+            return
+        CompositeCapture._capturing.set()
         ctx.camera_executor.put(IOTask(
             action=self._live_capture_impl,
             callback=lambda: CompositeCapture._capturing.clear()
@@ -183,6 +198,16 @@ class CompositeCapture(FloatLayout):
 
         if CompositeCapture._capturing.is_set():
             logger.warning('[LVP Main  ] Composite capture already in progress, ignoring')
+            return
+        # Same camera-connected gate as live_capture -- see comment there.
+        if not getattr(ctx.scope, 'camera_connected', True):
+            from modules.notification_center import notifications
+            notifications.warning(
+                "Camera",
+                "Camera not connected",
+                "Cannot capture composite -- camera is not connected. "
+                "Check USB and reconnect, then try again.",
+            )
             return
         CompositeCapture._capturing.set()
 
