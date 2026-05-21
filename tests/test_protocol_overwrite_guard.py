@@ -135,6 +135,86 @@ def test_load_accepts_same_name_in_different_tile_groups(tmp_path):
     assert proto.num_steps() == 3
 
 
+def test_load_warns_on_cross_tgid_filename_collision(tmp_path, monkeypatch):
+    """The customer's #636 case: 4 rows share (Name, Well, Tile, Z-Slice)
+    across DIFFERENT Tile Group IDs. Strict dedup PASSES (TGID is part
+    of the key, so all 4 tuples are unique). The softer check must
+    detect the cross-TGID collision and fire a user-facing notification
+    upfront so the user can fix their Name format BEFORE running the
+    scan, not discover renamed files afterward.
+    """
+    from modules import protocol as protocol_mod
+    from modules.protocol import Protocol
+
+    captured_notifications: list = []
+
+    class _RecordingNotifier:
+        def warning(self, category, title, message, **kw):
+            captured_notifications.append((category, title, message))
+
+    monkeypatch.setattr(protocol_mod, 'notifications', _RecordingNotifier())
+
+    rows = ''
+    rows += _step_row('_PC_TA1', 'A1', '', -1, 0, 46.5, 34.6, 4972.9)
+    rows += _step_row('_PC_TA1', 'A1', '', -1, 1, 60.1, 34.6, 5001.7)
+    rows += _step_row('_PC_TA1', 'A1', '', -1, 2, 73.7, 34.6, 5031.2)
+    rows += _step_row('_PC_TA1', 'A1', '', -1, 3, 46.0, 47.9, 4953.4)
+    tsv = tmp_path / "cross_tgid.tsv"
+    tsv.write_text(_build_tsv(rows))
+
+    proto = Protocol.from_file(
+        file_path=tsv,
+        tiling_configs_file_loc=TILING_CONFIGS,
+    )
+    assert proto.num_steps() == 4, (
+        "Cross-TGID duplicates must NOT be rejected (the legitimate tiled-"
+        "acquisition pattern still loads)."
+    )
+    assert len(captured_notifications) == 1, (
+        f"Cross-TGID duplicate filenames must fire exactly one "
+        f"notifications.warning at load time. Captured: {captured_notifications}"
+    )
+    category, title, message = captured_notifications[0]
+    assert "Tile Group ID" in message, (
+        "Notification message must point the user at Tile Group ID as "
+        "the actionable fix (per Rule 28 -- direct + action-focused)."
+    )
+    assert "preserve" in message.lower() or "no" in message.lower(), (
+        "Notification must reassure the user that data is intact "
+        "(the rename is data-preserving)."
+    )
+
+
+def test_load_no_warning_when_no_collisions(tmp_path, monkeypatch):
+    """Happy path: unique (Name, Well, Tile, Z-Slice) tuples produce
+    no notification."""
+    from modules import protocol as protocol_mod
+    from modules.protocol import Protocol
+
+    captured_notifications: list = []
+
+    class _RecordingNotifier:
+        def warning(self, category, title, message, **kw):
+            captured_notifications.append((category, title, message))
+
+    monkeypatch.setattr(protocol_mod, 'notifications', _RecordingNotifier())
+
+    rows = ''
+    rows += _step_row('_PC_TA1', 'A1', '', -1, 0, 46.5, 34.6, 4972.9)
+    rows += _step_row('_PC_TA2', 'A2', '', -1, 0, 47.9, 34.6, 4972.9)
+    tsv = tmp_path / "clean.tsv"
+    tsv.write_text(_build_tsv(rows))
+
+    Protocol.from_file(
+        file_path=tsv,
+        tiling_configs_file_loc=TILING_CONFIGS,
+    )
+    assert captured_notifications == [], (
+        f"No notification should fire for a well-formed protocol. "
+        f"Captured: {captured_notifications}"
+    )
+
+
 def test_load_accepts_unique_steps(tmp_path):
     """Sanity: unique steps load fine."""
     from modules.protocol import Protocol

@@ -14,6 +14,7 @@ import copy
 
 from lvp_logger import logger
 from modules.exceptions import ProtocolError
+from modules.notification_center import notifications
 
 import modules.common_utils as color_channels
 import modules.common_utils as common_utils
@@ -1730,6 +1731,41 @@ class Protocol:
                         f"overwrite each other. Edit the protocol so each "
                         f"step has a unique combination, then reload.\n"
                         f"\nDuplicates:\n{sample}{extra}"
+                    )
+
+        # Softer check (#636 follow-up): rows with the same
+        # (Name, Well, Tile, Z-Slice) but DIFFERENT Tile Group IDs
+        # produce the same filename at write time (TGID isn't in the
+        # filename pattern). The write-time if_collision defense
+        # preserves data with a rename suffix, but the user has no
+        # signal that their Name format is producing collisions. Warn
+        # them upfront so they can fix the Name field BEFORE running
+        # the scan instead of discovering renamed files afterward.
+        if len(protocol_df) > 1:
+            filename_key_cols = [c for c in ('Name', 'Well', 'Tile', 'Z-Slice')
+                                 if c in protocol_df.columns]
+            if filename_key_cols:
+                filename_dup_mask = protocol_df.duplicated(
+                    subset=filename_key_cols, keep=False)
+                if filename_dup_mask.any():
+                    n_collisions = int(filename_dup_mask.sum())
+                    n_unique = protocol_df.loc[
+                        filename_dup_mask, filename_key_cols
+                    ].drop_duplicates().shape[0]
+                    warn_msg = (
+                        f"Protocol has {n_collisions} steps sharing "
+                        f"{n_unique} distinct filenames across different "
+                        f"Tile Group IDs. LumaViewPro will preserve all "
+                        f"images by appending a collision suffix (e.g. "
+                        f"_000001, _000002) but the filenames will not "
+                        f"match the default pattern. To avoid renaming, "
+                        f"include the Tile Group ID in your step Name field."
+                    )
+                    logger.warning(f"Protocol load: {warn_msg}")
+                    notifications.warning(
+                        category="Protocol",
+                        title="Duplicate filenames in protocol",
+                        message=warn_msg,
                     )
 
         return cls(
