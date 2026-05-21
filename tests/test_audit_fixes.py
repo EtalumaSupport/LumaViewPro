@@ -9383,3 +9383,47 @@ class TestBfAfForFluorescenceSnapshottedAtRunStart:
             'Per-tick ctx.settings read for bf_af_for_fluorescence '
             'must be removed (replaced by snapshot read).'
         )
+
+
+class TestRunPreValidationFiresNotificationOnException:
+    """Per protocol-workflow audit F8: SequencedCaptureRunner.run()
+    wrapped validate_for_run() in try/except Exception that logged a
+    warning + fell through to "proceed anyway." If validate_for_run
+    raised (labware loader OS error, missing objectives.json, pandas
+    exception in the steps DataFrame), the user saw nothing -- the
+    protocol ran without validation. Any subsequent runtime failure
+    hit hardware mid-run instead of being caught at run() entry.
+
+    The fix mirrors the are_all_connected exception handling: log
+    error, fire notifications.error popup, return.
+    """
+
+    def test_validate_for_run_exception_fires_notification_and_returns(self):
+        # Static-source check: the except branch for validate_for_run
+        # must call notifications.error + return, not just log warning.
+        import pathlib
+        src = pathlib.Path('modules/sequenced_capture_runner.py').read_text()
+        # Find the validate_for_run try block + its except handler.
+        try_idx = src.find('validation_errors = protocol.validate_for_run')
+        assert try_idx >= 0
+        # Look at the next ~2500 chars (the except branch should follow).
+        block = src[try_idx:try_idx + 2500]
+        # The block must contain the notifications.error call AND the
+        # return after the exception is caught.
+        except_idx = block.find('except Exception')
+        assert except_idx >= 0, 'validate_for_run try block must have except handler'
+        except_block = block[except_idx:]
+        assert 'notifications.error' in except_block, (
+            'validate_for_run exception path must fire notifications.error '
+            '(not just log warning) so the user sees the failure popup.'
+        )
+        # Old anti-pattern: "Proceeding anyway." -- must be gone.
+        assert 'Proceeding anyway' not in except_block, (
+            'validate_for_run exception path must NOT proceed past the '
+            'failure (old anti-pattern: log warning + fall through).'
+        )
+        # Must return early so the run does not start.
+        assert 'return' in except_block.split('\n', 30)[0:30].__str__() or 'return' in except_block[:600], (
+            'validate_for_run exception path must return early after '
+            'firing the notification.'
+        )

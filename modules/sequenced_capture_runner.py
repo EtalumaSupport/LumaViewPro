@@ -456,7 +456,18 @@ class SequencedCaptureRunner:
                     f"Protocol has {len(validation_errors)} validation error(s):\n{err_summary}")
                 return
         except Exception as ex:
-            logger.warning(f"[PROTOCOL] Pre-run validation failed: {ex}. Proceeding anyway.")
+            # validate_for_run raised before producing a validation_errors
+            # list -- e.g. labware loader OS error, missing objectives.json,
+            # pandas exception inside the steps DataFrame. Without the
+            # popup + return the run proceeded past validation and hit
+            # hardware mid-run with bad coordinates. Mirrors the
+            # are_all_connected exception handling below.
+            logger.error(f"[PROTOCOL] Pre-run validation could not run: {ex}")
+            from modules.notification_center import notifications
+            notifications.error("Protocol", "Cannot validate protocol",
+                f"Pre-run validation could not run: {type(ex).__name__}: {ex}. "
+                f"Check the labware + objectives configuration and try again.")
+            return
 
         try:
             if not self._scope.are_all_connected():
