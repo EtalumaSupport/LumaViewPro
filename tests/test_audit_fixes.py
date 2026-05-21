@@ -15,6 +15,7 @@ IMPORTANT: This file does NOT manipulate sys.modules at module level.
 All mocking is done inside fixtures/test methods and cleaned up afterward.
 """
 
+import inspect
 import sys
 import threading
 from unittest.mock import MagicMock
@@ -208,9 +209,10 @@ class TestLedOnValidation:
             sim_scope.illumination.led_on(channel=0, mA=-1)
 
     def test_rejects_current_above_max(self, sim_scope):
-        from modules.lumascope_api import Lumascope
         with pytest.raises(ValueError, match="current"):
-            sim_scope.illumination.led_on(channel=0, mA=Lumascope.LED_MAX_MA + 1)
+            sim_scope.illumination.led_on(
+                channel=0, mA=sim_scope.capabilities.led_max_ma + 1,
+            )
 
     def test_accepts_valid_input(self, sim_scope):
         sim_scope.illumination.led_on(channel=0, mA=50)
@@ -877,7 +879,7 @@ class TestAxisState:
         sim_scope.motion.move_absolute_position('Z', 1000, wait_until_complete=False)
         # In simulation, the move completes instantly. The motion monitor thread
         # detects arrival at 50Hz and transitions state to IDLE.
-        sim_scope.motion.wait_until_finished_moving(timeout=2.0)
+        sim_scope.motion.wait_until_finished_moving(timeout_s=2.0)
         assert not sim_scope.motion.is_moving()
         assert sim_scope.motion.get_axis_state('Z') == AxisState.IDLE
 
@@ -994,7 +996,7 @@ class TestIssue602_AFExecutorLED:
              patch.object(af, '_move_absolute_position'), \
              patch.object(scope.illumination, 'save_led_state', return_value={}), \
              patch.object(scope.imaging, 'save_camera_state', return_value={}), \
-             patch.object(scope.motion, 'set_motor_precision_mode'), \
+             patch.object(scope.motion, 'set_precision_mode'), \
              patch.object(scope.illumination, 'restore_led_state'), \
              patch.object(scope.imaging, 'restore_camera_state'):
             with pytest.raises(AutofocusAborted):
@@ -1033,7 +1035,7 @@ class TestAFPrecisionModeRestoresOn:
     def test_reset_restores_precision_on(self, _mock_heavy_deps):
         from unittest.mock import patch
         af, scope = self._build_af()
-        with patch.object(scope.motion, 'set_motor_precision_mode') as mock_set:
+        with patch.object(scope.motion, 'set_precision_mode') as mock_set:
             af.reset()
             mock_set.assert_called_with('Z', True)
 
@@ -1046,7 +1048,7 @@ class TestAFPrecisionModeRestoresOn:
         af, scope = self._build_af()
         abort_event = threading.Event()
         abort_event.set()  # pre-set so AFE.run() unwinds via abort
-        with patch.object(scope.motion, 'set_motor_precision_mode') as mock_set, \
+        with patch.object(scope.motion, 'set_precision_mode') as mock_set, \
              patch.object(af, '_led_off'), \
              patch.object(af, '_move_absolute_position'), \
              patch.object(scope.illumination, 'save_led_state', return_value={}), \
@@ -2900,60 +2902,6 @@ class TestFrameValidity_AutofocusDrainsBeforeScore:
         assert "exclude_sources=('z_move',)" in src, (
             "AutofocusRunner._iterate's capture_and_wait calls must pass "
             "exclude_sources=('z_move',) since is_moving() already gates motion."
-        )
-
-
-class TestFrameValidity_LegacyCaptureRoutesThroughCaptureAndWait:
-    """ImagingAPI.capture_complete and ImagingAPI.capture_blocking previously
-    did fixed-time-sleep + bare get_image -- the v3.0.x anti-pattern.
-    Both methods are deprecated (no production callers, not in
-    LumascopeSkills.md). Implementation now routes through capture_and_wait
-    so that during the deprecation cycle they grab valid frames. A
-    DeprecationWarning fires on each call."""
-
-    def test_capture_complete_calls_capture_and_wait(self):
-        from pathlib import Path
-        src = (Path(__file__).resolve().parent.parent / "modules" / "lumascope_api" / "imaging.py").read_text()
-        body = _function_source(src, "capture_complete")
-        assert "self.capture_and_wait(" in body, (
-            "capture_complete must call self.capture_and_wait(...) -- previously "
-            "called bare self.get_image() after a fixed-time sleep."
-        )
-        assert "self.get_image(" not in body, (
-            "capture_complete must not call self.get_image(...) directly."
-        )
-
-    def test_capture_blocking_calls_capture_and_wait(self):
-        # capture_blocking body relocated to ImagingAPI in Wave 7 Phase 4c.
-        from pathlib import Path
-        src = (Path(__file__).resolve().parent.parent / "modules" / "lumascope_api" / "imaging.py").read_text()
-        body = _function_source(src, "capture_blocking")
-        assert "self.capture_and_wait(" in body, (
-            "capture_blocking must call self.capture_and_wait(...)."
-        )
-        assert "self.get_image(" not in body, (
-            "capture_blocking must not call self.get_image(...) directly."
-        )
-        assert "time.sleep(" not in body, (
-            "capture_blocking must not contain a fixed-time sleep -- validity "
-            "drain replaces the v3.0.x wait_time anti-pattern."
-        )
-
-    def test_capture_emits_deprecation_warning(self):
-        from pathlib import Path
-        src = (Path(__file__).resolve().parent.parent / "modules" / "lumascope_api" / "imaging.py").read_text()
-        body = _function_source(src, "capture")
-        assert "DeprecationWarning" in body, (
-            "capture must emit a DeprecationWarning so callers migrate to capture_and_wait."
-        )
-
-    def test_capture_blocking_emits_deprecation_warning(self):
-        # capture_blocking body relocated to ImagingAPI in Wave 7 Phase 4c.
-        from pathlib import Path
-        src = (Path(__file__).resolve().parent.parent / "modules" / "lumascope_api" / "imaging.py").read_text()
-        body = _function_source(src, "capture_blocking")
-        assert "DeprecationWarning" in body, (
-            "capture_blocking must emit a DeprecationWarning."
         )
 
 
@@ -7658,3 +7606,913 @@ class TestProtocolIOTimeoutsAreNotShort:
             f"{self._MIN_TIMEOUT_S}s -- short windows pop up storms "
             "under Pylon USB3 stress:\n  " + "\n  ".join(offenders)
         )
+
+
+class TestWaitUntilLedOnSymmetry:
+    """Audit Finding #8 -- illumination.wait_until_led_on mirrors
+    motion.wait_until_finished_moving in shape: takes a `timeout_s`
+    kwarg (renamed from bare `timeout` in audit U6) and returns a
+    bool."""
+
+    def test_signature_has_timeout_kwarg_with_default(self):
+        import inspect
+        from modules.lumascope_api.illumination import IlluminationAPI
+
+        sig = inspect.signature(IlluminationAPI.wait_until_led_on)
+        params = sig.parameters
+        assert 'timeout_s' in params, "wait_until_led_on must accept timeout_s kwarg"
+        assert 'timeout' not in params, (
+            "wait_until_led_on must not still expose bare `timeout` (audit U6)"
+        )
+        assert params['timeout_s'].default == 5.0
+        # `from __future__ import annotations` -> string forms.
+        assert params['timeout_s'].annotation in (float, 'float')
+
+    def test_returns_bool_annotation(self):
+        import inspect
+        from modules.lumascope_api.illumination import IlluminationAPI
+
+        sig = inspect.signature(IlluminationAPI.wait_until_led_on)
+        assert sig.return_annotation in (bool, 'bool')
+
+    def test_no_driver_returns_false(self, sim_scope):
+        # Force the no-driver branch (driver resolved via scope._led_driver).
+        original = sim_scope._led_driver
+        sim_scope._led_driver = None
+        try:
+            result = sim_scope.illumination.wait_until_led_on(timeout_s=0.1)
+        finally:
+            sim_scope._led_driver = original
+        assert result is False
+
+
+class TestSessionLedOnArgNameIsMa:
+    """Audit Finding #33 -- ScopeSession.led_on_async / led_on_sync use `mA`,
+    matching the canonical Lumascope.illumination.led_on(channel, mA, ...)
+    name. The old `illumination=` keyword is retired. (Method renamed
+    from `led_on` -> `led_on_async` per Finding #6 async-naming sweep.)"""
+
+    def test_led_on_signature_uses_mA(self):
+        import inspect
+        from modules.scope_session import ScopeSession
+
+        params = inspect.signature(ScopeSession.led_on_async).parameters
+        assert 'mA' in params, "ScopeSession.led_on_async must accept mA kwarg"
+        assert 'illumination' not in params, "old `illumination` kwarg must be retired"
+
+    def test_led_on_sync_signature_uses_mA(self):
+        import inspect
+        from modules.scope_session import ScopeSession
+
+        params = inspect.signature(ScopeSession.led_on_sync).parameters
+        assert 'mA' in params
+        assert 'illumination' not in params
+
+    def test_illumination_api_led_on_async_signature_uses_mA(self):
+        """U6 paired with Finding #33 (was: ScopeSession only). The
+        async/sync surface on IlluminationAPI proper also drops the
+        ambiguous `illumination=` keyword. The drift had been at the
+        sub-API layer (not just the Session forwarder) and U6 closes
+        it pre-freeze."""
+        import inspect
+        from modules.lumascope_api.illumination import IlluminationAPI
+
+        for method_name in ('led_on_async', 'led_on_sync'):
+            params = inspect.signature(getattr(IlluminationAPI, method_name)).parameters
+            assert 'mA' in params, f'IlluminationAPI.{method_name} must accept mA'
+            assert 'illumination' not in params, (
+                f'IlluminationAPI.{method_name} must retire `illumination` kwarg'
+            )
+
+
+class TestImagingTimeoutsAreFloatSeconds:
+    """Audit Finding #11 -- imaging timeout convention unified to
+    float seconds. Pre-freeze, the four cited shapes (`timedelta`,
+    `int ms`, `float s`, untyped) collapse to `float` seconds.
+    Also surfaces a unit fix on `get_image.new_capture_timeout`,
+    which historically defaulted to `1000` (claiming "ms" in the
+    docstring) but the value flowed unchanged into the driver
+    `grab_new_capture(timeout: float)` which is seconds."""
+
+    _METHODS_AND_TIMEOUTS = (
+        ('set_gain_sync', 'timeout_s', 5.0),
+        ('set_exposure_sync', 'timeout_s', 5.0),
+        ('capture_and_wait', 'timeout_s', 0.0),
+        ('capture_and_wait_sync', 'timeout_s', 30.0),
+    )
+
+    def test_timeout_default_is_float(self):
+        import inspect
+        from modules.lumascope_api.imaging import ImagingAPI
+
+        for method_name, kwarg, expected in self._METHODS_AND_TIMEOUTS:
+            method = getattr(ImagingAPI, method_name)
+            sig = inspect.signature(method)
+            assert kwarg in sig.parameters, f'{method_name} lost {kwarg}'
+            default = sig.parameters[kwarg].default
+            assert isinstance(default, float), (
+                f'{method_name}.{kwarg} default {default!r} not float'
+            )
+            assert default == expected, (
+                f'{method_name}.{kwarg} default {default} != {expected}'
+            )
+
+    def test_get_image_timeout_is_float_seconds(self):
+        import inspect
+        from modules.lumascope_api.imaging import ImagingAPI
+
+        sig = inspect.signature(ImagingAPI.get_image)
+        timeout_s = sig.parameters['timeout_s']
+        assert isinstance(timeout_s.default, float), (
+            f'get_image.timeout_s default {timeout_s.default!r} not float seconds; '
+            f'previously datetime.timedelta'
+        )
+        assert timeout_s.default == 5.0
+        assert 'timeout' not in sig.parameters, (
+            "get_image must not still expose bare `timeout` (audit U6 rename)"
+        )
+
+    def test_get_image_new_capture_timeout_is_float_seconds(self):
+        # The audit said "rename to *_ms if SDK demands ms"; verification
+        # showed the driver takes seconds, so we kept the name + canonicalized
+        # to float seconds. Default was 1000 (an int interpreted as 1000s by
+        # the driver path -- never exercised). Now 5.0 seconds. U6 added the
+        # _s unit suffix to make the documented seconds unit explicit on the
+        # parameter name itself.
+        import inspect
+        from modules.lumascope_api.imaging import ImagingAPI
+
+        sig = inspect.signature(ImagingAPI.get_image)
+        nct = sig.parameters['new_capture_timeout_s']
+        assert isinstance(nct.default, float)
+        assert nct.default == 5.0
+        assert 'new_capture_timeout' not in sig.parameters
+
+
+class TestImagingGetCameraTempsRetired:
+    """Audit Finding #2 -- imaging.get_camera_temps was a duplicate path
+    for the diagnostics.get_camera_temperatures probe. Retired pre-freeze.
+    log_camera_temps (the live-in-flight logger) stays on imaging and now
+    routes through diagnostics for the data read."""
+
+    def test_imaging_get_camera_temps_is_gone(self):
+        from modules.lumascope_api.imaging import ImagingAPI
+        assert not hasattr(ImagingAPI, 'get_camera_temps'), (
+            "imaging.get_camera_temps must be retired; "
+            "callers route through scope.diagnostics.get_camera_temperatures"
+        )
+
+    def test_diagnostics_get_camera_temperatures_still_callable(self, sim_scope):
+        # Sim drivers may not expose temperatures; method must return a dict.
+        result = sim_scope.diagnostics.get_camera_temperatures()
+        assert isinstance(result, dict)
+
+    def test_imaging_log_camera_temps_still_exists(self):
+        from modules.lumascope_api.imaging import ImagingAPI
+        assert callable(getattr(ImagingAPI, 'log_camera_temps', None))
+
+
+class TestSaveLiveImageTimeoutIsFloat:
+    """Phase-2 units-audit Finding P2-1 -- save_live_image's `timeout`
+    must be a float (seconds), not a datetime.timedelta. The Phase 1
+    audit #11 rename of capture_and_wait/get_image to float seconds
+    introduced a latent regression: the caller `image_save.save_live_image`
+    kept its `datetime.timedelta` default, which then flowed through
+    `capture_and_wait(timeout=...)` -> `get_image(timeout=...)` ->
+    `datetime.timedelta(seconds=timeout)` where `seconds=` rejects
+    timedelta with TypeError. Both UI callers (composite_capture.py)
+    use the default; the live-capture path crashes."""
+
+    def test_signature_is_float(self):
+        import inspect
+        from modules.image_save import save_live_image
+
+        sig = inspect.signature(save_live_image)
+        timeout_param = sig.parameters['timeout_s']
+        # Reject the previous timedelta default.
+        assert not isinstance(timeout_param.default, __import__('datetime').timedelta), (
+            'save_live_image.timeout_s default must be float seconds, not timedelta'
+        )
+        assert isinstance(timeout_param.default, float)
+        assert timeout_param.default == 5.0
+        assert 'timeout' not in sig.parameters, (
+            "save_live_image must not still expose bare `timeout` (audit U6 rename)"
+        )
+
+    def test_default_timeout_flows_through_capture_and_wait_without_crash(self, sim_scope):
+        # The original regression was: save_live_image's timedelta default
+        # flowed unchanged through capture_and_wait -> get_image, where
+        # `datetime.timedelta(seconds=timeout)` rejected timedelta with
+        # TypeError. This test exercises the same forwarding path that
+        # save_live_image uses (line 484-491), with the new float default.
+        # If a future revert restores `timeout_s: datetime.timedelta`, the
+        # signature test above fails first; if some other regression
+        # restores the TypeError at the get_image conversion, this fails.
+        # U6 renamed the keyword from `timeout` to `timeout_s` across the
+        # imaging API; this test follows.
+        import inspect
+        from modules.image_save import save_live_image
+
+        timeout_default = inspect.signature(save_live_image).parameters['timeout_s'].default
+        try:
+            sim_scope.imaging.capture_and_wait(
+                force_to_8bit=True,
+                all_ones_check=False,
+                timeout_s=timeout_default,
+                sum_count=1,
+                sum_delay_s=0,
+            )
+        except TypeError as e:
+            raise AssertionError(
+                f'capture_and_wait raised TypeError when given save_live_image\'s '
+                f'default timeout_s ({timeout_default!r}): {e}. '
+                f'Phase-2 audit P2-1 regression has returned.'
+            )
+
+
+class TestImagingParamNamesUseUnitSuffix:
+    """Audit U3 + U4 -- imaging API + driver method param names carry unit
+    suffix (gain_db / exposure_ms / min_gain_db / max_gain_db). Pre-freeze,
+    the L2 surface and the driver contract drop bare ``gain`` / ``t`` /
+    ``exposure`` / ``min_gain`` / ``max_gain`` parameter names that fail to
+    disambiguate units from the four parallel namespaces uncovered by the
+    2026-05-20 units-consistency audit (raw settings, derived layer_config,
+    camera-cache, API-param). Lock these so a revert breaking either the
+    L2 contract or the driver contract trips immediately."""
+
+    _IMAGING_PARAMS = (
+        # (method, expected_param_name_set, banned_param_name_set)
+        ('set_gain', frozenset({'gain_db'}), frozenset({'gain'})),
+        ('set_exposure_time', frozenset({'exposure_ms'}), frozenset({'t', 'exposure'})),
+        ('set_gain_sync', frozenset({'gain_db'}), frozenset({'gain'})),
+        ('set_exposure_sync', frozenset({'exposure_ms'}), frozenset({'exposure', 't'})),
+        ('apply_layer_camera_settings', frozenset({'gain_db', 'exposure_ms'}), frozenset({'gain'})),
+        ('auto_gain_once', frozenset({'min_gain_db', 'max_gain_db'}), frozenset({'min_gain', 'max_gain'})),
+    )
+
+    def test_imaging_method_param_names(self):
+        import inspect
+        from modules.lumascope_api.imaging import ImagingAPI
+
+        for method_name, expected, banned in self._IMAGING_PARAMS:
+            method = getattr(ImagingAPI, method_name)
+            params = set(inspect.signature(method).parameters)
+            missing = expected - params
+            present_banned = banned & params
+            assert not missing, (
+                f'ImagingAPI.{method_name} missing unit-suffixed params {missing}'
+            )
+            assert not present_banned, (
+                f'ImagingAPI.{method_name} still has bare-name params '
+                f'{present_banned}; should use unit-suffixed names per audit U3'
+            )
+
+    def test_driver_auto_gain_param_names(self):
+        """Driver-side auto_gain / auto_gain_once / update_auto_gain_min_max
+        use ``min_gain_db`` / ``max_gain_db`` -- the abstract Camera contract
+        plus all concrete drivers (Pylon, IDS, simulated, FX2). Caught by
+        the U3 mechanical rename sweep."""
+        import inspect
+        from drivers.camera import Camera
+
+        for method_name in ('auto_gain', 'auto_gain_once', 'update_auto_gain_min_max'):
+            method = getattr(Camera, method_name)
+            params = set(inspect.signature(method).parameters)
+            assert 'min_gain_db' in params, (
+                f'Camera.{method_name} missing min_gain_db param'
+            )
+            assert 'max_gain_db' in params, (
+                f'Camera.{method_name} missing max_gain_db param'
+            )
+            assert 'min_gain' not in params, (
+                f'Camera.{method_name} still has bare min_gain param'
+            )
+            assert 'max_gain' not in params, (
+                f'Camera.{method_name} still has bare max_gain param'
+            )
+
+    def test_driver_exposure_t_param_name(self):
+        """Driver-side exposure_t uses ``exposure_ms`` -- the abstract Camera
+        contract plus all concrete drivers (Pylon, IDS, simulated, FX2).
+        Caught by the U4 driver rename sweep (paired with U3's API-side
+        rename). The historical bare ``t`` name is banned -- ambiguous on
+        a method whose body multiplies by 1000 to reach microseconds."""
+        import inspect
+        from drivers.camera import Camera
+
+        method = getattr(Camera, 'exposure_t')
+        params = set(inspect.signature(method).parameters)
+        assert 'exposure_ms' in params, 'Camera.exposure_t missing exposure_ms param'
+        assert 't' not in params, 'Camera.exposure_t still has bare `t` param'
+
+
+class TestTimeoutParamNamesUseSecondSuffix:
+    """Audit U6 timeout sweep -- L2 API methods carrying a wall-clock
+    timeout parameter use ``timeout_s`` (seconds-unit suffix) rather
+    than the historical bare ``timeout``. Lock the rename so a revert
+    breaks the L2 contract visibly.
+
+    fx2driver is explicitly exempt (pyusb-native uses int ms with
+    distinct semantics; documented at the audit's Finding #49). The
+    deep board-protocol-internal timeouts (serialboard, motorboard,
+    raw_repl, firmware_updater) keep bare ``timeout`` to match the
+    underlying pyserial / stdlib API names."""
+
+    _SECONDS_TIMEOUT_METHODS = (
+        # (module-path, class-or-fn, method_name_or_None)
+        ('modules.lumascope_api.motion', 'MotionAPI', 'wait_until_finished_moving'),
+        ('modules.lumascope_api.motion', 'MotionAPI', 'move_absolute_sync'),
+        ('modules.lumascope_api.illumination', 'IlluminationAPI', 'led_on_sync'),
+        ('modules.lumascope_api.illumination', 'IlluminationAPI', 'leds_off_sync'),
+        ('modules.lumascope_api.illumination', 'IlluminationAPI', 'wait_until_led_on'),
+        ('modules.lumascope_api.imaging', 'ImagingAPI', 'set_gain_sync'),
+        ('modules.lumascope_api.imaging', 'ImagingAPI', 'set_exposure_sync'),
+        ('modules.lumascope_api.imaging', 'ImagingAPI', 'capture_and_wait'),
+        ('modules.lumascope_api.imaging', 'ImagingAPI', 'capture_and_wait_sync'),
+        ('modules.lumascope_api.imaging', 'ImagingAPI', 'get_image'),
+        ('modules.lumascope_api.diagnostics', 'DiagnosticsAPI',
+         'enter_led_engineering_mode'),
+        ('modules.scope_session', 'ScopeSession', 'led_on_sync'),
+    )
+
+    def test_api_methods_use_timeout_s(self):
+        import importlib
+        import inspect
+
+        for module_path, class_name, method_name in self._SECONDS_TIMEOUT_METHODS:
+            module = importlib.import_module(module_path)
+            cls = getattr(module, class_name)
+            method = getattr(cls, method_name)
+            params = set(inspect.signature(method).parameters)
+            assert 'timeout_s' in params, (
+                f'{class_name}.{method_name} must accept `timeout_s` per audit U6'
+            )
+            assert 'timeout' not in params, (
+                f'{class_name}.{method_name} still has bare `timeout` (U6 rename incomplete)'
+            )
+
+    def test_save_live_image_uses_timeout_s(self):
+        """The save_live_image helper participates in the same sweep."""
+        import inspect
+        from modules.image_save import save_live_image
+
+        params = set(inspect.signature(save_live_image).parameters)
+        assert 'timeout_s' in params
+        assert 'timeout' not in params
+
+    def test_driver_grab_new_capture_uses_timeout_s(self):
+        """L2-mirror driver method -- grab_new_capture is invoked from
+        ImagingAPI.capture_and_wait and ImagingAPI.get_image with a
+        seconds value, and now exposes that unit on the signature."""
+        import inspect
+        from drivers.camera import Camera
+
+        params = set(inspect.signature(Camera.grab_new_capture).parameters)
+        assert 'timeout_s' in params
+        assert 'timeout' not in params
+
+
+class TestLedMaxMaCanonicalHomeIsCapabilities:
+    """Freeze audit Finding #38 -- `Lumascope.LED_MAX_MA` was a class
+    constant that duplicated `capabilities.led_max_ma` (same value,
+    two SoTs). The class constant is retired; the canonical home is
+    `modules.scope_capabilities.LED_MAX_MA` (module-level) which
+    `capabilities.led_max_ma` mirrors per-instance."""
+
+    def test_lumascope_class_does_not_carry_led_max_ma(self):
+        from modules.lumascope_api import Lumascope
+        assert not hasattr(Lumascope, 'LED_MAX_MA'), (
+            'Lumascope.LED_MAX_MA must be retired per audit #38; '
+            'callers read scope.capabilities.led_max_ma instead.'
+        )
+
+    def test_capabilities_led_max_ma_matches_canonical_constant(self, sim_scope):
+        from modules.scope_capabilities import LED_MAX_MA
+        assert sim_scope.capabilities.led_max_ma == LED_MAX_MA
+
+    def test_illumination_validation_reads_capabilities(self, sim_scope):
+        """The validation gate inside IlluminationAPI.led_on must read
+        the cap from capabilities, not from a retired class constant.
+        A capability override (test-only) is reflected by the gate."""
+        import pytest as _pytest
+        # Cap at 50 mA for this test; 51 must reject.
+        from dataclasses import replace
+        sim_scope.capabilities = replace(sim_scope.capabilities, led_max_ma=50)
+        with _pytest.raises(ValueError, match="current"):
+            sim_scope.illumination.led_on(channel=0, mA=51)
+
+
+class TestSessionSetObjectiveForwarder:
+    """Freeze audit Finding #47 -- LumascopeSkills.md said
+    `scope.set_objective('10x Oly')` but the Session layer is the L2
+    entry point per design-doc 6.6; `session.set_objective` did not
+    exist, so the doc led L2 callers across to the composition root.
+    Fix: thin forwarder on ScopeSession plus doc note that both
+    surfaces work."""
+
+    def test_session_has_set_objective_method(self):
+        from modules.scope_session import ScopeSession
+        assert callable(getattr(ScopeSession, 'set_objective', None)), (
+            'ScopeSession.set_objective forwarder must exist per audit #47'
+        )
+
+    def test_session_set_objective_forwards_to_scope(self):
+        """Calling the Session forwarder updates the composition root's
+        objective state -- same path as scope.set_objective() directly."""
+        from modules.scope_session import ScopeSession
+
+        session = ScopeSession.create_headless()
+        available = session.scope.get_available_objectives()
+        if not available:
+            return  # no objectives loaded in this sim profile
+        target = available[0] if isinstance(available, list) else next(iter(available))
+
+        session.set_objective(target)
+        assert session.scope.get_current_objective_id() == target
+
+
+class TestAxisTravelLimitsOnCapabilities:
+    """Freeze audit Finding #20 -- `Lumascope.travel_limit_um(axis)`
+    lived on the composition root but read `motorconfig.travel_limit_um`
+    (motion-driver state). Canonical home is now
+    `capabilities.axis_travel_limits_um` (immutable per scope, populated
+    once at boot from present axes). The wrapper is retired."""
+
+    def test_lumascope_class_does_not_carry_travel_limit_um(self):
+        from modules.lumascope_api import Lumascope
+        assert not hasattr(Lumascope, 'travel_limit_um'), (
+            'Lumascope.travel_limit_um must be retired per audit #20; '
+            'callers read scope.capabilities.axis_travel_limits_um[axis] instead.'
+        )
+
+    def test_present_axes_have_travel_limits(self, sim_scope):
+        """Default sim is LS850 (X/Y/Z present). All three axes appear
+        in the mapping with positive um values."""
+        limits = sim_scope.capabilities.axis_travel_limits_um
+        for ax in sim_scope.capabilities.axes:
+            assert ax in limits, f'axis {ax} present but missing from travel limits'
+            assert limits[ax] > 0.0
+
+    def test_absent_axis_keyerrors(self, sim_scope):
+        """Per Rule 8 capability-probe corollary, querying an absent
+        axis is a caller bug -- contract is KeyError, not a sentinel."""
+        limits = sim_scope.capabilities.axis_travel_limits_um
+        # Default sim has no turret; 'T' must not be in the mapping.
+        assert 'T' not in sim_scope.capabilities.axes
+        import pytest as _pytest
+        with _pytest.raises(KeyError):
+            _ = limits['T']
+
+    def test_mapping_is_read_only(self, sim_scope):
+        """MappingProxyType wrapper enforces the frozen-dataclass
+        immutability contract for the contents too. Mutation raises
+        TypeError; a caller cannot silently corrupt the snapshot."""
+        limits = sim_scope.capabilities.axis_travel_limits_um
+        import pytest as _pytest
+        with _pytest.raises(TypeError):
+            limits['X'] = 1.0  # type: ignore[index]
+
+    def test_null_motor_yields_empty_mapping(self):
+        """A NullMotionBoard exposes no motorconfig; the mapping is
+        empty -- which has_xy_stage / has_focus False already gates
+        callers away from it."""
+        from drivers.null_ledboard import NullLEDBoard
+        from drivers.null_motorboard import NullMotionBoard
+        from modules.scope_capabilities import ScopeCapabilities
+        caps = ScopeCapabilities.from_drivers(
+            motion=NullMotionBoard(), led=NullLEDBoard(), camera=None,
+        )
+        assert dict(caps.axis_travel_limits_um) == {}
+
+
+class TestOpticsOnCapabilities:
+    """Freeze audit Finding #21 -- Lumascope.pixel_size() and
+    Lumascope.lens_focal_length() were both motorconfig-sourced
+    optical accessors living on the composition root. Canonical home is
+    now capabilities.pixel_size_um + capabilities.lens_focal_length_mm
+    (sibling shape to #20 / #38; sourced from motorconfig at boot).
+    The Lumascope wrappers are retired. The previously-unused
+    camera_pixel_size_um field (camera-SDK-sourced; no production
+    readers) is retired in the same move."""
+
+    def test_lumascope_class_does_not_carry_pixel_size_or_focal_length(self):
+        from modules.lumascope_api import Lumascope
+        assert not hasattr(Lumascope, 'pixel_size'), (
+            'Lumascope.pixel_size must be retired per audit #21; '
+            'callers read scope.capabilities.pixel_size_um instead.'
+        )
+        assert not hasattr(Lumascope, 'lens_focal_length'), (
+            'Lumascope.lens_focal_length must be retired per audit #21; '
+            'callers read scope.capabilities.lens_focal_length_mm instead.'
+        )
+
+    def test_capabilities_camera_pixel_size_um_field_removed(self):
+        """The camera-SDK-sourced field had zero production readers and
+        was retired in the same commit -- a single canonical pixel_size_um
+        sourced from motorconfig replaces it."""
+        from modules.scope_capabilities import ScopeCapabilities
+        from dataclasses import fields
+        names = {f.name for f in fields(ScopeCapabilities)}
+        assert 'camera_pixel_size_um' not in names, (
+            'camera_pixel_size_um must be retired per audit #21; '
+            'pixel_size_um is the canonical motorconfig-sourced field.'
+        )
+        assert 'pixel_size_um' in names
+        assert 'lens_focal_length_mm' in names
+
+    def test_capabilities_optics_defaults_match_motorconfig(self, sim_scope):
+        """Default sim motorconfig has Optics.PixelSize=2.0 and
+        Optics.LensFocalLength=47.8; capabilities surfaces those values."""
+        assert sim_scope.capabilities.pixel_size_um == 2.0
+        assert sim_scope.capabilities.lens_focal_length_mm == 47.8
+
+    def test_null_motor_optics_defaults(self):
+        """A NullMotionBoard has no motorconfig; capabilities falls back
+        to the Etaluma reference defaults (47.8 mm / 2.0 um) so callers
+        don't need to special-case the no-hardware path."""
+        from drivers.null_ledboard import NullLEDBoard
+        from drivers.null_motorboard import NullMotionBoard
+        from modules.scope_capabilities import ScopeCapabilities
+        caps = ScopeCapabilities.from_drivers(
+            motion=NullMotionBoard(), led=NullLEDBoard(), camera=None,
+        )
+        assert caps.pixel_size_um == 2.0
+        assert caps.lens_focal_length_mm == 47.8
+
+
+class TestConnectionCheckShapeUniformOnLumascope:
+    """Freeze audit Finding #22 -- motor_connected / led_connected were
+    Lumascope properties while camera connection was a method on
+    ImagingAPI (imaging.camera_is_connected()). Two shapes (property vs
+    method) and two locations (composition root vs sub-API) for the
+    same question. Unified: all three are now properties on Lumascope.
+    Internal imaging callers route through self._scope.camera_connected."""
+
+    def test_imaging_class_does_not_carry_camera_is_connected(self):
+        from modules.lumascope_api.imaging import ImagingAPI
+        assert not hasattr(ImagingAPI, 'camera_is_connected'), (
+            'ImagingAPI.camera_is_connected must be retired per audit #22; '
+            'callers read scope.camera_connected (property) instead.'
+        )
+
+    def test_lumascope_has_camera_connected_property(self):
+        from modules.lumascope_api import Lumascope
+        attr = inspect.getattr_static(Lumascope, 'camera_connected', None)
+        assert isinstance(attr, property), (
+            'Lumascope.camera_connected must be a property (matches motor_connected / '
+            'led_connected shape).'
+        )
+
+    def test_sim_scope_camera_connected_matches_driver_state(self, sim_scope):
+        """On the default sim, the camera driver is real (SimulatedCamera);
+        camera_connected reflects driver.active + is_connected()."""
+        # SimulatedCamera should be active + connected after Lumascope init
+        assert sim_scope.camera_connected is True
+
+    def test_camera_connected_false_when_no_camera_driver(self, sim_scope):
+        """The property must be defensive against a missing / None camera
+        driver -- mirrors motor_connected / led_connected falling back to
+        False rather than raising. Forcing _camera_driver=None proves the
+        getattr-default path: this matches the shape of create_diagnostic
+        instances (which today leave _camera_driver unset per audit #35;
+        the property gracefully degrades regardless)."""
+        sim_scope._camera_driver = None
+        assert sim_scope.camera_connected is False
+
+
+class TestFrameValidityIsL2Stable:
+    """Freeze audit Finding #40 -- scope.imaging.frame_validity was
+    publicly accessible (no underscore prefix) but LumascopeSkills said
+    "internal diagnostic and not part of L2-stable API surface." Two
+    options: prefix as _frame_validity OR formally promote. Promoted:
+    L2 callers (plugin authors, diagnostic tooling, custom capture
+    loops) can rely on the FrameValidity surface."""
+
+    L2_STABLE_FRAME_VALIDITY_SURFACE = (
+        'is_valid', 'is_valid_for', 'frames_until_valid',
+        'pending_sources', 'invalidate', 'count_frame',
+    )
+
+    def test_frame_validity_exposes_l2_surface(self, sim_scope):
+        """Every documented L2 method/property is present on the
+        FrameValidity instance. Promoting locks the contract; this test
+        catches accidental retirement."""
+        fv = sim_scope.imaging.frame_validity
+        for name in self.L2_STABLE_FRAME_VALIDITY_SURFACE:
+            assert hasattr(fv, name), (
+                f'FrameValidity.{name} must exist per audit #40 promotion; '
+                'L2 callers depend on it.'
+            )
+
+    def test_frame_validity_is_publicly_named(self):
+        """The attribute is `frame_validity`, not `_frame_validity` --
+        signals 'documented L2 surface' per Rule 27 underscore convention."""
+        from modules.lumascope_api.imaging import ImagingAPI
+        src = inspect.getsource(ImagingAPI.__init__)
+        assert 'self.frame_validity = FrameValidity()' in src, (
+            'ImagingAPI.frame_validity attribute name must remain public '
+            'per audit #40 promotion.'
+        )
+        assert 'self._frame_validity' not in src, (
+            'frame_validity must not be prefixed -- the audit chose formal '
+            'L2 promotion, not internal hiding.'
+        )
+
+
+class TestSessionImagingWrappersSymmetric:
+    """Freeze audit Finding #32 -- ScopeSession had wrappers for LED
+    (led_on, led_on_sync, led_off, leds_off) + motion (move_absolute,
+    move_relative, move_home) but no imaging wrappers. L2 callers had
+    a 2-path surface: session.led_on_async vs session.scope.imaging.set_gain.
+    Symmetric path chosen: session gains set_gain / set_exposure_time /
+    capture_and_wait thin forwarders mirroring the existing pattern."""
+
+    def test_session_has_set_gain_forwarder(self):
+        from modules.scope_session import ScopeSession
+        assert callable(getattr(ScopeSession, 'set_gain', None)), (
+            'ScopeSession.set_gain forwarder must exist per audit #32.'
+        )
+
+    def test_session_has_set_exposure_time_forwarder(self):
+        from modules.scope_session import ScopeSession
+        assert callable(getattr(ScopeSession, 'set_exposure_time', None)), (
+            'ScopeSession.set_exposure_time forwarder must exist per audit #32.'
+        )
+
+    def test_session_has_capture_and_wait_forwarder(self):
+        from modules.scope_session import ScopeSession
+        assert callable(getattr(ScopeSession, 'capture_and_wait', None)), (
+            'ScopeSession.capture_and_wait forwarder must exist per audit #32.'
+        )
+
+    def test_session_set_gain_forwards_to_imaging(self):
+        """Calling the forwarder updates the imaging cache -- same path
+        as scope.imaging.set_gain directly."""
+        from modules.scope_session import ScopeSession
+        session = ScopeSession.create_headless()
+        try:
+            session.set_gain(5.5)
+            assert session.scope.imaging.camera_gain == 5.5
+        finally:
+            session.scope.disconnect()
+
+    def test_session_set_exposure_time_forwards_to_imaging(self):
+        from modules.scope_session import ScopeSession
+        session = ScopeSession.create_headless()
+        try:
+            session.set_exposure_time(42.0)
+            assert session.scope.imaging.camera_exposure_ms == 42.0
+        finally:
+            session.scope.disconnect()
+
+
+class TestCreateDiagnosticSharesInitMinimal:
+    """Freeze audit Finding #35 -- create_diagnostic bypassed __init__
+    via cls.__new__(cls) and open-coded a subset of __init__'s state
+    assignments, leaving ~12 instance attributes unset. #22's
+    camera_connected work surfaced one concrete instance (_camera_driver
+    missing). The audit-recommended fix: extract a shared _init_minimal
+    helper that both __init__ and create_diagnostic call. The slot list
+    is now single-pointed-of-truth."""
+
+    # Slots that _init_minimal sets on every Lumascope instance, regardless
+    # of which constructor path was used. If a future refactor drops one,
+    # this guard catches it.
+    REQUIRED_SHARED_SLOTS = (
+        '_simulated', '_coordinate_transformer', '_objectives_loader',
+        '_state_lock', '_cam_lock', '_camera_cache_lock', '_camera_cache',
+        '_camera_driver',
+        '_labware', '_objective', '_objective_id',
+        '_turret_config', '_stage_offset', '_last_turret_position',
+        'engineering_mode', 'last_focus_score',
+        '_camera_executor', '_io_executor', '_file_io_executor',
+        '_executor_bundle', '_source_path', 'metrics_logger',
+    )
+
+    def test_init_sets_all_shared_slots(self):
+        from modules.lumascope_api import Lumascope
+        scope = Lumascope(simulate=True, register_atexit=False, register_metrics=False)
+        try:
+            for slot in self.REQUIRED_SHARED_SLOTS:
+                assert hasattr(scope, slot), (
+                    f'__init__ must set {slot} (via _init_minimal) per audit #35.'
+                )
+        finally:
+            scope.disconnect()
+
+    def test_create_diagnostic_sets_all_shared_slots(self):
+        from modules.lumascope_api import Lumascope
+        instance = Lumascope.create_diagnostic()
+        try:
+            for slot in self.REQUIRED_SHARED_SLOTS:
+                assert hasattr(instance, slot), (
+                    f'create_diagnostic must set {slot} (via _init_minimal) '
+                    'per audit #35.'
+                )
+        finally:
+            instance.disconnect()
+
+    def test_create_diagnostic_camera_driver_is_none(self):
+        """The diagnostic path leaves _camera_driver=None (the
+        _init_minimal default); camera_connected returns False without
+        the getattr-default belt-and-suspenders firing."""
+        from modules.lumascope_api import Lumascope
+        instance = Lumascope.create_diagnostic()
+        try:
+            assert instance._camera_driver is None
+            assert instance.camera_connected is False
+        finally:
+            instance.disconnect()
+
+
+class TestLedSentinelReturnsAreNone:
+    """Freeze audit Finding #39 -- sentinel return shapes were
+    inconsistent across "off / unavailable" methods: get_led_ma
+    returned -1 (int) or -1.0 (float); led_illumination forwarded it;
+    get_led_status / camera_max_gain / get_target_position('T')
+    already returned None. Audit chose the pythonic None convention;
+    the float | None type is now uniform across the LED query surface."""
+
+    def test_get_led_ma_returns_none_when_driver_absent(self):
+        """A diagnostic-mode instance with a NullLEDBoard driver path
+        exercises the not-self._driver branch -- returns None, not -1."""
+        from modules.lumascope_api import Lumascope
+        from drivers.null_ledboard import NullLEDBoard
+        scope = Lumascope(simulate=True, register_atexit=False, register_metrics=False)
+        try:
+            scope._led_driver = NullLEDBoard()
+            # IlluminationAPI._driver re-resolves through _scope._led_driver
+            # each call, so the hot-swap propagates.
+            assert scope.illumination.get_led_ma('Blue') is None
+            assert scope.illumination.led_illumination('Blue') is None
+        finally:
+            scope.disconnect()
+
+    def test_get_led_ma_returns_none_when_channel_off(self, sim_scope):
+        """After led_off, the channel entry is popped from _led_state;
+        get_led_ma returns None (was -1.0)."""
+        # No prior led_on -- Blue starts in the never-set state.
+        assert sim_scope.illumination.get_led_ma('Blue') is None
+        # Force a known sequence: on, then off.
+        sim_scope.illumination._led_state['Blue'] = {
+            'enabled': True, 'illumination_ma': 50.0, 'owner': '',
+        }
+        assert sim_scope.illumination.get_led_ma('Blue') == 50.0
+        sim_scope.illumination._led_state.pop('Blue', None)
+        assert sim_scope.illumination.get_led_ma('Blue') is None
+
+    def test_led_illumination_forwards_to_get_led_ma(self, sim_scope):
+        """The two surfaces must return the same value -- they answer
+        the same question."""
+        sim_scope.illumination._led_state['Green'] = {
+            'enabled': True, 'illumination_ma': 75.5, 'owner': '',
+        }
+        assert sim_scope.illumination.led_illumination('Green') == \
+            sim_scope.illumination.get_led_ma('Green')
+        sim_scope.illumination._led_state.pop('Green', None)
+        assert sim_scope.illumination.led_illumination('Green') is None
+
+
+class TestGetterSetterSymmetry:
+    """Freeze audit Finding #36 -- the L2 surface had set_X methods
+    without matching get_X across several sub-APIs. The widest gaps
+    were on the composition root (set_stage_offset) and ImagingAPI
+    (set_scale_bar). Added: get_stage_offset, get_scale_bar.
+
+    The Pylon / GEV / USB SDK-perf knob cluster (set_acquisition_stop_mode,
+    set_bandwidth_reserve_mode, set_device_link_throughput_limit,
+    set_max_transfer_size, set_num_max_queued_urbs, set_gev_packet_size,
+    set_gev_inter_packet_delay, set_max_acquisition_frame_rate) is
+    deliberately write-only -- see the in-source Rule 33 decision
+    comment above set_acquisition_stop_mode."""
+
+    def test_lumascope_get_stage_offset_exists(self, sim_scope):
+        assert callable(getattr(sim_scope, 'get_stage_offset', None))
+        # Round-trip: set then get returns the same value.
+        sim_scope.set_stage_offset({'x': 1.0, 'y': 2.0})
+        assert sim_scope.get_stage_offset() == {'x': 1.0, 'y': 2.0}
+
+    def test_imaging_get_scale_bar_exists(self, sim_scope):
+        assert callable(getattr(sim_scope.imaging, 'get_scale_bar', None))
+        # Round-trip: set then get reflects the change.
+        sim_scope.imaging.set_scale_bar(enabled=True, color='white')
+        snap = sim_scope.imaging.get_scale_bar()
+        assert snap['enabled'] is True
+        assert snap['color'] == 'white'
+
+    def test_get_scale_bar_returns_defensive_copy(self, sim_scope):
+        """Mutating the returned dict must not affect internal state."""
+        sim_scope.imaging.set_scale_bar(enabled=True, color='white')
+        snap = sim_scope.imaging.get_scale_bar()
+        snap['enabled'] = False
+        # Internal state untouched
+        assert sim_scope.imaging.scale_bar_enabled is True
+
+
+class TestHardwareFeaturesCapability:
+    """Freeze audit Finding #4 (sub-item: hardware_features) -- the
+    design doc 2.5 spec'd a hardware_features frozenset for cross-cutting
+    capability tokens (trigger_in, temperature_sensor, etc.) but the
+    field was never shipped. The supports() helper had a forward-
+    reference in its docstring to this field; this commit makes that
+    contract real."""
+
+    def test_hardware_features_field_is_frozenset(self, sim_scope):
+        assert isinstance(sim_scope.capabilities.hardware_features, frozenset)
+
+    def test_hardware_features_defaults_to_empty(self, sim_scope):
+        """Per Rule 8 empty-default semantic: empty means 'feature set
+        unknown,' not 'feature X is absent.' No drivers populate the
+        set today; the field exists so plugin / SDK callers can
+        probe via caps.supports(token) without raising."""
+        assert sim_scope.capabilities.hardware_features == frozenset()
+
+    def test_supports_searches_hardware_features(self):
+        """caps.supports('trigger_in') checks the frozenset; if the
+        token is present, returns True even when no has_X / camera_supports_X
+        field matches."""
+        from dataclasses import replace
+        from modules.scope_capabilities import ScopeCapabilities
+        from drivers.null_motorboard import NullMotionBoard
+        from drivers.null_ledboard import NullLEDBoard
+        caps = ScopeCapabilities.from_drivers(
+            motion=NullMotionBoard(), led=NullLEDBoard(), camera=None,
+        )
+        # Empty set: unknown token -> False
+        assert caps.supports('trigger_in') is False
+        # Inject a token via dataclasses.replace (preserves frozen contract)
+        caps = replace(caps, hardware_features=frozenset({'trigger_in'}))
+        assert caps.supports('trigger_in') is True
+        # Other unknown tokens still False
+        assert caps.supports('warp_drive') is False
+
+
+class TestCameraMaxFrameSizeOnCapabilities:
+    """Freeze audit Finding #4 (sub-item: camera_max_frame_size) +
+    sibling shape to #21. The property lived on ImagingAPI but read
+    per-camera-immutable data sourced from the camera driver at boot.
+    Canonical home is now capabilities.camera_max_frame_size:
+    tuple[int, int]. The ImagingAPI wrapper is retired."""
+
+    def test_imaging_class_does_not_carry_camera_max_frame_size(self):
+        from modules.lumascope_api.imaging import ImagingAPI
+        assert not hasattr(ImagingAPI, 'camera_max_frame_size'), (
+            'ImagingAPI.camera_max_frame_size must be retired per audit #4; '
+            'callers read scope.capabilities.camera_max_frame_size instead.'
+        )
+
+    def test_capabilities_camera_max_frame_size_is_tuple(self, sim_scope):
+        size = sim_scope.capabilities.camera_max_frame_size
+        assert isinstance(size, tuple)
+        assert len(size) == 2
+        # Sim camera reports nonzero max size
+        assert size[0] > 0
+        assert size[1] > 0
+
+    def test_no_camera_yields_zero_max_frame_size(self):
+        from drivers.null_motorboard import NullMotionBoard
+        from drivers.null_ledboard import NullLEDBoard
+        from modules.scope_capabilities import ScopeCapabilities
+        caps = ScopeCapabilities.from_drivers(
+            motion=NullMotionBoard(), led=NullLEDBoard(), camera=None,
+        )
+        assert caps.camera_max_frame_size == (0, 0)
+
+
+class TestSessionAsyncRename:
+    """Freeze audit Finding #6 -- session.led_on / move_absolute /
+    move_relative / move_home / leds_off were async-by-default
+    forwarders to scope.X_async, but the bare name suggested sync.
+    Renamed to *_async so L2 callers read the contract directly.
+    Sync counterparts (led_on_sync) keep their existing names."""
+
+    EXPECTED_ASYNC_NAMES = (
+        'leds_off_async', 'led_on_async', 'led_off_async',
+        'move_absolute_async', 'move_relative_async', 'move_home_async',
+    )
+
+    EXPECTED_RETIRED_NAMES = (
+        'leds_off', 'led_on', 'led_off',
+        'move_absolute', 'move_relative', 'move_home',
+    )
+
+    def test_async_methods_exist(self):
+        from modules.scope_session import ScopeSession
+        for name in self.EXPECTED_ASYNC_NAMES:
+            assert callable(getattr(ScopeSession, name, None)), (
+                f'ScopeSession.{name} must exist per audit #6.'
+            )
+
+    def test_bare_names_are_retired(self):
+        from modules.scope_session import ScopeSession
+        for name in self.EXPECTED_RETIRED_NAMES:
+            assert not hasattr(ScopeSession, name), (
+                f'ScopeSession.{name} must be retired per audit #6; '
+                f'use {name}_async instead.'
+            )
+
+    def test_led_on_sync_still_exists(self):
+        """The sync counterpart keeps its name; only the bare-async
+        forwarders gained the explicit _async suffix."""
+        from modules.scope_session import ScopeSession
+        assert callable(getattr(ScopeSession, 'led_on_sync', None))

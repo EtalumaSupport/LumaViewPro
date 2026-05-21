@@ -330,8 +330,8 @@ class MicroscopeSettings(BoxLayout):
                 settings['protocol']['autogain'] = {
                     'max_duration_seconds': 1.0,
                     'target_brightness': 0.3,
-                    'min_gain': 0.0,
-                    'max_gain': 20.0,
+                    'min_gain_db': 0.0,
+                    'max_gain_db': 20.0,
                 }
 
             try:
@@ -415,7 +415,7 @@ class MicroscopeSettings(BoxLayout):
 
             manual_video = settings.get('manual_video', {})
             self.ids['manual_video_max_fps_input'].text = str(manual_video.get('max_fps', 0))
-            self.ids['manual_video_max_duration_input'].text = str(manual_video.get('max_duration', 30))
+            self.ids['manual_video_max_duration_input'].text = str(manual_video.get('max_duration_seconds', 30))
 
             if "live_view_fps" in settings:
                 ctx.live_view_fps = settings['live_view_fps']
@@ -567,24 +567,24 @@ class MicroscopeSettings(BoxLayout):
                 if (layer in common_utils.get_fluorescence_layers()):
                     layer_obj.ids['composite_threshold_slider'].value = settings[layer]['composite_brightness_threshold']
 
-                if 'ill' in settings[layer]:
-                    layer_obj.ids['ill_slider'].value = settings[layer]['ill']
+                if 'ill_ma' in settings[layer]:
+                    layer_obj.ids['ill_slider'].value = settings[layer]['ill_ma']
 
                 layer_obj.ids['gain_slider'].max = max_gain
 
-                if settings[layer]['gain'] <= max_gain:
-                    layer_obj.ids['gain_slider'].value = settings[layer]['gain']
+                if settings[layer]['gain_db'] <= max_gain:
+                    layer_obj.ids['gain_slider'].value = settings[layer]['gain_db']
                 else:
                     layer_obj.ids['gain_slider'].value = max_gain
-                    settings[layer]['gain'] = max_gain
+                    settings[layer]['gain_db'] = max_gain
 
                 layer_obj.ids['exp_slider'].max = max_exposure
 
-                if settings[layer]['exp'] <= max_exposure:
-                    layer_obj.ids['exp_slider'].value = settings[layer]['exp']
+                if settings[layer]['exp_ms'] <= max_exposure:
+                    layer_obj.ids['exp_slider'].value = settings[layer]['exp_ms']
                 else:
                     layer_obj.ids['exp_slider'].value = max_exposure
-                    settings[layer]['exp'] = max_exposure
+                    settings[layer]['exp_ms'] = max_exposure
 
                 layer_obj.ids['false_color'].active = settings[layer]['false_color']
 
@@ -808,10 +808,10 @@ class MicroscopeSettings(BoxLayout):
                 "seconds. Reverting to previous value."
             )
             settings.setdefault('manual_video', {})
-            widget.text = str(settings['manual_video'].get('max_duration', 30))
+            widget.text = str(settings['manual_video'].get('max_duration_seconds', 30))
             return
         settings.setdefault('manual_video', {})
-        settings['manual_video']['max_duration'] = value
+        settings['manual_video']['max_duration_seconds'] = value
 
 
     def update_scale_bar_state(self):
@@ -925,7 +925,7 @@ class MicroscopeSettings(BoxLayout):
             scope = ctx.lumaview.scope if ctx.lumaview else None
             had_hardware = bool(
                 scope and (
-                    scope.imaging.camera_is_connected()
+                    scope.camera_connected
                     or scope.motor_connected
                     or scope.led_connected
                 )
@@ -1169,7 +1169,7 @@ class MicroscopeSettings(BoxLayout):
         settings = ctx.settings
         objective_helper = ctx.objective_helper
 
-        if not lumaview.scope.imaging.camera_is_connected():
+        if not lumaview.scope.camera_connected:
             return
 
         try:
@@ -1188,9 +1188,9 @@ class MicroscopeSettings(BoxLayout):
             width = max(width, min_frame_size['width'])
             height = max(height, min_frame_size['height'])
 
-            max_frame_size = lumaview.scope.imaging.camera_max_frame_size
-            width = min(width, max_frame_size['width'])
-            height = min(height, max_frame_size['height'])
+            max_w, max_h = lumaview.scope.capabilities.camera_max_frame_size
+            width = min(width, max_w)
+            height = min(height, max_h)
         except Exception:
             logger.warning('[LVP Main  ] Could not clamp frame size to camera limits.')
 

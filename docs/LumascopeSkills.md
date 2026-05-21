@@ -71,6 +71,16 @@ Pick the layer that fits your use case:
 
 The remainder of this document is organized as the sub-API reference (one section per sub-API), then the modules layer, plugin platform pointers, REST surface, and finally practical patterns + appendices.
 
+### Sentinel-return vs raise contract
+
+Methods on the L2 surface follow one of two contracts; if a method's docstring has a `Raises:` section it follows the raise contract, otherwise the sentinel contract.
+
+- **Hardware-state queries** (capability probes, status reads, getters like `get_led_ma`, `get_target_position`, `get_led_status`, `camera_max_gain`, `read_motor_voltages`) return a sentinel value -- `None`, `False`, or an empty container -- when the value cannot be read (no hardware, channel not set, firmware does not implement the probe). No exception is raised. The caller branches on the sentinel.
+- **State-changing operations** (setters like `set_acquisition_stop_mode`, `set_gain`, `move_absolute`, `led_on`, etc.) typically return `True` on success and `False` for "couldn't do it" (no driver, mode invalid, driver does not implement, etc.). A `Raises:` section in the docstring documents the typed exception (`HardwareError`, `CaptureError`, `ConfigError` from `modules.exceptions`) that propagates when the underlying SDK call itself fails. The API layer logs (`logger.error`) and fires a user-facing notification (`notifications.error`) before re-raising at the driver boundary; the typed exception is what L2 callers should catch.
+- **Sentinel-return methods log** at `logger.warning` or `logger.info` per Rule 5; they do **not** fire user notifications (no actionable failure occurred -- the value is just unknown).
+
+If you are writing a new wrapper, the `Raises:` section is the canonical declaration of which contract applies.
+
 ---
 
 ## Lumascope composition root
@@ -118,19 +128,21 @@ scope.initialize(config)
 
 ```python
 scope.are_all_connected()                 # LED + motor + camera all up
-scope.motor_connected                     # motor board
-scope.led_connected                       # LED board
-scope.imaging.camera_is_connected()       # camera
+scope.motor_connected                     # motor board (property)
+scope.led_connected                       # LED board (property)
+scope.camera_connected                    # camera (property)
 scope.no_hardware                         # True if all-null (no real hardware found)
 scope.disconnect()
 ```
 
 ### Objective management
 
-Objective / labware / turret-config / stage-offset stay on the composition root for now (microscope configuration, not live hardware).
+Objective / labware / turret-config / stage-offset stay on the composition root for now (microscope configuration, not live hardware). The Session layer exposes a thin `set_objective(id)` forwarder so L2 SDK callers can drive objective selection without reaching across into `scope`.
 
 ```python
-scope.set_objective('10x Oly')
+session.set_objective('10x Oly')           # L2-canonical setter (thin Session forwarder)
+scope.set_objective('10x Oly')             # equivalent; composition-root surface
+
 scope.get_current_objective_id()
 scope.get_objective_info('10x Oly')        # {focal_length, magnification, NA, ...}
 scope.get_available_objectives()
@@ -177,18 +189,28 @@ session.start_executors()
 ### LED control
 
 ```python
-session.led_on('Blue', 200)              # non-blocking
+session.led_on_async('Blue', 200)        # non-blocking; returns immediately
 session.led_on_sync('Blue', 200)         # blocks until firmware confirms
-session.led_off('Blue')
-session.leds_off()
+session.led_off_async('Blue')
+session.leds_off_async()
 ```
+
+All Session wrappers are async-by-default; the `*_async` suffix is explicit so L2 callers don't read `session.led_on(...)` as "blocking" when it actually queues to an executor. Sync counterparts are available where blocking is the right shape (see `session.led_on_sync`); add an issue if you need a sync counterpart for one that doesn't have one.
 
 ### Motion
 
 ```python
-session.move_home('ALL')
-session.move_absolute('Z', 5000, wait_until_complete=True)
-session.move_relative('X', 500)
+session.move_home_async('ALL')
+session.move_absolute_async('Z', 5000, wait_until_complete=True)
+session.move_relative_async('X', 500)
+```
+
+### Imaging (symmetric with LED + motion forwarders)
+
+```python
+session.set_gain(8.0)                    # dB
+session.set_exposure_time(50.0)          # ms
+image = session.capture_and_wait()       # frame-valid grab, all keyword args forwarded
 ```
 
 ### Capture
@@ -280,10 +302,19 @@ scope.motion.tmove(2)                            # turret position 2
 # Stage
 scope.motion.xycenter()                          # move to stage center
 scope.motion.get_axis_limits('Z')                # {'min': 0, 'max': 14000}
-scope.motion.get_axes_config()                   # all axes with limits + conversions
+scope.motion.get_axes_config()                   # per-axis config dict: limits + ustep-conversion funcs (motion-driver shape)
 scope.motion.axes_present()                      # e.g. ['X', 'Y', 'Z', 'T']
 scope.motion.has_axis('T')
 ```
+
+**Axes: two different questions, two different surfaces.** Asking *what
+axes does this scope have* uses `scope.capabilities.axes` (tuple of
+names; immutable identity). Asking *what is the per-axis runtime config*
+(travel limits, ustep-per-mm conversion functions) uses
+`scope.motion.get_axes_config()` (dict of dicts; driver-level config).
+The first is frozen at boot and answers UI-gating questions; the second
+exposes the motor-board's per-axis configuration for tiling /
+coordinate-transform work. They are not redundant.
 
 **Z overshoot:** firmware moves below target then approaches from below, eliminating leadscrew backlash for consistent focus.
 
@@ -331,6 +362,9 @@ scope.illumination.leds_off_fast()
 # Channel mapping
 scope.illumination.color2ch('Blue')                    # 0  (or -1 if the scope doesn't have this color)
 scope.illumination.ch2color(0)                         # 'Blue'
+
+# Wait for firmware confirmation (mirrors motion.wait_until_finished_moving)
+scope.illumination.wait_until_led_on(timeout_s=5.0)    # True if confirmed on, False on timeout
 ```
 
 **Safety limits** (enforced by firmware on RP2040 boards): per-channel max 1000 mA, board total max 3000 mA. FX2 boards have their own per-channel cap declared in the camera profile.
@@ -342,7 +376,7 @@ Lumascope holds the authoritative LED state in an internal cache. The API layer'
 ```python
 scope.illumination.led_enabled('Blue')                 # True / False
 scope.illumination.led_illumination('Blue')            # current mA, or -1 if off
-scope.illumination.get_led_state('Blue')               # {'enabled': True, 'illumination': 200, 'owner': '…'}
+scope.illumination.get_led_state('Blue')               # {'enabled': True, 'illumination_ma': 200, 'owner': '…'}
 scope.illumination.get_led_states()                    # all channels
 ```
 
@@ -416,12 +450,12 @@ image = scope.imaging.capture_and_wait(
 )
 
 # Exposure (milliseconds) + gain (dB)
-scope.imaging.set_exposure_time(50)
+scope.imaging.set_exposure_time(exposure_ms=50)
 scope.imaging.get_exposure_time()
-scope.imaging.set_gain(10.0)
+scope.imaging.set_gain(gain_db=10.0)
 scope.imaging.get_gain()
 
-# `set_exposure_time` warns + logs a stack trace at < 0.1 ms (the
+# `set_exposure_time` warns + logs a stack trace at < 0.005 ms (the
 # common L1 failure is typing 0.05 thinking microseconds and getting
 # a black image). Internal sweep callers that walk that range
 # deliberately wrap their loop in `suppress_value_warnings()`:
@@ -433,7 +467,7 @@ with scope.imaging.suppress_value_warnings():
 
 # Batched settings (gain + exposure + auto-gain in one call)
 scope.imaging.apply_layer_camera_settings(
-    gain=5.0, exposure_ms=50,
+    gain_db=5.0, exposure_ms=50,
     auto_gain=False, auto_gain_settings=None,
 )
 
@@ -509,9 +543,9 @@ scope.imaging.remove_frame_listener(on_frame)
 ### Camera info
 
 ```python
-scope.imaging.camera_is_connected()
+scope.camera_connected                             # bool property (mirror of motor_connected / led_connected)
 scope.imaging.camera_active                        # True if grabbing
-scope.imaging.get_camera_temps()                   # temperature sensors (SDK-dependent)
+scope.diagnostics.get_camera_temperatures()        # temperature sensors (SDK-dependent)
 scope.diagnostics.get_camera_info()                # model, serial, firmware
 scope.diagnostics.get_camera_profile_info()        # sensor specs + dynamic ranges; returns:
 # {
@@ -538,12 +572,23 @@ scope.imaging.count_frame()                        # record that you grabbed a f
                                            # handles it internally)
 ```
 
-`pending_sources` (mapping of `{source: frames_remaining}`) is currently
-accessed as `scope.imaging.frame_validity.pending_sources` -- this is an internal
-diagnostic and not part of the L2-stable API surface; use it for debug,
-not for production control flow.
+For deeper introspection (diagnostic tooling, plugin authors writing custom capture loops, advanced timing analysis), the underlying `FrameValidity` instance is available as `scope.imaging.frame_validity` and is part of the L2-stable surface:
 
-Invalidation is automatic — you don't need to call it yourself. The sources that invalidate frames are:
+```python
+fv = scope.imaging.frame_validity
+
+fv.is_valid                                # bool property -- next frame valid right now?
+fv.is_valid_for(exclude_sources=('z_move',))  # bool -- valid if you don't care about Z motion
+fv.frames_until_valid()                    # int -- drains remaining
+fv.frames_until_valid(exclude_sources=('z_move',))
+fv.pending_sources                         # dict {source: target_frame_counter} (snapshot)
+fv.invalidate('led')                       # mark a source dirty (usually called by API setters)
+fv.count_frame(chunk_data=None)            # mark a frame as drained (capture_and_wait does this)
+```
+
+`set_settle_check(fn)` is the API-only registration hook for motion-completion gating and is not used by L2 callers directly. Everything else is fair game for plugin / SDK consumers.
+
+Invalidation is automatic for normal flows — you don't need to call `invalidate()` yourself unless you're writing a custom hardware setter outside the API. The sources that invalidate frames are:
 
 ```
 led        — LED turn on/off or illumination change
@@ -604,7 +649,7 @@ probe = scope.diagnostics.run_pylon_diagnostic_probe(
 # target is 'led' or 'motor'.
 resp = scope.diagnostics.send_diagnostic_command('led', 'INFO')
 lines = scope.diagnostics.send_diagnostic_command_multiline(
-    'led', 'SELFTEST', timeout=60,
+    'led', 'SELFTEST', timeout_s=60,
 )
 
 # Motor-board power / driver / fan diagnostics (already on
@@ -616,7 +661,7 @@ ok = scope.diagnostics.set_motor_fan_duty(50)              # bool
 
 # LED engineering-mode handshake (FACTORY / Y / Q with post-Q drain).
 # Use these in place of open-coded send_diagnostic_command sequences.
-ok = scope.diagnostics.enter_led_engineering_mode(timeout=5.0)
+ok = scope.diagnostics.enter_led_engineering_mode(timeout_s=5.0)
 scope.diagnostics.exit_led_engineering_mode()
 ```
 
@@ -635,11 +680,20 @@ caps.has_focus                  # True if Z is motorized
 caps.has_xy_stage               # True if X/Y are motorized
 caps.has_turret                 # True if the turret axis is present
 caps.motor_model                # e.g. 'RP2040' or '' if no motor
+caps.axis_travel_limits_um      # {'X': 120000.0, 'Y': 80000.0, 'Z': 14000.0} -- present axes only
 
 # LED
 caps.led_channels               # e.g. (0, 1, 2, 3) for FX2 scopes; (0..5) for RP2040
 caps.led_colors                 # e.g. ('BF', 'Blue', 'Green', 'Red') — what THIS scope can do
 caps.led_max_ma                 # per-channel current cap
+
+# Optics (per-installation, sourced from motorconfig.json Optics section)
+caps.pixel_size_um              # um/pixel (default 2.0; configurable per install)
+caps.lens_focal_length_mm       # tube lens focal length (default 47.8 mm)
+
+# Hardware features (cross-cutting capability tokens)
+caps.hardware_features          # frozenset({'trigger_in', 'cooled_sensor', ...}); empty default
+caps.supports('trigger_in')     # also searches has_X / camera_supports_X / hardware_features
 
 # Camera
 caps.camera_model               # 'MT9P031-LS620', 'acA2500-60um', etc.
@@ -648,13 +702,14 @@ caps.camera_supports_auto_exposure
 caps.camera_pixel_formats       # e.g. ('Mono8',) or ('Mono8', 'Mono12')
 caps.camera_binning_sizes       # e.g. (1, 2, 4)
 caps.camera_max_exposure_ms     # per-camera exposure ceiling (e.g. 178 ms on FX2)
-caps.camera_pixel_size_um       # physical sensor pixel size
+caps.camera_max_frame_size      # (width, height) tuple in pixels; (0, 0) if no camera
 ```
 
 Two important consequences:
 
 - **LED channel count varies by scope.** LS560/LS620 (FX2 driver) expose 4 channels (`BF`, `Blue`, `Green`, `Red`); RP2040-based scopes expose 6 (`BF`, `PC`, `DF`, `Blue`, `Green`, `Red`). Don't iterate over a hardcoded list — iterate over `caps.led_colors`.
 - **Some scopes have no motor at all.** LS560/LS620 have `caps.axes == ()`. Calling `scope.motion.move_absolute_position('X', …)` against such a scope is a no-op, not an error — but your UI should hide motion controls based on `caps.has_xy_stage` etc.
+- **`axis_travel_limits_um` is populated only for present axes.** On a Z-only scope, `'X' in caps.axis_travel_limits_um` is `False`; indexing `caps.axis_travel_limits_um['X']` raises `KeyError`. Check `caps.has_xy_stage` (or `axis in caps.axes`) before reading. The mapping is read-only (`MappingProxyType`); mutation attempts raise `TypeError`.
 
 ---
 
@@ -663,6 +718,23 @@ Two important consequences:
 **Reserved.** Not populated in LumaViewPro 4.0.x.
 
 The `scope.io` sub-API is named in the locked sub-API decomposition per `docs/PLUGIN_API_DESIGN_2026-05-09.md` §6.6. It will document future I/O surfaces (trigger devices, USB-to-IO trigger boards, external sync) once those surfaces ship. See `caps.hardware_features` for the hardware-capability tokens that gate trigger-device features today.
+
+---
+
+## scope.runtime_state
+
+Mutable counterpart to `scope.capabilities`. Where `capabilities` holds the immutable per-scope identity (axes, led channels, camera model), `runtime_state` holds the runtime-mutable facts that legitimately change mid-session — firmware versions (after a reflash), firmware feature flags (after FW4.0 ships), and future reconnect-aware fields.
+
+The split exists because firmware version is not a frozen scope identity — a tech-support engineer can reflash mid-session, and the version surface should reflect that. A single frozen capabilities surface would lie post-flash.
+
+```python
+scope.runtime_state.firmware_versions       # dict[str, str]
+scope.runtime_state.firmware_features       # dict[str, frozenset[str]]
+```
+
+**Status in 4.0.x: empty placeholder.** Both fields ship as empty dicts. Real content lands when FW4.0 populates `INFO.features` (firmware_features) and when reconnect-aware versioning hooks are added to the driver layer (firmware_versions). Callers treat empty as "feature unknown" per the Rule 8 capability-probe contract — `scope.runtime_state.firmware_features.get('motor', frozenset())` returns the empty set today, never `KeyError`.
+
+Until the real content ships, query firmware version via `scope.diagnostics.get_motor_info()['version']` / `scope.diagnostics.get_led_info()['version']`. The diagnostic-getter path is the live query; `runtime_state` will become the cached snapshot once reflash hooks fire it.
 
 ---
 

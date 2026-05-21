@@ -1858,10 +1858,10 @@ class FX2Camera(Camera):
 
     # -- Grab API (mostly inherits from Camera; override for clarity) ------
 
-    def grab_new_capture(self, timeout: float = 5.0):
+    def grab_new_capture(self, timeout_s: float = 5.0):
         """Block until a NEW frame arrives. Used by autofocus / protocols."""
         self.cam_image_handler.reset()
-        deadline = time.monotonic() + timeout
+        deadline = time.monotonic() + timeout_s
         while time.monotonic() < deadline:
             ok, img, ts = self.cam_image_handler.get_last_image()
             if ok:
@@ -1937,7 +1937,7 @@ class FX2Camera(Camera):
 
     # -- Exposure ----------------------------------------------------------
 
-    def exposure_t(self, t):
+    def exposure_t(self, exposure_ms):
         """Set exposure time in milliseconds.
 
         Formula from MT9P031 datasheet DS_F p31:
@@ -1960,7 +1960,7 @@ class FX2Camera(Camera):
         (autofocus, protocol captures) must wait ≥2 frames after an
         exposure change before relying on the new value.
         """
-        target_ms = float(t)
+        target_ms = float(exposure_ms)
         rows = max(
             1,
             min(
@@ -1992,16 +1992,16 @@ class FX2Camera(Camera):
         _, db = _register_to_gain_db(self._gain_reg)
         return db
 
-    def auto_gain(self, state=True, target_brightness=0.5, min_gain=None, max_gain=None):
+    def auto_gain(self, state=True, target_brightness=0.5, min_gain_db=None, max_gain_db=None):
         pass  # no hardware auto-gain
 
-    def auto_gain_once(self, state=True, target_brightness=0.5, min_gain=None, max_gain=None):
+    def auto_gain_once(self, state=True, target_brightness=0.5, min_gain_db=None, max_gain_db=None):
         pass
 
     def update_auto_gain_target_brightness(self, auto_target_brightness: float):
         pass
 
-    def update_auto_gain_min_max(self, min_gain=None, max_gain=None):
+    def update_auto_gain_min_max(self, min_gain_db=None, max_gain_db=None):
         pass
 
     # -- Misc (no-op or trivial) ------------------------------------------
@@ -2261,10 +2261,10 @@ class FX2LEDController:
         return False
 
     def get_led_state(self, color: str) -> dict:
-        return {'enabled': False, 'illumination': -1}
+        return {'enabled': False, 'illumination_ma': -1}
 
     def get_led_states(self) -> dict:
-        return {c: {'enabled': False, 'illumination': -1} for c in self._COLOR_TO_CH}
+        return {c: {'enabled': False, 'illumination_ma': -1} for c in self._COLOR_TO_CH}
 
     # -- Connection no-ops (USB owned by _FX2Connection) ------------------
 

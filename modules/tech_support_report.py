@@ -717,7 +717,7 @@ class FirmwareDiagnostics:
         """
         if not self._led_ok():
             return False
-        return self._scope.diagnostics.enter_led_engineering_mode(timeout=5)
+        return self._scope.diagnostics.enter_led_engineering_mode(timeout_s=5)
 
     def _exit_engineering(self):
         """Exit LED engineering mode via the diagnostics sub-API.
@@ -1772,8 +1772,8 @@ class TechSupportReport:
         # 'Temperature_<name>' entry per sensor) downstream consumers
         # may rely on.
         info: dict = {}
-        for key in ('model', 'resolution', 'pixel_format', 'gain',
-                    'exposure_ms', 'max_gain', 'max_exposure_ms'):
+        for key in ('model', 'resolution', 'pixel_format', 'gain_db',
+                    'exposure_ms', 'max_gain_db', 'max_exposure_ms'):
             if key in api_info:
                 info[key] = api_info[key]
         for name, temp_c in (api_info.get('temperatures') or {}).items():

@@ -298,12 +298,13 @@ def get_pixel_size(
     focal_length: float,
     binning_size: int,
 ):
-    # Read tube focal length and pixel size from motorconfig if available
+    # Read tube focal length and pixel size from scope capabilities
+    # (motorconfig-sourced; per-installation override).
     import modules.app_context as _app_ctx
     ctx = _app_ctx.ctx
     if ctx is not None and ctx.scope is not None:
-        tube_focal_length = ctx.scope.lens_focal_length()
-        pixel_width = ctx.scope.pixel_size()
+        tube_focal_length = ctx.scope.capabilities.lens_focal_length_mm
+        pixel_width = ctx.scope.capabilities.pixel_size_um
     else:
         tube_focal_length = 47.8  # Etaluma default [mm]
         pixel_width = 2.0         # Basler default [um/pixel]

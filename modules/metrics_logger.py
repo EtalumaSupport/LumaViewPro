@@ -308,8 +308,8 @@ class MetricsLogger:
                 ``Lumascope.start_camera_temp_logging`` so the API still
                 owns the camera-temp event handle (LVP-A-2).
             start_camera_temp: If None (default), starts the camera-temp
-                logger only when ``scope.imaging.camera_is_connected()``. Pass
-                False to skip even when connected (rare; mostly tests).
+                logger only when ``scope.camera_connected``. Pass False to
+                skip even when connected (rare; mostly tests).
         """
         # Normalize scheduler argument: Scheduler instance, callable
         # pair (legacy), or None (rejected).
@@ -343,7 +343,7 @@ class MetricsLogger:
 
         if start_camera_temp is False:
             return
-        if start_camera_temp is None and not self._scope.imaging.camera_is_connected():
+        if start_camera_temp is None and not self._scope.camera_connected:
             return
 
         # Camera-temp scheduling stays inside Lumascope (LVP-A-2) so the

@@ -406,8 +406,8 @@ class LumaViewProApp(TooltipMixin, App):
                     for layer in common_utils.get_layers():
                         ls = settings.get(layer, {})
                         logger.info(
-                            f'[INIT      ] {layer:6s}: gain={ls.get("gain", "?"):>6}, '
-                            f'exp={ls.get("exp", "?"):>8}ms, ill={ls.get("ill", "?"):>6}mA, '
+                            f'[INIT      ] {layer:6s}: gain={ls.get("gain_db", "?"):>6}, '
+                            f'exp={ls.get("exp_ms", "?"):>8}ms, ill={ls.get("ill_ma", "?"):>6}mA, '
                             f'af={ls.get("autofocus", "?")}, acquire={ls.get("acquire", "?")}'
                         )
                 except Exception as e:  # grain: ignore NAKED_EXCEPT
@@ -912,7 +912,7 @@ class LumaViewProApp(TooltipMixin, App):
         logger.info('[LVP Main  ] lumaview.scope.illumination.leds_off()')
         try:
             # Run leds_off on a thread with timeout so MainThread doesn't block
-            # if workers still hold _hw_lock during teardown.
+            # on slow serial / firmware during teardown.
             t = threading.Thread(target=lumaview.scope.illumination.leds_off, daemon=True)
             t.start()
             t.join(timeout=2.0)

@@ -1933,7 +1933,7 @@ class TestCameraStateLock:
             def set_pixel_format(self, f): return True
             def get_pixel_format(self): return 'Mono8'
             def get_supported_pixel_formats(self): return ('Mono8',)
-            def exposure_t(self, t): pass
+            def exposure_t(self, exposure_ms): pass
             def get_exposure_t(self): return 10.0
             def auto_exposure_t(self, state=True): pass
             def get_all_temperatures(self): return {}
@@ -1977,7 +1977,7 @@ class TestCameraStateLock:
             def set_pixel_format(self, f): return True
             def get_pixel_format(self): return 'Mono8'
             def get_supported_pixel_formats(self): return ('Mono8',)
-            def exposure_t(self, t): pass
+            def exposure_t(self, exposure_ms): pass
             def get_exposure_t(self): return 10.0
             def auto_exposure_t(self, state=True): pass
             def get_all_temperatures(self): return {}
@@ -2024,7 +2024,7 @@ class TestCameraStateLock:
             def set_pixel_format(self, f): return True
             def get_pixel_format(self): return 'Mono8'
             def get_supported_pixel_formats(self): return ('Mono8',)
-            def exposure_t(self, t): pass
+            def exposure_t(self, exposure_ms): pass
             def get_exposure_t(self): return 10.0
             def auto_exposure_t(self, state=True): pass
             def get_all_temperatures(self): return {}

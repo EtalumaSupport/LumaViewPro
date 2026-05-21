@@ -123,13 +123,13 @@ def test_set_fps_changes_cadence():
 
 def test_update_layer_config_publishes_to_loop():
     t, _, widget = _make_thread()
-    t.update_layer_config('BF', {'gain': 1.0}, 'BF')
+    t.update_layer_config('BF', {'gain_db': 1.0}, 'BF')
     t.start(fps=60)
     time.sleep(0.1)
     t.stop()
     seen = [c for c in widget.calls if c['active_layer'] == 'BF']
     assert seen, 'thread did not pick up the published layer config'
-    assert seen[-1]['active_layer_config'] == {'gain': 1.0}
+    assert seen[-1]['active_layer_config'] == {'gain_db': 1.0}
     assert seen[-1]['open_layer'] == 'BF'
 
 

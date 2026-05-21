@@ -436,7 +436,6 @@ class TestFrameValidityDuringHoming:
         # re-snapshot to reflect the patched motion.
         scope.capabilities = ScopeCapabilities.from_drivers(
             motion=scope._motion_driver, led=scope._led_driver, camera=scope._camera_driver,
-            led_max_ma=Lumascope.LED_MAX_MA,
         )
         captured = {}
 
@@ -880,7 +879,8 @@ class TestScopeCapabilities:
         assert caps.has_xy_stage is True
         assert caps.has_turret is False
         assert len(caps.led_channels) == 6
-        assert caps.led_max_ma == Lumascope.LED_MAX_MA
+        from modules.scope_capabilities import LED_MAX_MA
+        assert caps.led_max_ma == LED_MAX_MA
 
     def test_ls850t_capabilities_has_turret(self):
         from drivers.simulated_motorboard import SimulatedMotorBoard
@@ -889,7 +889,6 @@ class TestScopeCapabilities:
         scope._motion_driver = SimulatedMotorBoard(model='LS850T')
         scope.capabilities = ScopeCapabilities.from_drivers(
             motion=scope._motion_driver, led=scope._led_driver, camera=scope._camera_driver,
-            led_max_ma=Lumascope.LED_MAX_MA,
         )
         assert scope.capabilities.axes == ('X', 'Y', 'Z', 'T')
         assert scope.capabilities.has_turret is True
@@ -902,7 +901,6 @@ class TestScopeCapabilities:
         scope._motion_driver.detect_present_axes = lambda: ['Z']
         scope.capabilities = ScopeCapabilities.from_drivers(
             motion=scope._motion_driver, led=scope._led_driver, camera=scope._camera_driver,
-            led_max_ma=Lumascope.LED_MAX_MA,
         )
         assert scope.capabilities.axes == ('Z',)
         assert scope.capabilities.has_focus is True
@@ -913,12 +911,47 @@ class TestScopeCapabilities:
         from modules.scope_capabilities import ScopeCapabilities
         caps = ScopeCapabilities.from_drivers(
             motion=NullMotionBoard(), led=NullLEDBoard(), camera=None,
-            led_max_ma=1000,
         )
         assert caps.axes == ()
         assert caps.has_focus is False
         assert caps.has_xy_stage is False
         assert caps.has_turret is False
+
+    def test_runtime_state_placeholder_ships_with_empty_fields(self):
+        """Audit Finding #5: scope.runtime_state ships as an empty
+        placeholder per design doc §10. Both fields are empty dicts
+        with the documented types. Callers treat empty as 'feature
+        unknown' per Rule 8 corollary."""
+        from modules.lumascope_api.runtime_state import RuntimeState
+        scope_stub = object()
+        rs = RuntimeState(scope_stub)
+        assert rs.firmware_versions == {}
+        assert isinstance(rs.firmware_versions, dict)
+        assert rs.firmware_features == {}
+        assert isinstance(rs.firmware_features, dict)
+        # Empty-default contract: callers use .get(..., default) without KeyError
+        assert rs.firmware_features.get('motor', frozenset()) == frozenset()
+
+    def test_supports_helper_searches_has_and_camera_supports_fields(self):
+        """Rule 8 corollary helper -- one cross-surface entry point for
+        capability probes. caps.supports('turret') returns has_turret;
+        caps.supports('auto_gain') returns camera_supports_auto_gain.
+        Unknown feature returns False, never raises."""
+        from modules.scope_capabilities import ScopeCapabilities
+        from drivers.simulated_motorboard import SimulatedMotorBoard
+        caps = ScopeCapabilities.from_drivers(
+            motion=SimulatedMotorBoard(), led=NullLEDBoard(), camera=None,
+        )
+        # has_X fields
+        assert caps.supports('focus') is caps.has_focus
+        assert caps.supports('xy_stage') is caps.has_xy_stage
+        assert caps.supports('turret') is caps.has_turret
+        # camera_supports_X fields (camera=None -> defaults to False)
+        assert caps.supports('auto_gain') is False
+        assert caps.supports('auto_exposure') is False
+        # Unknown feature returns False, does not raise
+        assert caps.supports('warp_drive') is False
+        assert caps.supports('') is False
 
     def test_null_led_still_reports_six_channels_for_compat(self):
         """Per B3 compat: NullLEDBoard reports 6 channels so Rule 8
@@ -926,7 +959,6 @@ class TestScopeCapabilities:
         from modules.scope_capabilities import ScopeCapabilities
         caps = ScopeCapabilities.from_drivers(
             motion=NullMotionBoard(), led=NullLEDBoard(), camera=None,
-            led_max_ma=1000,
         )
         assert len(caps.led_channels) == 6
         assert caps.led_channels == (0, 1, 2, 3, 4, 5)
@@ -941,7 +973,6 @@ class TestScopeCapabilities:
 
         caps = ScopeCapabilities.from_drivers(
             motion=NullMotionBoard(), led=FourChannelLED(), camera=None,
-            led_max_ma=1000,
         )
         assert caps.led_channels == (0, 1, 2, 3)
         assert set(caps.led_colors) == {'Blue', 'Green', 'Red', 'BF'}

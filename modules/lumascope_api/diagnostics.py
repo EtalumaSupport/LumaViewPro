@@ -57,8 +57,8 @@ class DiagnosticsAPI:
 
         Returns:
             dict: Camera diagnostic snapshot. Keys may include
-                'model', 'resolution', 'pixel_format', 'gain', 'exposure_ms',
-                'max_gain', 'max_exposure_ms', 'temperatures', plus per-key
+                'model', 'resolution', 'pixel_format', 'gain_db', 'exposure_ms',
+                'max_gain_db', 'max_exposure_ms', 'temperatures', plus per-key
                 error strings for fields the driver couldn't supply.
                 Returns ``{'connected': False}`` if the camera is inactive.
         """
@@ -83,9 +83,9 @@ class DiagnosticsAPI:
         except Exception as e:
             info['resolution'] = f'Error: {e}'
 
-        _try('gain', lambda: self._scope.imaging.get_gain())
+        _try('gain_db', lambda: self._scope.imaging.get_gain())
         _try('exposure_ms', lambda: self._scope.imaging.get_exposure_time())
-        _try('max_gain', lambda: self._scope._camera_driver.get_max_gain())
+        _try('max_gain_db', lambda: self._scope._camera_driver.get_max_gain())
         _try('max_exposure_ms', lambda: self._scope._camera_driver.get_max_exposure())
 
         info['temperatures'] = self.get_camera_temperatures()
@@ -565,7 +565,7 @@ class DiagnosticsAPI:
         command: str,
         *,
         response_numlines: int | None = None,
-        timeout: float | None = None,
+        timeout_s: float | None = None,
     ) -> str:
         """Send a single firmware diagnostic command and return the response.
 
@@ -579,7 +579,7 @@ class DiagnosticsAPI:
             command: Firmware command string (e.g. ``'INFO'``, ``'FACTORY'``).
             response_numlines: Forwarded to driver; how many response lines
                 to read before returning (driver-specific default if None).
-            timeout: Per-call serial timeout in seconds, or None for the
+            timeout_s: Per-call serial timeout in seconds, or None for the
                 driver's default.
 
         Returns:
@@ -598,14 +598,15 @@ class DiagnosticsAPI:
 
         logger.debug(
             f'[SCOPE API ] send_diagnostic_command(target={target}, command={command!r}, '
-            f'response_numlines={response_numlines}, timeout={timeout})'
+            f'response_numlines={response_numlines}, timeout_s={timeout_s})'
         )
         try:
             kwargs = {}
             if response_numlines is not None:
                 kwargs['response_numlines'] = response_numlines
-            if timeout is not None:
-                kwargs['timeout'] = timeout
+            if timeout_s is not None:
+                # driver exchange_command keeps bare `timeout` (pyserial-shaped)
+                kwargs['timeout'] = timeout_s
             resp = board.exchange_command(command, **kwargs)
             return resp if resp is not None else 'None'
         except Exception as e:
@@ -619,7 +620,7 @@ class DiagnosticsAPI:
         target: str,
         command: str,
         *,
-        timeout: float = 60,
+        timeout_s: float = 60,
         end_markers: list[str] | None = None,
     ) -> 'str | list[str]':
         """Send a firmware diagnostic command expected to return multiple lines.
@@ -630,7 +631,7 @@ class DiagnosticsAPI:
         Args:
             target: 'led' or 'motor'.
             command: Firmware command string.
-            timeout: Total timeout in seconds.
+            timeout_s: Total timeout in seconds.
             end_markers: Substrings marking end-of-response. Default
                 ``['PASS', 'FAIL', 'COMPLETE', 'DONE', 'ERROR']``.
 
@@ -652,11 +653,12 @@ class DiagnosticsAPI:
 
         logger.debug(
             f'[SCOPE API ] send_diagnostic_command_multiline(target={target}, '
-            f'command={command!r}, timeout={timeout}, end_markers={end_markers})'
+            f'command={command!r}, timeout_s={timeout_s}, end_markers={end_markers})'
         )
         try:
+            # driver exchange_multiline keeps bare `timeout` (pyserial-shaped)
             result = board.exchange_multiline(
-                command, timeout=timeout, end_markers=end_markers)
+                command, timeout=timeout_s, end_markers=end_markers)
             return result if result else 'No response'
         except Exception as e:
             logger.warning(
@@ -672,7 +674,7 @@ class DiagnosticsAPI:
     # diagnostic endpoint) read None as "INCONCLUSIVE -- firmware
     # does not support this probe."
 
-    def read_motor_voltages(self):
+    def read_motor_voltages(self) -> 'dict | None':
         """Read motor-board power rail tolerance diagnostic.
 
         Returns a dict mapping rail label to volts (or None per rail
@@ -684,7 +686,7 @@ class DiagnosticsAPI:
             return None
         return drv.read_voltages()
 
-    def read_motor_drv_status(self, axis: str):
+    def read_motor_drv_status(self, axis: str) -> 'int | None':
         """Read TMC5072 DRV_STATUS register for an axis.
 
         Returns the raw register value as int (caller decodes bits),
@@ -695,7 +697,7 @@ class DiagnosticsAPI:
             return None
         return drv.read_drv_status(axis)
 
-    def read_motor_fanspeed(self):
+    def read_motor_fanspeed(self) -> 'int | None':
         """Read motor-board fan tachometer RPM.
 
         Returns RPM as int (0 if no tach wire) or None when firmware
@@ -726,22 +728,26 @@ class DiagnosticsAPI:
     # entries keep the careful handshake as the single canonical
     # implementation.
 
-    def enter_led_engineering_mode(self, timeout: float = 5.0) -> bool:
+    def enter_led_engineering_mode(self, timeout_s: float = 5.0) -> bool:
         """Enter LED engineering mode via the driver-canonical handshake.
 
         Returns True on success, False when the LED driver is absent or
         does not expose engineering-mode entry (legacy LED firmware
         predating the FACTORY/Y/Q protocol).
+
+        Args:
+            timeout_s: Max seconds to wait for the engineering-mode
+                handshake to complete.
         """
         drv = getattr(self._scope, '_led_driver', None)
         if drv is None or not hasattr(drv, 'enter_engineering_mode'):
             return False
         try:
-            return drv.enter_engineering_mode(timeout=timeout)
+            return drv.enter_engineering_mode(timeout=timeout_s)
         except Exception:
             return False
 
-    def exit_led_engineering_mode(self):
+    def exit_led_engineering_mode(self) -> 'bool | None':
         """Exit LED engineering mode via the driver-canonical handshake.
 
         Driver method drains and sleeps after Q so the LED firmware

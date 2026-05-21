@@ -182,7 +182,7 @@ class UIListenerBridge:
                 # what the camera reports. If another layer changed
                 # the camera (composite, AF restore), don't display
                 # its value in this layer's text field. (#610)
-                expected = settings[opened_layer]['gain']
+                expected = settings[opened_layer]['gain_db']
                 if abs(rounded - expected) > 0.5:
                     return
                 text = str(rounded)
@@ -190,7 +190,7 @@ class UIListenerBridge:
                     layer_obj.ids['gain_text'].text = text
             elif p == 'exposure':
                 rounded = round(v, 2)
-                expected = settings[opened_layer]['exp']
+                expected = settings[opened_layer]['exp_ms']
                 if abs(rounded - expected) > 0.5:
                     return
                 text = str(rounded)

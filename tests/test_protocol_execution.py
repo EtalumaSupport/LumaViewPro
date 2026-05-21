@@ -94,8 +94,8 @@ def _shutdown_executors(execs):
 def _make_autogain_settings():
     return {
         'target_brightness': 0.3,
-        'min_gain': 0.0,
-        'max_gain': 20.0,
+        'min_gain_db': 0.0,
+        'max_gain_db': 20.0,
         'max_duration': datetime.timedelta(seconds=1),
     }
 
@@ -182,8 +182,8 @@ def _make_multi_step_protocol(steps_config):
     """
     defaults = {
         'color': 'BF', 'auto_gain': False, 'auto_focus': False,
-        'acquire': 'image', 'gain': 1.0, 'exposure': 10.0,
-        'illumination': 50.0, 'false_color': False, 'sum_count': 1,
+        'acquire': 'image', 'gain_db': 1.0, 'exposure_ms': 10.0,
+        'illumination_ma': 50.0, 'false_color': False, 'sum_count': 1,
         'video_config': {'duration': 1, 'fps': 5}, 'stim_config': {},
         'x': 10.0, 'y': 20.0, 'z': 5000.0, 'well': 'A1', 'name': None,
         'tile': '', 'z_slice': 0, 'tile_group_id': 0, 'zstack_group_id': 0,
@@ -200,10 +200,10 @@ def _make_multi_step_protocol(steps_config):
             'Auto_Focus': merged['auto_focus'],
             'Color': merged['color'],
             'False_Color': merged['false_color'],
-            'Illumination': merged['illumination'],
-            'Gain': merged['gain'],
+            'Illumination': merged['illumination_ma'],
+            'Gain': merged['gain_db'],
             'Auto_Gain': merged['auto_gain'],
-            'Exposure': merged['exposure'],
+            'Exposure': merged['exposure_ms'],
             'Sum': merged['sum_count'],
             'Objective': merged['objective'],
             'Well': merged['well'],
@@ -557,8 +557,8 @@ class TestMultiStepMultiChannel:
 
     def test_bf_and_red_steps_complete(self, executor, scope, tmp_path):
         protocol = _make_multi_step_protocol([
-            {'color': 'BF', 'illumination': 50.0, 'exposure': 10.0},
-            {'color': 'Red', 'illumination': 100.0, 'exposure': 50.0},
+            {'color': 'BF', 'illumination_ma': 50.0, 'exposure_ms': 10.0},
+            {'color': 'Red', 'illumination_ma': 100.0, 'exposure_ms': 50.0},
         ])
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed
@@ -1843,9 +1843,9 @@ class TestCameraStateRestoration:
         original_exposure = scope.imaging.get_exposure_time()
 
         protocol = _make_multi_step_protocol([
-            {'color': 'BF', 'gain': 5.0, 'exposure': 50.0},
-            {'color': 'Red', 'gain': 10.0, 'exposure': 100.0},
-            {'color': 'Green', 'gain': 15.0, 'exposure': 200.0},
+            {'color': 'BF', 'gain_db': 5.0, 'exposure_ms': 50.0},
+            {'color': 'Red', 'gain_db': 10.0, 'exposure_ms': 100.0},
+            {'color': 'Green', 'gain_db': 15.0, 'exposure_ms': 200.0},
         ])
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed
@@ -1861,7 +1861,7 @@ class TestCameraStateRestoration:
         original_exposure = scope.imaging.get_exposure_time()
 
         protocol = _make_multi_step_protocol([
-            {'color': c, 'gain': 12.0, 'exposure': 80.0}
+            {'color': c, 'gain_db': 12.0, 'exposure_ms': 80.0}
             for c in ['BF', 'Red', 'Green', 'Blue', 'BF']
         ])
 
@@ -1922,7 +1922,7 @@ class TestCleanupCorrectness:
     def test_leds_off_after_protocol_abort(self, executor, scope, tmp_path):
         """All LEDs are off after aborting a multi-step protocol."""
         protocol = _make_multi_step_protocol([
-            {'color': c, 'illumination': 100.0}
+            {'color': c, 'illumination_ma': 100.0}
             for c in ['BF', 'Red', 'Green', 'Blue', 'BF']
         ])
         done = threading.Event()

@@ -45,14 +45,14 @@ class TestLedOnBlockAckShape:
     def test_command_echo_response_breaks_polling_loop(self):
         """Firmware shape A: response echoes the command back."""
         led = self._make_led(['LED3_2'])
-        led.led_on(channel=3, mA=2, block=True, timeout=5.0)
+        led.led_on(channel=3, mA=2, block=True, timeout_s=5.0)
         assert led.exchange_command.call_count == 1
 
     def test_substring_match_response_breaks_polling_loop(self):
         """Firmware shape B: response includes 'LED' + channel + mA
         ('LED 3 set to 2 mA.')."""
         led = self._make_led(['LED 3 set to 2 mA.'])
-        led.led_on(channel=3, mA=2, block=True, timeout=5.0)
+        led.led_on(channel=3, mA=2, block=True, timeout_s=5.0)
         assert led.exchange_command.call_count == 1
 
     def test_empty_string_response_keeps_polling(self):
@@ -64,7 +64,7 @@ class TestLedOnBlockAckShape:
         led = self._make_led([''] * 200)
         import time
         t0 = time.monotonic()
-        led.led_on(channel=3, mA=2, block=True, timeout=0.1)
+        led.led_on(channel=3, mA=2, block=True, timeout_s=0.1)
         elapsed = time.monotonic() - t0
         assert 0.08 < elapsed < 0.3, f"elapsed={elapsed:.3f}s out of band"
         # Multiple retries during the 0.1s window -- not bailing on first ''.
@@ -76,7 +76,7 @@ class TestLedOnBlockAckShape:
         led = self._make_led([None] * 200)
         import time
         t0 = time.monotonic()
-        led.led_on(channel=3, mA=2, block=True, timeout=0.1)
+        led.led_on(channel=3, mA=2, block=True, timeout_s=0.1)
         elapsed = time.monotonic() - t0
         assert 0.08 < elapsed < 0.3, f"elapsed={elapsed:.3f}s out of band"
         assert led.exchange_command.call_count >= 3

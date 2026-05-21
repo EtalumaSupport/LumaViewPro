@@ -355,13 +355,13 @@ def _make_minimal_scope(camera: PylonCamera) -> Lumascope:
     scope._camera_cache_lock = threading.Lock()
     scope._camera_cache = {
         'active': True,
-        'gain': 0.0,
+        'gain_db': 0.0,
         'exposure_ms': 0.0,
         'frame_size': {'width': 0, 'height': 0},
         'max_frame_size': {'width': 0, 'height': 0},
         'min_frame_size': {'width': 0, 'height': 0},
-        'max_exposure': 0.0,
-        'max_gain': 0.0,
+        'max_exposure_ms': 0.0,
+        'max_gain_db': 0.0,
         'pixel_format': None,
         'binning': 1,
     }

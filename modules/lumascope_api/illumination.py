@@ -61,7 +61,7 @@ class IlluminationAPI:
         # to _pos_cache for motor position. Updated inside led_on /
         # led_off / leds_off; read by all state-query methods. See
         # docs/AUDIT_LED_STATE_FX2.md.
-        # Each entry: color -> {'enabled': True, 'illumination': float, 'owner': str}
+        # Each entry: color -> {'enabled': True, 'illumination_ma': float, 'owner': str}
         self._led_state: dict[str, dict] = {}
 
         # LED ownership tracking -- prevents subsystems from turning
@@ -72,9 +72,9 @@ class IlluminationAPI:
         self._led_owner_lock = threading.Lock()
         self._led_owners: dict[str, str] = {}  # color -> owner tag
 
-        # LED driver I/O serialization. Split from the old global
-        # _hw_lock to allow LED stim pulses during camera grabs and
-        # motor moves. Threading audit sec 10.2 -- wrapped with
+        # Per-device LED I/O serialization, so LED stim pulses can
+        # interleave with camera grabs and motor moves on their own
+        # per-device locks. Threading audit sec 10.2 -- wrapped with
         # TimedLock for contention tracing.
         self._led_lock = profile_trace.TimedLock(
             threading.RLock(), name="illumination._led_lock"
@@ -115,8 +115,9 @@ class IlluminationAPI:
         valid_channels = self._driver.available_channels()
         if channel not in valid_channels:
             raise ValueError(f"LED channel must be one of {valid_channels}, got {channel}")
-        if not isinstance(mA, (int, float)) or mA < 0 or mA > self._scope.LED_MAX_MA:
-            raise ValueError(f"LED current must be 0-{self._scope.LED_MAX_MA} mA, got {mA}")
+        led_max_ma = self._scope.capabilities.led_max_ma
+        if not isinstance(mA, (int, float)) or mA < 0 or mA > led_max_ma:
+            raise ValueError(f"LED current must be 0-{led_max_ma} mA, got {mA}")
 
         # Skip redundant command if channel is already on at the same current
         color_name = self.ch2color(channel)
@@ -161,7 +162,7 @@ class IlluminationAPI:
             with self._led_owner_lock:
                 self._led_state[color_name] = {
                     'enabled': True,
-                    'illumination': float(mA),
+                    'illumination_ma': float(mA),
                     'owner': owner,
                 }
                 self._led_owners[color_name] = owner
@@ -251,8 +252,9 @@ class IlluminationAPI:
         valid_channels = self._driver.available_channels()
         if channel not in valid_channels:
             raise ValueError(f"LED channel must be one of {valid_channels}, got {channel}")
-        if not isinstance(mA, (int, float)) or mA < 0 or mA > self._scope.LED_MAX_MA:
-            raise ValueError(f"LED current must be 0-{self._scope.LED_MAX_MA} mA, got {mA}")
+        led_max_ma = self._scope.capabilities.led_max_ma
+        if not isinstance(mA, (int, float)) or mA < 0 or mA > led_max_ma:
+            raise ValueError(f"LED current must be 0-{led_max_ma} mA, got {mA}")
         with self._led_lock:
             self._driver.led_on_fast(channel, mA)
         self._scope.imaging.frame_validity.invalidate('led')
@@ -311,13 +313,13 @@ class IlluminationAPI:
         ex.put(IOTask(action=self.leds_off, callback=callback))
         logger.info('[SCOPE API ] leds_off_async()')
 
-    def led_on_async(self, channel, illumination, *, callback=None,
+    def led_on_async(self, channel, mA, *, callback=None,
                      cb_kwargs=None, owner: str = '') -> None:
-        """Submit ``led_on(channel, illumination)`` to the io_executor.
+        """Submit ``led_on(channel, mA)`` to the io_executor.
 
         Args:
             channel: Channel number or color name.
-            illumination: Illumination current in mA.
+            mA: LED current in milliamps.
             callback: Optional completion callback.
             cb_kwargs: Optional kwargs passed to the callback.
             owner: Optional ownership tag for the LED state.
@@ -329,7 +331,7 @@ class IlluminationAPI:
         ex = self._scope._require_executor(self._scope._io_executor, 'led_on_async')
         ex.put(IOTask(
             action=self.led_on,
-            args=(channel, illumination),
+            args=(channel, mA),
             kwargs=kwargs,
             callback=callback,
             cb_kwargs=cb_kwargs,
@@ -360,14 +362,14 @@ class IlluminationAPI:
             cb_kwargs=cb_kwargs,
         ))
 
-    def led_on_sync(self, channel, illumination, *, timeout=5,
+    def led_on_sync(self, channel, mA, *, timeout_s=5,
                     owner: str = '') -> None:
         """Run ``led_on`` through the io_executor and block until done.
 
         Args:
             channel: Channel number or color name.
-            illumination: Illumination current in mA.
-            timeout: Max seconds to wait for completion.
+            mA: LED current in milliamps.
+            timeout_s: Max seconds to wait for completion.
             owner: Optional ownership tag for the LED state.
         """
         if not self._scope.led_connected:
@@ -375,17 +377,17 @@ class IlluminationAPI:
             return
         kwargs = {'owner': owner} if owner else {}
         ex = self._scope._require_executor(self._scope._io_executor, 'led_on_sync')
-        task = IOTask(action=self.led_on, args=(channel, illumination),
+        task = IOTask(action=self.led_on, args=(channel, mA),
                       kwargs=kwargs)
         fut = ex.put(task, return_future=True)
         if fut:
-            fut.result(timeout=timeout)
+            fut.result(timeout=timeout_s)
 
-    def leds_off_sync(self, *, timeout=5) -> None:
+    def leds_off_sync(self, *, timeout_s=5) -> None:
         """Run ``leds_off`` through the io_executor and block until done.
 
         Args:
-            timeout: Max seconds to wait for completion.
+            timeout_s: Max seconds to wait for completion.
         """
         if not self._scope.led_connected:
             logger.warning('[SCOPE API ] LED controller not available.')
@@ -394,10 +396,10 @@ class IlluminationAPI:
         task = IOTask(action=self.leds_off)
         fut = ex.put(task, return_future=True)
         if fut:
-            fut.result(timeout=timeout)
+            fut.result(timeout=timeout_s)
 
     # --- State ---
-    def get_led_ma(self, color: str) -> float:
+    def get_led_ma(self, color: str) -> 'float | None':
         """Get the current illumination level for an LED channel.
 
         Reads from the API-level _led_state cache (Rule 2). Does NOT
@@ -407,14 +409,16 @@ class IlluminationAPI:
             color: Channel color name (e.g. "Blue", "Green", "Red", "BF").
 
         Returns:
-            Illumination in milliamps, or -1 if channel is off or
-            LED board unavailable.
+            Illumination in milliamps when the channel has an active
+            value set; None when the LED board is absent or the channel
+            is off / never set. Use ``led_enabled(color)`` to distinguish
+            "off but reachable" from "no LED board."
         """
         if not self._driver:
-            return -1
+            return None
         with self._led_owner_lock:
             entry = self._led_state.get(color)
-            return entry['illumination'] if entry else -1.0
+            return entry['illumination_ma'] if entry else None
 
     def led_enabled(self, color: str) -> bool:
         """Whether a specific LED channel is currently on.
@@ -435,14 +439,17 @@ class IlluminationAPI:
         with self._led_owner_lock:
             return self._led_state.get(color) is not None
 
-    def led_illumination(self, color: str) -> float:
-        """Current mA for an LED channel, or -1 if off.
+    def led_illumination(self, color: str) -> 'float | None':
+        """Current mA for an LED channel, or None if off / unavailable.
+
+        Thin wrapper over ``get_led_ma``; see that method for the
+        None-vs-float contract.
 
         Args:
             color: Channel color name (e.g. "Blue", "Green", "Red", "BF").
 
         Returns:
-            Illumination in milliamps, or -1 if off / unavailable.
+            Illumination in milliamps when set; None otherwise.
         """
         return self.get_led_ma(color)
 
@@ -451,14 +458,14 @@ class IlluminationAPI:
         """Snapshot of all LED states {color: {enabled, illumination}}.
 
         Returns:
-            Mapping of color -> {'enabled': bool, 'illumination': float}.
+            Mapping of color -> {'enabled': bool, 'illumination_ma': float}.
             Empty if no LED board is connected.
         """
         if not self._driver:
             return {}
         with self._led_owner_lock:
             return {
-                color: {'enabled': True, 'illumination': entry['illumination']}
+                color: {'enabled': True, 'illumination_ma': entry['illumination_ma']}
                 for color, entry in self._led_state.items()
             }
 
@@ -471,15 +478,15 @@ class IlluminationAPI:
             color: Channel color name (e.g. "Blue", "Green", "Red", "BF").
 
         Returns:
-            {'enabled': bool, 'illumination': float}.
+            {'enabled': bool, 'illumination_ma': float}.
         """
         if not self._driver:
-            return {'enabled': False, 'illumination': -1}
+            return {'enabled': False, 'illumination_ma': -1}
         with self._led_owner_lock:
             entry = self._led_state.get(color)
             if entry is None:
-                return {'enabled': False, 'illumination': -1}
-            return {'enabled': True, 'illumination': entry['illumination']}
+                return {'enabled': False, 'illumination_ma': -1}
+            return {'enabled': True, 'illumination_ma': entry['illumination_ma']}
 
     def get_led_states(self) -> dict:
         """Get state and illumination for all LED channels.
@@ -488,7 +495,7 @@ class IlluminationAPI:
         currently-on channels).
 
         Returns:
-            Mapping of color -> {'enabled': bool, 'illumination': float}
+            Mapping of color -> {'enabled': bool, 'illumination_ma': float}
             for every channel the driver supports. Empty if no LED
             board is connected.
         """
@@ -498,9 +505,9 @@ class IlluminationAPI:
         with self._led_owner_lock:
             return {
                 color: (
-                    {'enabled': True, 'illumination': self._led_state[color]['illumination']}
+                    {'enabled': True, 'illumination_ma': self._led_state[color]['illumination_ma']}
                     if color in self._led_state
-                    else {'enabled': False, 'illumination': -1}
+                    else {'enabled': False, 'illumination_ma': -1}
                 )
                 for color in all_colors
             }
@@ -560,7 +567,7 @@ class IlluminationAPI:
         # Restore channels that were on in the snapshot
         for color, state in saved_states.items():
             if state.get('enabled', False):
-                mA = state.get('illumination', 0)
+                mA = state.get('illumination_ma', 0)
                 if mA and mA > 0:
                     ch = self.color2ch(color)
                     if ch is not None:
@@ -606,11 +613,21 @@ class IlluminationAPI:
         self._driver.leds_disable()
 
     # --- Wait ---
-    def wait_until_led_on(self) -> None:
-        """Block until the LED board confirms an LED is on."""
+    def wait_until_led_on(self, timeout_s: float = 5.0) -> bool:
+        """Block until the LED board confirms an LED is on.
+
+        Mirrors motion.wait_until_finished_moving in shape.
+
+        Args:
+            timeout_s: Maximum seconds to wait (default 5s).
+
+        Returns:
+            bool: True if confirmed on, False on timeout / no driver /
+            firmware lacks STATUS (current state until v3.1 firmware).
+        """
         if not self._driver:
-            return
-        self._driver.wait_until_on()
+            return False
+        return self._driver.wait_until_on(timeout_s)
 
     # --- Channel mapping ---
     def ch2color(self, channel: int) -> 'str | None':

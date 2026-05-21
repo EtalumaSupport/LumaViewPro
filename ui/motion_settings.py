@@ -376,9 +376,9 @@ class XYStageControl(BoxLayout):
         try:
             scope = ctx.lumaview.scope
             x_target = scope.motion.get_target_position('X')
-            x_target = np.clip(x_target, 0, scope.travel_limit_um('X'))
+            x_target = np.clip(x_target, 0, scope.capabilities.axis_travel_limits_um['X'])
             y_target = scope.motion.get_target_position('Y')
-            y_target = np.clip(y_target, 0, scope.travel_limit_um('Y'))
+            y_target = np.clip(y_target, 0, scope.capabilities.axis_travel_limits_um['Y'])
         except Exception:
             logger.exception('[LVP Main  ] Error talking to Motor board.')
             return None

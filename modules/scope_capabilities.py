@@ -32,6 +32,15 @@ properties, not frozen snapshot fields.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from types import MappingProxyType
+from typing import Mapping
+
+
+# Canonical home for the LED current cap (matches firmware CH_MAX).
+# Lumascope previously carried this as a `LED_MAX_MA` class constant
+# (freeze-audit Finding #38) which surfaced the same value on two
+# layers with inconsistent SoT; capabilities is the right home.
+LED_MAX_MA: int = 1000
 
 
 @dataclass(frozen=True)
@@ -58,6 +67,35 @@ class ScopeCapabilities:
     """Scope model string reported by `motion.get_microscope_model()`, or
     empty string if unknown / not connected."""
 
+    axis_travel_limits_um: Mapping[str, float]
+    """Per-axis travel limit in um, populated only for present axes.
+
+    Read-only mapping (MappingProxyType wrapper) so the frozen-dataclass
+    immutability contract holds for the contents as well as the field
+    binding. A caller passing an absent axis gets KeyError -- which is
+    the correct contract per the Rule 8 capability-probe corollary
+    (test `axis in caps.axes` first; the travel-limit query is only
+    meaningful for present axes).
+
+    Values come from `motion.motorconfig.travel_limit_um(axis)` (mm in
+    motorconfig.json, multiplied by 1000 for um). Empty mapping if
+    motion driver has no motorconfig (NullMotionBoard) or all axes
+    failed to read."""
+
+    pixel_size_um: float
+    """Per-scope camera pixel size in um/pixel, sourced from
+    motorconfig.json's Optics.PixelSize. Per-installation override of
+    the camera SDK's reported value -- some sites adjust this for
+    calibration. Used by FOV / scale-bar / coordinate-transform
+    helpers. Default 2.0 if motorconfig is unavailable."""
+
+    lens_focal_length_mm: float
+    """Tube lens focal length in mm, sourced from motorconfig.json's
+    Optics.LensFocalLength. Per-installation override (default Etaluma
+    47.8 mm). Used together with pixel_size_um and the objective focal
+    length to compute per-objective effective um/pixel. Default 47.8
+    if motorconfig is unavailable."""
+
     # ---- LED ----
     led_channels: tuple[int, ...]
     """LED channel indices available — from `led.available_channels()`.
@@ -81,13 +119,66 @@ class ScopeCapabilities:
     camera_pixel_formats: tuple[str, ...]
     camera_binning_sizes: tuple[int, ...]
     camera_max_exposure_ms: int
-    camera_pixel_size_um: float
+
+    camera_max_frame_size: 'tuple[int, int]'
+    """Maximum camera frame size as ``(width, height)`` in pixels.
+    Per-camera-immutable: sourced from the camera driver's
+    get_max_frame_size() at boot. (0, 0) when no camera driver is
+    connected. Use ``scope.imaging.set_frame_size`` to request a
+    smaller-than-max region; this field gives the upper bound."""
+
+    # ---- Cross-cutting feature flags ----
+    hardware_features: frozenset[str] = frozenset()
+    """Set of hardware-feature tokens this scope advertises. Per Rule 8
+    empty-default semantic: empty means 'feature set unknown / no
+    features advertised,' not 'feature X is absent.' Use
+    ``caps.supports(feature)`` to test for a token; that helper also
+    searches has_X / camera_supports_X fields so callers don't need to
+    know which surface owns a particular capability.
+
+    Reserved tokens (populated as drivers mature):
+      'trigger_in', 'trigger_out'    -- external trigger hardware
+      'temperature_sensor'           -- camera temp probe
+      'cooled_sensor'                -- TEC / Peltier camera
+      'global_shutter'               -- non-rolling shutter
+    Tokens are deliberately documented per L2 contract; new tokens
+    require a LumascopeSkills entry."""
+
+    def supports(self, feature: str) -> bool:
+        """Return True if the scope advertises the named feature.
+
+        Cross-surface helper that the Rule 8 capability-probe corollary
+        cites: callers test for a feature by token rather than by
+        knowing which surface owns it. Searches the boolean
+        `has_<feature>` fields (motion-shape: focus / xy_stage /
+        turret) and the boolean `camera_supports_<feature>` fields
+        (camera-shape: auto_gain / auto_exposure) for a match. Unknown
+        feature names return False, never raise.
+
+        Example:
+            caps.supports('turret')      # True if has_turret
+            caps.supports('xy_stage')    # True if has_xy_stage
+            caps.supports('auto_gain')   # True if camera_supports_auto_gain
+            caps.supports('warp_drive')  # False (unknown)
+
+        Also searches the ``hardware_features`` frozenset by token:
+        ``caps.supports('trigger_in')`` returns True iff 'trigger_in' is
+        in ``caps.hardware_features``. The empty-default contract means
+        an empty set yields False for any token -- never raises.
+        """
+        if getattr(self, f'has_{feature}', False):
+            return True
+        if getattr(self, f'camera_supports_{feature}', False):
+            return True
+        if feature in self.hardware_features:
+            return True
+        return False
 
     @classmethod
-    def from_drivers(cls, motion, led, camera, led_max_ma: int) -> 'ScopeCapabilities':
+    def from_drivers(cls, motion, led, camera, led_max_ma: int = LED_MAX_MA) -> 'ScopeCapabilities':
         """Build a ScopeCapabilities snapshot from the three drivers.
 
-        Tolerant of None / Null implementations. Never raises — if a
+        Tolerant of None / Null implementations. Never raises -- if a
         driver method blows up or returns something unexpected, the
         corresponding field gets a safe default (empty tuple, empty
         string, False).
@@ -97,7 +188,10 @@ class ScopeCapabilities:
                 NullMotionBoard).
             led: An `LEDBoardProtocol` implementation (may be NullLEDBoard).
             camera: A camera object or None.
-            led_max_ma: The API's LED current cap (today a class constant).
+            led_max_ma: The API's LED current cap. Defaults to the
+                module-level ``LED_MAX_MA`` (1000 mA, matches firmware
+                CH_MAX); callers may override per-board if a future
+                driver advertises a different cap.
         """
         # Motion
         try:
@@ -108,6 +202,26 @@ class ScopeCapabilities:
             model = motion.get_microscope_model() or ''
         except Exception:
             model = ''
+
+        # Travel limits + optics per present axis (read once at boot;
+        # motorconfig is loaded once at driver init and is immutable
+        # for the run).
+        travel_limits: dict[str, float] = {}
+        motorconfig = getattr(motion, 'motorconfig', None)
+        if motorconfig is not None:
+            for ax in axes:
+                try:
+                    travel_limits[ax] = float(motorconfig.travel_limit_um(ax))
+                except Exception:
+                    pass
+        try:
+            pixel_size_um = float(motorconfig.pixel_size()) if motorconfig is not None else 2.0
+        except Exception:
+            pixel_size_um = 2.0
+        try:
+            lens_focal_length_mm = float(motorconfig.lens_focal_length()) if motorconfig is not None else 47.8
+        except Exception:
+            lens_focal_length_mm = 47.8
 
         # LED
         try:
@@ -126,7 +240,7 @@ class ScopeCapabilities:
         camera_pixel_formats: tuple[str, ...] = ()
         camera_binning_sizes: tuple[int, ...] = ()
         camera_max_exposure_ms = 0
-        camera_pixel_size_um = 0.0
+        camera_max_frame_size: tuple[int, int] = (0, 0)
         if camera is not None:
             profile = getattr(camera, 'profile', None)
             if profile is not None:
@@ -137,7 +251,12 @@ class ScopeCapabilities:
                 camera_binning_sizes = tuple(getattr(profile, 'binning_sizes', ()) or ())
                 exposure_max_us = getattr(profile, 'exposure_max_us', 0) or 0
                 camera_max_exposure_ms = int(exposure_max_us / 1000)
-                camera_pixel_size_um = float(getattr(profile, 'pixel_size_um', 0.0) or 0.0)
+            try:
+                size = camera.get_max_frame_size()
+                if size:
+                    camera_max_frame_size = (int(size.get('width', 0)), int(size.get('height', 0)))
+            except Exception:
+                pass
 
         return cls(
             axes=axes,
@@ -145,6 +264,9 @@ class ScopeCapabilities:
             has_xy_stage=('X' in axes and 'Y' in axes),
             has_turret='T' in axes,
             motor_model=model,
+            axis_travel_limits_um=MappingProxyType(travel_limits),
+            pixel_size_um=pixel_size_um,
+            lens_focal_length_mm=lens_focal_length_mm,
             led_channels=led_channels,
             led_colors=led_colors,
             led_max_ma=led_max_ma,
@@ -154,5 +276,5 @@ class ScopeCapabilities:
             camera_pixel_formats=camera_pixel_formats,
             camera_binning_sizes=camera_binning_sizes,
             camera_max_exposure_ms=camera_max_exposure_ms,
-            camera_pixel_size_um=camera_pixel_size_um,
+            camera_max_frame_size=camera_max_frame_size,
         )

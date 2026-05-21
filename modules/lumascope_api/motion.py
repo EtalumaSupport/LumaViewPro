@@ -36,7 +36,7 @@ import contextlib
 import logging as _logging
 import threading
 import time
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Iterator
 
 from lib import profile_trace
 from lvp_logger import logger
@@ -331,6 +331,20 @@ class MotionAPI:
         """
         return self._driver.get_axes_config()
 
+    @contextlib.contextmanager
+    def reference_position_logger(self) -> Iterator[None]:
+        """Context manager that logs limit-switch status before and after homing.
+
+        Use as ``with scope.motion.reference_position_logger(): ... home ...``.
+        Emits forced-INFO log lines so the limit-switch state pre/post
+        homing is preserved for diagnostics.
+        """
+        before = self.get_limit_switch_status_all_axes()
+        logger.info(f"Limit switch status before homing: {before}", extra={'force_error': True})
+        yield
+        after = self.get_limit_switch_status_all_axes()
+        logger.info(f"Limit switch status after homing: {after}", extra={'force_error': True})
+
     def home(self) -> bool:
         """Home every axis the motor board has.
 
@@ -377,7 +391,7 @@ class MotionAPI:
             self._scope.imaging.frame_validity.invalidate('turret')
         self.is_homing = True
         try:
-            with self._scope.reference_position_logger():
+            with self.reference_position_logger():
                 result = self._driver.home()
             if result is False:
                 logger.error('[SCOPE API ] Homing failed')
@@ -402,7 +416,7 @@ class MotionAPI:
             _api_log.info('home DONE')
 
     @contextlib.contextmanager
-    def safe_turret_move(self):
+    def safe_turret_move(self) -> Iterator[None]:
         """Context manager that lowers Z to 0 before turret motion and restores after.
 
         Use as ``with scope.motion.safe_turret_move(): ... move turret ...``.
@@ -456,7 +470,7 @@ class MotionAPI:
         # wait_until_finished_moving() inside safe_turret_move's Z move.
         _api_log.info('thome START')
         try:
-            with self._scope.reference_position_logger():
+            with self.reference_position_logger():
                 with self.safe_turret_move():
                     self._set_axis_state('T', AxisState.HOMING)
                     self._scope.imaging.frame_validity.invalidate('turret')
@@ -535,7 +549,7 @@ class MotionAPI:
         pos = self._driver.current_pos(axis)
         return pos if pos is not None else 0.0
 
-    def set_motor_precision_mode(self, axis: str, enabled: bool) -> None:
+    def set_precision_mode(self, axis: str, enabled: bool) -> None:
         """Set motor precision mode for an axis.
 
         Precision mode uses accurate but slightly slower motor stopping.
@@ -598,7 +612,7 @@ class MotionAPI:
         """
         return self._driver.reference_status(axis=axis)
 
-    def get_limit_switch_status(self, axis: str):
+    def get_limit_switch_status(self, axis: str) -> 'tuple[int, int]':
         """Get the limit switch status for an axis.
 
         Args:
@@ -703,7 +717,7 @@ class MotionAPI:
             self._turreting_event.clear()
 
     def move_absolute_sync(self, axis, pos, *, wait_until_complete=True,
-                           overshoot_enabled=True, timeout=30) -> None:
+                           overshoot_enabled=True, timeout_s=30) -> None:
         """Run ``move_absolute_position`` through the io_executor and block.
 
         Blocks until both the IOTask completes and (when
@@ -714,7 +728,7 @@ class MotionAPI:
             pos: Target position in um.
             wait_until_complete: If True, block until move finishes.
             overshoot_enabled: Allow Z overshoot for backlash compensation.
-            timeout: Max seconds to wait for completion.
+            timeout_s: Max seconds to wait for completion.
         """
         from modules.sequential_io_executor import IOTask  # local-import: avoid cycle
         ex = self._scope._require_executor(self._scope._io_executor, 'move_absolute_sync')
@@ -729,7 +743,7 @@ class MotionAPI:
         )
         fut = ex.put(task, return_future=True)
         if fut:
-            fut.result(timeout=timeout)
+            fut.result(timeout=timeout_s)
 
     def move_relative_async(self, axis, um, *, wait_until_complete=False,
                             overshoot_enabled=True, callback=None,
@@ -882,7 +896,7 @@ class MotionAPI:
         self._set_axis_state('Z', AxisState.HOMING)
         self._scope.imaging.frame_validity.invalidate('z_move')
         try:
-            with self._scope.reference_position_logger():
+            with self.reference_position_logger():
                 result = self._driver.zhome()
             if result is False:
                 logger.error('[SCOPE API ] Z homing failed')
@@ -1194,7 +1208,7 @@ class MotionAPI:
             self.wait_until_finished_moving()
             self._set_axis_state(axis, AxisState.IDLE)
 
-    def wait_until_finished_moving(self, timeout: float = 120.0) -> bool:
+    def wait_until_finished_moving(self, timeout_s: float = 120.0) -> bool:
         """Block until all axes have reached their target positions.
 
         Waits on per-axis arrival events set by the motion monitor thread.
@@ -1202,12 +1216,12 @@ class MotionAPI:
         happen on the monitor thread at 50 Hz.
 
         Args:
-            timeout: Maximum seconds to wait (default 120s).
+            timeout_s: Maximum seconds to wait (default 120s).
 
         Returns:
             bool: True if all axes arrived, False if timed out.
         """
-        deadline = time.monotonic() + timeout
+        deadline = time.monotonic() + timeout_s
         # Iterate arrival events directly (not axes_present) so a transient
         # motion.detect_present_axes() failure at call time can never cause
         # this to return True without actually waiting for the in-flight
@@ -1320,11 +1334,3 @@ class MotionAPI:
                             logger.warning(f'[SCOPE API ] Motion monitor: target_status({ax}) failed: {e}')
 
                 time.sleep(self._MOTION_POLL_INTERVAL)
-
-    # ------------------------------------------------------------------
-    # Aliases preserved for caller compatibility.
-    # ------------------------------------------------------------------
-
-    def stop(self) -> None:
-        """Alias for ``stop_motion`` -- preserves the original facade name."""
-        return self.stop_motion()

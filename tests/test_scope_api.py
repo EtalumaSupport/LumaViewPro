@@ -34,10 +34,10 @@ def _make_layer_settings(**overrides):
         'video_config': {'enabled': False},
         'autofocus': False,
         'false_color': [1, 1, 1, 1],
-        'ill': 50.123456,
-        'gain': 1.23456,
+        'ill_ma': 50.123456,
+        'gain_db': 1.23456,
         'auto_gain': False,
-        'exp': 10.56789,
+        'exp_ms': 10.56789,
         'sum': 1,
         'focus': 0.0,
     }
@@ -149,7 +149,7 @@ class TestGetLayerConfigs:
         precision = max_decimal_precision('illumination')
         for cfg in configs.values():
             # Value should be rounded to the expected precision
-            assert cfg['illumination'] == round(50.123456, precision)
+            assert cfg['illumination_ma'] == round(50.123456, precision)
 
     def test_gain_rounded(self):
         settings = _make_settings()
@@ -157,7 +157,7 @@ class TestGetLayerConfigs:
         from modules.common_utils import max_decimal_precision
         precision = max_decimal_precision('gain')
         for cfg in configs.values():
-            assert cfg['gain'] == round(1.23456, precision)
+            assert cfg['gain_db'] == round(1.23456, precision)
 
     def test_exposure_rounded(self):
         settings = _make_settings()
@@ -165,7 +165,7 @@ class TestGetLayerConfigs:
         from modules.common_utils import max_decimal_precision
         precision = max_decimal_precision('exposure')
         for cfg in configs.values():
-            assert cfg['exposure'] == round(10.56789, precision)
+            assert cfg['exposure_ms'] == round(10.56789, precision)
 
     def test_stim_config_none_when_absent(self):
         settings = _make_settings(with_stim=False)
@@ -178,6 +178,8 @@ class TestGetLayerConfigs:
 
         The stim brightness slider controls stim_config['illumination']
         directly -- it is NOT force-synced to the layer's imaging illumination.
+        Stim config key stays bare 'illumination' (pre-freeze defer per
+        units audit; stim is on its own evolution track).
         """
         settings = _make_settings(with_stim=True)
         # Set stim illumination to a different value than layer illumination
@@ -188,7 +190,7 @@ class TestGetLayerConfigs:
         for cfg in configs.values():
             assert cfg['stim_config']['illumination'] == 200
             # Layer illumination is different (50.123456 rounded)
-            assert cfg['illumination'] != 200
+            assert cfg['illumination_ma'] != 200
 
     def test_auto_gain_bool_conversion(self):
         settings = _make_settings()
@@ -206,8 +208,8 @@ class TestGetLayerConfigs:
         configs = config_helpers.get_layer_configs(settings, specific_layers=['BF'])
         expected_keys = {
             'acquire', 'video_config', 'stim_config', 'autofocus',
-            'false_color', 'illumination', 'gain', 'auto_gain',
-            'exposure', 'sum', 'focus',
+            'false_color', 'illumination_ma', 'gain_db', 'auto_gain',
+            'exposure_ms', 'sum', 'focus',
         }
         assert set(configs['BF'].keys()) == expected_keys
 
@@ -390,7 +392,7 @@ class TestLumascopeLedAPI:
 
     def test_led_on_async_dispatches(self):
         scope, io_ex, _ = _make_real_scope_with_mock_executors()
-        scope.illumination.led_on_async(channel=2, illumination=100)
+        scope.illumination.led_on_async(channel=2, mA=100)
         task = io_ex.put.call_args[0][0]
         assert task.action == scope.illumination.led_on
         assert task.args == (2, 100)
@@ -422,7 +424,7 @@ class TestLumascopeLedAPI:
 
     def test_led_on_sync_blocks(self):
         scope, io_ex, _ = _make_real_scope_with_mock_executors()
-        scope.illumination.led_on_sync(channel=1, illumination=75)
+        scope.illumination.led_on_sync(channel=1, mA=75)
         io_ex.put.assert_called_once()
         _, kwargs = io_ex.put.call_args
         assert kwargs.get('return_future') is True
@@ -583,22 +585,22 @@ class TestScopeSession:
 
     def test_leds_off_delegates(self):
         session = self._make_session()
-        session.leds_off()
+        session.leds_off_async()
         session.io_executor.put.assert_called_once()
 
     def test_led_on_delegates(self):
         session = self._make_session()
-        session.led_on(channel=2, illumination=100)
+        session.led_on_async(channel=2, mA=100)
         session.io_executor.put.assert_called_once()
 
     def test_led_off_delegates(self):
         session = self._make_session()
-        session.led_off(channel=1)
+        session.led_off_async(channel=1)
         session.io_executor.put.assert_called_once()
 
     def test_move_absolute_delegates(self):
         session = self._make_session()
-        session.move_absolute('Z', 3000)
+        session.move_absolute_async('Z', 3000)
         session.io_executor.put.assert_called_once()
         task = session.io_executor.put.call_args[0][0]
         assert task.kwargs['axis'] == 'Z'
@@ -606,21 +608,21 @@ class TestScopeSession:
 
     def test_move_relative_delegates(self):
         session = self._make_session()
-        session.move_relative('X', 100)
+        session.move_relative_async('X', 100)
         session.io_executor.put.assert_called_once()
 
     def test_move_home_delegates(self):
         session = self._make_session()
-        session.move_home('Z')
+        session.move_home_async('Z')
         session.io_executor.put.assert_called_once()
         task = session.io_executor.put.call_args[0][0]
         assert task.action == session.scope.motion.zhome
 
     def test_no_led_skips_commands(self):
         session = self._make_session(scope=_make_mock_scope(led_available=False))
-        session.leds_off()
-        session.led_on(0, 50)
-        session.led_off(0)
+        session.leds_off_async()
+        session.led_on_async(0, 50)
+        session.led_off_async(0)
         session.io_executor.put.assert_not_called()
 
     def test_protocol_running_event(self):

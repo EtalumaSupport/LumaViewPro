@@ -629,10 +629,10 @@ class Protocol:
         self._config['steps'].at[step_idx, "Auto_Focus"] = layer_config['autofocus']
         self._config['steps'].at[step_idx, "Color"] = layer
         self._config['steps'].at[step_idx, "False_Color"] = layer_config['false_color']
-        self._config['steps'].at[step_idx, "Illumination"] = layer_config['illumination']
-        self._config['steps'].at[step_idx, "Gain"] = layer_config['gain']
+        self._config['steps'].at[step_idx, "Illumination"] = layer_config['illumination_ma']
+        self._config['steps'].at[step_idx, "Gain"] = layer_config['gain_db']
         self._config['steps'].at[step_idx, "Auto_Gain"] = layer_config['auto_gain']
-        self._config['steps'].at[step_idx, "Exposure"] = layer_config['exposure']
+        self._config['steps'].at[step_idx, "Exposure"] = layer_config['exposure_ms']
         self._config['steps'].at[step_idx, "Sum"] = int(layer_config['sum'])
         self._config['steps'].at[step_idx, "Objective"] = objective_id
         self._config['steps'].at[step_idx, "Acquire"] = layer_config['acquire']
@@ -699,10 +699,10 @@ class Protocol:
             af=layer_config['autofocus'],
             color=layer,
             fc=layer_config['false_color'],
-            ill=layer_config['illumination'],
-            gain=layer_config['gain'],
+            ill=layer_config['illumination_ma'],
+            gain=layer_config['gain_db'],
             auto_gain=layer_config['auto_gain'],
-            exp=layer_config['exposure'],
+            exp=layer_config['exposure_ms'],
             sum=layer_config['sum'],
             objective=objective_id,
             well=well,
@@ -1103,11 +1103,11 @@ class Protocol:
 
                         autofocus = layer_config['autofocus']
                         false_color = layer_config['false_color']
-                        illumination = round(layer_config['illumination'], common_utils.max_decimal_precision('illumination'))
+                        illumination = round(layer_config['illumination_ma'], common_utils.max_decimal_precision('illumination'))
                         sum = int(layer_config['sum'])
-                        gain = round(layer_config['gain'], common_utils.max_decimal_precision('gain'))
+                        gain = round(layer_config['gain_db'], common_utils.max_decimal_precision('gain'))
                         auto_gain = common_utils.to_bool(layer_config['auto_gain'])
-                        exposure = round(layer_config['exposure'], common_utils.max_decimal_precision('exposure'))
+                        exposure = round(layer_config['exposure_ms'], common_utils.max_decimal_precision('exposure'))
                         video_config = layer_config['video_config']
 
 

@@ -1,13 +1,13 @@
 #!/usr/bin/python3
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 
-import contextlib
 import datetime
 import os
 import pathlib
 import threading
 import time
 import warnings
+from typing import Any
 
 import numpy as np
 
@@ -175,14 +175,77 @@ def _notify_camera_failure(exc):
 class Lumascope():
 
     # --- Input validation constants ---
-    LED_MAX_MA = 1000       # Maximum LED current in milliamps (matches firmware CH_MAX)
-    # LED channel set comes from self._led_driver.available_channels() — varies by
+    # `LED_MAX_MA` retired here per freeze-audit Finding #38. Canonical
+    # home is `modules.scope_capabilities.LED_MAX_MA` (also surfaced
+    # at `scope.capabilities.led_max_ma`). Callers that need the cap
+    # read from capabilities; the class constant created a parallel
+    # SoT with the same value.
+    # LED channel set comes from self._led_driver.available_channels() -- varies by
     # Canonical home for these is `_constants.py`; alias on the class so
     # existing callers (`scope._VALID_AXIS_NAMES`, `Lumascope.MOTOR_POSITION_LIMIT`)
     # keep working. Sub-API modules import from `_constants.py` directly
     # to avoid a circular dep with this file.
     _VALID_AXIS_NAMES = _api_constants._VALID_AXIS_NAMES
     MOTOR_POSITION_LIMIT = _api_constants.MOTOR_POSITION_LIMIT
+
+    def _init_minimal(self, simulated: bool) -> None:
+        """Shared init for state slots both __init__ and create_diagnostic need.
+
+        Sets the non-driver state that every Lumascope instance must
+        carry: transformers, locks, camera cache, objective state slots,
+        executor slot defaults, source path. Both __init__ and
+        create_diagnostic call this first; each then does its
+        driver-connection-specific work.
+
+        Pre-#35, create_diagnostic open-coded a subset of these
+        assignments and left ~12 attributes unset, which made diagnostic
+        instances second-class. Centralizing here makes the slot list
+        the single point of truth.
+        """
+        self._simulated = simulated
+        self._coordinate_transformer = coord_transformations.CoordinateTransformer()
+        self._objectives_loader = objectives_loader.ObjectiveLoader()
+
+        # State locks
+        self._state_lock = threading.Lock()
+        self._cam_lock = profile_trace.TimedLock(threading.RLock(), name="lumascope._cam_lock")
+        self._camera_cache_lock = threading.Lock()
+        self._camera_cache = {
+            'active': False, 'gain_db': 0.0, 'exposure_ms': 20.0,
+            'frame_size': {'width': 0, 'height': 0},
+            'max_frame_size': {'width': 0, 'height': 0},
+            'min_frame_size': {'width': 0, 'height': 0},
+            'max_exposure_ms': None,
+            'max_gain_db': None,
+        }
+
+        # Driver slot defaults -- __init__ overrides _camera_driver with
+        # the real driver; create_diagnostic leaves it None.
+        self._camera_driver = None
+
+        # Objective + labware + turret state
+        self._labware = None
+        self._objective = None
+        self._objective_id = None
+        self._turret_config = {}
+        self._stage_offset = None
+        self._last_turret_position = None
+
+        # Misc per-instance flags + caches
+        self.engineering_mode = False
+        self.last_focus_score = None
+
+        # Executor slot defaults (registered post-construction via
+        # register_executors / register_executor_bundle)
+        self._camera_executor = None
+        self._io_executor = None
+        self._file_io_executor = None
+        self._executor_bundle = None
+        self._source_path = None
+
+        # Metrics logger pre-constructed in __init__; diagnostic mode
+        # leaves it None.
+        self.metrics_logger = None
 
     def __init__(self, simulate: bool = False, camera_type: str = 'auto',
                  register_atexit: bool = True,
@@ -213,9 +276,10 @@ class Lumascope():
                 ThreadingTimerScheduler). Tests that don't need
                 periodic logging set False.
         """
-        self._simulated = simulate
-        self._coordinate_transformer = coord_transformations.CoordinateTransformer()
-        self._objectives_loader = objectives_loader.ObjectiveLoader()
+        # Shared state-slot init (audit #35) -- transformers, locks,
+        # camera cache, objective/turret state, executor slot defaults.
+        # Driver construction + sub-API wiring happen below.
+        self._init_minimal(simulated=simulate)
 
         # LED state slots (_led_listeners, _led_state, _led_owners,
         # _led_owner_lock, _led_listeners_lock, _led_lock) live on
@@ -274,7 +338,8 @@ class Lumascope():
         # "pylon" which skipped auto-detect — callers that rely on that
         # continue to pass camera_type='pylon' explicitly.
         # _frame_buffer slot moved to ImagingAPI in Wave 7 Phase 4d.
-        self._camera_driver = None
+        # _camera_driver slot defaulted to None in _init_minimal; the
+        # registry call below overrides it on a successful connect.
         camera_kwargs: dict = {}
         if simulate:
             camera_kwargs['z_position_func'] = lambda: self._motion_driver.current_pos('Z')
@@ -303,7 +368,6 @@ class Lumascope():
             motion=self._motion_driver,
             led=self._led_driver,
             camera=self._camera_driver,
-            led_max_ma=self.LED_MAX_MA,
         )
 
         # ----- Sub-API wiring (Wave 7 Phase 1+) -----
@@ -315,10 +379,12 @@ class Lumascope():
         from modules.lumascope_api.imaging import ImagingAPI
         from modules.lumascope_api.diagnostics import DiagnosticsAPI
         from modules.lumascope_api.io import IOAPI
+        from modules.lumascope_api.runtime_state import RuntimeState
         self.illumination = IlluminationAPI(self, self._led_driver)
         self.imaging = ImagingAPI(self, self._camera_driver)
         self.diagnostics = DiagnosticsAPI(self)
         self.io = IOAPI(self)
+        self.runtime_state = RuntimeState(self)
 
         # Partial-hardware notification deferred to initialize(config) —
         # we need scope-config knowledge to distinguish "LS620 correctly
@@ -337,48 +403,17 @@ class Lumascope():
         if self._no_hardware:
             logger.warning('[SCOPE API ] No hardware detected (LED, motor, and camera all failed to initialize)')
 
-        # --- Thread synchronization (CR-2 / CR-6) ---
-        # _state_lock protects individual shared-state reads/writes
-        self._state_lock = threading.Lock()
-        # Per-device locks — each device communicates over a different port
-        # and can operate independently. Split from the old global _hw_lock
-        # to allow LED stim pulses during camera grabs and motor moves.
-        # Threading audit §10.2 — wrapped with TimedLock for contention tracing.
-        # _led_lock relocated to IlluminationAPI per Wave 7 Phase 3d.
-        self._cam_lock = profile_trace.TimedLock(threading.RLock(), name="lumascope._cam_lock")
-        # Global lock for multi-device atomic operations (e.g., LED on + capture + LED off).
-        # Only used by acquire_exclusive() — individual methods use per-device locks.
-        self._hw_lock = threading.RLock()
-
+        # State-slot init (_state_lock, _cam_lock, _camera_cache + lock,
+        # _labware / _objective / _turret_config / _stage_offset /
+        # _last_turret_position, engineering_mode, last_focus_score,
+        # executor slots, _source_path, metrics_logger=None) happened
+        # in _init_minimal above. self.is_stepping / step_capture_return
+        # were dropped in an earlier pass.
+        #
         # _capturing_event, _focusing_event, _capture_return,
         # _autofocus_return moved to ImagingAPI in Wave 7 Phase 4d.
         # _homing_event and _turreting_event live on MotionAPI (Phase 2c).
-        self.last_focus_score = None
-
-        # self.is_stepping = False         # Is the microscope currently attempting to capture a step
-        # self.step_capture_return = False # Will be image at step settings if ready to pull, else False
-
-        self._labware = None              # The labware currently installed
-        self._objective = None            # The objective currently selected/installed
-        self._turret_config = {}          # The objectives loaded into the turret (if present)
-        self._stage_offset = None         # The stage offset for the microscope
-        self._last_turret_position = None # Stores the last known turret position
-        self.engineering_mode = False      # Set by UI to enable engineering features
         # _suppress_value_warnings moved to ImagingAPI in Wave 7 Phase 4d.
-
-        # LAYER-A' executor handles. Registered post-construction via
-        # register_executors() so that tests using `Lumascope(simulate=True)`
-        # can construct without needing real executors. Methods that
-        # submit IOTasks (led_on_async, move_absolute_async, etc.) will
-        # raise RuntimeError if executors aren't registered.
-        self._camera_executor = None
-        self._io_executor = None
-        self._file_io_executor = None
-
-        # LAYER-I source-path handle. Registered via register_source_path()
-        # at startup. load_protocol() / create_protocol() use it to find
-        # data/tiling.json without UI callers having to know the layout.
-        self._source_path = None
 
         # Frame validity, camera_cache, scale_bar, _binning_size, +
         # _camera_listeners/_frame_buffer/_capturing_event/_focusing_event/
@@ -427,11 +462,9 @@ class Lumascope():
         # any timers / Clock events here, so test fixtures don't pay
         # for periodic work they don't want.
         #
-        # executor_bundle is None at construction; the host calls
-        # register_executor_bundle() after the bundle exists, before
-        # calling metrics_logger.start.
-        self.metrics_logger = None
-        self._executor_bundle = None
+        # metrics_logger + _executor_bundle slots defaulted to None in
+        # _init_minimal. The host calls register_executor_bundle() after
+        # the bundle exists, before calling metrics_logger.start.
         if register_metrics:
             try:
                 from modules.metrics_logger import MetricsLogger
@@ -707,20 +740,6 @@ class Lumascope():
         """
         return axis in self.capabilities.axes
 
-    def travel_limit_um(self, axis: str) -> float:
-        """Get the travel limit for an axis in um.
-
-        Args:
-            axis: Axis name ("X", "Y", "Z", "T").
-
-        Returns:
-            float: Travel limit in um, or MOTOR_POSITION_LIMIT if unknown.
-        """
-        try:
-            return float(self._motion_driver.motorconfig.travel_limit_um(axis))
-        except Exception:
-            return float(self.MOTOR_POSITION_LIMIT)
-
     @property
     def motor_connected(self) -> bool:
         """Whether the motor controller is connected.
@@ -739,42 +758,20 @@ class Lumascope():
         """
         return not isinstance(self._led_driver, NullLEDBoard) and self._led_driver.is_connected()
 
-    def lens_focal_length(self) -> float:
-        """Get tube lens focal length from motorconfig.
+    @property
+    def camera_connected(self) -> bool:
+        """Whether the camera is connected and active.
 
         Returns:
-            float: Focal length in mm (default 47.8).
+            bool: True if a real camera driver is connected and active.
         """
-        return self._motion_driver.motorconfig.lens_focal_length()
-
-    def pixel_size(self) -> float:
-        """Get camera pixel size from motorconfig.
-
-        Returns:
-            float: Pixel size in um/pixel (default 2.0).
-        """
-        return self._motion_driver.motorconfig.pixel_size()
-
-    # --- CR-6: Exclusive lock for multi-step hardware operations ---
-
-    @contextlib.contextmanager
-    def acquire_exclusive(self):
-        """Context manager for multi-step hardware operations.
-
-        Prevents interleaving of compound operations (e.g., set gain + capture).
-        Uses RLock so a thread that already holds the lock can re-enter.
-
-        Usage::
-
-            with scope.acquire_exclusive():
-                scope.illumination.led_on('Blue', mA=10)
-                image = scope.imaging.capture_and_wait()
-        """
-        self._hw_lock.acquire()
+        driver = getattr(self, '_camera_driver', None)
+        if driver is None or not getattr(driver, 'active', False):
+            return False
         try:
-            yield
-        finally:
-            self._hw_lock.release()
+            return driver.is_connected()
+        except Exception:
+            return False
 
     def disconnect(self) -> bool:
         """Disconnect from all hardware (LED, motion, camera).
@@ -874,6 +871,18 @@ class Lumascope():
                 f'[SCOPE API ] Microscope disconnected with errors '
                 f'(led_ok={led_ok}, motion_ok={motion_ok}, '
                 f'camera_ok={camera_ok})')
+
+        # Symmetric to atexit.register in __init__: each instance removes its
+        # own hook on disconnect so test fixtures that construct + disconnect
+        # many Lumascope instances do not leak atexit registrations.
+        # atexit.unregister silently no-ops if the hook was never registered.
+        try:
+            import atexit
+            atexit.unregister(self._emergency_shutdown)
+        except Exception as _e:
+            logger.warning(
+                f'[SCOPE API ] atexit unregister failed: {_e}')
+
         return all_ok
 
     def _emergency_shutdown(self):
@@ -943,7 +952,7 @@ class Lumascope():
         """
         self._labware = labware
 
-    def get_labware(self):
+    def get_labware(self) -> 'Any | None':
         """Get the currently installed labware.
 
         Returns:
@@ -1020,6 +1029,14 @@ class Lumascope():
         """
         self._stage_offset = stage_offset
 
+    def get_stage_offset(self) -> 'dict | None':
+        """Get the stage offset for coordinate transformations.
+
+        Returns:
+            Stage offset dict with axis offsets, or None if unset.
+        """
+        return self._stage_offset
+
 
     ########################################################################
     # LED BOARD FUNCTIONS
@@ -1065,23 +1082,6 @@ class Lumascope():
 
         return labware.get_well_label(x=x_target, y=y_target)
 
-    ########################################################################
-    # MOTION CONTROL FUNCTIONS
-    ########################################################################
-    @contextlib.contextmanager
-    def reference_position_logger(self):
-        """Context manager that logs limit-switch status before and after homing.
-
-        Use as ``with scope.reference_position_logger(): ... home ...``.
-        Emits forced-INFO log lines so the limit-switch state pre/post
-        homing is preserved for diagnostics.
-        """
-        before = self.motion.get_limit_switch_status_all_axes()
-        logger.info(f"Limit switch status before homing: {before}", extra={'force_error': True})
-        yield
-        after = self.motion.get_limit_switch_status_all_axes()
-        logger.info(f"Limit switch status after homing: {after}", extra={'force_error': True})
-
     @classmethod
     def create_diagnostic(cls) -> 'Lumascope':
         """Create a minimal Lumascope for diagnostics (no camera init).
@@ -1094,26 +1094,8 @@ class Lumascope():
             Lumascope: Instance with led/motion connected, camera=None.
         """
         instance = cls.__new__(cls)
-        # Minimal init -- just enough for board communication
-        instance._simulated = False
-        instance._objectives_loader = objectives_loader.ObjectiveLoader()
-        instance._coordinate_transformer = coord_transformations.CoordinateTransformer()
-
-        # Camera cache
-        instance._camera_cache_lock = threading.Lock()
-        instance._camera_cache = {
-            'active': False, 'gain': 0.0, 'exposure_ms': 20.0,
-            'frame_size': {'width': 0, 'height': 0},
-            'max_frame_size': {'width': 0, 'height': 0},
-            'min_frame_size': {'width': 0, 'height': 0},
-            'max_exposure': None,
-            'max_gain': None,
-        }
-
-        # State locks
-        instance._state_lock = threading.Lock()
-        instance._objective = None
-        instance._objective_id = None
+        # Shared state-slot init (audit #35) -- same call __init__ makes.
+        instance._init_minimal(simulated=False)
 
         # Connect boards -- motion driver first so MotionAPI._driver resolves
         # correctly at construction time. The helpers are at module scope so
@@ -1139,7 +1121,30 @@ class Lumascope():
             motion=instance._motion_driver,
             led=instance._led_driver,
             camera=None,
-            led_max_ma=cls.LED_MAX_MA,
+        )
+
+        # Sub-API wiring (audit #35) -- diagnostic instances are now
+        # first-class enough that disconnect / scope.imaging / scope.illumination
+        # do not raise AttributeError. ImagingAPI tolerates camera=None
+        # (per its docstring); IlluminationAPI gets the connected LED
+        # driver (real or NullLEDBoard).
+        from modules.lumascope_api.illumination import IlluminationAPI
+        from modules.lumascope_api.imaging import ImagingAPI
+        from modules.lumascope_api.diagnostics import DiagnosticsAPI
+        from modules.lumascope_api.io import IOAPI
+        from modules.lumascope_api.runtime_state import RuntimeState
+        instance.illumination = IlluminationAPI(instance, instance._led_driver)
+        instance.imaging = ImagingAPI(instance, None)
+        instance.diagnostics = DiagnosticsAPI(instance)
+        instance.io = IOAPI(instance)
+        instance.runtime_state = RuntimeState(instance)
+
+        # No-hardware probe mirrors __init__ -- diagnostic mode is never
+        # simulate=True, so a NullLED + NullMotor + no camera means we
+        # really do have no hardware.
+        instance._no_hardware = (
+            isinstance(instance._led_driver, NullLEDBoard)
+            and isinstance(instance._motion_driver, NullMotionBoard)
         )
 
         logger.info('[SCOPE API ] Diagnostic scope created '

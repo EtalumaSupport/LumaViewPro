@@ -189,58 +189,73 @@ class ScopeSession:
     # Convenience wrappers (delegate to config_helpers / scope_commands)
     # ------------------------------------------------------------------
 
-    def get_layer_configs(self, specific_layers=None):
+    def get_layer_configs(self, specific_layers=None) -> dict:
         import modules.config_helpers as config_helpers
         return config_helpers.get_layer_configs(self.settings, specific_layers)
 
-    def get_stim_configs(self):
+    def get_stim_configs(self) -> dict:
         import modules.config_helpers as config_helpers
         return config_helpers.get_stim_configs(self.settings)
 
-    def get_enabled_stim_configs(self):
+    def get_enabled_stim_configs(self) -> dict:
         import modules.config_helpers as config_helpers
         return config_helpers.get_enabled_stim_configs(self.settings)
 
-    def get_auto_gain_settings(self):
+    def get_auto_gain_settings(self) -> dict:
         import modules.config_helpers as config_helpers
         return config_helpers.get_auto_gain_settings(self.settings)
 
-    def get_current_objective_info(self):
+    def get_current_objective_info(self) -> dict:
         import modules.config_helpers as config_helpers
         return config_helpers.get_current_objective_info(self.settings, self.objective_helper)
 
-    def get_current_plate_position(self):
+    def set_objective(self, objective_id: str) -> None:
+        """Set the active objective by ID.
+
+        Thin Session-layer forwarder so L2 callers (REST / SDK /
+        MATLAB / micromanager) can drive objective selection without
+        reaching across to the composition root. Pairs with
+        ``get_current_objective_info()``.
+
+        Args:
+            objective_id: Objective identifier (e.g. "10x Oly").
+        """
+        self.scope.set_objective(objective_id)
+
+    def get_current_plate_position(self) -> 'dict | None':
         import modules.config_helpers as config_helpers
         return config_helpers.get_current_plate_position(
             self.scope, self.settings, self.coordinate_transformer, self.wellplate_loader,
         )
 
-    def log_system_metrics(self):
+    def log_system_metrics(self) -> None:
         import modules.config_helpers as config_helpers
         config_helpers.log_system_metrics(self.settings)
 
     # --- LED commands (thin shims around Lumascope's executor-backed API) ---
+    # All async-by-default; *_sync counterparts call the matching
+    # scope.illumination.*_sync method.
 
-    def leds_off(self, callback=None):
+    def leds_off_async(self, callback=None) -> None:
         self.scope.illumination.leds_off_async(callback=callback)
 
-    def led_on(self, channel, illumination, callback=None, cb_kwargs=None):
+    def led_on_async(self, channel, mA, callback=None, cb_kwargs=None) -> None:
         self.scope.illumination.led_on_async(
-            channel, illumination, callback=callback, cb_kwargs=cb_kwargs,
+            channel, mA, callback=callback, cb_kwargs=cb_kwargs,
         )
 
-    def led_off(self, channel, callback=None, cb_kwargs=None):
+    def led_off_async(self, channel, callback=None, cb_kwargs=None) -> None:
         self.scope.illumination.led_off_async(
             channel, callback=callback, cb_kwargs=cb_kwargs,
         )
 
-    def led_on_sync(self, channel, illumination, timeout=5):
-        self.scope.illumination.led_on_sync(channel, illumination, timeout=timeout)
+    def led_on_sync(self, channel, mA, timeout_s=5) -> None:
+        self.scope.illumination.led_on_sync(channel, mA, timeout_s=timeout_s)
 
     # --- Motion commands ---
 
-    def move_absolute(self, axis, pos, wait_until_complete=False,
-                      overshoot_enabled=True, callback=None, cb_kwargs=None):
+    def move_absolute_async(self, axis, pos, wait_until_complete=False,
+                            overshoot_enabled=True, callback=None, cb_kwargs=None) -> None:
         self.scope.motion.move_absolute_async(
             axis, pos,
             wait_until_complete=wait_until_complete,
@@ -248,8 +263,8 @@ class ScopeSession:
             callback=callback, cb_kwargs=cb_kwargs,
         )
 
-    def move_relative(self, axis, um, wait_until_complete=False,
-                      overshoot_enabled=True, callback=None, cb_kwargs=None):
+    def move_relative_async(self, axis, um, wait_until_complete=False,
+                            overshoot_enabled=True, callback=None, cb_kwargs=None) -> None:
         self.scope.motion.move_relative_async(
             axis, um,
             wait_until_complete=wait_until_complete,
@@ -257,16 +272,35 @@ class ScopeSession:
             callback=callback, cb_kwargs=cb_kwargs,
         )
 
-    def move_home(self, axis, callback=None, cb_args=None):
+    def move_home_async(self, axis, callback=None, cb_args=None) -> None:
         self.scope.motion.move_home_async(
             axis, callback=callback, cb_args=cb_args,
+        )
+
+    # --- Imaging commands (symmetric with illumination + motion wrappers) ---
+
+    def set_gain(self, gain_db: float) -> None:
+        """Set camera gain in dB. Thin forwarder to scope.imaging.set_gain."""
+        self.scope.imaging.set_gain(gain_db)
+
+    def set_exposure_time(self, exposure_ms: float) -> None:
+        """Set camera exposure in ms. Thin forwarder to scope.imaging.set_exposure_time."""
+        self.scope.imaging.set_exposure_time(exposure_ms)
+
+    def capture_and_wait(self, force_to_8bit: bool = True, **kwargs) -> 'np.ndarray | bool':
+        """Capture a frame after the camera pipeline settles. Thin forwarder
+        to scope.imaging.capture_and_wait. Accepts the same keyword arguments
+        (exclude_sources, all_ones_check, earliest_image_ts, timeout_s,
+        sum_count, sum_delay_s, sum_iteration_callback)."""
+        return self.scope.imaging.capture_and_wait(
+            force_to_8bit=force_to_8bit, **kwargs,
         )
 
     # ------------------------------------------------------------------
     # Protocol runner
     # ------------------------------------------------------------------
 
-    def create_protocol_runner(self, **kwargs):
+    def create_protocol_runner(self, **kwargs) -> 'ProtocolRunner':
         """Create a ProtocolRunner bound to this session.
 
         Returns a ProtocolRunner that can run scans and protocols
@@ -279,17 +313,17 @@ class ScopeSession:
     # Lifecycle
     # ------------------------------------------------------------------
 
-    def start_executors(self):
+    def start_executors(self) -> None:
         """Start the IO and camera executors."""
         self.io_executor.start()
         self.camera_executor.start()
 
-    def shutdown_executors(self):
+    def shutdown_executors(self) -> None:
         """Shut down the IO and camera executors."""
         self.io_executor.shutdown()
         self.camera_executor.shutdown()
 
-    def start_application_session(self, *, disable_homing: bool = False):
+    def start_application_session(self, *, disable_homing: bool = False) -> None:
         """LVP-A-5: queue the standard startup home + turret-positioning sequence.
 
         Replaces the inline blocks in lumaviewpro.py:on_start AND

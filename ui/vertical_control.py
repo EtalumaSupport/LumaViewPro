@@ -372,9 +372,9 @@ class VerticalControl(BoxLayout):
             'results_dir': parent_dir,
             'run_trigger_source': 'autofocus',
             'led_color': active_layer,
-            'led_illumination': float(active_layer_config.get('illumination', 0)),
-            'camera_gain': float(active_layer_config.get('gain', 0)),
-            'camera_exposure': float(active_layer_config.get('exposure', 1)),
+            'led_illumination': float(active_layer_config.get('illumination_ma', 0)),
+            'camera_gain': float(active_layer_config.get('gain_db', 0)),
+            'camera_exposure': float(active_layer_config.get('exposure_ms', 1)),
             'callbacks': {'move_position': _handle_ui_update_for_axis},
         }
 

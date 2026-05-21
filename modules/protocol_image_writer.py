@@ -344,7 +344,7 @@ class ProtocolImageWriter:
                     captured_image = self._scope.imaging.capture_and_wait(
                         force_to_8bit=not use_full_pixel_depth,
                         all_ones_check=True,
-                        timeout=datetime.timedelta(seconds=1.0),
+                        timeout_s=1.0,
                         sum_count=sum_count,
                         sum_delay_s=step["Exposure"] / 1000,
                         sum_iteration_callback=sum_iteration_callback,

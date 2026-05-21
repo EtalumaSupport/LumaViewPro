@@ -673,9 +673,9 @@ class ProtocolSettings(FloatLayout):
             layer['acquire'] = acquire
 
         for col, key, caster in (
-                ('Illumination', 'ill', _as_float),
-                ('Gain', 'gain', _as_float),
-                ('Exposure', 'exp', _as_float),
+                ('Illumination', 'ill_ma', _as_float),
+                ('Gain', 'gain_db', _as_float),
+                ('Exposure', 'exp_ms', _as_float),
                 ('Sum', 'sum', _as_int)):
             raw = vals.get(col, '')
             if raw == '' or raw is None:
@@ -722,10 +722,10 @@ class ProtocolSettings(FloatLayout):
             row = {
                 'Layer': layer_name,
                 'Acquire': acquire,
-                'Illumination': layer.get('ill', ''),
-                'Gain': layer.get('gain', ''),
+                'Illumination': layer.get('ill_ma', ''),
+                'Gain': layer.get('gain_db', ''),
                 'Auto_Gain': layer.get('auto_gain', ''),
-                'Exposure': layer.get('exp', ''),
+                'Exposure': layer.get('exp_ms', ''),
                 'False_Color': layer.get('false_color', ''),
                 'Sum': layer.get('sum', ''),
                 'Stim_Enabled': '',

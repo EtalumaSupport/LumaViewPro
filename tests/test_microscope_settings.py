@@ -43,7 +43,7 @@ class TestCameraMaxExposureContract:
         # no-camera state that load_settings sees on a real missing camera.
         with scope.imaging._camera_cache_lock:
             scope.imaging._camera_cache['active'] = False
-            scope.imaging._camera_cache['max_exposure'] = None
+            scope.imaging._camera_cache['max_exposure_ms'] = None
 
         assert scope.imaging.camera_max_exposure is None
 
@@ -58,7 +58,7 @@ class TestCameraMaxExposureContract:
 
         scope = Lumascope(simulate=True)
         with scope.imaging._camera_cache_lock:
-            scope.imaging._camera_cache['max_exposure'] = 0.0
+            scope.imaging._camera_cache['max_exposure_ms'] = 0.0
 
         assert scope.imaging.camera_max_exposure is None
 
@@ -68,7 +68,7 @@ class TestCameraMaxExposureContract:
 
         scope = Lumascope(simulate=True)
         with scope.imaging._camera_cache_lock:
-            scope.imaging._camera_cache['max_exposure'] = 500.0
+            scope.imaging._camera_cache['max_exposure_ms'] = 500.0
 
         assert scope.imaging.camera_max_exposure == 500.0
         assert isinstance(scope.imaging.camera_max_exposure, float)
@@ -79,7 +79,7 @@ class TestCameraMaxExposureContract:
 
         scope = Lumascope(simulate=True)
         with scope.imaging._camera_cache_lock:
-            scope.imaging._camera_cache['max_exposure'] = 750
+            scope.imaging._camera_cache['max_exposure_ms'] = 750
 
         assert scope.imaging.camera_max_exposure == 750.0
         assert isinstance(scope.imaging.camera_max_exposure, float)

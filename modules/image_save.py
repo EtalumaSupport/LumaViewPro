@@ -230,7 +230,11 @@ def generate_image_metadata(scope: 'Lumascope', color, x, y, z) -> dict:
         'z_pos_um': z,
         'exposure_time_ms': round(scope.imaging.get_exposure_time(), common_utils.max_decimal_precision('exposure')),
         'gain_db': round(scope.imaging.get_gain(), common_utils.max_decimal_precision('gain')),
-        'illumination_ma': round(scope.illumination.get_led_ma(color=color), common_utils.max_decimal_precision('illumination')),
+        'illumination_ma': (
+            round(_ma, common_utils.max_decimal_precision('illumination'))
+            if (_ma := scope.illumination.get_led_ma(color=color)) is not None
+            else 0
+        ),
         'binning_size': scope.imaging._binning_size,
         'pixel_size_um': pixel_size_um,
         'well_label': well_label,
@@ -446,7 +450,7 @@ def save_live_image(
     output_format: str = "TIFF",
     true_color: str = 'BF',
     earliest_image_ts: datetime.datetime | None = None,
-    timeout: datetime.timedelta = datetime.timedelta(seconds=5),
+    timeout_s: float = 5.0,
     all_ones_check: bool = False,
     sum_count: int = 1,
     sum_delay_s: float = 0,
@@ -470,7 +474,7 @@ def save_live_image(
         output_format: "TIFF" or "OME-TIFF".
         true_color: Actual channel color for metadata.
         earliest_image_ts: Reject frames before this timestamp.
-        timeout: Max time to wait for a valid frame.
+        timeout_s: Max seconds to wait for a valid frame.
         all_ones_check: Reject saturated frames.
         sum_count: Number of frames to sum.
         sum_delay_s: Delay between summed frames.
@@ -484,7 +488,7 @@ def save_live_image(
     array = scope.imaging.capture_and_wait(
         force_to_8bit=force_to_8bit,
         earliest_image_ts=earliest_image_ts,
-        timeout=timeout,
+        timeout_s=timeout_s,
         all_ones_check=all_ones_check,
         sum_count=sum_count,
         sum_delay_s=sum_delay_s,

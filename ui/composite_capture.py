@@ -89,7 +89,7 @@ class CompositeCapture(FloatLayout):
         sum_iteration_callback = None
 
         layer_configs = get_layer_configs(specific_layers=layer)
-        sum_delay_s=layer_configs[layer]['exposure']/1000
+        sum_delay_s=layer_configs[layer]['exposure_ms']/1000
         sum_count=layer_configs[layer]['sum']
 
         if ctx.engineering_mode is False:
@@ -203,8 +203,8 @@ class CompositeCapture(FloatLayout):
             ls = settings.get(layer, {})
             if ls.get('acquire') == 'image':
                 logger.info(
-                    f'[COMPOSITE ] {layer}: gain={ls.get("gain")}, exp={ls.get("exp")}ms, '
-                    f'ill={ls.get("ill")}mA, sum={ls.get("sum", 1)}, '
+                    f'[COMPOSITE ] {layer}: gain={ls.get("gain_db")}, exp={ls.get("exp_ms")}ms, '
+                    f'ill={ls.get("ill_ma")}mA, sum={ls.get("sum", 1)}, '
                     f'threshold={ls.get("composite_brightness_threshold", "?")}%'
                 )
 
@@ -326,11 +326,11 @@ class CompositeCapture(FloatLayout):
                         'Z', focus_pos, wait_until_complete=True,
                     )
 
-                gain = layer_settings[trans_layer]['gain']
+                gain = layer_settings[trans_layer]['gain_db']
                 ctx.scope.imaging.set_gain_sync(gain)
-                exposure = layer_settings[trans_layer]['exp']
+                exposure = layer_settings[trans_layer]['exp_ms']
                 ctx.scope.imaging.set_exposure_sync(exposure)
-                illumination = layer_settings[trans_layer]['ill']
+                illumination = layer_settings[trans_layer]['ill_ma']
 
                 ctx.scope.illumination.led_on_sync(
                     ctx.scope.illumination.color2ch(trans_layer), illumination,
@@ -361,9 +361,9 @@ class CompositeCapture(FloatLayout):
                         'Z', focus_pos, wait_until_complete=True,
                     )
 
-                gain = layer_settings[layer]['gain']
+                gain = layer_settings[layer]['gain_db']
                 ctx.scope.imaging.set_gain_sync(gain)
-                exposure = layer_settings[layer]['exp']
+                exposure = layer_settings[layer]['exp_ms']
                 ctx.scope.imaging.set_exposure_sync(exposure)
                 sum_count = layer_settings[layer]['sum']
                 # Stage B1: see comment above; update_scopedisplay retired.
@@ -372,7 +372,7 @@ class CompositeCapture(FloatLayout):
                 # Compute brightness threshold (percentage → absolute value)
                 brightness_thresholds[layer] = layer_settings[layer]["composite_brightness_threshold"] / 100 * max_value
 
-                illumination = layer_settings[layer]['ill']
+                illumination = layer_settings[layer]['ill_ma']
 
                 # Luminescence channels don't use an LED
                 if layer not in common_utils.get_transmitted_layers():

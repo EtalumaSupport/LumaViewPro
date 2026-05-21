@@ -446,25 +446,26 @@ class SimulatedCamera(Camera):
     # ------------------------------------------------------------------
     # Exposure
     # ------------------------------------------------------------------
-    def exposure_t(self, t: float) -> None:
+    def exposure_t(self, exposure_ms: float) -> None:
         """Set exposure time in milliseconds.
 
-        Silently clamps when ``t`` exceeds ``max_exposure`` (logs a
-        warning); silently no-ops when the simulator is not active.
+        Silently clamps when ``exposure_ms`` exceeds ``max_exposure``
+        (logs a warning); silently no-ops when the simulator is not
+        active.
 
         Args:
-            t: Exposure time in milliseconds.
+            exposure_ms: Exposure time in milliseconds.
         """
         if not self.active:
             return
-        if t > self.max_exposure:
-            if _cam_log is not None: _cam_log.warning(f'sim ExposureTime.SetValue({t}ms) CLAMPED max={self.max_exposure}ms')
-            logger.warning(f'[CAM Sim   ] Exposure {t}ms exceeds max ({self.max_exposure}ms)')
+        if exposure_ms > self.max_exposure:
+            if _cam_log is not None: _cam_log.warning(f'sim ExposureTime.SetValue({exposure_ms}ms) CLAMPED max={self.max_exposure}ms')
+            logger.warning(f'[CAM Sim   ] Exposure {exposure_ms}ms exceeds max ({self.max_exposure}ms)')
             return
         with self._lock:
-            self._exposure_us = float(t) * 1000.0
-            if _cam_log is not None: _cam_log.info(f'sim ExposureTime.SetValue({float(t) * 1000.0:.0f}us) (={t}ms)')
-            logger.info(f'[CAM Sim   ] Exposure set to {t}ms')
+            self._exposure_us = float(exposure_ms) * 1000.0
+            if _cam_log is not None: _cam_log.info(f'sim ExposureTime.SetValue({float(exposure_ms) * 1000.0:.0f}us) (={exposure_ms}ms)')
+            logger.info(f'[CAM Sim   ] Exposure set to {exposure_ms}ms')
 
     def get_exposure_t(self) -> float:
         """Return exposure time in milliseconds.
@@ -772,11 +773,11 @@ class SimulatedCamera(Camera):
 
         return True, img, self._last_grab_ts
 
-    def grab_new_capture(self, timeout: float) -> tuple:
+    def grab_new_capture(self, timeout_s: float) -> tuple:
         """Generate a fresh image (blocking with timeout).
 
         Args:
-            timeout: Accepted for API parity; a small per-call delay
+            timeout_s: Accepted for API parity; a small per-call delay
                 proportional to exposure is applied (capped at 0.1 s).
 
         Returns:
@@ -850,19 +851,19 @@ class SimulatedCamera(Camera):
         self,
         state: bool = True,
         target_brightness: float = 0.5,
-        min_gain: float | None = None,
-        max_gain: float | None = None,
+        min_gain_db: float | None = None,
+        max_gain_db: float | None = None,
     ) -> bool:
         """Enable or disable simulated continuous auto-gain.
 
         On enable, the simulator converges immediately by setting gain
-        to the midpoint of [min_gain, max_gain].
+        to the midpoint of [min_gain_db, max_gain_db].
 
         Args:
             state: True to enable, False to disable.
             target_brightness: Normalized brightness target (0.0-1.0).
-            min_gain: Optional lower bound in dB.
-            max_gain: Optional upper bound in dB.
+            min_gain_db: Optional lower bound in dB.
+            max_gain_db: Optional upper bound in dB.
 
         Returns:
             bool: Always True.
@@ -871,31 +872,31 @@ class SimulatedCamera(Camera):
             self._auto_gain_enabled = state
             if state:
                 self._auto_gain_target_brightness = target_brightness
-                if min_gain is not None:
-                    self._auto_gain_min = min_gain
-                if max_gain is not None:
-                    self._auto_gain_max = max_gain
+                if min_gain_db is not None:
+                    self._auto_gain_min = min_gain_db
+                if max_gain_db is not None:
+                    self._auto_gain_max = max_gain_db
                 # Simulate convergence: set gain to mid-range
                 self._gain = (self._auto_gain_min + self._auto_gain_max) / 2.0
-            if _cam_log is not None: _cam_log.info(f'sim auto_gain(state={state}, target={target_brightness}, min={min_gain}, max={max_gain})')
+            if _cam_log is not None: _cam_log.info(f'sim auto_gain(state={state}, target={target_brightness}, min_db={min_gain_db}, max_db={max_gain_db})')
         return True
 
     def auto_gain_once(
         self,
         state: bool = True,
         target_brightness: float = 0.5,
-        min_gain: float | None = None,
-        max_gain: float | None = None,
+        min_gain_db: float | None = None,
+        max_gain_db: float | None = None,
     ) -> bool:
         """Run a single simulated auto-gain iteration.
 
-        Converges by setting gain to the midpoint of [min_gain, max_gain].
+        Converges by setting gain to the midpoint of [min_gain_db, max_gain_db].
 
         Args:
             state: True to run, False to no-op.
             target_brightness: Normalized brightness target (0.0-1.0).
-            min_gain: Optional lower bound in dB.
-            max_gain: Optional upper bound in dB.
+            min_gain_db: Optional lower bound in dB.
+            max_gain_db: Optional upper bound in dB.
 
         Returns:
             bool: Always True.
@@ -903,10 +904,10 @@ class SimulatedCamera(Camera):
         if state:
             with self._lock:
                 self._auto_gain_target_brightness = target_brightness
-                if min_gain is not None:
-                    self._auto_gain_min = min_gain
-                if max_gain is not None:
-                    self._auto_gain_max = max_gain
+                if min_gain_db is not None:
+                    self._auto_gain_min = min_gain_db
+                if max_gain_db is not None:
+                    self._auto_gain_max = max_gain_db
                 # One-shot: converge gain toward target
                 self._gain = (self._auto_gain_min + self._auto_gain_max) / 2.0
         return True
@@ -924,21 +925,21 @@ class SimulatedCamera(Camera):
             self._auto_gain_target_brightness = auto_target_brightness
         return True
 
-    def update_auto_gain_min_max(self, min_gain: float | None, max_gain: float | None) -> bool:
+    def update_auto_gain_min_max(self, min_gain_db: float | None, max_gain_db: float | None) -> bool:
         """Update auto-gain bounds.
 
         Args:
-            min_gain: Minimum gain in dB, or None to leave unchanged.
-            max_gain: Maximum gain in dB, or None to leave unchanged.
+            min_gain_db: Minimum gain in dB, or None to leave unchanged.
+            max_gain_db: Maximum gain in dB, or None to leave unchanged.
 
         Returns:
             bool: Always True.
         """
         with self._lock:
-            if min_gain is not None:
-                self._auto_gain_min = min_gain
-            if max_gain is not None:
-                self._auto_gain_max = max_gain
+            if min_gain_db is not None:
+                self._auto_gain_min = min_gain_db
+            if max_gain_db is not None:
+                self._auto_gain_max = max_gain_db
         return True
 
     # ------------------------------------------------------------------

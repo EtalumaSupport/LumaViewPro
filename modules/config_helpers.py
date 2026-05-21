@@ -63,11 +63,11 @@ def get_layer_configs(settings: dict, specific_layers: list | None = None) -> di
 
         autofocus = layer_settings['autofocus']
         false_color = layer_settings['false_color']
-        illumination = round(layer_settings['ill'], common_utils.max_decimal_precision('illumination'))
+        illumination = round(layer_settings['ill_ma'], common_utils.max_decimal_precision('illumination'))
         sum_count = layer_settings['sum']
-        gain = round(layer_settings['gain'], common_utils.max_decimal_precision('gain'))
+        gain = round(layer_settings['gain_db'], common_utils.max_decimal_precision('gain'))
         auto_gain = common_utils.to_bool(layer_settings['auto_gain'])
-        exposure = round(layer_settings['exp'], common_utils.max_decimal_precision('exposure'))
+        exposure = round(layer_settings['exp_ms'], common_utils.max_decimal_precision('exposure'))
         focus = layer_settings['focus']
 
         layer_configs[layer] = {
@@ -76,10 +76,10 @@ def get_layer_configs(settings: dict, specific_layers: list | None = None) -> di
             'stim_config': stim_config,
             'autofocus': autofocus,
             'false_color': false_color,
-            'illumination': illumination,
-            'gain': gain,
+            'illumination_ma': illumination,
+            'gain_db': gain,
             'auto_gain': auto_gain,
-            'exposure': exposure,
+            'exposure_ms': exposure,
             'sum': sum_count,
             'focus': focus,
         }

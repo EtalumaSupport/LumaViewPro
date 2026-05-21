@@ -163,7 +163,7 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
 
         manual_video = settings.get("manual_video", {})
         max_fps = manual_video.get("max_fps", 0)
-        max_duration = manual_video.get("max_duration", 30)
+        max_duration = manual_video.get("max_duration_seconds", 30)
         # max_fps == 0 means uncapped (camera free-run rate). The
         # spinner ships at 0; non-zero is the explicit user opt-in
         # that gates pre-flight + camera-rate-toggle below.

@@ -126,7 +126,7 @@ class TestPylon(unittest.TestCase):
             obs = []
             frame_ids = []
             for _ in range(10):
-                ok, _ = self.camera.grab_new_capture(timeout=2.0)
+                ok, _ = self.camera.grab_new_capture(timeout_s=2.0)
                 if not ok:
                     continue
                 chunks = self.camera.cam_image_handler._base.get_last_chunks()
@@ -151,7 +151,7 @@ class TestPylon(unittest.TestCase):
             obs_us = []
             frame_ids = []
             for _ in range(5):
-                ok, _ = self.camera.grab_new_capture(timeout=max(2.0, target_ms / 1000.0 * 5))
+                ok, _ = self.camera.grab_new_capture(timeout_s=max(2.0, target_ms / 1000.0 * 5))
                 if not ok:
                     continue
                 chunks = self.camera.cam_image_handler._base.get_last_chunks()

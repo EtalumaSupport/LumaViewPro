@@ -111,7 +111,7 @@ lock.
 **Driver handle**: `_motion_driver` (was `scope.motion`, class `MotorBoard`)
 
 **Cross-sub-API calls**: reads `scope.capabilities.axes`,
-`scope.capabilities.travel_limit_um`. None outbound to other sub-APIs.
+`scope.capabilities.axis_travel_limits_um`. None outbound to other sub-APIs.
 
 ### 2.2 `scope.illumination`
 
@@ -175,7 +175,7 @@ config.
   `capture_and_wait`, `capture_and_wait_sync`, `get_image`,
   `get_image_with_chunks_from_buffer`, `get_image_from_buffer`,
   `_get_latest_chunks`
-- State + lifecycle: `camera_active`, `camera_is_connected`,
+- State + lifecycle: `camera_active`,
   `camera_gain`, `camera_exposure_ms`, `camera_frame_size`,
   `camera_max_frame_size`, `camera_min_frame_size`, `camera_max_exposure`,
   `camera_max_gain`, `camera_pixel_format`, `_load_camera_timing`,
@@ -188,8 +188,9 @@ config.
   `autofocus_return` (via `_capturing_event`, `_focusing_event`)
 - Frame validity: `frame_is_valid`, `frames_until_valid`, `count_frame`
 - Scale bar: `scale_bar_config`, `scale_bar_enabled`, `set_scale_bar`
-- Camera diagnostics: `get_camera_temps`, `log_camera_temps`,
+- Camera diagnostics: `log_camera_temps`,
   `start_camera_temp_logging`, `stop_camera_temp_logging`
+  (cold-probe temperatures live at `scope.diagnostics.get_camera_temperatures`)
 - Frame-flow listeners: `add_frame_listener`, `remove_frame_listener`,
   `_fire_camera_listeners`
 **Driver handle**: `_camera_driver` (was `scope.camera`, class
@@ -277,7 +278,7 @@ After the split, `Lumascope` is a thin facade with ~30 methods:
   registers atexit emergency shutdown)
 - Composition: holds `motion`, `illumination`, `imaging`, `diagnostics`,
   `capabilities`, **`io`** as public attributes (six sub-APIs per pass-3 D2)
-- Lifecycle: `disconnect`, `_emergency_shutdown`, `acquire_exclusive`
+- Lifecycle: `disconnect`, `_emergency_shutdown`
 - Hardware presence: `motor_connected`, `led_connected`,
   `_no_hardware`, `are_all_connected`, `_notify_partial_hardware`
 - Executor wiring: `register_executors`, `register_executor_bundle`,
@@ -778,8 +779,10 @@ Work items:
 - Move ~50 camera methods from `Lumascope` to `ImagingAPI`
 - Move `_camera_cache`, `_frame_buffer`, camera listeners, frame_validity,
   scale_bar
-- Move camera diagnostics (`get_camera_temps`, etc.) -- keep with imaging
-  per audit recommendation
+- Move camera-diagnostic *logging* (`log_camera_temps`, `start_camera_temp_logging`)
+  -- keep with imaging. Cold-probe `get_camera_temperatures` lives on
+  DiagnosticsAPI; imaging-side `get_camera_temps` was retired pre-freeze
+  (duplicate path; see API-freeze audit Finding #2).
 - Operation flags (`is_capturing`, `is_focusing`) get one-line forwarders
 - `compute_focus_score` moves to `modules/focus.py` (per pass-1 C-4 amendment, not into ImagingAPI)
 - **Per-frame listener registry on `ImagingAPI`**: `add_frame_listener(handler)` / `remove_frame_listener(handler)` / `_fire_frame_listeners(frame, metadata)`. Sync-fire-from-calling-thread per Rule 33; drop policy when handler exceeds 16ms budget (per Rule 42 budget entry `plugin_live_processing_handler_ms` in `docs/PERFORMANCE_BUDGETS.md`)

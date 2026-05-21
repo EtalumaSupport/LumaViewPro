@@ -84,8 +84,8 @@ class VideoCaptureSession:
             self._scope.imaging.auto_gain_once(
                 state=True,
                 target_brightness=self._autogain_settings['target_brightness'],
-                min_gain=self._autogain_settings['min_gain'],
-                max_gain=self._autogain_settings['max_gain'],
+                min_gain_db=self._autogain_settings['min_gain_db'],
+                max_gain_db=self._autogain_settings['max_gain_db'],
             )
 
         duration_sec = step['Video Config']['duration']
