@@ -8677,3 +8677,89 @@ class TestLumascopeSkillsRetiredOpticalMethods:
             "LumascopeSkills.md must document the canonical capability "
             "field `scope.capabilities.lens_focal_length_mm`."
         )
+
+
+class TestGetLedStateShape:
+    """get_led_state / get_led_states return shape must include `owner`
+    (matches internal _led_state) and use None (not -1) for the
+    illumination_ma sentinel when the channel is off / no LED board
+    (matches the Sentinel-return contract preface in LumascopeSkills).
+    Closes API audit F2 / F3 / F12 cluster.
+    """
+
+    def _scope(self):
+        from modules.lumascope_api import Lumascope
+        scope = Lumascope(simulate=True)
+        scope._led_driver.set_timing_mode('fast')
+        return scope
+
+    def test_get_led_state_off_returns_none_sentinel_and_empty_owner(self):
+        scope = self._scope()
+        state = scope.illumination.get_led_state('Blue')
+        assert state == {
+            'enabled': False, 'illumination_ma': None, 'owner': '',
+        }
+
+    def test_get_led_state_on_includes_owner(self):
+        scope = self._scope()
+        scope.illumination.led_on(channel='Green', mA=125.0, owner='audit_test')
+        state = scope.illumination.get_led_state('Green')
+        assert state['enabled'] is True
+        assert state['illumination_ma'] == 125.0
+        assert state['owner'] == 'audit_test'
+
+    def test_get_led_states_off_channels_use_none_and_empty_owner(self):
+        scope = self._scope()
+        states = scope.illumination.get_led_states()
+        assert states, "get_led_states must return per-channel entries"
+        for color, entry in states.items():
+            assert entry['enabled'] is False
+            assert entry['illumination_ma'] is None, (
+                f'{color} off-state must use None sentinel, not -1.'
+            )
+            assert entry['owner'] == '', (
+                f'{color} off-state must report owner = empty string.'
+            )
+
+    def test_get_led_states_on_channel_carries_owner(self):
+        scope = self._scope()
+        scope.illumination.led_on(channel='Red', mA=42.5, owner='restore_pre')
+        states = scope.illumination.get_led_states()
+        assert states['Red']['enabled'] is True
+        assert states['Red']['illumination_ma'] == 42.5
+        assert states['Red']['owner'] == 'restore_pre'
+
+    def test_doc_example_matches_shape(self):
+        import pathlib
+        doc = pathlib.Path('docs/LumascopeSkills.md').read_text()
+        assert "'owner': '…'" in doc or "'owner': '...'" in doc, (
+            "LumascopeSkills get_led_state example must include the "
+            "'owner' key in the return-shape example."
+        )
+        # Old "current mA, or -1 if off" wording must be retired.
+        assert "current mA, or -1 if off" not in doc, (
+            "Stale '-1 if off' sentinel must be removed from the "
+            "led_illumination doc line."
+        )
+
+
+class TestProtocolCleanupLedRestoreKey:
+    """`protocol_cleanup.restore_after_protocol` reads `color_data['illumination_ma']`
+    from the `original_led_states` snapshot taken via `get_led_states()`.
+    A prior typo (`color_data['illumination']`) silently raised KeyError
+    on every LED-restore path and was swallowed by the surrounding
+    try/except. Rule 16 cluster fix paired with the audit F2/F12
+    sentinel migration.
+    """
+
+    def test_restore_uses_illumination_ma_key(self):
+        import pathlib
+        src = pathlib.Path('modules/protocol_cleanup.py').read_text()
+        assert "color_data['illumination_ma']" in src, (
+            "protocol_cleanup must read the snapshot's "
+            "'illumination_ma' key when restoring LED state."
+        )
+        assert "color_data['illumination']" not in src, (
+            "Stale 'illumination' key must not be read -- the snapshot "
+            "shape returns 'illumination_ma'."
+        )

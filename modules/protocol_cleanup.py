@@ -100,7 +100,7 @@ def run_cleanup(
             any_restored = False
             for color, color_data in original_led_states.items():
                 if color_data['enabled']:
-                    led_on_fn(color=color, illumination=color_data['illumination'], block=True, force=True)
+                    led_on_fn(color=color, illumination=color_data['illumination_ma'], block=True, force=True)
                     any_restored = True
             if not any_restored:
                 leds_off_fn()

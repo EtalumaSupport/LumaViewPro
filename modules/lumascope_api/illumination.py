@@ -470,7 +470,7 @@ class IlluminationAPI:
             }
 
     def get_led_state(self, color: str) -> dict:
-        """Get the on/off state and illumination for an LED channel.
+        """Get the on/off state, illumination, and owner for an LED channel.
 
         Reads from the API-level _led_state cache (Rule 2).
 
@@ -478,26 +478,34 @@ class IlluminationAPI:
             color: Channel color name (e.g. "Blue", "Green", "Red", "BF").
 
         Returns:
-            {'enabled': bool, 'illumination_ma': float}.
+            {'enabled': bool, 'illumination_ma': float | None, 'owner': str}.
+            illumination_ma is None when off / no LED board (matches the
+            None sentinel contract on get_led_ma and led_illumination).
+            owner is '' when off / no LED board.
         """
         if not self._driver:
-            return {'enabled': False, 'illumination_ma': -1}
+            return {'enabled': False, 'illumination_ma': None, 'owner': ''}
         with self._led_owner_lock:
             entry = self._led_state.get(color)
             if entry is None:
-                return {'enabled': False, 'illumination_ma': -1}
-            return {'enabled': True, 'illumination_ma': entry['illumination_ma']}
+                return {'enabled': False, 'illumination_ma': None, 'owner': ''}
+            return {
+                'enabled': True,
+                'illumination_ma': entry['illumination_ma'],
+                'owner': entry.get('owner', ''),
+            }
 
     def get_led_states(self) -> dict:
-        """Get state and illumination for all LED channels.
+        """Get state, illumination, and owner for all LED channels.
 
         Returns states for ALL channels the driver supports (not just
         currently-on channels).
 
         Returns:
-            Mapping of color -> {'enabled': bool, 'illumination_ma': float}
-            for every channel the driver supports. Empty if no LED
-            board is connected.
+            Mapping of color -> {'enabled': bool, 'illumination_ma': float | None,
+            'owner': str} for every channel the driver supports.
+            illumination_ma is None and owner is '' when the channel
+            is off. Empty if no LED board is connected.
         """
         if not self._driver:
             return {}
@@ -505,9 +513,13 @@ class IlluminationAPI:
         with self._led_owner_lock:
             return {
                 color: (
-                    {'enabled': True, 'illumination_ma': self._led_state[color]['illumination_ma']}
+                    {
+                        'enabled': True,
+                        'illumination_ma': self._led_state[color]['illumination_ma'],
+                        'owner': self._led_state[color].get('owner', ''),
+                    }
                     if color in self._led_state
-                    else {'enabled': False, 'illumination_ma': -1}
+                    else {'enabled': False, 'illumination_ma': None, 'owner': ''}
                 )
                 for color in all_colors
             }

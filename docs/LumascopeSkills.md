@@ -375,9 +375,9 @@ Lumascope holds the authoritative LED state in an internal cache. The API layer'
 
 ```python
 scope.illumination.led_enabled('Blue')                 # True / False
-scope.illumination.led_illumination('Blue')            # current mA, or -1 if off
-scope.illumination.get_led_state('Blue')               # {'enabled': True, 'illumination_ma': 200, 'owner': '…'}
-scope.illumination.get_led_states()                    # all channels
+scope.illumination.led_illumination('Blue')            # current mA, or None if off / no LED board
+scope.illumination.get_led_state('Blue')               # {'enabled': True, 'illumination_ma': 200, 'owner': '…'} when on; {'enabled': False, 'illumination_ma': None, 'owner': ''} when off
+scope.illumination.get_led_states()                    # all channels, same per-channel shape as get_led_state
 ```
 
 ### Ownership — prevents subsystems from clobbering each other
