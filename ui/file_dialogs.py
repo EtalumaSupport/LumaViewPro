@@ -6,123 +6,12 @@ import subprocess
 import sys
 
 from kivy.properties import ListProperty, StringProperty
-from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.button import Button
-from kivy.uix.filechooser import FileChooserListView
-from kivy.uix.label import Label
-from kivy.uix.popup import Popup
 
 from ui.hover_behavior import HoverBehavior
 import modules.app_context as _app_ctx
 
 logger = logging.getLogger('LVP.ui.file_dialogs')
-
-
-# ---------------------------------------------------------------------------
-# Kivy folder picker (cross-platform). Replaces the OS-native folder pickers
-# (tkinter askdirectory on Windows/Linux, osascript "choose folder" on macOS).
-# Both native pickers show only folders, so a folder containing only image
-# files renders as an empty mid-pane with "no items match your search" --
-# a least-astonishment violation when the user can see files in the folder
-# via Explorer/Finder. This picker shows files AND folders, with the user
-# confirming the current folder via "Select this folder" or clicking a child
-# folder. Clicking a file is interpreted as "use this file's parent folder."
-# ---------------------------------------------------------------------------
-
-class FolderPickerPopup(Popup):
-    """Kivy folder-picker popup. Shows files and folders; confirms current
-    folder, a clicked subfolder, or the parent of a clicked file."""
-
-    def __init__(self, title='Select folder', initial_path=None, on_select=None, **kwargs):
-        self._on_select_callback = on_select
-        self._result = None
-
-        if initial_path and os.path.isdir(initial_path):
-            start_path = str(initial_path)
-        else:
-            start_path = os.path.expanduser('~')
-
-        layout = BoxLayout(orientation='vertical', padding=8, spacing=6)
-
-        self._path_label = Label(
-            text=start_path,
-            size_hint_y=None,
-            height=24,
-            halign='left',
-            valign='middle',
-            shorten=True,
-            shorten_from='left',
-        )
-        self._path_label.bind(size=lambda w, s: setattr(w, 'text_size', s))
-        layout.add_widget(self._path_label)
-
-        self._chooser = FileChooserListView(
-            path=start_path,
-            dirselect=True,
-            show_hidden=False,
-        )
-        self._chooser.bind(path=self._on_path_change)
-        layout.add_widget(self._chooser)
-
-        button_row = BoxLayout(
-            orientation='horizontal',
-            size_hint_y=None,
-            height=44,
-            spacing=8,
-        )
-        select_btn = Button(text='Select this folder')
-        select_btn.bind(on_release=self._on_confirm)
-        button_row.add_widget(select_btn)
-
-        cancel_btn = Button(text='Cancel')
-        cancel_btn.bind(on_release=lambda *_: self.dismiss())
-        button_row.add_widget(cancel_btn)
-
-        layout.add_widget(button_row)
-
-        super().__init__(
-            title=title,
-            content=layout,
-            size_hint=(0.85, 0.85),
-            auto_dismiss=False,
-            **kwargs,
-        )
-
-    def _on_path_change(self, _instance, path):
-        self._path_label.text = str(path)
-
-    def _on_confirm(self, *_):
-        # Resolve the target folder:
-        #   1. If the user clicked a subfolder, use it.
-        #   2. If they clicked a file, use the file's parent folder.
-        #   3. Otherwise, use the current browse path (the folder they're in).
-        if self._chooser.selection:
-            target = self._chooser.selection[0]
-            if os.path.isdir(target):
-                self._result = target
-            else:
-                self._result = os.path.dirname(target)
-        else:
-            self._result = self._chooser.path
-
-        self.dismiss()
-        if self._on_select_callback and self._result:
-            self._on_select_callback(self._result)
-
-
-def _open_kivy_folder_picker(initial_dir, on_select, title='Select folder'):
-    """Open the Kivy folder picker. Cross-platform; non-blocking; the
-    on_select callback fires with the chosen folder path or is not called
-    if the user cancels."""
-    try:
-        popup = FolderPickerPopup(
-            title=title,
-            initial_path=initial_dir,
-            on_select=on_select,
-        )
-        popup.open()
-    except Exception as e:
-        logger.error(f'[LVP Main  ] Kivy folder picker error: {e}')
 
 
 # ---------------------------------------------------------------------------
@@ -189,10 +78,10 @@ def _macos_choose_folder(initial_dir=None):
 def _platform_native_choose_folder(initial_dir, title='Select folder'):
     """Platform-native folder picker. Returns path string or None.
 
-    Used for the image-save destination folder where the user has
-    asked for the OS-native browser (post-processing folder pickers
-    still use the in-app Kivy picker so files in the candidate folder
-    are visible -- different UX need).
+    Canonical for all FolderChooseBTN contexts as of the #675 broader
+    revert. Native pickers show file listings on every modern OS, so
+    the prior argument for the in-app Kivy picker ("see files inside
+    the candidate folder") no longer justifies the extra UX surface.
     """
     if sys.platform == 'darwin':
         return _macos_choose_folder(initial_dir=initial_dir)
@@ -336,26 +225,19 @@ class FolderChooseBTN(HoverBehavior, Button):
         else:
             selected_path = settings['live_folder']
 
-        # live_folder = image-save destination. User wants the OS-native
-        # folder browser there (it's a folder-choice, not a folder-inspect
-        # action -- the user knows where they want images saved). The
-        # post-processing contexts above keep the in-app Kivy picker so
-        # the user can see the files inside the folder they're picking,
-        # which is the difference that motivated the in-app picker.
-        if self.context == 'live_folder':
-            chosen = _platform_native_choose_folder(
-                initial_dir=selected_path,
-                title=f'Select folder ({context})',
-            )
-            if chosen:
-                self.handle_selection(selection=[chosen])
-            return
-
-        _open_kivy_folder_picker(
+        # All FolderChooseBTN contexts use the OS-native folder picker.
+        # The earlier in-app Kivy picker was added for post-processing
+        # contexts so the user could see the files inside the candidate
+        # folder before picking, but native pickers on all supported
+        # platforms (macOS Finder, Windows Explorer, Linux GTK) already
+        # show file listings -- the Kivy picker was duplicating UX that
+        # the OS provides better. Reverted per #675.
+        chosen = _platform_native_choose_folder(
             initial_dir=selected_path,
-            on_select=lambda chosen: self.handle_selection(selection=[chosen]),
             title=f'Select folder ({context})',
         )
+        if chosen:
+            self.handle_selection(selection=[chosen])
 
 
     def handle_selection(self, selection):
