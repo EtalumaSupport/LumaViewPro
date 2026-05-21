@@ -33,7 +33,30 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from types import MappingProxyType
-from typing import Mapping
+from typing import Any, Callable, Mapping
+
+from drivers.exceptions import HardwareError
+from lvp_logger import logger
+
+
+def _probe(label: str, fn: Callable[[], Any], fallback: Any) -> Any:
+    """Run a capability probe; return fallback on expected absence; log
+    on hardware fault. Other exceptions (TypeErrors, KeyErrors from buggy
+    code) propagate so they surface for debugging.
+
+    Catches:
+        - AttributeError / NotImplementedError: feature absent per Rule 8.
+        - HardwareError: real driver fault. Logged at warning so it's
+          visible in main log; fallback used so capability dataclass
+          still constructs.
+    """
+    try:
+        return fn()
+    except (AttributeError, NotImplementedError):
+        return fallback
+    except HardwareError as e:
+        logger.warning(f'[CAPABILITIES] {label} probe failed: {e}; using fallback')
+        return fallback
 
 
 # Canonical home for the LED current cap (matches firmware CH_MAX).
@@ -194,14 +217,12 @@ class ScopeCapabilities:
                 driver advertises a different cap.
         """
         # Motion
-        try:
-            axes = tuple(motion.detect_present_axes())
-        except Exception:
-            axes = ()
-        try:
-            model = motion.get_microscope_model() or ''
-        except Exception:
-            model = ''
+        axes = _probe('detect_present_axes',
+                      lambda: tuple(motion.detect_present_axes()),
+                      ())
+        model = _probe('get_microscope_model',
+                       lambda: motion.get_microscope_model() or '',
+                       '')
 
         # Travel limits + optics per present axis (read once at boot;
         # motorconfig is loaded once at driver init and is immutable
@@ -210,28 +231,25 @@ class ScopeCapabilities:
         motorconfig = getattr(motion, 'motorconfig', None)
         if motorconfig is not None:
             for ax in axes:
-                try:
-                    travel_limits[ax] = float(motorconfig.travel_limit_um(ax))
-                except Exception:
-                    pass
-        try:
-            pixel_size_um = float(motorconfig.pixel_size()) if motorconfig is not None else 2.0
-        except Exception:
-            pixel_size_um = 2.0
-        try:
-            lens_focal_length_mm = float(motorconfig.lens_focal_length()) if motorconfig is not None else 47.8
-        except Exception:
-            lens_focal_length_mm = 47.8
+                limit = _probe(f'travel_limit_um[{ax}]',
+                               lambda ax=ax: float(motorconfig.travel_limit_um(ax)),
+                               None)
+                if limit is not None:
+                    travel_limits[ax] = limit
+        pixel_size_um = _probe('motorconfig.pixel_size',
+                               lambda: float(motorconfig.pixel_size()) if motorconfig is not None else 2.0,
+                               2.0)
+        lens_focal_length_mm = _probe('motorconfig.lens_focal_length',
+                                      lambda: float(motorconfig.lens_focal_length()) if motorconfig is not None else 47.8,
+                                      47.8)
 
         # LED
-        try:
-            led_channels = tuple(led.available_channels())
-        except Exception:
-            led_channels = ()
-        try:
-            led_colors = tuple(led.available_colors())
-        except Exception:
-            led_colors = ()
+        led_channels = _probe('led.available_channels',
+                              lambda: tuple(led.available_channels()),
+                              ())
+        led_colors = _probe('led.available_colors',
+                            lambda: tuple(led.available_colors()),
+                            ())
 
         # Camera
         camera_model = ''
@@ -251,12 +269,11 @@ class ScopeCapabilities:
                 camera_binning_sizes = tuple(getattr(profile, 'binning_sizes', ()) or ())
                 exposure_max_us = getattr(profile, 'exposure_max_us', 0) or 0
                 camera_max_exposure_ms = int(exposure_max_us / 1000)
-            try:
-                size = camera.get_max_frame_size()
-                if size:
-                    camera_max_frame_size = (int(size.get('width', 0)), int(size.get('height', 0)))
-            except Exception:
-                pass
+            size = _probe('camera.get_max_frame_size',
+                          lambda: camera.get_max_frame_size(),
+                          None)
+            if size:
+                camera_max_frame_size = (int(size.get('width', 0)), int(size.get('height', 0)))
 
         return cls(
             axes=axes,
