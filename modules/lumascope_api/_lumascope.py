@@ -154,6 +154,18 @@ def _try_connect_board(label, ctor, null_ctor):
                 f"Close other programs holding the port (Thonny, serial monitors), "
                 f"then restart LVP.")
             return null_ctor()
+        # Surface board-specific post-connect safety failures. LEDBoard
+        # uses last_safety_off_error to report a connect-time LEDS_OFF
+        # send failure (sample safety -- pre-v3.0.4 firmware can leave
+        # channels stuck on, photobleaching the sample). Caller sees a
+        # clear notification rather than the warning-level log getting
+        # buried.
+        safety_err = getattr(board, 'last_safety_off_error', None)
+        if safety_err:
+            _notify_board_failure(label, "safety LEDS_OFF failed",
+                f"{label} connected but the safety LEDS_OFF command did "
+                f"not complete ({safety_err}). If the LEDs are stuck on, "
+                f"turn off illumination manually before placing a sample.")
         return board
     except PermissionError as e:
         logger.error(f'{label}: PermissionError opening port: {e}')

@@ -29,6 +29,11 @@ class LEDBoard(SerialBoard):
             'Green': -1,
         }
 
+        # Set by _safety_leds_off() at connect time. None when LEDS_OFF
+        # send succeeded; "ExceptionType: message" when it failed. API
+        # layer reads this on construction to fire a notification.
+        self.last_safety_off_error: 'str | None' = None
+
         try:
             self.connect()
         except Exception:
@@ -44,17 +49,23 @@ class LEDBoard(SerialBoard):
         self._safety_leds_off()
 
     def _safety_leds_off(self):
-        """Turn off all LEDs immediately after connect (thermal safety).
+        """Turn off all LEDs immediately after connect.
 
-        Uses fire-and-forget write to minimize delay. If the board doesn't
-        respond, this is a best-effort attempt — the board may be in a
-        state where it can't process commands.
+        Guards against pre-v3.0.4 LED firmware that could leave channels
+        stuck on at full current after a crash / interrupted session,
+        risking thermal damage (62 degC measured at 3 A continuous) and
+        sample photobleaching. Uses fire-and-forget write to minimize
+        delay. If the board doesn't respond, this is a best-effort
+        attempt; the failure is recorded in self.last_safety_off_error
+        so the API layer can fire a Rule 14 notification.
         """
         try:
             self._write_command_fast('LEDS_OFF')
             logger.info('[LED Class ] Safety LEDS_OFF sent on connect')
+            self.last_safety_off_error = None
         except Exception as e:
-            logger.warning(f'[LED Class ] Safety LEDS_OFF failed: {e}')
+            logger.error(f'[LED Class ] Safety LEDS_OFF failed: {e}')
+            self.last_safety_off_error = f'{type(e).__name__}: {e}'
 
     def _on_disconnect(self):
         """Clear LED state cache on disconnect (called under self._lock)."""
