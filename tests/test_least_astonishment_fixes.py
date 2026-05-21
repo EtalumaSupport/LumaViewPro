@@ -96,7 +96,13 @@ class TestPostProcessingEmptyResultMessages:
 
 
 class TestFolderPickerReplacement:
-    """Kivy folder picker replaces the OS-native folder-only dialogs."""
+    """Kivy folder picker is used for post-processing folder contexts.
+
+    The image-save destination (live_folder) uses the OS-native picker --
+    different UX need (user knows the target; doesn't need to see files
+    inside). The TestFolderPickerLiveFolderNative class below covers
+    that branch.
+    """
 
     def test_folder_picker_popup_class_exists(self):
         # Kivy is mocked at test time (see conftest.py); the import alone
@@ -105,22 +111,48 @@ class TestFolderPickerReplacement:
         assert "class FolderPickerPopup(Popup):" in src
         assert "def _open_kivy_folder_picker(" in src
         # FileChooserListView is the widget that shows files and folders --
-        # the core of the fix.
+        # the core of the post-processing-picker fix.
         assert "FileChooserListView(" in src
         assert "dirselect=True" in src
 
-    def test_folder_choose_btn_no_longer_calls_native_dialogs(self):
+    def test_folder_choose_btn_uses_kivy_picker_for_post_processing(self):
         src = (REPO_ROOT / "ui" / "file_dialogs.py").read_text()
         # Carve out FolderChooseBTN's class body so we don't pick up
         # FileChooseBTN's still-valid tkinter usage.
         after = src.split("class FolderChooseBTN")[1]
         choose_body = after.split("class ")[0]
-        assert "askdirectory" not in choose_body
-        assert "_macos_choose_folder" not in choose_body
+        # Kivy picker is the default branch (everything except live_folder).
         assert "_open_kivy_folder_picker" in choose_body
 
-    def test_macos_choose_folder_removed(self):
-        # Dead code after the picker swap -- removing it preserves the
-        # single canonical implementation (Rule 35).
+
+class TestFolderPickerLiveFolderNative:
+    """live_folder = image-save destination uses the OS-native folder picker.
+
+    The post-processing contexts retain the in-app Kivy picker (different
+    UX need -- inspect files in the candidate folder). live_folder is a
+    pure folder-choice action where the OS-native browser is the right
+    affordance.
+    """
+
+    def test_macos_choose_folder_helper_exists(self):
         src = (REPO_ROOT / "ui" / "file_dialogs.py").read_text()
-        assert "_macos_choose_folder" not in src
+        assert "def _macos_choose_folder(" in src
+        # AppleScript "choose folder" is the macOS native folder browser.
+        assert "choose folder" in src
+
+    def test_platform_native_helper_dispatches_by_os(self):
+        src = (REPO_ROOT / "ui" / "file_dialogs.py").read_text()
+        assert "def _platform_native_choose_folder(" in src
+        # macOS branch
+        assert "sys.platform == 'darwin'" in src
+        # Windows/Linux branch (tkinter)
+        assert "askdirectory" in src
+
+    def test_folder_choose_btn_dispatches_native_for_live_folder(self):
+        src = (REPO_ROOT / "ui" / "file_dialogs.py").read_text()
+        after = src.split("class FolderChooseBTN")[1]
+        choose_body = after.split("class ")[0]
+        # The conditional that gates native-vs-kivy by context.
+        assert "self.context == 'live_folder'" in choose_body
+        # The native helper is what the live_folder branch calls.
+        assert "_platform_native_choose_folder" in choose_body

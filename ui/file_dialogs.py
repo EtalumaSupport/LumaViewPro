@@ -167,6 +167,49 @@ def _macos_open_file(initial_dir=None, filetypes=None):
     return None
 
 
+def _macos_choose_folder(initial_dir=None):
+    """Show a native macOS choose-folder dialog. Returns path string or None."""
+    script = 'set theFolder to choose folder'
+    if initial_dir:
+        script += f' default location POSIX file "{_escape_applescript(initial_dir)}"'
+    script += '\nPOSIX path of theFolder'
+
+    try:
+        result = subprocess.run(
+            ['osascript', '-e', script],
+            capture_output=True, text=True, timeout=120
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            return result.stdout.strip()
+    except Exception as e:
+        logger.warning(f'[LVP Main  ] macOS folder dialog error: {e}')
+    return None
+
+
+def _platform_native_choose_folder(initial_dir, title='Select folder'):
+    """Platform-native folder picker. Returns path string or None.
+
+    Used for the image-save destination folder where the user has
+    asked for the OS-native browser (post-processing folder pickers
+    still use the in-app Kivy picker so files in the candidate folder
+    are visible -- different UX need).
+    """
+    if sys.platform == 'darwin':
+        return _macos_choose_folder(initial_dir=initial_dir)
+
+    from tkinter import Tk, filedialog
+    root = Tk()
+    root.attributes('-alpha', 0.0)
+    root.attributes('-topmost', True)
+    path = filedialog.askdirectory(
+        parent=root,
+        initialdir=initial_dir,
+        title=title,
+    )
+    root.destroy()
+    return path or None
+
+
 def _macos_save_file(initial_dir=None, default_name=None):
     """Show a native macOS save-file dialog. Returns path string or None."""
     script = 'set theFile to choose file name'
@@ -292,6 +335,21 @@ class FolderChooseBTN(HoverBehavior, Button):
             selected_path = str(pathlib.Path(settings['live_folder']))
         else:
             selected_path = settings['live_folder']
+
+        # live_folder = image-save destination. User wants the OS-native
+        # folder browser there (it's a folder-choice, not a folder-inspect
+        # action -- the user knows where they want images saved). The
+        # post-processing contexts above keep the in-app Kivy picker so
+        # the user can see the files inside the folder they're picking,
+        # which is the difference that motivated the in-app picker.
+        if self.context == 'live_folder':
+            chosen = _platform_native_choose_folder(
+                initial_dir=selected_path,
+                title=f'Select folder ({context})',
+            )
+            if chosen:
+                self.handle_selection(selection=[chosen])
+            return
 
         _open_kivy_folder_picker(
             initial_dir=selected_path,
