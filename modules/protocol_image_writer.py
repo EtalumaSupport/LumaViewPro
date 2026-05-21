@@ -205,7 +205,7 @@ class ProtocolImageWriter:
                 # STALL-1 fix: removed the `with self._scope.imaging.update_camera_config():`
                 # wrapper that was here. update_camera_config() does StopGrabbing +
                 # StartGrabbing, which Pylon SDK only requires for buffer-geometry
-                # changes (Width/Height/PixelFormat/Binning/Offset) — NOT for Gain
+                # changes (Width/Height/PixelFormat/Binning/Offset) -- NOT for Gain
                 # or ExposureTime, which are live-updateable. The wrapper was
                 # paying a full grab-loop teardown+rebuild per protocol step,
                 # producing the observed ~11s per-step duration during 12-bit
@@ -218,13 +218,32 @@ class ProtocolImageWriter:
                 #
                 # If a "Node is locked while streaming" GenICam exception fires
                 # here, that means Gain or ExposureTime is locked on the current
-                # SDK/firmware combo — revert this change and add a
+                # SDK/firmware combo -- revert this change and add a
                 # `requires_buffer_realloc=True` audit. Per Basler convention
                 # both should be live-changeable.
                 self._scope.imaging.set_gain(step['Gain'])
                 self._scope.imaging.set_exposure_time(step['Exposure'])
             else:
-                logger.warning(f"[CAPTURE DIAG] SKIPPING camera settings -- Auto_Gain is truthy: {_ag!r}")
+                # Auto_Gain step: route through apply_layer_camera_settings so
+                # set_auto_gain(state=True, ...) actually fires. Previously this
+                # branch only logged a warning and skipped setting anything,
+                # leaving the camera at whatever gain/exposure it inherited
+                # from the prior step / live mode -- yielding overexposed (or
+                # arbitrary) images. Convergence is handled by the runner's
+                # `_auto_gain_deadline` loop in
+                # `modules/protocol_step_runner.py::scan_iterate` (~line 195).
+                # The deadline is reset per step in scan_iterate (line 199).
+                logger.debug(
+                    f"[CAPTURE DIAG] Auto_Gain step: enabling AG with target "
+                    f"gain={step['Gain']}dB exp={step['Exposure']}ms; "
+                    f"convergence via _auto_gain_deadline loop"
+                )
+                self._scope.imaging.apply_layer_camera_settings(
+                    gain_db=step['Gain'],
+                    exposure_ms=step['Exposure'],
+                    auto_gain=True,
+                    auto_gain_settings=autogain_settings,
+                )
 
             # Objective short name for filename
             objective_short_name = None
