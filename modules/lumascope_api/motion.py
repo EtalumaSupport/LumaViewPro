@@ -85,12 +85,18 @@ class MotionAPI:
         # ------------------------------------------------------------------
         self._pos_cache_lock = threading.Lock()
 
-        # Threading audit -- TimedLock on the hot axis-state lock records
-        # contention to lock_trace.csv when LVP_PROFILE_TRACE=1. The
-        # invariant "never hold _axis_state_lock across a serial call"
-        # is traced to confirm it holds under real workloads.
+        # TimedLock on the hot axis-state lock records contention to
+        # lock_trace.csv when LVP_PROFILE_TRACE=1. The structural invariant
+        # "never hold _axis_state_lock across a serial call" is enforced
+        # at runtime via warn_hold_threshold_ms=1.0 -- any acquire-release
+        # cycle that holds the lock for more than 1 ms emits a warning
+        # log naming the lock + thread + duration, regardless of trace
+        # state. Catches future code-introducers who hold across a serial
+        # round-trip (typically 30-200 ms on the motor bus).
         self._axis_state_lock = profile_trace.TimedLock(
-            threading.Lock(), name="motion._axis_state_lock"
+            threading.Lock(),
+            name="motion._axis_state_lock",
+            warn_hold_threshold_ms=1.0,
         )
 
         # Motion monitor wakeup -- set when any axis starts MOVING, cleared

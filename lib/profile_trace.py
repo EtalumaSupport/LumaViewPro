@@ -156,12 +156,21 @@ class TimedLock:
             ...
 
     Also supports acquire()/release() for code that uses them directly.
-    """
-    __slots__ = ("_lock", "_name", "_tls")
 
-    def __init__(self, lock, name):
+    Optional hold-duration invariant via ``warn_hold_threshold_ms``: when
+    set, the lock fires a logger.warning at __exit__ time if the hold
+    duration exceeded the threshold. Active regardless of the trace-CSV
+    feature flag -- it's a structural guard, not an instrumentation
+    knob. Use for locks with a documented "never hold across X" rule
+    (motion._axis_state_lock has a 1 ms invariant; LED owners lock
+    has a similar guard for serial-call hosts).
+    """
+    __slots__ = ("_lock", "_name", "_warn_hold_threshold_ms", "_tls")
+
+    def __init__(self, lock, name, warn_hold_threshold_ms=None):
         self._lock = lock
         self._name = name
+        self._warn_hold_threshold_ms = warn_hold_threshold_ms
         self._tls = threading.local()
 
     def _stack(self):
@@ -172,7 +181,10 @@ class TimedLock:
         return s
 
     def __enter__(self):
-        if ENABLE_PROFILE_TRACE:
+        # Time the acquire only when tracing OR a hold-threshold is set;
+        # both consumers need the t0/t1 snapshot stored on the per-thread
+        # stack so __exit__ can compute hold_ms.
+        if ENABLE_PROFILE_TRACE or self._warn_hold_threshold_ms is not None:
             t0 = time.perf_counter()
             self._lock.acquire()
             t1 = time.perf_counter()
@@ -182,21 +194,39 @@ class TimedLock:
         return self
 
     def __exit__(self, *_):
-        if ENABLE_PROFILE_TRACE:
+        if ENABLE_PROFILE_TRACE or self._warn_hold_threshold_ms is not None:
             stack = self._stack()
             if stack:
                 t0, t1 = stack.pop()
                 t2 = time.perf_counter()
                 acquire_wait_ms = (t1 - t0) * 1000.0
                 hold_ms = (t2 - t1) * 1000.0
-                ts_ms = int(time.time() * 1000)
-                thread_name = threading.current_thread().name
-                trace(
-                    "lock_trace.csv",
-                    "ts_ms,duration_ms,lock_name,thread,acquire_wait_ms,hold_ms",
-                    [ts_ms, f"{(acquire_wait_ms + hold_ms):.3f}", self._name,
-                     thread_name, f"{acquire_wait_ms:.3f}", f"{hold_ms:.3f}"],
-                )
+
+                # Structural invariant guard. Fires regardless of the
+                # trace-CSV flag because the rule is "never hold this
+                # lock for X ms" -- a real bug, not an instrumentation
+                # signal. Uses the per-lock-instance threshold so other
+                # locks pay zero cost.
+                if (
+                    self._warn_hold_threshold_ms is not None
+                    and hold_ms > self._warn_hold_threshold_ms
+                ):
+                    from lvp_logger import logger as _lock_logger
+                    _lock_logger.warning(
+                        f"[LOCK] {self._name} held {hold_ms:.2f}ms by "
+                        f"{threading.current_thread().name} -- "
+                        f"invariant threshold {self._warn_hold_threshold_ms}ms exceeded"
+                    )
+
+                if ENABLE_PROFILE_TRACE:
+                    ts_ms = int(time.time() * 1000)
+                    thread_name = threading.current_thread().name
+                    trace(
+                        "lock_trace.csv",
+                        "ts_ms,duration_ms,lock_name,thread,acquire_wait_ms,hold_ms",
+                        [ts_ms, f"{(acquire_wait_ms + hold_ms):.3f}", self._name,
+                         thread_name, f"{acquire_wait_ms:.3f}", f"{hold_ms:.3f}"],
+                    )
         self._lock.release()
         return False
 
