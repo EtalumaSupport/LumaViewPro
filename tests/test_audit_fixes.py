@@ -710,6 +710,46 @@ class TestPyprojectConfig:
         assert '[tool.coverage.run]' in content
 
 
+class TestGdiSamplerCtypesSignatures:
+    """Bench 2026-05-18: metrics.log reports gdi=0 on every Windows
+    sample of the beta12 soak (impossible -- Windows GUI apps always
+    have GDI handles). Root cause: ctypes calls to GetCurrentProcess /
+    GetGuiResources had no argtypes / restype declarations, so the
+    64-bit HANDLE was being truncated by the default c_int and the
+    function silently returned 0. Without these declarations the metric
+    is structurally broken on 64-bit Windows (Rule 20 lying log).
+    """
+
+    def _read_common_utils(self):
+        import pathlib
+        root = pathlib.Path(__file__).parent.parent
+        return (root / 'modules' / 'common_utils.py').read_text()
+
+    def test_getcurrentprocess_restype_declared(self):
+        src = self._read_common_utils()
+        assert 'GetCurrentProcess.restype = ctypes.c_void_p' in src, (
+            "kernel32.GetCurrentProcess must declare restype=c_void_p "
+            "so the 64-bit pseudo-handle isn't truncated."
+        )
+
+    def test_getguiresources_argtypes_declared(self):
+        src = self._read_common_utils()
+        assert (
+            'GetGuiResources.argtypes = [ctypes.c_void_p, ctypes.c_uint]'
+            in src
+        ), (
+            "user32.GetGuiResources must declare argtypes=[c_void_p, c_uint] "
+            "so the HANDLE arg isn't truncated by the default c_int."
+        )
+
+    def test_getguiresources_restype_declared(self):
+        src = self._read_common_utils()
+        assert 'GetGuiResources.restype = ctypes.c_uint' in src, (
+            "user32.GetGuiResources must declare restype=c_uint so the "
+            "GDI count isn't reinterpreted as a smaller signed type."
+        )
+
+
 # ===========================================================================
 # 9. Position cache — push-based, zero serial I/O
 # ===========================================================================

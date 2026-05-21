@@ -747,13 +747,21 @@ def system_metrics(path="/"):
         try:
             GR_GDIOBJECTS = 0
             GR_USEROBJECTS = 1
-            handle = ctypes.windll.kernel32.GetCurrentProcess()
-            metrics["gdi_objects"] = ctypes.windll.user32.GetGuiResources(
-                handle, GR_GDIOBJECTS
-            )
-            metrics["user_objects"] = ctypes.windll.user32.GetGuiResources(
-                handle, GR_USEROBJECTS
-            )
+            kernel32 = ctypes.windll.kernel32
+            user32 = ctypes.windll.user32
+            # Declare argtypes / restype so the 64-bit Windows HANDLE
+            # is passed without truncation. Default ctypes types are
+            # c_int (4 bytes signed), which silently truncates a 64-bit
+            # pseudo-handle and causes GetGuiResources to return 0 -- a
+            # broken metric that masquerades as "no GDI usage" in
+            # metrics.log on healthy systems. (Repeated assignments are
+            # idempotent, so doing this each call is safe.)
+            kernel32.GetCurrentProcess.restype = ctypes.c_void_p
+            user32.GetGuiResources.argtypes = [ctypes.c_void_p, ctypes.c_uint]
+            user32.GetGuiResources.restype = ctypes.c_uint
+            handle = kernel32.GetCurrentProcess()
+            metrics["gdi_objects"] = user32.GetGuiResources(handle, GR_GDIOBJECTS)
+            metrics["user_objects"] = user32.GetGuiResources(handle, GR_USEROBJECTS)
         except Exception:
             metrics["gdi_objects"] = -1
             metrics["user_objects"] = -1
