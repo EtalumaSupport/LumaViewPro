@@ -159,7 +159,7 @@ class DiagnosticsAPI:
                 # force_to_8bit=False keeps native depth so frame size
                 # reflects the actual bytes the SDK delivered.
                 frame = self._scope.imaging.get_image(force_to_8bit=False, force_new_capture=True)
-                if frame is None or frame is False:
+                if frame is None:
                     results['num_frames_none'] += 1
                 else:
                     results['num_frames_received'] += 1

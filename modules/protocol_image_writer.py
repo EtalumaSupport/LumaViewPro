@@ -361,7 +361,7 @@ class ProtocolImageWriter:
                         sum_iteration_callback=sum_iteration_callback,
                     )
 
-                    if captured_image is False:
+                    if captured_image is None:
                         self._consecutive_capture_failures += 1
                         logger.error(f"[PROTOCOL] Capture failed for step {curr_step} ({step.get('Name', '?')}), scan {scan_count} -- camera inactive or frame drain failed (failure {self._consecutive_capture_failures}/{self._MAX_CONSECUTIVE_CAPTURE_FAILURES})")
                         # Still record the step with "capture_failed" so the record isn't silently missing.
@@ -535,8 +535,8 @@ class ProtocolImageWriter:
                 duration_sec = video_result.duration_sec
 
             else:
-                if captured_image is False:
-                    logger.warning(f"[PROTOCOL] _write_capture: captured_image is False for step {step_index} ({step.get('Name', '?') if step else '?'}), scan {scan_count}, recording as capture_failed")
+                if captured_image is None:
+                    logger.warning(f"[PROTOCOL] _write_capture: captured_image is None for step {step_index} ({step.get('Name', '?') if step else '?'}), scan {scan_count}, recording as capture_failed")
                     if self._execution_record is not None:
                         self._execution_record.add_step(
                             capture_result_file_name="capture_failed",

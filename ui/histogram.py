@@ -35,7 +35,7 @@ class Histogram(Widget):
 
         if ctx.scope.imaging.camera_active:
             image, _ = ctx.scope.imaging.get_image_from_buffer(force_to_8bit=True)
-            if image is None or image is False:
+            if image is None:
                 return
 
             # Subsample image for faster histogram (~16x fewer pixels)

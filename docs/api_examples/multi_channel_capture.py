@@ -69,7 +69,7 @@ def main():
 
         # Capture a frame valid for the current LED + exposure state
         image = scope.imaging.capture_and_wait(force_to_8bit=True)
-        if image is False:
+        if image is None:
             print(f"  ERROR: Failed to capture {color} channel")
             continue
 

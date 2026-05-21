@@ -532,7 +532,7 @@ class ScopeDisplay(Image):
         # Likely not an IO call as image will be stored in buffer
         t_grab_start = time.monotonic()
         image, frame_ts = ctx.scope.imaging.get_image_from_buffer(force_to_8bit=True)
-        if (image is False) or (image is None) or (image.size == 0):
+        if image is None or image.size == 0:
             return STATUS_EMPTY
 
         # Skip duplicate frames (same camera timestamp = same data)

@@ -1082,7 +1082,7 @@ class ImagingAPI:
                          earliest_image_ts: datetime.datetime | None = None,
                          timeout_s: float = 0.0,
                          sum_count: int = 1, sum_delay_s: float = 0,
-                         sum_iteration_callback=None) -> 'np.ndarray | bool':
+                         sum_iteration_callback=None) -> 'np.ndarray | None':
         """Capture a frame guaranteed to reflect the current hardware state.
 
         Uses frame-based settling: drains stale frames from the camera pipeline
@@ -1108,11 +1108,12 @@ class ImagingAPI:
             sum_iteration_callback: Called after each summed frame.
 
         Returns:
-            numpy.ndarray | False: Captured image array on success, False
-                on camera-inactive or frame-drain failure.
+            numpy.ndarray | None: Captured image array on success, None
+                on camera-inactive or frame-drain failure. Per the
+                Sentinel-return contract: `if image is None: ...`.
         """
         if not self._driver or not self._driver.active:
-            return False
+            return None
 
         exposure_s = self.get_exposure_time() / 1000
         grab_timeout_s = max(exposure_s * 3, 1.0)
@@ -1163,7 +1164,7 @@ class ImagingAPI:
 
         Args:
             callback: Completion callback; receives the captured array
-                (or ``False`` on capture failure) as the first arg.
+                (or ``None`` on capture failure) as the first arg.
             cb_kwargs: Optional kwargs passed to the callback.
             **kwargs: Forwarded to ``capture_and_wait``.
         """
@@ -1175,7 +1176,7 @@ class ImagingAPI:
             cb_kwargs=cb_kwargs,
         ))
 
-    def capture_and_wait_sync(self, *, timeout_s: float = 30.0, **kwargs) -> 'np.ndarray | bool | None':
+    def capture_and_wait_sync(self, *, timeout_s: float = 30.0, **kwargs) -> 'np.ndarray | None':
         """Run ``capture_and_wait`` through the camera_executor and block.
 
         Args:
@@ -1183,7 +1184,8 @@ class ImagingAPI:
             **kwargs: Forwarded to ``capture_and_wait``.
 
         Returns:
-            The captured image array, or None on failure.
+            The captured image array, or None on failure (camera-inactive,
+            frame-drain failed, executor absent, or future not delivered).
         """
         ex = self._scope._require_executor(self._scope._camera_executor, 'capture_and_wait_sync')
         task = IOTask(action=self.capture_and_wait, kwargs=kwargs)
@@ -1203,7 +1205,7 @@ class ImagingAPI:
         sum_iteration_callback = None,
         force_new_capture: bool = False,
         new_capture_timeout_s: float = 5.0,
-    ) -> 'np.ndarray | bool':
+    ) -> 'np.ndarray | None':
         """Grab and return an image from the camera.
 
         By default returns the last buffered frame. Set force_new_capture=True
@@ -1226,11 +1228,14 @@ class ImagingAPI:
                 the unit-suffix rename closes the contract ambiguity.
 
         Returns:
-            numpy.ndarray | False: Captured image array, or False on failure.
+            numpy.ndarray | None: Captured image array, or None on failure
+                (camera inactive, frame drain failed, timeout exceeded).
+                Per the Sentinel-return contract preface in LumascopeSkills:
+                `if image is None: ...` to detect failure.
         """
 
         if not self._driver or not self._driver.active:
-            return False
+            return None
 
         tmp_buffer = []
         timeout_td = datetime.timedelta(seconds=timeout_s)
@@ -1259,10 +1264,10 @@ class ImagingAPI:
                         from modules.notification_center import notifications
                         notifications.error("Camera", "Camera Disconnected",
                             "Camera is no longer available. Check USB connection.")
-                        return False
+                        return None
                     if datetime.datetime.now() > stop_time:
                         logger.error(f"[SCOPE API ] get_image timeout ({stop_time}) exceeded")
-                        return False
+                        return None
                     logger.debug("[SCOPE API ] get_image grab failed, retrying")
                     time.sleep(0.05)
                     continue
@@ -1299,7 +1304,7 @@ class ImagingAPI:
                 # Timestamp not met — check timeout then retry
                 if datetime.datetime.now() > stop_time:
                     logger.error(f"[SCOPE API ] get_image timeout ({stop_time}) exceeded")
-                    return False
+                    return None
                 time.sleep(0.05)
 
             if sum_count > 1:
@@ -1356,16 +1361,17 @@ class ImagingAPI:
         a later frame's chunks paired with this frame's image).
 
         Returns:
-            tuple: ``(image, timestamp, chunks)`` or ``(False, None, None)``
+            tuple: ``(image, timestamp, chunks)`` or ``(None, None, None)``
                 if no frame is available. Chunks may be None for cameras
-                without chunk support.
+                without chunk support. Per the Sentinel-return contract:
+                ``if image is None: ...`` to detect no-frame.
         """
         if not self._driver or not self._driver.active:
-            return False, None, None
+            return None, None, None
 
         grab_status, tmp, grab_image_ts, chunks = self._driver.grab_latest_with_chunks()
         if not grab_status or tmp is None:
-            return False, None, None
+            return None, None, None
         self.frame_validity.count_frame(chunk_data=chunks)
 
         with self._scope._state_lock:
@@ -1406,17 +1412,18 @@ class ImagingAPI:
 
         Returns:
             tuple: (image, timestamp) where image is numpy.ndarray and timestamp
-                   is from the camera SDK, or (False, None) if unavailable.
+                   is from the camera SDK, or (None, None) if unavailable.
+                   Per the Sentinel-return contract: `if image is None: ...`.
         """
         if not self._driver or not self._driver.active:
-            return False, None
+            return None, None
 
         # Single-copy grab: grab_latest() returns the image directly,
         # avoiding the extra copy that grab() + get_array() would make.
         # This saves ~2.3MB copy + 1 lock acquisition per frame.
         grab_status, tmp, grab_image_ts = self._driver.grab_latest()
         if not grab_status or tmp is None:
-            return False, None
+            return None, None
         self.frame_validity.count_frame()
 
         with self._scope._state_lock:

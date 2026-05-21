@@ -441,10 +441,13 @@ driver is `scope.imaging._driver` (private; reach through the API).
 # Raw frame grab (no validity wait — use capture_and_wait instead in most cases)
 image = scope.imaging.get_image()
 image = scope.imaging.get_image(force_to_8bit=False)   # keep native 12/16-bit
+# Returns numpy.ndarray on success, None on failure (camera inactive,
+# frame drain failed, timeout). Per the sentinel-return contract:
+#   if image is None: ...
 
 # Frame-validity capture — PREFERRED for all real captures.
 # Waits for all pending changes (LED, gain, exposure, motion) to settle,
-# drains stale frames, returns a valid frame.
+# drains stale frames, returns a valid frame. Returns None on failure.
 image = scope.imaging.capture_and_wait()
 image = scope.imaging.capture_and_wait(
     force_to_8bit=True,

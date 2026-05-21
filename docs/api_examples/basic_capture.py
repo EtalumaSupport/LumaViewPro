@@ -64,7 +64,7 @@ def main():
     # Capture an image. capture_and_wait drains stale frames and
     # returns a frame valid for the current LED + exposure state.
     image = scope.imaging.capture_and_wait(force_to_8bit=True)
-    if image is False:
+    if image is None:
         print("Capture failed")
     else:
         print(f"Captured image: shape={image.shape}, dtype={image.dtype}")
