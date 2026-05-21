@@ -227,6 +227,22 @@ class IlluminationAPI:
             return
         with self._led_lock:
             self._driver.leds_off()
+        # Sample-safety surface: driver records no-response failures in
+        # last_off_error; surface them here as a notification so the
+        # user knows the call did not confirm. notification_center
+        # auto-suppresses during shutdown so the atexit path
+        # (_emergency_shutdown) does not spawn a popup the user can't
+        # see anyway.
+        off_err = getattr(self._driver, 'last_off_error', None)
+        if off_err:
+            from modules.notification_center import notifications
+            notifications.warning(
+                "LED Safety",
+                "LEDS_OFF did not confirm",
+                f"LED board did not acknowledge the LEDS_OFF command "
+                f"({off_err}). If LEDs are stuck on, turn off illumination "
+                f"manually before placing a sample.",
+            )
         with self._led_owner_lock:
             self._led_owners.clear()
             self._led_state.clear()

@@ -34,6 +34,14 @@ class LEDBoard(SerialBoard):
         # layer reads this on construction to fire a notification.
         self.last_safety_off_error: 'str | None' = None
 
+        # Set by leds_off() per call. None on success; short message
+        # describing why the off failed (no response, exception, etc.)
+        # so the API-layer wrap can fire a sample-safety notification.
+        # The shutdown path (_emergency_shutdown) is auto-suppressed by
+        # notification_center._shutting_down so writing a stale field
+        # during atexit is harmless.
+        self.last_off_error: 'str | None' = None
+
         try:
             self.connect()
         except Exception:
@@ -324,7 +332,10 @@ class LEDBoard(SerialBoard):
     def leds_off(self) -> None:
         """Turn off every LED channel.
 
-        On success, clears the cached per-channel mA state.
+        On success, clears the cached per-channel mA state and resets
+        self.last_off_error to None. On no-response, sets
+        self.last_off_error so the API-layer wrap can fire a sample-
+        safety notification.
         """
         command = 'LEDS_OFF'
         response = self.exchange_command(command)
@@ -333,8 +344,10 @@ class LEDBoard(SerialBoard):
             with self._state_lock:
                 for color in self.led_ma:
                     self.led_ma[color] = -1
+            self.last_off_error = None
         else:
-            logger.warning('[LED Class ] leds_off() got no response')
+            logger.error('[LED Class ] leds_off() got no response')
+            self.last_off_error = 'no response from LED board'
 
     def leds_off_fast(self) -> None:
         """Fast write-only version of leds_off.
