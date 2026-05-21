@@ -10,7 +10,7 @@ The Lumascope SDK API documented in this file is **subject to breaking changes**
 
 If you are using this API before stabilization, **contact Etaluma support** so we know to consult you before structural changes. Internal LumaViewPro use does not trigger this requirement.
 
-The warning retires when (1) a tagged release publishes to PyPI / a public binary distribution channel AND (2) we have at least one named external consumer on record. Until both conditions hold, the API surface stays structurally fluid -- methods may be renamed, moved into sub-APIs, or retired without a deprecation cycle.
+The warning retires when the first non-`-beta` LumaViewPro release ships (the `4.0.0` git tag on the `4.0.0-beta` lineage). At that point the L2-callable surface freezes for the 4.x major version and every subsequent change is recorded in the [Changelog](#changelog) section below (additive / behavior-change / rename / removal, with version + justification). Until `4.0.0` ships, the API surface stays structurally fluid -- methods may be renamed, moved into sub-APIs, or retired without a deprecation cycle.
 
 ---
 
@@ -1203,3 +1203,21 @@ During homing, `STOP` aborts. `INFO`, `ACTUAL_R`, `STATUS_R`, `VOLTAGE` respond 
 Direct SPI access to the TMC5072 (register-level motor configuration) and the associated status-register bit semantics are intentionally omitted — those are firmware-internal.
 
 </details>
+
+
+---
+
+## Changelog
+
+Post-freeze record of every change to the L2-callable surface (methods documented above). Entries land in the SAME commit as the underlying change. Pre-`4.0.0` (the freeze trigger) is fluid by design and not recorded here; consult `LVP_4.0.0_CHANGELOG.md` for pre-freeze prose history.
+
+Entry format:
+
+| Version | Date | Type | Method / surface | Change |
+|---|---|---|---|---|
+
+- **Type**: `additive` (new optional param / new return-dict key / new method) — no version bump beyond patch.
+- **Type**: `behavior-change` — requires minor version bump.
+- **Type**: `rename` / `removal` — requires deprecation cycle (old name retained with `FutureWarning`, retired in next major) OR a major version bump.
+
+(No entries yet -- 4.0.0 has not shipped. Pre-freeze structural changes do not appear here.)
