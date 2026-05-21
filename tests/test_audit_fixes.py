@@ -9060,3 +9060,39 @@ class TestImagingAsyncSyncThreeVariantPattern:
         finally:
             session.shutdown_executors()
             session.scope.disconnect()
+
+
+class TestImagingPylonSdkPerfSettersPrivatized:
+    """Pylon SDK-perf imaging setters are bench-tooling artifacts, not
+    part of the L2 contract. Per API audit F8 they are renamed with a
+    leading underscore so an L2 consumer doing dir(scope.imaging)
+    sees a clear 'not part of contract' signal.
+    """
+
+    PRIVATIZED = (
+        'set_acquisition_stop_mode',
+        'set_bandwidth_reserve_mode',
+        'set_device_link_throughput_limit',
+        'set_max_transfer_size',
+        'set_num_max_queued_urbs',
+        'set_gev_packet_size',
+        'set_gev_inter_packet_delay',
+    )
+
+    def test_private_versions_exist(self):
+        from modules.lumascope_api.imaging import ImagingAPI
+        for name in self.PRIVATIZED:
+            private = f'_{name}'
+            assert hasattr(ImagingAPI, private), (
+                f'ImagingAPI must expose {private} (underscore-prefixed) '
+                f'per audit F8.'
+            )
+
+    def test_public_versions_retired(self):
+        from modules.lumascope_api.imaging import ImagingAPI
+        for name in self.PRIVATIZED:
+            assert not hasattr(ImagingAPI, name), (
+                f'ImagingAPI.{name} must be retired in favor of '
+                f'_{name} -- the public name signaled L2-contract '
+                f'membership for a bench-tooling artifact.'
+            )

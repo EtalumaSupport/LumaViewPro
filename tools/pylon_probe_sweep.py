@@ -275,15 +275,19 @@ def _apply_cell(scope, transport: str, cell: dict, sensor_w: int, sensor_h: int)
             except Exception as e:
                 log.append(('resolution', f'FAILED: {e}'))
 
-        # Transport-specific knobs
+        # Transport-specific knobs.
+        # These setters are private (underscore-prefixed) on ImagingAPI
+        # because they are bench-tooling artifacts, not part of the L2
+        # contract. This tool is internal bench tooling; the underscore
+        # access is intentional.
         if transport == 'usb3':
-            ok = scope.set_device_link_throughput_limit(
+            ok = scope.imaging._set_device_link_throughput_limit(
                 mode=cell['dltl_mode'], value_bps=cell['dltl_value'])
             log.append(('dltl', ok))
         elif transport == 'gige':
-            log.append(('bw_mode', scope.set_bandwidth_reserve_mode(cell['bw_mode'])))
-            log.append(('packet_size', scope.set_gev_packet_size(cell['packet_size'])))
-            log.append(('delay_ticks', scope.set_gev_inter_packet_delay(cell['delay_ticks'])))
+            log.append(('bw_mode', scope.imaging._set_bandwidth_reserve_mode(cell['bw_mode'])))
+            log.append(('packet_size', scope.imaging._set_gev_packet_size(cell['packet_size'])))
+            log.append(('delay_ticks', scope.imaging._set_gev_inter_packet_delay(cell['delay_ticks'])))
 
     return log
 
@@ -343,11 +347,9 @@ def _make_minimal_scope(camera: PylonCamera) -> Lumascope:
     """Construct a minimal Lumascope shell with only the camera attached.
 
     Bypasses the full Lumascope.__init__ (which expects scope / board /
-    settings). The setters this tool calls (set_pixel_format,
-    set_frame_size, set_device_link_throughput_limit, GigE setters,
-    run_pylon_diagnostic_probe) reach for both ``self.camera`` and
-    ``self._camera_cache_lock``; we initialize the lock explicitly so the
-    shortcut is safe.
+    settings). The setters this tool calls reach for both ``self.camera``
+    and ``self._camera_cache_lock``; we initialize the lock explicitly
+    so the shortcut is safe.
     """
     import threading
     scope = Lumascope.__new__(Lumascope)

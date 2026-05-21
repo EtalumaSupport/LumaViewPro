@@ -516,7 +516,7 @@ class ImagingAPI:
     # capability tokens for "supports readback" would belong on
     # scope.capabilities.
 
-    def set_acquisition_stop_mode(self, mode: str) -> bool:
+    def _set_acquisition_stop_mode(self, mode: str) -> bool:
         """Set BslAcquisitionStopMode (Pylon-only; no-op on IDS).
 
         Controls camera behavior when StopGrabbing fires during an
@@ -573,7 +573,7 @@ class ImagingAPI:
             )
             raise
 
-    def set_bandwidth_reserve_mode(self, mode: str) -> bool:
+    def _set_bandwidth_reserve_mode(self, mode: str) -> bool:
         """Set BandwidthReserveMode (GigE-only Pylon node).
 
         ``'Default'`` reserves a portion of GigE bandwidth for
@@ -615,7 +615,7 @@ class ImagingAPI:
             )
             raise
 
-    def set_device_link_throughput_limit(
+    def _set_device_link_throughput_limit(
         self,
         mode: str,
         value_bps: int | None = None,
@@ -685,7 +685,7 @@ class ImagingAPI:
             )
             raise
 
-    def set_max_transfer_size(self, value_bytes: int) -> bool:
+    def _set_max_transfer_size(self, value_bytes: int) -> bool:
         """Set Pylon StreamGrabber MaxTransferSize (USB3 only).
 
         Bytes-per-USB-transfer the SDK requests from the kernel. Per
@@ -730,7 +730,7 @@ class ImagingAPI:
             )
             raise
 
-    def set_num_max_queued_urbs(self, value: int) -> bool:
+    def _set_num_max_queued_urbs(self, value: int) -> bool:
         """Set Pylon StreamGrabber NumMaxQueuedUrbs (USB3 only).
 
         Number of USB Request Blocks the SDK keeps in flight to the
@@ -773,7 +773,7 @@ class ImagingAPI:
             )
             raise
 
-    def set_gev_packet_size(self, size_bytes: int) -> bool:
+    def _set_gev_packet_size(self, size_bytes: int) -> bool:
         """Set GevSCPSPacketSize (GigE-only Pylon node).
 
         Packet size in bytes. 1500 = standard Ethernet MTU; 9000 =
@@ -815,7 +815,7 @@ class ImagingAPI:
             )
             raise
 
-    def set_gev_inter_packet_delay(self, delay_ticks: int) -> bool:
+    def _set_gev_inter_packet_delay(self, delay_ticks: int) -> bool:
         """Set GevSCPD (GigE inter-packet delay, in clock ticks).
 
         Inserts a wait between successive packets to throttle the
