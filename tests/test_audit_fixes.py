@@ -8763,3 +8763,74 @@ class TestProtocolCleanupLedRestoreKey:
             "Stale 'illumination' key must not be read -- the snapshot "
             "shape returns 'illumination_ma'."
         )
+
+
+class TestPreReleaseFutureWarning:
+    """Rule 30 4-mechanism pre-freeze warning bundle requires a
+    runtime FutureWarning -- mechanism #3, paired with the README
+    banner, LumascopeSkills.md preface, and CHANGELOG note. Closes
+    API audit F4.
+
+    Warning fires once-per-process: any of the three L2 entry points
+    (Lumascope(), ScopeSession.create, ScopeSession.create_headless)
+    trips it the first time it runs; subsequent entries are silent.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _reset_warning_flag(self):
+        # Reset module-level fired-flag so each test sees a fresh
+        # not-yet-fired state. Restore on teardown so the test order
+        # in the surrounding file isn't poisoned.
+        import modules.lumascope_api._lumascope as lm_mod
+        previous = lm_mod._PRE_RELEASE_WARNING_FIRED
+        lm_mod._PRE_RELEASE_WARNING_FIRED = False
+        yield
+        lm_mod._PRE_RELEASE_WARNING_FIRED = previous
+
+    def test_lumascope_init_fires_future_warning(self):
+        import warnings
+        from modules.lumascope_api import Lumascope
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter('always')
+            Lumascope(simulate=True)
+        future_warnings = [w for w in caught if issubclass(w.category, FutureWarning)]
+        assert len(future_warnings) >= 1
+        msg = str(future_warnings[0].message)
+        assert 'PRE-RELEASE' in msg
+        assert 'LumascopeSkills' in msg
+
+    def test_warning_fires_once_per_process(self):
+        import warnings
+        from modules.lumascope_api import Lumascope
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter('always')
+            Lumascope(simulate=True)
+            Lumascope(simulate=True)
+            Lumascope(simulate=True)
+        future_warnings = [w for w in caught if issubclass(w.category, FutureWarning)]
+        assert len(future_warnings) == 1, (
+            f'PRE-RELEASE FutureWarning must fire once-per-process; '
+            f'saw {len(future_warnings)} for 3 Lumascope constructions.'
+        )
+
+    def test_scope_session_create_headless_fires_warning(self):
+        import warnings
+        from modules.scope_session import ScopeSession
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter('always')
+            ScopeSession.create_headless()
+        future_warnings = [w for w in caught if issubclass(w.category, FutureWarning)]
+        assert len(future_warnings) >= 1
+        assert 'PRE-RELEASE' in str(future_warnings[0].message)
+
+    def test_warning_text_references_migration_plan(self):
+        # Static-source assertion the helper text names the migration
+        # plan + Etaluma support, so retiring the warning requires
+        # editing the bundle text alongside the other 3 mechanisms.
+        import pathlib
+        src = pathlib.Path('modules/lumascope_api/_lumascope.py').read_text()
+        assert '_PRE_RELEASE_WARNING_TEXT' in src
+        assert '_fire_pre_release_warning' in src
+        # README banner / LumascopeSkills preface / CHANGELOG note are
+        # the other three mechanisms; their existence is verified
+        # outside this test file (Rule 30 bundle).

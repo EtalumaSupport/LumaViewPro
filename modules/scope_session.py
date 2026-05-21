@@ -68,6 +68,9 @@ class ScopeSession:
         """
         from modules.sequential_io_executor import SequentialIOExecutor
 
+        from modules.lumascope_api._lumascope import _fire_pre_release_warning
+        _fire_pre_release_warning()
+
         if scope is None:
             import modules.lumascope_api as lumascope_api
             scope = lumascope_api.Lumascope()
@@ -147,8 +150,11 @@ class ScopeSession:
         Convenience factory for REST API, CLI scripts, and tests.
         Uses simulated drivers so no physical hardware is needed.
         """
+        from modules.lumascope_api._lumascope import _fire_pre_release_warning
         from modules.sequential_io_executor import SequentialIOExecutor
         import modules.lumascope_api as lumascope_api
+
+        _fire_pre_release_warning()
 
         if settings is None:
             from modules.settings_init import settings as default_settings

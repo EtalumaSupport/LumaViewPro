@@ -48,6 +48,39 @@ import logging as _logging
 
 _api_log = _logging.getLogger('LVP.api')
 
+# PRE-RELEASE 4-mechanism warning bundle: this is the runtime
+# FutureWarning piece. The other three are the README banner, the
+# LumascopeSkills.md preface, and the CHANGELOG note. All four
+# retire together in one commit at the freeze trigger; do not
+# retire this one without the bundle.
+_PRE_RELEASE_WARNING_FIRED = False
+_PRE_RELEASE_WARNING_TEXT = (
+    "The Lumascope SDK API is PRE-RELEASE and subject to breaking "
+    "changes through LVP 4.2 (Wave 7 sub-API decomposition, capability "
+    "+ wire-contract changes, REST endpoint conventions). See "
+    "LumaViewPro/docs/LumascopeSkills.md preface for the migration "
+    "plan. Contact Etaluma support if you depend on this API."
+)
+
+
+def _fire_pre_release_warning(stacklevel: int = 3) -> None:
+    """Fire the Rule 30 PRE-RELEASE runtime FutureWarning once per process.
+
+    Called from `Lumascope.__init__` and from `ScopeSession.create` /
+    `create_headless` so any L2 entry point trips the warning, even
+    callers that bypass `Lumascope` directly (e.g. tests that mock
+    the scope).
+
+    stacklevel default is 3: the caller of __init__ / create is two
+    frames above this helper. Callers that wrap deeper can override.
+    """
+    global _PRE_RELEASE_WARNING_FIRED
+    if _PRE_RELEASE_WARNING_FIRED:
+        return
+    _PRE_RELEASE_WARNING_FIRED = True
+    warnings.warn(_PRE_RELEASE_WARNING_TEXT, FutureWarning, stacklevel=stacklevel)
+
+
 import modules.common_utils as common_utils
 import modules.coord_transformations as coord_transformations
 from lib import profile_trace
@@ -276,6 +309,8 @@ class Lumascope():
                 ThreadingTimerScheduler). Tests that don't need
                 periodic logging set False.
         """
+        _fire_pre_release_warning()
+
         # Shared state-slot init (audit #35) -- transformers, locks,
         # camera cache, objective/turret state, executor slot defaults.
         # Driver construction + sub-API wiring happen below.
