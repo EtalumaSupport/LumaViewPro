@@ -508,3 +508,258 @@ def test_unload_plugins_no_ctx_plugins_attr_is_noop():
 
 def test_load_plugins_no_ctx_is_noop():
     load_plugins(None)  # no exception expected
+
+
+# ---------------------------------------------------------------------------
+# on_settings_changed dispatch (audit F21)
+# ---------------------------------------------------------------------------
+#
+# PluginSpec.subscribes_to declares dot-path settings keys; the host fires
+# on_settings_changed when one of those keys (or a key under a subscribed
+# subtree, by prefix match) changes between successive saves. Pre-F21,
+# subscribes_to was declared but no dispatcher existed, so plugins got
+# silently no settings reactivity.
+
+
+def _make_plugin_with_settings_hook(
+    name: str,
+    subscribes_to: tuple[str, ...],
+    on_change_raises: bool = False,
+):
+    """Build an in-memory plugin module with on_settings_changed wired."""
+    mod = types.ModuleType(f'fake_settings_plugin_{name}')
+    mod.__version__ = '0.1.0'
+    mod.spec = PluginSpec(
+        name=name, version='0.1.0', requires_lvp_version='>=4.0.0',
+        description=f'fake {name}', subscribes_to=subscribes_to,
+    )
+    mod._on_change_calls = []
+
+    def _register(ctx):
+        ctx.plugins.post_processing.register(mod.spec, _trivial_processor)
+
+    def _unregister(ctx):
+        pass
+
+    def on_settings_changed(ctx, settings):
+        mod._on_change_calls.append((ctx, settings))
+        if on_change_raises:
+            raise RuntimeError(f'{name} on_settings_changed intentionally failed')
+
+    mod.register = _register
+    mod.unregister = _unregister
+    mod.on_settings_changed = on_settings_changed
+    return mod
+
+
+def test_diff_settings_keys_no_change_returns_empty():
+    from modules.plugins import _diff_settings_keys
+    assert _diff_settings_keys({'a': 1}, {'a': 1}) == set()
+
+
+def test_diff_settings_keys_leaf_change():
+    from modules.plugins import _diff_settings_keys
+    assert _diff_settings_keys({'a': 1}, {'a': 2}) == {'a'}
+
+
+def test_diff_settings_keys_nested_change_returns_dotted_path():
+    from modules.plugins import _diff_settings_keys
+    old = {'manual_video': {'max_fps': 10, 'max_duration': 60}}
+    new = {'manual_video': {'max_fps': 30, 'max_duration': 60}}
+    assert _diff_settings_keys(old, new) == {'manual_video.max_fps'}
+
+
+def test_diff_settings_keys_added_and_removed_keys():
+    from modules.plugins import _diff_settings_keys
+    old = {'a': 1, 'b': 2}
+    new = {'a': 1, 'c': 3}
+    assert _diff_settings_keys(old, new) == {'b', 'c'}
+
+
+def test_diff_settings_keys_none_baseline_flattens_all_leaves():
+    from modules.plugins import _diff_settings_keys
+    new = {'a': {'b': 1, 'c': 2}, 'd': 3}
+    assert _diff_settings_keys(None, new) == {'a.b', 'a.c', 'd'}
+
+
+def test_any_prefix_match_exact_key():
+    from modules.plugins import _any_prefix_match
+    assert _any_prefix_match(('manual_video.max_fps',), {'manual_video.max_fps'})
+    assert not _any_prefix_match(('manual_video.max_fps',), {'manual_video.max_duration'})
+
+
+def test_any_prefix_match_subtree():
+    from modules.plugins import _any_prefix_match
+    # subscribes to 'manual_video' subtree -> any descendant matches.
+    assert _any_prefix_match(('manual_video',), {'manual_video.max_fps'})
+    assert _any_prefix_match(('manual_video',), {'manual_video.codec.bitrate'})
+    assert _any_prefix_match(('manual_video',), {'manual_video'})
+
+
+def test_any_prefix_match_does_not_match_unrelated_prefix():
+    from modules.plugins import _any_prefix_match
+    # 'manual' must not match 'manual_video.X' -- prefix is full dot-path
+    # component, not arbitrary string prefix.
+    assert not _any_prefix_match(('manual',), {'manual_video.max_fps'})
+
+
+def test_notify_settings_changed_fires_subscribed_plugin(harness_ctx):
+    mod = _make_plugin_with_settings_hook(
+        'video_listener', subscribes_to=('manual_video.max_fps',),
+    )
+    ep = _FakeEntryPoint('video_listener', mod)
+    with patch('importlib.metadata.entry_points', return_value=[ep]):
+        load_plugins(harness_ctx)
+    settings = {'manual_video': {'max_fps': 30}}
+    harness_ctx.plugins.notify_settings_changed(
+        harness_ctx, settings, {'manual_video.max_fps'},
+    )
+    assert len(mod._on_change_calls) == 1
+    ctx_arg, settings_arg = mod._on_change_calls[0]
+    assert ctx_arg is harness_ctx
+    assert settings_arg is settings
+
+
+def test_notify_settings_changed_skips_non_subscribed(harness_ctx):
+    mod = _make_plugin_with_settings_hook(
+        'camera_listener', subscribes_to=('camera.gain',),
+    )
+    ep = _FakeEntryPoint('camera_listener', mod)
+    with patch('importlib.metadata.entry_points', return_value=[ep]):
+        load_plugins(harness_ctx)
+    # Change a key the plugin did NOT subscribe to.
+    harness_ctx.plugins.notify_settings_changed(
+        harness_ctx, {'manual_video': {'max_fps': 30}}, {'manual_video.max_fps'},
+    )
+    assert mod._on_change_calls == []
+
+
+def test_notify_settings_changed_skips_plugin_with_empty_subscribes_to(harness_ctx):
+    mod = _make_plugin_with_settings_hook('no_subs', subscribes_to=())
+    ep = _FakeEntryPoint('no_subs', mod)
+    with patch('importlib.metadata.entry_points', return_value=[ep]):
+        load_plugins(harness_ctx)
+    harness_ctx.plugins.notify_settings_changed(
+        harness_ctx, {'a': 1}, {'a'},
+    )
+    assert mod._on_change_calls == []
+
+
+def test_notify_settings_changed_empty_changed_keys_is_noop(harness_ctx):
+    mod = _make_plugin_with_settings_hook(
+        'subscriber', subscribes_to=('a',),
+    )
+    ep = _FakeEntryPoint('subscriber', mod)
+    with patch('importlib.metadata.entry_points', return_value=[ep]):
+        load_plugins(harness_ctx)
+    harness_ctx.plugins.notify_settings_changed(harness_ctx, {'a': 1}, set())
+    assert mod._on_change_calls == []
+
+
+def test_notify_settings_changed_swallows_handler_exception(harness_ctx):
+    bad = _make_plugin_with_settings_hook(
+        'bad_handler', subscribes_to=('a',), on_change_raises=True,
+    )
+    good = _make_plugin_with_settings_hook(
+        'good_handler', subscribes_to=('a',),
+    )
+    eps = [
+        _FakeEntryPoint('bad_handler', bad),
+        _FakeEntryPoint('good_handler', good),
+    ]
+    with patch('importlib.metadata.entry_points', return_value=eps):
+        load_plugins(harness_ctx)
+    # bad raises, good must still fire, dispatcher must not propagate.
+    harness_ctx.plugins.notify_settings_changed(
+        harness_ctx, {'a': 1}, {'a'},
+    )
+    assert len(bad._on_change_calls) == 1
+    assert len(good._on_change_calls) == 1
+    # Runtime error recorded against bad's namespace.
+    health = harness_ctx.plugins.post_processing.health()
+    errors = [e for e in health.last_runtime_errors if e.plugin_name == 'bad_handler']
+    assert len(errors) == 1
+    assert errors[0].hook == 'on_settings_changed'
+
+
+def test_notify_settings_changed_prefix_subtree_subscription(harness_ctx):
+    mod = _make_plugin_with_settings_hook(
+        'subtree_listener', subscribes_to=('manual_video',),
+    )
+    ep = _FakeEntryPoint('subtree_listener', mod)
+    with patch('importlib.metadata.entry_points', return_value=[ep]):
+        load_plugins(harness_ctx)
+    # Any key under the manual_video subtree must fire the handler.
+    harness_ctx.plugins.notify_settings_changed(
+        harness_ctx, {'manual_video': {'codec': {'bitrate': 5000}}},
+        {'manual_video.codec.bitrate'},
+    )
+    assert len(mod._on_change_calls) == 1
+
+
+def test_fire_settings_save_hooks_first_call_caches_without_firing(harness_ctx):
+    from modules.plugins import fire_settings_save_hooks
+    mod = _make_plugin_with_settings_hook('first_call', subscribes_to=('a',))
+    ep = _FakeEntryPoint('first_call', mod)
+    with patch('importlib.metadata.entry_points', return_value=[ep]):
+        load_plugins(harness_ctx)
+    fire_settings_save_hooks(harness_ctx, {'a': 1})
+    assert mod._on_change_calls == [], (
+        'First call after startup must cache the baseline without firing '
+        'so plugins do not get spurious notifications for the boot-time state.'
+    )
+    assert harness_ctx._last_saved_settings_snapshot == {'a': 1}
+
+
+def test_fire_settings_save_hooks_second_call_fires_on_diff(harness_ctx):
+    from modules.plugins import fire_settings_save_hooks
+    mod = _make_plugin_with_settings_hook('second_call', subscribes_to=('a',))
+    ep = _FakeEntryPoint('second_call', mod)
+    with patch('importlib.metadata.entry_points', return_value=[ep]):
+        load_plugins(harness_ctx)
+    fire_settings_save_hooks(harness_ctx, {'a': 1})  # cache
+    fire_settings_save_hooks(harness_ctx, {'a': 2})  # fire
+    assert len(mod._on_change_calls) == 1
+    _, settings_arg = mod._on_change_calls[0]
+    assert settings_arg == {'a': 2}
+    assert harness_ctx._last_saved_settings_snapshot == {'a': 2}
+
+
+def test_fire_settings_save_hooks_no_diff_does_not_fire(harness_ctx):
+    from modules.plugins import fire_settings_save_hooks
+    mod = _make_plugin_with_settings_hook('no_diff', subscribes_to=('a',))
+    ep = _FakeEntryPoint('no_diff', mod)
+    with patch('importlib.metadata.entry_points', return_value=[ep]):
+        load_plugins(harness_ctx)
+    fire_settings_save_hooks(harness_ctx, {'a': 1})
+    fire_settings_save_hooks(harness_ctx, {'a': 1})  # same -> no fire
+    assert mod._on_change_calls == []
+
+
+def test_fire_settings_save_hooks_baseline_isolation_from_mutation(harness_ctx):
+    """The cached baseline must be a deep copy so subsequent in-memory
+    mutations to the settings dict do not poison the next diff."""
+    from modules.plugins import fire_settings_save_hooks
+    mod = _make_plugin_with_settings_hook('isolation', subscribes_to=('a',))
+    ep = _FakeEntryPoint('isolation', mod)
+    with patch('importlib.metadata.entry_points', return_value=[ep]):
+        load_plugins(harness_ctx)
+    settings = {'a': {'b': 1}}
+    fire_settings_save_hooks(harness_ctx, settings)  # cache
+    # Mutate the dict in place after caching.
+    settings['a']['b'] = 999
+    # Fire with a NEW dict that has a different value -- baseline should
+    # still reflect the original cached state (1), so this fires.
+    fire_settings_save_hooks(harness_ctx, {'a': {'b': 2}})
+    assert len(mod._on_change_calls) == 1
+
+
+def test_fire_settings_save_hooks_no_ctx_plugins_is_noop():
+    from modules.plugins import fire_settings_save_hooks
+    fake_ctx = types.SimpleNamespace()
+    fire_settings_save_hooks(fake_ctx, {'a': 1})  # no exception expected
+
+
+def test_fire_settings_save_hooks_none_ctx_is_noop():
+    from modules.plugins import fire_settings_save_hooks
+    fire_settings_save_hooks(None, {'a': 1})  # no exception expected

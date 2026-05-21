@@ -23,12 +23,13 @@ The host discovers plugins via entry_points group 'lvp.plugins'.
 """
 from __future__ import annotations
 
+import copy
 import importlib.metadata
 import logging
 import re
 import threading
 from dataclasses import dataclass, field
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Iterable, Optional
 
 logger = logging.getLogger('lvp_logger')
 
@@ -417,6 +418,162 @@ class PluginRegistry:
             self.live_processing.health(),
             self.rest.health(),
         )
+
+    def notify_settings_changed(
+        self,
+        ctx: Any,
+        settings: dict,
+        changed_keys: Iterable[str],
+    ) -> None:
+        """Fire on_settings_changed on every loaded plugin whose
+        subscribes_to prefix-matches any of the changed keys.
+
+        Args:
+            ctx: AppContext passed to each plugin's on_settings_changed.
+            settings: Full settings dict at the moment of notification
+                (post-save snapshot).
+            changed_keys: Iterable of dot-path keys that changed in this
+                cycle. Empty -> no-op.
+
+        Plugins implement on_settings_changed(ctx, settings) at module
+        level (per design doc Sec 4.3). The dispatcher iterates loaded
+        plugins regardless of namespace; the per-namespace registries
+        retain runtime-error attribution via record_runtime_error.
+
+        Match semantics are prefix: subscribes_to=('manual_video',)
+        fires for any changed key under that subtree
+        (manual_video.max_fps, manual_video.max_duration, ...).
+        subscribes_to=('manual_video.max_fps',) fires only when that
+        exact dot-path key changes.
+
+        Exceptions from a plugin handler are logged + recorded but
+        never propagate -- one plugin's failure does not block others.
+        Runs on the calling thread; plugin handlers must be quick
+        enough not to stall the settings-save path.
+        """
+        changed = set(changed_keys)
+        if not changed:
+            return
+        with self._loaded_lock:
+            plugins_snapshot = list(self._loaded_plugins)
+        for name, module in plugins_snapshot:
+            spec = _extract_spec(module)
+            if spec is None or not spec.subscribes_to:
+                continue
+            if not _any_prefix_match(spec.subscribes_to, changed):
+                continue
+            handler = getattr(module, 'on_settings_changed', None)
+            if not callable(handler):
+                continue
+            try:
+                handler(ctx, settings)
+            except Exception as exc:
+                logger.error(
+                    f'[Plugins ] {name}: on_settings_changed raised '
+                    f'{type(exc).__name__}: {exc}', exc_info=True,
+                )
+                ns = self._find_namespace(name)
+                if ns is not None:
+                    ns.record_runtime_error(name, 'on_settings_changed', exc)
+
+    def _find_namespace(self, plugin_name: str) -> Optional['_BaseNamespace']:
+        for ns in (
+            self.ui, self.post_processing, self.live_processing, self.rest,
+        ):
+            if plugin_name in ns._loaded:
+                return ns
+        return None
+
+
+def _any_prefix_match(
+    subscribes_to: tuple[str, ...],
+    changed_keys: set[str],
+) -> bool:
+    """True if any subscription key prefix-matches any changed key.
+
+    Prefix means: subscribes_to='a' matches changed 'a' or 'a.b' or
+    'a.b.c' (any descendant under the subtree). 'ab' does NOT match
+    'abc' -- the prefix is a full dot-path component.
+    """
+    for prefix in subscribes_to:
+        prefix_dot = prefix + '.'
+        for key in changed_keys:
+            if key == prefix or key.startswith(prefix_dot):
+                return True
+    return False
+
+
+def _diff_settings_keys(
+    old: Optional[dict],
+    new: dict,
+    prefix: str = '',
+) -> set[str]:
+    """Return dot-path keys that differ between old and new.
+
+    Treats None old as "no prior snapshot" -- caller should usually
+    skip dispatch in that case (initial-save). Recursively descends
+    into nested dicts so changes deep inside the settings tree surface
+    as their full dot-path (e.g. 'BF.gain' for settings['BF']['gain']).
+
+    Type changes (dict -> scalar or vice versa) count as a change
+    of the parent key, not the inner leaves -- a plugin subscribed
+    to the parent prefix gets notified.
+    """
+    if old is None:
+        return _flatten_dict_keys(new, prefix)
+    changed: set[str] = set()
+    all_keys = set(old.keys()) | set(new.keys())
+    for k in all_keys:
+        full = f'{prefix}.{k}' if prefix else k
+        if k not in old or k not in new:
+            changed.add(full)
+            continue
+        old_v = old[k]
+        new_v = new[k]
+        if isinstance(old_v, dict) and isinstance(new_v, dict):
+            changed.update(_diff_settings_keys(old_v, new_v, full))
+        elif old_v != new_v:
+            changed.add(full)
+    return changed
+
+
+def _flatten_dict_keys(d: dict, prefix: str = '') -> set[str]:
+    """Return every leaf-path key in a nested dict as dot-paths."""
+    out: set[str] = set()
+    for k, v in d.items():
+        full = f'{prefix}.{k}' if prefix else k
+        if isinstance(v, dict):
+            out.update(_flatten_dict_keys(v, full))
+        else:
+            out.add(full)
+    return out
+
+
+def fire_settings_save_hooks(ctx: Any, new_settings: dict) -> None:
+    """Diff new_settings against the ctx-cached baseline + fire plugins.
+
+    Called from MicroscopeSettings.save_settings after the JSON write
+    succeeds. The baseline lives at ctx._last_saved_settings_snapshot
+    (deepcopied so subsequent in-memory mutations don't poison the
+    diff). The first call after startup caches without firing, so
+    plugins don't get spurious notifications for the boot-time state.
+
+    The hook is fire-and-forget: any plugin exception is caught inside
+    PluginRegistry.notify_settings_changed and never propagates back
+    into the save path. If the plugins infrastructure isn't wired
+    (e.g. headless test harness without ctx.plugins), the function is
+    a no-op.
+    """
+    if ctx is None or not hasattr(ctx, 'plugins'):
+        return
+    old = getattr(ctx, '_last_saved_settings_snapshot', None)
+    if old is None:
+        ctx._last_saved_settings_snapshot = copy.deepcopy(new_settings)
+        return
+    changed_keys = _diff_settings_keys(old, new_settings)
+    if changed_keys:
+        ctx.plugins.notify_settings_changed(ctx, new_settings, changed_keys)
+    ctx._last_saved_settings_snapshot = copy.deepcopy(new_settings)
 
 
 # ---------------------------------------------------------------------------

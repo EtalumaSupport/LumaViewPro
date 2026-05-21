@@ -952,6 +952,17 @@ class MicroscopeSettings(BoxLayout):
         if dt > 0.1:
             logger.warning(f'[LVP Main  ] save_settings took {dt*1000:.0f}ms')
 
+        # Dispatch on_settings_changed to plugins whose subscribes_to
+        # prefix-matches the keys that diffed since the last save.
+        # The first call after startup caches the baseline without
+        # firing; subsequent saves fire only when actual values change.
+        try:
+            from modules.plugins import fire_settings_save_hooks
+            fire_settings_save_hooks(ctx, settings_snapshot)
+        except Exception:
+            logger.exception(
+                '[LVP Main  ] save_settings: plugin notification failed')
+
 
     def load_binning_sizes(self):
         spinner = self.ids['binning_spinner']
