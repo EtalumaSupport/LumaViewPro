@@ -301,8 +301,8 @@ class Lumascope():
         motor_kwargs: dict = {}
         if simulate:
             from modules.settings_init import settings
-            motor_kwargs['model'] = (settings.get('microscope', 'LS850')
-                                     if settings else 'LS850')
+            motor_kwargs['model'] = (settings.get('microscope', 'LS850T')
+                                     if settings else 'LS850T')
         self._motion_driver: MotorBoardProtocol = motor_registry.create(
             'auto', simulate=simulate, **motor_kwargs
         )

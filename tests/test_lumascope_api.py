@@ -637,11 +637,11 @@ class TestPerAxisDictsFromDriver:
        a private input-vocabulary tuple, not a capability query
     """
 
-    def test_xyz_scope_dicts_have_xyz_keys(self):
+    def test_xyzt_scope_dicts_have_xyzt_keys(self):
         scope = Lumascope(simulate=True)
         present = set(scope._motion_driver.detect_present_axes())
-        assert present == {'X', 'Y', 'Z'}, (
-            f"Default sim should be LS850 (XYZ no turret), got {present}"
+        assert present == {'X', 'Y', 'Z', 'T'}, (
+            f"Default sim should be LS850T (XYZT with turret), got {present}"
         )
         assert set(scope.motion._pos_cache.keys()) == present
         assert set(scope.motion._axis_state.keys()) == present
@@ -870,14 +870,14 @@ class TestScopeCapabilities:
         from modules.scope_capabilities import ScopeCapabilities
         assert isinstance(scope.capabilities, ScopeCapabilities)
 
-    def test_ls850_default_sim_capabilities(self):
-        """Default sim is LS850: X/Y/Z, no turret, 6-channel LED."""
+    def test_ls850t_default_sim_capabilities(self):
+        """Default sim is LS850T: X/Y/Z/T (turret present), 6-channel LED."""
         scope = Lumascope(simulate=True)
         caps = scope.capabilities
-        assert caps.axes == ('X', 'Y', 'Z')
+        assert caps.axes == ('X', 'Y', 'Z', 'T')
         assert caps.has_focus is True
         assert caps.has_xy_stage is True
-        assert caps.has_turret is False
+        assert caps.has_turret is True
         assert len(caps.led_channels) == 6
         from modules.scope_capabilities import LED_MAX_MA
         assert caps.led_max_ma == LED_MAX_MA
