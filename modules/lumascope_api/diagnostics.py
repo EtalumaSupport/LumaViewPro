@@ -747,19 +747,23 @@ class DiagnosticsAPI:
         except Exception:
             return False
 
-    def exit_led_engineering_mode(self) -> 'bool | None':
+    def exit_led_engineering_mode(self) -> bool:
         """Exit LED engineering mode via the driver-canonical handshake.
 
         Driver method drains and sleeps after Q so the LED firmware
         actually transitions out of eng mode.
+
+        Returns True on success, False when the LED driver is absent
+        or does not expose engineering-mode exit (symmetric with
+        ``enter_led_engineering_mode``).
         """
         drv = getattr(self._scope, '_led_driver', None)
         if drv is None or not hasattr(drv, 'exit_engineering_mode'):
-            return None
+            return False
         try:
-            return drv.exit_engineering_mode()
+            return bool(drv.exit_engineering_mode())
         except Exception:
-            return None
+            return False
 
     # --- Facade getters relocated from Lumascope ---
     # Six thin getters that report hardware identity / connection state.
