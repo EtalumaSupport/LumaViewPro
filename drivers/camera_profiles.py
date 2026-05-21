@@ -153,6 +153,41 @@ _daA3840_45um = CameraProfile(
     driver='pylon',
 )
 
+# Basler dart MIPI — dmA3536-9gm
+# Same IMX676 sensor as the USB3 a2A3536-31umBAS body, but the dart-
+# MIPI body has lower native frame rate (9 fps vs 31 fps) and may
+# expose a restricted pixel-format set over the MIPI interface. Most
+# fields mirror the a2A3536 entry since the sensor itself is the same;
+# capabilities listed conservatively pending bench verification on the
+# actual unit at issue 676. Adding the entry now removes the "using defaults"
+# warning that would otherwise silently restrict the user to the
+# conservative _DEFAULT (Mono8-only, no binning, no auto-gain).
+_dmA3536_9gm = CameraProfile(
+    model_name='dmA3536-9gm',
+    sensor='Sony IMX676-AAMR1-C',
+    pixel_size_um=2.0,
+    shutter='rolling',
+    native_resolution={'width': 3536, 'height': 3552},
+    # MIPI pixel-format set listed conservatively as Mono8/Mono10
+    # (USB3 sibling exposes Mono12 variants but MIPI may not); the
+    # bench unit at issue 676 should confirm the exact set so this
+    # list can be tightened.
+    pixel_formats=['Mono8', 'Mono10', 'Mono10p'],
+    exposure_max_us=10_000_000,
+    binning_sizes=[1, 2, 4],
+    binning_modes=['Sum', 'Average'],
+    alignment={'width': 4, 'height': 4},
+    gain=GainInfo(
+        analog_max_db=30.0,         # IMX676 sensor max -- shared with a2A3536
+        has_digital=True,
+        gain_selector='All',
+    ),
+    has_auto_gain=True,             # sensor-shared default; bench-verify on MIPI body
+    has_auto_exposure=True,         # sensor-shared default; bench-verify on MIPI body
+    has_temperature=False,          # conservative default; bench-verify on MIPI body
+    driver='pylon',
+)
+
 # Basler ace 2 — a2A3536-31umBAS
 _a2A3536_31umBAS = CameraProfile(
     model_name='a2A3536-31umBAS',
@@ -278,6 +313,7 @@ _MT9P031_LS620 = CameraProfile(
 # Maps model name substrings to profiles. Checked in order — first match wins.
 _PROFILES: list[tuple[str, CameraProfile]] = [
     ('daA3840-45um',            _daA3840_45um),
+    ('dmA3536-9gm',             _dmA3536_9gm),
     ('a2A3536-31umBAS',         _a2A3536_31umBAS),
     ('U3-34L0XCP-M',            _U3_34L0XCP_M),   # spec sheet model
     ('U3-34LxXCP-M',            _U3_34L0XCP_M),   # as reported by SDK
