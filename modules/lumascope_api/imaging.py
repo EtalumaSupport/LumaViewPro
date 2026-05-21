@@ -448,7 +448,15 @@ class ImagingAPI:
         calls during a disconnected window yields one popup, not dozens.
         Internal-poll callers (scope_display auto-gain readback) and
         cleanup paths intentionally do NOT route through this.
+
+        Suppressed in no_hardware mode (cold-start with nothing
+        connected) -- the consolidated "No hardware detected" popup
+        fires from lumaviewpro.on_start and the per-setter popup
+        would stack on top of it. Runtime disconnects (camera unplugged
+        mid-session) still notify because no_hardware is False then.
         """
+        if getattr(self._scope, 'no_hardware', False):
+            return
         notifications.warning(
             "Camera",
             "Camera not connected",

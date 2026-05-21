@@ -185,7 +185,21 @@ def _try_connect_board(label, ctor, null_ctor):
         return null_ctor()
 
 
-def _notify_camera_failure(exc):
+def _is_total_cold_start(led_driver, motion_driver) -> bool:
+    """True when LED + motor have already both fallen back to Null* drivers,
+    which means the about-to-fail camera will trigger the
+    no_hardware path. In that case the per-component notifications
+    are redundant -- the consolidated 'No hardware detected' popup
+    in lumaviewpro.py says it all -- so the individual notifications
+    are skipped to avoid 4 popups stacking on top of each other.
+    """
+    return (
+        isinstance(led_driver, NullLEDBoard)
+        and isinstance(motion_driver, NullMotionBoard)
+    )
+
+
+def _notify_camera_failure(exc, *, suppress_if_cold_start: bool = False):
     """Rule 14 audit A1 -- surface camera-init failure to the user.
 
     The camera registry raises a variety of exception types depending on
@@ -214,6 +228,17 @@ def _notify_camera_failure(exc):
         body = (f"Could not connect to camera: {exc_type}: {exc}. "
                 f"Check USB cable, power, and close other programs that "
                 f"may hold the camera.")
+    if suppress_if_cold_start:
+        # Cold-start with no hardware -- caller has already detected
+        # this is the third strike and a consolidated "No hardware
+        # detected" popup will fire from lumaviewpro.on_start. Per-
+        # component popups stacking with the consolidated one is the
+        # 4-popup spam Eric reported.
+        logger.warning(
+            f'[SCOPE API ] Camera not initialized (suppressed user '
+            f'notification, no_hardware path will fire consolidated): '
+            f'{title}: {body}')
+        return
     _notify_board_failure("Camera", title, body)
 
 
@@ -402,7 +427,16 @@ class Lumascope():
             # Rule 14 A1: pre-fix code logged only; the user saw no popup and
             # every camera-dependent UI action silently returned None/False.
             # Same pattern #632/#539 fixed for the LED + motor boards.
-            _notify_camera_failure(_cam_exc)
+            # Suppress the per-component popup when LED + motor have
+            # already fallen back to Null*: the consolidated "No
+            # hardware detected" popup will fire later and the
+            # individual one is redundant.
+            _notify_camera_failure(
+                _cam_exc,
+                suppress_if_cold_start=_is_total_cold_start(
+                    self._led_driver, self._motion_driver,
+                ),
+            )
 
         # ----- ScopeCapabilities (audit B7) -----
         # Single source of truth for "what does this scope have" — built
@@ -568,9 +602,14 @@ class Lumascope():
 
         An LS620 with no motor is not a failure -- its scopes.json says
         Focus/XYStage/Turret are all false. Only warn for hardware the
-        scope was supposed to have. Simulators never warn.
+        scope was supposed to have. Simulators never warn. The
+        no_hardware total-cold-start case skips this notification --
+        lumaviewpro.on_start fires a single consolidated "No hardware
+        detected" popup that covers the same ground.
         """
         if self._simulated:
+            return
+        if self._no_hardware:
             return
         missing = []
         if config.expects_led and isinstance(self._led_driver, NullLEDBoard):

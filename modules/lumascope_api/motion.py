@@ -377,13 +377,18 @@ class MotionAPI:
         # implies a homing-mechanics problem.
         if not self._scope.motor_connected:
             logger.warning('[SCOPE API ] home() called with motor not connected')
-            notifications.error(
-                "Motion",
-                "Motor Not Connected",
-                "Cannot home -- motor controller is not connected. "
-                "Check the USB cable and that no other program "
-                "(Thonny, mpremote, etc.) is holding the port.",
-            )
+            # Suppress the per-component popup when the scope is in
+            # no_hardware mode -- lumaviewpro.on_start fires a single
+            # consolidated "No hardware detected" popup that covers
+            # the missing motor.
+            if not getattr(self._scope, 'no_hardware', False):
+                notifications.error(
+                    "Motion",
+                    "Motor Not Connected",
+                    "Cannot home -- motor controller is not connected. "
+                    "Check the USB cable and that no other program "
+                    "(Thonny, mpremote, etc.) is holding the port.",
+                )
             return False
         present_axes = self._scope.capabilities.axes
         _api_log.info('home START')
@@ -462,13 +467,14 @@ class MotionAPI:
         # auto-reconnect attempts. Fire one clean Rule 14 notification.
         if not self._scope.motor_connected:
             logger.warning('[SCOPE API ] thome() called with motor not connected')
-            notifications.error(
-                "Motion",
-                "Motor Not Connected",
-                "Cannot home turret -- motor controller is not connected. "
-                "Check the USB cable and that no other program is "
-                "holding the port.",
-            )
+            if not getattr(self._scope, 'no_hardware', False):
+                notifications.error(
+                    "Motion",
+                    "Motor Not Connected",
+                    "Cannot home turret -- motor controller is not connected. "
+                    "Check the USB cable and that no other program is "
+                    "holding the port.",
+                )
             return False
 
         # Move turret -- set HOMING after Z is safe, not before.
