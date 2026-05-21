@@ -1158,7 +1158,20 @@ class ImagingAPI:
             new_capture_timeout_s=grab_timeout_s,
         )
 
-    def capture_and_wait_async(self, *, callback=None, cb_kwargs=None, **kwargs) -> None:
+    def capture_and_wait_async(
+        self,
+        *,
+        callback=None,
+        cb_kwargs=None,
+        force_to_8bit: bool = True,
+        exclude_sources: tuple = (),
+        all_ones_check: bool = False,
+        earliest_image_ts: datetime.datetime | None = None,
+        timeout_s: float = 0.0,
+        sum_count: int = 1,
+        sum_delay_s: float = 0,
+        sum_iteration_callback=None,
+    ) -> None:
         """Submit ``capture_and_wait`` to the camera_executor; return
         immediately. The captured image is delivered via ``callback``.
 
@@ -1166,29 +1179,74 @@ class ImagingAPI:
             callback: Completion callback; receives the captured array
                 (or ``None`` on capture failure) as the first arg.
             cb_kwargs: Optional kwargs passed to the callback.
-            **kwargs: Forwarded to ``capture_and_wait``.
+            force_to_8bit: Convert to 8-bit output.
+            exclude_sources: Sources to ignore for validity (e.g. ('z_move',)).
+            all_ones_check: Reject all-max-value frames.
+            earliest_image_ts: Reject frames captured before this timestamp.
+            timeout_s: Timeout (seconds) for the final get_image call.
+            sum_count: Number of frames to sum for noise reduction.
+            sum_delay_s: Delay between summed frames.
+            sum_iteration_callback: Called after each summed frame.
         """
         ex = self._scope._require_executor(self._scope._camera_executor, 'capture_and_wait_async')
         ex.put(IOTask(
             action=self.capture_and_wait,
-            kwargs=kwargs,
+            kwargs={
+                'force_to_8bit': force_to_8bit,
+                'exclude_sources': exclude_sources,
+                'all_ones_check': all_ones_check,
+                'earliest_image_ts': earliest_image_ts,
+                'timeout_s': timeout_s,
+                'sum_count': sum_count,
+                'sum_delay_s': sum_delay_s,
+                'sum_iteration_callback': sum_iteration_callback,
+            },
             callback=callback,
             cb_kwargs=cb_kwargs,
         ))
 
-    def capture_and_wait_sync(self, *, timeout_s: float = 30.0, **kwargs) -> 'np.ndarray | None':
+    def capture_and_wait_sync(
+        self,
+        *,
+        timeout_s: float = 30.0,
+        force_to_8bit: bool = True,
+        exclude_sources: tuple = (),
+        all_ones_check: bool = False,
+        earliest_image_ts: datetime.datetime | None = None,
+        sum_count: int = 1,
+        sum_delay_s: float = 0,
+        sum_iteration_callback=None,
+    ) -> 'np.ndarray | None':
         """Run ``capture_and_wait`` through the camera_executor and block.
 
         Args:
-            timeout_s: Max seconds to wait for completion.
-            **kwargs: Forwarded to ``capture_and_wait``.
+            timeout_s: Max seconds to wait for completion (wraps the executor
+                Future.result wait, not the inner capture_and_wait grab).
+            force_to_8bit: Convert to 8-bit output.
+            exclude_sources: Sources to ignore for validity (e.g. ('z_move',)).
+            all_ones_check: Reject all-max-value frames.
+            earliest_image_ts: Reject frames captured before this timestamp.
+            sum_count: Number of frames to sum for noise reduction.
+            sum_delay_s: Delay between summed frames.
+            sum_iteration_callback: Called after each summed frame.
 
         Returns:
             The captured image array, or None on failure (camera-inactive,
             frame-drain failed, executor absent, or future not delivered).
         """
         ex = self._scope._require_executor(self._scope._camera_executor, 'capture_and_wait_sync')
-        task = IOTask(action=self.capture_and_wait, kwargs=kwargs)
+        task = IOTask(
+            action=self.capture_and_wait,
+            kwargs={
+                'force_to_8bit': force_to_8bit,
+                'exclude_sources': exclude_sources,
+                'all_ones_check': all_ones_check,
+                'earliest_image_ts': earliest_image_ts,
+                'sum_count': sum_count,
+                'sum_delay_s': sum_delay_s,
+                'sum_iteration_callback': sum_iteration_callback,
+            },
+        )
         fut = ex.put(task, return_future=True)
         if fut:
             return fut.result(timeout=timeout_s)

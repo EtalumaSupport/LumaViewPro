@@ -16,6 +16,7 @@ Usage
     session = ScopeSession.create_headless(settings=settings)
 """
 
+import datetime
 import os
 import threading
 
@@ -346,24 +347,66 @@ class ScopeSession:
         """Submit ``set_exposure_time`` to camera_executor and block until done."""
         self.scope.imaging.set_exposure_sync(exposure_ms, timeout_s=timeout_s)
 
-    def capture_and_wait_async(self, callback=None, cb_kwargs=None, **kwargs) -> None:
-        """Submit ``capture_and_wait`` to camera_executor; image delivered via callback."""
+    def capture_and_wait_async(
+        self,
+        *,
+        callback=None,
+        cb_kwargs=None,
+        force_to_8bit: bool = True,
+        exclude_sources: tuple = (),
+        all_ones_check: bool = False,
+        earliest_image_ts: 'datetime.datetime | None' = None,
+        timeout_s: float = 0.0,
+        sum_count: int = 1,
+        sum_delay_s: float = 0,
+        sum_iteration_callback=None,
+    ) -> None:
+        """Submit ``capture_and_wait`` to camera_executor; image delivered via callback.
+
+        Explicit signature symmetric with set_gain_async / set_exposure_time_async
+        and with the underlying scope.imaging.capture_and_wait_async; L2 SDK
+        autocomplete sees every supported kwarg.
+        """
         self.scope.imaging.capture_and_wait_async(
-            callback=callback, cb_kwargs=cb_kwargs, **kwargs,
+            callback=callback,
+            cb_kwargs=cb_kwargs,
+            force_to_8bit=force_to_8bit,
+            exclude_sources=exclude_sources,
+            all_ones_check=all_ones_check,
+            earliest_image_ts=earliest_image_ts,
+            timeout_s=timeout_s,
+            sum_count=sum_count,
+            sum_delay_s=sum_delay_s,
+            sum_iteration_callback=sum_iteration_callback,
         )
 
     def capture_and_wait_sync(
-        self, force_to_8bit: bool = True, *, timeout_s: float = 30.0, **kwargs,
-    ) -> 'np.ndarray | bool | None':
+        self,
+        *,
+        timeout_s: float = 30.0,
+        force_to_8bit: bool = True,
+        exclude_sources: tuple = (),
+        all_ones_check: bool = False,
+        earliest_image_ts: 'datetime.datetime | None' = None,
+        sum_count: int = 1,
+        sum_delay_s: float = 0,
+        sum_iteration_callback=None,
+    ) -> 'np.ndarray | None':
         """Submit ``capture_and_wait`` to camera_executor and block; return image.
 
-        Accepts the same keyword arguments as scope.imaging.capture_and_wait
-        (exclude_sources, all_ones_check, earliest_image_ts, sum_count,
-        sum_delay_s, sum_iteration_callback). Returns the captured image
-        array, ``False`` on capture failure, or ``None`` on executor absence.
+        Explicit signature symmetric with the other Session imaging forwarders.
+        Returns the captured image array, or None on failure (camera-inactive,
+        frame-drain failed, executor absent, or future not delivered).
         """
         return self.scope.imaging.capture_and_wait_sync(
-            timeout_s=timeout_s, force_to_8bit=force_to_8bit, **kwargs,
+            timeout_s=timeout_s,
+            force_to_8bit=force_to_8bit,
+            exclude_sources=exclude_sources,
+            all_ones_check=all_ones_check,
+            earliest_image_ts=earliest_image_ts,
+            sum_count=sum_count,
+            sum_delay_s=sum_delay_s,
+            sum_iteration_callback=sum_iteration_callback,
         )
 
     # ------------------------------------------------------------------
