@@ -376,6 +376,28 @@ class LumaViewProApp(TooltipMixin, App):
                 active_layer, active_layer_config = get_active_layer_config()
             except Exception:
                 pass
+            # During a protocol scan, override the accordion-derived
+            # active layer with the currently-executing step's color
+            # so the live preview's false-color tint matches the
+            # firing LED. Without this, every preview frame is tinted
+            # with whatever layer the user had open when they pressed
+            # Run (the source of the "every image looks Red" reports
+            # on simulator where the camera doesn't vary intensity
+            # by channel).
+            runner = getattr(ctx, 'sequenced_capture_runner', None)
+            if runner is not None:
+                try:
+                    curr_color = runner.current_step_color()
+                except Exception:
+                    curr_color = None
+                if curr_color is not None:
+                    try:
+                        from modules.config_helpers import get_layer_configs
+                        cfgs = get_layer_configs(ctx.settings, [curr_color])
+                        active_layer = curr_color
+                        active_layer_config = cfgs.get(curr_color, active_layer_config)
+                    except Exception:
+                        pass
             if ctx.engineering_mode and ctx.image_settings is not None:
                 import modules.common_utils as _cu
                 for layer in _cu.get_layers():

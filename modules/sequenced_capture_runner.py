@@ -569,8 +569,22 @@ class SequencedCaptureRunner:
 
     def run_trigger_source(self) -> str:
         return self._run_trigger_source
-    
-    
+
+    def current_step_color(self) -> str | None:
+        """Return the Color of the currently-executing protocol step.
+
+        Returns None when no protocol is running, or when the step
+        index / protocol cannot be resolved (early init, race during
+        teardown). Callers gate on the None to fall back to UI state.
+        """
+        if not self.run_in_progress() or self._protocol is None:
+            return None
+        try:
+            return self._protocol.step(idx=self._curr_step)['Color']
+        except Exception:
+            return None
+
+
     def _cancel_all_scheduled_events(self):
         """Cancel any remaining scheduled events. 
         Note: With the loop-based approach, most work happens in executor threads,
