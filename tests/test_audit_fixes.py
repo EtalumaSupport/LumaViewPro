@@ -8931,3 +8931,60 @@ class TestAutoGainArmedBeforeDeadlineWait:
             'doing so would restart AG mid-grab and discard the '
             'convergence the deadline-wait produced.'
         )
+
+
+class TestShutdownLedsOffRoutedThroughIoExecutor:
+    """The application shutdown path must turn LEDs off through the
+    io_executor, NOT via an ad-hoc daemon Thread that races with
+    in-flight io_executor tasks on the LED serial bus. Closes API
+    threading audit F12. The leds_off must also fire BEFORE
+    shutdown_threads tears the io_executor down -- otherwise the
+    put() lands in a queue whose worker is exiting and may not be
+    processed.
+    """
+
+    def _src(self):
+        import pathlib
+        return pathlib.Path('lumaviewpro.py').read_text()
+
+    def test_no_adhoc_leds_off_thread(self):
+        src = self._src()
+        assert 'threading.Thread(target=lumaview.scope.illumination.leds_off' not in src, (
+            'lumaviewpro.py must not spawn a bare daemon Thread for '
+            'shutdown leds_off -- it races with io_executor in-flight '
+            'LED writes on the serial bus.'
+        )
+
+    def test_leds_off_routes_through_io_executor(self):
+        src = self._src()
+        # Find the shutdown leds_off block by its log message header.
+        marker = "[LVP Main  ] lumaview.scope.illumination.leds_off()"
+        idx = src.find(marker)
+        assert idx >= 0, (
+            "Shutdown leds_off block must keep its log message header."
+        )
+        block = src[idx:idx + 1500]
+        assert 'ctx.io_executor.put(' in block, (
+            'Shutdown leds_off must route through ctx.io_executor.put '
+            'so the LED serial bus is not contended by a parallel '
+            'writer during shutdown drain.'
+        )
+        assert 'IOTask(action=lumaview.scope.illumination.leds_off)' in block, (
+            'IOTask must wrap lumaview.scope.illumination.leds_off so '
+            'io_executor serializes it with other LED writes.'
+        )
+        assert 'fut.result(timeout=2.0)' in block, (
+            'fut.result(timeout=2.0) preserves the prior 2-second '
+            'MainThread-doesn-t-block timeout semantic.'
+        )
+
+    def test_leds_off_precedes_shutdown_threads(self):
+        src = self._src()
+        leds_off_idx = src.find("[LVP Main  ] lumaview.scope.illumination.leds_off()")
+        shutdown_idx = src.find('self.shutdown_threads()')
+        assert leds_off_idx >= 0 and shutdown_idx >= 0
+        assert leds_off_idx < shutdown_idx, (
+            'Shutdown leds_off must fire BEFORE shutdown_threads tears '
+            'io_executor down. Otherwise the put() races with the '
+            'worker exiting and the leds_off may never fire.'
+        )

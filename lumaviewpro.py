@@ -922,6 +922,32 @@ class LumaViewProApp(TooltipMixin, App):
         except Exception as e:  # grain: ignore NAKED_EXCEPT
             logger.warning(f'[LVP Main  ] scope_display stop during shutdown failed: {e}')
 
+        # Drain LEDs through io_executor BEFORE shutdown_threads tears
+        # the executor down. Routing the leds_off through the same
+        # serial-bus serialization lane as the rest of LED writes
+        # prevents the ad-hoc-Thread-vs-in-flight-IOTask race that
+        # existed when this call was a bare daemon Thread. The 2 s
+        # fut.result timeout preserves the prior MainThread-doesn't-
+        # block-on-slow-serial behavior.
+        logger.info('[LVP Main  ] lumaview.scope.illumination.leds_off()')
+        try:
+            from modules.sequential_io_executor import IOTask
+            fut = ctx.io_executor.put(
+                IOTask(action=lumaview.scope.illumination.leds_off),
+                return_future=True,
+            ) if ctx.io_executor is not None else None
+            if fut is not None:
+                try:
+                    fut.result(timeout=2.0)
+                except Exception as e:
+                    logger.warning(
+                        f'[LVP Main  ] leds_off via io_executor timed out / failed: {e}'
+                    )
+            else:
+                logger.warning('[LVP Main  ] io_executor unavailable for shutdown leds_off')
+        except Exception as e:  # grain: ignore NAKED_EXCEPT
+            logger.warning(f'[LVP Main  ] leds_off submission failed during shutdown: {e}')
+
         self.shutdown_threads()
 
         # Considered removing this stop_motion() call, since disconnect() below calls
@@ -930,18 +956,6 @@ class LumaViewProApp(TooltipMixin, App):
         # executors that own the move callbacks. Revisit if shutdown_threads and disconnect
         # are consolidated into one teardown.
         lumaview.scope.motion.stop_motion()
-
-        logger.info('[LVP Main  ] lumaview.scope.illumination.leds_off()')
-        try:
-            # Run leds_off on a thread with timeout so MainThread doesn't block
-            # on slow serial / firmware during teardown.
-            t = threading.Thread(target=lumaview.scope.illumination.leds_off, daemon=True)
-            t.start()
-            t.join(timeout=2.0)
-            if t.is_alive():
-                logger.warning('[LVP Main  ] leds_off timed out during shutdown')
-        except Exception as e:  # grain: ignore NAKED_EXCEPT
-            logger.warning(f'[LVP Main  ] leds_off failed during shutdown: {e}')
 
         # The hardware-presence gate lives inside MicroscopeSettings.save_settings
         # now, so every caller (engineering plugin, REST, scheduled save) gets
