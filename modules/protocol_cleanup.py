@@ -103,6 +103,9 @@ def run_cleanup(
                     led_on_fn(color=color, illumination=color_data['illumination_ma'], block=True, force=True)
                     any_restored = True
             if not any_restored:
+                # "return_to_original" with no LED active pre-run is silently
+                # equivalent to "off". The user-facing label says restore;
+                # the only honest restore IS leds_off when nothing was on.
                 leds_off_fn()
         else:
             logger.error(f"Unsupported LEDs state at end value: {leds_state_at_end}")

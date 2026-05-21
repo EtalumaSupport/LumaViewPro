@@ -57,6 +57,13 @@ class ProtocolStepRunner:
         """
         last_maintenance_time = time.monotonic()
 
+        # `_aborted` is a threading.Event read here and at every
+        # `p._aborted.is_set()` site below WITHOUT holding `_state_lock`.
+        # Intentional: Event.is_set() is atomic by contract, and the lock on
+        # ProtocolThread.abort() exists only to make new-Future-with-cleared-
+        # aborted publication atomic against a concurrent abort -- not for
+        # readers. The worst-case race window for a reader to miss the abort
+        # signal is one step-body tick.
         while self._p._scan_in_progress.is_set() and not self._p._aborted.is_set():
             # Periodic cleanup and watchdog logging for long runs
             now_mono = time.monotonic()
@@ -247,6 +254,11 @@ class ProtocolStepRunner:
 
                 # Keep LED on between consecutive steps of the same channel
                 # (e.g., Z-stack slices). Avoids unnecessary LED cycling.
+                # Last step of a scan always evaluates _keep_led=False: the
+                # lookahead is gated on `_curr_step < num_steps - 1`, so the
+                # inter-scan period runs with LEDs off (correct). At the start
+                # of the next scan, run_loop fires leds_off again before step 0
+                # -- redundant but harmless; no data integrity impact.
                 _keep_led = False
                 num_steps = p._protocol.num_steps()
                 if p._curr_step < num_steps - 1:
