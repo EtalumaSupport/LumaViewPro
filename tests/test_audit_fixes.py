@@ -8360,35 +8360,16 @@ class TestFrameValidityIsL2Stable:
 
 
 class TestSessionImagingWrappersSymmetric:
-    """Freeze audit Finding #32 -- ScopeSession had wrappers for LED
-    (led_on, led_on_sync, led_off, leds_off) + motion (move_absolute,
-    move_relative, move_home) but no imaging wrappers. L2 callers had
-    a 2-path surface: session.led_on_async vs session.scope.imaging.set_gain.
-    Symmetric path chosen: session gains set_gain / set_exposure_time /
-    capture_and_wait thin forwarders mirroring the existing pattern."""
-
-    def test_session_has_set_gain_forwarder(self):
-        from modules.scope_session import ScopeSession
-        assert callable(getattr(ScopeSession, 'set_gain', None)), (
-            'ScopeSession.set_gain forwarder must exist per audit #32.'
-        )
-
-    def test_session_has_set_exposure_time_forwarder(self):
-        from modules.scope_session import ScopeSession
-        assert callable(getattr(ScopeSession, 'set_exposure_time', None)), (
-            'ScopeSession.set_exposure_time forwarder must exist per audit #32.'
-        )
-
-    def test_session_has_capture_and_wait_forwarder(self):
-        from modules.scope_session import ScopeSession
-        assert callable(getattr(ScopeSession, 'capture_and_wait', None)), (
-            'ScopeSession.capture_and_wait forwarder must exist per audit #32.'
-        )
+    """Freeze audit Finding #32 originally added bare `set_gain` /
+    `set_exposure_time` / `capture_and_wait` forwarders on ScopeSession
+    to match the LED + motion wrapper pattern. Audit F6/F7 (LVP
+    abc2a39) then retired the bare unsuffixed forwarders in favor of
+    explicit `_async` / `_sync` variants so the `_sync` suffix has
+    consistent meaning across sub-APIs. The remaining tests verify
+    that the surviving `_sync` forwarders still route through
+    ImagingAPI correctly."""
 
     def test_session_set_gain_forwards_to_imaging(self):
-        """Calling the sync forwarder updates the imaging cache -- same
-        path as scope.imaging.set_gain_sync directly. Plain `set_gain`
-        retired in favor of explicit _async / _sync per audit F6/F7."""
         from modules.scope_session import ScopeSession
         session = ScopeSession.create_headless()
         session.start_executors()
