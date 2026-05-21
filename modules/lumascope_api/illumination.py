@@ -150,6 +150,7 @@ class IlluminationAPI:
 
         with self._led_lock:
             self._driver.led_on(channel, mA, block=block)
+        self._notify_if_led_command_failed()
         self._scope.imaging.frame_validity.invalidate('led')
         _api_log.info(f'led_on ch={channel} mA={mA} owner={owner!r}')
 
@@ -211,6 +212,7 @@ class IlluminationAPI:
 
         with self._led_lock:
             self._driver.led_off(channel)
+        self._notify_if_led_command_failed()
         self._scope.imaging.frame_validity.invalidate('led')
         _api_log.info(f'led_off ch={channel} owner={owner!r}')
 
@@ -227,22 +229,7 @@ class IlluminationAPI:
             return
         with self._led_lock:
             self._driver.leds_off()
-        # Sample-safety surface: driver records no-response failures in
-        # last_off_error; surface them here as a notification so the
-        # user knows the call did not confirm. notification_center
-        # auto-suppresses during shutdown so the atexit path
-        # (_emergency_shutdown) does not spawn a popup the user can't
-        # see anyway.
-        off_err = getattr(self._driver, 'last_off_error', None)
-        if off_err:
-            from modules.notification_center import notifications
-            notifications.warning(
-                "LED Safety",
-                "LEDS_OFF did not confirm",
-                f"LED board did not acknowledge the LEDS_OFF command "
-                f"({off_err}). If LEDs are stuck on, turn off illumination "
-                f"manually before placing a sample.",
-            )
+        self._notify_if_led_command_failed()
         with self._led_owner_lock:
             self._led_owners.clear()
             self._led_state.clear()
@@ -250,6 +237,38 @@ class IlluminationAPI:
         _api_log.info('leds_off')
         for color in self._driver.available_colors():
             self._fire_led_listeners(color, False, 0.0, '')
+
+    def _notify_if_led_command_failed(self) -> None:
+        """Read driver.last_command_error and fire a sample-safety
+        notification if the most recent LED command did not confirm.
+
+        Called after every LED driver call (leds_off, led_on, led_off,
+        leds_enable, leds_disable). Drivers that don't expose the field
+        (NullLEDBoard, SimulatedLEDBoard, FX2 -- pre-migration) are
+        silently skipped via getattr-default. notification_center
+        dedups by (category, title) over a 5s window so a stream of
+        protocol-driven led_on failures yields one popup, not thirty.
+        """
+        err = getattr(self._driver, 'last_command_error', None)
+        if not err:
+            return
+        op = err.get('op', '<unknown LED command>')
+        reason = err.get('reason', 'unknown')
+        from modules.notification_center import notifications
+        notifications.warning(
+            "LED Safety",
+            "LED command did not confirm",
+            f"LED board did not acknowledge {op} ({reason}). If illumination "
+            f"is not behaving as expected, check that the LED board is "
+            f"powered and connected; turn off illumination manually "
+            f"before placing a sample.",
+        )
+        # Clear so subsequent successful calls reset the surface.
+        # Drivers that set the field will overwrite again on next failure.
+        try:
+            self._driver.last_command_error = None
+        except Exception:
+            pass
 
     def led_on_fast(self, channel, mA) -> None:
         """Turn on an LED with write-only (no read-back) for time-critical pulses.
@@ -633,12 +652,14 @@ class IlluminationAPI:
         if not self._driver:
             return
         self._driver.leds_enable()
+        self._notify_if_led_command_failed()
 
     def leds_disable(self) -> None:
         """Disable all LED channels (prevents them from turning on)."""
         if not self._driver:
             return
         self._driver.leds_disable()
+        self._notify_if_led_command_failed()
 
     # --- Wait ---
     def wait_until_led_on(self, timeout_s: float = 5.0) -> bool:

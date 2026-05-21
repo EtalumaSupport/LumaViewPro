@@ -34,13 +34,16 @@ class LEDBoard(SerialBoard):
         # layer reads this on construction to fire a notification.
         self.last_safety_off_error: 'str | None' = None
 
-        # Set by leds_off() per call. None on success; short message
-        # describing why the off failed (no response, exception, etc.)
-        # so the API-layer wrap can fire a sample-safety notification.
-        # The shutdown path (_emergency_shutdown) is auto-suppressed by
-        # notification_center._shutting_down so writing a stale field
-        # during atexit is harmless.
-        self.last_off_error: 'str | None' = None
+        # Set by leds_off / led_on / led_off / leds_enable / leds_disable
+        # per call. None on success; a short dict with op name + reason
+        # when the LED board did not acknowledge the command. The API
+        # layer reads this after each call and fires a sample-safety
+        # notification with op context. notification_center auto-
+        # suppresses during shutdown so stale fields during atexit are
+        # harmless. The five runtime methods share one field because
+        # the recovery / notification shape is identical; only the op
+        # label varies.
+        self.last_command_error: 'dict | None' = None
 
         try:
             self.connect()
@@ -148,18 +151,28 @@ class LEDBoard(SerialBoard):
     def leds_enable(self) -> None:
         """Enable all LED channels (master enable).
 
-        Sends ``LEDS_ENT`` and logs a warning if the board does not respond.
+        Sends ``LEDS_ENT``. On no-response sets self.last_command_error
+        so the API layer can notify; clears the field on success.
         """
         command = 'LEDS_ENT'
         response = self.exchange_command(command)
         if response is None:
-            logger.warning('[LED Class ] leds_enable() got no response')
+            logger.error('[LED Class ] leds_enable() got no response')
+            self.last_command_error = {
+                'op': 'leds_enable',
+                'reason': 'no response from LED board',
+            }
+        else:
+            self.last_command_error = None
 
     def leds_disable(self) -> None:
         """Disable all LED channels (master disable) and clear the cache.
 
         Sends ``LEDS_ENF``. On success, clears the cached per-channel mA
-        state so subsequent reads reflect the disabled condition.
+        state so subsequent reads reflect the disabled condition. On no-
+        response sets self.last_command_error so the API layer can
+        notify the user (sample safety -- a stuck-enabled board can
+        still emit light).
         """
         command = 'LEDS_ENF'
         response = self.exchange_command(command)
@@ -168,8 +181,13 @@ class LEDBoard(SerialBoard):
             with self._state_lock:
                 for color in self.led_ma:
                     self.led_ma[color] = -1
+            self.last_command_error = None
         else:
-            logger.warning('[LED Class ] leds_disable() got no response')
+            logger.error('[LED Class ] leds_disable() got no response')
+            self.last_command_error = {
+                'op': 'leds_disable',
+                'reason': 'no response from LED board',
+            }
 
     def get_status(self) -> None:
         """Stub -- LED firmware does not implement a STATUS command.
@@ -248,8 +266,13 @@ class LEDBoard(SerialBoard):
 
         if response is not None:
             self._update_state_cache(color, mA)
+            self.last_command_error = None
         else:
-            logger.warning(f'[LED Class ] led_on(ch={channel}, mA={mA}) got no response')
+            logger.error(f'[LED Class ] led_on(ch={channel}, mA={mA}) got no response')
+            self.last_command_error = {
+                'op': f'led_on(ch={channel}, mA={mA})',
+                'reason': 'no response from LED board',
+            }
 
         def check_each_substr(substrings, result):
             for sub_str in substrings:
@@ -298,8 +321,13 @@ class LEDBoard(SerialBoard):
 
         if response is not None:
             self._update_state_cache(color, -1)
+            self.last_command_error = None
         else:
-            logger.warning(f'[LED Class ] led_off(ch={channel}) got no response')
+            logger.error(f'[LED Class ] led_off(ch={channel}) got no response')
+            self.last_command_error = {
+                'op': f'led_off(ch={channel})',
+                'reason': 'no response from LED board',
+            }
 
     def led_on_fast(self, channel: int, mA: int) -> None:
         """Fast write-only version of led_on for time-critical toggling.
@@ -333,9 +361,9 @@ class LEDBoard(SerialBoard):
         """Turn off every LED channel.
 
         On success, clears the cached per-channel mA state and resets
-        self.last_off_error to None. On no-response, sets
-        self.last_off_error so the API-layer wrap can fire a sample-
-        safety notification.
+        self.last_command_error to None. On no-response, sets
+        self.last_command_error so the API-layer wrap can fire a
+        sample-safety notification.
         """
         command = 'LEDS_OFF'
         response = self.exchange_command(command)
@@ -344,10 +372,13 @@ class LEDBoard(SerialBoard):
             with self._state_lock:
                 for color in self.led_ma:
                     self.led_ma[color] = -1
-            self.last_off_error = None
+            self.last_command_error = None
         else:
             logger.error('[LED Class ] leds_off() got no response')
-            self.last_off_error = 'no response from LED board'
+            self.last_command_error = {
+                'op': 'leds_off',
+                'reason': 'no response from LED board',
+            }
 
     def leds_off_fast(self) -> None:
         """Fast write-only version of leds_off.
