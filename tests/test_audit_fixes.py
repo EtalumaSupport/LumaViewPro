@@ -9166,3 +9166,81 @@ class TestLedEngineeringModeSymmetricReturnTypes:
             'exit_led_engineering_mode must return False (not None) '
             'when no LED driver is available.'
         )
+
+
+class TestScopeSessionBuildsFullExecutorBundle:
+    """Per API audit F11: ScopeSession.create_headless() was building only
+    io_executor + camera_executor, skipping file_io_executor + worker_pool
+    + protocol_thread + scope_display_thread. L2 callers using
+    ScopeSession.create*() got a silently degraded topology where the
+    file-IO IOTask path fell back to inline execution and the worker-pool
+    priority lanes were unavailable.
+
+    The fix routes create_headless() through executor_registry.create_default
+    so headless callers get the same topology lumaviewpro.py runs.
+    """
+
+    def test_create_headless_registers_file_io_executor_on_scope(self):
+        from modules.scope_session import ScopeSession
+        session = ScopeSession.create_headless()
+        assert session.scope._file_io_executor is not None, (
+            'ScopeSession.create_headless() must register a file_io_executor '
+            'on the scope; without it, protocol_image_writer + IOTask file-IO '
+            'paths fall back to inline execution and pipelining is lost.'
+        )
+
+    def test_create_headless_attaches_executor_bundle_to_scope(self):
+        from modules.scope_session import ScopeSession
+        from modules.executor_registry import ExecutorBundle
+        session = ScopeSession.create_headless()
+        # register_executor_bundle stores the bundle on _executor_bundle.
+        bundle = getattr(session.scope, '_executor_bundle', None)
+        assert isinstance(bundle, ExecutorBundle), (
+            'ScopeSession.create_headless() must call register_executor_bundle '
+            'so MetricsLogger snapshot() reports all 4 executor queue depths.'
+        )
+
+    def test_create_headless_session_carries_bundle_reference(self):
+        from modules.scope_session import ScopeSession
+        from modules.executor_registry import ExecutorBundle
+        session = ScopeSession.create_headless()
+        assert isinstance(session.executor_bundle, ExecutorBundle), (
+            'ScopeSession.create_headless() must store the bundle on the '
+            'session itself so headless callers can shut down protocol_thread '
+            '/ scope_display_thread cleanly.'
+        )
+
+    def test_create_headless_bundle_has_all_four_executors(self):
+        from modules.scope_session import ScopeSession
+        session = ScopeSession.create_headless()
+        bundle = session.executor_bundle
+        # All four executors are required for full L2-caller pipelining.
+        for attr_name in ('io_executor', 'camera_executor',
+                          'file_io_executor', 'worker_pool'):
+            assert getattr(bundle, attr_name) is not None, (
+                f'Bundle missing {attr_name}; L2 caller will hit degraded '
+                f'topology when that executor is needed.'
+            )
+
+    def test_create_with_explicit_executors_skips_bundle_build(self):
+        # When the caller passes their own executor handles (e.g. lumaviewpro.py
+        # build() owns the bundle and constructs ScopeSession with shared
+        # handles), create() must NOT spawn a second bundle.
+        from modules.scope_session import ScopeSession
+        from modules.sequential_io_executor import SequentialIOExecutor
+        io = SequentialIOExecutor(name='IO_TEST')
+        cam = SequentialIOExecutor(name='CAMERA_TEST')
+        try:
+            session = ScopeSession.create(
+                settings={}, io_executor=io, camera_executor=cam,
+            )
+            assert session.executor_bundle is None, (
+                'ScopeSession.create() must not build a bundle when the caller '
+                'passes io_executor + camera_executor explicitly; that path is '
+                'reserved for lumaviewpro.py-style bundle ownership.'
+            )
+            assert session.io_executor is io
+            assert session.camera_executor is cam
+        finally:
+            io.shutdown()
+            cam.shutdown()

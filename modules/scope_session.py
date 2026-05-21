@@ -35,6 +35,7 @@ class ScopeSession:
         coordinate_transformer=None,
         objective_helper=None,
         source_path: str = ".",
+        executor_bundle=None,
     ):
         self.settings = settings
         self.scope = scope
@@ -44,6 +45,11 @@ class ScopeSession:
         self.coordinate_transformer = coordinate_transformer
         self.objective_helper = objective_helper
         self.source_path = source_path
+        # When ScopeSession.create* built the executors itself, the bundle
+        # is held here so headless callers can shut down protocol_thread /
+        # scope_display_thread cleanly. When lumaviewpro.py is the host,
+        # this is None -- the host owns the bundle on ctx.executor_bundle.
+        self.executor_bundle = executor_bundle
 
         self.protocol_running = threading.Event()
         self.focus_round = 0
@@ -65,9 +71,14 @@ class ScopeSession:
 
         This is the main entry point.  Pass in existing objects when the GUI
         has already created them, or omit them for headless / script use.
-        """
-        from modules.sequential_io_executor import SequentialIOExecutor
 
+        When io_executor / camera_executor are omitted, the full production
+        executor bundle is built via executor_registry.create_default so L2
+        callers get the same topology lumaviewpro.py runs: IO + CAMERA +
+        FILE + WORKER_POOL executors plus protocol_thread (started) and
+        scope_display_thread (constructed, not started). When callers pass
+        executor handles in, those are used and no bundle is created.
+        """
         from modules.lumascope_api._lumascope import _fire_pre_release_warning
         _fire_pre_release_warning()
 
@@ -75,18 +86,31 @@ class ScopeSession:
             import modules.lumascope_api as lumascope_api
             scope = lumascope_api.Lumascope()
 
-        if io_executor is None:
-            io_executor = SequentialIOExecutor(name="IO")
-
-        if camera_executor is None:
-            camera_executor = SequentialIOExecutor(name="CAMERA")
+        executor_bundle = None
+        if io_executor is None and camera_executor is None:
+            from modules.executor_registry import create_default
+            executor_bundle = create_default(ui_dispatcher=None)
+            io_executor = executor_bundle.io_executor
+            camera_executor = executor_bundle.camera_executor
+        else:
+            from modules.sequential_io_executor import SequentialIOExecutor
+            if io_executor is None:
+                io_executor = SequentialIOExecutor(name="IO")
+            if camera_executor is None:
+                camera_executor = SequentialIOExecutor(name="CAMERA")
 
         # LAYER-A': register executors on the scope so scope.X_async /
         # scope.X_sync can dispatch without callers passing executor handles.
+        # When the bundle was built, register file_io_executor too so
+        # protocol_image_writer + IOTask file-IO paths land on the dedicated
+        # queue instead of falling back to inline execution.
         scope.register_executors(
             camera_executor=camera_executor,
             io_executor=io_executor,
+            file_io_executor=executor_bundle.file_io_executor if executor_bundle else None,
         )
+        if executor_bundle is not None:
+            scope.register_executor_bundle(executor_bundle, settings=settings)
         # LAYER-I: register source_path for scope.load_protocol /
         # create_protocol — falls back to current working dir for the
         # rare ScopeSession path that doesn't pass source_path.
@@ -141,6 +165,7 @@ class ScopeSession:
             coordinate_transformer=coordinate_transformer,
             objective_helper=objective_helper,
             source_path=source_path,
+            executor_bundle=executor_bundle,
         )
 
     @classmethod
@@ -149,9 +174,14 @@ class ScopeSession:
 
         Convenience factory for REST API, CLI scripts, and tests.
         Uses simulated drivers so no physical hardware is needed.
+
+        Builds the full production executor topology (IO + CAMERA + FILE +
+        WORKER_POOL + protocol_thread + scope_display_thread) so headless
+        callers get the same pipelining as lumaviewpro.py instead of a
+        degraded 2-executor subset.
         """
         from modules.lumascope_api._lumascope import _fire_pre_release_warning
-        from modules.sequential_io_executor import SequentialIOExecutor
+        from modules.executor_registry import create_default
         import modules.lumascope_api as lumascope_api
 
         _fire_pre_release_warning()
@@ -172,23 +202,29 @@ class ScopeSession:
 
         scope = lumascope_api.Lumascope(simulate=True)
 
-        io_executor = SequentialIOExecutor(name="IO")
-        camera_executor = SequentialIOExecutor(name="CAMERA")
+        executor_bundle = create_default(ui_dispatcher=None)
 
-        # LAYER-A': register executors on the scope (headless session).
+        # LAYER-A': register all three executor handles on the scope so
+        # scope.X_async / scope.X_sync + protocol_image_writer file-IO
+        # paths land on the proper queues.
         scope.register_executors(
-            camera_executor=camera_executor,
-            io_executor=io_executor,
+            camera_executor=executor_bundle.camera_executor,
+            io_executor=executor_bundle.io_executor,
+            file_io_executor=executor_bundle.file_io_executor,
         )
+        # LVP-A-13: wire the bundle so metrics_logger.snapshot() reports
+        # all 4 executor queue depths instead of a degraded subset.
+        scope.register_executor_bundle(executor_bundle, settings=settings)
         # LAYER-I: register source_path (defaults to "." in headless).
         scope.register_source_path(source_path)
 
         return cls(
             settings=settings,
             scope=scope,
-            io_executor=io_executor,
-            camera_executor=camera_executor,
+            io_executor=executor_bundle.io_executor,
+            camera_executor=executor_bundle.camera_executor,
             source_path=source_path,
+            executor_bundle=executor_bundle,
         )
 
     # ------------------------------------------------------------------
