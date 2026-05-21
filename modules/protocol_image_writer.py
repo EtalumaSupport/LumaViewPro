@@ -224,25 +224,17 @@ class ProtocolImageWriter:
                 self._scope.imaging.set_gain(step['Gain'])
                 self._scope.imaging.set_exposure_time(step['Exposure'])
             else:
-                # Auto_Gain step: route through apply_layer_camera_settings so
-                # set_auto_gain(state=True, ...) actually fires. Previously this
-                # branch only logged a warning and skipped setting anything,
-                # leaving the camera at whatever gain/exposure it inherited
-                # from the prior step / live mode -- yielding overexposed (or
-                # arbitrary) images. Convergence is handled by the runner's
-                # `_auto_gain_deadline` loop in
-                # `modules/protocol_step_runner.py::scan_iterate` (~line 195).
-                # The deadline is reset per step in scan_iterate (line 199).
+                # Auto_Gain step: scan_iterate arms AG via
+                # apply_layer_camera_settings BEFORE the deadline-wait
+                # window opens, so convergence runs during the wait
+                # rather than in a single frame here. By the time we
+                # reach capture() the camera has already had up to
+                # max_duration seconds of convergence; the apply is
+                # therefore skipped to avoid restarting AG mid-grab.
                 logger.debug(
-                    f"[CAPTURE DIAG] Auto_Gain step: enabling AG with target "
-                    f"gain={step['Gain']}dB exp={step['Exposure']}ms; "
-                    f"convergence via _auto_gain_deadline loop"
-                )
-                self._scope.imaging.apply_layer_camera_settings(
-                    gain_db=step['Gain'],
-                    exposure_ms=step['Exposure'],
-                    auto_gain=True,
-                    auto_gain_settings=autogain_settings,
+                    f"[CAPTURE DIAG] Auto_Gain step: armed in scan_iterate "
+                    f"with target gain={step['Gain']}dB exp={step['Exposure']}ms; "
+                    f"convergence completed via _auto_gain_deadline wait"
                 )
 
             # Objective short name for filename

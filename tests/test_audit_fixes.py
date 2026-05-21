@@ -8833,4 +8833,101 @@ class TestPreReleaseFutureWarning:
         assert '_fire_pre_release_warning' in src
         # README banner / LumascopeSkills preface / CHANGELOG note are
         # the other three mechanisms; their existence is verified
-        # outside this test file (Rule 30 bundle).
+        # outside this test file (4-mechanism PRE-RELEASE bundle).
+
+
+class TestAutoGainArmedBeforeDeadlineWait:
+    """Auto_Gain protocol steps must enable AG BEFORE the deadline-wait
+    window, not inside capture() AFTER the wait. Otherwise AG only
+    gets a single frame of convergence before the grab -- the static-
+    read root cause of issue #673. Closes API protocol-workflow audit
+    F1; pairs with the existing #673 fix at LVP `191dfa0` which routed
+    AG through apply_layer_camera_settings inside capture() but missed
+    the ordering correction.
+    """
+
+    def _runner_src(self):
+        import pathlib
+        return pathlib.Path('modules/protocol_step_runner.py').read_text()
+
+    def _scr_src(self):
+        import pathlib
+        return pathlib.Path('modules/sequenced_capture_runner.py').read_text()
+
+    def _writer_src(self):
+        import pathlib
+        return pathlib.Path('modules/protocol_image_writer.py').read_text()
+
+    def _run_loop_src(self):
+        import pathlib
+        return pathlib.Path('modules/protocol_run_loop.py').read_text()
+
+    def test_armed_step_attribute_initialized_on_scr(self):
+        src = self._scr_src()
+        assert 'self._auto_gain_armed_step = -1' in src, (
+            'SCR.__init__ must initialize _auto_gain_armed_step to -1 '
+            'so the first scan_iterate sees a fresh "not yet armed" '
+            'state.'
+        )
+
+    def test_run_loop_resets_armed_step_per_scan(self):
+        src = self._run_loop_src()
+        assert 'p._auto_gain_armed_step = -1' in src, (
+            'protocol_run_loop must reset _auto_gain_armed_step '
+            'alongside _auto_gain_deadline at the start of each scan '
+            'so a re-run does not skip AG arming.'
+        )
+
+    def test_arm_block_precedes_deadline_gate_in_scan_iterate(self):
+        src = self._runner_src()
+        arm_marker = "if step['Auto_Gain'] and p._auto_gain_armed_step != p._curr_step:"
+        gate_marker = "if step['Auto_Gain'] and time.monotonic() < p._auto_gain_deadline:"
+        arm_idx = src.find(arm_marker)
+        gate_idx = src.find(gate_marker)
+        assert arm_idx >= 0, 'AG-arm block must exist in scan_iterate.'
+        assert gate_idx >= 0, 'Deadline gate must exist in scan_iterate.'
+        assert arm_idx < gate_idx, (
+            'AG-arm block must appear BEFORE the deadline gate so the '
+            'camera converges DURING the max_duration wait, not in a '
+            'single frame inside capture() AFTER the wait.'
+        )
+
+    def test_arm_block_routes_apply_through_io_executor(self):
+        src = self._runner_src()
+        # Find the arm block and assert it includes the IOTask submit
+        # with apply_layer_camera_settings.
+        arm_idx = src.find("if step['Auto_Gain'] and p._auto_gain_armed_step != p._curr_step:")
+        gate_idx = src.find("if step['Auto_Gain'] and time.monotonic() < p._auto_gain_deadline:")
+        block = src[arm_idx:gate_idx]
+        assert 'p._scope.imaging.apply_layer_camera_settings' in block, (
+            'Arm block must call apply_layer_camera_settings (the same '
+            'path live-mode AE/AG uses).'
+        )
+        assert "'auto_gain': True" in block, (
+            'Arm block must pass auto_gain=True.'
+        )
+        assert 'IOTask' in block and 'protocol_put' in block, (
+            'Arm block must route through io_executor.protocol_put so '
+            'the apply is serialized with other protocol-thread IO.'
+        )
+
+    def test_capture_does_not_double_apply_for_ag_step(self):
+        src = self._writer_src()
+        # The AG branch in capture() should no longer call apply
+        # (scan_iterate already armed AG). Locate the "Auto_Gain step"
+        # branch and assert there is no apply_layer_camera_settings
+        # call between it and the next sibling block.
+        marker = '# Auto_Gain step: scan_iterate arms AG'
+        idx = src.find(marker)
+        assert idx >= 0, (
+            'capture() Auto_Gain branch must document that scan_iterate '
+            'arms AG; the docstring is the contract.'
+        )
+        # Look at the next 800 chars of the branch body.
+        branch_window = src[idx:idx + 800]
+        assert 'self._scope.imaging.apply_layer_camera_settings(' not in branch_window, (
+            'capture() Auto_Gain branch must not call '
+            'self._scope.imaging.apply_layer_camera_settings(...) -- '
+            'doing so would restart AG mid-grab and discard the '
+            'convergence the deadline-wait produced.'
+        )

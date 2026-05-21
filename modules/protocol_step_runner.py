@@ -191,6 +191,27 @@ class ProtocolStepRunner:
         if step['Auto_Focus'] and p._af_future is not None and not p._af_future.done():
             return
 
+        # Arm Auto_Gain BEFORE the deadline-wait gate so the camera
+        # actually converges during the max_duration window. Previously
+        # the apply_layer_camera_settings(... auto_gain=True ...) call
+        # happened inside capture(), AFTER this gate cleared -- so AG
+        # got a single frame of convergence before grab, yielding
+        # overexposed / unconverged images. Arm once per step
+        # (_auto_gain_armed_step is a one-shot keyed on _curr_step).
+        if step['Auto_Gain'] and p._auto_gain_armed_step != p._curr_step:
+            fut = p._io_executor.protocol_put(IOTask(
+                action=p._scope.imaging.apply_layer_camera_settings,
+                kwargs={
+                    'gain_db': step['Gain'],
+                    'exposure_ms': step['Exposure'],
+                    'auto_gain': True,
+                    'auto_gain_settings': p._autogain_settings,
+                }
+            ), return_future=True)
+            if fut:
+                fut.result(timeout=30)
+            p._auto_gain_armed_step = p._curr_step
+
         # Check if autogain has time-finished
         if step['Auto_Gain'] and time.monotonic() < p._auto_gain_deadline:
             return

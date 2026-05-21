@@ -156,6 +156,7 @@ class ProtocolRunLoop:
                 p._scan_in_progress.set()
                 p._set_state(ProtocolState.SCANNING)
                 p._auto_gain_deadline = time.monotonic() + p._autogain_settings['max_duration'].total_seconds()
+                p._auto_gain_armed_step = -1
 
                 start_scan_time = datetime.datetime.now()
                 p._step_executor.scan_loop()
