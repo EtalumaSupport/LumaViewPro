@@ -117,6 +117,22 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
         # H-3 fix: snapshot widget values on main thread before submitting
         # to camera executor, since .ids access is not thread-safe.
         ctx = _app_ctx.ctx
+        # Gate on camera-connected before queueing record_init. Without
+        # this, clicking record on a disconnected camera queues a task
+        # that fails inside record_init with no clear user feedback.
+        if not getattr(ctx.scope, 'camera_connected', True):
+            from modules.notification_center import notifications
+            notifications.warning(
+                "Camera",
+                "Camera not connected",
+                "Cannot start recording -- camera is not connected. "
+                "Check USB and reconnect, then try again.",
+            )
+            try:
+                self.ids['record_btn'].state = 'normal'
+            except Exception as e:
+                logger.warning(f'[LVP Main  ] Failed to reset record button state: {e}')
+            return
         false_color = None
         for layer in common_utils.get_layers():
             layer_accordion_obj = ctx.image_settings.accordion_item_lookup(layer=layer)

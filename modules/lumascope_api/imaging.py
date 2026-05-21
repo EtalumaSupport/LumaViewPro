@@ -434,10 +434,27 @@ class ImagingAPI:
             h: Frame height in pixels.
         """
 
-        if not self._driver or not self._driver.active: return
+        if not self._driver or not self._driver.active:
+            self._notify_camera_absent('frame size')
+            return
         self._driver.set_frame_size(w, h)
         with self._camera_cache_lock:
             self._camera_cache['frame_size'] = {'width': int(w), 'height': int(h)}
+
+    def _notify_camera_absent(self, op_label: str) -> None:
+        """Fire a deduped notification when a camera-required operation
+        is invoked without an active camera. notification_center collapses
+        repeats by (category, title) over 5s so a chain of failed setter
+        calls during a disconnected window yields one popup, not dozens.
+        Internal-poll callers (scope_display auto-gain readback) and
+        cleanup paths intentionally do NOT route through this.
+        """
+        notifications.warning(
+            "Camera",
+            "Camera not connected",
+            f"Cannot change {op_label} -- camera is not connected. "
+            f"Check USB and reconnect, then try again.",
+        )
 
     def set_binning_size(self, size: int) -> bool:
         """Set camera pixel binning size.
@@ -459,6 +476,7 @@ class ImagingAPI:
                 ok = self._driver.set_binning_size(size=size)
             else:
                 ok = False
+                self._notify_camera_absent('binning')
             _api_log.info(f'set_binning {size}x{size} -> {ok}')
             return ok
         except Exception as ex:
@@ -482,6 +500,7 @@ class ImagingAPI:
                 check `if not scope.imaging.set_pixel_format(...)` for fallback.
         """
         if not self._driver or not self._driver.active:
+            self._notify_camera_absent('pixel format')
             return False
         try:
             result = self._driver.set_pixel_format(pixel_format)
@@ -1650,6 +1669,7 @@ class ImagingAPI:
                                (required if auto_gain is True).
         """
         if not self._driver or not self._driver.active:
+            self._notify_camera_absent('gain / exposure')
             return
         self.set_gain(gain_db)
         self.set_exposure_time(exposure_ms)
