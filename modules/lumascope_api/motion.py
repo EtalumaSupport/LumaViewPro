@@ -379,7 +379,7 @@ class MotionAPI:
                 "(Thonny, mpremote, etc.) is holding the port.",
             )
             return False
-        present_axes = self._scope.axes_present()
+        present_axes = self._scope.capabilities.axes
         _api_log.info('home START')
         for ax in present_axes:
             self._set_axis_state(ax, AxisState.HOMING)
@@ -630,7 +630,7 @@ class MotionAPI:
             dict: Mapping of axis name to limit switch state.
         """
         resp = {}
-        for axis in self._scope.axes_present():
+        for axis in self._scope.capabilities.axes:
             resp[axis] = self.get_limit_switch_status(axis=axis)
         return resp
 
@@ -941,7 +941,7 @@ class MotionAPI:
         by move commands -- no polling needed.
         """
         positions = {}
-        for ax in self._scope.axes_present():
+        for ax in self._scope.capabilities.axes:
             try:
                 pos = self._driver.target_pos(axis=ax)
                 positions[ax] = pos if pos is not None else 0.0
@@ -1002,7 +1002,7 @@ class MotionAPI:
         """
         if axis is None:
             result = {}
-            for ax in self._scope.axes_present():
+            for ax in self._scope.capabilities.axes:
                 result[ax] = self.get_current_position(ax)
             return result
 

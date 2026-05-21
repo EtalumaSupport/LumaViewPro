@@ -751,30 +751,6 @@ class Lumascope():
     # relocated to ImagingAPI in Wave 7 Phase 4c/4d; forwarders retired in
     # 4f. Callers use scope.imaging.
 
-    def axes_present(self) -> list[str]:
-        """Get list of axes physically present on this scope.
-
-        Thin wrapper over `self.capabilities.axes`. New code should
-        prefer reading from `scope.capabilities.axes` directly.
-
-        Returns:
-            list[str]: e.g. ['Z'], ['X', 'Y', 'Z'], or ['X', 'Y', 'Z', 'T']
-        """
-        return list(self.capabilities.axes)
-
-    def has_axis(self, axis: str) -> bool:
-        """Check if an axis is physically present on this scope.
-
-        Thin wrapper over ``self.capabilities.axes``.
-
-        Args:
-            axis: Axis name to check ("X", "Y", "Z", "T").
-
-        Returns:
-            bool: True if the axis is present.
-        """
-        return axis in self.capabilities.axes
-
     @property
     def motor_connected(self) -> bool:
         """Whether the motor controller is connected.

@@ -213,7 +213,7 @@ class TestLumascopeHome:
             "Real homing failure (driver returned False) must raise the "
             "Homing Failed notification"
         )
-        for ax in scope.axes_present():
+        for ax in scope.capabilities.axes:
             assert scope.motion.get_axis_state(ax) == AxisState.UNKNOWN, (
                 f"{ax} must be UNKNOWN after real homing failure"
             )
@@ -985,16 +985,14 @@ class TestScopeCapabilities:
         with pytest.raises(dataclasses.FrozenInstanceError):
             scope.capabilities.axes = ('X',)  # type: ignore[misc]
 
-    def test_backward_compat_methods_delegate_to_capabilities(self):
-        """The existing methods (`axes_present`, `has_turret`, `has_axis`)
-        must return values matching `scope.capabilities.*`. If they drift,
-        callers using the old methods see different answers than callers
-        using the new field — exactly the fragmentation B7 aims to retire."""
+    def test_motion_has_turret_matches_capabilities(self):
+        """motion.has_turret() must match capabilities.has_turret. The
+        axes_present / has_axis wrappers were retired per audit F9; the
+        prior wrapper-equivalence test is obsolete. This narrow check
+        on motion.has_turret remains because that method is still a
+        live wrapper (not retired)."""
         scope = Lumascope(simulate=True)
-        assert scope.axes_present() == list(scope.capabilities.axes)
         assert scope.motion.has_turret() == scope.capabilities.has_turret
-        assert scope.has_axis('Z') == ('Z' in scope.capabilities.axes)
-        assert scope.has_axis('Q') is False
 
     def test_motor_connected_stays_live_not_in_capabilities(self):
         """Runtime connection state must NOT be a field on capabilities —
