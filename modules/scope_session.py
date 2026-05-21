@@ -283,23 +283,51 @@ class ScopeSession:
             axis, callback=callback, cb_args=cb_args,
         )
 
-    # --- Imaging commands (symmetric with illumination + motion wrappers) ---
+    # --- Imaging commands (symmetric with illumination + motion wrappers:
+    #     _async = queued + immediate return, _sync = queued + blocking on
+    #     result. Both route through camera_executor for serialization with
+    #     other camera-bus work.)
 
-    def set_gain(self, gain_db: float) -> None:
-        """Set camera gain in dB. Thin forwarder to scope.imaging.set_gain."""
-        self.scope.imaging.set_gain(gain_db)
+    def set_gain_async(self, gain_db: float, callback=None, cb_kwargs=None) -> None:
+        """Submit ``set_gain`` to camera_executor; return immediately."""
+        self.scope.imaging.set_gain_async(
+            gain_db, callback=callback, cb_kwargs=cb_kwargs,
+        )
 
-    def set_exposure_time(self, exposure_ms: float) -> None:
-        """Set camera exposure in ms. Thin forwarder to scope.imaging.set_exposure_time."""
-        self.scope.imaging.set_exposure_time(exposure_ms)
+    def set_gain_sync(self, gain_db: float, timeout_s: float = 5.0) -> None:
+        """Submit ``set_gain`` to camera_executor and block until done."""
+        self.scope.imaging.set_gain_sync(gain_db, timeout_s=timeout_s)
 
-    def capture_and_wait(self, force_to_8bit: bool = True, **kwargs) -> 'np.ndarray | bool':
-        """Capture a frame after the camera pipeline settles. Thin forwarder
-        to scope.imaging.capture_and_wait. Accepts the same keyword arguments
-        (exclude_sources, all_ones_check, earliest_image_ts, timeout_s,
-        sum_count, sum_delay_s, sum_iteration_callback)."""
-        return self.scope.imaging.capture_and_wait(
-            force_to_8bit=force_to_8bit, **kwargs,
+    def set_exposure_time_async(
+        self, exposure_ms: float, callback=None, cb_kwargs=None,
+    ) -> None:
+        """Submit ``set_exposure_time`` to camera_executor; return immediately."""
+        self.scope.imaging.set_exposure_time_async(
+            exposure_ms, callback=callback, cb_kwargs=cb_kwargs,
+        )
+
+    def set_exposure_time_sync(self, exposure_ms: float, timeout_s: float = 5.0) -> None:
+        """Submit ``set_exposure_time`` to camera_executor and block until done."""
+        self.scope.imaging.set_exposure_sync(exposure_ms, timeout_s=timeout_s)
+
+    def capture_and_wait_async(self, callback=None, cb_kwargs=None, **kwargs) -> None:
+        """Submit ``capture_and_wait`` to camera_executor; image delivered via callback."""
+        self.scope.imaging.capture_and_wait_async(
+            callback=callback, cb_kwargs=cb_kwargs, **kwargs,
+        )
+
+    def capture_and_wait_sync(
+        self, force_to_8bit: bool = True, *, timeout_s: float = 30.0, **kwargs,
+    ) -> 'np.ndarray | bool | None':
+        """Submit ``capture_and_wait`` to camera_executor and block; return image.
+
+        Accepts the same keyword arguments as scope.imaging.capture_and_wait
+        (exclude_sources, all_ones_check, earliest_image_ts, sum_count,
+        sum_delay_s, sum_iteration_callback). Returns the captured image
+        array, ``False`` on capture failure, or ``None`` on executor absence.
+        """
+        return self.scope.imaging.capture_and_wait_sync(
+            timeout_s=timeout_s, force_to_8bit=force_to_8bit, **kwargs,
         )
 
     # ------------------------------------------------------------------

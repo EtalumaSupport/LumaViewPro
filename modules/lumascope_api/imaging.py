@@ -858,6 +858,22 @@ class ImagingAPI:
             )
             raise
 
+    def set_gain_async(self, gain_db, *, callback=None, cb_kwargs=None) -> None:
+        """Submit ``set_gain`` to the camera_executor; return immediately.
+
+        Args:
+            gain_db: Gain value in dB.
+            callback: Optional completion callback.
+            cb_kwargs: Optional kwargs passed to the callback.
+        """
+        ex = self._scope._require_executor(self._scope._camera_executor, 'set_gain_async')
+        ex.put(IOTask(
+            action=self.set_gain,
+            args=(gain_db,),
+            callback=callback,
+            cb_kwargs=cb_kwargs,
+        ))
+
     def set_gain_sync(self, gain_db, *, timeout_s: float = 5.0) -> None:
         """Run ``set_gain`` through the camera_executor and block until done.
 
@@ -870,6 +886,22 @@ class ImagingAPI:
         fut = ex.put(task, return_future=True)
         if fut:
             fut.result(timeout=timeout_s)
+
+    def set_exposure_time_async(self, exposure_ms, *, callback=None, cb_kwargs=None) -> None:
+        """Submit ``set_exposure_time`` to the camera_executor; return immediately.
+
+        Args:
+            exposure_ms: Exposure time in milliseconds.
+            callback: Optional completion callback.
+            cb_kwargs: Optional kwargs passed to the callback.
+        """
+        ex = self._scope._require_executor(self._scope._camera_executor, 'set_exposure_time_async')
+        ex.put(IOTask(
+            action=self.set_exposure_time,
+            args=(exposure_ms,),
+            callback=callback,
+            cb_kwargs=cb_kwargs,
+        ))
 
     def set_exposure_sync(self, exposure_ms, *, timeout_s: float = 5.0) -> None:
         """Run ``set_exposure_time`` through the camera_executor and block.
@@ -1124,6 +1156,24 @@ class ImagingAPI:
             force_new_capture=True,
             new_capture_timeout_s=grab_timeout_s,
         )
+
+    def capture_and_wait_async(self, *, callback=None, cb_kwargs=None, **kwargs) -> None:
+        """Submit ``capture_and_wait`` to the camera_executor; return
+        immediately. The captured image is delivered via ``callback``.
+
+        Args:
+            callback: Completion callback; receives the captured array
+                (or ``False`` on capture failure) as the first arg.
+            cb_kwargs: Optional kwargs passed to the callback.
+            **kwargs: Forwarded to ``capture_and_wait``.
+        """
+        ex = self._scope._require_executor(self._scope._camera_executor, 'capture_and_wait_async')
+        ex.put(IOTask(
+            action=self.capture_and_wait,
+            kwargs=kwargs,
+            callback=callback,
+            cb_kwargs=cb_kwargs,
+        ))
 
     def capture_and_wait_sync(self, *, timeout_s: float = 30.0, **kwargs) -> 'np.ndarray | bool | None':
         """Run ``capture_and_wait`` through the camera_executor and block.

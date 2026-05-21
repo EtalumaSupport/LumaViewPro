@@ -8369,23 +8369,28 @@ class TestSessionImagingWrappersSymmetric:
         )
 
     def test_session_set_gain_forwards_to_imaging(self):
-        """Calling the forwarder updates the imaging cache -- same path
-        as scope.imaging.set_gain directly."""
+        """Calling the sync forwarder updates the imaging cache -- same
+        path as scope.imaging.set_gain_sync directly. Plain `set_gain`
+        retired in favor of explicit _async / _sync per audit F6/F7."""
         from modules.scope_session import ScopeSession
         session = ScopeSession.create_headless()
+        session.start_executors()
         try:
-            session.set_gain(5.5)
+            session.set_gain_sync(5.5)
             assert session.scope.imaging.camera_gain == 5.5
         finally:
+            session.shutdown_executors()
             session.scope.disconnect()
 
     def test_session_set_exposure_time_forwards_to_imaging(self):
         from modules.scope_session import ScopeSession
         session = ScopeSession.create_headless()
+        session.start_executors()
         try:
-            session.set_exposure_time(42.0)
+            session.set_exposure_time_sync(42.0)
             assert session.scope.imaging.camera_exposure_ms == 42.0
         finally:
+            session.shutdown_executors()
             session.scope.disconnect()
 
 
@@ -8988,3 +8993,70 @@ class TestShutdownLedsOffRoutedThroughIoExecutor:
             'io_executor down. Otherwise the put() races with the '
             'worker exiting and the leds_off may never fire.'
         )
+
+
+class TestImagingAsyncSyncThreeVariantPattern:
+    """Imaging sub-API must match the illumination 3-variant pattern:
+    bare name = direct sync, _async = queued + immediate return,
+    _sync = queued + blocking. Session forwarders for imaging must
+    also follow the symmetric _async / _sync split. Plain `set_gain`
+    / `set_exposure_time` / `capture_and_wait` on ScopeSession
+    retired in favor of explicit suffixes so the LumascopeSkills
+    'async-by-default' preface stops lying for imaging. Closes API
+    audit F6 + F7 cluster.
+    """
+
+    def test_imaging_has_set_gain_async(self):
+        from modules.lumascope_api.imaging import ImagingAPI
+        assert hasattr(ImagingAPI, 'set_gain_async')
+        assert callable(getattr(ImagingAPI, 'set_gain_async'))
+
+    def test_imaging_has_set_exposure_time_async(self):
+        from modules.lumascope_api.imaging import ImagingAPI
+        assert hasattr(ImagingAPI, 'set_exposure_time_async')
+        assert callable(getattr(ImagingAPI, 'set_exposure_time_async'))
+
+    def test_imaging_has_capture_and_wait_async(self):
+        from modules.lumascope_api.imaging import ImagingAPI
+        assert hasattr(ImagingAPI, 'capture_and_wait_async')
+        assert callable(getattr(ImagingAPI, 'capture_and_wait_async'))
+
+    def test_session_imaging_forwarders_renamed(self):
+        from modules.scope_session import ScopeSession
+        # _async + _sync variants must exist
+        for name in (
+            'set_gain_async', 'set_gain_sync',
+            'set_exposure_time_async', 'set_exposure_time_sync',
+            'capture_and_wait_async', 'capture_and_wait_sync',
+        ):
+            assert callable(getattr(ScopeSession, name, None)), (
+                f'ScopeSession.{name} must exist per audit F6/F7 '
+                f'three-variant pattern.'
+            )
+        # Unsuffixed forwarders are retired -- they were the source of the
+        # preface lie. Plain `set_gain` / `set_exposure_time` /
+        # `capture_and_wait` should NOT exist on ScopeSession.
+        for name in ('set_gain', 'set_exposure_time', 'capture_and_wait'):
+            assert not hasattr(ScopeSession, name), (
+                f'ScopeSession.{name} must be retired per audit F7 -- '
+                f'use {name}_async or {name}_sync instead.'
+            )
+
+    def test_session_set_gain_async_routes_through_executor(self):
+        # The async variant should return None and submit via executor.
+        from modules.scope_session import ScopeSession
+        session = ScopeSession.create_headless()
+        session.start_executors()
+        try:
+            result = session.set_gain_async(7.0)
+            assert result is None, (
+                'set_gain_async must return None (fire-and-forget); '
+                'value lands after the executor processes the IOTask.'
+            )
+            # Drain by calling _sync afterwards -- if executor wiring
+            # is healthy, the prior async write completes first.
+            session.set_gain_sync(7.0)
+            assert session.scope.imaging.camera_gain == 7.0
+        finally:
+            session.shutdown_executors()
+            session.scope.disconnect()

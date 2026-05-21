@@ -208,9 +208,15 @@ session.move_relative_async('X', 500)
 ### Imaging (symmetric with LED + motion forwarders)
 
 ```python
-session.set_gain(8.0)                    # dB
-session.set_exposure_time(50.0)          # ms
-image = session.capture_and_wait()       # frame-valid grab, all keyword args forwarded
+# async-by-default (fire and forget, optional completion callback)
+session.set_gain_async(8.0)              # dB
+session.set_exposure_time_async(50.0)    # ms
+session.capture_and_wait_async(callback=lambda img: ..., earliest_image_ts=ts)
+
+# sync counterparts when blocking is the right shape
+session.set_gain_sync(8.0, timeout_s=5)
+session.set_exposure_time_sync(50.0, timeout_s=5)
+image = session.capture_and_wait_sync(timeout_s=30)   # returns frame-valid grab
 ```
 
 ### Capture
