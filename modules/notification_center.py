@@ -102,15 +102,22 @@ class NotificationCenter:
         # Forensics: every notification (independent of any UI popup
         # bridge that may suppress it post-shutdown) lands in
         # gui_interactions.log so post-mortem can see what messages
-        # the user was looking at. Best-effort — gui_logger import or
+        # the user was looking at. Best-effort -- gui_logger import or
         # logging stack failures don't disrupt the notify path.
+        # Failure surfaces at warning level in the main log so a
+        # silently-broken forensic-log subsystem is visible during
+        # post-mortem; stderr-print is intentionally NOT used because
+        # frozen pyinstaller builds suppress stderr from L1 users.
         try:
             from modules import gui_logger
             gui_logger.notification(
                 severity.name if hasattr(severity, 'name') else str(severity),
                 f"{category}/{title}", message, source=source or "")
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(
+                f'notification forensic write failed: '
+                f'{type(e).__name__}: {e}'
+            )
 
         # Dedup check + shutdown suppression
         key = (category, title)
