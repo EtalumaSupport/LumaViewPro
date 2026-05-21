@@ -144,8 +144,23 @@ def get_current_plate_position(
     labware_id = settings.get('protocol', {}).get('labware', '')
     try:
         labware = wellplate_loader.get_plate(plate_key=labware_id)
-    except Exception:
-        logger.warning(f"Could not load labware '{labware_id}' for position conversion")
+    except Exception as e:
+        # Fallback returns stage coords in plate-coord field positions --
+        # data-misleading by design (callers expect plate coords). Notify
+        # so the user knows the protocol/z-stack about to be saved has the
+        # wrong coordinate frame, instead of silently writing bad data.
+        logger.error(
+            f"Could not load labware '{labware_id}' for position conversion: {e}",
+            exc_info=True,
+        )
+        from modules.notification_center import notifications
+        notifications.warning(
+            "Position",
+            "Labware not found",
+            f"Labware '{labware_id}' could not be loaded: {type(e).__name__}: {e}. "
+            f"Returning stage coordinates instead of plate coordinates. "
+            f"Check that the labware is defined in data/labware.json.",
+        )
         return {
             'x': round(pos.get('X', 0), common_utils.max_decimal_precision('x')),
             'y': round(pos.get('Y', 0), common_utils.max_decimal_precision('y')),
