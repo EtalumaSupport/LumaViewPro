@@ -146,6 +146,14 @@ def generate_image_save_path(
                 if not os.path.exists(path):
                     break
                 n += 1
+            logger.warning(
+                f"Protocol filename collision: {base_path.name} already "
+                f"exists; saving as {path.name} instead. This usually means "
+                f"your protocol has multiple steps that produce the same "
+                f"filename (same Name + Well + Tile + Z-Slice across "
+                f"different Tile Group IDs). Consider including the Tile "
+                f"Group ID in the step Name field to avoid the rename suffix."
+            )
 
     elif tail_id_mode is None:
         filename = f"{file_root}{append}{file_extension}"

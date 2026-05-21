@@ -150,3 +150,90 @@ def test_load_accepts_unique_steps(tmp_path):
         tiling_configs_file_loc=TILING_CONFIGS,
     )
     assert proto.num_steps() == 2
+
+
+# ---------------------------------------------------------------------------
+# Functional check -- if_collision warns the user when it triggers.
+# ---------------------------------------------------------------------------
+
+class _MinimalScope:
+    """Bare-bones scope stand-in for generate_image_save_path tests."""
+    engineering_mode = False
+    _last_turret_position = None
+
+
+def _patch_image_save_logger(monkeypatch):
+    """Replace ``image_save.logger`` (a MagicMock under LVP's conftest mock)
+    with a real captured-record list. Returns the list; tests assert
+    against record messages directly.
+    """
+    from modules import image_save
+
+    captured: list = []
+
+    class _RecordingLogger:
+        def warning(self, msg, *args, **kwargs):
+            captured.append(('WARNING', msg % args if args else msg))
+
+        def info(self, msg, *args, **kwargs):
+            captured.append(('INFO', msg % args if args else msg))
+
+    monkeypatch.setattr(image_save, 'logger', _RecordingLogger())
+    return captured
+
+
+def test_if_collision_emits_warning_on_rename(tmp_path, monkeypatch):
+    """When a filename collides under if_collision mode, the user must
+    be told via a WARNING log. The duplicate-key class (#636 customer
+    case where TGIDs collide on filename) is silently data-preserving
+    via the rename suffix; without the warning the user has no signal
+    that their protocol Name format is producing collisions.
+    """
+    from modules.image_save import generate_image_save_path
+
+    base = tmp_path / "_PC_TA1.tiff"
+    base.write_bytes(b"")
+
+    captured = _patch_image_save_logger(monkeypatch)
+
+    path = generate_image_save_path(
+        scope=_MinimalScope(),
+        save_folder=tmp_path,
+        file_root="_PC_TA1",
+        append="",
+        tail_id_mode="if_collision",
+        output_format="TIFF",
+    )
+
+    assert path.name == "_PC_TA1_000001.tiff", (
+        f"if_collision should append _000001 on first collision; got {path.name}"
+    )
+    assert any(
+        level == 'WARNING' and "filename collision" in msg and "Tile Group ID" in msg
+        for level, msg in captured
+    ), (
+        "if_collision must emit a WARNING naming the rename and pointing "
+        "the user at Tile Group ID as the likely cause. (#636 follow-up). "
+        f"Captured: {captured}"
+    )
+
+
+def test_if_collision_no_warning_when_no_collision(tmp_path, monkeypatch):
+    """Happy path: no warning when the filename is fresh."""
+    from modules.image_save import generate_image_save_path
+
+    captured = _patch_image_save_logger(monkeypatch)
+
+    path = generate_image_save_path(
+        scope=_MinimalScope(),
+        save_folder=tmp_path,
+        file_root="_PC_TA1",
+        append="",
+        tail_id_mode="if_collision",
+        output_format="TIFF",
+    )
+
+    assert path.name == "_PC_TA1.tiff"
+    assert not any(
+        "filename collision" in msg for _, msg in captured
+    ), f"if_collision must not warn when there is no actual collision. Captured: {captured}"
