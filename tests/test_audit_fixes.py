@@ -7231,6 +7231,89 @@ class TestModSliderScrollWheel:
         )
 
 
+class TestModSliderAwareScrollView:
+    """ModSlider's scroll-wheel handler (619fc49) only fires when its
+    on_touch_down receives the touch. Bare Kivy ScrollView consumes
+    scrollup/scrolldown via on_scroll_start -> dispatch_children,
+    which only walks IMMEDIATE children -- a ModSlider nested inside
+    a BoxLayout never sees it. ModSliderAwareScrollView intercepts
+    wheel events at on_touch_down and re-dispatches via the standard
+    recursive Widget chain so the slider gets first crack.
+
+    The 3 ScrollView sites in lumaviewpro.kv (motion settings panel,
+    microscope settings panel, protocol settings panel) all contain
+    ModSlider widgets and must use the subclass. Static-source
+    assertions; runtime Kivy touch-event tests need a Window context
+    that isn't available in unit-test env.
+    """
+
+    def _src(self):
+        import pathlib
+        return pathlib.Path("ui/mod_slider.py").read_text()
+
+    def _kv(self):
+        import pathlib
+        return pathlib.Path("ui/lumaviewpro.kv").read_text()
+
+    def test_class_defined(self):
+        src = self._src()
+        assert "class ModSliderAwareScrollView(ScrollView):" in src, (
+            "ui/mod_slider.py must define ModSliderAwareScrollView "
+            "as a ScrollView subclass."
+        )
+        assert "from kivy.uix.scrollview import ScrollView" in src, (
+            "ScrollView import required for the subclass."
+        )
+
+    def test_subclass_handles_scrollwheel_before_super(self):
+        src = self._src()
+        idx = src.find("class ModSliderAwareScrollView(ScrollView):")
+        assert idx >= 0
+        body = src[idx:]
+        assert "'scrollup'" in body and "'scrolldown'" in body, (
+            "Subclass must gate on touch.button in scrollup/scrolldown."
+        )
+        assert "self.collide_point" in body, (
+            "Subclass must require touch to land in its bounds before "
+            "intercepting -- otherwise wheel events meant for unrelated "
+            "widgets would be hijacked."
+        )
+        assert "apply_transform_2d(self.to_local)" in body, (
+            "Subclass must apply ScrollView's to_local transform so "
+            "descendant ModSliders' collide_point checks happen in "
+            "content-space, not window-space."
+        )
+        assert "child.dispatch('on_touch_down', touch)" in body, (
+            "Subclass must dispatch through Widget.on_touch_down "
+            "(recursive) rather than dispatch_children (shallow)."
+        )
+
+    def test_subclass_registered_with_factory(self):
+        src = self._src()
+        assert (
+            "Factory.register('ModSliderAwareScrollView'" in src
+        ), (
+            "ModSliderAwareScrollView must be registered with Kivy's "
+            "Factory so lumaviewpro.kv can resolve the class name."
+        )
+
+    def test_kv_uses_subclass_at_known_sites(self):
+        kv = self._kv()
+        subclass_count = kv.count("\tModSliderAwareScrollView:")
+        bare_count = kv.count("\tScrollView:")
+        assert subclass_count == 3, (
+            "lumaviewpro.kv must use ModSliderAwareScrollView at the "
+            "3 known scrollable panel sites (motion settings, "
+            "microscope settings, protocol settings) -- each contains "
+            f"ModSlider descendants. Found {subclass_count}."
+        )
+        assert bare_count == 0, (
+            "lumaviewpro.kv must not contain bare ScrollView at the "
+            "top-of-line position -- a new ScrollView that wraps "
+            f"sliders would silently break wheel adjust. Found {bare_count}."
+        )
+
+
 class TestFx2DriverLibusbBackendProbe:
     """Issue #645 Bug A: fx2driver.py must probe the libusb-1.0 native
     backend at module load so the missing-DLL case is classified as
