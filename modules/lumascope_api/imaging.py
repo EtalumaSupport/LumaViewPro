@@ -168,8 +168,9 @@ class ImagingAPI:
 
         # Capture / autofocus return slots. Reads/writes under
         # self._scope._state_lock (shared with other Lumascope state).
-        self._capture_return = False
-        self._autofocus_return = False
+        # Per the Sentinel-return contract: None means "no result yet."
+        self._capture_return = None
+        self._autofocus_return = None
 
         # When True, programmatic value-range warnings (sub-0.1ms exposure,
         # future similar setters) are silenced. Internal callers that sweep
@@ -1761,12 +1762,13 @@ class ImagingAPI:
             self._focusing_event.clear()
 
     @property
-    def capture_return(self) -> 'np.ndarray | bool | None':
-        """Latest capture result (image array or False/None).
+    def capture_return(self) -> 'np.ndarray | None':
+        """Latest capture result (image array or None).
 
         Returns:
-            Image array on success, or False/None when no capture has
-            completed yet.
+            Image array on success, or None when no capture has
+            completed yet. Per the Sentinel-return contract:
+            `if scope.imaging.capture_return is None: ...`.
         """
         with self._scope._state_lock:
             return self._capture_return

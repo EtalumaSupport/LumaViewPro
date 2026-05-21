@@ -127,7 +127,7 @@ class CompositeCapture(FloatLayout):
                 )
 
             image_orig = ctx.scope.imaging.capture_and_wait(force_to_8bit=force_to_8bit_pixel_depth)
-            if image_orig is False:
+            if image_orig is None:
                 return
 
             # Save both versions of the image (unaltered and overlayed)
