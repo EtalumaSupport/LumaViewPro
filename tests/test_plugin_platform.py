@@ -328,6 +328,80 @@ def test_rest_register_raises_with_design_session_message(harness_ctx):
     msg = str(exc.value)
     assert 'rest' in msg.lower()
     assert 'REST design session' in msg or 'REST_API_PLAN.md' in msg
+    # error message points plugin authors to the stub-mode opt-in
+    assert 'enable_stub_mode' in msg
+
+
+# ---------------------------------------------------------------------------
+# RESTRegistry stub mode
+# ---------------------------------------------------------------------------
+
+
+def test_rest_stub_mode_accepts_registration(harness_ctx):
+    """enable_stub_mode() flips register() from raising to recording."""
+    harness_ctx.plugins.rest.enable_stub_mode()
+    spec = _make_spec(name='stubbed')
+    router = MagicMock(name='router')
+    # Should not raise.
+    harness_ctx.plugins.rest.register(spec, router)
+    # Health reports the registration.
+    health = harness_ctx.plugins.rest.health()
+    assert len(health.loaded) == 1
+    assert health.loaded[0].name == 'stubbed'
+    assert health.loaded[0].namespace == 'rest'
+
+
+def test_rest_stub_mode_does_not_mount_route(harness_ctx):
+    """Stub-mode registration records the spec but does not mount a route.
+
+    The router object is stored for introspection but never called/mounted.
+    """
+    harness_ctx.plugins.rest.enable_stub_mode()
+    spec = _make_spec(name='stubbed_no_mount')
+    router = MagicMock(name='router')
+    harness_ctx.plugins.rest.register(spec, router)
+    # Router is never invoked: no .include_router / .add_api_route / etc.
+    router.include_router.assert_not_called()
+    router.add_api_route.assert_not_called()
+    # But it is stored, for tests/introspection.
+    assert 'stubbed_no_mount' in harness_ctx.plugins.rest._stubbed_routers
+
+
+def test_rest_stub_mode_duplicate_registration_raises(harness_ctx):
+    """Stub-mode honors the _assert_unique contract from _BaseNamespace."""
+    harness_ctx.plugins.rest.enable_stub_mode()
+    spec = _make_spec(name='dupe')
+    harness_ctx.plugins.rest.register(spec, MagicMock(name='router1'))
+    with pytest.raises(PluginRegistrationError) as exc:
+        harness_ctx.plugins.rest.register(spec, MagicMock(name='router2'))
+    assert 'already registered' in str(exc.value)
+
+
+def test_rest_stub_mode_disabled_restores_fail_loud(harness_ctx):
+    """disable_stub_mode() reverts to the default raise behavior;
+    previously-stubbed registrations remain visible in health()."""
+    harness_ctx.plugins.rest.enable_stub_mode()
+    spec_a = _make_spec(name='stub_a')
+    harness_ctx.plugins.rest.register(spec_a, MagicMock(name='router_a'))
+
+    harness_ctx.plugins.rest.disable_stub_mode()
+
+    spec_b = _make_spec(name='post_disable')
+    with pytest.raises(PluginRegistrationError):
+        harness_ctx.plugins.rest.register(spec_b, MagicMock(name='router_b'))
+
+    # The stubbed registration from before disable is still visible.
+    health = harness_ctx.plugins.rest.health()
+    names = [s.name for s in health.loaded]
+    assert 'stub_a' in names
+    assert 'post_disable' not in names
+
+
+def test_rest_stub_mode_default_off(harness_ctx):
+    """Stub mode is opt-in; default behavior is unchanged."""
+    spec = _make_spec(name='default_off')
+    with pytest.raises(PluginRegistrationError):
+        harness_ctx.plugins.rest.register(spec, MagicMock(name='router'))
 
 
 # ---------------------------------------------------------------------------
@@ -511,7 +585,7 @@ def test_load_plugins_no_ctx_is_noop():
 
 
 # ---------------------------------------------------------------------------
-# on_settings_changed dispatch (audit F21)
+# on_settings_changed dispatch
 # ---------------------------------------------------------------------------
 #
 # PluginSpec.subscribes_to declares dot-path settings keys; the host fires

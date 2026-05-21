@@ -363,16 +363,69 @@ class RESTRegistry(_BaseNamespace):
     plugin endpoints same as core endpoints. Until the REST design
     session locks the URL convention, register() raises so plugins
     don't bake in assumptions that will need to be unwound.
+
+    **Stub mode**: plugin authors who want to prototype against the
+    future REST shape can opt into stub mode via ``enable_stub_mode()``.
+    In stub mode,
+    register() accepts the spec and records it for ``health()``
+    reporting (so ``ctx.plugins.all_health()`` reflects the
+    registration) but does NOT mount a route. The plugin author can
+    iterate on their plugin's lifecycle hooks (load / unregister)
+    without needing the real REST surface. Stub mode is opt-in and
+    intentionally non-default so production runs continue to fail
+    loud on REST registration attempts.
     """
 
     NAMESPACE = 'rest'
 
+    def __init__(self) -> None:
+        super().__init__()
+        self._stub_mode: bool = False
+        # Stored router objects in stub mode -- not mounted; available
+        # for tests / health-introspection only.
+        self._stubbed_routers: dict[str, Any] = {}
+
+    def enable_stub_mode(self) -> None:
+        """Opt into accepting REST registrations as stubs.
+
+        After enable_stub_mode(), register(spec, router) records the
+        registration (visible via health()) but does NOT actually
+        mount a route -- the URL convention isn't locked yet. Plugin
+        authors use this to prototype the rest of their plugin's
+        lifecycle without depending on the unbuilt REST mount machinery.
+
+        Production code MUST NOT call this. The default fail-loud
+        contract from non-stub register() exists for a reason: plugins
+        that register against the real surface before the URL convention
+        is locked will need to be unwound when Phase 1 ships.
+        """
+        with self._lock:
+            self._stub_mode = True
+
+    def disable_stub_mode(self) -> None:
+        """Revert to the default fail-loud register() behavior.
+
+        Existing stubbed registrations remain visible in health(); only
+        future register() calls are affected. Symmetric with
+        enable_stub_mode for tests that toggle modes.
+        """
+        with self._lock:
+            self._stub_mode = False
+
     def register(self, spec: PluginSpec, router: Any) -> None:
+        if self._stub_mode:
+            self._assert_unique(spec)
+            self._record_loaded(spec)
+            with self._lock:
+                self._stubbed_routers[spec.name] = router
+            return
         raise PluginRegistrationError(
             "ctx.plugins.rest is reserved but not yet implemented. "
             "REST URL convention is locked at the REST design session "
             "(tracked at docs/TODO.md). Plan to register here when "
-            "REST_API_PLAN.md Phase 1 ships."
+            "REST_API_PLAN.md Phase 1 ships. "
+            "Prototype against the future shape via "
+            "ctx.plugins.rest.enable_stub_mode() (non-production)."
         )
 
 
