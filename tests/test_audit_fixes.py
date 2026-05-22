@@ -4090,8 +4090,8 @@ class TestDeviceLinkThroughputLimitSetter:
 
     def test_lumascope_method_exists(self):
         from modules.lumascope_api import Lumascope
-        assert hasattr(ImagingAPI, 'set_device_link_throughput_limit')
-        assert callable(ImagingAPI.set_device_link_throughput_limit)
+        assert hasattr(ImagingAPI, '_set_device_link_throughput_limit')
+        assert callable(ImagingAPI._set_device_link_throughput_limit)
 
     def test_no_camera_returns_false(self):
         from modules.lumascope_api import Lumascope
@@ -6254,8 +6254,8 @@ class TestAcquisitionStopModeSetter:
 
     def test_lumascope_method_exists(self):
         from modules.lumascope_api import Lumascope
-        assert hasattr(ImagingAPI, 'set_acquisition_stop_mode')
-        assert callable(ImagingAPI.set_acquisition_stop_mode)
+        assert hasattr(ImagingAPI, '_set_acquisition_stop_mode')
+        assert callable(ImagingAPI._set_acquisition_stop_mode)
 
     def test_no_camera_returns_false(self):
         from modules.lumascope_api import Lumascope
