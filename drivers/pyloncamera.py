@@ -2337,7 +2337,13 @@ class PylonCamera(Camera):
                 profile_trace.trace(
                     'pylon_grab_trace.csv',
                     'ts_ms,duration_ms,dropped_count,outcome,timeout_s',
-                    [int(time.time() * 1000), f'{_dt_ms:.3f}', dropped, _outcome, f'{timeout_s:.3f}'],
+                    [
+                        int(time.time() * 1000),
+                        f'{_dt_ms:.3f}',
+                        dropped,
+                        _outcome,
+                        f'{timeout_s:.3f}',
+                    ],
                 )
 
     def set_frame_size(self, w, h) -> None:
