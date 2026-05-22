@@ -225,6 +225,16 @@ class Camera(ABC):
             self._active = value
 
     def __del__(self):
+        # Subclass __init__ may raise before super().__init__() runs (e.g.
+        # FX2Camera grabs _FX2Connection.get() first so it has self._fx2
+        # ready for the base class's self.connect() call -- if that get()
+        # raises on the Pylon-fallback path, this instance is partially
+        # constructed and _state_lock + _active never got set). Python
+        # still runs __del__ on the partial object; the hasattr gate
+        # short-circuits to a clean no-op instead of firing a misleading
+        # "__del__ disconnect failed: no attribute _state_lock" warning.
+        if not hasattr(self, '_state_lock'):
+            return
         try:
             with self._state_lock:
                 is_active = bool(self._active)

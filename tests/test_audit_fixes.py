@@ -9877,3 +9877,93 @@ class TestProfileTraceGateIsNotEnvVar:
             "lib/profile_trace.py must not call os.environ.get(...) at "
             f"module scope. Found at line(s): {bad}"
         )
+
+
+class TestCameraDelHandlesPartialConstruction:
+    """Camera.__del__ must short-circuit on a partially-constructed
+    instance instead of firing "no attribute _state_lock" warnings.
+
+    Triggering scenario: a subclass __init__ raises BEFORE calling
+    super().__init__(). FX2Camera is the canonical case -- it grabs
+    _FX2Connection.get() first so self._fx2 is ready for the base class's
+    self.connect() call. On the Pylon-fallback path
+    (TlFactory.EnumerateDevices() returned 0 -> registry tries FX2 ->
+    no FX2 hardware), _FX2Connection.get() raises and the instance is
+    partial. Python still runs __del__; the hasattr gate makes that
+    clean.
+    """
+
+    def test_partial_construction_del_is_silent(self, monkeypatch):
+        from drivers import camera as camera_module
+
+        # Build a concrete subclass with abstract methods stubbed so
+        # __new__ doesn't get blocked by Camera's ABC declarations.
+        # Critically, __init__ is overridden to do NOTHING -- it doesn't
+        # call super().__init__(), so _state_lock + _active never get
+        # set. That replicates the exact state Python has on its hands
+        # when FX2Camera's __init__ raises before super().__init__().
+        Camera = camera_module.Camera
+        abstract = Camera.__abstractmethods__
+        stubs = {name: (lambda self, *a, **kw: None) for name in abstract}
+        stubs['__init__'] = lambda self: None
+        Partial = type('Partial', (Camera,), stubs)
+
+        instance = Partial()
+        assert not hasattr(instance, '_state_lock')
+
+        # Capture every warning the module's _cam_log emits. With the
+        # hasattr guard, __del__ short-circuits and no warning fires.
+        # Without the guard, the try/except still catches the
+        # AttributeError but the "__del__ disconnect failed: 'Partial'
+        # object has no attribute '_state_lock'" warning DOES fire --
+        # exactly the noise this fix targets.
+        warnings_emitted = []
+        monkeypatch.setattr(
+            camera_module._cam_log, 'warning',
+            lambda msg, *a, **kw: warnings_emitted.append(msg),
+        )
+        Camera.__del__(instance)
+
+        assert not warnings_emitted, (
+            f"Camera.__del__ on a partially-constructed instance must not "
+            f"emit warnings. Got: {warnings_emitted}"
+        )
+
+    def test_del_guard_present_in_source(self):
+        import ast
+        from pathlib import Path
+
+        src = (Path(__file__).resolve().parent.parent
+               / "drivers" / "camera.py").read_text()
+        tree = ast.parse(src)
+
+        # Find class Camera, then its __del__ method, then assert the
+        # first statement of its body is a hasattr-gated early return.
+        del_method = None
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ClassDef) and node.name == 'Camera':
+                for item in node.body:
+                    if (isinstance(item, ast.FunctionDef)
+                            and item.name == '__del__'):
+                        del_method = item
+                        break
+                break
+        assert del_method is not None, "Camera.__del__ not found"
+
+        first = del_method.body[0]
+        assert isinstance(first, ast.If), (
+            "Camera.__del__ must start with an if-guard for partial "
+            "construction. Got: " + ast.dump(first)
+        )
+        # Guard shape: `if not hasattr(self, '_state_lock'): return`
+        test = first.test
+        assert (
+            isinstance(test, ast.UnaryOp)
+            and isinstance(test.op, ast.Not)
+            and isinstance(test.operand, ast.Call)
+            and isinstance(test.operand.func, ast.Name)
+            and test.operand.func.id == 'hasattr'
+        ), (
+            "Camera.__del__ guard must be `if not hasattr(self, ...): return`. "
+            "Got: " + ast.dump(test)
+        )
