@@ -267,8 +267,12 @@ class IlluminationAPI:
         # Drivers that set the field will overwrite again on next failure.
         try:
             self._driver.last_command_error = None
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(
+                '[SCOPE API ] illumination: clear last_command_error '
+                'failed; driver may not implement the attribute: %s: %s',
+                type(e).__name__, e,
+            )
 
     def led_on_fast(self, channel, mA) -> None:
         """Turn on an LED with write-only (no read-back) for time-critical pulses.

@@ -1336,8 +1336,12 @@ class MotorBoard(SerialBoard):
             try:
                 if self.target_status(axis):
                     return True
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(
+                    '[XYZ Class ] wait_for_position(%s): target_status poll '
+                    'raised; continuing to poll: %s: %s',
+                    axis, type(e).__name__, e,
+                )
             time.sleep(0.01)
         logger.warning(f'[XYZ Class ] wait_for_position({axis}): timed out after {timeout}s')
         return False

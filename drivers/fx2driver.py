@@ -1703,8 +1703,12 @@ class FX2Camera(Camera):
         if self._grabbing:
             try:
                 transfer.submit()
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(
+                    '[FX2 Cam   ] _iso_callback: transfer resubmit failed; '
+                    'grab loop will stall if this persists: %s: %s',
+                    type(e).__name__, e,
+                )
 
     def _bulk_reader_loop(self):
         """Read bulk EP 0x82 and feed into `_iso_buf` (fallback path)."""

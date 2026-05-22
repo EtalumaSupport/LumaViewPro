@@ -1848,8 +1848,12 @@ class TechSupportReport:
                 results['disk_total_gb'] = round(usage.total / (1024**3), 1)
                 results['disk_free_gb'] = round(usage.free / (1024**3), 1)
                 results['disk_used_pct'] = round(usage.used / usage.total * 100, 1)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(
+                    '[TSR] disk_speed_test: disk_usage(%s) failed; '
+                    'disk space fields omitted from report: %s: %s',
+                    test_dir, type(e).__name__, e,
+                )
 
         except Exception as e:
             results['error'] = str(e)

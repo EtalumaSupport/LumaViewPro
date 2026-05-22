@@ -265,8 +265,12 @@ class ProtocolImageWriter:
             if self._scope.engineering_mode and self._scope.motion.has_turret():
                 try:
                     turret_pos = int(self._scope.motion.get_current_position('T'))
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug(
+                        '[%s] get_current_position(T) failed; turret '
+                        'position omitted from filename: %s: %s',
+                        self.LOGGER_NAME, type(e).__name__, e,
+                    )
 
             name = common_utils.generate_default_step_name(
                 well_label=step['Well'],

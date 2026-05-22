@@ -8,6 +8,8 @@ import re
 
 import numpy as np
 
+from lvp_logger import logger
+
 
 # ---------------------------------------------------------------------------
 # Hardware defaults (fallbacks when motorconfig/scope not available)
@@ -260,7 +262,12 @@ def get_opened_layer(lumaview_imagesettings) -> str | None:
             layer_accordion_obj = lumaview_imagesettings.accordion_item_lookup(layer=layer)
             if not layer_accordion_obj.collapse:
                 return layer
-        except Exception:
+        except Exception as e:
+            logger.debug(
+                '[common_utils] get_opened_layer: accordion lookup for '
+                'layer=%s raised; skipping: %s: %s',
+                layer, type(e).__name__, e,
+            )
             continue
         
     return None

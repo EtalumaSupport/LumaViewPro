@@ -576,8 +576,12 @@ def log_system_metrics(settings: dict):
                     f"(count={entry['count']}) at "
                     f"{entry['file']}:{entry['line']}",
                 )
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(
+            '[config_helpers] tracemalloc top-N read failed; '
+            'TRACEMALLOC metrics omitted this tick: %s: %s',
+            type(e).__name__, e,
+        )
 
 
 def focus_log(positions, values, focus_round: int, source_path: str) -> int:

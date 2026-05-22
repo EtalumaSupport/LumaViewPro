@@ -567,8 +567,11 @@ def verify_firmware_running(serial_port, command='INFO', timeout=10):
                             or 'Firmware' in text or 'Version' in text):
                         logger.info(f"Firmware responding: {text.strip()[:80]}")
                         return text.strip()
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(
+                    '[raw_repl  ] firmware probe attempt failed; retrying: '
+                    '%s: %s', type(e).__name__, e,
+                )
             time.sleep(1.0)
 
         logger.error(
