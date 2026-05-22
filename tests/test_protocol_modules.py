@@ -387,9 +387,12 @@ class TestRunCleanup:
     def test_cleanup_restores_leds_to_original(self):
         from modules.protocol_cleanup import run_cleanup
         restored = []
+        # Schema matches lumascope_api.illumination's get_led_states():
+        # color -> {'enabled': bool, 'illumination_ma': float}. The cleanup
+        # code reads color_data['illumination_ma'] when restoring.
         original_leds = {
-            'Red': {'enabled': True, 'illumination': 50},
-            'Green': {'enabled': False, 'illumination': 0},
+            'Red': {'enabled': True, 'illumination_ma': 50},
+            'Green': {'enabled': False, 'illumination_ma': 0},
         }
         args, _, _ = self._make_cleanup_args(
             leds_state_at_end="return_to_original",
@@ -509,10 +512,13 @@ class TestProtocolImageWriterWriteCapture:
     def test_write_capture_failed_image_records_failure(self):
         record = MagicMock()
         writer = self._make_writer(execution_record=record)
+        # captured_image=None is the production capture-failure marker
+        # (modules/protocol_image_writer.py:538-550); capture_and_wait()
+        # returns None on grab failure.
         writer.write_capture(
             enable_image_saving=True,
             is_video=False,
-            captured_image=False,
+            captured_image=None,
             step={'Name': 'test_step'},
             name='test_name',
             step_index=3,
@@ -528,7 +534,7 @@ class TestProtocolImageWriterWriteCapture:
         writer.write_capture(
             enable_image_saving=True,
             is_video=False,
-            captured_image=False,
+            captured_image=None,
             step={'Name': 'test'},
         )
         # Should not crash — just returns
