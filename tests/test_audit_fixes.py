@@ -4252,8 +4252,15 @@ class TestPylonAsciiOnlyInLoggerStrings:
         future cleanup edits the temperature log line, this test reminds
         the editor that ASCII-only was intentional."""
         src_lines = self._pyloncamera_source_lines()
+        # Anchor on the temperature-reading f-string: the unique phrase
+        # 'Temperature :' (space-colon) appears only on the camera-temp
+        # readback line. The session 18 dual-write migration moved this
+        # call from logger.info to _log_cam, then the Rule 26 line-length
+        # wrap split the call across lines, so we can't anchor on a
+        # logger-marker on the same line as the f-string -- match the
+        # f-string content itself.
         for i, line in enumerate(src_lines, 1):
-            if 'Temperature' in line and 'logger' in line:
+            if 'Temperature :' in line:
                 assert 'degC' in line, (
                     f"pyloncamera.py:{i} -- temperature log line must use "
                     f"ASCII 'degC' (not the degree sign). Line: {line.strip()[:100]}"
@@ -6141,10 +6148,13 @@ class TestDltlSetterDocstringGigeCaveat:
         )
 
     def test_lumascope_setter_docstring_mentions_gige_wire_limit(self):
+        # Phase 4f renamed ImagingAPI.set_device_link_throughput_limit to
+        # the privatized _set_device_link_throughput_limit form (per
+        # TestImagingPylonSdkPerfSettersPrivatized).
         body = _function_source(self._lumascope_api_source(),
-                                "set_device_link_throughput_limit")
+                                "_set_device_link_throughput_limit")
         assert "GigE" in body and "wire limit" in body, (
-            "ImagingAPI.set_device_link_throughput_limit docstring "
+            "ImagingAPI._set_device_link_throughput_limit docstring "
             "must surface the GigE wire-limit caveat (D8)."
         )
 

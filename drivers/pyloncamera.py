@@ -1050,7 +1050,10 @@ class PylonCamera(Camera):
 
                     temps = self.get_all_temperatures()
                     for name, temp in temps.items():
-                        _log_cam('info', f'[CAM Class ] Camera {name} Temperature : {temp:.2f} degC')
+                        _log_cam(
+                            'info',
+                            f'[CAM Class ] Camera {name} Temperature : {temp:.2f} degC',
+                        )
 
                 except Exception as e:
                     _cam_log.error(
