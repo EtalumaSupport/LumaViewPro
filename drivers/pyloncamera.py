@@ -3235,6 +3235,47 @@ class PylonCamera(Camera):
         return result
 
 
+# Maps GrabResult chunk attrs to keys in FrameValidity.CHUNK_KEY_FOR_SOURCE
+# plus the Timestamp provenance chunk (not validated; surfaced for metadata).
+# ChunkFrameID + ChunkFramecounter both map to 'FrameID' (camera advertises one;
+# read side tries both, the active one returns a value).
+#
+# Module-level so both the SDK callback (ImageHandler.OnImageGrabbed) and
+# the Stage B worker (_PylonImageGrabWorker._process_frame) can call into
+# the same code. Defining it on the ImageHandler class would put it
+# behind a MagicMock-replaced class shim under conftest's mocked pypylon
+# (Python's class statement with a MagicMock base discards class-body
+# attributes), making the worker unreachable from unit tests.
+_CHUNK_GRAB_RESULT_ATTRS = (
+    ('ChunkExposureTime', 'ExposureTime'),
+    ('ChunkGain', 'Gain'),
+    ('ChunkFrameID', 'FrameID'),
+    ('ChunkFramecounter', 'FrameID'),
+    ('ChunkTimestamp', 'Timestamp'),
+)
+
+
+def _read_validity_chunks(grabResult) -> dict | None:
+    """Extract validity chunks from a successful GrabResult.
+
+    Returns dict like {'ExposureTime': float, 'Gain': float, 'FrameID': int},
+    or None if no chunks readable (chunks unsupported or not enabled).
+    """
+    chunks: dict = {}
+    for chunk_attr, key in _CHUNK_GRAB_RESULT_ATTRS:
+        try:
+            node = getattr(grabResult, chunk_attr, None)
+            if node is None:
+                continue
+            if genicam.IsReadable(node):
+                chunks[key] = node.Value
+        except Exception as e:
+            logger.debug(
+                f'[CAM Class ] _read_validity_chunks could not read {chunk_attr}: {e}'
+            )
+    return chunks if chunks else None
+
+
 class ImageHandler(pylon.ImageEventHandler):
     """Pylon camera image handler — receives frames via SDK callbacks.
 
@@ -3254,39 +3295,6 @@ class ImageHandler(pylon.ImageEventHandler):
         self._worker = _PylonImageGrabWorker(
             parent_cam, self._base, self._frame_queue
         )
-
-    # Maps GrabResult chunk attrs to keys in FrameValidity.CHUNK_KEY_FOR_SOURCE
-    # plus the Timestamp provenance chunk (not validated; surfaced for metadata).
-    # ChunkFrameID + ChunkFramecounter both map to 'FrameID' (camera advertises one;
-    # read side tries both, the active one returns a value).
-    _CHUNK_GRAB_RESULT_ATTRS = (
-        ('ChunkExposureTime', 'ExposureTime'),
-        ('ChunkGain', 'Gain'),
-        ('ChunkFrameID', 'FrameID'),
-        ('ChunkFramecounter', 'FrameID'),
-        ('ChunkTimestamp', 'Timestamp'),
-    )
-
-    @staticmethod
-    def _read_validity_chunks(grabResult) -> dict | None:
-        """Extract validity chunks from a successful GrabResult.
-
-        Returns dict like {'ExposureTime': float, 'Gain': float, 'FrameID': int},
-        or None if no chunks readable (chunks unsupported or not enabled).
-        """
-        chunks: dict = {}
-        for chunk_attr, key in ImageHandler._CHUNK_GRAB_RESULT_ATTRS:
-            try:
-                node = getattr(grabResult, chunk_attr, None)
-                if node is None:
-                    continue
-                if genicam.IsReadable(node):
-                    chunks[key] = node.Value
-            except Exception as e:
-                logger.debug(
-                    f'[CAM Class ] _extract_chunk_data could not read {chunk_attr}: {e}'
-                )
-        return chunks if chunks else None
 
     def OnImagesSkipped(self, camera, countOfSkippedImages) -> None:
         """Pylon SDK callback fired when the grab strategy drops frames.
@@ -3371,7 +3379,7 @@ class ImageHandler(pylon.ImageEventHandler):
                     ts = datetime.datetime.now()
                     _frame_bytes = img.nbytes
                     # None if chunks not enabled or unsupported.
-                    chunks = self._read_validity_chunks(grabResult)
+                    chunks = _read_validity_chunks(grabResult)
                     self._base._store_frame(img, ts, chunks=chunks)
                     self._frame_queue.put((True, img, ts))
                     _outcome = 'success_grabbed'
@@ -3678,17 +3686,34 @@ class _PylonImageGrabWorker:
             # Sentinel doesn't fit; the event flag plus the
             # _GET_POLL_TIMEOUT_S inside _run ensures exit within one
             # poll interval after the next item is processed.
-            pass
+            logger.debug(
+                '[CAM Class ] worker.stop: queue full, sentinel dropped; '
+                'exit will run via stop_event fallback'
+            )
         if self._thread is not None:
             self._thread.join(timeout=timeout)
 
     def _run(self) -> None:
-        while not self._stop_event.is_set():
+        # Loop structure: always drain a pending item before checking
+        # the stop event. The event check at the *top* of the while loop
+        # would race with the producer -- if stop() set the event AFTER
+        # Stage A enqueued the last batch but BEFORE the worker came
+        # back from processing the previous item, the next iteration
+        # would exit without draining the rest. The SDK input queue
+        # would then underrun on the next connect cycle per
+        # `class_pylon_1_1_c_grab_result_ptr.html`: "grabbing will stop
+        # with an input queue underrun, when the grab results are never
+        # released." Only consult the event when get() comes back empty.
+        while True:
             try:
                 kind, grabResult, ts = self._worker_queue.get(
                     timeout=self._GET_POLL_TIMEOUT_S
                 )
             except queue.Empty:
+                if self._stop_event.is_set():
+                    # Sentinel was dropped (queue.Full at stop time) or
+                    # never enqueued. Nothing left to drain.
+                    return
                 continue
             if kind == 'stop':
                 # Drain remaining items + release their grabResults so
@@ -3718,7 +3743,7 @@ class _PylonImageGrabWorker:
     def _process_frame(self, grabResult, ts) -> None:
         """Stage B success path: 16 MB memcpy + chunks + store + legacy queue."""
         img = grabResult.GetArray().copy()
-        chunks = ImageHandler._read_validity_chunks(grabResult)
+        chunks = _read_validity_chunks(grabResult)
         self._base._store_frame(img, ts, chunks=chunks)
         try:
             if not self._frame_queue.empty():
@@ -3726,8 +3751,13 @@ class _PylonImageGrabWorker:
                     self._frame_queue.get_nowait()
             self._frame_queue.put_nowait((True, img, ts))
         except queue.Full:
-            # latest-wins; older drop is intended
-            pass
+            # latest-wins; older drop is intended (legacy consumer can
+            # only hold one frame). Log at debug so the cause stays in
+            # the post-mortem trace without raising the noise floor.
+            logger.debug(
+                '[CAM Class ] worker frame_queue full after drain attempt; '
+                'dropping latest frame (legacy maxsize=1 consumer race)'
+            )
 
     def _process_failure(self, grabResult, ts) -> None:
         """Stage B failure path: classify + record + auto-stop on cascade.
