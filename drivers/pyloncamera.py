@@ -3532,6 +3532,218 @@ class ImageHandler(pylon.ImageEventHandler):
         self._base.unregister_frame_callback(cb)
 
 
+class _PylonImageGrabWorker:
+    """Stage B worker for the OnImageGrabbed two-stage split.
+
+    Stage A is the Pylon SDK callback `OnImageGrabbed` running on a
+    native grab thread; it does only the enqueue + fail-fast work and
+    hands the grab-result smart pointer to Stage B (this worker) for
+    the heavy memcpy + chunk parsing + callback fanout. Handoff is via
+    the bounded `_worker_queue`.
+
+    Single-thread invariant on the SDK's `CGrabResultData`: Stage A is
+    the SOLE reader of `GrabSucceeded()` (and `GetErrorCode()` /
+    `GetErrorDescription()` on the failure branch). After `put_nowait`
+    Stage B becomes the SOLE reader of `GetArray()` + the chunk
+    node-map accessors. The put / get pair provides happens-before; no
+    lock required.
+
+    Per `class_pylon_1_1_c_grab_result_ptr.html`: cross-thread smart-
+    pointer retention is officially supported provided the result is
+    released promptly. The `del grabResult` in the per-item `finally`
+    satisfies this -- a grabResult must never linger in the worker
+    indefinitely, or the SDK input queue underruns.
+
+    NOT a SequentialIOExecutor lane. Driver-internal reactive thread,
+    closest in shape to `_stats_poller_thread` (daemon, owned by the
+    PylonCamera instance, started/stopped at connect / disconnect).
+    """
+
+    # Bounded queue depth. 8 gives ~264 ms of headroom at 30 FPS, large
+    # enough that brief Stage B stalls (16 MB memcpy + chunk reads +
+    # callback fanout) don't trip Stage A's queue.Full drop path, small
+    # enough that a stalled consumer can't OOM the host. Bench-tunable
+    # via LVP_PYLON_WORKER_QUEUE_DEPTH.
+    _DEFAULT_QUEUE_DEPTH = 8
+
+    # Poll interval inside _run's get(). Bounds the wakeup latency for
+    # a stop() that loses the sentinel-enqueue race (queue.Full at stop
+    # time). At 0.5 s the worst-case stop latency is ~0.5 s + per-item
+    # processing time, well under the 1.0 s default join timeout.
+    _GET_POLL_TIMEOUT_S = 0.5
+
+    def __init__(self, parent, base, frame_queue) -> None:
+        self._parent = parent  # PylonCamera instance
+        self._base = base      # ImageHandlerBase instance
+        self._frame_queue = frame_queue  # legacy maxsize=1 consumer queue
+        _depth_env = os.environ.get('LVP_PYLON_WORKER_QUEUE_DEPTH')
+        try:
+            depth = int(_depth_env) if _depth_env else self._DEFAULT_QUEUE_DEPTH
+        except ValueError:
+            depth = self._DEFAULT_QUEUE_DEPTH
+        self._worker_queue: queue.Queue = queue.Queue(maxsize=depth)
+        self._stop_event = threading.Event()
+        self._thread: threading.Thread | None = None
+
+    def start(self) -> None:
+        """Spawn the worker thread (daemon=True).
+
+        Idempotent: a second call while a thread is already alive is a
+        no-op. After `stop()` returns, `start()` may be called again to
+        respawn for a new connect cycle.
+        """
+        if self._thread is not None and self._thread.is_alive():
+            return
+        self._stop_event.clear()
+        self._thread = threading.Thread(
+            target=self._run,
+            name='PylonImageGrabWorker',
+            daemon=True,
+        )
+        self._thread.start()
+
+    def stop(self, timeout: float = 1.0) -> None:
+        """Signal stop, post sentinel, join with bounded timeout.
+
+        Ordering contract: the caller MUST invoke `camera.StopGrabbing()`
+        BEFORE this so the SDK stops firing callbacks, and MUST invoke
+        SDK teardown (Close / DetachDevice / DestroyDevice) AFTER this
+        so the worker has released its grabResult refs. Inverting the
+        order silently drops grabResults without release and reintroduces
+        the input-queue-underrun the worker was designed to avoid.
+
+        Idempotent: calling stop on an already-stopped worker is safe.
+
+        Args:
+            timeout: Maximum seconds to wait for the worker thread to
+                exit. Bounded so a wedged worker can't deadlock
+                disconnect.
+        """
+        self._stop_event.set()
+        try:
+            self._worker_queue.put_nowait(('stop', None, None))
+        except queue.Full:
+            # Sentinel doesn't fit; the event flag plus the
+            # _GET_POLL_TIMEOUT_S inside _run ensures exit within one
+            # poll interval after the next item is processed.
+            pass
+        if self._thread is not None:
+            self._thread.join(timeout=timeout)
+
+    def _run(self) -> None:
+        while not self._stop_event.is_set():
+            try:
+                kind, grabResult, ts = self._worker_queue.get(
+                    timeout=self._GET_POLL_TIMEOUT_S
+                )
+            except queue.Empty:
+                continue
+            if kind == 'stop':
+                # Drain remaining items + release their grabResults so
+                # the SDK input queue doesn't underrun on shutdown.
+                self._drain_and_release()
+                return
+            try:
+                if self._parent._device_removed:
+                    # Drop quietly; the finally below releases the
+                    # smart pointer so the SDK can reclaim the buffer.
+                    continue
+                if kind == 'frame':
+                    self._process_frame(grabResult, ts)
+                elif kind == 'fail':
+                    self._process_failure(grabResult, ts)
+            except Exception as e:
+                if _cam_log is not None:
+                    _cam_log.exception(
+                        f'[CAM Class ] worker handling raised: {e}'
+                    )
+            finally:
+                # Explicit release semantics. Per CGrabResultPtr docs:
+                # "grabbing will stop with an input queue underrun,
+                # when the grab results are never released."
+                del grabResult
+
+    def _process_frame(self, grabResult, ts) -> None:
+        """Stage B success path: 16 MB memcpy + chunks + store + legacy queue."""
+        img = grabResult.GetArray().copy()
+        chunks = ImageHandler._read_validity_chunks(grabResult)
+        self._base._store_frame(img, ts, chunks=chunks)
+        try:
+            if not self._frame_queue.empty():
+                with contextlib.suppress(queue.Empty):
+                    self._frame_queue.get_nowait()
+            self._frame_queue.put_nowait((True, img, ts))
+        except queue.Full:
+            # latest-wins; older drop is intended
+            pass
+
+    def _process_failure(self, grabResult, ts) -> None:
+        """Stage B failure path: classify + record + auto-stop on cascade.
+
+        Stage A handles the err_code=DEVICE_NOT_FOUND fast-path inline so
+        the disconnect notification doesn't wait behind Stage B. Everything
+        else (buffer-canceled, payload-discarded, generic transport
+        failures) is classified here.
+        """
+        try:
+            err_code = grabResult.GetErrorCode()
+            err_desc = grabResult.GetErrorDescription()
+        except Exception as e:
+            err_code, err_desc = None, repr(e)
+
+        if err_code == _PYLON_ERR_BUFFER_CANCELED or self._parent._device_removed:
+            logger.debug(
+                f'[CAM Class ] Grab cancelled (SDK lifecycle) '
+                f'err_code={err_code} desc={err_desc!r} '
+                f'device_removed={self._parent._device_removed}'
+            )
+            return
+        if err_code == _PYLON_ERR_PAYLOAD_DISCARDED:
+            if _cam_log is not None:
+                _cam_log.info(
+                    f'[CAM Class ] payload discarded (camera-side FIFO '
+                    f'overflow during host stall) err_code={err_code} '
+                    f'desc={err_desc!r}'
+                )
+            return
+        if _cam_log is not None:
+            _cam_log.warning(
+                f'[CAM Class ] grabResult.GrabSucceeded()=False '
+                f'err_code={err_code} desc={err_desc!r}'
+            )
+        if self._base._record_failure():
+            try:
+                if _cam_log is not None:
+                    _cam_log.error(
+                        '[CAM Class ] Too many grab failures; '
+                        'stopping acquisition'
+                    )
+                if self._parent.active and self._parent.is_grabbing():
+                    self._parent.stop_grabbing()
+                self._parent._mark_disconnected()
+            except Exception as e:
+                if _cam_log is not None:
+                    _cam_log.warning(
+                        f'[CAM Class ] worker could not stop grabbing '
+                        f'after max failures: {e}'
+                    )
+
+    def _drain_and_release(self) -> None:
+        """Drain the worker queue and release each grabResult.
+
+        Called only from the stop-sentinel branch in `_run`. Per
+        CGrabResultPtr docs the SDK input queue underruns if results
+        are never released; this loop satisfies the release contract
+        on shutdown.
+        """
+        while True:
+            try:
+                _, gr, _ = self._worker_queue.get_nowait()
+                del gr
+            except queue.Empty:
+                return
+
+
 # Handle camera removal events to flag device disconnect
 class _CameraRemovalHandler(pylon.ConfigurationEventHandler):
     def __init__(self, parent_cam: PylonCamera):
