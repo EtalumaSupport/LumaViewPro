@@ -11,6 +11,25 @@ from kivy.uix.popup import Popup
 logger = logging.getLogger('LVP.ui.notification_popup')
 
 
+def _make_message_label(message: str) -> Label:
+    """Build the popup-body Label with word-wrap enabled.
+
+    A bare ``Label(text=...)`` does not wrap -- Kivy renders the whole
+    string on one line, which overflows the popup horizontally for
+    multi-sentence messages and visually leaks across the underlying UI.
+    Binding ``text_size`` to the Label's own width forces a wrap to the
+    Label's allocated width; centered halign + valign keeps the wrapped
+    paragraph balanced in the popup body.
+    """
+    label = Label(text=message, halign='center', valign='middle')
+
+    def _resize(_lbl, _size):
+        label.text_size = (label.width, label.height)
+
+    label.bind(size=_resize)
+    return label
+
+
 def _log_show(kind: str, severity: str, title: str, message: str):
     """Log every popup at the moment it is shown, to BOTH the main log (for post-mortem context)
     and the GUI-interactions log (for crash forensics). One entry per surface so a deployed
@@ -48,7 +67,7 @@ def show_notification_popup(title: str, message: str):
     """
     _log_show('notification', 'INFO', title, message)
     content = BoxLayout(orientation='vertical', padding=10, spacing=10)
-    content.add_widget(Label(text=message))
+    content.add_widget(_make_message_label(message))
 
     button_layout = BoxLayout(size_hint_y=None, height='40dp', spacing=10)
     button_layout.add_widget(Label())  # spacer
@@ -85,7 +104,7 @@ def show_confirmation_w_ack_popup(
     """
     _log_show('confirm_ack', 'INFO', title, message)
     content = BoxLayout(orientation='vertical', padding=10, spacing=10)
-    content.add_widget(Label(text=message))
+    content.add_widget(_make_message_label(message))
 
     button_layout = BoxLayout(size_hint_y=None, height='40dp', spacing=10)
     ack_button = Button(text=ack_button_text)
@@ -133,7 +152,7 @@ def show_confirmation_popup(
     """
     _log_show('confirm', 'INFO', title, message)
     content = BoxLayout(orientation='vertical', padding=10, spacing=10)
-    content.add_widget(Label(text=message))
+    content.add_widget(_make_message_label(message))
 
     button_layout = BoxLayout(size_hint_y=None, height='40dp', spacing=10)
     yes_button = Button(text=confirm_text)
