@@ -12,6 +12,7 @@ from pypylon import genicam, pylon
 from drivers.camera import Camera, ImageHandlerBase
 from drivers.exceptions import HardwareError
 from drivers.registry import camera_registry
+from lib.log_helpers import log_to
 from lvp_logger import logger
 
 try:
@@ -57,20 +58,18 @@ def _log_cam(level: str, message: str) -> None:
     ExposureTime.SetValue) stay on _cam_log directly -- those are
     deliberately kept out of the main log to control noise.
 
+    Thin wrapper over ``lvp_logger.log_to`` so the same dual-write
+    pattern can be reused by motorboard / ledboard / idscamera once
+    they grow per-subsystem dedicated log files (motor.log / led.log /
+    ids.log). When that lands, drop this wrapper in favor of direct
+    ``log_to(logger, <subsystem>_log, ...)`` calls at the use sites.
+
     Args:
         level: 'info' / 'warning' / 'error' / 'debug' / 'exception'.
         message: The full log message. Convention: include '[CAM Class ]'
             prefix for grep-ability (matches the prefix in the main log).
     """
-    getattr(logger, level)(message)
-    if _cam_log is not None:
-        try:
-            getattr(_cam_log, level)(message)
-        except Exception:
-            # If the camera-log handler is wedged for any reason, the
-            # main-log call above still landed. Swallow so the caller's
-            # control flow isn't broken by a logging-side fault.
-            logger.debug(f'[CAM Class ] _log_cam: camera_logger.{level}() raised')
+    log_to(logger, _cam_log, level=level, message=message)
 
 
 # Pylon SDK error code returned by grabResult.GetErrorCode() when a

@@ -326,6 +326,13 @@ camera_logger.addHandler(camera_file_handler)
 # Also send camera errors/warnings to the errors log
 camera_logger.addHandler(error_file_handler)
 
+# Re-exported from lib.log_helpers so callers can `from lvp_logger
+# import log_to` next to `logger` without learning a separate import
+# path. The pure implementation lives in lib/ because conftest mocks
+# lvp_logger wholesale during pytest, and tests need to exercise the
+# real log_to.
+from lib.log_helpers import log_to  # noqa: E402
+
 # Metrics log — dedicated file for periodic runtime-health snapshots
 # (system metrics, handle/GC counts, buffer churn, frame-interval
 # percentiles). Routed here instead of errors.log so errors.log stays

@@ -9967,3 +9967,97 @@ class TestCameraDelHandlesPartialConstruction:
             "Camera.__del__ guard must be `if not hasattr(self, ...): return`. "
             "Got: " + ast.dump(test)
         )
+
+
+class TestLogToUtility:
+    """lvp_logger.log_to() is the shared dual/multi-write helper.
+
+    pyloncamera._log_cam wraps it for the camera dual-write today;
+    motorboard / ledboard / idscamera will adopt the same pattern when
+    motor.log / led.log / ids.log land. The tests pin the utility's
+    contract so callers can rely on it: None mirrors are skipped, a
+    mirror that raises does not break the primary's call, level is a
+    Python logging method name routed via getattr.
+    """
+
+    def test_single_logger_routes_to_that_logger(self):
+        from lib.log_helpers import log_to
+
+        class _Capture:
+            def __init__(self):
+                self.calls = []
+
+            def info(self, msg, *a, **kw):
+                self.calls.append(('info', msg))
+
+            def warning(self, msg, *a, **kw):
+                self.calls.append(('warning', msg))
+
+            def debug(self, msg, *a, **kw):
+                self.calls.append(('debug', msg))
+
+        primary = _Capture()
+        log_to(primary, level='info', message='hello')
+        assert primary.calls == [('info', 'hello')]
+
+    def test_dual_write_lands_on_both(self):
+        from lib.log_helpers import log_to
+
+        class _Capture:
+            def __init__(self):
+                self.calls = []
+
+            def warning(self, msg, *a, **kw):
+                self.calls.append(msg)
+
+            def debug(self, msg, *a, **kw):
+                self.calls.append(('debug', msg))
+
+        primary = _Capture()
+        mirror = _Capture()
+        log_to(primary, mirror, level='warning', message='[CAM Class ] foo')
+        assert primary.calls == ['[CAM Class ] foo']
+        assert mirror.calls == ['[CAM Class ] foo']
+
+    def test_none_mirror_skipped_no_guard_needed_at_call_site(self):
+        from lib.log_helpers import log_to
+
+        class _Capture:
+            def __init__(self):
+                self.calls = []
+
+            def info(self, msg, *a, **kw):
+                self.calls.append(msg)
+
+        primary = _Capture()
+        # Caller passing None as the mirror (e.g. camera_logger not yet
+        # set up) must not raise.
+        log_to(primary, None, level='info', message='msg')
+        assert primary.calls == ['msg']
+
+    def test_mirror_failure_falls_through_to_debug(self):
+        from lib.log_helpers import log_to
+
+        class _Primary:
+            def __init__(self):
+                self.calls = []
+
+            def info(self, msg, *a, **kw):
+                self.calls.append(('info', msg))
+
+            def debug(self, msg, *a, **kw):
+                self.calls.append(('debug', msg))
+
+        class _BrokenMirror:
+            def info(self, msg, *a, **kw):
+                raise RuntimeError('mirror wedged')
+
+        primary = _Primary()
+        log_to(primary, _BrokenMirror(), level='info', message='msg')
+        # Primary saw the original line PLUS a debug line about the
+        # mirror failure. Caller control flow is preserved.
+        assert ('info', 'msg') in primary.calls
+        assert any(
+            kind == 'debug' and 'mirror.info() raised' in m
+            for kind, m in primary.calls
+        )
