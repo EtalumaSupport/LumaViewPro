@@ -2315,13 +2315,13 @@ class PylonCamera(Camera):
                 return True, image_ts
 
             except queue.Empty:
-                # Expected outcome when no frame arrives within `timeout`.
+                # Expected outcome when no frame arrives within `timeout_s`.
                 # WARNING (not ERROR), no traceback -- the wait simply
                 # expired, no SDK fault to attribute.
                 _outcome = 'timeout'
                 _cam_log.warning(
                     f'[CAM Class ] grab_new_capture timed out after '
-                    f'{timeout:.1f}s (no frame queued; dropped {dropped} stale)'
+                    f'{timeout_s:.1f}s (no frame queued; dropped {dropped} stale)'
                 )
                 return False, None
             except Exception as ex:
@@ -2337,7 +2337,7 @@ class PylonCamera(Camera):
                 profile_trace.trace(
                     'pylon_grab_trace.csv',
                     'ts_ms,duration_ms,dropped_count,outcome,timeout_s',
-                    [int(time.time() * 1000), f'{_dt_ms:.3f}', dropped, _outcome, f'{timeout:.3f}'],
+                    [int(time.time() * 1000), f'{_dt_ms:.3f}', dropped, _outcome, f'{timeout_s:.3f}'],
                 )
 
     def set_frame_size(self, w, h) -> None:

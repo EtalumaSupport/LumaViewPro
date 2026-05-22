@@ -4616,6 +4616,70 @@ class TestPylonOnImageGrabbedOwningCopy:
         )
 
 
+class TestPylonTimeoutNameConsistency:
+    """A function declared with a `timeout_s` parameter must reference
+    that parameter consistently in its body. Bare `timeout` in the
+    same body is almost always a rename-leftover NameError waiting to
+    fire when the relevant code path executes.
+
+    Found-by-pattern: drivers/pyloncamera.py::grab_new_capture had
+    `timeout_s` as the param but two body sites (the queue.Empty
+    warning f-string and the profile_trace finally block) referenced
+    bare `timeout`. NameError fired on every grab timeout AND on
+    every profile_trace.trace() call when LVP_PROFILE_TRACE=1 was
+    set, masking real failures behind the executor's
+    'Uncaught Thread Exception' wrapper.
+
+    The AST scan below pins the convention across the file.
+    """
+
+    def test_no_bare_timeout_in_functions_with_timeout_s_param(self):
+        import ast
+        from pathlib import Path
+
+        src = (Path(__file__).resolve().parent.parent
+               / "drivers" / "pyloncamera.py").read_text()
+        tree = ast.parse(src)
+
+        hits = []
+
+        class Visitor(ast.NodeVisitor):
+            def __init__(self):
+                self.fn_stack = []
+                self.has_timeout_s = []
+
+            def visit_FunctionDef(self, node):
+                has_ts = any(
+                    arg.arg == 'timeout_s'
+                    for arg in node.args.args + node.args.kwonlyargs
+                )
+                self.fn_stack.append(node.name)
+                self.has_timeout_s.append(has_ts)
+                self.generic_visit(node)
+                self.fn_stack.pop()
+                self.has_timeout_s.pop()
+
+            visit_AsyncFunctionDef = visit_FunctionDef
+
+            def visit_Name(self, node):
+                if (
+                    node.id == 'timeout'
+                    and isinstance(node.ctx, ast.Load)
+                    and self.fn_stack
+                    and any(self.has_timeout_s)
+                ):
+                    hits.append((self.fn_stack[-1], node.lineno))
+
+        Visitor().visit(tree)
+
+        assert hits == [], (
+            "Found bare `timeout` references inside functions that "
+            "declare `timeout_s` as a parameter. Almost certainly a "
+            "rename-leftover NameError. Sites: "
+            + ", ".join(f"{fn}:line{ln}" for fn, ln in hits)
+        )
+
+
 class TestPylonInitCameraConfigStyleConsistency:
     """Style-consistency checks on init_camera_config.
 
