@@ -86,7 +86,8 @@ class MotionAPI:
         self._pos_cache_lock = threading.Lock()
 
         # TimedLock on the hot axis-state lock records contention to
-        # lock_trace.csv when LVP_PROFILE_TRACE=1. The structural invariant
+        # lock_trace.csv when profile_trace_enabled is set in settings.json.
+        # The structural invariant
         # "never hold _axis_state_lock across a serial call" is enforced
         # at runtime via warn_hold_threshold_ms=1.0 -- any acquire-release
         # cycle that holds the lock for more than 1 ms emits a warning

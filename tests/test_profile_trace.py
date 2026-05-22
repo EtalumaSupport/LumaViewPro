@@ -178,7 +178,7 @@ class TestTimedLockInvariantThreshold:
 
     def test_default_no_threshold_no_warning(self, monkeypatch):
         # No warn_hold_threshold_ms means no invariant check; the TimedLock
-        # is pure instrumentation (off when LVP_PROFILE_TRACE is off).
+        # is pure instrumentation (off when profile_trace_enabled is false).
         warnings_captured = []
         import lvp_logger
         monkeypatch.setattr(

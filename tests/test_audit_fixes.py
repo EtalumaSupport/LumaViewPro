@@ -6987,7 +6987,7 @@ class TestPylonStreamGrabberStatusLog:
     Basler stream-grabber-parameters.html.
 
     Diagnostic-only -- no behavior change. STALL-1 instrumentation
-    aid; logs to _cam_log (LVP_PROFILE_TRACE-gated) so production
+    aid; logs to _cam_log (profile_trace_enabled-gated) so production
     builds pay zero cost when tracing is off.
     """
 

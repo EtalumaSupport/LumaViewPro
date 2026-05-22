@@ -331,8 +331,7 @@ class PylonCamera(Camera):
     # __del__() inherited from Camera base class
 
     # Periodic Pylon SDK statistics + thread-count daemon poller.
-    # No-op when profile_trace is disabled (env var LVP_PROFILE_TRACE
-    # unset).
+    # No-op when profile_trace_enabled is false in settings.json.
     #
     # 5.0s interval: long enough that CPU + trace-CSV row volume stay
     # negligible during a multi-hour bench run; short enough that
@@ -632,7 +631,7 @@ class PylonCamera(Camera):
         """
         # Stop the stats poller before tearing down the grab loop so the
         # poller doesn't read a half-disposed StreamGrabber. No-op when
-        # the poller wasn't started (LVP_PROFILE_TRACE unset).
+        # the poller wasn't started (profile_trace_enabled false).
         self._stop_stats_poller()
         camera = self.active
         if _cam_log is not None:
@@ -712,8 +711,8 @@ class PylonCamera(Camera):
         post-mortem analysis a concrete entry-state for
         STALL-1-class investigations.
 
-        No-op when ``_cam_log`` is unset (LVP_PROFILE_TRACE off in
-        production builds) or when the camera is inactive. Older
+        No-op when ``_cam_log`` is unset (profile_trace_enabled false
+        in production builds) or when the camera is inactive. Older
         firmware / non-Basler cameras that do not expose the node
         log a missing-node line and continue (no failure).
 
@@ -747,7 +746,7 @@ class PylonCamera(Camera):
         ``AcquireContinuousConfiguration + Open()`` triggers an implicit
         StartGrabbing), this method returns early. Snapshots StreamGrabber
         Status into the trace log per B23. Starts the optional stats
-        poller (no-op when ``LVP_PROFILE_TRACE`` is unset).
+        poller (no-op when profile_trace_enabled is false).
 
         Exception-tolerant: SDK failures are logged but not raised so
         UI handlers can call this without wrapping.
@@ -845,7 +844,7 @@ class PylonCamera(Camera):
                 _strategy, pylon.GrabLoop_ProvidedByInstantCamera
             )
             # Start the periodic Pylon stats + thread-count poller.
-            # No-op when LVP_PROFILE_TRACE is unset.
+            # No-op when profile_trace_enabled is false.
             self._start_stats_poller()
         except Exception as e:
             if _cam_log is not None:

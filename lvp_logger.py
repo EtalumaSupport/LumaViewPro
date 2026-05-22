@@ -290,9 +290,10 @@ serial_logger.addHandler(error_file_handler)
 # timing. Same shape as serial.log but for Pylon / IDS / FX2 / simulator
 # camera drivers. Captures every meaningful SDK call (Gain, ExposureTime,
 # StartGrabbing, StopGrabbing, PixelFormat, Binning, Width/Height, etc).
-# Per-frame callback events are NOT logged here — they're in the per-frame
-# pylon_callback_trace.csv when LVP_PROFILE_TRACE is enabled. Always-on
-# (not engineering-gated) to match serial.log behavior.
+# Per-frame callback events are NOT logged here -- they're in the per-frame
+# pylon_callback_trace.csv when profile_trace_enabled is set in
+# settings.json. Always-on (not engineering-gated) to match serial.log
+# behavior.
 camera_logger = logging.getLogger('LVP.camera')
 # DEBUG level (was INFO): camera.log is the firehose for camera debugging.
 # Every per-frame check, every SDK-call return value, every state

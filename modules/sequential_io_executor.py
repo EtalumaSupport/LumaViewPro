@@ -22,10 +22,11 @@ PRIORITY_HIGH = 0
 PRIORITY_MED = 1
 PRIORITY_LOW = 2
 
-# Threading audit §10.1 — per-IOTask queue-wait + exec-time instrumentation.
-# Opt-in via LVP_PROFILE_TRACE=1 env var (same gate as serial_trace /
-# motion_trace / frame_validity_trace). Zero overhead when disabled — every
-# timestamp site is guarded by profile_trace.ENABLE_PROFILE_TRACE.
+# Threading audit -- per-IOTask queue-wait + exec-time instrumentation.
+# Opt-in via profile_trace_enabled in settings.json (same gate as
+# serial_trace / motion_trace / frame_validity_trace). Zero overhead when
+# disabled -- every timestamp site is guarded by
+# profile_trace.ENABLE_PROFILE_TRACE.
 _IOTASK_TRACE_HEADER = (
     "ts_ms,duration_ms,executor,task_name,action,queue_kind,"
     "queue_depth_at_enqueue,queue_wait_ms,exec_ms,exception"
@@ -684,11 +685,12 @@ class SequentialIOExecutor:
                 notifications.error("Task", f"{self.name} task failed", body)
         self.last_task_done_monotonic = time.monotonic()
 
-        # Threading audit §10.1 — emit per-IOTask timing row when opt-in tracing
-        # is enabled. Fields answer "which lane starved?" (queue_wait_ms per lane
-        # per time bucket), "which actions are slow?" (exec_ms per action name),
-        # and "does queue depth correlate with wait?" (queue_depth_at_enqueue).
-        # See modules/profile_trace.py for the unified LVP_PROFILE_TRACE env gate.
+        # Threading audit -- emit per-IOTask timing row when opt-in tracing
+        # is enabled. Fields answer "which lane starved?" (queue_wait_ms per
+        # lane per time bucket), "which actions are slow?" (exec_ms per
+        # action name), and "does queue depth correlate with wait?"
+        # (queue_depth_at_enqueue). See lib/profile_trace.py for the unified
+        # profile_trace_enabled settings gate.
         if profile_trace.ENABLE_PROFILE_TRACE:
             t_enqueue = getattr(task, "_t_enqueue", None)
             t_dequeue = getattr(task, "_t_dequeue", None)
