@@ -387,3 +387,73 @@ class TestLedExitEngineeringRecoversFromWedge:
                 led.exit_engineering_mode()
         finally:
             ledboard_mod.time.sleep = original_sleep
+
+
+class TestTechSupportReportPassesTimeoutS:
+    """Bench bug 2026-05-22: tech-support bundles came back named
+    ``SNlogs-<ts>.zip`` even though the motor SN was visible in
+    fullinfo. Root cause: the U6 timeout->timeout_s L2 sweep (LVP
+    `1bc30c5`) renamed ``diagnostics.send_diagnostic_command``'s
+    timeout kwarg to ``timeout_s=`` but missed the two callers in
+    ``tech_support_report._cmd`` and ``_read_multiline``. Every
+    diagnostic command raised TypeError; the broad ``except
+    Exception`` in ``generate_logs_only``'s SN-resolution chain
+    swallowed the TypeError silently, and the SN fell through to
+    the ``'logs'`` last-resort fallback.
+
+    The AST scans below pin both halves of the fix: (a) _cmd and
+    _read_multiline pass ``timeout_s=`` to diagnostics; (b) no
+    caller in tech_support_report.py passes ``timeout=`` to _cmd
+    or _read_multiline (sister-rename caught at the source).
+    """
+
+    def _tsr_source(self):
+        from pathlib import Path
+        return (Path(__file__).resolve().parent.parent
+                / "modules" / "tech_support_report.py").read_text()
+
+    def test_cmd_and_read_multiline_pass_timeout_s_to_diagnostics(self):
+        src = self._tsr_source()
+        # _cmd body must forward via timeout_s= ; _read_multiline same.
+        # The patterns below are sensitive to whitespace+newlines; loose
+        # match on the kwarg keyword itself is enough.
+        cmd_block_start = src.find("def _cmd(")
+        cmd_block_end = src.find("def _read_multiline(")
+        cmd_body = src[cmd_block_start:cmd_block_end]
+        assert "send_diagnostic_command(" in cmd_body, (
+            "_cmd must call send_diagnostic_command")
+        assert "timeout_s=" in cmd_body, (
+            "_cmd must pass timeout_s= (not timeout=) to "
+            "diagnostics.send_diagnostic_command after U6 sweep")
+        assert "timeout=timeout" not in cmd_body, (
+            "_cmd must NOT pass bare timeout=timeout -- that was the "
+            "2026-05-22 SNlogs regression")
+
+        rm_block_start = cmd_block_end
+        # Capture the next ~30 lines as the _read_multiline body window.
+        rm_window = src[rm_block_start:rm_block_start + 1500]
+        assert "send_diagnostic_command_multiline(" in rm_window
+        assert "timeout_s=" in rm_window, (
+            "_read_multiline must pass timeout_s= (not timeout=) to "
+            "diagnostics.send_diagnostic_command_multiline")
+        assert "timeout=timeout" not in rm_window
+
+    def test_no_caller_passes_bare_timeout_to_cmd_or_read_multiline(self):
+        import re
+        src = self._tsr_source()
+        # Match `_cmd(...timeout=...)` or `_read_multiline(...timeout=...)`
+        # that is NOT timeout_s. Excludes the FirmwareDiagnostics _cmd
+        # def itself (signature uses timeout_s already).
+        bad_cmd = re.findall(
+            r"_cmd\([^)]*?\btimeout=", src)
+        bad_rm = re.findall(
+            r"_read_multiline\([^)]*?\btimeout=", src)
+        # Filter out the def lines themselves (def _cmd / _read_multiline)
+        bad_cmd = [m for m in bad_cmd if 'def _cmd' not in m]
+        bad_rm = [m for m in bad_rm if 'def _read_multiline' not in m]
+        assert not bad_cmd, (
+            f"Found _cmd callers still passing timeout= (not timeout_s=): "
+            f"{bad_cmd}")
+        assert not bad_rm, (
+            f"Found _read_multiline callers still passing timeout=: "
+            f"{bad_rm}")

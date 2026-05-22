@@ -729,15 +729,15 @@ class FirmwareDiagnostics:
             return
         self._scope.diagnostics.exit_led_engineering_mode()
 
-    def _cmd(self, target, command, timeout=None):
+    def _cmd(self, target, command, timeout_s=None):
         """Send command and return response string, or error string.
 
         Args:
             target: 'led' or 'motor' (or, for backward compat, a board
-                object — used by older call sites; routed back to the
+                object -- used by older call sites; routed back to the
                 target string by introspection).
             command: Firmware command string.
-            timeout: Per-call serial timeout in seconds.
+            timeout_s: Per-call serial timeout in seconds.
 
         Returns:
             str: Response, ``'Board not connected'``, or ``'Error: ...'``.
@@ -748,9 +748,9 @@ class FirmwareDiagnostics:
         if self._scope is None:
             return 'Board not connected'
         return self._scope.diagnostics.send_diagnostic_command(
-            target_str, command, timeout=timeout)
+            target_str, command, timeout_s=timeout_s)
 
-    def _read_multiline(self, target, command, timeout=60, end_markers=None):
+    def _read_multiline(self, target, command, timeout_s=60, end_markers=None):
         """Send command and read multi-line response (for SELFTEST etc.)."""
         target_str = self._target_str(target)
         if target_str is None:
@@ -758,7 +758,7 @@ class FirmwareDiagnostics:
         if self._scope is None:
             return 'Board not connected'
         return self._scope.diagnostics.send_diagnostic_command_multiline(
-            target_str, command, timeout=timeout, end_markers=end_markers)
+            target_str, command, timeout_s=timeout_s, end_markers=end_markers)
 
     def _target_str(self, target):
         """Resolve a target (string or board object) to 'led' / 'motor'.
@@ -786,7 +786,7 @@ class FirmwareDiagnostics:
 
     def get_led_info(self):
         return self._read_multiline(
-            self.led_board, 'INFO', timeout=5,
+            self.led_board, 'INFO', timeout_s=5,
             end_markers=['RESET CAUSE', 'POWER-ON', 'HARD', 'WDT', 'CALIBRATION'],
         )
 
@@ -849,13 +849,13 @@ class FirmwareDiagnostics:
             return f'LED firmware too old for SELFTEST (info: {info})'
         self._enter_engineering()
         try:
-            return self._read_multiline(self.led_board, 'SELFTEST', timeout=90)
+            return self._read_multiline(self.led_board, 'SELFTEST', timeout_s=90)
         finally:
             self._exit_engineering()
 
     def get_led_readings(self):
         return self._read_multiline(
-            self.led_board, 'LEDREADS', timeout=30,
+            self.led_board, 'LEDREADS', timeout_s=30,
             end_markers=['LED7 LED_K', 'AIN1)', 'ERROR'],
         )
 
@@ -1206,7 +1206,7 @@ class FirmwareDiagnostics:
         results = {'axes': {}, 'passed': True}
 
         # Home Z first (safety — move Z up before XY)
-        zhome_resp = self._cmd(self.motor_board, 'ZHOME', timeout=60)
+        zhome_resp = self._cmd(self.motor_board, 'ZHOME', timeout_s=60)
         results['axes']['Z'] = {
             'home_response': zhome_resp,
             'actual_after': self._cmd(self.motor_board, 'ACTUAL_RZ'),
@@ -1214,7 +1214,7 @@ class FirmwareDiagnostics:
         }
 
         # Home turret
-        thome_resp = self._cmd(self.motor_board, 'THOME', timeout=30)
+        thome_resp = self._cmd(self.motor_board, 'THOME', timeout_s=30)
         results['axes']['T'] = {
             'home_response': thome_resp,
             'actual_after': self._cmd(self.motor_board, 'ACTUAL_RT'),
@@ -1222,7 +1222,7 @@ class FirmwareDiagnostics:
         }
 
         # Home XY
-        home_resp = self._cmd(self.motor_board, 'HOME', timeout=60)
+        home_resp = self._cmd(self.motor_board, 'HOME', timeout_s=60)
         for ax in 'XY':
             results['axes'][ax] = {
                 'home_response': home_resp,
@@ -1279,7 +1279,7 @@ class _BoardOnlyDiagnosticScope:
             f"_BoardOnlyDiagnosticScope: unknown target {target!r}")
 
     def send_diagnostic_command(self, target, command, *,
-                                response_numlines=None, timeout=None):
+                                response_numlines=None, timeout_s=None):
         try:
             board = self._board(target)
         except ValueError as e:
@@ -1290,15 +1290,17 @@ class _BoardOnlyDiagnosticScope:
             kwargs = {}
             if response_numlines is not None:
                 kwargs['response_numlines'] = response_numlines
-            if timeout is not None:
-                kwargs['timeout'] = timeout
+            if timeout_s is not None:
+                # Driver exchange_command keeps bare `timeout` (pyserial-
+                # shaped). Forward seconds through that kwarg.
+                kwargs['timeout'] = timeout_s
             resp = board.exchange_command(command, **kwargs)
             return resp if resp is not None else 'None'
         except Exception as e:
             return f'Error: {e}'
 
     def send_diagnostic_command_multiline(self, target, command, *,
-                                          timeout=60, end_markers=None):
+                                          timeout_s=60, end_markers=None):
         try:
             board = self._board(target)
         except ValueError as e:
@@ -1309,7 +1311,7 @@ class _BoardOnlyDiagnosticScope:
             end_markers = ['PASS', 'FAIL', 'COMPLETE', 'DONE', 'ERROR']
         try:
             result = board.exchange_multiline(
-                command, timeout=timeout, end_markers=end_markers)
+                command, timeout=timeout_s, end_markers=end_markers)
             return result if result else 'No response'
         except Exception as e:
             return f'Error: {e}'
@@ -2177,14 +2179,29 @@ class TechSupportReport:
                         if sn and sn != 'Unknown':
                             sn_tag = sn
                 except Exception:
-                    sn_tag = None
+                    # Log + continue. Silent swallow here masked the
+                    # 2026-05-22 SNlogs regression for two days (TypeError
+                    # from timeout=/timeout_s= kwarg drift propagated up
+                    # via mb.motorconfig.serial_number's wire I/O caller
+                    # and was lost). logger.exception preserves the
+                    # traceback in the main log so future debuggers see
+                    # WHY the SN couldn't be read instead of just the
+                    # SNlogs- filename symptom.
+                    logger.exception(
+                        '[Report   ] SN lookup via motorconfig failed; '
+                        'falling through to FULLINFO path')
                 if not sn_tag:
                     try:
                         sn = self.diag.get_serial_number()
                         if sn and sn != 'UNKNOWN':
                             sn_tag = sn
                     except Exception:
-                        sn_tag = None
+                        # Same reasoning as above. If BOTH paths fail
+                        # the bundle still ships under SNlogs-, but
+                        # the cause is now visible in the log.
+                        logger.exception(
+                            '[Report   ] SN lookup via FULLINFO failed; '
+                            "falling through to 'logs' last-resort")
                 if not sn_tag:
                     sn_tag = 'logs'
                 self._meta['report_type'] = 'logs_only'
