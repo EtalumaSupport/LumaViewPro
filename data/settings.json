@@ -187,6 +187,8 @@
     "step_channel_order": ["BF", "PC", "DF", "Green", "Blue", "Red", "Lumi"],
     "mode": "normal",
     "debug_mode": false,
+    "profile_trace_enabled": false,
+    "profile_trace_output_dir": null,
     "profiling": {
         "enabled": false,
         "stim_profiling": false,

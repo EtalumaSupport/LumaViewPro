@@ -147,23 +147,25 @@ def load_lvp_settings(logger, lvp_appdata):
         else:
             raise FileNotFoundError(f'No settings files found in {data_dir}')
 
-def load_debug_setting(directory):
-    global debug_setting
-
+def _resolve_settings_path(directory):
     current_path = os.path.join(directory, "data", "current.json")
     settings_path = os.path.join(directory, "data", "settings.json")
     data_dir = os.path.join(directory, "data")
 
+    if os.path.exists(current_path):
+        return current_path
+    if os.path.exists(settings_path):
+        return settings_path
+    if not os.path.isdir(data_dir):
+        raise FileNotFoundError(f"Couldn't find 'data' directory at {data_dir}")
+    raise FileNotFoundError(f'No settings files found in {data_dir}')
+
+
+def load_debug_setting(directory):
+    global debug_setting
+
     try:
-        if os.path.exists(current_path):
-            filename = current_path
-        elif os.path.exists(settings_path):
-            filename = settings_path
-        else:
-            if not os.path.isdir(data_dir):
-                raise FileNotFoundError(f"Couldn't find 'data' directory at {data_dir}")
-            else:
-                raise FileNotFoundError(f'No settings files found in {data_dir}')
+        filename = _resolve_settings_path(directory)
 
         with open(filename, "r") as read_file:
             temp_settings = json.load(read_file)
@@ -173,3 +175,28 @@ def load_debug_setting(directory):
 
     except Exception as e:
         raise e
+
+
+def load_profile_trace_setting(directory):
+    """Read profile_trace.enabled + profile_trace.output_dir from settings.
+
+    Returns a dict {"enabled": bool, "output_dir": str | None}. Missing
+    or unreadable settings file resolves to {"enabled": False,
+    "output_dir": None} so the caller never has to guard for absence;
+    profile_trace defaults OFF in that case.
+
+    Called from lib/profile_trace.py at module-import time, mirroring
+    the timing of load_debug_setting() above. Replaces the prior
+    LVP_PROFILE_TRACE environment-variable gate.
+    """
+    try:
+        filename = _resolve_settings_path(directory)
+        with open(filename, "r") as read_file:
+            temp_settings = json.load(read_file)
+    except Exception:
+        return {"enabled": False, "output_dir": None}
+
+    return {
+        "enabled": bool(temp_settings.get("profile_trace_enabled", False)),
+        "output_dir": temp_settings.get("profile_trace_output_dir") or None,
+    }
