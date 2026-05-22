@@ -4099,7 +4099,7 @@ class TestDeviceLinkThroughputLimitSetter:
         scope = Lumascope.__new__(Lumascope)
         scope._camera_driver = None
         scope.imaging = ImagingAPI(scope, None)
-        assert scope.imaging.set_device_link_throughput_limit('Off') is False
+        assert scope.imaging._set_device_link_throughput_limit('Off') is False
 
     def test_inactive_camera_returns_false(self):
         class _Fake:
@@ -4107,14 +4107,14 @@ class TestDeviceLinkThroughputLimitSetter:
             def set_device_link_throughput_limit(self, **k):
                 raise AssertionError("driver should not be reached")
         scope = self._make_scope_with_fake_camera(_Fake())
-        assert scope.imaging.set_device_link_throughput_limit('Off') is False
+        assert scope.imaging._set_device_link_throughput_limit('Off') is False
 
     def test_unsupported_driver_returns_false(self):
         """Camera class without the setter (e.g. SimulatedCamera) -> False."""
         class _NoSetter:
             active = True
         scope = self._make_scope_with_fake_camera(_NoSetter())
-        assert scope.imaging.set_device_link_throughput_limit('Off') is False
+        assert scope.imaging._set_device_link_throughput_limit('Off') is False
 
     def test_off_routes_to_driver(self):
         called_with = {}
@@ -4125,7 +4125,7 @@ class TestDeviceLinkThroughputLimitSetter:
                 called_with['value_bps'] = value_bps
                 return True
         scope = self._make_scope_with_fake_camera(_Fake())
-        assert scope.imaging.set_device_link_throughput_limit('Off') is True
+        assert scope.imaging._set_device_link_throughput_limit('Off') is True
         assert called_with == {'mode': 'Off', 'value_bps': None}
 
     def test_on_with_value_routes_to_driver(self):
@@ -4137,7 +4137,7 @@ class TestDeviceLinkThroughputLimitSetter:
                 called_with['value_bps'] = value_bps
                 return True
         scope = self._make_scope_with_fake_camera(_Fake())
-        ok = scope.imaging.set_device_link_throughput_limit(
+        ok = scope.imaging._set_device_link_throughput_limit(
             'On', value_bps=160_000_000)
         assert ok is True
         assert called_with == {'mode': 'On', 'value_bps': 160_000_000}
@@ -6263,7 +6263,7 @@ class TestAcquisitionStopModeSetter:
         scope = Lumascope.__new__(Lumascope)
         scope._camera_driver = None
         scope.imaging = ImagingAPI(scope, None)
-        assert scope.imaging.set_acquisition_stop_mode('Complete') is False
+        assert scope.imaging._set_acquisition_stop_mode('Complete') is False
 
     def test_inactive_camera_returns_false(self):
         class _Fake:
@@ -6271,14 +6271,14 @@ class TestAcquisitionStopModeSetter:
             def set_acquisition_stop_mode(self, **k):
                 raise AssertionError("driver should not be reached")
         scope = self._make_scope_with_fake_camera(_Fake())
-        assert scope.imaging.set_acquisition_stop_mode('Complete') is False
+        assert scope.imaging._set_acquisition_stop_mode('Complete') is False
 
     def test_unsupported_driver_returns_false(self):
         """Camera class without the setter (e.g. SimulatedCamera) -> False."""
         class _NoSetter:
             active = True
         scope = self._make_scope_with_fake_camera(_NoSetter())
-        assert scope.imaging.set_acquisition_stop_mode('Complete') is False
+        assert scope.imaging._set_acquisition_stop_mode('Complete') is False
 
     def test_routes_to_driver_with_mode_kwarg(self):
         called_with = {}
@@ -6288,7 +6288,7 @@ class TestAcquisitionStopModeSetter:
                 called_with['mode'] = mode
                 return True
         scope = self._make_scope_with_fake_camera(_Fake())
-        assert scope.imaging.set_acquisition_stop_mode('AbortExposure') is True
+        assert scope.imaging._set_acquisition_stop_mode('AbortExposure') is True
         assert called_with == {'mode': 'AbortExposure'}
 
     def test_pylon_driver_method_present(self):
@@ -6387,9 +6387,9 @@ class TestGigeSetters:
         # Phase 4 relocation: methods now live on ImagingAPI; the bench
         # sweep reaches them via scope.imaging.<method>.
         for name in (
-            'set_bandwidth_reserve_mode',
-            'set_gev_packet_size',
-            'set_gev_inter_packet_delay',
+            '_set_bandwidth_reserve_mode',
+            '_set_gev_packet_size',
+            '_set_gev_inter_packet_delay',
         ):
             assert hasattr(ImagingAPI, name), (
                 f"ImagingAPI must implement {name} for the GigE bench "
@@ -6403,9 +6403,9 @@ class TestGigeSetters:
         scope = Lumascope.__new__(Lumascope)
         scope._camera_driver = None
         scope.imaging = ImagingAPI(scope, None)
-        assert scope.imaging.set_bandwidth_reserve_mode('Performance') is False
-        assert scope.imaging.set_gev_packet_size(9000) is False
-        assert scope.imaging.set_gev_inter_packet_delay(0) is False
+        assert scope.imaging._set_bandwidth_reserve_mode('Performance') is False
+        assert scope.imaging._set_gev_packet_size(9000) is False
+        assert scope.imaging._set_gev_inter_packet_delay(0) is False
 
     def test_inactive_camera_returns_false_for_all(self):
         class _Fake:
@@ -6417,9 +6417,9 @@ class TestGigeSetters:
             def set_gev_inter_packet_delay(self, **k):
                 raise AssertionError("driver should not be reached")
         scope = self._make_scope_with_fake_camera(_Fake())
-        assert scope.imaging.set_bandwidth_reserve_mode('Performance') is False
-        assert scope.imaging.set_gev_packet_size(9000) is False
-        assert scope.imaging.set_gev_inter_packet_delay(0) is False
+        assert scope.imaging._set_bandwidth_reserve_mode('Performance') is False
+        assert scope.imaging._set_gev_packet_size(9000) is False
+        assert scope.imaging._set_gev_inter_packet_delay(0) is False
 
     def test_bandwidth_reserve_mode_routes_to_driver(self):
         called_with = {}
@@ -6429,7 +6429,7 @@ class TestGigeSetters:
                 called_with['mode'] = mode
                 return True
         scope = self._make_scope_with_fake_camera(_Fake())
-        assert scope.imaging.set_bandwidth_reserve_mode('Performance') is True
+        assert scope.imaging._set_bandwidth_reserve_mode('Performance') is True
         assert called_with == {'mode': 'Performance'}
 
     def test_gev_packet_size_routes_to_driver(self):
@@ -6440,7 +6440,7 @@ class TestGigeSetters:
                 called_with['size_bytes'] = size_bytes
                 return True
         scope = self._make_scope_with_fake_camera(_Fake())
-        assert scope.imaging.set_gev_packet_size(9000) is True
+        assert scope.imaging._set_gev_packet_size(9000) is True
         assert called_with == {'size_bytes': 9000}
 
     def test_gev_inter_packet_delay_routes_to_driver(self):
@@ -6451,7 +6451,7 @@ class TestGigeSetters:
                 called_with['delay_ticks'] = delay_ticks
                 return True
         scope = self._make_scope_with_fake_camera(_Fake())
-        assert scope.imaging.set_gev_inter_packet_delay(100) is True
+        assert scope.imaging._set_gev_inter_packet_delay(100) is True
         assert called_with == {'delay_ticks': 100}
 
     def test_pylon_setters_present(self):
@@ -6589,7 +6589,7 @@ class TestStreamGrabberSetters:
 
     def test_lumascope_methods_exist(self):
         # Phase 4 relocation: methods now live on ImagingAPI.
-        for name in ('set_max_transfer_size', 'set_num_max_queued_urbs'):
+        for name in ('_set_max_transfer_size', '_set_num_max_queued_urbs'):
             assert hasattr(ImagingAPI, name), name
             assert callable(getattr(ImagingAPI, name))
 
@@ -6599,8 +6599,8 @@ class TestStreamGrabberSetters:
         scope = Lumascope.__new__(Lumascope)
         scope._camera_driver = None
         scope.imaging = ImagingAPI(scope, None)
-        assert scope.imaging.set_max_transfer_size(262144) is False
-        assert scope.imaging.set_num_max_queued_urbs(64) is False
+        assert scope.imaging._set_max_transfer_size(262144) is False
+        assert scope.imaging._set_num_max_queued_urbs(64) is False
 
     def test_inactive_camera_returns_false_for_both(self):
         class _Fake:
@@ -6613,8 +6613,8 @@ class TestStreamGrabberSetters:
                 raise AssertionError("driver should not be reached")
 
         scope = self._make_scope_with_fake_camera(_Fake())
-        assert scope.imaging.set_max_transfer_size(262144) is False
-        assert scope.imaging.set_num_max_queued_urbs(64) is False
+        assert scope.imaging._set_max_transfer_size(262144) is False
+        assert scope.imaging._set_num_max_queued_urbs(64) is False
 
     def test_unsupported_driver_returns_false(self):
         """Camera class without the setters (e.g. SimulatedCamera) -> False."""
@@ -6622,8 +6622,8 @@ class TestStreamGrabberSetters:
             active = True
 
         scope = self._make_scope_with_fake_camera(_NoSetter())
-        assert scope.imaging.set_max_transfer_size(262144) is False
-        assert scope.imaging.set_num_max_queued_urbs(64) is False
+        assert scope.imaging._set_max_transfer_size(262144) is False
+        assert scope.imaging._set_num_max_queued_urbs(64) is False
 
     def test_max_transfer_size_routes_to_driver(self):
         called_with = {}
@@ -6636,7 +6636,7 @@ class TestStreamGrabberSetters:
                 return True
 
         scope = self._make_scope_with_fake_camera(_Fake())
-        assert scope.imaging.set_max_transfer_size(value_bytes=131072) is True
+        assert scope.imaging._set_max_transfer_size(value_bytes=131072) is True
         assert called_with == {'value_bytes': 131072}
 
     def test_num_max_queued_urbs_routes_to_driver(self):
@@ -6650,7 +6650,7 @@ class TestStreamGrabberSetters:
                 return True
 
         scope = self._make_scope_with_fake_camera(_Fake())
-        assert scope.imaging.set_num_max_queued_urbs(value=32) is True
+        assert scope.imaging._set_num_max_queued_urbs(value=32) is True
         assert called_with == {'value': 32}
 
     def test_pylon_driver_methods_present(self):
