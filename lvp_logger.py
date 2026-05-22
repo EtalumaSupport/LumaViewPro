@@ -481,13 +481,17 @@ def log_environment_banner(source_path: str, version_str: str):
     logger.info('[LVP Main  ] -----------------------------------------')
     logger.info(f'[LVP Main  ] Version:   {version_str}')
 
-    # Build identity: branch + commit timestamp from version.txt. The
-    # pre-commit hook rewrites lines 2-3 on every commit so these are
-    # always present in source clones, ZIP downloads, and installer
-    # bundles alike. Triage Chris's reports via
-    # `git log --before=<Built>+1m <Branch>` to find the exact commit.
+    # Build identity: branch + commit timestamp + build GUID from
+    # version.txt. The pre-commit hook rewrites lines 2-4 on every commit
+    # so these are always present in source clones, ZIP downloads, and
+    # installer bundles alike. Triage chains:
+    #   - `git log -S "<guid>" -- version.txt` finds the exact commit
+    #     by GUID (works in any distribution).
+    #   - `git log --before=<Built>+1m <Branch>` finds it by timestamp.
+    #   - `.git_archival.txt` carries the actual SHA in GitHub ZIPs.
     _built = ''
     _branch = ''
+    _build_guid = ''
     try:
         with open(os.path.join(source_path, 'version.txt')) as _vf:
             _lines = _vf.read().splitlines()
@@ -495,10 +499,13 @@ def log_environment_banner(source_path: str, version_str: str):
                 _built = _lines[1].strip()
             if len(_lines) >= 3:
                 _branch = _lines[2].strip()
+            if len(_lines) >= 4:
+                _build_guid = _lines[3].strip()
     except Exception:
         pass
     logger.info(f'[LVP Main  ] Built:     {_built or "unknown"}')
     logger.info(f'[LVP Main  ] Branch:    {_branch or "unknown"}')
+    logger.info(f'[LVP Main  ] BuildGUID: {_build_guid or "unknown"}')
 
     # Runtime: distinguish installed .exe from running directly from a
     # source clone. The presence of marker.lvpinstalled means the MSI
@@ -509,20 +516,35 @@ def log_environment_banner(source_path: str, version_str: str):
         f'{"installed exe" if lvp_installed else "source / dev"}'
     )
 
-    # Live `git rev-parse` is a best-effort exact-SHA fallback that only
-    # works in source clones with .git present. Installer builds wipe
-    # .git, so this line stays "unknown" there -- triage uses Branch +
-    # Built above instead.
+    # SHA lookup precedence:
+    #   1) .git_archival.txt -- GitHub ZIP downloads substitute the
+    #      $Format:%H$ placeholder with the real SHA at archive time.
+    #      In a local git clone the placeholder is unsubstituted ($Format
+    #      prefix); in a ZIP it has been replaced with the 40-char SHA.
+    #   2) `git rev-parse --short HEAD` -- works in local clones with
+    #      .git present. Installer builds wipe .git so this returns
+    #      nothing.
+    # Either path that yields a real value wins; otherwise fall back to
+    # Branch + Built + BuildGUID for triage.
     _git_hash = None
     try:
-        import subprocess
-        _git_hash = subprocess.check_output(
-            ['git', 'rev-parse', '--short', 'HEAD'],
-            cwd=source_path, stderr=subprocess.DEVNULL, timeout=2
-        ).decode().strip()
+        with open(os.path.join(source_path, '.git_archival.txt')) as _af:
+            for _line in _af:
+                if _line.startswith('node: ') and not _line.startswith('node: $Format'):
+                    _git_hash = _line.split(': ', 1)[1].strip()[:12]
+                    break
     except Exception:
         pass
-    logger.info(f'[LVP Main  ] Git:       {_git_hash or "unknown (use Branch + Built)"}')
+    if not _git_hash:
+        try:
+            import subprocess
+            _git_hash = subprocess.check_output(
+                ['git', 'rev-parse', '--short', 'HEAD'],
+                cwd=source_path, stderr=subprocess.DEVNULL, timeout=2
+            ).decode().strip()
+        except Exception:
+            pass
+    logger.info(f'[LVP Main  ] Git:       {_git_hash or "unknown (use BuildGUID or Branch + Built)"}')
 
     # Host + OS + Python + key library versions.
     try:

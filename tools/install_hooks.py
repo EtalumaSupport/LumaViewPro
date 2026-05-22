@@ -51,18 +51,28 @@ REPO_ROOT="$(git rev-parse --show-toplevel)"
 # in staged lines before any other hook side-effects).
 python3 "$REPO_ROOT/tools/check_rules.py" --staged
 
-# version.txt timestamp + branch refresh (LVP-specific). 3-line format:
+# version.txt refresh (LVP-specific). 4-line format:
 #   Line 1: release moniker (manual bump on promotion; path-safe)
 #   Line 2: commit timestamp (this hook rewrites)
 #   Line 3: branch name (this hook rewrites)
+#   Line 4: build GUID -- random per commit, embedded IN the commit
+#           that produces it. Sidesteps the SHA chicken-and-egg: the
+#           GUID does not need to match the resulting SHA; a unique
+#           tag per commit is enough for log triage. Lookup via:
+#               git log -S "<guid>" -- version.txt
 # Lines 2+3 give triage "branch + timestamp" identity for bench bundles;
-# find the exact commit via `git log --before=<line2>+1m <line3>`.
+# Line 4 gives an exact commit lookup that works in any distribution
+# (ZIP, clone, installer alike) without depending on GitHub or git
+# archive substitution.
 VERSION_FILE="$REPO_ROOT/version.txt"
 if [ -f "$VERSION_FILE" ]; then
     VERSION=$(head -1 "$VERSION_FILE")
     TIMESTAMP=$(date "+%Y-%m-%d %H:%M")
     BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")
-    printf "%s\\n%s\\n%s\\n" "$VERSION" "$TIMESTAMP" "$BRANCH" > "$VERSION_FILE"
+    GUID=$(python3 -c "import uuid; print(uuid.uuid4().hex[:8])" 2>/dev/null \\
+        || openssl rand -hex 4 2>/dev/null \\
+        || echo "nogenuid")
+    printf "%s\\n%s\\n%s\\n%s\\n" "$VERSION" "$TIMESTAMP" "$BRANCH" "$GUID" > "$VERSION_FILE"
     git add "$VERSION_FILE"
 fi
 '''

@@ -1,1 +1,8 @@
 *.html linguist-detectable=false
+
+# git archive (GitHub "Download ZIP", git archive HEAD) substitutes
+# $Format:%H$-style placeholders in this file at archive time. Gives
+# us the actual commit SHA in ZIP-download bench bundles where the
+# .git directory is absent, sidestepping the "Git: unknown" gap in
+# startup logging. See lvp_logger.py for the runtime reader.
+.git_archival.txt export-subst
