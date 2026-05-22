@@ -211,13 +211,16 @@ class TestTimedLockInvariantThreshold:
         )
 
 
-class TestEnvActivation:
-    def test_env_var_enables_at_import(self, monkeypatch, tmp_path):
-        monkeypatch.setenv("LVP_PROFILE_TRACE", "1")
-        monkeypatch.setenv("LVP_PROFILE_TRACE_DIR", str(tmp_path / "env_out"))
+class TestSettingsActivation:
+    def test_settings_key_enables_at_import(self, monkeypatch, tmp_path):
+        out_dir = str(tmp_path / "settings_out")
+        monkeypatch.setattr(
+            "modules.settings_init.load_profile_trace_setting",
+            lambda directory: {"enabled": True, "output_dir": out_dir},
+        )
         profile_trace.disable()
         import importlib
         importlib.reload(profile_trace)
         assert profile_trace.ENABLE_PROFILE_TRACE is True
-        assert (tmp_path / "env_out").is_dir()
+        assert (tmp_path / "settings_out").is_dir()
         profile_trace.disable()

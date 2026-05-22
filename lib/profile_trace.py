@@ -1,13 +1,15 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """Opt-in runtime tracing for profiling + debugging.
 
-Default OFF. Zero overhead when disabled — every trace site is guarded
+Default OFF. Zero overhead when disabled -- every trace site is guarded
 by a single module-level flag check.
 
-Enable three ways:
-  1. Set env `LVP_PROFILE_TRACE=1` before launching LVP.
-  2. Call `profile_trace.enable()` programmatically.
-  3. Set `LVP_PROFILE_TRACE_DIR=/some/path` to override the output dir.
+Enable two ways:
+  1. Set ``profile_trace_enabled: true`` in data/settings.json (or
+     data/current.json) before launching LVP. Optionally set
+     ``profile_trace_output_dir`` to override the output directory.
+  2. Call ``profile_trace.enable()`` programmatically (tests, ad-hoc
+     experiments).
 
 Writes CSV files under `./logs/profile/<timestamp>/` by default:
   - serial_trace.csv        (SerialBoard.exchange_command timings)
@@ -47,12 +49,8 @@ def enable(output_dir=None):
     if ENABLE_PROFILE_TRACE:
         return
     if output_dir is None:
-        env = os.environ.get("LVP_PROFILE_TRACE_DIR")
-        if env:
-            output_dir = Path(env)
-        else:
-            ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-            output_dir = Path("./logs/profile") / ts
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        output_dir = Path("./logs/profile") / ts
     _output_dir = Path(output_dir)
     _output_dir.mkdir(parents=True, exist_ok=True)
     ENABLE_PROFILE_TRACE = True
@@ -137,7 +135,7 @@ class timer:
 class TimedLock:
     """Drop-in wrapper for threading.Lock / threading.RLock that records
     acquire-wait + hold time per acquire-release cycle to `lock_trace.csv`
-    when LVP_PROFILE_TRACE=1 is set.
+    when ``profile_trace_enabled`` is set in settings.json.
 
     Threading audit §10.2 — validates SerialBoard._lock hold-time claim
     (~32 ms per round-trip, documented at drivers/motorboard.py:79 from a
@@ -245,13 +243,28 @@ class TimedLock:
         return self._name
 
 
-# Production default: instrumentation OFF unless LVP_PROFILE_TRACE=1 is
-# set explicitly in the environment. The perf-instrumentation-4.0.0-beta
-# branch flipped this to default-ON for the STALL-1 diagnostic run; the
-# merge into the layer-audit chain restores the explicit env-var gate so
-# production carries the tracer infrastructure for opt-in use without
-# the always-on file-write overhead. To enable: set LVP_PROFILE_TRACE=1
-# (any non-empty non-"0" value works in shell-script practice — exact
-# match required here for clarity).
-if os.environ.get("LVP_PROFILE_TRACE") == "1":
-    enable()
+# Production default: instrumentation OFF unless profile_trace_enabled
+# is true in data/settings.json (or data/current.json). Optional sibling
+# key profile_trace_output_dir overrides the default ./logs/profile/<TS>/
+# location. Read at module-import time -- the same timing as
+# load_debug_setting() in lvp_logger.py -- so the gate is decided before
+# any trace site fires. Defaults to OFF + None on any read failure so
+# the tracer infrastructure remains shippable without runtime config.
+def _read_settings_gate():
+    from modules.settings_init import load_profile_trace_setting
+    # Reuse lvp_logger.lvp_appdata so the production-installed path
+    # (~/Documents/LumaViewPro <version>/data/) resolves the same way
+    # the logger's debug-mode gate does. Fall back to the source root
+    # when lvp_logger isn't importable (e.g. unit tests that exercise
+    # this module in isolation).
+    try:
+        import lvp_logger
+        base_dir = lvp_logger.lvp_appdata
+    except (ImportError, AttributeError):
+        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    return load_profile_trace_setting(base_dir)
+
+
+_gate = _read_settings_gate()
+if _gate["enabled"]:
+    enable(output_dir=Path(_gate["output_dir"]) if _gate["output_dir"] else None)

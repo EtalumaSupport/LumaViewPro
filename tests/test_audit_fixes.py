@@ -9816,3 +9816,64 @@ class TestCompositeOrchestrationByteEqualManualVsProtocol:
                 'must return the RGB array so legacy callers can save it.'
             )
             assert result['image'].shape == (8, 8, 3)
+
+
+class TestProfileTraceGateIsNotEnvVar:
+    """profile_trace must NOT be gated by an environment variable.
+
+    Per the options-menu rule, runtime toggles live in settings.json or
+    as a code constant -- never as an environment variable. The earlier
+    LVP_PROFILE_TRACE / LVP_PROFILE_TRACE_DIR gate violated that rule
+    and was migrated to the profile_trace_enabled +
+    profile_trace_output_dir settings keys. The two AST scans below
+    pin both halves of the migration so the env-var pattern doesn't
+    sneak back in via a later patch.
+    """
+
+    def _profile_trace_source(self):
+        from pathlib import Path
+        return (Path(__file__).resolve().parent.parent
+                / "lib" / "profile_trace.py").read_text()
+
+    def test_no_lvp_profile_trace_env_var_in_module(self):
+        import ast
+        src = self._profile_trace_source()
+        tree = ast.parse(src)
+
+        hits = []
+
+        class Visitor(ast.NodeVisitor):
+            def visit_Constant(self, node):
+                if isinstance(node.value, str) and node.value.startswith(
+                        "LVP_PROFILE_TRACE"):
+                    hits.append((node.lineno, node.value))
+                self.generic_visit(node)
+
+        Visitor().visit(tree)
+        assert not hits, (
+            "lib/profile_trace.py must not reference LVP_PROFILE_TRACE* "
+            "as a string literal -- the env-var gate is retired in "
+            "favor of the profile_trace_enabled settings key. Hits: "
+            f"{hits}"
+        )
+
+    def test_module_level_gate_reads_settings_not_environ(self):
+        import ast
+        src = self._profile_trace_source()
+        tree = ast.parse(src)
+
+        # Reject os.environ.get(...) at module scope.
+        bad = []
+        for node in tree.body:
+            for sub in ast.walk(node):
+                if isinstance(sub, ast.Call):
+                    func = sub.func
+                    if (isinstance(func, ast.Attribute)
+                            and func.attr == "get"
+                            and isinstance(func.value, ast.Attribute)
+                            and func.value.attr == "environ"):
+                        bad.append(sub.lineno)
+        assert not bad, (
+            "lib/profile_trace.py must not call os.environ.get(...) at "
+            f"module scope. Found at line(s): {bad}"
+        )
