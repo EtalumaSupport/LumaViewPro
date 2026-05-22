@@ -311,7 +311,11 @@ def write_tiff(
             if use_false_color_16bit:
                 data = add_false_color(data, color, output=false_color_buf)
         except Exception:
-            pass
+            logger.exception(
+                '[image_utils] save_image: false-color application failed '
+                'for color=%s; saving without false color',
+                color,
+            )
 
     kwargs = {}
     # Enable BigTIFF for datasets >3.8 GB to prevent silent corruption at 4 GB boundary

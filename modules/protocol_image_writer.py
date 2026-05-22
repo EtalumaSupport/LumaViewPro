@@ -283,7 +283,12 @@ class ProtocolImageWriter:
             try:
                 name = Protocol.sanitize_step_name(input=name)
             except Exception:
-                pass
+                logger.exception(
+                    '[%s] sanitize_step_name failed for name=%r; using '
+                    'unsanitized name, file save may fail if name contains '
+                    'invalid path characters',
+                    self.LOGGER_NAME, name,
+                )
 
             # Illuminate
             if self._scope.led_connected:
