@@ -231,6 +231,15 @@ class PylonCamera(Camera):
                     # Drain in-flight frames after StopGrabbing before releasing
                     # the device handle (Basler `acquisition-status.html`). Bounded.
                     self._wait_for_acquisition_idle(timeout_s=2.0)
+                    # Stage B worker stop AFTER stop_grabbing + idle-wait
+                    # (so SDK has stopped firing callbacks and in-flight
+                    # frames have drained from the SDK side) and BEFORE
+                    # Close() / DetachDevice() / DestroyDevice() (so the
+                    # worker has released its grabResult refs and the SDK
+                    # input queue won't underrun on teardown). Inverting
+                    # this order silently drops grabResults without release
+                    # per `class_pylon_1_1_c_grab_result_ptr.html`.
+                    self._stop_image_grab_worker()
                     # Each teardown step is independently guarded so a failure on
                     # one (e.g. Close on an already-removed device) does not
                     # prevent the others from running. The behaviour the caller
@@ -249,6 +258,11 @@ class PylonCamera(Camera):
                         'StopGrabbing/wait_idle/Close (pypylon #225 hazard); '
                         'releasing Python-side handle only'
                     )
+                    # Worker stop is safe regardless of device state: it
+                    # touches only its own queue + thread, not the SDK
+                    # handle. Run it before DetachDevice/DestroyDevice so
+                    # any in-flight grabResults are released cleanly.
+                    self._stop_image_grab_worker()
                 # Explicit DetachDevice + DestroyDevice releases the SDK-side
                 # device handle immediately rather than relying on CPython
                 # refcount-driven cleanup. pypylon issues #547 and #792
@@ -841,6 +855,13 @@ class PylonCamera(Camera):
                 self.cam_image_handler, pylon.RegistrationMode_Append, pylon.Cleanup_Delete
             )
 
+            # Start the Stage B worker BEFORE camera.Open(). pypylon 26.4.x's
+            # AcquireContinuousConfiguration auto-StartGrabbing fires from
+            # inside Open(); the worker queue must be drained-capable before
+            # the first OnImageGrabbed can enqueue, or Stage A would lose
+            # frames with no consumer scheduled.
+            self.cam_image_handler._worker.start()
+
             camera.Open()
 
             # MaxNumBuffer cap (default 3). Applied post-Open() -- earliest
@@ -992,11 +1013,35 @@ class PylonCamera(Camera):
                 f'application): {ex}'
             )
             self.active = None
+            self._stop_image_grab_worker()
         except Exception:
             _cam_log.exception('[CAM Class ] Pylon camera connect failed')
             self.active = None
+            self._stop_image_grab_worker()
 
         return False
+
+    def _stop_image_grab_worker(self) -> None:
+        """Stop the Stage B worker if it was started during connect().
+
+        Tolerant of partial-construct states: a connect() failure before
+        `cam_image_handler` is set, or before its `_worker` was attached,
+        is a no-op. Idempotent on the success path -- `disconnect()`
+        calls this explicitly before SDK teardown.
+        """
+        handler = getattr(self, 'cam_image_handler', None)
+        if handler is None:
+            return
+        worker = getattr(handler, '_worker', None)
+        if worker is None:
+            return
+        try:
+            worker.stop(timeout=1.0)
+        except Exception as e:
+            _cam_log.warning(
+                f'[CAM Class ] _stop_image_grab_worker raised: {e}; '
+                f'continuing teardown'
+            )
 
     def get_all_temperatures(self) -> dict:
         """Return {selector: degC, ...} per DeviceTemperatureSelector entry; {} if unreadable."""
@@ -3202,6 +3247,13 @@ class ImageHandler(pylon.ImageEventHandler):
         self._base = ImageHandlerBase()
         self._frame_queue = queue.Queue(maxsize=1)
         self._parent = parent_cam
+        # Stage B worker for the OnImageGrabbed two-stage split. Created
+        # here so it shares lifetime with the handler; start() / stop()
+        # are driven from PylonCamera.connect / disconnect at the ordering
+        # the SDK contract requires.
+        self._worker = _PylonImageGrabWorker(
+            parent_cam, self._base, self._frame_queue
+        )
 
     # Maps GrabResult chunk attrs to keys in FrameValidity.CHUNK_KEY_FOR_SOURCE
     # plus the Timestamp provenance chunk (not validated; surfaced for metadata).
