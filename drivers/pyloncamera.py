@@ -79,9 +79,19 @@ _PYLON_ERR_PAYLOAD_DISCARDED = 0xE2050012
 _PYLON_ERR_DEVICE_NOT_FOUND = 433
 
 
+# Build marker -- bumped whenever the OnImageGrabbed / disconnect
+# defensive layer changes. Grep this in lumaviewpro.log to verify
+# which Pylon-defense generation a bench build is running.
+_PYLON_DEFENSE_BUILD = 'pylon-defense-2'
+
+
 @camera_registry.register('pylon', priority=100)
 class PylonCamera(Camera):
     def __init__(self, **kwargs):
+        logger.info(
+            f'[CAM Class ] PylonCamera defense generation: '
+            f'{_PYLON_DEFENSE_BUILD}'
+        )
 
         if os.getenv('PYLON_CAMEMU', None) is not None:
             logger.info(
@@ -191,31 +201,53 @@ class PylonCamera(Camera):
         Each teardown step is independently guarded so one failure doesn't
         block the rest. After return, ``self.active is None`` regardless of
         SDK call success. Returns False if not connected or outer aborted.
+
+        When the device is already known to be removed (cable unplug,
+        callback err_code=433 already observed), the SDK-touching
+        teardown steps (StopGrabbing, wait_for_acquisition_idle, Close)
+        are SKIPPED. Calling these on a dead device handle is the
+        pypylon #225 abort hazard: StopGrabbing can hang or trigger a
+        native abort, and Close on an already-removed handle has been
+        observed to crash. Only DetachDevice + DestroyDevice are kept,
+        since they release Python-side ownership of the handle and do
+        not communicate with the device.
         """
         try:
             if self.active is not None:
+                device_removed = False
                 try:
-                    if self.is_grabbing():
-                        self.stop_grabbing()
-                except Exception as e:
-                    _cam_log.warning(
-                        f'[CAM Class ] stop_grabbing during disconnect raised: {e}; '
-                        f'continuing teardown'
-                    )
-                # Drain in-flight frames after StopGrabbing before releasing
-                # the device handle (Basler `acquisition-status.html`). Bounded.
-                self._wait_for_acquisition_idle(timeout_s=2.0)
-                # Each teardown step is independently guarded so a failure on
-                # one (e.g. Close on an already-removed device) does not
-                # prevent the others from running. The behaviour the caller
-                # expects after disconnect() returns is "self.active is None"
-                # regardless of whether the SDK calls themselves succeeded.
-                try:
-                    self.active.Close()
-                except Exception as e:
-                    _cam_log.warning(
-                        f'[CAM Class ] Close() during disconnect raised: {e}; '
-                        f'continuing teardown'
+                    device_removed = self.is_device_removed()
+                except BaseException:
+                    device_removed = False
+                if not device_removed:
+                    try:
+                        if self.is_grabbing():
+                            self.stop_grabbing()
+                    except Exception as e:
+                        _cam_log.warning(
+                            f'[CAM Class ] stop_grabbing during disconnect raised: {e}; '
+                            f'continuing teardown'
+                        )
+                    # Drain in-flight frames after StopGrabbing before releasing
+                    # the device handle (Basler `acquisition-status.html`). Bounded.
+                    self._wait_for_acquisition_idle(timeout_s=2.0)
+                    # Each teardown step is independently guarded so a failure on
+                    # one (e.g. Close on an already-removed device) does not
+                    # prevent the others from running. The behaviour the caller
+                    # expects after disconnect() returns is "self.active is None"
+                    # regardless of whether the SDK calls themselves succeeded.
+                    try:
+                        self.active.Close()
+                    except Exception as e:
+                        _cam_log.warning(
+                            f'[CAM Class ] Close() during disconnect raised: {e}; '
+                            f'continuing teardown'
+                        )
+                else:
+                    _log_safely(
+                        'disconnect: device already removed -- skipping '
+                        'StopGrabbing/wait_idle/Close (pypylon #225 hazard); '
+                        'releasing Python-side handle only'
                     )
                 # Explicit DetachDevice + DestroyDevice releases the SDK-side
                 # device handle immediately rather than relying on CPython
