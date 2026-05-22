@@ -869,6 +869,24 @@ class PylonCamera(Camera):
                     f'(window may have closed): {e}'
                 )
 
+            # Pre-allocate chunk node-map pool to match the buffer pool.
+            # Per Basler grabchunkimage sample: node maps are otherwise
+            # created lazily on StartGrabbing(), stalling first-frame
+            # delivery while the SDK parses XML. Sized to MaxNumBuffer so
+            # every in-flight grab buffer has a paired pre-built node map.
+            try:
+                _mnb_actual = camera.MaxNumBuffer.GetValue()
+                camera.StaticChunkNodeMapPoolSize.Value = _mnb_actual
+                logger.info(
+                    f'[CAM Class ] StaticChunkNodeMapPoolSize set to '
+                    f'{_mnb_actual}'
+                )
+            except Exception as e:
+                _cam_log.warning(
+                    f'[CAM Class ] StaticChunkNodeMapPoolSize set failed '
+                    f'(node may be unavailable on this transport): {e}'
+                )
+
             # Store device identity if possible
             try:
                 dev_info = camera.GetDeviceInfo()
