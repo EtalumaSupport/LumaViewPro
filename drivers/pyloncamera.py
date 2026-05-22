@@ -3236,6 +3236,36 @@ class ImageHandler(pylon.ImageEventHandler):
                 )
         return chunks if chunks else None
 
+    def OnImagesSkipped(self, camera, countOfSkippedImages) -> None:
+        """Pylon SDK callback fired when the grab strategy drops frames.
+
+        Per `class_pylon_1_1_c_image_event_handler.html`: fires when
+        GrabStrategy_LatestImageOnly (or LatestImages) discards an older
+        frame in favor of a newer one. The SDK contract: "Exceptions
+        from this call will propagate through" -- same hazard as
+        OnImageGrabbed, so wrap accordingly.
+
+        Logged at info so the skip distribution is visible in camera.log
+        post-R12 (correlate with worker-queue-full count if applicable).
+        Today (pre-R12) skips fire when the consumer reads
+        ImageHandlerBase.last_img slower than the SDK grabs; cause
+        distribution stays in the log without raising the noise floor.
+        """
+        try:
+            if countOfSkippedImages > 0:
+                _cam_log.info(
+                    f'[CAM Class ] OnImagesSkipped: '
+                    f'{countOfSkippedImages} frame(s) discarded by SDK '
+                    f'(grab strategy = LatestImageOnly)'
+                )
+        except Exception as e:
+            _log_safely(f'OnImagesSkipped logging raised: {e}')
+        except BaseException as e:
+            _log_safely(
+                f'OnImagesSkipped BaseException guard '
+                f'caught {type(e).__name__}: {e}'
+            )
+
     def OnImageGrabbed(self, camera, grabResult) -> None:
         """Pylon SDK callback fired per acquired frame; runs in a Pylon-owned thread."""
         # Per-callback duration trace; zero overhead when
@@ -3529,4 +3559,36 @@ class _CameraRemovalHandler(pylon.ConfigurationEventHandler):
             _log_safely(
                 f'OnCameraDeviceRemoved guard caught '
                 f'{type(e).__name__}: {e}'
+            )
+
+    def OnGrabError(self, camera, errorMessage) -> None:
+        """Pylon SDK callback fired when an exception happens in the grab thread.
+
+        Per `class_pylon_1_1_c_configuration_event_handler.html`:
+        "This method is called when an exception has been triggered
+        during grabbing... An exception has been triggered by a grab
+        thread. The grab will be stopped after this event call."
+        Runs inside the camera lock from a separate SDK thread; SDK
+        catches and ignores exceptions per the contract.
+
+        This is the LAST diagnostic signal before the SDK tears down
+        its grab loop. If the silent-crash mechanism per
+        PYLON_DISCONNECT_DEFENSE.md ("Pylon's grab thread's OWN
+        internal cleanup after our callback returns") fires, this is
+        the log line we expect to see right before the abort. Worth
+        logging at ERROR so it pops in post-mortem.
+
+        Args:
+            camera: SDK reference (unused; pylon contract).
+            errorMessage: SDK-supplied error description (C++ char*).
+        """
+        try:
+            _cam_log.error(
+                f'[CAM Class ] OnGrabError fired (SDK grab thread caught '
+                f'exception; grab will stop): {errorMessage}'
+            )
+            self._parent._mark_disconnected()
+        except BaseException as e:
+            _log_safely(
+                f'OnGrabError guard caught {type(e).__name__}: {e}'
             )
