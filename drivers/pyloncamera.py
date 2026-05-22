@@ -46,6 +46,33 @@ def _log_safely(message: str) -> None:
         _ = None  # noqa -- intentional no-op marker for the AST scan
 
 
+def _log_cam(level: str, message: str) -> None:
+    """Mirror a camera-relevant log entry to BOTH the main log AND camera.log.
+
+    Use for events that future debuggers will want to see in either file:
+    identity readback (serial, firmware, profile), connect / disconnect,
+    configuration changes (gain, exposure, frame size), TlFactory device
+    enumeration, MaxNumBuffer + StreamGrabber settings, GetArray failures
+    on the worker. High-volume per-frame SDK trace lines (Gain.SetValue,
+    ExposureTime.SetValue) stay on _cam_log directly -- those are
+    deliberately kept out of the main log to control noise.
+
+    Args:
+        level: 'info' / 'warning' / 'error' / 'debug' / 'exception'.
+        message: The full log message. Convention: include '[CAM Class ]'
+            prefix for grep-ability (matches the prefix in the main log).
+    """
+    getattr(logger, level)(message)
+    if _cam_log is not None:
+        try:
+            getattr(_cam_log, level)(message)
+        except Exception:
+            # If the camera-log handler is wedged for any reason, the
+            # main-log call above still landed. Swallow so the caller's
+            # control flow isn't broken by a logging-side fault.
+            logger.debug(f'[CAM Class ] _log_cam: camera_logger.{level}() raised')
+
+
 # Pylon SDK error code returned by grabResult.GetErrorCode() when a
 # buffer is cancelled by StopGrabbing in flight. Value 0xE2000102.
 # USB3-Vision transport namespace (high byte 0xE2). Per Basler
@@ -90,7 +117,7 @@ _PYLON_DEFENSE_BUILD = 'pylon-defense-3'
 @camera_registry.register('pylon', priority=100)
 class PylonCamera(Camera):
     def __init__(self, **kwargs):
-        logger.info(
+        _log_cam('info',
             f'[CAM Class ] PylonCamera defense generation: '
             f'{_PYLON_DEFENSE_BUILD}'
         )
@@ -293,10 +320,10 @@ class PylonCamera(Camera):
                 # the next connect re-runs the StreamGrabber NodeMap
                 # walk against whatever camera attaches.
                 self._pylon_self_validation_done = False
-                logger.info('[CAM Class ] Disconnected from Pylon camera')
+                _log_cam('info', '[CAM Class ] Disconnected from Pylon camera')
                 return True
             else:
-                logger.info('[CAM Class ] Pylon camera not connected')
+                _log_cam('info', '[CAM Class ] Pylon camera not connected')
         except Exception as e:
             _cam_log.exception(f'[CAM Class ] Pylon camera disconnect failed: {e}')
         return False
@@ -840,6 +867,38 @@ class PylonCamera(Camera):
     def connect(self) -> bool:
         """Try to connect to the first available basler camera"""
         try:
+            # Enumerate ALL Basler devices visible to pylon BEFORE
+            # CreateFirstDevice() so the "no device available" failure
+            # mode can be distinguished from "found but Open() failed".
+            # The list also surfaces multi-camera-bench cases (wrong
+            # serial selected) and transient enumeration races (device
+            # visible but Pylon hasn't claimed it yet).
+            try:
+                _devs = pylon.TlFactory.GetInstance().EnumerateDevices()
+                _log_cam('info',
+                    f'[CAM Class ] pylon TlFactory.EnumerateDevices() returned '
+                    f'{len(_devs)} device(s)'
+                )
+                for _i, _d in enumerate(_devs):
+                    try:
+                        _log_cam('info',
+                            f'[CAM Class ]   device[{_i}]: '
+                            f'model={_d.GetModelName()!r} '
+                            f'serial={_d.GetSerialNumber()!r} '
+                            f'tl={_d.GetTLType()!r} '
+                            f'device_class={_d.GetDeviceClass()!r}'
+                        )
+                    except Exception as _e_acc:
+                        _log_cam('debug',
+                            f'[CAM Class ]   device[{_i}]: '
+                            f'enumeration accessor failed: {_e_acc}'
+                        )
+            except Exception as _e_enum:
+                _log_cam('warning',
+                    f'[CAM Class ] pylon TlFactory.EnumerateDevices() '
+                    f'failed: {_e_enum}'
+                )
+
             p_device = pylon.TlFactory.GetInstance().CreateFirstDevice()
             self.active = pylon.InstantCamera(p_device)
             camera = self.active
@@ -889,17 +948,12 @@ class PylonCamera(Camera):
             try:
                 camera.MaxNumBuffer.SetValue(int(_mnb_env))
                 actual = camera.MaxNumBuffer.GetValue()
-                logger.info(
+                _log_cam('info',
                     f'[CAM Class ] MaxNumBuffer cap applied post-Open: '
                     f'requested={_mnb_env} actual={actual}'
                 )
-                if _cam_log is not None:
-                    _cam_log.info(
-                        f'pylon MaxNumBuffer.SetValue({_mnb_env}) post-Open '
-                        f'(actual={actual})'
-                    )
             except Exception as e:
-                _cam_log.warning(
+                _log_cam('warning',
                     f'[CAM Class ] MaxNumBuffer cap post-Open failed '
                     f'(window may have closed): {e}'
                 )
@@ -912,12 +966,12 @@ class PylonCamera(Camera):
             try:
                 _mnb_actual = camera.MaxNumBuffer.GetValue()
                 camera.StaticChunkNodeMapPoolSize.Value = _mnb_actual
-                logger.info(
+                _log_cam('info',
                     f'[CAM Class ] StaticChunkNodeMapPoolSize set to '
                     f'{_mnb_actual}'
                 )
             except Exception as e:
-                _cam_log.warning(
+                _log_cam('warning',
                     f'[CAM Class ] StaticChunkNodeMapPoolSize set failed '
                     f'(node may be unavailable on this transport): {e}'
                 )
@@ -944,27 +998,27 @@ class PylonCamera(Camera):
                         except Exception:
                             _v = pylon.GetPylonVersion()
                             _ver_str = '.'.join(str(x) for x in _v)
-                        logger.info(f'[CAM Class ] Pylon SDK version: {_ver_str}')
+                        _log_cam('info', f'[CAM Class ] Pylon SDK version: {_ver_str}')
                     except Exception as e:
-                        _cam_log.warning(f'[CAM Class ] Could not read Pylon SDK version: {e}')
+                        _log_cam('warning', f'[CAM Class ] Could not read Pylon SDK version: {e}')
 
                     # Transport + device class identify the kernel
                     # driver stack Pylon is routing through — useful
                     # when the runtime SDK says one thing but Device
                     # Manager shows a stale WinUSB/USB3Vision driver.
                     try:
-                        logger.info(
+                        _log_cam('info',
                             f'[CAM Class ] Transport: {dev_info.GetTLType()} '
                             f'/ DeviceClass: {dev_info.GetDeviceClass()}'
                         )
                     except Exception as e:
-                        logger.debug(f'[CAM Class ] TLType/DeviceClass unavailable: {e}')
+                        _log_cam('debug', f'[CAM Class ] TLType/DeviceClass unavailable: {e}')
 
                     device_serial = nm.GetNode('DeviceSerialNumber').ToString()
-                    logger.info(f'[CAM Class ] Camera Serial Number: {device_serial}')
+                    _log_cam('info', f'[CAM Class ] Camera Serial Number: {device_serial}')
 
                     firmware = nm.GetNode('DeviceFirmwareVersion').ToString()
-                    logger.info(f'[CAM Class ] Camera Firmware Version: {firmware}')
+                    _log_cam('info', f'[CAM Class ] Camera Firmware Version: {firmware}')
 
                     # Current pixel format + resolution + binning drive
                     # the DMA buffer footprint — critical context for
@@ -987,16 +1041,16 @@ class PylonCamera(Camera):
                             if hasattr(camera, 'BinningVertical')
                             else 1
                         )
-                        logger.info(
+                        _log_cam('info',
                             f'[CAM Class ] Pixel format: {pix}, '
                             f'Resolution: {w}x{h}, Binning: {bh}x{bv}'
                         )
                     except Exception as e:
-                        logger.debug(f'[CAM Class ] Pixel/resolution/binning unavailable: {e}')
+                        _log_cam('debug', f'[CAM Class ] Pixel/resolution/binning unavailable: {e}')
 
                     temps = self.get_all_temperatures()
                     for name, temp in temps.items():
-                        logger.info(f'[CAM Class ] Camera {name} Temperature : {temp:.2f} degC')
+                        _log_cam('info', f'[CAM Class ] Camera {name} Temperature : {temp:.2f} degC')
 
                 except Exception as e:
                     _cam_log.error(
@@ -1018,7 +1072,7 @@ class PylonCamera(Camera):
             self.init_camera_config()
             self.start_grabbing()
 
-            logger.info('[CAM Class ] Connected to Pylon camera')
+            _log_cam('info', '[CAM Class ] Connected to Pylon camera')
             return True
 
         except genicam.RuntimeException as ex:
@@ -2320,7 +2374,7 @@ class PylonCamera(Camera):
                             f'pylon Width.SetValue({width}) Height.SetValue({height}) '
                             'short-circuited'
                         )
-                    logger.info(f'[CAM Class ] Frame size already at {width}x{height}')
+                    _log_cam('info', f'[CAM Class ] Frame size already at {width}x{height}')
                     return
             except (genicam.RuntimeException, genicam.TimeoutException) as e:
                 logger.debug(
@@ -2339,7 +2393,7 @@ class PylonCamera(Camera):
                 camera.BslCenterX.Execute()
                 camera.BslCenterY.Execute()
 
-            logger.info(f'[CAM Class ] Frame size set to {width}x{height}')
+            _log_cam('info', f'[CAM Class ] Frame size set to {width}x{height}')
         except genicam.RuntimeException as e:
             _cam_log.error(
                 f'[CAM Class ] Camera communication error during set_frame_size({w}x{h}): {e}'
@@ -2479,7 +2533,7 @@ class PylonCamera(Camera):
                         _cam_log.info(
                             f'pylon Gain.SetValue({float(value):.3f}) short-circuited'
                         )
-                    logger.info(f'[CAM Class ] Gain already at {value}')
+                    _log_cam('info', f'[CAM Class ] Gain already at {value}')
                     return
             except (genicam.RuntimeException, genicam.TimeoutException) as e:
                 logger.debug(
@@ -2489,7 +2543,7 @@ class PylonCamera(Camera):
             if _cam_log is not None:
                 _cam_log.info(f'pylon Gain.SetValue({float(value):.3f})')
             self.active.Gain.SetValue(float(value))
-            logger.info(f'[CAM Class ] Gain set to {value}')
+            _log_cam('info', f'[CAM Class ] Gain set to {value}')
         except genicam.RuntimeException as e:
             if _cam_log is not None:
                 _cam_log.error(f'pylon Gain.SetValue({value}) FAILED: {e}')
@@ -2550,7 +2604,7 @@ class PylonCamera(Camera):
                 self.active.ExposureAuto.SetValue('Off')
                 if _cam_log is not None:
                     _cam_log.info('pylon GainAuto.SetValue(Off) ExposureAuto.SetValue(Off)')
-            logger.info(f'[CAM Class ] Auto gain {"enabled" if state else "disabled"}')
+            _log_cam('info', f'[CAM Class ] Auto gain {"enabled" if state else "disabled"}')
         except genicam.RuntimeException as e:
             _cam_log.error(f'[CAM Class ] Auto gain({state}) failed: {e}')
             self._mark_disconnected()
@@ -2594,7 +2648,7 @@ class PylonCamera(Camera):
             else:
                 self.active.GainAuto.SetValue('Off')
                 self.active.ExposureAuto.SetValue('Off')
-            logger.info(f'[CAM Class ] Auto gain once {"enabled" if state else "disabled"}')
+            _log_cam('info', f'[CAM Class ] Auto gain once {"enabled" if state else "disabled"}')
         except genicam.RuntimeException as e:
             _cam_log.error(f'[CAM Class ] Auto gain once({state}) failed: {e}')
             self._mark_disconnected()
@@ -2646,7 +2700,7 @@ class PylonCamera(Camera):
                         _cam_log.info(
                             f'pylon ExposureTime.SetValue({us_value:.0f}us) short-circuited'
                         )
-                    logger.info(f'[CAM Class ] Exposure already at {exposure_ms}ms')
+                    _log_cam('info', f'[CAM Class ] Exposure already at {exposure_ms}ms')
                     return
             except (genicam.RuntimeException, genicam.TimeoutException) as e:
                 logger.debug(
@@ -2656,7 +2710,7 @@ class PylonCamera(Camera):
             if _cam_log is not None:
                 _cam_log.info(f'pylon ExposureTime.SetValue({us_value:.0f}us) (={exposure_ms}ms)')
             self.active.ExposureTime.SetValue(us_value)
-            logger.info(f'[CAM Class ] Exposure set to {exposure_ms}ms')
+            _log_cam('info', f'[CAM Class ] Exposure set to {exposure_ms}ms')
         except genicam.RuntimeException as e:
             if _cam_log is not None:
                 _cam_log.error(f'pylon ExposureTime.SetValue({exposure_ms}ms) FAILED: {e}')
@@ -2749,7 +2803,7 @@ class PylonCamera(Camera):
                 self.active.ExposureAuto.SetValue('Continuous')  # 'Off' 'Once' 'Continuous'
             else:
                 self.active.ExposureAuto.SetValue('Off')
-            logger.info(f'[CAM Class ] Auto exposure {"enabled" if state else "disabled"}')
+            _log_cam('info', f'[CAM Class ] Auto exposure {"enabled" if state else "disabled"}')
         except genicam.RuntimeException as e:
             _cam_log.error(f'[CAM Class ] Auto exposure({state}) failed: {e}')
             self._mark_disconnected()
@@ -3407,6 +3461,34 @@ class ImageHandler(pylon.ImageEventHandler):
 
             ts = datetime.datetime.now()
 
+            # H2/H3 diagnostic: Stage A is otherwise silent on the success
+            # enqueue path. Log the GrabSucceeded value + grabResult identity
+            # for the first 5 frames so a "GetArray() failed on worker"
+            # warning in Stage B (see _process_frame re-check) can be
+            # correlated against what Stage A saw at handoff. Capped to 5
+            # frames to keep the noise floor manageable on long runs; the
+            # cap is exposed via _stage_a_frame_count for future tuning.
+            try:
+                if getattr(self, '_stage_a_frame_count', 0) < 5:
+                    self._stage_a_frame_count = getattr(self, '_stage_a_frame_count', 0) + 1
+                    try:
+                        _bid = grabResult.GetBlockID()
+                    except Exception:
+                        _bid = None
+                    try:
+                        _gid = grabResult.GetID()
+                    except Exception:
+                        _gid = None
+                    _log_cam('info',
+                        f'[CAM Class ] Stage A frame #{self._stage_a_frame_count}: '
+                        f'GrabSucceeded={grab_succeeded} BlockID={_bid} GrabID={_gid}'
+                    )
+            except Exception as _e_diag:
+                # Diagnostic logging must never break the callback path.
+                # _log_safely is the bench-safe logger for native-thread
+                # contexts (best-effort, swallows its own failures).
+                _log_safely(f'Stage A first-frame diagnostic raised: {_e_diag}')
+
             if grab_succeeded:
                 try:
                     self._worker.enqueue('frame', grabResult, ts)
@@ -3754,8 +3836,36 @@ class _PylonImageGrabWorker:
         try:
             img = grabResult.GetArray().copy()
         except Exception as e:
-            _cam_log.warning(
-                f'[CAM Class ] GetArray() failed on worker: {e}, '
+            # H2/H3 diagnostic: Stage A enqueued this with GrabSucceeded=True.
+            # Re-read GrabSucceeded + GetErrorCode/Description on Stage B's
+            # side. The re-check distinguishes (a) race conditions where SDK
+            # state flipped between threads (GrabSucceeded was True, now False
+            # or unreadable) from (b) Stage A misclassification (GrabSucceeded
+            # was wrong from the start). Also reads BlockID / GrabID if
+            # available so the failure can be matched to the Stage A
+            # first-frames diagnostic by frame identity.
+            try:
+                _gs_now = grabResult.GrabSucceeded()
+            except Exception as _ee:
+                _gs_now = f'<re-read failed: {_ee}>'
+            try:
+                _err_code = grabResult.GetErrorCode()
+                _err_desc = grabResult.GetErrorDescription()
+            except Exception:
+                _err_code, _err_desc = None, None
+            try:
+                _bid = grabResult.GetBlockID()
+            except Exception:
+                _bid = None
+            try:
+                _gid = grabResult.GetID()
+            except Exception:
+                _gid = None
+            _log_cam('warning',
+                f'[CAM Class ] GetArray() failed on worker: {e} '
+                f'(Stage B re-check: GrabSucceeded={_gs_now} '
+                f'err_code={_err_code} err_desc={_err_desc!r} '
+                f'BlockID={_bid} GrabID={_gid}), '
                 f'marking device as removed'
             )
             self._parent._mark_disconnected()

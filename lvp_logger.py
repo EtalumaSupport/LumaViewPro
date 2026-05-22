@@ -294,7 +294,12 @@ serial_logger.addHandler(error_file_handler)
 # pylon_callback_trace.csv when LVP_PROFILE_TRACE is enabled. Always-on
 # (not engineering-gated) to match serial.log behavior.
 camera_logger = logging.getLogger('LVP.camera')
-camera_logger.setLevel(logging.INFO)
+# DEBUG level (was INFO): camera.log is the firehose for camera debugging.
+# Every per-frame check, every SDK-call return value, every state
+# transition lands here. Main log stays uncluttered via propagate=False;
+# the dual-write helper `_log_cam` in pyloncamera.py mirrors load-bearing
+# events (identity, connect, GetArray failures) to both files.
+camera_logger.setLevel(logging.DEBUG)
 camera_logger.propagate = False  # Keep camera traffic out of the main log
 
 class CameraFormatter(logging.Formatter):
