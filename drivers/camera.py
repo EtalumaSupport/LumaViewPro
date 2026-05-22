@@ -245,14 +245,26 @@ class Camera(ABC):
     def _mark_disconnected(self):
         """Atomically mark camera as disconnected.
 
-        Sets both flags together to avoid inconsistent state.
-        Safe to call from any thread (including SDK callbacks).
+        Safe to call from any thread (including SDK callbacks). Sets
+        the device-removed flag synchronously so subsequent state
+        queries early-return; the actual Python-side release of the
+        SDK handle (``self._active = None``) is deliberately deferred
+        to ``disconnect()`` on the async-teardown daemon thread.
+
+        Dropping ``self._active`` here would fire the C++ device
+        wrapper's destructor synchronously on whichever thread called
+        us. When that thread is the SDK callback thread (the inline
+        disconnect fast-path from OnImageGrabbed), the destructor's
+        SDK teardown calls race the SDK's concurrent in-flight grab
+        work and trigger a native abort. The disconnect() path on the
+        async-teardown daemon thread does the same SDK teardown in a
+        safe Python-owned context after StopGrabbing has drained the
+        in-flight work.
         """
         was_connected = False
         with self._state_lock:
             was_connected = self._active is not None and not self._device_removed
             self._device_removed = True
-            self._active = None
         if was_connected:
             _cam_log.error('[CAM Class ] Camera disconnected')
 

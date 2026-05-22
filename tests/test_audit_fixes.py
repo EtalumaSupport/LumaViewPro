@@ -4680,6 +4680,65 @@ class TestPylonTimeoutNameConsistency:
         )
 
 
+class TestCameraMarkDisconnectedDoesNotReleaseActiveOnCallbackThread:
+    """Camera._mark_disconnected() must NOT clear ``self._active`` from
+    inside its body.
+
+    When called from the SDK callback thread (the inline disconnect
+    fast-path in pyloncamera.OnImageGrabbed), dropping the last Python
+    reference to the C++ InstantCamera wrapper triggers
+    ~CInstantCamera synchronously on whichever thread runs it. The
+    destructor calls into the SDK to tear down stream grabbers, buffer
+    pools, and the device handle. If the SDK is concurrently in-flight
+    with grab work, the destructor races those in-flight ops and
+    triggers a native abort.
+
+    The defense is: keep ``_mark_disconnected`` to flag-only state
+    transition (sets ``_device_removed = True``); let the daemon
+    teardown thread spawned by ``_schedule_async_teardown`` call
+    ``disconnect()``, which releases ``self._active`` AFTER the safe
+    SDK teardown sequence has run (DetachDevice, DestroyDevice).
+    """
+
+    def test_mark_disconnected_body_does_not_clear_active(self):
+        import ast
+        from pathlib import Path
+
+        src = (Path(__file__).resolve().parent.parent
+               / "drivers" / "camera.py").read_text()
+        tree = ast.parse(src)
+
+        found = None
+        bad_assigns = []
+        for node in ast.walk(tree):
+            if isinstance(node, ast.FunctionDef) and node.name == '_mark_disconnected':
+                found = node
+                for sub in ast.walk(node):
+                    # self._active = ... assignment (any RHS, but None is the historical hazard)
+                    if isinstance(sub, ast.Assign):
+                        for tgt in sub.targets:
+                            if (
+                                isinstance(tgt, ast.Attribute)
+                                and isinstance(tgt.value, ast.Name)
+                                and tgt.value.id == 'self'
+                                and tgt.attr == '_active'
+                            ):
+                                bad_assigns.append(sub.lineno)
+                break
+
+        assert found is not None, (
+            "Could not find Camera._mark_disconnected in drivers/camera.py."
+        )
+        assert bad_assigns == [], (
+            "drivers/camera.py::_mark_disconnected must NOT assign to "
+            "self._active. Dropping that reference here fires "
+            "~CInstantCamera synchronously, which races concurrent SDK "
+            "work when called from the SDK callback thread (pypylon "
+            "#225 hazard). disconnect() releases _active safely on the "
+            "daemon teardown thread. Offending line(s): " + str(bad_assigns)
+        )
+
+
 class TestPylonInitCameraConfigStyleConsistency:
     """Style-consistency checks on init_camera_config.
 
