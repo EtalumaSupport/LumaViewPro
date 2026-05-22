@@ -3491,7 +3491,17 @@ class ImageHandler(pylon.ImageEventHandler):
 
             if grab_succeeded:
                 try:
-                    self._worker.enqueue('frame', grabResult, ts)
+                    # SWIG director hands OnImageGrabbed a non-owning wrapper
+                    # around a CGrabResultPtr that lives on the SDK callback's
+                    # stack. Without an explicit copy-ctor invocation here,
+                    # the wrapper goes dangling the instant this function
+                    # returns, even when our Python queue still references
+                    # it. pylon.GrabResult(rhs) is the binding's surface for
+                    # the documented C++ copy ctor (which bumps the
+                    # CGrabResultPtrImpl refcount); the result is an owning
+                    # wrapper that survives cross-thread handoff.
+                    owned = pylon.GrabResult(grabResult)
+                    self._worker.enqueue('frame', owned, ts)
                     _outcome = 'success_enqueued_frame'
                 except queue.Full:
                     # Stage B is wedged; drop this frame rather than
@@ -3525,9 +3535,12 @@ class ImageHandler(pylon.ImageEventHandler):
                     # buffer-canceled / payload-discarded / generic
                     # transport failures hand off to Stage B for the
                     # full classification + per-failure logging + cascade
-                    # counter handling.
+                    # counter handling. Same owning-wrapper requirement
+                    # as the success path; Stage B reads GetErrorCode /
+                    # GetErrorDescription / GetBlockID across threads.
                     try:
-                        self._worker.enqueue('fail', grabResult, ts)
+                        owned = pylon.GrabResult(grabResult)
+                        self._worker.enqueue('fail', owned, ts)
                         _outcome = 'failure_enqueued'
                     except queue.Full:
                         _outcome = 'queue_full_dropped_failure'

@@ -4520,6 +4520,95 @@ class TestPylonOnImageGrabbedExceptionContext:
         )
 
 
+class TestPylonOnImageGrabbedOwningCopy:
+    """pypylon delivers OnImageGrabbed a non-owning wrapper around a C++
+    CGrabResultPtr that lives on the SDK callback's stack frame. Python
+    copies of that wrapper (assignment, queue.put) only bump Py_REFCNT;
+    they do NOT invoke the C++ copy constructor. When the callback
+    returns, the underlying smart pointer is destroyed and any wrapper
+    still alive raises 'No grab result data is referenced' on next
+    access -- the exact failure observed on both a2A3536-31umBAS and
+    daA3840-45um.
+
+    The fix is to invoke the C++ copy ctor explicitly before crossing
+    thread boundaries: ``pylon.GrabResult(grabResult)``. pypylon's
+    ``GrabResult.__init__`` maps to ``_pylon.new_GrabResult(*args)``,
+    which is the binding's surface for the C++
+    ``CGrabResultPtr(const CGrabResultPtr&)`` copy ctor declared in
+    ``GrabResultPtr.h``.
+
+    The test guards two enqueue sites in OnImageGrabbed (the 'frame'
+    success path and the 'fail' classification path) so neither
+    regresses to passing the raw SDK-delivered grabResult across the
+    queue.
+    """
+
+    def _pyloncamera_source(self):
+        from pathlib import Path
+        return (Path(__file__).resolve().parent.parent
+                / "drivers" / "pyloncamera.py").read_text()
+
+    def _on_image_grabbed_body(self):
+        src = self._pyloncamera_source()
+        idx = src.find("def OnImageGrabbed(")
+        assert idx != -1, "Could not find ImageHandler.OnImageGrabbed."
+        end = src.find("def ", idx + 10)
+        return src[idx:end]
+
+    def test_frame_enqueue_uses_owning_copy(self):
+        """The 'frame' success-path enqueue must hand the worker an
+        owning wrapper produced by ``pylon.GrabResult(grabResult)``,
+        not the raw SDK-delivered grabResult."""
+        body = self._on_image_grabbed_body()
+        marker = "self._worker.enqueue('frame'"
+        m_idx = body.find(marker)
+        assert m_idx != -1, (
+            "Could not find the 'frame' enqueue site in OnImageGrabbed. "
+            "If renamed, update test."
+        )
+        window_start = max(0, m_idx - 400)
+        window = body[window_start:m_idx + 200]
+        assert "pylon.GrabResult(grabResult)" in window, (
+            "OnImageGrabbed 'frame' enqueue must be preceded by an "
+            "explicit owning-copy invocation: "
+            "owned = pylon.GrabResult(grabResult). Without it, the "
+            "queued wrapper goes dangling when OnImageGrabbed returns. "
+            "Window:\n" + window
+        )
+        assert "self._worker.enqueue('frame', grabResult," not in window, (
+            "OnImageGrabbed must NOT pass the raw grabResult straight to "
+            "the worker queue -- the SWIG-director wrapper is non-owning "
+            "for callback parameters."
+        )
+
+    def test_fail_enqueue_uses_owning_copy(self):
+        """The 'fail' classification-path enqueue runs the same cross-
+        thread handoff as the success path and needs the same owning
+        wrapper. Stage B reads GetErrorCode / GetErrorDescription /
+        GetBlockID through the queued reference."""
+        body = self._on_image_grabbed_body()
+        marker = "self._worker.enqueue('fail'"
+        m_idx = body.find(marker)
+        assert m_idx != -1, (
+            "Could not find the 'fail' enqueue site in OnImageGrabbed. "
+            "If renamed, update test."
+        )
+        window_start = max(0, m_idx - 400)
+        window = body[window_start:m_idx + 200]
+        assert "pylon.GrabResult(grabResult)" in window, (
+            "OnImageGrabbed 'fail' enqueue must be preceded by an "
+            "explicit owning-copy invocation: "
+            "owned = pylon.GrabResult(grabResult). Stage B reads "
+            "GetErrorCode/GetErrorDescription/GetBlockID through the "
+            "queued reference; same dangling-wrapper hazard as the "
+            "success path. Window:\n" + window
+        )
+        assert "self._worker.enqueue('fail', grabResult," not in window, (
+            "OnImageGrabbed must NOT pass the raw grabResult straight to "
+            "the worker queue on the failure path either."
+        )
+
+
 class TestPylonInitCameraConfigStyleConsistency:
     """Style-consistency checks on init_camera_config.
 
