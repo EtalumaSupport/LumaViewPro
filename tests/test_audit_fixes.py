@@ -3509,25 +3509,30 @@ class TestPylonCancelHandlingDefensive:
         )
 
     def test_cancel_branch_uses_or_with_removal_flag(self):
-        """The cancel-classification branch in OnImageGrabbed must include
-        the OR-with-removal-flag insurance:
+        """The cancel-classification branch must include the
+        OR-with-removal-flag insurance:
 
             if err_code == _PYLON_ERR_BUFFER_CANCELED or self._parent._device_removed:
 
         This protects against a race where _device_removed flips True
-        between the line-1457 early-return check and the line-1514
-        cancel-classification check (the SDK's removal-forwarding thread
-        runs on its own thread; either the grab thread or the removal
-        thread can set the flag). Without the OR, a mid-call removal
-        whose first cancellation buffer carries an undocumented err_code
-        would count toward MAX_CONSECUTIVE_FAILURES."""
+        between Stage A's early-return check and the cancel-classification
+        check (the SDK's removal-forwarding thread runs on its own thread;
+        either the grab thread or the removal thread can set the flag).
+        Without the OR, a mid-call removal whose first cancellation
+        buffer carries an undocumented err_code would count toward
+        MAX_CONSECUTIVE_FAILURES.
+
+        Post-R12 the classification lives in `_PylonImageGrabWorker._process_failure`
+        (Stage B); Stage A only does the fast-path disconnect inline for
+        DEVICE_NOT_FOUND, everything else is queued to Stage B.
+        """
         src = self._pyloncamera_source()
-        body = _function_source(src, "OnImageGrabbed")
+        body = _function_source(src, "_process_failure")
         assert (
             "_PYLON_ERR_BUFFER_CANCELED or self._parent._device_removed"
             in body
         ), (
-            "OnImageGrabbed cancel-classification branch must use "
+            "_process_failure cancel-classification branch must use "
             "OR-with-removal-flag insurance. See class docstring for the "
             "race the OR protects against."
         )
@@ -3536,11 +3541,14 @@ class TestPylonCancelHandlingDefensive:
         """The non-cancel non-removal failure path must still increment
         the consecutive-failure counter. Without this, real failures
         (incomplete buffers 0xE2000212, transport errors 0xE2000011,
-        etc.) would never trip MAX_CONSECUTIVE_FAILURES auto-disconnect."""
+        etc.) would never trip MAX_CONSECUTIVE_FAILURES auto-disconnect.
+
+        Post-R12 this lives in `_PylonImageGrabWorker._process_failure`.
+        """
         src = self._pyloncamera_source()
-        body = _function_source(src, "OnImageGrabbed")
+        body = _function_source(src, "_process_failure")
         assert "self._base._record_failure()" in body, (
-            "OnImageGrabbed non-cancel failure path must still call "
+            "_process_failure non-cancel branch must still call "
             "_record_failure to increment the consecutive-failure counter."
         )
 
@@ -3600,19 +3608,18 @@ class TestPylonPayloadDiscardedClassification:
         )
 
     def test_payload_discarded_branch_in_onimagegrabbed(self):
-        """The OnImageGrabbed body must contain the elif classification
-        branch. The check is structural: a future cleanup that drops the
-        elif (collapsing payload-discarded back into the warning fallback)
-        would reintroduce log noise + spurious failure-counter increments."""
+        """The classification branch must exist. Structural check: a
+        future cleanup that drops the elif (collapsing payload-discarded
+        back into the warning fallback) would reintroduce log noise +
+        spurious failure-counter increments.
+
+        Post-R12 the classification lives in `_PylonImageGrabWorker._process_failure`.
+        """
         src = self._pyloncamera_source()
-        body = _function_source(src, "OnImageGrabbed")
+        body = _function_source(src, "_process_failure")
         assert "_PYLON_ERR_PAYLOAD_DISCARDED" in body, (
-            "OnImageGrabbed must contain a classification branch for "
+            "_process_failure must contain a classification branch for "
             "_PYLON_ERR_PAYLOAD_DISCARDED. See class docstring."
-        )
-        assert "success_no_grab_payload_discarded" in body, (
-            "OnImageGrabbed payload-discarded branch must set its outcome "
-            "name to 'success_no_grab_payload_discarded' for trace gating."
         )
 
     def test_payload_discarded_branch_skips_record_failure(self):
@@ -3622,36 +3629,36 @@ class TestPylonPayloadDiscardedClassification:
         toward MAX_CONSECUTIVE_FAILURES would falsely trip
         auto-disconnect during AF-heavy protocols.
 
-        Test approach: extract the elif block and assert _record_failure
-        does not appear in it. The OnImageGrabbed body has exactly 2
-        _record_failure calls total (GetArray exception + the generic
-        non-classified fallback); the cancel, payload-discarded, and
-        device-not-found classification branches all skip _record_failure
-        for branch-specific reasons (lifecycle / healthy-FIFO-drop /
-        fast-disconnect respectively). A third call would mean the
-        invariant broke."""
+        Test approach: extract the elif block in _process_failure and
+        assert _record_failure does not appear in it. Worker-side
+        classification has exactly 1 _record_failure call total (the
+        generic non-classified fallback in the else branch); the cancel
+        and payload-discarded branches both skip _record_failure for
+        branch-specific reasons (lifecycle / healthy-FIFO-drop).
+        _process_frame has its own _record_failure for GetArray
+        exceptions (different concern: GetArray failure implies device
+        gone, which IS a counted-failure-class event).
+        """
         src = self._pyloncamera_source()
-        body = _function_source(src, "OnImageGrabbed")
+        body = _function_source(src, "_process_failure")
         # Total count is the structural guard.
         total_calls = body.count("self._base._record_failure()")
-        assert total_calls == 2, (
-            f"OnImageGrabbed must have exactly 2 _record_failure() calls "
-            f"(GetArray exception + generic non-classified fallback), "
-            f"found {total_calls}. If a third was added inside the "
-            f"payload-discarded or device-not-found classification "
-            f"branches, remove it -- those branches are by-design not "
-            f"counted toward MAX_CONSECUTIVE_FAILURES."
+        assert total_calls == 1, (
+            f"_process_failure must have exactly 1 _record_failure() "
+            f"call (generic non-classified fallback in the else branch); "
+            f"found {total_calls}. If a second was added inside the "
+            f"payload-discarded classification branch, remove it -- "
+            f"that branch is by-design not counted toward "
+            f"MAX_CONSECUTIVE_FAILURES."
         )
-        # Extract just the elif block as belt-and-suspenders.
+        # Extract just the elif block as belt-and-suspenders. Indent
+        # level is 8 spaces (method body in _process_failure).
         elif_marker = "elif err_code == _PYLON_ERR_PAYLOAD_DISCARDED:"
         elif_idx = body.find(elif_marker)
         assert elif_idx >= 0, "elif marker not found (precondition)"
-        # The branch ends at the next 'else:' or 'elif' at the same
-        # indentation. Heuristic: stop at the next line that starts with
-        # the same indent + 'else:' or 'elif '.
         tail = body[elif_idx + len(elif_marker):]
         end = len(tail)
-        for marker in ("\n                else:", "\n                elif "):
+        for marker in ("\n        else:", "\n        elif "):
             i = tail.find(marker)
             if 0 <= i < end:
                 end = i
@@ -3746,21 +3753,28 @@ class TestPylonDeviceNotFoundClassification:
         """The device-not-found branch must call _mark_disconnected.
         That is the entire structural point of fast classification:
         flip the connection flag in 1 frame instead of 128 so the
-        API-layer notification fires immediately per Rule 14."""
+        API-layer notification fires immediately.
+
+        Post-R12 the disconnect fast-path stays INLINE in OnImageGrabbed
+        Stage A (so the disconnect notification doesn't wait behind
+        Stage B's worker queue). With cancel/payload-discarded/generic
+        moved to Stage B, DEVICE_NOT_FOUND is now the only err_code
+        check in Stage A -- the `elif` chain collapsed to a single `if`.
+        """
         src = self._pyloncamera_source()
         body = _function_source(src, "OnImageGrabbed")
-        elif_marker = "elif err_code == _PYLON_ERR_DEVICE_NOT_FOUND:"
-        elif_idx = body.find(elif_marker)
-        assert elif_idx >= 0, "elif marker not found (precondition)"
-        tail = body[elif_idx + len(elif_marker):]
+        branch_marker = "if err_code == _PYLON_ERR_DEVICE_NOT_FOUND:"
+        idx = body.find(branch_marker)
+        assert idx >= 0, "DEVICE_NOT_FOUND branch marker not found (precondition)"
+        tail = body[idx + len(branch_marker):]
         end = len(tail)
         for marker in ("\n                else:", "\n                elif "):
             i = tail.find(marker)
             if 0 <= i < end:
                 end = i
-        elif_block = tail[:end]
-        assert "_mark_disconnected" in elif_block, (
-            "Device-not-found elif branch must call "
+        branch_block = tail[:end]
+        assert "_mark_disconnected" in branch_block, (
+            "Device-not-found branch must call "
             "self._parent._mark_disconnected() -- that is the structural "
             "point of fast classification. See class docstring."
         )
@@ -3774,18 +3788,18 @@ class TestPylonDeviceNotFoundClassification:
         event)."""
         src = self._pyloncamera_source()
         body = _function_source(src, "OnImageGrabbed")
-        elif_marker = "elif err_code == _PYLON_ERR_DEVICE_NOT_FOUND:"
-        elif_idx = body.find(elif_marker)
-        assert elif_idx >= 0, "elif marker not found (precondition)"
-        tail = body[elif_idx + len(elif_marker):]
+        branch_marker = "if err_code == _PYLON_ERR_DEVICE_NOT_FOUND:"
+        idx = body.find(branch_marker)
+        assert idx >= 0, "DEVICE_NOT_FOUND branch marker not found (precondition)"
+        tail = body[idx + len(branch_marker):]
         end = len(tail)
         for marker in ("\n                else:", "\n                elif "):
             i = tail.find(marker)
             if 0 <= i < end:
                 end = i
-        elif_block = tail[:end]
-        assert "_record_failure" not in elif_block, (
-            "Device-not-found elif branch contains _record_failure() -- "
+        branch_block = tail[:end]
+        assert "_record_failure" not in branch_block, (
+            "Device-not-found branch contains _record_failure() -- "
             "physical removal is a different class of event with its "
             "own signal (_mark_disconnected); double-counting inflates "
             "the failure counter from one physical event. See class docstring."

@@ -82,7 +82,9 @@ _PYLON_ERR_DEVICE_NOT_FOUND = 433
 # Build marker -- bumped whenever the OnImageGrabbed / disconnect
 # defensive layer changes. Grep this in lumaviewpro.log to verify
 # which Pylon-defense generation a bench build is running.
-_PYLON_DEFENSE_BUILD = 'pylon-defense-2'
+# Generation 3: Stage A / Stage B split (OnImageGrabbed runs only the
+# native-thread fast path; heavy work moves to _PylonImageGrabWorker).
+_PYLON_DEFENSE_BUILD = 'pylon-defense-3'
 
 
 @camera_registry.register('pylon', priority=100)
@@ -568,15 +570,27 @@ class PylonCamera(Camera):
             )
 
             # --- Thread counts ---
+            # Post-split: PylonImageGrab is the SDK native grab thread
+            # (renamed by OnImageGrabbed Stage A); PylonImageGrabWorker
+            # is the daemon that drains Stage B. Counted separately so
+            # the bench trace can distinguish a leaked native thread
+            # (SDK didn't tear down cleanly) from a leaked worker (our
+            # disconnect path missed worker.stop). The earlier prefix-
+            # match conflated both into a single column and silently
+            # absorbed worker leakage.
             try:
                 threads = threading.enumerate()
-                n_pylon_grab = sum(1 for t in threads if t.name.startswith('PylonImageGrab'))
+                n_pylon_native = sum(1 for t in threads if t.name == 'PylonImageGrab')
+                n_pylon_worker = sum(
+                    1 for t in threads if t.name == 'PylonImageGrabWorker'
+                )
                 n_dummy = sum(1 for t in threads if t.name.startswith('Dummy'))
                 n_total = len(threads)
                 profile_trace.trace(
                     'pylon_threads_trace.csv',
-                    'ts_ms,pylon_image_grab_count,dummy_count,total_thread_count',
-                    [ts_ms, n_pylon_grab, n_dummy, n_total],
+                    'ts_ms,pylon_native_grab_count,pylon_worker_count,'
+                    'dummy_count,total_thread_count',
+                    [ts_ms, n_pylon_native, n_pylon_worker, n_dummy, n_total],
                 )
             except Exception as e:
                 logger.debug(f'[INSTR PYLON ] thread-count poll error: {e}')
@@ -3327,13 +3341,31 @@ class ImageHandler(pylon.ImageEventHandler):
             )
 
     def OnImageGrabbed(self, camera, grabResult) -> None:
-        """Pylon SDK callback fired per acquired frame; runs in a Pylon-owned thread."""
-        # Per-callback duration trace; zero overhead when
-        # ENABLE_PROFILE_TRACE is unset (production builds).
+        """Stage A native-thread fast-path: state checks + enqueue to worker.
+
+        Heavy work (16 MB GetArray copy, chunk reads, _store_frame,
+        per-frame callback fanout, legacy frame_queue publish, generic
+        failure classification + counter) runs on Stage B's
+        _PylonImageGrabWorker. The native-thread exposure surface here
+        targets ~100us p99; the BaseException outer guard catches
+        anything escaping into Pylon's grab thread per
+        `class_pylon_1_1_c_image_event_handler.html` ("exceptions will
+        propagate through").
+
+        The err_code=DEVICE_NOT_FOUND (433) disconnect fast-path stays
+        INLINE here -- the user-facing disconnect notification can't
+        wait behind Stage B's queue (cascade rate observed at 100+
+        events in under 2 seconds during USB unplug).
+
+        Single-thread invariant on CGrabResultData: Stage A is the SOLE
+        reader of GrabSucceeded() (and GetErrorCode on failure) before
+        the handoff; Stage B is the SOLE reader of GetArray + chunk
+        node-map accessors after. The put_nowait / get pair provides
+        happens-before without explicit locking.
+        """
         _trace_enabled = profile_trace is not None and profile_trace.ENABLE_PROFILE_TRACE
         _t0 = time.perf_counter() if _trace_enabled else None
         _outcome = 'unknown'
-        _frame_bytes = 0
         try:
             # Rename Pylon's Dummy-N worker thread to a stable label so
             # _stats_poller_loop can count grab callbacks by name. If a
@@ -3351,132 +3383,76 @@ class ImageHandler(pylon.ImageEventHandler):
                 return
 
             if self._parent.active is None:
-                logger.debug('[CAM Class ] OnImageGrabbed called but camera is inactive, ignoring')
+                logger.debug(
+                    '[CAM Class ] OnImageGrabbed called but camera is inactive, ignoring'
+                )
                 self._parent._mark_disconnected()
                 _outcome = 'early_return_inactive'
                 return
 
-            if not self._frame_queue.empty():
-                with contextlib.suppress(queue.Empty):
-                    self._frame_queue.get_nowait()
-
-            # GrabSucceeded() can leak native exceptions in cancel/teardown paths.
+            # GrabSucceeded() can leak native exceptions in cancel /
+            # teardown paths; trapping here classifies as disconnect
+            # rather than letting the exception escape into Pylon's grab
+            # thread.
             try:
                 grab_succeeded = grabResult.GrabSucceeded()
             except Exception as e:
                 _cam_log.warning(
-                    f'[CAM Class ] GrabSucceeded() failed: {e}, assuming device removed'
+                    f'[CAM Class ] GrabSucceeded() failed: {e}, '
+                    f'assuming device removed'
                 )
                 self._parent._mark_disconnected()
                 _outcome = 'exception_grabsucceeded'
                 return
 
+            ts = datetime.datetime.now()
+
             if grab_succeeded:
                 try:
-                    # GetArray() returns a view into the SDK buffer — copy immediately
-                    # to decouple from buffer lifetime before it's requeued
-                    img = grabResult.GetArray().copy()
-                    ts = datetime.datetime.now()
-                    _frame_bytes = img.nbytes
-                    # None if chunks not enabled or unsupported.
-                    chunks = _read_validity_chunks(grabResult)
-                    self._base._store_frame(img, ts, chunks=chunks)
-                    self._frame_queue.put((True, img, ts))
-                    _outcome = 'success_grabbed'
-                except Exception as e:
-                    _cam_log.warning(
-                        f'[CAM Class ] GetArray() failed: {e}, marking device as removed'
+                    self._worker.enqueue('frame', grabResult, ts)
+                    _outcome = 'success_enqueued_frame'
+                except queue.Full:
+                    # Stage B is wedged; drop this frame rather than
+                    # block the native thread. Bench-monitored via the
+                    # pylon_stage_a_worker_queue_full_per_min budget.
+                    _outcome = 'queue_full_dropped_frame'
+                    _log_safely(
+                        'Stage A: worker queue full -- dropping frame'
                     )
-                    self._parent._mark_disconnected()
-                    self._base._record_failure()
-                    _outcome = 'exception_getarray'
             else:
-                _outcome = 'success_no_grab'
                 try:
                     err_code = grabResult.GetErrorCode()
-                    err_desc = grabResult.GetErrorDescription()
-                except Exception as _err_introspect:
-                    err_code, err_desc = None, f'<introspect failed: {_err_introspect!r}>'
-                if err_code == _PYLON_ERR_BUFFER_CANCELED or self._parent._device_removed:
-                    # Cancelled buffers (StopGrabbing mid-flight) and any failure
-                    # during device removal are SDK lifecycle events, not real
-                    # failures. Counting them would falsely trip
-                    # MAX_CONSECUTIVE_FAILURES during stop/start or removal storms.
-                    # The OR with _device_removed is insurance: Basler doesn't
-                    # document the precise err_code on removal teardown, so we
-                    # treat any failure paired with the flag as expected.
-                    logger.debug(
-                        f'[CAM Class ] Grab cancelled (SDK lifecycle, '
-                        f'not a failure) err_code={err_code} desc={err_desc!r} '
-                        f'device_removed={self._parent._device_removed}'
-                    )
-                    _outcome = 'success_no_grab_cancelled'
-                elif err_code == _PYLON_ERR_PAYLOAD_DISCARDED:
-                    # Camera-side FIFO overflow during host stalls. The dropped
-                    # frame is one frame_validity would have rejected anyway
-                    # (invalidate runs after each SetValue). Logged at info so
-                    # the cause distribution stays visible in camera.log without
-                    # raising the noise floor; not counted toward
-                    # MAX_CONSECUTIVE_FAILURES because acquisition is healthy.
-                    _cam_log.info(
-                        f'[CAM Class ] payload discarded (camera-side FIFO '
-                        f'overflow during host stall) err_code={err_code} '
-                        f'desc={err_desc!r}'
-                    )
-                    _outcome = 'success_no_grab_payload_discarded'
-                elif err_code == _PYLON_ERR_DEVICE_NOT_FOUND:
-                    # USB-Vision device removal (cable unplug / hub power
-                    # loss / OS-level removal). Cascade rate observed
-                    # at ~100+ events in <2s -- the generic fallback
-                    # would wait for MAX_CONSECUTIVE_FAILURES (128 frames
-                    # at 30fps = ~4.3s) and spam WARNING lines the whole
-                    # time. Fast-path: log once at ERROR, mark
-                    # disconnected immediately. The API-layer notification
-                    # fires off the disconnect flag. Not counted toward
-                    # the consecutive-failure counter -- physical removal
-                    # has its own signal (the disconnect flag); the
-                    # counter exists to detect transport degradation, not
-                    # single-event removals.
-                    #
-                    # Teardown (StopGrabbing / Close / DestroyDevice)
-                    # is scheduled on a daemon thread via
-                    # _schedule_async_teardown rather than called inline.
-                    # OnImageGrabbed runs on Pylon's grab thread; asking
-                    # that thread to stop itself can deadlock or trigger
-                    # a native abort (pypylon issue #225). The daemon
-                    # thread runs the work in a safe context after this
-                    # callback has returned to the SDK.
+                except Exception:
+                    err_code = None
+                if err_code == _PYLON_ERR_DEVICE_NOT_FOUND:
+                    # USB-Vision removal fast-path. Cascade rate observed
+                    # at 100+ events in <2s, so the disconnect
+                    # notification must fire IMMEDIATELY rather than wait
+                    # behind Stage B's queue. _schedule_async_teardown
+                    # runs the heavy SDK teardown on a daemon thread per
+                    # pypylon issue #225 ("don't call StopGrabbing from
+                    # the SDK callback thread").
                     _cam_log.error(
                         f'[CAM Class ] Camera device not found '
-                        f'(USB disconnect / device removed) '
-                        f'err_code={err_code} desc={err_desc!r}'
+                        f'(USB disconnect / device removed) err_code={err_code}'
                     )
                     self._parent._mark_disconnected()
                     self._parent._schedule_async_teardown()
                     _outcome = 'success_no_grab_device_not_found'
                 else:
-                    # err_code/desc varies (USB CRC, partial frame, underrun);
-                    # log each to preserve cause distribution.
-                    _cam_log.warning(
-                        f'[CAM Class ] grabResult.GrabSucceeded()=False '
-                        f'err_code={err_code} desc={err_desc!r}'
-                    )
-                    # Returns True after 128 consecutive failures (~4.3s at 30 fps).
-                    should_stop = self._base._record_failure()
-                    if should_stop:
-                        try:
-                            _cam_log.error(
-                                '[CAM Class ] Too many grab failures; '
-                                'stopping acquisition'
-                            )
-                            if self._parent.active and self._parent.is_grabbing():
-                                self._parent.stop_grabbing()
-                            self._parent._mark_disconnected()
-                        except Exception as e:
-                            _cam_log.warning(
-                                f'[CAM Class ] OnImageGrabbed could not stop grabbing '
-                                f'after max failures: {e}'
-                            )
+                    # buffer-canceled / payload-discarded / generic
+                    # transport failures hand off to Stage B for the
+                    # full classification + per-failure logging + cascade
+                    # counter handling.
+                    try:
+                        self._worker.enqueue('fail', grabResult, ts)
+                        _outcome = 'failure_enqueued'
+                    except queue.Full:
+                        _outcome = 'queue_full_dropped_failure'
+                        _log_safely(
+                            'Stage A: worker queue full on failure '
+                            '-- dropping'
+                        )
         except Exception as e:
             _outcome = 'exception_outer'
             _log_safely(f'OnImageGrabbed unexpected error: {e}')
@@ -3508,7 +3484,10 @@ class ImageHandler(pylon.ImageEventHandler):
                             f'{_dt_ms:.3f}',
                             threading.current_thread().name,
                             _outcome,
-                            _frame_bytes,
+                            # Stage A doesn't copy; bytes are read by
+                            # Stage B if needed. Column kept for CSV
+                            # schema stability.
+                            0,
                         ],
                     )
             except BaseException as e:
@@ -3662,6 +3641,27 @@ class _PylonImageGrabWorker:
         )
         self._thread.start()
 
+    def enqueue(self, kind: str, grabResult, ts) -> None:
+        """Hand a Stage A item off to Stage B.
+
+        Raises `queue.Full` if the worker queue is at capacity -- Stage A
+        catches this and drops the frame rather than blocking the native
+        grab thread. Returns silently if the worker is shutting down
+        (stop_event already set); the caller's `grabResult` local will
+        release the SDK buffer when Stage A returns.
+
+        Args:
+            kind: 'frame' for a successful grab, 'fail' for a failure
+                that needs Stage B classification.
+            grabResult: The SDK CGrabResultPtr to hand off. Stage A MUST
+                NOT access it after this returns (single-thread invariant
+                on CGrabResultData).
+            ts: Capture timestamp from Stage A's `datetime.now()`.
+        """
+        if self._stop_event.is_set():
+            return
+        self._worker_queue.put_nowait((kind, grabResult, ts))
+
     def stop(self, timeout: float = 1.0) -> None:
         """Signal stop, post sentinel, join with bounded timeout.
 
@@ -3741,8 +3741,26 @@ class _PylonImageGrabWorker:
                 del grabResult
 
     def _process_frame(self, grabResult, ts) -> None:
-        """Stage B success path: 16 MB memcpy + chunks + store + legacy queue."""
-        img = grabResult.GetArray().copy()
+        """Stage B success path: 16 MB memcpy + chunks + store + legacy queue.
+
+        Preserves the defensive behavior of the pre-cutover OnImageGrabbed
+        for GetArray() failure: mark the device removed (so future Stage A
+        callbacks early-return) and record a grab failure (so the cascade
+        counter triggers if multiple frames fail in a row). Cross-thread
+        smart-pointer access is officially supported per
+        `class_pylon_1_1_c_grab_result_ptr.html` provided GetArray succeeds;
+        a raised exception here means the underlying buffer is gone.
+        """
+        try:
+            img = grabResult.GetArray().copy()
+        except Exception as e:
+            _cam_log.warning(
+                f'[CAM Class ] GetArray() failed on worker: {e}, '
+                f'marking device as removed'
+            )
+            self._parent._mark_disconnected()
+            self._base._record_failure()
+            return
         chunks = _read_validity_chunks(grabResult)
         self._base._store_frame(img, ts, chunks=chunks)
         try:
@@ -3774,41 +3792,59 @@ class _PylonImageGrabWorker:
             err_code, err_desc = None, repr(e)
 
         if err_code == _PYLON_ERR_BUFFER_CANCELED or self._parent._device_removed:
+            # Cancelled buffers (StopGrabbing mid-flight) and any failure
+            # paired with the removal flag are SDK lifecycle events, not
+            # real failures. The OR insurance guards a race where the
+            # removal-forwarding SDK thread flips _device_removed between
+            # Stage A's early-return check and this classification: an
+            # undocumented removal-time err_code would otherwise count
+            # toward MAX_CONSECUTIVE_FAILURES.
             logger.debug(
-                f'[CAM Class ] Grab cancelled (SDK lifecycle) '
-                f'err_code={err_code} desc={err_desc!r} '
+                f'[CAM Class ] Grab cancelled (SDK lifecycle, '
+                f'not a failure) err_code={err_code} desc={err_desc!r} '
                 f'device_removed={self._parent._device_removed}'
             )
-            return
-        if err_code == _PYLON_ERR_PAYLOAD_DISCARDED:
+        elif err_code == _PYLON_ERR_PAYLOAD_DISCARDED:
+            # Camera-side FIFO overflow during host stalls. The dropped
+            # frame is one frame_validity would have rejected anyway
+            # (invalidate runs after each SetValue). Logged at info so
+            # the cause distribution stays visible in camera.log without
+            # raising the noise floor; NOT counted toward
+            # MAX_CONSECUTIVE_FAILURES because acquisition is healthy.
             if _cam_log is not None:
                 _cam_log.info(
                     f'[CAM Class ] payload discarded (camera-side FIFO '
                     f'overflow during host stall) err_code={err_code} '
                     f'desc={err_desc!r}'
                 )
-            return
-        if _cam_log is not None:
-            _cam_log.warning(
-                f'[CAM Class ] grabResult.GrabSucceeded()=False '
-                f'err_code={err_code} desc={err_desc!r}'
-            )
-        if self._base._record_failure():
-            try:
-                if _cam_log is not None:
-                    _cam_log.error(
-                        '[CAM Class ] Too many grab failures; '
-                        'stopping acquisition'
-                    )
-                if self._parent.active and self._parent.is_grabbing():
-                    self._parent.stop_grabbing()
-                self._parent._mark_disconnected()
-            except Exception as e:
-                if _cam_log is not None:
-                    _cam_log.warning(
-                        f'[CAM Class ] worker could not stop grabbing '
-                        f'after max failures: {e}'
-                    )
+        else:
+            # err_code/desc varies (USB CRC, partial frame, underrun);
+            # log each to preserve cause distribution + count toward the
+            # consecutive-failure cascade so MAX_CONSECUTIVE_FAILURES
+            # eventually trips auto-disconnect on a wedged transport.
+            if _cam_log is not None:
+                _cam_log.warning(
+                    f'[CAM Class ] grabResult.GrabSucceeded()=False '
+                    f'err_code={err_code} desc={err_desc!r}'
+                )
+            # Returns True after MAX_CONSECUTIVE_FAILURES (128 frames at
+            # 30 fps ~= 4.3s) consecutive failures.
+            if self._base._record_failure():
+                try:
+                    if _cam_log is not None:
+                        _cam_log.error(
+                            '[CAM Class ] Too many grab failures; '
+                            'stopping acquisition'
+                        )
+                    if self._parent.active and self._parent.is_grabbing():
+                        self._parent.stop_grabbing()
+                    self._parent._mark_disconnected()
+                except Exception as e:
+                    if _cam_log is not None:
+                        _cam_log.warning(
+                            f'[CAM Class ] worker could not stop grabbing '
+                            f'after max failures: {e}'
+                        )
 
     def _drain_and_release(self) -> None:
         """Drain the worker queue and release each grabResult.

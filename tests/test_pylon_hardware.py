@@ -251,6 +251,76 @@ class TestPylon(unittest.TestCase):
             f"Camera advertised no ChunkSelector entries -- chunks unsupported. "
             f"Errors: {result['errors']}")
 
+    def test_worker_thread_alive_after_connect(self):
+        """After PylonCamera.connect() returns, the Stage B worker thread
+        must be alive (daemon, named 'PylonImageGrabWorker') so the SDK
+        can hand off the first OnImageGrabbed frame without queue-full
+        drops or no-consumer leakage.
+
+        Lifecycle wiring per LIFECYCLE_INVENTORY: worker.start() runs
+        AFTER RegisterImageEventHandler and BEFORE camera.Open()'s
+        auto-StartGrabbing window.
+        """
+        import threading as _t
+        worker = self.camera.cam_image_handler._worker
+        self.assertIsNotNone(worker._thread)
+        self.assertTrue(worker._thread.is_alive())
+        self.assertTrue(worker._thread.daemon)
+        self.assertEqual(worker._thread.name, 'PylonImageGrabWorker')
+        # And the live thread enumeration agrees.
+        names = [t.name for t in _t.enumerate()]
+        self.assertIn('PylonImageGrabWorker', names)
+
+    def test_worker_queue_drains_at_steady_state(self):
+        """At 30 FPS steady-state, Stage B must catch up faster than
+        Stage A enqueues -- the bounded worker_queue should NOT grow.
+        Sample queue depth over a window of frames and assert the
+        average stays below the catch-up threshold."""
+        # Let grabbing settle.
+        time.sleep(1.0)
+        worker_queue = self.camera.cam_image_handler._worker._worker_queue
+        samples = []
+        start = time.monotonic()
+        # 3-second sampling window at 50 Hz; sufficient signal at 30 FPS.
+        while time.monotonic() - start < 3.0:
+            samples.append(worker_queue.qsize())
+            time.sleep(0.02)
+        avg_depth = sum(samples) / len(samples) if samples else 0
+        max_depth = max(samples) if samples else 0
+        print(f"\n=== worker_queue depth sample (n={len(samples)}) ===")
+        print(f"  avg: {avg_depth:.2f}, max: {max_depth}")
+        print(f"=================================================\n")
+        self.assertLess(
+            avg_depth, 4.0,
+            f"Stage B not keeping up: avg worker_queue depth = {avg_depth:.2f} "
+            f"(expected < 4 at 30 FPS)"
+        )
+
+    def test_disconnect_drains_worker_queue(self):
+        """worker.stop() during disconnect must drain in-flight grab
+        results so the SDK input queue doesn't underrun on the next
+        connect cycle per `class_pylon_1_1_c_grab_result_ptr.html`.
+
+        After disconnect the worker thread must be gone and the worker
+        queue must be empty (drain_and_release happened).
+        """
+        worker = self.camera.cam_image_handler._worker
+        worker_thread = worker._thread
+        # Let some frames flow.
+        time.sleep(0.5)
+        self.camera.disconnect()
+        # disconnect's _stop_image_grab_worker is bounded at timeout=1.0
+        # plus our test slack.
+        if worker_thread is not None:
+            worker_thread.join(timeout=2.0)
+            self.assertFalse(worker_thread.is_alive(),
+                'worker thread did not exit within 2s of disconnect')
+        self.assertTrue(worker._worker_queue.empty(),
+            f'worker_queue should be empty after disconnect; '
+            f'has {worker._worker_queue.qsize()} item(s)')
+        # Reconnect for tearDown's disconnect.
+        self.camera.connect()
+
 
 if __name__ == '__main__':
     unittest.main()

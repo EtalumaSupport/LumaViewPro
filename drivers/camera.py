@@ -97,11 +97,14 @@ class ImageHandlerBase:
         """Register a per-frame callback fired after every successful grab.
 
         Callback signature: ``cb(image, timestamp, chunks)``. Runs on the
-        SDK callback thread (Pylon ``PylonImageGrab`` / IDS grab loop /
-        simulated pump). Callbacks MUST NOT block -- they share the camera
-        ingest thread with the next frame. Heavy work (file IO, image
-        conversion) belongs on an executor; the callback's job is fast
-        decision + enqueue.
+        worker thread that processes SDK callbacks (Pylon
+        ``PylonImageGrabWorker`` for Stage B of the OnImageGrabbed split
+        / IDS grab loop / simulated pump). The Pylon SDK's native grab
+        thread (``PylonImageGrab``) only enqueues to Stage B and does
+        not fire callbacks directly. Callbacks MUST NOT block -- they
+        share the worker thread with the next frame. Heavy work (file IO,
+        image conversion) belongs on an executor; the callback's job is
+        fast decision + enqueue.
 
         Registration is idempotent for the same callable.
         """
