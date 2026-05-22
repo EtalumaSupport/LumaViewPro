@@ -25,6 +25,27 @@ except ImportError:
     _cam_log = None
 
 
+def _log_safely(message: str) -> None:
+    """Best-effort logger for native-callback contexts.
+
+    Pylon's OnImageGrabbed / OnCameraDeviceRemoved callbacks run on
+    SDK-owned native threads. A Python exception escaping these
+    callbacks crosses the Python/C++ boundary as a C++ exception in
+    a native worker thread, which Windows resolves to std::terminate
+    -- a silent process abort with no Python traceback. This helper
+    is the marker for "exception swallowed because re-raising would
+    crash the process." Logging is best-effort: if logging itself
+    raises, the swallow stands.
+    """
+    try:
+        if _cam_log is not None:
+            _cam_log.warning(f'[CAM Class ] {message}')
+    except BaseException:
+        # If the logger itself fails there is no safer fallback from
+        # a native callback context. The swallow stands.
+        _ = None  # noqa -- intentional no-op marker for the AST scan
+
+
 # Pylon SDK error code returned by grabResult.GetErrorCode() when a
 # buffer is cancelled by StopGrabbing in flight. Value 0xE2000102.
 # USB3-Vision transport namespace (high byte 0xE2). Per Basler
@@ -73,6 +94,59 @@ class PylonCamera(Camera):
         super().__init__()
 
     # _mark_disconnected() inherited from Camera base class
+
+    def _schedule_async_teardown(self) -> None:
+        """Spawn a daemon thread that runs disconnect() in a safe context.
+
+        Used from OnImageGrabbed (and any other Pylon-callback path)
+        when we detect device removal. The SDK callback thread MUST
+        NOT call StopGrabbing on itself -- it deadlocks or triggers
+        a native abort (pypylon issue #225). Spawning a daemon thread
+        lets the callback return to the SDK immediately while teardown
+        runs in a Python-owned context where Close() / DestroyDevice()
+        are safe to call.
+
+        Idempotent: a second call while a teardown thread is already
+        running is a no-op (the in-flight thread does the work).
+        Re-entrant safe via _async_teardown_started flag under
+        _state_lock.
+        """
+        with self._state_lock:
+            if getattr(self, '_async_teardown_started', False):
+                return
+            self._async_teardown_started = True
+
+        def _run_teardown():
+            try:
+                # Small delay so the in-flight OnImageGrabbed callback
+                # that scheduled us has time to return to the SDK
+                # before we touch the camera handle from outside.
+                time.sleep(0.05)
+                _cam_log.info(
+                    '[CAM Class ] async teardown after device removal: '
+                    'calling disconnect() from daemon thread'
+                )
+                # disconnect() does the full safe sequence:
+                # stop_grabbing -> wait_for_acquisition_idle -> Close
+                # -> DetachDevice -> DestroyDevice, each independently
+                # guarded.
+                self.disconnect()
+            except BaseException as e:
+                # Best-effort log of the teardown failure. If logging
+                # itself raises, suppress -- daemon thread death must
+                # not leak. Done daemon, so process exit is fine if
+                # everything below also fails.
+                _log_safely(f'async teardown raised {type(e).__name__}: {e}')
+            finally:
+                with self._state_lock:
+                    self._async_teardown_started = False
+
+        t = threading.Thread(
+            target=_run_teardown,
+            name='PylonAsyncTeardown',
+            daemon=True,
+        )
+        t.start()
 
     def _query_dynamic_capabilities(self):
         """Query Pylon SDK for gain/exposure ranges and merge into profile."""
@@ -3212,32 +3286,33 @@ class ImageHandler(pylon.ImageEventHandler):
                     _outcome = 'success_no_grab_payload_discarded'
                 elif err_code == _PYLON_ERR_DEVICE_NOT_FOUND:
                     # USB-Vision device removal (cable unplug / hub power
-                    # loss / OS-level removal). Bench cascade was ~100+
-                    # events in <2s -- the generic fallback would wait
-                    # for MAX_CONSECUTIVE_FAILURES (128 frames at 30fps
-                    # = ~4.3s) and spam WARNING lines the whole time.
-                    # Fast-path: log once at ERROR, mark disconnected
-                    # immediately, stop grabbing. The API-layer
-                    # notification fires off the disconnect flag per
-                    # Rule 14. Not counted toward the consecutive-
-                    # failure counter -- physical removal has its own
-                    # signal (the disconnect flag); the counter exists
-                    # to detect transport degradation, not single-event
-                    # removals.
+                    # loss / OS-level removal). Cascade rate observed
+                    # at ~100+ events in <2s -- the generic fallback
+                    # would wait for MAX_CONSECUTIVE_FAILURES (128 frames
+                    # at 30fps = ~4.3s) and spam WARNING lines the whole
+                    # time. Fast-path: log once at ERROR, mark
+                    # disconnected immediately. The API-layer notification
+                    # fires off the disconnect flag. Not counted toward
+                    # the consecutive-failure counter -- physical removal
+                    # has its own signal (the disconnect flag); the
+                    # counter exists to detect transport degradation, not
+                    # single-event removals.
+                    #
+                    # Teardown (StopGrabbing / Close / DestroyDevice)
+                    # is scheduled on a daemon thread via
+                    # _schedule_async_teardown rather than called inline.
+                    # OnImageGrabbed runs on Pylon's grab thread; asking
+                    # that thread to stop itself can deadlock or trigger
+                    # a native abort (pypylon issue #225). The daemon
+                    # thread runs the work in a safe context after this
+                    # callback has returned to the SDK.
                     _cam_log.error(
                         f'[CAM Class ] Camera device not found '
                         f'(USB disconnect / device removed) '
                         f'err_code={err_code} desc={err_desc!r}'
                     )
                     self._parent._mark_disconnected()
-                    try:
-                        if self._parent.active and self._parent.is_grabbing():
-                            self._parent.stop_grabbing()
-                    except Exception as e:
-                        _cam_log.warning(
-                            f'[CAM Class ] OnImageGrabbed could not stop '
-                            f'grabbing after device-not-found: {e}'
-                        )
+                    self._parent._schedule_async_teardown()
                     _outcome = 'success_no_grab_device_not_found'
                 else:
                     # err_code/desc varies (USB CRC, partial frame, underrun);
@@ -3264,25 +3339,47 @@ class ImageHandler(pylon.ImageEventHandler):
                             )
         except Exception as e:
             _outcome = 'exception_outer'
-            _cam_log.exception(f'[CAM Class ] OnImageGrabbed unexpected error: {e}')
+            _log_safely(f'OnImageGrabbed unexpected error: {e}')
+        except BaseException as e:
+            # Outer guard: anything that's NOT a regular Exception
+            # subclass (SystemExit, KeyboardInterrupt, any non-
+            # Exception BaseException) MUST be swallowed before this
+            # callback returns to Pylon's grab thread. A C++ exception
+            # escaping a native worker thread on Windows resolves to
+            # std::terminate -- a silent process abort with no Python
+            # traceback. Log best-effort and swallow.
+            _outcome = 'exception_outer_baseexc'
+            _log_safely(
+                f'OnImageGrabbed BaseException guard '
+                f'caught {type(e).__name__}: {e}'
+            )
         finally:
-            if _trace_enabled and _t0 is not None:
-                _dt_ms = (time.perf_counter() - _t0) * 1000.0
-                profile_trace.trace(
-                    'pylon_callback_trace.csv',
-                    'ts_ms,duration_ms,thread_name,outcome,frame_bytes',
-                    [
-                        int(time.time() * 1000),
-                        f'{_dt_ms:.3f}',
-                        threading.current_thread().name,
-                        _outcome,
-                        _frame_bytes,
-                    ],
-                )
-            # Env-gated handle-leak tracking; zero overhead when disabled.
-            # Enable with LVP_HANDLE_TRACE=1.
-            from lib.handle_trace import tick as _h_tick
-            _h_tick('OnImageGrabbed')
+            # finally block itself is wrapped because any raise here would
+            # also escape to the native grab thread. Trace + handle-tick
+            # are diagnostic; their failure must not crash the process.
+            try:
+                if _trace_enabled and _t0 is not None:
+                    _dt_ms = (time.perf_counter() - _t0) * 1000.0
+                    profile_trace.trace(
+                        'pylon_callback_trace.csv',
+                        'ts_ms,duration_ms,thread_name,outcome,frame_bytes',
+                        [
+                            int(time.time() * 1000),
+                            f'{_dt_ms:.3f}',
+                            threading.current_thread().name,
+                            _outcome,
+                            _frame_bytes,
+                        ],
+                    )
+            except BaseException as e:
+                _log_safely(f'profile_trace.trace raised {type(e).__name__}: {e}')
+            try:
+                # Env-gated handle-leak tracking; zero overhead when disabled.
+                # Enable with LVP_HANDLE_TRACE=1.
+                from lib.handle_trace import tick as _h_tick
+                _h_tick('OnImageGrabbed')
+            except BaseException as e:
+                _log_safely(f'handle_trace tick raised {type(e).__name__}: {e}')
 
     def reset(self) -> None:
         """Clear frame buffer, drain the queue, and reset failure counter."""
@@ -3364,14 +3461,22 @@ class _CameraRemovalHandler(pylon.ConfigurationEventHandler):
     def OnCameraDeviceRemoved(self, camera) -> None:
         """Pylon SDK callback fired when the device disappears.
 
-        Runs in a native Pylon SDK thread. Delegates to
-        ``_mark_disconnected``, which atomically sets
-        ``_device_removed`` and ``_active=None`` under
-        ``_state_lock`` (microsecond hold). Safe from any thread,
-        including SDK callbacks.
+        Runs in a native Pylon SDK thread under the camera lock per
+        DoxyPylon.i. Per the pypylon contract any exception raised
+        here is swallowed by the SDK; we still wrap the body in
+        BaseException to keep our logs clean. Schedules async
+        teardown so the heavy Close/DestroyDevice work runs from a
+        Python-owned thread rather than the SDK callback context.
 
         Args:
             camera: SDK reference (unused; pylon contract).
         """
-        self._parent._mark_disconnected()
-        _cam_log.error('[CAM Class ] Camera physically removed (Pylon SDK callback)')
+        try:
+            self._parent._mark_disconnected()
+            _log_safely('Camera physically removed (Pylon SDK callback)')
+            self._parent._schedule_async_teardown()
+        except BaseException as e:
+            _log_safely(
+                f'OnCameraDeviceRemoved guard caught '
+                f'{type(e).__name__}: {e}'
+            )
