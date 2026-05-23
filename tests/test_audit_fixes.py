@@ -7484,6 +7484,76 @@ class TestModSliderScrollWheel:
         )
 
 
+class TestModSliderClickThenScrollFocus:
+    """ModSlider scroll-wheel adjust requires the slider to be the most-
+    recently-clicked ModSlider before the wheel will adjust its value.
+
+    Bare-hover scroll without a prior click was reported as too easy to
+    trigger accidentally -- a user grazing the slider with the cursor
+    while scrolling a panel would drift illumination / exposure / gain.
+    The class-level _focused_ref weakref tracks which ModSlider received
+    the most recent left-click; only wheel events landing on that
+    slider adjust its value. All other slider hovers fall through (the
+    scroll event propagates to the parent scroll-view, the standard
+    pre-#677 default).
+
+    Static-source assertions: runtime Kivy touch-event tests need a
+    Window context that isn't available in unit-test env.
+    """
+
+    def _src(self):
+        import pathlib
+        return pathlib.Path("ui/mod_slider.py").read_text()
+
+    def test_focused_ref_class_attribute_exists(self):
+        src = self._src()
+        assert "_focused_ref" in src, (
+            "ModSlider must declare _focused_ref class attribute to "
+            "track the most-recently-clicked slider for #677 sticky-"
+            "focus scroll gating."
+        )
+        assert "weakref.ref" in src, (
+            "_focused_ref must store a weakref so an unmounted slider "
+            "does not retain past Kivy widget teardown."
+        )
+
+    def test_scroll_branch_checks_focus_before_adjusting(self):
+        src = self._src()
+        idx = src.find("def on_touch_down")
+        assert idx >= 0
+        next_def = src.find("\n    def ", idx + 1)
+        body = src[idx:next_def] if next_def > 0 else src[idx:]
+        # The focus check must appear BEFORE the value-adjust assignment.
+        # The scroll branch is gated on the conditional; if the gate is
+        # removed (or moved after the adjust), bare-hover scroll
+        # regresses.
+        focus_idx = body.find("ModSlider._is_focused")
+        adjust_idx = body.find("self.value + delta")
+        assert focus_idx >= 0, (
+            "Scroll branch must call ModSlider._is_focused(self) before "
+            "adjusting value. If missing, bare-hover scroll regresses "
+            "to the pre-#677 too-easy-to-trigger behavior."
+        )
+        assert adjust_idx >= 0, "Sanity: scroll branch should still adjust value."
+        assert focus_idx < adjust_idx, (
+            "Focus check must come BEFORE the adjust line; otherwise "
+            "the value still changes regardless of focus state."
+        )
+
+    def test_click_on_slider_sets_focus(self):
+        src = self._src()
+        idx = src.find("def on_touch_down")
+        assert idx >= 0
+        next_def = src.find("\n    def ", idx + 1)
+        body = src[idx:next_def] if next_def > 0 else src[idx:]
+        assert "ModSlider._set_focused(self)" in body, (
+            "on_touch_down must call ModSlider._set_focused(self) on a "
+            "non-scroll touch that collides with this slider; otherwise "
+            "the user can never gain focus and scroll-adjust is "
+            "permanently disabled."
+        )
+
+
 class TestModSliderAwareScrollView:
     """ModSlider's scroll-wheel handler (619fc49) only fires when its
     on_touch_down receives the touch. Bare Kivy ScrollView consumes
