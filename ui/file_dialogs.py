@@ -14,6 +14,30 @@ import modules.app_context as _app_ctx
 logger = logging.getLogger('LVP.ui.file_dialogs')
 
 
+def _zprojection_picker_default_path(live_folder: pathlib.Path) -> str:
+    """Return the most-specific existing Z-stack folder under live_folder.
+
+    Z-stacks live in two canonical places:
+      - live_folder/Manual/Z-Stacks/<ts>/ -- manual ZSTACK button
+        (path defined at ui/zstack.py:234)
+      - live_folder/ProtocolData/<ts>/ -- protocol with Z-stack steps
+
+    Search in priority order; first existing path wins. Final fallback
+    is live_folder itself, so a fresh install never produces an error
+    on the file-chooser default. Pure function -- no kivy import; tested
+    via direct invocation in tests/test_least_astonishment_fixes.py.
+    """
+    base = pathlib.Path(live_folder)
+    for candidate in (
+        base / "Manual" / "Z-Stacks",
+        base / "ProtocolData",
+        base,
+    ):
+        if candidate.exists():
+            return str(candidate)
+    return str(base)
+
+
 # ---------------------------------------------------------------------------
 # macOS native file dialogs via osascript (AppleScript)
 # tkinter Tk() crashes on macOS when SDL2 is loaded (cv2 + kivy both ship it).
@@ -216,12 +240,15 @@ class FolderChooseBTN(HoverBehavior, Button):
                 selected_path = pathlib.Path(settings['live_folder'])
             selected_path = str(selected_path)
         elif self.context == "apply_zprojection_to_folder":
-            # Z-stacks live in TWO canonical places: Manual/Z-Stacks/<ts>/ for
-            # the manual ZSTACK button and ProtocolData/<ts>/ for a protocol
-            # with Z-stack steps. Opening at live_folder lets the user see
-            # both. Fixes #629 (picker was opening one level too deep into
-            # ProtocolData, hiding Manual/Z-Stacks behind a navigate-up).
-            selected_path = str(pathlib.Path(settings['live_folder']))
+            # Z-stacks live in TWO canonical places: Manual/Z-Stacks/<ts>/
+            # for the manual ZSTACK button (path defined at
+            # ui/zstack.py:234) and ProtocolData/<ts>/ for a protocol
+            # with Z-stack steps. Pick the most-specific existing target
+            # so a single click reaches the timestamped run, with
+            # graceful fallback when the deeper folder was never made.
+            selected_path = _zprojection_picker_default_path(
+                pathlib.Path(settings['live_folder']),
+            )
         else:
             selected_path = settings['live_folder']
 

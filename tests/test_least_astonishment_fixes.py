@@ -134,3 +134,106 @@ class TestFolderPickerNative:
         assert "_open_kivy_folder_picker" not in choose_body
         # No per-context conditional remains that gates picker choice.
         assert "self.context == 'live_folder'" not in choose_body
+
+
+class TestZprojectionFolderPickerDefaultDepth_629:
+    """Issue #629 v2: the apply_zprojection_to_folder picker must
+    default to the deepest existing canonical Z-stack tree, not the
+    grandparent. The manual ZSTACK button writes into
+    live_folder/Manual/Z-Stacks/<ts>/ (ui/zstack.py:234); the picker
+    should land there so each timestamped run is one click away.
+
+    Prior fix (e365865) moved the default UP from live_folder/
+    ProtocolData/ to live_folder/, fixing the "one level too deep"
+    complaint but creating a "two levels too high" regression: the
+    user landed at the parent of Manual/ and ProtocolData/ and had to
+    drill down through both before reaching the actual run folders.
+
+    Fix: extract the default-path logic into a pure helper
+    _zprojection_picker_default_path(live_folder) that returns the
+    most-specific existing path among
+    (Manual/Z-Stacks, ProtocolData, live_folder). The picker branch
+    in FolderChooseBTN.choose() delegates to the helper.
+
+    Tests use the source-text pattern of the sibling
+    TestFolderPickerNative class so they don't drag in Kivy imports.
+    """
+
+    def test_helper_function_exists_with_pure_signature(self):
+        """Helper must exist at module scope, take live_folder, return
+        a str. Pure (no Kivy / no app_ctx / no settings access). Future
+        behavioral tests can import it directly without conftest changes."""
+        src = (REPO_ROOT / "ui" / "file_dialogs.py").read_text()
+        assert "def _zprojection_picker_default_path(" in src, (
+            "Helper _zprojection_picker_default_path() must exist; "
+            "FolderChooseBTN.choose() delegates to it (#629)."
+        )
+
+    def test_helper_descends_manual_z_stacks_first(self):
+        """Helper body must search Manual/Z-Stacks BEFORE ProtocolData.
+        Reversed priority would land the user inside ProtocolData
+        first, regressing back to the original symptom."""
+        src = (REPO_ROOT / "ui" / "file_dialogs.py").read_text()
+        start = src.find("def _zprojection_picker_default_path(")
+        assert start != -1
+        body_section = src[start:start + 1500]
+        body_end = body_section.find("\ndef ", 1)
+        if body_end == -1:
+            body_end = body_section.find("\nclass ", 1)
+        if body_end != -1:
+            body_section = body_section[:body_end]
+        manual_idx = body_section.find('"Manual"')
+        protocol_idx = body_section.find('"ProtocolData"')
+        assert manual_idx != -1, (
+            "helper must include Manual subpath (#629)"
+        )
+        assert protocol_idx != -1, (
+            "helper must include ProtocolData fallback (#629)"
+        )
+        assert manual_idx < protocol_idx, (
+            "Manual/Z-Stacks must come BEFORE ProtocolData in the "
+            "candidate priority order so manual z-stack workflow is "
+            "one click away (#629). Reversed order regresses to the "
+            "original 'one level too deep' symptom."
+        )
+
+    def test_helper_falls_back_to_live_folder(self):
+        """Helper must contain a final fallback that returns the
+        live_folder itself, so a fresh install with neither subtree
+        present still produces a valid picker target."""
+        src = (REPO_ROOT / "ui" / "file_dialogs.py").read_text()
+        start = src.find("def _zprojection_picker_default_path(")
+        body_section = src[start:start + 1500]
+        body_end = body_section.find("\ndef ", 1)
+        if body_end == -1:
+            body_end = body_section.find("\nclass ", 1)
+        if body_end != -1:
+            body_section = body_section[:body_end]
+        # The fallback after the candidate loop must return the base
+        # path itself; "return str(base)" is the canonical phrasing.
+        assert "return str(base)" in body_section, (
+            "helper must fall back to live_folder when neither subtree "
+            "exists (#629). Without the fallback, a fresh install "
+            "yields no valid picker target."
+        )
+
+    def test_choose_method_delegates_to_helper_for_zprojection(self):
+        """FolderChooseBTN.choose() apply_zprojection_to_folder branch
+        must invoke the helper. Inline path logic in the branch is the
+        shape that produced the over-correction; the helper centralizes
+        the priority order in one testable place."""
+        src = (REPO_ROOT / "ui" / "file_dialogs.py").read_text()
+        after_class = src.split("class FolderChooseBTN")[1]
+        choose_start = after_class.find("def choose(")
+        choose_body = after_class[choose_start:].split("\n    def ")[0]
+        zproject_idx = choose_body.find("apply_zprojection_to_folder")
+        assert zproject_idx != -1, (
+            "choose() must have apply_zprojection_to_folder branch"
+        )
+        zproject_branch = choose_body[zproject_idx:zproject_idx + 800]
+        assert "_zprojection_picker_default_path(" in zproject_branch, (
+            "FolderChooseBTN.choose() apply_zprojection_to_folder "
+            "branch must delegate to _zprojection_picker_default_path() "
+            "(#629). Inline path logic in the branch was prone to "
+            "over-correction by ad-hoc patches."
+        )
