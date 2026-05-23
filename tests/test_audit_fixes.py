@@ -11397,3 +11397,85 @@ class TestLogToUtility:
         # mirror failure. Caller control flow is preserved.
         assert ('info', 'msg') in primary.calls
         assert any(kind == 'debug' and 'mirror.info() raised' in m for kind, m in primary.calls)
+
+
+class TestShowPopupMessageMarshalsDoneToUiThread:
+    """AUDIT_CONCURRENCY_2026-05-24 F1: `ProtocolSettings._show_popup_message`
+    runs inside a daemon Thread spawned by `@show_popup`. The host widget's
+    `done` BooleanProperty is bound to `popup.dismiss`, so writing
+    `self.done = True` directly on the worker triggered the dismiss
+    dispatch on the worker thread -- a Bug-E shape that can corrupt the
+    Kivy property graph mid-dispatch.
+
+    Fix: marshal the `done` write through `Clock.schedule_once`, matching
+    the pattern `_PopupProxy` already uses for popup-local writes.
+
+    The regression test reads source text and asserts the bare assignment
+    is gone. Source-text tests are quote/paren-agnostic per the
+    `/issue-triage` Step 6 update so they survive future ruff format
+    passes.
+    """
+
+    def _protocol_settings_src(self):
+        from pathlib import Path
+
+        return (
+            Path(__file__).resolve().parent.parent
+            / 'ui' / 'protocol_settings.py'
+        ).read_text()
+
+    def test_show_popup_message_does_not_write_done_on_bg_thread(self):
+        """Bare `self.done = True` inside `_show_popup_message` writes a
+        Kivy property from the worker thread. The fix replaces it with a
+        `Clock.schedule_once` marshal. A future revert that re-introduces
+        the bare assignment fails this test."""
+        import re
+
+        src = self._protocol_settings_src()
+        match = re.search(
+            r'def _show_popup_message\(self,.*?\):.*?(?=\n    def |\nclass )',
+            src,
+            re.DOTALL,
+        )
+        assert match is not None, (
+            '_show_popup_message method body not found; test selector '
+            'is out of date'
+        )
+        body = match.group(0)
+        # The bare assignment must not appear -- any `self.done = True`
+        # in this body is the Bug-E shape.
+        assert not re.search(r'self\.done\s*=\s*True', body), (
+            'F1 regression: `_show_popup_message` writes `self.done = True` '
+            'directly on the worker thread. Use `Clock.schedule_once` to '
+            'marshal the write to the UI thread instead.'
+        )
+
+    def test_show_popup_message_marshals_done_via_clock(self):
+        """Positive assertion: the fix uses `Clock.schedule_once` to set
+        `done` from the worker thread. Quote-agnostic regex tolerates
+        future ruff reformat."""
+        import re
+
+        src = self._protocol_settings_src()
+        match = re.search(
+            r'def _show_popup_message\(self,.*?\):.*?(?=\n    def |\nclass )',
+            src,
+            re.DOTALL,
+        )
+        assert match is not None
+        body = match.group(0)
+        # Require some form of `Clock.schedule_once(...)` that mentions
+        # `done` as the target attribute. Tolerates both `setattr(self,
+        # 'done', True)` and `self.done = True` inside a lambda, and
+        # tolerates either quote style.
+        marshalled = re.search(
+            r'Clock\.schedule_once\(.*?["\']done["\'].*?\)'
+            r'|Clock\.schedule_once\(.*?self\.done\s*=\s*True',
+            body,
+            re.DOTALL,
+        )
+        assert marshalled is not None, (
+            '`_show_popup_message` must marshal the `done=True` write '
+            'through `Clock.schedule_once` to keep the Kivy property '
+            'write on the UI thread (AUDIT_CONCURRENCY_2026-05-24 F1).'
+        )
