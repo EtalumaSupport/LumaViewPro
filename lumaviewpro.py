@@ -129,7 +129,10 @@ if __name__ == '__main__':
     if not _lvp_lock_singleton.lock():
         _msg = 'Another instance of LVP may already be running. Exiting.'
         logger.error(f'[LVP Lock ] {_msg}')
-        print(f'ERROR: {_msg}', file=sys.stderr)
+        # Previously also printed to stderr; on a windowed PyInstaller
+        # build (console=False) that print is dropped silently and the
+        # tkinter messagebox below is the user-facing signal. The
+        # log line above is the file-side record. Issue #559.
         try:
             import tkinter as _tk
             from tkinter import messagebox as _mb

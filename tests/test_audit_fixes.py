@@ -9447,6 +9447,88 @@ class TestAutoExposureBoundsOpenedAtAGEnable_655:
         )
 
 
+class TestWindowsBuildIsWindowed_559:
+    """Issue #559 recurrence: Chris reported "extra terminal windows
+    that say 'exiting'" on the Windows .exe lock-loser path.
+
+    Root cause: the PyInstaller spec had `console=True`, so every
+    .exe launch opened a black bootloader console alongside the Kivy
+    window. The lock-loser's stderr `print(f'ERROR: ... Exiting.')`
+    wrote into that console; the subsequent `os._exit(1)` terminated
+    the Python interpreter but the bootloader-owned console window
+    persisted, leaving an orphan terminal showing the "Exiting."
+    line.
+
+    Two-part fix:
+    1. Windows spec uses `console=False` (windowed build). No
+       bootloader console window appears on any launch.
+    2. The lock-loser path drops its stderr print. The tkinter
+       messagebox + logger.error already cover the user + log paths;
+       a windowed build silently drops stderr anyway, so the print
+       was load-bearing only on a console=True build that
+       inadvertently leaked terminals.
+
+    Bench verification is Windows-only (macOS .app bundles never
+    spawn a Terminal window from a frozen build). These source pins
+    catch reverts of either half.
+    """
+
+    def _spec_src(self):
+        from pathlib import Path
+        return (
+            Path(__file__).resolve().parent.parent
+            / 'scripts' / 'appBuild' / 'config'
+            / 'lumaviewpro_win_release.spec'
+        ).read_text()
+
+    def _main_src(self):
+        from pathlib import Path
+        return (
+            Path(__file__).resolve().parent.parent / 'lumaviewpro.py'
+        ).read_text()
+
+    def test_windows_spec_is_windowed_build(self):
+        """Spec must declare `console=False` so PyInstaller produces
+        a windowed .exe (no bootloader terminal window). Issue #559."""
+        spec = self._spec_src()
+        assert 'console=False' in spec, (
+            'Windows PyInstaller spec must use console=False so the '
+            'frozen .exe does not spawn a bootloader console window '
+            'alongside the Kivy app. Pre-fix console=True left an '
+            'orphan terminal on the lock-loser path. Issue #559.'
+        )
+        assert 'console=True' not in spec, (
+            'Windows PyInstaller spec must NOT contain console=True '
+            '(any stray occurrence regresses #559).'
+        )
+
+    def test_lock_loser_drops_stderr_print(self):
+        """Lock-loser path at lumaviewpro.py:~129-154 must not write
+        to sys.stderr. On a windowed build that stderr write is
+        silent anyway; on a console=True build it was the literal
+        line Chris saw left behind in the orphan terminal."""
+        src = self._main_src()
+        # Locate the lock-loser block by its sentinel _msg assignment.
+        msg_idx = src.find(
+            "_msg = 'Another instance of LVP may already be running"
+        )
+        assert msg_idx >= 0, (
+            'Could not find the lock-loser _msg literal -- test needs '
+            'updating if the message was reworded.'
+        )
+        # The block ends at the `os._exit(1)` call below it. Slice
+        # the block and assert no stderr print.
+        exit_idx = src.find('os._exit(1)', msg_idx)
+        assert exit_idx > msg_idx
+        loser_block = src[msg_idx:exit_idx]
+        assert 'file=sys.stderr' not in loser_block, (
+            'Lock-loser path must not write to sys.stderr -- the '
+            'tkinter messagebox + logger.error already cover the '
+            'user and log surfaces, and on console=False builds the '
+            'stderr write is silent. Issue #559.'
+        )
+
+
 class TestShutdownLedsOffRoutedThroughIoExecutor:
     """The application shutdown path must turn LEDs off through the
     io_executor, NOT via an ad-hoc daemon Thread that races with

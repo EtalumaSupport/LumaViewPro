@@ -106,7 +106,15 @@ exe = EXE(
     bootloader_ignore_signals=False,
     strip=False,
     upx=True,
-    console=True,
+    # Windowed build: no PyInstaller bootloader console window. Without
+    # this, every .exe launch opened a black terminal alongside the
+    # Kivy SDL2 window, and the lock-loser path's os._exit(1) (after
+    # writing "ERROR: ... Exiting." to stderr) left that terminal
+    # orphaned showing the last stderr line -- the "extra terminal
+    # windows that say 'exiting'" symptom Chris reported on #559. LVP
+    # log output is file-only (KIVY_NO_CONSOLELOG=1 at lumaviewpro.py
+    # :115), so a windowed build doesn't lose any production logging.
+    console=False,
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,
