@@ -1202,11 +1202,33 @@ class MotionAPI:
             _api_log.debug(f'move_rel ignored: {axis} not present on this scope')
             return
 
+        # Store motion profile for position prediction before moving --
+        # mirrors move_absolute_position. Without this, get_current_position
+        # falls through to the just-updated cache (= target) during the move
+        # and the crosshair jumps instead of animating.
+        with self._pos_cache_lock:
+            start_pos = self._pos_cache.get(axis, 0.0)
+        target_pos = start_pos + float(um)
+        try:
+            ramp = self._driver.motorconfig.ramp_params(axis)
+        except Exception:
+            ramp = None
+        if ramp:
+            with self._move_profile_lock:
+                self._move_profile[axis] = {
+                    'start_time': time.monotonic(),
+                    'start_pos': start_pos,
+                    'target_pos': target_pos,
+                    'ramp': ramp,
+                }
+
         # Write hardware target BEFORE transitioning axis to MOVING --
         # same race fix as move_absolute_position (#618).
         try:
             self._driver.move_rel_pos(axis, um, overshoot_enabled=overshoot_enabled)
         except Exception as e:
+            with self._move_profile_lock:
+                self._move_profile[axis] = None
             _api_log.error(f'move_rel {axis}={um:+.1f}um FAILED: {e}')
             raise
         self._set_axis_state(axis, AxisState.MOVING)

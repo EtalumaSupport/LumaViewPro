@@ -269,3 +269,144 @@ class TestBackToBackMoves_618:
             assert abs(actual - target) < 5.0, (
                 f"move to {target} ended at {actual}"
             )
+
+
+# ---------------------------------------------------------------------------
+# Issue #674: move_relative_position must write _move_profile so the
+# position predictor can animate the crosshair during relative moves.
+# ---------------------------------------------------------------------------
+
+class TestMoveRelProfile_674:
+    """Regression for #674 crosshair-prediction during relative moves.
+
+    Bug shape (bench bundle SN12062-2026-05-22-182105.zip):
+    `move_relative_position` did NOT write `_move_profile[axis]`. State
+    still transitioned to MOVING, so `get_current_position` routed through
+    `_predicted_position` -- which returned None for a missing profile and
+    fell through to `_read_position_cache`. But `_pos_cache[axis]` had
+    just been updated to the target, so the crosshair jumped to the
+    target instead of animating along the ramp.
+
+    Fix: mirror move_absolute_position's profile-write block, computing
+    `target_pos = start_pos + um`.
+    """
+
+    def test_source_writes_profile_before_driver_call(self):
+        """Source pin: _move_profile write must appear BEFORE the
+        move_rel_pos driver call in move_relative_position. Catches a
+        revert that drops the profile-write but keeps the driver call."""
+        body = _find_method_source("MotionAPI", "move_relative_position")
+        profile_idx = body.find("self._move_profile[axis] = {")
+        driver_idx = body.find("self._driver.move_rel_pos(")
+        assert profile_idx != -1, (
+            "move_relative_position must write self._move_profile[axis] "
+            "(issue #674 fix)"
+        )
+        assert driver_idx != -1, "move_rel_pos call missing"
+        assert profile_idx < driver_idx, (
+            "profile write must precede the driver call so the predictor "
+            "has a valid ramp when state transitions to MOVING"
+        )
+
+    def test_runtime_profile_set_when_driver_called(self):
+        """Production path: call scope.motion.move_relative_position and
+        snapshot _move_profile[axis] at the moment the driver call fires.
+        Profile must be present, with start_pos from cache and
+        target_pos = start_pos + um.
+
+        Hooking the driver call (not the API) ensures we observe BEFORE
+        state transitions to MOVING -- the predictor must be ready by
+        then or get_current_position will fall through to the cache."""
+        from modules.lumascope_api import Lumascope
+
+        scope = Lumascope(simulate=True)
+        scope._motion_driver.set_timing_mode("fast")
+
+        # Prime: move to a known non-zero start so the relative delta is
+        # distinguishable from zero. wait_until_complete clears profile.
+        scope.motion.move_absolute_position("X", 1000.0, wait_until_complete=True)
+        with scope.motion._move_profile_lock:
+            assert scope.motion._move_profile.get("X") is None, (
+                "profile should be cleared after IDLE transition"
+            )
+
+        observed = {}
+        orig_move_rel = scope._motion_driver.move_rel_pos
+
+        def snapshot_then_call(axis, um, *args, **kwargs):
+            with scope.motion._move_profile_lock:
+                profile = scope.motion._move_profile.get(axis)
+            observed["profile"] = None if profile is None else dict(profile)
+            return orig_move_rel(axis, um, *args, **kwargs)
+
+        scope._motion_driver.move_rel_pos = snapshot_then_call
+
+        delta = 300.0
+        scope.motion.move_relative_position("X", delta, wait_until_complete=False)
+
+        profile = observed.get("profile")
+        assert profile is not None, (
+            "_move_profile['X'] must be written BEFORE move_rel_pos is "
+            "called -- issue #674 fix"
+        )
+        assert profile["start_pos"] == pytest.approx(1000.0, abs=5.0), (
+            f"start_pos should match cache before move; got "
+            f"{profile['start_pos']}"
+        )
+        assert profile["target_pos"] == pytest.approx(1300.0, abs=5.0), (
+            f"target_pos must equal start_pos + um; got "
+            f"{profile['target_pos']}"
+        )
+        ramp = profile["ramp"]
+        assert ramp and ramp.get("vmax", 0) > 0, (
+            f"ramp must contain valid trapezoid params; got {ramp}"
+        )
+
+    def test_runtime_predictor_returns_non_none_during_move(self):
+        """End-to-end behavior: _predicted_position('X') must not return
+        None while state is MOVING after a relative move. This is the
+        actual crosshair-animation precondition.
+
+        Without the fix: profile stays None, predictor returns None,
+        get_current_position falls through to the (already-updated)
+        cache. With the fix: predictor returns an interpolated position."""
+        from modules.lumascope_api import AxisState, Lumascope
+
+        scope = Lumascope(simulate=True)
+        scope._motion_driver.set_timing_mode("fast")
+
+        scope.motion.move_absolute_position("X", 1000.0, wait_until_complete=True)
+
+        # Hook the driver call so we can observe during the move without
+        # racing the motion monitor.
+        observed = {}
+        orig_move_rel = scope._motion_driver.move_rel_pos
+
+        def observe_then_call(axis, um, *args, **kwargs):
+            result = orig_move_rel(axis, um, *args, **kwargs)
+            # At this point profile is set; state hasn't transitioned to
+            # MOVING yet (that happens immediately after this returns).
+            observed["predicted_pre_move_state"] = (
+                scope.motion._predicted_position(axis)
+            )
+            return result
+
+        scope._motion_driver.move_rel_pos = observe_then_call
+
+        scope.motion.move_relative_position("X", 500.0, wait_until_complete=False)
+
+        predicted = observed.get("predicted_pre_move_state")
+        assert predicted is not None, (
+            "_predicted_position must return a value once the profile is "
+            "set -- None means the crosshair will fall through to cache"
+        )
+
+        # State is now MOVING (or just transitioned to MOVING); the
+        # predictor must continue to return non-None for the duration of
+        # the move. Verify the state side too.
+        with scope.motion._axis_state_lock:
+            state = scope.motion._axis_state.get("X")
+        assert state == AxisState.MOVING, (
+            f"state should be MOVING immediately after move_rel returns "
+            f"(wait_until_complete=False); got {state!r}"
+        )
