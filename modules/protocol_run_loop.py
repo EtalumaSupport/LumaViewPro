@@ -155,7 +155,13 @@ class ProtocolRunLoop:
                     break
                 p._scan_in_progress.set()
                 p._set_state(ProtocolState.SCANNING)
-                p._auto_gain_deadline = time.monotonic() + p._autogain_settings['max_duration'].total_seconds()
+                # _auto_gain_deadline is set at ARM time per step in
+                # protocol_step_runner.scan_iterate (issue #673 fix).
+                # No scan-start init: that produced a past-deadline
+                # gate after AF and broke convergence. The default 0.0
+                # init on SequencedCaptureRunner is safe -- non-AG
+                # steps never read the deadline; AG steps overwrite it
+                # at arm time before the gate is ever consulted.
                 p._auto_gain_armed_step = -1
 
                 start_scan_time = datetime.datetime.now()

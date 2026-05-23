@@ -215,13 +215,27 @@ class ProtocolStepRunner:
             if fut:
                 fut.result(timeout=30)
             p._auto_gain_armed_step = p._curr_step
-
-        # Check if autogain has time-finished
-        if step['Auto_Gain'] and time.monotonic() < p._auto_gain_deadline:
+            # Set the convergence deadline AT ARM TIME, one-shot per
+            # step. Pre-fix the deadline was initialized once at scan-
+            # start (before AF, which takes ~10s), so the gate below
+            # was already past-deadline on the first AG step and fell
+            # through immediately -- capture grabbed ~70-120ms after
+            # arm with no real convergence window (issue #673). Setting
+            # it here + returning lets subsequent scan_iterate ticks
+            # poll the gate; they return early until the deadline
+            # expires, giving AG the full max_duration to converge.
+            p._auto_gain_deadline = (
+                time.monotonic()
+                + p._autogain_settings['max_duration'].total_seconds()
+            )
             return
 
-        # Reset autogain deadline for next step
-        p._auto_gain_deadline = time.monotonic() + p._autogain_settings['max_duration'].total_seconds()
+        # Wait for autogain convergence window. Subsequent ticks after
+        # the arm-tick re-enter here and return-early until the deadline
+        # set above expires; first non-returning tick falls through to
+        # capture.
+        if step['Auto_Gain'] and time.monotonic() < p._auto_gain_deadline:
+            return
 
         # Update Z position with autofocus results
         if step['Auto_Focus'] and p._update_z_pos_from_autofocus:

@@ -9250,6 +9250,95 @@ class TestAutoGainArmedBeforeDeadlineWait:
             'convergence the deadline-wait produced.'
         )
 
+    def test_deadline_is_set_inside_arm_block_not_after_gate(self):
+        """The convergence deadline must be set AT ARM TIME so it
+        actually gates THIS step. Pre-fix the deadline was initialized
+        once at scan-start before AF (which takes ~10s), so when the
+        first AG step hit the gate, `now < deadline` was already FALSE
+        and the gate fell through immediately -- capture grabbed
+        ~70-120ms after arm instead of the intended 1000ms convergence
+        window (Chris's 2026-05-22 bench evidence on beta14). Closes
+        issue #673 recurrence.
+        """
+        src = self._runner_src()
+        arm_marker = "if step['Auto_Gain'] and p._auto_gain_armed_step != p._curr_step:"
+        gate_marker = "if step['Auto_Gain'] and time.monotonic() < p._auto_gain_deadline:"
+        arm_idx = src.find(arm_marker)
+        gate_idx = src.find(gate_marker)
+        assert arm_idx >= 0 and gate_idx >= 0
+        # Within the arm block (between arm marker and gate marker),
+        # the deadline MUST be set. The exact spelling allows a
+        # multi-line formulation (the deadline expression is long).
+        arm_block = src[arm_idx:gate_idx]
+        assert 'p._auto_gain_deadline' in arm_block, (
+            'Convergence deadline must be set INSIDE the arm block '
+            '(one-shot per step). Pre-fix it was set only at scan-'
+            'start before AF, so the gate fell through immediately. '
+            'Issue #673 recurrence.'
+        )
+        assert 'p._autogain_settings' in arm_block and "'max_duration'" in arm_block, (
+            'Arm-time deadline assignment must use '
+            "p._autogain_settings['max_duration'] -- the configured "
+            'convergence window. Issue #673.'
+        )
+
+    def test_arm_block_returns_after_setting_deadline(self):
+        """The arm block must `return` after setting the deadline so
+        the next scan_iterate tick polls the gate. Without the return,
+        the deadline-just-set is checked in the same tick and falls
+        through (now ~= deadline + epsilon) -- the bug recurs.
+
+        The check: between the arm block and the gate marker there
+        must be a `return` statement.
+        """
+        src = self._runner_src()
+        arm_marker = "if step['Auto_Gain'] and p._auto_gain_armed_step != p._curr_step:"
+        gate_marker = "if step['Auto_Gain'] and time.monotonic() < p._auto_gain_deadline:"
+        arm_idx = src.find(arm_marker)
+        gate_idx = src.find(gate_marker)
+        arm_block = src[arm_idx:gate_idx]
+        # Look for a bare `return` on its own indented line inside the
+        # arm block (the if-body), not at the outer function scope.
+        # The arm block is indented 8 spaces (inside an if inside the
+        # function); its body lines are indented 12 spaces.
+        return_lines = [
+            line for line in arm_block.splitlines()
+            if line.strip() == 'return' and line.startswith(' ' * 12)
+        ]
+        assert len(return_lines) >= 1, (
+            'Arm block must `return` after setting _auto_gain_deadline '
+            'so the next scan_iterate tick polls the gate (issue #673 '
+            'recurrence). Without the return, the deadline gate is '
+            'checked in the same tick and falls through immediately.'
+        )
+
+    def test_run_loop_does_not_reset_deadline_at_scan_start(self):
+        """The scan-start deadline init at protocol_run_loop.py:158
+        was the root of the #673 recurrence: it set the deadline to
+        scan_start + max_duration before AF (which then ate ~10s), so
+        the gate was always past-deadline by the time AG armed. Fix
+        removed the line entirely; arm-time deadline-set is the only
+        canonical write site.
+        """
+        src = self._run_loop_src()
+        # The armed-step reset must still be present (the existing
+        # test test_run_loop_resets_armed_step_per_scan pins it).
+        # But the deadline init must NOT be in the run-loop body.
+        # Find the SCANNING state set + assert no deadline-assign
+        # line follows it in the same indentation block.
+        state_marker = 'p._set_state(ProtocolState.SCANNING)'
+        idx = src.find(state_marker)
+        assert idx >= 0
+        # Take the next 600 chars (the block after SCANNING state set
+        # up through scan_loop call).
+        block = src[idx:idx + 600]
+        assert 'p._auto_gain_deadline = time.monotonic()' not in block, (
+            'protocol_run_loop must NOT set _auto_gain_deadline at '
+            'scan start -- that produced a past-deadline gate after '
+            'AF ran. Deadline is set per-step at arm time in '
+            'protocol_step_runner. Issue #673.'
+        )
+
 
 class TestShutdownLedsOffRoutedThroughIoExecutor:
     """The application shutdown path must turn LEDs off through the
