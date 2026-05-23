@@ -11479,3 +11479,113 @@ class TestShowPopupMessageMarshalsDoneToUiThread:
             'through `Clock.schedule_once` to keep the Kivy property '
             'write on the UI thread (AUDIT_CONCURRENCY_2026-05-24 F1).'
         )
+
+
+class TestProtocolPostProcessorNoBareCvImwrite_F35_2:
+    """AUDIT_LAYER_SEPARATION_2026-05-24 F35.2: the protocol_post_processor
+    base class previously fell back to `cv2.imwrite` when a subclass
+    returned `'image'` payload. cv2 is BGR-native; tifffile / FIJI / OS
+    preview all read TIFF as RGB-native. The fallback was the last
+    surviving channel-swap hazard after the composite-path unification.
+
+    Fix: retire the base-class cv2.imwrite branch entirely. Each
+    subclass owns its own write via tifffile (matches the pattern
+    composite_generation + zprojector + video_builder + stack_builder
+    already used). Stitcher was migrated in the same commit: tile load
+    swaps cv2.imread -> tifffile.imread; stitched save uses
+    tifffile.imwrite directly.
+
+    Tests below use quote-agnostic source-text regex per the
+    `/issue-triage` Step 6 update so they survive future ruff format
+    passes.
+    """
+
+    def _post_processor_src(self):
+        from pathlib import Path
+
+        return (
+            Path(__file__).resolve().parent.parent
+            / 'modules' / 'protocol_post_processor.py'
+        ).read_text()
+
+    def _stitcher_src(self):
+        from pathlib import Path
+
+        return (
+            Path(__file__).resolve().parent.parent
+            / 'modules' / 'stitcher.py'
+        ).read_text()
+
+    def test_protocol_post_processor_has_no_cv2_imports_or_calls(self):
+        """No `import cv2` / `from cv2 ...` and no `cv2.<attr>(...)`
+        calls in the base class. Plain prose mentions of cv2 in
+        comments (explaining WHY the fallback was retired) are fine.
+        A revert that re-introduces the BGR fallback fails."""
+        import re
+
+        src = self._post_processor_src()
+        # No imports.
+        assert not re.search(r'^(import cv2|from cv2 )', src, re.MULTILINE), (
+            'F35.2 regression: protocol_post_processor.py must not '
+            'import cv2 (BGR-native).'
+        )
+        # No method/attribute calls (cv2.foo(...) or cv2.foo. ...).
+        assert not re.search(r'\bcv2\.\w+\s*\(', src), (
+            'F35.2 regression: protocol_post_processor.py must not '
+            'call any cv2.<x>(...) -- the base class no longer falls '
+            'back to BGR writers. Each subclass owns its own write.'
+        )
+
+    def test_protocol_post_processor_drops_imwrite_branch(self):
+        """The `cv2.imwrite(filename=...)` fallback branch is gone.
+        Quote-tolerant: matches both single-quote and double-quote
+        kwarg styles."""
+        import re
+
+        src = self._post_processor_src()
+        assert not re.search(r'cv2\.imwrite\s*\(', src), (
+            'F35.2 regression: cv2.imwrite branch must be retired.'
+        )
+
+    def test_stitcher_loads_tiles_via_tifffile_not_cv2(self):
+        """Stitcher tile-load must use tifffile.imread (RGB-native).
+        Pair with the save-side migration so both ends of the stitcher
+        pipeline stay on the canonical RGB path."""
+        import re
+
+        src = self._stitcher_src()
+        assert not re.search(r'cv2\.imread\s*\(', src), (
+            'F35.2 regression: stitcher tile-load must use '
+            'tifffile.imread, not cv2.imread (cv2 is BGR-native, '
+            'swaps red/blue relative to tifffile readers).'
+        )
+
+    def test_stitcher_writes_via_tifffile(self):
+        """Stitcher self-writes its output via tifffile (matches
+        composite_generation + zprojector pattern). Quote-tolerant on
+        the module alias (`tf` vs `tifffile`)."""
+        import re
+
+        src = self._stitcher_src()
+        # Accept either alias style: `tf.imwrite(` or
+        # `tifffile.imwrite(`.
+        matched = re.search(
+            r'(?:tf|tifffile)\.imwrite\s*\(',
+            src,
+        )
+        assert matched is not None, (
+            'F35.2 regression: stitcher must write its stitched output '
+            'via tifffile.imwrite (matches composite_generation + '
+            'zprojector + video_builder + stack_builder pattern).'
+        )
+
+    def test_stitcher_has_no_cv2_imports(self):
+        """No `import cv2` or `from cv2 ...` in stitcher.py -- the
+        cv2-end-to-end pattern is fully retired."""
+        import re
+
+        src = self._stitcher_src()
+        assert not re.search(r'^(import cv2|from cv2 )', src, re.MULTILINE), (
+            'F35.2 regression: stitcher.py must not import cv2 -- '
+            'tile load + stitched save both go through tifffile.'
+        )

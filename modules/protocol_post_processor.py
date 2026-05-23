@@ -5,14 +5,12 @@ import datetime
 import enum
 import pathlib
 
-import cv2
 import pandas as pd
 
 from modules.common_utils import PostFunction
 from modules.objectives_loader import ObjectiveLoader
 from modules.protocol_post_processing_helper import ProtocolPostProcessingHelper
 from modules.protocol_post_record import ProtocolPostRecord
-import modules.image_utils as image_utils
 
 from lvp_logger import logger
 
@@ -170,20 +168,15 @@ class ProtocolPostProcessor(abc.ABC):
                 logger.error(f'Failed to generate {output_file_loc_rel}: {alg_results["error"]}')
                 continue
 
-            # Subclass-write bypass: an algorithm that already wrote the
-            # output file itself (e.g. CompositeGeneration's RGB-native
-            # tifffile.imwrite path) signals "skip the base-class write"
-            # by returning image=None. Value-presence test, not key-
-            # presence -- the key is always set, only the value varies.
-            if alg_results.get('image') is not None:
-                if not output_path.exists():
-                    output_path.mkdir(exist_ok=True, parents=True)
-
-                logger.debug(f'[{self._name} ] Writing {output_file_loc_rel}')
-
-                if not cv2.imwrite(filename=str(output_file_loc), img=alg_results['image']):
-                    logger.error(f'[{self._name} ] Unable to write image {output_file_loc}')
-                    continue
+            # Each ProtocolPostProcessor subclass owns its own file
+            # write via tifffile (RGB-native; auto-detects photometric).
+            # The legacy cv2.imwrite fallback was retired per
+            # AUDIT_LAYER_SEPARATION_2026-05-24 F35.2 + the color
+            # audit's mono-native pivot -- cv2 is BGR-native and would
+            # silently swap channels relative to the RGB-native readers
+            # (tifffile / FIJI / OS preview). Subclasses that fail to
+            # write must signal status=False; an alg_results['image']
+            # payload is now informational, not a save trigger.
 
             self._add_record(
                 protocol_post_record=protocol_post_record,

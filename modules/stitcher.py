@@ -3,9 +3,9 @@
 import os
 import pathlib
 
-import cv2
 import numpy as np
 import pandas as pd
+import tifffile as tf
 
 import modules.common_utils as common_utils
 import modules.image_utils as image_utils
@@ -83,7 +83,11 @@ class Stitcher(ProtocolPostProcessor):
         df: pd.DataFrame,
         **kwargs,
     ):
-        return Stitcher._simple_position_stitcher(path=path, df=df[['Filepath', 'X', 'Y']])
+        return Stitcher._simple_position_stitcher(
+            path=path,
+            df=df[['Filepath', 'X', 'Y']],
+            output_file_loc=kwargs.get('output_file_loc'),
+        )
 
     @staticmethod
     def _add_record(
@@ -114,16 +118,29 @@ class Stitcher(ProtocolPostProcessor):
         )
 
     @staticmethod
-    def _simple_position_stitcher(path: pathlib.Path, df: pd.DataFrame):
+    def _simple_position_stitcher(
+        path: pathlib.Path,
+        df: pd.DataFrame,
+        output_file_loc: pathlib.Path | None = None,
+    ):
         """
         Performs a simple concatenation of images, given a set of X/Y positions the images were captured from.
         Assumes no overlap between images.
+
+        When output_file_loc is provided, writes the stitched output via
+        tifffile and returns image=None per the protocol_post_processor
+        subclass-write bypass contract (matches composite_generation +
+        zprojector). When None (test / legacy callers), returns the
+        stitched array for the caller to save.
         """
-        # Load source images
+        # Load source images via tifffile (RGB-native; returns mono 2D
+        # for single-channel TIFFs). Matches the canonical read path
+        # used by composite_generation + zprojector, replacing the
+        # legacy cv2.imread BGR-native call.
         images = {}
         for _, row in df.iterrows():
             image_filepath = path / row['Filepath']
-            images[row['Filepath']] = cv2.imread(str(image_filepath), cv2.IMREAD_UNCHANGED)
+            images[row['Filepath']] = tf.imread(str(image_filepath))
 
         df = df.copy()
 
@@ -201,10 +218,27 @@ class Stitcher(ProtocolPostProcessor):
                     else:
                         stitched_img[y_val : y_val + im_y, x_val : x_val + im_x] = image
 
+        # Self-write when output_file_loc is provided (canonical path
+        # under protocol_post_processor). Matches composite_generation +
+        # zprojector. tifffile auto-detects photometric: 2D mono ->
+        # minisblack, 3D shape[-1]=3 -> rgb. Signal subclass-wrote via
+        # image=None so the base class skips its own write branch.
+        if output_file_loc is not None:
+            output_file_loc_abs = path / output_file_loc
+            output_file_loc_abs.parent.mkdir(parents=True, exist_ok=True)
+            tf.imwrite(
+                str(output_file_loc_abs),
+                stitched_img,
+                compression='lzw',
+            )
+            return_image = None
+        else:
+            return_image = stitched_img
+
         return {
             'status': True,
             'error': None,
-            'image': stitched_img,
+            'image': return_image,
             'metadata': {
                 'center': center,
             },
