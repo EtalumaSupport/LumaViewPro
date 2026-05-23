@@ -532,8 +532,9 @@ class SequentialIOExecutor:
         # this method's three callers (`protocol_cleanup.py:233` from
         # main thread when the worker may be mid-task). The other two
         # callers (`_run_loop` and `shutdown`) don't need the wait.
-        # Structural fix pending per AUDIT_CONCURRENCY_2026-05-24 F7
-        # (wait_for_idle method gated on existing `running_task`).
+        # Structural fix pending: expose `wait_for_idle(timeout)` gated
+        # on the existing `running_task` attribute and have the
+        # mid-task caller use that.
         time.sleep(0.05)
         # Clear completion callback when protocol ends prematurely
         self.protocol_complete_callback = None

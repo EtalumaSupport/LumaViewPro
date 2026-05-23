@@ -532,7 +532,7 @@ class ProtocolSettings(FloatLayout):
         # the bound `popup.dismiss` dispatch. The decorator runs this method
         # on a daemon Thread; writing the property here would dispatch
         # `popup.dismiss` on the worker thread and can corrupt the Kivy
-        # property graph (Bug-E shape). Marshal to the UI thread.
+        # property graph mid-dispatch. Marshal to the UI thread.
         Clock.schedule_once(lambda dt: setattr(self, 'done', True), 0)
 
     def _validate_objectives_in_protocol(self, protocol_df: pd.DataFrame) -> bool:
