@@ -181,10 +181,15 @@ class ProtocolPostProcessor(abc.ABC):
                 logger.error(f"Failed to generate {output_file_loc_rel}: {alg_results['error']}")
                 continue
 
-            if 'image' in alg_results:
+            # Subclass-write bypass: an algorithm that already wrote the
+            # output file itself (e.g. CompositeGeneration's RGB-native
+            # tifffile.imwrite path) signals "skip the base-class write"
+            # by returning image=None. Value-presence test, not key-
+            # presence -- the key is always set, only the value varies.
+            if alg_results.get('image') is not None:
                 if not output_path.exists():
                     output_path.mkdir(exist_ok=True, parents=True)
-            
+
                 logger.debug(f"[{self._name} ] Writing {output_file_loc_rel}")
 
                 if not cv2.imwrite(
