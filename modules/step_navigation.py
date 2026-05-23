@@ -188,16 +188,34 @@ def go_to_step(
         # Also force a stage widget redraw so the crosshair/well indicator moves
         _schedule_ui(lambda dt: ctx.stage.draw_labware(), 0)
 
-        _schedule_ui(lambda dt: go_to_step_update_ui(step), 0)
+        # Capture called_from_protocol in the closure so the UI-thread
+        # callback knows whether this is a protocol-cycle invocation
+        # (skip accordion-open) or a manual-navigation one (do it).
+        # Reading ctx.protocol_running.is_set() inside the UI callback
+        # races at protocol-end: the last step's scheduled callback can
+        # fire AFTER cleanup clears protocol_running, see the cleared
+        # flag, and open the last-step's accordion (Red on a 4-channel
+        # protocol). Closure-capture is race-free.
+        _schedule_ui(
+            lambda dt: go_to_step_update_ui(
+                step, called_from_protocol=called_from_protocol
+            ),
+            0,
+        )
 
 
-def go_to_step_update_ui(step):
+def go_to_step_update_ui(step, called_from_protocol: bool = False):
     """Update UI widgets to reflect a protocol step.
 
     Delegates per-layer widget updates to LayerControl.set_step_state(),
     which encapsulates widget knowledge. This function handles only the
     cross-layer concerns: opening the settings panel, expanding the
     accordion, and setting the LED button during protocol preview.
+
+    ``called_from_protocol``: when True, skip the accordion expand
+    (the user's chosen open accordion is preserved during + after a
+    protocol run). When False (manual step navigation), expand to
+    the step's channel as the user expects.
     """
     ctx = _app_ctx.ctx
     settings = ctx.settings
@@ -210,13 +228,17 @@ def go_to_step_update_ui(step):
     ctx.image_settings.ids['toggle_imagesettings'].state = 'down'
     ctx.image_settings.toggle_settings()
 
-    # Expand accordion to step's channel and collapse the others. Direct
-    # `collapse = False` on a single item doesn't propagate to siblings in
-    # Kivy's Accordion — only user clicks auto-collapse others — so stepping
-    # from Green -> Red left the Green panel visually expanded. set_expanded_layer
-    # iterates all layers and has its own protocol_running guard + ScrollView
-    # cleanup, so call it unconditionally.
-    ctx.image_settings.set_expanded_layer(layer=color)
+    # Expand accordion to step's channel ONLY for manual navigation.
+    # Direct `collapse = False` on a single item doesn't propagate to
+    # siblings in Kivy's Accordion -- only user clicks auto-collapse
+    # others -- so manual nav from Green -> Red would leave Green
+    # visually expanded without this call. Protocol-cycle invocations
+    # skip the call entirely (the in-protocol guard inside
+    # set_expanded_layer has a race at protocol-end: the last step's
+    # UI-scheduled callback runs after protocol_running clears,
+    # leaving the accordion stuck on the last step's color).
+    if not called_from_protocol:
+        ctx.image_settings.set_expanded_layer(layer=color)
 
     # Delegate all per-layer widget updates to LayerControl
     layer_obj.set_step_state(step)

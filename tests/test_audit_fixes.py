@@ -3011,6 +3011,102 @@ class TestProtocolCleanupRestoresLayerShader_ShaderHygiene:
         )
 
 
+class TestAccordionStaysPutAcrossProtocolStopStart_AccordionDrift:
+    """Cluster sibling of the shader-state-hygiene fix above. The
+    user's open accordion was drifting toward the last protocol step's
+    channel (Red on a typical BF/Blue/Green/Red protocol) across
+    repeated stop/start cycles.
+
+    Bug shape (sim repro 2026-05-23): each protocol step calls
+    step_navigation.go_to_step(step, called_from_protocol=True). That
+    schedules go_to_step_update_ui(step) on the UI thread via
+    _schedule_ui. The UI callback calls
+    image_settings.set_expanded_layer(layer=color), which has an
+    in-protocol guard (no-op if ctx.protocol_running.is_set()). But
+    the LAST step's scheduled callback can fire AFTER cleanup clears
+    protocol_running -- the guard reads False, the accordion opens to
+    the last step's color. On a 4-channel protocol that's Red. Each
+    subsequent run shows the same race and the user ends up stuck on
+    Red after a few stop/starts.
+
+    Fix: capture called_from_protocol in the schedule closure (it's
+    already on go_to_step's signature, defaulting True for the
+    protocol path and False for manual navigation). Pass it into
+    go_to_step_update_ui, which gates the set_expanded_layer call on
+    `not called_from_protocol`. Race-free because the gate is closure-
+    captured at schedule time, not re-read at fire time.
+    """
+
+    def _src(self):
+        from pathlib import Path
+
+        return (
+            Path(__file__).resolve().parent.parent / 'modules' / 'step_navigation.py'
+        ).read_text()
+
+    def test_go_to_step_update_ui_takes_called_from_protocol_arg(self):
+        """The UI callback function must accept the closure-captured
+        called_from_protocol flag. Without it, the gate has nowhere
+        to go and the race-prone protocol_running read is the only
+        option."""
+        src = self._src()
+        assert 'def go_to_step_update_ui(step, called_from_protocol' in src, (
+            'go_to_step_update_ui must take called_from_protocol kwarg '
+            'so the accordion-drift gate is closure-captured at '
+            'schedule time (not race-prone protocol_running read)'
+        )
+
+    def test_set_expanded_layer_call_gated_on_called_from_protocol(self):
+        """The accordion-expand call must be guarded by
+        `if not called_from_protocol:` so protocol-cycle invocations
+        don't open the accordion (regardless of protocol_running
+        state at fire time)."""
+        src = self._src()
+        # Find go_to_step_update_ui body
+        start = src.find('def go_to_step_update_ui(')
+        assert start != -1
+        body = src[start:start + 4000]
+        end = body.find('\ndef ', 1)
+        if end != -1:
+            body = body[:end]
+        set_expanded_idx = body.find('set_expanded_layer(')
+        assert set_expanded_idx != -1, (
+            'set_expanded_layer call must exist in go_to_step_update_ui'
+        )
+        # The 250 chars before the set_expanded_layer call must
+        # contain `if not called_from_protocol:`.
+        guard_window = body[max(0, set_expanded_idx - 250):set_expanded_idx]
+        assert 'if not called_from_protocol' in guard_window, (
+            'set_expanded_layer call must be gated by '
+            '`if not called_from_protocol:` to prevent accordion drift '
+            'toward the last protocol step across repeated stop/starts'
+        )
+
+    def test_schedule_closure_passes_called_from_protocol(self):
+        """The _schedule_ui closure for go_to_step_update_ui must
+        forward called_from_protocol from the outer go_to_step scope.
+        Without it, the UI callback always sees the default (False)
+        and opens the accordion -- the bug recurs."""
+        src = self._src()
+        # Find the _schedule_ui call that wraps go_to_step_update_ui.
+        idx = src.find('go_to_step_update_ui(')
+        assert idx != -1
+        # The schedule-time call is the FIRST occurrence (the def is
+        # later). Capture the window around it.
+        # Find the lambda that takes dt and calls go_to_step_update_ui.
+        schedule_idx = src.find('lambda dt: go_to_step_update_ui(')
+        assert schedule_idx != -1, (
+            'Schedule call for go_to_step_update_ui must exist'
+        )
+        # The schedule should pass called_from_protocol=called_from_protocol.
+        # Window: 200 chars after the lambda start.
+        window = src[schedule_idx:schedule_idx + 200]
+        assert 'called_from_protocol=called_from_protocol' in window, (
+            'Schedule closure must forward called_from_protocol from '
+            'go_to_step scope into go_to_step_update_ui'
+        )
+
+
 class TestPF2_FileIoExecutorClearedOnAbort:
     """PF-2: on hardware-disconnect / abort cleanup, file_io_executor's
     pending queue was NOT cleared — only io_executor's was. Queued IOTasks
