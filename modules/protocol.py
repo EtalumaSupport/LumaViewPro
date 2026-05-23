@@ -231,15 +231,21 @@ class Protocol:
         """
         if layer_settings is None:
             layer_settings = self._config.get('layer_settings')
-        if self.period() is None:
-            period_minutes = -1
-        else:
-            period_minutes = round(self.period().total_seconds() / 60.0, 2)
-
-        if self.duration() is None:
-            duration_hours = -1
-        else:
-            duration_hours = round(self.duration().total_seconds() / 3600.0, 6)
+        # Manual Z-Stack + single-shot capture pass period=None /
+        # duration=None into the Protocol config (ui/zstack.py:187-188).
+        # The loader accepts 0 as the single-scan marker (Period < 0 and
+        # Duration < 0 are hard-rejected); emit 0 for None so a Manual
+        # Z-Stack TSV round-trips cleanly. Pre-fix, Apply-Z-Projection on
+        # any Manual Z-Stack aborted with "Invalid 'Period' value... must
+        # be >= 0" because the writer emitted -1 (issue #669).
+        period_minutes = (
+            0 if self.period() is None
+            else round(self.period().total_seconds() / 60.0, 2)
+        )
+        duration_hours = (
+            0 if self.duration() is None
+            else round(self.duration().total_seconds() / 3600.0, 6)
+        )
 
         try:
             with open(file_path, 'w') as fp:
@@ -1447,10 +1453,16 @@ class Protocol:
                 raise ProtocolFormatError(f"Missing 'Duration' row in protocol file")
             
             hours = float(duration[1])
-            if hours <= 0:
-                logger.error(f"Invalid 'Duration' value in protocol file {file_path}: must be > 0")
-                raise ProtocolFormatError(f"Invalid 'Duration' value in protocol file: must be > 0")
-            
+            # Duration == 0 mirrors Period == 0 -- valid single-scan
+            # marker for Manual Z-Stack / single-shot capture (where the
+            # config carries duration=None). Hard-reject only negative
+            # values (corrupted TSV). Pre-fix the loader rejected 0 too,
+            # which kept Apply-Z-Projection broken after the Period side
+            # of the encoding bug was fixed (issue #669).
+            if hours < 0:
+                logger.error(f"Invalid 'Duration' value in protocol file {file_path}: must be >= 0")
+                raise ProtocolFormatError(f"Invalid 'Duration' value in protocol file: must be >= 0")
+
             config['duration'] = datetime.timedelta(hours=hours)
 
         except StopIteration:

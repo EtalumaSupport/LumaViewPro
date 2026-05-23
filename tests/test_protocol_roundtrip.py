@@ -942,6 +942,83 @@ class TestRoundTripMetadata:
                 tiling_configs_file_loc=TILING_CONFIGS,
             )
 
+    def test_period_none_round_trips_as_zero(self, tmp_path):
+        """Manual Z-Stack passes period=None into the Protocol config
+        (ui/zstack.py:187-188). The writer must encode None as 0 (not
+        -1) so the loader's `Period < 0` rejection doesn't fire. Pre-
+        fix, the writer emitted -1 and Apply-Z-Projection on every
+        Manual Z-Stack folder aborted with "Invalid 'Period' value...
+        must be >= 0" before any TIFF was read (issue #669)."""
+        config = {
+            "version": Protocol.CURRENT_VERSION,
+            "steps": pd.DataFrame([_make_step()]),
+            "period": None,
+            "duration": None,
+            "labware_id": "6 well microplate",
+            "capture_root": "",
+            "tiling": "1x1",
+        }
+        proto = Protocol(
+            tiling_configs_file_loc=TILING_CONFIGS,
+            config=config,
+        )
+        reloaded = _save_and_reload(proto, tmp_path)
+        assert reloaded.period() == datetime.timedelta(0), (
+            f"period=None must round-trip as timedelta(0) (the single-"
+            f"scan marker accepted by the loader). Got "
+            f"{reloaded.period()!r}."
+        )
+
+    def test_duration_none_round_trips_as_zero(self, tmp_path):
+        """Symmetric to test_period_none_round_trips_as_zero -- Manual
+        Z-Stack passes duration=None too. The writer must encode None
+        as 0 and the loader must accept 0 (issue #669)."""
+        config = {
+            "version": Protocol.CURRENT_VERSION,
+            "steps": pd.DataFrame([_make_step()]),
+            "period": None,
+            "duration": None,
+            "labware_id": "6 well microplate",
+            "capture_root": "",
+            "tiling": "1x1",
+        }
+        proto = Protocol(
+            tiling_configs_file_loc=TILING_CONFIGS,
+            config=config,
+        )
+        reloaded = _save_and_reload(proto, tmp_path)
+        assert reloaded.duration() == datetime.timedelta(0), (
+            f"duration=None must round-trip as timedelta(0). Got "
+            f"{reloaded.duration()!r}."
+        )
+
+    def test_duration_zero_accepted_as_single_scan(self, tmp_path):
+        """Duration=0 is a valid single-scan marker (Manual Z-Stack /
+        single-shot capture). The loader's `Duration <= 0` rejection
+        was relaxed to `Duration < 0` so the Period=0 fix isn't tripped
+        by an adjacent Duration check (issue #669)."""
+        proto = _build_protocol([_make_step()], duration_hrs=0.0)
+        reloaded = _save_and_reload(proto, tmp_path)
+        assert reloaded.duration() == datetime.timedelta(0)
+
+    def test_duration_negative_still_rejected(self, tmp_path):
+        """Duration < 0 stays a hard error (corrupted TSV). Mirrors
+        test_period_negative_still_rejected (issue #669)."""
+        from modules.protocol import ProtocolFormatError
+        tmp_path.mkdir(parents=True, exist_ok=True)
+        proto = _build_protocol([_make_step()], duration_hrs=1.0)
+        filepath = tmp_path / "neg_duration.tsv"
+        proto.to_file(filepath)
+        text = filepath.read_text(encoding='utf-8')
+        patched = text.replace('Duration\t1', 'Duration\t-1', 1)
+        filepath.write_text(patched, encoding='utf-8')
+
+        with pytest.raises(ProtocolFormatError):
+            Protocol.from_file(
+                file_path=filepath,
+                tiling_configs_file_loc=TILING_CONFIGS,
+            )
+
     def test_duration_preserved(self, tmp_path):
         proto = _build_protocol([_make_step()], duration_hrs=12.0)
         reloaded = _save_and_reload(proto, tmp_path)
