@@ -11589,3 +11589,100 @@ class TestProtocolPostProcessorNoBareCvImwrite_F35_2:
             'F35.2 regression: stitcher.py must not import cv2 -- '
             'tile load + stitched save both go through tifffile.'
         )
+
+
+class TestEmergencyShutdownBoundedLeds_F6:
+    """AUDIT_CONCURRENCY_2026-05-24 F6: `_emergency_shutdown` atexit hook
+    previously called `illumination.leds_off()`, which acquires
+    `_led_lock` UNBOUNDED. If an in-flight LED command holds the lock at
+    interpreter exit, atexit deadlocks (Python's atexit does not honor
+    timeouts).
+
+    Fix: split out `leds_off_emergency(timeout_s=2.0)` that uses
+    `_led_lock.acquire(timeout=timeout_s)` with a log-and-skip fallback.
+    `_emergency_shutdown` calls this variant. Normal `leds_off` keeps
+    its unbounded `with` semantics.
+    """
+
+    def _illumination_src(self):
+        from pathlib import Path
+
+        return (
+            Path(__file__).resolve().parent.parent
+            / 'modules' / 'lumascope_api' / 'illumination.py'
+        ).read_text()
+
+    def _lumascope_src(self):
+        from pathlib import Path
+
+        return (
+            Path(__file__).resolve().parent.parent
+            / 'modules' / 'lumascope_api' / '_lumascope.py'
+        ).read_text()
+
+    def test_leds_off_emergency_method_exists(self):
+        """The bounded variant must exist as a callable method on the
+        illumination API."""
+        import re
+
+        src = self._illumination_src()
+        assert re.search(r'def leds_off_emergency\s*\(', src), (
+            'F6 regression: illumination must expose leds_off_emergency '
+            'with bounded _led_lock acquire for atexit / abnormal exit '
+            'paths.'
+        )
+
+    def test_leds_off_emergency_uses_bounded_acquire(self):
+        """The variant body must call `_led_lock.acquire(timeout=...)`
+        (NOT `with self._led_lock:`). Quote-/format-agnostic regex
+        tolerates whitespace + keyword-vs-positional timeout."""
+        import re
+
+        src = self._illumination_src()
+        # Match from `def leds_off_emergency` up to the next sibling
+        # method / decorator / class definition. Tolerates `-> None:`
+        # return annotations (`\):` would not match because the colon
+        # follows the annotation, not the paren).
+        match = re.search(
+            r'def leds_off_emergency.*?(?=\n    def |\n    @|\nclass |\Z)',
+            src,
+            re.DOTALL,
+        )
+        assert match is not None, 'leds_off_emergency body not found'
+        body = match.group(0)
+        # Must acquire with a timeout (positional or keyword).
+        bounded = re.search(
+            r'_led_lock\.acquire\s*\(\s*(timeout\s*=\s*)?[^)]*\)',
+            body,
+        )
+        assert bounded is not None, (
+            'F6 regression: leds_off_emergency must call '
+            '`_led_lock.acquire(timeout=...)`. Unbounded `with` '
+            'semantics defeat the atexit-deadlock fix.'
+        )
+        # Must NOT use the unbounded `with` form inside the body.
+        assert not re.search(r'with\s+self\._led_lock\s*:', body), (
+            'F6 regression: leds_off_emergency must not use `with '
+            'self._led_lock:` -- that is unbounded and would re-'
+            'introduce the atexit deadlock.'
+        )
+
+    def test_emergency_shutdown_calls_bounded_variant(self):
+        """`_emergency_shutdown` must call `leds_off_emergency`, not
+        the unbounded `leds_off`. A revert that drops the `_emergency`
+        suffix re-introduces the deadlock surface."""
+        import re
+
+        src = self._lumascope_src()
+        match = re.search(
+            r'def _emergency_shutdown\s*\(self\):.*?(?=\n    def |\n    @|\nclass )',
+            src,
+            re.DOTALL,
+        )
+        assert match is not None, '_emergency_shutdown body not found'
+        body = match.group(0)
+        assert re.search(r'\.leds_off_emergency\s*\(', body), (
+            'F6 regression: _emergency_shutdown must call '
+            'leds_off_emergency (bounded lock acquire) -- not '
+            'leds_off (unbounded).'
+        )

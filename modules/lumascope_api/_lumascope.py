@@ -998,9 +998,13 @@ class Lumascope:
         stops motion via the LVP-A-1 chain). Swallows every exception so
         atexit completes cleanly even when the logging stack or hardware
         access is already torn down.
+
+        Uses `leds_off_emergency` (bounded `_led_lock` acquire) rather
+        than `leds_off` to avoid atexit deadlock when an in-flight LED
+        command holds the lock.
         """
         try:
-            self.illumination.leds_off()
+            self.illumination.leds_off_emergency()
         except Exception:
             pass
         try:

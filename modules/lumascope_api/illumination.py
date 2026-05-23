@@ -260,6 +260,38 @@ class IlluminationAPI:
         for color in self._driver.available_colors():
             self._fire_led_listeners(color, False, 0.0, '')
 
+    def leds_off_emergency(self, *, timeout_s: float = 2.0) -> None:
+        """Bounded leds-off for atexit / abnormal-exit paths only.
+
+        Normal `leds_off` blocks on `_led_lock` indefinitely. atexit hooks
+        run on the main thread and cannot honor timeouts, so an in-flight
+        LED command holding `_led_lock` would deadlock interpreter
+        teardown.
+
+        This variant uses `_led_lock.acquire(timeout=timeout_s)` with a
+        log-and-skip fallback. The post-call notification / owner-clear /
+        listener-fire paths are also skipped -- by the time atexit fires,
+        the notification stack, state cache, and listener bus may already
+        be torn down. Don't call from normal code paths; use `leds_off`
+        instead.
+        """
+        if not self._driver:
+            return
+        acquired = self._led_lock.acquire(timeout=timeout_s)
+        if not acquired:
+            try:
+                _api_log.warning(
+                    f'leds_off_emergency: _led_lock held past {timeout_s}s; '
+                    'skipping LED-off to avoid atexit deadlock'
+                )
+            except Exception:
+                pass
+            return
+        try:
+            self._driver.leds_off()
+        finally:
+            self._led_lock.release()
+
     def _notify_if_led_command_failed(self) -> None:
         """Read driver.last_command_error and fire a sample-safety
         notification if the most recent LED command did not confirm.
