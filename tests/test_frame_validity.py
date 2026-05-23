@@ -73,14 +73,14 @@ class TestMultipleSources:
 
     def test_sources_at_different_times(self):
         fv = FrameValidity()
-        fv.invalidate('led')       # needs 2 more frames from frame 0
-        fv.count_frame()            # frame 1
-        fv.invalidate('gain')      # needs 2 more frames from frame 1
+        fv.invalidate('led')  # needs 2 more frames from frame 0
+        fv.count_frame()  # frame 1
+        fv.invalidate('gain')  # needs 2 more frames from frame 1
         # led needs 1 more (target=2), gain needs 2 more (target=3)
         assert fv.frames_until_valid() == 2
-        fv.count_frame()            # frame 2 — led settles
+        fv.count_frame()  # frame 2 — led settles
         assert fv.frames_until_valid() == 1
-        fv.count_frame()            # frame 3 — gain settles
+        fv.count_frame()  # frame 3 — gain settles
         assert fv.is_valid
 
     def test_reinvalidate_same_source(self):
@@ -455,15 +455,19 @@ class TestLoadCameraTiming:
     def test_mixed_valid_and_invalid_values(self):
         """Valid values are applied, invalid ones silently ignored."""
         fv = FrameValidity()
-        fv.load_camera_timing({'skip_frames': {
-            'led': 5,         # valid
-            'gain': -1,       # invalid (negative)
-            'exposure': 3.0,  # invalid (float)
-            'z_move': 0,      # valid (zero)
-        }})
+        fv.load_camera_timing(
+            {
+                'skip_frames': {
+                    'led': 5,  # valid
+                    'gain': -1,  # invalid (negative)
+                    'exposure': 3.0,  # invalid (float)
+                    'z_move': 0,  # valid (zero)
+                }
+            }
+        )
         assert fv.SKIP_FRAMES['led'] == 5
-        assert fv.SKIP_FRAMES['gain'] == 2      # unchanged default
-        assert fv.SKIP_FRAMES['exposure'] == 3   # unchanged default (measured: 3 on a2A3536)
+        assert fv.SKIP_FRAMES['gain'] == 2  # unchanged default
+        assert fv.SKIP_FRAMES['exposure'] == 3  # unchanged default (measured: 3 on a2A3536)
         assert fv.SKIP_FRAMES['z_move'] == 0
 
     def test_extra_config_keys_ignored(self):
@@ -517,6 +521,7 @@ class TestLoadCameraTimingLumascope:
     def test_missing_file_no_error(self, tmp_path):
         """Missing timing file should not raise — silently skipped."""
         import pathlib
+
         timing_dir = tmp_path / 'data' / 'camera_timing'
         timing_dir.mkdir(parents=True)
         timing_path = timing_dir / 'NonExistent.json'
@@ -536,6 +541,7 @@ class TestLoadCameraTimingLumascope:
         (timing_dir / 'BadCam.json').write_text('{invalid json!!!}')
 
         import json
+
         with pytest.raises(json.JSONDecodeError):
             with open(timing_dir / 'BadCam.json') as f:
                 json.load(f)
@@ -624,7 +630,7 @@ class TestCountFrameWithChunks:
 
     def test_chunks_clear_gain_pending_short_circuiting_skip_frames(self):
         fv = FrameValidity()
-        fv.invalidate('gain')              # default skip = 2 frames
+        fv.invalidate('gain')  # default skip = 2 frames
         fv.set_target('gain', 5.0)
         # Single frame_count + matching chunks -> source is cleared even
         # though skip-frames count (2) hasn't been met.
@@ -662,7 +668,7 @@ class TestCountFrameWithChunks:
     def test_no_match_falls_back_to_skip_frames(self):
         """If chunks don't match target, source clears via skip_frames as before."""
         fv = FrameValidity()
-        fv.invalidate('gain')              # default skip = 2 frames
+        fv.invalidate('gain')  # default skip = 2 frames
         fv.set_target('gain', 5.0)
         # Chunks DON'T match (camera still on old gain)
         fv.count_frame(chunk_data={'Gain': 1.0})
@@ -685,7 +691,7 @@ class TestCountFrameWithChunks:
         fv = FrameValidity()
         fv.invalidate('gain')
         fv.set_target('gain', 5.0)  # target recorded but no chunks supplied
-        fv.count_frame()             # no chunk_data -> skip-frames path
+        fv.count_frame()  # no chunk_data -> skip-frames path
         assert 'gain' in fv.pending_sources
         fv.count_frame()
         assert 'gain' not in fv.pending_sources

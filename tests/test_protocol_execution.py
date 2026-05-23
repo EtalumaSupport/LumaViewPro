@@ -52,6 +52,7 @@ COMPLETION_TIMEOUT = 15  # seconds — generous for CI
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _make_simulated_scope():
     """Create a Lumascope with simulated hardware in fast timing mode."""
     s = Lumascope(simulate=True)
@@ -65,11 +66,12 @@ def _make_simulated_scope():
 def _make_executors():
     """Create and start the SequentialIOExecutors + protocol_thread needed."""
     from modules.protocol_thread import ProtocolThread
+
     execs = {
-        'io': SequentialIOExecutor(name="TEST_IO"),
-        'file_io': SequentialIOExecutor(name="TEST_FILE"),
-        'camera': SequentialIOExecutor(name="TEST_CAMERA"),
-        'autofocus': SequentialIOExecutor(name="TEST_AF"),
+        'io': SequentialIOExecutor(name='TEST_IO'),
+        'file_io': SequentialIOExecutor(name='TEST_FILE'),
+        'camera': SequentialIOExecutor(name='TEST_CAMERA'),
+        'autofocus': SequentialIOExecutor(name='TEST_AF'),
     }
     for e in execs.values():
         e.start()
@@ -110,12 +112,13 @@ def _make_image_capture_config():
     }
 
 
-TILING_CONFIGS = pathlib.Path(__file__).parent.parent / "data" / "tiling.json"
+TILING_CONFIGS = pathlib.Path(__file__).parent.parent / 'data' / 'tiling.json'
 
 
 def _build_real_protocol(rows, period_min=1.0, duration_hrs=1.0):
     """Build a real Protocol object from a list of step dicts."""
     import pandas as pd
+
     df = pd.DataFrame(rows)
     config = {
         'version': Protocol.CURRENT_VERSION,
@@ -150,7 +153,9 @@ def _make_single_step_protocol(
 
     step = {
         'Name': 'A1_test',
-        'X': 10.0, 'Y': 20.0, 'Z': 5000.0,
+        'X': 10.0,
+        'Y': 20.0,
+        'Z': 5000.0,
         'Auto_Focus': auto_focus,
         'Color': color,
         'False_Color': false_color,
@@ -181,42 +186,60 @@ def _make_multi_step_protocol(steps_config):
     Missing keys get defaults.
     """
     defaults = {
-        'color': 'BF', 'auto_gain': False, 'auto_focus': False,
-        'acquire': 'image', 'gain_db': 1.0, 'exposure_ms': 10.0,
-        'illumination_ma': 50.0, 'false_color': False, 'sum_count': 1,
-        'video_config': {'duration': 1, 'fps': 5}, 'stim_config': {},
-        'x': 10.0, 'y': 20.0, 'z': 5000.0, 'well': 'A1', 'name': None,
-        'tile': '', 'z_slice': 0, 'tile_group_id': 0, 'zstack_group_id': 0,
+        'color': 'BF',
+        'auto_gain': False,
+        'auto_focus': False,
+        'acquire': 'image',
+        'gain_db': 1.0,
+        'exposure_ms': 10.0,
+        'illumination_ma': 50.0,
+        'false_color': False,
+        'sum_count': 1,
+        'video_config': {'duration': 1, 'fps': 5},
+        'stim_config': {},
+        'x': 10.0,
+        'y': 20.0,
+        'z': 5000.0,
+        'well': 'A1',
+        'name': None,
+        'tile': '',
+        'z_slice': 0,
+        'tile_group_id': 0,
+        'zstack_group_id': 0,
         'objective': '10x Oly',
     }
 
     rows = []
     for i, cfg in enumerate(steps_config):
         merged = {**defaults, **cfg}
-        name = merged['name'] or f"step_{i}_{merged['color']}"
-        rows.append({
-            'Name': name,
-            'X': merged['x'], 'Y': merged['y'], 'Z': merged['z'],
-            'Auto_Focus': merged['auto_focus'],
-            'Color': merged['color'],
-            'False_Color': merged['false_color'],
-            'Illumination': merged['illumination_ma'],
-            'Gain': merged['gain_db'],
-            'Auto_Gain': merged['auto_gain'],
-            'Exposure': merged['exposure_ms'],
-            'Sum': merged['sum_count'],
-            'Objective': merged['objective'],
-            'Well': merged['well'],
-            'Tile': merged['tile'],
-            'Z-Slice': merged['z_slice'],
-            'Custom Step': True,
-            'Tile Group ID': merged['tile_group_id'],
-            'Z-Stack Group ID': merged['zstack_group_id'],
-            'Acquire': merged['acquire'],
-            'Video Config': merged['video_config'],
-            'Stim_Config': merged['stim_config'],
-            'Step Index': i,
-        })
+        name = merged['name'] or f'step_{i}_{merged["color"]}'
+        rows.append(
+            {
+                'Name': name,
+                'X': merged['x'],
+                'Y': merged['y'],
+                'Z': merged['z'],
+                'Auto_Focus': merged['auto_focus'],
+                'Color': merged['color'],
+                'False_Color': merged['false_color'],
+                'Illumination': merged['illumination_ma'],
+                'Gain': merged['gain_db'],
+                'Auto_Gain': merged['auto_gain'],
+                'Exposure': merged['exposure_ms'],
+                'Sum': merged['sum_count'],
+                'Objective': merged['objective'],
+                'Well': merged['well'],
+                'Tile': merged['tile'],
+                'Z-Slice': merged['z_slice'],
+                'Custom Step': True,
+                'Tile Group ID': merged['tile_group_id'],
+                'Z-Stack Group ID': merged['zstack_group_id'],
+                'Acquire': merged['acquire'],
+                'Video Config': merged['video_config'],
+                'Stim_Config': merged['stim_config'],
+                'Step Index': i,
+            }
+        )
     return _build_real_protocol(rows)
 
 
@@ -250,8 +273,13 @@ def _run_and_wait(executor, protocol, tmp_path, **run_kwargs):
         callbacks=callbacks,
         leds_state_at_end=run_kwargs.pop('leds_state_at_end', 'off'),
         initial_autofocus_states={
-            'BF': False, 'PC': False, 'DF': False,
-            'Red': False, 'Green': False, 'Blue': False, 'Lumi': False,
+            'BF': False,
+            'PC': False,
+            'DF': False,
+            'Red': False,
+            'Green': False,
+            'Blue': False,
+            'Lumi': False,
         },
         **run_kwargs,
     )
@@ -263,6 +291,7 @@ def _run_and_wait(executor, protocol, tmp_path, **run_kwargs):
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture
 def scope():
@@ -318,13 +347,14 @@ def executor(scope, executors):
 # Tier 1: Core Execution Paths
 # ===========================================================================
 
+
 class TestSingleScanBasicImage:
     """Test 1: Simplest happy path — single scan, single BF image step."""
 
     def test_completes_successfully(self, executor, scope, tmp_path):
         protocol = _make_single_step_protocol(color='BF')
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
-        assert completed, "Protocol did not complete within timeout"
+        assert completed, 'Protocol did not complete within timeout'
 
     def test_sets_gain_and_exposure(self, executor, scope, tmp_path):
         # Record original camera settings
@@ -343,7 +373,7 @@ class TestSingleScanBasicImage:
         assert completed
         # After protocol with leds_state_at_end='off', all LEDs should be off
         for color in scope._led_driver.led_ma:
-            assert not scope.illumination.led_enabled(color), f"LED {color} still on after protocol"
+            assert not scope.illumination.led_enabled(color), f'LED {color} still on after protocol'
 
     def test_auto_gain_disabled_in_step(self, executor, scope, tmp_path):
         """When auto_gain=False, protocol should complete normally."""
@@ -412,7 +442,7 @@ class TestSingleScanAutoFocusNoneResult:
         af.best_focus_position.return_value = None  # autofocus failed
 
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
-        assert completed, "Protocol should complete even when autofocus returns None"
+        assert completed, 'Protocol should complete even when autofocus returns None'
 
     def test_z_height_not_modified_when_autofocus_returns_none(self, executor, scope, tmp_path):
         protocol = _make_single_step_protocol(color='BF', auto_focus=True)
@@ -430,8 +460,9 @@ class TestSingleScanAutoFocusNoneResult:
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed
         # Z height should remain unchanged when autofocus returns None
-        assert protocol.step(idx=0)['Z'] == original_z, \
-            "Z height should not change when autofocus returns None"
+        assert protocol.step(idx=0)['Z'] == original_z, (
+            'Z height should not change when autofocus returns None'
+        )
 
 
 class TestSingleScanAutoGainAndAutoFocus:
@@ -483,7 +514,7 @@ class TestAFSliderRaceRegression:
         assert completed
 
         assert pre_af_z not in z_ui_calls, (
-            f"scan_iterate scheduled z_ui_update_func({pre_af_z}) — this overwrites "
+            f'scan_iterate scheduled z_ui_update_func({pre_af_z}) — this overwrites '
             f"the AF executor's UI write to best_focus_position. Bug #563 has regressed."
         )
 
@@ -503,11 +534,11 @@ class TestSingleScanFluorescence:
         # After protocol with leds_state_at_end='off', LEDs are off —
         # completion confirms the LED was used during the protocol
 
-    @pytest.mark.parametrize("color", ['Red', 'Green', 'Blue', 'PC', 'DF', 'Lumi'])
+    @pytest.mark.parametrize('color', ['Red', 'Green', 'Blue', 'PC', 'DF', 'Lumi'])
     def test_completes_for_all_channels(self, executor, scope, tmp_path, color):
         protocol = _make_single_step_protocol(color=color)
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
-        assert completed, f"Protocol failed for channel {color}"
+        assert completed, f'Protocol failed for channel {color}'
 
 
 class TestSingleScanVideo:
@@ -528,8 +559,7 @@ class TestSingleScanVideo:
             acquire='video',
             video_config={'duration': 0.5, 'fps': 5},
         )
-        completed, _ = _run_and_wait(executor, protocol, tmp_path,
-                                      video_as_frames=True)
+        completed, _ = _run_and_wait(executor, protocol, tmp_path, video_as_frames=True)
         assert completed
 
 
@@ -545,7 +575,9 @@ class TestFullProtocol:
         )
 
         completed, _ = _run_and_wait(
-            executor, protocol, tmp_path,
+            executor,
+            protocol,
+            tmp_path,
             run_mode=SequencedCaptureRunMode.FULL_PROTOCOL,
             max_scans=2,
         )
@@ -556,19 +588,23 @@ class TestMultiStepMultiChannel:
     """Test 8: Single scan with multiple steps across channels."""
 
     def test_bf_and_red_steps_complete(self, executor, scope, tmp_path):
-        protocol = _make_multi_step_protocol([
-            {'color': 'BF', 'illumination_ma': 50.0, 'exposure_ms': 10.0},
-            {'color': 'Red', 'illumination_ma': 100.0, 'exposure_ms': 50.0},
-        ])
+        protocol = _make_multi_step_protocol(
+            [
+                {'color': 'BF', 'illumination_ma': 50.0, 'exposure_ms': 10.0},
+                {'color': 'Red', 'illumination_ma': 100.0, 'exposure_ms': 50.0},
+            ]
+        )
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed
 
     def test_all_steps_visited(self, executor, scope, tmp_path):
-        protocol = _make_multi_step_protocol([
-            {'color': 'BF'},
-            {'color': 'Red'},
-            {'color': 'Green'},
-        ])
+        protocol = _make_multi_step_protocol(
+            [
+                {'color': 'BF'},
+                {'color': 'Red'},
+                {'color': 'Green'},
+            ]
+        )
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed
         # Note: the executor deep-copies the protocol at run start (P2-14),
@@ -581,13 +617,13 @@ class TestMultiStepMultiChannel:
 # Tier 1 Extras: Run-level options
 # ===========================================================================
 
+
 class TestImageSavingDisabled:
     """Protocol with image saving disabled should still complete."""
 
     def test_completes_without_saving(self, executor, scope, tmp_path):
         protocol = _make_single_step_protocol(color='BF')
-        completed, _ = _run_and_wait(executor, protocol, tmp_path,
-                                      enable_image_saving=False)
+        completed, _ = _run_and_wait(executor, protocol, tmp_path, enable_image_saving=False)
         assert completed
 
 
@@ -596,8 +632,7 @@ class TestDisableSavingArtifacts:
 
     def test_completes_without_artifacts(self, executor, scope, tmp_path):
         protocol = _make_single_step_protocol(color='BF')
-        completed, _ = _run_and_wait(executor, protocol, tmp_path,
-                                      disable_saving_artifacts=True)
+        completed, _ = _run_and_wait(executor, protocol, tmp_path, disable_saving_artifacts=True)
         assert completed
 
 
@@ -606,20 +641,20 @@ class TestLedStateAtEnd:
 
     def test_leds_off_at_end(self, executor, scope, tmp_path):
         protocol = _make_single_step_protocol(color='BF')
-        completed, _ = _run_and_wait(executor, protocol, tmp_path,
-                                      leds_state_at_end='off')
+        completed, _ = _run_and_wait(executor, protocol, tmp_path, leds_state_at_end='off')
         assert completed
         # Verify all LEDs are off via simulator public API
         for color in scope._led_driver.led_ma:
-            assert not scope.illumination.led_enabled(color), f"LED {color} still on"
+            assert not scope.illumination.led_enabled(color), f'LED {color} still on'
 
     def test_return_to_original_leds(self, executor, scope, tmp_path):
         # Turn on BF LED before protocol so executor captures it as original state
         bf_ch = scope.illumination.color2ch(color='BF')
         scope.illumination.led_on(bf_ch, 25)
         protocol = _make_single_step_protocol(color='BF')
-        completed, _ = _run_and_wait(executor, protocol, tmp_path,
-                                      leds_state_at_end='return_to_original')
+        completed, _ = _run_and_wait(
+            executor, protocol, tmp_path, leds_state_at_end='return_to_original'
+        )
         assert completed
 
 
@@ -653,16 +688,14 @@ class TestPixelDepth:
         protocol = _make_single_step_protocol(color='BF')
         config = _make_image_capture_config()
         config['use_full_pixel_depth'] = True
-        completed, _ = _run_and_wait(executor, protocol, tmp_path,
-                                      image_capture_config=config)
+        completed, _ = _run_and_wait(executor, protocol, tmp_path, image_capture_config=config)
         assert completed
 
     def test_8bit_pixel_depth(self, executor, scope, tmp_path):
         protocol = _make_single_step_protocol(color='BF')
         config = _make_image_capture_config()
         config['use_full_pixel_depth'] = False
-        completed, _ = _run_and_wait(executor, protocol, tmp_path,
-                                      image_capture_config=config)
+        completed, _ = _run_and_wait(executor, protocol, tmp_path, image_capture_config=config)
         assert completed
 
 
@@ -672,7 +705,9 @@ class TestReturnToPosition:
     def test_returns_to_position(self, executor, scope, tmp_path):
         protocol = _make_single_step_protocol(color='BF')
         completed, _ = _run_and_wait(
-            executor, protocol, tmp_path,
+            executor,
+            protocol,
+            tmp_path,
             return_to_position={'x': 50.0, 'y': 50.0, 'z': 3000.0},
         )
         assert completed
@@ -682,12 +717,13 @@ class TestSeparateFolderPerChannel:
     """Protocol with separate folder per channel."""
 
     def test_separate_folders(self, executor, scope, tmp_path):
-        protocol = _make_multi_step_protocol([
-            {'color': 'BF'},
-            {'color': 'Red'},
-        ])
-        completed, _ = _run_and_wait(executor, protocol, tmp_path,
-                                      separate_folder_per_channel=True)
+        protocol = _make_multi_step_protocol(
+            [
+                {'color': 'BF'},
+                {'color': 'Red'},
+            ]
+        )
+        completed, _ = _run_and_wait(executor, protocol, tmp_path, separate_folder_per_channel=True)
         assert completed
 
 
@@ -699,6 +735,7 @@ class TestSeparateFolderPerChannel:
 # Helpers for generating tiling / z-stack step configs
 # ---------------------------------------------------------------------------
 
+
 def _make_tile_grid_steps(rows, cols, color='BF', well='A1', spacing=1.0, **extra):
     """Generate step configs for an rows x cols tile grid.
 
@@ -709,15 +746,17 @@ def _make_tile_grid_steps(rows, cols, color='BF', well='A1', spacing=1.0, **extr
     base_x, base_y = 10.0, 20.0
     for r in range(rows):
         for c in range(cols):
-            steps.append({
-                'color': color,
-                'well': well,
-                'x': base_x + c * spacing,
-                'y': base_y + r * spacing,
-                'tile': f'R{r}C{c}',
-                'tile_group_id': 1,
-                **extra,
-            })
+            steps.append(
+                {
+                    'color': color,
+                    'well': well,
+                    'x': base_x + c * spacing,
+                    'y': base_y + r * spacing,
+                    'tile': f'R{r}C{c}',
+                    'tile_group_id': 1,
+                    **extra,
+                }
+            )
     return steps
 
 
@@ -725,20 +764,23 @@ def _make_zstack_steps(num_slices, color='BF', well='A1', z_start=4000.0, z_step
     """Generate step configs for a z-stack with num_slices slices."""
     steps = []
     for i in range(num_slices):
-        steps.append({
-            'color': color,
-            'well': well,
-            'z': z_start + i * z_step,
-            'z_slice': i,
-            'zstack_group_id': 1,
-            **extra,
-        })
+        steps.append(
+            {
+                'color': color,
+                'well': well,
+                'z': z_start + i * z_step,
+                'z_slice': i,
+                'zstack_group_id': 1,
+                **extra,
+            }
+        )
     return steps
 
 
 # ---------------------------------------------------------------------------
 # Tiling tests
 # ---------------------------------------------------------------------------
+
 
 class TestTiling2x2:
     """2x2 tile grid — simplest tiling case."""
@@ -822,6 +864,7 @@ class TestTilingMultiChannel:
 # Z-stack tests
 # ---------------------------------------------------------------------------
 
+
 class TestZStack:
     """Z-stack execution — multiple z-slices at one position."""
 
@@ -870,6 +913,7 @@ class TestZStackWithAutoFocus:
 # Tiling + Z-stack combined
 # ---------------------------------------------------------------------------
 
+
 class TestTilingWithZStack:
     """Tile grid where each tile position has a z-stack."""
 
@@ -881,16 +925,18 @@ class TestTilingWithZStack:
             for c in range(2):
                 tile_group += 1
                 for z_idx in range(3):
-                    steps.append({
-                        'color': 'BF',
-                        'x': base_x + c * 1.0,
-                        'y': base_y + r * 1.0,
-                        'z': 4000.0 + z_idx * 100.0,
-                        'tile': f'R{r}C{c}',
-                        'z_slice': z_idx,
-                        'tile_group_id': tile_group,
-                        'zstack_group_id': tile_group,
-                    })
+                    steps.append(
+                        {
+                            'color': 'BF',
+                            'x': base_x + c * 1.0,
+                            'y': base_y + r * 1.0,
+                            'z': 4000.0 + z_idx * 100.0,
+                            'tile': f'R{r}C{c}',
+                            'z_slice': z_idx,
+                            'tile_group_id': tile_group,
+                            'zstack_group_id': tile_group,
+                        }
+                    )
         protocol = _make_multi_step_protocol(steps)
         assert protocol.num_steps() == 12  # 4 tiles * 3 slices
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
@@ -901,20 +947,29 @@ class TestTilingWithZStack:
 # Multi-well protocols
 # ---------------------------------------------------------------------------
 
+
 class TestMultiWell:
     """Protocol spanning multiple wells."""
 
     def test_two_wells(self, executor, scope, tmp_path):
-        protocol = _make_multi_step_protocol([
-            {'color': 'BF', 'well': 'A1', 'x': 10.0, 'y': 20.0},
-            {'color': 'BF', 'well': 'A2', 'x': 30.0, 'y': 20.0},
-        ])
+        protocol = _make_multi_step_protocol(
+            [
+                {'color': 'BF', 'well': 'A1', 'x': 10.0, 'y': 20.0},
+                {'color': 'BF', 'well': 'A2', 'x': 30.0, 'y': 20.0},
+            ]
+        )
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed
 
     def test_six_wells_multi_channel(self, executor, scope, tmp_path):
-        wells = [('A1', 10, 20), ('A2', 30, 20), ('A3', 50, 20),
-                 ('B1', 10, 40), ('B2', 30, 40), ('B3', 50, 40)]
+        wells = [
+            ('A1', 10, 20),
+            ('A2', 30, 20),
+            ('A3', 50, 20),
+            ('B1', 10, 40),
+            ('B2', 30, 40),
+            ('B3', 50, 40),
+        ]
         steps = []
         for well, x, y in wells:
             steps.append({'color': 'BF', 'well': well, 'x': float(x), 'y': float(y)})
@@ -929,14 +984,16 @@ class TestMultiWell:
         for well, wx, wy in [('A1', 10.0, 20.0), ('A2', 30.0, 20.0)]:
             for r in range(2):
                 for c in range(2):
-                    steps.append({
-                        'color': 'BF',
-                        'well': well,
-                        'x': wx + c * 0.5,
-                        'y': wy + r * 0.5,
-                        'tile': f'R{r}C{c}',
-                        'tile_group_id': 1,
-                    })
+                    steps.append(
+                        {
+                            'color': 'BF',
+                            'well': well,
+                            'x': wx + c * 0.5,
+                            'y': wy + r * 0.5,
+                            'tile': f'R{r}C{c}',
+                            'tile_group_id': 1,
+                        }
+                    )
         protocol = _make_multi_step_protocol(steps)
         assert protocol.num_steps() == 8  # 2 wells * 4 tiles
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
@@ -947,6 +1004,7 @@ class TestMultiWell:
 # Run mode variants
 # ---------------------------------------------------------------------------
 
+
 class TestRunModeSingleZStack:
     """SINGLE_ZSTACK run mode."""
 
@@ -954,7 +1012,9 @@ class TestRunModeSingleZStack:
         steps = _make_zstack_steps(num_slices=5)
         protocol = _make_multi_step_protocol(steps)
         completed, _ = _run_and_wait(
-            executor, protocol, tmp_path,
+            executor,
+            protocol,
+            tmp_path,
             run_mode=SequencedCaptureRunMode.SINGLE_ZSTACK,
             max_scans=1,
         )
@@ -976,7 +1036,9 @@ class TestRunModeSingleAutofocusScan:
         executor._af_future.done.return_value = True
 
         completed, _ = _run_and_wait(
-            executor, protocol, tmp_path,
+            executor,
+            protocol,
+            tmp_path,
             run_mode=SequencedCaptureRunMode.SINGLE_AUTOFOCUS_SCAN,
             max_scans=1,
         )
@@ -993,6 +1055,7 @@ class TestRunModeSingleAutofocusScan:
 # Full protocol multi-scan with tiling
 # ---------------------------------------------------------------------------
 
+
 class TestFullProtocolWithTiling:
     """FULL_PROTOCOL mode running multiple scans over a tile grid."""
 
@@ -1005,7 +1068,9 @@ class TestFullProtocolWithTiling:
         )
 
         completed, _ = _run_and_wait(
-            executor, protocol, tmp_path,
+            executor,
+            protocol,
+            tmp_path,
             run_mode=SequencedCaptureRunMode.FULL_PROTOCOL,
             max_scans=2,
         )
@@ -1016,17 +1081,21 @@ class TestFullProtocolMultiScanMultiChannel:
     """FULL_PROTOCOL with multiple scans, multi-channel steps."""
 
     def test_3_scans_bf_and_red(self, executor, scope, tmp_path):
-        protocol = _make_multi_step_protocol([
-            {'color': 'BF'},
-            {'color': 'Red'},
-        ])
+        protocol = _make_multi_step_protocol(
+            [
+                {'color': 'BF'},
+                {'color': 'Red'},
+            ]
+        )
         protocol.modify_time_params(
             period=datetime.timedelta(seconds=0.1),
             duration=datetime.timedelta(seconds=1),
         )
 
         completed, _ = _run_and_wait(
-            executor, protocol, tmp_path,
+            executor,
+            protocol,
+            tmp_path,
             run_mode=SequencedCaptureRunMode.FULL_PROTOCOL,
             max_scans=3,
         )
@@ -1036,6 +1105,7 @@ class TestFullProtocolMultiScanMultiChannel:
 # ---------------------------------------------------------------------------
 # Stimulation during video
 # ---------------------------------------------------------------------------
+
 
 class TestVideoWithStimulation:
     """Video capture with LED stimulation config."""
@@ -1082,6 +1152,7 @@ class TestVideoWithStimulation:
 # ---------------------------------------------------------------------------
 # Combined feature tests
 # ---------------------------------------------------------------------------
+
 
 class TestAutoGainWithTiling:
     """Auto-gain across a tile grid."""
@@ -1148,8 +1219,7 @@ class TestImageJHyperstackFormat:
         protocol = _make_single_step_protocol(color='BF')
         config = _make_image_capture_config()
         config['output_format']['sequenced'] = 'ImageJ Hyperstack'
-        completed, _ = _run_and_wait(executor, protocol, tmp_path,
-                                      image_capture_config=config)
+        completed, _ = _run_and_wait(executor, protocol, tmp_path, image_capture_config=config)
         assert completed
 
 
@@ -1160,6 +1230,7 @@ class TestImageJHyperstackFormat:
 # ---------------------------------------------------------------------------
 # Cancellation / reset mid-run
 # ---------------------------------------------------------------------------
+
 
 class TestCancellationMidRun:
     """Verify that reset() stops execution cleanly."""
@@ -1197,8 +1268,13 @@ class TestCancellationMidRun:
             callbacks=callbacks,
             leds_state_at_end='off',
             initial_autofocus_states={
-                'BF': False, 'PC': False, 'DF': False,
-                'Red': False, 'Green': False, 'Blue': False, 'Lumi': False,
+                'BF': False,
+                'PC': False,
+                'DF': False,
+                'Red': False,
+                'Green': False,
+                'Blue': False,
+                'Lumi': False,
             },
         )
 
@@ -1207,7 +1283,7 @@ class TestCancellationMidRun:
         executor.reset()
 
         completed = done.wait(timeout=COMPLETION_TIMEOUT)
-        assert completed, "Protocol did not complete after reset()"
+        assert completed, 'Protocol did not complete after reset()'
 
     def test_reset_before_first_scan_completes(self, executor, scope, tmp_path):
         """Reset immediately — should still invoke run_complete."""
@@ -1237,8 +1313,13 @@ class TestCancellationMidRun:
             callbacks=callbacks,
             leds_state_at_end='off',
             initial_autofocus_states={
-                'BF': False, 'PC': False, 'DF': False,
-                'Red': False, 'Green': False, 'Blue': False, 'Lumi': False,
+                'BF': False,
+                'PC': False,
+                'DF': False,
+                'Red': False,
+                'Green': False,
+                'Blue': False,
+                'Lumi': False,
             },
         )
 
@@ -1247,7 +1328,7 @@ class TestCancellationMidRun:
         executor.reset()
 
         completed = done.wait(timeout=COMPLETION_TIMEOUT)
-        assert completed, "Protocol did not complete after early reset()"
+        assert completed, 'Protocol did not complete after early reset()'
 
 
 class TestResetWhenNotRunning:
@@ -1260,6 +1341,7 @@ class TestResetWhenNotRunning:
 # ---------------------------------------------------------------------------
 # Back-to-back runs
 # ---------------------------------------------------------------------------
+
 
 class TestBackToBackRuns:
     """Run a protocol, wait for completion, then immediately run another.
@@ -1276,32 +1358,33 @@ class TestBackToBackRuns:
         deadline = time.monotonic() + timeout
         while executor.file_io_executor.is_protocol_queue_active():
             if time.monotonic() > deadline:
-                raise TimeoutError("file_io_executor did not drain in time")
+                raise TimeoutError('file_io_executor did not drain in time')
             time.sleep(0.05)
 
     def test_two_sequential_runs(self, executor, scope, tmp_path):
         protocol = _make_single_step_protocol(color='BF')
 
         completed1, _ = _run_and_wait(executor, protocol, tmp_path)
-        assert completed1, "First run did not complete"
+        assert completed1, 'First run did not complete'
 
         self._wait_for_file_queue(executor)
 
         # Second run — uses a fresh tmp subdir to avoid directory collision
         completed2, _ = _run_and_wait(executor, protocol, tmp_path / 'run2')
-        assert completed2, "Second run did not complete"
+        assert completed2, 'Second run did not complete'
 
     def test_three_sequential_runs_different_configs(self, executor, scope, tmp_path):
         for i, color in enumerate(['BF', 'Red', 'Green']):
             protocol = _make_single_step_protocol(color=color)
             completed, _ = _run_and_wait(executor, protocol, tmp_path / f'run{i}')
-            assert completed, f"Run {i} ({color}) did not complete"
+            assert completed, f'Run {i} ({color}) did not complete'
             self._wait_for_file_queue(executor)
 
 
 # ---------------------------------------------------------------------------
 # Disconnected hardware
 # ---------------------------------------------------------------------------
+
 
 class TestDisconnectedScope:
     """Protocol should not start if scope reports disconnected."""
@@ -1336,20 +1419,26 @@ class TestDisconnectedScope:
             callbacks=callbacks,
             leds_state_at_end='off',
             initial_autofocus_states={
-                'BF': False, 'PC': False, 'DF': False,
-                'Red': False, 'Green': False, 'Blue': False, 'Lumi': False,
+                'BF': False,
+                'PC': False,
+                'DF': False,
+                'Red': False,
+                'Green': False,
+                'Blue': False,
+                'Lumi': False,
             },
         )
 
         # Should NOT have started — run_complete should NOT fire
         started = done.wait(timeout=2.0)
-        assert not started, "Protocol should not have started with disconnected scope"
+        assert not started, 'Protocol should not have started with disconnected scope'
         assert not executor.run_in_progress()
 
 
 # ---------------------------------------------------------------------------
 # Boundary values
 # ---------------------------------------------------------------------------
+
 
 class TestZeroExposure:
     """Zero exposure — tests floor behavior in timing paths."""
@@ -1391,6 +1480,7 @@ class TestLargeSum:
 # Large step counts
 # ---------------------------------------------------------------------------
 
+
 class TestLargeProtocol:
     """Protocol with many steps — verifies no accumulation bugs."""
 
@@ -1414,6 +1504,7 @@ class TestLargeProtocol:
 # Kitchen sink: all features at once
 # ---------------------------------------------------------------------------
 
+
 class TestAllFeaturesEnabled:
     """Protocol exercising many features simultaneously."""
 
@@ -1425,19 +1516,21 @@ class TestAllFeaturesEnabled:
             for c in range(2):
                 tile_group += 1
                 for z_idx in range(3):
-                    steps.append({
-                        'color': 'Red',
-                        'x': 10.0 + c * 1.0,
-                        'y': 20.0 + r * 1.0,
-                        'z': 4000.0 + z_idx * 100.0,
-                        'tile': f'R{r}C{c}',
-                        'z_slice': z_idx,
-                        'tile_group_id': tile_group,
-                        'zstack_group_id': tile_group,
-                        'auto_gain': True,
-                        'false_color': True,
-                        'sum_count': 2,
-                    })
+                    steps.append(
+                        {
+                            'color': 'Red',
+                            'x': 10.0 + c * 1.0,
+                            'y': 20.0 + r * 1.0,
+                            'z': 4000.0 + z_idx * 100.0,
+                            'tile': f'R{r}C{c}',
+                            'z_slice': z_idx,
+                            'tile_group_id': tile_group,
+                            'zstack_group_id': tile_group,
+                            'auto_gain': True,
+                            'false_color': True,
+                            'sum_count': 2,
+                        }
+                    )
         protocol = _make_multi_step_protocol(steps)
         assert protocol.num_steps() == 12
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
@@ -1449,24 +1542,26 @@ class TestAllFeaturesEnabled:
         for well, wx, wy in [('A1', 10.0, 20.0), ('B1', 10.0, 40.0)]:
             for color in ['BF', 'Red']:
                 for c in range(3):
-                    steps.append({
-                        'color': color,
-                        'well': well,
-                        'x': wx + c * 0.5,
-                        'y': wy,
-                        'tile': f'R0C{c}',
-                        'tile_group_id': 1,
-                    })
+                    steps.append(
+                        {
+                            'color': color,
+                            'well': well,
+                            'x': wx + c * 0.5,
+                            'y': wy,
+                            'tile': f'R0C{c}',
+                            'tile_group_id': 1,
+                        }
+                    )
         protocol = _make_multi_step_protocol(steps)
         assert protocol.num_steps() == 12  # 2 wells * 2 colors * 3 tiles
-        completed, _ = _run_and_wait(executor, protocol, tmp_path,
-                                      separate_folder_per_channel=True)
+        completed, _ = _run_and_wait(executor, protocol, tmp_path, separate_folder_per_channel=True)
         assert completed
 
 
 # ---------------------------------------------------------------------------
 # Saving edge cases
 # ---------------------------------------------------------------------------
+
 
 class TestSavingWithNoneParentDir:
     """When parent_dir is None, saving should be auto-disabled."""
@@ -1499,8 +1594,13 @@ class TestSavingWithNoneParentDir:
             callbacks=callbacks,
             leds_state_at_end='off',
             initial_autofocus_states={
-                'BF': False, 'PC': False, 'DF': False,
-                'Red': False, 'Green': False, 'Blue': False, 'Lumi': False,
+                'BF': False,
+                'PC': False,
+                'DF': False,
+                'Red': False,
+                'Green': False,
+                'Blue': False,
+                'Lumi': False,
             },
         )
 
@@ -1511,6 +1611,7 @@ class TestSavingWithNoneParentDir:
 # ---------------------------------------------------------------------------
 # Turret support
 # ---------------------------------------------------------------------------
+
 
 class TestWithTurret:
     """Scope with turret enabled — objective name included in filenames."""
@@ -1525,6 +1626,7 @@ class TestWithTurret:
 # ---------------------------------------------------------------------------
 # Callback edge cases
 # ---------------------------------------------------------------------------
+
 
 class TestMinimalCallbacks:
     """Run with only the required run_complete callback — no optional ones."""
@@ -1551,8 +1653,13 @@ class TestMinimalCallbacks:
             callbacks={'run_complete': on_complete},
             leds_state_at_end='off',
             initial_autofocus_states={
-                'BF': False, 'PC': False, 'DF': False,
-                'Red': False, 'Green': False, 'Blue': False, 'Lumi': False,
+                'BF': False,
+                'PC': False,
+                'DF': False,
+                'Red': False,
+                'Green': False,
+                'Blue': False,
+                'Lumi': False,
             },
         )
 
@@ -1563,6 +1670,7 @@ class TestMinimalCallbacks:
 # ---------------------------------------------------------------------------
 # Video edge cases
 # ---------------------------------------------------------------------------
+
 
 class TestVideoEdgeCases:
     """Edge cases for video capture."""
@@ -1594,15 +1702,21 @@ class TestVideoEdgeCases:
 # P0-1: Concurrent cleanup (threading.Lock)
 # ---------------------------------------------------------------------------
 
+
 class TestCleanupConcurrency:
     """P0-1: _cleanup() guarded by threading.Lock — no double cleanup."""
 
     def test_concurrent_reset_no_crash(self, executor, scope, tmp_path):
         """Call reset() from multiple threads while protocol is running."""
-        protocol = _make_multi_step_protocol([
-            {'color': 'BF'}, {'color': 'Red'}, {'color': 'Green'},
-            {'color': 'Blue'}, {'color': 'BF'},
-        ])
+        protocol = _make_multi_step_protocol(
+            [
+                {'color': 'BF'},
+                {'color': 'Red'},
+                {'color': 'Green'},
+                {'color': 'Blue'},
+                {'color': 'BF'},
+            ]
+        )
         done = threading.Event()
         executor.run(
             protocol=protocol,
@@ -1619,8 +1733,13 @@ class TestCleanupConcurrency:
             },
             leds_state_at_end='off',
             initial_autofocus_states={
-                'BF': False, 'PC': False, 'DF': False,
-                'Red': False, 'Green': False, 'Blue': False, 'Lumi': False,
+                'BF': False,
+                'PC': False,
+                'DF': False,
+                'Red': False,
+                'Green': False,
+                'Blue': False,
+                'Lumi': False,
             },
         )
         # Let protocol start
@@ -1648,6 +1767,7 @@ class TestCleanupConcurrency:
 # P0-2: Disk space check
 # ---------------------------------------------------------------------------
 
+
 class TestDiskSpaceCheck:
     """P0-2: Protocol aborts when disk space is below 2 GB.
 
@@ -1664,7 +1784,7 @@ class TestDiskSpaceCheck:
 
         protocol = _make_single_step_protocol(color='BF')
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
-        assert completed, "Protocol did not abort within timeout when disk space is low"
+        assert completed, 'Protocol did not abort within timeout when disk space is low'
 
     @patch('modules.protocol_run_loop.check_disk_space_ok')
     def test_large_protocol_needs_more_than_2gb(self, mock_check, executor, scope, tmp_path):
@@ -1673,21 +1793,25 @@ class TestDiskSpaceCheck:
 
         protocol = _make_multi_step_protocol([{'color': 'BF'} for _ in range(300)])
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
-        assert completed, "Protocol did not abort within timeout when disk space is low for large protocol"
+        assert completed, (
+            'Protocol did not abort within timeout when disk space is low for large protocol'
+        )
 
     @patch('modules.protocol_run_loop.check_disk_space_ok')
     def test_video_steps_need_500mb_each(self, mock_check, executor, scope, tmp_path):
         """5 video steps need 2.5 GB (5 * 500 MB), so 2.2 GB free should abort."""
         mock_check.return_value = (False, 2200.0)  # 2.2 GB free; 5*500=2500 MB required
 
-        protocol = _make_multi_step_protocol([
-            {'color': 'BF', 'acquire': 'video', 'video_config': {'duration': 1, 'fps': 5}}
-            for _ in range(5)
-        ])
+        protocol = _make_multi_step_protocol(
+            [
+                {'color': 'BF', 'acquire': 'video', 'video_config': {'duration': 1, 'fps': 5}}
+                for _ in range(5)
+            ]
+        )
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
-        assert completed, "Protocol did not abort for video steps requiring more disk space"
+        assert completed, 'Protocol did not abort for video steps requiring more disk space'
 
-    @patch('modules.protocol_run_loop.check_disk_space_ok', side_effect=OSError("disk error"))
+    @patch('modules.protocol_run_loop.check_disk_space_ok', side_effect=OSError('disk error'))
     def test_disk_check_exception_does_not_crash(self, mock_check, executor, scope, tmp_path):
         """If the probe raises OSError, protocol continues (swallow in caller)."""
         protocol = _make_single_step_protocol(color='BF')
@@ -1698,6 +1822,7 @@ class TestDiskSpaceCheck:
 # ---------------------------------------------------------------------------
 # P0-3: Capture failure handling
 # ---------------------------------------------------------------------------
+
 
 class TestCaptureFailure:
     """P0-3: capture_and_wait returning False records 'capture_failed'."""
@@ -1716,9 +1841,13 @@ class TestCaptureFailure:
 
     def test_multiple_capture_failures_still_complete(self, executor, scope, tmp_path):
         """Three steps all fail capture — protocol runs to completion."""
-        protocol = _make_multi_step_protocol([
-            {'color': 'BF'}, {'color': 'Red'}, {'color': 'Green'},
-        ])
+        protocol = _make_multi_step_protocol(
+            [
+                {'color': 'BF'},
+                {'color': 'Red'},
+                {'color': 'Green'},
+            ]
+        )
 
         original_capture = scope.imaging.capture_and_wait
         scope.imaging.capture_and_wait = MagicMock(return_value=False)
@@ -1733,6 +1862,7 @@ class TestCaptureFailure:
 # P1-4: Per-step motion timeout
 # ---------------------------------------------------------------------------
 
+
 class TestStepTimeout:
     """P1-4: Steps that exceed STEP_TIMEOUT_SECONDS are skipped."""
 
@@ -1744,9 +1874,12 @@ class TestStepTimeout:
         original_timeout = SequencedCaptureRunner.STEP_TIMEOUT_SECONDS
         SequencedCaptureRunner.STEP_TIMEOUT_SECONDS = 1  # 1 second
 
-        protocol = _make_multi_step_protocol([
-            {'color': 'BF', 'x': 10.0}, {'color': 'Red', 'x': 20.0},
-        ])
+        protocol = _make_multi_step_protocol(
+            [
+                {'color': 'BF', 'x': 10.0},
+                {'color': 'Red', 'x': 20.0},
+            ]
+        )
 
         # Make get_target_status always return False for first step
         call_count = [0]
@@ -1772,6 +1905,7 @@ class TestStepTimeout:
 # ---------------------------------------------------------------------------
 # P1-7: Video frame queue bounded
 # ---------------------------------------------------------------------------
+
 
 class TestVideoQueueBounded:
     """P1-7: Video frame queue has maxsize=500."""
@@ -1806,6 +1940,7 @@ class TestVideoQueueBounded:
 # ---------------------------------------------------------------------------
 # P1-8: Camera gain/exposure restoration
 # ---------------------------------------------------------------------------
+
 
 class TestCameraStateRestoration:
     """P1-8: Camera gain and exposure restored to pre-protocol values."""
@@ -1842,11 +1977,13 @@ class TestCameraStateRestoration:
         original_gain = scope.imaging.get_gain()
         original_exposure = scope.imaging.get_exposure_time()
 
-        protocol = _make_multi_step_protocol([
-            {'color': 'BF', 'gain_db': 5.0, 'exposure_ms': 50.0},
-            {'color': 'Red', 'gain_db': 10.0, 'exposure_ms': 100.0},
-            {'color': 'Green', 'gain_db': 15.0, 'exposure_ms': 200.0},
-        ])
+        protocol = _make_multi_step_protocol(
+            [
+                {'color': 'BF', 'gain_db': 5.0, 'exposure_ms': 50.0},
+                {'color': 'Red', 'gain_db': 10.0, 'exposure_ms': 100.0},
+                {'color': 'Green', 'gain_db': 15.0, 'exposure_ms': 200.0},
+            ]
+        )
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed
 
@@ -1860,10 +1997,12 @@ class TestCameraStateRestoration:
         original_gain = scope.imaging.get_gain()
         original_exposure = scope.imaging.get_exposure_time()
 
-        protocol = _make_multi_step_protocol([
-            {'color': c, 'gain_db': 12.0, 'exposure_ms': 80.0}
-            for c in ['BF', 'Red', 'Green', 'Blue', 'BF']
-        ])
+        protocol = _make_multi_step_protocol(
+            [
+                {'color': c, 'gain_db': 12.0, 'exposure_ms': 80.0}
+                for c in ['BF', 'Red', 'Green', 'Blue', 'BF']
+            ]
+        )
 
         done = threading.Event()
         executor.run(
@@ -1881,8 +2020,13 @@ class TestCameraStateRestoration:
             },
             leds_state_at_end='off',
             initial_autofocus_states={
-                'BF': False, 'PC': False, 'DF': False,
-                'Red': False, 'Green': False, 'Blue': False, 'Lumi': False,
+                'BF': False,
+                'PC': False,
+                'DF': False,
+                'Red': False,
+                'Green': False,
+                'Blue': False,
+                'Lumi': False,
             },
         )
         time.sleep(0.2)
@@ -1896,6 +2040,7 @@ class TestCameraStateRestoration:
 # ---------------------------------------------------------------------------
 # P1-5: Validation before protocol_running_global
 # ---------------------------------------------------------------------------
+
 
 class TestValidationOrder:
     """P1-5: Ensure protocol_running_global is not set before validation."""
@@ -1916,15 +2061,15 @@ class TestValidationOrder:
 # Cleanup correctness
 # ---------------------------------------------------------------------------
 
+
 class TestCleanupCorrectness:
     """Verify cleanup handles all state properly."""
 
     def test_leds_off_after_protocol_abort(self, executor, scope, tmp_path):
         """All LEDs are off after aborting a multi-step protocol."""
-        protocol = _make_multi_step_protocol([
-            {'color': c, 'illumination_ma': 100.0}
-            for c in ['BF', 'Red', 'Green', 'Blue', 'BF']
-        ])
+        protocol = _make_multi_step_protocol(
+            [{'color': c, 'illumination_ma': 100.0} for c in ['BF', 'Red', 'Green', 'Blue', 'BF']]
+        )
         done = threading.Event()
         executor.run(
             protocol=protocol,
@@ -1941,8 +2086,13 @@ class TestCleanupCorrectness:
             },
             leds_state_at_end='off',
             initial_autofocus_states={
-                'BF': False, 'PC': False, 'DF': False,
-                'Red': False, 'Green': False, 'Blue': False, 'Lumi': False,
+                'BF': False,
+                'PC': False,
+                'DF': False,
+                'Red': False,
+                'Green': False,
+                'Blue': False,
+                'Lumi': False,
             },
         )
         time.sleep(0.2)
@@ -1950,7 +2100,7 @@ class TestCleanupCorrectness:
         done.wait(timeout=COMPLETION_TIMEOUT)
 
         for color in scope._led_driver.led_ma:
-            assert not scope.illumination.led_enabled(color), f"LED {color} still on after abort"
+            assert not scope.illumination.led_enabled(color), f'LED {color} still on after abort'
 
     def test_back_to_back_runs_no_state_bleed(self, executor, scope, tmp_path):
         """Gain/exposure from run A don't leak into run B's restored values."""
@@ -1967,7 +2117,7 @@ class TestCleanupCorrectness:
         deadline = time.monotonic() + 5.0
         while executor.file_io_executor.is_protocol_queue_active():
             if time.monotonic() > deadline:
-                raise TimeoutError("file_io_executor did not drain in time")
+                raise TimeoutError('file_io_executor did not drain in time')
             time.sleep(0.05)
 
         # Run B: change gain before second run

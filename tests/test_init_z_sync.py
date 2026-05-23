@@ -13,6 +13,7 @@ missing. (Functional coverage of ``_handle_ui_update_for_axis`` itself
 lives elsewhere — that helper is exercised on every motion end in
 production and any breakage is caught by the existing motion tests.)
 """
+
 from pathlib import Path
 
 
@@ -27,14 +28,14 @@ def test_complete_initialization_calls_z_sync():
     src = (repo_root / 'lumaviewpro.py').read_text()
 
     start = src.find('def complete_initialization')
-    assert start != -1, "complete_initialization() not found in lumaviewpro.py"
+    assert start != -1, 'complete_initialization() not found in lumaviewpro.py'
     end = src.find('\n        Clock.schedule_once(complete_initialization', start)
-    assert end != -1, "complete_initialization() body boundary not found"
+    assert end != -1, 'complete_initialization() body boundary not found'
     body = src[start:end]
 
     assert "_handle_ui_update_for_axis('Z')" in body, (
         "complete_initialization() must call _handle_ui_update_for_axis('Z') "
-        "to sync the objective slider with the actual motor position on app "
-        "startup. Without this, the .kv hardcoded obj_position.value=0 wins "
-        "and the first user click snaps Z to 0. (#639)"
+        'to sync the objective slider with the actual motor position on app '
+        'startup. Without this, the .kv hardcoded obj_position.value=0 wins '
+        'and the first user click snaps Z to 0. (#639)'
     )

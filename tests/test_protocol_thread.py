@@ -16,6 +16,7 @@ Covers the public API contract:
     second when the first is still in flight.
   - Daemon-reap: a hung callable exits cleanly when stop() is called.
 """
+
 from __future__ import annotations
 
 import threading
@@ -199,8 +200,7 @@ class TestAbortClearedBetweenRuns:
         second = pt.run_protocol(cb)
         second.result(timeout=1.0)
         assert observations == [False], (
-            f'Second run saw aborted={observations}; '
-            'run_protocol() should clear _aborted at entry.'
+            f'Second run saw aborted={observations}; run_protocol() should clear _aborted at entry.'
         )
 
 
@@ -279,6 +279,7 @@ class TestDaemonReap:
         thread = ProtocolThread()
         thread.start()
         try:
+
             def cb():
                 # Cooperative shutdown: poll aborted; this exits cleanly
                 # when stop() sets _aborted.
@@ -293,9 +294,7 @@ class TestDaemonReap:
             t0 = time.monotonic()
             thread.stop(timeout=2.0)
             elapsed = time.monotonic() - t0
-            assert elapsed < 2.5, (
-                f'stop() blocked for {elapsed:.2f}s past the 2.0s timeout'
-            )
+            assert elapsed < 2.5, f'stop() blocked for {elapsed:.2f}s past the 2.0s timeout'
         finally:
             # Belt-and-suspenders; stop() above should have done it.
             if thread._thread is not None and thread._thread.is_alive():

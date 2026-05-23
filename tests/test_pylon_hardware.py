@@ -14,6 +14,7 @@ test bodies do NOT need their own skip dance.
 Mirrors the shape of test_ids_hardware.py so the abstraction is symmetric
 across camera vendors. Add coverage as Pylon-specific behaviors come up.
 """
+
 import time
 import unittest
 
@@ -80,19 +81,21 @@ class TestPylon(unittest.TestCase):
         """
         time.sleep(0.5)  # let streaming settle
         result, _ts = self.camera.grab()
-        self.assertTrue(result, "grab failed -- chunks check requires successful frame")
+        self.assertTrue(result, 'grab failed -- chunks check requires successful frame')
 
         chunks = self.camera.cam_image_handler._base.get_last_chunks()
-        print(f"\n=== last_chunks after first grab ===")
-        print(f"  chunks: {chunks}")
-        print(f"=====================================\n")
+        print(f'\n=== last_chunks after first grab ===')
+        print(f'  chunks: {chunks}')
+        print(f'=====================================\n')
 
-        self.assertIsNotNone(chunks, "Path C: last_chunks should populate after a successful grab")
+        self.assertIsNotNone(chunks, 'Path C: last_chunks should populate after a successful grab')
         # All three target chunks should be present
         for key in ('ExposureTime', 'Gain', 'FrameID'):
-            self.assertIn(key, chunks,
-                f"Path C: chunk '{key}' missing from last_chunks; "
-                f"got keys={sorted(chunks.keys())}")
+            self.assertIn(
+                key,
+                chunks,
+                f"Path C: chunk '{key}' missing from last_chunks; got keys={sorted(chunks.keys())}",
+            )
         # Sanity: values are floats/ints, not None or weird types
         self.assertIsInstance(chunks['ExposureTime'], (int, float))
         self.assertIsInstance(chunks['Gain'], (int, float))
@@ -114,13 +117,13 @@ class TestPylon(unittest.TestCase):
         """
         time.sleep(0.5)
 
-        print("\n=== ChunkGain delta sweep ===")
+        print('\n=== ChunkGain delta sweep ===')
         gain_deltas = []
         for target in [0.0, 1.0, 5.3, 7.123, 10.0, 15.0, 20.0, 23.999]:
             try:
                 self.camera.gain(target)
             except Exception as e:
-                print(f"  target={target:7.3f} dB | gain set failed: {e}")
+                print(f'  target={target:7.3f} dB | gain set failed: {e}')
                 continue
             time.sleep(0.5)
             obs = []
@@ -136,16 +139,18 @@ class TestPylon(unittest.TestCase):
             deltas = [abs(o - target) for o in obs]
             max_d = max(deltas) if deltas else float('nan')
             gain_deltas.append(max_d)
-            print(f"  target={target:7.3f} dB | observed_first5={obs[:5]} | "
-                  f"max_delta={max_d:.4f} dB | FrameIDs={frame_ids[:5]}")
+            print(
+                f'  target={target:7.3f} dB | observed_first5={obs[:5]} | '
+                f'max_delta={max_d:.4f} dB | FrameIDs={frame_ids[:5]}'
+            )
 
-        print("\n=== ChunkExposureTime delta sweep ===")
+        print('\n=== ChunkExposureTime delta sweep ===')
         exp_deltas = []
         for target_ms in [1.0, 5.0, 7.123, 10.0, 50.0, 100.0, 199.999]:
             try:
                 self.camera.exposure_t(target_ms)
             except Exception as e:
-                print(f"  target={target_ms:7.3f} ms | exposure set failed: {e}")
+                print(f'  target={target_ms:7.3f} ms | exposure set failed: {e}')
                 continue
             time.sleep(max(0.5, target_ms / 100.0))
             obs_us = []
@@ -161,34 +166,51 @@ class TestPylon(unittest.TestCase):
             deltas = [abs(o - target_ms * 1000.0) for o in obs_us]
             max_d = max(deltas) if deltas else float('nan')
             exp_deltas.append(max_d)
-            print(f"  target={target_ms:7.3f} ms ({target_ms*1000:.1f} us) | "
-                  f"observed_first5={obs_us[:5]} | max_delta_us={max_d:.4f} | "
-                  f"FrameIDs={frame_ids[:5]}")
+            print(
+                f'  target={target_ms:7.3f} ms ({target_ms * 1000:.1f} us) | '
+                f'observed_first5={obs_us[:5]} | max_delta_us={max_d:.4f} | '
+                f'FrameIDs={frame_ids[:5]}'
+            )
 
         overall_gain_max = max(gain_deltas) if gain_deltas else float('nan')
         overall_exp_max = max(exp_deltas) if exp_deltas else float('nan')
         from modules.frame_validity import FrameValidity
+
         cur_gain_tol = FrameValidity.DEFAULT_CHUNK_TOLERANCE['gain']
         cur_exp_tol = FrameValidity.DEFAULT_CHUNK_TOLERANCE['exposure']
-        print(f"\n=== Tolerance summary ===")
-        print(f"  gain     max delta = {overall_gain_max:.6e} dB   (current default: {cur_gain_tol})")
-        print(f"  exposure max delta = {overall_exp_max:.6e} us   (current default: {cur_exp_tol})")
-        print(f"  gain     headroom  = {cur_gain_tol/max(overall_gain_max, 1e-12):.1f}x")
-        print(f"  exposure headroom  = {cur_exp_tol/max(overall_exp_max, 1e-12):.1f}x")
-        print(f"=========================\n")
+        print(f'\n=== Tolerance summary ===')
+        print(
+            f'  gain     max delta = {overall_gain_max:.6e} dB   (current default: {cur_gain_tol})'
+        )
+        print(f'  exposure max delta = {overall_exp_max:.6e} us   (current default: {cur_exp_tol})')
+        print(f'  gain     headroom  = {cur_gain_tol / max(overall_gain_max, 1e-12):.1f}x')
+        print(f'  exposure headroom  = {cur_exp_tol / max(overall_exp_max, 1e-12):.1f}x')
+        print(f'=========================\n')
 
         # Sanity: observed deltas must fit inside the configured tolerance.
         # If this assertion fires, the camera's chunk quantization grew
         # past our tolerance budget -- bench-measure and refine the constants.
-        self.assertLessEqual(overall_gain_max, cur_gain_tol,
-            f"Gain chunk delta {overall_gain_max} exceeds tolerance {cur_gain_tol}")
-        self.assertLessEqual(overall_exp_max, cur_exp_tol,
-            f"Exposure chunk delta {overall_exp_max} exceeds tolerance {cur_exp_tol}")
+        self.assertLessEqual(
+            overall_gain_max,
+            cur_gain_tol,
+            f'Gain chunk delta {overall_gain_max} exceeds tolerance {cur_gain_tol}',
+        )
+        self.assertLessEqual(
+            overall_exp_max,
+            cur_exp_tol,
+            f'Exposure chunk delta {overall_exp_max} exceeds tolerance {cur_exp_tol}',
+        )
 
-        self.assertGreater(len(gain_deltas), 0,
-            "gain sweep produced no data — chunks flow broken or all gain sets failed")
-        self.assertGreater(len(exp_deltas), 0,
-            "exposure sweep produced no data — chunks flow broken or all exposure sets failed")
+        self.assertGreater(
+            len(gain_deltas),
+            0,
+            'gain sweep produced no data — chunks flow broken or all gain sets failed',
+        )
+        self.assertGreater(
+            len(exp_deltas),
+            0,
+            'exposure sweep produced no data — chunks flow broken or all exposure sets failed',
+        )
 
     def test_chunk_clear_short_circuits_skip_frames(self):
         """End-to-end: chunks clear pending sources on the FIRST frame
@@ -196,6 +218,7 @@ class TestPylon(unittest.TestCase):
         This is the deterministic behavior chunk-driven validity provides
         over the empirical skip-frames calibration."""
         from modules.frame_validity import FrameValidity
+
         fv = FrameValidity()
 
         target_gain = 5.0
@@ -215,15 +238,18 @@ class TestPylon(unittest.TestCase):
         fv.count_frame(chunk_data=chunks)
 
         pending_after = dict(fv.pending_sources)
-        print(f"\n=== chunk-clear short-circuit ===")
-        print(f"  pending before    : {pending_before}")
-        print(f"  observed ChunkGain: {chunks.get('Gain') if chunks else None}")
-        print(f"  pending after 1 frame: {pending_after}")
-        print(f"==================================\n")
+        print(f'\n=== chunk-clear short-circuit ===')
+        print(f'  pending before    : {pending_before}')
+        print(f'  observed ChunkGain: {chunks.get("Gain") if chunks else None}')
+        print(f'  pending after 1 frame: {pending_after}')
+        print(f'==================================\n')
 
-        self.assertNotIn('gain', pending_after,
+        self.assertNotIn(
+            'gain',
+            pending_after,
             f"Chunk-match must clear 'gain' from pending after 1 frame; "
-            f"chunks={chunks}, target={target_gain}")
+            f'chunks={chunks}, target={target_gain}',
+        )
 
     def test_probe_chunk_capabilities(self):
         """T1 (FRAME_VALIDITY_PLAN.md §3): static introspection probe
@@ -233,23 +259,26 @@ class TestPylon(unittest.TestCase):
         decisions (Path A vs Path C) and we want raw data on the bench.
         """
         result = self.camera.probe_chunk_capabilities()
-        print(f"\n=== probe_chunk_capabilities ===")
-        print(f"  model:      {result['model']}")
-        print(f"  firmware:   {result['firmware']}")
-        print(f"  serial:     {result['serial']}")
-        print(f"  advertised: {result['advertised']}")
-        print(f"  enabled:    {result['enabled']}")
-        print(f"  errors:     {result['errors']}")
-        print(f"================================\n")
+        print(f'\n=== probe_chunk_capabilities ===')
+        print(f'  model:      {result["model"]}')
+        print(f'  firmware:   {result["firmware"]}')
+        print(f'  serial:     {result["serial"]}')
+        print(f'  advertised: {result["advertised"]}')
+        print(f'  enabled:    {result["enabled"]}')
+        print(f'  errors:     {result["errors"]}')
+        print(f'================================\n')
 
         # Hard assertions: probe ran without per-step explosion.
         self.assertIsInstance(result, dict)
         self.assertIn('advertised', result)
         self.assertIn('enabled', result)
         # ChunkSelector node should exist on any modern Basler USB3 cam.
-        self.assertGreater(len(result['advertised']), 0,
-            f"Camera advertised no ChunkSelector entries -- chunks unsupported. "
-            f"Errors: {result['errors']}")
+        self.assertGreater(
+            len(result['advertised']),
+            0,
+            f'Camera advertised no ChunkSelector entries -- chunks unsupported. '
+            f'Errors: {result["errors"]}',
+        )
 
     def test_worker_thread_alive_after_connect(self):
         """After PylonCamera.connect() returns, the Stage B worker thread
@@ -262,6 +291,7 @@ class TestPylon(unittest.TestCase):
         auto-StartGrabbing window.
         """
         import threading as _t
+
         worker = self.camera.cam_image_handler._worker
         self.assertIsNotNone(worker._thread)
         self.assertTrue(worker._thread.is_alive())
@@ -287,13 +317,14 @@ class TestPylon(unittest.TestCase):
             time.sleep(0.02)
         avg_depth = sum(samples) / len(samples) if samples else 0
         max_depth = max(samples) if samples else 0
-        print(f"\n=== worker_queue depth sample (n={len(samples)}) ===")
-        print(f"  avg: {avg_depth:.2f}, max: {max_depth}")
-        print(f"=================================================\n")
+        print(f'\n=== worker_queue depth sample (n={len(samples)}) ===')
+        print(f'  avg: {avg_depth:.2f}, max: {max_depth}')
+        print(f'=================================================\n')
         self.assertLess(
-            avg_depth, 4.0,
-            f"Stage B not keeping up: avg worker_queue depth = {avg_depth:.2f} "
-            f"(expected < 4 at 30 FPS)"
+            avg_depth,
+            4.0,
+            f'Stage B not keeping up: avg worker_queue depth = {avg_depth:.2f} '
+            f'(expected < 4 at 30 FPS)',
         )
 
     def test_disconnect_drains_worker_queue(self):
@@ -313,11 +344,14 @@ class TestPylon(unittest.TestCase):
         # plus our test slack.
         if worker_thread is not None:
             worker_thread.join(timeout=2.0)
-            self.assertFalse(worker_thread.is_alive(),
-                'worker thread did not exit within 2s of disconnect')
-        self.assertTrue(worker._worker_queue.empty(),
+            self.assertFalse(
+                worker_thread.is_alive(), 'worker thread did not exit within 2s of disconnect'
+            )
+        self.assertTrue(
+            worker._worker_queue.empty(),
             f'worker_queue should be empty after disconnect; '
-            f'has {worker._worker_queue.qsize()} item(s)')
+            f'has {worker._worker_queue.qsize()} item(s)',
+        )
         # Reconnect for tearDown's disconnect.
         self.camera.connect()
 

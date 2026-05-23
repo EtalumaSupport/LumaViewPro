@@ -48,9 +48,9 @@ def _function_source(source: str, func_name: str) -> str:
         if isinstance(node, ast.FunctionDef) and node.name == func_name:
             text = ast.get_source_segment(source, node)
             if text is None:
-                raise AssertionError(f"could not extract source for {func_name!r}")
+                raise AssertionError(f'could not extract source for {func_name!r}')
             return text
-    raise AssertionError(f"function {func_name!r} not found in source")
+    raise AssertionError(f'function {func_name!r} not found in source')
 
 
 class TestScanLoopPropagatesExceptions:
@@ -58,20 +58,18 @@ class TestScanLoopPropagatesExceptions:
     The outer run-loop is the single point of failure classification."""
 
     def test_scan_loop_has_no_broad_except_block(self):
-        body = _function_source(
-            _read('modules/protocol_step_runner.py'), 'scan_loop'
-        )
+        body = _function_source(_read('modules/protocol_step_runner.py'), 'scan_loop')
         # The old broad-except pattern fired a notification and broke
         # the loop. Either of these substrings appearing in scan_loop
         # is a regression.
-        assert "Protocol scan stopped" not in body, (
+        assert 'Protocol scan stopped' not in body, (
             "scan_loop must not fire 'Protocol scan stopped' "
-            "notification -- that classification lives in the outer "
-            "run_loop_inner via are_all_connected()."
+            'notification -- that classification lives in the outer '
+            'run_loop_inner via are_all_connected().'
         )
-        assert "notifications.error" not in body, (
-            "scan_loop must not call notifications.error directly. "
-            "Let exceptions propagate to the outer handler."
+        assert 'notifications.error' not in body, (
+            'scan_loop must not call notifications.error directly. '
+            'Let exceptions propagate to the outer handler.'
         )
 
     def test_scan_loop_does_not_catch_broad_exception(self):
@@ -87,20 +85,19 @@ class TestScanLoopPropagatesExceptions:
                         # fail if it's a bare except or `except Exception`.
                         if sub.type is None:
                             raise AssertionError(
-                                "scan_loop contains a bare `except:` -- "
-                                "let exceptions propagate."
+                                'scan_loop contains a bare `except:` -- let exceptions propagate.'
                             )
                         # Check for `except Exception` (broad)
                         type_src = ast.get_source_segment(src, sub.type)
                         if type_src and type_src.strip() == 'Exception':
                             raise AssertionError(
-                                f"scan_loop has `except {type_src}:` -- "
-                                f"broad excepts at this layer fire the "
-                                f"wrong notification and turn transient "
-                                f"faults into halting popups."
+                                f'scan_loop has `except {type_src}:` -- '
+                                f'broad excepts at this layer fire the '
+                                f'wrong notification and turn transient '
+                                f'faults into halting popups.'
                             )
                 return
-        raise AssertionError("scan_loop function not found")
+        raise AssertionError('scan_loop function not found')
 
 
 class TestRunLoopInnerClassifiesByConnection:
@@ -108,13 +105,11 @@ class TestRunLoopInnerClassifiesByConnection:
     failures by hardware connection state."""
 
     def test_outer_except_calls_are_all_connected(self):
-        body = _function_source(
-            _read('modules/protocol_run_loop.py'), '_run_loop_inner'
-        )
-        assert "are_all_connected" in body, (
-            "_run_loop_inner outer except must call are_all_connected() "
-            "to classify exceptions as fatal (disconnected) vs "
-            "transient (still connected)."
+        body = _function_source(_read('modules/protocol_run_loop.py'), '_run_loop_inner')
+        assert 'are_all_connected' in body, (
+            '_run_loop_inner outer except must call are_all_connected() '
+            'to classify exceptions as fatal (disconnected) vs '
+            'transient (still connected).'
         )
 
     def test_fatal_branch_fires_hardware_disconnected_notification(self):
@@ -125,33 +120,29 @@ class TestRunLoopInnerClassifiesByConnection:
         # The exact wording can evolve, but the disconnect-shape
         # notification must be the only error popup the outer handler
         # fires. "Protocol scan stopped" was the retired text.
-        assert "Protocol scan stopped" not in src, (
+        assert 'Protocol scan stopped' not in src, (
             "'Protocol scan stopped' notification text is retired. "
             "Transient failures don't notify; disconnects use the "
             "'Hardware disconnected' / 'Protocol Aborted' shape."
         )
         body = _function_source(src, '_run_loop_inner')
-        assert "Hardware disconnect" in body or "Protocol Aborted" in body, (
-            "_run_loop_inner fatal branch must surface a hardware-"
-            "disconnect-shape notification to the user."
+        assert 'Hardware disconnect' in body or 'Protocol Aborted' in body, (
+            '_run_loop_inner fatal branch must surface a hardware-'
+            'disconnect-shape notification to the user.'
         )
 
     def test_transient_branch_keeps_running(self):
         """The transient branch must NOT break the outer while loop
         or call cleanup -- it logs a warning and lets the next
         iteration retry the scan after the protocol period elapses."""
-        body = _function_source(
-            _read('modules/protocol_run_loop.py'), '_run_loop_inner'
-        )
+        body = _function_source(_read('modules/protocol_run_loop.py'), '_run_loop_inner')
         # The transient branch is identified by the warning that
         # mentions retry semantics. Don't pin to exact wording but
         # require the retry intent to be present.
-        assert (
-            "retry" in body.lower() or "transient" in body.lower()
-        ), (
-            "_run_loop_inner outer except must log the transient case "
-            "explicitly so future readers understand the no-break "
-            "no-increment semantics."
+        assert 'retry' in body.lower() or 'transient' in body.lower(), (
+            '_run_loop_inner outer except must log the transient case '
+            'explicitly so future readers understand the no-break '
+            'no-increment semantics.'
         )
 
     def test_outer_except_does_not_fire_generic_protocol_error(self):
@@ -174,17 +165,11 @@ class TestScanLoopBehaviorPreserved:
     maintenance after the refactor."""
 
     def test_scan_loop_still_calls_scan_iterate(self):
-        body = _function_source(
-            _read('modules/protocol_step_runner.py'), 'scan_loop'
-        )
-        assert "self.scan_iterate()" in body, (
-            "scan_loop must still call scan_iterate per iteration."
+        body = _function_source(_read('modules/protocol_step_runner.py'), 'scan_loop')
+        assert 'self.scan_iterate()' in body, (
+            'scan_loop must still call scan_iterate per iteration.'
         )
 
     def test_scan_loop_still_does_periodic_gc(self):
-        body = _function_source(
-            _read('modules/protocol_step_runner.py'), 'scan_loop'
-        )
-        assert "gc.collect()" in body, (
-            "scan_loop must still run the periodic GC sweep."
-        )
+        body = _function_source(_read('modules/protocol_step_runner.py'), 'scan_loop')
+        assert 'gc.collect()' in body, 'scan_loop must still run the periodic GC sweep.'

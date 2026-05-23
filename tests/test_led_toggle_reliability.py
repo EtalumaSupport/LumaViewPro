@@ -48,16 +48,16 @@ import pytest
 
 
 REPO = pathlib.Path(__file__).parent.parent
-LAYER_CONTROL = REPO / "ui" / "layer_control.py"
-LUMAVIEWPRO = REPO / "lumaviewpro.py"
+LAYER_CONTROL = REPO / 'ui' / 'layer_control.py'
+LUMAVIEWPRO = REPO / 'lumaviewpro.py'
 # LVP-A-6 (2026-05-04): the camera/LED/position listener closures moved
 # from lumaviewpro.py:on_start into modules/ui_listener_bridge.py.
 # The #617 safeguard tests below scan this file instead.
-UI_LISTENER_BRIDGE = REPO / "modules" / "ui_listener_bridge.py"
+UI_LISTENER_BRIDGE = REPO / 'modules' / 'ui_listener_bridge.py'
 
 
 def _parse(path: pathlib.Path) -> ast.Module:
-    return ast.parse(path.read_text(encoding="utf-8"))
+    return ast.parse(path.read_text(encoding='utf-8'))
 
 
 def _find_method(tree: ast.Module, class_name: str, method_name: str) -> ast.FunctionDef:
@@ -66,7 +66,7 @@ def _find_method(tree: ast.Module, class_name: str, method_name: str) -> ast.Fun
             for child in node.body:
                 if isinstance(child, ast.FunctionDef) and child.name == method_name:
                     return child
-    raise AssertionError(f"{class_name}.{method_name} not found in {tree}")
+    raise AssertionError(f'{class_name}.{method_name} not found in {tree}')
 
 
 def _source_of(node: ast.AST) -> str:
@@ -79,9 +79,9 @@ class TestFixA_DisableLedsForOtherLayersGuard:
 
     def test_disable_leds_contains_any_other_on_check(self):
         source = LAYER_CONTROL.read_text()
-        assert "any_other_on" in source, (
-            "disable_leds_for_other_layers must check if any other layer is on "
-            "before firing leds_off + led_on (#617 Fix A)"
+        assert 'any_other_on' in source, (
+            'disable_leds_for_other_layers must check if any other layer is on '
+            'before firing leds_off + led_on (#617 Fix A)'
         )
 
     def test_disable_leds_leds_off_is_guarded(self):
@@ -89,18 +89,18 @@ class TestFixA_DisableLedsForOtherLayersGuard:
         conditional on any_other_on, not unconditional."""
         source = LAYER_CONTROL.read_text()
         # Find the disable_leds_for_other_layers function body
-        idx = source.find("def disable_leds_for_other_layers")
+        idx = source.find('def disable_leds_for_other_layers')
         assert idx != -1
         # Grab the next 2000 chars to have enough of the function body
-        body = source[idx:idx + 2000]
+        body = source[idx : idx + 2000]
         # Assert the conditional structure: "if any_other_on:" appears before
         # the leds_off call.
-        any_on_pos = body.find("if any_other_on:")
-        leds_off_pos = body.find("leds_off_async")
-        assert any_on_pos != -1, "Missing `if any_other_on:` guard"
-        assert leds_off_pos != -1, "Missing leds_off_async call"
+        any_on_pos = body.find('if any_other_on:')
+        leds_off_pos = body.find('leds_off_async')
+        assert any_on_pos != -1, 'Missing `if any_other_on:` guard'
+        assert leds_off_pos != -1, 'Missing leds_off_async call'
         assert any_on_pos < leds_off_pos, (
-            "any_other_on check must come before leds_off_async call (#617 Fix A)"
+            'any_other_on check must come before leds_off_async call (#617 Fix A)'
         )
 
     def test_disable_leds_preserves_614_semantics(self):
@@ -108,15 +108,15 @@ class TestFixA_DisableLedsForOtherLayersGuard:
         on — preserving the #614 guarantee that only one LED is physically
         on at any time during layer switches."""
         source = LAYER_CONTROL.read_text()
-        idx = source.find("def disable_leds_for_other_layers")
-        body = source[idx:idx + 2500]
+        idx = source.find('def disable_leds_for_other_layers')
+        body = source[idx : idx + 2500]
         # Both commands must still be present inside the function (post
         # LAYER-A' migration to scope.X_async).
-        assert "ctx.scope.illumination.leds_off_async()" in body, (
-            "leds_off_async call removed — #614 fix for layer-switch cleanup lost"
+        assert 'ctx.scope.illumination.leds_off_async()' in body, (
+            'leds_off_async call removed — #614 fix for layer-switch cleanup lost'
         )
-        assert "ctx.scope.illumination.led_on_async(" in body, (
-            "led_on_async call for current layer removed — #614 fix broken"
+        assert 'ctx.scope.illumination.led_on_async(' in body, (
+            'led_on_async call for current layer removed — #614 fix broken'
         )
 
 
@@ -124,24 +124,24 @@ class TestFixB1_SliderHandlerEarlyReturn:
     """#617 Fix B.1: ill_slider, gain_slider, exp_slider must early-return
     when _initializing=True, so programmatic widget writes don't re-enter."""
 
-    @pytest.mark.parametrize("handler", ["ill_slider", "gain_slider", "exp_slider"])
+    @pytest.mark.parametrize('handler', ['ill_slider', 'gain_slider', 'exp_slider'])
     def test_handler_has_initializing_early_return(self, handler):
         tree = _parse(LAYER_CONTROL)
-        func = _find_method(tree, "LayerControl", handler)
+        func = _find_method(tree, 'LayerControl', handler)
         body = _source_of(func)
         # Must have an early return on self._initializing
-        assert "if self._initializing:" in body, (
-            f"{handler} must have `if self._initializing: return` (#617 Fix B.1)"
+        assert 'if self._initializing:' in body, (
+            f'{handler} must have `if self._initializing: return` (#617 Fix B.1)'
         )
         # The return must come before the settings write / logger / apply call.
         # We check this by finding the first occurrence of each and asserting
         # the early return is first in the function body order.
-        init_check_pos = body.find("if self._initializing:")
-        settings_write_pos = body.find("settings[self.layer]")
+        init_check_pos = body.find('if self._initializing:')
+        settings_write_pos = body.find('settings[self.layer]')
         assert init_check_pos != -1
         assert settings_write_pos != -1
         assert init_check_pos < settings_write_pos, (
-            f"{handler}: _initializing check must come before settings write"
+            f'{handler}: _initializing check must come before settings write'
         )
 
 
@@ -152,30 +152,28 @@ class TestFixB2_ProgrammaticWidgetWriteWrapping:
 
     def test_ill_text_wraps_slider_write(self):
         tree = _parse(LAYER_CONTROL)
-        func = _find_method(tree, "LayerControl", "ill_text")
+        func = _find_method(tree, 'LayerControl', 'ill_text')
         body = _source_of(func)
         # The slider.value assignment must be inside a self._initializing=True block
-        assert "self._initializing = True" in body, (
-            "ill_text must wrap programmatic widget writes in _initializing=True (#617)"
+        assert 'self._initializing = True' in body, (
+            'ill_text must wrap programmatic widget writes in _initializing=True (#617)'
         )
-        assert "self._initializing = False" in body, (
-            "ill_text must reset _initializing = False after the write"
+        assert 'self._initializing = False' in body, (
+            'ill_text must reset _initializing = False after the write'
         )
 
     def test_validate_and_apply_text_input_wraps_widget_writes(self):
         tree = _parse(LAYER_CONTROL)
-        func = _find_method(tree, "LayerControl", "_validate_and_apply_text_input")
+        func = _find_method(tree, 'LayerControl', '_validate_and_apply_text_input')
         body = _source_of(func)
-        assert "self._initializing = True" in body, (
-            "_validate_and_apply_text_input must wrap widget writes (#617)"
+        assert 'self._initializing = True' in body, (
+            '_validate_and_apply_text_input must wrap widget writes (#617)'
         )
         # slider.value set must be after _initializing = True
-        init_pos = body.find("self._initializing = True")
-        slider_set_pos = body.find("slider.value")
+        init_pos = body.find('self._initializing = True')
+        slider_set_pos = body.find('slider.value')
         assert init_pos != -1 and slider_set_pos != -1
-        assert init_pos < slider_set_pos, (
-            "_initializing=True must be set before the slider write"
-        )
+        assert init_pos < slider_set_pos, '_initializing=True must be set before the slider write'
 
     def test_update_camera_ui_is_text_only(self):
         """The camera listener handler must only update text widgets,
@@ -195,19 +193,15 @@ class TestFixB2_ProgrammaticWidgetWriteWrapping:
         location.
         """
         source = UI_LISTENER_BRIDGE.read_text()
-        idx = source.find("def _update_camera_ui")
-        assert idx != -1, "_update_camera_ui not found in ui_listener_bridge.py"
+        idx = source.find('def _update_camera_ui')
+        assert idx != -1, '_update_camera_ui not found in ui_listener_bridge.py'
         # Function is ~3000 chars; slice large enough to catch the body
-        body = source[idx:idx + 3500]
+        body = source[idx : idx + 3500]
 
         # Text writes must still be present — this is the whole point of
         # the listener.
-        assert "gain_text" in body, (
-            "_update_camera_ui must still update gain_text for #617 display"
-        )
-        assert "exp_text" in body, (
-            "_update_camera_ui must still update exp_text for #617 display"
-        )
+        assert 'gain_text' in body, '_update_camera_ui must still update gain_text for #617 display'
+        assert 'exp_text' in body, '_update_camera_ui must still update exp_text for #617 display'
 
         # Must NOT write to slider.value — that path is the recursion root.
         for forbidden in (
@@ -217,21 +211,21 @@ class TestFixB2_ProgrammaticWidgetWriteWrapping:
             '"exp_slider"].value =',
         ):
             assert forbidden not in body, (
-                f"_update_camera_ui must not assign to slider.value; found "
-                f"{forbidden!r} — this is the recursion root from #617"
+                f'_update_camera_ui must not assign to slider.value; found '
+                f'{forbidden!r} — this is the recursion root from #617'
             )
 
         # Must still respect _initializing set by other code paths
         # (set_step_state, layer switches). We don't write our own, but
         # we do early-return when someone else set it.
-        assert "if layer_obj._initializing:" in body, (
-            "_update_camera_ui must still early-return when another code "
-            "path has set layer_obj._initializing"
+        assert 'if layer_obj._initializing:' in body, (
+            '_update_camera_ui must still early-return when another code '
+            'path has set layer_obj._initializing'
         )
 
         # Must NOT set _initializing itself anymore — no slider writes
         # means no recursion to protect against.
-        assert "layer_obj._initializing = True" not in body, (
-            "_update_camera_ui should not set _initializing; text-only "
-            "updates do not trigger handler recursion"
+        assert 'layer_obj._initializing = True' not in body, (
+            '_update_camera_ui should not set _initializing; text-only '
+            'updates do not trigger handler recursion'
         )

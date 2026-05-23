@@ -45,7 +45,7 @@ import pytest
 
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
-LAYER_CONTROL_SRC = REPO / "ui" / "layer_control.py"
+LAYER_CONTROL_SRC = REPO / 'ui' / 'layer_control.py'
 
 
 # ---------------------------------------------------------------------------
@@ -57,15 +57,16 @@ def _method_body(method_name: str) -> str:
     source = LAYER_CONTROL_SRC.read_text()
     tree = ast.parse(source)
     for node in ast.walk(tree):
-        if isinstance(node, ast.ClassDef) and node.name == "LayerControl":
+        if isinstance(node, ast.ClassDef) and node.name == 'LayerControl':
             for child in node.body:
                 if isinstance(child, ast.FunctionDef) and child.name == method_name:
                     text = ast.get_source_segment(source, child)
                     if text is None:
                         raise AssertionError(
-                            f"could not extract source for LayerControl.{method_name}")
+                            f'could not extract source for LayerControl.{method_name}'
+                        )
                     return text
-    raise AssertionError(f"LayerControl.{method_name} not found")
+    raise AssertionError(f'LayerControl.{method_name} not found')
 
 
 class TestExposureFloorSourceStructure:
@@ -76,37 +77,37 @@ class TestExposureFloorSourceStructure:
         """TRANSMITTED_MIN_EXPOSURE_MS must be a module-level constant.
         Bare-number 0.1 floors scattered through code violate Rule 27."""
         src = LAYER_CONTROL_SRC.read_text()
-        assert "TRANSMITTED_MIN_EXPOSURE_MS" in src, (
-            "TRANSMITTED_MIN_EXPOSURE_MS must be defined at module scope. "
-            "See class docstring for the bug it gates."
+        assert 'TRANSMITTED_MIN_EXPOSURE_MS' in src, (
+            'TRANSMITTED_MIN_EXPOSURE_MS must be defined at module scope. '
+            'See class docstring for the bug it gates.'
         )
         # Ensure it's a numeric assignment (not a typo / stub).
         for line in src.splitlines():
             line = line.strip()
-            if line.startswith("TRANSMITTED_MIN_EXPOSURE_MS"):
-                assert "=" in line and "0.1" in line, (
-                    f"TRANSMITTED_MIN_EXPOSURE_MS assignment must be 0.1, "
+            if line.startswith('TRANSMITTED_MIN_EXPOSURE_MS'):
+                assert '=' in line and '0.1' in line, (
+                    f'TRANSMITTED_MIN_EXPOSURE_MS assignment must be 0.1, '
                     f"got: {line!r}. The value matches set_exposure_time's "
-                    f"internal <0.1ms warning gate; changing it changes "
-                    f"which AG-feedback values fire the warning."
+                    f'internal <0.1ms warning gate; changing it changes '
+                    f'which AG-feedback values fire the warning.'
                 )
                 return
-        raise AssertionError("TRANSMITTED_MIN_EXPOSURE_MS assignment not found")
+        raise AssertionError('TRANSMITTED_MIN_EXPOSURE_MS assignment not found')
 
     def test_floor_conditional_covers_both_classes(self):
         """update_auto_gain_cb must apply BOTH FLUORESCENCE_MIN_EXPOSURE_MS
         and TRANSMITTED_MIN_EXPOSURE_MS to the AG-feedback exp value.
         A missing else branch reintroduces the BF AG -> 0.03 ms ->
         warning-spam path."""
-        body = _method_body("update_auto_gain_cb")
-        assert "FLUORESCENCE_MIN_EXPOSURE_MS" in body, (
-            "update_auto_gain_cb must reference FLUORESCENCE_MIN_EXPOSURE_MS "
-            "in the AG-feedback floor (fluorescence + luminescence branch)."
+        body = _method_body('update_auto_gain_cb')
+        assert 'FLUORESCENCE_MIN_EXPOSURE_MS' in body, (
+            'update_auto_gain_cb must reference FLUORESCENCE_MIN_EXPOSURE_MS '
+            'in the AG-feedback floor (fluorescence + luminescence branch).'
         )
-        assert "TRANSMITTED_MIN_EXPOSURE_MS" in body, (
-            "update_auto_gain_cb must reference TRANSMITTED_MIN_EXPOSURE_MS "
-            "in the AG-feedback floor (transmitted else branch). See class "
-            "docstring for the BF/PC/DF bug this catches."
+        assert 'TRANSMITTED_MIN_EXPOSURE_MS' in body, (
+            'update_auto_gain_cb must reference TRANSMITTED_MIN_EXPOSURE_MS '
+            'in the AG-feedback floor (transmitted else branch). See class '
+            'docstring for the BF/PC/DF bug this catches.'
         )
 
 
@@ -123,28 +124,28 @@ def _extract_method_source(class_name: str, method_name: str) -> str:
             for child in node.body:
                 if isinstance(child, ast.FunctionDef) and child.name == method_name:
                     return ast.unparse(child)
-    raise AssertionError(f"{class_name}.{method_name} not found in source")
+    raise AssertionError(f'{class_name}.{method_name} not found in source')
 
 
 def _compile_cb():
     """Compile update_auto_gain_cb into a standalone callable."""
-    fn_src = _extract_method_source("LayerControl", "update_auto_gain_cb")
+    fn_src = _extract_method_source('LayerControl', 'update_auto_gain_cb')
     # Stub common_utils.get_image_layers to return the fluorescence + lumi list.
     common_utils_stub = SimpleNamespace(
         get_image_layers=lambda: ['Blue', 'Green', 'Red', 'Lumi'],
     )
     app_ctx_stub = SimpleNamespace(ctx=SimpleNamespace(settings={}))
     ns = {
-        "np": np,
-        "logger": MagicMock(),
-        "common_utils": common_utils_stub,
-        "_app_ctx": app_ctx_stub,
+        'np': np,
+        'logger': MagicMock(),
+        'common_utils': common_utils_stub,
+        '_app_ctx': app_ctx_stub,
         # Constants the floor references -- must match production values.
-        "FLUORESCENCE_MIN_EXPOSURE_MS": 1.0,
-        "TRANSMITTED_MIN_EXPOSURE_MS": 0.1,
+        'FLUORESCENCE_MIN_EXPOSURE_MS': 1.0,
+        'TRANSMITTED_MIN_EXPOSURE_MS': 0.1,
     }
-    exec(compile(fn_src, "<layer_control::update_auto_gain_cb>", "exec"), ns)
-    return ns["update_auto_gain_cb"], app_ctx_stub
+    exec(compile(fn_src, '<layer_control::update_auto_gain_cb>', 'exec'), ns)
+    return ns['update_auto_gain_cb'], app_ctx_stub
 
 
 def _make_fake_layer(layer: str, slider_min: float, slider_max: float = 1000.0):
@@ -158,7 +159,7 @@ def _make_fake_layer(layer: str, slider_min: float, slider_max: float = 1000.0):
 
     fake.ids = {}
     fake.ids['auto_gain'] = MagicMock()
-    fake.ids['auto_gain'].state = 'normal'   # toggle up = AG off
+    fake.ids['auto_gain'].state = 'normal'  # toggle up = AG off
     fake.ids['exp_slider'] = MagicMock()
     fake.ids['exp_slider'].min = slider_min
     fake.ids['exp_slider'].max = slider_max
@@ -167,9 +168,9 @@ def _make_fake_layer(layer: str, slider_min: float, slider_max: float = 1000.0):
     fake.ids['gain_slider'].min = 0
     fake.ids['gain_slider'].max = 48
     fake.ids['gain_text'] = MagicMock()
-    fake.ids['gain_text'].text = "0"
+    fake.ids['gain_text'].text = '0'
     fake.ids['exp_text'] = MagicMock()
-    fake.ids['exp_text'].text = "0"
+    fake.ids['exp_text'].text = '0'
     fake.apply_settings = MagicMock()
     return fake
 
@@ -178,13 +179,16 @@ class TestExposureFloorBehavior:
     """Behavioral verification that AG-feedback writes are floored before
     landing in settings[layer]['exp_ms']."""
 
-    @pytest.mark.parametrize("raw_exp_ms,expected_floor", [
-        (0.030, 0.1),   # Pylon ExposureTime.Min for ace 2 etc.
-        (0.05,  0.1),   # below threshold
-        (0.099, 0.1),   # just below threshold
-        (0.1,   0.1),   # at threshold (still allowed)
-        (5.0,   5.0),   # above threshold -> passes through
-    ])
+    @pytest.mark.parametrize(
+        'raw_exp_ms,expected_floor',
+        [
+            (0.030, 0.1),  # Pylon ExposureTime.Min for ace 2 etc.
+            (0.05, 0.1),  # below threshold
+            (0.099, 0.1),  # just below threshold
+            (0.1, 0.1),  # at threshold (still allowed)
+            (5.0, 5.0),  # above threshold -> passes through
+        ],
+    )
     def test_bf_ag_feedback_floored_to_transmitted_min(self, raw_exp_ms, expected_floor):
         """For BF (transmitted), AG-feedback exp values < 0.1 ms must be
         floored to 0.1 before being written to settings. Without this,
@@ -192,25 +196,28 @@ class TestExposureFloorBehavior:
         WARNING on every layer switch."""
         cb, app_ctx_stub = _compile_cb()
         app_ctx_stub.ctx.settings = {'BF': {'exp_ms': 999.0, 'gain_db': 0.0, 'auto_gain': True}}
-        fake = _make_fake_layer('BF', slider_min=0.01)   # .kv default for transmitted
+        fake = _make_fake_layer('BF', slider_min=0.01)  # .kv default for transmitted
 
         # AG-off callback: init=False, state=False (read from toggle), gain, exp.
         cb(fake, result=(False, False, 0.0, raw_exp_ms))
 
         stored = app_ctx_stub.ctx.settings['BF']['exp_ms']
         assert stored == expected_floor, (
-            f"BF AG-feedback raw_exp={raw_exp_ms}ms should floor to "
-            f"{expected_floor}ms, got {stored}ms. See class docstring "
-            f"for the WARNING-spam bug this floor prevents."
+            f'BF AG-feedback raw_exp={raw_exp_ms}ms should floor to '
+            f'{expected_floor}ms, got {stored}ms. See class docstring '
+            f'for the WARNING-spam bug this floor prevents.'
         )
 
-    @pytest.mark.parametrize("raw_exp_ms,expected_floor", [
-        (0.030, 1.0),   # camera minimum -> 1ms fluorescence floor
-        (0.5,   1.0),   # below fluo floor
-        (0.999, 1.0),   # just below fluo floor
-        (1.0,   1.0),   # at fluo floor
-        (15.0,  15.0),  # above floor -> passes through
-    ])
+    @pytest.mark.parametrize(
+        'raw_exp_ms,expected_floor',
+        [
+            (0.030, 1.0),  # camera minimum -> 1ms fluorescence floor
+            (0.5, 1.0),  # below fluo floor
+            (0.999, 1.0),  # just below fluo floor
+            (1.0, 1.0),  # at fluo floor
+            (15.0, 15.0),  # above floor -> passes through
+        ],
+    )
     def test_blue_ag_feedback_floored_to_fluorescence_min(self, raw_exp_ms, expected_floor):
         """For Blue (fluorescence), AG-feedback exp values < 1 ms must be
         floored to 1.0 (FLUORESCENCE_MIN_EXPOSURE_MS). Pre-existing
@@ -224,9 +231,9 @@ class TestExposureFloorBehavior:
 
         stored = app_ctx_stub.ctx.settings['Blue']['exp_ms']
         assert stored == expected_floor, (
-            f"Blue AG-feedback raw_exp={raw_exp_ms}ms should floor to "
-            f"{expected_floor}ms (FLUORESCENCE_MIN_EXPOSURE_MS), "
-            f"got {stored}ms."
+            f'Blue AG-feedback raw_exp={raw_exp_ms}ms should floor to '
+            f'{expected_floor}ms (FLUORESCENCE_MIN_EXPOSURE_MS), '
+            f'got {stored}ms.'
         )
 
     def test_pc_uses_transmitted_floor(self):

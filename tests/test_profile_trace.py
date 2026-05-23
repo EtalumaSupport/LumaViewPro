@@ -8,7 +8,7 @@ import threading
 import time
 from pathlib import Path
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 import pytest
 
@@ -29,72 +29,72 @@ class TestDefaultOff:
 
     def test_trace_is_noop_when_disabled(self, tmp_path):
         profile_trace._output_dir = tmp_path
-        profile_trace.trace("x.csv", "a,b", [1, 2])
-        assert not (tmp_path / "x.csv").exists()
+        profile_trace.trace('x.csv', 'a,b', [1, 2])
+        assert not (tmp_path / 'x.csv').exists()
 
     def test_timer_is_noop_when_disabled(self, tmp_path):
         profile_trace._output_dir = tmp_path
-        with profile_trace.timer("x.csv", "a,b", lambda: [1]):
+        with profile_trace.timer('x.csv', 'a,b', lambda: [1]):
             pass
-        assert not (tmp_path / "x.csv").exists()
+        assert not (tmp_path / 'x.csv').exists()
 
 
 class TestEnableDisable:
     def test_enable_creates_output_dir(self, tmp_path):
-        profile_trace.enable(output_dir=tmp_path / "profile_out")
-        assert (tmp_path / "profile_out").is_dir()
+        profile_trace.enable(output_dir=tmp_path / 'profile_out')
+        assert (tmp_path / 'profile_out').is_dir()
         assert profile_trace.ENABLE_PROFILE_TRACE is True
 
     def test_enable_is_idempotent(self, tmp_path):
-        profile_trace.enable(output_dir=tmp_path / "p1")
-        profile_trace.enable(output_dir=tmp_path / "p2")
-        assert (tmp_path / "p1").is_dir()
-        assert not (tmp_path / "p2").exists()
+        profile_trace.enable(output_dir=tmp_path / 'p1')
+        profile_trace.enable(output_dir=tmp_path / 'p2')
+        assert (tmp_path / 'p1').is_dir()
+        assert not (tmp_path / 'p2').exists()
 
     def test_disable_flushes_and_closes(self, tmp_path):
         profile_trace.enable(output_dir=tmp_path)
-        profile_trace.trace("t.csv", "a,b", [1, 2])
+        profile_trace.trace('t.csv', 'a,b', [1, 2])
         profile_trace.disable()
         assert profile_trace.ENABLE_PROFILE_TRACE is False
-        content = (tmp_path / "t.csv").read_text()
-        assert "a,b" in content
-        assert "1,2" in content
+        content = (tmp_path / 't.csv').read_text()
+        assert 'a,b' in content
+        assert '1,2' in content
 
 
 class TestTrace:
     def test_writes_header_on_first_row(self, tmp_path):
         profile_trace.enable(output_dir=tmp_path)
-        profile_trace.trace("a.csv", "col1,col2", ["x", 42])
-        content = (tmp_path / "a.csv").read_text()
-        assert content.splitlines() == ["col1,col2", "x,42"]
+        profile_trace.trace('a.csv', 'col1,col2', ['x', 42])
+        content = (tmp_path / 'a.csv').read_text()
+        assert content.splitlines() == ['col1,col2', 'x,42']
 
     def test_does_not_duplicate_header(self, tmp_path):
         profile_trace.enable(output_dir=tmp_path)
-        profile_trace.trace("a.csv", "col1,col2", ["x", 1])
-        profile_trace.trace("a.csv", "col1,col2", ["y", 2])
-        lines = (tmp_path / "a.csv").read_text().splitlines()
-        assert lines == ["col1,col2", "x,1", "y,2"]
+        profile_trace.trace('a.csv', 'col1,col2', ['x', 1])
+        profile_trace.trace('a.csv', 'col1,col2', ['y', 2])
+        lines = (tmp_path / 'a.csv').read_text().splitlines()
+        assert lines == ['col1,col2', 'x,1', 'y,2']
 
 
 class TestTimer:
     def test_timer_writes_duration(self, tmp_path):
         profile_trace.enable(output_dir=tmp_path)
-        with profile_trace.timer("t.csv", "ts_ms,duration_ms,label", lambda: ["work"]):
+        with profile_trace.timer('t.csv', 'ts_ms,duration_ms,label', lambda: ['work']):
             time.sleep(0.01)
-        lines = (tmp_path / "t.csv").read_text().splitlines()
+        lines = (tmp_path / 't.csv').read_text().splitlines()
         assert len(lines) == 2  # header + row
-        row = lines[1].split(",")
+        row = lines[1].split(',')
         assert float(row[1]) >= 9  # ~10 ms, allow jitter
-        assert row[2] == "work"
+        assert row[2] == 'work'
 
     def test_timer_extra_fn_not_called_when_disabled(self, tmp_path):
         calls = []
 
         def fn():
             calls.append(1)
-            return ["x"]
+            return ['x']
 
-        with profile_trace.timer("t.csv", "a,b,c", fn):
+        with profile_trace.timer('t.csv', 'a,b,c', fn):
             pass
         assert calls == []
 
@@ -102,12 +102,11 @@ class TestTimer:
         profile_trace.enable(output_dir=tmp_path)
 
         def boom():
-            raise RuntimeError("nope")
+            raise RuntimeError('nope')
 
-        with profile_trace.timer("t.csv", "ts_ms,duration_ms,label", boom):
+        with profile_trace.timer('t.csv', 'ts_ms,duration_ms,label', boom):
             pass
-        assert not (tmp_path / "t.csv").exists() or \
-               (tmp_path / "t.csv").read_text().strip() == ""
+        assert not (tmp_path / 't.csv').exists() or (tmp_path / 't.csv').read_text().strip() == ''
 
 
 class TestThreadSafety:
@@ -117,20 +116,19 @@ class TestThreadSafety:
         for i in range(10):
             t = threading.Thread(
                 target=lambda idx=i: [
-                    profile_trace.trace("c.csv", "thread,n", [idx, n])
-                    for n in range(50)
+                    profile_trace.trace('c.csv', 'thread,n', [idx, n]) for n in range(50)
                 ]
             )
             threads.append(t)
             t.start()
         for t in threads:
             t.join()
-        lines = (tmp_path / "c.csv").read_text().splitlines()
+        lines = (tmp_path / 'c.csv').read_text().splitlines()
         # 500 data rows + 1 header
         assert len(lines) == 501
         # every data row has exactly 2 fields (no interleaving)
         for line in lines[1:]:
-            assert len(line.split(",")) == 2
+            assert len(line.split(',')) == 2
 
 
 class TestTimedLockInvariantThreshold:
@@ -144,51 +142,56 @@ class TestTimedLockInvariantThreshold:
     def test_warns_when_hold_exceeds_threshold(self, monkeypatch):
         warnings_captured = []
         import lvp_logger
+
         monkeypatch.setattr(
-            lvp_logger.logger, "warning",
+            lvp_logger.logger,
+            'warning',
             lambda msg, *a, **kw: warnings_captured.append(msg),
         )
         lock = profile_trace.TimedLock(
-            threading.Lock(), name="test_invariant_lock",
+            threading.Lock(),
+            name='test_invariant_lock',
             warn_hold_threshold_ms=1.0,
         )
         with lock:
             time.sleep(0.005)  # 5ms; well above 1ms threshold
-        assert any(
-            "test_invariant_lock" in m and "exceeded" in m
-            for m in warnings_captured
-        ), f"Expected hold-threshold warning; got: {warnings_captured}"
+        assert any('test_invariant_lock' in m and 'exceeded' in m for m in warnings_captured), (
+            f'Expected hold-threshold warning; got: {warnings_captured}'
+        )
 
     def test_no_warning_under_threshold(self, monkeypatch):
         warnings_captured = []
         import lvp_logger
+
         monkeypatch.setattr(
-            lvp_logger.logger, "warning",
+            lvp_logger.logger,
+            'warning',
             lambda msg, *a, **kw: warnings_captured.append(msg),
         )
         lock = profile_trace.TimedLock(
-            threading.Lock(), name="test_under_threshold",
+            threading.Lock(),
+            name='test_under_threshold',
             warn_hold_threshold_ms=100.0,
         )
         with lock:
             pass  # essentially zero hold
-        assert not any(
-            "test_under_threshold" in m for m in warnings_captured
-        )
+        assert not any('test_under_threshold' in m for m in warnings_captured)
 
     def test_default_no_threshold_no_warning(self, monkeypatch):
         # No warn_hold_threshold_ms means no invariant check; the TimedLock
         # is pure instrumentation (off when profile_trace_enabled is false).
         warnings_captured = []
         import lvp_logger
+
         monkeypatch.setattr(
-            lvp_logger.logger, "warning",
+            lvp_logger.logger,
+            'warning',
             lambda msg, *a, **kw: warnings_captured.append(msg),
         )
-        lock = profile_trace.TimedLock(threading.Lock(), name="no_threshold")
+        lock = profile_trace.TimedLock(threading.Lock(), name='no_threshold')
         with lock:
             time.sleep(0.01)  # 10ms; would exceed any reasonable threshold
-        assert not any("no_threshold" in m for m in warnings_captured)
+        assert not any('no_threshold' in m for m in warnings_captured)
 
     def test_warning_active_when_trace_off(self, monkeypatch):
         """Threshold check fires regardless of ENABLE_PROFILE_TRACE state."""
@@ -196,31 +199,33 @@ class TestTimedLockInvariantThreshold:
         assert profile_trace.ENABLE_PROFILE_TRACE is False
         warnings_captured = []
         import lvp_logger
+
         monkeypatch.setattr(
-            lvp_logger.logger, "warning",
+            lvp_logger.logger,
+            'warning',
             lambda msg, *a, **kw: warnings_captured.append(msg),
         )
         lock = profile_trace.TimedLock(
-            threading.Lock(), name="trace_off_threshold_check",
+            threading.Lock(),
+            name='trace_off_threshold_check',
             warn_hold_threshold_ms=0.5,
         )
         with lock:
             time.sleep(0.003)
-        assert any(
-            "trace_off_threshold_check" in m for m in warnings_captured
-        )
+        assert any('trace_off_threshold_check' in m for m in warnings_captured)
 
 
 class TestSettingsActivation:
     def test_settings_key_enables_at_import(self, monkeypatch, tmp_path):
-        out_dir = str(tmp_path / "settings_out")
+        out_dir = str(tmp_path / 'settings_out')
         monkeypatch.setattr(
-            "modules.settings_init.load_profile_trace_setting",
-            lambda directory: {"enabled": True, "output_dir": out_dir},
+            'modules.settings_init.load_profile_trace_setting',
+            lambda directory: {'enabled': True, 'output_dir': out_dir},
         )
         profile_trace.disable()
         import importlib
+
         importlib.reload(profile_trace)
         assert profile_trace.ENABLE_PROFILE_TRACE is True
-        assert (tmp_path / "settings_out").is_dir()
+        assert (tmp_path / 'settings_out').is_dir()
         profile_trace.disable()

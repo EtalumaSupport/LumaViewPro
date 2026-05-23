@@ -42,7 +42,7 @@ class TestThreadingTimerScheduler:
                     evt.set()
 
             sched.schedule_interval(_cb, 0.05)
-            assert evt.wait(timeout=2.0), "callback should have fired ≥3 times within 2s"
+            assert evt.wait(timeout=2.0), 'callback should have fired ≥3 times within 2s'
             assert counter['n'] >= 3
         finally:
             sched.shutdown()
@@ -65,8 +65,8 @@ class TestThreadingTimerScheduler:
             a_before = counter['a']
             sched.unschedule(handle_a)
             time.sleep(0.3)  # b should keep firing
-            assert counter['a'] == a_before, "_a should NOT fire after unschedule"
-            assert counter['b'] > a_before, "_b should keep firing after _a is unscheduled"
+            assert counter['a'] == a_before, '_a should NOT fire after unschedule'
+            assert counter['b'] > a_before, '_b should keep firing after _a is unscheduled'
         finally:
             sched.shutdown()
 
@@ -84,8 +84,9 @@ class TestThreadingTimerScheduler:
         sched.shutdown()
         time.sleep(0.3)
         # Allow up to one in-flight tick that started before shutdown took effect.
-        assert counter['n'] <= before + 2, \
-            f"shutdown should stop all intervals; counter went from {before} to {counter['n']}"
+        assert counter['n'] <= before + 2, (
+            f'shutdown should stop all intervals; counter went from {before} to {counter["n"]}'
+        )
 
     def test_schedule_after_shutdown_raises(self):
         sched = ThreadingTimerScheduler()
@@ -104,13 +105,12 @@ class TestThreadingTimerScheduler:
             def _cb():
                 counter['n'] += 1
                 if counter['n'] == 1:
-                    raise RuntimeError("simulated callback failure")
+                    raise RuntimeError('simulated callback failure')
                 if counter['n'] >= 3:
                     evt.set()
 
             sched.schedule_interval(_cb, 0.05)
-            assert evt.wait(timeout=2.0), \
-                "scheduler should keep firing after a callback raises"
+            assert evt.wait(timeout=2.0), 'scheduler should keep firing after a callback raises'
             assert counter['n'] >= 3
         finally:
             sched.shutdown()
@@ -121,7 +121,7 @@ class TestThreadingTimerScheduler:
             handle = sched.schedule_interval(lambda: None, 0.05)
             sched.unschedule(handle)
             sched.unschedule(handle)  # should not raise
-            sched.unschedule(None)    # None is allowed
+            sched.unschedule(None)  # None is allowed
         finally:
             sched.shutdown()
 

@@ -11,6 +11,7 @@ Skipped by default. Run with:
 The `ids_hardware` marker is gated by conftest.pytest_collection_modifyitems —
 test bodies do NOT need their own skip dance.
 """
+
 import time
 import unittest
 
@@ -66,12 +67,12 @@ class TestIDS(unittest.TestCase):
         # tested by the pure-logic suite TestIDSPixelFormatResolver.
         supported = self.camera.get_supported_pixel_formats()
         if not any(s.startswith('Mono8') for s in supported):
-            self.skipTest(
-                f'camera has no Mono8-class entry (supported={list(supported)})')
+            self.skipTest(f'camera has no Mono8-class entry (supported={list(supported)})')
         self.assertTrue(self.camera.set_pixel_format('Mono8'))
         active = self.camera.get_pixel_format()
-        self.assertTrue(active.startswith('Mono8'),
-                        f'Logical Mono8 resolved to non-Mono8 entry: {active}')
+        self.assertTrue(
+            active.startswith('Mono8'), f'Logical Mono8 resolved to non-Mono8 entry: {active}'
+        )
 
     def test_exposure_t(self):
         self.camera.exposure_t(15)
@@ -111,53 +112,59 @@ class TestIDSPixelFormatResolver(unittest.TestCase):
 
     def test_exact_match(self):
         from drivers.idscamera import IDSCamera
-        self.assertEqual(
-            IDSCamera._resolve_logical_format_name('Mono8', ('Mono8',)),
-            'Mono8')
+
+        self.assertEqual(IDSCamera._resolve_logical_format_name('Mono8', ('Mono8',)), 'Mono8')
 
     def test_mono8_prefix_match(self):
         from drivers.idscamera import IDSCamera
+
         self.assertEqual(
             IDSCamera._resolve_logical_format_name(
-                'Mono8', ('Mono10g40IDS', 'Mono12g24IDS', 'Mono8g')),
-            'Mono8g')
+                'Mono8', ('Mono10g40IDS', 'Mono12g24IDS', 'Mono8g')
+            ),
+            'Mono8g',
+        )
 
     def test_mono8_no_family_returns_none(self):
         from drivers.idscamera import IDSCamera
+
         self.assertIsNone(
-            IDSCamera._resolve_logical_format_name(
-                'Mono8', ('Mono10g40IDS', 'Mono12g24IDS')))
+            IDSCamera._resolve_logical_format_name('Mono8', ('Mono10g40IDS', 'Mono12g24IDS'))
+        )
 
     def test_mono12_prefix_match(self):
         from drivers.idscamera import IDSCamera
+
         self.assertEqual(
-            IDSCamera._resolve_logical_format_name(
-                'Mono12', ('Mono8', 'Mono12g24IDS')),
-            'Mono12g24IDS')
+            IDSCamera._resolve_logical_format_name('Mono12', ('Mono8', 'Mono12g24IDS')),
+            'Mono12g24IDS',
+        )
 
     def test_mono12_falls_back_to_mono10(self):
         from drivers.idscamera import IDSCamera
+
         self.assertEqual(
-            IDSCamera._resolve_logical_format_name(
-                'Mono12', ('Mono8', 'Mono10g40IDS')),
-            'Mono10g40IDS')
+            IDSCamera._resolve_logical_format_name('Mono12', ('Mono8', 'Mono10g40IDS')),
+            'Mono10g40IDS',
+        )
 
     def test_camera_native_name_passes_through(self):
         from drivers.idscamera import IDSCamera
+
         self.assertEqual(
-            IDSCamera._resolve_logical_format_name(
-                'Mono10g40IDS', ('Mono8', 'Mono10g40IDS')),
-            'Mono10g40IDS')
+            IDSCamera._resolve_logical_format_name('Mono10g40IDS', ('Mono8', 'Mono10g40IDS')),
+            'Mono10g40IDS',
+        )
 
     def test_unknown_logical_returns_none(self):
         from drivers.idscamera import IDSCamera
-        self.assertIsNone(
-            IDSCamera._resolve_logical_format_name('Mono99', ('Mono8',)))
+
+        self.assertIsNone(IDSCamera._resolve_logical_format_name('Mono99', ('Mono8',)))
 
     def test_empty_supported_returns_none(self):
         from drivers.idscamera import IDSCamera
-        self.assertIsNone(
-            IDSCamera._resolve_logical_format_name('Mono8', ()))
+
+        self.assertIsNone(IDSCamera._resolve_logical_format_name('Mono8', ()))
 
 
 if __name__ == '__main__':

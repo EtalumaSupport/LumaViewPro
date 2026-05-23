@@ -41,7 +41,7 @@ import pathlib
 
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
-LVP_LOGGER_SRC = REPO / "lvp_logger.py"
+LVP_LOGGER_SRC = REPO / 'lvp_logger.py'
 
 
 class TestMarkerLookupResolvesFromExecutableWhenFrozen:
@@ -68,22 +68,21 @@ class TestMarkerLookupResolvesFromExecutableWhenFrozen:
         src = self._source()
         lines = src.splitlines()
         for i, line in enumerate(lines):
-            if "marker.lvpinstalled" in line and "open(" in line:
+            if 'marker.lvpinstalled' in line and 'open(' in line:
                 window_start = max(0, i - 25)
-                return "\n".join(lines[window_start:i + 2])
-        raise AssertionError(
-            "open() against marker.lvpinstalled not found in lvp_logger.py")
+                return '\n'.join(lines[window_start : i + 2])
+        raise AssertionError('open() against marker.lvpinstalled not found in lvp_logger.py')
 
     def test_marker_lookup_checks_sys_frozen(self):
         """The marker probe must consult sys.frozen before resolving the
         directory. A future cleanup that drops the check reverts to the
         broken script_path-only behavior."""
         window = self._resolution_window()
-        assert "sys.frozen" in window or "getattr(sys, 'frozen'" in window, (
-            "marker.lvpinstalled probe must check sys.frozen before "
-            "resolving its directory. Without this, frozen MSI builds "
-            "report source / dev because __file__ points into the bundle "
-            "extract dir. See class docstring."
+        assert 'sys.frozen' in window or "getattr(sys, 'frozen'" in window, (
+            'marker.lvpinstalled probe must check sys.frozen before '
+            'resolving its directory. Without this, frozen MSI builds '
+            'report source / dev because __file__ points into the bundle '
+            'extract dir. See class docstring.'
         )
 
     def test_marker_lookup_uses_sys_executable_when_frozen(self):
@@ -91,10 +90,10 @@ class TestMarkerLookupResolvesFromExecutableWhenFrozen:
         not from __file__ / script_path. The exe lives at the install
         root; the bundled .py does not."""
         window = self._resolution_window()
-        assert "sys.executable" in window, (
-            "marker.lvpinstalled probe must use sys.executable to resolve "
-            "the install dir when frozen. Without this, the probe looks "
-            "in _MEI<random> / _internal where the marker is not placed."
+        assert 'sys.executable' in window, (
+            'marker.lvpinstalled probe must use sys.executable to resolve '
+            'the install dir when frozen. Without this, the probe looks '
+            'in _MEI<random> / _internal where the marker is not placed.'
         )
 
     def test_marker_lookup_uses_script_path_fallback(self):
@@ -102,9 +101,9 @@ class TestMarkerLookupResolvesFromExecutableWhenFrozen:
         from a source clone find the marker if a developer creates one
         for local testing."""
         window = self._resolution_window()
-        assert "script_path" in window, (
-            "marker.lvpinstalled probe must fall back to script_path "
-            "when not frozen (dev source clone path)."
+        assert 'script_path' in window, (
+            'marker.lvpinstalled probe must fall back to script_path '
+            'when not frozen (dev source clone path).'
         )
 
     def test_marker_open_uses_resolved_dir_not_legacy_script_path(self):
@@ -118,16 +117,14 @@ class TestMarkerLookupResolvesFromExecutableWhenFrozen:
         # path uses os.path.join with our _marker_dir helper.
         lines = src.splitlines()
         for i, line in enumerate(lines):
-            if "marker.lvpinstalled" in line and "open(" in line:
+            if 'marker.lvpinstalled' in line and 'open(' in line:
                 # Found the probe. Assert it does NOT use bare
                 # script_path as the join base.
-                assert "script_path" not in line, (
-                    f"marker.lvpinstalled open() at line {i+1} uses bare "
+                assert 'script_path' not in line, (
+                    f'marker.lvpinstalled open() at line {i + 1} uses bare '
                     f"script_path -- that's the legacy broken path. Use "
-                    f"the frozen-aware _marker_dir variable instead. Line: "
-                    f"{line!r}"
+                    f'the frozen-aware _marker_dir variable instead. Line: '
+                    f'{line!r}'
                 )
                 return
-        raise AssertionError(
-            "open() call against marker.lvpinstalled not found "
-            "in lvp_logger.py")
+        raise AssertionError('open() call against marker.lvpinstalled not found in lvp_logger.py')

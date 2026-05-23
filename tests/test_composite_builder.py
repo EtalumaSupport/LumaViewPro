@@ -32,8 +32,8 @@ class TestBuildCompositeNoTransmitted:
         assert img.shape == (4, 4, 3)
         assert img.dtype == np.uint8
         np.testing.assert_array_equal(img[:, :, 0], 200)  # Red channel
-        np.testing.assert_array_equal(img[:, :, 1], 0)    # Green empty
-        np.testing.assert_array_equal(img[:, :, 2], 0)    # Blue empty
+        np.testing.assert_array_equal(img[:, :, 1], 0)  # Green empty
+        np.testing.assert_array_equal(img[:, :, 2], 0)  # Blue empty
 
     def test_single_green_channel(self):
         green = np.full((4, 4), 150, dtype=np.uint8)
@@ -98,7 +98,7 @@ class TestBuildCompositeWithTransmitted:
         )
         # All pixels above threshold: transmitted replaced with red channel
         np.testing.assert_array_equal(img[:, :, 0], 200)  # Red set
-        np.testing.assert_array_equal(img[:, :, 1], 0)    # Others cleared
+        np.testing.assert_array_equal(img[:, :, 1], 0)  # Others cleared
         np.testing.assert_array_equal(img[:, :, 2], 0)
 
     def test_fluorescence_below_threshold_keeps_transmitted(self):
@@ -116,21 +116,24 @@ class TestBuildCompositeWithTransmitted:
 
     def test_mixed_above_below_threshold(self):
         bf = np.full((4, 4), 100, dtype=np.uint8)
-        green = np.array([
-            [200, 200, 10, 10],
-            [200, 200, 10, 10],
-            [10, 10, 200, 200],
-            [10, 10, 200, 200],
-        ], dtype=np.uint8)
+        green = np.array(
+            [
+                [200, 200, 10, 10],
+                [200, 200, 10, 10],
+                [10, 10, 200, 200],
+                [10, 10, 200, 200],
+            ],
+            dtype=np.uint8,
+        )
         img = build_composite(
             channel_images={'Green': green},
             transmitted_image=bf,
             brightness_thresholds={'Green': 50},
         )
         # Top-left quadrant: above threshold → green channel set, others cleared
-        assert img[0, 0, 0] == 0    # Red cleared
+        assert img[0, 0, 0] == 0  # Red cleared
         assert img[0, 0, 1] == 200  # Green set
-        assert img[0, 0, 2] == 0    # Blue cleared
+        assert img[0, 0, 2] == 0  # Blue cleared
         # Top-right: below threshold → transmitted preserved
         assert img[0, 2, 0] == 100
         assert img[0, 2, 1] == 100
@@ -148,7 +151,7 @@ class TestBuildCompositeWithTransmitted:
         # Both above threshold: first channel clears and sets, second adds
         np.testing.assert_array_equal(img[:, :, 0], 200)  # Red
         np.testing.assert_array_equal(img[:, :, 1], 150)  # Green added
-        np.testing.assert_array_equal(img[:, :, 2], 0)    # Blue cleared by first
+        np.testing.assert_array_equal(img[:, :, 2], 0)  # Blue cleared by first
 
     def test_default_threshold_is_zero(self):
         """When no thresholds provided, all pixels above 0 are composited."""

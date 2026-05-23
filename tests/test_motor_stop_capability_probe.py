@@ -32,6 +32,7 @@ class TestMotorStopCapabilityProbe:
     def _make_board(self, response):
         """Build a MotorBoard stub with exchange_command monkeypatched."""
         from drivers.motorboard import MotorBoard
+
         board = MotorBoard.__new__(MotorBoard)
         board.exchange_command = MagicMock(return_value=response)
         return board
@@ -45,16 +46,14 @@ class TestMotorStopCapabilityProbe:
         assert board.exchange_command.call_count == 1
         _args, kwargs = board.exchange_command.call_args
         assert kwargs.get('expect_unsupported') is True, (
-            "motor_stop must pass expect_unsupported=True so the "
-            "FIRMWARE ERROR warning is suppressed on the probe -- "
-            "the unsupported case is logged at INFO instead."
+            'motor_stop must pass expect_unsupported=True so the '
+            'FIRMWARE ERROR warning is suppressed on the probe -- '
+            'the unsupported case is logged at INFO instead.'
         )
 
     def test_motor_stop_caches_unsupported_on_error_response(self):
         """ERROR response -> cache _stop_supported=False -> return False."""
-        board = self._make_board(
-            response="ERROR: command 'STOP' not found:"
-        )
+        board = self._make_board(response="ERROR: command 'STOP' not found:")
         result = board.motor_stop()
         assert result is False
         assert board._stop_supported is False
@@ -73,8 +72,8 @@ class TestMotorStopCapabilityProbe:
         result = board.motor_stop()
         assert result is False
         assert board.exchange_command.call_count == 0, (
-            "Cached unsupported state must skip the wire to avoid "
-            "re-probing the same firmware repeatedly."
+            'Cached unsupported state must skip the wire to avoid '
+            're-probing the same firmware repeatedly.'
         )
 
 
@@ -89,15 +88,15 @@ class TestExchangeCommandExpectUnsupportedSuppresses:
         # Static source check -- the warning line exists with the
         # `if not expect_unsupported` guard.
         from pathlib import Path
-        src = (Path(__file__).resolve().parent.parent
-               / 'drivers' / 'serialboard.py').read_text()
+
+        src = (Path(__file__).resolve().parent.parent / 'drivers' / 'serialboard.py').read_text()
         assert 'if not expect_unsupported:' in src, (
-            "serialboard.py must gate the FIRMWARE ERROR warning on "
-            "`if not expect_unsupported:` so callers opting into "
-            "the probe shape can suppress the false alarm."
+            'serialboard.py must gate the FIRMWARE ERROR warning on '
+            '`if not expect_unsupported:` so callers opting into '
+            'the probe shape can suppress the false alarm.'
         )
         assert "_serial_log.warning(f'{self._label} FIRMWARE ERROR:" in src, (
-            "FIRMWARE ERROR warning must still fire for non-probe "
-            "callers -- the warning is the diagnostic for real "
-            "firmware errors."
+            'FIRMWARE ERROR warning must still fire for non-probe '
+            'callers -- the warning is the diagnostic for real '
+            'firmware errors.'
         )

@@ -7,6 +7,7 @@ frame-listener infrastructure.
   (driver pump fires real callbacks at exposure rate), plus the
   ctx.plugins.live_processing namespace fan-out path.
 """
+
 import threading
 import time
 from unittest.mock import MagicMock, patch
@@ -46,8 +47,10 @@ def test_in_budget_handler_does_not_count_toward_drop():
 def test_over_budget_increments_consecutive_counter():
     """Slow handler increments the over-budget counter each call."""
     imaging = _make_imaging_stub()
+
     def slow(*args):
         time.sleep((HANDLER_BUDGET_MS + 5) / 1000.0)
+
     w = _BudgetedHandler(imaging, slow, name='slow')
     w(None, None, None)
     w(None, None, None)
@@ -77,8 +80,10 @@ def test_one_in_budget_call_resets_counter():
 def test_drop_at_K_consecutive_over_budget():
     """K consecutive over-budget hits triggers auto-remove + notification."""
     imaging = _make_imaging_stub()
+
     def slow(*args):
         time.sleep((HANDLER_BUDGET_MS + 5) / 1000.0)
+
     w = _BudgetedHandler(imaging, slow, name='slow-plugin')
     with patch('modules.lumascope_api.imaging.notifications') as mock_notify:
         for _ in range(HANDLER_DROP_K):
@@ -100,8 +105,10 @@ def test_handler_exception_does_not_count_toward_budget():
     accumulate the counter to K and silently drop the plugin.
     """
     imaging = _make_imaging_stub()
+
     def raises(*args):
-        raise RuntimeError("boom")
+        raise RuntimeError('boom')
+
     w = _BudgetedHandler(imaging, raises, name='raises')
     for _ in range(5):
         w(None, None, None)
@@ -139,6 +146,7 @@ def _make_simulated_scope():
     tens-of-ms range even when waiting for K=30 callbacks.
     """
     from modules.lumascope_api._lumascope import Lumascope
+
     scope = Lumascope(simulate=True)
     scope.imaging.set_exposure_time(1.0)
     return scope
@@ -171,7 +179,7 @@ def test_integration_basic_fanout_via_simulated_camera():
     _start_sim_pump(scope)
     try:
         assert done.wait(timeout=2.0), (
-            f"listener did not receive 5 frames within 2s; got {len(received)}"
+            f'listener did not receive 5 frames within 2s; got {len(received)}'
         )
     finally:
         scope.imaging.remove_frame_listener(listener)
@@ -182,6 +190,7 @@ def test_integration_basic_fanout_via_simulated_camera():
     # Payload shape: image is a numpy array, ts is a datetime.
     import datetime
     import numpy as np
+
     assert isinstance(received[0][0], np.ndarray)
     assert isinstance(received[0][1], datetime.datetime)
 
@@ -201,9 +210,11 @@ def test_integration_drop_policy_via_simulated_camera():
 
     # Monkey-patch _remove_wrapper so we can observe the drop event.
     original_remove = scope.imaging._remove_wrapper
+
     def observing_remove(wrapper):
         original_remove(wrapper)
         removed.set()
+
     scope.imaging._remove_wrapper = observing_remove  # type: ignore[method-assign]
 
     scope.imaging.add_frame_listener(slow_listener, name='slow_integration')
@@ -212,8 +223,8 @@ def test_integration_drop_policy_via_simulated_camera():
         # K=30 over-budget hits at ~slow_ms each = ~slow_ms * K wall-clock
         # plus pump scheduling overhead. 5s budget is generous.
         assert removed.wait(timeout=5.0), (
-            f"slow listener was not auto-removed within 5s; "
-            f"call_count={call_count[0]} (expected at least {HANDLER_DROP_K})"
+            f'slow listener was not auto-removed within 5s; '
+            f'call_count={call_count[0]} (expected at least {HANDLER_DROP_K})'
         )
         assert call_count[0] >= HANDLER_DROP_K
     finally:
@@ -246,7 +257,7 @@ def test_integration_concurrent_register_unregister():
     t1.join(timeout=5.0)
     t2.join(timeout=5.0)
 
-    assert not errors, f"concurrent register/unregister raised: {errors}"
+    assert not errors, f'concurrent register/unregister raised: {errors}'
     # All listeners registered + unregistered cleanly.
     assert scope.imaging._frame_listener_wrappers == {}
 
@@ -257,6 +268,7 @@ def test_integration_plugin_namespace_fanout_via_simulated_camera():
     fires the handler. Tests the end-to-end registration -> driver fan-out
     path that intern-led live_processing plugins will exercise."""
     from modules.plugins import PluginRegistry, PluginSpec
+
     scope = _make_simulated_scope()
     registry = PluginRegistry()
     registry.live_processing.bind_scope(scope)
@@ -279,7 +291,7 @@ def test_integration_plugin_namespace_fanout_via_simulated_camera():
     _start_sim_pump(scope)
     try:
         assert done.wait(timeout=2.0), (
-            f"plugin handler did not receive 3 frames; got {len(received)}"
+            f'plugin handler did not receive 3 frames; got {len(received)}'
         )
     finally:
         registry.live_processing.unregister('ns_fanout_demo')

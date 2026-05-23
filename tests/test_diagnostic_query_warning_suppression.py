@@ -30,6 +30,7 @@ from unittest.mock import MagicMock
 class TestDiagnosticQueryCapabilityProbe:
     def _make_board(self, response):
         from drivers.motorboard import MotorBoard
+
         board = MotorBoard.__new__(MotorBoard)
         board.exchange_command = MagicMock(return_value=response)
         return board
@@ -41,17 +42,17 @@ class TestDiagnosticQueryCapabilityProbe:
         args, kwargs = board.exchange_command.call_args
         assert args[0] == 'VOLTAGE'
         assert kwargs.get('expect_unsupported') is True, (
-            "read_voltages must route through _diagnostic_query which "
-            "passes expect_unsupported=True so the FIRMWARE ERROR "
-            "warning is suppressed on legacy firmware."
+            'read_voltages must route through _diagnostic_query which '
+            'passes expect_unsupported=True so the FIRMWARE ERROR '
+            'warning is suppressed on legacy firmware.'
         )
 
     def test_drvstat_probe_passes_expect_unsupported_flag(self):
-        board = self._make_board(response='ERROR: command \'DRVSTAT_Z\' not found:')
+        board = self._make_board(response="ERROR: command 'DRVSTAT_Z' not found:")
         result = board.read_drv_status('Z')
         assert result is None, (
-            "ERROR response must be swallowed and returned as None "
-            "(unsupported-firmware indicator), not propagated."
+            'ERROR response must be swallowed and returned as None '
+            '(unsupported-firmware indicator), not propagated.'
         )
         assert board.exchange_command.call_count == 1
         args, kwargs = board.exchange_command.call_args
@@ -59,7 +60,7 @@ class TestDiagnosticQueryCapabilityProbe:
         assert kwargs.get('expect_unsupported') is True
 
     def test_fanspeed_probe_passes_expect_unsupported_flag(self):
-        board = self._make_board(response='ERROR: command \'FANSPEED\' not found:')
+        board = self._make_board(response="ERROR: command 'FANSPEED' not found:")
         result = board.read_fanspeed()
         assert result is None
         assert board.exchange_command.call_count == 1
@@ -71,6 +72,7 @@ class TestDiagnosticQueryCapabilityProbe:
         """When firmware supports the command, the response passes
         through unchanged (no None substitution)."""
         from drivers.motorboard import MotorBoard
+
         board = MotorBoard.__new__(MotorBoard)
         board.exchange_command = MagicMock(return_value='real-response-data')
         result = board._diagnostic_query('VOLTAGE')
@@ -80,9 +82,8 @@ class TestDiagnosticQueryCapabilityProbe:
         """When firmware rejects with ERROR prefix, the response is
         swallowed and None is returned (caller treats as inconclusive)."""
         from drivers.motorboard import MotorBoard
+
         board = MotorBoard.__new__(MotorBoard)
-        board.exchange_command = MagicMock(
-            return_value="ERROR: command 'VOLTAGE' not found:"
-        )
+        board.exchange_command = MagicMock(return_value="ERROR: command 'VOLTAGE' not found:")
         result = board._diagnostic_query('VOLTAGE')
         assert result is None

@@ -11,6 +11,7 @@ Covers:
     - is_version_compatible: semver compare with pre-release suffixes
     - load_plugins / unload_plugins: discovery + lifecycle (mocked entry points)
 """
+
 from __future__ import annotations
 
 import sys
@@ -37,8 +38,7 @@ from tests.plugin_test_harness import harness_ctx  # noqa: F401
 # ---------------------------------------------------------------------------
 
 
-def _make_spec(name: str = 'demo', version: str = '0.1.0',
-               requires: str = '>=4.0.0') -> PluginSpec:
+def _make_spec(name: str = 'demo', version: str = '0.1.0', requires: str = '>=4.0.0') -> PluginSpec:
     return PluginSpec(
         name=name,
         version=version,
@@ -58,7 +58,9 @@ def test_plugin_spec_is_frozen():
 
 def test_plugin_spec_defaults():
     spec = PluginSpec(
-        name='x', version='0.1.0', requires_lvp_version='>=4.0.0',
+        name='x',
+        version='0.1.0',
+        requires_lvp_version='>=4.0.0',
         description='d',
     )
     assert spec.capabilities == ()
@@ -70,8 +72,11 @@ def test_plugin_spec_defaults():
 
 def test_plugin_spec_auto_run_opt_in():
     spec = PluginSpec(
-        name='x', version='0.1.0', requires_lvp_version='>=4.0.0',
-        description='d', auto_run_on_protocol_complete=True,
+        name='x',
+        version='0.1.0',
+        requires_lvp_version='>=4.0.0',
+        description='d',
+        auto_run_on_protocol_complete=True,
     )
     assert spec.auto_run_on_protocol_complete is True
 
@@ -97,7 +102,9 @@ def test_ui_register_unknown_mount_raises(harness_ctx):
     spec = _make_spec(name='ui_demo')
     with pytest.raises(PluginRegistrationError) as exc:
         harness_ctx.plugins.ui.register(
-            spec, 'nonexistent.mount', lambda: None,
+            spec,
+            'nonexistent.mount',
+            lambda: None,
         )
     assert 'nonexistent.mount' in str(exc.value)
     assert 'left_sidebar.accordion' in str(exc.value)
@@ -191,8 +198,11 @@ def test_auto_run_dispatcher_invokes_only_opted_in(harness_ctx):
     spec_opt = _make_spec(name='opted')
     # Re-create with auto_run set since _make_spec doesn't take it
     spec_opt = PluginSpec(
-        name='opted', version='0.1.0', requires_lvp_version='>=4.0.0',
-        description='d', auto_run_on_protocol_complete=True,
+        name='opted',
+        version='0.1.0',
+        requires_lvp_version='>=4.0.0',
+        description='d',
+        auto_run_on_protocol_complete=True,
     )
     spec_skip = _make_spec(name='skipped')
 
@@ -200,7 +210,10 @@ def test_auto_run_dispatcher_invokes_only_opted_in(harness_ctx):
     harness_ctx.plugins.post_processing.register(spec_skip, not_opted_in)
 
     run_protocol_complete_processors(
-        harness_ctx, input_dir='/in', manifest={'k': 'v'}, output_dir='/out',
+        harness_ctx,
+        input_dir='/in',
+        manifest={'k': 'v'},
+        output_dir='/out',
     )
 
     assert len(calls) == 1
@@ -220,19 +233,28 @@ def test_auto_run_dispatcher_swallows_processor_exception(harness_ctx, caplog):
         return ProcessorResult(success=True, message='ok')
 
     spec_a = PluginSpec(
-        name='boomer', version='0.1.0', requires_lvp_version='>=4.0.0',
-        description='d', auto_run_on_protocol_complete=True,
+        name='boomer',
+        version='0.1.0',
+        requires_lvp_version='>=4.0.0',
+        description='d',
+        auto_run_on_protocol_complete=True,
     )
     spec_b = PluginSpec(
-        name='good_citizen', version='0.1.0', requires_lvp_version='>=4.0.0',
-        description='d', auto_run_on_protocol_complete=True,
+        name='good_citizen',
+        version='0.1.0',
+        requires_lvp_version='>=4.0.0',
+        description='d',
+        auto_run_on_protocol_complete=True,
     )
     harness_ctx.plugins.post_processing.register(spec_a, boom)
     harness_ctx.plugins.post_processing.register(spec_b, runs_after)
 
     # Should not raise; runs_after should still execute despite boomer failing.
     run_protocol_complete_processors(
-        harness_ctx, input_dir='/in', manifest={}, output_dir='/out',
+        harness_ctx,
+        input_dir='/in',
+        manifest={},
+        output_dir='/out',
     )
 
     assert calls == ['runs_after']
@@ -240,11 +262,16 @@ def test_auto_run_dispatcher_swallows_processor_exception(harness_ctx, caplog):
 
 def test_auto_run_dispatcher_handles_no_ctx_plugins():
     from modules.plugins import run_protocol_complete_processors
+
     # Should silently return without raising when ctx has no .plugins attr.
     from types import SimpleNamespace
+
     ctx = SimpleNamespace()
     run_protocol_complete_processors(
-        ctx, input_dir='/in', manifest={}, output_dir='/out',
+        ctx,
+        input_dir='/in',
+        manifest={},
+        output_dir='/out',
     )
     # No assertion needed -- absence of exception is the contract.
 
@@ -261,7 +288,10 @@ def test_auto_run_dispatcher_skips_when_all_opt_out(harness_ctx):
     spec = _make_spec(name='not_opted')  # default False
     harness_ctx.plugins.post_processing.register(spec, proc)
     run_protocol_complete_processors(
-        harness_ctx, input_dir='/in', manifest={}, output_dir='/out',
+        harness_ctx,
+        input_dir='/in',
+        manifest={},
+        output_dir='/out',
     )
     assert calls == []
 
@@ -275,12 +305,12 @@ def test_live_processing_register_forwards_to_imaging(harness_ctx):
     """register(spec, handler) forwards to scope.imaging.add_frame_listener
     with the plugin name attached."""
     spec = _make_spec(name='live_demo')
+
     def handler(image, ts, chunks):
         return None
+
     harness_ctx.plugins.live_processing.register(spec, handler)
-    harness_ctx.scope.imaging.add_frame_listener.assert_called_once_with(
-        handler, name='live_demo'
-    )
+    harness_ctx.scope.imaging.add_frame_listener.assert_called_once_with(handler, name='live_demo')
     assert harness_ctx.plugins.live_processing.names() == ('live_demo',)
 
 
@@ -288,8 +318,10 @@ def test_live_processing_unregister_forwards_to_imaging(harness_ctx):
     """unregister(name) forwards to scope.imaging.remove_frame_listener
     with the original handler."""
     spec = _make_spec(name='live_demo')
+
     def handler(image, ts, chunks):
         return None
+
     harness_ctx.plugins.live_processing.register(spec, handler)
     harness_ctx.plugins.live_processing.unregister('live_demo')
     harness_ctx.scope.imaging.remove_frame_listener.assert_called_once_with(handler)
@@ -427,21 +459,24 @@ def test_all_health_initial_state_empty(harness_ctx):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize('requires,host,expected', [
-    ('>=4.0.0', '4.0.0', True),
-    ('>=4.0.0', '4.0.0-beta8', True),
-    ('>=4.0.0', '3.9.9', False),
-    ('>=4.1.0', '4.0.0', False),
-    ('==4.0.0', '4.0.0', True),
-    ('==4.0.0', '4.0.1', False),
-    ('<5.0.0', '4.5.0', True),
-    ('<5.0.0', '5.0.0', False),
-    ('~=4.0.0', '4.5.0', True),
-    ('~=4.0.0', '5.0.0', False),
-    ('garbage', '4.0.0', False),
-    ('>=4.0.0', 'garbage', False),
-    ('>=4.0.0', '', False),
-])
+@pytest.mark.parametrize(
+    'requires,host,expected',
+    [
+        ('>=4.0.0', '4.0.0', True),
+        ('>=4.0.0', '4.0.0-beta8', True),
+        ('>=4.0.0', '3.9.9', False),
+        ('>=4.1.0', '4.0.0', False),
+        ('==4.0.0', '4.0.0', True),
+        ('==4.0.0', '4.0.1', False),
+        ('<5.0.0', '4.5.0', True),
+        ('<5.0.0', '5.0.0', False),
+        ('~=4.0.0', '4.5.0', True),
+        ('~=4.0.0', '5.0.0', False),
+        ('garbage', '4.0.0', False),
+        ('>=4.0.0', 'garbage', False),
+        ('>=4.0.0', '', False),
+    ],
+)
 def test_is_version_compatible(requires, host, expected):
     assert is_version_compatible(requires, host) is expected
 
@@ -451,15 +486,20 @@ def test_is_version_compatible(requires, host, expected):
 # ---------------------------------------------------------------------------
 
 
-def _make_plugin_module(name: str, version: str = '0.1.0',
-                        requires: str = '>=4.0.0',
-                        register_raises: bool = False,
-                        unregister_raises: bool = False):
+def _make_plugin_module(
+    name: str,
+    version: str = '0.1.0',
+    requires: str = '>=4.0.0',
+    register_raises: bool = False,
+    unregister_raises: bool = False,
+):
     """Build an in-memory module that looks like a plugin to load_plugins."""
     mod = types.ModuleType(f'fake_plugin_{name}')
     mod.__version__ = version
     mod.spec = PluginSpec(
-        name=name, version=version, requires_lvp_version=requires,
+        name=name,
+        version=version,
+        requires_lvp_version=requires,
         description=f'fake {name}',
     )
     mod._register_calls = []
@@ -548,7 +588,9 @@ def test_unload_plugins_calls_unregister_in_reverse_order(harness_ctx):
         mod = types.ModuleType(f'track_{name}')
         mod.__version__ = '0.1.0'
         mod.spec = PluginSpec(
-            name=name, version='0.1.0', requires_lvp_version='>=4.0.0',
+            name=name,
+            version='0.1.0',
+            requires_lvp_version='>=4.0.0',
             description='tracking',
         )
         mod.register = lambda ctx: None
@@ -604,8 +646,11 @@ def _make_plugin_with_settings_hook(
     mod = types.ModuleType(f'fake_settings_plugin_{name}')
     mod.__version__ = '0.1.0'
     mod.spec = PluginSpec(
-        name=name, version='0.1.0', requires_lvp_version='>=4.0.0',
-        description=f'fake {name}', subscribes_to=subscribes_to,
+        name=name,
+        version='0.1.0',
+        requires_lvp_version='>=4.0.0',
+        description=f'fake {name}',
+        subscribes_to=subscribes_to,
     )
     mod._on_change_calls = []
 
@@ -628,16 +673,19 @@ def _make_plugin_with_settings_hook(
 
 def test_diff_settings_keys_no_change_returns_empty():
     from modules.plugins import _diff_settings_keys
+
     assert _diff_settings_keys({'a': 1}, {'a': 1}) == set()
 
 
 def test_diff_settings_keys_leaf_change():
     from modules.plugins import _diff_settings_keys
+
     assert _diff_settings_keys({'a': 1}, {'a': 2}) == {'a'}
 
 
 def test_diff_settings_keys_nested_change_returns_dotted_path():
     from modules.plugins import _diff_settings_keys
+
     old = {'manual_video': {'max_fps': 10, 'max_duration': 60}}
     new = {'manual_video': {'max_fps': 30, 'max_duration': 60}}
     assert _diff_settings_keys(old, new) == {'manual_video.max_fps'}
@@ -645,6 +693,7 @@ def test_diff_settings_keys_nested_change_returns_dotted_path():
 
 def test_diff_settings_keys_added_and_removed_keys():
     from modules.plugins import _diff_settings_keys
+
     old = {'a': 1, 'b': 2}
     new = {'a': 1, 'c': 3}
     assert _diff_settings_keys(old, new) == {'b', 'c'}
@@ -652,18 +701,21 @@ def test_diff_settings_keys_added_and_removed_keys():
 
 def test_diff_settings_keys_none_baseline_flattens_all_leaves():
     from modules.plugins import _diff_settings_keys
+
     new = {'a': {'b': 1, 'c': 2}, 'd': 3}
     assert _diff_settings_keys(None, new) == {'a.b', 'a.c', 'd'}
 
 
 def test_any_prefix_match_exact_key():
     from modules.plugins import _any_prefix_match
+
     assert _any_prefix_match(('manual_video.max_fps',), {'manual_video.max_fps'})
     assert not _any_prefix_match(('manual_video.max_fps',), {'manual_video.max_duration'})
 
 
 def test_any_prefix_match_subtree():
     from modules.plugins import _any_prefix_match
+
     # subscribes to 'manual_video' subtree -> any descendant matches.
     assert _any_prefix_match(('manual_video',), {'manual_video.max_fps'})
     assert _any_prefix_match(('manual_video',), {'manual_video.codec.bitrate'})
@@ -672,6 +724,7 @@ def test_any_prefix_match_subtree():
 
 def test_any_prefix_match_does_not_match_unrelated_prefix():
     from modules.plugins import _any_prefix_match
+
     # 'manual' must not match 'manual_video.X' -- prefix is full dot-path
     # component, not arbitrary string prefix.
     assert not _any_prefix_match(('manual',), {'manual_video.max_fps'})
@@ -679,14 +732,17 @@ def test_any_prefix_match_does_not_match_unrelated_prefix():
 
 def test_notify_settings_changed_fires_subscribed_plugin(harness_ctx):
     mod = _make_plugin_with_settings_hook(
-        'video_listener', subscribes_to=('manual_video.max_fps',),
+        'video_listener',
+        subscribes_to=('manual_video.max_fps',),
     )
     ep = _FakeEntryPoint('video_listener', mod)
     with patch('importlib.metadata.entry_points', return_value=[ep]):
         load_plugins(harness_ctx)
     settings = {'manual_video': {'max_fps': 30}}
     harness_ctx.plugins.notify_settings_changed(
-        harness_ctx, settings, {'manual_video.max_fps'},
+        harness_ctx,
+        settings,
+        {'manual_video.max_fps'},
     )
     assert len(mod._on_change_calls) == 1
     ctx_arg, settings_arg = mod._on_change_calls[0]
@@ -696,14 +752,17 @@ def test_notify_settings_changed_fires_subscribed_plugin(harness_ctx):
 
 def test_notify_settings_changed_skips_non_subscribed(harness_ctx):
     mod = _make_plugin_with_settings_hook(
-        'camera_listener', subscribes_to=('camera.gain',),
+        'camera_listener',
+        subscribes_to=('camera.gain',),
     )
     ep = _FakeEntryPoint('camera_listener', mod)
     with patch('importlib.metadata.entry_points', return_value=[ep]):
         load_plugins(harness_ctx)
     # Change a key the plugin did NOT subscribe to.
     harness_ctx.plugins.notify_settings_changed(
-        harness_ctx, {'manual_video': {'max_fps': 30}}, {'manual_video.max_fps'},
+        harness_ctx,
+        {'manual_video': {'max_fps': 30}},
+        {'manual_video.max_fps'},
     )
     assert mod._on_change_calls == []
 
@@ -714,14 +773,17 @@ def test_notify_settings_changed_skips_plugin_with_empty_subscribes_to(harness_c
     with patch('importlib.metadata.entry_points', return_value=[ep]):
         load_plugins(harness_ctx)
     harness_ctx.plugins.notify_settings_changed(
-        harness_ctx, {'a': 1}, {'a'},
+        harness_ctx,
+        {'a': 1},
+        {'a'},
     )
     assert mod._on_change_calls == []
 
 
 def test_notify_settings_changed_empty_changed_keys_is_noop(harness_ctx):
     mod = _make_plugin_with_settings_hook(
-        'subscriber', subscribes_to=('a',),
+        'subscriber',
+        subscribes_to=('a',),
     )
     ep = _FakeEntryPoint('subscriber', mod)
     with patch('importlib.metadata.entry_points', return_value=[ep]):
@@ -732,10 +794,13 @@ def test_notify_settings_changed_empty_changed_keys_is_noop(harness_ctx):
 
 def test_notify_settings_changed_swallows_handler_exception(harness_ctx):
     bad = _make_plugin_with_settings_hook(
-        'bad_handler', subscribes_to=('a',), on_change_raises=True,
+        'bad_handler',
+        subscribes_to=('a',),
+        on_change_raises=True,
     )
     good = _make_plugin_with_settings_hook(
-        'good_handler', subscribes_to=('a',),
+        'good_handler',
+        subscribes_to=('a',),
     )
     eps = [
         _FakeEntryPoint('bad_handler', bad),
@@ -745,7 +810,9 @@ def test_notify_settings_changed_swallows_handler_exception(harness_ctx):
         load_plugins(harness_ctx)
     # bad raises, good must still fire, dispatcher must not propagate.
     harness_ctx.plugins.notify_settings_changed(
-        harness_ctx, {'a': 1}, {'a'},
+        harness_ctx,
+        {'a': 1},
+        {'a'},
     )
     assert len(bad._on_change_calls) == 1
     assert len(good._on_change_calls) == 1
@@ -758,14 +825,16 @@ def test_notify_settings_changed_swallows_handler_exception(harness_ctx):
 
 def test_notify_settings_changed_prefix_subtree_subscription(harness_ctx):
     mod = _make_plugin_with_settings_hook(
-        'subtree_listener', subscribes_to=('manual_video',),
+        'subtree_listener',
+        subscribes_to=('manual_video',),
     )
     ep = _FakeEntryPoint('subtree_listener', mod)
     with patch('importlib.metadata.entry_points', return_value=[ep]):
         load_plugins(harness_ctx)
     # Any key under the manual_video subtree must fire the handler.
     harness_ctx.plugins.notify_settings_changed(
-        harness_ctx, {'manual_video': {'codec': {'bitrate': 5000}}},
+        harness_ctx,
+        {'manual_video': {'codec': {'bitrate': 5000}}},
         {'manual_video.codec.bitrate'},
     )
     assert len(mod._on_change_calls) == 1
@@ -773,6 +842,7 @@ def test_notify_settings_changed_prefix_subtree_subscription(harness_ctx):
 
 def test_fire_settings_save_hooks_first_call_caches_without_firing(harness_ctx):
     from modules.plugins import fire_settings_save_hooks
+
     mod = _make_plugin_with_settings_hook('first_call', subscribes_to=('a',))
     ep = _FakeEntryPoint('first_call', mod)
     with patch('importlib.metadata.entry_points', return_value=[ep]):
@@ -787,6 +857,7 @@ def test_fire_settings_save_hooks_first_call_caches_without_firing(harness_ctx):
 
 def test_fire_settings_save_hooks_second_call_fires_on_diff(harness_ctx):
     from modules.plugins import fire_settings_save_hooks
+
     mod = _make_plugin_with_settings_hook('second_call', subscribes_to=('a',))
     ep = _FakeEntryPoint('second_call', mod)
     with patch('importlib.metadata.entry_points', return_value=[ep]):
@@ -801,6 +872,7 @@ def test_fire_settings_save_hooks_second_call_fires_on_diff(harness_ctx):
 
 def test_fire_settings_save_hooks_no_diff_does_not_fire(harness_ctx):
     from modules.plugins import fire_settings_save_hooks
+
     mod = _make_plugin_with_settings_hook('no_diff', subscribes_to=('a',))
     ep = _FakeEntryPoint('no_diff', mod)
     with patch('importlib.metadata.entry_points', return_value=[ep]):
@@ -814,6 +886,7 @@ def test_fire_settings_save_hooks_baseline_isolation_from_mutation(harness_ctx):
     """The cached baseline must be a deep copy so subsequent in-memory
     mutations to the settings dict do not poison the next diff."""
     from modules.plugins import fire_settings_save_hooks
+
     mod = _make_plugin_with_settings_hook('isolation', subscribes_to=('a',))
     ep = _FakeEntryPoint('isolation', mod)
     with patch('importlib.metadata.entry_points', return_value=[ep]):
@@ -830,10 +903,12 @@ def test_fire_settings_save_hooks_baseline_isolation_from_mutation(harness_ctx):
 
 def test_fire_settings_save_hooks_no_ctx_plugins_is_noop():
     from modules.plugins import fire_settings_save_hooks
+
     fake_ctx = types.SimpleNamespace()
     fire_settings_save_hooks(fake_ctx, {'a': 1})  # no exception expected
 
 
 def test_fire_settings_save_hooks_none_ctx_is_noop():
     from modules.plugins import fire_settings_save_hooks
+
     fire_settings_save_hooks(None, {'a': 1})  # no exception expected

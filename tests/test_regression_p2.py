@@ -44,13 +44,14 @@ from modules.protocol import Protocol
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _make_mock_serial(**overrides):
     mock = MagicMock(spec=serial.Serial)
-    mock.readline.return_value = b"OK\r\n"
+    mock.readline.return_value = b'OK\r\n'
     mock.write.return_value = None
     mock.close.return_value = None
     mock.in_waiting = 0
-    mock.read.return_value = b""
+    mock.read.return_value = b''
     for k, v in overrides.items():
         setattr(mock, k, v)
     return mock
@@ -82,7 +83,7 @@ def _make_tiling_configs(tmp_path):
     Must satisfy modules.tiling_config.TilingConfig._validate_tiling: a
     dict with a 'data' key (which itself must be a dict).
     """
-    configs_file = tmp_path / "tiling_configs.json"
+    configs_file = tmp_path / 'tiling_configs.json'
     configs_file.write_text('{"metadata": {}, "data": {}}')
     return configs_file
 
@@ -90,6 +91,7 @@ def _make_tiling_configs(tmp_path):
 # ---------------------------------------------------------------------------
 # #563: Autofocus race condition -- final move must complete before AF signals done
 # ---------------------------------------------------------------------------
+
 
 class TestAFRaceCondition:
     """Verify the AF "done" signal is not raised until the final move is in.
@@ -123,14 +125,15 @@ class TestAFRaceCondition:
 
         move_count = last_pass_block.count('self._move_absolute_position')
         assert move_count >= 2, (
-            f"Expected at least 2 move_absolute_position calls in the "
-            f"last-pass block, got {move_count}"
+            f'Expected at least 2 move_absolute_position calls in the '
+            f'last-pass block, got {move_count}'
         )
 
 
 # ---------------------------------------------------------------------------
 # #568: Duration precision — sub-second protocols must survive save/load
 # ---------------------------------------------------------------------------
+
 
 class TestDurationPrecision:
     """Verify that short protocol durations don't get truncated to 0.0.
@@ -143,28 +146,28 @@ class TestDurationPrecision:
         """A 10-second protocol duration must survive save → load."""
         duration = datetime.timedelta(seconds=10)
         duration_hours = round(duration.total_seconds() / 3600.0, 6)
-        assert duration_hours > 0, "10-second duration must not round to 0.0"
+        assert duration_hours > 0, '10-second duration must not round to 0.0'
 
     def test_1_second_duration_round_trips(self, tmp_path):
         """A 1-second protocol duration must survive save → load."""
         duration = datetime.timedelta(seconds=1)
         duration_hours = round(duration.total_seconds() / 3600.0, 6)
-        assert duration_hours > 0, "1-second duration must not round to 0.0"
+        assert duration_hours > 0, '1-second duration must not round to 0.0'
 
     def test_sub_second_duration_round_trips(self):
         """A 0.5-second protocol duration must survive save → load."""
         duration = datetime.timedelta(milliseconds=500)
         duration_hours = round(duration.total_seconds() / 3600.0, 6)
-        assert duration_hours > 0, "0.5-second duration must not round to 0.0"
+        assert duration_hours > 0, '0.5-second duration must not round to 0.0'
 
     def test_old_rounding_would_fail(self):
         """Confirm that the old round(hours, 2) would produce 0.0 for short durations."""
         duration = datetime.timedelta(seconds=10)
         duration_hours_old = round(duration.total_seconds() / 3600.0, 2)
-        assert duration_hours_old == 0.0, "Old rounding (2 decimals) should produce 0.0 for 10s"
+        assert duration_hours_old == 0.0, 'Old rounding (2 decimals) should produce 0.0 for 10s'
 
         duration_hours_new = round(duration.total_seconds() / 3600.0, 6)
-        assert duration_hours_new > 0, "New rounding (6 decimals) should preserve precision"
+        assert duration_hours_new > 0, 'New rounding (6 decimals) should preserve precision'
 
     def test_save_writes_nonzero_duration(self, tmp_path):
         """Saved protocol file must contain a non-zero duration for short protocols."""
@@ -182,7 +185,7 @@ class TestDurationPrecision:
         }
 
         # Save
-        save_path = tmp_path / "test_protocol.tsv"
+        save_path = tmp_path / 'test_protocol.tsv'
         protocol.to_file(file_path=save_path)
 
         # Read back the raw file and find the Duration line
@@ -190,20 +193,21 @@ class TestDurationPrecision:
         for line in content.splitlines():
             if line.startswith('Duration'):
                 duration_val = float(line.split('\t')[1])
-                assert duration_val > 0, \
-                    f"Duration in saved file must be > 0, got {duration_val} (bug #568)"
+                assert duration_val > 0, (
+                    f'Duration in saved file must be > 0, got {duration_val} (bug #568)'
+                )
                 # Verify it converts back to ~10 seconds
                 seconds = duration_val * 3600
-                assert abs(seconds - 10.0) < 0.1, \
-                    f"Duration should be ~10 seconds, got {seconds}"
+                assert abs(seconds - 10.0) < 0.1, f'Duration should be ~10 seconds, got {seconds}'
                 return
 
-        pytest.fail("Duration row not found in saved protocol file")
+        pytest.fail('Duration row not found in saved protocol file')
 
 
 # ---------------------------------------------------------------------------
 # #424: Video bit-depth — 16-bit frames converted to 8-bit before write
 # ---------------------------------------------------------------------------
+
 
 class TestVideoBitDepth:
     """Verify that 16-bit images are converted to 8-bit before codec write.
@@ -239,8 +243,9 @@ class TestVideoBitDepth:
 
         # The written image must be uint8
         written_image = mock_cv2_writer.write.call_args[0][0]
-        assert written_image.dtype == np.uint8, \
-            "16-bit frame must be converted to uint8 before write (bug #424)"
+        assert written_image.dtype == np.uint8, (
+            '16-bit frame must be converted to uint8 before write (bug #424)'
+        )
 
     def test_videowriter_passes_8bit_unchanged(self):
         """VideoWriter.add_frame() must not modify uint8 frames."""
@@ -288,8 +293,9 @@ class TestVideoBitDepth:
 
         mock_cv2_writer.write.assert_called_once()
         written_image = mock_cv2_writer.write.call_args[0][0]
-        assert written_image.dtype == np.uint8, \
-            "16-bit color frame must be converted to uint8 (bug #424)"
+        assert written_image.dtype == np.uint8, (
+            '16-bit color frame must be converted to uint8 (bug #424)'
+        )
 
     def test_convert_16bit_to_8bit_preserves_relative_intensity(self):
         """Conversion should preserve relative brightness (divide by 256)."""
@@ -299,15 +305,16 @@ class TestVideoBitDepth:
         result = image_utils.convert_16bit_to_8bit(frame)
 
         assert result.dtype == np.uint8
-        assert result[0, 0] == 0       # 0/256 = 0
-        assert result[0, 1] == 1       # 256/256 = 1
-        assert result[0, 2] == 2       # 512/256 = 2
-        assert result[0, 3] == 255     # 65535/256 = 255 (truncated)
+        assert result[0, 0] == 0  # 0/256 = 0
+        assert result[0, 1] == 1  # 256/256 = 1
+        assert result[0, 2] == 2  # 512/256 = 2
+        assert result[0, 3] == 255  # 65535/256 = 255 (truncated)
 
 
 # ---------------------------------------------------------------------------
 # #539: Serial error rate limiting — repeated errors must not spam the log
 # ---------------------------------------------------------------------------
+
 
 class TestSerialErrorRateLimiting:
     """Verify that serial errors are rate-limited to prevent log spam.
@@ -328,7 +335,7 @@ class TestSerialErrorRateLimiting:
         """
         mock_log = MagicMock()
         board = _make_serial_board()
-        board.driver.write.side_effect = serial.SerialTimeoutException("timeout")
+        board.driver.write.side_effect = serial.SerialTimeoutException('timeout')
 
         with patch.object(serialboard, '_serial_log', mock_log):
             board.exchange_command('TEST')
@@ -347,16 +354,17 @@ class TestSerialErrorRateLimiting:
         with patch.object(serialboard, '_serial_log', mock_log):
             # First call — should log warning
             board.driver = _make_mock_serial()
-            board.driver.write.side_effect = serial.SerialTimeoutException("timeout")
+            board.driver.write.side_effect = serial.SerialTimeoutException('timeout')
             board.exchange_command('TEST1')
             assert mock_log.warning.call_count == 1
 
             # Second call immediately after — should be suppressed
             board.driver = _make_mock_serial()
-            board.driver.write.side_effect = serial.SerialTimeoutException("timeout")
+            board.driver.write.side_effect = serial.SerialTimeoutException('timeout')
             board.exchange_command('TEST2')
-            assert mock_log.warning.call_count == 1, \
-                "Second error within rate-limit window should be suppressed (bug #539)"
+            assert mock_log.warning.call_count == 1, (
+                'Second error within rate-limit window should be suppressed (bug #539)'
+            )
 
     def test_error_logged_after_interval(self):
         """Errors after the rate-limit interval should be logged again.
@@ -368,22 +376,25 @@ class TestSerialErrorRateLimiting:
         board = _make_serial_board()
         board._error_log_interval = 2.0
 
-        with patch.object(serialboard, '_serial_log', mock_log), \
-             patch.object(serialboard.time, 'monotonic', mock_time):
+        with (
+            patch.object(serialboard, '_serial_log', mock_log),
+            patch.object(serialboard.time, 'monotonic', mock_time),
+        ):
             # First error at t=0
             mock_time.return_value = 100.0
             board.driver = _make_mock_serial()
-            board.driver.write.side_effect = serial.SerialTimeoutException("timeout")
+            board.driver.write.side_effect = serial.SerialTimeoutException('timeout')
             board.exchange_command('TEST1')
             assert mock_log.warning.call_count == 1
 
             # Second error at t=3 (past 2s interval) — should be logged
             mock_time.return_value = 103.0
             board.driver = _make_mock_serial()
-            board.driver.write.side_effect = serial.SerialTimeoutException("timeout")
+            board.driver.write.side_effect = serial.SerialTimeoutException('timeout')
             board.exchange_command('TEST2')
-            assert mock_log.warning.call_count == 2, \
-                "Error after rate-limit interval should be logged"
+            assert mock_log.warning.call_count == 2, (
+                'Error after rate-limit interval should be logged'
+            )
 
     def test_write_fast_errors_also_rate_limited(self):
         """_write_command_fast errors should also be rate-limited."""
@@ -393,16 +404,17 @@ class TestSerialErrorRateLimiting:
 
         with patch.object(serialboard, 'logger', mock_log):
             # First call — should log
-            board.driver.write.side_effect = Exception("write failed")
+            board.driver.write.side_effect = Exception('write failed')
             board._write_command_fast('TEST1')
             assert mock_log.error.call_count == 1
 
             # Second call immediately — should be suppressed
             board.driver = _make_mock_serial()
-            board.driver.write.side_effect = Exception("write failed")
+            board.driver.write.side_effect = Exception('write failed')
             board._write_command_fast('TEST2')
-            assert mock_log.error.call_count == 1, \
-                "_write_command_fast errors should also be rate-limited (bug #539)"
+            assert mock_log.error.call_count == 1, (
+                '_write_command_fast errors should also be rate-limited (bug #539)'
+            )
 
     def test_generic_exception_also_rate_limited(self):
         """Generic exceptions (not just timeout) should be rate-limited."""
@@ -412,13 +424,13 @@ class TestSerialErrorRateLimiting:
 
         with patch.object(serialboard, '_serial_log', mock_log):
             # First generic error
-            board.driver.write.side_effect = Exception("USB disconnected")
+            board.driver.write.side_effect = Exception('USB disconnected')
             board.exchange_command('TEST1')
             assert mock_log.error.call_count == 1
 
             # Second generic error immediately
             board.driver = _make_mock_serial()
-            board.driver.write.side_effect = Exception("USB disconnected")
+            board.driver.write.side_effect = Exception('USB disconnected')
             board.exchange_command('TEST2')
             assert mock_log.error.call_count == 1
 
@@ -433,7 +445,7 @@ class TestSerialErrorRateLimiting:
 
         # Timeout — driver stays open
         mock_driver1 = board.driver
-        board.driver.write.side_effect = serial.SerialTimeoutException("timeout")
+        board.driver.write.side_effect = serial.SerialTimeoutException('timeout')
         board.exchange_command('TEST1')
         mock_driver1.close.assert_not_called()
         assert board.driver is not None
@@ -444,7 +456,7 @@ class TestSerialErrorRateLimiting:
         board._error_log_interval = 2.0
 
         mock_driver1 = board.driver
-        board.driver.write.side_effect = Exception("USB disconnected")
+        board.driver.write.side_effect = Exception('USB disconnected')
         board.exchange_command('TEST1')
         mock_driver1.close.assert_called()
         assert board.driver is None

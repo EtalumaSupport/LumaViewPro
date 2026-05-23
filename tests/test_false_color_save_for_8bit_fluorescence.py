@@ -71,15 +71,19 @@ class TestWriteTiffFalseColorAppliesForUint8:
 
     @pytest.fixture
     def tmp_tiff(self, tmp_path):
-        return tmp_path / "out.tiff"
+        return tmp_path / 'out.tiff'
 
-    @pytest.mark.parametrize("color,expected_channel", [
-        ('Red', 0),
-        ('Green', 1),
-        ('Blue', 2),
-    ])
+    @pytest.mark.parametrize(
+        'color,expected_channel',
+        [
+            ('Red', 0),
+            ('Green', 1),
+            ('Blue', 2),
+        ],
+    )
     def test_uint8_fluorescence_saved_as_rgb_with_false_color_on(
-            self, tmp_tiff, color, expected_channel):
+        self, tmp_tiff, color, expected_channel
+    ):
         data = _grayscale_image(np.uint8)
         write_tiff(
             data=data,
@@ -91,23 +95,23 @@ class TestWriteTiffFalseColorAppliesForUint8:
         )
         result = _read_back(tmp_tiff)
         assert result.ndim == 3, (
-            f"8-bit fluorescence with false-color on must save as "
-            f"3-channel RGB, got shape {result.shape}. Pre-fix: gate "
-            f"on data.dtype == np.uint16 excluded uint8 and saved "
-            f"grayscale."
+            f'8-bit fluorescence with false-color on must save as '
+            f'3-channel RGB, got shape {result.shape}. Pre-fix: gate '
+            f'on data.dtype == np.uint16 excluded uint8 and saved '
+            f'grayscale.'
         )
         assert result.shape[2] == 3
         # The named channel should carry the data; the others should be zero.
         for ch in range(3):
             if ch == expected_channel:
                 assert (result[..., ch] == 128).all(), (
-                    f"{color} channel (index {ch}) should carry 128 from "
-                    f"the source grayscale, got {result[..., ch].flatten()}"
+                    f'{color} channel (index {ch}) should carry 128 from '
+                    f'the source grayscale, got {result[..., ch].flatten()}'
                 )
             else:
                 assert (result[..., ch] == 0).all(), (
-                    f"Non-{color} channel (index {ch}) should be zero, "
-                    f"got {result[..., ch].flatten()}"
+                    f'Non-{color} channel (index {ch}) should be zero, '
+                    f'got {result[..., ch].flatten()}'
                 )
 
     def test_uint16_fluorescence_still_saved_as_rgb(self, tmp_tiff):
@@ -122,11 +126,10 @@ class TestWriteTiffFalseColorAppliesForUint8:
             use_false_color_16bit=True,
         )
         result = _read_back(tmp_tiff)
-        assert result.ndim == 3, "16-bit false-color path must still produce RGB"
+        assert result.ndim == 3, '16-bit false-color path must still produce RGB'
         assert result.shape[2] == 3
 
-    def test_uint8_fluorescence_grayscale_when_false_color_off(
-            self, tmp_tiff):
+    def test_uint8_fluorescence_grayscale_when_false_color_off(self, tmp_tiff):
         # The fix must not change behavior when the toggle is off.
         data = _grayscale_image(np.uint8)
         write_tiff(
@@ -139,8 +142,7 @@ class TestWriteTiffFalseColorAppliesForUint8:
         )
         result = _read_back(tmp_tiff)
         assert result.ndim == 2, (
-            "False-color off must still produce single-channel grayscale, "
-            "regardless of bit depth."
+            'False-color off must still produce single-channel grayscale, regardless of bit depth.'
         )
 
     def test_uint8_transmitted_layer_not_false_colored(self, tmp_tiff):
@@ -158,7 +160,7 @@ class TestWriteTiffFalseColorAppliesForUint8:
         )
         result = _read_back(tmp_tiff)
         assert result.ndim == 2, (
-            "BF (transmitted layer) must stay grayscale regardless of "
+            'BF (transmitted layer) must stay grayscale regardless of '
             "the false-color toggle -- it's a single grayscale channel "
-            "and false color has no semantic meaning."
+            'and false color has no semantic meaning.'
         )

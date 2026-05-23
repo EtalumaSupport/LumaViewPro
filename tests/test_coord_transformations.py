@@ -47,7 +47,8 @@ class TestRejectsNoneLabware:
             transformer.stage_to_plate(
                 labware=None,
                 stage_offset=stage_offset,
-                sx=10000, sy=10000,
+                sx=10000,
+                sy=10000,
             )
 
     def test_plate_to_stage_rejects_none(self, transformer, stage_offset):
@@ -55,15 +56,18 @@ class TestRejectsNoneLabware:
             transformer.plate_to_stage(
                 labware=None,
                 stage_offset=stage_offset,
-                px=50, py=50,
+                px=50,
+                py=50,
             )
 
     def test_plate_to_pixel_rejects_none(self, transformer):
         with pytest.raises(NoLabwareSelectedError):
             transformer.plate_to_pixel(
                 labware=None,
-                px=50, py=50,
-                scale_x=10, scale_y=10,
+                px=50,
+                py=50,
+                scale_x=10,
+                scale_y=10,
             )
 
     def test_stage_to_pixel_rejects_none(self, transformer, stage_offset):
@@ -71,8 +75,10 @@ class TestRejectsNoneLabware:
             transformer.stage_to_pixel(
                 labware=None,
                 stage_offset=stage_offset,
-                sx=10000, sy=10000,
-                scale_x=10, scale_y=10,
+                sx=10000,
+                sy=10000,
+                scale_x=10,
+                scale_y=10,
             )
 
     def test_no_labware_error_is_value_error_subclass(self):
@@ -89,7 +95,8 @@ class TestHappyPathStillWorks:
         result = transformer.stage_to_plate(
             labware=labware,
             stage_offset=stage_offset,
-            sx=0, sy=0,
+            sx=0,
+            sy=0,
         )
         assert isinstance(result, tuple)
         assert len(result) == 2
@@ -98,7 +105,8 @@ class TestHappyPathStillWorks:
         result = transformer.plate_to_stage(
             labware=labware,
             stage_offset=stage_offset,
-            px=50, py=50,
+            px=50,
+            py=50,
         )
         assert isinstance(result, tuple)
         assert len(result) == 2
@@ -107,7 +115,11 @@ class TestHappyPathStillWorks:
         # stage -> plate -> stage should give back the original (within
         # floating-point precision).
         sx, sy = 50000.0, 30000.0
-        px, py = transformer.stage_to_plate(labware=labware, stage_offset=stage_offset, sx=sx, sy=sy)
-        sx2, sy2 = transformer.plate_to_stage(labware=labware, stage_offset=stage_offset, px=px, py=py)
+        px, py = transformer.stage_to_plate(
+            labware=labware, stage_offset=stage_offset, sx=sx, sy=sy
+        )
+        sx2, sy2 = transformer.plate_to_stage(
+            labware=labware, stage_offset=stage_offset, px=px, py=py
+        )
         assert abs(sx2 - sx) < 0.001
         assert abs(sy2 - sy) < 0.001

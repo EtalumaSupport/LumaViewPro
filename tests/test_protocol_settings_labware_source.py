@@ -34,7 +34,7 @@ import pathlib
 
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
-PROTOCOL_SETTINGS_SRC = REPO / "ui" / "protocol_settings.py"
+PROTOCOL_SETTINGS_SRC = REPO / 'ui' / 'protocol_settings.py'
 
 
 def _module_tree() -> ast.Module:
@@ -44,11 +44,11 @@ def _module_tree() -> ast.Module:
 def _init_method() -> ast.FunctionDef:
     tree = _module_tree()
     for node in ast.walk(tree):
-        if isinstance(node, ast.ClassDef) and node.name == "ProtocolSettings":
+        if isinstance(node, ast.ClassDef) and node.name == 'ProtocolSettings':
             for child in node.body:
-                if isinstance(child, ast.FunctionDef) and child.name == "__init__":
+                if isinstance(child, ast.FunctionDef) and child.name == '__init__':
                     return child
-    raise AssertionError("ProtocolSettings.__init__ not found")
+    raise AssertionError('ProtocolSettings.__init__ not found')
 
 
 def test_init_does_not_call_json_load():
@@ -57,11 +57,11 @@ def test_init_does_not_call_json_load():
     for node in ast.walk(init):
         if isinstance(node, ast.Call):
             func = node.func
-            if isinstance(func, ast.Attribute) and func.attr == "load":
-                if isinstance(func.value, ast.Name) and func.value.id == "json":
+            if isinstance(func, ast.Attribute) and func.attr == 'load':
+                if isinstance(func.value, ast.Name) and func.value.id == 'json':
                     raise AssertionError(
-                        "ProtocolSettings.__init__ contains json.load(); "
-                        "labware should come from ctx.wellplate_loader.labware"
+                        'ProtocolSettings.__init__ contains json.load(); '
+                        'labware should come from ctx.wellplate_loader.labware'
                     )
 
 
@@ -71,14 +71,11 @@ def test_module_does_not_import_json():
     for node in ast.iter_child_nodes(tree):
         if isinstance(node, ast.Import):
             for alias in node.names:
-                assert alias.name != "json", (
-                    "ui/protocol_settings.py no longer needs the json module; "
-                    "remove the import"
+                assert alias.name != 'json', (
+                    'ui/protocol_settings.py no longer needs the json module; remove the import'
                 )
         elif isinstance(node, ast.ImportFrom):
-            assert node.module != "json", (
-                "ui/protocol_settings.py no longer needs the json module"
-            )
+            assert node.module != 'json', 'ui/protocol_settings.py no longer needs the json module'
 
 
 def test_init_does_not_dereference_ctx_attributes():
@@ -101,7 +98,7 @@ def test_init_does_not_dereference_ctx_attributes():
             continue
         if not isinstance(node, ast.Attribute):
             continue
-        if not (isinstance(node.value, ast.Name) and node.value.id == "ctx"):
+        if not (isinstance(node.value, ast.Name) and node.value.id == 'ctx'):
             continue
         # Walk up: if this Attribute is inside an IfExp whose test
         # gates on `ctx is not None`, accept it.
@@ -112,15 +109,15 @@ def test_init_does_not_dereference_ctx_attributes():
                 if (
                     isinstance(test, ast.Compare)
                     and isinstance(test.left, ast.Name)
-                    and test.left.id == "ctx"
+                    and test.left.id == 'ctx'
                     and any(isinstance(op, (ast.IsNot, ast.Is)) for op in test.ops)
                 ):
                     parent_guarded = True
                     break
         if not parent_guarded:
-            offenders.append(f"line {node.lineno}: ctx.{node.attr}")
+            offenders.append(f'line {node.lineno}: ctx.{node.attr}')
     assert not offenders, (
-        "ProtocolSettings.__init__ dereferences ctx without a `ctx is "
-        "not None` guard; ctx is None during KV widget construction. "
-        f"Offenders: {offenders}"
+        'ProtocolSettings.__init__ dereferences ctx without a `ctx is '
+        'not None` guard; ctx is None during KV widget construction. '
+        f'Offenders: {offenders}'
     )

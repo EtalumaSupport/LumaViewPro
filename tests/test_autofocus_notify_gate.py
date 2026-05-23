@@ -48,7 +48,7 @@ def test_protocol_trigger_suppresses_popup(monkeypatch):
     monkeypatch.setattr(autofocus_runner_mod.notifications, 'error', fake_notify)
 
     runner = _make_runner_with_trigger('protocol')
-    runner._notify_af_failure("Autofocus Failed", "Focus curve flat")
+    runner._notify_af_failure('Autofocus Failed', 'Focus curve flat')
 
     assert fake_notify.call_count == 0
 
@@ -60,13 +60,13 @@ def test_autofocus_button_trigger_fires_popup(monkeypatch):
     monkeypatch.setattr(autofocus_runner_mod.notifications, 'error', fake_notify)
 
     runner = _make_runner_with_trigger('autofocus')
-    runner._notify_af_failure("Autofocus Failed", "Focus curve flat")
+    runner._notify_af_failure('Autofocus Failed', 'Focus curve flat')
 
     assert fake_notify.call_count == 1
     args, _kw = fake_notify.call_args
-    assert args[0] == "Autofocus"
-    assert args[1] == "Autofocus Failed"
-    assert "Focus curve flat" in args[2]
+    assert args[0] == 'Autofocus'
+    assert args[1] == 'Autofocus Failed'
+    assert 'Focus curve flat' in args[2]
 
 
 def test_zstack_trigger_fires_popup(monkeypatch):
@@ -75,7 +75,7 @@ def test_zstack_trigger_fires_popup(monkeypatch):
     monkeypatch.setattr(autofocus_runner_mod.notifications, 'error', fake_notify)
 
     runner = _make_runner_with_trigger('zstack')
-    runner._notify_af_failure("Autofocus Failed", "Focus curve flat")
+    runner._notify_af_failure('Autofocus Failed', 'Focus curve flat')
 
     assert fake_notify.call_count == 1
 
@@ -88,6 +88,6 @@ def test_none_trigger_fires_popup(monkeypatch):
     monkeypatch.setattr(autofocus_runner_mod.notifications, 'error', fake_notify)
 
     runner = _make_runner_with_trigger(None)
-    runner._notify_af_failure("Autofocus Failed", "Focus curve flat")
+    runner._notify_af_failure('Autofocus Failed', 'Focus curve flat')
 
     assert fake_notify.call_count == 1

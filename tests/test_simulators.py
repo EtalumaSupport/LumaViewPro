@@ -31,14 +31,14 @@ from drivers.motorboard import MotorBoard
 # LED Simulator Tests
 # ---------------------------------------------------------------------------
 
-class TestSimulatedLEDBoard:
 
+class TestSimulatedLEDBoard:
     def test_api_surface_matches_real(self):
         """Simulated board has all public methods of the real board."""
         real_methods = {m for m in dir(LEDBoard) if not m.startswith('_')}
         sim_methods = {m for m in dir(SimulatedLEDBoard) if not m.startswith('_')}
         missing = real_methods - sim_methods
-        assert not missing, f"SimulatedLEDBoard missing methods: {missing}"
+        assert not missing, f'SimulatedLEDBoard missing methods: {missing}'
 
     # Driver-side state-query tests (test_initial_state, test_led_on_off,
     # test_led_on_fast, test_leds_off_all, test_leds_off_fast,
@@ -91,26 +91,26 @@ class TestSimulatedLEDBoard:
         for t in threads:
             t.join(timeout=10)
 
-        assert not errors, f"Thread safety errors: {errors}"
+        assert not errors, f'Thread safety errors: {errors}'
         # All LEDs should be off after all toggles complete; check the
         # driver-internal cache (now Phase-3d.5 dead state) directly
         # since the protocol-level reader was retired.
         for color, mA in board.led_ma.items():
-            assert mA == -1, f"{color} not reset after concurrent toggle"
+            assert mA == -1, f'{color} not reset after concurrent toggle'
 
 
 # ---------------------------------------------------------------------------
 # Motor Simulator Tests
 # ---------------------------------------------------------------------------
 
-class TestSimulatedMotorBoard:
 
+class TestSimulatedMotorBoard:
     def test_api_surface_matches_real(self):
         """Simulated board has all public methods of the real board."""
         real_methods = {m for m in dir(MotorBoard) if not m.startswith('_')}
         sim_methods = {m for m in dir(SimulatedMotorBoard) if not m.startswith('_')}
         missing = real_methods - sim_methods
-        assert not missing, f"SimulatedMotorBoard missing methods: {missing}"
+        assert not missing, f'SimulatedMotorBoard missing methods: {missing}'
 
     def test_initial_state(self):
         board = SimulatedMotorBoard()
@@ -180,6 +180,7 @@ class TestSimulatedMotorBoard:
         # Fast mode: position updates instantly but target_status is False
         # for ~3ms (simulates motion monitor detection window)
         import time
+
         time.sleep(0.005)
         assert board.target_status('X') is True
 
@@ -235,39 +236,34 @@ class TestSimulatedMotorBoard:
         are filtered out of LVP.serial WARNING records.
         drivers/motorboard.py installs the filter at import time."""
         import logging
+
         serial_log = logging.getLogger('LVP.serial')
         with caplog.at_level(logging.WARNING, logger='LVP.serial'):
             for cmd in ('AMAXX', 'DMAXX', 'AMAXY', 'DMAXY'):
                 serial_log.warning(
-                    f"[XYZ Class ] FIRMWARE ERROR: {cmd} -> "
-                    f"ERROR: command '{cmd}' not found:"
+                    f"[XYZ Class ] FIRMWARE ERROR: {cmd} -> ERROR: command '{cmd}' not found:"
                 )
-        suppressed = [r for r in caplog.records
-                      if 'FIRMWARE ERROR' in r.getMessage()]
+        suppressed = [r for r in caplog.records if 'FIRMWARE ERROR' in r.getMessage()]
         assert suppressed == [], (
-            f'AMAX/DMAX probe warnings must be filtered; '
-            f'leaked {len(suppressed)} records'
+            f'AMAX/DMAX probe warnings must be filtered; leaked {len(suppressed)} records'
         )
 
     def test_other_firmware_errors_still_propagate(self, caplog):
         """Filter must drop ONLY the AMAX/DMAX probe records. Any other
         FIRMWARE ERROR (real protocol-level failure) propagates."""
         import logging
+
         serial_log = logging.getLogger('LVP.serial')
         with caplog.at_level(logging.WARNING, logger='LVP.serial'):
             serial_log.warning(
-                "[XYZ Class ] FIRMWARE ERROR: MOVE -> "
-                "ERROR: motor stalled at limit switch"
+                '[XYZ Class ] FIRMWARE ERROR: MOVE -> ERROR: motor stalled at limit switch'
             )
             serial_log.warning(
-                "[LED Class ] FIRMWARE ERROR: ILLUMS -> "
-                "ERROR: channel not available"
+                '[LED Class ] FIRMWARE ERROR: ILLUMS -> ERROR: channel not available'
             )
-        passed = [r for r in caplog.records
-                  if 'FIRMWARE ERROR' in r.getMessage()]
+        passed = [r for r in caplog.records if 'FIRMWARE ERROR' in r.getMessage()]
         assert len(passed) == 2, (
-            f'Real FIRMWARE ERROR records must propagate; '
-            f'got {len(passed)} (expected 2)'
+            f'Real FIRMWARE ERROR records must propagate; got {len(passed)} (expected 2)'
         )
 
     def test_axes_config(self):
@@ -489,12 +485,14 @@ class TestMotorConfigDefaults:
 
     def test_defaults_file_exists(self):
         import pathlib
+
         f = pathlib.Path('data/motorconfig_defaults.json')
         assert f.is_file()
 
     def test_defaults_load(self):
         from drivers.motorconfig import MotorConfig
         import pathlib
+
         mc = MotorConfig(defaults_file=pathlib.Path('data/motorconfig_defaults.json'))
         assert mc.model() in ('LS850', 'LS850T')
         assert mc.travel_limit_mm('X') == 120
@@ -507,6 +505,7 @@ class TestMotorConfigDefaults:
     def test_update_from_board_overrides(self):
         from drivers.motorconfig import MotorConfig
         import pathlib
+
         mc = MotorConfig(defaults_file=pathlib.Path('data/motorconfig_defaults.json'))
         mc.update_from_board({'Axis Travel Limit': {'Z': 20}})
         assert mc.travel_limit_mm('Z') == 20
@@ -516,6 +515,7 @@ class TestMotorConfigDefaults:
     def test_missing_section_returns_default(self):
         from drivers.motorconfig import MotorConfig
         import pathlib
+
         mc = MotorConfig(defaults_file=pathlib.Path('data/motorconfig_defaults.json'))
         # Non-existent section should return default without crashing
         val = mc._axis_lookup('Nonexistent Section', 'X', default=42)
@@ -524,6 +524,7 @@ class TestMotorConfigDefaults:
     def test_optics_fallback(self):
         from drivers.motorconfig import MotorConfig
         import pathlib
+
         # Create a config without Optics section
         mc = MotorConfig.__new__(MotorConfig)
         mc._config = {}
@@ -538,12 +539,14 @@ class TestScaleBarObjectiveInit:
     def test_objective_none_at_init(self):
         """Lumascope starts with no objective set."""
         from modules.lumascope_api import Lumascope
+
         scope = Lumascope(simulate=True)
         assert scope._objective is None
 
     def test_set_objective_populates(self):
         """set_objective() should populate _objective dict."""
         from modules.lumascope_api import Lumascope
+
         scope = Lumascope(simulate=True)
         scope.set_objective('20x Oly')
         assert scope._objective is not None
@@ -552,6 +555,7 @@ class TestScaleBarObjectiveInit:
     def test_scale_bar_disabled_without_objective(self):
         """Scale bar enabled but no objective → use_scale_bar forced False."""
         from modules.lumascope_api import Lumascope
+
         scope = Lumascope(simulate=True)
         scope.imaging.set_scale_bar(enabled=True)
         assert scope.imaging._scale_bar['enabled'] is True
@@ -561,6 +565,7 @@ class TestScaleBarObjectiveInit:
     def test_scale_bar_works_with_objective(self):
         """Scale bar with objective set should proceed."""
         from modules.lumascope_api import Lumascope
+
         scope = Lumascope(simulate=True)
         scope.set_objective('20x Oly')
         scope.imaging.set_scale_bar(enabled=True)
@@ -572,15 +577,16 @@ class TestScaleBarObjectiveInit:
 # Camera Simulator Tests
 # ---------------------------------------------------------------------------
 
-class TestSimulatedCamera:
 
+class TestSimulatedCamera:
     def test_api_surface_matches_base(self):
         """Simulated camera implements all abstract methods from Camera ABC."""
-        abstract_methods = {m for m in dir(Camera) if not m.startswith('_')
-                          and callable(getattr(Camera, m, None))}
+        abstract_methods = {
+            m for m in dir(Camera) if not m.startswith('_') and callable(getattr(Camera, m, None))
+        }
         sim_methods = {m for m in dir(SimulatedCamera) if not m.startswith('_')}
         missing = abstract_methods - sim_methods
-        assert not missing, f"SimulatedCamera missing methods: {missing}"
+        assert not missing, f'SimulatedCamera missing methods: {missing}'
 
     def test_connects_on_init(self):
         cam = SimulatedCamera()
@@ -644,16 +650,16 @@ class TestSimulatedCamera:
 
     def test_auto_gain(self):
         cam = SimulatedCamera()
-        result = cam.auto_gain(state=True, target_brightness=0.3,
-                               min_gain_db=1.0, max_gain_db=10.0)
+        result = cam.auto_gain(state=True, target_brightness=0.3, min_gain_db=1.0, max_gain_db=10.0)
         assert result is True
         # Gain should converge to mid-range
         assert 1.0 <= cam.get_gain() <= 10.0
 
     def test_auto_gain_once(self):
         cam = SimulatedCamera()
-        result = cam.auto_gain_once(state=True, target_brightness=0.5,
-                                     min_gain_db=2.0, max_gain_db=8.0)
+        result = cam.auto_gain_once(
+            state=True, target_brightness=0.5, min_gain_db=2.0, max_gain_db=8.0
+        )
         assert result is True
         assert 2.0 <= cam.get_gain() <= 8.0
 
@@ -895,7 +901,7 @@ class TestSimulatedCamera:
 
         # Best score should be at z=5000 (focal point)
         best_z = max(scores, key=scores.get)
-        assert best_z == 5000, f"Expected best focus at 5000, got {best_z}. Scores: {scores}"
+        assert best_z == 5000, f'Expected best focus at 5000, got {best_z}. Scores: {scores}'
 
     def test_focus_score_decreases_with_defocus(self):
         """Focus score should decrease as we move away from focal point."""
@@ -919,8 +925,9 @@ class TestSimulatedCamera:
         cam.grab()
         score_far = focus_vollath4_original(image=cam.array)
 
-        assert score_at_focus > score_near > score_far, \
-            f"Scores should decrease: focus={score_at_focus}, near={score_near}, far={score_far}"
+        assert score_at_focus > score_near > score_far, (
+            f'Scores should decrease: focus={score_at_focus}, near={score_near}, far={score_far}'
+        )
 
     def test_focus_curve_is_symmetric(self):
         """Focus scores should be roughly symmetric around focal point."""
@@ -941,13 +948,12 @@ class TestSimulatedCamera:
 
         # Within 20% of each other (both 1000um from focus)
         ratio = score_below / score_above if score_above != 0 else float('inf')
-        assert 0.8 < ratio < 1.2, f"Asymmetric: below={score_below}, above={score_above}"
+        assert 0.8 < ratio < 1.2, f'Asymmetric: below={score_below}, above={score_above}'
 
     def test_z_position_func_callback(self):
         """Camera auto-queries Z from callback when generating focus_target."""
         z_val = [5000.0]
-        cam = SimulatedCamera(width=480, height=300, grab_delay=0,
-                              z_position_func=lambda: z_val[0])
+        cam = SimulatedCamera(width=480, height=300, grab_delay=0, z_position_func=lambda: z_val[0])
         cam.set_test_pattern(enabled=True, pattern='focus_target')
         cam.set_focal_z(5000.0)
 
@@ -1050,7 +1056,7 @@ class TestSimulatedCamera:
         with pytest.raises(ValueError):
             with cam.update_camera_config():
                 assert cam.is_grabbing() is False
-                raise ValueError("simulated config failure")
+                raise ValueError('simulated config failure')
         # Grabbing must be restored despite the exception
         assert cam.is_grabbing() is True
 
@@ -1094,10 +1100,8 @@ class TestSimulatedCamera:
                     assert cam.is_grabbing() is False
         assert cam.is_grabbing() is True
 
-        assert len(stop_calls) == 1, \
-            f"expected exactly 1 stop, got {len(stop_calls)}"
-        assert len(start_calls) == 1, \
-            f"expected exactly 1 start, got {len(start_calls)}"
+        assert len(stop_calls) == 1, f'expected exactly 1 stop, got {len(stop_calls)}'
+        assert len(start_calls) == 1, f'expected exactly 1 start, got {len(start_calls)}'
 
     def test_update_camera_config_reentrant_inner_exception(self):
         """If an inner level raises, the outer level still restarts."""
@@ -1107,7 +1111,7 @@ class TestSimulatedCamera:
             with cam.update_camera_config():
                 assert cam.is_grabbing() is False
                 with cam.update_camera_config():
-                    raise ValueError("inner failure")
+                    raise ValueError('inner failure')
         assert cam.is_grabbing() is True
 
     def test_update_camera_config_reentrant_when_not_grabbing(self):
@@ -1147,6 +1151,7 @@ class TestCameraProfiles:
 
     def test_lookup_known_pylon_model(self):
         from drivers.camera_profiles import lookup_profile
+
         p = lookup_profile('daA3840-45um')
         assert p.model_name == 'daA3840-45um'
         assert p.sensor == 'Sony IMX334LLR-C'
@@ -1157,6 +1162,7 @@ class TestCameraProfiles:
 
     def test_lookup_known_ace2_model(self):
         from drivers.camera_profiles import lookup_profile
+
         p = lookup_profile('a2A3536-31umBAS')
         assert p.sensor == 'Sony IMX676-AAMR1-C'
         assert p.exposure_max_us == 10_000_000
@@ -1165,6 +1171,7 @@ class TestCameraProfiles:
 
     def test_lookup_known_ids_model(self):
         from drivers.camera_profiles import lookup_profile
+
         p = lookup_profile('U3-34L0XCP-M')
         assert p.driver == 'ids'
         assert p.sensor == 'Sony IMX676-AAMR1-C'
@@ -1180,12 +1187,14 @@ class TestCameraProfiles:
 
     def test_lookup_simulated(self):
         from drivers.camera_profiles import lookup_profile
+
         p = lookup_profile('SimulatedCamera-1920x1200')
         assert p.driver == 'simulated'
         assert p.gain.total_min_db == 0.0
 
     def test_lookup_unknown_returns_default(self):
         from drivers.camera_profiles import lookup_profile
+
         p = lookup_profile('TotallyUnknownCamera-XYZ')
         assert p.model_name == 'TotallyUnknownCamera-XYZ'
         assert p.driver == 'unknown'
@@ -1194,11 +1203,13 @@ class TestCameraProfiles:
 
     def test_lookup_none_returns_default(self):
         from drivers.camera_profiles import lookup_profile
+
         p = lookup_profile(None)
         assert p.driver == 'unknown'
 
     def test_lookup_substring_match(self):
         from drivers.camera_profiles import lookup_profile
+
         # Model name might have extra text from SDK
         p = lookup_profile('Basler daA3840-45um (12345678)')
         assert p.sensor == 'Sony IMX334LLR-C'
@@ -1206,6 +1217,7 @@ class TestCameraProfiles:
     def test_lookup_returns_copy(self):
         """Modifying a returned profile should not affect the registry."""
         from drivers.camera_profiles import lookup_profile
+
         p1 = lookup_profile('daA3840-45um')
         p1.exposure_max_us = 99_000
         p1.gain.total_min_db = -99.0
@@ -1216,6 +1228,7 @@ class TestCameraProfiles:
 
     def test_dynamic_fields_initially_none(self):
         from drivers.camera_profiles import lookup_profile
+
         p = lookup_profile('daA3840-45um')
         # exposure_max_us has a static default per profile entry; it's
         # the single source of truth, overwritten dynamically only when
@@ -1226,6 +1239,7 @@ class TestCameraProfiles:
 
     def test_profile_dataclass_defaults(self):
         from drivers.camera_profiles import CameraProfile
+
         p = CameraProfile()
         assert p.model_name == ''
         assert p.pixel_formats == []
@@ -1282,12 +1296,13 @@ class TestTimingModes:
         while not m.target_status('Z'):
             time.sleep(0.01)
             if time.monotonic() > deadline:
-                raise TimeoutError("Motor never reached target")
+                raise TimeoutError('Motor never reached target')
         assert m.current_pos('Z') == pytest.approx(1000.0, abs=1.0)
 
     def test_motor_fast_move_brief_delay(self):
         """In fast mode, position updates instantly but target_status has ~3ms delay."""
         import time
+
         m = SimulatedMotorBoard(timing='fast')
         m.move_abs_pos('Z', 10000.0)
         # Position is instant
@@ -1334,34 +1349,34 @@ class TestFailureInjection:
     def test_motor_fail_after_disconnects(self):
         """Motor board should return None after N commands."""
         m = SimulatedMotorBoard(fail_after=3)
-        assert m.exchange_command('INFO') is not None      # cmd 1
-        assert m.exchange_command('INFO') is not None      # cmd 2
-        assert m.exchange_command('INFO') is not None      # cmd 3
-        assert m.exchange_command('INFO') is None          # cmd 4 — disconnected
+        assert m.exchange_command('INFO') is not None  # cmd 1
+        assert m.exchange_command('INFO') is not None  # cmd 2
+        assert m.exchange_command('INFO') is not None  # cmd 3
+        assert m.exchange_command('INFO') is None  # cmd 4 — disconnected
         assert m.driver is None
 
     def test_motor_fail_after_sets_found_false(self):
         """After injected disconnect, found should be False."""
         m = SimulatedMotorBoard(fail_after=1)
         assert m.found is True
-        m.exchange_command('INFO')   # cmd 1 — succeeds
-        m.exchange_command('INFO')   # cmd 2 — fails
+        m.exchange_command('INFO')  # cmd 1 — succeeds
+        m.exchange_command('INFO')  # cmd 2 — fails
         assert m.found is False
 
     def test_motor_fail_on_specific_command(self):
         """Motor board should return None for targeted commands only."""
         m = SimulatedMotorBoard(fail_on={'ZHOME'})
-        assert m.exchange_command('INFO') is not None      # OK
-        assert m.exchange_command('ZHOME') is None         # targeted failure
-        assert m.exchange_command('INFO') is not None      # still connected
-        assert m.driver is not None                        # not disconnected
+        assert m.exchange_command('INFO') is not None  # OK
+        assert m.exchange_command('ZHOME') is None  # targeted failure
+        assert m.exchange_command('INFO') is not None  # still connected
+        assert m.driver is not None  # not disconnected
 
     def test_motor_fail_on_multiple_commands(self):
         """Multiple commands can be targeted for failure."""
         m = SimulatedMotorBoard(fail_on={'ZHOME', 'THOME'})
         assert m.exchange_command('ZHOME') is None
         assert m.exchange_command('THOME') is None
-        assert m.exchange_command('HOME') is not None      # not in fail set
+        assert m.exchange_command('HOME') is not None  # not in fail set
 
     def test_motor_no_failure_by_default(self):
         """Without fail params, simulator works normally."""
@@ -1372,8 +1387,8 @@ class TestFailureInjection:
     def test_motor_fail_after_affects_move(self):
         """Mid-protocol disconnect: move starts OK, then fails."""
         m = SimulatedMotorBoard(fail_after=5)
-        m.exchange_command('HOME')                         # cmd 1
-        m.move_abs_pos('Z', 5000)                          # uses multiple commands
+        m.exchange_command('HOME')  # cmd 1
+        m.move_abs_pos('Z', 5000)  # uses multiple commands
         # Eventually commands fail
         result = m.exchange_command('ACTUAL_RZ')
         # After enough commands, should get None
@@ -1385,24 +1400,24 @@ class TestFailureInjection:
         """LED board should return None after N commands."""
         led = SimulatedLEDBoard(fail_after=2)
         assert led.exchange_command('LEDS_ENT') is not None  # cmd 1
-        assert led.exchange_command('LED0_100') is not None   # cmd 2
-        assert led.exchange_command('LEDS_OFF') is None       # cmd 3 — disconnected
+        assert led.exchange_command('LED0_100') is not None  # cmd 2
+        assert led.exchange_command('LEDS_OFF') is None  # cmd 3 — disconnected
         assert led.driver is None
 
     def test_led_fail_after_sets_found_false(self):
         """After injected disconnect, found should be False."""
         led = SimulatedLEDBoard(fail_after=1)
         assert led.found is True
-        led.exchange_command('LEDS_ENT')    # cmd 1 — succeeds
-        led.exchange_command('LED0_100')     # cmd 2 — fails
+        led.exchange_command('LEDS_ENT')  # cmd 1 — succeeds
+        led.exchange_command('LED0_100')  # cmd 2 — fails
         assert led.found is False
 
     def test_led_fail_on_specific_command(self):
         """LED board should return None for targeted commands only."""
         led = SimulatedLEDBoard(fail_on={'LEDS_ENT'})
-        assert led.exchange_command('LEDS_ENT') is None       # targeted
-        assert led.exchange_command('LED0_100') is not None    # OK
-        assert led.driver is not None                          # still connected
+        assert led.exchange_command('LEDS_ENT') is None  # targeted
+        assert led.exchange_command('LED0_100') is not None  # OK
+        assert led.driver is not None  # still connected
 
     def test_led_no_failure_by_default(self):
         """Without fail params, LED simulator works normally."""
@@ -1413,8 +1428,8 @@ class TestFailureInjection:
     def test_led_fast_path_also_fails(self):
         """_write_command_fast should also respect fail_after."""
         led = SimulatedLEDBoard(fail_after=2)
-        led._write_command_fast('LED0_100')   # cmd 1
-        led._write_command_fast('LED1_100')   # cmd 2
-        led._write_command_fast('LED2_100')   # cmd 3 — should disconnect
+        led._write_command_fast('LED0_100')  # cmd 1
+        led._write_command_fast('LED1_100')  # cmd 2
+        led._write_command_fast('LED2_100')  # cmd 3 — should disconnect
         assert led.driver is None
         assert led.found is False

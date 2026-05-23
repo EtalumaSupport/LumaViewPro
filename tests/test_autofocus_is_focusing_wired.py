@@ -39,17 +39,17 @@ import pathlib
 
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
-AF_RUNNER_SRC = REPO / "modules" / "autofocus_runner.py"
+AF_RUNNER_SRC = REPO / 'modules' / 'autofocus_runner.py'
 
 
 def _run_method() -> ast.FunctionDef:
     tree = ast.parse(AF_RUNNER_SRC.read_text())
     for node in ast.walk(tree):
-        if isinstance(node, ast.ClassDef) and node.name == "AutofocusRunner":
+        if isinstance(node, ast.ClassDef) and node.name == 'AutofocusRunner':
             for child in node.body:
-                if isinstance(child, ast.FunctionDef) and child.name == "run":
+                if isinstance(child, ast.FunctionDef) and child.name == 'run':
                     return child
-    raise AssertionError("AutofocusRunner.run not found")
+    raise AssertionError('AutofocusRunner.run not found')
 
 
 def _is_imaging_is_focusing_assign(node: ast.AST, value: bool) -> bool:
@@ -57,14 +57,14 @@ def _is_imaging_is_focusing_assign(node: ast.AST, value: bool) -> bool:
     if not isinstance(node, ast.Assign) or len(node.targets) != 1:
         return False
     target = node.targets[0]
-    if not isinstance(target, ast.Attribute) or target.attr != "is_focusing":
+    if not isinstance(target, ast.Attribute) or target.attr != 'is_focusing':
         return False
-    if not (isinstance(target.value, ast.Attribute) and target.value.attr == "imaging"):
+    if not (isinstance(target.value, ast.Attribute) and target.value.attr == 'imaging'):
         return False
     inner = target.value.value
-    if not (isinstance(inner, ast.Attribute) and inner.attr == "_scope"):
+    if not (isinstance(inner, ast.Attribute) and inner.attr == '_scope'):
         return False
-    if not (isinstance(inner.value, ast.Name) and inner.value.id == "self"):
+    if not (isinstance(inner.value, ast.Name) and inner.value.id == 'self'):
         return False
     if not isinstance(node.value, ast.Constant):
         return False
@@ -74,25 +74,21 @@ def _is_imaging_is_focusing_assign(node: ast.AST, value: bool) -> bool:
 def test_af_start_mirrors_is_focusing_true():
     """run() sets scope.imaging.is_focusing = True at AF start."""
     run = _run_method()
-    found = any(
-        _is_imaging_is_focusing_assign(n, True) for n in ast.walk(run)
-    )
+    found = any(_is_imaging_is_focusing_assign(n, True) for n in ast.walk(run))
     assert found, (
-        "AutofocusRunner.run() must set self._scope.imaging.is_focusing = True "
-        "at AF start so external callers (scope.imaging.is_focusing) see the "
-        "right answer during a live run"
+        'AutofocusRunner.run() must set self._scope.imaging.is_focusing = True '
+        'at AF start so external callers (scope.imaging.is_focusing) see the '
+        'right answer during a live run'
     )
 
 
 def test_af_finally_mirrors_is_focusing_false():
     """run() sets scope.imaging.is_focusing = False at end of finally block."""
     run = _run_method()
-    found = any(
-        _is_imaging_is_focusing_assign(n, False) for n in ast.walk(run)
-    )
+    found = any(_is_imaging_is_focusing_assign(n, False) for n in ast.walk(run))
     assert found, (
         "AutofocusRunner.run()'s finally block must set "
-        "self._scope.imaging.is_focusing = False after camera/LED/Z restore "
+        'self._scope.imaging.is_focusing = False after camera/LED/Z restore '
         "so callers don't see a stuck-True public surface"
     )
 
@@ -100,12 +96,9 @@ def test_af_finally_mirrors_is_focusing_false():
 def test_clear_is_paired_with_af_in_progress_clear():
     """The False-assign sits next to _af_in_progress.clear() (lifecycle pairing)."""
     src = AF_RUNNER_SRC.read_text()
-    needle = (
-        "self._af_in_progress.clear()\n"
-        "            # Clear the public ImagingAPI mirror"
-    )
+    needle = 'self._af_in_progress.clear()\n            # Clear the public ImagingAPI mirror'
     assert needle in src, (
-        "The is_focusing=False assignment must immediately follow "
-        "self._af_in_progress.clear() so the two flip together when "
-        "restoration completes"
+        'The is_focusing=False assignment must immediately follow '
+        'self._af_in_progress.clear() so the two flip together when '
+        'restoration completes'
     )

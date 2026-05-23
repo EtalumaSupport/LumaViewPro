@@ -24,7 +24,6 @@ from modules.config_helpers import (
 
 
 class TestGetBinningFromSettings:
-
     def test_reads_binning(self):
         assert get_binning_from_settings({'binning_size': 2}) == 2
 
@@ -39,7 +38,6 @@ class TestGetBinningFromSettings:
 
 
 class TestGetFrameDimensions:
-
     def test_reads_frame(self):
         result = get_frame_dimensions_from_settings({'frame': {'width': 800, 'height': 600}})
         assert result == {'width': 800, 'height': 600}
@@ -50,7 +48,6 @@ class TestGetFrameDimensions:
 
 
 class TestGetProtocolTimeParams:
-
     def test_reads_params(self):
         settings = {'protocol': {'period': 5, 'duration': 2}}
         result = get_protocol_time_params_from_settings(settings)
@@ -64,7 +61,6 @@ class TestGetProtocolTimeParams:
 
 
 class TestGetImageCaptureConfig:
-
     def test_reads_config(self):
         settings = {
             'image_output_format': {'live': 'PNG', 'sequenced': 'TIFF'},
@@ -110,10 +106,12 @@ class TestGetSelectedLabware:
         # fall back to default.
         loader = MagicMock()
         default_plate = MagicMock()
+
         def fake_get_plate(plate_key=None):
             if plate_key == 'nonexistent':
                 raise KeyError('not found')
             return default_plate
+
         loader.get_plate.side_effect = fake_get_plate
         settings = {'protocol': {'labware': 'nonexistent'}}
         labware_id, obj = get_selected_labware_from_settings(settings, loader)
@@ -125,10 +123,12 @@ class TestGetSelectedLabware:
         # in the loader's list.
         loader = MagicMock()
         first_plate = MagicMock()
+
         def fake_get_plate(plate_key=None):
             if plate_key in ('requested-key', '96 well microplate'):
                 raise KeyError('not found')
             return first_plate
+
         loader.get_plate.side_effect = fake_get_plate
         loader.get_plate_list.return_value = ['some-other-plate']
         settings = {'protocol': {'labware': 'requested-key'}}
@@ -146,12 +146,12 @@ class TestGetSelectedLabware:
         settings = {'protocol': {'labware': 'anything'}}
         import pytest
         from modules.exceptions import ConfigError
-        with pytest.raises(ConfigError, match="no plates registered"):
+
+        with pytest.raises(ConfigError, match='no plates registered'):
             get_selected_labware_from_settings(settings, loader)
 
 
 class TestGetZstackParams:
-
     def test_reads_params(self):
         settings = {'protocol': {'zstack': {'range': 50, 'step_size': 5, 'z_reference': 'top'}}}
         result = get_zstack_params_from_settings(settings)
@@ -165,7 +165,6 @@ class TestGetZstackParams:
 
 
 class TestGetAutoGainSettings:
-
     def test_converts_seconds_to_timedelta(self):
         settings = {'protocol': {'autogain': {'max_duration_seconds': 30, 'target_percent': 80}}}
         result = get_auto_gain_settings(settings)
@@ -175,7 +174,6 @@ class TestGetAutoGainSettings:
 
 
 class TestGetCurrentObjectiveInfo:
-
     def test_reads_objective(self):
         helper = MagicMock()
         helper.get_objective_info.return_value = {'focal_length': 10}

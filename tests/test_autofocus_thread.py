@@ -10,6 +10,7 @@ Covers the public API contract:
   - is_running flips True during a run, False after the Future resolves.
   - start() / stop() are idempotent and process-exit-safe (daemon).
 """
+
 from __future__ import annotations
 
 import threading

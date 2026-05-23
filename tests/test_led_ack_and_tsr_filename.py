@@ -33,6 +33,7 @@ class TestLedOnBlockAckShape:
     def _make_led(self, response_sequence):
         """Build a real LEDBoard with exchange_command monkeypatched."""
         from drivers.ledboard import LEDBoard
+
         led = LEDBoard.__new__(LEDBoard)  # bypass __init__ (needs serial)
         led._validate_and_build_led_cmd = lambda ch, mA: ('BF', f'LED{ch}_{int(mA)}')
         led._update_state_cache = lambda color, mA: None
@@ -63,10 +64,11 @@ class TestLedOnBlockAckShape:
         # 100ms timeout; firmware returns '' forever.
         led = self._make_led([''] * 200)
         import time
+
         t0 = time.monotonic()
         led.led_on(channel=3, mA=2, block=True, timeout_s=0.1)
         elapsed = time.monotonic() - t0
-        assert 0.08 < elapsed < 0.3, f"elapsed={elapsed:.3f}s out of band"
+        assert 0.08 < elapsed < 0.3, f'elapsed={elapsed:.3f}s out of band'
         # Multiple retries during the 0.1s window -- not bailing on first ''.
         assert led.exchange_command.call_count >= 3
 
@@ -75,10 +77,11 @@ class TestLedOnBlockAckShape:
         as the wedged-firmware empty case."""
         led = self._make_led([None] * 200)
         import time
+
         t0 = time.monotonic()
         led.led_on(channel=3, mA=2, block=True, timeout_s=0.1)
         elapsed = time.monotonic() - t0
-        assert 0.08 < elapsed < 0.3, f"elapsed={elapsed:.3f}s out of band"
+        assert 0.08 < elapsed < 0.3, f'elapsed={elapsed:.3f}s out of band'
         assert led.exchange_command.call_count >= 3
 
 
@@ -91,17 +94,17 @@ class TestLedDriverSubstringCheckPresent:
     def test_substring_match_helper_present(self):
         src = (REPO_ROOT / 'drivers' / 'ledboard.py').read_text()
         assert 'check_each_substr' in src, (
-            "check_each_substr helper must be present in ledboard.py -- "
-            "the substring-match ack check guards against wedged-firmware "
-            "empty responses being misread as acks."
+            'check_each_substr helper must be present in ledboard.py -- '
+            'the substring-match ack check guards against wedged-firmware '
+            'empty responses being misread as acks.'
         )
 
     def test_command_not_in_response_check_present(self):
         src = (REPO_ROOT / 'drivers' / 'ledboard.py').read_text()
         assert 'command not in response' in src, (
-            "Polling loop must include the `command not in response` "
-            "rejection clause -- this is what makes the loop wait for "
-            "a real ack instead of accepting any non-None string."
+            'Polling loop must include the `command not in response` '
+            'rejection clause -- this is what makes the loop wait for '
+            'a real ack instead of accepting any non-None string.'
         )
 
 
@@ -118,6 +121,7 @@ class TestTsrLedEngineeringRoutesThroughDriver:
         scope.diagnostics.enter_led_engineering_mode, not open-coded
         send_diagnostic_command('led', 'FACTORY', ...)."""
         from modules.tech_support_report import FirmwareDiagnostics
+
         diag = FirmwareDiagnostics.__new__(FirmwareDiagnostics)
         fake_scope = MagicMock()
         fake_scope.led_connected = True
@@ -133,13 +137,14 @@ class TestTsrLedEngineeringRoutesThroughDriver:
         for call in fake_scope.diagnostics.send_diagnostic_command.call_args_list:
             args, _ = call
             assert 'FACTORY' not in args and 'Y' not in args, (
-                f"Open-coded FACTORY/Y send_diagnostic_command call leaked: {call}"
+                f'Open-coded FACTORY/Y send_diagnostic_command call leaked: {call}'
             )
 
     def test_exit_engineering_calls_sub_api(self):
         """_exit_engineering must invoke
         scope.diagnostics.exit_led_engineering_mode, not _cmd('led', 'Q')."""
         from modules.tech_support_report import FirmwareDiagnostics
+
         diag = FirmwareDiagnostics.__new__(FirmwareDiagnostics)
         fake_scope = MagicMock()
         fake_scope.led_connected = True
@@ -152,13 +157,12 @@ class TestTsrLedEngineeringRoutesThroughDriver:
         # 'Q' as the command.
         for call in fake_scope.diagnostics.send_diagnostic_command.call_args_list:
             args, _ = call
-            assert 'Q' not in args, (
-                f"Open-coded Q send_diagnostic_command call leaked: {call}"
-            )
+            assert 'Q' not in args, f'Open-coded Q send_diagnostic_command call leaked: {call}'
 
     def test_enter_engineering_returns_false_when_led_absent(self):
         """Guard: no LED board connected -> early return, no driver call."""
         from modules.tech_support_report import FirmwareDiagnostics
+
         diag = FirmwareDiagnostics.__new__(FirmwareDiagnostics)
         fake_scope = MagicMock()
         fake_scope.led_connected = False
@@ -183,12 +187,11 @@ class TestBundleFilenameByReportType:
         """Construct a TechSupportReport stub and invoke _create_zip
         with the given report_type. Returns the resulting zip path."""
         from modules.tech_support_report import TechSupportReport
+
         report = TechSupportReport.__new__(TechSupportReport)
         # _create_zip just needs `tmp` to point at a populated dir; we
         # provide an empty dir for naming-only assertions.
-        return report._create_zip(
-            tmp_path, sn, tmp_path, report_type=report_type
-        )
+        return report._create_zip(tmp_path, sn, tmp_path, report_type=report_type)
 
     def test_tsr_filename_has_tsr_token(self, tmp_path):
         zip_path = self._build_report(tmp_path, report_type='tsr')
@@ -201,8 +204,8 @@ class TestBundleFilenameByReportType:
         zip_path = self._build_report(tmp_path, report_type='logs_only')
         assert '-TSR-' not in zip_path.name, (
             f"Logs-only bundle must NOT contain '-TSR-' token; "
-            f"got {zip_path.name!r}. The token leaking into logs-only "
-            f"bundles confuses support engineers who sort by filename."
+            f'got {zip_path.name!r}. The token leaking into logs-only '
+            f'bundles confuses support engineers who sort by filename.'
         )
         assert zip_path.name.startswith('SN12062-')
 
@@ -231,6 +234,7 @@ class TestLogsOnlySerialNumberLookupChain:
         Returns the SN-resolution result (the value that would be passed
         to _create_zip)."""
         from modules.tech_support_report import TechSupportReport
+
         report = TechSupportReport.__new__(TechSupportReport)
         report._meta = {}
 
@@ -303,6 +307,7 @@ class TestLedExitEngineeringRecoversFromWedge:
         responses returned by exchange_command('INFO', ...). The Q
         call is matched first and returns a sentinel."""
         from drivers.ledboard import LEDBoard
+
         led = LEDBoard.__new__(LEDBoard)
         led._lock = threading.RLock()
         led.driver = MagicMock()
@@ -322,9 +327,7 @@ class TestLedExitEngineeringRecoversFromWedge:
             return None
 
         led.exchange_command = MagicMock(side_effect=fake_exchange)
-        led._safe_write = MagicMock(
-            side_effect=lambda data, context='': write_log.append(data)
-        )
+        led._safe_write = MagicMock(side_effect=lambda data, context='': write_log.append(data))
         return led
 
     def test_happy_path_no_recovery_when_info_returns_banner(self):
@@ -357,6 +360,7 @@ class TestLedExitEngineeringRecoversFromWedge:
         )
         # Patch time.sleep to skip the 5s firmware-boot wait.
         import drivers.ledboard as ledboard_mod
+
         original_sleep = ledboard_mod.time.sleep
         ledboard_mod.time.sleep = MagicMock()
         try:
@@ -380,6 +384,7 @@ class TestLedExitEngineeringRecoversFromWedge:
             write_log=write_log,
         )
         import drivers.ledboard as ledboard_mod
+
         original_sleep = ledboard_mod.time.sleep
         ledboard_mod.time.sleep = MagicMock()
         try:
@@ -409,51 +414,49 @@ class TestTechSupportReportPassesTimeoutS:
 
     def _tsr_source(self):
         from pathlib import Path
-        return (Path(__file__).resolve().parent.parent
-                / "modules" / "tech_support_report.py").read_text()
+
+        return (
+            Path(__file__).resolve().parent.parent / 'modules' / 'tech_support_report.py'
+        ).read_text()
 
     def test_cmd_and_read_multiline_pass_timeout_s_to_diagnostics(self):
         src = self._tsr_source()
         # _cmd body must forward via timeout_s= ; _read_multiline same.
         # The patterns below are sensitive to whitespace+newlines; loose
         # match on the kwarg keyword itself is enough.
-        cmd_block_start = src.find("def _cmd(")
-        cmd_block_end = src.find("def _read_multiline(")
+        cmd_block_start = src.find('def _cmd(')
+        cmd_block_end = src.find('def _read_multiline(')
         cmd_body = src[cmd_block_start:cmd_block_end]
-        assert "send_diagnostic_command(" in cmd_body, (
-            "_cmd must call send_diagnostic_command")
-        assert "timeout_s=" in cmd_body, (
-            "_cmd must pass timeout_s= (not timeout=) to "
-            "diagnostics.send_diagnostic_command after U6 sweep")
-        assert "timeout=timeout" not in cmd_body, (
-            "_cmd must NOT pass bare timeout=timeout -- that was the "
-            "2026-05-22 SNlogs regression")
+        assert 'send_diagnostic_command(' in cmd_body, '_cmd must call send_diagnostic_command'
+        assert 'timeout_s=' in cmd_body, (
+            '_cmd must pass timeout_s= (not timeout=) to '
+            'diagnostics.send_diagnostic_command after U6 sweep'
+        )
+        assert 'timeout=timeout' not in cmd_body, (
+            '_cmd must NOT pass bare timeout=timeout -- that was the 2026-05-22 SNlogs regression'
+        )
 
         rm_block_start = cmd_block_end
         # Capture the next ~30 lines as the _read_multiline body window.
-        rm_window = src[rm_block_start:rm_block_start + 1500]
-        assert "send_diagnostic_command_multiline(" in rm_window
-        assert "timeout_s=" in rm_window, (
-            "_read_multiline must pass timeout_s= (not timeout=) to "
-            "diagnostics.send_diagnostic_command_multiline")
-        assert "timeout=timeout" not in rm_window
+        rm_window = src[rm_block_start : rm_block_start + 1500]
+        assert 'send_diagnostic_command_multiline(' in rm_window
+        assert 'timeout_s=' in rm_window, (
+            '_read_multiline must pass timeout_s= (not timeout=) to '
+            'diagnostics.send_diagnostic_command_multiline'
+        )
+        assert 'timeout=timeout' not in rm_window
 
     def test_no_caller_passes_bare_timeout_to_cmd_or_read_multiline(self):
         import re
+
         src = self._tsr_source()
         # Match `_cmd(...timeout=...)` or `_read_multiline(...timeout=...)`
         # that is NOT timeout_s. Excludes the FirmwareDiagnostics _cmd
         # def itself (signature uses timeout_s already).
-        bad_cmd = re.findall(
-            r"_cmd\([^)]*?\btimeout=", src)
-        bad_rm = re.findall(
-            r"_read_multiline\([^)]*?\btimeout=", src)
+        bad_cmd = re.findall(r'_cmd\([^)]*?\btimeout=', src)
+        bad_rm = re.findall(r'_read_multiline\([^)]*?\btimeout=', src)
         # Filter out the def lines themselves (def _cmd / _read_multiline)
         bad_cmd = [m for m in bad_cmd if 'def _cmd' not in m]
         bad_rm = [m for m in bad_rm if 'def _read_multiline' not in m]
-        assert not bad_cmd, (
-            f"Found _cmd callers still passing timeout= (not timeout_s=): "
-            f"{bad_cmd}")
-        assert not bad_rm, (
-            f"Found _read_multiline callers still passing timeout=: "
-            f"{bad_rm}")
+        assert not bad_cmd, f'Found _cmd callers still passing timeout= (not timeout_s=): {bad_cmd}'
+        assert not bad_rm, f'Found _read_multiline callers still passing timeout=: {bad_rm}'

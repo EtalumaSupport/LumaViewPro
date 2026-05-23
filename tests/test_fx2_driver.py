@@ -47,6 +47,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 # Fixtures
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture
 def fake_fx2_conn(monkeypatch):
     """Patch _FX2Connection.get() to return a MagicMock.
@@ -86,10 +87,11 @@ def fake_fx2_conn(monkeypatch):
 # Registry wiring
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.skipif(
     not fx2driver._FX2_AVAILABLE,
-    reason="FX2 prerequisites (pyusb / libusb1) not installed — drivers "
-           "intentionally not registered (issue #635)",
+    reason='FX2 prerequisites (pyusb / libusb1) not installed — drivers '
+    'intentionally not registered (issue #635)',
 )
 class TestRegistryWiring:
     """Verify FX2 is registered in both camera and LED registries.
@@ -129,6 +131,7 @@ class TestRegistryGatedOnPrereqs:
         # otherwise NoBackendError surfaces mid-_connect with a
         # confusing traceback.
         import sys as _sys
+
         expected = (
             fx2driver._HAS_USB
             and fx2driver._HAS_USB_BACKEND
@@ -141,9 +144,7 @@ class TestRegistryGatedOnPrereqs:
         monkeypatch.setattr(fx2driver, '_FX2_AVAILABLE', False)
         sentinel_registry = MagicMock()
 
-        decorator = fx2driver._register_if_fx2_available(
-            sentinel_registry, 'fx2', priority=80
-        )
+        decorator = fx2driver._register_if_fx2_available(sentinel_registry, 'fx2', priority=80)
 
         class Dummy:
             pass
@@ -157,9 +158,7 @@ class TestRegistryGatedOnPrereqs:
         sentinel_registry = MagicMock()
         sentinel_registry.register.return_value = lambda cls: cls
 
-        decorator = fx2driver._register_if_fx2_available(
-            sentinel_registry, 'fx2', priority=80
-        )
+        decorator = fx2driver._register_if_fx2_available(sentinel_registry, 'fx2', priority=80)
 
         class Dummy:
             pass
@@ -171,6 +170,7 @@ class TestRegistryGatedOnPrereqs:
 # ---------------------------------------------------------------------------
 # LED channel → I2C ASCII byte mapping (project-memory directive)
 # ---------------------------------------------------------------------------
+
 
 class TestLEDChannelMapping:
     """The integer → ASCII byte translation must stay inside the driver.
@@ -196,7 +196,10 @@ class TestLEDChannelMapping:
 
     def test_color_to_ch_all_four(self):
         assert fx2driver._COLOR_TO_CH == {
-            'Blue': 0, 'Green': 1, 'Red': 2, 'BF': 3,
+            'Blue': 0,
+            'Green': 1,
+            'Red': 2,
+            'BF': 3,
         }
 
     def test_ch_to_color_roundtrip(self):
@@ -215,15 +218,15 @@ class TestLEDChannelMapping:
 # Pure math: gain dB ↔ register
 # ---------------------------------------------------------------------------
 
+
 class TestGainMath:
     """Gain conversion is pure math — testable without hardware."""
 
-    @pytest.mark.parametrize("db", [0.0, 3.0, 6.0, 9.0, 12.0, 18.0, 24.0, 30.0, 36.0, 42.0])
+    @pytest.mark.parametrize('db', [0.0, 3.0, 6.0, 9.0, 12.0, 18.0, 24.0, 30.0, 36.0, 42.0])
     def test_round_trip_within_half_dB(self, db):
         reg = fx2driver._gain_db_to_register(db)
         _, back = fx2driver._register_to_gain_db(reg)
-        assert abs(back - db) < 0.5, \
-            f'dB round-trip failed: {db} → 0x{reg:04X} → {back}'
+        assert abs(back - db) < 0.5, f'dB round-trip failed: {db} → 0x{reg:04X} → {back}'
 
     def test_zero_db_is_unity_gain(self):
         reg = fx2driver._gain_db_to_register(0.0)
@@ -242,8 +245,9 @@ class TestGainMath:
         # Request something way above max (1000x = 60 dB)
         reg = fx2driver._gain_db_to_register(60.0)
         digital_val = (reg >> 8) & 0x7F
-        assert digital_val <= 120, \
+        assert digital_val <= 120, (
             f'digital_val {digital_val} exceeds audit-corrected legal max 120'
+        )
 
     def test_negative_db_clamped_to_unity(self):
         reg = fx2driver._gain_db_to_register(-10.0)
@@ -263,6 +267,7 @@ class TestGainMath:
 # Pure math: exposure rows
 # ---------------------------------------------------------------------------
 
+
 class TestExposureMath:
     """Exposure formula: rows = (target_ms + SO_ms) / tROW_ms."""
 
@@ -270,20 +275,24 @@ class TestExposureMath:
         target = 50.0
         rows = round((target + fx2driver._SHUTTER_OVERHEAD_MS) / fx2driver._ROW_TIME_MS)
         back = rows * fx2driver._ROW_TIME_MS - fx2driver._SHUTTER_OVERHEAD_MS
-        assert abs(back - target) < fx2driver._ROW_TIME_MS, \
+        assert abs(back - target) < fx2driver._ROW_TIME_MS, (
             f'50ms → {rows} rows → {back}ms (should be within 1 row of target)'
+        )
 
     def test_max_rows_is_max_exposure(self):
         assert fx2driver.MAX_EXPOSURE_ROWS == 65535
 
     def test_max_exposure_near_7_4_seconds(self):
-        max_ms = fx2driver.MAX_EXPOSURE_ROWS * fx2driver._ROW_TIME_MS - fx2driver._SHUTTER_OVERHEAD_MS
+        max_ms = (
+            fx2driver.MAX_EXPOSURE_ROWS * fx2driver._ROW_TIME_MS - fx2driver._SHUTTER_OVERHEAD_MS
+        )
         assert 7300.0 < max_ms < 7400.0
 
 
 # ---------------------------------------------------------------------------
 # Frame delimiter parser
 # ---------------------------------------------------------------------------
+
 
 class TestFrameDelimiterParser:
     """The \\x01\\xfe\\x00\\xff delimiter pattern injected by GpifWaveform_Isr."""
@@ -293,21 +302,21 @@ class TestFrameDelimiterParser:
         assert len(fx2driver.FRAME_DELIM) == 4
 
     def test_find_delimiter_at_known_offset(self):
-        buf = bytearray(b'\xAA' * 100) + fx2driver.FRAME_DELIM + bytearray(b'\xBB' * 100)
+        buf = bytearray(b'\xaa' * 100) + fx2driver.FRAME_DELIM + bytearray(b'\xbb' * 100)
         idx = buf.find(fx2driver.FRAME_DELIM)
         assert idx == 100
 
     def test_find_returns_negative_when_absent(self):
-        buf = bytearray(b'\xAA' * 1000)
+        buf = bytearray(b'\xaa' * 1000)
         assert buf.find(fx2driver.FRAME_DELIM) == -1
 
     def test_multiple_delimiters_finds_first(self):
         buf = (
-            bytearray(b'\xAA' * 50)
+            bytearray(b'\xaa' * 50)
             + fx2driver.FRAME_DELIM
-            + bytearray(b'\xBB' * 50)
+            + bytearray(b'\xbb' * 50)
             + fx2driver.FRAME_DELIM
-            + bytearray(b'\xCC' * 50)
+            + bytearray(b'\xcc' * 50)
         )
         assert buf.find(fx2driver.FRAME_DELIM) == 50
 
@@ -315,6 +324,7 @@ class TestFrameDelimiterParser:
 # ---------------------------------------------------------------------------
 # Intel HEX parser
 # ---------------------------------------------------------------------------
+
 
 class TestIntelHexParser:
     """``parse_intel_hex`` is pure — testable without USB or real firmware."""
@@ -324,9 +334,9 @@ class TestIntelHexParser:
         if not hex_path.exists():
             pytest.skip(f'firmware hex not present at {hex_path}')
         data, end_addr = fx2driver.parse_intel_hex(str(hex_path))
-        assert len(data) == 0x4000                       # 16 KB 8051 program space
-        assert end_addr > 0                              # something was parsed
-        assert end_addr <= 0x4000                        # within program space
+        assert len(data) == 0x4000  # 16 KB 8051 program space
+        assert end_addr > 0  # something was parsed
+        assert end_addr <= 0x4000  # within program space
         assert data[end_addr:] == b'\xff' * (0x4000 - end_addr)  # tail unused = 0xFF
 
     def test_parses_fallback_firmware(self):
@@ -341,6 +351,7 @@ class TestIntelHexParser:
 # Camera ABC conformance
 # ---------------------------------------------------------------------------
 
+
 class TestFX2CameraABCConformance:
     """FX2Camera must satisfy every Camera abstract method."""
 
@@ -349,6 +360,7 @@ class TestFX2CameraABCConformance:
 
     def test_inherits_from_camera(self):
         from drivers.camera import Camera
+
         assert issubclass(fx2driver.FX2Camera, Camera)
 
 
@@ -356,18 +368,33 @@ class TestFX2CameraABCConformance:
 # LEDBoardProtocol conformance
 # ---------------------------------------------------------------------------
 
+
 class TestFX2LEDProtocolConformance:
     """FX2LEDController must satisfy LEDBoardProtocol via duck typing."""
 
     def test_all_protocol_methods_present(self):
         required = [
-            'connect', 'disconnect', 'is_connected',
-            'led_on', 'led_off', 'led_on_fast', 'led_off_fast',
-            'leds_off', 'leds_off_fast', 'leds_enable', 'leds_disable',
-            'get_led_ma', 'is_led_on', 'get_led_state', 'get_led_states',
-            'color2ch', 'ch2color',
-            'available_channels', 'available_colors',
-            'read_led_current', 'exchange_command',
+            'connect',
+            'disconnect',
+            'is_connected',
+            'led_on',
+            'led_off',
+            'led_on_fast',
+            'led_off_fast',
+            'leds_off',
+            'leds_off_fast',
+            'leds_enable',
+            'leds_disable',
+            'get_led_ma',
+            'is_led_on',
+            'get_led_state',
+            'get_led_states',
+            'color2ch',
+            'ch2color',
+            'available_channels',
+            'available_colors',
+            'read_led_current',
+            'exchange_command',
         ]
         for name in required:
             assert hasattr(fx2driver.FX2LEDController, name), f'missing: {name}'
@@ -380,6 +407,7 @@ class TestFX2LEDProtocolConformance:
 # ---------------------------------------------------------------------------
 # FX2LEDController — "thin command translator" regression guard
 # ---------------------------------------------------------------------------
+
 
 class TestFX2LEDThinTranslator:
     """The FX2 LED driver MUST NOT track LED state client-side.
@@ -413,8 +441,9 @@ class TestFX2LEDThinTranslator:
         led.led_on(0, 100)
 
         # The I2C command SHOULD have been sent (via fake conn.i2c_write)
-        assert fake_fx2_conn.i2c_write.called, \
+        assert fake_fx2_conn.i2c_write.called, (
             'led_on should issue I2C writes through the FX2 connection'
+        )
 
         # But the state queries must STILL return sentinel defaults —
         # the driver does not remember what it just did.
@@ -433,20 +462,23 @@ class TestFX2LEDThinTranslator:
         led.led_on(1, 50)
         states = led.get_led_states()
         for color, state in states.items():
-            assert state == {'enabled': False, 'illumination_ma': -1}, \
+            assert state == {'enabled': False, 'illumination_ma': -1}, (
                 f'{color} leaked state from led_on'
+            )
 
     def test_no_led_ma_attribute(self, fake_fx2_conn):
         """Symbol-level regression guard: the ``led_ma`` dict that the
         LVC reference driver carried must be absent in the new driver."""
         led = fx2driver.FX2LEDController()
-        assert not hasattr(led, 'led_ma'), \
+        assert not hasattr(led, 'led_ma'), (
             'FX2LEDController.led_ma exists — thin-translator rule violated'
+        )
 
 
 # ---------------------------------------------------------------------------
 # available_channels / available_colors (B3 integration)
 # ---------------------------------------------------------------------------
+
 
 class TestFX2LEDChannelDiscovery:
     """Post-B3 channel discovery — `available_channels()` drives API validation
@@ -466,6 +498,7 @@ class TestFX2LEDChannelDiscovery:
 # Shared-connection invariant
 # ---------------------------------------------------------------------------
 
+
 class TestSharedConnectionInvariant:
     """FX2Camera and FX2LEDController must end up pointing at the SAME
     `_FX2Connection` singleton — this is the whole point of the module-
@@ -477,8 +510,7 @@ class TestSharedConnectionInvariant:
     def test_camera_and_led_share_fx2_ref(self, fake_fx2_conn):
         led = fx2driver.FX2LEDController()
         cam = fx2driver.FX2Camera()
-        assert led._fx2 is cam._fx2, \
-            'camera and LED drivers must share the same _FX2Connection'
+        assert led._fx2 is cam._fx2, 'camera and LED drivers must share the same _FX2Connection'
 
     def test_both_hold_same_fake(self, fake_fx2_conn):
         led = fx2driver.FX2LEDController()
@@ -490,6 +522,7 @@ class TestSharedConnectionInvariant:
 # ---------------------------------------------------------------------------
 # FX2Camera profile loading + dynamic capabilities
 # ---------------------------------------------------------------------------
+
 
 class TestFX2CameraProfile:
     """FX2Camera should load the MT9P031-LS620 profile and populate
@@ -561,22 +594,25 @@ class TestFX2CameraProfile:
 # camera_profiles.py registration
 # ---------------------------------------------------------------------------
 
+
 class TestCameraProfileRegistration:
     """The MT9P031 profile must be discoverable via the four substring
     keys registered in camera_profiles.py: MT9P031, LS620, LS560, LS720.
     """
 
-    @pytest.mark.parametrize("lookup_key", [
-        'MT9P031',
-        'MT9P031-LS620',    # what FX2Camera sets model_name to
-        'LS620',
-        'LS560',
-        'LS720',
-    ])
+    @pytest.mark.parametrize(
+        'lookup_key',
+        [
+            'MT9P031',
+            'MT9P031-LS620',  # what FX2Camera sets model_name to
+            'LS620',
+            'LS560',
+            'LS720',
+        ],
+    )
     def test_profile_found_by_substring(self, lookup_key):
         profile = lookup_profile(lookup_key)
-        assert profile.driver == 'fx2', \
-            f'{lookup_key!r} should resolve to the FX2 profile'
+        assert profile.driver == 'fx2', f'{lookup_key!r} should resolve to the FX2 profile'
         assert profile.sensor == 'Aptina MT9P031'
         assert profile.pixel_size_um == 2.2
         assert profile.pixel_formats == ['Mono8']
@@ -598,6 +634,7 @@ class TestCameraProfileRegistration:
 # ---------------------------------------------------------------------------
 # data/scopes.json shape for Classic models
 # ---------------------------------------------------------------------------
+
 
 class TestScopesJsonClassicModels:
     """LS620 and LS560 entries should exist with correct capability bits.
@@ -621,8 +658,9 @@ class TestScopesJsonClassicModels:
 
     def test_ls720_NOT_in_scopes_json_yet(self, scopes):
         """Stage 3 intentionally defers LS720 to Stage 4 (LVC motor port)."""
-        assert 'LS720' not in scopes, \
+        assert 'LS720' not in scopes, (
             'LS720 should not be added until Stage 4 ships drivers/lvc_motorboard.py'
+        )
 
     def test_ls620_has_no_motors(self, scopes):
         entry = scopes['LS620']
@@ -669,6 +707,7 @@ class TestScopesJsonClassicModels:
 # _FX2Connection singleton lifecycle
 # ---------------------------------------------------------------------------
 
+
 class TestFX2ConnectionSingleton:
     """The ``_FX2Connection.get()`` / ``_reset_for_test()`` pattern."""
 
@@ -686,9 +725,7 @@ class TestFX2ConnectionSingleton:
     def test_get_returns_cached_instance(self, monkeypatch):
         """Second call to get() must return the same object (not reconstruct)."""
         fake = MagicMock()
-        monkeypatch.setattr(
-            fx2driver._FX2Connection, 'get', classmethod(lambda cls: fake)
-        )
+        monkeypatch.setattr(fx2driver._FX2Connection, 'get', classmethod(lambda cls: fake))
         first = fx2driver._FX2Connection.get()
         second = fx2driver._FX2Connection.get()
         assert first is second
@@ -698,6 +735,7 @@ class TestFX2ConnectionSingleton:
         the next attempt can retry from scratch (e.g., after plugging in
         the hardware).
         """
+
         def boom(self):
             raise RuntimeError('no FX2 hardware')
 

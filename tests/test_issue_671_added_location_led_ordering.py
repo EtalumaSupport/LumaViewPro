@@ -85,7 +85,9 @@ CHANNEL_GAIN = {'BF': 14.4, 'Blue': 20.0, 'Green': 20.0, 'Red': 20.0}
 def _step_dict(name, x, y, z, color, idx):
     return {
         'Name': name,
-        'X': x, 'Y': y, 'Z': z,
+        'X': x,
+        'Y': y,
+        'Z': z,
         'Auto_Focus': False,
         'Color': color,
         'False_Color': color != 'BF',
@@ -114,7 +116,8 @@ def _build_tsv_only_protocol():
 
     tiling_configs = pytest.importorskip('modules.tiling_config')  # noqa: F841
     import pathlib
-    tiling_path = pathlib.Path(__file__).parent.parent / "data" / "tiling.json"
+
+    tiling_path = pathlib.Path(__file__).parent.parent / 'data' / 'tiling.json'
 
     rows = []
     idx = 0
@@ -123,9 +126,7 @@ def _build_tsv_only_protocol():
         (A2_X, A2_Y, 'A2'),
     ]:
         for color in CHANNEL_ORDER:
-            rows.append(_step_dict(
-                f'{well_name}_{color}', well_x, well_y, A1_Z, color, idx
-            ))
+            rows.append(_step_dict(f'{well_name}_{color}', well_x, well_y, A1_Z, color, idx))
             idx += 1
     df = pd.DataFrame(rows)
     config = {
@@ -176,6 +177,7 @@ def _add_3rd_location_via_insert_step(protocol):
 # Test fixtures
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture
 def scope():
     s = Lumascope(simulate=True)
@@ -191,11 +193,12 @@ def scope():
 @pytest.fixture
 def executors():
     from modules.protocol_thread import ProtocolThread
+
     execs = {
-        'io': SequentialIOExecutor(name="TEST_IO"),
-        'file_io': SequentialIOExecutor(name="TEST_FILE"),
-        'camera': SequentialIOExecutor(name="TEST_CAMERA"),
-        'autofocus': SequentialIOExecutor(name="TEST_AF"),
+        'io': SequentialIOExecutor(name='TEST_IO'),
+        'file_io': SequentialIOExecutor(name='TEST_FILE'),
+        'camera': SequentialIOExecutor(name='TEST_CAMERA'),
+        'autofocus': SequentialIOExecutor(name='TEST_AF'),
     }
     for e in execs.values():
         e.start()
@@ -246,6 +249,7 @@ class _ApiLogCapture(logging.Handler):
     """Captures records from the 'LVP.api' logger so tests can assert
     on event ordering between move_abs / leds_off / led_on.
     """
+
     def __init__(self):
         super().__init__(level=logging.INFO)
         self.records: list[tuple[float, str]] = []
@@ -291,8 +295,13 @@ def _run_protocol(executor, protocol, tmp_path):
         callbacks=callbacks,
         leds_state_at_end='off',
         initial_autofocus_states={
-            'BF': False, 'PC': False, 'DF': False,
-            'Red': False, 'Green': False, 'Blue': False, 'Lumi': False,
+            'BF': False,
+            'PC': False,
+            'DF': False,
+            'Red': False,
+            'Green': False,
+            'Blue': False,
+            'Lumi': False,
         },
     )
 
@@ -304,6 +313,7 @@ def _run_protocol(executor, protocol, tmp_path):
 # The repro test
 # ---------------------------------------------------------------------------
 
+
 class TestAddedLocationLedOrdering:
     """At the boundary between the last TSV step (A2 Red) and the
     first user-added step (added BF), the canonical convention
@@ -312,14 +322,11 @@ class TestAddedLocationLedOrdering:
     at this transition.
     """
 
-    def test_leds_off_precedes_move_at_added_location_boundary(
-        self, executor, tmp_path
-    ):
+    def test_leds_off_precedes_move_at_added_location_boundary(self, executor, tmp_path):
         protocol = _build_tsv_only_protocol()
         _add_3rd_location_via_insert_step(protocol)
         assert protocol.num_steps() == 12, (
-            f"setup error: expected 12 steps (8 TSV + 4 added), "
-            f"got {protocol.num_steps()}"
+            f'setup error: expected 12 steps (8 TSV + 4 added), got {protocol.num_steps()}'
         )
 
         # Sanity-check the added steps are at the 3rd X/Y.
@@ -339,7 +346,7 @@ class TestAddedLocationLedOrdering:
             api_logger.removeHandler(capture)
             api_logger.setLevel(prev_level)
 
-        assert completed, "Protocol did not complete within timeout"
+        assert completed, 'Protocol did not complete within timeout'
 
         # Find the api-log index for the A2_Red led_on (step 8).
         # The protocol has THREE Red led_ons -- A1_Red (step 4),
@@ -348,14 +355,14 @@ class TestAddedLocationLedOrdering:
         # step 12 (the last added step), so we want index [1] in
         # the list of Red led_ons (0=A1, 1=A2, 2=ADDED).
         all_red_led_ons = [
-            i for i, (_, msg) in enumerate(capture.records)
-            if 'led_on ch=2' in msg and 'mA=350' in msg
-            and "owner='protocol'" in msg
+            i
+            for i, (_, msg) in enumerate(capture.records)
+            if 'led_on ch=2' in msg and 'mA=350' in msg and "owner='protocol'" in msg
         ]
         assert len(all_red_led_ons) >= 3, (
-            f"Expected >=3 Red led_on calls (A1 + A2 + ADDED); saw "
-            f"{len(all_red_led_ons)}. Records sample:\n"
-            + "\n".join(f"  {m}" for _, m in capture.records[:50])
+            f'Expected >=3 Red led_on calls (A1 + A2 + ADDED); saw '
+            f'{len(all_red_led_ons)}. Records sample:\n'
+            + '\n'.join(f'  {m}' for _, m in capture.records[:50])
         )
         last_a2_red_led_on = all_red_led_ons[1]  # A2_Red at step 8
 
@@ -363,42 +370,38 @@ class TestAddedLocationLedOrdering:
         first_leds_off_after_a2_red = None
         for i in range(last_a2_red_led_on + 1, len(capture.records)):
             msg = capture.records[i][1]
-            if (first_move_after_a2_red is None
-                    and msg.startswith('move_abs ')):
+            if first_move_after_a2_red is None and msg.startswith('move_abs '):
                 first_move_after_a2_red = i
-            if (first_leds_off_after_a2_red is None
-                    and msg.strip() == 'leds_off'):
+            if first_leds_off_after_a2_red is None and msg.strip() == 'leds_off':
                 first_leds_off_after_a2_red = i
-            if (first_move_after_a2_red is not None
-                    and first_leds_off_after_a2_red is not None):
+            if first_move_after_a2_red is not None and first_leds_off_after_a2_red is not None:
                 break
 
         assert first_move_after_a2_red is not None, (
-            "Did not see any move_abs after A2 Red led_on. "
-            "Did the protocol abort before transitioning to step 9?"
+            'Did not see any move_abs after A2 Red led_on. '
+            'Did the protocol abort before transitioning to step 9?'
         )
-        assert first_leds_off_after_a2_red is not None, (
-            "Did not see leds_off after A2 Red led_on."
-        )
+        assert first_leds_off_after_a2_red is not None, 'Did not see leds_off after A2 Red led_on.'
 
         # THE ASSERTION: leds_off must precede the first move_abs
         # at the TSV->added-location boundary. With #671 unfixed,
         # the move fires first (Red LED stays on during the move).
         assert first_leds_off_after_a2_red < first_move_after_a2_red, (
-            f"#671 reproduced: leds_off (idx "
-            f"{first_leds_off_after_a2_red}) fired AFTER first move_abs "
-            f"following A2 Red (idx {first_move_after_a2_red}). At the "
-            f"TSV->added-location boundary, leds_off must precede the "
+            f'#671 reproduced: leds_off (idx '
+            f'{first_leds_off_after_a2_red}) fired AFTER first move_abs '
+            f'following A2 Red (idx {first_move_after_a2_red}). At the '
+            f'TSV->added-location boundary, leds_off must precede the '
             f"move so the previous step's LED isn't lit during "
-            f"well-to-well motion.\n"
-            f"Surrounding events:\n"
-            + "\n".join(
-                f"  [{i}] {capture.records[i][1]}"
+            f'well-to-well motion.\n'
+            f'Surrounding events:\n'
+            + '\n'.join(
+                f'  [{i}] {capture.records[i][1]}'
                 for i in range(
                     max(0, last_a2_red_led_on),
-                    min(len(capture.records),
-                        max(first_move_after_a2_red,
-                            first_leds_off_after_a2_red) + 5)
+                    min(
+                        len(capture.records),
+                        max(first_move_after_a2_red, first_leds_off_after_a2_red) + 5,
+                    ),
                 )
             )
         )

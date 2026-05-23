@@ -8,6 +8,7 @@ The bug was that the cursor-XY block was missing entirely after the
 d423d3c single-owner refactor, so the test must fail when the block
 is missing.
 """
+
 from pathlib import Path
 
 
@@ -48,15 +49,15 @@ def test_status_bar_trigger_runs_at_at_least_10hz():
     with motor moves.
     """
     import re
+
     src = _read('ui/shader.py')
     match = re.search(
-        r"_status_bar_trigger\s*=\s*Clock\.create_trigger\("
-        r"\s*self\._update_status_bar\s*,\s*([0-9]*\.?[0-9]+)",
+        r'_status_bar_trigger\s*=\s*Clock\.create_trigger\('
+        r'\s*self\._update_status_bar\s*,\s*([0-9]*\.?[0-9]+)',
         src,
     )
     assert match is not None, (
-        '_status_bar_trigger Clock.create_trigger(...) call not found '
-        'in ui/shader.py'
+        '_status_bar_trigger Clock.create_trigger(...) call not found in ui/shader.py'
     )
     interval = float(match.group(1))
     assert interval <= 0.1, (

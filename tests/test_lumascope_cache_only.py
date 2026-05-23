@@ -32,12 +32,14 @@ import modules.lumascope_api as lumascope_api
 
 def _explode(name):
     """Build a callable that raises if invoked, naming itself in the error."""
+
     def _raise(*args, **kwargs):
         raise AssertionError(
-            f"Cache-only invariant broken: {name} was called during a "
-            f"property read that the audit declared cache-only. See "
-            f"docs/AUDIT_LAYER_VIOLATIONS_2026-05-01.md LV-11 / LV-45."
+            f'Cache-only invariant broken: {name} was called during a '
+            f'property read that the audit declared cache-only. See '
+            f'docs/AUDIT_LAYER_VIOLATIONS_2026-05-01.md LV-11 / LV-45.'
         )
+
     return _raise
 
 
@@ -68,9 +70,14 @@ def scope_with_io_traps():
     # Trap camera SDK-equivalent methods that would indicate live I/O.
     cam = scope._camera_driver
     if cam is not None:
-        for attr in ('set_pixel_format', 'set_binning_size',
-                     'set_frame_size', 'start_grabbing', 'stop_grabbing',
-                     'update_camera_config'):
+        for attr in (
+            'set_pixel_format',
+            'set_binning_size',
+            'set_frame_size',
+            'start_grabbing',
+            'stop_grabbing',
+            'update_camera_config',
+        ):
             if hasattr(cam, attr):
                 setattr(cam, attr, _explode(f'camera.{attr}'))
 

@@ -44,28 +44,29 @@ import pytest
 
 
 REPO = pathlib.Path(__file__).parent.parent
-LUMASCOPE_API = REPO / "modules" / "lumascope_api" / "_lumascope.py"
-MOTION_API = REPO / "modules" / "lumascope_api" / "motion.py"
+LUMASCOPE_API = REPO / 'modules' / 'lumascope_api' / '_lumascope.py'
+MOTION_API = REPO / 'modules' / 'lumascope_api' / 'motion.py'
 
 
 # ---------------------------------------------------------------------------
 # Source-level pin (catches reverts, runs without importing Lumascope)
 # ---------------------------------------------------------------------------
 
+
 def _find_method_source(class_name: str, method_name: str) -> str:
     # Wave 7 Phase 2c: stateful bodies live on MotionAPI in motion.py.
     # Route by class name so existing call sites don't all need updating.
-    if class_name == "MotionAPI":
+    if class_name == 'MotionAPI':
         src_path = MOTION_API
     else:
         src_path = LUMASCOPE_API
-    tree = ast.parse(src_path.read_text(encoding="utf-8"))
+    tree = ast.parse(src_path.read_text(encoding='utf-8'))
     for node in ast.walk(tree):
         if isinstance(node, ast.ClassDef) and node.name == class_name:
             for child in node.body:
                 if isinstance(child, ast.FunctionDef) and child.name == method_name:
                     return ast.unparse(child)
-    raise AssertionError(f"{class_name}.{method_name} not found")
+    raise AssertionError(f'{class_name}.{method_name} not found')
 
 
 class TestSourceOrder_618:
@@ -79,25 +80,23 @@ class TestSourceOrder_618:
     """
 
     def test_move_absolute_position_writes_hardware_first(self):
-        body = _find_method_source("MotionAPI", "move_absolute_position")
-        move_idx = body.find("self._driver.move_abs_pos(")
-        state_idx = body.find("self._set_axis_state(axis, AxisState.MOVING)")
-        assert move_idx != -1, "move_abs_pos call missing from move_absolute_position"
-        assert state_idx != -1, "_set_axis_state(MOVING) call missing"
+        body = _find_method_source('MotionAPI', 'move_absolute_position')
+        move_idx = body.find('self._driver.move_abs_pos(')
+        state_idx = body.find('self._set_axis_state(axis, AxisState.MOVING)')
+        assert move_idx != -1, 'move_abs_pos call missing from move_absolute_position'
+        assert state_idx != -1, '_set_axis_state(MOVING) call missing'
         assert move_idx < state_idx, (
-            "move_abs_pos must be called BEFORE _set_axis_state(MOVING) "
-            "to avoid the #618 race"
+            'move_abs_pos must be called BEFORE _set_axis_state(MOVING) to avoid the #618 race'
         )
 
     def test_move_relative_position_writes_hardware_first(self):
-        body = _find_method_source("MotionAPI", "move_relative_position")
-        move_idx = body.find("self._driver.move_rel_pos(")
-        state_idx = body.find("self._set_axis_state(axis, AxisState.MOVING)")
-        assert move_idx != -1, "move_rel_pos call missing from move_relative_position"
-        assert state_idx != -1, "_set_axis_state(MOVING) call missing"
+        body = _find_method_source('MotionAPI', 'move_relative_position')
+        move_idx = body.find('self._driver.move_rel_pos(')
+        state_idx = body.find('self._set_axis_state(axis, AxisState.MOVING)')
+        assert move_idx != -1, 'move_rel_pos call missing from move_relative_position'
+        assert state_idx != -1, '_set_axis_state(MOVING) call missing'
         assert move_idx < state_idx, (
-            "move_rel_pos must be called BEFORE _set_axis_state(MOVING) "
-            "to avoid the #618 race"
+            'move_rel_pos must be called BEFORE _set_axis_state(MOVING) to avoid the #618 race'
         )
 
 
@@ -105,6 +104,7 @@ class TestSourceOrder_618:
 # Runtime ordering test — uses real Lumascope(simulate=True) and traces
 # the actual call sequence.
 # ---------------------------------------------------------------------------
+
 
 class TestRuntimeOrder_618:
     """#618 runtime: instrument the methods involved and verify call order."""
@@ -123,18 +123,18 @@ class TestRuntimeOrder_618:
         orig_set_state = scope.motion._set_axis_state
 
         def track_move_abs(*args, **kwargs):
-            call_order.append("motion.move_abs_pos")
+            call_order.append('motion.move_abs_pos')
             return orig_move_abs(*args, **kwargs)
 
         def track_move_rel(*args, **kwargs):
-            call_order.append("motion.move_rel_pos")
+            call_order.append('motion.move_rel_pos')
             return orig_move_rel(*args, **kwargs)
 
         def track_set_state(ax, state):
             if ax == axis and state == AxisState.MOVING:
-                call_order.append("set_state_MOVING")
+                call_order.append('set_state_MOVING')
             elif ax == axis and state == AxisState.IDLE:
-                call_order.append("set_state_IDLE")
+                call_order.append('set_state_IDLE')
             return orig_set_state(ax, state)
 
         scope._motion_driver.move_abs_pos = track_move_abs
@@ -144,39 +144,40 @@ class TestRuntimeOrder_618:
 
     def test_move_absolute_position_order_z(self):
         from modules.lumascope_api import Lumascope
+
         scope = Lumascope(simulate=True)
-        scope._motion_driver.set_timing_mode("fast")
-        call_order = self._track_calls(scope, "Z")
-        scope.motion.move_absolute_position("Z", 5000.0, wait_until_complete=False)
+        scope._motion_driver.set_timing_mode('fast')
+        call_order = self._track_calls(scope, 'Z')
+        scope.motion.move_absolute_position('Z', 5000.0, wait_until_complete=False)
         # The hardware write must come before the MOVING transition
-        assert "motion.move_abs_pos" in call_order
-        assert "set_state_MOVING" in call_order
-        move_idx = call_order.index("motion.move_abs_pos")
-        state_idx = call_order.index("set_state_MOVING")
+        assert 'motion.move_abs_pos' in call_order
+        assert 'set_state_MOVING' in call_order
+        move_idx = call_order.index('motion.move_abs_pos')
+        state_idx = call_order.index('set_state_MOVING')
         assert move_idx < state_idx, (
-            f"motion.move_abs_pos must precede _set_axis_state(MOVING). "
-            f"Got order: {call_order}"
+            f'motion.move_abs_pos must precede _set_axis_state(MOVING). Got order: {call_order}'
         )
 
     def test_move_relative_position_order_z(self):
         from modules.lumascope_api import Lumascope
+
         scope = Lumascope(simulate=True)
-        scope._motion_driver.set_timing_mode("fast")
-        call_order = self._track_calls(scope, "Z")
-        scope.motion.move_relative_position("Z", 100.0, wait_until_complete=False)
-        assert "motion.move_rel_pos" in call_order
-        assert "set_state_MOVING" in call_order
-        move_idx = call_order.index("motion.move_rel_pos")
-        state_idx = call_order.index("set_state_MOVING")
+        scope._motion_driver.set_timing_mode('fast')
+        call_order = self._track_calls(scope, 'Z')
+        scope.motion.move_relative_position('Z', 100.0, wait_until_complete=False)
+        assert 'motion.move_rel_pos' in call_order
+        assert 'set_state_MOVING' in call_order
+        move_idx = call_order.index('motion.move_rel_pos')
+        state_idx = call_order.index('set_state_MOVING')
         assert move_idx < state_idx, (
-            f"motion.move_rel_pos must precede _set_axis_state(MOVING). "
-            f"Got order: {call_order}"
+            f'motion.move_rel_pos must precede _set_axis_state(MOVING). Got order: {call_order}'
         )
 
 
 # ---------------------------------------------------------------------------
 # Race simulation — directly trigger the failure mode the old code had.
 # ---------------------------------------------------------------------------
+
 
 class TestRaceSimulation_618:
     """Simulate the exact race that caused #618 by injecting a 'motion
@@ -189,8 +190,9 @@ class TestRaceSimulation_618:
         motion.move_abs_pos must not see the axis as MOVING with an
         already-set arrival event — that's the race signature."""
         from modules.lumascope_api import Lumascope, AxisState
+
         scope = Lumascope(simulate=True)
-        scope._motion_driver.set_timing_mode("fast")
+        scope._motion_driver.set_timing_mode('fast')
 
         # Hook motion.move_abs_pos to inspect state during the call
         orig_move_abs = scope._motion_driver.move_abs_pos
@@ -204,39 +206,40 @@ class TestRaceSimulation_618:
             #   - arrival event should still be SET (from prior move)
             # That means the motion monitor would NOT poll Z (state != MOVING)
             # and could not falsely conclude arrival.
-            state = scope.motion._axis_state["Z"]
-            arrival_set = scope.motion._arrival_events["Z"].is_set()
+            state = scope.motion._axis_state['Z']
+            arrival_set = scope.motion._arrival_events['Z'].is_set()
             observations.append((state, arrival_set))
             return orig_move_abs(*args, **kwargs)
 
         scope._motion_driver.move_abs_pos = observe_during_move
 
         # Prime: do one move to set Z to a known IDLE state
-        scope.motion.move_absolute_position("Z", 1000.0, wait_until_complete=True)
+        scope.motion.move_absolute_position('Z', 1000.0, wait_until_complete=True)
         observations.clear()  # reset after the priming move
 
         # Now do a back-to-back move
-        scope.motion.move_absolute_position("Z", 5000.0, wait_until_complete=False)
+        scope.motion.move_absolute_position('Z', 5000.0, wait_until_complete=False)
 
         assert len(observations) == 1, (
-            f"motion.move_abs_pos should be called once, got {len(observations)}"
+            f'motion.move_abs_pos should be called once, got {len(observations)}'
         )
         state_during_move, arrival_during_move = observations[0]
         assert state_during_move != AxisState.MOVING, (
-            f"Axis state must NOT be MOVING when motion.move_abs_pos starts. "
-            f"Got {state_during_move}. The fix is to write hardware first."
+            f'Axis state must NOT be MOVING when motion.move_abs_pos starts. '
+            f'Got {state_during_move}. The fix is to write hardware first.'
         )
         # Arrival event was set at the end of the priming move and
         # should still be set when the new motion.move_abs_pos starts.
         assert arrival_during_move is True, (
-            "Arrival event from the prior move should still be set. The fix "
-            "delays the clear until AFTER the new TARGET_W is written."
+            'Arrival event from the prior move should still be set. The fix '
+            'delays the clear until AFTER the new TARGET_W is written.'
         )
 
 
 # ---------------------------------------------------------------------------
 # Integration smoke test — back-to-back moves end up at the right place.
 # ---------------------------------------------------------------------------
+
 
 class TestBackToBackMoves_618:
     """Smoke test: rapid back-to-back wait_until_complete moves through
@@ -245,36 +248,37 @@ class TestBackToBackMoves_618:
 
     def test_two_back_to_back_z_moves_end_at_correct_targets(self):
         from modules.lumascope_api import Lumascope
+
         scope = Lumascope(simulate=True)
-        scope._motion_driver.set_timing_mode("fast")
+        scope._motion_driver.set_timing_mode('fast')
 
-        scope.motion.move_absolute_position("Z", 2000.0, wait_until_complete=True)
-        pos1 = scope._motion_driver.current_pos("Z")
-        assert abs(pos1 - 2000.0) < 5.0, f"first move ended at {pos1}, expected ~2000"
+        scope.motion.move_absolute_position('Z', 2000.0, wait_until_complete=True)
+        pos1 = scope._motion_driver.current_pos('Z')
+        assert abs(pos1 - 2000.0) < 5.0, f'first move ended at {pos1}, expected ~2000'
 
-        scope.motion.move_absolute_position("Z", 8000.0, wait_until_complete=True)
-        pos2 = scope._motion_driver.current_pos("Z")
-        assert abs(pos2 - 8000.0) < 5.0, f"second move ended at {pos2}, expected ~8000"
+        scope.motion.move_absolute_position('Z', 8000.0, wait_until_complete=True)
+        pos2 = scope._motion_driver.current_pos('Z')
+        assert abs(pos2 - 8000.0) < 5.0, f'second move ended at {pos2}, expected ~8000'
 
     def test_many_rapid_moves_end_at_correct_targets(self):
         from modules.lumascope_api import Lumascope
+
         scope = Lumascope(simulate=True)
-        scope._motion_driver.set_timing_mode("fast")
+        scope._motion_driver.set_timing_mode('fast')
 
         # 20 rapid back-to-back moves, alternating direction
         targets = [3000.0, 7000.0] * 10
         for target in targets:
-            scope.motion.move_absolute_position("Z", target, wait_until_complete=True)
-            actual = scope._motion_driver.current_pos("Z")
-            assert abs(actual - target) < 5.0, (
-                f"move to {target} ended at {actual}"
-            )
+            scope.motion.move_absolute_position('Z', target, wait_until_complete=True)
+            actual = scope._motion_driver.current_pos('Z')
+            assert abs(actual - target) < 5.0, f'move to {target} ended at {actual}'
 
 
 # ---------------------------------------------------------------------------
 # Issue #674: move_relative_position must write _move_profile so the
 # position predictor can animate the crosshair during relative moves.
 # ---------------------------------------------------------------------------
+
 
 class TestMoveRelProfile_674:
     """Regression for #674 crosshair-prediction during relative moves.
@@ -295,17 +299,16 @@ class TestMoveRelProfile_674:
         """Source pin: _move_profile write must appear BEFORE the
         move_rel_pos driver call in move_relative_position. Catches a
         revert that drops the profile-write but keeps the driver call."""
-        body = _find_method_source("MotionAPI", "move_relative_position")
-        profile_idx = body.find("self._move_profile[axis] = {")
-        driver_idx = body.find("self._driver.move_rel_pos(")
+        body = _find_method_source('MotionAPI', 'move_relative_position')
+        profile_idx = body.find('self._move_profile[axis] = {')
+        driver_idx = body.find('self._driver.move_rel_pos(')
         assert profile_idx != -1, (
-            "move_relative_position must write self._move_profile[axis] "
-            "(issue #674 fix)"
+            'move_relative_position must write self._move_profile[axis] (issue #674 fix)'
         )
-        assert driver_idx != -1, "move_rel_pos call missing"
+        assert driver_idx != -1, 'move_rel_pos call missing'
         assert profile_idx < driver_idx, (
-            "profile write must precede the driver call so the predictor "
-            "has a valid ramp when state transitions to MOVING"
+            'profile write must precede the driver call so the predictor '
+            'has a valid ramp when state transitions to MOVING'
         )
 
     def test_runtime_profile_set_when_driver_called(self):
@@ -320,14 +323,14 @@ class TestMoveRelProfile_674:
         from modules.lumascope_api import Lumascope
 
         scope = Lumascope(simulate=True)
-        scope._motion_driver.set_timing_mode("fast")
+        scope._motion_driver.set_timing_mode('fast')
 
         # Prime: move to a known non-zero start so the relative delta is
         # distinguishable from zero. wait_until_complete clears profile.
-        scope.motion.move_absolute_position("X", 1000.0, wait_until_complete=True)
+        scope.motion.move_absolute_position('X', 1000.0, wait_until_complete=True)
         with scope.motion._move_profile_lock:
-            assert scope.motion._move_profile.get("X") is None, (
-                "profile should be cleared after IDLE transition"
+            assert scope.motion._move_profile.get('X') is None, (
+                'profile should be cleared after IDLE transition'
             )
 
         observed = {}
@@ -336,30 +339,27 @@ class TestMoveRelProfile_674:
         def snapshot_then_call(axis, um, *args, **kwargs):
             with scope.motion._move_profile_lock:
                 profile = scope.motion._move_profile.get(axis)
-            observed["profile"] = None if profile is None else dict(profile)
+            observed['profile'] = None if profile is None else dict(profile)
             return orig_move_rel(axis, um, *args, **kwargs)
 
         scope._motion_driver.move_rel_pos = snapshot_then_call
 
         delta = 300.0
-        scope.motion.move_relative_position("X", delta, wait_until_complete=False)
+        scope.motion.move_relative_position('X', delta, wait_until_complete=False)
 
-        profile = observed.get("profile")
+        profile = observed.get('profile')
         assert profile is not None, (
-            "_move_profile['X'] must be written BEFORE move_rel_pos is "
-            "called -- issue #674 fix"
+            "_move_profile['X'] must be written BEFORE move_rel_pos is called -- issue #674 fix"
         )
-        assert profile["start_pos"] == pytest.approx(1000.0, abs=5.0), (
-            f"start_pos should match cache before move; got "
-            f"{profile['start_pos']}"
+        assert profile['start_pos'] == pytest.approx(1000.0, abs=5.0), (
+            f'start_pos should match cache before move; got {profile["start_pos"]}'
         )
-        assert profile["target_pos"] == pytest.approx(1300.0, abs=5.0), (
-            f"target_pos must equal start_pos + um; got "
-            f"{profile['target_pos']}"
+        assert profile['target_pos'] == pytest.approx(1300.0, abs=5.0), (
+            f'target_pos must equal start_pos + um; got {profile["target_pos"]}'
         )
-        ramp = profile["ramp"]
-        assert ramp and ramp.get("vmax", 0) > 0, (
-            f"ramp must contain valid trapezoid params; got {ramp}"
+        ramp = profile['ramp']
+        assert ramp and ramp.get('vmax', 0) > 0, (
+            f'ramp must contain valid trapezoid params; got {ramp}'
         )
 
     def test_runtime_predictor_returns_non_none_during_move(self):
@@ -373,9 +373,9 @@ class TestMoveRelProfile_674:
         from modules.lumascope_api import AxisState, Lumascope
 
         scope = Lumascope(simulate=True)
-        scope._motion_driver.set_timing_mode("fast")
+        scope._motion_driver.set_timing_mode('fast')
 
-        scope.motion.move_absolute_position("X", 1000.0, wait_until_complete=True)
+        scope.motion.move_absolute_position('X', 1000.0, wait_until_complete=True)
 
         # Hook the driver call so we can observe during the move without
         # racing the motion monitor.
@@ -386,27 +386,25 @@ class TestMoveRelProfile_674:
             result = orig_move_rel(axis, um, *args, **kwargs)
             # At this point profile is set; state hasn't transitioned to
             # MOVING yet (that happens immediately after this returns).
-            observed["predicted_pre_move_state"] = (
-                scope.motion._predicted_position(axis)
-            )
+            observed['predicted_pre_move_state'] = scope.motion._predicted_position(axis)
             return result
 
         scope._motion_driver.move_rel_pos = observe_then_call
 
-        scope.motion.move_relative_position("X", 500.0, wait_until_complete=False)
+        scope.motion.move_relative_position('X', 500.0, wait_until_complete=False)
 
-        predicted = observed.get("predicted_pre_move_state")
+        predicted = observed.get('predicted_pre_move_state')
         assert predicted is not None, (
-            "_predicted_position must return a value once the profile is "
-            "set -- None means the crosshair will fall through to cache"
+            '_predicted_position must return a value once the profile is '
+            'set -- None means the crosshair will fall through to cache'
         )
 
         # State is now MOVING (or just transitioned to MOVING); the
         # predictor must continue to return non-None for the duration of
         # the move. Verify the state side too.
         with scope.motion._axis_state_lock:
-            state = scope.motion._axis_state.get("X")
+            state = scope.motion._axis_state.get('X')
         assert state == AxisState.MOVING, (
-            f"state should be MOVING immediately after move_rel returns "
-            f"(wait_until_complete=False); got {state!r}"
+            f'state should be MOVING immediately after move_rel returns '
+            f'(wait_until_complete=False); got {state!r}'
         )

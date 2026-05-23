@@ -10,6 +10,7 @@ short-circuit behavior so future setter edits don't regress.
 
 Pure-mock tests -- run on every pytest invocation, no hardware flag.
 """
+
 import threading
 import unittest
 from unittest.mock import MagicMock
