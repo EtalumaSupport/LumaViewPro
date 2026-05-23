@@ -945,6 +945,7 @@ class Protocol:
         axes_config: dict,
         labware,
         stage_offset,
+        overlap_percent: float = 0.0,
     ) -> dict:
         "Returns status dict"
         'If'
@@ -955,6 +956,8 @@ class Protocol:
 
         if tiling == '1x1':
             return status
+        
+        fill_factor = TilingConfig.fill_factor_from_overlap_percent(overlap_percent)
 
         try:
             orig_steps_df = self.steps()
@@ -989,7 +992,7 @@ class Protocol:
                     config_label=tiling,
                     focal_length=row['focal_length'],
                     frame_size=frame_dimensions,
-                    fill_factor=TilingConfig.DEFAULT_FILL_FACTORS['position'],
+                    fill_factor=fill_factor,
                     binning_size=binning_size,
                 )
             except Exception as e:
@@ -1192,6 +1195,7 @@ class Protocol:
         zstack_params = input_config['zstack_params']
         use_zstacking = input_config['use_zstacking']
         tiling = input_config['tiling']
+        tiling_overlap_percent = input_config.get('tiling_overlap_percent', 0.0)
         layer_configs = input_config['layer_configs']
         period = input_config['period']
         duration = input_config['duration']
@@ -1202,11 +1206,12 @@ class Protocol:
         objective_loader = ObjectiveLoader()
         objective = objective_loader.get_objective_info(objective_id=objective_id)
 
+        fill_factor = TilingConfig.fill_factor_from_overlap_percent(tiling_overlap_percent)
         tiles = tiling_config.get_tile_centers(
             config_label=tiling,
             focal_length=objective['focal_length'],
             frame_size=frame_dimensions,
-            fill_factor=TilingConfig.DEFAULT_FILL_FACTORS['position'],
+            fill_factor=fill_factor,
             binning_size=binning_size,
         )
 

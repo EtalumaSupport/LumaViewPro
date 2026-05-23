@@ -351,6 +351,7 @@ class ProtocolSettings(FloatLayout):
             axes_config = ctx.lumaview.scope.motion.get_axes_config()
             _, labware = get_selected_labware()
             stage_offset = settings['stage_offset']
+            overlap_percent = self.get_tiling_overlap_percent()
 
             tile_status = self._protocol.apply_tiling(
                 tiling=self.ids['tiling_size_spinner'].text,
@@ -360,6 +361,7 @@ class ProtocolSettings(FloatLayout):
                 axes_config=axes_config,
                 labware=labware,
                 stage_offset=stage_offset,
+                overlap_percent=overlap_percent,
             )
 
             tiles_skipped = tile_status['tiles_skipped']
@@ -384,6 +386,11 @@ class ProtocolSettings(FloatLayout):
             from ui.notification_popup import show_notification_popup
 
             show_notification_popup(title='Error', message=str(e))
+
+    def get_tiling_overlap_percent(self) -> float:
+        text = self.ids['tiling_overlap_spinner'].text.strip().rstrip('%')
+        return TilingConfig.validate_overlap_percent(text)
+
 
     def apply_zstacking(self):
         try:
