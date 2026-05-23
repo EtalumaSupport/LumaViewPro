@@ -9965,6 +9965,50 @@ class TestFx2DebugWireGateIsNotEnvVar:
         )
 
 
+class TestPylonEnvVarsAreNotUsed:
+    """No LVP_PYLON_* environment variable may gate driver behavior.
+
+    Per the options-menu rule, runtime toggles live in settings.json or
+    on the imaging sub-API (_set_max_num_buffer / _set_max_transfer_size
+    / _set_num_max_queued_urbs / _set_grab_strategy) or as a constructor
+    kwarg (_PylonImageGrabWorker(queue_depth=...)). The earlier
+    LVP_PYLON_MAX_NUM_BUFFER / LVP_PYLON_MAX_TRANSFER_SIZE /
+    LVP_PYLON_NUM_QUEUED_URBS / LVP_PYLON_GRAB_STRATEGY /
+    LVP_PYLON_WORKER_QUEUE_DEPTH env vars duplicated those production
+    levers and were retired. This AST scan pins the retirement so the
+    env-var pattern doesn't sneak back in to drivers/pyloncamera.py.
+    """
+
+    def _pyloncamera_source(self):
+        from pathlib import Path
+        return (Path(__file__).resolve().parent.parent
+                / "drivers" / "pyloncamera.py").read_text()
+
+    def test_no_lvp_pylon_env_var_in_pyloncamera(self):
+        import ast
+        src = self._pyloncamera_source()
+        tree = ast.parse(src)
+
+        hits = []
+
+        class Visitor(ast.NodeVisitor):
+            def visit_Constant(self, node):
+                if (isinstance(node.value, str)
+                        and node.value.startswith("LVP_PYLON_")):
+                    hits.append((node.lineno, node.value))
+                self.generic_visit(node)
+
+        Visitor().visit(tree)
+        assert not hits, (
+            "drivers/pyloncamera.py must not reference any LVP_PYLON_* "
+            "string literal -- the env-var gates are retired in favor "
+            "of imaging sub-API levers (_set_max_num_buffer / "
+            "_set_max_transfer_size / _set_num_max_queued_urbs / "
+            "_set_grab_strategy) and the _PylonImageGrabWorker "
+            f"queue_depth kwarg. Hits: {hits}"
+        )
+
+
 class TestCameraDelHandlesPartialConstruction:
     """Camera.__del__ must short-circuit on a partially-constructed
     instance instead of firing "no attribute _state_lock" warnings.

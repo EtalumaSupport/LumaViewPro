@@ -112,6 +112,22 @@ _PYLON_ERR_DEVICE_NOT_FOUND = 433
 # native-thread fast path; heavy work moves to _PylonImageGrabWorker).
 _PYLON_DEFENSE_BUILD = 'pylon-defense-3'
 
+# MaxNumBuffer cap applied post-Open() in connect(). 3 is the Windows
+# non-paged-pool bound originally observed (B34); bench data 2026-05-08
+# (Windows dart M, sensor-max Mono8) shows cap=3 and SDK-default both
+# run at 0% fail rate / 0 resyncs/sec. Override via
+# imaging._set_max_num_buffer() (Pylon InstantCamera node becomes RO
+# once grabbing has begun; the bench tool must call the lever before
+# the implicit AcquireContinuousConfiguration auto-start fires, or
+# stop/restart grabbing around the change).
+_DEFAULT_MAX_NUM_BUFFER = 3
+
+# Production grab strategy is LatestImageOnly -- frame_validity,
+# capture_and_wait, and the auto-discard skip_frames floor all depend
+# on this strategy (see DAILY_LOG 2026-05-04). OneByOne delivers every
+# frame for apples-to-apples bench comparisons against Pylon Viewer.
+_DEFAULT_GRAB_STRATEGY = 'LatestImageOnly'
+
 
 @camera_registry.register('pylon', priority=100)
 class PylonCamera(Camera):
@@ -128,6 +144,14 @@ class PylonCamera(Camera):
             self._use_camera_emulation = True
         else:
             self._use_camera_emulation = False
+
+        # StreamGrabber-tuning state -- written by imaging sub-API levers,
+        # read by connect() / start_grabbing(). Production defaults
+        # leave SDK defaults in place for MTS / NQU (set only when the
+        # lever is called); MaxNumBuffer + grab strategy have explicit
+        # defaults applied at every connect().
+        self._max_num_buffer = _DEFAULT_MAX_NUM_BUFFER
+        self._grab_strategy_name = _DEFAULT_GRAB_STRATEGY
 
         super().__init__()
 
@@ -739,7 +763,7 @@ class PylonCamera(Camera):
             )
 
     def start_grabbing(self) -> None:
-        """Start the camera's grab loop with `LatestImageOnly` strategy.
+        """Start the camera's grab loop with the configured grab strategy.
 
         Idempotent: if grabbing already started (pypylon 26.4.x's
         ``AcquireContinuousConfiguration + Open()`` triggers an implicit
@@ -750,9 +774,11 @@ class PylonCamera(Camera):
         Exception-tolerant: SDK failures are logged but not raised so
         UI handlers can call this without wrapping.
 
-        ``LVP_PYLON_MAX_NUM_BUFFER`` / ``LVP_PYLON_MAX_TRANSFER_SIZE`` /
-        ``LVP_PYLON_NUM_QUEUED_URBS`` / ``LVP_PYLON_GRAB_STRATEGY`` env
-        vars override defaults for bench characterization.
+        Grab strategy is read from ``self._grab_strategy_name`` (default
+        ``LatestImageOnly``; bench overrides via
+        ``imaging._set_grab_strategy``). MaxNumBuffer / MaxTransferSize /
+        NumMaxQueuedUrbs overrides go through ``imaging._set_*`` levers
+        (no env-var path).
         """
         camera = self.active
         if camera is None:
@@ -772,48 +798,6 @@ class PylonCamera(Camera):
             if _cam_log is not None:
                 _cam_log.debug(f'start_grabbing IsGrabbing() check raised: {e}')
         try:
-            # MaxNumBuffer cap retired 2026-05-08 (B34). The previous cap
-            # of 3 was for Windows non-paged-pool pressure at full-res
-            # Mono12 (originally observed ~228 MB startup spike). pypylon
-            # 26.4.x makes MaxNumBuffer RO once grabbing has begun, AND
-            # AcquireContinuousConfiguration auto-starts on Open() in
-            # 26.4.x -- the cap window no longer exists. Bench data
-            # (Mac dart M, 2026-05-08) shows the cap was also
-            # counterproductive: ring-of-3 starves the buffer pool under
-            # USB transfer hiccups (28% fail vs 13% at default 10).
-            # Production now runs at SDK default. Override via
-            # LVP_PYLON_MAX_NUM_BUFFER if a future Windows memory regression
-            # surfaces.
-            _mnb_env = os.environ.get('LVP_PYLON_MAX_NUM_BUFFER')
-            if _mnb_env:
-                try:
-                    camera.MaxNumBuffer.SetValue(int(_mnb_env))
-                    if _cam_log is not None:
-                        _cam_log.info(f'pylon MaxNumBuffer.SetValue({_mnb_env}) [env]')
-                except Exception as e:
-                    if _cam_log is not None:
-                        _cam_log.warning(f'pylon MaxNumBuffer override FAILED: {e}')
-                    logger.debug(f'[CAM Class ] MaxNumBuffer override failed: {e}')
-            # USB3 StreamGrabber tuning. Production default = SDK default
-            # (MaxTransferSize=256KB, NumMaxQueuedUrbs=64). Bench overrides
-            # via LVP_PYLON_MAX_TRANSFER_SIZE / LVP_PYLON_NUM_QUEUED_URBS to
-            # characterize bandwidth-discard rate at sensor-max throughput.
-            _mts = os.environ.get('LVP_PYLON_MAX_TRANSFER_SIZE')
-            if _mts:
-                try:
-                    self.set_max_transfer_size(int(_mts))
-                except Exception as e:
-                    _cam_log.warning(
-                        f'[CAM Class ] set_max_transfer_size({_mts}) failed: {e}'
-                    )
-            _nqu = os.environ.get('LVP_PYLON_NUM_QUEUED_URBS')
-            if _nqu:
-                try:
-                    self.set_num_max_queued_urbs(int(_nqu))
-                except Exception as e:
-                    _cam_log.warning(
-                        f'[CAM Class ] set_num_max_queued_urbs({_nqu}) failed: {e}'
-                    )
             # B20 / B23: snapshot StreamGrabber.Status into the trace
             # log before StartGrabbing so post-mortem analysis can
             # correlate "weird StartGrabbing behavior" with the entry
@@ -821,15 +805,7 @@ class PylonCamera(Camera):
             # is read-only and reflects grabber lifecycle state
             # (Closed / Open / Grabbing / OutOfMemory / etc.).
             self._log_stream_grabber_status('pre-StartGrabbing')
-            # LVP_PYLON_GRAB_STRATEGY env var overrides the strategy for bench
-            # characterization. Default LatestImageOnly is the production
-            # contract -- frame_validity, capture_and_wait, and the
-            # auto-discard skip_frames floor all depend on this strategy
-            # (see DAILY_LOG 2026-05-04). OneByOne for apples-to-apples vs
-            # Pylon Viewer's bandwidth test (which delivers every frame).
-            _strategy_name = os.environ.get(
-                'LVP_PYLON_GRAB_STRATEGY', 'LatestImageOnly'
-            )
+            _strategy_name = self._grab_strategy_name
             _strategy_map = {
                 'LatestImageOnly': pylon.GrabStrategy_LatestImageOnly,
                 'OneByOne': pylon.GrabStrategy_OneByOne,
@@ -935,20 +911,21 @@ class PylonCamera(Camera):
 
             camera.Open()
 
-            # MaxNumBuffer cap (default 3). Applied post-Open() -- earliest
-            # window before pypylon 26.4.x's AcquireContinuousConfiguration
+            # MaxNumBuffer cap. Applied post-Open() -- earliest window
+            # before pypylon 26.4.x's AcquireContinuousConfiguration
             # auto-starts grabbing and locks the node. Bench-validated
             # 2026-05-08 (Windows dart M, sensor-max Mono8): cap=3 and
-            # SDK-default both run at 0% fail rate / 0 resyncs/sec, so the
-            # cap restores the original Windows non-paged-pool bound at
-            # zero observed perf cost. Override via LVP_PYLON_MAX_NUM_BUFFER.
-            _mnb_env = os.environ.get('LVP_PYLON_MAX_NUM_BUFFER', '3')
+            # SDK-default both run at 0% fail rate / 0 resyncs/sec, so
+            # the cap restores the original Windows non-paged-pool bound
+            # at zero observed perf cost. Override via the
+            # imaging._set_max_num_buffer lever (sets self._max_num_buffer
+            # before reconnect).
             try:
-                camera.MaxNumBuffer.SetValue(int(_mnb_env))
+                camera.MaxNumBuffer.SetValue(int(self._max_num_buffer))
                 actual = camera.MaxNumBuffer.GetValue()
                 _log_cam('info',
                     f'[CAM Class ] MaxNumBuffer cap applied post-Open: '
-                    f'requested={_mnb_env} actual={actual}'
+                    f'requested={self._max_num_buffer} actual={actual}'
                 )
             except Exception as e:
                 _log_cam('warning',
@@ -1636,6 +1613,66 @@ class PylonCamera(Camera):
             value=int(value),
             method_label='set_num_max_queued_urbs',
         )
+
+    def set_max_num_buffer(self, value: int) -> bool:
+        """Set InstantCamera.MaxNumBuffer.
+
+        Stores the value on `self._max_num_buffer` so subsequent
+        connect() calls apply it post-Open() before the auto-start
+        locks the node. Also attempts an immediate SetValue against
+        the active camera; pypylon 26.4.x makes the node read-only
+        once AcquireContinuousConfiguration auto-starts grabbing
+        inside Open(), so a live override requires StopGrabbing first.
+
+        Returns True on successful immediate SetValue, False if the
+        camera is inactive or the node is currently locked (the value
+        is still stored for the next connect()).
+        """
+        self._max_num_buffer = int(value)
+        if not self.active:
+            return False
+        try:
+            self.active.MaxNumBuffer.SetValue(int(value))
+            actual = self.active.MaxNumBuffer.GetValue()
+            if _cam_log is not None:
+                _cam_log.info(
+                    f'pylon MaxNumBuffer.SetValue({value}) actual={actual}'
+                )
+            return True
+        except Exception as e:
+            if _cam_log is not None:
+                _cam_log.warning(
+                    f'pylon set_max_num_buffer({value}) FAILED '
+                    f'(node may be locked, value stored for next '
+                    f'connect): {e}'
+                )
+            return False
+
+    _GRAB_STRATEGY_NAMES = ('LatestImageOnly', 'OneByOne')
+
+    def set_grab_strategy(self, name: str) -> bool:
+        """Set the GrabStrategy used by the next start_grabbing() call.
+
+        Pure attribute write: takes effect on the next start_grabbing()
+        call, not on the active grab loop. To switch strategies on a
+        live camera: set_grab_strategy(new) -> stop_grabbing() ->
+        start_grabbing().
+
+        Returns True on accepted name. Raises ValueError on an unknown
+        strategy name.
+        """
+        if name not in self._GRAB_STRATEGY_NAMES:
+            raise ValueError(
+                f'set_grab_strategy: expected one of '
+                f'{self._GRAB_STRATEGY_NAMES}, got {name!r}'
+            )
+        self._grab_strategy_name = name
+        if _cam_log is not None:
+            _cam_log.info(
+                f'pylon grab strategy set to {name!r} '
+                f'(applies on next start_grabbing())'
+            )
+        return True
 
     def _set_stream_grabber_int_node(
         self,
@@ -3704,7 +3741,7 @@ class _PylonImageGrabWorker:
     # enough that brief Stage B stalls (16 MB memcpy + chunk reads +
     # callback fanout) don't trip Stage A's queue.Full drop path, small
     # enough that a stalled consumer can't OOM the host. Bench-tunable
-    # via LVP_PYLON_WORKER_QUEUE_DEPTH.
+    # via the queue_depth kwarg to __init__.
     _DEFAULT_QUEUE_DEPTH = 8
 
     # Poll interval inside _run's get(). Bounds the wakeup latency for
@@ -3713,15 +3750,13 @@ class _PylonImageGrabWorker:
     # processing time, well under the 1.0 s default join timeout.
     _GET_POLL_TIMEOUT_S = 0.5
 
-    def __init__(self, parent, base, frame_queue) -> None:
+    def __init__(
+        self, parent, base, frame_queue, *, queue_depth: int | None = None,
+    ) -> None:
         self._parent = parent  # PylonCamera instance
         self._base = base      # ImageHandlerBase instance
         self._frame_queue = frame_queue  # legacy maxsize=1 consumer queue
-        _depth_env = os.environ.get('LVP_PYLON_WORKER_QUEUE_DEPTH')
-        try:
-            depth = int(_depth_env) if _depth_env else self._DEFAULT_QUEUE_DEPTH
-        except ValueError:
-            depth = self._DEFAULT_QUEUE_DEPTH
+        depth = self._DEFAULT_QUEUE_DEPTH if queue_depth is None else int(queue_depth)
         self._worker_queue: queue.Queue = queue.Queue(maxsize=depth)
         self._stop_event = threading.Event()
         self._thread: threading.Thread | None = None

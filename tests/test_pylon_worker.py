@@ -13,12 +13,11 @@ the load-bearing invariant -- _drain_and_release plus the per-item
 `finally: del grabResult` in _run are the mechanism. Tests assert
 those refs are released after stop().
 """
-import os
 import queue
 import time
 import unittest
 import weakref
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 from drivers.pyloncamera import (
     _PYLON_ERR_BUFFER_CANCELED,
@@ -55,9 +54,12 @@ class _FakeGrabResult:
         return self._err_desc
 
 
-def _make_worker(queue_depth_env=None):
-    """Build a worker with mocked parent + base for unit testing."""
-    env = {} if queue_depth_env is None else {'LVP_PYLON_WORKER_QUEUE_DEPTH': queue_depth_env}
+def _make_worker(queue_depth=None):
+    """Build a worker with mocked parent + base for unit testing.
+
+    queue_depth is passed straight to _PylonImageGrabWorker.__init__
+    as the queue_depth kwarg; None leaves the default in place.
+    """
     parent = MagicMock()
     parent._device_removed = False
     parent.active = MagicMock()
@@ -65,12 +67,9 @@ def _make_worker(queue_depth_env=None):
     base = MagicMock()
     base._record_failure.return_value = False
     frame_queue = queue.Queue(maxsize=1)
-    with patch.dict(os.environ, env, clear=False):
-        # Force re-read of env each construct: pop the var if absent in
-        # the caller's env, set it if present.
-        if queue_depth_env is None:
-            os.environ.pop('LVP_PYLON_WORKER_QUEUE_DEPTH', None)
-        worker = _PylonImageGrabWorker(parent, base, frame_queue)
+    worker = _PylonImageGrabWorker(
+        parent, base, frame_queue, queue_depth=queue_depth,
+    )
     return worker, parent, base, frame_queue
 
 
@@ -137,12 +136,12 @@ class TestWorkerQueueDepth(unittest.TestCase):
         worker, _, _, _ = _make_worker()
         self.assertEqual(worker._worker_queue.maxsize, 8)
 
-    def test_env_override_queue_depth(self):
-        worker, _, _, _ = _make_worker(queue_depth_env='16')
+    def test_kwarg_override_queue_depth(self):
+        worker, _, _, _ = _make_worker(queue_depth=16)
         self.assertEqual(worker._worker_queue.maxsize, 16)
 
-    def test_invalid_env_falls_back_to_default(self):
-        worker, _, _, _ = _make_worker(queue_depth_env='not-an-int')
+    def test_none_kwarg_falls_back_to_default(self):
+        worker, _, _, _ = _make_worker(queue_depth=None)
         self.assertEqual(worker._worker_queue.maxsize, 8)
 
 

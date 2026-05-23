@@ -39,7 +39,6 @@ no ad-hoc subprocess invocations.
 
 import argparse
 import logging
-import os
 import platform
 import sys
 import time
@@ -49,26 +48,6 @@ from pathlib import Path
 # Add LumaViewPro root to path so imports work when run as script
 _LVP_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_LVP_ROOT))
-
-# CLI knob preprocessing: if --max-num-buffer is on argv, set the env var
-# before importing PylonCamera so its module-load reads the override.
-# Argparse runs after import (we need PylonCamera to construct the camera);
-# this preprocess is the simplest way to thread the value through.
-_pre = argparse.ArgumentParser(add_help=False)
-_pre.add_argument('--max-num-buffer', type=int, default=None)
-_pre.add_argument('--grab-strategy', choices=['LatestImageOnly', 'OneByOne'],
-                  default=None)
-_pre.add_argument('--max-transfer-size', type=int, default=None)
-_pre.add_argument('--num-queued-urbs', type=int, default=None)
-_pre_args, _ = _pre.parse_known_args()
-if _pre_args.max_num_buffer is not None:
-    os.environ['LVP_PYLON_MAX_NUM_BUFFER'] = str(_pre_args.max_num_buffer)
-if _pre_args.grab_strategy is not None:
-    os.environ['LVP_PYLON_GRAB_STRATEGY'] = _pre_args.grab_strategy
-if _pre_args.max_transfer_size is not None:
-    os.environ['LVP_PYLON_MAX_TRANSFER_SIZE'] = str(_pre_args.max_transfer_size)
-if _pre_args.num_queued_urbs is not None:
-    os.environ['LVP_PYLON_NUM_QUEUED_URBS'] = str(_pre_args.num_queued_urbs)
 
 from drivers.pyloncamera import PylonCamera
 from modules.lumascope_api import Lumascope
@@ -411,23 +390,26 @@ def main():
     parser.add_argument('--max-num-buffer', type=int, default=None,
                         help='Override LVP MaxNumBuffer cap (default 3). '
                              'Bench characterization: Pylon Viewer uses '
-                             '10. Sets LVP_PYLON_MAX_NUM_BUFFER env var.')
+                             '10. Applied via '
+                             'scope.imaging._set_max_num_buffer().')
     parser.add_argument('--grab-strategy',
                         choices=['LatestImageOnly', 'OneByOne'],
                         default=None,
                         help='Override LVP grab strategy (default '
                              'LatestImageOnly). OneByOne delivers every '
                              'frame for apples-to-apples vs Pylon Viewer. '
-                             'Sets LVP_PYLON_GRAB_STRATEGY env var.')
+                             'Applied via '
+                             'scope.imaging._set_grab_strategy().')
     parser.add_argument('--max-transfer-size', type=int, default=None,
                         help='Override MaxTransferSize in bytes (default '
                              '262144 = 256 KB; max 4194304 = 4 MB). Larger '
                              'values reduce kernel-transition overhead at '
-                             'high throughput. Sets '
-                             'LVP_PYLON_MAX_TRANSFER_SIZE env var.')
+                             'high throughput. Applied via '
+                             'scope.imaging._set_max_transfer_size().')
     parser.add_argument('--num-queued-urbs', type=int, default=None,
                         help='Override NumMaxQueuedUrbs (default 64; max '
-                             '256). Sets LVP_PYLON_NUM_QUEUED_URBS env var.')
+                             '256). Applied via '
+                             'scope.imaging._set_num_max_queued_urbs().')
     parser.add_argument('--gige-delays', nargs='+', type=int,
                         default=[0],
                         help='GevSCPD inter-packet delay ticks (GigE cells).')
@@ -438,6 +420,21 @@ def main():
 
     camera = _connect_camera(args.camera_serial)
     scope = _make_minimal_scope(camera)
+
+    # Apply Pylon tuning overrides via the imaging sub-API levers.
+    # Done post-connect so the driver is active; MaxNumBuffer storage
+    # update applies on the next reconnect (the InstantCamera node
+    # locks once AcquireContinuousConfiguration auto-starts grabbing).
+    # MaxTransferSize / NumMaxQueuedUrbs / grab strategy are
+    # accepted live (strategy takes effect on the next start_grabbing).
+    if args.max_num_buffer is not None:
+        scope.imaging._set_max_num_buffer(args.max_num_buffer)
+    if args.grab_strategy is not None:
+        scope.imaging._set_grab_strategy(args.grab_strategy)
+    if args.max_transfer_size is not None:
+        scope.imaging._set_max_transfer_size(args.max_transfer_size)
+    if args.num_queued_urbs is not None:
+        scope.imaging._set_num_max_queued_urbs(args.num_queued_urbs)
 
     transport = _detect_transport(camera)
     sensor_w, sensor_h = _sensor_max_resolution(camera)

@@ -801,6 +801,81 @@ class ImagingAPI:
             )
             raise
 
+    def _set_max_num_buffer(self, value: int) -> bool:
+        """Set Pylon InstantCamera MaxNumBuffer.
+
+        Per Basler `instant-camera-parameters.html`: count of buffers the
+        SDK allocates for grabbing. Default 10; Etaluma production caps
+        to 3 (Windows non-paged-pool bound). Bench characterization
+        uses 10 to match Pylon Viewer.
+
+        Pylon-only. The driver stores the value on `_max_num_buffer` so
+        the connect() lifecycle applies it post-Open() before the node
+        locks. An immediate SetValue is also attempted; pypylon 26.4.x
+        makes the node read-only once AcquireContinuousConfiguration
+        auto-starts grabbing inside Open(), so a live override needs
+        StopGrabbing first.
+
+        Args:
+            value: New MaxNumBuffer (positive int).
+
+        Returns:
+            bool: True on immediate SetValue success. False if camera is
+                absent / inactive, the driver doesn't implement the
+                setter, or the node is currently locked (the value is
+                still stored for the next connect).
+
+        Raises:
+            HardwareError: Underlying SDK call failed in the driver.
+        """
+        if not self._driver or not self._driver.active:
+            return False
+        if not hasattr(self._driver, 'set_max_num_buffer'):
+            return False
+        try:
+            return bool(self._driver.set_max_num_buffer(value=int(value)))
+        except Exception as ex:
+            logger.exception(
+                f"[SCOPE API ] Error setting MaxNumBuffer: {ex}"
+            )
+            from modules.notification_center import notifications
+            notifications.error(
+                "Camera",
+                "MaxNumBuffer change failed",
+                f"Could not set MaxNumBuffer to {value}: "
+                f"{type(ex).__name__}: {ex}."
+            )
+            raise
+
+    def _set_grab_strategy(self, name: str) -> bool:
+        """Set the Pylon GrabStrategy used by the next start_grabbing().
+
+        Production default is LatestImageOnly (the contract for
+        frame_validity, capture_and_wait, and the auto-discard
+        skip_frames floor). OneByOne delivers every frame for
+        apples-to-apples bench comparisons against Pylon Viewer.
+
+        Pure attribute write on the driver: takes effect on the NEXT
+        start_grabbing() call, not on the live grab loop. To switch
+        strategies on an active camera: call this lever, then
+        stop_grabbing(), then start_grabbing().
+
+        Args:
+            name: 'LatestImageOnly' or 'OneByOne'.
+
+        Returns:
+            bool: True on accepted name. False if camera is absent or
+                the driver doesn't implement the setter.
+
+        Raises:
+            ValueError: name is not a recognized strategy.
+        """
+        if not self._driver:
+            return False
+        if not hasattr(self._driver, 'set_grab_strategy'):
+            return False
+        return bool(self._driver.set_grab_strategy(name=name))
+
     def _set_gev_packet_size(self, size_bytes: int) -> bool:
         """Set GevSCPSPacketSize (GigE-only Pylon node).
 
