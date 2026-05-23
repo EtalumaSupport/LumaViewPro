@@ -526,22 +526,39 @@ class SequentialIOExecutor:
     def protocol_end(self):
         was_running = self.protocol_running.is_set()
         self.protocol_running.clear()
-        # Brief drain wait. Per PERFORMANCE_BUDGETS.md row
-        # `protocol_end_worker_drain_ms`: 50 ms is a band-aid, not a
-        # safety guarantee, and applies meaningfully to only one of
-        # this method's three callers (`protocol_cleanup.py:233` from
-        # main thread when the worker may be mid-task). The other two
-        # callers (`_run_loop` and `shutdown`) don't need the wait.
-        # Structural fix pending: expose `wait_for_idle(timeout)` gated
-        # on the existing `running_task` attribute and have the
-        # mid-task caller use that.
-        time.sleep(0.05)
         # Clear completion callback when protocol ends prematurely
         self.protocol_complete_callback = None
         self.protocol_complete_cb_args = ()
         self.protocol_complete_cb_kwargs = {}
         if was_running:
             logger.info(f"{self.name} Protocol Ended")
+
+    def wait_for_idle(self, timeout: float = 1.0) -> bool:
+        """Block until the worker is between tasks (running_task is
+        None) or `timeout` seconds elapse.
+
+        Used by callers from another thread that need to ensure any
+        in-flight task has completed before they tear down shared
+        state the task may reference -- the canonical example is the
+        protocol cleanup path, which clears `protocol_running` then
+        proceeds to mutate scope / camera / settings state that an
+        in-flight io-executor task may be reading.
+
+        Returns True if the worker reached idle within `timeout`,
+        False if the timeout fired first. Callers that get False
+        should log and proceed -- timing out is preferable to
+        blocking interpreter shutdown.
+
+        Implementation: polls `running_task is None` at 1 ms intervals.
+        The poll cost is acceptable because this method is called at
+        teardown / between protocols, not in any hot path.
+        """
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if self.running_task is None:
+                return True
+            time.sleep(0.001)
+        return False
 
     def protocol_finish_then_end(self):
         self.protocol_finish.set()

@@ -11686,3 +11686,93 @@ class TestEmergencyShutdownBoundedLeds_F6:
             'leds_off_emergency (bounded lock acquire) -- not '
             'leds_off (unbounded).'
         )
+
+
+class TestSequentialIoExecutorWaitForIdle_F7:
+    """AUDIT_CONCURRENCY_2026-05-24 F7: `protocol_end()` previously
+    called `time.sleep(0.05)` as a band-aid drain wait so callers that
+    tore down shared state after `protocol_end` returned wouldn't
+    collide with an in-flight task on the worker thread. The sleep was:
+    - wasted on the worker-loop caller (queue is empty by definition)
+    - wasted on the shutdown caller (the real wait is `Thread.join`)
+    - too short to actually cover typical task latencies on the
+      protocol_cleanup caller (motor p99 ~50 ms, AF iterations multi-s)
+
+    Fix: drop the sleep from `protocol_end`; add `wait_for_idle(timeout)`
+    that polls `running_task is None`; have `protocol_cleanup` call it
+    after `protocol_end` so the mid-task hazard is bounded properly.
+    """
+
+    def _executor_src(self):
+        from pathlib import Path
+
+        return (
+            Path(__file__).resolve().parent.parent
+            / 'modules' / 'sequential_io_executor.py'
+        ).read_text()
+
+    def _cleanup_src(self):
+        from pathlib import Path
+
+        return (
+            Path(__file__).resolve().parent.parent
+            / 'modules' / 'protocol_cleanup.py'
+        ).read_text()
+
+    def test_wait_for_idle_method_exists(self):
+        """The executor must expose `wait_for_idle(timeout=...)`."""
+        import re
+
+        src = self._executor_src()
+        assert re.search(r'def wait_for_idle\s*\(self', src), (
+            'F7 regression: SequentialIOExecutor must expose '
+            'wait_for_idle(timeout=...) so callers can bound the '
+            'mid-task drain wait instead of relying on a magic-number '
+            'sleep in protocol_end.'
+        )
+
+    def test_protocol_end_does_not_sleep(self):
+        """`protocol_end` body must not contain a bare `time.sleep`
+        call. The band-aid wait is gone; callers that need a wait use
+        `wait_for_idle` explicitly."""
+        import re
+
+        src = self._executor_src()
+        match = re.search(
+            r'def protocol_end.*?(?=\n    def |\n    @|\nclass |\Z)',
+            src,
+            re.DOTALL,
+        )
+        assert match is not None, 'protocol_end body not found'
+        body = match.group(0)
+        assert not re.search(r'\btime\.sleep\s*\(', body), (
+            'F7 regression: protocol_end must not call time.sleep. '
+            'The band-aid drain wait was retired; callers needing to '
+            'wait for the worker to finish an in-flight task call '
+            'wait_for_idle(timeout=...) instead.'
+        )
+
+    def test_protocol_cleanup_calls_wait_for_idle(self):
+        """`protocol_cleanup` must call `wait_for_idle` on the
+        io_executor immediately after `protocol_end`. The order is
+        load-bearing -- protocol_end clears the running flag, then the
+        wait ensures any task that was running before that point
+        completes before downstream state is mutated."""
+        import re
+
+        src = self._cleanup_src()
+        # Search across newlines + intervening lines for the sequence.
+        sequence = re.search(
+            r'io_executor\.protocol_end\s*\(\s*\).*?'
+            r'io_executor\.wait_for_idle\s*\(',
+            src,
+            re.DOTALL,
+        )
+        assert sequence is not None, (
+            'F7 regression: protocol_cleanup must call '
+            'io_executor.wait_for_idle(timeout=...) after '
+            'io_executor.protocol_end() so an in-flight task on the '
+            'io_executor worker is given bounded time to finish '
+            'before downstream teardown mutates state the task may '
+            'reference.'
+        )

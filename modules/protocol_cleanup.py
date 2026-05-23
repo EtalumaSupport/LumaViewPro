@@ -231,6 +231,16 @@ def run_cleanup(
     scan_in_progress.clear()
 
     io_executor.protocol_end()
+    # Wait for any task that was in-flight when protocol_end fired to
+    # finish before we mutate scope / camera / settings state below --
+    # an in-flight task on the io_executor worker may be reading the
+    # same state. Bounded so a wedged task can't block cleanup
+    # indefinitely; if the timeout fires we log and proceed.
+    if not io_executor.wait_for_idle(timeout=2.0):
+        logger.warning(
+            f'[{logger_name}] Cleanup: io_executor still mid-task '
+            'after 2.0 s wait; proceeding to teardown anyway'
+        )
     if autofocus_thread is not None:
         # Signal any lingering AF run to unwind. abort() is a no-op when
         # the thread is idle, so this is always safe to call.
