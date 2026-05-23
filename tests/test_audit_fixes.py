@@ -11776,3 +11776,116 @@ class TestSequentialIoExecutorWaitForIdle_F7:
             'before downstream teardown mutates state the task may '
             'reference.'
         )
+
+
+class TestShowPopupHostWidgetProxy_F9:
+    """AUDIT_CONCURRENCY_2026-05-24 F9: the `show_popup` decorator
+    previously passed the raw host widget (`app`) to the daemon thread
+    that ran the decorated body. If the body wrote a Kivy property on
+    the host (e.g. `self.done = True`), Kivy's property dispatch ran
+    bound callbacks on the writing (bg) thread -- the same Bug-shape
+    that motivated F1's per-site fix in protocol_settings.
+
+    Aggressive fix: wrap the host in `_HostWidgetProxy` that intercepts
+    `__setattr__`, detects Kivy `Property` descriptors at the class
+    level, and marshals Kivy property writes through `Clock.schedule_
+    once`. Non-Kivy attribute writes pass through directly.
+
+    This is the cluster-level fix: any future `@show_popup`-decorated
+    method can write `self.<KivyProperty> = ...` safely without the
+    per-site `Clock.schedule_once` boilerplate. The F1 manual marshal
+    in protocol_settings remains as belt-and-suspenders.
+    """
+
+    def _popup_src(self):
+        from pathlib import Path
+
+        return (
+            Path(__file__).resolve().parent.parent
+            / 'ui' / 'progress_popup.py'
+        ).read_text()
+
+    def test_host_widget_proxy_class_exists(self):
+        """The proxy class must be declared in progress_popup.py."""
+        import re
+
+        src = self._popup_src()
+        assert re.search(r'class _HostWidgetProxy', src), (
+            'F9 regression: _HostWidgetProxy class must exist in '
+            'ui/progress_popup.py to wrap the host widget passed to '
+            'show_popup-decorated daemon-thread bodies.'
+        )
+
+    def test_proxy_marshals_property_writes_via_clock(self):
+        """`_HostWidgetProxy.__setattr__` must marshal writes through
+        Clock.schedule_once when the attribute is a Kivy Property.
+        Quote/format-agnostic regex on the body."""
+        import re
+
+        src = self._popup_src()
+        match = re.search(
+            r'class _HostWidgetProxy.*?(?=\nclass |\ndef show_popup\b|\Z)',
+            src,
+            re.DOTALL,
+        )
+        assert match is not None, '_HostWidgetProxy class body not found'
+        body = match.group(0)
+        # Property-detection: looks up the class-level descriptor and
+        # checks isinstance(..., Property).
+        assert re.search(r'isinstance\s*\(\s*\w+\s*,\s*Property\s*\)', body), (
+            'F9 regression: _HostWidgetProxy must detect Kivy Property '
+            'descriptors via isinstance check on the class-level '
+            'attribute before deciding to marshal.'
+        )
+        # Marshalled write path -- Clock.schedule_once with a setattr
+        # lambda that captures the host + name + value.
+        assert re.search(
+            r'Clock\.schedule_once\s*\(\s*lambda.*?setattr\s*\(',
+            body,
+            re.DOTALL,
+        ), (
+            'F9 regression: _HostWidgetProxy must marshal Kivy '
+            'property writes through Clock.schedule_once with a '
+            'setattr lambda.'
+        )
+
+    def test_show_popup_wraps_host_in_proxy(self):
+        """The decorator must pass `_HostWidgetProxy(app)` (not `app`
+        directly) as the first positional arg to the decorated
+        function so `self` inside the method body is the proxy."""
+        import re
+
+        src = self._popup_src()
+        match = re.search(
+            r'def show_popup\b.*?(?=\nclass |\Z)',
+            src,
+            re.DOTALL,
+        )
+        assert match is not None, 'show_popup function body not found'
+        body = match.group(0)
+        # Must construct the host proxy and pass it through.
+        assert re.search(r'_HostWidgetProxy\s*\(', body), (
+            'F9 regression: show_popup decorator must instantiate '
+            '_HostWidgetProxy to wrap the host widget.'
+        )
+        # The thread args list must reference the host proxy var
+        # (named `host_proxy` in current implementation; tolerate any
+        # local name that is the result of _HostWidgetProxy(...)).
+        # Belt-and-suspenders: the bare `app` must NOT appear as the
+        # first positional in the args list passed to the Thread
+        # target.
+        thread_args = re.search(
+            r'threading\.Thread\s*\([^)]*args\s*=\s*\[\s*(\w+)',
+            body,
+        )
+        assert thread_args is not None, (
+            'F9 regression: show_popup must spawn a Thread with an '
+            'args= list whose first element is the host proxy.'
+        )
+        first_arg_name = thread_args.group(1)
+        assert first_arg_name != 'app', (
+            f'F9 regression: show_popup must NOT pass the raw `app` '
+            f'host widget to the daemon thread; pass the '
+            f'_HostWidgetProxy wrapper instead. Got first thread arg: '
+            f'{first_arg_name!r}.'
+        )
