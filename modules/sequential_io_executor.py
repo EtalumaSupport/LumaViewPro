@@ -526,8 +526,14 @@ class SequentialIOExecutor:
     def protocol_end(self):
         was_running = self.protocol_running.is_set()
         self.protocol_running.clear()
-        # Brief wait for any in-flight task to complete before callers
-        # tear down state that the task may reference (M3).
+        # Brief drain wait. Per PERFORMANCE_BUDGETS.md row
+        # `protocol_end_worker_drain_ms`: 50 ms is a band-aid, not a
+        # safety guarantee, and applies meaningfully to only one of
+        # this method's three callers (`protocol_cleanup.py:233` from
+        # main thread when the worker may be mid-task). The other two
+        # callers (`_run_loop` and `shutdown`) don't need the wait.
+        # Structural fix pending per AUDIT_CONCURRENCY_2026-05-24 F7
+        # (wait_for_idle method gated on existing `running_task`).
         time.sleep(0.05)
         # Clear completion callback when protocol ends prematurely
         self.protocol_complete_callback = None
