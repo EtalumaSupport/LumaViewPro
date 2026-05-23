@@ -36,26 +36,39 @@ SLIDER_DEBOUNCE_S = 0.1
 INIT_MAX_RETRIES = 50
 
 # ------------------------------------------------------------------
-# Rule 12 workaround: temporary diagnostic toggle for the "illumination
-# slider > ~150 mA silently fails to light LED on LS620 FX2" bench
-# investigation (Firmware TODO.md:63, 2026-04-16). Logs type + value at
-# the slider vs text entry points so the bench trace can show whether
-# the two code paths diverge here (int vs float) or further downstream.
-# Companion gates live in drivers/fx2driver.py (byte-level wire trace)
-# and modules/lumascope_api.py (cache-equality check).
+# Diagnostic toggle for the "illumination slider > ~150 mA silently
+# fails to light LED on LS620 FX2" bench investigation
+# (2026-04-16). Logs type + value at the slider vs text entry points
+# so the bench trace can show whether the two code paths diverge
+# here (int vs float) or further downstream. Companion gates live
+# in drivers/fx2driver.py (byte-level wire trace) and
+# modules/lumascope_api/illumination.py (cache-equality check).
 # Toggle by either:
-#   * export LVP_FX2_DEBUG_WIRE=1  (preferred, no file edit)
+#   * set fx2_debug_wire_enabled: true in data/settings.json
 #   * flip _FX2_DEBUG_WIRE = True  below
-# Remove together with fx2driver._FX2_DEBUG_WIRE after the
-# 2026-04-21 bench session confirms root cause.
 # ------------------------------------------------------------------
 _FX2_DEBUG_WIRE = False
 
 
+def _read_fx2_wire_setting() -> bool:
+    """Read fx2_debug_wire_enabled from settings.json at module import.
+
+    Replaces the prior LVP_FX2_DEBUG_WIRE environment-variable gate.
+    """
+    from modules.settings_init import load_fx2_debug_wire_setting
+    try:
+        import lvp_logger
+        base_dir = lvp_logger.lvp_appdata
+    except (ImportError, AttributeError):
+        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    return load_fx2_debug_wire_setting(base_dir)
+
+
+_FX2_WIRE_SETTING = _read_fx2_wire_setting()
+
+
 def _fx2_wire_debug_enabled() -> bool:
-    if _FX2_DEBUG_WIRE:
-        return True
-    return os.environ.get("LVP_FX2_DEBUG_WIRE") == "1"
+    return _FX2_DEBUG_WIRE or _FX2_WIRE_SETTING
 
 
 class LayerControl(BoxLayout):

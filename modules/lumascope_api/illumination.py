@@ -29,6 +29,24 @@ if TYPE_CHECKING:
 _api_log = _logging.getLogger('LVP.api')
 
 
+def _read_fx2_wire_setting() -> bool:
+    """Read fx2_debug_wire_enabled from settings.json at module import.
+
+    Replaces the prior LVP_FX2_DEBUG_WIRE environment-variable gate.
+    """
+    from modules.settings_init import load_fx2_debug_wire_setting
+    try:
+        import lvp_logger
+        base_dir = lvp_logger.lvp_appdata
+    except (ImportError, AttributeError):
+        base_dir = os.path.dirname(os.path.dirname(os.path.dirname(
+            os.path.abspath(__file__))))
+    return load_fx2_debug_wire_setting(base_dir)
+
+
+_FX2_WIRE_SETTING = _read_fx2_wire_setting()
+
+
 class IlluminationAPI:
     """Illumination sub-API. Owns LED state, ownership tracking, and
     listener registry. Stateful bodies live here post-Phase 3d.
@@ -123,12 +141,11 @@ class IlluminationAPI:
         color_name = self.ch2color(channel)
         if color_name:
             current_ma = self.get_led_ma(color_name)
-            # Rule 12 workaround: _led_state cache-equality trace for the
-            # slider > ~150 mA silent-fail bench investigation. Gated by
-            # LVP_FX2_DEBUG_WIRE env var to match drivers/fx2driver.py.
-            # Remove together with fx2driver._FX2_DEBUG_WIRE block after
-            # the 2026-04-21 bench session.
-            if os.environ.get("LVP_FX2_DEBUG_WIRE") == "1":
+            # _led_state cache-equality trace for the slider > ~150 mA
+            # silent-fail bench investigation. Gated by
+            # fx2_debug_wire_enabled in settings.json to match
+            # drivers/fx2driver.py.
+            if _FX2_WIRE_SETTING:
                 cached_entry = self._led_state.get(color_name)
                 is_enabled = self.led_enabled(color_name)
                 try:

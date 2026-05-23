@@ -221,3 +221,24 @@ def load_tracemalloc_setting(directory):
         return False
 
     return bool(temp_settings.get("tracemalloc_enabled", False))
+
+
+def load_fx2_debug_wire_setting(directory):
+    """Read fx2_debug_wire_enabled from settings.
+
+    Returns bool. Missing or unreadable settings file resolves to False
+    so the caller never has to guard for absence; the FX2 wire-protocol
+    debug trace defaults OFF (it is an L4 diagnostic surface).
+
+    Called from drivers/fx2driver.py, ui/layer_control.py, and
+    modules/lumascope_api/illumination.py at module-import time.
+    Replaces the prior LVP_FX2_DEBUG_WIRE environment-variable gate.
+    """
+    try:
+        filename = _resolve_settings_path(directory)
+        with open(filename, "r") as read_file:
+            temp_settings = json.load(read_file)
+    except Exception:
+        return False
+
+    return bool(temp_settings.get("fx2_debug_wire_enabled", False))

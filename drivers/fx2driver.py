@@ -2035,6 +2035,26 @@ class FX2Camera(Camera):
 # FX2LEDController — thin command translator, no state
 # ---------------------------------------------------------------------------
 
+
+def _read_fx2_wire_setting() -> bool:
+    """Read fx2_debug_wire_enabled from settings.json at module import.
+
+    Replaces the prior LVP_FX2_DEBUG_WIRE environment-variable gate.
+    Falls back to False on any read failure so the driver remains
+    shippable without runtime config.
+    """
+    from modules.settings_init import load_fx2_debug_wire_setting
+    try:
+        import lvp_logger
+        base_dir = lvp_logger.lvp_appdata
+    except (ImportError, AttributeError):
+        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    return load_fx2_debug_wire_setting(base_dir)
+
+
+_FX2_WIRE_SETTING = _read_fx2_wire_setting()
+
+
 @_register_if_fx2_available(led_registry, 'fx2', priority=80)
 class FX2LEDController:
     """LED controller for Lumascope Classic via FX2 I2C at address 0x2A.
@@ -2077,33 +2097,25 @@ class FX2LEDController:
     _MAX_MA = 200
 
     # ------------------------------------------------------------------
-    # Rule 12 workaround: TEMPORARY byte-level wire trace for bench
-    # investigation of the "illumination slider > ~150 mA silently fails
-    # to light LED on LS620 FX2" report (Firmware TODO.md:63,
-    # 2026-04-16). Captures:
+    # Byte-level wire trace for bench investigation of the "illumination
+    # slider > ~150 mA silently fails to light LED on LS620 FX2"
+    # report (2026-04-16). Captures:
     #   * LED-toggle entry at FX2LEDController.led_on (mA + type)
     #   * mA→brightness conversion input/output
     #   * Each of the 3 I2C bytes written (hex dump)
-    #   * PREAMBLE-COLLISION flag when brightness == 0xFF (Eric's hint
-    #     about _MAX_MA=200 clamping to the 0xFF I2C preamble byte at
-    #     mA ≥ 200)
-    # Companion gates live in modules/lumascope_api.py (cache-equality
-    # check) and ui/layer_control.py (slider vs text entry points).
-    # Toggle by either:
-    #   * export LVP_FX2_DEBUG_WIRE=1  (preferred, no file edit)
+    #   * PREAMBLE-COLLISION flag when brightness == 0xFF (the _MAX_MA=200
+    #     clamp to the 0xFF I2C preamble byte at mA >= 200)
+    # Companion gates live in modules/lumascope_api/illumination.py
+    # (cache-equality check) and ui/layer_control.py (slider vs text entry
+    # points). Toggle by either:
+    #   * set fx2_debug_wire_enabled: true in data/settings.json
     #   * flip _FX2_DEBUG_WIRE = True  below
-    # Remove this block + all call sites tagged "[FX2 LED diag]" after
-    # the Monday 2026-04-21 bench session confirms root cause for the
-    # slider-160 vs text-160 divergence. Not gated behind a feature
-    # flag because the fix will land with verification logs attached.
     # ------------------------------------------------------------------
     _FX2_DEBUG_WIRE = False
 
     @classmethod
     def _wire_debug_enabled(cls) -> bool:
-        if cls._FX2_DEBUG_WIRE:
-            return True
-        return os.environ.get("LVP_FX2_DEBUG_WIRE") == "1"
+        return cls._FX2_DEBUG_WIRE or _FX2_WIRE_SETTING
 
     def __init__(self, **kwargs):
         # Grab the singleton — raises if no FX2 hardware, registry

@@ -9915,6 +9915,56 @@ class TestTracemallocGateIsNotEnvVar:
         )
 
 
+class TestFx2DebugWireGateIsNotEnvVar:
+    """The FX2 wire-protocol debug trace must NOT be gated by an env var.
+
+    Per the options-menu rule, runtime toggles live in settings.json or
+    as a code constant -- never as an environment variable. The earlier
+    LVP_FX2_DEBUG_WIRE gate (read at three call sites) violated that
+    rule and was migrated to the fx2_debug_wire_enabled settings key.
+    This AST scan pins each of the three call sites so the env-var
+    pattern doesn't sneak back in via any of them.
+    """
+
+    _SITES = (
+        ("drivers", "fx2driver.py"),
+        ("ui", "layer_control.py"),
+        ("modules", "lumascope_api", "illumination.py"),
+    )
+
+    def _read(self, parts):
+        from pathlib import Path
+        path = Path(__file__).resolve().parent.parent
+        for part in parts:
+            path = path / part
+        return path.read_text()
+
+    def test_no_lvp_fx2_debug_wire_env_var_in_any_site(self):
+        import ast
+        hits_by_site = {}
+        for parts in self._SITES:
+            src = self._read(parts)
+            tree = ast.parse(src)
+            hits = []
+
+            class Visitor(ast.NodeVisitor):
+                def visit_Constant(self, node):
+                    if (isinstance(node.value, str)
+                            and node.value == "LVP_FX2_DEBUG_WIRE"):
+                        hits.append((node.lineno, node.value))
+                    self.generic_visit(node)
+
+            Visitor().visit(tree)
+            if hits:
+                hits_by_site["/".join(parts)] = hits
+
+        assert not hits_by_site, (
+            "No source file may reference LVP_FX2_DEBUG_WIRE as a string "
+            "literal -- the env-var gate is retired in favor of the "
+            f"fx2_debug_wire_enabled settings key. Hits: {hits_by_site}"
+        )
+
+
 class TestCameraDelHandlesPartialConstruction:
     """Camera.__del__ must short-circuit on a partially-constructed
     instance instead of firing "no attribute _state_lock" warnings.
