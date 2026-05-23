@@ -5,6 +5,7 @@ Debounce decorator for preventing rapid repeated method calls.
 Use on button handlers that trigger hardware commands to prevent
 double-clicks from sending duplicate commands.
 """
+
 import time
 from functools import wraps
 
@@ -26,6 +27,7 @@ def debounce(delay: float):
             def coarse_up(self):
                 io_executor.put(IOTask(...))
     """
+
     def decorator(func):
         attr = f'_debounce_{func.__name__}'
 
@@ -37,5 +39,7 @@ def debounce(delay: float):
                 return
             setattr(self, attr, now)
             return func(self, *args, **kwargs)
+
         return wrapper
+
     return decorator

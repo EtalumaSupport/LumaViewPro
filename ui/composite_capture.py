@@ -23,19 +23,19 @@ from modules.image_save import save_image, save_live_image
 import modules.image_utils as image_utils
 from modules.sequential_io_executor import IOTask, PRIORITY_MED
 from ui.ui_helpers import (
-    live_histo_off, live_histo_reverse, set_last_save_folder,
+    live_histo_off,
+    live_histo_reverse,
+    set_last_save_folder,
 )
 
 logger = logging.getLogger('LVP.ui.composite_capture')
 
 
 class CompositeCapture(FloatLayout):
-
     _capturing = threading.Event()  # Thread-safe guard against rapid double-clicks
 
     def __init__(self, **kwargs):
-        super(CompositeCapture,self).__init__(**kwargs)
-
+        super(CompositeCapture, self).__init__(**kwargs)
 
     def live_capture(self):
         gui_logger.button('LIVE_CAPTURE')
@@ -51,18 +51,20 @@ class CompositeCapture(FloatLayout):
         # missing UI gate.
         if not getattr(ctx.scope, 'camera_connected', True):
             from modules.notification_center import notifications
+
             notifications.warning(
-                "Camera",
-                "Camera not connected",
-                "Cannot capture -- camera is not connected. Check USB "
-                "and reconnect, then try again.",
+                'Camera',
+                'Camera not connected',
+                'Cannot capture -- camera is not connected. Check USB '
+                'and reconnect, then try again.',
             )
             return
         CompositeCapture._capturing.set()
-        ctx.camera_executor.put(IOTask(
-            action=self._live_capture_impl,
-            callback=lambda: CompositeCapture._capturing.clear()
-        ))
+        ctx.camera_executor.put(
+            IOTask(
+                action=self._live_capture_impl, callback=lambda: CompositeCapture._capturing.clear()
+            )
+        )
 
     def _live_capture_impl(self):
         from modules.config_ui_getters import get_layer_configs
@@ -81,7 +83,7 @@ class CompositeCapture(FloatLayout):
 
         for layer in common_utils.get_layers():
             layer_obj = ctx.image_settings.layer_lookup(layer=layer)
-            accordion_item_obj =  ctx.image_settings.accordion_item_lookup(layer=layer)
+            accordion_item_obj = ctx.image_settings.accordion_item_lookup(layer=layer)
             if not accordion_item_obj.collapse:
                 append = f'{well_label}_{layer}'
                 if layer_obj.ids['false_color'].active:
@@ -89,8 +91,10 @@ class CompositeCapture(FloatLayout):
 
                 break
 
-        save_folder = pathlib.Path(settings['live_folder']) / "Manual"
-        separate_folder_per_channel = ctx.motion_settings.ids['microscope_settings_id']._seperate_folder_per_channel
+        save_folder = pathlib.Path(settings['live_folder']) / 'Manual'
+        separate_folder_per_channel = ctx.motion_settings.ids[
+            'microscope_settings_id'
+        ]._seperate_folder_per_channel
         if separate_folder_per_channel:
             save_folder = save_folder / layer
 
@@ -104,8 +108,8 @@ class CompositeCapture(FloatLayout):
         sum_iteration_callback = None
 
         layer_configs = get_layer_configs(specific_layers=layer)
-        sum_delay_s=layer_configs[layer]['exposure_ms']/1000
-        sum_count=layer_configs[layer]['sum']
+        sum_delay_s = layer_configs[layer]['exposure_ms'] / 1000
+        sum_count = layer_configs[layer]['sum']
 
         if ctx.engineering_mode is False:
             return save_live_image(
@@ -147,8 +151,8 @@ class CompositeCapture(FloatLayout):
 
             # Save both versions of the image (unaltered and overlayed)
             now = datetime.datetime.now()
-            time_string = now.strftime("%Y%m%d_%H%M%S")
-            append = f"{append}_{time_string}"
+            time_string = now.strftime('%Y%m%d_%H%M%S')
+            append = f'{append}_{time_string}'
 
             # If not in 8-bit mode, generate an 8-bit copy of the image for visualization
             if use_full_pixel_depth:
@@ -165,7 +169,7 @@ class CompositeCapture(FloatLayout):
                 append=append,
                 color=color,
                 tail_id_mode=None,
-                output_format=settings['image_output_format']
+                output_format=settings['image_output_format'],
             )
 
             if use_bullseye:
@@ -184,12 +188,11 @@ class CompositeCapture(FloatLayout):
                 array=crosshairs_image,
                 save_folder=save_folder,
                 file_root=file_root,
-                append=f"{append}_overlay",
+                append=f'{append}_overlay',
                 color=color,
                 tail_id_mode=None,
-                output_format=settings['image_output_format']
+                output_format=settings['image_output_format'],
             )
-
 
     # capture and save a composite image using the current settings
     def composite_capture(self):
@@ -202,11 +205,12 @@ class CompositeCapture(FloatLayout):
         # Same camera-connected gate as live_capture -- see comment there.
         if not getattr(ctx.scope, 'camera_connected', True):
             from modules.notification_center import notifications
+
             notifications.warning(
-                "Camera",
-                "Camera not connected",
-                "Cannot capture composite -- camera is not connected. "
-                "Check USB and reconnect, then try again.",
+                'Camera',
+                'Camera not connected',
+                'Cannot capture composite -- camera is not connected. '
+                'Check USB and reconnect, then try again.',
             )
             return
         CompositeCapture._capturing.set()
@@ -224,7 +228,10 @@ class CompositeCapture(FloatLayout):
 
         # Log per-channel settings for composite debugging
         settings = ctx.settings
-        for layer in (*common_utils.get_transmitted_layers(), *common_utils.get_fluorescence_layers()):
+        for layer in (
+            *common_utils.get_transmitted_layers(),
+            *common_utils.get_fluorescence_layers(),
+        ):
             ls = settings.get(layer, {})
             if ls.get('acquire') == 'image':
                 logger.info(
@@ -252,17 +259,19 @@ class CompositeCapture(FloatLayout):
         # doesn't freeze the UI or contend with io_executor. HIGH-priority
         # abort/cleanup tasks still jump ahead. Composite capture is
         # bounded (~seconds) so it doesn't starve LOW background work.
-        ctx.worker_pool.put(IOTask(
-            action=self._composite_capture_worker,
-            kwargs={
-                'z_stage_present': z_stage_present,
-                'initial_layer': initial_layer,
-                'led_restore_state': led_restore_state,
-                'use_full_pixel_depth': use_full_pixel_depth,
-                'saved_video_false_color': saved_video_false_color,
-            },
-            priority=PRIORITY_MED,
-        ))
+        ctx.worker_pool.put(
+            IOTask(
+                action=self._composite_capture_worker,
+                kwargs={
+                    'z_stage_present': z_stage_present,
+                    'initial_layer': initial_layer,
+                    'led_restore_state': led_restore_state,
+                    'use_full_pixel_depth': use_full_pixel_depth,
+                    'saved_video_false_color': saved_video_false_color,
+                },
+                priority=PRIORITY_MED,
+            )
+        )
 
     def _composite_capture_worker(
         self,
@@ -284,13 +293,15 @@ class CompositeCapture(FloatLayout):
         except Exception as ex:
             logger.error(f'[COMPOSITE] _composite_capture_worker failed: {ex}', exc_info=True)
             from modules.notification_center import notifications
-            notifications.error("Composite", "Composite Capture Failed", str(ex))
+
+            notifications.error('Composite', 'Composite Capture Failed', str(ex))
         finally:
             # Always clear _capturing so the button resets even on error.
             # Without this, a save_image failure leaves _capturing set and
             # all subsequent composite clicks are blocked. (#610 session)
             CompositeCapture._capturing.clear()
             self.video_false_color = saved_video_false_color
+
             def _restore_ui_on_error(dt):
                 try:
                     ctx = _app_ctx.ctx
@@ -298,6 +309,7 @@ class CompositeCapture(FloatLayout):
                     live_histo_reverse()
                 except Exception:
                     pass
+
             Clock.schedule_once(_restore_ui_on_error, 0)
 
     def _composite_capture_worker_inner(
@@ -341,14 +353,16 @@ class CompositeCapture(FloatLayout):
 
         # Capture transmitted channel (BF/PC/DF) — use first found as base
         for trans_layer in common_utils.get_transmitted_layers():
-            if layer_settings[trans_layer]["acquire"] == "image":
+            if layer_settings[trans_layer]['acquire'] == 'image':
                 acquired_channel_count += 1
                 most_recent_aq_channel = trans_layer
 
                 if z_stage_present:
                     focus_pos = layer_settings[trans_layer]['focus']
                     ctx.scope.motion.move_absolute_sync(
-                        'Z', focus_pos, wait_until_complete=True,
+                        'Z',
+                        focus_pos,
+                        wait_until_complete=True,
                     )
 
                 gain = layer_settings[trans_layer]['gain_db']
@@ -358,7 +372,8 @@ class CompositeCapture(FloatLayout):
                 illumination = layer_settings[trans_layer]['ill_ma']
 
                 ctx.scope.illumination.led_on_sync(
-                    ctx.scope.illumination.color2ch(trans_layer), illumination,
+                    ctx.scope.illumination.color2ch(trans_layer),
+                    illumination,
                 )
 
                 transmitted_image = np.array(
@@ -375,15 +390,20 @@ class CompositeCapture(FloatLayout):
         ctx.scope.illumination.leds_off_sync()
 
         # Capture fluorescence and luminescence channels
-        for layer in (*common_utils.get_fluorescence_layers(), *common_utils.get_luminescence_layers()):
-            if layer_settings[layer]['acquire'] == "image":
+        for layer in (
+            *common_utils.get_fluorescence_layers(),
+            *common_utils.get_luminescence_layers(),
+        ):
+            if layer_settings[layer]['acquire'] == 'image':
                 acquired_channel_count += 1
                 most_recent_aq_channel = layer
 
                 if z_stage_present:
                     focus_pos = layer_settings[layer]['focus']
                     ctx.scope.motion.move_absolute_sync(
-                        'Z', focus_pos, wait_until_complete=True,
+                        'Z',
+                        focus_pos,
+                        wait_until_complete=True,
                     )
 
                 gain = layer_settings[layer]['gain_db']
@@ -395,20 +415,23 @@ class CompositeCapture(FloatLayout):
                 sum_iteration_callback = None
 
                 # Compute brightness threshold (percentage → absolute value)
-                brightness_thresholds[layer] = layer_settings[layer]["composite_brightness_threshold"] / 100 * max_value
+                brightness_thresholds[layer] = (
+                    layer_settings[layer]['composite_brightness_threshold'] / 100 * max_value
+                )
 
                 illumination = layer_settings[layer]['ill_ma']
 
                 # Luminescence channels don't use an LED
                 if layer not in common_utils.get_transmitted_layers():
                     ctx.scope.illumination.led_on_sync(
-                        ctx.scope.illumination.color2ch(layer), illumination,
+                        ctx.scope.illumination.color2ch(layer),
+                        illumination,
                     )
 
                 img_gray = ctx.scope.imaging.capture_and_wait_sync(
                     force_to_8bit=not use_full_pixel_depth,
                     sum_count=sum_count,
-                    sum_delay_s=exposure/1000,
+                    sum_delay_s=exposure / 1000,
                     sum_iteration_callback=sum_iteration_callback,
                 )
                 ctx.scope.illumination.leds_off_sync()
@@ -421,15 +444,20 @@ class CompositeCapture(FloatLayout):
             def _unschedule_histo(dt, layer_name=layer):
                 lo = ctx.image_settings.layer_lookup(layer=layer_name)
                 Clock.unschedule(lo.ids['histo_id'].histogram)
+
             Clock.schedule_once(_unschedule_histo, 0)
             logger.info('[LVP Main  ] Clock.unschedule(lumaview...histogram)')
 
         # Validate: at least one channel must have been captured
         if transmitted_image is None and len(channel_images) == 0:
             from modules.notification_center import notifications
-            notifications.warning("Composite", "No Channels Selected",
-                "No channels are selected for capture. Enable at least one channel before using Composite Capture.")
-            logger.warning("[COMPOSITE] No channels selected -- nothing to capture")
+
+            notifications.warning(
+                'Composite',
+                'No Channels Selected',
+                'No channels are selected for capture. Enable at least one channel before using Composite Capture.',
+            )
+            logger.warning('[COMPOSITE] No channels selected -- nothing to capture')
             return
 
         # Build composite image from collected channels
@@ -444,7 +472,7 @@ class CompositeCapture(FloatLayout):
         # File saving can run on this thread (no UI dependency)
         append = f'{ctx.scope.get_well_label()}'
 
-        save_folder = pathlib.Path(live_folder) / "Manual"
+        save_folder = pathlib.Path(live_folder) / 'Manual'
         save_folder.mkdir(parents=True, exist_ok=True)
         set_last_save_folder(dir=save_folder)
 
@@ -457,21 +485,21 @@ class CompositeCapture(FloatLayout):
                 append=append,
                 color=None,
                 tail_id_mode='increment',
-                output_format=image_output_format['live']
+                output_format=image_output_format['live'],
             )
         elif acquired_channel_count != 0:
             save_image(
                 ctx.scope,
                 array=img,
                 save_folder=save_folder,
-                file_root=f"{most_recent_aq_channel}_Image_",
+                file_root=f'{most_recent_aq_channel}_Image_',
                 append=append,
                 color=None,
                 tail_id_mode='increment',
-                output_format=image_output_format['live']
+                output_format=image_output_format['live'],
             )
         else:
-            logger.info("[Composite Capture  ] No image saved as no channels were selected")
+            logger.info('[Composite Capture  ] No image saved as no channels were selected')
 
         # UI updates must happen on the main thread
         def _restore_ui(dt):

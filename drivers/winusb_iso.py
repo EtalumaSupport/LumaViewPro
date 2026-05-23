@@ -12,8 +12,19 @@ import struct
 import threading
 import time
 from ctypes import (
-    POINTER, Structure, byref, c_bool, c_byte, c_ubyte, c_uint, c_ulong,
-    c_ushort, c_void_p, create_string_buffer, sizeof, windll,
+    POINTER,
+    Structure,
+    byref,
+    c_bool,
+    c_byte,
+    c_ubyte,
+    c_uint,
+    c_ulong,
+    c_ushort,
+    c_void_p,
+    create_string_buffer,
+    sizeof,
+    windll,
 )
 
 log = logging.getLogger(__name__)
@@ -35,8 +46,12 @@ DIGCF_DEVICEINTERFACE = 0x10
 SPDRP_HARDWAREID = 1
 
 # WinUSB GUID (standard for WinUSB devices)
-GUID_DEVINTERFACE_USB_DEVICE = (0xA5DCBF10, 0x6530, 0x11D2,
-    (0x90, 0x1F, 0x00, 0xC0, 0x4F, 0xB9, 0x51, 0xED))
+GUID_DEVINTERFACE_USB_DEVICE = (
+    0xA5DCBF10,
+    0x6530,
+    0x11D2,
+    (0x90, 0x1F, 0x00, 0xC0, 0x4F, 0xB9, 0x51, 0xED),
+)
 
 
 # ---------------------------------------------------------------------------
@@ -50,6 +65,7 @@ class GUID(Structure):
         ('Data4', c_ubyte * 8),
     ]
 
+
 class SP_DEVICE_INTERFACE_DATA(Structure):
     _fields_ = [
         ('cbSize', c_ulong),
@@ -58,11 +74,13 @@ class SP_DEVICE_INTERFACE_DATA(Structure):
         ('Reserved', c_void_p),
     ]
 
+
 class SP_DEVICE_INTERFACE_DETAIL_DATA(Structure):
     _fields_ = [
         ('cbSize', c_ulong),
         ('DevicePath', ctypes.c_wchar * 260),
     ]
+
 
 class SP_DEVINFO_DATA(Structure):
     _fields_ = [
@@ -71,6 +89,7 @@ class SP_DEVINFO_DATA(Structure):
         ('DevInst', c_ulong),
         ('Reserved', c_void_p),
     ]
+
 
 class OVERLAPPED(Structure):
     _fields_ = [
@@ -81,6 +100,7 @@ class OVERLAPPED(Structure):
         ('hEvent', c_void_p),
     ]
 
+
 class WINUSB_PIPE_INFORMATION(Structure):
     _fields_ = [
         ('PipeType', c_ulong),
@@ -88,6 +108,7 @@ class WINUSB_PIPE_INFORMATION(Structure):
         ('MaximumPacketSize', c_ushort),
         ('Interval', c_ubyte),
     ]
+
 
 class WINUSB_SETUP_PACKET(Structure):
     _fields_ = [
@@ -97,6 +118,7 @@ class WINUSB_SETUP_PACKET(Structure):
         ('Index', c_ushort),
         ('Length', c_ushort),
     ]
+
 
 class USBD_ISO_PACKET_DESCRIPTOR(Structure):
     _fields_ = [
@@ -121,19 +143,18 @@ def find_device_path(vid, pid):
     """Find the WinUSB device path for a given VID/PID."""
     guid = GUID(*GUID_DEVINTERFACE_USB_DEVICE)
     dev_info = setupapi.SetupDiGetClassDevsW(
-        byref(guid), None, None,
-        DIGCF_PRESENT | DIGCF_DEVICEINTERFACE)
+        byref(guid), None, None, DIGCF_PRESENT | DIGCF_DEVICEINTERFACE
+    )
 
     if dev_info == INVALID_HANDLE_VALUE:
         return None
 
-    vid_pid = "vid_%04x&pid_%04x" % (vid, pid)
+    vid_pid = 'vid_%04x&pid_%04x' % (vid, pid)
     iface_data = SP_DEVICE_INTERFACE_DATA()
     iface_data.cbSize = sizeof(SP_DEVICE_INTERFACE_DATA)
     idx = 0
 
-    while setupapi.SetupDiEnumDeviceInterfaces(
-            dev_info, None, byref(guid), idx, byref(iface_data)):
+    while setupapi.SetupDiEnumDeviceInterfaces(dev_info, None, byref(guid), idx, byref(iface_data)):
         idx += 1
 
         detail = SP_DEVICE_INTERFACE_DETAIL_DATA()
@@ -143,8 +164,13 @@ def find_device_path(vid, pid):
         required = c_ulong(0)
 
         setupapi.SetupDiGetDeviceInterfaceDetailW(
-            dev_info, byref(iface_data), byref(detail),
-            sizeof(detail), byref(required), byref(devinfo))
+            dev_info,
+            byref(iface_data),
+            byref(detail),
+            sizeof(detail),
+            byref(required),
+            byref(devinfo),
+        )
 
         path = detail.DevicePath
         if vid_pid in path.lower():
@@ -164,8 +190,7 @@ class WinUsbDevice:
     def __init__(self, vid, pid):
         self.path = find_device_path(vid, pid)
         if self.path is None:
-            raise RuntimeError(
-                "WinUSB device not found (VID=0x%04X PID=0x%04X)" % (vid, pid))
+            raise RuntimeError('WinUSB device not found (VID=0x%04X PID=0x%04X)' % (vid, pid))
 
         # Open device file
         self._file_handle = kernel32.CreateFileW(
@@ -175,18 +200,19 @@ class WinUsbDevice:
             None,
             OPEN_EXISTING,
             FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OVERLAPPED,
-            None)
+            None,
+        )
 
         if self._file_handle == INVALID_HANDLE_VALUE:
-            raise RuntimeError("CreateFile failed: %d" % kernel32.GetLastError())
+            raise RuntimeError('CreateFile failed: %d' % kernel32.GetLastError())
 
         # Initialize WinUSB
         self._iface_handle = c_void_p()
         if not winusb.WinUsb_Initialize(self._file_handle, byref(self._iface_handle)):
             kernel32.CloseHandle(self._file_handle)
-            raise RuntimeError("WinUsb_Initialize failed: %d" % kernel32.GetLastError())
+            raise RuntimeError('WinUsb_Initialize failed: %d' % kernel32.GetLastError())
 
-        log.info("WinUSB device opened: %s", self.path)
+        log.info('WinUSB device opened: %s', self.path)
 
     def close(self):
         if self._iface_handle:
@@ -202,12 +228,16 @@ class WinUsbDevice:
 
     def set_alt_interface(self, setting):
         if not winusb.WinUsb_SetCurrentAlternateSetting(self._iface_handle, c_ubyte(setting)):
-            raise RuntimeError("SetAlternateSetting(%d) failed: %d" % (setting, kernel32.GetLastError()))
+            raise RuntimeError(
+                'SetAlternateSetting(%d) failed: %d' % (setting, kernel32.GetLastError())
+            )
 
     def query_pipe(self, alt, index):
         pipe_info = WINUSB_PIPE_INFORMATION()
-        if not winusb.WinUsb_QueryPipe(self._iface_handle, c_ubyte(alt), c_ubyte(index), byref(pipe_info)):
-            raise RuntimeError("QueryPipe failed: %d" % kernel32.GetLastError())
+        if not winusb.WinUsb_QueryPipe(
+            self._iface_handle, c_ubyte(alt), c_ubyte(index), byref(pipe_info)
+        ):
+            raise RuntimeError('QueryPipe failed: %d' % kernel32.GetLastError())
         return pipe_info
 
     def control_transfer(self, request_type, request, value, index, data=b'', length=0):
@@ -222,16 +252,15 @@ class WinUsbDevice:
             buf = create_string_buffer(length)
             pkt.Length = length
             winusb.WinUsb_ControlTransfer(
-                self._iface_handle, pkt, buf, length, byref(transferred), None)
-            return bytes(buf[:transferred.value])
+                self._iface_handle, pkt, buf, length, byref(transferred), None
+            )
+            return bytes(buf[: transferred.value])
         else:  # OUT transfer
             pkt.Length = len(data)
             buf = ctypes.create_string_buffer(data) if data else None
             winusb.WinUsb_ControlTransfer(
-                self._iface_handle, pkt,
-                buf if buf else None,
-                len(data),
-                byref(transferred), None)
+                self._iface_handle, pkt, buf if buf else None, len(data), byref(transferred), None
+            )
 
     def abort_pipe(self, pipe_id):
         winusb.WinUsb_AbortPipe(self._iface_handle, c_ubyte(pipe_id))
@@ -262,10 +291,11 @@ class IsoSlot:
             c_ubyte(pipe_id),
             ctypes.cast(self.buffer, c_void_p),
             c_ulong(buffer_size),
-            byref(self.isoch_handle))
+            byref(self.isoch_handle),
+        )
 
         if not ok:
-            raise RuntimeError("WinUsb_RegisterIsochBuffer failed: %d" % kernel32.GetLastError())
+            raise RuntimeError('WinUsb_RegisterIsochBuffer failed: %d' % kernel32.GetLastError())
 
     def dispose(self):
         if self.isoch_handle:
@@ -286,8 +316,7 @@ class WinUsbIsoReader:
     Runs in a dedicated thread; fills a shared bytearray.
     """
 
-    def __init__(self, vid, pid, pipe_id=0x82, alt_interface=3,
-                 num_slots=16, packets_per_xfer=256):
+    def __init__(self, vid, pid, pipe_id=0x82, alt_interface=3, num_slots=16, packets_per_xfer=256):
         self.vid = vid
         self.pid = pid
         self.pipe_id = pipe_id
@@ -308,8 +337,11 @@ class WinUsbIsoReader:
 
         pipe_info = self._dev.query_pipe(self.alt_interface, 0)
         self._max_packet_size = pipe_info.MaximumPacketSize
-        log.info("ISO pipe: PipeId=0x%02X, MaxPacketSize=%d",
-                 pipe_info.PipeId, pipe_info.MaximumPacketSize)
+        log.info(
+            'ISO pipe: PipeId=0x%02X, MaxPacketSize=%d',
+            pipe_info.PipeId,
+            pipe_info.MaximumPacketSize,
+        )
 
         self._running = True
         self._thread = threading.Thread(target=self._read_loop, daemon=True)
@@ -356,10 +388,8 @@ class WinUsbIsoReader:
 
                 transferred = c_ulong(0)
                 ok = winusb.WinUsb_GetOverlappedResult(
-                    iface,
-                    byref(slot.overlapped),
-                    byref(transferred),
-                    True)  # wait=True
+                    iface, byref(slot.overlapped), byref(transferred), True
+                )  # wait=True
 
                 if ok and transferred.value > 0:
                     # Extract data from ISO packets
@@ -386,24 +416,26 @@ class WinUsbIsoReader:
                 if slot.submitted:
                     dummy = c_ulong(0)
                     winusb.WinUsb_GetOverlappedResult(
-                        iface, byref(slot.overlapped), byref(dummy), True)
+                        iface, byref(slot.overlapped), byref(dummy), True
+                    )
             for slot in slots:
                 slot.dispose()
 
     def _submit_read(self, slot, length, packet_count, continue_stream):
         ok = winusb.WinUsb_ReadIsochPipeAsap(
             slot.isoch_handle,
-            c_ulong(0),         # offset
+            c_ulong(0),  # offset
             c_ulong(length),
             c_bool(continue_stream),
             c_ulong(packet_count),
             ctypes.cast(slot.packets, c_void_p),
-            byref(slot.overlapped))
+            byref(slot.overlapped),
+        )
 
         if not ok:
             err = kernel32.GetLastError()
             if err != ERROR_IO_PENDING:
-                log.warning("WinUsb_ReadIsochPipeAsap failed: %d", err)
+                log.warning('WinUsb_ReadIsochPipeAsap failed: %d', err)
                 slot.submitted = False
                 return False
         slot.submitted = True

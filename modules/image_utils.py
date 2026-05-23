@@ -17,9 +17,7 @@ from lvp_logger import logger, version
 
 # Pre-built lookup tables for bit-depth conversion (built once at import, ~4 KB each)
 # Using the same float math as the original per-pixel conversion ensures identical results.
-_LUT_12_TO_8 = np.clip(
-    np.arange(4096, dtype=np.float32) / 4095 * 255, 0, 255
-).astype(np.uint8)
+_LUT_12_TO_8 = np.clip(np.arange(4096, dtype=np.float32) / 4095 * 255, 0, 255).astype(np.uint8)
 
 _LUT_16_TO_8 = (np.arange(65536, dtype=np.float64) / 256).astype(np.uint8)
 
@@ -42,6 +40,7 @@ tifffile_dtypes = {
     'SQWORD': 17,
 }
 
+
 def is_color_image(image) -> bool:
     if len(image.shape) == 3 and image.shape[2] == 3:
         return True
@@ -51,8 +50,14 @@ def is_color_image(image) -> bool:
 
 def add_false_color(array, color, output=None):
     src_dtype = array.dtype
-    if (not image_utils.is_color_image(array)) and (color in (*common_utils.get_fluorescence_layers(), *common_utils.get_luminescence_layers())):
-        if output is not None and output.shape == (array.shape[0], array.shape[1], 3) and output.dtype == src_dtype:
+    if (not image_utils.is_color_image(array)) and (
+        color in (*common_utils.get_fluorescence_layers(), *common_utils.get_luminescence_layers())
+    ):
+        if (
+            output is not None
+            and output.shape == (array.shape[0], array.shape[1], 3)
+            and output.dtype == src_dtype
+        ):
             img = output
             img[:] = 0
         else:
@@ -61,11 +66,11 @@ def add_false_color(array, color, output=None):
         # save-path convention shared with composite_builder. OpenCV consumers
         # (cv2.VideoWriter) convert RGB->BGR at their own boundary.
         if color in ('Blue', 'Lumi'):
-            img[:,:,2] = array
+            img[:, :, 2] = array
         elif color == 'Green':
-            img[:,:,1] = array
+            img[:, :, 1] = array
         elif color == 'Red':
-            img[:,:,0] = array
+            img[:, :, 0] = array
 
         # For HSL colorspace
         # elif color == 'Lumi':
@@ -106,7 +111,7 @@ def get_used_color_planes(image) -> list:
 
     used_color_planes = []
     for color_plane_idx in range(image.shape[2]):
-        image_view = image[:,:,color_plane_idx]
+        image_view = image[:, :, color_plane_idx]
         if np.any(image_view):
             used_color_planes.append(color_plane_idx)
 
@@ -164,11 +169,11 @@ def encode_image(image: np.ndarray, fmt: str = 'png', jpeg_quality: int = 80) ->
         params = []
         ext = '.tiff'
     else:
-        raise ValueError(f"Unsupported image format: {fmt}")
+        raise ValueError(f'Unsupported image format: {fmt}')
 
     success, buf = cv2.imencode(ext, image, params)
     if not success:
-        raise ValueError(f"Failed to encode image as {fmt}")
+        raise ValueError(f'Failed to encode image as {fmt}')
     return buf.tobytes()
 
 
@@ -199,6 +204,7 @@ def convert_16bit_to_8bit(image):
         return image
 
     return _LUT_16_TO_8[image]
+
 
 @enum.unique
 class LvpColormap(enum.Enum):
@@ -233,7 +239,7 @@ def get_tiff_colormap(colormap: LvpColormap, dtype):
     with uint8 but NOT with uint16.
     """
     if dtype not in ('uint8', np.uint8):
-        raise NotImplementedError(f"TIFF colormap only supported for uint8, got {dtype}")
+        raise NotImplementedError(f'TIFF colormap only supported for uint8, got {dtype}')
 
     max_value = np.iinfo(np.uint8).max + 1  # 256
 
@@ -248,7 +254,7 @@ def get_tiff_colormap(colormap: LvpColormap, dtype):
     elif colormap == LvpColormap.BLUE:
         cmap_array[2] = np.arange(0, max_value, 1, dtype=np.uint8)
     else:
-        raise NotImplementedError(f"Unsupported colormap: {colormap}")
+        raise NotImplementedError(f'Unsupported colormap: {colormap}')
     return cmap_array
 
 
@@ -270,20 +276,20 @@ def get_imagej_lut(colormap: LvpColormap):
     elif colormap == LvpColormap.BLUE:
         return np.stack([zeros, zeros, ramp])
     else:
-        raise NotImplementedError(f"Unsupported colormap: {colormap}")
+        raise NotImplementedError(f'Unsupported colormap: {colormap}')
 
 
 def write_tiff(
-        data,
-        file_loc: pathlib.Path,
-        metadata: dict,
-        ome: bool,
-        color: str,
-        video_frame: bool = False,
-        extratags: list = None,
-        use_false_color_16bit: bool | None = None,
-        false_color_buf: np.ndarray | None = None,
-        rgb_buf: np.ndarray | None = None,
+    data,
+    file_loc: pathlib.Path,
+    metadata: dict,
+    ome: bool,
+    color: str,
+    video_frame: bool = False,
+    extratags: list = None,
+    use_false_color_16bit: bool | None = None,
+    false_color_buf: np.ndarray | None = None,
+    rgb_buf: np.ndarray | None = None,
 ):
     if extratags is None:
         extratags = []
@@ -300,12 +306,15 @@ def write_tiff(
     # false_color_buf is the in-place RGB destination for add_false_color;
     # rgb_buf is retained for API compat and will be retired once callers
     # drop it.
-    if (data.dtype in (np.uint8, np.uint16)
-            and not is_color_image(data)
-            and color in common_utils.get_image_layers()):
+    if (
+        data.dtype in (np.uint8, np.uint16)
+        and not is_color_image(data)
+        and color in common_utils.get_image_layers()
+    ):
         try:
             if use_false_color_16bit is None:
                 from modules import app_context as _app_ctx
+
                 with _app_ctx.ctx.settings_lock:
                     use_false_color_16bit = _app_ctx.ctx.settings.get('false_color_16bit', False)
             if use_false_color_16bit:
@@ -351,17 +360,14 @@ def write_tiff(
             image_type = 'video_frame'
 
         if type_count > 1:
-            raise ValueError("Tiff must only be one type at most (OME, ImageJ, or Video Frame)")
+            raise ValueError('Tiff must only be one type at most (OME, ImageJ, or Video Frame)')
 
         return image_type
 
     image_type = _validate_type()
 
     support_data = generate_tiff_data(
-        data=data,
-        metadata=metadata,
-        image_type=image_type,
-        color=color
+        data=data, metadata=metadata, image_type=image_type, color=color
     )
 
     with tf.TiffWriter(str(file_loc), **kwargs) as tif:
@@ -370,7 +376,7 @@ def write_tiff(
                 data,
                 metadata=support_data['metadata'],
                 datetime=metadata['datetime'],
-                software=f"LumaViewPro {version}",
+                software=f'LumaViewPro {version}',
                 **support_data['options'],
             )
 
@@ -381,18 +387,17 @@ def write_tiff(
                 resolution=support_data['resolution'],
                 metadata=support_data['metadata'],
                 datetime=metadata['datetime'],
-                software=f"LumaViewPro {version}",
+                software=f'LumaViewPro {version}',
                 **support_data['options'],
             )
 
         elif (image_type == 'ome') and is_color_image(image=data):
-
             tif.write(
                 data,
                 resolution=support_data['resolution'],
                 metadata=support_data['metadata'],
                 datetime=metadata['datetime'],
-                software=f"LumaViewPro {version}",
+                software=f'LumaViewPro {version}',
                 **support_data['options'],
             )
 
@@ -414,14 +419,19 @@ def write_tiff(
                 resolution=support_data['resolution'],
                 metadata=support_data['metadata'],
                 datetime=metadata['datetime'],
-                software=f"LumaViewPro {version}",
+                software=f'LumaViewPro {version}',
                 colormap=colormap_array,
                 extratags=support_data['extratags'],
                 **support_data['options'],
             )
 
 
-def generate_tiff_data(data, metadata: dict, image_type: str, color: str,):
+def generate_tiff_data(
+    data,
+    metadata: dict,
+    image_type: str,
+    color: str,
+):
 
     dtype = tifffile_dtypes
     axes = 'YX'
@@ -445,7 +455,7 @@ def generate_tiff_data(data, metadata: dict, image_type: str, color: str,):
             photometric = tf.PHOTOMETRIC.MINISBLACK
         modality = 'MIF'
     else:
-        raise ValueError(f"Unexpected color value ({color}) for tiff data generation")
+        raise ValueError(f'Unexpected color value ({color}) for tiff data generation')
 
     # Video frames pass through metadata as-is with no structured fields
     if image_type == 'video_frame':
@@ -546,7 +556,7 @@ def generate_tiff_data(data, metadata: dict, image_type: str, color: str,):
             maxworkers=0,
         )
         # Resolution for ImageJ types is in pixels/pixel
-        resolution = (1. / metadata['pixel_size_um'], 1. / metadata['pixel_size_um'])
+        resolution = (1.0 / metadata['pixel_size_um'], 1.0 / metadata['pixel_size_um'])
     else:
         # ome and default use same options. maxworkers=0 disables tifffile's
         # per-write ThreadPoolExecutor; the executor's internal queue holds
@@ -581,6 +591,7 @@ def ms_exposure_to_rational(ms_exposure):
     # Metadata uses rational number of seconds
     return fraction.numerator, fraction.denominator
 
+
 def subject_dist_to_rational(distance):
     distance_meters = distance / 1_000_000  # Convert um to m
     fraction = Fraction(distance_meters).limit_denominator(1_000_000)
@@ -593,8 +604,7 @@ _scale_bar_cache = {}
 def _compute_scale_bar_overlay(height, width, dtype, is_color, objective, binning_size, color):
     """Pre-render scale bar overlay and mask. Returns (overlay, mask, cache_key)."""
     pixel_size_um = common_utils.get_pixel_size(
-        focal_length=objective['focal_length'],
-        binning_size=binning_size
+        focal_length=objective['focal_length'], binning_size=binning_size
     )
 
     # Scale bar should be 1/8 to 1/4 the image length
@@ -607,7 +617,33 @@ def _compute_scale_bar_overlay(height, width, dtype, is_color, objective, binnin
     max_um = max_px * pixel_size_um
 
     good_numbers = np.array(
-        [25, 50, 75, 100, 125, 150, 175, 200, 250, 300, 350, 400, 450, 500, 600, 700, 800, 900, 1000, 1250, 1500, 1750, 2000, 2500, 3000],
+        [
+            25,
+            50,
+            75,
+            100,
+            125,
+            150,
+            175,
+            200,
+            250,
+            300,
+            350,
+            400,
+            450,
+            500,
+            600,
+            700,
+            800,
+            900,
+            1000,
+            1250,
+            1500,
+            1750,
+            2000,
+            2500,
+            3000,
+        ],
         dtype=float,
     )
 
@@ -641,10 +677,10 @@ def _compute_scale_bar_overlay(height, width, dtype, is_color, objective, binnin
     # Render onto a blank canvas
     if is_color:
         canvas = np.zeros((height, width, 3), dtype=dtype)
-        canvas[y_start:y_end+1, x_start:x_end+1, :] = scale_bar_value
+        canvas[y_start : y_end + 1, x_start : x_end + 1, :] = scale_bar_value
     else:
         canvas = np.zeros((height, width), dtype=dtype)
-        canvas[y_start:y_end+1, x_start:x_end+1] = scale_bar_value
+        canvas[y_start : y_end + 1, x_start : x_end + 1] = scale_bar_value
 
     text_x_pos = x_start
     text_y_pos = y_end + 5
@@ -652,14 +688,11 @@ def _compute_scale_bar_overlay(height, width, dtype, is_color, objective, binnin
     font_face = cv2.FONT_HERSHEY_SIMPLEX
     font_thickness = 1
 
-    scale_bar_text = f"{scale_bar_length_um}um, {objective['magnification']}x"
+    scale_bar_text = f'{scale_bar_length_um}um, {objective["magnification"]}x'
 
     while True:
         text_size, _ = cv2.getTextSize(
-            text=scale_bar_text,
-            fontFace=font_face,
-            fontScale=font_scale,
-            thickness=font_thickness
+            text=scale_bar_text, fontFace=font_face, fontScale=font_scale, thickness=font_thickness
         )
         if text_size[0] < scale_bar_length_pixels:
             break
@@ -674,7 +707,7 @@ def _compute_scale_bar_overlay(height, width, dtype, is_color, objective, binnin
         color=(scale_bar_value, scale_bar_value, scale_bar_value),
         thickness=font_thickness,
         lineType=cv2.LINE_AA,
-        bottomLeftOrigin=True
+        bottomLeftOrigin=True,
     )
 
     # Build boolean mask of non-zero pixels
@@ -705,7 +738,16 @@ def add_scale_bar(
     dtype = image.dtype
     is_color = is_color_image(image=image)
 
-    cache_key = (height, width, dtype, is_color, objective['focal_length'], objective['magnification'], binning_size, color)
+    cache_key = (
+        height,
+        width,
+        dtype,
+        is_color,
+        objective['focal_length'],
+        objective['magnification'],
+        binning_size,
+        color,
+    )
 
     if _scale_bar_cache.get('key') != cache_key:
         overlay, mask, value = _compute_scale_bar_overlay(
@@ -746,28 +788,25 @@ def add_timestamp(image, timestamp_str: str, in_place: bool = True):
 
     dtype = image.dtype
 
-    text_color_bg = (0,0,0)
-    font_scale = max(0.75, width/2000)
+    text_color_bg = (0, 0, 0)
+    font_scale = max(0.75, width / 2000)
     font_face = cv2.FONT_HERSHEY_SIMPLEX
     font_thickness = 1
 
     text_size, _ = cv2.getTextSize(
-        text=timestamp_str,
-        fontFace=font_face,
-        fontScale=font_scale,
-        thickness=font_thickness
+        text=timestamp_str, fontFace=font_face, fontScale=font_scale, thickness=font_thickness
     )
     text_w, text_h = text_size
 
-    bottom_offset = int(height/40)
-    left_offset = int(width/40)
+    bottom_offset = int(height / 40)
+    left_offset = int(width / 40)
 
     top_offset = height - bottom_offset
 
     if dtype == np.uint8:
-        text_intensity = 2**8-1
-    else: # 16-bit
-        text_intensity = 2**16-1
+        text_intensity = 2**8 - 1
+    else:  # 16-bit
+        text_intensity = 2**16 - 1
 
     if not in_place:
         image = image.copy()
@@ -778,21 +817,21 @@ def add_timestamp(image, timestamp_str: str, in_place: bool = True):
     cv2.rectangle(
         image,
         (left_offset, top_offset),
-        (left_offset+text_w, top_offset+text_h),
+        (left_offset + text_w, top_offset + text_h),
         text_color_bg,
-        -1
+        -1,
     )
 
     cv2.putText(
         img=image,
-        text=f"{timestamp_str}",
+        text=f'{timestamp_str}',
         org=(left_offset, int(top_offset + text_h + font_scale - 1)),
         fontFace=font_face,
         fontScale=font_scale,
-        color=(text_intensity,text_intensity,text_intensity),
+        color=(text_intensity, text_intensity, text_intensity),
         thickness=font_thickness,
         lineType=cv2.LINE_AA,
-        bottomLeftOrigin=False
+        bottomLeftOrigin=False,
     )
 
     return image

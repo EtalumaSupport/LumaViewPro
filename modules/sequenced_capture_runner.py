@@ -65,9 +65,9 @@ step_dict = {
 }
 """
 
-class SequencedCaptureRunner:
 
-    LOGGER_NAME = "SeqCapExec"
+class SequencedCaptureRunner:
+    LOGGER_NAME = 'SeqCapExec'
     STEP_TIMEOUT_SECONDS = 120  # Max time to wait for a single step (motion + capture)
 
     def __init__(
@@ -102,7 +102,9 @@ class SequencedCaptureRunner:
         # construct SCE without a real protocol_thread can still read
         # this Event because it defaults to a local Event before run().
         self._aborted: threading.Event = threading.Event()
-        self._run_in_progress_event = threading.Event()  # GIL-free safe replacement for _run_in_progress bool
+        self._run_in_progress_event = (
+            threading.Event()
+        )  # GIL-free safe replacement for _run_in_progress bool
         self._cleanup_lock = threading.Lock()
         self._run_lock = threading.Lock()
         self._grease_redistribution_event = threading.Event()
@@ -133,7 +135,6 @@ class SequencedCaptureRunner:
         self._step_executor = ProtocolStepRunner(self)
         self._run_loop_executor = ProtocolRunLoop(self)
 
-
     def set_scope(self, scope: Lumascope):
         self._scope = scope
 
@@ -155,9 +156,7 @@ class SequencedCaptureRunner:
         with self._protocol_state_lock:
             return self._state
 
-    def _reset_vars(
-        self
-    ):
+    def _reset_vars(self):
         self._run_dir = None
         self._run_trigger_source = None
         self._run_in_progress_event.clear()
@@ -188,7 +187,6 @@ class SequencedCaptureRunner:
         # run is enqueued via run_protocol(). Do not clear here -- doing
         # so would race a concurrent abort() request that fired between
         # the abort and the next run kickoff.
-        
 
     @staticmethod
     def _calculate_num_scans(
@@ -196,9 +194,7 @@ class SequencedCaptureRunner:
         run_mode: SequencedCaptureRunMode,
         max_scans: int | None,
     ) -> int:
-        if run_mode in (
-            SequencedCaptureRunMode.FULL_PROTOCOL,
-        ):
+        if run_mode in (SequencedCaptureRunMode.FULL_PROTOCOL,):
             # Protocol.from_file permits period==0 as a "valid single-scan
             # marker"; protocol_time_estimator handles it. Treating it as
             # 1 scan here matches that contract -- otherwise a valid TSV
@@ -208,7 +204,7 @@ class SequencedCaptureRunner:
             if period_s == 0:
                 n_scans = 1
             else:
-                n_scans = int(protocol.duration()/period_s)
+                n_scans = int(protocol.duration() / period_s)
 
             if max_scans is not None:
                 n_scans = min(n_scans, max_scans)
@@ -216,24 +212,17 @@ class SequencedCaptureRunner:
             n_scans = max_scans
 
         return n_scans
-    
 
     def num_scans(self) -> int:
         return self._n_scans
-    
 
     def scan_count(self) -> int:
         return self._scan_count
-    
 
     def remaining_scans(self) -> int:
         return self._n_scans - self._scan_count
-    
 
-    def _init_for_new_scan(
-        self,
-        max_scans: int
-    ) -> bool:
+    def _init_for_new_scan(self, max_scans: int) -> bool:
         self._reset_vars()
         self._n_scans = self._calculate_num_scans(
             protocol=self._protocol,
@@ -244,46 +233,32 @@ class SequencedCaptureRunner:
         self._start_t = datetime.datetime.now()
 
         if self._disable_saving_artifacts:
-            return {
-                'status': True,
-                'data': None,
-                'error': None
-            }
+            return {'status': True, 'data': None, 'error': None}
 
         try:
             self._parent_dir.mkdir(parents=True, exist_ok=True)
         except FileNotFoundError:
-            err_str = f"Unable to save data to {str(self._parent_dir)}. Please select an accessible capture location."
+            err_str = f'Unable to save data to {str(self._parent_dir)}. Please select an accessible capture location.'
             return {
                 'status': False,
                 'data': None,
                 'error': err_str,
             }
-    
+
         result = self._create_run_dir()
         if not result['status']:
             return result
-        
+
         try:
             self._initialize_run_dir()
         except Exception as ex:
-            err_str = f"Unable to initialize sequenced run directory: {ex}"
-            return {
-                'status': False,
-                'data': None,
-                'error': err_str
-            }
+            err_str = f'Unable to initialize sequenced run directory: {ex}'
+            return {'status': False, 'data': None, 'error': err_str}
 
-        return {
-            'status': True,
-            'data': None,
-            'error': None
-        }
-    
+        return {'status': True, 'data': None, 'error': None}
 
     def run_dir(self):
         return self._run_dir
-        
 
     def _create_run_dir(self):
         # Directory name uses second-resolution timestamps. Runs started
@@ -291,10 +266,8 @@ class SequencedCaptureRunner:
         # _002, ... up to 999 so user-visible "directory exists" errors
         # only fire on the impossibly-rare case of a thousand collisions.
         now = datetime.datetime.now()
-        base_time_string = now.strftime("%Y%m%d_%H%M%S")
-        candidates = [base_time_string] + [
-            f"{base_time_string}_{i:03d}" for i in range(1, 1000)
-        ]
+        base_time_string = now.strftime('%Y%m%d_%H%M%S')
+        candidates = [base_time_string] + [f'{base_time_string}_{i:03d}' for i in range(1, 1000)]
         for candidate in candidates:
             self._run_dir = self._parent_dir / candidate
             try:
@@ -307,7 +280,7 @@ class SequencedCaptureRunner:
             except FileExistsError:
                 continue
             except FileNotFoundError:
-                err_str = f"Unable to save data to {str(self._run_dir)}. Please select an accessible capture location."
+                err_str = f'Unable to save data to {str(self._run_dir)}. Please select an accessible capture location.'
                 return {
                     'status': False,
                     'data': None,
@@ -315,29 +288,26 @@ class SequencedCaptureRunner:
                 }
 
         err_str = (
-            f"Unable to save data to {str(self._run_dir)}: "
-            f"exhausted 1000 collision suffixes within the same second. "
-            f"Please wait a moment and retry."
+            f'Unable to save data to {str(self._run_dir)}: '
+            f'exhausted 1000 collision suffixes within the same second. '
+            f'Please wait a moment and retry.'
         )
         return {
             'status': False,
             'data': None,
             'error': err_str,
         }
-    
 
     def _initialize_run_dir(self):
-        if self._sequence_name in (None, ""):
+        if self._sequence_name in (None, ''):
             self._sequence_name = 'unsaved_protocol'
-            
+
         protocol_filename = self._sequence_name
-        if not protocol_filename.endswith(".tsv"):
-            protocol_filename += ".tsv"
+        if not protocol_filename.endswith('.tsv'):
+            protocol_filename += '.tsv'
 
         protocol_file_loc = self._run_dir / protocol_filename
-        self._protocol.to_file(
-            file_path=protocol_file_loc
-        )
+        self._protocol.to_file(file_path=protocol_file_loc)
 
         protocol_record_file_loc = self._run_dir / ProtocolExecutionRecord.DEFAULT_FILENAME
         self._protocol_execution_record = ProtocolExecutionRecord(
@@ -346,7 +316,6 @@ class SequencedCaptureRunner:
         )
 
         return True
-
 
     def reset(self):
         if not self._run_in_progress_event.is_set():
@@ -358,10 +327,9 @@ class SequencedCaptureRunner:
         self.protocol_thread.abort()
         self._cleanup()
 
-
     def protocol_interval(self):
         return self._protocol.period()
-    
+
     def _snapshot_run_state(self) -> None:
         """Snapshot mutable settings dicts into private copies for this run.
 
@@ -381,9 +349,8 @@ class SequencedCaptureRunner:
                 states[layer] = layer_configs[layer].get('autofocus', False)
             else:
                 with ctx.settings_lock:
-                    states[layer] = settings[layer]["autofocus"]
+                    states[layer] = settings[layer]['autofocus']
         return states
-
 
     def run(
         self,
@@ -402,34 +369,49 @@ class SequencedCaptureRunner:
         disable_saving_artifacts: bool = False,
         save_autofocus_data: bool = False,
         update_z_pos_from_autofocus: bool = False,
-        leds_state_at_end: str = "off",
+        leds_state_at_end: str = 'off',
         video_as_frames: bool = False,
         initial_autofocus_states: dict | None = None,
     ):
         with self._run_lock:
             if self._run_in_progress_event.is_set():
-                logger.error(f"[{self.LOGGER_NAME} ] Cannot start new run, run already in progress")
+                logger.error(f'[{self.LOGGER_NAME} ] Cannot start new run, run already in progress')
                 from modules.notification_center import notifications
-                notifications.warning("Protocol", "Already Running",
-                    "A protocol run is already in progress.")
+
+                notifications.warning(
+                    'Protocol', 'Already Running', 'A protocol run is already in progress.'
+                )
                 return
 
         # Check if file_io_executor still has pending writes
         if self.file_io_executor.is_protocol_queue_active():
-            logger.error(f"[{self.LOGGER_NAME} ] Cannot start new run, file writing still in progress")
+            logger.error(
+                f'[{self.LOGGER_NAME} ] Cannot start new run, file writing still in progress'
+            )
             from modules.notification_center import notifications
-            notifications.warning("Protocol", "Files Still Writing",
-                "Previous run's files are still being written. Please wait.")
+
+            notifications.warning(
+                'Protocol',
+                'Files Still Writing',
+                "Previous run's files are still being written. Please wait.",
+            )
             return
 
-        if leds_state_at_end not in ("off", "return_to_original",):
-            raise ValueError(f"Unsupported value for leds_state_at_end: {leds_state_at_end}")
+        if leds_state_at_end not in (
+            'off',
+            'return_to_original',
+        ):
+            raise ValueError(f'Unsupported value for leds_state_at_end: {leds_state_at_end}')
 
         if protocol.num_steps() == 0:
-            logger.error(f"[PROTOCOL] Protocol has no steps. Cannot start run.")
+            logger.error(f'[PROTOCOL] Protocol has no steps. Cannot start run.')
             from modules.notification_center import notifications
-            notifications.warning("Protocol", "No Steps",
-                "Protocol has no steps. Add at least one step before running.")
+
+            notifications.warning(
+                'Protocol',
+                'No Steps',
+                'Protocol has no steps. Add at least one step before running.',
+            )
             return
 
         # Pre-run validation: check positions within axis limits
@@ -446,14 +428,20 @@ class SequencedCaptureRunner:
             validation_errors = protocol.validate_for_run(axis_limits=axis_limits)
             if validation_errors:
                 for err in validation_errors:
-                    logger.error(f"[PROTOCOL] Validation: {err}")
-                logger.error(f"[PROTOCOL] Protocol has {len(validation_errors)} validation error(s). Cannot start run.")
+                    logger.error(f'[PROTOCOL] Validation: {err}')
+                logger.error(
+                    f'[PROTOCOL] Protocol has {len(validation_errors)} validation error(s). Cannot start run.'
+                )
                 from modules.notification_center import notifications
-                err_summary = "\n".join(f"  - {err}" for err in validation_errors[:5])
+
+                err_summary = '\n'.join(f'  - {err}' for err in validation_errors[:5])
                 if len(validation_errors) > 5:
-                    err_summary += f"\n  ... and {len(validation_errors)-5} more (see log)"
-                notifications.error("Protocol", "Validation failed",
-                    f"Protocol has {len(validation_errors)} validation error(s):\n{err_summary}")
+                    err_summary += f'\n  ... and {len(validation_errors) - 5} more (see log)'
+                notifications.error(
+                    'Protocol',
+                    'Validation failed',
+                    f'Protocol has {len(validation_errors)} validation error(s):\n{err_summary}',
+                )
                 return
         except Exception as ex:
             # validate_for_run raised before producing a validation_errors
@@ -462,29 +450,40 @@ class SequencedCaptureRunner:
             # popup + return the run proceeded past validation and hit
             # hardware mid-run with bad coordinates. Mirrors the
             # are_all_connected exception handling below.
-            logger.error(f"[PROTOCOL] Pre-run validation could not run: {ex}")
+            logger.error(f'[PROTOCOL] Pre-run validation could not run: {ex}')
             from modules.notification_center import notifications
-            notifications.error("Protocol", "Cannot validate protocol",
-                f"Pre-run validation could not run: {type(ex).__name__}: {ex}. "
-                f"Check the labware + objectives configuration and try again.")
+
+            notifications.error(
+                'Protocol',
+                'Cannot validate protocol',
+                f'Pre-run validation could not run: {type(ex).__name__}: {ex}. '
+                f'Check the labware + objectives configuration and try again.',
+            )
             return
 
         try:
             if not self._scope.are_all_connected():
-                logger.error(f"[PROTOCOL] Not all scope components connected. Cannot start run.")
+                logger.error(f'[PROTOCOL] Not all scope components connected. Cannot start run.')
                 from modules.notification_center import notifications
-                notifications.error("Protocol", "Hardware Disconnected",
-                    "Not all hardware components are connected. Check connections and try again.")
+
+                notifications.error(
+                    'Protocol',
+                    'Hardware Disconnected',
+                    'Not all hardware components are connected. Check connections and try again.',
+                )
                 return
         except Exception as ex:
-            logger.error(f"[PROTOCOL] Error checking scope connection: {ex}")
+            logger.error(f'[PROTOCOL] Error checking scope connection: {ex}')
             from modules.notification_center import notifications
-            notifications.error("Protocol", "Cannot verify hardware state",
-                f"Could not check hardware connection status: {type(ex).__name__}: {ex}. "
-                f"Reconnect the scope and try again.")
+
+            notifications.error(
+                'Protocol',
+                'Cannot verify hardware state',
+                f'Could not check hardware connection status: {type(ex).__name__}: {ex}. '
+                f'Reconnect the scope and try again.',
+            )
             return
 
-        
         # Snapshot stage_offset so mid-run mutations to
         # ctx.settings['stage_offset'] don't change the in-flight coordinate
         # transforms partway through a multi-day soak.
@@ -512,8 +511,14 @@ class SequencedCaptureRunner:
         # settings dict (target_brightness, max_duration, min/max_gain_db)
         # do not leak into the in-flight scan. Mirrors the false_color_16bit
         # snapshot pattern below.
-        self._autogain_settings = copy.deepcopy(autogain_settings) if autogain_settings is not None else {}
-        self._callbacks = ProtocolCallbacks.from_dict(callbacks) if isinstance(callbacks, dict) else (callbacks or ProtocolCallbacks())
+        self._autogain_settings = (
+            copy.deepcopy(autogain_settings) if autogain_settings is not None else {}
+        )
+        self._callbacks = (
+            ProtocolCallbacks.from_dict(callbacks)
+            if isinstance(callbacks, dict)
+            else (callbacks or ProtocolCallbacks())
+        )
         self._return_to_position = return_to_position
         self._disable_saving_artifacts = disable_saving_artifacts
         self._save_autofocus_data = save_autofocus_data
@@ -535,12 +540,15 @@ class SequencedCaptureRunner:
         self._cancel_all_scheduled_events()
         result = self._init_for_new_scan(max_scans=max_scans)
         if not result['status']:
-            logger.error(f"[{self.LOGGER_NAME} ] {result['error']}")
+            logger.error(f'[{self.LOGGER_NAME} ] {result["error"]}')
             return
 
         ctx = _app_ctx.ctx
-        stim_profiling = (ctx.settings.get('profiling', {}).get('stim_profiling', False)
-                          if ctx is not None else False)
+        stim_profiling = (
+            ctx.settings.get('profiling', {}).get('stim_profiling', False)
+            if ctx is not None
+            else False
+        )
         # PIW-3: read once per run under settings_lock to avoid per-save lock acquires
         # in image_utils.write_tiff. Mid-run UI changes intentionally do not retro-affect
         # an in-flight protocol — saves use the value as of run-start.
@@ -550,7 +558,9 @@ class SequencedCaptureRunner:
         if ctx is not None:
             with ctx.settings_lock:
                 false_color_16bit = ctx.settings.get('false_color_16bit', False)
-                self._bf_af_for_fluorescence = ctx.settings.get('protocol', {}).get('bf_af_for_fluorescence', False)
+                self._bf_af_for_fluorescence = ctx.settings.get('protocol', {}).get(
+                    'bf_af_for_fluorescence', False
+                )
         else:
             false_color_16bit = False
             self._bf_af_for_fluorescence = False
@@ -584,7 +594,9 @@ class SequencedCaptureRunner:
         self._io_executor.protocol_start()
         self.file_io_executor.protocol_start()
         # Not IO
-        self._scope.imaging.update_auto_gain_target_brightness(self._autogain_settings['target_brightness'])
+        self._scope.imaging.update_auto_gain_target_brightness(
+            self._autogain_settings['target_brightness']
+        )
 
         # Dispatch the main run loop onto protocol_thread. The returned
         # Future is fire-and-forget here -- completion is signalled via
@@ -592,14 +604,15 @@ class SequencedCaptureRunner:
         # also clears _aborted under its state lock atomically with
         # publishing the new Future, mirroring the AutofocusThread fix.
         self.protocol_thread.run_protocol(self._run_loop_executor.run_loop)
-    
+
     def run_in_progress(self) -> bool:
         with self._run_lock:
             # Derive from both legacy flag and state for safety during transition
             return self._run_in_progress_event.is_set() or self._state in (
-                ProtocolState.RUNNING, ProtocolState.SCANNING, ProtocolState.COMPLETING
+                ProtocolState.RUNNING,
+                ProtocolState.SCANNING,
+                ProtocolState.COMPLETING,
             )
-    
 
     def run_trigger_source(self) -> str:
         return self._run_trigger_source
@@ -618,9 +631,8 @@ class SequencedCaptureRunner:
         except Exception:
             return None
 
-
     def _cancel_all_scheduled_events(self):
-        """Cancel any remaining scheduled events. 
+        """Cancel any remaining scheduled events.
         Note: With the loop-based approach, most work happens in executor threads,
         so there's less to unschedule than before.
         """
@@ -628,7 +640,6 @@ class SequencedCaptureRunner:
         # architecture, iterators run on executor threads, not Kivy Clock.
         self._protocol_iterator = None
         self._scan_iterator = None
-
 
     def _cleanup(self):
         if not self._cleanup_lock.acquire(blocking=False):
@@ -665,8 +676,8 @@ class SequencedCaptureRunner:
             autofocus_thread=self.autofocus_thread,
             file_io_executor=self.file_io_executor,
             camera_executor=self.camera_executor,
-            set_run_in_progress_fn=lambda v: self._run_in_progress_event.set() if v else self._run_in_progress_event.clear(),
+            set_run_in_progress_fn=lambda v: (
+                self._run_in_progress_event.set() if v else self._run_in_progress_event.clear()
+            ),
             logger_name=self.LOGGER_NAME,
         )
-
-

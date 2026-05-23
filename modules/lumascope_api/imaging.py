@@ -85,17 +85,15 @@ class _BudgetedHandler:
             # Rule 5: log every error with context. Exception does not
             # count toward budget -- a handler that crashes is a
             # different failure class from a handler that's too slow.
-            logger.exception(
-                f"[SCOPE API ] live_processing handler '{self._name}' raised: {e}"
-            )
+            logger.exception(f"[SCOPE API ] live_processing handler '{self._name}' raised: {e}")
             return
         elapsed_ms = (time.perf_counter() - t0) * 1000.0
         if elapsed_ms > HANDLER_BUDGET_MS:
             self._consecutive_over += 1
             logger.warning(
                 f"[SCOPE API ] live_processing handler '{self._name}' "
-                f"over budget: {elapsed_ms:.1f}ms (budget {HANDLER_BUDGET_MS}ms) "
-                f"-- consecutive {self._consecutive_over}/{HANDLER_DROP_K}"
+                f'over budget: {elapsed_ms:.1f}ms (budget {HANDLER_BUDGET_MS}ms) '
+                f'-- consecutive {self._consecutive_over}/{HANDLER_DROP_K}'
             )
             if self._consecutive_over >= HANDLER_DROP_K:
                 self._auto_remove(elapsed_ms)
@@ -112,16 +110,16 @@ class _BudgetedHandler:
         except Exception as e:
             logger.warning(
                 f"[SCOPE API ] live_processing handler '{self._name}' "
-                f"auto-remove cleanup failed: {e}"
+                f'auto-remove cleanup failed: {e}'
             )
         notifications.warning(
-            "Live Processing",
+            'Live Processing',
             f"Plugin '{self._name}' removed",
             f"The plugin's frame handler exceeded the {HANDLER_BUDGET_MS}ms "
-            f"budget for {HANDLER_DROP_K} consecutive frames "
-            f"(last: {last_elapsed_ms:.0f}ms). It has been disabled to "
+            f'budget for {HANDLER_DROP_K} consecutive frames '
+            f'(last: {last_elapsed_ms:.0f}ms). It has been disabled to '
             f"protect the imaging pipeline. Reduce the handler's per-frame "
-            f"cost and re-register, or restart the application."
+            f'cost and re-register, or restart the application.',
         )
 
 
@@ -163,8 +161,8 @@ class ImagingAPI:
         self._frame_buffer = None
 
         # Boolean operation flags -- threading.Event for wait/signal.
-        self._capturing_event = threading.Event()   # set => capture in progress
-        self._focusing_event = threading.Event()    # set => autofocus in progress
+        self._capturing_event = threading.Event()  # set => capture in progress
+        self._focusing_event = threading.Event()  # set => autofocus in progress
 
         # Capture / autofocus return slots. Reads/writes under
         # self._scope._state_lock (shared with other Lumascope state).
@@ -250,11 +248,14 @@ class ImagingAPI:
             import json
             import os
             import pathlib
+
             model = getattr(self._driver, 'model_name', None)
             if not model:
                 return
             safe_name = model.replace(' ', '_')
-            timing_dir = pathlib.Path(os.path.dirname(__file__)).parent.parent / 'data' / 'camera_timing'
+            timing_dir = (
+                pathlib.Path(os.path.dirname(__file__)).parent.parent / 'data' / 'camera_timing'
+            )
             timing_path = timing_dir / f'{safe_name}.json'
             if not timing_path.exists():
                 return
@@ -281,9 +282,15 @@ class ImagingAPI:
                 'max_frame_size': self._driver.get_max_frame_size() or {'width': 0, 'height': 0},
                 'min_frame_size': self._driver.get_min_frame_size() or {'width': 0, 'height': 0},
                 'max_exposure_ms': self._driver.get_max_exposure() or None,
-                'max_gain_db': self._driver.get_max_gain() if hasattr(self._driver, 'get_max_gain') else None,
-                'pixel_format': self._driver.get_pixel_format() if hasattr(self._driver, 'get_pixel_format') else None,
-                'binning': self._driver.get_binning_size() if hasattr(self._driver, 'get_binning_size') else 1,
+                'max_gain_db': self._driver.get_max_gain()
+                if hasattr(self._driver, 'get_max_gain')
+                else None,
+                'pixel_format': self._driver.get_pixel_format()
+                if hasattr(self._driver, 'get_pixel_format')
+                else None,
+                'binning': self._driver.get_binning_size()
+                if hasattr(self._driver, 'get_binning_size')
+                else 1,
             }
             with self._camera_cache_lock:
                 self._camera_cache.update(cache)
@@ -341,7 +348,8 @@ class ImagingAPI:
         Args:
             gain_db: Gain value in dB.
         """
-        if not self._driver or not self._driver.active: return
+        if not self._driver or not self._driver.active:
+            return
         # Skip redundant SDK call if gain hasn't changed
         if abs(float(gain_db) - self.camera_gain) < 0.001:
             return
@@ -362,7 +370,8 @@ class ImagingAPI:
         Args:
             exposure_ms: Exposure time in milliseconds.
         """
-        if not self._driver or not self._driver.active: return
+        if not self._driver or not self._driver.active:
+            return
         # Skip redundant SDK call if exposure hasn't changed
         if abs(float(exposure_ms) - self.camera_exposure_ms) < 0.001:
             return
@@ -374,12 +383,15 @@ class ImagingAPI:
         # bright samples, so the threshold sits below that range.
         if exposure_ms < 0.005 and not self._suppress_value_warnings:
             import traceback
+
             _caller = ''.join(traceback.format_stack(limit=6)[-4:-1]).strip()
-            logger.warning(f'[SCOPE API ] set_exposure_time({exposure_ms}ms) is below '
-                           f'any Basler sensor physical minimum -- camera '
-                           f'will clamp the request. Confirm the value is '
-                           f'in milliseconds, not seconds or microseconds.\n'
-                           f'Call stack:\n{_caller}')
+            logger.warning(
+                f'[SCOPE API ] set_exposure_time({exposure_ms}ms) is below '
+                f'any Basler sensor physical minimum -- camera '
+                f'will clamp the request. Confirm the value is '
+                f'in milliseconds, not seconds or microseconds.\n'
+                f'Call stack:\n{_caller}'
+            )
         with self._scope._cam_lock:
             self._driver.exposure_t(exposure_ms)
         self.frame_validity.invalidate('exposure')
@@ -400,7 +412,8 @@ class ImagingAPI:
             settings: Dict with 'target_brightness', 'min_gain_db', 'max_gain_db'.
         """
 
-        if not self._driver or not self._driver.active: return
+        if not self._driver or not self._driver.active:
+            return
         self._driver.auto_gain(
             state,
             target_brightness=settings['target_brightness'],
@@ -419,7 +432,8 @@ class ImagingAPI:
             state: True to enable auto exposure, False to disable.
         """
 
-        if not self._driver or not self._driver.active: return
+        if not self._driver or not self._driver.active:
+            return
         self._driver.auto_exposure_t(state)
         self.frame_validity.invalidate('exposure')
         # Auto-exposure dynamically adjusts the value; clear the manual
@@ -458,10 +472,10 @@ class ImagingAPI:
         if getattr(self._scope, 'no_hardware', False):
             return
         notifications.warning(
-            "Camera",
-            "Camera not connected",
-            f"Cannot change {op_label} -- camera is not connected. "
-            f"Check USB and reconnect, then try again.",
+            'Camera',
+            'Camera not connected',
+            f'Cannot change {op_label} -- camera is not connected. '
+            f'Check USB and reconnect, then try again.',
         )
 
     def set_binning_size(self, size: int) -> bool:
@@ -488,11 +502,15 @@ class ImagingAPI:
             _api_log.info(f'set_binning {size}x{size} -> {ok}')
             return ok
         except Exception as ex:
-            logger.exception(f"[SCOPE API ] Error setting binning size: {ex}")
+            logger.exception(f'[SCOPE API ] Error setting binning size: {ex}')
             from modules.notification_center import notifications
-            notifications.error("Camera", "Binning change failed",
-                f"Could not set binning to {size}x{size}: {type(ex).__name__}: {ex}. "
-                f"Camera may still be at previous binning -- verify actual frame size.")
+
+            notifications.error(
+                'Camera',
+                'Binning change failed',
+                f'Could not set binning to {size}x{size}: {type(ex).__name__}: {ex}. '
+                f'Camera may still be at previous binning -- verify actual frame size.',
+            )
             return False
 
     def set_pixel_format(self, pixel_format: str) -> bool:
@@ -513,14 +531,16 @@ class ImagingAPI:
         try:
             result = self._driver.set_pixel_format(pixel_format)
         except Exception as ex:
-            logger.exception(f"[SCOPE API ] Error setting pixel format: {ex}")
+            logger.exception(f'[SCOPE API ] Error setting pixel format: {ex}')
             from modules.notification_center import notifications
+
             notifications.error(
-                "Camera",
-                "Pixel format change failed",
-                f"Could not set pixel format to {pixel_format}: "
-                f"{type(ex).__name__}: {ex}. Camera may still be at the "
-                f"previous format.")
+                'Camera',
+                'Pixel format change failed',
+                f'Could not set pixel format to {pixel_format}: '
+                f'{type(ex).__name__}: {ex}. Camera may still be at the '
+                f'previous format.',
+            )
             return False
         if result:
             with self._camera_cache_lock:
@@ -588,16 +608,15 @@ class ImagingAPI:
         try:
             return bool(self._driver.set_acquisition_stop_mode(mode=mode))
         except Exception as ex:
-            logger.exception(
-                f"[SCOPE API ] Error setting acquisition_stop_mode: {ex}"
-            )
+            logger.exception(f'[SCOPE API ] Error setting acquisition_stop_mode: {ex}')
             from modules.notification_center import notifications
+
             notifications.error(
-                "Camera",
-                "BslAcquisitionStopMode change failed",
-                f"Could not set acquisition_stop_mode to {mode!r}: "
-                f"{type(ex).__name__}: {ex}. Camera may still be at "
-                f"the previous stop-mode setting."
+                'Camera',
+                'BslAcquisitionStopMode change failed',
+                f'Could not set acquisition_stop_mode to {mode!r}: '
+                f'{type(ex).__name__}: {ex}. Camera may still be at '
+                f'the previous stop-mode setting.',
             )
             raise
 
@@ -631,15 +650,13 @@ class ImagingAPI:
         try:
             return bool(self._driver.set_bandwidth_reserve_mode(mode=mode))
         except Exception as ex:
-            logger.exception(
-                f"[SCOPE API ] Error setting BandwidthReserveMode: {ex}"
-            )
+            logger.exception(f'[SCOPE API ] Error setting BandwidthReserveMode: {ex}')
             from modules.notification_center import notifications
+
             notifications.error(
-                "Camera",
-                "BandwidthReserveMode change failed",
-                f"Could not set BandwidthReserveMode to {mode!r}: "
-                f"{type(ex).__name__}: {ex}."
+                'Camera',
+                'BandwidthReserveMode change failed',
+                f'Could not set BandwidthReserveMode to {mode!r}: {type(ex).__name__}: {ex}.',
             )
             raise
 
@@ -696,20 +713,22 @@ class ImagingAPI:
             )
             return False
         try:
-            return bool(self._driver.set_device_link_throughput_limit(
-                mode=mode, value_bps=value_bps,
-            ))
-        except Exception as ex:
-            logger.exception(
-                f"[SCOPE API ] Error setting DLTL: {ex}"
+            return bool(
+                self._driver.set_device_link_throughput_limit(
+                    mode=mode,
+                    value_bps=value_bps,
+                )
             )
+        except Exception as ex:
+            logger.exception(f'[SCOPE API ] Error setting DLTL: {ex}')
             from modules.notification_center import notifications
+
             notifications.error(
-                "Camera",
-                "DeviceLinkThroughputLimit change failed",
-                f"Could not set DLTL to mode={mode}, value_bps={value_bps}: "
-                f"{type(ex).__name__}: {ex}. Camera may still be at the "
-                f"previous DLTL setting."
+                'Camera',
+                'DeviceLinkThroughputLimit change failed',
+                f'Could not set DLTL to mode={mode}, value_bps={value_bps}: '
+                f'{type(ex).__name__}: {ex}. Camera may still be at the '
+                f'previous DLTL setting.',
             )
             raise
 
@@ -742,19 +761,15 @@ class ImagingAPI:
         if not hasattr(self._driver, 'set_max_transfer_size'):
             return False
         try:
-            return bool(self._driver.set_max_transfer_size(
-                value_bytes=value_bytes
-            ))
+            return bool(self._driver.set_max_transfer_size(value_bytes=value_bytes))
         except Exception as ex:
-            logger.exception(
-                f"[SCOPE API ] Error setting MaxTransferSize: {ex}"
-            )
+            logger.exception(f'[SCOPE API ] Error setting MaxTransferSize: {ex}')
             from modules.notification_center import notifications
+
             notifications.error(
-                "Camera",
-                "MaxTransferSize change failed",
-                f"Could not set MaxTransferSize to {value_bytes}: "
-                f"{type(ex).__name__}: {ex}."
+                'Camera',
+                'MaxTransferSize change failed',
+                f'Could not set MaxTransferSize to {value_bytes}: {type(ex).__name__}: {ex}.',
             )
             raise
 
@@ -789,15 +804,13 @@ class ImagingAPI:
         try:
             return bool(self._driver.set_num_max_queued_urbs(value=value))
         except Exception as ex:
-            logger.exception(
-                f"[SCOPE API ] Error setting NumMaxQueuedUrbs: {ex}"
-            )
+            logger.exception(f'[SCOPE API ] Error setting NumMaxQueuedUrbs: {ex}')
             from modules.notification_center import notifications
+
             notifications.error(
-                "Camera",
-                "NumMaxQueuedUrbs change failed",
-                f"Could not set NumMaxQueuedUrbs to {value}: "
-                f"{type(ex).__name__}: {ex}."
+                'Camera',
+                'NumMaxQueuedUrbs change failed',
+                f'Could not set NumMaxQueuedUrbs to {value}: {type(ex).__name__}: {ex}.',
             )
             raise
 
@@ -835,15 +848,13 @@ class ImagingAPI:
         try:
             return bool(self._driver.set_max_num_buffer(value=int(value)))
         except Exception as ex:
-            logger.exception(
-                f"[SCOPE API ] Error setting MaxNumBuffer: {ex}"
-            )
+            logger.exception(f'[SCOPE API ] Error setting MaxNumBuffer: {ex}')
             from modules.notification_center import notifications
+
             notifications.error(
-                "Camera",
-                "MaxNumBuffer change failed",
-                f"Could not set MaxNumBuffer to {value}: "
-                f"{type(ex).__name__}: {ex}."
+                'Camera',
+                'MaxNumBuffer change failed',
+                f'Could not set MaxNumBuffer to {value}: {type(ex).__name__}: {ex}.',
             )
             raise
 
@@ -906,15 +917,13 @@ class ImagingAPI:
         try:
             return bool(self._driver.set_gev_packet_size(size_bytes=size_bytes))
         except Exception as ex:
-            logger.exception(
-                f"[SCOPE API ] Error setting GevSCPSPacketSize: {ex}"
-            )
+            logger.exception(f'[SCOPE API ] Error setting GevSCPSPacketSize: {ex}')
             from modules.notification_center import notifications
+
             notifications.error(
-                "Camera",
-                "GevSCPSPacketSize change failed",
-                f"Could not set GevSCPSPacketSize to {size_bytes}: "
-                f"{type(ex).__name__}: {ex}."
+                'Camera',
+                'GevSCPSPacketSize change failed',
+                f'Could not set GevSCPSPacketSize to {size_bytes}: {type(ex).__name__}: {ex}.',
             )
             raise
 
@@ -945,19 +954,15 @@ class ImagingAPI:
         if not hasattr(self._driver, 'set_gev_inter_packet_delay'):
             return False
         try:
-            return bool(self._driver.set_gev_inter_packet_delay(
-                delay_ticks=delay_ticks
-            ))
+            return bool(self._driver.set_gev_inter_packet_delay(delay_ticks=delay_ticks))
         except Exception as ex:
-            logger.exception(
-                f"[SCOPE API ] Error setting GevSCPD: {ex}"
-            )
+            logger.exception(f'[SCOPE API ] Error setting GevSCPD: {ex}')
             from modules.notification_center import notifications
+
             notifications.error(
-                "Camera",
-                "GevSCPD change failed",
-                f"Could not set GevSCPD to {delay_ticks}: "
-                f"{type(ex).__name__}: {ex}."
+                'Camera',
+                'GevSCPD change failed',
+                f'Could not set GevSCPD to {delay_ticks}: {type(ex).__name__}: {ex}.',
             )
             raise
 
@@ -970,12 +975,14 @@ class ImagingAPI:
             cb_kwargs: Optional kwargs passed to the callback.
         """
         ex = self._scope._require_executor(self._scope._camera_executor, 'set_gain_async')
-        ex.put(IOTask(
-            action=self.set_gain,
-            args=(gain_db,),
-            callback=callback,
-            cb_kwargs=cb_kwargs,
-        ))
+        ex.put(
+            IOTask(
+                action=self.set_gain,
+                args=(gain_db,),
+                callback=callback,
+                cb_kwargs=cb_kwargs,
+            )
+        )
 
     def set_gain_sync(self, gain_db, *, timeout_s: float = 5.0) -> None:
         """Run ``set_gain`` through the camera_executor and block until done.
@@ -999,12 +1006,14 @@ class ImagingAPI:
             cb_kwargs: Optional kwargs passed to the callback.
         """
         ex = self._scope._require_executor(self._scope._camera_executor, 'set_exposure_time_async')
-        ex.put(IOTask(
-            action=self.set_exposure_time,
-            args=(exposure_ms,),
-            callback=callback,
-            cb_kwargs=cb_kwargs,
-        ))
+        ex.put(
+            IOTask(
+                action=self.set_exposure_time,
+                args=(exposure_ms,),
+                callback=callback,
+                cb_kwargs=cb_kwargs,
+            )
+        )
 
     def set_exposure_sync(self, exposure_ms, *, timeout_s: float = 5.0) -> None:
         """Run ``set_exposure_time`` through the camera_executor and block.
@@ -1051,16 +1060,15 @@ class ImagingAPI:
         try:
             self._driver.set_max_acquisition_frame_rate(enabled=enabled, fps=fps)
         except Exception as ex:
-            logger.exception(
-                f"[SCOPE API ] Error setting max_acquisition_frame_rate: {ex}"
-            )
+            logger.exception(f'[SCOPE API ] Error setting max_acquisition_frame_rate: {ex}')
             from modules.notification_center import notifications
+
             notifications.error(
-                "Camera",
-                "Frame-rate cap change failed",
-                f"Could not set frame-rate cap to enabled={enabled}, "
-                f"fps={fps}: {type(ex).__name__}: {ex}. Camera may still be "
-                f"at the previous setting."
+                'Camera',
+                'Frame-rate cap change failed',
+                f'Could not set frame-rate cap to enabled={enabled}, '
+                f'fps={fps}: {type(ex).__name__}: {ex}. Camera may still be '
+                f'at the previous setting.',
             )
             raise
 
@@ -1072,7 +1080,8 @@ class ImagingAPI:
             float: Gain in dB, or -1 if camera inactive.
         """
 
-        if not self._driver or not self._driver.active: return -1
+        if not self._driver or not self._driver.active:
+            return -1
         return self._driver.get_gain()
 
     def get_exposure_time(self) -> float:
@@ -1082,7 +1091,8 @@ class ImagingAPI:
             float: Exposure time in milliseconds, or 0 if camera inactive.
         """
 
-        if not self._driver or not self._driver.active: return 0
+        if not self._driver or not self._driver.active:
+            return 0
         exposure = self._driver.get_exposure_t()
         return exposure
 
@@ -1094,7 +1104,8 @@ class ImagingAPI:
                 None if inactive.
         """
 
-        if not self._driver or not self._driver.active: return
+        if not self._driver or not self._driver.active:
+            return
         return self._driver.get_frame_size()
 
     def get_pixel_format(self) -> str | None:
@@ -1113,7 +1124,8 @@ class ImagingAPI:
         Returns:
             int: Max width in pixels, or 0 if camera inactive.
         """
-        if (not self._driver) or (not self._driver.active): return 0
+        if (not self._driver) or (not self._driver.active):
+            return 0
         return self._driver.get_max_frame_size()['width']
 
     def get_max_height(self) -> int:
@@ -1122,7 +1134,8 @@ class ImagingAPI:
         Returns:
             int: Max height in pixels, or 0 if camera inactive.
         """
-        if (not self._driver) or (not self._driver.active): return 0
+        if (not self._driver) or (not self._driver.active):
+            return 0
         return self._driver.get_max_frame_size()['height']
 
     def get_width(self) -> int:
@@ -1131,7 +1144,8 @@ class ImagingAPI:
         Returns:
             int: Current width in pixels, or 0 if camera unavailable.
         """
-        if not self._driver: return 0
+        if not self._driver:
+            return 0
         return self._driver.get_frame_size()['width']
 
     def get_height(self) -> int:
@@ -1140,7 +1154,8 @@ class ImagingAPI:
         Returns:
             int: Current height in pixels, or 0 if camera unavailable.
         """
-        if not self._driver: return 0
+        if not self._driver:
+            return 0
         return self._driver.get_frame_size()['height']
 
     def get_binning_size(self) -> int:
@@ -1179,13 +1194,18 @@ class ImagingAPI:
             return [1]
 
     # --- Capture ---
-    def capture_and_wait(self, force_to_8bit: bool = True, *,
-                         exclude_sources: tuple = (),
-                         all_ones_check: bool = False,
-                         earliest_image_ts: datetime.datetime | None = None,
-                         timeout_s: float = 0.0,
-                         sum_count: int = 1, sum_delay_s: float = 0,
-                         sum_iteration_callback=None) -> 'np.ndarray | None':
+    def capture_and_wait(
+        self,
+        force_to_8bit: bool = True,
+        *,
+        exclude_sources: tuple = (),
+        all_ones_check: bool = False,
+        earliest_image_ts: datetime.datetime | None = None,
+        timeout_s: float = 0.0,
+        sum_count: int = 1,
+        sum_delay_s: float = 0,
+        sum_iteration_callback=None,
+    ) -> 'np.ndarray | None':
         """Capture a frame guaranteed to reflect the current hardware state.
 
         Uses frame-based settling: drains stale frames from the camera pipeline
@@ -1233,8 +1253,7 @@ class ImagingAPI:
                 self.frame_validity.count_frame(chunk_data=self._get_latest_chunks())
                 drain_iterations += 1
             else:
-                remaining = self.frame_validity.frames_until_valid(
-                    exclude_sources=exclude_sources)
+                remaining = self.frame_validity.frames_until_valid(exclude_sources=exclude_sources)
                 device_removed = (
                     self._driver.is_device_removed()
                     if self._driver and hasattr(self._driver, 'is_device_removed')
@@ -1292,21 +1311,23 @@ class ImagingAPI:
             sum_iteration_callback: Called after each summed frame.
         """
         ex = self._scope._require_executor(self._scope._camera_executor, 'capture_and_wait_async')
-        ex.put(IOTask(
-            action=self.capture_and_wait,
-            kwargs={
-                'force_to_8bit': force_to_8bit,
-                'exclude_sources': exclude_sources,
-                'all_ones_check': all_ones_check,
-                'earliest_image_ts': earliest_image_ts,
-                'timeout_s': timeout_s,
-                'sum_count': sum_count,
-                'sum_delay_s': sum_delay_s,
-                'sum_iteration_callback': sum_iteration_callback,
-            },
-            callback=callback,
-            cb_kwargs=cb_kwargs,
-        ))
+        ex.put(
+            IOTask(
+                action=self.capture_and_wait,
+                kwargs={
+                    'force_to_8bit': force_to_8bit,
+                    'exclude_sources': exclude_sources,
+                    'all_ones_check': all_ones_check,
+                    'earliest_image_ts': earliest_image_ts,
+                    'timeout_s': timeout_s,
+                    'sum_count': sum_count,
+                    'sum_delay_s': sum_delay_s,
+                    'sum_iteration_callback': sum_iteration_callback,
+                },
+                callback=callback,
+                cb_kwargs=cb_kwargs,
+            )
+        )
 
     def capture_and_wait_sync(
         self,
@@ -1363,7 +1384,7 @@ class ImagingAPI:
         all_ones_check: bool = False,
         sum_count: int = 1,
         sum_delay_s: float = 0,
-        sum_iteration_callback = None,
+        sum_iteration_callback=None,
         force_new_capture: bool = False,
         new_capture_timeout_s: float = 5.0,
     ) -> 'np.ndarray | None':
@@ -1409,7 +1430,9 @@ class ImagingAPI:
                 # set_gain/set_exposure from another thread mid-frame.
                 with self._scope._cam_lock:
                     if force_new_capture:
-                        grab_status, grab_image_ts = self._driver.grab_new_capture(new_capture_timeout_s)
+                        grab_status, grab_image_ts = self._driver.grab_new_capture(
+                            new_capture_timeout_s
+                        )
                     else:
                         grab_status, grab_image_ts = self._driver.grab()
 
@@ -1421,15 +1444,19 @@ class ImagingAPI:
                     # Check if camera disconnected — don't retry for 5 seconds
                     # if the camera is gone (H20).
                     if not self._driver.active:
-                        logger.error("[SCOPE API ] get_image: camera disconnected")
+                        logger.error('[SCOPE API ] get_image: camera disconnected')
                         from modules.notification_center import notifications
-                        notifications.error("Camera", "Camera Disconnected",
-                            "Camera is no longer available. Check USB connection.")
+
+                        notifications.error(
+                            'Camera',
+                            'Camera Disconnected',
+                            'Camera is no longer available. Check USB connection.',
+                        )
                         return None
                     if datetime.datetime.now() > stop_time:
-                        logger.error(f"[SCOPE API ] get_image timeout ({stop_time}) exceeded")
+                        logger.error(f'[SCOPE API ] get_image timeout ({stop_time}) exceeded')
                         return None
-                    logger.debug("[SCOPE API ] get_image grab failed, retrying")
+                    logger.debug('[SCOPE API ] get_image grab failed, retrying')
                     time.sleep(0.05)
                     continue
 
@@ -1439,7 +1466,11 @@ class ImagingAPI:
                     # too high), not a camera error. Don't loop until timeout.
                     retry_frame = None
                     with self._scope._cam_lock:
-                        retry_status, _ = self._driver.grab_new_capture(new_capture_timeout_s) if force_new_capture else self._driver.grab()
+                        retry_status, _ = (
+                            self._driver.grab_new_capture(new_capture_timeout_s)
+                            if force_new_capture
+                            else self._driver.grab()
+                        )
                         if retry_status:
                             self.frame_validity.count_frame()
                             retry_frame = self._driver.get_array()
@@ -1449,7 +1480,9 @@ class ImagingAPI:
                         if np.any(retry_frame != np.iinfo(retry_frame.dtype).max):
                             tmp = retry_frame  # retry was OK, use it
                         else:
-                            logger.debug("[SCOPE API ] get_image: saturated frame confirmed on retry")
+                            logger.debug(
+                                '[SCOPE API ] get_image: saturated frame confirmed on retry'
+                            )
 
                 # Accept the frame
                 if earliest_image_ts is None:
@@ -1460,11 +1493,13 @@ class ImagingAPI:
                     tmp_buffer.append(tmp)
                     break
 
-                logger.warning(f"[SCOPE API ] get_image earliest_image_time {earliest_image_ts} not met -> Image TS: {grab_image_ts}")
+                logger.warning(
+                    f'[SCOPE API ] get_image earliest_image_time {earliest_image_ts} not met -> Image TS: {grab_image_ts}'
+                )
 
                 # Timestamp not met — check timeout then retry
                 if datetime.datetime.now() > stop_time:
-                    logger.error(f"[SCOPE API ] get_image timeout ({stop_time}) exceeded")
+                    logger.error(f'[SCOPE API ] get_image timeout ({stop_time}) exceeded')
                     return None
                 time.sleep(0.05)
 
@@ -1555,10 +1590,7 @@ class ImagingAPI:
 
         return tmp, grab_image_ts, chunks
 
-    def get_image_from_buffer(
-        self,
-        force_to_8bit: bool = True
-        ) -> tuple:
+    def get_image_from_buffer(self, force_to_8bit: bool = True) -> tuple:
         """Grab the latest buffered frame from the camera without forcing a new capture.
 
         Copy budget (per frame):
@@ -1736,9 +1768,13 @@ class ImagingAPI:
             self.set_exposure_time(exposure_ms)
 
     # --- Camera config orchestration ---
-    def apply_layer_camera_settings(self, gain_db: float, exposure_ms: float,
-                                     auto_gain: bool = False,
-                                     auto_gain_settings: dict | None = None) -> None:
+    def apply_layer_camera_settings(
+        self,
+        gain_db: float,
+        exposure_ms: float,
+        auto_gain: bool = False,
+        auto_gain_settings: dict | None = None,
+    ) -> None:
         """Apply per-layer camera settings in a single batched call.
 
         Sets gain, exposure, and auto-gain state. Replaces 3 separate
@@ -1758,7 +1794,9 @@ class ImagingAPI:
         self.set_exposure_time(exposure_ms)
         if auto_gain_settings is not None:
             self.set_auto_gain(auto_gain, settings=auto_gain_settings)
-        _api_log.info(f'apply_layer_camera_settings gain={gain_db}dB exp={exposure_ms}ms auto_gain={auto_gain}')
+        _api_log.info(
+            f'apply_layer_camera_settings gain={gain_db}dB exp={exposure_ms}ms auto_gain={auto_gain}'
+        )
 
     def update_auto_gain_target_brightness(self, target_brightness: float) -> None:
         """Set the auto-gain target brightness on the camera.
@@ -1770,8 +1808,9 @@ class ImagingAPI:
             return
         self._driver.update_auto_gain_target_brightness(target_brightness)
 
-    def auto_gain_once(self, state: bool, target_brightness: float,
-                       min_gain_db: float, max_gain_db: float) -> None:
+    def auto_gain_once(
+        self, state: bool, target_brightness: float, min_gain_db: float, max_gain_db: float
+    ) -> None:
         """Run auto-gain for a single frame on the camera.
 
         Args:
@@ -1992,12 +2031,11 @@ class ImagingAPI:
         if not self._scope.camera_connected:
             return
         for source, temp in self._scope.diagnostics.get_camera_temperatures().items():
-            logger.info(
-                f'[CAM Class ] Camera {source} Temperature : {temp:.2f} degC')
+            logger.info(f'[CAM Class ] Camera {source} Temperature : {temp:.2f} degC')
 
     def start_camera_temp_logging(
-        self, schedule_interval_fn, unschedule_fn, *,
-        interval_s: float = 14400.0) -> None:
+        self, schedule_interval_fn, unschedule_fn, *, interval_s: float = 14400.0
+    ) -> None:
         """LVP-A-2: own the periodic camera-temp logging schedule.
 
         Was previously a Clock.schedule_interval registered by the App
@@ -2031,8 +2069,7 @@ class ImagingAPI:
             self.log_camera_temps()
 
         self._camera_temp_event = schedule_interval_fn(_tick, interval_s)
-        logger.info(
-            f'[SCOPE API ] start_camera_temp_logging: interval={interval_s}s')
+        logger.info(f'[SCOPE API ] start_camera_temp_logging: interval={interval_s}s')
 
     def stop_camera_temp_logging(self, unschedule_fn=None) -> None:
         """Cancel the periodic camera-temp logger if active.
@@ -2047,8 +2084,7 @@ class ImagingAPI:
         try:
             (unschedule_fn or self._camera_temp_unschedule_fn)(ev)
         except Exception as e:
-            logger.warning(
-                f'[SCOPE API ] stop_camera_temp_logging unschedule failed: {e}')
+            logger.warning(f'[SCOPE API ] stop_camera_temp_logging unschedule failed: {e}')
         self._camera_temp_event = None
 
     # --- Frame-flow listeners ---
@@ -2127,9 +2163,7 @@ class ImagingAPI:
             # failed so a future register attempt can retry.
             with self._frame_listener_lock:
                 self._frame_listener_wrappers.pop(cb, None)
-            logger.exception(
-                f"[SCOPE API ] add_frame_listener failed for '{name}': {ex}"
-            )
+            logger.exception(f"[SCOPE API ] add_frame_listener failed for '{name}': {ex}")
 
     def remove_frame_listener(self, cb) -> None:
         """Remove a listener registered via ``add_frame_listener``.
@@ -2147,9 +2181,7 @@ class ImagingAPI:
         try:
             self._driver.unregister_frame_callback(wrapper)
         except Exception as ex:
-            logger.exception(
-                f"[SCOPE API ] remove_frame_listener failed: {ex}"
-            )
+            logger.exception(f'[SCOPE API ] remove_frame_listener failed: {ex}')
 
     def _remove_wrapper(self, wrapper: '_BudgetedHandler') -> None:
         """Internal: auto-removal path. Called by _BudgetedHandler when
@@ -2168,7 +2200,4 @@ class ImagingAPI:
             try:
                 self._driver.unregister_frame_callback(wrapper)
             except Exception as ex:
-                logger.exception(
-                    f"[SCOPE API ] _remove_wrapper driver-unregister failed: {ex}"
-                )
-
+                logger.exception(f'[SCOPE API ] _remove_wrapper driver-unregister failed: {ex}')

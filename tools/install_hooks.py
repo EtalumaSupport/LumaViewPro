@@ -29,6 +29,7 @@ under the repo and reports violations regardless of staged state, so a
 fresh install on a repo with pre-existing violations gives a concrete
 cleanup list instead of failing on the first commit.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -38,7 +39,7 @@ from pathlib import Path
 
 _HOOK_MARKER = '# managed by tools/install_hooks.py (CLAUDE.md Rule 31)'
 
-_HOOK_SCRIPT = f'''#!/usr/bin/env bash
+_HOOK_SCRIPT = f"""#!/usr/bin/env bash
 {_HOOK_MARKER}
 # Mechanical Rule 24 / 27 / 28 pre-commit gate + version.txt bump.
 # Edit tools/check_rules.py to change the checks; do NOT edit this
@@ -75,35 +76,33 @@ if [ -f "$VERSION_FILE" ]; then
     printf "%s\\n%s\\n%s\\n%s\\n" "$VERSION" "$TIMESTAMP" "$BRANCH" "$GUID" > "$VERSION_FILE"
     git add "$VERSION_FILE"
 fi
-'''
+"""
 
 # Directories whose .py files are not subject to the rule check.
-_EXCLUDE_DIR_NAMES = frozenset({
-    '.git',
-    '__pycache__',
-    'build',
-    'dist',
-    'venv',
-    '.venv',
-    'env',
-    '.env',
-    'node_modules',
-    'completed',
-})
+_EXCLUDE_DIR_NAMES = frozenset(
+    {
+        '.git',
+        '__pycache__',
+        'build',
+        'dist',
+        'venv',
+        '.venv',
+        'env',
+        '.env',
+        'node_modules',
+        'completed',
+    }
+)
 
 
 def _git_dir() -> Path:
     """Return the resolved .git directory for the current repo."""
-    out = subprocess.check_output(
-        ['git', 'rev-parse', '--git-dir'], text=True
-    ).strip()
+    out = subprocess.check_output(['git', 'rev-parse', '--git-dir'], text=True).strip()
     return Path(out).resolve()
 
 
 def _repo_root() -> Path:
-    out = subprocess.check_output(
-        ['git', 'rev-parse', '--show-toplevel'], text=True
-    ).strip()
+    out = subprocess.check_output(['git', 'rev-parse', '--show-toplevel'], text=True).strip()
     return Path(out).resolve()
 
 
@@ -214,12 +213,13 @@ def dry_run() -> int:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split('\n', 1)[0])
     mode = parser.add_mutually_exclusive_group(required=True)
-    mode.add_argument('--install', action='store_true',
-                      help='install pre-commit hook')
-    mode.add_argument('--uninstall', action='store_true',
-                      help='remove the hook installed by this tool')
-    mode.add_argument('--dry-run', action='store_true',
-                      help='scan whole repo for violations; do not install')
+    mode.add_argument('--install', action='store_true', help='install pre-commit hook')
+    mode.add_argument(
+        '--uninstall', action='store_true', help='remove the hook installed by this tool'
+    )
+    mode.add_argument(
+        '--dry-run', action='store_true', help='scan whole repo for violations; do not install'
+    )
     args = parser.parse_args(argv)
 
     if args.install:

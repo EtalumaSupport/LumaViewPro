@@ -22,6 +22,7 @@ from modules.exceptions import ConfigError
 # Protocol / Step helpers
 # ---------------------------------------------------------------------------
 
+
 def find_nearest_step(x: float, y: float, protocol) -> int:
     """Given a position, find the nearest step index in the protocol."""
     if protocol is None or protocol.num_steps() <= 0:
@@ -36,6 +37,7 @@ def find_nearest_step(x: float, y: float, protocol) -> int:
 # Layer / channel configuration
 # ---------------------------------------------------------------------------
 
+
 def get_layer_configs(settings: dict, specific_layers: list | None = None) -> dict:
     """Build config dicts for each layer from settings.
 
@@ -46,7 +48,6 @@ def get_layer_configs(settings: dict, specific_layers: list | None = None) -> di
     """
     layer_configs = {}
     for layer in common_utils.get_layers():
-
         if (specific_layers is not None) and (layer not in specific_layers):
             continue
 
@@ -63,7 +64,9 @@ def get_layer_configs(settings: dict, specific_layers: list | None = None) -> di
 
         autofocus = layer_settings['autofocus']
         false_color = layer_settings['false_color']
-        illumination = round(layer_settings['ill_ma'], common_utils.max_decimal_precision('illumination'))
+        illumination = round(
+            layer_settings['ill_ma'], common_utils.max_decimal_precision('illumination')
+        )
         sum_count = layer_settings['sum']
         gain = round(layer_settings['gain_db'], common_utils.max_decimal_precision('gain'))
         auto_gain = common_utils.to_bool(layer_settings['auto_gain'])
@@ -124,6 +127,7 @@ def get_current_objective_info(settings: dict, objective_helper) -> tuple[str, d
 # Position helpers
 # ---------------------------------------------------------------------------
 
+
 def get_current_plate_position(
     scope,
     settings: dict,
@@ -136,7 +140,7 @@ def get_current_plate_position(
         dict with keys 'x', 'y', 'z' in plate coordinates (um).
     """
     if not scope.motor_connected:
-        logger.error("Cannot retrieve current plate position")
+        logger.error('Cannot retrieve current plate position')
         return {'x': 0, 'y': 0, 'z': 0}
 
     pos = scope.motion.get_current_position(axis=None)
@@ -154,12 +158,13 @@ def get_current_plate_position(
             exc_info=True,
         )
         from modules.notification_center import notifications
+
         notifications.warning(
-            "Position",
-            "Labware not found",
+            'Position',
+            'Labware not found',
             f"Labware '{labware_id}' could not be loaded: {type(e).__name__}: {e}. "
-            f"Returning stage coordinates instead of plate coordinates. "
-            f"Check that the labware is defined in data/labware.json.",
+            f'Returning stage coordinates instead of plate coordinates. '
+            f'Check that the labware is defined in data/labware.json.',
         )
         return {
             'x': round(pos.get('X', 0), common_utils.max_decimal_precision('x')),
@@ -184,6 +189,7 @@ def get_current_plate_position(
 # ---------------------------------------------------------------------------
 # System / logging helpers
 # ---------------------------------------------------------------------------
+
 
 def log_environment_once():
     """Log fixed environment fingerprint — system boot time, uptime, OS build,
@@ -220,6 +226,7 @@ def log_environment_once():
     pylon_ver = 'NA'
     try:
         from pypylon import pylon as _pylon
+
         pylon_ver = getattr(_pylon, '__version__', 'NA')
     except Exception:
         pass
@@ -228,24 +235,32 @@ def log_environment_once():
     if common_utils._IS_WINDOWS:
         try:
             import subprocess as _sub
-            out = _sub.check_output(
-                ['powershell', '-Command',
-                 '(Get-MpComputerStatus | '
-                 'Select-Object -Property RealTimeProtectionEnabled,'
-                 'AntivirusSignatureLastUpdated,'
-                 'QuickScanStartTime | ConvertTo-Json -Compress)'],
-                stderr=_sub.DEVNULL,
-                creationflags=0x08000000,  # CREATE_NO_WINDOW
-                timeout=15,
-            ).decode('utf-8', errors='ignore').strip()
+
+            out = (
+                _sub.check_output(
+                    [
+                        'powershell',
+                        '-Command',
+                        '(Get-MpComputerStatus | '
+                        'Select-Object -Property RealTimeProtectionEnabled,'
+                        'AntivirusSignatureLastUpdated,'
+                        'QuickScanStartTime | ConvertTo-Json -Compress)',
+                    ],
+                    stderr=_sub.DEVNULL,
+                    creationflags=0x08000000,  # CREATE_NO_WINDOW
+                    timeout=15,
+                )
+                .decode('utf-8', errors='ignore')
+                .strip()
+            )
             defender_state = out or 'NA'
         except Exception:
             pass
 
     metrics_logger.info(
-        f"[ENV METRICS] boot={boot_dt} | uptime_hr={uptime_hr:.1f} | "
-        f"os={os_release} | cores={ncores} | pylon={pylon_ver} | "
-        f"defender={defender_state}",
+        f'[ENV METRICS] boot={boot_dt} | uptime_hr={uptime_hr:.1f} | '
+        f'os={os_release} | cores={ncores} | pylon={pylon_ver} | '
+        f'defender={defender_state}',
     )
 
 
@@ -256,6 +271,7 @@ def log_system_metrics(settings: dict):
     # On installed apps, live_folder may still be './capture' before
     # microscope_settings resolves it to Documents.
     import pathlib
+
     resolved = pathlib.Path(path).resolve()
     if not resolved.exists():
         try:
@@ -268,7 +284,7 @@ def log_system_metrics(settings: dict):
 
     if free_space < 1024:  # Less than 1 GB
         logger.error(
-            f"Low disk space: {free_space:.1f} MB remaining",
+            f'Low disk space: {free_space:.1f} MB remaining',
         )
 
     # System uptime per-tick — pairs with [ENV METRICS] boot timestamp
@@ -277,30 +293,31 @@ def log_system_metrics(settings: dict):
     # contaminated by long-uptime memory exhaustion.
     try:
         import time as _time
+
         uptime_hr = (_time.time() - psutil.boot_time()) / 3600.0
-        uptime_str = f" | uptime_hr={uptime_hr:.1f}"
+        uptime_str = f' | uptime_hr={uptime_hr:.1f}'
     except Exception:
-        uptime_str = ""
+        uptime_str = ''
 
     metrics_logger.info(
-        f"[SYSTEM METRICS] CPU Usage: {metrics['cpu_percent_total']:.1f}% | "
-        f"RAM Available: {metrics['ram_available_gb']:.1f} GB | "
-        f"RAM Usage: {metrics['ram_percent_total']:.1f}%{uptime_str}",
+        f'[SYSTEM METRICS] CPU Usage: {metrics["cpu_percent_total"]:.1f}% | '
+        f'RAM Available: {metrics["ram_available_gb"]:.1f} GB | '
+        f'RAM Usage: {metrics["ram_percent_total"]:.1f}%{uptime_str}',
     )
     metrics_logger.info(
-        f"[DISK METRICS] Disk Free: {metrics['disk_free_gb']:.1f} GB | "
-        f"Disk Usage: {metrics['disk_used_percent']:.1f}%",
+        f'[DISK METRICS] Disk Free: {metrics["disk_free_gb"]:.1f} GB | '
+        f'Disk Usage: {metrics["disk_used_percent"]:.1f}%',
     )
     metrics_logger.info(
-        f"[PROCESS METRICS] Process CPU Usage: {metrics['cpu_percent_python']:.1f}% | "
-        f"Process RAM Usage: {metrics['ram_used_python_mb']:.1f} MB, "
-        f"{metrics['ram_used_python_percent']:.1f}% | "
-        f"Private: {metrics.get('ram_private_mb', -1):.1f} MB",
+        f'[PROCESS METRICS] Process CPU Usage: {metrics["cpu_percent_python"]:.1f}% | '
+        f'Process RAM Usage: {metrics["ram_used_python_mb"]:.1f} MB, '
+        f'{metrics["ram_used_python_percent"]:.1f}% | '
+        f'Private: {metrics.get("ram_private_mb", -1):.1f} MB',
     )
 
     extra_disks = common_utils.get_extra_disks_info(exclude_path=path)
     if extra_disks:
-        metrics_logger.info(f"[EXTRA DISKS] {extra_disks}")
+        metrics_logger.info(f'[EXTRA DISKS] {extra_disks}')
 
     # --- Long-run stability metrics ---
     # Each block is grep-able and routed through metrics_logger to
@@ -313,7 +330,7 @@ def log_system_metrics(settings: dict):
     gdi = metrics.get('gdi_objects', -1)
     if gdi >= 0:
         metrics_logger.info(
-            f"[GDI METRICS] gdi={gdi} | user={metrics.get('user_objects', -1)}",
+            f'[GDI METRICS] gdi={gdi} | user={metrics.get("user_objects", -1)}',
         )
 
     # OS handles + open files count. Watch for steady upward trend.
@@ -321,7 +338,7 @@ def log_system_metrics(settings: dict):
     open_files = metrics.get('open_files_count', -1)
     if handles >= 0 or open_files >= 0:
         metrics_logger.info(
-            f"[HANDLE METRICS] handles={handles} | open_files={open_files}",
+            f'[HANDLE METRICS] handles={handles} | open_files={open_files}',
         )
 
     # Thread count. Should plateau ~20-25; growth means executor leak.
@@ -331,31 +348,31 @@ def log_system_metrics(settings: dict):
         # Compact name summary: dedupe by stem (e.g. "ThreadPoolExecutor-3_4")
         # so 8 executor pool threads collapse to one entry with count.
         from collections import Counter
+
         name_summary = Counter()
         for n in thread_names:
             stem = n.split('-')[0] if '-' in n else n
             name_summary[stem] += 1
-        names_str = ', '.join(f"{k}={v}" for k, v in sorted(name_summary.items()))
+        names_str = ', '.join(f'{k}={v}' for k, v in sorted(name_summary.items()))
         metrics_logger.info(
-            f"[THREAD METRICS] count={thread_count} | {names_str}",
+            f'[THREAD METRICS] count={thread_count} | {names_str}',
         )
 
     # Python GC objects. Steady growth = closures or observers holding refs.
     gc_objects = metrics.get('gc_objects', -1)
     if gc_objects >= 0:
         metrics_logger.info(
-            f"[GC METRICS] objects={gc_objects} | "
-            f"gen0={metrics.get('gc_gen0_collections', -1)} "
-            f"gen1={metrics.get('gc_gen1_collections', -1)} "
-            f"gen2={metrics.get('gc_gen2_collections', -1)}",
+            f'[GC METRICS] objects={gc_objects} | '
+            f'gen0={metrics.get("gc_gen0_collections", -1)} '
+            f'gen1={metrics.get("gc_gen1_collections", -1)} '
+            f'gen2={metrics.get("gc_gen2_collections", -1)}',
         )
 
     # Swap pressure. "RAM looks low" doesn't catch page-file thrashing.
     swap_pct = metrics.get('swap_percent', -1)
     if swap_pct >= 0:
         metrics_logger.info(
-            f"[SWAP METRICS] used={metrics.get('swap_used_gb', -1):.1f} GB "
-            f"({swap_pct:.1f}%)",
+            f'[SWAP METRICS] used={metrics.get("swap_used_gb", -1):.1f} GB ({swap_pct:.1f}%)',
         )
 
     # Per-process I/O bytes (cumulative + per-second rates).
@@ -369,10 +386,9 @@ def log_system_metrics(settings: dict):
     if io_read >= 0 or io_write >= 0:
         rate_str = ''
         if io_read_rate >= 0 or io_write_rate >= 0:
-            rate_str = (f" | read_rate={io_read_rate:.2f} MB/s"
-                        f" | write_rate={io_write_rate:.2f} MB/s")
+            rate_str = f' | read_rate={io_read_rate:.2f} MB/s | write_rate={io_write_rate:.2f} MB/s'
         metrics_logger.info(
-            f"[PROCESS IO] read={io_read:.1f} MB | write={io_write:.1f} MB{rate_str}",
+            f'[PROCESS IO] read={io_read:.1f} MB | write={io_write:.1f} MB{rate_str}',
         )
 
     # Page-fault rate.
@@ -382,7 +398,7 @@ def log_system_metrics(settings: dict):
     pf_rate = metrics.get('page_faults_per_sec')
     if pf_total is not None or pf_rate is not None:
         metrics_logger.info(
-            f"[PAGE FAULTS] total={pf_total} | rate={pf_rate:.1f}/s",
+            f'[PAGE FAULTS] total={pf_total} | rate={pf_rate:.1f}/s',
         )
 
     # --- Windows PDH counters ---
@@ -395,33 +411,42 @@ def log_system_metrics(settings: dict):
     #   - Nonpaged pool growing → kernel-side leak (Pylon DMA, drivers).
     #   - System cache (\Memory\Cache Bytes) is the file-system cache —
     #     overlaps with standby on Windows; track both for cross-check.
-    pdh_keys = ['pdh_standby_normal_bytes', 'pdh_standby_reserve_bytes',
-                'pdh_standby_core_bytes', 'pdh_pool_nonpaged_bytes',
-                'pdh_pool_paged_bytes', 'pdh_system_cache_bytes',
-                'pdh_modified_page_bytes', 'pdh_free_zero_bytes',
-                'pdh_available_bytes', 'pdh_commit_bytes',
-                'pdh_commit_limit_bytes']
+    pdh_keys = [
+        'pdh_standby_normal_bytes',
+        'pdh_standby_reserve_bytes',
+        'pdh_standby_core_bytes',
+        'pdh_pool_nonpaged_bytes',
+        'pdh_pool_paged_bytes',
+        'pdh_system_cache_bytes',
+        'pdh_modified_page_bytes',
+        'pdh_free_zero_bytes',
+        'pdh_available_bytes',
+        'pdh_commit_bytes',
+        'pdh_commit_limit_bytes',
+    ]
     if any(k in metrics for k in pdh_keys):
+
         def _mb(key):
             v = metrics.get(key)
-            return f"{v / (1024*1024):.0f}" if v is not None else 'NA'
+            return f'{v / (1024 * 1024):.0f}' if v is not None else 'NA'
+
         standby_total_mb = (
             metrics.get('pdh_standby_normal_bytes', 0)
             + metrics.get('pdh_standby_reserve_bytes', 0)
             + metrics.get('pdh_standby_core_bytes', 0)
         ) / (1024 * 1024)
         metrics_logger.info(
-            f"[PDH METRICS] standby_total={standby_total_mb:.0f} MB "
-            f"(normal={_mb('pdh_standby_normal_bytes')} "
-            f"reserve={_mb('pdh_standby_reserve_bytes')} "
-            f"core={_mb('pdh_standby_core_bytes')}) | "
-            f"nonpaged_pool={_mb('pdh_pool_nonpaged_bytes')} MB | "
-            f"paged_pool={_mb('pdh_pool_paged_bytes')} MB | "
-            f"sys_cache={_mb('pdh_system_cache_bytes')} MB | "
-            f"modified={_mb('pdh_modified_page_bytes')} MB | "
-            f"free_zero={_mb('pdh_free_zero_bytes')} MB | "
-            f"available={_mb('pdh_available_bytes')} MB | "
-            f"commit={_mb('pdh_commit_bytes')}/{_mb('pdh_commit_limit_bytes')} MB",
+            f'[PDH METRICS] standby_total={standby_total_mb:.0f} MB '
+            f'(normal={_mb("pdh_standby_normal_bytes")} '
+            f'reserve={_mb("pdh_standby_reserve_bytes")} '
+            f'core={_mb("pdh_standby_core_bytes")}) | '
+            f'nonpaged_pool={_mb("pdh_pool_nonpaged_bytes")} MB | '
+            f'paged_pool={_mb("pdh_pool_paged_bytes")} MB | '
+            f'sys_cache={_mb("pdh_system_cache_bytes")} MB | '
+            f'modified={_mb("pdh_modified_page_bytes")} MB | '
+            f'free_zero={_mb("pdh_free_zero_bytes")} MB | '
+            f'available={_mb("pdh_available_bytes")} MB | '
+            f'commit={_mb("pdh_commit_bytes")}/{_mb("pdh_commit_limit_bytes")} MB',
         )
 
     # --- Buffer-churn signals from the live capture path ---
@@ -431,6 +456,7 @@ def log_system_metrics(settings: dict):
     # this product roughly.
     try:
         from modules import app_context as _app_ctx  # noqa: WPS433
+
         sd = _app_ctx.ctx.scope_display if _app_ctx.ctx is not None else None
     except Exception:
         sd = None
@@ -441,10 +467,10 @@ def log_system_metrics(settings: dict):
             camera_mbps = float(getattr(sd, '_camera_mbps', 0.0) or 0.0)
             frame_nbytes = int(getattr(sd, '_last_frame_nbytes', 0) or 0)
             metrics_logger.info(
-                f"[BUFFER METRICS] capture_fps={capture_fps:.1f} | "
-                f"display_fps={display_fps:.1f} | "
-                f"camera_data_rate={camera_mbps:.1f} MB/s | "
-                f"frame_size={frame_nbytes / 1024:.0f} KB",
+                f'[BUFFER METRICS] capture_fps={capture_fps:.1f} | '
+                f'display_fps={display_fps:.1f} | '
+                f'camera_data_rate={camera_mbps:.1f} MB/s | '
+                f'frame_size={frame_nbytes / 1024:.0f} KB',
             )
         except Exception as e:
             logger.debug(f'[BUFFER METRICS] unavailable: {e}')
@@ -458,12 +484,12 @@ def log_system_metrics(settings: dict):
                 pcts = sd.frame_interval_percentiles_ms()
                 if pcts:
                     metrics_logger.info(
-                        f"[FRAME INTERVAL] "
-                        f"p50={pcts['p50']:.1f} ms | "
-                        f"p95={pcts['p95']:.1f} ms | "
-                        f"p99={pcts['p99']:.1f} ms | "
-                        f"max={pcts['max']:.1f} ms | "
-                        f"n={pcts['n']}",
+                        f'[FRAME INTERVAL] '
+                        f'p50={pcts["p50"]:.1f} ms | '
+                        f'p95={pcts["p95"]:.1f} ms | '
+                        f'p99={pcts["p99"]:.1f} ms | '
+                        f'max={pcts["max"]:.1f} ms | '
+                        f'n={pcts["n"]}',
                     )
         except Exception as e:
             logger.debug(f'[FRAME INTERVAL] unavailable: {e}')
@@ -479,10 +505,10 @@ def log_system_metrics(settings: dict):
         defender_read = metrics.get('defender_io_read_mb_total', -1)
         defender_read_rate = metrics.get('defender_io_read_mbps', -1)
         metrics_logger.info(
-            f"[DEFENDER METRICS] private={defender_private:.0f} MB | "
-            f"rss={defender_rss:.0f} MB | "
-            f"io_read_total={defender_read:.0f} MB | "
-            f"io_read_rate={defender_read_rate:.2f} MB/s",
+            f'[DEFENDER METRICS] private={defender_private:.0f} MB | '
+            f'rss={defender_rss:.0f} MB | '
+            f'io_read_total={defender_read:.0f} MB | '
+            f'io_read_rate={defender_read_rate:.2f} MB/s',
         )
 
     # --- GC pressure ---
@@ -495,7 +521,7 @@ def log_system_metrics(settings: dict):
     g2 = metrics.get('gc_count_gen2')
     if g0 is not None and g1 is not None and g2 is not None:
         metrics_logger.info(
-            f"[GC PRESSURE] gen0_depth={g0} | gen1_depth={g1} | gen2_depth={g2}",
+            f'[GC PRESSURE] gen0_depth={g0} | gen1_depth={g1} | gen2_depth={g2}',
         )
 
     # --- Queue depth ---
@@ -511,9 +537,13 @@ def log_system_metrics(settings: dict):
         queue_parts = []
         # Walk known executors. Each may use a queue.Queue (qsize) or a
         # ThreadPoolExecutor (_work_queue.qsize). Both expose qsize().
-        for name in ('sequenced_capture_runner',
-                     'io_executor', 'camera_executor', 'file_io_executor',
-                     'worker_pool'):
+        for name in (
+            'sequenced_capture_runner',
+            'io_executor',
+            'camera_executor',
+            'file_io_executor',
+            'worker_pool',
+        ):
             # protocol_thread, scope_display_thread, autofocus_thread,
             # autofocus_runner excluded: they are bare Threads (or a
             # plain algorithm runner) with no queue and no
@@ -526,12 +556,12 @@ def log_system_metrics(settings: dict):
                 if wq is None and hasattr(exe, 'qsize'):
                     wq = exe
                 if wq is not None and hasattr(wq, 'qsize'):
-                    queue_parts.append(f"{name}={wq.qsize()}")
+                    queue_parts.append(f'{name}={wq.qsize()}')
             except Exception:
                 continue
         if queue_parts:
             metrics_logger.info(
-                f"[QUEUE METRICS] {' | '.join(queue_parts)}",
+                f'[QUEUE METRICS] {" | ".join(queue_parts)}',
             )
 
         # Per-executor caller_futures alloc/pop/live counters. Sustained
@@ -541,9 +571,13 @@ def log_system_metrics(settings: dict):
         # invariant: alloc == pop within a few per cadence (each
         # in-flight task is one of the few "live" entries).
         futures_parts = []
-        for name in ('sequenced_capture_runner',
-                     'io_executor', 'camera_executor', 'file_io_executor',
-                     'worker_pool'):
+        for name in (
+            'sequenced_capture_runner',
+            'io_executor',
+            'camera_executor',
+            'file_io_executor',
+            'worker_pool',
+        ):
             # protocol_thread, scope_display_thread, autofocus_thread,
             # autofocus_runner excluded: they are bare Threads (or a
             # plain algorithm runner) with no queue and no
@@ -553,12 +587,12 @@ def log_system_metrics(settings: dict):
                 if exe is None or not hasattr(exe, 'caller_futures_stats'):
                     continue
                 allocs, pops, live = exe.caller_futures_stats()
-                futures_parts.append(f"{name}: alloc={allocs} pop={pops} live={live}")
+                futures_parts.append(f'{name}: alloc={allocs} pop={pops} live={live}')
             except Exception:
                 continue
         if futures_parts:
             metrics_logger.info(
-                f"[FUTURES METRICS] {' | '.join(futures_parts)}",
+                f'[FUTURES METRICS] {" | ".join(futures_parts)}',
             )
 
     # --- tracemalloc top-N (settings-gated) ---
@@ -569,19 +603,21 @@ def log_system_metrics(settings: dict):
     # longer allocate on hot path.
     try:
         from modules import common_utils as _cu  # noqa: WPS433
+
         tm = _cu.query_tracemalloc_top_n(n=5)
         if tm:
             for i, entry in enumerate(tm, 1):
                 metrics_logger.info(
-                    f"[TRACEMALLOC] #{i} {entry['size_kb']:.0f} KB "
-                    f"(count={entry['count']}) at "
-                    f"{entry['file']}:{entry['line']}",
+                    f'[TRACEMALLOC] #{i} {entry["size_kb"]:.0f} KB '
+                    f'(count={entry["count"]}) at '
+                    f'{entry["file"]}:{entry["line"]}',
                 )
     except Exception as e:
         logger.debug(
             '[config_helpers] tracemalloc top-N read failed; '
             'TRACEMALLOC metrics omitted this tick: %s: %s',
-            type(e).__name__, e,
+            type(e).__name__,
+            e,
         )
 
 
@@ -603,13 +639,13 @@ def focus_log(positions, values, focus_round: int, source_path: str) -> int:
     return focus_round + 1
 
 
-def block_wait_for_threads(futures: list, log_loc: str = "LVP") -> None:
+def block_wait_for_threads(futures: list, log_loc: str = 'LVP') -> None:
     """Block until all futures complete, logging any errors."""
     for future in futures:
         try:
             future.result()
         except Exception as e:
-            logger.error(f"{log_loc} ] Thread Error: {e}")
+            logger.error(f'{log_loc} ] Thread Error: {e}')
 
 
 # ---------------------------------------------------------------------------
@@ -703,8 +739,7 @@ def get_selected_labware_from_settings(
         return labware_id, labware_obj
     except Exception:
         logger.warning(
-            f"Could not load labware '{labware_id}', falling back to "
-            f"default '{DEFAULT_LABWARE_ID}'"
+            f"Could not load labware '{labware_id}', falling back to default '{DEFAULT_LABWARE_ID}'"
         )
     # First fallback: the shipped default.
     if labware_id != DEFAULT_LABWARE_ID:
@@ -714,15 +749,14 @@ def get_selected_labware_from_settings(
         except Exception:
             logger.warning(
                 f"Default labware '{DEFAULT_LABWARE_ID}' also missing; "
-                f"falling back to first available plate"
+                f'falling back to first available plate'
             )
     # Second fallback: anything in the loader. If the loader is empty,
     # the install is broken (labware.json missing or unreadable).
     available = wellplate_loader.get_plate_list()
     if not available:
         raise ConfigError(
-            "wellplate_loader has no plates registered -- labware.json "
-            "is missing or unreadable"
+            'wellplate_loader has no plates registered -- labware.json is missing or unreadable'
         )
     fallback_id = available[0]
     return fallback_id, wellplate_loader.get_plate(plate_key=fallback_id)

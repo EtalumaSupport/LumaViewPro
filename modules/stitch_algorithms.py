@@ -22,6 +22,7 @@ from lvp_logger import logger
 # Color transfer (Reinhard et al., 2001)
 # ---------------------------------------------------------------------------
 
+
 def _image_stats(image):
     """Compute mean and std for each channel of an L*a*b* image."""
     (l, a, b) = cv2.split(image)
@@ -47,8 +48,8 @@ def color_transfer(source, target):
     numpy.ndarray
         Color-adjusted target image (BGR, uint8).
     """
-    source = cv2.cvtColor(source, cv2.COLOR_BGR2LAB).astype("float32")
-    target = cv2.cvtColor(target, cv2.COLOR_BGR2LAB).astype("float32")
+    source = cv2.cvtColor(source, cv2.COLOR_BGR2LAB).astype('float32')
+    target = cv2.cvtColor(target, cv2.COLOR_BGR2LAB).astype('float32')
 
     (lMeanSrc, lStdSrc, aMeanSrc, aStdSrc, bMeanSrc, bStdSrc) = _image_stats(source)
     (lMeanTar, lStdTar, aMeanTar, aStdTar, bMeanTar, bStdTar) = _image_stats(target)
@@ -71,7 +72,7 @@ def color_transfer(source, target):
     b = np.clip(b, 0, 255)
 
     transfer = cv2.merge([l, a, b])
-    transfer = cv2.cvtColor(transfer.astype("uint8"), cv2.COLOR_LAB2BGR)
+    transfer = cv2.cvtColor(transfer.astype('uint8'), cv2.COLOR_LAB2BGR)
     return transfer
 
 
@@ -108,7 +109,7 @@ def feature_stitch(images, n_results=N_RESULTS):
         (insufficient keypoints or no overlap detected).
     """
     if not images or len(images) < 2:
-        logger.warning("[Stitch] Need at least 2 images for feature stitching")
+        logger.warning('[Stitch] Need at least 2 images for feature stitching')
         return None
 
     stitcher = cv2.Stitcher_create(mode=cv2.STITCHER_SCANS)
@@ -124,21 +125,25 @@ def feature_stitch(images, n_results=N_RESULTS):
                 break
 
     if not results:
-        logger.warning("[Stitch] Feature stitching failed -- insufficient "
-                       "matching keypoints or no overlap detected")
+        logger.warning(
+            '[Stitch] Feature stitching failed -- insufficient '
+            'matching keypoints or no overlap detected'
+        )
         return None
 
     # Pick the result with highest total luminance (best coverage)
     im_total_luminance = np.array([im.sum() for im in results])
     best = results[np.argmax(im_total_luminance)]
-    logger.info(f"[Stitch] Feature stitch succeeded -- {len(results)}/{n_results} "
-                f"attempts produced results")
+    logger.info(
+        f'[Stitch] Feature stitch succeeded -- {len(results)}/{n_results} attempts produced results'
+    )
     return best
 
 
 # ---------------------------------------------------------------------------
 # Post-processing: border cleanup
 # ---------------------------------------------------------------------------
+
 
 def _grab_contours(cnts):
     """Extract contours from cv2.findContours result (OpenCV 4.x returns 2-tuple)."""
@@ -168,11 +173,12 @@ def crop_to_content(image):
     gray = cv2.cvtColor(padded, cv2.COLOR_BGR2GRAY)
     thresh = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY)[1]
 
-    contours = _grab_contours(cv2.findContours(
-        thresh.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE))
+    contours = _grab_contours(
+        cv2.findContours(thresh.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    )
     area = max(contours, key=cv2.contourArea)
 
-    mask = np.zeros(thresh.shape, dtype="uint8")
+    mask = np.zeros(thresh.shape, dtype='uint8')
     x, y, w, h = cv2.boundingRect(area)
     cv2.rectangle(mask, (x, y), (x + w, y + h), 255, -1)
 
@@ -183,9 +189,10 @@ def crop_to_content(image):
         min_rect = cv2.erode(min_rect, None)
         sub = cv2.subtract(min_rect, thresh)
 
-    contours = _grab_contours(cv2.findContours(
-        min_rect.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE))
+    contours = _grab_contours(
+        cv2.findContours(min_rect.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    )
     area = max(contours, key=cv2.contourArea)
 
     x, y, w, h = cv2.boundingRect(area)
-    return padded[y:y + h, x:x + w]
+    return padded[y : y + h, x : x + w]

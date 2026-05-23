@@ -30,23 +30,30 @@ _serial_log = logging.getLogger('LVP.serial')
 
 @led_registry.register('sim', priority=100, is_simulator=True)
 class SimulatedLEDBoard:
-
-    TIMING_INSTANT = {'delay': 0.0}     # Zero delay — for unit tests only
-    TIMING_FAST = {'delay': 0.001}      # 1ms minimum — nothing returns instantly
+    TIMING_INSTANT = {'delay': 0.0}  # Zero delay — for unit tests only
+    TIMING_FAST = {'delay': 0.001}  # 1ms minimum — nothing returns instantly
     TIMING_REALISTIC = {'delay': 0.012}  # ~12ms per exchange (1ms flush + 10ms write + 1ms read)
 
     _COLOR_TO_CH = {
-        'Blue': 0, 'Green': 1, 'Red': 2,
-        'BF': 3, 'PC': 4, 'DF': 5,
+        'Blue': 0,
+        'Green': 1,
+        'Red': 2,
+        'BF': 3,
+        'PC': 4,
+        'DF': 5,
     }
     _CH_TO_COLOR = {v: k for k, v in _COLOR_TO_CH.items()}
 
-    def __init__(self, delay: float = 0.0, timing: str = 'fast',
-                 firmware_version: str = '2.0.1',
-                 protocol_version: str = 'legacy',  # v3.0 STUB: 'legacy' or 'v3'
-                 fail_after: int | None = None,
-                 fail_on: set | None = None,
-                 **kwargs):
+    def __init__(
+        self,
+        delay: float = 0.0,
+        timing: str = 'fast',
+        firmware_version: str = '2.0.1',
+        protocol_version: str = 'legacy',  # v3.0 STUB: 'legacy' or 'v3'
+        fail_after: int | None = None,
+        fail_on: set | None = None,
+        **kwargs,
+    ):
         logger.info('[LED Sim   ] SimulatedLEDBoard.__init__()')
         self.found = True
         self._lock = threading.RLock()
@@ -58,8 +65,8 @@ class SimulatedLEDBoard:
         self.protocol_version = protocol_version  # v3.0 STUB: for future v3.0 simulation testing
 
         # Failure injection
-        self._fail_after = fail_after          # disconnect after N commands
-        self._fail_on = fail_on or set()       # return None for these commands
+        self._fail_after = fail_after  # disconnect after N commands
+        self._fail_on = fail_on or set()  # return None for these commands
         self._cmd_count = 0
 
         # Apply timing preset (overrides delay if preset given)
@@ -90,7 +97,9 @@ class SimulatedLEDBoard:
             'realistic': self.TIMING_REALISTIC,
         }
         if mode not in presets:
-            raise ValueError(f"Unknown timing mode: {mode!r}. Use 'instant', 'fast', or 'realistic'.")
+            raise ValueError(
+                f"Unknown timing mode: {mode!r}. Use 'instant', 'fast', or 'realistic'."
+            )
         preset = presets[mode]
         self._delay = preset['delay']
         self._timing_mode = mode
@@ -170,7 +179,9 @@ class SimulatedLEDBoard:
             # Failure injection: disconnect after N commands
             self._cmd_count += 1
             if self._fail_after is not None and self._cmd_count > self._fail_after:
-                logger.warning(f'[LED Sim   ] INJECTED FAILURE: disconnect after {self._fail_after} commands')
+                logger.warning(
+                    f'[LED Sim   ] INJECTED FAILURE: disconnect after {self._fail_after} commands'
+                )
                 self.driver = None
                 self.found = False
                 _serial_log.warning(
@@ -190,7 +201,7 @@ class SimulatedLEDBoard:
                 return None
 
             self._sim_delay()
-            response = f"RE: {command}"
+            response = f'RE: {command}'
             elapsed_ms = (time.monotonic() - t_start) * 1000
             logger.debug(f'[LED Sim   ] exchange_command({command}) -> {response}')
             resp_repr = repr(response)
@@ -226,7 +237,9 @@ class SimulatedLEDBoard:
             # Failure injection (same as exchange_command)
             self._cmd_count += 1
             if self._fail_after is not None and self._cmd_count > self._fail_after:
-                logger.warning(f'[LED Sim   ] INJECTED FAILURE: disconnect after {self._fail_after} commands')
+                logger.warning(
+                    f'[LED Sim   ] INJECTED FAILURE: disconnect after {self._fail_after} commands'
+                )
                 self.driver = None
                 self.found = False
                 _serial_log.warning(
@@ -324,7 +337,7 @@ class SimulatedLEDBoard:
         is effectively non-blocking; provided for API parity.
         """
         status = self.get_status()
-        while "STATUS" not in status:
+        while 'STATUS' not in status:
             status = self.get_status()
 
     # State-query methods retired in Wave 7 Phase 3d.5; see ledboard.py

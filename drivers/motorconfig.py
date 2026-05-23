@@ -14,10 +14,9 @@ from lvp_logger import logger
 
 
 class MotorConfig:
-
     def __init__(self, defaults_file: pathlib.Path):
         self._config = {}
-        self._defaults = self._load_json(defaults_file, label="defaults")
+        self._defaults = self._load_json(defaults_file, label='defaults')
         # Start with defaults
         self._config = dict(self._defaults)
 
@@ -36,14 +35,16 @@ class MotorConfig:
         self._deep_merge(self._config, validated)
 
     # Sections where values must be numeric (int or float).
-    _NUMERIC_SECTIONS = frozenset({
-        "Axis Microsteps per mm / Objective",
-        "Axis Travel Limit",
-        "Axis Present",
-        "Axis antibacklash",
-        "Axis Offset",
-        "Axis Timeout",
-    })
+    _NUMERIC_SECTIONS = frozenset(
+        {
+            'Axis Microsteps per mm / Objective',
+            'Axis Travel Limit',
+            'Axis Present',
+            'Axis antibacklash',
+            'Axis Offset',
+            'Axis Timeout',
+        }
+    )
 
     def _validate_board_config(self, board_config: dict) -> dict:
         """Return a copy of board_config with invalid values removed."""
@@ -56,43 +57,44 @@ class MotorConfig:
                         valid_axes[axis] = val
                     else:
                         logger.warning(
-                            f"[MotorConfig] Rejecting non-numeric board value "
-                            f"{key}.{axis}={val!r} (type={type(val).__name__})")
+                            f'[MotorConfig] Rejecting non-numeric board value '
+                            f'{key}.{axis}={val!r} (type={type(val).__name__})'
+                        )
                 cleaned[key] = valid_axes
-            elif key == "TurretPosition" and isinstance(value, dict):
+            elif key == 'TurretPosition' and isinstance(value, dict):
                 valid_pos = {}
                 for pos, val in value.items():
                     if isinstance(val, (int, float)):
                         valid_pos[pos] = val
                     else:
                         logger.warning(
-                            f"[MotorConfig] Rejecting non-numeric turret "
-                            f"position {pos}={val!r}")
+                            f'[MotorConfig] Rejecting non-numeric turret position {pos}={val!r}'
+                        )
                 cleaned[key] = valid_pos
-            elif key == "Optics" and isinstance(value, dict):
+            elif key == 'Optics' and isinstance(value, dict):
                 valid_optics = {}
                 for okey, oval in value.items():
                     if isinstance(oval, (int, float, str)):
                         valid_optics[okey] = oval
                     else:
                         logger.warning(
-                            f"[MotorConfig] Rejecting invalid optics "
-                            f"value {okey}={oval!r}")
+                            f'[MotorConfig] Rejecting invalid optics value {okey}={oval!r}'
+                        )
                 cleaned[key] = valid_optics
             else:
                 cleaned[key] = value
         return cleaned
 
     @staticmethod
-    def _load_json(file_path: pathlib.Path, label: str = "") -> dict:
+    def _load_json(file_path: pathlib.Path, label: str = '') -> dict:
         if file_path is None or not file_path.is_file():
-            logger.warning(f"[MotorConfig] {label} file not found: {file_path}")
+            logger.warning(f'[MotorConfig] {label} file not found: {file_path}')
             return {}
         try:
             with open(file_path, 'r') as fp:
                 return json.load(fp)
         except (json.JSONDecodeError, OSError) as ex:
-            logger.error(f"[MotorConfig] Failed to load {label} file {file_path}: {ex}")
+            logger.error(f'[MotorConfig] Failed to load {label} file {file_path}: {ex}')
             return {}
 
     @staticmethod
@@ -119,19 +121,19 @@ class MotorConfig:
     # --- Axis properties ---
 
     def usteps_per_mm(self, axis: str) -> int:
-        return int(self._axis_lookup("Axis Microsteps per mm / Objective", axis, default=20157))
+        return int(self._axis_lookup('Axis Microsteps per mm / Objective', axis, default=20157))
 
     def travel_limit_mm(self, axis: str) -> float:
-        return float(self._axis_lookup("Axis Travel Limit", axis, default=120))
+        return float(self._axis_lookup('Axis Travel Limit', axis, default=120))
 
     def travel_limit_um(self, axis: str) -> float:
         return self.travel_limit_mm(axis) * 1000.0
 
     def axis_present(self, axis: str) -> bool:
-        return bool(self._axis_lookup("Axis Present", axis, default=True))
+        return bool(self._axis_lookup('Axis Present', axis, default=True))
 
     def antibacklash_um(self, axis: str) -> int:
-        return int(self._axis_lookup("Axis antibacklash", axis, default=0))
+        return int(self._axis_lookup('Axis antibacklash', axis, default=0))
 
     # --- Motion ramp parameters (TMC5072 6-point ramp) ---
 
@@ -139,10 +141,46 @@ class MotorConfig:
     # Keyed by axis. These are hardware constants set at firmware load time.
     # Future: query dynamically from board via SPI or v3.1 firmware command.
     _DEFAULT_RAMP = {
-        'X': {'vstart': 0, 'a1': 0, 'v1': 0, 'amax': 50000, 'vmax': 800000, 'dmax': 50000, 'd1': 0, 'vstop': 10},
-        'Y': {'vstart': 0, 'a1': 0, 'v1': 0, 'amax': 50000, 'vmax': 800000, 'dmax': 50000, 'd1': 0, 'vstop': 10},
-        'Z': {'vstart': 0, 'a1': 0, 'v1': 0, 'amax': 25000, 'vmax': 400000, 'dmax': 25000, 'd1': 0, 'vstop': 100},
-        'T': {'vstart': 0, 'a1': 0, 'v1': 0, 'amax': 5000, 'vmax': 128000, 'dmax': 5000, 'd1': 0, 'vstop': 10},
+        'X': {
+            'vstart': 0,
+            'a1': 0,
+            'v1': 0,
+            'amax': 50000,
+            'vmax': 800000,
+            'dmax': 50000,
+            'd1': 0,
+            'vstop': 10,
+        },
+        'Y': {
+            'vstart': 0,
+            'a1': 0,
+            'v1': 0,
+            'amax': 50000,
+            'vmax': 800000,
+            'dmax': 50000,
+            'd1': 0,
+            'vstop': 10,
+        },
+        'Z': {
+            'vstart': 0,
+            'a1': 0,
+            'v1': 0,
+            'amax': 25000,
+            'vmax': 400000,
+            'dmax': 25000,
+            'd1': 0,
+            'vstop': 100,
+        },
+        'T': {
+            'vstart': 0,
+            'a1': 0,
+            'v1': 0,
+            'amax': 5000,
+            'vmax': 128000,
+            'dmax': 5000,
+            'd1': 0,
+            'vstop': 10,
+        },
     }
 
     def ramp_params_usteps(self, axis: str) -> dict:
@@ -155,7 +193,7 @@ class MotorConfig:
     #             a_real = register * f_clk^2 / (512 * 2^24) (in usteps/sec²)
     # f_clk = 16 MHz (internal oscillator, typical for TMC5072)
     _TMC_FCLK = 16_000_000
-    _TMC_VEL_FACTOR = _TMC_FCLK / (2**24)        # register → usteps/sec
+    _TMC_VEL_FACTOR = _TMC_FCLK / (2**24)  # register → usteps/sec
     _TMC_ACC_FACTOR = _TMC_FCLK**2 / (512 * 2**24)  # register → usteps/sec²
 
     def ramp_params(self, axis: str) -> dict:
@@ -185,33 +223,33 @@ class MotorConfig:
     # --- Board identity ---
 
     def model(self) -> str:
-        return self._config.get("Microscope", "LS850")
+        return self._config.get('Microscope', 'LS850')
 
     def serial_number(self) -> str:
-        return self._config.get("Serial Number", "Unknown")
+        return self._config.get('Serial Number', 'Unknown')
 
     def hardware_rev(self) -> str:
-        return self._config.get("HardwareRev", "Unknown")
+        return self._config.get('HardwareRev', 'Unknown')
 
     # --- Image center offset ---
 
     def image_center_offset(self) -> tuple[int, int]:
         """Return (X, Y) image center offset in microsteps."""
-        section = self._config.get("ImageCenter")
+        section = self._config.get('ImageCenter')
         if section is None:
             return (0, 0)
-        return (int(section.get("X", 0)), int(section.get("Y", 0)))
+        return (int(section.get('X', 0)), int(section.get('Y', 0)))
 
     # --- Turret ---
 
     def turret_position_usteps(self, position: int) -> int:
         """Get microstep position for turret slot (1-based)."""
-        section = self._config.get("TurretPosition")
+        section = self._config.get('TurretPosition')
         if section is None:
             return 0
         val = section.get(str(position))
         if val is None:
-            logger.warning(f"[MotorConfig] Turret position {position} not found")
+            logger.warning(f'[MotorConfig] Turret position {position} not found')
             return 0
         return int(val)
 
@@ -219,12 +257,12 @@ class MotorConfig:
 
     def lens_focal_length(self) -> float:
         try:
-            return float(self._config["Optics"]["LensFocalLength"])
+            return float(self._config['Optics']['LensFocalLength'])
         except (KeyError, TypeError, ValueError):
             return 47.8
 
     def pixel_size(self) -> float:
         try:
-            return float(self._config["Optics"]["PixelSize"])
+            return float(self._config['Optics']['PixelSize'])
         except (KeyError, TypeError, ValueError):
             return 2.0

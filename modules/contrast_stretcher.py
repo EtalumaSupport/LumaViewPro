@@ -4,8 +4,8 @@ from collections import deque
 
 import numpy as np
 
-class ContrastStretcher:
 
+class ContrastStretcher:
     def __init__(
         self,
         window_len: int,
@@ -28,14 +28,13 @@ class ContrastStretcher:
 
         self._lut = np.arange(256, dtype=np.uint8)
 
-
     def update(self, image: np.ndarray) -> np.ndarray:
 
         # Subsample for faster percentile calculation (~16x fewer pixels)
         sampled = image[::4, ::4]
 
         min_val = np.percentile(sampled, self._bottom_pct)
-        max_val = np.percentile(sampled, 100-self._top_pct)
+        max_val = np.percentile(sampled, 100 - self._top_pct)
         range_diff = max_val - min_val
 
         self._data['min'].append(min_val)

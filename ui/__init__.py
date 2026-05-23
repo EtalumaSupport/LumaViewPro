@@ -6,7 +6,8 @@ keep Kivy from writing logs to ~/.kivy/logs/. The LVP `kivy` logger is
 still routed through lvp_logger's file handler, so diagnostics remain
 in the main LVP logs — just not under the user's home dir.
 """
+
 import os
 
-os.environ.setdefault("KIVY_NO_CONSOLELOG", "1")
-os.environ.setdefault("KIVY_NO_FILELOG", "1")
+os.environ.setdefault('KIVY_NO_CONSOLELOG', '1')
+os.environ.setdefault('KIVY_NO_FILELOG', '1')

@@ -79,23 +79,20 @@ class ZStack(FloatLayout):
             range=settings['zstack']['range'],
             step_size=settings['zstack']['step_size'],
             current_z_reference=z_reference,
-            current_z_value=None
+            current_z_value=None,
         )
 
         self.ids['zstack_steps_id'].text = str(zstack_config.number_of_steps())
-
 
     def set_position(self):
         ctx = _app_ctx.ctx
         with ctx.settings_lock:
             ctx.settings['zstack']['position'] = self.ids['zstack_spinner'].text
 
-
     def _reset_run_zstack_acquire_button(self, **kwargs):
         self.ids['zstack_aqr_btn'].state = 'normal'
         self.ids['zstack_aqr_btn'].text = 'Acquire'
         live_histo_reverse()
-
 
     def _cleanup_at_end_of_acquire(self):
         ctx = _app_ctx.ctx
@@ -103,12 +100,10 @@ class ZStack(FloatLayout):
         self._reset_run_zstack_acquire_button()
         live_histo_reverse()
 
-
     def _zstack_run_complete(self, **kwargs):
         self._reset_run_zstack_acquire_button()
         create_hyperstacks_if_needed()
         live_histo_reverse()
-
 
     def run_zstack_acquire_from_ui(self):
         try:
@@ -125,10 +120,13 @@ class ZStack(FloatLayout):
             run_complete_func = self._zstack_run_complete
 
             run_trigger_source = ctx.sequenced_capture_runner.run_trigger_source()
-            if ctx.sequenced_capture_runner.run_in_progress() and \
-                (run_trigger_source != trigger_source):
+            if ctx.sequenced_capture_runner.run_in_progress() and (
+                run_trigger_source != trigger_source
+            ):
                 run_not_started_func()
-                logger.warning(f"Cannot start Z-Stack acquire. Run already in progress from {run_trigger_source}")
+                logger.warning(
+                    f'Cannot start Z-Stack acquire. Run already in progress from {run_trigger_source}'
+                )
                 return
 
             if self.ids['zstack_aqr_btn'].state == 'normal':
@@ -147,7 +145,7 @@ class ZStack(FloatLayout):
             zstack_positions_valid, _ = get_zstack_positions()
             zstack_params = get_zstack_params()
             active_layer, active_layer_config = get_active_layer_config()
-            active_layer_config['acquire'] = "image"
+            active_layer_config['acquire'] = 'image'
             # Z-stack manages Z positions explicitly — AF would override them
             active_layer_config['autofocus'] = False
 
@@ -155,13 +153,16 @@ class ZStack(FloatLayout):
                 _range = zstack_params.get('range', 0)
                 _step = zstack_params.get('step_size', 0)
                 if _range <= 0 or _step <= 0:
-                    msg = (f"Z-stack range ({_range}) and step size ({_step}) "
-                           f"must both be greater than zero.")
+                    msg = (
+                        f'Z-stack range ({_range}) and step size ({_step}) '
+                        f'must both be greater than zero.'
+                    )
                 else:
-                    msg = "No Z-stack positions configured."
+                    msg = 'No Z-stack positions configured.'
                 logger.warning(f'[LVP Main  ] ZStack: {msg}')
                 from modules.notification_center import notifications
-                notifications.warning("Z-Stack", "Z-Stack Not Configured", msg)
+
+                notifications.warning('Z-Stack', 'Z-Stack Not Configured', msg)
                 run_not_started_func()
                 return
 
@@ -173,7 +174,7 @@ class ZStack(FloatLayout):
             ]
 
             tiling_config = TilingConfig(
-                tiling_configs_file_loc=pathlib.Path(ctx.source_path) / "data" / "tiling.json",
+                tiling_configs_file_loc=pathlib.Path(ctx.source_path) / 'data' / 'tiling.json',
             )
 
             config = {
@@ -203,6 +204,7 @@ class ZStack(FloatLayout):
             # fires from the protocol thread.
             total_slices = zstack_sequence.num_steps()
             zstack_btn = self.ids['zstack_aqr_btn']
+
             def _zstack_progress(step_num):
                 Clock.schedule_once(
                     lambda dt: setattr(zstack_btn, 'text', f'Z {step_num}/{total_slices}'),
@@ -222,16 +224,16 @@ class ZStack(FloatLayout):
                 'reset_title': reset_title,
                 'pause_live_ui': lambda: (
                     ctx.scope_display.stop(),
-                    Clock.unschedule(ctx.motion_settings.update_xy_stage_control_gui)
+                    Clock.unschedule(ctx.motion_settings.update_xy_stage_control_gui),
                 ),
                 'resume_live_ui': lambda: (
                     ctx.scope_display.start(),
                     Clock.unschedule(ctx.motion_settings.update_xy_stage_control_gui),
-                    Clock.schedule_interval(ctx.motion_settings.update_xy_stage_control_gui, 0.1)
+                    Clock.schedule_interval(ctx.motion_settings.update_xy_stage_control_gui, 0.1),
                 ),
             }
 
-            parent_dir = pathlib.Path(settings['live_folder']).resolve() / "Manual" / "Z-Stacks"
+            parent_dir = pathlib.Path(settings['live_folder']).resolve() / 'Manual' / 'Z-Stacks'
 
             initial_position = get_current_plate_position()
             image_capture_config = get_image_capture_config_from_ui()
@@ -249,12 +251,13 @@ class ZStack(FloatLayout):
                 autogain_settings=autogain_settings,
                 callbacks=callbacks,
                 return_to_position=initial_position,
-                leds_state_at_end="return_to_original",
-                video_as_frames = settings['video_as_frames']
+                leds_state_at_end='return_to_original',
+                video_as_frames=settings['video_as_frames'],
             )
 
             set_last_save_folder(dir=ctx.sequenced_capture_runner.run_dir())
         except Exception as e:
             logger.error(f'[UI] run_zstack_acquire_from_ui failed: {e}', exc_info=True)
             from ui.notification_popup import show_notification_popup
-            show_notification_popup(title="Error", message=str(e))
+
+            show_notification_popup(title='Error', message=str(e))

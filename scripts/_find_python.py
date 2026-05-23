@@ -17,7 +17,9 @@ def _check_python(cmd):
     try:
         result = subprocess.run(
             cmd + ['-c', 'import sys; print(sys.version_info.minor)'],
-            capture_output=True, text=True, timeout=10,
+            capture_output=True,
+            text=True,
+            timeout=10,
         )
         if result.returncode == 0:
             minor = int(result.stdout.strip())

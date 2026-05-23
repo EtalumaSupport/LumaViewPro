@@ -12,10 +12,9 @@ from drivers.registry import led_registry
 
 @led_registry.register('rp2040', priority=100)
 class LEDBoard(SerialBoard):
-
-    #----------------------------------------------------------
+    # ----------------------------------------------------------
     # Initialize connection through microcontroller
-    #----------------------------------------------------------
+    # ----------------------------------------------------------
     def __init__(self, **kwargs):
         super().__init__(vid=0x0424, pid=0x704C, label='[LED Class ]')
 
@@ -86,8 +85,12 @@ class LEDBoard(SerialBoard):
         logger.info('[LED Class ] LED state cache cleared on disconnect')
 
     _COLOR_TO_CH = {
-        'Blue': 0, 'Green': 1, 'Red': 2,
-        'BF': 3, 'PC': 4, 'DF': 5,
+        'Blue': 0,
+        'Green': 1,
+        'Red': 2,
+        'BF': 3,
+        'PC': 4,
+        'DF': 5,
     }
 
     _CH_TO_COLOR = {v: k for k, v in _COLOR_TO_CH.items()}
@@ -214,7 +217,9 @@ class LEDBoard(SerialBoard):
         # NOTE: Relies on get_status() which is not implemented in LED firmware.
         # This always returns False. Do not use.
         # TODO: Implement in 4.1 with v3.1 protocol, or remove.
-        logger.warning('[LED Class ] wait_until_on() called but STATUS command not implemented in firmware')
+        logger.warning(
+            '[LED Class ] wait_until_on() called but STATUS command not implemented in firmware'
+        )
         return False
 
     # State-query methods (get_led_ma / is_led_on / get_led_state /
@@ -236,9 +241,9 @@ class LEDBoard(SerialBoard):
         Shared by led_on() and led_on_fast() to eliminate duplicate validation.
         """
         if not (0 <= int(channel) <= self._MAX_CHANNEL):
-            raise ValueError(f"LED channel {channel} out of range [0-{self._MAX_CHANNEL}]")
+            raise ValueError(f'LED channel {channel} out of range [0-{self._MAX_CHANNEL}]')
         if not (0 <= int(mA) <= self._MAX_MA):
-            raise ValueError(f"LED current {mA} mA out of safe range [0-{self._MAX_MA}]")
+            raise ValueError(f'LED current {mA} mA out of safe range [0-{self._MAX_MA}]')
         color = self.ch2color(channel=channel)
         command = 'LED' + str(int(channel)) + '_' + str(int(mA))
         return color, command
@@ -293,9 +298,7 @@ class LEDBoard(SerialBoard):
             deadline = time.monotonic() + timeout_s
             while response is None or (
                 command not in response
-                and not check_each_substr(
-                    ['LED', str(int(channel)), str(int(mA))], response
-                )
+                and not check_each_substr(['LED', str(int(channel)), str(int(mA))], response)
             ):
                 if time.monotonic() > deadline:
                     logger.warning(
@@ -409,21 +412,22 @@ class LEDBoard(SerialBoard):
                 prompt (likely too old to support engineering mode).
         """
         resp = self.exchange_multiline(
-            'FACTORY', timeout=timeout,
-            end_markers=['Y/N', 'y/n', 'FACTORY'])
+            'FACTORY', timeout=timeout, end_markers=['Y/N', 'y/n', 'FACTORY']
+        )
         if resp is None:
             raise HardwareError(
-                'enter_engineering_mode(): no response from LED board '
-                '(timeout or disconnect)')
+                'enter_engineering_mode(): no response from LED board (timeout or disconnect)'
+            )
         if 'Y/N' not in resp.upper():
             raise HardwareError(
                 f'enter_engineering_mode(): no Y/N prompt seen -- '
                 f'firmware may be too old to support engineering mode. '
-                f'Response: {resp!r}')
+                f'Response: {resp!r}'
+            )
         # Confirm with Y
         confirm_resp = self.exchange_multiline(
-            'Y', timeout=timeout,
-            end_markers=['FACTORY', 'Engineering', 'RAW', 'ADC'])
+            'Y', timeout=timeout, end_markers=['FACTORY', 'Engineering', 'RAW', 'ADC']
+        )
         # Drain any remaining help text
         time.sleep(0.5)
         with self._lock:
@@ -503,9 +507,7 @@ class LEDBoard(SerialBoard):
         # Re-verify after recovery
         info_resp2 = self.exchange_command('INFO', timeout=3)
         if info_resp2 and 'Version' in info_resp2:
-            logger.info(
-                '[LED Class ] Exited engineering mode (after Ctrl-D recovery)'
-            )
+            logger.info('[LED Class ] Exited engineering mode (after Ctrl-D recovery)')
             return resp
 
         logger.error(
@@ -534,8 +536,8 @@ class LEDBoard(SerialBoard):
                 Empty list when no response was received.
         """
         resp = self.exchange_multiline(
-            'SELFTEST', timeout=timeout,
-            end_markers=['Complete', 'COMPLETE', 'DONE', 'ERROR'])
+            'SELFTEST', timeout=timeout, end_markers=['Complete', 'COMPLETE', 'DONE', 'ERROR']
+        )
         if resp is None:
             logger.warning('[LED Class ] selftest(): no response')
             return []
@@ -561,6 +563,7 @@ class LEDBoard(SerialBoard):
         result = {'raw': raw}
         # Parse version
         import re as _re
+
         ver_match = _re.search(r'v(\d+\.\d+(?:\.\d+)?)', raw)
         if ver_match:
             result['version'] = ver_match.group(1)

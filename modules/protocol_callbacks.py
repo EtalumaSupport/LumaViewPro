@@ -27,36 +27,36 @@ class ProtocolCallbacks:
     """
 
     # --- Run lifecycle ---
-    protocol_iterate_pre: Optional[Callable] = None   # (n_scans, scan_count) -> None
-    run_scan_pre: Optional[Callable] = None            # () -> None
-    scan_iterate_post: Optional[Callable] = None       # () -> None
-    run_complete: Optional[Callable] = None             # (protocol=...) -> None
-    files_complete: Optional[Callable] = None           # (protocol=...) -> None
+    protocol_iterate_pre: Optional[Callable] = None  # (n_scans, scan_count) -> None
+    run_scan_pre: Optional[Callable] = None  # () -> None
+    scan_iterate_post: Optional[Callable] = None  # () -> None
+    run_complete: Optional[Callable] = None  # (protocol=...) -> None
+    files_complete: Optional[Callable] = None  # (protocol=...) -> None
 
     # --- Autofocus ---
-    autofocus_in_progress: Optional[Callable] = None   # () -> None
-    autofocus_complete: Optional[Callable] = None      # () -> None  (UI notification)
-    reset_autofocus_btns: Optional[Callable] = None    # () -> None
-    restore_autofocus_state: Optional[Callable] = None # (layer=, value=) -> None
+    autofocus_in_progress: Optional[Callable] = None  # () -> None
+    autofocus_complete: Optional[Callable] = None  # () -> None  (UI notification)
+    reset_autofocus_btns: Optional[Callable] = None  # () -> None
+    restore_autofocus_state: Optional[Callable] = None  # (layer=, value=) -> None
 
     # --- Motion / position ---
-    move_position: Optional[Callable] = None           # (axis: str) -> None
-    go_to_step: Optional[Callable] = None              # (**kwargs) -> None
-    update_step_number: Optional[Callable] = None      # (step: int) -> None
+    move_position: Optional[Callable] = None  # (axis: str) -> None
+    go_to_step: Optional[Callable] = None  # (**kwargs) -> None
+    update_step_number: Optional[Callable] = None  # (step: int) -> None
 
     # --- LED state ---
-    leds_off: Optional[Callable] = None                # () -> None
-    led_state: Optional[Callable] = None               # (layer=, enabled=) -> None
+    leds_off: Optional[Callable] = None  # () -> None
+    led_state: Optional[Callable] = None  # (layer=, enabled=) -> None
 
     # --- Video / title bar ---
-    set_recording_title: Optional[Callable] = None     # (progress=...) -> None
-    set_writing_title: Optional[Callable] = None       # (progress=...) -> None
-    reset_title: Optional[Callable] = None             # () -> None
+    set_recording_title: Optional[Callable] = None  # (progress=...) -> None
+    set_writing_title: Optional[Callable] = None  # (progress=...) -> None
+    reset_title: Optional[Callable] = None  # () -> None
 
     # --- Live UI (set by callers, forwarded as-is) ---
-    update_scope_display: Optional[Callable] = None    # () -> None
-    pause_live_ui: Optional[Callable] = None           # () -> None
-    resume_live_ui: Optional[Callable] = None          # () -> None
+    update_scope_display: Optional[Callable] = None  # () -> None
+    pause_live_ui: Optional[Callable] = None  # () -> None
+    resume_live_ui: Optional[Callable] = None  # () -> None
 
     @classmethod
     def from_dict(cls, d: dict[str, Any] | None) -> ProtocolCallbacks:

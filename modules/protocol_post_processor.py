@@ -22,15 +22,14 @@ from lvp_logger import logger
 # capture dimension was missing instead of saying "No images found" in a
 # folder that visibly has images.
 _MULTI_FRAME_REQUIREMENT = {
-    PostFunction.VIDEO: "multiple time points per scan position",
-    PostFunction.ZPROJECT: "multiple Z-slices per scan position",
-    PostFunction.COMPOSITE: "multiple channels per scan position",
-    PostFunction.STITCHED: "multiple tile positions per scan",
+    PostFunction.VIDEO: 'multiple time points per scan position',
+    PostFunction.ZPROJECT: 'multiple Z-slices per scan position',
+    PostFunction.COMPOSITE: 'multiple channels per scan position',
+    PostFunction.STITCHED: 'multiple tile positions per scan',
 }
 
 
 class ProtocolPostProcessor(abc.ABC):
-
     def __init__(
         self,
         post_function: PostFunction,
@@ -42,31 +41,23 @@ class ProtocolPostProcessor(abc.ABC):
         self._post_processing_helper = ProtocolPostProcessingHelper()
         self._has_turret = kwargs['has_turret']
         self._objectives_helper = ObjectiveLoader()
-        
 
     @staticmethod
     @abc.abstractmethod
     def _get_groups(df: pd.DataFrame) -> pd.DataFrame:
-        raise NotImplementedError(f"Implement in child class")
-
+        raise NotImplementedError(f'Implement in child class')
 
     @abc.abstractmethod
     def _generate_filename(self, df: pd.DataFrame, **kwargs) -> str:
-        raise NotImplementedError(f"Implement in child class")
-
+        raise NotImplementedError(f'Implement in child class')
 
     @abc.abstractmethod
     def _filter_ignored_types(self, df: pd.DataFrame) -> pd.DataFrame:
-        raise NotImplementedError(f"Implement in child class")
-    
+        raise NotImplementedError(f'Implement in child class')
 
     @abc.abstractmethod
-    def _group_algorithm(
-        path: pathlib.Path,
-        df: pd.DataFrame
-    ):
-        raise NotImplementedError(f"Implement in child class")
-    
+    def _group_algorithm(path: pathlib.Path, df: pd.DataFrame):
+        raise NotImplementedError(f'Implement in child class')
 
     @staticmethod
     @abc.abstractmethod
@@ -75,20 +66,17 @@ class ProtocolPostProcessor(abc.ABC):
         alg_metadata: dict,
         root_path: pathlib.Path,
     ):
-        raise NotImplementedError(f"Implement in child class")
-    
+        raise NotImplementedError(f'Implement in child class')
 
-    def _get_objective_short_name_if_has_turret(
-        self,
-        objective_id: str
-    ) -> str | None:
+    def _get_objective_short_name_if_has_turret(self, objective_id: str) -> str | None:
         if self._has_turret:
-            short_name = self._objectives_helper.get_objective_info(objective_id=objective_id)['short_name']
+            short_name = self._objectives_helper.get_objective_info(objective_id=objective_id)[
+                'short_name'
+            ]
         else:
             short_name = None
 
         return short_name
-
 
     def load_folder(
         self,
@@ -99,11 +87,8 @@ class ProtocolPostProcessor(abc.ABC):
     ) -> dict:
         start_ts = datetime.datetime.now()
         if not path:
-            return {
-                'status': False,
-                'message': 'Invalid path provided'
-            }
-        
+            return {'status': False, 'message': 'Invalid path provided'}
+
         selected_path = pathlib.Path(path)
         results = self._post_processing_helper.load_folder(
             path=selected_path,
@@ -113,9 +98,9 @@ class ProtocolPostProcessor(abc.ABC):
         if results['status'] is False:
             return {
                 'status': False,
-                'message': f'Failed to load protocol data using path: {selected_path}'
+                'message': f'Failed to load protocol data using path: {selected_path}',
             }
-        
+
         df = results['images_df']
         if len(df) == 0:
             return {
@@ -125,7 +110,7 @@ class ProtocolPostProcessor(abc.ABC):
                     'Check that the folder contains captured scan images.'
                 ),
             }
-        
+
         root_path = results['root_path']
         protocol_post_record = results['protocol_post_record']
 
@@ -134,7 +119,7 @@ class ProtocolPostProcessor(abc.ABC):
 
         group_count = len(groups)
 
-        logger.info(f"{self._name}: Generating {self._post_function.value.lower()} images")
+        logger.info(f'{self._name}: Generating {self._post_function.value.lower()} images')
 
         new_count = 0
         existing_count = 0
@@ -145,7 +130,9 @@ class ProtocolPostProcessor(abc.ABC):
                 continue
 
             if len(group) == 1:
-                logger.debug(f"[{self._name} ] Skipping generation for {group.iloc[0]['Filepath']} since only {len(group)} image found.")
+                logger.debug(
+                    f'[{self._name} ] Skipping generation for {group.iloc[0]["Filepath"]} since only {len(group)} image found.'
+                )
                 continue
 
             output_filename = self._generate_filename(df=group, **kwargs)
@@ -159,11 +146,13 @@ class ProtocolPostProcessor(abc.ABC):
             output_file_loc = output_path / output_filename
             output_file_loc_rel = output_file_loc.relative_to(root_path)
 
-            if protocol_post_record.file_exists_in_records(
-                filepath=output_file_loc_rel
-            ):
-                logger.info(f"[{self._name} ] {output_file_loc_rel} already exists in record, skipping for generation.")
-                existing_count += 1 # Count this so we don't error out if no other matches are found
+            if protocol_post_record.file_exists_in_records(filepath=output_file_loc_rel):
+                logger.info(
+                    f'[{self._name} ] {output_file_loc_rel} already exists in record, skipping for generation.'
+                )
+                existing_count += (
+                    1  # Count this so we don't error out if no other matches are found
+                )
                 continue
 
             kwargs['output_file_loc'] = output_file_loc_rel
@@ -178,7 +167,7 @@ class ProtocolPostProcessor(abc.ABC):
             )
 
             if not alg_results['status']:
-                logger.error(f"Failed to generate {output_file_loc_rel}: {alg_results['error']}")
+                logger.error(f'Failed to generate {output_file_loc_rel}: {alg_results["error"]}')
                 continue
 
             # Subclass-write bypass: an algorithm that already wrote the
@@ -190,16 +179,12 @@ class ProtocolPostProcessor(abc.ABC):
                 if not output_path.exists():
                     output_path.mkdir(exist_ok=True, parents=True)
 
-                logger.debug(f"[{self._name} ] Writing {output_file_loc_rel}")
+                logger.debug(f'[{self._name} ] Writing {output_file_loc_rel}')
 
-                if not cv2.imwrite(
-                    filename=str(output_file_loc),
-                    img=alg_results['image']
-                ):
-                    logger.error(f"[{self._name} ] Unable to write image {output_file_loc}")
+                if not cv2.imwrite(filename=str(output_file_loc), img=alg_results['image']):
+                    logger.error(f'[{self._name} ] Unable to write image {output_file_loc}')
                     continue
 
-            
             self._add_record(
                 protocol_post_record=protocol_post_record,
                 alg_metadata=alg_results['metadata'],
@@ -208,7 +193,7 @@ class ProtocolPostProcessor(abc.ABC):
                 row0=row0,
                 **record_data_post_functions.to_dict(),
             )
-      
+
             new_count += 1
             current_group += 1
 
@@ -223,27 +208,25 @@ class ProtocolPostProcessor(abc.ABC):
         if (new_count == 0) and (existing_count == 0):
             fname = self._post_function.value
             needed = _MULTI_FRAME_REQUIREMENT.get(
-                self._post_function, "multiple frames per scan position"
+                self._post_function, 'multiple frames per scan position'
             )
             logger.info(
-                f"[{self._name} ] No {fname} output generated -- "
-                f"no usable image groups (need {needed})"
+                f'[{self._name} ] No {fname} output generated -- '
+                f'no usable image groups (need {needed})'
             )
             return {
                 'status': False,
                 'message': (
-                    f"No {fname} was generated. {fname} requires {needed}. "
-                    f"The folder may have image files but not the structure "
-                    f"this operation needs -- check the log if you expected "
-                    f"the folder to be compatible."
+                    f'No {fname} was generated. {fname} requires {needed}. '
+                    f'The folder may have image files but not the structure '
+                    f'this operation needs -- check the log if you expected '
+                    f'the folder to be compatible.'
                 ),
             }
 
         end_ts = datetime.datetime.now()
         elapsed_time = end_ts - start_ts
-        logger.info(f"{self._name}: Complete - Created {new_count} {self._post_function.value.lower()} artifacts in {elapsed_time}.")
-        return {
-            'status': True,
-            'message': 'Success'
-        }
-    
+        logger.info(
+            f'{self._name}: Complete - Created {new_count} {self._post_function.value.lower()} artifacts in {elapsed_time}.'
+        )
+        return {'status': True, 'message': 'Success'}

@@ -42,7 +42,7 @@ from modules.lumascope_api import Lumascope
 def main():
     # Create scope in simulate mode -- no hardware required
     scope = Lumascope(simulate=True)
-    print("Scope initialized (simulate=True)")
+    print('Scope initialized (simulate=True)')
 
     # Simulator-mode setup: kick the simulated camera into grabbing.
     # Production cameras auto-start their stream; this is the one
@@ -51,7 +51,7 @@ def main():
 
     # Set LED channel 0 (BF) to 100 mA
     scope.illumination.led_on(channel=0, mA=100)
-    print("LED 0 set to 100 mA")
+    print('LED 0 set to 100 mA')
 
     # Move Z axis to 5000 um and wait for the move to complete
     scope.motion.move_absolute_position('Z', 5000, wait_until_complete=True)
@@ -59,24 +59,24 @@ def main():
     # Read the target Z position (returns um). Zero serial I/O --
     # the API serves this from the push-based position cache.
     z_target = scope.motion.get_target_position('Z')
-    print(f"Z target position: {z_target} um")
+    print(f'Z target position: {z_target} um')
 
     # Capture an image. capture_and_wait drains stale frames and
     # returns a frame valid for the current LED + exposure state.
     image = scope.imaging.capture_and_wait(force_to_8bit=True)
     if image is None:
-        print("Capture failed")
+        print('Capture failed')
     else:
-        print(f"Captured image: shape={image.shape}, dtype={image.dtype}")
-        print(f"  Min={image.min()}, Max={image.max()}, Mean={image.mean():.1f}")
+        print(f'Captured image: shape={image.shape}, dtype={image.dtype}')
+        print(f'  Min={image.min()}, Max={image.max()}, Mean={image.mean():.1f}')
 
     # Turn off LEDs
     scope.illumination.leds_off()
-    print("All LEDs off")
+    print('All LEDs off')
 
     # Disconnect
     scope.disconnect()
-    print("Scope disconnected")
+    print('Scope disconnected')
 
 
 if __name__ == '__main__':

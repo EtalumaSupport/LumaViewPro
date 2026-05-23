@@ -35,10 +35,9 @@ logging.getLogger('LVP.serial').addFilter(_LegacyAccelProbeFilter())
 
 @motor_registry.register('rp2040', priority=100)
 class MotorBoard(SerialBoard):
-
-    #----------------------------------------------------------
+    # ----------------------------------------------------------
     # Initialize connection through microcontroller
-    #----------------------------------------------------------
+    # ----------------------------------------------------------
     def __init__(self, motorconfig_defaults_file: pathlib.Path | None = None, **kwargs):
         self._state_lock = threading.Lock()
         self.overshoot = False
@@ -51,13 +50,12 @@ class MotorBoard(SerialBoard):
 
         # Load hardware config (per-unit values from motorconfig.json, with defaults fallback)
         if motorconfig_defaults_file is None:
-            motorconfig_defaults_file = pathlib.Path("data/motorconfig_defaults.json")
+            motorconfig_defaults_file = pathlib.Path('data/motorconfig_defaults.json')
         self.motorconfig = MotorConfig(defaults_file=motorconfig_defaults_file)
 
         # Default timeout 5s for regular commands. Long-running commands
         # (HOME, CALIBRATE) pass explicit timeout overrides (H15).
-        super().__init__(vid=0x2E8A, pid=0x0005, label='[XYZ Class ]',
-                         timeout=5, write_timeout=5)
+        super().__init__(vid=0x2E8A, pid=0x0005, label='[XYZ Class ]', timeout=5, write_timeout=5)
 
         # Backward-compatible alias for lock name
         self.thread_lock = self._lock
@@ -84,28 +82,26 @@ class MotorBoard(SerialBoard):
         self.axes_config = {
             'Z': {
                 'limits': {
-                    'min': 0.,
+                    'min': 0.0,
                     'max': self.motorconfig.travel_limit_um('Z'),
                 },
-                'move_func': self.z_um2ustep
+                'move_func': self.z_um2ustep,
             },
             'X': {
                 'limits': {
-                    'min': 0.,
+                    'min': 0.0,
                     'max': self.motorconfig.travel_limit_um('X'),
                 },
-                'move_func': self.xy_um2ustep
+                'move_func': self.xy_um2ustep,
             },
             'Y': {
                 'limits': {
-                    'min': 0.,
+                    'min': 0.0,
                     'max': self.motorconfig.travel_limit_um('Y'),
                 },
-                'move_func': self.xy_um2ustep
+                'move_func': self.xy_um2ustep,
             },
-            'T': {
-                'move_func': self.t_pos2ustep
-            }
+            'T': {'move_func': self.t_pos2ustep},
         }
 
     def _initial_connect(self):
@@ -128,9 +124,11 @@ class MotorBoard(SerialBoard):
             if board_cfg:
                 self.motorconfig.update_from_board(board_cfg)
                 self._rebuild_cached_values()
-                logger.info(f'[XYZ Class ] Board config merged: model={self.motorconfig.model()}, '
-                            f'SN={self.motorconfig.serial_number()}, '
-                            f'Z_usteps/mm={self.motorconfig.usteps_per_mm("Z")}')
+                logger.info(
+                    f'[XYZ Class ] Board config merged: model={self.motorconfig.model()}, '
+                    f'SN={self.motorconfig.serial_number()}, '
+                    f'Z_usteps/mm={self.motorconfig.usteps_per_mm("Z")}'
+                )
         except Exception as e:
             logger.warning(f'[XYZ Class ] Board config load failed (using defaults): {e}')
 
@@ -156,7 +154,9 @@ class MotorBoard(SerialBoard):
             try:
                 # Skip if already connected
                 if self.driver is not None and self.driver.is_open:
-                    logger.debug(f'[XYZ Class ] connect() skipped -- already connected on {self.port}')
+                    logger.debug(
+                        f'[XYZ Class ] connect() skipped -- already connected on {self.port}'
+                    )
                     return
 
                 logger.info(f'[XYZ Class ] connect() starting on {self.port}')
@@ -184,11 +184,12 @@ class MotorBoard(SerialBoard):
                 self._close_driver()
                 self._connect_fails += 1
                 if self._connect_fails >= 10 and not self._connect_log_suppressed:
-                    logger.critical('[XYZ Class ] MotorBoard.connect() failed 10 times -- suppressing further connect errors (other logging continues)')
+                    logger.critical(
+                        '[XYZ Class ] MotorBoard.connect() failed 10 times -- suppressing further connect errors (other logging continues)'
+                    )
                     self._connect_log_suppressed = True
                 if not self._connect_log_suppressed:
                     logger.error(f'[XYZ Class ] MotorBoard.connect() failed: {e}')
-
 
     # v3.0 STUB: Motor command builders for JSON Lines protocol
     # When v3.0 is active, commands will use structured JSON format:
@@ -211,9 +212,9 @@ class MotorBoard(SerialBoard):
     # 'STATUS_R'
     # 'SPI'
 
-    #----------------------------------------------------------
+    # ----------------------------------------------------------
     # Informational Functions
-    #----------------------------------------------------------
+    # ----------------------------------------------------------
     def fullinfo(self) -> dict:
         """Send FULLINFO and return parsed model + serial-number dict.
 
@@ -222,27 +223,26 @@ class MotorBoard(SerialBoard):
                 Falls back to ``{'model': 'unknown', 'serial_number':
                 'unknown'}`` when the response is missing or unparseable.
         """
-        info = self.exchange_command("FULLINFO")
+        info = self.exchange_command('FULLINFO')
         logger.info('[XYZ Class ] MotorBoard.fullinfo(): %s', info, extra={'force_error': True})
         if info is None:
             logger.error('[XYZ Class ] FULLINFO returned None -- board disconnected?')
-            return {"model": "unknown", "serial_number": "unknown"}
+            return {'model': 'unknown', 'serial_number': 'unknown'}
         try:
             parts = info.split()
-            model = parts[parts.index("Model:") + 1]
-            if model[-1] == "T":
+            model = parts[parts.index('Model:') + 1]
+            if model[-1] == 'T':
                 with self._state_lock:
                     self._has_turret = True
-            serial_number = parts[parts.index("Serial:") + 1]
+            serial_number = parts[parts.index('Serial:') + 1]
         except (ValueError, IndexError) as e:
             logger.error(f'[XYZ Class ] Failed to parse FULLINFO response: {info!r} ({e})')
-            return {"model": "unknown", "serial_number": "unknown"}
+            return {'model': 'unknown', 'serial_number': 'unknown'}
         return {
-            "model": model,
-            "serial_number": serial_number,
-            "_raw": info,  # Cached raw response for detect_present_axes()
+            'model': model,
+            'serial_number': serial_number,
+            '_raw': info,  # Cached raw response for detect_present_axes()
         }
-
 
     def get_microscope_model(self) -> str | None:
         """Return the cached microscope model string from FULLINFO.
@@ -322,9 +322,9 @@ class MotorBoard(SerialBoard):
             logger.warning(f'[XYZ Class ] target_pos_steps({axis}) failed: {e}')
             return None
 
-    #----------------------------------------------------------
+    # ----------------------------------------------------------
     # Acceleration control functions
-    #----------------------------------------------------------
+    # ----------------------------------------------------------
 
     # Cache for acceleration limits — read once from firmware, reuse thereafter.
     # Invalidated on reconnect via _on_disconnect().
@@ -355,36 +355,35 @@ class MotorBoard(SerialBoard):
             return 0
 
         # Return cached value if available
-        cache_key = f"{axis}_{parameter}"
+        cache_key = f'{axis}_{parameter}'
         if self._accel_cache is not None and cache_key in self._accel_cache:
             return self._accel_cache[cache_key]
 
-        parameter_map = {
-            'acceleration': 'A',
-            'deceleration': 'D'
-        }
+        parameter_map = {'acceleration': 'A', 'deceleration': 'D'}
 
         parameter_char = parameter_map[parameter]
-        command = f"{parameter_char}MAX{axis}"
+        command = f'{parameter_char}MAX{axis}'
         DEFAULT_ACCELERATION_LIMIT = 30000
         using_default = False
         try:
             resp = self.exchange_command(command)
 
             # In case firmware doesn't support retrieving the acceleration limits
-            if resp is None or resp.startswith("ERROR"):
-                raise ValueError(f"Firmware returned ERROR for {command}")
+            if resp is None or resp.startswith('ERROR'):
+                raise ValueError(f'Firmware returned ERROR for {command}')
 
             # Extra protection for now in case motorboard responds with a different string that doesnt start with ERROR
             if not resp.isdigit():
-                raise ValueError(f"Non-numeric response for {command}: {resp}")
+                raise ValueError(f'Non-numeric response for {command}: {resp}')
 
         except Exception:
             resp = DEFAULT_ACCELERATION_LIMIT
             using_default = True
 
         if using_default:
-            logger.debug(f'[XYZ Class ] MotorBoard.acceleration_limit({command}): firmware does not support, using default {DEFAULT_ACCELERATION_LIMIT}')
+            logger.debug(
+                f'[XYZ Class ] MotorBoard.acceleration_limit({command}): firmware does not support, using default {DEFAULT_ACCELERATION_LIMIT}'
+            )
         else:
             logger.info(f'[XYZ Class ] MotorBoard.acceleration_limit({command}): {resp}')
 
@@ -397,23 +396,22 @@ class MotorBoard(SerialBoard):
 
         return value
 
-
     def _acceleration_validate_inputs(self, axis: str, parameter: str):
         config = self._acceleration_supported_info()
         if axis not in config['axes']:
-            raise NotImplementedError(f"Support for acceleration limit on axis {axis} not implemented")
+            raise NotImplementedError(
+                f'Support for acceleration limit on axis {axis} not implemented'
+            )
 
         if parameter not in config['parameters']:
-            raise NotImplementedError(f"Support for acceleration limit parameter {parameter} not implemented.")
+            raise NotImplementedError(
+                f'Support for acceleration limit parameter {parameter} not implemented.'
+            )
 
         return True
 
-
     def _acceleration_supported_info(self):
-        return {
-            'axes': ('X','Y'),
-            'parameters': ('acceleration', 'deceleration')
-        }
+        return {'axes': ('X', 'Y'), 'parameters': ('acceleration', 'deceleration')}
 
     # Get all acceleration limits for all axes and parameters
     def acceleration_limits(self) -> dict[str, dict[str, int]]:
@@ -431,7 +429,6 @@ class MotorBoard(SerialBoard):
                 limits[axis][parameter] = self.acceleration_limit(axis=axis, parameter=parameter)
 
         return limits
-
 
     # Sets the percentage acceleration/deceleration limit (of max) for a single axis/parameter
     def set_acceleration_limit(self, axis: str, parameter: str, val_pct: int) -> None:
@@ -454,10 +451,12 @@ class MotorBoard(SerialBoard):
             return
 
         if (val_pct < 1) or (val_pct > 100):
-            raise ValueError(f"Acceleration limit of {val_pct}% is out of bounds. Must be between 1 and 100.")
+            raise ValueError(
+                f'Acceleration limit of {val_pct}% is out of bounds. Must be between 1 and 100.'
+            )
 
         limit = self.acceleration_limit(axis=axis, parameter=parameter)
-        setpoint = round(limit*(val_pct/100))
+        setpoint = round(limit * (val_pct / 100))
 
         SPI_ADDRS = {
             'X': {
@@ -470,13 +469,10 @@ class MotorBoard(SerialBoard):
             },
         }
 
-        self.spi_write(
-            axis=axis,
-            addr=SPI_ADDRS[axis][parameter],
-            payload=setpoint
+        self.spi_write(axis=axis, addr=SPI_ADDRS[axis][parameter], payload=setpoint)
+        logger.info(
+            f'[XYZ Class ] MotorBoard.set_acceleration_limit({axis}, {parameter}, {val_pct}%)'
         )
-        logger.info(f"[XYZ Class ] MotorBoard.set_acceleration_limit({axis}, {parameter}, {val_pct}%)")
-
 
     # Sets the percentage acceleration/deceleration (of max) for all supported axes/parameters
     def set_acceleration_limits(self, val_pct: int) -> None:
@@ -494,9 +490,9 @@ class MotorBoard(SerialBoard):
             for parameter in config['parameters']:
                 self.set_acceleration_limit(axis=axis, parameter=parameter, val_pct=val_pct)
 
-    #----------------------------------------------------------
+    # ----------------------------------------------------------
     # SPI-direct related functions
-    #----------------------------------------------------------
+    # ----------------------------------------------------------
     def spi_read(self, axis: str, addr: int) -> str:
         """Read a TMC motor driver SPI register.
 
@@ -512,11 +508,10 @@ class MotorBoard(SerialBoard):
         """
         # Add a dummy payload of "00" to the end in order for the firmware to not error out on a read.
         # It is expecting a payload.
-        command = f"SPI{axis}0x{addr:02x}00"
+        command = f'SPI{axis}0x{addr:02x}00'
         resp = self.exchange_command(command)
-        logger.debug(f"[XYZ Class ] MotorBoard.spi_read({axis}, 0x{addr:02x}): {command} -> {resp}")
+        logger.debug(f'[XYZ Class ] MotorBoard.spi_read({axis}, 0x{addr:02x}): {command} -> {resp}')
         return resp
-
 
     def spi_write(self, axis: str, addr: int, payload: int | str) -> str:
         """Write to a TMC motor driver SPI register.
@@ -534,20 +529,21 @@ class MotorBoard(SerialBoard):
                 [0x00, 0x7F].
         """
         if axis not in ('X', 'Y', 'Z', 'T'):
-            raise ValueError(f"Invalid axis {axis!r}")
+            raise ValueError(f'Invalid axis {axis!r}')
         if not (0 <= addr <= 0x7F):
-            raise ValueError(f"SPI address 0x{addr:02X} out of range [0x00-0x7F]")
+            raise ValueError(f'SPI address 0x{addr:02X} out of range [0x00-0x7F]')
         WRITE_OFFSET = 0x80
         write_addr = addr + WRITE_OFFSET
-        command = f"SPI{axis}0x{write_addr:02x}{int(payload)}"
+        command = f'SPI{axis}0x{write_addr:02x}{int(payload)}'
         resp = self.exchange_command(command)
-        logger.debug(f"[XYZ Class ] MotorBoard.spi_write({axis}, 0x{addr:02x}, {payload}): {command} -> {resp}")
+        logger.debug(
+            f'[XYZ Class ] MotorBoard.spi_write({axis}, 0x{addr:02x}, {payload}): {command} -> {resp}'
+        )
         return resp
 
-
-    #----------------------------------------------------------
+    # ----------------------------------------------------------
     # Precision mode — controls motor stop accuracy
-    #----------------------------------------------------------
+    # ----------------------------------------------------------
 
     # TMC5072 VSTOP register addresses per axis.
     # VSTOP sets the velocity threshold for declaring "stopped" —
@@ -590,10 +586,10 @@ class MotorBoard(SerialBoard):
         self.spi_write(axis, addr, str(vstop))
         logger.info(f'[XYZ Class ] {axis} precision_mode={enabled} (VSTOP={vstop})')
 
-    #----------------------------------------------------------
+    # ----------------------------------------------------------
     # Z (Focus) Functions
     # Stock actuator = 0.30 mm pitch.  (1 rev/0.30 mm) x (200 steps/rev) x (256 usteps/step) = 170667 ustep/mm
-    #----------------------------------------------------------
+    # ----------------------------------------------------------
     def z_ustep2um(self, ustep: int) -> float:
         """Convert Z-axis microsteps to micrometers.
 
@@ -604,7 +600,7 @@ class MotorBoard(SerialBoard):
             float: Position in micrometers.
         """
         usteps_per_mm = self.motorconfig.usteps_per_mm('Z')
-        um = (ustep * 1000 / usteps_per_mm)
+        um = ustep * 1000 / usteps_per_mm
         return um
 
     def z_um2ustep(self, um: float) -> int:
@@ -639,10 +635,10 @@ class MotorBoard(SerialBoard):
             raise HardwareError(f'zhome(): firmware error: {resp}')
         return True
 
-    #----------------------------------------------------------
+    # ----------------------------------------------------------
     # XY Stage Functions
     # Stock actuator = 2.54mm pitch.  (1 rev/2.540 mm) x (200 steps/rev) x (256 usteps/step) = 20157 ustep/mm
-    #----------------------------------------------------------
+    # ----------------------------------------------------------
 
     def xy_ustep2um(self, ustep: int) -> float:
         """Convert XY microsteps to micrometers.
@@ -654,7 +650,7 @@ class MotorBoard(SerialBoard):
             float: Position in micrometers.
         """
         usteps_per_mm = self.motorconfig.usteps_per_mm('X')
-        um = (ustep * 1000 / usteps_per_mm)
+        um = ustep * 1000 / usteps_per_mm
         return um
 
     def xy_um2ustep(self, um: float) -> int:
@@ -727,9 +723,9 @@ class MotorBoard(SerialBoard):
         if response is None:
             logger.warning('[XYZ Class ] xycenter() got no response')
 
-    #----------------------------------------------------------
+    # ----------------------------------------------------------
     # T (Turret) Functions
-    #----------------------------------------------------------
+    # ----------------------------------------------------------
     def t_ustep2deg(self, ustep: int) -> float:
         """Convert turret microsteps to degrees.
 
@@ -753,7 +749,7 @@ class MotorBoard(SerialBoard):
         Returns:
             int: Turret position (1, 2, 3, 4 ...).
         """
-        return int(self.t_ustep2deg(ustep=ustep)/90)+1
+        return int(self.t_ustep2deg(ustep=ustep) / 90) + 1
 
     def t_deg2ustep(self, degrees: float) -> int:
         """Convert turret degrees to microsteps.
@@ -783,7 +779,7 @@ class MotorBoard(SerialBoard):
         usteps = self.motorconfig.turret_position_usteps(position)
         if usteps == 0 and position > 1:
             # Fallback: evenly-spaced positions
-            return self.t_deg2ustep(degrees=90*(position-1))
+            return self.t_deg2ustep(degrees=90 * (position - 1))
         return usteps
 
     def thome(self) -> bool:
@@ -834,9 +830,9 @@ class MotorBoard(SerialBoard):
         with self._state_lock:
             return self.initial_homing_complete or self.initial_t_homing_complete
 
-    #----------------------------------------------------------
+    # ----------------------------------------------------------
     # Motion Functions
-    #----------------------------------------------------------
+    # ----------------------------------------------------------
 
     def move(self, axis: str, steps: int) -> None:
         """Move an axis to an absolute microstep position relative to home.
@@ -856,11 +852,11 @@ class MotorBoard(SerialBoard):
                 32-bit range.
         """
         if axis not in ('X', 'Y', 'Z', 'T'):
-            raise ValueError(f"Invalid axis {axis!r}")
+            raise ValueError(f'Invalid axis {axis!r}')
         if steps < 0:
             steps += 0x100000000  # two's complement for firmware's unsigned integer format
         if steps > 0xFFFFFFFF:
-            raise ValueError(f"Steps {steps} exceeds 32-bit range for axis {axis}")
+            raise ValueError(f'Steps {steps} exceeds 32-bit range for axis {axis}')
         response = self.exchange_command('TARGET_W' + axis + str(steps))
         if response is None:
             logger.warning(f'[XYZ Class ] move({axis}, {steps}) got no response')
@@ -931,7 +927,9 @@ class MotorBoard(SerialBoard):
             return None
 
     # Move to absolute position (in um or degrees for Turret)
-    def move_abs_pos(self, axis: str, pos: float, overshoot_enabled: bool = True, ignore_limits: bool = False) -> None:
+    def move_abs_pos(
+        self, axis: str, pos: float, overshoot_enabled: bool = True, ignore_limits: bool = False
+    ) -> None:
         """Move an axis to an absolute position in user units.
 
         For Z, when ``overshoot_enabled`` is True the move first travels
@@ -956,7 +954,7 @@ class MotorBoard(SerialBoard):
         AXES_CONFIG = self.axes_config
 
         if axis not in AXES_CONFIG:
-            raise HardwareError(f"Unsupported axis ({axis})")
+            raise HardwareError(f'Unsupported axis ({axis})')
 
         axis_config = AXES_CONFIG[axis]
 
@@ -967,19 +965,21 @@ class MotorBoard(SerialBoard):
 
         steps = axis_config['move_func'](pos)
 
-        if overshoot_enabled and (axis=='Z'): # perform overshoot to always come from one direction
+        if overshoot_enabled and (
+            axis == 'Z'
+        ):  # perform overshoot to always come from one direction
             # get current position
             current = self.current_pos('Z')
 
             # if the current position is above the new target position
             # and 50um above the height of the backlash
-            if current is not None and (current > pos) and (pos > (self.backlash+50)):
+            if current is not None and (current > pos) and (pos > (self.backlash + 50)):
                 # In process of overshoot
                 with self._state_lock:
                     self.overshoot = True
                 try:
                     # First overshoot downwards
-                    overshoot = self.z_um2ustep(pos-self.backlash) # target minus backlash
+                    overshoot = self.z_um2ustep(pos - self.backlash)  # target minus backlash
                     overshoot = max(1, overshoot)
                     self.move(axis, overshoot)
                     while not self.target_status('Z'):
@@ -1010,13 +1010,15 @@ class MotorBoard(SerialBoard):
         # Read target position in um
         pos = self.target_pos(axis)
         if pos is None:
-            logger.warning(f'[XYZ Class ] move_rel_pos({axis}): cannot read position, skipping move')
+            logger.warning(
+                f'[XYZ Class ] move_rel_pos({axis}): cannot read position, skipping move'
+            )
             return
-        self.move_abs_pos(axis, pos+um, overshoot_enabled=overshoot_enabled)
+        self.move_abs_pos(axis, pos + um, overshoot_enabled=overshoot_enabled)
 
-    #----------------------------------------------------------
+    # ----------------------------------------------------------
     # Ramp and Reference Switch Status Register
-    #----------------------------------------------------------
+    # ----------------------------------------------------------
 
     # return True if current and target position are at home.
     def home_status(self, axis: str) -> bool:
@@ -1034,12 +1036,12 @@ class MotorBoard(SerialBoard):
 
         # logger.info('[XYZ Class ] MotorBoard.home_status('+axis+')')
         try:
-            data = int( self.exchange_command('STATUS_R' + axis) )
+            data = int(self.exchange_command('STATUS_R' + axis))
             bits = format(data, 'b').zfill(32)
 
             return bits[31] == '1'
         except Exception:
-            logger.error('[XYZ Class ] MotorBoard.home_status('+axis+') inactive')
+            logger.error('[XYZ Class ] MotorBoard.home_status(' + axis + ') inactive')
             raise
 
     def motor_stop(self) -> bool:
@@ -1084,7 +1086,8 @@ class MotorBoard(SerialBoard):
                 f'STOP command (firmware date '
                 f'{getattr(self, "firmware_date", "unknown")}); '
                 'caching capability and silently skipping future STOP '
-                'attempts. Motors latch on host disconnect.')
+                'attempts. Motors latch on host disconnect.'
+            )
             return False
         self._stop_supported = True
         return True
@@ -1111,16 +1114,16 @@ class MotorBoard(SerialBoard):
             if response is None:
                 raise HardwareError(
                     f'target_status({axis}): no response from motor board '
-                    '(STATUS_R returned None -- timeout or disconnect)')
-            data = int( response )
+                    '(STATUS_R returned None -- timeout or disconnect)'
+                )
+            data = int(response)
             bits = format(data, 'b').zfill(32)
 
             return bits[22] == '1'
 
         except Exception:
-            logger.error('[XYZ Class ] MotorBoard.target_status('+axis+') inactive')
+            logger.error('[XYZ Class ] MotorBoard.target_status(' + axis + ') inactive')
             raise
-
 
     # Get all reference status register bits as 32 character string (32-> 0)
     def reference_status(self, axis: str) -> int:
@@ -1136,21 +1139,20 @@ class MotorBoard(SerialBoard):
             Exception: Re-raises any error from the STATUS_R query.
         """
         try:
-
-            data = int( self.exchange_command('STATUS_R' + axis) )
+            data = int(self.exchange_command('STATUS_R' + axis))
             # bits = format(data, 'b').zfill(32)
 
             # data is an integer that represents 4 bytes, or 32 bits,
             # largest bit first
-            '''
+            """
             bit: 33222222222211111111110000000000
             bit: 10987654321098765432109876543210
             bit: ----------------------*-------**
-            '''
+            """
             # logger.info(data)
             return data
         except Exception:
-            logger.error('[XYZ Class ] MotorBoard.reference_status('+axis+') inactive')
+            logger.error('[XYZ Class ] MotorBoard.reference_status(' + axis + ') inactive')
             raise
 
     def limit_switch_status(self, axis: str) -> tuple[int, int]:
@@ -1182,7 +1184,6 @@ class MotorBoard(SerialBoard):
 
         return left, right
 
-
     # ------------------------------------------------------------------
     # Diagnostic commands (firmware v3.0.5+)
     # ------------------------------------------------------------------
@@ -1200,10 +1201,12 @@ class MotorBoard(SerialBoard):
         # Take first line (may have trailing newline noise)
         data_str = resp.split('\n')[0].strip() if '\n' in resp else resp.strip()
         import json as _json
+
         try:
             return _json.loads(data_str)
         except (ValueError, TypeError):
             import ast
+
             try:
                 return ast.literal_eval(data_str)
             except (ValueError, SyntaxError):
@@ -1240,6 +1243,7 @@ class MotorBoard(SerialBoard):
                 entry['axis'] = line.split(':')[0].strip()
             # Parse raw hex
             import re as _re
+
             raw_match = _re.search(r'raw=0x([0-9a-fA-F]+)', line)
             if raw_match:
                 entry['raw'] = '0x' + raw_match.group(1)
@@ -1260,8 +1264,7 @@ class MotorBoard(SerialBoard):
                 (bool), ``configured`` (bool), and ``raw_line``. Empty
                 list on failure.
         """
-        resp = self.exchange_multiline('MOTORDETECT', timeout=5,
-                                       end_markers=['T:'])
+        resp = self.exchange_multiline('MOTORDETECT', timeout=5, end_markers=['T:'])
         if resp is None:
             return []
         lines = [l.strip() for l in resp.split('\n') if l.strip()]
@@ -1283,11 +1286,11 @@ class MotorBoard(SerialBoard):
                 ``IRUN``, ``IHOLD``, ``SG_RESULT`` (all int), and
                 ``raw_line``. Empty list on failure.
         """
-        resp = self.exchange_multiline('CURRENT', timeout=5,
-                                       end_markers=['T:'])
+        resp = self.exchange_multiline('CURRENT', timeout=5, end_markers=['T:'])
         if resp is None:
             return []
         import re as _re
+
         lines = [l.strip() for l in resp.split('\n') if l.strip()]
         results = []
         for line in lines:
@@ -1313,6 +1316,7 @@ class MotorBoard(SerialBoard):
             return {}
         result = {'raw': resp}
         import re as _re
+
         for key in ('24V', '5V', '3V3', '1V2'):
             m = _re.search(rf'{key}[=:]\s*([\d.]+|HIGH|LOW|OK)', resp)
             if m:
@@ -1340,7 +1344,9 @@ class MotorBoard(SerialBoard):
                 logger.debug(
                     '[XYZ Class ] wait_for_position(%s): target_status poll '
                     'raised; continuing to poll: %s: %s',
-                    axis, type(e).__name__, e,
+                    axis,
+                    type(e).__name__,
+                    e,
                 )
             time.sleep(0.01)
         logger.warning(f'[XYZ Class ] wait_for_position({axis}): timed out after {timeout}s')
@@ -1406,8 +1412,8 @@ class MotorBoard(SerialBoard):
         """
         AXES_CONFIG = self.axes_config
         if axis not in AXES_CONFIG:
-            logger.error(f"[XYZ Class ] MotorBoard.get_axis_limits(): Unsupported axis ({axis})")
-            raise HardwareError(f"Unsupported axis ({axis})")
+            logger.error(f'[XYZ Class ] MotorBoard.get_axis_limits(): Unsupported axis ({axis})')
+            raise HardwareError(f'Unsupported axis ({axis})')
 
         axis_config = AXES_CONFIG[axis]
         if 'limits' not in axis_config:
@@ -1416,7 +1422,6 @@ class MotorBoard(SerialBoard):
             return None
 
         return axis_config['limits']
-
 
     # ------------------------------------------------------------------
     # Diagnostic queries -- firmware-version-gated
@@ -1451,8 +1456,8 @@ class MotorBoard(SerialBoard):
             return None
         if resp.startswith('ERROR'):
             logger.debug(
-                f"[XYZ Class ] MotorBoard.{command} not supported by "
-                f"connected firmware (response: {resp!r})"
+                f'[XYZ Class ] MotorBoard.{command} not supported by '
+                f'connected firmware (response: {resp!r})'
             )
             return None
         return resp
@@ -1503,16 +1508,14 @@ class MotorBoard(SerialBoard):
         """
         axis = axis.upper()
         if axis not in ('X', 'Y', 'Z', 'T'):
-            raise ValueError(f"Invalid axis: {axis!r}")
+            raise ValueError(f'Invalid axis: {axis!r}')
         raw = self._diagnostic_query(f'DRVSTAT_{axis}')
         if raw is None:
             return None
         try:
             return int(raw.strip().split()[0], 0)
         except (ValueError, IndexError):
-            logger.warning(
-                f"[XYZ Class ] DRVSTAT_{axis} unparseable: {raw!r}"
-            )
+            logger.warning(f'[XYZ Class ] DRVSTAT_{axis} unparseable: {raw!r}')
             return None
 
     def read_fanspeed(self) -> int | None:
@@ -1527,9 +1530,7 @@ class MotorBoard(SerialBoard):
         try:
             return int(raw.strip().split()[0])
         except (ValueError, IndexError):
-            logger.warning(
-                f"[XYZ Class ] FANSPEED unparseable: {raw!r}"
-            )
+            logger.warning(f'[XYZ Class ] FANSPEED unparseable: {raw!r}')
             return None
 
     def set_fan_duty(self, duty_pct: int) -> bool:
@@ -1538,14 +1539,14 @@ class MotorBoard(SerialBoard):
         FAN:<duty>.
         """
         if not 0 <= duty_pct <= 100:
-            raise ValueError(f"Fan duty must be 0..100, got {duty_pct}")
+            raise ValueError(f'Fan duty must be 0..100, got {duty_pct}')
         resp = self.exchange_command(f'FAN:{duty_pct}')
         if resp is None:
             return False
         if resp.startswith('ERROR'):
             logger.debug(
-                f"[XYZ Class ] FAN:{duty_pct} not supported by "
-                f"connected firmware (response: {resp!r})"
+                f'[XYZ Class ] FAN:{duty_pct} not supported by '
+                f'connected firmware (response: {resp!r})'
             )
             return False
         return True

@@ -64,18 +64,23 @@ def _print_environment_header() -> None:
         pypylon_ver = _pkg_version('pypylon')
     except PackageNotFoundError:
         pypylon_ver = '<not installed via pip>'
-    print(f'Environment: pypylon={pypylon_ver} '
-          f'python={platform.python_version()} '
-          f'os={platform.system()} {platform.release()} ({platform.machine()})')
+    print(
+        f'Environment: pypylon={pypylon_ver} '
+        f'python={platform.python_version()} '
+        f'os={platform.system()} {platform.release()} ({platform.machine()})'
+    )
     try:
         from pypylon import pylon
+
         devs = pylon.TlFactory.GetInstance().EnumerateDevices()
         print(f'Pylon SDK enumerated {len(devs)} device(s):')
         for d in devs:
-            print(f'  model={d.GetModelName()!r} '
-                  f'serial={d.GetSerialNumber()!r} '
-                  f'transport={d.GetDeviceClass()!r} '
-                  f'friendly={d.GetFriendlyName()!r}')
+            print(
+                f'  model={d.GetModelName()!r} '
+                f'serial={d.GetSerialNumber()!r} '
+                f'transport={d.GetDeviceClass()!r} '
+                f'friendly={d.GetFriendlyName()!r}'
+            )
     except Exception as e:
         print(f'WARNING: Pylon device enumeration raised {type(e).__name__}: {e}')
 
@@ -96,14 +101,16 @@ def _route_lvp_logging_to_stdout() -> None:
     for name in ('lvp_logger', 'LVP'):
         log = logging.getLogger(name)
         log.setLevel(logging.DEBUG)
-        if not any(isinstance(h, logging.StreamHandler) and h.stream is sys.stdout
-                   for h in log.handlers):
+        if not any(
+            isinstance(h, logging.StreamHandler) and h.stream is sys.stdout for h in log.handlers
+        ):
             log.addHandler(handler)
 
 
 # ---------------------------------------------------------------------------
 # Transport detection
 # ---------------------------------------------------------------------------
+
 
 def _detect_transport(camera) -> str:
     """Return 'usb3', 'gige', or 'unknown' for a connected PylonCamera.
@@ -114,8 +121,7 @@ def _detect_transport(camera) -> str:
     if not camera.active:
         return 'unknown'
     try:
-        tl_type = camera.active.GetTLNodeMap().GetNode(
-            'DeviceTransportLayerType')
+        tl_type = camera.active.GetTLNodeMap().GetNode('DeviceTransportLayerType')
         if tl_type is not None:
             v = tl_type.GetValue()
             if 'Usb' in v or 'USB' in v or 'usb' in v:
@@ -154,6 +160,7 @@ def _sensor_max_resolution(camera) -> tuple[int, int]:
 # Sweep cell construction
 # ---------------------------------------------------------------------------
 
+
 def _resolve_resolutions(spec: list[str], sensor_w: int, sensor_h: int):
     """Resolve --resolutions tokens to (w, h) tuples.
 
@@ -182,17 +189,24 @@ def _build_usb3_cells(args):
         for res in args.resolution_tuples:
             for mode in args.dltl_modes:
                 if mode == 'Off':
-                    cells.append(dict(pixel_format=pf, resolution=res,
-                                      dltl_mode='Off', dltl_value=None))
+                    cells.append(
+                        dict(pixel_format=pf, resolution=res, dltl_mode='Off', dltl_value=None)
+                    )
                 elif mode == 'On':
                     if not args.dltl_values_mb:
-                        cells.append(dict(pixel_format=pf, resolution=res,
-                                          dltl_mode='On', dltl_value=None))
+                        cells.append(
+                            dict(pixel_format=pf, resolution=res, dltl_mode='On', dltl_value=None)
+                        )
                     else:
                         for v_mb in args.dltl_values_mb:
-                            cells.append(dict(pixel_format=pf, resolution=res,
-                                              dltl_mode='On',
-                                              dltl_value=int(v_mb) * 1_000_000))
+                            cells.append(
+                                dict(
+                                    pixel_format=pf,
+                                    resolution=res,
+                                    dltl_mode='On',
+                                    dltl_value=int(v_mb) * 1_000_000,
+                                )
+                            )
     return cells
 
 
@@ -204,17 +218,22 @@ def _build_gige_cells(args):
             for bw_mode in args.gige_bw_modes:
                 for pkt in args.gige_packet_sizes:
                     for delay in args.gige_delays:
-                        cells.append(dict(
-                            pixel_format=pf, resolution=res,
-                            bw_mode=bw_mode, packet_size=int(pkt),
-                            delay_ticks=int(delay),
-                        ))
+                        cells.append(
+                            dict(
+                                pixel_format=pf,
+                                resolution=res,
+                                bw_mode=bw_mode,
+                                packet_size=int(pkt),
+                                delay_ticks=int(delay),
+                            )
+                        )
     return cells
 
 
 # ---------------------------------------------------------------------------
 # Cell execution
 # ---------------------------------------------------------------------------
+
 
 def _apply_cell(scope, transport: str, cell: dict, sensor_w: int, sensor_h: int):
     """Apply per-cell config via the production setters. Returns a list
@@ -261,12 +280,15 @@ def _apply_cell(scope, transport: str, cell: dict, sensor_w: int, sensor_h: int)
         # access is intentional.
         if transport == 'usb3':
             ok = scope.imaging._set_device_link_throughput_limit(
-                mode=cell['dltl_mode'], value_bps=cell['dltl_value'])
+                mode=cell['dltl_mode'], value_bps=cell['dltl_value']
+            )
             log.append(('dltl', ok))
         elif transport == 'gige':
             log.append(('bw_mode', scope.imaging._set_bandwidth_reserve_mode(cell['bw_mode'])))
             log.append(('packet_size', scope.imaging._set_gev_packet_size(cell['packet_size'])))
-            log.append(('delay_ticks', scope.imaging._set_gev_inter_packet_delay(cell['delay_ticks'])))
+            log.append(
+                ('delay_ticks', scope.imaging._set_gev_inter_packet_delay(cell['delay_ticks']))
+            )
 
     return log
 
@@ -296,6 +318,7 @@ def _format_cell_id(transport: str, cell: dict) -> str:
 # Main
 # ---------------------------------------------------------------------------
 
+
 def _connect_camera(serial_filter: str | None) -> PylonCamera:
     """Return a connected PylonCamera; abort on failure with a diagnostic message.
 
@@ -306,8 +329,7 @@ def _connect_camera(serial_filter: str | None) -> PylonCamera:
     """
     cam = PylonCamera()
     if not getattr(cam, 'found', False):
-        print('ERROR: PylonCamera connect failed. See [ERROR] log lines '
-              'above for the SDK reason.')
+        print('ERROR: PylonCamera connect failed. See [ERROR] log lines above for the SDK reason.')
         sys.exit(1)
     if serial_filter:
         try:
@@ -315,8 +337,10 @@ def _connect_camera(serial_filter: str | None) -> PylonCamera:
         except Exception:
             actual = None
         if actual != serial_filter:
-            print(f'ERROR: Connected camera serial {actual!r} does not '
-                  f'match --camera-serial {serial_filter!r}')
+            print(
+                f'ERROR: Connected camera serial {actual!r} does not '
+                f'match --camera-serial {serial_filter!r}'
+            )
             cam.disconnect()
             sys.exit(1)
     return cam
@@ -331,6 +355,7 @@ def _make_minimal_scope(camera: PylonCamera) -> Lumascope:
     so the shortcut is safe.
     """
     import threading
+
     scope = Lumascope.__new__(Lumascope)
     scope.camera = camera
     scope._camera_cache_lock = threading.Lock()
@@ -354,65 +379,107 @@ def main():
         description='Pylon (Basler) bench-probe sweep orchestrator.',
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-    parser.add_argument('--duration', type=float, default=3.0,
-                        help='Diagnostic-probe sampling window (seconds).')
-    parser.add_argument('--settle', type=float, default=1.0,
-                        help='Seconds to wait between cell setup and probe.')
-    parser.add_argument('--camera-serial', default=None,
-                        help='If set, abort unless the connected camera '
-                             'has this serial number.')
-    parser.add_argument('--pixel-formats', nargs='+',
-                        default=['Mono8'],
-                        help='Pixel formats to sweep (Mono8, Mono12, ...).')
-    parser.add_argument('--resolutions', nargs='+',
-                        default=['2100'],
-                        help='Resolutions to sweep. Tokens: integer N -> '
-                             '(N,N); WxH -> (W,H); sensor-max -> camera '
-                             'sensor maximum.')
+    parser.add_argument(
+        '--duration', type=float, default=3.0, help='Diagnostic-probe sampling window (seconds).'
+    )
+    parser.add_argument(
+        '--settle', type=float, default=1.0, help='Seconds to wait between cell setup and probe.'
+    )
+    parser.add_argument(
+        '--camera-serial',
+        default=None,
+        help='If set, abort unless the connected camera has this serial number.',
+    )
+    parser.add_argument(
+        '--pixel-formats',
+        nargs='+',
+        default=['Mono8'],
+        help='Pixel formats to sweep (Mono8, Mono12, ...).',
+    )
+    parser.add_argument(
+        '--resolutions',
+        nargs='+',
+        default=['2100'],
+        help='Resolutions to sweep. Tokens: integer N -> '
+        '(N,N); WxH -> (W,H); sensor-max -> camera '
+        'sensor maximum.',
+    )
     # USB3 sweep
-    parser.add_argument('--dltl-modes', nargs='+',
-                        default=['On'],
-                        choices=['On', 'Off'],
-                        help='DLTL modes to sweep (USB3 cells).')
-    parser.add_argument('--dltl-values-mb', nargs='*', type=int,
-                        default=[],
-                        help='DLTL values in MB/s (USB3 cells, used when '
-                             'mode=On). Empty list means use the camera '
-                             'default.')
+    parser.add_argument(
+        '--dltl-modes',
+        nargs='+',
+        default=['On'],
+        choices=['On', 'Off'],
+        help='DLTL modes to sweep (USB3 cells).',
+    )
+    parser.add_argument(
+        '--dltl-values-mb',
+        nargs='*',
+        type=int,
+        default=[],
+        help='DLTL values in MB/s (USB3 cells, used when '
+        'mode=On). Empty list means use the camera '
+        'default.',
+    )
     # GigE sweep
-    parser.add_argument('--gige-bw-modes', nargs='+',
-                        default=['Performance'],
-                        choices=['Default', 'Performance'],
-                        help='BandwidthReserveMode values (GigE cells).')
-    parser.add_argument('--gige-packet-sizes', nargs='+', type=int,
-                        default=[1500],
-                        help='GevSCPSPacketSize values (GigE cells).')
-    parser.add_argument('--max-num-buffer', type=int, default=None,
-                        help='Override LVP MaxNumBuffer cap (default 3). '
-                             'Bench characterization: Pylon Viewer uses '
-                             '10. Applied via '
-                             'scope.imaging._set_max_num_buffer().')
-    parser.add_argument('--grab-strategy',
-                        choices=['LatestImageOnly', 'OneByOne'],
-                        default=None,
-                        help='Override LVP grab strategy (default '
-                             'LatestImageOnly). OneByOne delivers every '
-                             'frame for apples-to-apples vs Pylon Viewer. '
-                             'Applied via '
-                             'scope.imaging._set_grab_strategy().')
-    parser.add_argument('--max-transfer-size', type=int, default=None,
-                        help='Override MaxTransferSize in bytes (default '
-                             '262144 = 256 KB; max 4194304 = 4 MB). Larger '
-                             'values reduce kernel-transition overhead at '
-                             'high throughput. Applied via '
-                             'scope.imaging._set_max_transfer_size().')
-    parser.add_argument('--num-queued-urbs', type=int, default=None,
-                        help='Override NumMaxQueuedUrbs (default 64; max '
-                             '256). Applied via '
-                             'scope.imaging._set_num_max_queued_urbs().')
-    parser.add_argument('--gige-delays', nargs='+', type=int,
-                        default=[0],
-                        help='GevSCPD inter-packet delay ticks (GigE cells).')
+    parser.add_argument(
+        '--gige-bw-modes',
+        nargs='+',
+        default=['Performance'],
+        choices=['Default', 'Performance'],
+        help='BandwidthReserveMode values (GigE cells).',
+    )
+    parser.add_argument(
+        '--gige-packet-sizes',
+        nargs='+',
+        type=int,
+        default=[1500],
+        help='GevSCPSPacketSize values (GigE cells).',
+    )
+    parser.add_argument(
+        '--max-num-buffer',
+        type=int,
+        default=None,
+        help='Override LVP MaxNumBuffer cap (default 3). '
+        'Bench characterization: Pylon Viewer uses '
+        '10. Applied via '
+        'scope.imaging._set_max_num_buffer().',
+    )
+    parser.add_argument(
+        '--grab-strategy',
+        choices=['LatestImageOnly', 'OneByOne'],
+        default=None,
+        help='Override LVP grab strategy (default '
+        'LatestImageOnly). OneByOne delivers every '
+        'frame for apples-to-apples vs Pylon Viewer. '
+        'Applied via '
+        'scope.imaging._set_grab_strategy().',
+    )
+    parser.add_argument(
+        '--max-transfer-size',
+        type=int,
+        default=None,
+        help='Override MaxTransferSize in bytes (default '
+        '262144 = 256 KB; max 4194304 = 4 MB). Larger '
+        'values reduce kernel-transition overhead at '
+        'high throughput. Applied via '
+        'scope.imaging._set_max_transfer_size().',
+    )
+    parser.add_argument(
+        '--num-queued-urbs',
+        type=int,
+        default=None,
+        help='Override NumMaxQueuedUrbs (default 64; max '
+        '256). Applied via '
+        'scope.imaging._set_num_max_queued_urbs().',
+    )
+    parser.add_argument(
+        '--gige-delays',
+        nargs='+',
+        type=int,
+        default=[0],
+        help='GevSCPD inter-packet delay ticks (GigE cells).',
+    )
     args = parser.parse_args()
 
     _route_lvp_logging_to_stdout()
@@ -439,12 +506,12 @@ def main():
     transport = _detect_transport(camera)
     sensor_w, sensor_h = _sensor_max_resolution(camera)
 
-    print(f'Camera: model={camera.model_name!r} transport={transport!r} '
-          f'sensor={sensor_w}x{sensor_h}')
+    print(
+        f'Camera: model={camera.model_name!r} transport={transport!r} sensor={sensor_w}x{sensor_h}'
+    )
 
     # Resolve resolution tokens against actual sensor size
-    args.resolution_tuples = _resolve_resolutions(
-        args.resolutions, sensor_w, sensor_h)
+    args.resolution_tuples = _resolve_resolutions(args.resolutions, sensor_w, sensor_h)
 
     if transport == 'usb3':
         cells = _build_usb3_cells(args)
@@ -469,12 +536,10 @@ def main():
                     print(f'    apply {knob}: {status}')
             if args.settle > 0:
                 time.sleep(args.settle)
-            snapshot = scope.run_pylon_diagnostic_probe(
-                duration_s=args.duration)
+            snapshot = scope.run_pylon_diagnostic_probe(duration_s=args.duration)
             out_path = snapshot.get('output_path')
             errors = snapshot.get('errors') or []
-            print(f'    -> {out_path}'
-                  + (f' (errors: {errors})' if errors else ''))
+            print(f'    -> {out_path}' + (f' (errors: {errors})' if errors else ''))
     finally:
         camera.stop_grabbing()
         camera.disconnect()

@@ -40,51 +40,51 @@ from modules.lumascope_api import Lumascope
 
 # Channel configurations: color name, LED current (mA), exposure time (ms)
 CHANNELS = [
-    {"color": "Blue",  "mA": 50,  "exposure_ms": 200},
-    {"color": "Green", "mA": 80,  "exposure_ms": 150},
-    {"color": "Red",   "mA": 100, "exposure_ms": 100},
+    {'color': 'Blue', 'mA': 50, 'exposure_ms': 200},
+    {'color': 'Green', 'mA': 80, 'exposure_ms': 150},
+    {'color': 'Red', 'mA': 100, 'exposure_ms': 100},
 ]
 
 
 def main():
     # Create scope in simulate mode -- no hardware required
     scope = Lumascope(simulate=True)
-    print("Scope initialized (simulate=True)")
+    print('Scope initialized (simulate=True)')
 
     # Simulator-mode setup: kick the simulated camera into grabbing.
     scope._camera_driver.start_grabbing()
 
     # Capture each fluorescence channel
     for ch in CHANNELS:
-        color = ch["color"]
-        print(f"\n--- Channel: {color} ---")
+        color = ch['color']
+        print(f'\n--- Channel: {color} ---')
 
         # Configure LED illumination for this channel (mA)
-        scope.illumination.led_on(channel=color, mA=ch["mA"])
-        print(f"  LED on: {ch['mA']} mA")
+        scope.illumination.led_on(channel=color, mA=ch['mA'])
+        print(f'  LED on: {ch["mA"]} mA')
 
         # Set exposure time (ms)
-        scope.imaging.set_exposure_time(ch["exposure_ms"])
-        print(f"  Exposure: {ch['exposure_ms']} ms")
+        scope.imaging.set_exposure_time(ch['exposure_ms'])
+        print(f'  Exposure: {ch["exposure_ms"]} ms')
 
         # Capture a frame valid for the current LED + exposure state
         image = scope.imaging.capture_and_wait(force_to_8bit=True)
         if image is None:
-            print(f"  ERROR: Failed to capture {color} channel")
+            print(f'  ERROR: Failed to capture {color} channel')
             continue
 
-        print(f"  Captured: shape={image.shape}, dtype={image.dtype}")
-        print(f"  Pixel stats: min={image.min()}, max={image.max()}, mean={image.mean():.1f}")
+        print(f'  Captured: shape={image.shape}, dtype={image.dtype}')
+        print(f'  Pixel stats: min={image.min()}, max={image.max()}, mean={image.mean():.1f}')
 
         # Turn off this channel before switching colors
         scope.illumination.led_off(channel=color)
 
     # Turn off all LEDs and disconnect
     scope.illumination.leds_off()
-    print("\nAll LEDs off")
+    print('\nAll LEDs off')
 
     scope.disconnect()
-    print("Scope disconnected")
+    print('Scope disconnected')
 
     # NOTE: To save images, import from modules.image_save:
     #     from modules.image_save import save_image, save_live_image

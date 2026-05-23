@@ -33,6 +33,7 @@ from drivers.serialboard import SerialBoard
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _connect_motor_board():
     """Connect to motor board using production MotorBoard driver."""
     board = MotorBoard()
@@ -46,11 +47,9 @@ def _connect_motor_board():
     return board
 
 
-def _connect_serial_board(vid=0x2E8A, pid=0x0005, label='[Tool]',
-                          timeout=5, write_timeout=5):
+def _connect_serial_board(vid=0x2E8A, pid=0x0005, label='[Tool]', timeout=5, write_timeout=5):
     """Connect a raw SerialBoard (for raw REPL operations without MotorBoard overhead)."""
-    board = SerialBoard(vid, pid, label, timeout=timeout,
-                        write_timeout=write_timeout)
+    board = SerialBoard(vid, pid, label, timeout=timeout, write_timeout=write_timeout)
     if not board.found:
         print(f'ERROR: Board not found (VID=0x{vid:04X}, PID=0x{pid:04X})')
         sys.exit(1)
@@ -64,6 +63,7 @@ def _connect_serial_board(vid=0x2E8A, pid=0x0005, label='[Tool]',
 # ---------------------------------------------------------------------------
 # info
 # ---------------------------------------------------------------------------
+
 
 def cmd_info(args):
     """Show board info via FULLINFO."""
@@ -81,6 +81,7 @@ def cmd_info(args):
 # ---------------------------------------------------------------------------
 # backup
 # ---------------------------------------------------------------------------
+
 
 def cmd_backup(args):
     """Backup all config files from motor board via raw REPL."""
@@ -102,8 +103,13 @@ def cmd_backup(args):
         print(f'Files on board: {files}')
 
         # Backup each file
-        config_files = ['motorconfig.json', 'xymotorconfig.ini',
-                        'ztmotorconfig.ini', 'ztmotorconfig2.ini', 'main.py']
+        config_files = [
+            'motorconfig.json',
+            'xymotorconfig.ini',
+            'ztmotorconfig.ini',
+            'ztmotorconfig2.ini',
+            'main.py',
+        ]
         backed_up = []
         for filename in config_files:
             if filename not in files:
@@ -131,6 +137,7 @@ def cmd_backup(args):
 # ---------------------------------------------------------------------------
 # push-ini
 # ---------------------------------------------------------------------------
+
 
 def cmd_push_ini(args):
     """Push latest INI files from data/firmware/ to motor board."""
@@ -189,6 +196,7 @@ def cmd_push_ini(args):
 # homing-test
 # ---------------------------------------------------------------------------
 
+
 def _get_position_steps(board, axis):
     """Read raw step position for an axis."""
     return board.current_pos_steps(axis)
@@ -227,7 +235,7 @@ def _home_single(board, axis, timeout=30):
     dt = (time.monotonic() - t0) * 1000
     if resp is None:
         return False, 'No response', dt
-    ok = ('successful' in resp.lower() or 'complete' in resp.lower())
+    ok = 'successful' in resp.lower() or 'complete' in resp.lower()
     return ok, resp.strip(), dt
 
 
@@ -240,8 +248,7 @@ def _home_all(board, timeout=300):
     dt = (time.monotonic() - t0) * 1000
     if resp is None:
         return False, 'No response (timeout?)', dt
-    ok = ('successful' in resp.lower() or 'complete' in resp.lower()
-          or 'not present' in resp.lower())
+    ok = 'successful' in resp.lower() or 'complete' in resp.lower() or 'not present' in resp.lower()
     return ok, resp.strip(), dt
 
 
@@ -252,8 +259,8 @@ def cmd_homing_test(args):
     TOLERANCE = {
         'X': 10000,  # ~0.5mm — XY Hall sensor hysteresis
         'Y': 10000,
-        'Z': 50,     # very repeatable (optical, slow double-pass)
-        'T': 200,    # turret detent repeatability
+        'Z': 50,  # very repeatable (optical, slow double-pass)
+        'T': 200,  # turret detent repeatability
     }
 
     board = _connect_motor_board()
@@ -315,7 +322,7 @@ def cmd_homing_test(args):
         print(f'Move between cycles: {move_between}')
         if move_between:
             print(f'Move-away targets: {move_targets}')
-        print(f'{"="*70}')
+        print(f'{"=" * 70}')
 
         results = []
         for cycle in range(1, n_cycles + 1):
@@ -362,15 +369,14 @@ def cmd_homing_test(args):
                         cycle_result['success'] = False
                         cycle_result['errors'].append(
                             f'{axis} position drift: {delta} steps '
-                            f'(ref={ref_positions[axis]}, actual={pos})')
+                            f'(ref={ref_positions[axis]}, actual={pos})'
+                        )
 
             results.append(cycle_result)
 
             # Print status
             status = 'OK' if cycle_result['success'] else 'FAIL'
-            deltas = ' '.join(
-                f'{a}={cycle_result["position_deltas"].get(a, "?")}'
-                for a in axes)
+            deltas = ' '.join(f'{a}={cycle_result["position_deltas"].get(a, "?")}' for a in axes)
             errors = '; '.join(cycle_result['errors']) if cycle_result['errors'] else ''
             extra = f'  ** {errors}' if errors else ''
             print(f'[{cycle:3d}/{n_cycles}] {status}  {dt:6.0f}ms  deltas: {deltas}{extra}')
@@ -393,18 +399,18 @@ def _print_homing_summary(results, axes):
     failed = n - passed
     times = [r['home_time_ms'] for r in results]
 
-    print(f'\n{"="*70}')
+    print(f'\n{"=" * 70}')
     print(f'HOMING ENDURANCE TEST SUMMARY')
-    print(f'{"="*70}')
+    print(f'{"=" * 70}')
     print(f'Cycles: {n}')
     print(f'Passed: {passed}')
     print(f'Failed: {failed}')
-    print(f'Pass rate: {100*passed/n:.1f}%')
+    print(f'Pass rate: {100 * passed / n:.1f}%')
     print()
     print(f'Homing time (ms):')
     print(f'  Min:  {min(times):.0f}')
     print(f'  Max:  {max(times):.0f}')
-    print(f'  Mean: {sum(times)/len(times):.0f}')
+    print(f'  Mean: {sum(times) / len(times):.0f}')
     print()
 
     for axis in axes:
@@ -413,7 +419,7 @@ def _print_homing_summary(results, axes):
             print(f'{axis} position delta (steps from reference):')
             print(f'  Min:  {min(deltas)}')
             print(f'  Max:  {max(deltas)}')
-            print(f'  Mean: {sum(deltas)/len(deltas):.1f}')
+            print(f'  Mean: {sum(deltas) / len(deltas):.1f}')
         else:
             print(f'{axis}: no successful cycles')
 
@@ -423,7 +429,7 @@ def _print_homing_summary(results, axes):
             if not r['success']:
                 print(f'  Cycle {r["cycle"]}: {"; ".join(r["errors"])}')
 
-    print(f'{"="*70}')
+    print(f'{"=" * 70}')
     return failed == 0
 
 
@@ -431,9 +437,11 @@ def _print_homing_summary(results, axes):
 # CLI
 # ---------------------------------------------------------------------------
 
+
 def main():
     parser = argparse.ArgumentParser(
-        description='Firmware management tools (uses production drivers)')
+        description='Firmware management tools (uses production drivers)'
+    )
     sub = parser.add_subparsers(dest='command', help='Available commands')
 
     # info
@@ -441,25 +449,39 @@ def main():
 
     # backup
     p_backup = sub.add_parser('backup', help='Backup config files from board')
-    p_backup.add_argument('--output', '-o', default=None,
-                          help='Output directory (default: build/config_backup_<timestamp>)')
+    p_backup.add_argument(
+        '--output',
+        '-o',
+        default=None,
+        help='Output directory (default: build/config_backup_<timestamp>)',
+    )
 
     # push-ini
     p_ini = sub.add_parser('push-ini', help='Push INI files to motor board')
-    p_ini.add_argument('--files', nargs='+', default=None,
-                       help='Specific INI files to push (default: all 3)')
+    p_ini.add_argument(
+        '--files', nargs='+', default=None, help='Specific INI files to push (default: all 3)'
+    )
 
     # homing-test
     p_home = sub.add_parser('homing-test', help='Homing endurance test')
-    p_home.add_argument('--cycles', type=int, default=50,
-                        help='Number of homing cycles (default: 50)')
-    p_home.add_argument('--axes', nargs='+', default=None,
-                        help='Axes to test (default: all present)')
-    p_home.add_argument('--move-between', action='store_true', default=True,
-                        help='Move away from home between cycles (default: True)')
-    p_home.add_argument('--no-move-between', action='store_false',
-                        dest='move_between',
-                        help='Skip intermediate moves')
+    p_home.add_argument(
+        '--cycles', type=int, default=50, help='Number of homing cycles (default: 50)'
+    )
+    p_home.add_argument(
+        '--axes', nargs='+', default=None, help='Axes to test (default: all present)'
+    )
+    p_home.add_argument(
+        '--move-between',
+        action='store_true',
+        default=True,
+        help='Move away from home between cycles (default: True)',
+    )
+    p_home.add_argument(
+        '--no-move-between',
+        action='store_false',
+        dest='move_between',
+        help='Skip intermediate moves',
+    )
 
     args = parser.parse_args()
     if args.command is None:

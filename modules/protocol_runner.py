@@ -57,7 +57,7 @@ class ProtocolRunner:
         self.session = session
 
         self._protocol_thread = protocol_thread or ProtocolThread()
-        self._file_io_executor = file_io_executor or SequentialIOExecutor(name="FILE")
+        self._file_io_executor = file_io_executor or SequentialIOExecutor(name='FILE')
         self._autofocus_thread = autofocus_thread
 
         self._completion_event = threading.Event()
@@ -84,8 +84,8 @@ class ProtocolRunner:
 
     def build_image_capture_config(
         self,
-        live_format: str = "TIFF",
-        sequenced_format: str = "TIFF",
+        live_format: str = 'TIFF',
+        sequenced_format: str = 'TIFF',
         use_full_pixel_depth: bool = True,
     ) -> dict:
         """Build an image capture config dict without reading from GUI."""
@@ -104,7 +104,7 @@ class ProtocolRunner:
     def run_single_scan(
         self,
         protocol: Protocol,
-        sequence_name: str = "scan",
+        sequence_name: str = 'scan',
         parent_dir: pathlib.Path | str | None = None,
         image_capture_config: dict | None = None,
         enable_image_saving: bool = True,
@@ -138,7 +138,7 @@ class ProtocolRunner:
     def run_protocol(
         self,
         protocol: Protocol,
-        sequence_name: str = "protocol",
+        sequence_name: str = 'protocol',
         parent_dir: pathlib.Path | str | None = None,
         image_capture_config: dict | None = None,
         enable_image_saving: bool = True,
@@ -184,9 +184,10 @@ class ProtocolRunner:
         self._completion_event.clear()
 
         if parent_dir is None:
-            parent_dir = pathlib.Path(
-                self.session.settings.get('live_folder', '.')
-            ).resolve() / "ProtocolData"
+            parent_dir = (
+                pathlib.Path(self.session.settings.get('live_folder', '.')).resolve()
+                / 'ProtocolData'
+            )
         else:
             parent_dir = pathlib.Path(parent_dir)
 
@@ -194,6 +195,7 @@ class ProtocolRunner:
             image_capture_config = self.build_image_capture_config()
 
         import modules.config_helpers as config_helpers
+
         autogain_settings = config_helpers.get_auto_gain_settings(self.session.settings)
 
         merged_callbacks = dict(callbacks or {})
@@ -236,7 +238,7 @@ class ProtocolRunner:
             autogain_settings=autogain_settings,
             callbacks=merged_callbacks,
             return_to_position=return_to_position,
-            leds_state_at_end="off",
+            leds_state_at_end='off',
             video_as_frames=self.session.settings.get('video_as_frames', False),
             initial_autofocus_states=initial_autofocus_states,
         )

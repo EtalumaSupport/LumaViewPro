@@ -26,8 +26,10 @@ class TestFuturesMetricsFormat:
 
     def test_format_string_uses_explicit_field_names(self):
         src = (REPO_ROOT / "modules" / "config_helpers.py").read_text()
+        # Quote-style agnostic: ruff format may use single or double
+        # quotes for the f-string.
         m = re.search(
-            r'futures_parts\.append\(\s*f"(?P<fmt>[^"]+)"\s*\)',
+            r'''futures_parts\.append\(\s*f["'](?P<fmt>[^"']+)["']\s*\)''',
             src,
         )
         assert m is not None, "futures_parts append line not found"
@@ -182,14 +184,18 @@ class TestZprojectionFolderPickerDefaultDepth_629:
             body_end = body_section.find("\nclass ", 1)
         if body_end != -1:
             body_section = body_section[:body_end]
-        manual_idx = body_section.find('"Manual"')
-        protocol_idx = body_section.find('"ProtocolData"')
-        assert manual_idx != -1, (
+        # Quote-style agnostic: ruff format may use single or double quotes.
+        import re
+        manual_match = re.search(r'''["']Manual["']''', body_section)
+        protocol_match = re.search(r'''["']ProtocolData["']''', body_section)
+        assert manual_match is not None, (
             "helper must include Manual subpath (#629)"
         )
-        assert protocol_idx != -1, (
+        assert protocol_match is not None, (
             "helper must include ProtocolData fallback (#629)"
         )
+        manual_idx = manual_match.start()
+        protocol_idx = protocol_match.start()
         assert manual_idx < protocol_idx, (
             "Manual/Z-Stacks must come BEFORE ProtocolData in the "
             "candidate priority order so manual z-stack workflow is "

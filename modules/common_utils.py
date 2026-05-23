@@ -15,11 +15,12 @@ from lvp_logger import logger
 # Hardware defaults (fallbacks when motorconfig/scope not available)
 # ---------------------------------------------------------------------------
 # LS850 full travel range — used as default stage limits when scope is not connected.
-DEFAULT_STAGE_TRAVEL_UM = {"x": 120000.0, "y": 80000.0}
+DEFAULT_STAGE_TRAVEL_UM = {'x': 120000.0, 'y': 80000.0}
 
 # ---------------------------------------------------------------------------
 # Enums
 # ---------------------------------------------------------------------------
+
 
 @enum.unique
 class ColorChannel(enum.Enum):
@@ -34,11 +35,11 @@ class ColorChannel(enum.Enum):
 
 @enum.unique
 class PostFunction(enum.Enum):
-    COMPOSITE = "Composite"
-    STITCHED = "Stitched"
-    ZPROJECT = "ZProject"
-    VIDEO = "Video"
-    HYPERSTACK = "Hyperstack"
+    COMPOSITE = 'Composite'
+    STITCHED = 'Stitched'
+    ZPROJECT = 'ZProject'
+    VIDEO = 'Video'
+    HYPERSTACK = 'Hyperstack'
 
     @classmethod
     def list_values(cls):
@@ -48,6 +49,7 @@ class PostFunction(enum.Enum):
 # ---------------------------------------------------------------------------
 # JSON serialization
 # ---------------------------------------------------------------------------
+
 
 class CustomJSONizer(json.JSONEncoder):
     def default(self, obj):
@@ -65,12 +67,12 @@ class CustomJSONizer(json.JSONEncoder):
 
 def generate_default_step_name(
     well_label,
-    color = None,
-    z_height_idx = None,
-    scan_count = None,
-    tile_label = None,
-    objective_short_name = None,
-    custom_name_prefix = None,
+    color=None,
+    z_height_idx=None,
+    scan_count=None,
+    tile_label=None,
+    objective_short_name=None,
+    custom_name_prefix=None,
     stitched: bool = False,
     video: bool = False,
     zprojection: str | None = None,
@@ -78,30 +80,30 @@ def generate_default_step_name(
     hyperstack: bool = False,
     turret_position: int | None = None,
 ):
-    if custom_name_prefix not in (None, ""):
-        name = f"{custom_name_prefix}"
+    if custom_name_prefix not in (None, ''):
+        name = f'{custom_name_prefix}'
     else:
-        name = f"{well_label}"
+        name = f'{well_label}'
 
-    if color not in (None, "") and color not in name:
-        name = f"{name}_{color}"
-    
-    if tile_label not in (None, "", -1):
-        if not f"_T{tile_label}" in name:
-            name = f"{name}_T{tile_label}"
+    if color not in (None, '') and color not in name:
+        name = f'{name}_{color}'
 
-    if objective_short_name not in (None, "", -1):
-        name = f"{name}_{objective_short_name}"
+    if tile_label not in (None, '', -1):
+        if not f'_T{tile_label}' in name:
+            name = f'{name}_T{tile_label}'
+
+    if objective_short_name not in (None, '', -1):
+        name = f'{name}_{objective_short_name}'
 
     if turret_position is not None:
-        name = f"{name}_Turret{turret_position}"
+        name = f'{name}_Turret{turret_position}'
 
-    if z_height_idx not in (None, "", -1):
-        if not f"_Z{z_height_idx}" in name:
-            name = f"{name}_Z{z_height_idx}"
+    if z_height_idx not in (None, '', -1):
+        if not f'_Z{z_height_idx}' in name:
+            name = f'{name}_Z{z_height_idx}'
 
     DESIRED_SCAN_COUNT_DIGITS = 4
-    if scan_count not in (None, ""):
+    if scan_count not in (None, ''):
         name = f'{name}_{scan_count:0>{DESIRED_SCAN_COUNT_DIGITS}}'
 
     if stitched:
@@ -118,7 +120,7 @@ def generate_default_step_name(
 
     if hyperstack:
         name = f'{name}_hyperstack'
-    
+
     return name
 
 
@@ -131,12 +133,12 @@ def get_tile_label_from_name(name: str) -> str | None:
     segment = name[2]
     if segment.startswith('T'):
         return segment[1:]
-    
+
     return None
 
 
 def get_first_section_from_name(name: str) -> str | None:
-    
+
     # This will retrieve just the filename if the name has parent folders
     name = pathlib.Path(name).name
 
@@ -163,15 +165,15 @@ def replace_layer_in_step_name(step_name: str, new_layer_name: str) -> str | Non
         using_per_channel_folders = True
     else:
         using_per_channel_folders = False
-    
+
     if using_per_channel_folders:
         split_name[0] = new_layer_name
         step_name = str(pathlib.Path(split_name[0]) / split_name[1])
 
     step_name_segments = step_name.split('_')
-    
+
     # Confirm it's actually a layer before replacing it
-    if step_name_segments[1] in get_layers(): 
+    if step_name_segments[1] in get_layers():
         step_name_segments[1] = new_layer_name
 
     return '_'.join(step_name_segments)
@@ -187,17 +189,18 @@ def is_custom_name(name: str) -> bool:
     # All generated names have at least one '_'
     if len(name) <= 1:
         return True
-    
+
     well = name[0]
-    well_pattern = r"^[A-Z]{1,2}[0-9]+$"
+    well_pattern = r'^[A-Z]{1,2}[0-9]+$'
     if not re.match(pattern=well_pattern, string=well):
         return True
 
     color = name[1]
     if color not in get_layers():
         return True
-    
+
     return False
+
 
 def get_z_slice_from_name(name: str) -> int | None:
     name = name.split('_')
@@ -205,16 +208,16 @@ def get_z_slice_from_name(name: str) -> int | None:
     # Z-slice info can either be at segment index 2 (if no tile label is present), or segment index 3 (if tile label is present)
     if len(name) <= 2:
         return None
-    
+
     if name[2].startswith('Z'):
         return name[2][1:]
-    
+
     if len(name) <= 3:
         return None
-    
+
     if name[3].startswith('Z'):
         return name[3][1:]
-        
+
     return None
 
 
@@ -222,15 +225,15 @@ def convert_zstack_reference_position_setting_to_config(text_label: str) -> str:
     LABEL_MAP = {
         'Current Position at Top': 'top',
         'Current Position at Center': 'center',
-        'Current Position at Bottom': 'bottom'
+        'Current Position at Bottom': 'bottom',
     }
 
     if text_label in LABEL_MAP:
-          return LABEL_MAP[text_label]
-    
-    raise Exception(f"Unknown Z-stack position reference: {text_label}")
+        return LABEL_MAP[text_label]
 
-                    
+    raise Exception(f'Unknown Z-stack position reference: {text_label}')
+
+
 def get_layers() -> list[str]:
     return ['BF', 'PC', 'DF', 'Blue', 'Green', 'Red', 'Lumi']
 
@@ -266,11 +269,14 @@ def get_opened_layer(lumaview_imagesettings) -> str | None:
             logger.debug(
                 '[common_utils] get_opened_layer: accordion lookup for '
                 'layer=%s raised; skipping: %s: %s',
-                layer, type(e).__name__, e,
+                layer,
+                type(e).__name__,
+                e,
             )
             continue
-        
+
     return None
+
 
 def get_opened_layer_obj(lumaview_imagesettings):
     return lumaview_imagesettings.layer_lookup(layer=get_opened_layer(lumaview_imagesettings))
@@ -278,8 +284,8 @@ def get_opened_layer_obj(lumaview_imagesettings):
 
 def to_bool(val) -> bool:
     if isinstance(val, str):
-        return True if val.lower() == "true" else False
-    elif val in ("", None):
+        return True if val.lower() == 'true' else False
+    elif val in ('', None):
         return False
     else:
         return bool(float(val))
@@ -290,12 +296,12 @@ def to_float(val) -> float:
         return val.astype(float)
     else:
         return float(val)
-    
-    
+
+
 def to_int(val) -> int | None:
     if 'numpy' in str(type(val)):
         return int(val.astype(float))
-    elif val in ("", None):
+    elif val in ('', None):
         return -1
     else:
         return int(float(val))
@@ -308,13 +314,14 @@ def get_pixel_size(
     # Read tube focal length and pixel size from scope capabilities
     # (motorconfig-sourced; per-installation override).
     import modules.app_context as _app_ctx
+
     ctx = _app_ctx.ctx
     if ctx is not None and ctx.scope is not None:
         tube_focal_length = ctx.scope.capabilities.lens_focal_length_mm
         pixel_width = ctx.scope.capabilities.pixel_size_um
     else:
         tube_focal_length = 47.8  # Etaluma default [mm]
-        pixel_width = 2.0         # Basler default [um/pixel]
+        pixel_width = 2.0  # Basler default [um/pixel]
     magnification = tube_focal_length / focal_length
     um_per_pixel = pixel_width / magnification
 
@@ -334,20 +341,13 @@ def get_field_of_view(
     )
     fov_x = um_per_pixel * frame_size['width']
     fov_y = um_per_pixel * frame_size['height']
-    
-    return {
-        'width': fov_x,
-        'height': fov_y
-    }
+
+    return {'width': fov_x, 'height': fov_y}
 
 
 def max_decimal_precision(parameter: str) -> int:
     DEFAULT_PRECISION = 5
-    PRECISION_MAP = {
-        'x': 4,
-        'y': 4,
-        'z': 5
-    }
+    PRECISION_MAP = {'x': 4, 'y': 4, 'z': 5}
 
     return PRECISION_MAP.get(parameter, DEFAULT_PRECISION)
 
@@ -379,6 +379,7 @@ _IS_WINDOWS = platform.system() == 'Windows'
 # Safe to call once per minute.
 # ---------------------------------------------------------------------------
 
+
 class _PdhCountersOnce:
     """Lazy-initialized PDH query for a fixed set of counters.
 
@@ -391,17 +392,17 @@ class _PdhCountersOnce:
     # `\Memory\Available Bytes` is what Windows considers "available" — equals
     # standby + free + zero pages. Useful as a sanity check against the breakdown.
     _COUNTERS = {
-        'standby_normal_bytes':   r'\Memory\Standby Cache Normal Priority Bytes',
-        'standby_reserve_bytes':  r'\Memory\Standby Cache Reserve Bytes',
-        'standby_core_bytes':     r'\Memory\Standby Cache Core Bytes',
-        'pool_nonpaged_bytes':    r'\Memory\Pool Nonpaged Bytes',
-        'pool_paged_bytes':       r'\Memory\Pool Paged Bytes',
-        'system_cache_bytes':     r'\Memory\Cache Bytes',
-        'modified_page_bytes':    r'\Memory\Modified Page List Bytes',
-        'free_zero_bytes':        r'\Memory\Free & Zero Page List Bytes',
-        'available_bytes':        r'\Memory\Available Bytes',
-        'commit_bytes':           r'\Memory\Committed Bytes',
-        'commit_limit_bytes':     r'\Memory\Commit Limit',
+        'standby_normal_bytes': r'\Memory\Standby Cache Normal Priority Bytes',
+        'standby_reserve_bytes': r'\Memory\Standby Cache Reserve Bytes',
+        'standby_core_bytes': r'\Memory\Standby Cache Core Bytes',
+        'pool_nonpaged_bytes': r'\Memory\Pool Nonpaged Bytes',
+        'pool_paged_bytes': r'\Memory\Pool Paged Bytes',
+        'system_cache_bytes': r'\Memory\Cache Bytes',
+        'modified_page_bytes': r'\Memory\Modified Page List Bytes',
+        'free_zero_bytes': r'\Memory\Free & Zero Page List Bytes',
+        'available_bytes': r'\Memory\Available Bytes',
+        'commit_bytes': r'\Memory\Committed Bytes',
+        'commit_limit_bytes': r'\Memory\Commit Limit',
     }
 
     # PDH return codes / format flags (winperf.h)
@@ -429,6 +430,7 @@ class _PdhCountersOnce:
                     ('CStatus', ctypes.c_ulong),
                     ('doubleValue', ctypes.c_double),
                 ]
+
             self._PDH_FMT_COUNTERVALUE = _PDH_FMT_COUNTERVALUE
 
             query = ctypes.c_void_p()
@@ -580,9 +582,9 @@ def query_defender_metrics():
         try:
             io = proc.io_counters()
             out['defender_io_read_mb_total'] = io.read_bytes / (1024 * 1024)
-            out['defender_io_read_mbps'] = _delta_rate(
-                'defender_io_read', io.read_bytes
-            ) / (1024 * 1024)
+            out['defender_io_read_mbps'] = _delta_rate('defender_io_read', io.read_bytes) / (
+                1024 * 1024
+            )
         except (psutil.AccessDenied, AttributeError):
             pass
         return out
@@ -613,8 +615,10 @@ def _read_tracemalloc_gate():
     # when lvp_logger isn't importable (e.g. unit tests that exercise
     # this module in isolation).
     from modules.settings_init import load_tracemalloc_setting
+
     try:
         import lvp_logger
+
         base_dir = lvp_logger.lvp_appdata
     except (ImportError, AttributeError):
         base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -634,6 +638,7 @@ def query_tracemalloc_top_n(n=5):
     global _tracemalloc_started
     try:
         import tracemalloc
+
         if not _tracemalloc_started:
             tracemalloc.start(20)  # 20 frames of context
             _tracemalloc_started = True
@@ -643,18 +648,20 @@ def query_tracemalloc_top_n(n=5):
         out = []
         for s in stats[:n]:
             frame = s.traceback[0]
-            out.append({
-                'file': frame.filename,
-                'line': frame.lineno,
-                'size_kb': s.size / 1024,
-                'count': s.count,
-            })
+            out.append(
+                {
+                    'file': frame.filename,
+                    'line': frame.lineno,
+                    'size_kb': s.size / 1024,
+                    'count': s.count,
+                }
+            )
         return out
     except Exception:
         return []
 
 
-def system_metrics(path="/"):
+def system_metrics(path='/'):
     """Return a one-shot snapshot of process and host resource state.
 
     Used by `log_system_metrics()` (called hourly from `lumaviewpro.py`).
@@ -673,21 +680,19 @@ def system_metrics(path="/"):
 
     metrics = {
         # CPU
-        "cpu_percent_total": psutil.cpu_percent(),
-        "cpu_percent_python": proc.cpu_percent(),
-        "cpu_cores_logical": psutil.cpu_count(logical=True),
-        "cpu_cores_physical": psutil.cpu_count(logical=False),
-
+        'cpu_percent_total': psutil.cpu_percent(),
+        'cpu_percent_python': proc.cpu_percent(),
+        'cpu_cores_logical': psutil.cpu_count(logical=True),
+        'cpu_cores_physical': psutil.cpu_count(logical=False),
         # RAM
-        "ram_available_gb": vmem.available / 1e9,
-        "ram_percent_total": vmem.percent,
-        "ram_used_python_percent": proc.memory_percent(),
-        "ram_used_python_mb": proc.memory_info().rss / 1e6,
-        "ram_used_total_mb": vmem.used / 1e6,
-
+        'ram_available_gb': vmem.available / 1e9,
+        'ram_percent_total': vmem.percent,
+        'ram_used_python_percent': proc.memory_percent(),
+        'ram_used_python_mb': proc.memory_info().rss / 1e6,
+        'ram_used_total_mb': vmem.used / 1e6,
         # Disk
-        "disk_free_gb": disk.free / 1024**3,
-        "disk_used_percent": disk.percent,
+        'disk_free_gb': disk.free / 1024**3,
+        'disk_used_percent': disk.percent,
     }
 
     # --- Private memory bytes (Windows-specific; falls back to RSS) ---
@@ -698,18 +703,18 @@ def system_metrics(path="/"):
     try:
         mem = proc.memory_info()
         private = getattr(mem, 'private', mem.rss)
-        metrics["ram_private_mb"] = private / 1e6
+        metrics['ram_private_mb'] = private / 1e6
     except Exception:
-        metrics["ram_private_mb"] = -1
+        metrics['ram_private_mb'] = -1
 
     # --- System swap (catches page-file pressure even when "RAM looks low") ---
     try:
         swap = psutil.swap_memory()
-        metrics["swap_percent"] = swap.percent
-        metrics["swap_used_gb"] = swap.used / 1e9
+        metrics['swap_percent'] = swap.percent
+        metrics['swap_used_gb'] = swap.used / 1e9
     except Exception:
-        metrics["swap_percent"] = -1
-        metrics["swap_used_gb"] = -1
+        metrics['swap_percent'] = -1
+        metrics['swap_used_gb'] = -1
 
     # --- OS handles (Windows) / file descriptors (POSIX) ---
     # Windows caps process handles around 16M but typical apps run
@@ -717,11 +722,11 @@ def system_metrics(path="/"):
     # of file/socket/thread handles. POSIX fds equivalent.
     try:
         if _IS_WINDOWS:
-            metrics["os_handles"] = proc.num_handles()
+            metrics['os_handles'] = proc.num_handles()
         else:
-            metrics["os_handles"] = proc.num_fds()
+            metrics['os_handles'] = proc.num_fds()
     except Exception:
-        metrics["os_handles"] = -1
+        metrics['os_handles'] = -1
 
     # --- Open files count ---
     # Most actionable diagnostic when handles climb: tells you exactly
@@ -729,9 +734,9 @@ def system_metrics(path="/"):
     # a threshold, the operator can dump the list manually via
     # `psutil.Process().open_files()`.
     try:
-        metrics["open_files_count"] = len(proc.open_files())
+        metrics['open_files_count'] = len(proc.open_files())
     except Exception:
-        metrics["open_files_count"] = -1
+        metrics['open_files_count'] = -1
 
     # --- Process I/O bytes (cumulative + rates, per-process) ---
     # Distinguishes "we wrote 50 GB this hour" from "Windows Defender did".
@@ -741,15 +746,15 @@ def system_metrics(path="/"):
     # read rate to confirm "Defender mmaps every TIFF" hypothesis.
     try:
         io = proc.io_counters()
-        metrics["io_read_mb"] = io.read_bytes / 1e6
-        metrics["io_write_mb"] = io.write_bytes / 1e6
-        metrics["io_read_mbps"] = _delta_rate('proc_io_read', io.read_bytes) / 1e6
-        metrics["io_write_mbps"] = _delta_rate('proc_io_write', io.write_bytes) / 1e6
+        metrics['io_read_mb'] = io.read_bytes / 1e6
+        metrics['io_write_mb'] = io.write_bytes / 1e6
+        metrics['io_read_mbps'] = _delta_rate('proc_io_read', io.read_bytes) / 1e6
+        metrics['io_write_mbps'] = _delta_rate('proc_io_write', io.write_bytes) / 1e6
     except Exception:
-        metrics["io_read_mb"] = -1
-        metrics["io_write_mb"] = -1
-        metrics["io_read_mbps"] = -1
-        metrics["io_write_mbps"] = -1
+        metrics['io_read_mb'] = -1
+        metrics['io_write_mb'] = -1
+        metrics['io_read_mbps'] = -1
+        metrics['io_write_mbps'] = -1
 
     # --- Page faults (rate) ---
     # Sustained > 1000 pf/sec on a desktop = real memory pressure (paging
@@ -786,41 +791,41 @@ def system_metrics(path="/"):
             user32.GetGuiResources.argtypes = [ctypes.c_void_p, ctypes.c_uint]
             user32.GetGuiResources.restype = ctypes.c_uint
             handle = kernel32.GetCurrentProcess()
-            metrics["gdi_objects"] = user32.GetGuiResources(handle, GR_GDIOBJECTS)
-            metrics["user_objects"] = user32.GetGuiResources(handle, GR_USEROBJECTS)
+            metrics['gdi_objects'] = user32.GetGuiResources(handle, GR_GDIOBJECTS)
+            metrics['user_objects'] = user32.GetGuiResources(handle, GR_USEROBJECTS)
         except Exception:
-            metrics["gdi_objects"] = -1
-            metrics["user_objects"] = -1
+            metrics['gdi_objects'] = -1
+            metrics['user_objects'] = -1
     else:
-        metrics["gdi_objects"] = -1
-        metrics["user_objects"] = -1
+        metrics['gdi_objects'] = -1
+        metrics['user_objects'] = -1
 
     # --- Thread count + names ---
     # Should plateau within ~30s of startup at ~20-25 (8 executors * 2
     # threads + camera + main + a few Kivy). Steady growth means an
     # executor/handler is spawning without joining.
     try:
-        metrics["thread_count"] = threading.active_count()
-        metrics["thread_names"] = sorted(t.name for t in threading.enumerate())
+        metrics['thread_count'] = threading.active_count()
+        metrics['thread_names'] = sorted(t.name for t in threading.enumerate())
     except Exception:
-        metrics["thread_count"] = -1
-        metrics["thread_names"] = []
+        metrics['thread_count'] = -1
+        metrics['thread_names'] = []
 
     # --- Python GC (catches reference-cycle / closure-capture leaks) ---
     # `gc.get_objects()` is somewhat expensive (iterates all tracked
     # objects) — fine at hourly cadence. Steady linear growth indicates
     # accumulation, typically from observers/callbacks holding refs.
     try:
-        metrics["gc_objects"] = len(gc.get_objects())
+        metrics['gc_objects'] = len(gc.get_objects())
         gc_stats = gc.get_stats()
-        metrics["gc_gen0_collections"] = gc_stats[0]['collections']
-        metrics["gc_gen1_collections"] = gc_stats[1]['collections']
-        metrics["gc_gen2_collections"] = gc_stats[2]['collections']
+        metrics['gc_gen0_collections'] = gc_stats[0]['collections']
+        metrics['gc_gen1_collections'] = gc_stats[1]['collections']
+        metrics['gc_gen2_collections'] = gc_stats[2]['collections']
     except Exception:
-        metrics["gc_objects"] = -1
-        metrics["gc_gen0_collections"] = -1
-        metrics["gc_gen1_collections"] = -1
-        metrics["gc_gen2_collections"] = -1
+        metrics['gc_objects'] = -1
+        metrics['gc_gen0_collections'] = -1
+        metrics['gc_gen1_collections'] = -1
+        metrics['gc_gen2_collections'] = -1
 
     # --- Windows PDH memory counters ---
     # Standby cache + nonpaged pool are the specific signals for
@@ -856,7 +861,7 @@ def system_metrics(path="/"):
     return metrics
 
 
-def check_disk_space(path="/") -> float:
+def check_disk_space(path='/') -> float:
     """
     Returns free disk space in MB
     """
@@ -893,7 +898,7 @@ def check_disk_space_ok(path, required_mb: float) -> tuple[bool, float]:
     return (free_mb >= required_mb, free_mb)
 
 
-def get_extra_disks_info(exclude_path: str = "/") -> str | None:
+def get_extra_disks_info(exclude_path: str = '/') -> str | None:
     """
     Returns formatted disk information for extra disks (excluding the disk containing exclude_path).
     Returns None if only the excluded disk exists or no extra disks are found.
@@ -901,8 +906,9 @@ def get_extra_disks_info(exclude_path: str = "/") -> str | None:
     """
     try:
         import psutil
+
         disk_partitions = psutil.disk_partitions(all=False)
-        
+
         # Find which partition contains the exclude_path
         excluded_device = None
         try:
@@ -912,22 +918,22 @@ def get_extra_disks_info(exclude_path: str = "/") -> str | None:
                     break
         except Exception:
             pass
-        
+
         disk_info_list = []
         for partition in disk_partitions:
             # Skip the excluded device/path
             if excluded_device and partition.device == excluded_device:
                 continue
-            
+
             try:
                 usage = psutil.disk_usage(partition.mountpoint)
                 disk_info_list.append(
-                    f"{partition.device}: {usage.free / (1024**3):.1f} GB free ({usage.percent:.1f}% used)"
+                    f'{partition.device}: {usage.free / (1024**3):.1f} GB free ({usage.percent:.1f}% used)'
                 )
             except (PermissionError, OSError):
                 continue
-        
+
         return ' | '.join(disk_info_list) if disk_info_list else None
-    
+
     except Exception:
         return None

@@ -35,7 +35,7 @@ class ScopeSession:
         wellplate_loader=None,
         coordinate_transformer=None,
         objective_helper=None,
-        source_path: str = ".",
+        source_path: str = '.',
         executor_bundle=None,
     ):
         self.settings = settings
@@ -63,7 +63,7 @@ class ScopeSession:
     def create(
         cls,
         settings: dict,
-        source_path: str = ".",
+        source_path: str = '.',
         scope=None,
         io_executor=None,
         camera_executor=None,
@@ -81,24 +81,28 @@ class ScopeSession:
         executor handles in, those are used and no bundle is created.
         """
         from modules.lumascope_api._lumascope import _fire_pre_release_warning
+
         _fire_pre_release_warning()
 
         if scope is None:
             import modules.lumascope_api as lumascope_api
+
             scope = lumascope_api.Lumascope()
 
         executor_bundle = None
         if io_executor is None and camera_executor is None:
             from modules.executor_registry import create_default
+
             executor_bundle = create_default(ui_dispatcher=None)
             io_executor = executor_bundle.io_executor
             camera_executor = executor_bundle.camera_executor
         else:
             from modules.sequential_io_executor import SequentialIOExecutor
+
             if io_executor is None:
-                io_executor = SequentialIOExecutor(name="IO")
+                io_executor = SequentialIOExecutor(name='IO')
             if camera_executor is None:
-                camera_executor = SequentialIOExecutor(name="CAMERA")
+                camera_executor = SequentialIOExecutor(name='CAMERA')
 
         # LAYER-A': register executors on the scope so scope.X_async /
         # scope.X_sync can dispatch without callers passing executor handles.
@@ -139,32 +143,46 @@ class ScopeSession:
 
         try:
             from modules import labware_loader
+
             wellplate_loader = labware_loader.WellPlateLoader(source_path=source_path)
         except Exception as e:
-            logger.error(f"[ScopeSession] Could not load wellplate loader: {e}", exc_info=True)
-            notifications.warning("Configuration", "Wellplate loader unavailable",
-                f"Labware configuration could not load: {type(e).__name__}: {e}. "
-                f"Plate-based UI (tile plans, well picker) will not work. "
-                f"Check that data/labware.json exists and is valid.")
+            logger.error(f'[ScopeSession] Could not load wellplate loader: {e}', exc_info=True)
+            notifications.warning(
+                'Configuration',
+                'Wellplate loader unavailable',
+                f'Labware configuration could not load: {type(e).__name__}: {e}. '
+                f'Plate-based UI (tile plans, well picker) will not work. '
+                f'Check that data/labware.json exists and is valid.',
+            )
 
         try:
             from modules import coord_transformations
+
             coordinate_transformer = coord_transformations.CoordinateTransformer()
         except Exception as e:
-            logger.error(f"[ScopeSession] Could not load coordinate transformer: {e}", exc_info=True)
-            notifications.warning("Configuration", "Coordinate transformer unavailable",
-                f"Coordinate transformer could not load: {type(e).__name__}: {e}. "
-                f"Stage coordinate conversion (plate <-> stage) will not work.")
+            logger.error(
+                f'[ScopeSession] Could not load coordinate transformer: {e}', exc_info=True
+            )
+            notifications.warning(
+                'Configuration',
+                'Coordinate transformer unavailable',
+                f'Coordinate transformer could not load: {type(e).__name__}: {e}. '
+                f'Stage coordinate conversion (plate <-> stage) will not work.',
+            )
 
         try:
             from modules import objectives_loader
+
             objective_helper = objectives_loader.ObjectiveLoader(source_path=source_path)
         except Exception as e:
-            logger.error(f"[ScopeSession] Could not load objective helper: {e}", exc_info=True)
-            notifications.warning("Configuration", "Objective helper unavailable",
-                f"Objective configuration could not load: {type(e).__name__}: {e}. "
-                f"Objective selection and lookup will not work. "
-                f"Check that data/objectives.json exists and is valid.")
+            logger.error(f'[ScopeSession] Could not load objective helper: {e}', exc_info=True)
+            notifications.warning(
+                'Configuration',
+                'Objective helper unavailable',
+                f'Objective configuration could not load: {type(e).__name__}: {e}. '
+                f'Objective selection and lookup will not work. '
+                f'Check that data/objectives.json exists and is valid.',
+            )
 
         return cls(
             settings=settings,
@@ -179,7 +197,7 @@ class ScopeSession:
         )
 
     @classmethod
-    def create_headless(cls, settings: dict | None = None, source_path: str = "."):
+    def create_headless(cls, settings: dict | None = None, source_path: str = '.'):
         """Create a headless session with simulated hardware.
 
         Convenience factory for REST API, CLI scripts, and tests.
@@ -198,12 +216,14 @@ class ScopeSession:
 
         if settings is None:
             from modules.settings_init import settings as default_settings
+
             if default_settings is not None:
                 settings = default_settings.copy()
             else:
                 # Settings not loaded yet (e.g. headless/test usage) — load from disk
                 import json
-                settings_path = os.path.join(source_path, "data", "settings.json")
+
+                settings_path = os.path.join(source_path, 'data', 'settings.json')
                 if os.path.exists(settings_path):
                     with open(settings_path) as f:
                         settings = json.load(f)
@@ -243,22 +263,27 @@ class ScopeSession:
 
     def get_layer_configs(self, specific_layers=None) -> dict:
         import modules.config_helpers as config_helpers
+
         return config_helpers.get_layer_configs(self.settings, specific_layers)
 
     def get_stim_configs(self) -> dict:
         import modules.config_helpers as config_helpers
+
         return config_helpers.get_stim_configs(self.settings)
 
     def get_enabled_stim_configs(self) -> dict:
         import modules.config_helpers as config_helpers
+
         return config_helpers.get_enabled_stim_configs(self.settings)
 
     def get_auto_gain_settings(self) -> dict:
         import modules.config_helpers as config_helpers
+
         return config_helpers.get_auto_gain_settings(self.settings)
 
     def get_current_objective_info(self) -> dict:
         import modules.config_helpers as config_helpers
+
         return config_helpers.get_current_objective_info(self.settings, self.objective_helper)
 
     def set_objective(self, objective_id: str) -> None:
@@ -276,12 +301,17 @@ class ScopeSession:
 
     def get_current_plate_position(self) -> 'dict | None':
         import modules.config_helpers as config_helpers
+
         return config_helpers.get_current_plate_position(
-            self.scope, self.settings, self.coordinate_transformer, self.wellplate_loader,
+            self.scope,
+            self.settings,
+            self.coordinate_transformer,
+            self.wellplate_loader,
         )
 
     def log_system_metrics(self) -> None:
         import modules.config_helpers as config_helpers
+
         config_helpers.log_system_metrics(self.settings)
 
     # --- LED commands (thin shims around Lumascope's executor-backed API) ---
@@ -293,12 +323,17 @@ class ScopeSession:
 
     def led_on_async(self, channel, mA, callback=None, cb_kwargs=None) -> None:
         self.scope.illumination.led_on_async(
-            channel, mA, callback=callback, cb_kwargs=cb_kwargs,
+            channel,
+            mA,
+            callback=callback,
+            cb_kwargs=cb_kwargs,
         )
 
     def led_off_async(self, channel, callback=None, cb_kwargs=None) -> None:
         self.scope.illumination.led_off_async(
-            channel, callback=callback, cb_kwargs=cb_kwargs,
+            channel,
+            callback=callback,
+            cb_kwargs=cb_kwargs,
         )
 
     def led_on_sync(self, channel, mA, timeout_s=5) -> None:
@@ -306,27 +341,47 @@ class ScopeSession:
 
     # --- Motion commands ---
 
-    def move_absolute_async(self, axis, pos, wait_until_complete=False,
-                            overshoot_enabled=True, callback=None, cb_kwargs=None) -> None:
+    def move_absolute_async(
+        self,
+        axis,
+        pos,
+        wait_until_complete=False,
+        overshoot_enabled=True,
+        callback=None,
+        cb_kwargs=None,
+    ) -> None:
         self.scope.motion.move_absolute_async(
-            axis, pos,
+            axis,
+            pos,
             wait_until_complete=wait_until_complete,
             overshoot_enabled=overshoot_enabled,
-            callback=callback, cb_kwargs=cb_kwargs,
+            callback=callback,
+            cb_kwargs=cb_kwargs,
         )
 
-    def move_relative_async(self, axis, um, wait_until_complete=False,
-                            overshoot_enabled=True, callback=None, cb_kwargs=None) -> None:
+    def move_relative_async(
+        self,
+        axis,
+        um,
+        wait_until_complete=False,
+        overshoot_enabled=True,
+        callback=None,
+        cb_kwargs=None,
+    ) -> None:
         self.scope.motion.move_relative_async(
-            axis, um,
+            axis,
+            um,
             wait_until_complete=wait_until_complete,
             overshoot_enabled=overshoot_enabled,
-            callback=callback, cb_kwargs=cb_kwargs,
+            callback=callback,
+            cb_kwargs=cb_kwargs,
         )
 
     def move_home_async(self, axis, callback=None, cb_args=None) -> None:
         self.scope.motion.move_home_async(
-            axis, callback=callback, cb_args=cb_args,
+            axis,
+            callback=callback,
+            cb_args=cb_args,
         )
 
     # --- Imaging commands (symmetric with illumination + motion wrappers:
@@ -337,7 +392,9 @@ class ScopeSession:
     def set_gain_async(self, gain_db: float, callback=None, cb_kwargs=None) -> None:
         """Submit ``set_gain`` to camera_executor; return immediately."""
         self.scope.imaging.set_gain_async(
-            gain_db, callback=callback, cb_kwargs=cb_kwargs,
+            gain_db,
+            callback=callback,
+            cb_kwargs=cb_kwargs,
         )
 
     def set_gain_sync(self, gain_db: float, timeout_s: float = 5.0) -> None:
@@ -345,11 +402,16 @@ class ScopeSession:
         self.scope.imaging.set_gain_sync(gain_db, timeout_s=timeout_s)
 
     def set_exposure_time_async(
-        self, exposure_ms: float, callback=None, cb_kwargs=None,
+        self,
+        exposure_ms: float,
+        callback=None,
+        cb_kwargs=None,
     ) -> None:
         """Submit ``set_exposure_time`` to camera_executor; return immediately."""
         self.scope.imaging.set_exposure_time_async(
-            exposure_ms, callback=callback, cb_kwargs=cb_kwargs,
+            exposure_ms,
+            callback=callback,
+            cb_kwargs=cb_kwargs,
         )
 
     def set_exposure_time_sync(self, exposure_ms: float, timeout_s: float = 5.0) -> None:
@@ -429,6 +491,7 @@ class ScopeSession:
         using this session's scope, settings, and executors.
         """
         from modules.protocol_runner import ProtocolRunner
+
         return ProtocolRunner(session=self, **kwargs)
 
     # ------------------------------------------------------------------
@@ -495,17 +558,20 @@ class ScopeSession:
             if turret_position is None:
                 DEFAULT_POSITION = 1
                 logger.info(
-                    f"Turret position for set objective {objective_id} not "
-                    f"in turret objectives configuration. Setting to "
-                    f"position {DEFAULT_POSITION}")
+                    f'Turret position for set objective {objective_id} not '
+                    f'in turret objectives configuration. Setting to '
+                    f'position {DEFAULT_POSITION}'
+                )
                 turret_position = DEFAULT_POSITION
 
             self.settings['turret_position'] = turret_position
-            self.io_executor.put(IOTask(
-                move_absolute_position,
-                kwargs={
-                    "axis": 'T',
-                    "pos": turret_position,
-                    "wait_until_complete": True,
-                },
-            ))
+            self.io_executor.put(
+                IOTask(
+                    move_absolute_position,
+                    kwargs={
+                        'axis': 'T',
+                        'pos': turret_position,
+                        'wait_until_complete': True,
+                    },
+                )
+            )

@@ -56,8 +56,10 @@ def _read_fx2_wire_setting() -> bool:
     Replaces the prior LVP_FX2_DEBUG_WIRE environment-variable gate.
     """
     from modules.settings_init import load_fx2_debug_wire_setting
+
     try:
         import lvp_logger
+
         base_dir = lvp_logger.lvp_appdata
     except (ImportError, AttributeError):
         base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -92,19 +94,28 @@ class LayerControl(BoxLayout):
         # Flag to prevent apply_settings during initialization
         self._initializing = True
 
-        self.apply_gain_slider = Clock.create_trigger(lambda dt: self.apply_settings(), SLIDER_DEBOUNCE_S)
-        self.apply_exp_slider = Clock.create_trigger(lambda dt: self.apply_settings(), SLIDER_DEBOUNCE_S)
-        self.apply_ill_slider = Clock.create_trigger(lambda dt: self.apply_settings(), SLIDER_DEBOUNCE_S)
+        self.apply_gain_slider = Clock.create_trigger(
+            lambda dt: self.apply_settings(), SLIDER_DEBOUNCE_S
+        )
+        self.apply_exp_slider = Clock.create_trigger(
+            lambda dt: self.apply_settings(), SLIDER_DEBOUNCE_S
+        )
+        self.apply_ill_slider = Clock.create_trigger(
+            lambda dt: self.apply_settings(), SLIDER_DEBOUNCE_S
+        )
         self._init_ui_retries = 0
         Clock.schedule_once(self._init_ui, 0)
 
-
     def _validate_and_apply_text_input(
-        self, text_id: str, slider_id: str, settings_key: str,
-        cast=float, settings_path: str | None = None,
+        self,
+        text_id: str,
+        slider_id: str,
+        settings_key: str,
+        cast=float,
+        settings_path: str | None = None,
         gui_log_name: str | None = None,
     ) -> bool:
-        """Shared validation for text input → slider → settings update.
+        """Shared validation for text input -> slider -> settings update.
 
         Parses text, clips to slider range, updates slider + text + settings,
         and applies. Returns True on success, False on invalid input.
@@ -151,7 +162,7 @@ class LayerControl(BoxLayout):
         else:
             settings[self.layer][settings_key] = clipped
 
-        # Update widgets — wrapped in _initializing so the slider's
+        # Update widgets -- wrapped in _initializing so the slider's
         # on_value handler does not re-enter and double-fire apply_settings
         # (#617). Settings are already written above.
         self._initializing = True
@@ -171,7 +182,9 @@ class LayerControl(BoxLayout):
         if ctx is None:
             self._init_ui_retries += 1
             if self._init_ui_retries > INIT_MAX_RETRIES:
-                logger.error('[LVP Main  ] LayerControl._init_ui: ctx still None after 50 retries, giving up')
+                logger.error(
+                    '[LVP Main  ] LayerControl._init_ui: ctx still None after 50 retries, giving up'
+                )
                 return
             Clock.schedule_once(self._init_ui, 0.1)
             return
@@ -189,10 +202,8 @@ class LayerControl(BoxLayout):
         # Don't apply settings during initial UI setup - will be done after load_settings
         # Skip initialization of autogain and apply_settings here
 
-
         self.init_acquire()
         self.init_autofocus()
-
 
     def cleanup_scrollviews(self):
         """
@@ -200,6 +211,7 @@ class LayerControl(BoxLayout):
         Called when accordion is collapsed to prevent memory accumulation.
         """
         from ui.ui_helpers import cleanup_scrollview_viewport
+
         for child in self.walk():
             if isinstance(child, ScrollView):
                 cleanup_scrollview_viewport(child)
@@ -237,15 +249,17 @@ class LayerControl(BoxLayout):
         illumination = round(self.ids['ill_slider'].value)  # Round to integer (step=1)
         # Rule 12 workaround: slider-vs-text divergence trace for the
         # > ~150 mA silent-fail bench investigation. See _FX2_DEBUG_WIRE
-        # block at top of this file. INFO level — this is a key
+        # block at top of this file. INFO level -- this is a key
         # divergence point (int from slider vs float from text).
         if _fx2_wire_debug_enabled():
             logger.info(
                 '[FX2 LED diag] ill_slider ENTRY layer=%s raw_value=%r '
                 'raw_type=%s -> illumination=%r type=%s source=slider',
-                self.layer, self.ids['ill_slider'].value,
+                self.layer,
+                self.ids['ill_slider'].value,
                 type(self.ids['ill_slider'].value).__name__,
-                illumination, type(illumination).__name__,
+                illumination,
+                type(illumination).__name__,
             )
         gui_logger.slider(f'ILLUMINATION_{self.layer}', illumination)
         settings[self.layer]['ill_ma'] = illumination
@@ -256,12 +270,11 @@ class LayerControl(BoxLayout):
             self.ids['ill_text'].text = new_text
         self.apply_ill_slider()
 
-
     def ill_text(self):
         settings = _app_ctx.ctx.settings
         logger.info('[LVP Main  ] LayerControl.ill_text()')
         ill_min = self.ids['ill_slider'].min
-        if self.layer == "BF":
+        if self.layer == 'BF':
             ill_max = BF_MAX_ILLUMINATION
         else:
             ill_max = self.ids['ill_slider'].max
@@ -280,14 +293,17 @@ class LayerControl(BoxLayout):
         illumination = float(np.clip(ill_val, ill_min, ill_max))
         # Rule 12 workaround: text-entry divergence trace for the
         # > ~150 mA silent-fail bench investigation. See _FX2_DEBUG_WIRE
-        # block at top of this file. INFO level — this is the other key
+        # block at top of this file. INFO level -- this is the other key
         # divergence point (float from text vs int from slider).
         if _fx2_wire_debug_enabled():
             logger.info(
                 '[FX2 LED diag] ill_text ENTRY layer=%s raw_text=%r '
                 'parsed_val=%r -> illumination=%r type=%s source=text',
-                self.layer, self.ids['ill_text'].text, ill_val,
-                illumination, type(illumination).__name__,
+                self.layer,
+                self.ids['ill_text'].text,
+                ill_val,
+                illumination,
+                type(illumination).__name__,
             )
         settings[self.layer]['ill_ma'] = illumination
 
@@ -295,13 +311,14 @@ class LayerControl(BoxLayout):
         # ill_slider and re-fire apply_settings (#617).
         self._initializing = True
         try:
-            self.ids['ill_slider'].value = float(np.clip(illumination, ill_min, self.ids['ill_slider'].max))
+            self.ids['ill_slider'].value = float(
+                np.clip(illumination, ill_min, self.ids['ill_slider'].max)
+            )
             self.ids['ill_text'].text = str(illumination)
         finally:
             self._initializing = False
 
         self.apply_settings()
-
 
     def sum_slider(self):
         settings = _app_ctx.ctx.settings
@@ -311,12 +328,10 @@ class LayerControl(BoxLayout):
         settings[self.layer]['sum'] = total
         self.apply_settings()
 
-
     def sum_text(self):
         logger.info('[LVP Main  ] LayerControl.sum_text()')
         if self._validate_and_apply_text_input('sum_text', 'sum_slider', 'sum', cast=int):
             self.apply_settings()
-
 
     def video_duration_slider(self):
         settings = _app_ctx.ctx.settings
@@ -329,8 +344,11 @@ class LayerControl(BoxLayout):
     def video_duration_text(self):
         logger.info('[LVP Main  ] LayerControl.video_duration_text()')
         if self._validate_and_apply_text_input(
-            'video_duration_text', 'video_duration_slider', 'duration',
-            cast=int, settings_path='video_config.duration',
+            'video_duration_text',
+            'video_duration_slider',
+            'duration',
+            cast=int,
+            settings_path='video_config.duration',
         ):
             self.apply_settings()
 
@@ -347,23 +365,24 @@ class LayerControl(BoxLayout):
             self.ids[item].disabled = state
 
         # When transitioning out of auto-gain, keep last auto-gain settings to apply
-        camera_executor.put(IOTask(
-            action = LayerControl.get_gain_exposure,
-            args=(self, init, state),
-            callback=LayerControl.update_auto_gain_cb,
-            cb_args=(self),
-            pass_result=True
-        ))
+        camera_executor.put(
+            IOTask(
+                action=LayerControl.get_gain_exposure,
+                args=(self, init, state),
+                callback=LayerControl.update_auto_gain_cb,
+                cb_args=(self),
+                pass_result=True,
+            )
+        )
 
         # actual_gain = lumaview.scope.camera.get_gain()
         # actual_exp = lumaview.scope.camera.get_exposure_t()
-
 
     def get_gain_exposure(self, init, state):
         ctx = _app_ctx.ctx
         # Read directly from camera hardware, not cache.
         # During auto-gain, the SDK adjusts gain/exposure but doesn't
-        # update the cache — cache still has the pre-auto-gain values.
+        # update the cache -- cache still has the pre-auto-gain values.
         actual_gain = ctx.scope.imaging.get_gain()
         actual_exp = ctx.scope.imaging.get_exposure_time()
 
@@ -372,9 +391,8 @@ class LayerControl(BoxLayout):
     def update_auto_gain_cb(self, result=None, exception=None):
         settings = _app_ctx.ctx.settings
         try:
-
             if exception is not None:
-                logger.error(f"LVP Main] Update_auto_gain error: {exception}")
+                logger.error(f'LVP Main] Update_auto_gain error: {exception}')
                 return
 
             init = result[0]
@@ -424,7 +442,7 @@ class LayerControl(BoxLayout):
             self.apply_settings()
 
         except Exception as e:
-            logger.error(f"LVP Main] Update_auto_gain error: {e}")
+            logger.error(f'LVP Main] Update_auto_gain error: {e}')
             return
 
     def gain_slider(self):
@@ -432,7 +450,7 @@ class LayerControl(BoxLayout):
         protocol_running_global = _app_ctx.ctx.protocol_running
         if protocol_running_global.is_set():
             return
-        # See ill_slider — programmatic updates must not re-enter (#617).
+        # See ill_slider -- programmatic updates must not re-enter (#617).
         if self._initializing:
             return
         logger.info('[LVP Main  ] LayerControl.gain_slider()')
@@ -462,7 +480,8 @@ class LayerControl(BoxLayout):
     def composite_threshold_text(self):
         logger.info('[LVP Main  ] LayerControl.composite_threshold_text()')
         self._validate_and_apply_text_input(
-            'composite_threshold_text', 'composite_threshold_slider',
+            'composite_threshold_text',
+            'composite_threshold_slider',
             'composite_brightness_threshold',
         )
 
@@ -471,14 +490,14 @@ class LayerControl(BoxLayout):
         protocol_running_global = _app_ctx.ctx.protocol_running
         if protocol_running_global.is_set():
             return
-        # See ill_slider — programmatic updates must not re-enter (#617).
+        # See ill_slider -- programmatic updates must not re-enter (#617).
         if self._initializing:
             return
         logger.info('[LVP Main  ] LayerControl.exp_slider()')
         exposure = round(self.ids['exp_slider'].value, 2)  # Round to 2 decimals (step=0.01)
         gui_logger.slider(f'EXPOSURE_{self.layer}', exposure)
         # exposure = 10 ** self.ids['exp_slider'].value # slider is log_10(ms)
-        settings[self.layer]['exp_ms'] = exposure        # exposure in ms
+        settings[self.layer]['exp_ms'] = exposure  # exposure in ms
         # Update text only if changed to reduce ScrollView recalculations
         new_text = str(exposure)
         if self.ids['exp_text'].text != new_text:
@@ -490,8 +509,8 @@ class LayerControl(BoxLayout):
         settings = _app_ctx.ctx.settings
         logger.info('[LVP Main  ] LayerControl.exp_text()')
         exp_min = self.ids['exp_slider'].min
-        #exp_max = self.ids['exp_slider'].max
-        if self.layer == "BF":
+        # exp_max = self.ids['exp_slider'].max
+        if self.layer == 'BF':
             exp_max = BF_MAX_EXPOSURE_MS
         else:
             exp_max = self.ids['exp_slider'].max
@@ -516,7 +535,9 @@ class LayerControl(BoxLayout):
         # exp_slider and re-fire apply_exp_slider (#617).
         self._initializing = True
         try:
-            self.ids['exp_slider'].value = float(np.clip(exposure, exp_min, self.ids['exp_slider'].max))
+            self.ids['exp_slider'].value = float(
+                np.clip(exposure, exp_min, self.ids['exp_slider'].max)
+            )
             # self.ids['exp_slider'].value = float(np.log10(exposure)) # convert slider to log_10
             self.ids['exp_text'].text = str(exposure)
         finally:
@@ -532,7 +553,7 @@ class LayerControl(BoxLayout):
         try:
             settings[self.layer]['stim_config']['frequency'] = frequency
         except Exception as e:
-            logger.error(f"[LVP Main  ] LayerControl.stim_freq_slider() -> {e}")
+            logger.error(f'[LVP Main  ] LayerControl.stim_freq_slider() -> {e}')
         self.apply_settings()
 
     def stim_pulse_count_slider(self):
@@ -543,7 +564,7 @@ class LayerControl(BoxLayout):
         try:
             settings[self.layer]['stim_config']['pulse_count'] = pulse_count
         except Exception as e:
-            logger.error(f"[LVP Main  ] LayerControl.stim_pulse_count_slider() -> {e}")
+            logger.error(f'[LVP Main  ] LayerControl.stim_pulse_count_slider() -> {e}')
         self.apply_settings()
 
     def stim_pulse_width_slider(self):
@@ -554,13 +575,15 @@ class LayerControl(BoxLayout):
         try:
             settings[self.layer]['stim_config']['pulse_width'] = pulse_width
         except Exception as e:
-            logger.error(f"[LVP Main  ] LayerControl.stim_pulse_width_slider() -> {e}")
+            logger.error(f'[LVP Main  ] LayerControl.stim_pulse_width_slider() -> {e}')
         self.apply_settings()
 
     def stim_freq_text(self):
         logger.info('[LVP Main  ] LayerControl.stim_freq_text()')
         if self._validate_and_apply_text_input(
-            'stim_freq_text', 'stim_freq_slider', 'frequency',
+            'stim_freq_text',
+            'stim_freq_slider',
+            'frequency',
             settings_path='stim_config.frequency',
         ):
             self.apply_settings()
@@ -568,16 +591,22 @@ class LayerControl(BoxLayout):
     def stim_pulse_count_text(self):
         logger.info('[LVP Main  ] LayerControl.stim_pulse_count_text()')
         if self._validate_and_apply_text_input(
-            'stim_pulse_count_text', 'stim_pulse_count_slider', 'pulse_count',
-            cast=int, settings_path='stim_config.pulse_count',
+            'stim_pulse_count_text',
+            'stim_pulse_count_slider',
+            'pulse_count',
+            cast=int,
+            settings_path='stim_config.pulse_count',
         ):
             self.apply_settings()
 
     def stim_pulse_width_text(self):
         logger.info('[LVP Main  ] LayerControl.stim_pulse_width_text()')
         if self._validate_and_apply_text_input(
-            'stim_pulse_width_text', 'stim_pulse_width_slider', 'pulse_width',
-            cast=int, settings_path='stim_config.pulse_width',
+            'stim_pulse_width_text',
+            'stim_pulse_width_slider',
+            'pulse_width',
+            cast=int,
+            settings_path='stim_config.pulse_width',
         ):
             self.apply_settings()
 
@@ -589,7 +618,7 @@ class LayerControl(BoxLayout):
         try:
             settings[self.layer]['stim_config']['illumination'] = illumination
         except Exception as e:
-            logger.error(f"[LVP Main  ] LayerControl.stim_ill_slider() -> {e}")
+            logger.error(f'[LVP Main  ] LayerControl.stim_ill_slider() -> {e}')
         new_text = str(illumination)
         if self.ids['stim_ill_text'].text != new_text:
             self.ids['stim_ill_text'].text = new_text
@@ -598,8 +627,11 @@ class LayerControl(BoxLayout):
     def stim_ill_text(self):
         logger.info('[LVP Main  ] LayerControl.stim_ill_text()')
         if self._validate_and_apply_text_input(
-            'stim_ill_text', 'stim_ill_slider', 'illumination',
-            cast=int, settings_path='stim_config.illumination',
+            'stim_ill_text',
+            'stim_ill_slider',
+            'illumination',
+            cast=int,
+            settings_path='stim_config.illumination',
         ):
             self.apply_settings()
 
@@ -611,7 +643,7 @@ class LayerControl(BoxLayout):
 
     def init_acquire(self):
         settings = _app_ctx.ctx.settings
-        if settings[self.layer]['acquire'] == "image":
+        if settings[self.layer]['acquire'] == 'image':
             self.ids['acquire_image'].state = 'down'
         elif settings[self.layer]['acquire'] == 'video':
             self.ids['acquire_video'].state = 'down'
@@ -623,15 +655,15 @@ class LayerControl(BoxLayout):
         logger.info('[LVP Main  ] LayerControl.update_acquire()')
 
         if self.ids['acquire_image'].active:
-            settings[self.layer]['acquire'] = "image"
-            if "stim_config" in settings[self.layer]:
+            settings[self.layer]['acquire'] = 'image'
+            if 'stim_config' in settings[self.layer]:
                 settings[self.layer]['stim_config']['enabled'] = False
             self.ids['stim_disable_btn'].active = True
             self.show_stim_controls = False
 
         elif self.ids['acquire_video'].active:
-            settings[self.layer]['acquire'] = "video"
-            if "stim_config" in settings[self.layer]:
+            settings[self.layer]['acquire'] = 'video'
+            if 'stim_config' in settings[self.layer]:
                 settings[self.layer]['stim_config']['enabled'] = False
                 self.ids['stim_disable_btn'].active = True
             self.ids['stim_disable_btn'].active = True
@@ -639,7 +671,7 @@ class LayerControl(BoxLayout):
         else:
             settings[self.layer]['acquire'] = None
 
-        if "stim_config" in settings[self.layer]:
+        if 'stim_config' in settings[self.layer]:
             self.update_stim_controls_visibility()
 
     def update_stim_enable(self):
@@ -648,14 +680,14 @@ class LayerControl(BoxLayout):
         enabled = self.ids['stim_enable_btn'].active
         gui_logger.toggle(f'STIM_{self.layer}', enabled)
         if self.ids['stim_enable_btn'].active:
-            if "stim_config" in settings[self.layer]:
+            if 'stim_config' in settings[self.layer]:
                 if settings[self.layer]['stim_config'] is not None:
                     settings[self.layer]['stim_config']['enabled'] = True
             settings[self.layer]['acquire'] = None
             self.ids['acquire_none'].active = True
             self.ids['acquire_none'].state = 'down'
         else:
-            if "stim_config" in settings[self.layer]:
+            if 'stim_config' in settings[self.layer]:
                 if settings[self.layer]['stim_config'] is not None:
                     settings[self.layer]['stim_config']['enabled'] = False
 
@@ -677,16 +709,14 @@ class LayerControl(BoxLayout):
         gui_logger.button(f'SAVE_FOCUS_{self.layer}')
         io_executor = _app_ctx.ctx.io_executor
         logger.info('[LVP Main  ] LayerControl.save_focus()')
-        io_executor.put(IOTask(
-            action=self.execute_save_focus
-        ))
+        io_executor.put(IOTask(action=self.execute_save_focus))
 
     def execute_save_focus(self):
         # Stage 3.5+ pattern: hardware-touching executor actions wrap their
         # body in try/except, log the full error to lumaviewpro.log (per
         # the "all info in the production log" rule), and post a friendly
         # user-facing notification. The exception itself is NOT re-raised
-        # because we're inside an executor task — re-raising would just
+        # because we're inside an executor task -- re-raising would just
         # log the same error twice (once here, once via the executor's
         # default handler). See `feedback_logging_policy.md` and
         # `project_lumaviewclassic_repo.md` in auto-memory.
@@ -696,55 +726,56 @@ class LayerControl(BoxLayout):
             pos = ctx.scope.motion.get_current_position('Z')
             settings[self.layer]['focus'] = pos
         except Exception as e:
-            logger.exception(
-                f'[LVP Main  ] save_focus failed for layer {self.layer}: {e}'
-            )
+            logger.exception(f'[LVP Main  ] save_focus failed for layer {self.layer}: {e}')
             try:
                 from modules.notification_center import notifications
+
                 notifications.error(
-                    'Motion', 'Save focus failed',
+                    'Motion',
+                    'Save focus failed',
                     f"Couldn't read Z position: {e}",
                 )
             except Exception:
                 pass
 
-
     def goto_focus(self):
         gui_logger.button(f'GOTO_FOCUS_{self.layer}')
         io_executor = _app_ctx.ctx.io_executor
         logger.info('[LVP Main  ] LayerControl.goto_focus()')
-        io_executor.put(IOTask(
-            action=self.execute_goto_focus,
-        ))
+        io_executor.put(
+            IOTask(
+                action=self.execute_goto_focus,
+            )
+        )
 
     def execute_goto_focus(self):
         # See execute_save_focus comment for the pattern rationale.
         from ui.ui_helpers import move_absolute_position
+
         settings = _app_ctx.ctx.settings
         try:
             pos = settings[self.layer]['focus']
             move_absolute_position('Z', pos)  # set current z height in usteps
         except KeyError:
-            logger.warning(
-                f'[LVP Main  ] goto_focus: no saved focus for layer {self.layer}'
-            )
+            logger.warning(f'[LVP Main  ] goto_focus: no saved focus for layer {self.layer}')
             try:
                 from modules.notification_center import notifications
+
                 notifications.warning(
-                    'Motion', 'No saved focus',
-                    f"Layer '{self.layer}' has no saved focus position. "
-                    f"Use SAVE first.",
+                    'Motion',
+                    'No saved focus',
+                    f"Layer '{self.layer}' has no saved focus position. Use SAVE first.",
                 )
             except Exception:
                 pass
         except Exception as e:
-            logger.exception(
-                f'[LVP Main  ] goto_focus failed for layer {self.layer}: {e}'
-            )
+            logger.exception(f'[LVP Main  ] goto_focus failed for layer {self.layer}: {e}')
             try:
                 from modules.notification_center import notifications
+
                 notifications.error(
-                    'Motion', 'Focus move failed',
+                    'Motion',
+                    'Focus move failed',
                     f"Couldn't move Z to saved focus: {e}",
                 )
             except Exception:
@@ -766,17 +797,14 @@ class LayerControl(BoxLayout):
         if apply_settings:
             self.apply_settings(update_led=False)
 
-        camera_executor.put(IOTask(
-            action=self.set_led_state,
-            kwargs= {
-                "enabled": enabled,
-                "illumination": illumination
-            }
-        ))
-        #self.set_led_state(enabled=enabled, illumination=illumination)
+        camera_executor.put(
+            IOTask(
+                action=self.set_led_state, kwargs={'enabled': enabled, 'illumination': illumination}
+            )
+        )
+        # self.set_led_state(enabled=enabled, illumination=illumination)
 
         # self.apply_settings()
-
 
     def set_led_state(self, enabled: bool, illumination: float):
         # Hardware-touching action. See execute_save_focus for the
@@ -799,15 +827,16 @@ class LayerControl(BoxLayout):
             )
             try:
                 from modules.notification_center import notifications
+
                 notifications.error(
-                    'LED', f'{self.layer} LED command failed',
-                    f"Couldn't {'enable' if enabled else 'disable'} the "
-                    f"{self.layer} channel: {e}",
+                    'LED',
+                    f'{self.layer} LED command failed',
+                    f"Couldn't {'enable' if enabled else 'disable'} the {self.layer} channel: {e}",
                 )
             except Exception:
                 pass
 
-    # update_led_toggle_ui() removed — LED observer handles UI sync.
+    # update_led_toggle_ui() removed -- LED observer handles UI sync.
     # See Phase 1 commit 96defe3.
 
     def set_step_state(self, step: dict):
@@ -856,6 +885,7 @@ class LayerControl(BoxLayout):
             vc = step.get('Video Config')
             if isinstance(vc, dict):
                 import copy
+
                 ctx = _app_ctx.ctx
                 with ctx.settings_lock:
                     ctx.settings[self.layer]['video_config'] = copy.deepcopy(vc)
@@ -867,6 +897,7 @@ class LayerControl(BoxLayout):
             sc = step.get('Stim_Config')
             if isinstance(sc, dict) and self.layer in sc:
                 import copy
+
                 stim = sc[self.layer]
                 ctx = _app_ctx.ctx
                 with ctx.settings_lock:
@@ -914,6 +945,7 @@ class LayerControl(BoxLayout):
         protocol_running_global = ctx.protocol_running
         camera_executor = ctx.camera_executor
         from ui.image_settings import set_histogram_layer
+
         lumaview = ctx.lumaview
 
         def update_shader(dt=None):
@@ -956,9 +988,10 @@ class LayerControl(BoxLayout):
                         ctx.scope.illumination.leds_off_async()
                         # Re-enable this layer's LED (leds_off turned it off too)
                         ctx.scope.illumination.led_on_async(
-                            self.layer, settings[self.layer]['ill_ma'],
+                            self.layer,
+                            settings[self.layer]['ill_ma'],
                         )
-                # Update button states (visual only — hardware already handled)
+                # Update button states (visual only -- hardware already handled)
                 LayerControl._suppressing_led_log = True
                 try:
                     for layer in common_utils.get_layers():
@@ -970,29 +1003,28 @@ class LayerControl(BoxLayout):
                 finally:
                     LayerControl._suppressing_led_log = False
 
-
         if protocol_running_global.is_set():
-            # Protocol actively running — capture() handles camera settings
+            # Protocol actively running -- capture() handles camera settings
             # per-step. Don't apply here to avoid duplicate commands (#587/#588).
             logger.debug(
-                f"[APPLY_SETTINGS DIAG] {self.layer} — early return "
-                f"(protocol running). Camera settings NOT applied."
+                f'[APPLY_SETTINGS DIAG] {self.layer} -- early return '
+                f'(protocol running). Camera settings NOT applied.'
             )
             Clock.schedule_once(disable_leds_for_other_layers, 0)
             Clock.schedule_once(update_shader, 0)
             return
         if protocol and not settings.get('protocol_led_on', False):
-            # Protocol preview mode with LEDs OFF — no need to apply camera
+            # Protocol preview mode with LEDs OFF -- no need to apply camera
             # settings since there's nothing to display.
             logger.debug(
-                f"[APPLY_SETTINGS DIAG] {self.layer} — early return "
-                f"(protocol preview, LEDs off). Camera settings NOT applied."
+                f'[APPLY_SETTINGS DIAG] {self.layer} -- early return '
+                f'(protocol preview, LEDs off). Camera settings NOT applied.'
             )
             Clock.schedule_once(disable_leds_for_other_layers, 0)
             Clock.schedule_once(update_shader, 0)
             return
         # All other cases: apply camera settings normally.
-        # This includes protocol preview with LEDs ON (#613) — user needs
+        # This includes protocol preview with LEDs ON (#613) -- user needs
         # correct gain/exposure to see the step's channel properly.
 
         # global gain_vals
@@ -1002,15 +1034,12 @@ class LayerControl(BoxLayout):
         if not protocol:
             set_histogram_layer(active_layer=self.layer)
 
-
         # Queue IO task and update UI after completing IO
         if update_led:
             if not protocol_running_global.is_set():
                 self.update_led_state(apply_settings=False)
 
-
         disable_leds_for_other_layers()
-
 
         # update exposure to currently selected settings
         # -----------------------------------------------------
@@ -1034,21 +1063,23 @@ class LayerControl(BoxLayout):
             autogain_settings = None
             if not ignore_auto_gain:
                 from modules.config_ui_getters import get_auto_gain_settings
+
                 autogain_settings = get_auto_gain_settings()
-            camera_executor.put(IOTask(
-                action=lumaview.scope.imaging.apply_layer_camera_settings,
-                kwargs={
-                    'gain_db': gain,
-                    'exposure_ms': exposure,
-                    'auto_gain': auto_gain_enabled,
-                    'auto_gain_settings': autogain_settings,
-                }
-            ))
+            camera_executor.put(
+                IOTask(
+                    action=lumaview.scope.imaging.apply_layer_camera_settings,
+                    kwargs={
+                        'gain_db': gain,
+                        'exposure_ms': exposure,
+                        'auto_gain': auto_gain_enabled,
+                        'auto_gain_settings': autogain_settings,
+                    },
+                )
+            )
 
         # update false color to currently selected settings and shader
         # -----------------------------------------------------
         update_shader()
-
 
     def update_shader(self, dt):
         ctx = _app_ctx.ctx

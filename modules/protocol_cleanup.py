@@ -56,7 +56,7 @@ def run_cleanup(
     camera_executor,
     # Mutable flag — set to False when done
     set_run_in_progress_fn,
-    logger_name: str = "SequencedCaptureRunner",
+    logger_name: str = 'SequencedCaptureRunner',
 ):
     """Core cleanup logic — restores state, fires callbacks, ends executors.
 
@@ -67,7 +67,7 @@ def run_cleanup(
     # disconnect), file_io_executor's pending queue is cleared along with the
     # other executors — otherwise queued frames stay pinned in memory while
     # they slowly drain to disk, which can lock the next protocol-start.
-    is_aborted = (get_state_fn() == ProtocolState.ERROR)
+    is_aborted = get_state_fn() == ProtocolState.ERROR
 
     # Transition to COMPLETING (or stay in ERROR if that's how we got here)
     if get_state_fn() not in (ProtocolState.COMPLETING, ProtocolState.ERROR, ProtocolState.IDLE):
@@ -89,18 +89,23 @@ def run_cleanup(
     try:
         cancel_scheduled_events_fn()
     except Exception as ex:
-        logger.error(f"[PROTOCOL] Error cancelling scheduled events during cleanup: {ex}")
-        cleanup_errors.append(f"Cancel scheduled events: {type(ex).__name__}: {ex}")
+        logger.error(f'[PROTOCOL] Error cancelling scheduled events during cleanup: {ex}')
+        cleanup_errors.append(f'Cancel scheduled events: {type(ex).__name__}: {ex}')
 
     # --- Restore LEDs ---
     try:
-        if leds_state_at_end == "off":
+        if leds_state_at_end == 'off':
             leds_off_fn()
-        elif leds_state_at_end == "return_to_original":
+        elif leds_state_at_end == 'return_to_original':
             any_restored = False
             for color, color_data in original_led_states.items():
                 if color_data['enabled']:
-                    led_on_fn(color=color, illumination=color_data['illumination_ma'], block=True, force=True)
+                    led_on_fn(
+                        color=color,
+                        illumination=color_data['illumination_ma'],
+                        block=True,
+                        force=True,
+                    )
                     any_restored = True
             if not any_restored:
                 # "return_to_original" with no LED active pre-run is silently
@@ -108,11 +113,11 @@ def run_cleanup(
                 # the only honest restore IS leds_off when nothing was on.
                 leds_off_fn()
         else:
-            logger.error(f"Unsupported LEDs state at end value: {leds_state_at_end}")
+            logger.error(f'Unsupported LEDs state at end value: {leds_state_at_end}')
     except Exception as ex:
-        logger.error(f"[PROTOCOL] Error restoring LED states during cleanup: {ex}")
-        cleanup_errors.append(f"Restore LED states: {type(ex).__name__}: {ex}")
-    logger.info(f"[{logger_name}] Cleanup: LED/camera restore complete")
+        logger.error(f'[PROTOCOL] Error restoring LED states during cleanup: {ex}')
+        cleanup_errors.append(f'Restore LED states: {type(ex).__name__}: {ex}')
+    logger.info(f'[{logger_name}] Cleanup: LED/camera restore complete')
 
     # --- Restore autofocus states ---
     # Guard against None / empty (the common case when no AF was active
@@ -120,7 +125,7 @@ def run_cleanup(
     # `'NoneType' object is not subscriptable` and fired ERROR every
     # scan, burying real failure signal under thousands of spurious lines.
     if not original_autofocus_states:
-        logger.debug("[PROTOCOL] No autofocus states to restore")
+        logger.debug('[PROTOCOL] No autofocus states to restore')
     else:
         try:
             for layer, layer_data in original_autofocus_states.items():
@@ -129,17 +134,18 @@ def run_cleanup(
                 else:
                     import modules.app_context as _app_ctx
                     from modules.settings_init import settings
+
                     ctx = _app_ctx.ctx
                     if ctx is not None:
                         with ctx.settings_lock:
-                            settings[layer]["autofocus"] = layer_data
+                            settings[layer]['autofocus'] = layer_data
                     else:
-                        settings[layer]["autofocus"] = layer_data
+                        settings[layer]['autofocus'] = layer_data
                 if callbacks.reset_autofocus_btns:
                     _schedule_ui(lambda dt: callbacks.reset_autofocus_btns(), 0)
         except Exception as ex:
-            logger.error(f"[PROTOCOL] Error restoring autofocus states during cleanup: {ex}")
-            cleanup_errors.append(f"Restore autofocus states: {type(ex).__name__}: {ex}")
+            logger.error(f'[PROTOCOL] Error restoring autofocus states during cleanup: {ex}')
+            cleanup_errors.append(f'Restore autofocus states: {type(ex).__name__}: {ex}')
 
     # --- Restore camera gain and exposure ---
     # PROTO-CLEAN-1: dispatch the gain/exposure SDK calls through
@@ -158,8 +164,7 @@ def run_cleanup(
         if saved_camera_state:
             tag = saved_camera_state.get('tag', '?')
             logger.info(
-                f"[{logger_name}] Cleanup: restoring camera state "
-                f"tag={tag} (via CAMERA_WORKER)"
+                f'[{logger_name}] Cleanup: restoring camera state tag={tag} (via CAMERA_WORKER)'
             )
             fut = camera_executor.protocol_put(
                 IOTask(
@@ -177,35 +182,33 @@ def run_cleanup(
                 # mostly covers tests / shutdown races.
                 scope.imaging.restore_camera_state(saved_camera_state)
     except Exception as ex:
-        logger.error(f"[PROTOCOL] Error restoring camera gain/exposure during cleanup: {ex}")
-        cleanup_errors.append(f"Restore camera gain/exposure: {type(ex).__name__}: {ex}")
+        logger.error(f'[PROTOCOL] Error restoring camera gain/exposure during cleanup: {ex}')
+        cleanup_errors.append(f'Restore camera gain/exposure: {type(ex).__name__}: {ex}')
 
     # --- Complete protocol execution record ---
     try:
         if not disable_saving_artifacts and protocol_execution_record is not None:
-            file_io_executor.protocol_put(IOTask(
-                action=protocol_execution_record.complete
-            ))
+            file_io_executor.protocol_put(IOTask(action=protocol_execution_record.complete))
     except Exception as ex:
-        logger.error(f"[PROTOCOL] Error completing protocol record during cleanup: {ex}")
-        cleanup_errors.append(f"Complete protocol record: {type(ex).__name__}: {ex}")
+        logger.error(f'[PROTOCOL] Error completing protocol record during cleanup: {ex}')
+        cleanup_errors.append(f'Complete protocol record: {type(ex).__name__}: {ex}')
 
     # --- Return to position ---
     try:
         if return_to_position is not None:
             logger.info(
-                f"[{logger_name}] Cleanup: returning to position "
-                f"x={return_to_position['x']}, y={return_to_position['y']}, z={return_to_position['z']}"
+                f'[{logger_name}] Cleanup: returning to position '
+                f'x={return_to_position["x"]}, y={return_to_position["y"]}, z={return_to_position["z"]}'
             )
             default_move_fn(
                 px=return_to_position['x'],
                 py=return_to_position['y'],
                 z=return_to_position['z'],
             )
-            logger.info(f"[{logger_name}] Cleanup: return-to-position move issued")
+            logger.info(f'[{logger_name}] Cleanup: return-to-position move issued')
     except Exception as ex:
-        logger.error(f"[PROTOCOL] Error returning to position during cleanup: {ex}")
-        cleanup_errors.append(f"Return to position: {type(ex).__name__}: {ex}")
+        logger.error(f'[PROTOCOL] Error returning to position during cleanup: {ex}')
+        cleanup_errors.append(f'Return to position: {type(ex).__name__}: {ex}')
 
     # --- End executors ---
     scan_in_progress.clear()
@@ -216,7 +219,7 @@ def run_cleanup(
         # the thread is idle, so this is always safe to call.
         autofocus_thread.abort()
     camera_executor.enable()
-    logger.info(f"[{logger_name}] Cleanup: protocol_end called on all executors")
+    logger.info(f'[{logger_name}] Cleanup: protocol_end called on all executors')
 
     io_executor.clear_protocol_pending()
     if is_aborted:
@@ -225,7 +228,7 @@ def run_cleanup(
         # normal completion, but on disconnect/error the user wants control back
         # without waiting for many GB of frames to slowly drain.
         file_io_executor.clear_protocol_pending()
-        logger.info(f"[{logger_name}] Cleanup: file_io_executor pending cleared (aborted)")
+        logger.info(f'[{logger_name}] Cleanup: file_io_executor pending cleared (aborted)')
 
     with run_lock:
         set_run_in_progress_fn(False)
@@ -240,34 +243,42 @@ def run_cleanup(
     if cleanup_errors:
         try:
             from modules.notification_center import notifications
-            err_summary = "\n".join(f"  - {e}" for e in cleanup_errors)
+
+            err_summary = '\n'.join(f'  - {e}' for e in cleanup_errors)
             notifications.warning(
-                "Protocol", "Protocol cleanup issues",
-                f"Protocol completed but {len(cleanup_errors)} cleanup step(s) failed:\n"
-                f"{err_summary}\n"
-                f"Check LED state, camera settings, and stage position."
+                'Protocol',
+                'Protocol cleanup issues',
+                f'Protocol completed but {len(cleanup_errors)} cleanup step(s) failed:\n'
+                f'{err_summary}\n'
+                f'Check LED state, camera settings, and stage position.',
             )
         except Exception as ex:
             # Best-effort -- a notification failure during cleanup must
             # not prevent the completion callbacks from firing.
-            logger.error(f"[PROTOCOL] Failed to surface cleanup-error notification: {ex}")
+            logger.error(f'[PROTOCOL] Failed to surface cleanup-error notification: {ex}')
 
     # --- Fire completion callbacks ---
     _file_queue_active = file_io_executor.is_protocol_queue_active()
-    logger.info(f"[{logger_name}] Cleanup: file queue active={_file_queue_active}")
+    logger.info(f'[{logger_name}] Cleanup: file queue active={_file_queue_active}')
     if _file_queue_active:
         if callbacks.run_complete:
             _schedule_ui(lambda dt: callbacks.run_complete(protocol=protocol), 0)
         if callbacks.files_complete:
             file_io_executor.set_protocol_complete_callback(
-                callback=lambda: _schedule_ui(lambda dt: callbacks.files_complete(protocol=protocol), 0)
+                callback=lambda: _schedule_ui(
+                    lambda dt: callbacks.files_complete(protocol=protocol), 0
+                )
             )
         file_io_executor.protocol_finish_then_end()
-        logger.info(f"[{logger_name}] Cleanup: callbacks scheduled (run_complete now, files_complete deferred)")
+        logger.info(
+            f'[{logger_name}] Cleanup: callbacks scheduled (run_complete now, files_complete deferred)'
+        )
     else:
         if callbacks.run_complete:
             _schedule_ui(lambda dt: callbacks.run_complete(protocol=protocol), 0)
         if callbacks.files_complete:
             _schedule_ui(lambda dt: callbacks.files_complete(protocol=protocol), 0)
         file_io_executor.protocol_finish_then_end()
-        logger.info(f"[{logger_name}] Cleanup: callbacks scheduled (run_complete + files_complete immediate)")
+        logger.info(
+            f'[{logger_name}] Cleanup: callbacks scheduled (run_complete + files_complete immediate)'
+        )

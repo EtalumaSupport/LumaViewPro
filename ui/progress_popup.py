@@ -15,10 +15,10 @@ class _PopupProxy:
     thread without violating Kivy's single-thread-UI rule.
     """
 
-    _PROXIED_ATTRS = frozenset({"text", "progress", "title", "auto_dismiss"})
+    _PROXIED_ATTRS = frozenset({'text', 'progress', 'title', 'auto_dismiss'})
 
     def __init__(self, popup):
-        object.__setattr__(self, "_popup", popup)
+        object.__setattr__(self, '_popup', popup)
 
     def __setattr__(self, name, value):
         if name in _PopupProxy._PROXIED_ATTRS:
@@ -55,7 +55,7 @@ class CustomPopup(Popup):
 
 
 kv = Builder.load_string(
-"""
+    """
 <CustomPopup>:
     size_hint: .6, .3
     auto_dismiss: False

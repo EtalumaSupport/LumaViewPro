@@ -52,12 +52,12 @@ class FrameValidity:
     # Default skip counts — overridden by per-camera measured values
     # from data/camera_timing/<model>.json via load_camera_timing().
     SKIP_FRAMES = {
-        'led':      2,   # LED on/off or current change (measured: 2 on a2A3536)
-        'gain':     2,   # Camera gain change (measured: 2 on a2A3536)
-        'exposure': 3,   # Camera exposure time change (measured: 3 on a2A3536)
-        'xy_move':  2,   # X or Y axis movement
-        'z_move':   2,   # Z axis movement (autofocus may exclude this)
-        'turret':   2,   # Turret rotation
+        'led': 2,  # LED on/off or current change (measured: 2 on a2A3536)
+        'gain': 2,  # Camera gain change (measured: 2 on a2A3536)
+        'exposure': 3,  # Camera exposure time change (measured: 3 on a2A3536)
+        'xy_move': 2,  # X or Y axis movement
+        'z_move': 2,  # Z axis movement (autofocus may exclude this)
+        'turret': 2,  # Turret rotation
     }
 
     # Sources that require physical hardware completion in addition to frame count.
@@ -89,8 +89,8 @@ class FrameValidity:
     # bit-exact in microseconds. Tolerances set ~20x above observed max
     # for safety across future firmware revisions.
     DEFAULT_CHUNK_TOLERANCE = {
-        'gain':     0.001,  # dB
-        'exposure': 2.0,    # microseconds
+        'gain': 0.001,  # dB
+        'exposure': 2.0,  # microseconds
     }
 
     def __init__(self):
@@ -128,9 +128,16 @@ class FrameValidity:
             counter = self._frame_counter
         if profile_trace is not None and profile_trace.ENABLE_PROFILE_TRACE:
             profile_trace.trace(
-                "frame_validity_trace.csv",
-                "ts_ms,event,source,frame_counter,target_frame,pending_count",
-                [int(time.time() * 1000), "invalidate", source, counter, counter + skip, len(self._pending)],
+                'frame_validity_trace.csv',
+                'ts_ms,event,source,frame_counter,target_frame,pending_count',
+                [
+                    int(time.time() * 1000),
+                    'invalidate',
+                    source,
+                    counter,
+                    counter + skip,
+                    len(self._pending),
+                ],
             )
 
     def count_frame(self, chunk_data: dict | None = None):
@@ -152,8 +159,11 @@ class FrameValidity:
         """
         with self._lock:
             self._frame_counter += 1
-            settled = [s for s, target in self._pending.items()
-                       if self._is_source_settled_unlocked(s, target)]
+            settled = [
+                s
+                for s, target in self._pending.items()
+                if self._is_source_settled_unlocked(s, target)
+            ]
             # Chunks short-circuit skip-frames for chunk-validatable sources:
             # a source is cleared if either the settle-check path OR a chunk
             # value matches the requested target.
@@ -169,9 +179,9 @@ class FrameValidity:
             pending = len(self._pending)
         if profile_trace is not None and profile_trace.ENABLE_PROFILE_TRACE and settled:
             profile_trace.trace(
-                "frame_validity_trace.csv",
-                "ts_ms,event,source,frame_counter,target_frame,pending_count",
-                [int(time.time() * 1000), "settled", "+".join(settled), counter, counter, pending],
+                'frame_validity_trace.csv',
+                'ts_ms,event,source,frame_counter,target_frame,pending_count',
+                [int(time.time() * 1000), 'settled', '+'.join(settled), counter, counter, pending],
             )
 
     def _is_source_settled_unlocked(self, source: str, target: int) -> bool:
@@ -248,8 +258,7 @@ class FrameValidity:
     def is_valid(self) -> bool:
         """True if all pending state changes have settled."""
         with self._lock:
-            return all(self._is_source_settled_unlocked(s, t)
-                       for s, t in self._pending.items())
+            return all(self._is_source_settled_unlocked(s, t) for s, t in self._pending.items())
 
     def is_valid_for(self, exclude_sources: tuple = ()) -> bool:
         """True if valid, ignoring specified sources.

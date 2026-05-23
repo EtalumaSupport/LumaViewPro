@@ -45,11 +45,13 @@ Considered alternatives:
     - per-call logging (no batching): too noisy at protocol scan rates
       (~6 captures/min * multiple labels = log spam).
 """
+
 import os
 import threading
 
 try:
     import psutil
+
     _proc = psutil.Process()
 except ImportError:
     _proc = None
@@ -58,6 +60,7 @@ try:
     from lvp_logger import logger
 except ImportError:
     import logging
+
     logger = logging.getLogger(__name__)
 
 
@@ -165,12 +168,9 @@ def tick(label: str, every_n: int = 50) -> None:
             try:
                 import gc
                 from collections import Counter
-                top = Counter(
-                    type(o).__name__ for o in gc.get_objects()
-                ).most_common(20)
-                logger.info(
-                    f'[HANDLE TRACE] gc.get_objects() top-20: {top}'
-                )
+
+                top = Counter(type(o).__name__ for o in gc.get_objects()).most_common(20)
+                logger.info(f'[HANDLE TRACE] gc.get_objects() top-20: {top}')
             except Exception as e:
                 logger.debug(f'[HANDLE TRACE] obj sampler failed: {e}')
 

@@ -129,9 +129,7 @@ class MetricsLogger:
         try:
             config_helpers.log_system_metrics(self._settings)
         except Exception as e:
-            logger.warning(
-                f'[MetricsLogger] tick_system_metrics failed: '
-                f'{type(e).__name__}: {e}')
+            logger.warning(f'[MetricsLogger] tick_system_metrics failed: {type(e).__name__}: {e}')
         # Heartbeat is best-effort and never propagates exceptions out
         # of the metrics tick (would lose all subsequent ticks). Warning
         # (not debug) so a broken stalled-grab detector is visible in the
@@ -140,9 +138,7 @@ class MetricsLogger:
         try:
             self._check_frame_flow_heartbeat()
         except Exception as e:
-            logger.warning(
-                f'[MetricsLogger] frame-flow heartbeat failed: '
-                f'{type(e).__name__}: {e}')
+            logger.warning(f'[MetricsLogger] frame-flow heartbeat failed: {type(e).__name__}: {e}')
 
     def _check_frame_flow_heartbeat(self) -> None:
         """Detect silent grab failure: camera active + is_grabbing()
@@ -173,6 +169,7 @@ class MetricsLogger:
         capture_fps = 0.0
         try:
             from modules import app_context as _app_ctx  # noqa: WPS433
+
             sd = _app_ctx.ctx.scope_display if _app_ctx.ctx is not None else None
             if sd is not None:
                 capture_fps = float(getattr(sd, '_capture_fps_value', 0.0) or 0.0)
@@ -183,7 +180,8 @@ class MetricsLogger:
             if self._frame_flow_stall_last_notified_tick >= 0:
                 logger.info(
                     f'[FRAME FLOW] capture_fps recovered to '
-                    f'{capture_fps:.2f} after silent-grab stall')
+                    f'{capture_fps:.2f} after silent-grab stall'
+                )
             self._frame_flow_stalled_ticks = 0
             self._frame_flow_stall_last_notified_tick = -1
             self._frame_flow_stall_critical_fired = False
@@ -197,49 +195,47 @@ class MetricsLogger:
                 f'{self._frame_flow_stalled_ticks} consecutive ticks while '
                 f'camera reports active=True + is_grabbing=True -- possible '
                 f'silent grab failure. Check camera.log for last successful '
-                f'grab; investigate USB transport / Pylon SDK state.')
+                f'grab; investigate USB transport / Pylon SDK state.'
+            )
             # Rule 14 sticky-failure: persistent stalls keep resurfacing.
             # First popup at threshold; same-severity refire every
             # _RENOTIFY_TICKS thereafter; one critical escalation once
             # _CRITICAL_TICKS has passed. Recovery resets all of it.
             should_renotify = (
                 self._frame_flow_stall_last_notified_tick < 0
-                or (self._frame_flow_stalled_ticks
-                    - self._frame_flow_stall_last_notified_tick)
-                   >= _FRAME_FLOW_STALL_RENOTIFY_TICKS
+                or (self._frame_flow_stalled_ticks - self._frame_flow_stall_last_notified_tick)
+                >= _FRAME_FLOW_STALL_RENOTIFY_TICKS
             )
             should_escalate = (
                 not self._frame_flow_stall_critical_fired
-                and self._frame_flow_stalled_ticks
-                    >= _FRAME_FLOW_STALL_CRITICAL_TICKS
+                and self._frame_flow_stalled_ticks >= _FRAME_FLOW_STALL_CRITICAL_TICKS
             )
             if should_renotify or should_escalate:
                 try:
                     from modules.notification_center import notifications
+
                     if should_escalate:
                         notifications.critical(
-                            "Camera",
-                            "Camera frame flow still stalled",
-                            "Captures have not arrived for an extended period. "
-                            "The camera reports active but no frames are flowing. "
-                            "Restart the program; if this recurs, power-cycle "
-                            "the camera."
+                            'Camera',
+                            'Camera frame flow still stalled',
+                            'Captures have not arrived for an extended period. '
+                            'The camera reports active but no frames are flowing. '
+                            'Restart the program; if this recurs, power-cycle '
+                            'the camera.',
                         )
                         self._frame_flow_stall_critical_fired = True
                     else:
                         notifications.warning(
-                            "Camera",
-                            "Camera frame flow stalled",
-                            "Captures have not arrived for several seconds. "
-                            "The camera reports active but frames are not flowing. "
-                            "The protocol will continue retrying; if this persists, "
-                            "restart the program."
+                            'Camera',
+                            'Camera frame flow stalled',
+                            'Captures have not arrived for several seconds. '
+                            'The camera reports active but frames are not flowing. '
+                            'The protocol will continue retrying; if this persists, '
+                            'restart the program.',
                         )
-                    self._frame_flow_stall_last_notified_tick = (
-                        self._frame_flow_stalled_ticks)
+                    self._frame_flow_stall_last_notified_tick = self._frame_flow_stalled_ticks
                 except Exception as _e:
-                    logger.debug(
-                        f'[FRAME FLOW] notification suppressed: {_e}')
+                    logger.debug(f'[FRAME FLOW] notification suppressed: {_e}')
 
     def tick_executor_watchdog(self) -> None:
         """Snapshot executor queue depths + auto-prune SCOPEDISPLAY backlog.
@@ -253,10 +249,9 @@ class MetricsLogger:
             total_q = sum(q for q in snap.values() if q > 0)
             fmt = ' '.join(f'{name}:{q}' for name, q in snap.items())
             if total_q > _EXECUTOR_BACKLOG_WARN_TOTAL:
-                logger.warning(
-                    f"[Watchdog  ] Queue backlog ({total_q} total) -- {fmt}")
+                logger.warning(f'[Watchdog  ] Queue backlog ({total_q} total) -- {fmt}')
             else:
-                logger.debug(f"[Watchdog  ] Queues -- {fmt}")
+                logger.debug(f'[Watchdog  ] Queues -- {fmt}')
 
             # Stage B1: SCOPEDISPLAY is a bare Thread with no queue;
             # the prune-on-backlog branch retires. The snapshot reports
@@ -282,14 +277,16 @@ class MetricsLogger:
 
     # ---- Lifecycle ----
 
-    def start(self,
-              scheduler=None,
-              unschedule_fn=None,
-              *,
-              system_metrics_interval_s: float = DEFAULT_SYSTEM_METRICS_INTERVAL_S,
-              executor_watchdog_interval_s: float = DEFAULT_EXECUTOR_WATCHDOG_INTERVAL_S,
-              camera_temp_interval_s: float = DEFAULT_CAMERA_TEMP_INTERVAL_S,
-              start_camera_temp: Optional[bool] = None) -> None:
+    def start(
+        self,
+        scheduler=None,
+        unschedule_fn=None,
+        *,
+        system_metrics_interval_s: float = DEFAULT_SYSTEM_METRICS_INTERVAL_S,
+        executor_watchdog_interval_s: float = DEFAULT_EXECUTOR_WATCHDOG_INTERVAL_S,
+        camera_temp_interval_s: float = DEFAULT_CAMERA_TEMP_INTERVAL_S,
+        start_camera_temp: Optional[bool] = None,
+    ) -> None:
         """Schedule all periodic ticks.
 
         LVP-A-13: ``scheduler`` is now a :class:`modules.scheduler.Scheduler`
@@ -320,19 +317,22 @@ class MetricsLogger:
             raise ValueError(
                 'MetricsLogger.start: scheduler is required (a Scheduler '
                 'instance or, legacy, a schedule_interval callable plus '
-                'unschedule_fn)')
+                'unschedule_fn)'
+            )
         if isinstance(scheduler, Scheduler):
             self._scheduler = scheduler
         elif callable(scheduler):
             if unschedule_fn is None or not callable(unschedule_fn):
                 raise ValueError(
                     'MetricsLogger.start: legacy callable form requires '
-                    'unschedule_fn (a callable matching Clock.unschedule)')
+                    'unschedule_fn (a callable matching Clock.unschedule)'
+                )
             self._scheduler = _CallablePairScheduler(scheduler, unschedule_fn)
         else:
             raise TypeError(
                 f'MetricsLogger.start: scheduler must be a Scheduler or '
-                f'callable; got {type(scheduler).__name__}')
+                f'callable; got {type(scheduler).__name__}'
+            )
 
         # Initial snapshot — match the pre-LVP-A-12 behavior of logging
         # once on startup so the very first log line carries fingerprint
@@ -340,9 +340,11 @@ class MetricsLogger:
         self.tick_system_metrics()
 
         self._handles['system_metrics'] = self._scheduler.schedule_interval(
-            self.tick_system_metrics, system_metrics_interval_s)
+            self.tick_system_metrics, system_metrics_interval_s
+        )
         self._handles['executor_watchdog'] = self._scheduler.schedule_interval(
-            self.tick_executor_watchdog, executor_watchdog_interval_s)
+            self.tick_executor_watchdog, executor_watchdog_interval_s
+        )
 
         if start_camera_temp is False:
             return
@@ -357,12 +359,14 @@ class MetricsLogger:
         self._scope.imaging.start_camera_temp_logging(
             self._scheduler.schedule_interval,
             self._scheduler.unschedule,
-            interval_s=camera_temp_interval_s)
+            interval_s=camera_temp_interval_s,
+        )
 
         logger.info(
             f'[MetricsLogger] started: system_metrics={system_metrics_interval_s}s, '
             f'executor_watchdog={executor_watchdog_interval_s}s, '
-            f'camera_temp={camera_temp_interval_s}s')
+            f'camera_temp={camera_temp_interval_s}s'
+        )
 
     def stop(self) -> None:
         """Cancel every scheduled tick. Idempotent."""
@@ -372,11 +376,9 @@ class MetricsLogger:
             try:
                 self._scheduler.unschedule(handle)
             except Exception as e:
-                logger.warning(
-                    f'[MetricsLogger] unschedule {name} failed: {e}')
+                logger.warning(f'[MetricsLogger] unschedule {name} failed: {e}')
         self._handles.clear()
         try:
             self._scope.imaging.stop_camera_temp_logging(self._scheduler.unschedule)
         except Exception as e:
-            logger.warning(
-                f'[MetricsLogger] stop_camera_temp_logging failed: {e}')
+            logger.warning(f'[MetricsLogger] stop_camera_temp_logging failed: {e}')

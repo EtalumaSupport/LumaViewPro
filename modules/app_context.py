@@ -47,17 +47,17 @@ class AppContext:
     """
 
     # Hardware
-    scope: object = None               # Lumascope instance
-    lumaview: object = None            # MainDisplay widget
+    scope: object = None  # Lumascope instance
+    lumaview: object = None  # MainDisplay widget
 
     # Core services
     settings: dict = field(default_factory=dict)
     settings_lock: threading.Lock = field(default_factory=threading.Lock)
-    session: object = None             # ScopeSession
+    session: object = None  # ScopeSession
     sequenced_capture_runner: object = None
     autofocus_runner: object = None
-    version: str = ""
-    source_path: str = ""
+    version: str = ''
+    source_path: str = ''
 
     # Executors + long-lived threads
     io_executor: object = None
@@ -74,11 +74,11 @@ class AppContext:
     objective_helper: object = None
 
     # UI components (set after widget tree builds in build())
-    viewer: object = None              # Viewer widget (update_shader, black, white)
-    scope_display: object = None       # ScopeDisplay widget
-    image_settings: object = None      # ImageSettings widget
-    motion_settings: object = None     # MotionSettings widget
-    stage: object = None               # Stage widget
+    viewer: object = None  # Viewer widget (update_shader, black, white)
+    scope_display: object = None  # ScopeDisplay widget
+    image_settings: object = None  # ImageSettings widget
+    motion_settings: object = None  # MotionSettings widget
+    stage: object = None  # Stage widget
     cell_count_content: object = None
     graphing_controls: object = None
     stitch_controls: object = None
@@ -86,17 +86,19 @@ class AppContext:
     video_creation_controls: object = None
     zprojection_controls: object = None
     ij_helper: object = None
-    metrics_logger: object = None       # MetricsLogger (LVP-A-12)
-    ui_listener_bridge: object = None   # UIListenerBridge (LVP-A-6)
+    metrics_logger: object = None  # MetricsLogger (LVP-A-12)
+    ui_listener_bridge: object = None  # UIListenerBridge (LVP-A-6)
 
     # Plugin platform (Phase A: registry; Phase B1/B2: entry-points discovery)
     plugins: PluginRegistry = field(default_factory=PluginRegistry)
 
     # State
-    protocol: object = None            # Protocol instance (canonical owner, not UI)
-    protocol_running: object = None    # threading.Event
+    protocol: object = None  # Protocol instance (canonical owner, not UI)
+    protocol_running: object = None  # threading.Event
     engineering_mode: bool = False
-    no_engineering: bool = False       # --no-engineering CLI flag; suppresses engineering plugin auto-enable
+    no_engineering: bool = (
+        False  # --no-engineering CLI flag; suppresses engineering plugin auto-enable
+    )
     show_tooltips: bool = False
     live_histo_setting: bool = False
     last_save_folder: str = None

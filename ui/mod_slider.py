@@ -55,6 +55,7 @@ class ModSlider(Slider):
             if not ModSlider._is_focused(self):
                 return False
             from kivy.core.window import Window
+
             modifiers = set(Window.modifiers)
             multiplier = 5 if (modifiers & {'shift', 'rshift'}) else 1
             delta = self.step * multiplier

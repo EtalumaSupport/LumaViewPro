@@ -13,14 +13,14 @@ from lvp_logger import logger
 # Try to import PyAV for H.264 encoding. Falls back to cv2 if unavailable.
 try:
     import av
+
     _HAS_PYAV = True
 except ImportError:
     _HAS_PYAV = False
-    logger.info("VideoWriter: PyAV not available -- falling back to OpenCV VideoWriter")
+    logger.info('VideoWriter: PyAV not available -- falling back to OpenCV VideoWriter')
 
 
 class VideoWriter:
-
     def __init__(
         self,
         output_file_loc: pathlib.Path,
@@ -32,7 +32,9 @@ class VideoWriter:
         self._include_timestamp_overlay = include_timestamp_overlay
         self._shape = None
         self._frame_count = 0
-        self._frame_lock = threading.Lock()  # Protects _frame_count + encoder state for REST queries
+        self._frame_lock = (
+            threading.Lock()
+        )  # Protects _frame_count + encoder state for REST queries
 
         if not output_file_loc.parent.exists():
             output_file_loc.parent.mkdir(parents=True)
@@ -40,7 +42,7 @@ class VideoWriter:
         # Backend selection: PyAV (H.264) preferred, cv2 fallback
         self._use_pyav = _HAS_PYAV
         self._container = None  # PyAV container
-        self._stream = None     # PyAV video stream
+        self._stream = None  # PyAV video stream
         self._cv2_video = None  # cv2.VideoWriter fallback
         self._finished = False
 
@@ -59,7 +61,7 @@ class VideoWriter:
             ts = timestamp
         else:
             ts = datetime.datetime.now()
-        return ts.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+        return ts.strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]
 
     def _init_pyav(self, width, height, is_color):
         """Initialize PyAV H.264 encoder."""
@@ -74,9 +76,11 @@ class VideoWriter:
             # frames have low noise so quality difference is negligible.
             self._stream.options = {'crf': '23', 'preset': 'ultrafast'}
             self._is_color = is_color
-            logger.info(f"VideoWriter: Opened H.264 encoder ({width}x{height} @ {int(self._fps)}fps)")
+            logger.info(
+                f'VideoWriter: Opened H.264 encoder ({width}x{height} @ {int(self._fps)}fps)'
+            )
         except Exception as e:
-            logger.warning(f"VideoWriter: PyAV init failed ({e}), falling back to cv2")
+            logger.warning(f'VideoWriter: PyAV init failed ({e}), falling back to cv2')
             self._use_pyav = False
             self._container = None
             self._stream = None
@@ -96,10 +100,12 @@ class VideoWriter:
             isColor=is_color,
         )
         if not self._cv2_video.isOpened():
-            logger.error(f"VideoWriter: cv2 fallback ALSO failed to open {fallback_path}. "
-                         f"No video will be written.")
+            logger.error(
+                f'VideoWriter: cv2 fallback ALSO failed to open {fallback_path}. '
+                f'No video will be written.'
+            )
         else:
-            logger.info(f"VideoWriter: Using cv2 XVID fallback -> {fallback_path}")
+            logger.info(f'VideoWriter: Using cv2 XVID fallback -> {fallback_path}')
 
     def _init_video(self, image: np.ndarray):
         (height, width), is_color = self._get_image_info(image=image)
@@ -124,7 +130,7 @@ class VideoWriter:
                 self._init_video(image=image)
 
             if not self._is_correct_image_shape(image):
-                logger.error("VideoWriter: Inconsistent Image Shape. Video will likely corrupt")
+                logger.error('VideoWriter: Inconsistent Image Shape. Video will likely corrupt')
 
             if self._include_timestamp_overlay:
                 ts = self._get_timestamp_str(timestamp)
@@ -132,7 +138,11 @@ class VideoWriter:
 
             # Ensure 8-bit
             if image.dtype != np.uint8:
-                image = image_utils.convert_16bit_to_8bit(image) if image.dtype == np.uint16 else image.astype(np.uint8)
+                image = (
+                    image_utils.convert_16bit_to_8bit(image)
+                    if image.dtype == np.uint16
+                    else image.astype(np.uint8)
+                )
 
             if self._use_pyav and self._stream is not None:
                 try:
@@ -146,7 +156,7 @@ class VideoWriter:
                         self._container.mux(packet)
                     self._frame_count += 1
                 except Exception as e:
-                    logger.error(f"VideoWriter: PyAV encode error: {e}")
+                    logger.error(f'VideoWriter: PyAV encode error: {e}')
             elif self._cv2_video is not None:
                 # cv2.VideoWriter is the only BGR consumer in the save path;
                 # callers pass RGB so we convert at this cv2 boundary.
@@ -156,7 +166,9 @@ class VideoWriter:
                     image_for_cv2 = image
                 success = self._cv2_video.write(image_for_cv2)
                 if success is False:
-                    logger.error("VideoWriter: cv2.VideoWriter.write() returned failure -- frame may be lost")
+                    logger.error(
+                        'VideoWriter: cv2.VideoWriter.write() returned failure -- frame may be lost'
+                    )
                 self._frame_count += 1
 
     def finish(self):
@@ -168,16 +180,16 @@ class VideoWriter:
                 for packet in self._stream.encode():
                     self._container.mux(packet)
                 self._container.close()
-                logger.info(f"VideoWriter: H.264 video closed ({self._frame_count} frames)")
+                logger.info(f'VideoWriter: H.264 video closed ({self._frame_count} frames)')
             except Exception as e:
-                logger.error(f"VideoWriter: PyAV close failed: {e}")
+                logger.error(f'VideoWriter: PyAV close failed: {e}')
         elif self._cv2_video is not None:
             try:
                 self._cv2_video.release()
             except Exception as e:
-                logger.error(f"VideoWriter: cv2 release() failed: {e}")
+                logger.error(f'VideoWriter: cv2 release() failed: {e}')
         else:
-            logger.warning("VideoWriter.finish() called without adding any frames.")
+            logger.warning('VideoWriter.finish() called without adding any frames.')
 
     def get_progress(self) -> dict:
         """Thread-safe progress query for REST API consumers."""
@@ -189,14 +201,14 @@ class VideoWriter:
             }
 
     def test_video(self, filename):
-        logger.info(f"VideoWriter: Testing video {filename}")
+        logger.info(f'VideoWriter: Testing video {filename}')
         cap = cv2.VideoCapture(str(filename))
         if not cap.isOpened():
-            logger.error("VideoWriter: Output file is corrupt or unreadable")
+            logger.error('VideoWriter: Output file is corrupt or unreadable')
             return False
         ok, test_frame = cap.read()
         if not ok:
-            logger.error("VideoWriter: No frames could be read back; file is probably corrupt")
+            logger.error('VideoWriter: No frames could be read back; file is probably corrupt')
             return False
         cap.release()
         return True

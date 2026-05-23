@@ -1346,9 +1346,13 @@ class TestRule14_A7_HyperstackBuildNotify:
         when stack_builder.load_folder raises."""
         import pathlib
         source = pathlib.Path("modules/config_ui_getters.py").read_text()
-        idx = source.find('logger.exception("Error building hyperstacks")')
+        # Quote-style agnostic: ruff format may use single or double
+        # quotes for the message argument.
+        idx = source.find("Error building hyperstacks")
         assert idx != -1, "Hyperstack build exception handler must exist"
-        nearby = source[idx:idx+500]
+        nearby = source[max(0, idx - 200):idx + 500]
+        assert "logger.exception(" in nearby, \
+            "Hyperstack build path must call logger.exception"
         assert "notifications.error" in nearby, \
             "Hyperstack build exception path must call notifications.error (A7 -- Rule 14)"
         assert "Hyperstack build failed" in nearby, \
@@ -2657,10 +2661,16 @@ class TestPF2_FileIoExecutorClearedOnAbort:
 
     def test_initial_state_captured_before_completing_transition(self):
         from pathlib import Path
+        import re
         src = (Path(__file__).resolve().parent.parent / "modules" / "protocol_cleanup.py").read_text()
         # The capture must precede the COMPLETING transition so ERROR vs other states
-        # is distinguishable.
-        idx_capture = src.find("is_aborted = (get_state_fn() == ProtocolState.ERROR)")
+        # is distinguishable. Paren-style agnostic: ruff format may
+        # strip unnecessary parens around the comparison.
+        m = re.search(
+            r"is_aborted\s*=\s*\(?\s*get_state_fn\(\)\s*==\s*ProtocolState\.ERROR\s*\)?",
+            src,
+        )
+        idx_capture = m.start() if m else -1
         idx_transition = src.find("set_state_fn(ProtocolState.COMPLETING)")
         assert idx_capture != -1, (
             "PF-2: cleanup should capture is_aborted from initial state."
@@ -7288,13 +7298,18 @@ class TestManualVideoSpinners:
         # No bare KeyError when manual_video dict is missing or its
         # keys are missing -- a partially-edited settings.json won't
         # crash record_init.
-        assert 'settings.get("manual_video"' in body, (
+        # Quote-style agnostic: ruff format may use single or double quotes.
+        assert (
+            'settings.get("manual_video"' in body
+            or "settings.get('manual_video'" in body
+        ), (
             "record_init must read settings.get('manual_video', {}) "
             "to tolerate missing dict on a fresh / partial install."
         )
-        assert 'manual_video.get("max_fps"' in body, (
-            "record_init must read max_fps via .get with a default."
-        )
+        assert (
+            'manual_video.get("max_fps"' in body
+            or "manual_video.get('max_fps'" in body
+        ), "record_init must read max_fps via .get with a default."
 
     def test_user_requested_fps_limit_keys_on_max_fps_zero(self):
         body = self._record_init_body()

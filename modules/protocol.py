@@ -26,19 +26,117 @@ from modules.coord_transformations import CoordinateTransformer
 
 coordinate_transformer = CoordinateTransformer()
 
+
 class ProtocolFormatError(Exception):
     pass
 
 
 class Protocol:
-
-    PROTOCOL_FILE_HEADER = "LumaViewPro Protocol"
+    PROTOCOL_FILE_HEADER = 'LumaViewPro Protocol'
     COLUMNS = {
-        1: ['Name', 'X', 'Y', 'Z', 'Auto_Focus', 'Channel', 'False_Color', 'Illumination', 'Gain', 'Auto_Gain', 'Exposure', 'Objective'],
-        2: ['Name', 'X', 'Y', 'Z', 'Auto_Focus', 'Color', 'False_Color', 'Illumination', 'Gain', 'Auto_Gain', 'Exposure', 'Objective', 'Well', 'Tile', 'Z-Slice', 'Custom Step', 'Tile Group ID', 'Z-Stack Group ID'],
-        3: ['Name', 'X', 'Y', 'Z', 'Auto_Focus', 'Color', 'False_Color', 'Illumination', 'Gain', 'Auto_Gain', 'Exposure', 'Objective', 'Well', 'Tile', 'Z-Slice', 'Custom Step', 'Tile Group ID', 'Z-Stack Group ID', 'Acquire', 'Video Config'],
-        4: ['Name', 'X', 'Y', 'Z', 'Auto_Focus', 'Color', 'False_Color', 'Illumination', 'Gain', 'Auto_Gain', 'Exposure', 'Sum', 'Objective', 'Well', 'Tile', 'Z-Slice', 'Custom Step', 'Tile Group ID', 'Z-Stack Group ID', 'Acquire', 'Video Config'],
-        5: ['Name', 'X', 'Y', 'Z', 'Auto_Focus', 'Color', 'False_Color', 'Illumination', 'Gain', 'Auto_Gain', 'Exposure', 'Sum', 'Objective', 'Well', 'Tile', 'Z-Slice', 'Custom Step', 'Tile Group ID', 'Z-Stack Group ID', 'Acquire', 'Video Config', 'Stim_Config'],
+        1: [
+            'Name',
+            'X',
+            'Y',
+            'Z',
+            'Auto_Focus',
+            'Channel',
+            'False_Color',
+            'Illumination',
+            'Gain',
+            'Auto_Gain',
+            'Exposure',
+            'Objective',
+        ],
+        2: [
+            'Name',
+            'X',
+            'Y',
+            'Z',
+            'Auto_Focus',
+            'Color',
+            'False_Color',
+            'Illumination',
+            'Gain',
+            'Auto_Gain',
+            'Exposure',
+            'Objective',
+            'Well',
+            'Tile',
+            'Z-Slice',
+            'Custom Step',
+            'Tile Group ID',
+            'Z-Stack Group ID',
+        ],
+        3: [
+            'Name',
+            'X',
+            'Y',
+            'Z',
+            'Auto_Focus',
+            'Color',
+            'False_Color',
+            'Illumination',
+            'Gain',
+            'Auto_Gain',
+            'Exposure',
+            'Objective',
+            'Well',
+            'Tile',
+            'Z-Slice',
+            'Custom Step',
+            'Tile Group ID',
+            'Z-Stack Group ID',
+            'Acquire',
+            'Video Config',
+        ],
+        4: [
+            'Name',
+            'X',
+            'Y',
+            'Z',
+            'Auto_Focus',
+            'Color',
+            'False_Color',
+            'Illumination',
+            'Gain',
+            'Auto_Gain',
+            'Exposure',
+            'Sum',
+            'Objective',
+            'Well',
+            'Tile',
+            'Z-Slice',
+            'Custom Step',
+            'Tile Group ID',
+            'Z-Stack Group ID',
+            'Acquire',
+            'Video Config',
+        ],
+        5: [
+            'Name',
+            'X',
+            'Y',
+            'Z',
+            'Auto_Focus',
+            'Color',
+            'False_Color',
+            'Illumination',
+            'Gain',
+            'Auto_Gain',
+            'Exposure',
+            'Sum',
+            'Objective',
+            'Well',
+            'Tile',
+            'Z-Slice',
+            'Custom Step',
+            'Tile Group ID',
+            'Z-Stack Group ID',
+            'Acquire',
+            'Video Config',
+            'Stim_Config',
+        ],
         # v6: step columns unchanged from v5; the format-version bump
         # signals a new 'Layer Settings' block in the header preamble
         # that persists per-layer UI state (acquire mode + illumination
@@ -46,7 +144,30 @@ class Protocol:
         # protocol round-trips through the UI without losing per-layer
         # configuration. v5 files without the block fall back to
         # inference from the steps Color column (see _infer_layer_settings).
-        6: ['Name', 'X', 'Y', 'Z', 'Auto_Focus', 'Color', 'False_Color', 'Illumination', 'Gain', 'Auto_Gain', 'Exposure', 'Sum', 'Objective', 'Well', 'Tile', 'Z-Slice', 'Custom Step', 'Tile Group ID', 'Z-Stack Group ID', 'Acquire', 'Video Config', 'Stim_Config'],
+        6: [
+            'Name',
+            'X',
+            'Y',
+            'Z',
+            'Auto_Focus',
+            'Color',
+            'False_Color',
+            'Illumination',
+            'Gain',
+            'Auto_Gain',
+            'Exposure',
+            'Sum',
+            'Objective',
+            'Well',
+            'Tile',
+            'Z-Slice',
+            'Custom Step',
+            'Tile Group ID',
+            'Z-Stack Group ID',
+            'Acquire',
+            'Video Config',
+            'Stim_Config',
+        ],
     }
     CURRENT_VERSION = 6
     CURRENT_COLUMNS = COLUMNS[CURRENT_VERSION]
@@ -56,65 +177,61 @@ class Protocol:
     # blank for transmitted layers) are still valid as long as the leading
     # required columns are present.
     LAYER_SETTINGS_COLUMNS = [
-        'Layer', 'Acquire', 'Illumination', 'Gain', 'Auto_Gain',
-        'Exposure', 'False_Color', 'Sum', 'Stim_Enabled',
+        'Layer',
+        'Acquire',
+        'Illumination',
+        'Gain',
+        'Auto_Gain',
+        'Exposure',
+        'False_Color',
+        'Sum',
+        'Stim_Enabled',
     ]
-    STEP_NAME_PATTERN = re.compile(r"^(?P<well_label>[A-Z][0-9]+)(_(?P<color>(Blue|Green|Red|BF|DF|PC|Lumi)))(_T(?P<tile_label>[A-Z][0-9]+))?(_Z(?P<z_slice>[0-9]+))?(_([0-9]*))?(.tif[f])?$")
-    
-    def __init__(
-        self,
-        tiling_configs_file_loc: pathlib.Path,
-        config: dict = None
-    ):
+    STEP_NAME_PATTERN = re.compile(
+        r'^(?P<well_label>[A-Z][0-9]+)(_(?P<color>(Blue|Green|Red|BF|DF|PC|Lumi)))(_T(?P<tile_label>[A-Z][0-9]+))?(_Z(?P<z_slice>[0-9]+))?(_([0-9]*))?(.tif[f])?$'
+    )
+
+    def __init__(self, tiling_configs_file_loc: pathlib.Path, config: dict = None):
 
         self._objective_loader = ObjectiveLoader()
 
-        self._tiling_config = TilingConfig(
-            tiling_configs_file_loc=tiling_configs_file_loc
-        )
+        self._tiling_config = TilingConfig(tiling_configs_file_loc=tiling_configs_file_loc)
 
         if config is None:
             self._config = {}
         else:
             self._config = config
 
-        # Cache for num_steps() — invalidated by _set_steps() and delete_step().
+        # Cache for num_steps() -- invalidated by _set_steps() and delete_step().
         # num_steps was called 35× per step during real-HW protocol runs, so
         # caching len(self._config['steps']) is a measurable win (M14 follow-up).
         self._num_steps_cache: int | None = None
 
-
     @staticmethod
     def _build_z_height_map(values) -> dict:
-            z_height_map = {}
+        z_height_map = {}
 
-            z_heights = sorted(set(values.astype('float').tolist()))
-            if len(z_heights) >= 2:
-                z_height_map = {z_height: idx for idx, z_height in enumerate(z_heights)}
+        z_heights = sorted(set(values.astype('float').tolist()))
+        if len(z_heights) >= 2:
+            z_height_map = {z_height: idx for idx, z_height in enumerate(z_heights)}
 
-            return z_height_map
-
+        return z_height_map
 
     def period(self) -> datetime.timedelta:
         return self._config['period']
-    
 
     def duration(self) -> datetime.timedelta:
         return self._config['duration']
-    
 
     def labware(self) -> str:
         return self._config['labware_id']
-    
 
     @staticmethod
     def sanitize_step_name(input: str) -> str:
         return re.sub(r'[^a-zA-Z0-9-_]', '', input)
-    
 
     def capture_root(self) -> str:
         return self._config.get('capture_root', '')
-
 
     def layer_settings(self) -> dict:
         """Return per-layer UI settings keyed by layer name.
@@ -134,7 +251,6 @@ class Protocol:
         if explicit:
             return explicit
         return self._infer_layer_settings_from_steps()
-
 
     def _infer_layer_settings_from_steps(self) -> dict:
         """Fallback for v5 files: build per-layer state from unique Colors.
@@ -173,9 +289,8 @@ class Protocol:
                     'Stim_Enabled': '',
                 }
         except Exception as e:
-            logger.warning(f"[Protocol] Layer Settings inference failed: {e}")
+            logger.warning(f'[Protocol] Layer Settings inference failed: {e}')
         return out
-
 
     def set_layer_settings(self, layer_settings: dict) -> None:
         """Store per-layer UI settings for inclusion in the next to_file().
@@ -194,7 +309,6 @@ class Protocol:
             k: dict(v) for k, v in layer_settings.items() if isinstance(v, dict)
         }
 
-
     def copy_for_execution(self):
         """Lightweight copy for protocol execution.
 
@@ -209,7 +323,7 @@ class Protocol:
         new = Protocol.__new__(Protocol)
         new._config = new_config
         new._objective_loader = self._objective_loader  # shared, read-only
-        new._tiling_config = self._tiling_config        # shared, read-only
+        new._tiling_config = self._tiling_config  # shared, read-only
         new._num_steps_cache = None
         return new
 
@@ -239,26 +353,33 @@ class Protocol:
         # any Manual Z-Stack aborted with "Invalid 'Period' value... must
         # be >= 0" because the writer emitted -1 (issue #669).
         period_minutes = (
-            0 if self.period() is None
-            else round(self.period().total_seconds() / 60.0, 2)
+            0 if self.period() is None else round(self.period().total_seconds() / 60.0, 2)
         )
         duration_hours = (
-            0 if self.duration() is None
-            else round(self.duration().total_seconds() / 3600.0, 6)
+            0 if self.duration() is None else round(self.duration().total_seconds() / 3600.0, 6)
         )
 
         try:
             with open(file_path, 'w') as fp:
-                csvwriter = csv.writer(fp, delimiter='\t', lineterminator='\n') # access the file using the CSV library
+                csvwriter = csv.writer(
+                    fp, delimiter='\t', lineterminator='\n'
+                )  # access the file using the CSV library
 
                 csvwriter.writerow(['LumaViewPro Protocol'])
                 csvwriter.writerow(['Version', self._config['version']])
                 csvwriter.writerow(['Period', period_minutes])
                 csvwriter.writerow(['Duration', duration_hours])
                 csvwriter.writerow(['Labware', self._config['labware_id']])
-                csvwriter.writerow(['Capture Root', self.capture_root() if self.capture_root() is not None or self.capture_root() != '' else ''])
+                csvwriter.writerow(
+                    [
+                        'Capture Root',
+                        self.capture_root()
+                        if self.capture_root() is not None or self.capture_root() != ''
+                        else '',
+                    ]
+                )
 
-                # v6 Layer Settings block — emitted only when the caller
+                # v6 Layer Settings block -- emitted only when the caller
                 # passes layer_settings AND at least one layer is enabled.
                 # Older readers tolerate the block (the 'find Steps' loop
                 # in from_file already skips unknown rows until it hits
@@ -266,24 +387,27 @@ class Protocol:
                 # breaking any v5-aware downstream tooling.
                 if layer_settings:
                     enabled = [
-                        (name, vals) for name, vals in layer_settings.items()
+                        (name, vals)
+                        for name, vals in layer_settings.items()
                         if vals.get('Acquire') in ('image', 'video')
                     ]
                     if enabled:
                         fp.write('\nLayer Settings\n')
                         csvwriter.writerow(self.LAYER_SETTINGS_COLUMNS)
                         for name, vals in enabled:
-                            csvwriter.writerow([
-                                name,
-                                vals.get('Acquire', ''),
-                                vals.get('Illumination', ''),
-                                vals.get('Gain', ''),
-                                vals.get('Auto_Gain', ''),
-                                vals.get('Exposure', ''),
-                                vals.get('False_Color', ''),
-                                vals.get('Sum', ''),
-                                vals.get('Stim_Enabled', ''),
-                            ])
+                            csvwriter.writerow(
+                                [
+                                    name,
+                                    vals.get('Acquire', ''),
+                                    vals.get('Illumination', ''),
+                                    vals.get('Gain', ''),
+                                    vals.get('Auto_Gain', ''),
+                                    vals.get('Exposure', ''),
+                                    vals.get('False_Color', ''),
+                                    vals.get('Sum', ''),
+                                    vals.get('Stim_Enabled', ''),
+                                ]
+                            )
 
                 fp.write('\nSteps\n')
 
@@ -297,16 +421,14 @@ class Protocol:
                             lambda v: json.dumps(v) if isinstance(v, dict) else v
                         )
 
-                protocol_table_str = steps_df.to_csv(
-                    sep='\t',
-                    lineterminator='\n',
-                    index=False
-                )
+                protocol_table_str = steps_df.to_csv(sep='\t', lineterminator='\n', index=False)
                 fp.write(protocol_table_str)
         except Exception as e:
-            logger.error(f"[Protocol] Error saving protocol to file {file_path}. File may be open in another window: {e}")
-            return f"Error saving protocol to file {file_path}.\n File may be open in another window.\n"
-        
+            logger.error(
+                f'[Protocol] Error saving protocol to file {file_path}. File may be open in another window: {e}'
+            )
+            return f'Error saving protocol to file {file_path}.\n File may be open in another window.\n'
+
         return None
 
     def optimize_step_ordering(self):
@@ -316,49 +438,47 @@ class Protocol:
             return
 
         # First group by X/Y location
-        grouped_df = steps.groupby(by=['X','Y'], sort=False)
-        
+        grouped_df = steps.groupby(by=['X', 'Y'], sort=False)
+
         # For each X/Y location, sort by Z-height
         grouped_list = []
         for _, group_df in grouped_df:
-            group_df = group_df.sort_values(by=['Objective', 'Z'], ascending=[True,True])
+            group_df = group_df.sort_values(by=['Objective', 'Z'], ascending=[True, True])
             grouped_list.append(group_df)
 
         # Re-combine into single dataframe
         df = pd.concat(grouped_list, ignore_index=True).reset_index(drop=True)
         self._set_steps(df)
 
-
     def _create_empty_steps_df() -> pd.DataFrame:
         dtypes = np.dtype(
             [
-                ("Name", str),
-                ("X", float),
-                ("Y", float),
-                ("Z", float),
-                ("Auto_Focus", bool),
-                ("Color", str),
-                ("False_Color", bool),
-                ("Illumination", float),
-                ("Gain", float),
-                ("Auto_Gain", bool),
-                ("Exposure", float),
-                ("Sum", int),
-                ("Objective", str),
-                ("Well", str),
-                ("Tile", str),
-                ("Z-Slice", int),
-                ("Custom Step", bool),
-                ("Tile Group ID", int),
-                ("Z-Stack Group ID", int),
-                ("Acquire", str),
-                ("Video Config", object),
-                ("Stim_Config", object),
+                ('Name', str),
+                ('X', float),
+                ('Y', float),
+                ('Z', float),
+                ('Auto_Focus', bool),
+                ('Color', str),
+                ('False_Color', bool),
+                ('Illumination', float),
+                ('Gain', float),
+                ('Auto_Gain', bool),
+                ('Exposure', float),
+                ('Sum', int),
+                ('Objective', str),
+                ('Well', str),
+                ('Tile', str),
+                ('Z-Slice', int),
+                ('Custom Step', bool),
+                ('Tile Group ID', int),
+                ('Z-Stack Group ID', int),
+                ('Acquire', str),
+                ('Video Config', object),
+                ('Stim_Config', object),
             ]
         )
         df = pd.DataFrame(np.empty(0, dtype=dtypes))
         return df
-    
 
     # Valid values for field validation
     VALID_COLORS = {c.name for c in color_channels.ColorChannel}
@@ -383,61 +503,61 @@ class Protocol:
             pass  # skip objective validation if loader fails
 
         for idx, step in steps.iterrows():
-            label = f"Step {idx + 1} ({step.get('Name', '?')})"
+            label = f'Step {idx + 1} ({step.get("Name", "?")})'
 
             # Color
             color = step.get('Color', '')
             if color not in self.VALID_COLORS:
                 errors.append(
                     f"{label}: Color '{color}' is not valid. "
-                    f"Must be one of: {', '.join(sorted(self.VALID_COLORS))}")
+                    f'Must be one of: {", ".join(sorted(self.VALID_COLORS))}'
+                )
 
             # Objective
             obj = step.get('Objective', '')
             if valid_objectives and obj not in valid_objectives:
-                errors.append(
-                    f"{label}: Objective '{obj}' not found in objectives.json")
+                errors.append(f"{label}: Objective '{obj}' not found in objectives.json")
 
-            # Exposure — 0 is valid (blank/placeholder steps)
+            # Exposure -- 0 is valid (blank/placeholder steps)
             try:
                 exposure = float(step.get('Exposure', 0))
                 if exposure < 0:
-                    errors.append(f"{label}: Exposure must be >= 0, got {exposure}")
+                    errors.append(f'{label}: Exposure must be >= 0, got {exposure}')
             except (ValueError, TypeError):
-                errors.append(f"{label}: Exposure is not a valid number")
+                errors.append(f'{label}: Exposure is not a valid number')
 
             # Illumination
             try:
                 illum = float(step.get('Illumination', 0))
                 if illum < 0 or illum > 1000:
-                    errors.append(
-                        f"{label}: Illumination must be 0–1000 mA, got {illum}")
+                    errors.append(f'{label}: Illumination must be 0–1000 mA, got {illum}')
             except (ValueError, TypeError):
-                errors.append(f"{label}: Illumination is not a valid number")
+                errors.append(f'{label}: Illumination is not a valid number')
 
             # Gain
             try:
                 gain = float(step.get('Gain', 0))
                 if gain < 0:
-                    errors.append(f"{label}: Gain must be >= 0, got {gain}")
+                    errors.append(f'{label}: Gain must be >= 0, got {gain}')
             except (ValueError, TypeError):
-                errors.append(f"{label}: Gain is not a valid number")
+                errors.append(f'{label}: Gain is not a valid number')
 
             # Sum
             try:
                 sum_count = int(step.get('Sum', 1))
                 if sum_count < 1:
-                    errors.append(f"{label}: Sum must be >= 1, got {sum_count}")
+                    errors.append(f'{label}: Sum must be >= 1, got {sum_count}')
                 elif sum_count > 100:
-                    logger.warning(f"[PROTOCOL] {label}: Sum count {sum_count} is unusually high (> 100). This may cause long capture times.")
+                    logger.warning(
+                        f'[PROTOCOL] {label}: Sum count {sum_count} is unusually high (> 100). This may cause long capture times.'
+                    )
             except (ValueError, TypeError):
-                errors.append(f"{label}: Sum is not a valid integer")
+                errors.append(f'{label}: Sum is not a valid integer')
 
             # Acquire mode
             acquire = step.get('Acquire', 'image')
             if acquire not in self.VALID_ACQUIRE_MODES:
-                errors.append(
-                    f"{label}: Acquire must be 'image' or 'video', got '{acquire}'")
+                errors.append(f"{label}: Acquire must be 'image' or 'video', got '{acquire}'")
 
             # Video Config (only validate if acquire == 'video')
             if acquire == 'video':
@@ -446,17 +566,16 @@ class Protocol:
                     fps = vc.get('fps', 0)
                     duration = vc.get('duration', 0)
                     if not isinstance(fps, (int, float)) or fps <= 0:
-                        errors.append(f"{label}: Video Config fps must be > 0")
+                        errors.append(f'{label}: Video Config fps must be > 0')
                     if not isinstance(duration, (int, float)) or duration <= 0:
-                        errors.append(f"{label}: Video Config duration must be > 0")
+                        errors.append(f'{label}: Video Config duration must be > 0')
                 else:
-                    errors.append(f"{label}: Video Config is not a valid dict")
+                    errors.append(f'{label}: Video Config is not a valid dict')
 
             # Name length
             name = step.get('Name', '')
             if len(str(name)) > 200:
-                errors.append(
-                    f"{label}: Name exceeds 200 characters ({len(str(name))})")
+                errors.append(f'{label}: Name exceeds 200 characters ({len(str(name))})')
 
         return errors
 
@@ -484,7 +603,7 @@ class Protocol:
 
         if axis_limits:
             for idx, step in steps.iterrows():
-                label = f"Step {idx + 1} ({step.get('Name', '?')})"
+                label = f'Step {idx + 1} ({step.get("Name", "?")})'
 
                 for axis in ('X', 'Y', 'Z'):
                     if axis not in axis_limits:
@@ -492,13 +611,14 @@ class Protocol:
                     try:
                         pos = float(step.get(axis, 0))
                     except (ValueError, TypeError):
-                        errors.append(f"{label}: {axis} position is not a valid number")
+                        errors.append(f'{label}: {axis} position is not a valid number')
                         continue
                     limits = axis_limits[axis]
                     if pos < limits['min'] or pos > limits['max']:
                         errors.append(
-                            f"{label}: {axis} position {pos} µm is outside travel limits "
-                            f"({limits['min']}–{limits['max']} µm)")
+                            f'{label}: {axis} position {pos} µm is outside travel limits '
+                            f'({limits["min"]}–{limits["max"]} µm)'
+                        )
 
         # Validate labware exists. Use is_known_plate() rather than plate_list
         # membership so legacy/alias names (e.g. "384 well Corning Spheroid
@@ -509,12 +629,13 @@ class Protocol:
         if labware_key:
             try:
                 from modules import labware_loader
+
                 loader = labware_loader.WellPlateLoader()
                 if not loader.is_known_plate(labware_key):
                     plate_list = loader.get_plate_list()
                     errors.append(
-                        f"Labware '{labware_key}' not found. "
-                        f"Available: {', '.join(plate_list)}")
+                        f"Labware '{labware_key}' not found. Available: {', '.join(plate_list)}"
+                    )
             except Exception:
                 pass  # skip labware validation if loader fails
 
@@ -536,41 +657,36 @@ class Protocol:
         self._config['steps'] = df
         self._num_steps_cache = None
 
-
-
     def steps(self) -> pd.DataFrame:
         return self._config['steps']
-    
 
     def modify_autofocus(self, step_idx: int, enabled: bool):
-        self._config['steps'].at[step_idx, "Auto_Focus"] = enabled
+        self._config['steps'].at[step_idx, 'Auto_Focus'] = enabled
 
-    
     def modify_autofocus_all_steps(self, enabled: bool):
         for idx, _ in self._config['steps'].iterrows():
             self.modify_autofocus(step_idx=idx, enabled=enabled)
-    
 
     def delete_step(self, step_idx: int):
         num_steps = self.num_steps()
 
         if num_steps < 1:
             return
-        
+
         if step_idx >= self.num_steps():
-            raise ProtocolError(f"Cannot delete step idx {step_idx}. Protocol only has {self.num_steps()}.")
-        
+            raise ProtocolError(
+                f'Cannot delete step idx {step_idx}. Protocol only has {self.num_steps()}.'
+            )
+
         self._config['steps'].drop(index=step_idx, axis=0, inplace=True)
         self._config['steps'].reset_index(drop=True, inplace=True)
         self._num_steps_cache = None
-
 
     def modify_labware(
         self,
         labware_id: str,
     ):
         self._config['labware_id'] = labware_id
-
 
     def modify_time_params(
         self,
@@ -580,35 +696,28 @@ class Protocol:
         self._config['period'] = period
         self._config['duration'] = duration
 
+    def modify_step_z_height(self, step_idx: int, z: float):
+        self._config['steps'].at[step_idx, 'Z'] = z
 
-    def modify_step_z_height(
-        self,
-        step_idx: int,
-        z: float
-    ):
-        self._config['steps'].at[step_idx, "Z"] = z
-
-    def modify_capture_root(
-        self,
-        capture_root: str
-    ):
+    def modify_capture_root(self, capture_root: str):
         self._config['capture_root'] = capture_root
 
     def modify_name(
-            self,
-            step_idx: int,
-            step_name: str,
+        self,
+        step_idx: int,
+        step_name: str,
     ):
         if step_idx < 0:
-                raise ProtocolError(f"Step idx must be > 0")
-            
+            raise ProtocolError(f'Step idx must be > 0')
+
         if step_idx >= self.num_steps():
-            raise ProtocolError(f"Cannot modify step idx {step_idx}. Protocol only has {self.num_steps()}.")
+            raise ProtocolError(
+                f'Cannot modify step idx {step_idx}. Protocol only has {self.num_steps()}.'
+            )
 
         Protocol.sanitize_step_name(step_name)
-        self._config['steps'].at[step_idx, "Name"] = step_name
-        
-        
+        self._config['steps'].at[step_idx, 'Name'] = step_name
+
     def modify_step(
         self,
         step_idx: int,
@@ -621,30 +730,34 @@ class Protocol:
     ):
         def _validate_inputs():
             if step_idx < 0:
-                raise ProtocolError(f"Step idx must be > 0")
-            
+                raise ProtocolError(f'Step idx must be > 0')
+
             if step_idx >= self.num_steps():
-                raise ProtocolError(f"Cannot modify step idx {step_idx}. Protocol only has {self.num_steps()}.")
-            
+                raise ProtocolError(
+                    f'Cannot modify step idx {step_idx}. Protocol only has {self.num_steps()}.'
+                )
+
         _validate_inputs()
 
-        self._config['steps'].at[step_idx, "Name"] = step_name
-        self._config['steps'].at[step_idx, "X"] = plate_position['x']
-        self._config['steps'].at[step_idx, "Y"] = plate_position['y']
-        self._config['steps'].at[step_idx, "Z"] = plate_position['z']
+        self._config['steps'].at[step_idx, 'Name'] = step_name
+        self._config['steps'].at[step_idx, 'X'] = plate_position['x']
+        self._config['steps'].at[step_idx, 'Y'] = plate_position['y']
+        self._config['steps'].at[step_idx, 'Z'] = plate_position['z']
 
-        self._config['steps'].at[step_idx, "Auto_Focus"] = layer_config['autofocus']
-        self._config['steps'].at[step_idx, "Color"] = layer
-        self._config['steps'].at[step_idx, "False_Color"] = layer_config['false_color']
-        self._config['steps'].at[step_idx, "Illumination"] = layer_config['illumination_ma']
-        self._config['steps'].at[step_idx, "Gain"] = layer_config['gain_db']
-        self._config['steps'].at[step_idx, "Auto_Gain"] = layer_config['auto_gain']
-        self._config['steps'].at[step_idx, "Exposure"] = layer_config['exposure_ms']
-        self._config['steps'].at[step_idx, "Sum"] = int(layer_config['sum'])
-        self._config['steps'].at[step_idx, "Objective"] = objective_id
-        self._config['steps'].at[step_idx, "Acquire"] = layer_config['acquire']
-        self._config['steps'].at[step_idx, "Video Config"] = copy.deepcopy(layer_config['video_config'])
-        self._config['steps'].at[step_idx, "Stim_Config"] = copy.deepcopy(stim_configs)
+        self._config['steps'].at[step_idx, 'Auto_Focus'] = layer_config['autofocus']
+        self._config['steps'].at[step_idx, 'Color'] = layer
+        self._config['steps'].at[step_idx, 'False_Color'] = layer_config['false_color']
+        self._config['steps'].at[step_idx, 'Illumination'] = layer_config['illumination_ma']
+        self._config['steps'].at[step_idx, 'Gain'] = layer_config['gain_db']
+        self._config['steps'].at[step_idx, 'Auto_Gain'] = layer_config['auto_gain']
+        self._config['steps'].at[step_idx, 'Exposure'] = layer_config['exposure_ms']
+        self._config['steps'].at[step_idx, 'Sum'] = int(layer_config['sum'])
+        self._config['steps'].at[step_idx, 'Objective'] = objective_id
+        self._config['steps'].at[step_idx, 'Acquire'] = layer_config['acquire']
+        self._config['steps'].at[step_idx, 'Video Config'] = copy.deepcopy(
+            layer_config['video_config']
+        )
+        self._config['steps'].at[step_idx, 'Stim_Config'] = copy.deepcopy(stim_configs)
 
     def insert_step(
         self,
@@ -658,41 +771,42 @@ class Protocol:
         after_step: int | None = None,
         include_objective_in_step_name: bool = False,
     ) -> str:
-        
+
         def _validate_inputs():
             if (before_step is None) and (after_step is None):
-                raise ProtocolError(f"Must specify after_step or before_step")
-            
+                raise ProtocolError(f'Must specify after_step or before_step')
+
             if (before_step is not None) and (after_step is not None):
-                raise ProtocolError(f"Must specify only after_step or before_step, not both")
-            
+                raise ProtocolError(f'Must specify only after_step or before_step, not both')
+
             if (before_step is not None) and (before_step < 0):
-                raise ProtocolError(f"before_step cannot be < 0")
-            
+                raise ProtocolError(f'before_step cannot be < 0')
+
             if (after_step is not None) and (after_step > self.num_steps()):
-                raise ProtocolError(f"after_step cannot be > num_steps")
-            
+                raise ProtocolError(f'after_step cannot be > num_steps')
+
         _validate_inputs()
-        
+
         if include_objective_in_step_name:
-            objective_short_name = self._objective_loader.get_objective_info(objective_id=objective_id)['short_name']
+            objective_short_name = self._objective_loader.get_objective_info(
+                objective_id=objective_id
+            )['short_name']
         else:
             objective_short_name = None
 
         if step_name is None:
             step_name = common_utils.generate_default_step_name(
-                well_label="",
-                custom_name_prefix=f"custom{self._config['custom_step_count']}",
+                well_label='',
+                custom_name_prefix=f'custom{self._config["custom_step_count"]}',
                 color=layer,
-                objective_short_name=objective_short_name
-
+                objective_short_name=objective_short_name,
             )
             CUSTOM_INDEX_WIDTH = 4
-            step_name = f"custom{self._config['custom_step_count']:0{CUSTOM_INDEX_WIDTH}d}"
+            step_name = f'custom{self._config["custom_step_count"]:0{CUSTOM_INDEX_WIDTH}d}'
             self._config['custom_step_count'] += 1
 
-        well = ""
-        tile = "" # Manually inserted step is not a tile
+        well = ''
+        tile = ''  # Manually inserted step is not a tile
         zslice = -1
         custom_step = True
         tile_group_id = -1
@@ -724,14 +838,14 @@ class Protocol:
         )
 
         if before_step is not None:
-            pos_index = before_step-0.5
+            pos_index = before_step - 0.5
         else:
-            pos_index = after_step+0.5
+            pos_index = after_step + 0.5
 
         line = pd.DataFrame(data=step_dict, index=[pos_index])
         line = line.astype({'Video Config': 'object'})
         line.at[pos_index, 'Video Config'] = step_dict['Video Config']
-        
+
         line = line.astype({'Stim_Config': 'object'})
         line.at[pos_index, 'Stim_Config'] = step_dict['Stim_Config']
 
@@ -742,24 +856,19 @@ class Protocol:
         )
 
         return step_name
-    
 
-    def step(
-        self,
-        idx: int
-    ):
+    def step(self, idx: int):
         def _validate():
             if idx < 0:
-                raise ProtocolError(f"Step index cannot be < 0")
-            
+                raise ProtocolError(f'Step index cannot be < 0')
+
             if idx >= self.num_steps():
-                raise ProtocolError(f"Step idx {idx} does not exist. Protocol only has {self.num_steps()}.")
+                raise ProtocolError(
+                    f'Step idx {idx} does not exist. Protocol only has {self.num_steps()}.'
+                )
 
-        _validate(
-
-        )            
+        _validate()
         return self._config['steps'].iloc[idx]
-    
 
     def apply_tiling(
         self,
@@ -772,11 +881,11 @@ class Protocol:
         stage_offset,
     ) -> dict:
         "Returns status dict"
-        "If"
+        'If'
 
         status = {
-            "tiles_skipped": 0,
-                  }
+            'tiles_skipped': 0,
+        }
 
         if tiling == '1x1':
             return status
@@ -789,19 +898,18 @@ class Protocol:
             # Add objective focal length to steps dataframe
             objectives = self._objective_loader.get_objectives_dataframe()['focal_length']
 
-            orig_steps_df["focal_length"] = orig_steps_df["Objective"].map(objectives)
+            orig_steps_df['focal_length'] = orig_steps_df['Objective'].map(objectives)
 
         except Exception as e:
-            logger.error(f"Error adding objective focal length to steps dataframe: {e}")
+            logger.error(f'Error adding objective focal length to steps dataframe: {e}')
             return status
-
 
         try:
             x_limits = axes_config['X']['limits']
             y_limits = axes_config['Y']['limits']
 
         except Exception as e:
-            logger.error(f"Error getting axes limits from axes_config: {e}")
+            logger.error(f'Error getting axes limits from axes_config: {e}')
             return status
 
         existing_max_tile_group_id = orig_steps_df['Tile Group ID'].max()
@@ -809,7 +917,6 @@ class Protocol:
 
         new_steps = []
 
-        
         for idx, row in orig_steps_df.iterrows():
             try:
                 tiles = self._tiling_config.get_tile_centers(
@@ -820,51 +927,60 @@ class Protocol:
                     binning_size=binning_size,
                 )
             except Exception as e:
-                logger.error(f"Error getting tile centers for step {idx}: {e}")
+                logger.error(f'Error getting tile centers for step {idx}: {e}')
                 tiles = {}
 
             orig_step_df = orig_steps_df.iloc[idx]
             orig_step_dict = orig_step_df.to_dict()
 
-            if len(tiles) == 1: # No tiles generated
+            if len(tiles) == 1:  # No tiles generated
                 new_steps.append(orig_step_dict)
                 continue
 
             # If already a tile, copy it over to the new protocol
-            if orig_step_df['Tile'] not in (None, ""):
+            if orig_step_df['Tile'] not in (None, ''):
                 new_steps.append(orig_step_dict)
                 continue
-            
-            x = orig_step_df["X"]
-            y = orig_step_df["Y"]
 
-            for tile_label, tile_position in tiles.items():   
-                
-                x_tile = round(x + tile_position["x"]/1000, common_utils.max_decimal_precision('x')) # in 'plate' coordinates
-                y_tile = round(y + tile_position["y"]/1000, common_utils.max_decimal_precision('y')) # in 'plate' coordinates 
+            x = orig_step_df['X']
+            y = orig_step_df['Y']
+
+            for tile_label, tile_position in tiles.items():
+                x_tile = round(
+                    x + tile_position['x'] / 1000, common_utils.max_decimal_precision('x')
+                )  # in 'plate' coordinates
+                y_tile = round(
+                    y + tile_position['y'] / 1000, common_utils.max_decimal_precision('y')
+                )  # in 'plate' coordinates
 
                 sx, sy = coordinate_transformer.plate_to_stage(
-                    labware=labware,
-                    stage_offset=stage_offset,
-                    px=x_tile,
-                    py=y_tile
+                    labware=labware, stage_offset=stage_offset, px=x_tile, py=y_tile
                 )
 
                 # Check if tile is within stage limits
-                if (sx > x_limits['max']) or (sx < x_limits['min']) or (sy > y_limits['max']) or (sy < y_limits['min']):
-                    logger.info(f"[Protocol] Skipping tile {tile_label} for step {idx} - out of stage limits")
+                if (
+                    (sx > x_limits['max'])
+                    or (sx < x_limits['min'])
+                    or (sy > y_limits['max'])
+                    or (sy < y_limits['min'])
+                ):
+                    logger.info(
+                        f'[Protocol] Skipping tile {tile_label} for step {idx} - out of stage limits'
+                    )
                     status['tiles_skipped'] += 1
                     continue
-                
+
                 name = common_utils.generate_default_step_name(
-                        well_label=orig_step_df['Well'],
-                        color=orig_step_df['Color'],
-                        z_height_idx=orig_step_df['Z-Slice'],
-                        tile_label=tile_label,
-                        objective_short_name=None,  # Can add this if needed
-                        custom_name_prefix=None if not orig_step_df['Custom Step'] else orig_step_df['Name'],
-                    )
-                    
+                    well_label=orig_step_df['Well'],
+                    color=orig_step_df['Color'],
+                    z_height_idx=orig_step_df['Z-Slice'],
+                    tile_label=tile_label,
+                    objective_short_name=None,  # Can add this if needed
+                    custom_name_prefix=None
+                    if not orig_step_df['Custom Step']
+                    else orig_step_df['Name'],
+                )
+
                 # if not orig_step_df['Custom Step']:
                 #     name = common_utils.generate_default_step_name(
                 #         well_label=orig_step_df['Well'],
@@ -874,7 +990,7 @@ class Protocol:
                 #     )
                 # else:
                 #     name = orig_step_df['Name']
-                
+
                 new_step_dict = self._create_step_dict(
                     name=name,
                     x=x_tile,
@@ -901,22 +1017,21 @@ class Protocol:
                 )
 
                 new_steps.append(new_step_dict)
-            
+
             tile_group_id += 1
 
         self._set_steps(pd.DataFrame.from_dict(new_steps))
 
         return status
- 
 
     def apply_zstacking(
         self,
         zstack_params: dict,
     ):
-        
+
         if zstack_params['step_size'] <= 0 or zstack_params['range'] <= 0:
             return
-        
+
         steps = self.steps()
         existing_max_zstack_group_id = steps['Z-Stack Group ID'].max()
 
@@ -930,7 +1045,7 @@ class Protocol:
             orig_step_dict = orig_step_df.to_dict()
 
             # If already part of a Z-Stack, copy it over to the new protocol
-            if orig_step_df['Z-Slice'] not in (None, "", -1):
+            if orig_step_df['Z-Slice'] not in (None, '', -1):
                 new_steps.append(orig_step_dict)
                 continue
 
@@ -938,30 +1053,31 @@ class Protocol:
                 range=zstack_params['range'],
                 step_size=zstack_params['step_size'],
                 current_z_reference=zstack_params['z_reference'],
-                current_z_value=orig_step_df["Z"],
+                current_z_value=orig_step_df['Z'],
             )
 
             if zstack_config.number_of_steps() == 0:
                 continue
 
             zstack_positions = zstack_config.step_positions()
-            
-            # Create a z-stack  
-            for zstack_slice, zstack_position in zstack_positions.items():
 
+            # Create a z-stack
+            for zstack_slice, zstack_position in zstack_positions.items():
                 name = common_utils.generate_default_step_name(
-                            well_label=orig_step_df['Well'],
-                            color=orig_step_df['Color'],
-                            z_height_idx=zstack_slice,
-                            tile_label=orig_step_df['Tile'],
-                            objective_short_name=None,  # Can add this if needed
-                            custom_name_prefix=None if not orig_step_df['Custom Step'] else orig_step_df['Name'],
-                        )
-                
+                    well_label=orig_step_df['Well'],
+                    color=orig_step_df['Color'],
+                    z_height_idx=zstack_slice,
+                    tile_label=orig_step_df['Tile'],
+                    objective_short_name=None,  # Can add this if needed
+                    custom_name_prefix=None
+                    if not orig_step_df['Custom Step']
+                    else orig_step_df['Name'],
+                )
+
                 new_step_dict = self._create_step_dict(
                     name=name,
-                    x=orig_step_df["X"],
-                    y=orig_step_df["Y"],
+                    x=orig_step_df['X'],
+                    y=orig_step_df['Y'],
                     z=zstack_position,
                     af=orig_step_df['Auto_Focus'],
                     color=orig_step_df['Color'],
@@ -984,22 +1100,15 @@ class Protocol:
                 )
 
                 new_steps.append(new_step_dict)
-            
+
             zstack_group_id += 1
 
         self._set_steps(pd.DataFrame.from_dict(new_steps))
 
-
     @classmethod
-    def from_config(
-        cls,
-        input_config: dict,
-        tiling_configs_file_loc : pathlib.Path
-    ):
-        
-        tiling_config = TilingConfig(
-            tiling_configs_file_loc=tiling_configs_file_loc
-        )
+    def from_config(cls, input_config: dict, tiling_configs_file_loc: pathlib.Path):
+
+        tiling_config = TilingConfig(tiling_configs_file_loc=tiling_configs_file_loc)
 
         if 'positions' in input_config:
             positions = input_config['positions']
@@ -1038,7 +1147,7 @@ class Protocol:
             'custom_step_count': 0,
             'capture_root': '',
         }
-        
+
         if positions is not None:
             actual_positions = positions
             position_source = 'from_manual'
@@ -1061,24 +1170,23 @@ class Protocol:
                 )
 
             actual_positions = tmp
-            position_source = 'from_labware'            
+            position_source = 'from_labware'
 
         tile_group_id = 0
         zstack_group_id = 0
         # custom_step_count = 0
         steps = []
 
-         # Iterate through all the positions in the scan
+        # Iterate through all the positions in the scan
         for pos in actual_positions:
             for tile_label, tile_position in tiles.items():
-
                 if not use_zstacking:
                     zstack_position_offsets = {None: None}
                 elif zstack_params['step_size'] <= 0 or zstack_params['range'] <= 0:
-                    # Z-stack enabled but not configured — treat as single Z
+                    # Z-stack enabled but not configured -- treat as single Z
                     logger.warning(
-                        f"[Protocol] Z-stack enabled but range={zstack_params['range']} "
-                        f"step_size={zstack_params['step_size']} — using single Z position"
+                        f'[Protocol] Z-stack enabled but range={zstack_params["range"]} '
+                        f'step_size={zstack_params["step_size"]} -- using single Z position'
                     )
                     zstack_position_offsets = {None: None}
                 else:
@@ -1094,9 +1202,15 @@ class Protocol:
                     for layer_name, layer_config in layer_configs.items():
                         if layer_config['acquire'] not in ['image', 'video']:
                             continue
-                        
-                        x = round(pos['x'] + tile_position["x"]/1000, common_utils.max_decimal_precision('x')) # in 'plate' coordinates
-                        y = round(pos['y'] + tile_position["y"]/1000, common_utils.max_decimal_precision('y')) # in 'plate' coordinates
+
+                        x = round(
+                            pos['x'] + tile_position['x'] / 1000,
+                            common_utils.max_decimal_precision('x'),
+                        )  # in 'plate' coordinates
+                        y = round(
+                            pos['y'] + tile_position['y'] / 1000,
+                            common_utils.max_decimal_precision('y'),
+                        )  # in 'plate' coordinates
 
                         if pos['z'] is None:
                             z = layer_config['focus']
@@ -1110,13 +1224,20 @@ class Protocol:
 
                         autofocus = layer_config['autofocus']
                         false_color = layer_config['false_color']
-                        illumination = round(layer_config['illumination_ma'], common_utils.max_decimal_precision('illumination'))
+                        illumination = round(
+                            layer_config['illumination_ma'],
+                            common_utils.max_decimal_precision('illumination'),
+                        )
                         sum = int(layer_config['sum'])
-                        gain = round(layer_config['gain_db'], common_utils.max_decimal_precision('gain'))
+                        gain = round(
+                            layer_config['gain_db'], common_utils.max_decimal_precision('gain')
+                        )
                         auto_gain = common_utils.to_bool(layer_config['auto_gain'])
-                        exposure = round(layer_config['exposure_ms'], common_utils.max_decimal_precision('exposure'))
+                        exposure = round(
+                            layer_config['exposure_ms'],
+                            common_utils.max_decimal_precision('exposure'),
+                        )
                         video_config = layer_config['video_config']
-
 
                         well_label = pos['name']
                         if position_source == 'from_labware':
@@ -1124,12 +1245,12 @@ class Protocol:
                         else:
                             custom_step = True
 
-                        if zstack_slice in ("", None):
+                        if zstack_slice in ('', None):
                             zstack_slice_label = -1
                         else:
                             zstack_slice_label = zstack_slice
 
-                        if tile_label == "":
+                        if tile_label == '':
                             tile_group_id_label = -1
                         else:
                             tile_group_id_label = tile_group_id
@@ -1138,7 +1259,7 @@ class Protocol:
                             zstack_group_id_label = -1
                         else:
                             zstack_group_id_label = zstack_group_id
-                        
+
                         step_name = common_utils.generate_default_step_name(
                             well_label=well_label,
                             color=layer_name,
@@ -1173,49 +1294,40 @@ class Protocol:
                             stim_config=stim_config,
                         )
                         steps.append(step_dict)
-                
+
                 if use_zstacking and zstack_position_offsets:
                     zstack_group_id += 1
 
-            if tile_label != "":
+            if tile_label != '':
                 tile_group_id += 1
 
         steps_df = cls._create_empty_steps_df()
-        steps_df = cls._add_steps_to_steps_df(
-            steps_df=steps_df,
-            new_steps = steps
-        )
+        steps_df = cls._add_steps_to_steps_df(steps_df=steps_df, new_steps=steps)
 
         config['steps'] = steps_df
 
-        protocol = cls(
-            tiling_configs_file_loc=tiling_configs_file_loc,
-            config=config
-        )
+        protocol = cls(tiling_configs_file_loc=tiling_configs_file_loc, config=config)
 
-        # Validate step fields — reject protocol if any errors found
+        # Validate step fields -- reject protocol if any errors found
         validation_errors = protocol.validate_steps()
         if validation_errors:
             for err in validation_errors:
-                logger.error(f"Protocol validation: {err}")
+                logger.error(f'Protocol validation: {err}')
             raise ProtocolFormatError(
-                f"Protocol has {len(validation_errors)} validation error(s): {validation_errors[0]}"
+                f'Protocol has {len(validation_errors)} validation error(s): {validation_errors[0]}'
             )
 
         return protocol
-
 
     @classmethod
     def create_empty(
         cls,
         config: dict,
-        tiling_configs_file_loc : pathlib.Path,
+        tiling_configs_file_loc: pathlib.Path,
     ):
-        
-        tc = TilingConfig(
-            tiling_configs_file_loc=tiling_configs_file_loc
-        )
-        
+
+        tc = TilingConfig(tiling_configs_file_loc=tiling_configs_file_loc)
+
         labware_id = config['labware_id']
         objective_id = config['objective_id']
         zstack_params = {'range': 0, 'step_size': 0}
@@ -1242,10 +1354,8 @@ class Protocol:
         }
 
         return cls.from_config(
-            input_config=input_config,
-            tiling_configs_file_loc=tiling_configs_file_loc
+            input_config=input_config, tiling_configs_file_loc=tiling_configs_file_loc
         )
-
 
     @staticmethod
     def _create_step_dict(
@@ -1270,33 +1380,32 @@ class Protocol:
         zstack_group_id,
         acquire,
         video_config,
-        stim_config
+        stim_config,
     ):
         return {
-            "Name": name,
-            "X": x,
-            "Y": y,
-            "Z": z,
-            "Auto_Focus": af,
-            "Color": color,
-            "False_Color": fc,
-            "Illumination": ill,
-            "Gain": gain,
-            "Auto_Gain": auto_gain,
-            "Exposure": exp,
-            "Sum": sum,
-            "Objective": objective,
-            "Well": well,
-            "Tile": tile,
-            "Z-Slice": zslice,
-            "Custom Step": custom_step,
-            "Tile Group ID": tile_group_id,
-            "Z-Stack Group ID": zstack_group_id,
-            "Acquire": acquire,
-            "Video Config": copy.deepcopy(video_config),
-            "Stim_Config": copy.deepcopy(stim_config),
+            'Name': name,
+            'X': x,
+            'Y': y,
+            'Z': z,
+            'Auto_Focus': af,
+            'Color': color,
+            'False_Color': fc,
+            'Illumination': ill,
+            'Gain': gain,
+            'Auto_Gain': auto_gain,
+            'Exposure': exp,
+            'Sum': sum,
+            'Objective': objective,
+            'Well': well,
+            'Tile': tile,
+            'Z-Slice': zslice,
+            'Custom Step': custom_step,
+            'Tile Group ID': tile_group_id,
+            'Z-Stack Group ID': zstack_group_id,
+            'Acquire': acquire,
+            'Video Config': copy.deepcopy(video_config),
+            'Stim_Config': copy.deepcopy(stim_config),
         }
-        
 
     """
     stim_config = {
@@ -1325,28 +1434,19 @@ class Protocol:
 
     """
 
-
     @staticmethod
-    def _add_steps_to_steps_df(
-        steps_df: pd.DataFrame,
-        new_steps: list[dict]
-    ):
+    def _add_steps_to_steps_df(steps_df: pd.DataFrame, new_steps: list[dict]):
         new_steps_df = pd.DataFrame(new_steps)
         steps_df = pd.concat([steps_df, new_steps_df], ignore_index=True).reset_index(drop=True)
         return steps_df
 
-
     @classmethod
-    def from_file(
-        cls,
-        file_path: pathlib.Path,
-        tiling_configs_file_loc : pathlib.Path | None
-    ):
+    def from_file(cls, file_path: pathlib.Path, tiling_configs_file_loc: pathlib.Path | None):
         """
         Returns Protocol object loaded from file on success
         Raises ProtocolFormatError on format issues
         """
-        
+
         MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
         MAX_STEP_COUNT = 10_000
 
@@ -1356,8 +1456,8 @@ class Protocol:
         file_size = os.path.getsize(file_path)
         if file_size > MAX_FILE_SIZE:
             raise ValueError(
-                f"Protocol file exceeds maximum size of {MAX_FILE_SIZE // (1024*1024)} MB "
-                f"({file_size:,} bytes). File may be corrupt."
+                f'Protocol file exceeds maximum size of {MAX_FILE_SIZE // (1024 * 1024)} MB '
+                f'({file_size:,} bytes). File may be corrupt.'
             )
 
         # Filter out blank lines
@@ -1370,35 +1470,39 @@ class Protocol:
                 file_content = ''.join(file_data_lines)
                 fp = io.StringIO(file_content)
         except Exception as e:
-            logger.error(f"Error reading protocol file {file_path}: {e}")
-            raise IOError(f"Error reading protocol file {file_path}") from e
+            logger.error(f'Error reading protocol file {file_path}: {e}')
+            raise IOError(f'Error reading protocol file {file_path}') from e
 
         csvreader = csv.reader(fp, delimiter='\t')
 
         try:
             verify = next(csvreader)
         except StopIteration:
-            logger.error(f"Protocol file {file_path} is empty or invalid.")
-            raise ProtocolFormatError(f"Protocol file is empty or invalid.")
-        
+            logger.error(f'Protocol file {file_path} is empty or invalid.')
+            raise ProtocolFormatError(f'Protocol file is empty or invalid.')
+
         if not (verify[0] == cls.PROTOCOL_FILE_HEADER):
-            raise ProtocolFormatError(f"Not a valid LumaViewPro Protocol")
-        
+            raise ProtocolFormatError(f'Not a valid LumaViewPro Protocol')
+
         try:
             version_row = next(csvreader)
         except StopIteration:
-            logger.error(f"Protocol file {file_path} is missing version information.")
-            raise ProtocolFormatError(f"Protocol file is missing version information.")
-        
-        if version_row[0] != "Version":
+            logger.error(f'Protocol file {file_path} is missing version information.')
+            raise ProtocolFormatError(f'Protocol file is missing version information.')
+
+        if version_row[0] != 'Version':
             logger.error(f"Unable to load {file_path} which is missing 'Version' row.")
             raise ProtocolFormatError(f"Protocol format is missing 'Version' row.")
 
         try:
             config['version'] = int(version_row[1])
         except ValueError as ve:
-            logger.error(f"Invalid 'Version' value in protocol file {file_path}. 'Version' must be an integer: {ve}")
-            raise ProtocolFormatError(f"Invalid 'Version' value in protocol file {file_path}") from ve
+            logger.error(
+                f"Invalid 'Version' value in protocol file {file_path}. 'Version' must be an integer: {ve}"
+            )
+            raise ProtocolFormatError(
+                f"Invalid 'Version' value in protocol file {file_path}"
+            ) from ve
 
         allowed = False
         if config['version'] == cls.CURRENT_VERSION:
@@ -1411,17 +1515,18 @@ class Protocol:
             allowed = True
 
         if not allowed:
-            logger.error(f"Unable to load {file_path} which contains protocol version {config['version']}.\nPlease create a new protocol using this version of LumaViewPro.")
-            raise ProtocolFormatError(f"Protocol version {config['version']} is not supported.")
-
+            logger.error(
+                f'Unable to load {file_path} which contains protocol version {config["version"]}.\nPlease create a new protocol using this version of LumaViewPro.'
+            )
+            raise ProtocolFormatError(f'Protocol version {config["version"]} is not supported.')
 
         # Read Period
         try:
             period_row = next(csvreader)
-            if period_row[0] != "Period":
+            if period_row[0] != 'Period':
                 logger.error(f"Missing 'Period' row in protocol file {file_path}")
                 raise ProtocolFormatError(f"Missing 'Period' row in protocol file")
-            
+
             minutes = float(period_row[1])
             # Period == 0 is a valid single-scan / non-periodic marker
             # (Z-stack, single-shot capture, autofocus characterization);
@@ -1436,22 +1541,23 @@ class Protocol:
         except StopIteration:
             logger.error(f"Missing 'Period' row in protocol file {file_path}")
             raise ProtocolFormatError(f"Missing 'Period' row in protocol file")
-        
+
         except ValueError as ve:
-            logger.error(f"Invalid 'Period' value in protocol file {file_path} 'Period' must be numeric: {ve}")
+            logger.error(
+                f"Invalid 'Period' value in protocol file {file_path} 'Period' must be numeric: {ve}"
+            )
             raise ProtocolFormatError(f"Invalid 'Period' value in protocol file") from ve
-        
+
         except ProtocolFormatError as pfe:
             raise pfe
-
 
         # Read Duration
         try:
             duration = next(csvreader)
-            if duration[0] != "Duration":
+            if duration[0] != 'Duration':
                 logger.error(f"Missing 'Duration' row in protocol file {file_path}")
                 raise ProtocolFormatError(f"Missing 'Duration' row in protocol file")
-            
+
             hours = float(duration[1])
             # Duration == 0 mirrors Period == 0 -- valid single-scan
             # marker for Manual Z-Stack / single-shot capture (where the
@@ -1461,35 +1567,38 @@ class Protocol:
             # of the encoding bug was fixed (issue #669).
             if hours < 0:
                 logger.error(f"Invalid 'Duration' value in protocol file {file_path}: must be >= 0")
-                raise ProtocolFormatError(f"Invalid 'Duration' value in protocol file: must be >= 0")
+                raise ProtocolFormatError(
+                    f"Invalid 'Duration' value in protocol file: must be >= 0"
+                )
 
             config['duration'] = datetime.timedelta(hours=hours)
 
         except StopIteration:
             logger.error(f"Missing 'Duration' row in protocol file {file_path}")
             raise ProtocolFormatError(f"Missing 'Duration' row in protocol file")
-        
+
         except ValueError as ve:
-            logger.error(f"Invalid 'Duration' value in protocol file {file_path}. 'Duration' must be numeric: {ve}")
+            logger.error(
+                f"Invalid 'Duration' value in protocol file {file_path}. 'Duration' must be numeric: {ve}"
+            )
             raise ProtocolFormatError(f"Invalid 'Duration' value in protocol file") from ve
-        
+
         except ProtocolFormatError as pfe:
             raise pfe
-        
 
         # Read Labware
         try:
             labware = next(csvreader)
-            if labware[0] != "Labware":
+            if labware[0] != 'Labware':
                 logger.error(f"Invalid 'Labware' row in protocol file {file_path}")
                 raise ProtocolFormatError(f"Invalid 'Labware' row in protocol file")
-            
+
             config['labware_id'] = labware[1]
 
         except StopIteration:
             logger.error(f"Missing 'Labware' row in protocol file {file_path}")
             raise ProtocolFormatError(f"Missing 'Labware' row in protocol file")
-        
+
         except ProtocolFormatError as pfe:
             raise pfe
 
@@ -1497,7 +1606,7 @@ class Protocol:
         # Ensure defaults to avoid KeyErrors
         try:
             next_row = next(csvreader)
-            if next_row[0] == "Capture Root":
+            if next_row[0] == 'Capture Root':
                 # The shipped data/new_default_protocol.tsv writes
                 # "Capture Root" as a single-cell row (no tab + value),
                 # so next_row[1] raises IndexError. Treat a missing or
@@ -1506,15 +1615,14 @@ class Protocol:
             else:
                 config['capture_root'] = ''
         except StopIteration:
-            logger.error(f"Protocol file {file_path} is incomplete.")
-            raise ProtocolFormatError(f"Protocol file is incomplete.")
-
+            logger.error(f'Protocol file {file_path} is incomplete.')
+            raise ProtocolFormatError(f'Protocol file is incomplete.')
 
         # Search for "Steps" to indicate start of steps. Along the way,
-        # optionally capture a v6 'Layer Settings' block — a header row
+        # optionally capture a v6 'Layer Settings' block -- a header row
         # followed by one row per enabled layer. Block ends at the first
         # blank row or at the 'Steps' marker.
-        if next_row[0] != "Steps": # Check to ensure compatibility with no capture_root field
+        if next_row[0] != 'Steps':  # Check to ensure compatibility with no capture_root field
             found_steps = False
             try:
                 while not found_steps:
@@ -1522,11 +1630,11 @@ class Protocol:
                     if len(tmp) == 0:
                         continue
 
-                    if tmp[0] == "Steps":
+                    if tmp[0] == 'Steps':
                         found_steps = True
                         break
 
-                    if tmp[0] == "Layer Settings":
+                    if tmp[0] == 'Layer Settings':
                         # Parse the block in place. The first non-blank row is
                         # the column header; subsequent non-blank rows are
                         # per-layer entries; block ends at the first blank
@@ -1540,16 +1648,17 @@ class Protocol:
                                 if ls_header is not None:
                                     break  # blank row ends the block
                                 continue  # tolerate blank rows before header
-                            if sub_row[0] == "Steps":
+                            if sub_row[0] == 'Steps':
                                 found_steps = True
                                 break
                             if ls_header is None:
                                 ls_header = sub_row
                                 if 'Layer' not in ls_header:
                                     logger.warning(
-                                        f"[Protocol] Layer Settings header missing "
+                                        f'[Protocol] Layer Settings header missing '
                                         f"'Layer' column in {file_path}; discarding block "
-                                        f"and falling back to inference.")
+                                        f'and falling back to inference.'
+                                    )
                                     config['layer_settings'] = {}
                                     ls_header = None
                                 continue
@@ -1560,23 +1669,23 @@ class Protocol:
             except StopIteration:
                 logger.error(f"Missing 'Steps' section in protocol file {file_path}")
                 raise ProtocolFormatError(f"Missing 'Steps' section in protocol file")
-        
+
         table_lines = []
         for line in fp:
             table_lines.append(line)
-        
+
         table_str = ''.join(table_lines)
         protocol_df = pd.read_csv(io.StringIO(table_str), sep='\t', lineterminator='\n').fillna('')
 
         # M19: Validate required columns before processing.
-        # Old versions use 'Channel' instead of 'Color' — accept either.
+        # Old versions use 'Channel' instead of 'Color' -- accept either.
         actual_cols = set(protocol_df.columns)
         required_columns = {'Name', 'X', 'Y', 'Z', 'Illumination', 'Gain', 'Exposure'}
         if 'Color' not in actual_cols and 'Channel' not in actual_cols:
             required_columns.add('Color')  # will trigger error
         missing = required_columns - actual_cols
         if missing:
-            raise ProtocolFormatError(f"Protocol missing required columns: {missing}")
+            raise ProtocolFormatError(f'Protocol missing required columns: {missing}')
 
         protocol_df['Name'] = protocol_df['Name'].astype(str)
 
@@ -1585,41 +1694,40 @@ class Protocol:
             return False
 
         # Added in v3
-        DEFAULT_VIDEO_CONFIG = {
-            'fps': 5,
-            'duration': 5
-        }
+        DEFAULT_VIDEO_CONFIG = {'fps': 5, 'duration': 5}
 
         # Added in v4
         DEFAULT_SUM_CONFIG = 1
 
         # Added in v5
         DEFAULT_STIM_CONFIG = {
-            "Red": {
-                "enabled": False,
-                "illumination": 100,
-                "frequency": 1,
-                "pulse_width": 10,
-                "pulse_count": 100,
+            'Red': {
+                'enabled': False,
+                'illumination': 100,
+                'frequency': 1,
+                'pulse_width': 10,
+                'pulse_count': 100,
             },
-            "Green": {
-                "enabled": False,
-                "illumination": 100,
-                "frequency": 1,
-                "pulse_width": 10,
-                "pulse_count": 100,
+            'Green': {
+                'enabled': False,
+                'illumination': 100,
+                'frequency': 1,
+                'pulse_width': 10,
+                'pulse_count': 100,
             },
-            "Blue": {
-                "enabled": False,
-                "illumination": 100,
-                "frequency": 1,
-                "pulse_width": 10,
-                "pulse_count": 100,
-            }
+            'Blue': {
+                'enabled': False,
+                'illumination': 100,
+                'frequency': 1,
+                'pulse_width': 10,
+                'pulse_count': 100,
+            },
         }
 
-        if (config['version'] < cls.CURRENT_VERSION):
-            logger.info(f"Converting loaded protocol from {config['version']} to {cls.CURRENT_VERSION}")
+        if config['version'] < cls.CURRENT_VERSION:
+            logger.info(
+                f'Converting loaded protocol from {config["version"]} to {cls.CURRENT_VERSION}'
+            )
 
         def _parse_config_per_row(row, column, default):
             """Parse a config string for a single row.
@@ -1644,21 +1752,19 @@ class Protocol:
                     parsed = ast.literal_eval(val)
                     if isinstance(parsed, dict):
                         return parsed
-                    raise ValueError(f"not a dict: {type(parsed).__name__}")
+                    raise ValueError(f'not a dict: {type(parsed).__name__}')
                 except Exception as ex:
                     step_name = row.get('Name', '?')
                     logger.error(
-                        f"Unable to parse {column} for step '{step_name}', "
-                        f"using default: {ex}"
+                        f"Unable to parse {column} for step '{step_name}', using default: {ex}"
                     )
                     return copy.deepcopy(default)
 
         if (config['version'] == 2) and (cls.CURRENT_VERSION >= 4):
-            protocol_df['Acquire'] = "image"
+            protocol_df['Acquire'] = 'image'
             # Each row gets its own independent dict
             protocol_df['Video Config'] = [
-                copy.deepcopy(DEFAULT_VIDEO_CONFIG)
-                for _ in range(len(protocol_df))
+                copy.deepcopy(DEFAULT_VIDEO_CONFIG) for _ in range(len(protocol_df))
             ]
         else:
             # Parse per-row so one corrupt row doesn't wipe all configs.
@@ -1674,15 +1780,19 @@ class Protocol:
                 axis=1,
             )
 
-
-        if (config['version'] in (2,3,)) and (cls.CURRENT_VERSION >= 4):
+        if (
+            config['version']
+            in (
+                2,
+                3,
+            )
+        ) and (cls.CURRENT_VERSION >= 4):
             protocol_df['Sum'] = DEFAULT_SUM_CONFIG
 
-        if (config['version'] in (2,3,4)) and (cls.CURRENT_VERSION >= 5):
+        if (config['version'] in (2, 3, 4)) and (cls.CURRENT_VERSION >= 5):
             # Each row gets its own independent dict
             protocol_df['Stim_Config'] = [
-                copy.deepcopy(DEFAULT_STIM_CONFIG)
-                for _ in range(len(protocol_df))
+                copy.deepcopy(DEFAULT_STIM_CONFIG) for _ in range(len(protocol_df))
             ]
         else:
             # Parse per-row so one corrupt row doesn't wipe all configs
@@ -1695,12 +1805,9 @@ class Protocol:
             protocol_df['Step Index'] = protocol_df.index
 
             # Extract tiling config from step names
-            tc = TilingConfig(
-                tiling_configs_file_loc=tiling_configs_file_loc
-            )
-            
+            tc = TilingConfig(tiling_configs_file_loc=tiling_configs_file_loc)
+
             if len(protocol_df) > 0:
-                
                 config['tiling'] = tc.determine_tiling_label_from_names(
                     names=protocol_df['Name'].to_list()
                 )
@@ -1712,8 +1819,8 @@ class Protocol:
 
         if len(protocol_df) > MAX_STEP_COUNT:
             raise ValueError(
-                f"Protocol contains {len(protocol_df):,} steps, exceeding the maximum of "
-                f"{MAX_STEP_COUNT:,}. File may be corrupt."
+                f'Protocol contains {len(protocol_df):,} steps, exceeding the maximum of '
+                f'{MAX_STEP_COUNT:,}. File may be corrupt.'
             )
 
         # Reject protocols where multiple steps share the same
@@ -1724,25 +1831,24 @@ class Protocol:
         # Tile Group ID is included so legitimately-tiled protocols
         # are not rejected.
         if len(protocol_df) > 1:
-            key_cols = [c for c in ('Name', 'Well', 'Tile', 'Z-Slice',
-                                    'Tile Group ID')
-                        if c in protocol_df.columns]
+            key_cols = [
+                c
+                for c in ('Name', 'Well', 'Tile', 'Z-Slice', 'Tile Group ID')
+                if c in protocol_df.columns
+            ]
             if len(key_cols) >= 2:
                 dup_mask = protocol_df.duplicated(subset=key_cols, keep=False)
                 if dup_mask.any():
                     dups = protocol_df.loc[dup_mask, key_cols].copy()
                     dups['Row'] = dups.index + 1  # 1-based for user
                     sample = dups.head(6).to_string(index=False)
-                    extra = (
-                        f"\n  ... and {len(dups) - 6} more rows"
-                        if len(dups) > 6 else ""
-                    )
+                    extra = f'\n  ... and {len(dups) - 6} more rows' if len(dups) > 6 else ''
                     raise ValueError(
-                        f"Protocol has {len(dups)} steps with duplicate "
-                        f"({', '.join(key_cols)}) — image writes would "
-                        f"overwrite each other. Edit the protocol so each "
-                        f"step has a unique combination, then reload.\n"
-                        f"\nDuplicates:\n{sample}{extra}"
+                        f'Protocol has {len(dups)} steps with duplicate '
+                        f'({", ".join(key_cols)}) -- image writes would '
+                        f'overwrite each other. Edit the protocol so each '
+                        f'step has a unique combination, then reload.\n'
+                        f'\nDuplicates:\n{sample}{extra}'
                     )
 
         # Softer check (#636 follow-up): rows with the same
@@ -1754,52 +1860,51 @@ class Protocol:
         # them upfront so they can fix the Name field BEFORE running
         # the scan instead of discovering renamed files afterward.
         if len(protocol_df) > 1:
-            filename_key_cols = [c for c in ('Name', 'Well', 'Tile', 'Z-Slice')
-                                 if c in protocol_df.columns]
+            filename_key_cols = [
+                c for c in ('Name', 'Well', 'Tile', 'Z-Slice') if c in protocol_df.columns
+            ]
             if filename_key_cols:
-                filename_dup_mask = protocol_df.duplicated(
-                    subset=filename_key_cols, keep=False)
+                filename_dup_mask = protocol_df.duplicated(subset=filename_key_cols, keep=False)
                 if filename_dup_mask.any():
                     n_collisions = int(filename_dup_mask.sum())
-                    n_unique = protocol_df.loc[
-                        filename_dup_mask, filename_key_cols
-                    ].drop_duplicates().shape[0]
-                    warn_msg = (
-                        f"Protocol has {n_collisions} steps sharing "
-                        f"{n_unique} distinct filenames across different "
-                        f"Tile Group IDs. LumaViewPro will preserve all "
-                        f"images by appending a collision suffix (e.g. "
-                        f"_000001, _000002) but the filenames will not "
-                        f"match the default pattern. To avoid renaming, "
-                        f"include the Tile Group ID in your step Name field."
+                    n_unique = (
+                        protocol_df.loc[filename_dup_mask, filename_key_cols]
+                        .drop_duplicates()
+                        .shape[0]
                     )
-                    logger.warning(f"Protocol load: {warn_msg}")
+                    warn_msg = (
+                        f'Protocol has {n_collisions} steps sharing '
+                        f'{n_unique} distinct filenames across different '
+                        f'Tile Group IDs. LumaViewPro will preserve all '
+                        f'images by appending a collision suffix (e.g. '
+                        f'_000001, _000002) but the filenames will not '
+                        f'match the default pattern. To avoid renaming, '
+                        f'include the Tile Group ID in your step Name field.'
+                    )
+                    logger.warning(f'Protocol load: {warn_msg}')
                     notifications.warning(
-                        category="Protocol",
-                        title="Duplicate filenames in protocol",
+                        category='Protocol',
+                        title='Duplicate filenames in protocol',
                         message=warn_msg,
                     )
 
-        return cls(
-            tiling_configs_file_loc=tiling_configs_file_loc,
-            config=config
-        )
-    
+        return cls(tiling_configs_file_loc=tiling_configs_file_loc, config=config)
 
     def mark_zstack_starts_and_ends(self) -> None:
         df = self.steps().copy()
         df['Z-Stack Group Index'] = df.groupby(by=['Z-Stack Group ID']).cumcount()
-        df['First Z'] = df['Z-Stack Group Index'].apply(lambda x: True if x==0 else False)
-        df['Last Z'] = df.groupby(by=['Z-Stack Group ID'])['Z-Stack Group Index'].transform('max') == df['Z-Stack Group Index']
+        df['First Z'] = df['Z-Stack Group Index'].apply(lambda x: True if x == 0 else False)
+        df['Last Z'] = (
+            df.groupby(by=['Z-Stack Group ID'])['Z-Stack Group Index'].transform('max')
+            == df['Z-Stack Group Index']
+        )
         df = df.drop(columns=['Z-Stack Group Index'])
         self._set_steps(df)
 
-
     def remove_zstack_starts_and_ends(self) -> None:
         df = self.steps()
-        df = df.drop(columns=['First Z','Last Z'])
+        df = df.drop(columns=['First Z', 'Last Z'])
         self._set_steps(df)
-
 
     def has_zstacks(self) -> bool:
         max_group_id = self.steps()['Z-Stack Group ID'].max()
@@ -1813,12 +1918,12 @@ class Protocol:
         result = cls.STEP_NAME_PATTERN.match(string=s['name'])
         if result is None:
             return s
-        
+
         details = result.groupdict()
 
         if 'well_label' in details:
             s['well'] = details['well_label']
-        
+
         if ('z_slice' in details) and (details['z_slice'] is not None):
             s['z_slice'] = details['z_slice']
         else:
@@ -1830,6 +1935,5 @@ class Protocol:
         return s
 
 
-if __name__ == "__main__":
-    protocol = Protocol.from_file(file_path=pathlib.Path("modules/protocol_test6.tsv"))
-
+if __name__ == '__main__':
+    protocol = Protocol.from_file(file_path=pathlib.Path('modules/protocol_test6.tsv'))

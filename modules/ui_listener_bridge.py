@@ -92,15 +92,12 @@ class UIListenerBridge:
         """
         ctx = self._ctx
         if axis in ('X', 'Y'):
-            self._ui_dispatch(
-                lambda dt: ctx.motion_settings.update_xy_stage_control_gui(),
-                0)
+            self._ui_dispatch(lambda dt: ctx.motion_settings.update_xy_stage_control_gui(), 0)
             self._ui_dispatch(lambda dt: self._stage.draw_labware(), 0)
         elif axis == 'Z':
             z_ctrl = ctx.motion_settings.ids.get('verticalcontrol_id')
             if z_ctrl:
-                self._ui_dispatch(
-                    lambda dt: z_ctrl._update_z_text(target), 0)
+                self._ui_dispatch(lambda dt: z_ctrl._update_z_text(target), 0)
 
     def _on_led_state_changed(self, color, enabled, mA, owner):
         """LED listener -- coalesces rapid stim pulses to one UI update per color per Kivy frame.
@@ -118,6 +115,7 @@ class UIListenerBridge:
         # bridge construction time).
         if self._LayerControl is None:
             from ui.layer_control import LayerControl
+
             self._LayerControl = LayerControl
         LayerControl = self._LayerControl
 
@@ -211,5 +209,4 @@ class UIListenerBridge:
         self._scope.motion.add_position_listener(self._on_position_change)
         self._scope.illumination.add_led_listener(self._on_led_state_changed)
         self._scope.imaging.add_camera_listener(self._on_camera_setting_changed)
-        logger.info(
-            '[UIListenerBridge] registered position + LED + camera listeners')
+        logger.info('[UIListenerBridge] registered position + LED + camera listeners')

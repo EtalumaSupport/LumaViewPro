@@ -27,9 +27,14 @@ import modules.labware as labware
 # Image saving
 # ---------------------------------------------------------------------------
 
+
 def is_image_saving_enabled() -> bool:
     if _app_ctx.ctx.engineering_mode:
-        if _app_ctx.ctx.motion_settings.ids['protocol_settings_id'].ids['protocol_disable_image_saving_id'].active:
+        if (
+            _app_ctx.ctx.motion_settings.ids['protocol_settings_id']
+            .ids['protocol_disable_image_saving_id']
+            .active
+        ):
             return False
 
     return True
@@ -39,15 +44,18 @@ def is_image_saving_enabled() -> bool:
 # Binning / Z-stack
 # ---------------------------------------------------------------------------
 
+
 def get_binning_from_ui() -> int:
     try:
-        text = _app_ctx.ctx.motion_settings.ids['microscope_settings_id'].ids['binning_spinner'].text
+        text = (
+            _app_ctx.ctx.motion_settings.ids['microscope_settings_id'].ids['binning_spinner'].text
+        )
         # Spinner text may be formatted as "1x1", "2x2", etc. — extract the first number.
         if 'x' in text:
             text = text.split('x')[0]
         return int(text)
     except Exception:
-        logger.warning("Failed to read binning from UI, defaulting to 1", exc_info=True)
+        logger.warning('Failed to read binning from UI, defaulting to 1', exc_info=True)
         return 1
 
 
@@ -76,7 +84,7 @@ def get_zstack_positions() -> tuple[bool, dict]:
         range=config['range'],
         step_size=config['step_size'],
         current_z_reference=config['z_reference'],
-        current_z_value=current_pos
+        current_z_value=current_pos,
     )
 
     if zstack_config.number_of_steps() <= 0:
@@ -88,6 +96,7 @@ def get_zstack_positions() -> tuple[bool, dict]:
 # ---------------------------------------------------------------------------
 # Layer / channel configuration
 # ---------------------------------------------------------------------------
+
 
 def get_layer_configs(
     specific_layers: list | None = None,
@@ -104,16 +113,16 @@ def get_active_layer_config() -> tuple[str, dict]:
             break
 
     if c_layer is None:
-        raise Exception("No layer currently selected")
+        raise Exception('No layer currently selected')
 
-    layer_configs = get_layer_configs(
-        specific_layers=[c_layer]
-    )
+    layer_configs = get_layer_configs(specific_layers=[c_layer])
 
     return c_layer, layer_configs[c_layer]
 
+
 def get_stim_configs() -> dict:
     return config_helpers.get_stim_configs(_app_ctx.ctx.settings)
+
 
 def get_enabled_stim_configs() -> dict:
     return config_helpers.get_enabled_stim_configs(_app_ctx.ctx.settings)
@@ -122,6 +131,7 @@ def get_enabled_stim_configs() -> dict:
 # ---------------------------------------------------------------------------
 # Position / labware
 # ---------------------------------------------------------------------------
+
 
 def get_current_plate_position():
     ctx = _app_ctx.ctx
@@ -139,12 +149,9 @@ def get_current_frame_dimensions() -> dict:
         frame_width = int(microscope_settings.ids['frame_width_id'].text)
         frame_height = int(microscope_settings.ids['frame_height_id'].text)
     except Exception:
-        raise ValueError(f"Invalid value for frame width/height")
+        raise ValueError(f'Invalid value for frame width/height')
 
-    frame = {
-        'width': frame_width,
-        'height': frame_height
-    }
+    frame = {'width': frame_width, 'height': frame_height}
     return frame
 
 
@@ -166,7 +173,7 @@ def get_selected_labware() -> tuple[str | None, labware.WellPlate | None]:
         if not labware_id:
             labware_id = _app_ctx.ctx.settings.get('protocol', {}).get('labware', '')
     except Exception:
-        logger.exception("LVP Main: Failed to read labware id from UI/settings")
+        logger.exception('LVP Main: Failed to read labware id from UI/settings')
         return None, None
 
     return config_helpers.get_selected_labware_from_settings(
@@ -179,6 +186,7 @@ def get_selected_labware() -> tuple[str | None, labware.WellPlate | None]:
 # Image capture / sequenced capture
 # ---------------------------------------------------------------------------
 
+
 def get_image_capture_config_from_ui() -> dict:
     microscope_settings = _app_ctx.ctx.motion_settings.ids['microscope_settings_id']
     output_format = {
@@ -190,6 +198,7 @@ def get_image_capture_config_from_ui() -> dict:
         'output_format': output_format,
         'use_full_pixel_depth': use_full_pixel_depth,
     }
+
 
 def get_sequenced_capture_config_from_ui() -> dict:
     objective_id, _ = get_current_objective_info()
@@ -224,12 +233,15 @@ def get_sequenced_capture_config_from_ui() -> dict:
 # Auto gain / objective / protocol time
 # ---------------------------------------------------------------------------
 
+
 def get_auto_gain_settings() -> dict:
     return config_helpers.get_auto_gain_settings(_app_ctx.ctx.settings)
 
 
 def get_current_objective_info() -> tuple[str, dict]:
-    return config_helpers.get_current_objective_info(_app_ctx.ctx.settings, _app_ctx.ctx.objective_helper)
+    return config_helpers.get_current_objective_info(
+        _app_ctx.ctx.settings, _app_ctx.ctx.objective_helper
+    )
 
 
 def get_protocol_time_params() -> dict:
@@ -237,27 +249,25 @@ def get_protocol_time_params() -> dict:
     try:
         period = float(protocol_settings.ids['capture_period'].text)
     except Exception:
-        logger.warning("Failed to read capture period from UI, defaulting to 1", exc_info=True)
+        logger.warning('Failed to read capture period from UI, defaulting to 1', exc_info=True)
         period = 1
 
     period = datetime.timedelta(minutes=period)
     try:
         duration = float(protocol_settings.ids['capture_dur'].text)
     except Exception:
-        logger.warning("Failed to read capture duration from UI, defaulting to 1", exc_info=True)
+        logger.warning('Failed to read capture duration from UI, defaulting to 1', exc_info=True)
         duration = 1
 
     duration = datetime.timedelta(hours=duration)
 
-    return {
-        'period': period,
-        'duration': duration
-    }
+    return {'period': period, 'duration': duration}
 
 
 # ---------------------------------------------------------------------------
 # Hyperstack creation
 # ---------------------------------------------------------------------------
+
 
 def create_hyperstacks_if_needed():
     ctx = _app_ctx.ctx
@@ -265,14 +275,18 @@ def create_hyperstacks_if_needed():
     if image_capture_config['output_format']['sequenced'] == 'ImageJ Hyperstack':
         import threading
         from modules.notification_center import notifications
-        notifications.info("FileIO", "Saving Hyperstacks",
-            "Building ImageJ Hyperstacks from captured data.\n"
-            "This may take several minutes for large datasets.")
 
-        logger.info("Building ImageJ Hyperstacks from captured data")
+        notifications.info(
+            'FileIO',
+            'Saving Hyperstacks',
+            'Building ImageJ Hyperstacks from captured data.\n'
+            'This may take several minutes for large datasets.',
+        )
+
+        logger.info('Building ImageJ Hyperstacks from captured data')
         _, objective = get_current_objective_info()
         run_dir = ctx.sequenced_capture_runner.run_dir()
-        tiling_loc = pathlib.Path(ctx.source_path) / "data" / "tiling.json"
+        tiling_loc = pathlib.Path(ctx.source_path) / 'data' / 'tiling.json'
         binning = get_binning_from_ui()
         has_turret = ctx.scope.motion.has_turret()
         focal_length = objective['focal_length']
@@ -286,14 +300,17 @@ def create_hyperstacks_if_needed():
                     binning_size=binning,
                     focal_length=focal_length,
                 )
-                logger.info("Hyperstack creation complete")
+                logger.info('Hyperstack creation complete')
             except Exception as ex:
-                logger.exception("Error building hyperstacks")
+                logger.exception('Error building hyperstacks')
                 # Background thread: the user already saw the "Saving
                 # Hyperstacks" info popup; without this they never see
                 # a result.
-                notifications.error("Post-processing", "Hyperstack build failed",
-                    f"Could not create hyperstacks: {type(ex).__name__}: {ex}. "
-                    f"See logs for details; source files are untouched.")
+                notifications.error(
+                    'Post-processing',
+                    'Hyperstack build failed',
+                    f'Could not create hyperstacks: {type(ex).__name__}: {ex}. '
+                    f'See logs for details; source files are untouched.',
+                )
 
         threading.Thread(target=_build, daemon=True).start()

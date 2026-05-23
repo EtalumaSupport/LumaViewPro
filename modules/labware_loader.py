@@ -28,7 +28,7 @@ def _validate_labware(labware: dict, filepath: str) -> None:
     validated beyond type.
     """
     if not isinstance(labware, dict):
-        raise ValueError(f"labware.json at {filepath}: expected dict, got {type(labware).__name__}")
+        raise ValueError(f'labware.json at {filepath}: expected dict, got {type(labware).__name__}')
     for category, items in labware.items():
         if not isinstance(items, dict):
             logger.warning(f"[Labware   ] category '{category}' should be dict in {filepath}")
@@ -42,11 +42,13 @@ def _validate_labware(labware: dict, filepath: str) -> None:
                 continue
             for field, expected_type in _REQUIRED_WELLPLATE_FIELDS.items():
                 if field not in entry:
-                    logger.warning(f"[Labware   ] '{category}/{name}' missing '{field}' in {filepath}")
+                    logger.warning(
+                        f"[Labware   ] '{category}/{name}' missing '{field}' in {filepath}"
+                    )
                 elif not isinstance(entry[field], expected_type):
                     logger.warning(
                         f"[Labware   ] '{category}/{name}'.'{field}' should be "
-                        f"{expected_type.__name__}, got {type(entry[field]).__name__} in {filepath}"
+                        f'{expected_type.__name__}, got {type(entry[field]).__name__} in {filepath}'
                     )
             # Check nested dimension/spacing/offset dicts
             for subfield in ('dimensions', 'spacing', 'offset'):
@@ -69,25 +71,24 @@ class LabwareLoader(object):
         self.z = 1
 
         # Load all Possible Labware from JSON
-        filepath = resolve_data_file("labware.json", source_path=source_path)
+        filepath = resolve_data_file('labware.json', source_path=source_path)
         try:
-            with open(filepath, "r") as read_file:
+            with open(filepath, 'r') as read_file:
                 self.labware = json.load(read_file)
         except FileNotFoundError:
             logger.error(f'[Labware   ] labware.json not found at {filepath}')
             raise RuntimeError(
-                f"Required file labware.json not found at {filepath}. "
-                "Please reinstall or restore from backup."
+                f'Required file labware.json not found at {filepath}. '
+                'Please reinstall or restore from backup.'
             )
         except json.JSONDecodeError as e:
             logger.error(f'[Labware   ] labware.json is corrupt: {e}')
             raise RuntimeError(
-                f"labware.json is corrupt ({e}). "
-                "Please restore from backup or reinstall."
+                f'labware.json is corrupt ({e}). Please restore from backup or reinstall.'
             )
 
         _validate_labware(self.labware, filepath)
-        
+
 
 class SlideLoader(LabwareLoader):
     """A class that stores and computes actions for slides labware"""
@@ -103,16 +104,14 @@ class WellPlateLoader(LabwareLoader):
     # Compatibility aliases for labware names that were renamed.
     # Protocols saved with the old name still load correctly.
     _LABWARE_ALIASES = {
-        "384 well Corning Spheroid Microplate": "384 well microplate",
+        '384 well Corning Spheroid Microplate': '384 well microplate',
     }
 
     def __init__(self, *arg, source_path: str | pathlib.Path | None = None):
         super(WellPlateLoader, self).__init__(*arg, source_path=source_path)
 
-
     def get_plate_list(self):
         return list(self.labware['Wellplate'].keys())
-
 
     def is_known_plate(self, plate_key) -> bool:
         """Return True if plate_key resolves to a known plate (directly or via alias).
@@ -123,7 +122,6 @@ class WellPlateLoader(LabwareLoader):
         """
         resolved_key = self._LABWARE_ALIASES.get(plate_key, plate_key)
         return resolved_key in self.labware['Wellplate']
-
 
     def get_plate(self, plate_key):
         # Apply alias mapping for backwards compatibility

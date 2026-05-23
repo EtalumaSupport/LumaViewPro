@@ -31,13 +31,12 @@ _serial_log = logging.getLogger('LVP.serial')
 
 @motor_registry.register('sim', priority=100, is_simulator=True)
 class SimulatedMotorBoard:
-
     # Axis speeds in usteps/sec (realistic values for Etaluma hardware)
     AXIS_SPEEDS = {
-        'X': 20157 * 50,   # ~50 mm/s
-        'Y': 20157 * 50,   # ~50 mm/s
-        'Z': 170666 * 5,   # ~5 mm/s
-        'T': 80000,         # ~90 deg/s
+        'X': 20157 * 50,  # ~50 mm/s
+        'Y': 20157 * 50,  # ~50 mm/s
+        'Z': 170666 * 5,  # ~5 mm/s
+        'T': 80000,  # ~90 deg/s
     }
 
     # Homing durations in seconds (realistic)
@@ -55,36 +54,42 @@ class SimulatedMotorBoard:
         'fast_move_duration': 0.0,
     }
     TIMING_FAST = {
-        'cmd_delay': 0.001,               # 1ms minimum — nothing returns instantly
+        'cmd_delay': 0.001,  # 1ms minimum — nothing returns instantly
         'move_delay': 0.0,
-        'simulate_move_duration': True,   # Simulates brief move duration
-        'fast_move_duration': 0.003,      # 3ms per move in fast mode
+        'simulate_move_duration': True,  # Simulates brief move duration
+        'fast_move_duration': 0.003,  # 3ms per move in fast mode
     }
     TIMING_REALISTIC = {
-        'cmd_delay': 0.003,       # ~3ms serial round-trip
-        'move_delay': 0.0,        # homing uses HOMING_DURATIONS instead
+        'cmd_delay': 0.003,  # ~3ms serial round-trip
+        'move_delay': 0.0,  # homing uses HOMING_DURATIONS instead
         'simulate_move_duration': True,
-        'fast_move_duration': 0.0,        # Use ramp-calculated duration
+        'fast_move_duration': 0.0,  # Use ramp-calculated duration
     }
 
-    def __init__(self, model: str = 'LS850', serial_number: str = 'SIM-001',
-                 move_delay: float = 0.0, cmd_delay: float = 0.0,
-                 timing: str = 'fast', firmware_version: str = '2.0.1',
-                 protocol_version: str = 'legacy',  # v3.0 STUB: 'legacy' or 'v3'
-                 motorconfig_defaults_file: pathlib.Path | None = None,
-                 fail_after: int | None = None,
-                 fail_on: set | None = None,
-                 **kwargs):
+    def __init__(
+        self,
+        model: str = 'LS850',
+        serial_number: str = 'SIM-001',
+        move_delay: float = 0.0,
+        cmd_delay: float = 0.0,
+        timing: str = 'fast',
+        firmware_version: str = '2.0.1',
+        protocol_version: str = 'legacy',  # v3.0 STUB: 'legacy' or 'v3'
+        motorconfig_defaults_file: pathlib.Path | None = None,
+        fail_after: int | None = None,
+        fail_on: set | None = None,
+        **kwargs,
+    ):
         logger.info('[XYZ Sim   ] SimulatedMotorBoard.__init__()')
 
         # Failure injection
-        self._fail_after = fail_after          # disconnect after N commands
-        self._fail_on = fail_on or set()       # return None for these commands
+        self._fail_after = fail_after  # disconnect after N commands
+        self._fail_on = fail_on or set()  # return None for these commands
         self._cmd_count = 0
 
         # Load hardware config (same defaults as real MotorBoard)
         if motorconfig_defaults_file is None:
-            motorconfig_defaults_file = pathlib.Path("data/motorconfig_defaults.json")
+            motorconfig_defaults_file = pathlib.Path('data/motorconfig_defaults.json')
         self.motorconfig = MotorConfig(defaults_file=motorconfig_defaults_file)
 
         self.found = True
@@ -122,20 +127,18 @@ class SimulatedMotorBoard:
 
         self.axes_config = {
             'Z': {
-                'limits': {'min': 0., 'max': self.motorconfig.travel_limit_um('Z')},
-                'move_func': self.z_um2ustep
+                'limits': {'min': 0.0, 'max': self.motorconfig.travel_limit_um('Z')},
+                'move_func': self.z_um2ustep,
             },
             'X': {
-                'limits': {'min': 0., 'max': self.motorconfig.travel_limit_um('X')},
-                'move_func': self.xy_um2ustep
+                'limits': {'min': 0.0, 'max': self.motorconfig.travel_limit_um('X')},
+                'move_func': self.xy_um2ustep,
             },
             'Y': {
-                'limits': {'min': 0., 'max': self.motorconfig.travel_limit_um('Y')},
-                'move_func': self.xy_um2ustep
+                'limits': {'min': 0.0, 'max': self.motorconfig.travel_limit_um('Y')},
+                'move_func': self.xy_um2ustep,
             },
-            'T': {
-                'move_func': self.t_pos2ustep
-            }
+            'T': {'move_func': self.t_pos2ustep},
         }
 
     def set_timing_mode(self, mode: str) -> None:
@@ -157,7 +160,9 @@ class SimulatedMotorBoard:
             'realistic': self.TIMING_REALISTIC,
         }
         if mode not in presets:
-            raise ValueError(f"Unknown timing mode: {mode!r}. Use 'instant', 'fast', or 'realistic'.")
+            raise ValueError(
+                f"Unknown timing mode: {mode!r}. Use 'instant', 'fast', or 'realistic'."
+            )
         preset = presets[mode]
         self._cmd_delay = preset['cmd_delay']
         self._move_delay = preset['move_delay']
@@ -263,7 +268,9 @@ class SimulatedMotorBoard:
             # Failure injection: disconnect after N commands
             self._cmd_count += 1
             if self._fail_after is not None and self._cmd_count > self._fail_after:
-                logger.warning(f'[XYZ Sim   ] INJECTED FAILURE: disconnect after {self._fail_after} commands')
+                logger.warning(
+                    f'[XYZ Sim   ] INJECTED FAILURE: disconnect after {self._fail_after} commands'
+                )
                 self.driver = None
                 self.found = False
                 _serial_log.warning(
@@ -311,12 +318,12 @@ class SimulatedMotorBoard:
         cmd = command.strip()
 
         if cmd == 'INFO':
-            return f"Etaluma Motor Controller {self._fullinfo['model']} Firmware: SIMULATED"
+            return f'Etaluma Motor Controller {self._fullinfo["model"]} Firmware: SIMULATED'
 
         if cmd == 'FULLINFO':
             model = self._fullinfo['model']
             sn = self._fullinfo['serial_number']
-            return f"Model: {model} Serial: {sn} Firmware: SIMULATED"
+            return f'Model: {model} Serial: {sn} Firmware: SIMULATED'
 
         if cmd == 'HOME':
             self._do_home('X', 'Y', 'Z')
@@ -404,17 +411,21 @@ class SimulatedMotorBoard:
         if cmd == 'FANSPEED':
             return 'FANSPEED 1500 RPM'
         if cmd == 'MOTORDETECT':
-            return ('X: detected=True configured=True\n'
-                    'Y: detected=True configured=True\n'
-                    'Z: detected=True configured=True\n'
-                    'T: detected=True configured=True')
+            return (
+                'X: detected=True configured=True\n'
+                'Y: detected=True configured=True\n'
+                'Z: detected=True configured=True\n'
+                'T: detected=True configured=True'
+            )
         if cmd == 'CURRENT':
-            return ('X: CS_ACTUAL=0 IRUN=10 IHOLD=3 SG_RESULT=0\n'
-                    'Y: CS_ACTUAL=0 IRUN=10 IHOLD=3 SG_RESULT=0\n'
-                    'Z: CS_ACTUAL=0 IRUN=17 IHOLD=4 SG_RESULT=0\n'
-                    'T: CS_ACTUAL=0 IRUN=5  IHOLD=7 SG_RESULT=0')
+            return (
+                'X: CS_ACTUAL=0 IRUN=10 IHOLD=3 SG_RESULT=0\n'
+                'Y: CS_ACTUAL=0 IRUN=10 IHOLD=3 SG_RESULT=0\n'
+                'Z: CS_ACTUAL=0 IRUN=17 IHOLD=4 SG_RESULT=0\n'
+                'T: CS_ACTUAL=0 IRUN=5  IHOLD=7 SG_RESULT=0'
+            )
         if cmd.startswith('DRVSTAT_'):
-            axis = cmd[len('DRVSTAT_'):]
+            axis = cmd[len('DRVSTAT_') :]
             return f'{axis}: DRV_STATUS=0x80000000 (standstill)'
 
         # Fan speed setter — `FAN:<value>` (real firmware accepts a duty
@@ -495,6 +506,7 @@ class SimulatedMotorBoard:
         if distance_usteps <= (s_accel + s_decel):
             # Triangular profile
             import math
+
             t_peak = math.sqrt(2.0 * distance_usteps / (amax + amax * amax / dmax))
             v_peak = amax * t_peak
             return t_peak + v_peak / dmax
@@ -520,7 +532,7 @@ class SimulatedMotorBoard:
         status = 0
         # Bit 0: home reference (status_stop_left)
         if self._homed.get(axis, False) and self._actual.get(axis, 0) == 0:
-            status |= (1 << 0)
+            status |= 1 << 0
         # Bit 9: position_reached — only True when move duration has elapsed
         # AND actual == target. In fast mode, actual is set instantly but
         # target_status waits for the brief delay before reporting reached.
@@ -528,7 +540,7 @@ class SimulatedMotorBoard:
         at_target = self._actual.get(axis, 0) == self._target.get(axis, 0)
         time_elapsed = time.monotonic() >= end_time
         if at_target and time_elapsed:
-            status |= (1 << 9)
+            status |= 1 << 9
         return status
 
     # ------------------------------------------------------------------
@@ -546,11 +558,11 @@ class SimulatedMotorBoard:
         """
         info = self.exchange_command('FULLINFO')
         info_parts = info.split()
-        model = info_parts[info_parts.index("Model:") + 1]
+        model = info_parts[info_parts.index('Model:') + 1]
         if model.endswith('T'):
             self._has_turret = True
-        serial_number = info_parts[info_parts.index("Serial:") + 1]
-        return {"model": model, "serial_number": serial_number}
+        serial_number = info_parts[info_parts.index('Serial:') + 1]
+        return {'model': model, 'serial_number': serial_number}
 
     def get_microscope_model(self) -> str:
         """Return the configured microscope model string.
@@ -802,7 +814,9 @@ class SimulatedMotorBoard:
             return self.t_ustep2pos(position)
         return 0
 
-    def move_abs_pos(self, axis: str, pos: float, overshoot_enabled: bool = True, ignore_limits: bool = False) -> None:
+    def move_abs_pos(
+        self, axis: str, pos: float, overshoot_enabled: bool = True, ignore_limits: bool = False
+    ) -> None:
         """Move an axis to an absolute position in user units.
 
         Mirrors the production ``MotorBoard.move_abs_pos`` contract,
@@ -821,7 +835,7 @@ class SimulatedMotorBoard:
             Exception: ``axis`` is not in ``axes_config``.
         """
         if axis not in self.axes_config:
-            raise Exception(f"Unsupported axis ({axis})")
+            raise Exception(f'Unsupported axis ({axis})')
 
         axis_config = self.axes_config[axis]
         if 'limits' in axis_config and not ignore_limits:
@@ -1062,7 +1076,7 @@ class SimulatedMotorBoard:
         Returns:
             str: ``'Etaluma Motor Controller <model> Firmware: SIMULATED'``.
         """
-        return f"Etaluma Motor Controller {self._fullinfo['model']} Firmware: SIMULATED"
+        return f'Etaluma Motor Controller {self._fullinfo["model"]} Firmware: SIMULATED'
 
     def get_axes_config(self) -> dict:
         """Return the per-axis config (limits + unit-conversion func).
@@ -1086,7 +1100,7 @@ class SimulatedMotorBoard:
             Exception: ``axis`` is not a supported axis at all.
         """
         if axis not in self.axes_config:
-            raise Exception(f"Unsupported axis ({axis})")
+            raise Exception(f'Unsupported axis ({axis})')
         if 'limits' not in self.axes_config[axis]:
             return None
         return self.axes_config[axis]['limits']
@@ -1156,8 +1170,16 @@ class SimulatedMotorBoard:
             list: One dict per axis with ``raw``, ``SG``, ``CS`` keys.
         """
         axes = [axis] if axis else ['X', 'Y', 'Z', 'T']
-        return [{'axis': a, 'raw': '0x00000000', 'SG': 0, 'CS': 0,
-                 'raw_line': f'{a}: raw=0x00000000 SG=0 CS=0'} for a in axes]
+        return [
+            {
+                'axis': a,
+                'raw': '0x00000000',
+                'SG': 0,
+                'CS': 0,
+                'raw_line': f'{a}: raw=0x00000000 SG=0 CS=0',
+            }
+            for a in axes
+        ]
 
     def get_motordetect(self) -> list:
         """Simulated MOTORDETECT.
@@ -1165,9 +1187,15 @@ class SimulatedMotorBoard:
         Returns:
             list: One dict per axis reporting detected + configured True.
         """
-        return [{'axis': a, 'detected': True, 'configured': True,
-                 'raw_line': f'{a}: detected=True configured=True'}
-                for a in ['X', 'Y', 'Z', 'T']]
+        return [
+            {
+                'axis': a,
+                'detected': True,
+                'configured': True,
+                'raw_line': f'{a}: detected=True configured=True',
+            }
+            for a in ['X', 'Y', 'Z', 'T']
+        ]
 
     def get_current(self) -> list:
         """Simulated CURRENT.
@@ -1176,9 +1204,17 @@ class SimulatedMotorBoard:
             list: One dict per axis with ``CS_ACTUAL``, ``IRUN``,
                 ``IHOLD``, ``SG_RESULT`` keys.
         """
-        return [{'axis': a, 'CS_ACTUAL': 0, 'IRUN': 10, 'IHOLD': 3, 'SG_RESULT': 0,
-                 'raw_line': f'{a}: CS_ACTUAL=0 IRUN=10 IHOLD=3 SG_RESULT=0'}
-                for a in ['X', 'Y', 'Z', 'T']]
+        return [
+            {
+                'axis': a,
+                'CS_ACTUAL': 0,
+                'IRUN': 10,
+                'IHOLD': 3,
+                'SG_RESULT': 0,
+                'raw_line': f'{a}: CS_ACTUAL=0 IRUN=10 IHOLD=3 SG_RESULT=0',
+            }
+            for a in ['X', 'Y', 'Z', 'T']
+        ]
 
     def get_voltage(self) -> dict:
         """Simulated VOLTAGE.
@@ -1196,7 +1232,7 @@ class SimulatedMotorBoard:
         """Simulated TMC5072 DRV_STATUS register -- returns 0 (no fault flags)."""
         axis = axis.upper()
         if axis not in ('X', 'Y', 'Z', 'T'):
-            raise ValueError(f"Invalid axis: {axis!r}")
+            raise ValueError(f'Invalid axis: {axis!r}')
         return 0
 
     def read_fanspeed(self) -> int | None:
@@ -1206,7 +1242,7 @@ class SimulatedMotorBoard:
     def set_fan_duty(self, duty_pct: int) -> bool:
         """Simulated fan PWM duty -- accepts any valid 0..100 setting."""
         if not 0 <= duty_pct <= 100:
-            raise ValueError(f"Fan duty must be 0..100, got {duty_pct}")
+            raise ValueError(f'Fan duty must be 0..100, got {duty_pct}')
         return True
 
     def wait_for_position(self, axis: str, timeout: float = 5.0) -> bool:

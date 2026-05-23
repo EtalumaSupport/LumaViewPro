@@ -17,32 +17,33 @@ from modules.objectives_loader import ObjectiveLoader
 # ---------------------------------------------------------------------------
 # Stage timing constants (from motor controller / simulator)
 # ---------------------------------------------------------------------------
-XY_SPEED_UM_PER_S = 50_000.0       # ~50 mm/s
-Z_SPEED_UM_PER_S = 5_000.0         # ~5 mm/s
-Z_BACKLASH_UM = 25.0               # overshoot distance for downward Z moves
-SERIAL_CMD_OVERHEAD_S = 0.003       # ~3ms per serial round-trip
+XY_SPEED_UM_PER_S = 50_000.0  # ~50 mm/s
+Z_SPEED_UM_PER_S = 5_000.0  # ~5 mm/s
+Z_BACKLASH_UM = 25.0  # overshoot distance for downward Z moves
+SERIAL_CMD_OVERHEAD_S = 0.003  # ~3ms per serial round-trip
 
 # ---------------------------------------------------------------------------
 # LED / camera constants
 # ---------------------------------------------------------------------------
-LED_SETTLE_S = 0.005                # 5ms LED settle after led_on
-LED_SERIAL_S = 0.003                # ~3ms serial round-trip for LED command
-FRAME_DRAIN_COUNT = 2               # stale frames drained after parameter change
-MIN_FRAME_TIME_S = 0.05             # minimum frame time (50ms)
-AUTOGAIN_MAX_DURATION_S = 1.0       # default autogain max wait
-VIDEO_MAX_FPS = 40                  # capture loop cap
+LED_SETTLE_S = 0.005  # 5ms LED settle after led_on
+LED_SERIAL_S = 0.003  # ~3ms serial round-trip for LED command
+FRAME_DRAIN_COUNT = 2  # stale frames drained after parameter change
+MIN_FRAME_TIME_S = 0.05  # minimum frame time (50ms)
+AUTOGAIN_MAX_DURATION_S = 1.0  # default autogain max wait
+VIDEO_MAX_FPS = 40  # capture loop cap
 
 # ---------------------------------------------------------------------------
 # Overhead
 # ---------------------------------------------------------------------------
-STEP_OVERHEAD_S = 0.020             # misc serial commands, polling, loop sleeps
-AF_STEP_OVERHEAD_S = 0.015          # per-AF-step overhead (polling, sleep)
+STEP_OVERHEAD_S = 0.020  # misc serial commands, polling, loop sleeps
+AF_STEP_OVERHEAD_S = 0.015  # per-AF-step overhead (polling, sleep)
 AF_GREASE_REDISTRIBUTION_INTERVAL = 100  # every 100 AFs, full Z cycle
 
 
 @dataclass
 class StepTimeEstimate:
     """Timing breakdown for a single protocol step."""
+
     step_index: int
     step_name: str
     move_time_s: float = 0.0
@@ -54,13 +55,20 @@ class StepTimeEstimate:
 
     @property
     def total_s(self) -> float:
-        return (self.move_time_s + self.led_time_s + self.autofocus_time_s
-                + self.autogain_time_s + self.capture_time_s + self.overhead_s)
+        return (
+            self.move_time_s
+            + self.led_time_s
+            + self.autofocus_time_s
+            + self.autogain_time_s
+            + self.capture_time_s
+            + self.overhead_s
+        )
 
 
 @dataclass
 class ScanTimeEstimate:
     """Timing breakdown for one complete scan (all steps)."""
+
     step_estimates: list[StepTimeEstimate] = field(default_factory=list)
 
     @property
@@ -77,13 +85,15 @@ class ScanTimeEstimate:
 
     @property
     def num_video_steps(self) -> int:
-        return sum(1 for s in self.step_estimates
-                   if s.capture_time_s > 0 and s.step_name)  # approximation
+        return sum(
+            1 for s in self.step_estimates if s.capture_time_s > 0 and s.step_name
+        )  # approximation
 
 
 @dataclass
 class ProtocolTimeEstimate:
     """Full protocol timing estimate."""
+
     scan_estimate: ScanTimeEstimate
     num_scans: int
     period_s: float
@@ -101,20 +111,20 @@ class ProtocolTimeEstimate:
         total_td = self.estimated_completion
         period_td = timedelta(seconds=self.period_s)
         lines = [
-            f"Steps per scan: {self.scan_estimate.num_steps}",
-            f"Scan time: {scan_td}",
-            f"Period: {period_td}",
-            f"Number of scans: {self.num_scans}",
-            f"Estimated total: {total_td}",
+            f'Steps per scan: {self.scan_estimate.num_steps}',
+            f'Scan time: {scan_td}',
+            f'Period: {period_td}',
+            f'Number of scans: {self.num_scans}',
+            f'Estimated total: {total_td}',
         ]
         if not self.scan_fits_in_period:
             lines.append(
-                f"WARNING: Scan exceeds period by "
-                f"{timedelta(seconds=self.scan_overrun_s)}")
+                f'WARNING: Scan exceeds period by {timedelta(seconds=self.scan_overrun_s)}'
+            )
         af_count = self.scan_estimate.num_autofocus_steps
         if af_count > 0:
-            lines.append(f"Autofocus steps: {af_count}")
-        return "\n".join(lines)
+            lines.append(f'Autofocus steps: {af_count}')
+        return '\n'.join(lines)
 
 
 class ProtocolTimeEstimator:
@@ -125,7 +135,9 @@ class ProtocolTimeEstimator:
             try:
                 objectives_loader = ObjectiveLoader()
             except Exception as e:
-                logger.debug(f"[TimeEstimator] Could not load objectives (estimates may be less accurate): {e}")
+                logger.debug(
+                    f'[TimeEstimator] Could not load objectives (estimates may be less accurate): {e}'
+                )
                 objectives_loader = None
         self._objectives = objectives_loader
 

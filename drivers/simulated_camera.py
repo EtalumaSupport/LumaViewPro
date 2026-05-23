@@ -32,7 +32,6 @@ except ImportError:
 
 @camera_registry.register('sim', priority=100, is_simulator=True)
 class SimulatedCamera(Camera):
-
     MODEL_NAME = 'SimulatedCamera-1920x1200'
     SERIAL_NUMBER = 'SIM-CAM-001'
 
@@ -86,13 +85,13 @@ class SimulatedCamera(Camera):
         self._test_pattern = 'gradient'
 
         # Image cycling: load real images from data/sim_images/ and cycle through
-        self._cycle_images = []       # List of numpy arrays (grayscale)
+        self._cycle_images = []  # List of numpy arrays (grayscale)
         self._cycle_index = 0
 
         # Z-dependent focus simulation
-        self._z_position = 5000.0       # Current Z position (um)
-        self._focal_z = 5000.0          # Z position of perfect focus (um)
-        self._blur_per_um = 0.01        # Blur sigma increase per um of defocus
+        self._z_position = 5000.0  # Current Z position (um)
+        self._focal_z = 5000.0  # Z position of perfect focus (um)
+        self._blur_per_um = 0.01  # Blur sigma increase per um of defocus
         self._z_position_func = z_position_func  # Optional: auto-query Z from motor
 
         # Pre-generated focus target (lazily created)
@@ -151,6 +150,7 @@ class SimulatedCamera(Camera):
             if image_dir.is_dir():
                 try:
                     from PIL import Image as PILImage
+
                     for ext in ('*.png', '*.jpg', '*.jpeg', '*.tif', '*.tiff'):
                         for fp in sorted(image_dir.glob(ext)):
                             try:
@@ -174,8 +174,8 @@ class SimulatedCamera(Camera):
             # 2: Vertical gradient
             images.append(np.tile(np.linspace(0, 255, h, dtype=np.uint8).reshape(-1, 1), (1, w)))
             # 3: Radial gradient (bullseye-like)
-            y, x = np.ogrid[-h//2:h//2, -w//2:w//2]
-            r = np.sqrt(x.astype(float)**2 + y.astype(float)**2)
+            y, x = np.ogrid[-h // 2 : h // 2, -w // 2 : w // 2]
+            r = np.sqrt(x.astype(float) ** 2 + y.astype(float) ** 2)
             images.append(((r / r.max()) * 255).astype(np.uint8))
             # 4: Checkerboard
             block = 40
@@ -207,7 +207,8 @@ class SimulatedCamera(Camera):
             self.init_camera_config()
             self._grabbing = True
 
-            if _cam_log is not None: _cam_log.info(f'sim Connected: {self.model_name} ({self._device_serial})')
+            if _cam_log is not None:
+                _cam_log.info(f'sim Connected: {self.model_name} ({self._device_serial})')
             logger.info(f'[CAM Sim   ] Connected: {self.model_name} ({self._device_serial})')
             return True
 
@@ -222,7 +223,8 @@ class SimulatedCamera(Camera):
             if self.active:
                 self._grabbing = False
                 self.active = None
-                if _cam_log is not None: _cam_log.info('sim Disconnected')
+                if _cam_log is not None:
+                    _cam_log.info('sim Disconnected')
                 logger.info('[CAM Sim   ] Disconnected')
                 self._stop_callback_pump()
                 return True
@@ -268,7 +270,8 @@ class SimulatedCamera(Camera):
         """Begin acquiring frames in the simulator."""
         with self._lock:
             self._grabbing = True
-            if _cam_log is not None: _cam_log.info('sim start_grabbing')
+            if _cam_log is not None:
+                _cam_log.info('sim start_grabbing')
             logger.info('[CAM Sim   ] start_grabbing')
         # Re-spawn the pump if callbacks were registered while not grabbing.
         with self._frame_callback_lock:
@@ -280,7 +283,8 @@ class SimulatedCamera(Camera):
         """Stop acquiring frames in the simulator."""
         with self._lock:
             self._grabbing = False
-            if _cam_log is not None: _cam_log.info('sim stop_grabbing')
+            if _cam_log is not None:
+                _cam_log.info('sim stop_grabbing')
             logger.info('[CAM Sim   ] stop_grabbing')
         self._stop_callback_pump()
 
@@ -357,9 +361,7 @@ class SimulatedCamera(Camera):
                 try:
                     cb(image, ts, None)
                 except Exception as e:
-                    logger.exception(
-                        f'[CAM Sim   ] frame callback raised: {e}'
-                    )
+                    logger.exception(f'[CAM Sim   ] frame callback raised: {e}')
             # Honor the configured exposure as the inter-frame interval.
             interval_s = max(self._exposure_us / 1_000_000.0, 0.001)
             if self._pump_stop.wait(interval_s):
@@ -380,7 +382,8 @@ class SimulatedCamera(Camera):
         with self._lock:
             self._width = max(48, min(4096, int(w / 48) * 48))
             self._height = max(4, min(4096, int(h / 4) * 4))
-            if _cam_log is not None: _cam_log.info(f'sim set_frame_size({self._width}x{self._height})')
+            if _cam_log is not None:
+                _cam_log.info(f'sim set_frame_size({self._width}x{self._height})')
 
     def get_min_frame_size(self) -> dict:
         """Return the simulator's minimum supported frame size.
@@ -419,12 +422,14 @@ class SimulatedCamera(Camera):
             bool: True on success, False when the format is not supported.
         """
         if pixel_format not in self.PIXEL_FORMATS:
-            if _cam_log is not None: _cam_log.error(f'sim set_pixel_format({pixel_format}) UNSUPPORTED')
+            if _cam_log is not None:
+                _cam_log.error(f'sim set_pixel_format({pixel_format}) UNSUPPORTED')
             logger.error(f'[CAM Sim   ] Unsupported pixel format: {pixel_format}')
             return False
         with self._lock:
             self._pixel_format = pixel_format
-            if _cam_log is not None: _cam_log.info(f'sim set_pixel_format({pixel_format})')
+            if _cam_log is not None:
+                _cam_log.info(f'sim set_pixel_format({pixel_format})')
         return True
 
     def get_pixel_format(self) -> str:
@@ -459,12 +464,20 @@ class SimulatedCamera(Camera):
         if not self.active:
             return
         if exposure_ms > self.max_exposure:
-            if _cam_log is not None: _cam_log.warning(f'sim ExposureTime.SetValue({exposure_ms}ms) CLAMPED max={self.max_exposure}ms')
-            logger.warning(f'[CAM Sim   ] Exposure {exposure_ms}ms exceeds max ({self.max_exposure}ms)')
+            if _cam_log is not None:
+                _cam_log.warning(
+                    f'sim ExposureTime.SetValue({exposure_ms}ms) CLAMPED max={self.max_exposure}ms'
+                )
+            logger.warning(
+                f'[CAM Sim   ] Exposure {exposure_ms}ms exceeds max ({self.max_exposure}ms)'
+            )
             return
         with self._lock:
             self._exposure_us = float(exposure_ms) * 1000.0
-            if _cam_log is not None: _cam_log.info(f'sim ExposureTime.SetValue({float(exposure_ms) * 1000.0:.0f}us) (={exposure_ms}ms)')
+            if _cam_log is not None:
+                _cam_log.info(
+                    f'sim ExposureTime.SetValue({float(exposure_ms) * 1000.0:.0f}us) (={exposure_ms}ms)'
+                )
             logger.info(f'[CAM Sim   ] Exposure set to {exposure_ms}ms')
 
     def get_exposure_t(self) -> float:
@@ -514,7 +527,8 @@ class SimulatedCamera(Camera):
             self._frame_rate_limit_enabled = enabled
             if enabled:
                 self._frame_rate_target = fps
-            if _cam_log is not None: _cam_log.info(f'sim set_max_acquisition_frame_rate(enabled={enabled}, fps={fps})')
+            if _cam_log is not None:
+                _cam_log.info(f'sim set_max_acquisition_frame_rate(enabled={enabled}, fps={fps})')
 
     # ------------------------------------------------------------------
     # Binning
@@ -529,12 +543,14 @@ class SimulatedCamera(Camera):
             bool: True on success, False when ``size`` is unsupported.
         """
         if size < 1 or size > 4:
-            if _cam_log is not None: _cam_log.error(f'sim set_binning_size({size}) UNSUPPORTED')
+            if _cam_log is not None:
+                _cam_log.error(f'sim set_binning_size({size}) UNSUPPORTED')
             logger.error(f'[CAM Sim   ] Unsupported bin size: {size}')
             return False
         with self._lock:
             self._binning = size
-            if _cam_log is not None: _cam_log.info(f'sim set_binning_size({size})')
+            if _cam_log is not None:
+                _cam_log.info(f'sim set_binning_size({size})')
         return True
 
     def get_binning_size(self) -> int:
@@ -820,7 +836,8 @@ class SimulatedCamera(Camera):
             return
         with self._lock:
             self._gain = float(gain)
-            if _cam_log is not None: _cam_log.info(f'sim Gain.SetValue({float(gain):.3f})')
+            if _cam_log is not None:
+                _cam_log.info(f'sim Gain.SetValue({float(gain):.3f})')
             logger.info(f'[CAM Sim   ] Gain set to {gain}')
 
     def init_auto_gain_focus(
@@ -878,7 +895,10 @@ class SimulatedCamera(Camera):
                     self._auto_gain_max = max_gain_db
                 # Simulate convergence: set gain to mid-range
                 self._gain = (self._auto_gain_min + self._auto_gain_max) / 2.0
-            if _cam_log is not None: _cam_log.info(f'sim auto_gain(state={state}, target={target_brightness}, min_db={min_gain_db}, max_db={max_gain_db})')
+            if _cam_log is not None:
+                _cam_log.info(
+                    f'sim auto_gain(state={state}, target={target_brightness}, min_db={min_gain_db}, max_db={max_gain_db})'
+                )
         return True
 
     def auto_gain_once(
@@ -925,7 +945,9 @@ class SimulatedCamera(Camera):
             self._auto_gain_target_brightness = auto_target_brightness
         return True
 
-    def update_auto_gain_min_max(self, min_gain_db: float | None, max_gain_db: float | None) -> bool:
+    def update_auto_gain_min_max(
+        self, min_gain_db: float | None, max_gain_db: float | None
+    ) -> bool:
         """Update auto-gain bounds.
 
         Args:

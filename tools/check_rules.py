@@ -26,6 +26,7 @@ today.
 
 Exit code: 0 clean (warns allowed), 1 blocks present.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -149,7 +150,7 @@ def _check_rule_24(tree: ast.Module, path: str) -> list[Violation]:
                     ln,
                     col,
                     'rule_24',
-                    f"non-ASCII char {ch!r} (U+{ord(ch):04X}) in logger/print/notification "
+                    f'non-ASCII char {ch!r} (U+{ord(ch):04X}) in logger/print/notification '
                     f"string; use ASCII (e.g. 'degC' not the degree sign)",
                 )
             )
@@ -171,7 +172,7 @@ def _check_rule_28(tree: ast.Module, path: str) -> list[Violation]:
                     ln,
                     col,
                     'rule_28',
-                    f"internal ID {m.group(0)!r} in notifications string; user-facing "
+                    f'internal ID {m.group(0)!r} in notifications string; user-facing '
                     f'strings must not include rule tags / audit IDs / fix-N refs',
                 )
             )

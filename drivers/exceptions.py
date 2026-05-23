@@ -5,4 +5,5 @@
 
 class HardwareError(Exception):
     """Hardware communication or configuration failure (motor, LED, camera)."""
+
     pass

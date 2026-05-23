@@ -36,14 +36,13 @@ def _require_labware(labware: lw.LabWare | None) -> lw.LabWare:
     """Boundary check shared by every public transform method."""
     if labware is None:
         raise NoLabwareSelectedError(
-            "no labware selected — coordinate transforms require a wellplate; "
-            "select a labware in Protocol settings"
+            'no labware selected — coordinate transforms require a wellplate; '
+            'select a labware in Protocol settings'
         )
     return labware
 
 
 class CoordinateTransformer:
-
     def stage_to_plate(
         self,
         labware: lw.LabWare,
@@ -95,16 +94,20 @@ class CoordinateTransformer:
         """
         labware = _require_labware(labware)
         if not isinstance(px, (int, float)) or not isinstance(py, (int, float)):
-            raise ValueError(f"Plate coordinates must be numeric, got ({type(px).__name__}, {type(py).__name__})")
+            raise ValueError(
+                f'Plate coordinates must be numeric, got ({type(px).__name__}, {type(py).__name__})'
+            )
 
         dim_max = labware.get_dimensions()
 
         if px < 0 or py < 0:
-            logger.warning(f"Plate coordinates negative: ({px:.2f}, {py:.2f})mm -- may be out of bounds")
+            logger.warning(
+                f'Plate coordinates negative: ({px:.2f}, {py:.2f})mm -- may be out of bounds'
+            )
         if px > dim_max['x'] or py > dim_max['y']:
             logger.warning(
-                f"Plate coordinates ({px:.2f}, {py:.2f})mm exceed labware dimensions "
-                f"({dim_max['x']:.1f}, {dim_max['y']:.1f})mm"
+                f'Plate coordinates ({px:.2f}, {py:.2f})mm exceed labware dimensions '
+                f'({dim_max["x"]:.1f}, {dim_max["y"]:.1f})mm'
             )
 
         sx = (dim_max['x'] - stage_offset['x'] / 1000 - px) * 1000  # mm → um

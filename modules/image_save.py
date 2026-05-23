@@ -63,16 +63,16 @@ def get_next_save_path(scope: 'Lumascope', path) -> str:
     # natively.
     path2 = pathlib.Path(path)
     extension = ''.join(path2.suffixes)
-    stem = path2.name[:len(path2.name) - len(extension)]
+    stem = path2.name[: len(path2.name) - len(extension)]
     seq_separator_idx = stem.rfind('_')
     stem_base = stem[:seq_separator_idx]
-    seq_num_str = stem[seq_separator_idx + 1:]
+    seq_num_str = stem[seq_separator_idx + 1 :]
     seq_num = int(seq_num_str)
 
     next_seq_num = seq_num + 1
-    next_seq_num_str = f"{next_seq_num:0>{_NUM_SEQ_DIGITS}}"
+    next_seq_num_str = f'{next_seq_num:0>{_NUM_SEQ_DIGITS}}'
 
-    new_path = path2.parent / f"{stem_base}_{next_seq_num_str}{extension}"
+    new_path = path2.parent / f'{stem_base}_{next_seq_num_str}{extension}'
     return str(new_path)
 
 
@@ -111,56 +111,56 @@ def generate_image_save_path(
         save_folder = pathlib.Path(save_folder)
 
     if file_root is None:
-        file_root = ""
+        file_root = ''
 
     # Append turret position in engineering mode
     if scope.engineering_mode and scope._last_turret_position is not None:
-        append = f"{append}_T{scope._last_turret_position}"
+        append = f'{append}_T{scope._last_turret_position}'
 
     if output_format == 'OME-TIFF':
-        file_extension = ".ome.tiff"
+        file_extension = '.ome.tiff'
     else:
-        file_extension = ".tiff"
+        file_extension = '.tiff'
 
-    if tail_id_mode == "increment":
+    if tail_id_mode == 'increment':
         initial_id = '_000001'
-        filename = f"{file_root}{append}{initial_id}{file_extension}"
+        filename = f'{file_root}{append}{initial_id}{file_extension}'
         path = save_folder / filename
 
         # Obtain next save path if current path already exists
         while os.path.exists(path):
             path = get_next_save_path(scope, path)
 
-    elif tail_id_mode == "if_collision":
+    elif tail_id_mode == 'if_collision':
         # Write-time defense for duplicate step Names (#636). Use the
         # plain filename when no file exists; only add a numeric
         # suffix on actual collision. Keeps happy-path filenames
         # unchanged for well-formed protocols.
-        base_path = save_folder / f"{file_root}{append}{file_extension}"
+        base_path = save_folder / f'{file_root}{append}{file_extension}'
         if not os.path.exists(base_path):
             path = base_path
         else:
             n = 1
             while True:
-                path = save_folder / f"{file_root}{append}_{n:06d}{file_extension}"
+                path = save_folder / f'{file_root}{append}_{n:06d}{file_extension}'
                 if not os.path.exists(path):
                     break
                 n += 1
             logger.warning(
-                f"Protocol filename collision: {base_path.name} already "
-                f"exists; saving as {path.name} instead. This usually means "
-                f"your protocol has multiple steps that produce the same "
-                f"filename (same Name + Well + Tile + Z-Slice across "
-                f"different Tile Group IDs). Consider including the Tile "
-                f"Group ID in the step Name field to avoid the rename suffix."
+                f'Protocol filename collision: {base_path.name} already '
+                f'exists; saving as {path.name} instead. This usually means '
+                f'your protocol has multiple steps that produce the same '
+                f'filename (same Name + Well + Tile + Z-Slice across '
+                f'different Tile Group IDs). Consider including the Tile '
+                f'Group ID in the step Name field to avoid the rename suffix.'
             )
 
     elif tail_id_mode is None:
-        filename = f"{file_root}{append}{file_extension}"
+        filename = f'{file_root}{append}{file_extension}'
         path = save_folder / filename
 
     else:
-        raise ConfigError(f"tail_id_mode: {tail_id_mode} not implemented")
+        raise ConfigError(f'tail_id_mode: {tail_id_mode} not implemented')
 
     return path
 
@@ -184,16 +184,16 @@ def generate_image_metadata(scope: 'Lumascope', color, x, y, z) -> dict:
         ConfigError: If objective, labware, or stage offset are not set.
     """
     if scope._objective is None:
-        raise ConfigError("[SCOPE API ] Objective not set")
+        raise ConfigError('[SCOPE API ] Objective not set')
 
     if 'focal_length' not in scope._objective:
-        raise ConfigError("[SCOPE API ] Objective focal length not provided")
+        raise ConfigError('[SCOPE API ] Objective focal length not provided')
 
     if scope._labware is None:
-        raise ConfigError("[SCOPE API ] Labware not set")
+        raise ConfigError('[SCOPE API ] Labware not set')
 
     if scope._stage_offset is None:
-        raise ConfigError("[SCOPE API ] Stage offset not set")
+        raise ConfigError('[SCOPE API ] Stage offset not set')
 
     if x is None:
         x = 0
@@ -228,15 +228,17 @@ def generate_image_metadata(scope: 'Lumascope', color, x, y, z) -> dict:
         'microscope': scope.diagnostics.get_microscope_model(),
         'software': f'LumaViewPro {version}',
         'channel': color,
-        'datetime': now_host.strftime("%Y:%m:%d %H:%M:%S"),
-        'sub_sec_time': f"{now_host.microsecond // 1000:03d}",
+        'datetime': now_host.strftime('%Y:%m:%d %H:%M:%S'),
+        'sub_sec_time': f'{now_host.microsecond // 1000:03d}',
         'objective': scope._objective,
         'focal_length': scope._objective['focal_length'],
         'plate_pos_mm': {'x': px, 'y': py},
         'x_pos': px,
         'y_pos': py,
         'z_pos_um': z,
-        'exposure_time_ms': round(scope.imaging.get_exposure_time(), common_utils.max_decimal_precision('exposure')),
+        'exposure_time_ms': round(
+            scope.imaging.get_exposure_time(), common_utils.max_decimal_precision('exposure')
+        ),
         'gain_db': round(scope.imaging.get_gain(), common_utils.max_decimal_precision('gain')),
         'illumination_ma': (
             round(_ma, common_utils.max_decimal_precision('illumination'))
@@ -343,8 +345,8 @@ def save_image(
     file_root='img_',
     append='ms',
     color='BF',
-    tail_id_mode="increment",
-    output_format: str = "TIFF",
+    tail_id_mode='increment',
+    output_format: str = 'TIFF',
     true_color: str = 'BF',
     x=None,
     y=None,
@@ -390,8 +392,8 @@ def save_image(
     # (camera reset / USB reset on persistent stuck) lives elsewhere.
     if array is None:
         raise CaptureError(
-            "Camera did not return an image. The capture was skipped; "
-            "the protocol will retry on the next step."
+            'Camera did not return an image. The capture was skipped; '
+            'the protocol will retry on the next step.'
         )
 
     image_data = prepare_image_for_saving(
@@ -433,10 +435,11 @@ def save_image(
 
         logger.info(f'[SCOPE API ] Saving Image to {file_loc}')
     except Exception:
-        logger.exception("[SCOPE API ] Error: Unable to save. Perhaps save folder does not exist?")
+        logger.exception('[SCOPE API ] Error: Unable to save. Perhaps save folder does not exist?')
         notifications.error(
-            "FileIO", "Image Save Failed",
-            f"Failed to save image to {file_loc}. Check disk space and permissions.",
+            'FileIO',
+            'Image Save Failed',
+            f'Failed to save image to {file_loc}. Check disk space and permissions.',
         )
         raise
 
@@ -453,9 +456,9 @@ def save_live_image(
     file_root='img_',
     append='ms',
     color='BF',
-    tail_id_mode="increment",
+    tail_id_mode='increment',
     force_to_8bit: bool = True,
-    output_format: str = "TIFF",
+    output_format: str = 'TIFF',
     true_color: str = 'BF',
     earliest_image_ts: datetime.datetime | None = None,
     timeout_s: float = 5.0,
@@ -510,6 +513,13 @@ def save_live_image(
         return None
 
     return save_image(
-        scope, array, save_folder, file_root, append, color, tail_id_mode,
-        output_format=output_format, true_color=true_color,
+        scope,
+        array,
+        save_folder,
+        file_root,
+        append,
+        color,
+        tail_id_mode,
+        output_format=output_format,
+        true_color=true_color,
     )

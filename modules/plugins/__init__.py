@@ -21,6 +21,7 @@ Plugin authors implement:
 
 The host discovers plugins via entry_points group 'lvp.plugins'.
 """
+
 from __future__ import annotations
 
 import copy
@@ -41,9 +42,11 @@ ENTRY_POINT_GROUP = 'lvp.plugins'
 # with a widget-shape contract for that specific mount. Plugins that
 # pass an unknown name get a PluginRegistrationError, not a silent
 # attach to nothing.
-UI_MOUNT_POINTS = frozenset({
-    'left_sidebar.accordion',
-})
+UI_MOUNT_POINTS = frozenset(
+    {
+        'left_sidebar.accordion',
+    }
+)
 
 
 # ---------------------------------------------------------------------------
@@ -85,6 +88,7 @@ class PluginSpec:
     to False so registration is metadata-only; plugins opt in
     explicitly. See run_protocol_complete_processors().
     """
+
     name: str
     version: str
     requires_lvp_version: str
@@ -99,6 +103,7 @@ class PluginSpec:
 @dataclass(frozen=True)
 class PluginStatus:
     """Snapshot of a plugin's load state for health reports."""
+
     name: str
     version: str
     namespace: str
@@ -115,6 +120,7 @@ class PluginRuntimeError:
     ERROR and surfaced via NamespaceHealth.last_runtime_errors so
     diagnostic probes can attribute fault to the right plugin.
     """
+
     plugin_name: str
     namespace: str
     hook: str
@@ -125,6 +131,7 @@ class PluginRuntimeError:
 @dataclass(frozen=True)
 class NamespaceHealth:
     """Per-namespace snapshot for tech-support + diagnostic probes."""
+
     namespace: str
     loaded: tuple[PluginStatus, ...]
     failed: tuple[PluginStatus, ...]
@@ -138,8 +145,8 @@ class NamespaceHealth:
 @dataclass(frozen=True)
 class ProcessorResult:
     success: bool
-    outputs: tuple[str, ...] = ()    # absolute paths to produced files
-    message: str = ''                # one-line user-facing summary
+    outputs: tuple[str, ...] = ()  # absolute paths to produced files
+    message: str = ''  # one-line user-facing summary
     metadata: dict = field(default_factory=dict)
 
 
@@ -170,25 +177,29 @@ class _BaseNamespace:
         self._loaded[spec.name] = status
 
     def _record_failed(self, name: str, version: str, error: str) -> None:
-        self._failed.append(PluginStatus(
-            name=name,
-            version=version,
-            namespace=self.NAMESPACE,
-            loaded=False,
-            error=error,
-        ))
+        self._failed.append(
+            PluginStatus(
+                name=name,
+                version=version,
+                namespace=self.NAMESPACE,
+                loaded=False,
+                error=error,
+            )
+        )
 
     def record_runtime_error(self, plugin_name: str, hook: str, exc: BaseException) -> None:
         """Plugins do not call this directly. The host wraps callbacks
         in try/except and feeds caught exceptions through here so the
         diagnostic surface knows which plugin failed."""
-        self._runtime_errors.append(PluginRuntimeError(
-            plugin_name=plugin_name,
-            namespace=self.NAMESPACE,
-            hook=hook,
-            exc_type=type(exc).__name__,
-            message=str(exc),
-        ))
+        self._runtime_errors.append(
+            PluginRuntimeError(
+                plugin_name=plugin_name,
+                namespace=self.NAMESPACE,
+                hook=hook,
+                exc_type=type(exc).__name__,
+                message=str(exc),
+            )
+        )
 
     def health(self) -> NamespaceHealth:
         with self._lock:
@@ -222,8 +233,7 @@ class UIRegistry(_BaseNamespace):
     def register(self, spec: PluginSpec, mount_point: str, builder: Callable[[], Any]) -> None:
         if mount_point not in UI_MOUNT_POINTS:
             raise PluginRegistrationError(
-                f"Unknown UI mount point '{mount_point}'. Known: "
-                f"{sorted(UI_MOUNT_POINTS)}"
+                f"Unknown UI mount point '{mount_point}'. Known: {sorted(UI_MOUNT_POINTS)}"
             )
         with self._lock:
             self._assert_unique(spec)
@@ -235,10 +245,7 @@ class UIRegistry(_BaseNamespace):
         to attach during widget-tree construction. Returned list is a
         snapshot; subsequent registrations don't appear here."""
         with self._lock:
-            return tuple(
-                (name, mp, builder)
-                for name, (mp, builder) in self._handlers.items()
-            )
+            return tuple((name, mp, builder) for name, (mp, builder) in self._handlers.items())
 
 
 class PostProcessingRegistry(_BaseNamespace):
@@ -327,9 +334,9 @@ class LiveProcessingRegistry(_BaseNamespace):
     def register(self, spec: PluginSpec, frame_handler: Callable) -> None:
         if self._scope is None:
             raise PluginRegistrationError(
-                "ctx.plugins.live_processing not yet bound to a scope. "
-                "The host must call bind_scope(scope) before plugin "
-                "discovery; this is normally done inside load_plugins()."
+                'ctx.plugins.live_processing not yet bound to a scope. '
+                'The host must call bind_scope(scope) before plugin '
+                'discovery; this is normally done inside load_plugins().'
             )
         with self._lock:
             self._assert_unique(spec)
@@ -420,12 +427,12 @@ class RESTRegistry(_BaseNamespace):
                 self._stubbed_routers[spec.name] = router
             return
         raise PluginRegistrationError(
-            "ctx.plugins.rest is reserved but not yet implemented. "
-            "REST URL convention is locked at the REST design session "
-            "(tracked at docs/TODO.md). Plan to register here when "
-            "REST_API_PLAN.md Phase 1 ships. "
-            "Prototype against the future shape via "
-            "ctx.plugins.rest.enable_stub_mode() (non-production)."
+            'ctx.plugins.rest is reserved but not yet implemented. '
+            'REST URL convention is locked at the REST design session '
+            '(tracked at docs/TODO.md). Plan to register here when '
+            'REST_API_PLAN.md Phase 1 ships. '
+            'Prototype against the future shape via '
+            'ctx.plugins.rest.enable_stub_mode() (non-production).'
         )
 
 
@@ -450,7 +457,7 @@ class PluginRegistry:
         self.post_processing = PostProcessingRegistry()
         self.live_processing = LiveProcessingRegistry()
         self.rest = RESTRegistry()
-        self._loaded_plugins: list[tuple[str, Any]] = []   # (name, module)
+        self._loaded_plugins: list[tuple[str, Any]] = []  # (name, module)
         self._loaded_lock = threading.Lock()
 
     def _track(self, name: str, module: Any) -> None:
@@ -522,8 +529,8 @@ class PluginRegistry:
                 handler(ctx, settings)
             except Exception as exc:
                 logger.error(
-                    f'[Plugins ] {name}: on_settings_changed raised '
-                    f'{type(exc).__name__}: {exc}', exc_info=True,
+                    f'[Plugins ] {name}: on_settings_changed raised {type(exc).__name__}: {exc}',
+                    exc_info=True,
                 )
                 ns = self._find_namespace(name)
                 if ns is not None:
@@ -531,7 +538,10 @@ class PluginRegistry:
 
     def _find_namespace(self, plugin_name: str) -> Optional['_BaseNamespace']:
         for ns in (
-            self.ui, self.post_processing, self.live_processing, self.rest,
+            self.ui,
+            self.post_processing,
+            self.live_processing,
+            self.rest,
         ):
             if plugin_name in ns._loaded:
                 return ns
@@ -703,11 +713,11 @@ def _notify_load_failure(ctx: Any, plugin_name: str, reason: str) -> None:
     """
     try:
         from modules.notification_center import notifications
+
         notifications.error(
             category='Plugins',
             title='Plugin load failed',
-            message=f"{plugin_name} did not load: {reason}. "
-                    f"Other features unaffected.",
+            message=f'{plugin_name} did not load: {reason}. Other features unaffected.',
             source='modules.plugins',
         )
     except Exception:
@@ -750,7 +760,8 @@ def load_plugins(ctx: Any) -> None:
             module = ep.load()
         except Exception as e:
             logger.error(
-                f'[Plugins ] {ep_name}: import failed: {e}', exc_info=True,
+                f'[Plugins ] {ep_name}: import failed: {e}',
+                exc_info=True,
             )
             _notify_load_failure(ctx, ep_name, f'import error ({type(e).__name__})')
             continue
@@ -768,7 +779,8 @@ def load_plugins(ctx: Any) -> None:
                 f'{spec.requires_lvp_version}; have {host_version}; skipping',
             )
             ctx.plugins.ui._record_failed(
-                spec.name, spec.version,
+                spec.name,
+                spec.version,
                 f'requires {spec.requires_lvp_version}, have {host_version}',
             )
             continue
@@ -784,7 +796,8 @@ def load_plugins(ctx: Any) -> None:
             register_fn(ctx)
         except Exception as e:
             logger.error(
-                f'[Plugins ] {spec.name}: register() failed: {e}', exc_info=True,
+                f'[Plugins ] {spec.name}: register() failed: {e}',
+                exc_info=True,
             )
             _notify_load_failure(ctx, spec.name, f'{type(e).__name__}: {e}')
             # Give the plugin a chance to clean up partial state.
@@ -794,8 +807,8 @@ def load_plugins(ctx: Any) -> None:
                     unregister_fn(ctx)
                 except Exception:
                     logger.warning(
-                        f'[Plugins ] {spec.name}: unregister after failed '
-                        f'register also failed', exc_info=True,
+                        f'[Plugins ] {spec.name}: unregister after failed register also failed',
+                        exc_info=True,
                     )
             continue
 
@@ -824,7 +837,8 @@ def unload_plugins(ctx: Any) -> None:
             logger.info(f'[Plugins ] {name}: unregister complete')
         except Exception:
             logger.warning(
-                f'[Plugins ] {name}: unregister failed', exc_info=True,
+                f'[Plugins ] {name}: unregister failed',
+                exc_info=True,
             )
 
 
@@ -857,12 +871,13 @@ def run_protocol_complete_processors(
             result = processor(input_dir, manifest, output_dir)
         except Exception as e:
             logger.error(
-                f'[Plugins ] {spec.name} processor raised '
-                f'{type(e).__name__}: {e}',
+                f'[Plugins ] {spec.name} processor raised {type(e).__name__}: {e}',
                 exc_info=True,
             )
             ctx.plugins.post_processing.record_runtime_error(
-                spec.name, 'auto_run_on_protocol_complete', e,
+                spec.name,
+                'auto_run_on_protocol_complete',
+                e,
             )
             continue
         if not isinstance(result, ProcessorResult):
@@ -872,12 +887,6 @@ def run_protocol_complete_processors(
             )
             continue
         if result.success:
-            logger.info(
-                f'[Plugins ] {spec.name} auto-run succeeded: '
-                f'{result.message}'
-            )
+            logger.info(f'[Plugins ] {spec.name} auto-run succeeded: {result.message}')
         else:
-            logger.warning(
-                f'[Plugins ] {spec.name} auto-run reported failure: '
-                f'{result.message}'
-            )
+            logger.warning(f'[Plugins ] {spec.name} auto-run reported failure: {result.message}')

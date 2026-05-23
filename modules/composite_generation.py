@@ -20,7 +20,6 @@ from lvp_logger import logger
 
 
 class CompositeGeneration(ProtocolPostProcessor):
-
     def __init__(self, *args, **kwargs):
         super().__init__(
             post_function=PostFunction.COMPOSITE,
@@ -28,7 +27,6 @@ class CompositeGeneration(ProtocolPostProcessor):
             **kwargs,
         )
         self._name = self.__class__.__name__
-
 
     @staticmethod
     def _get_groups(df: pd.DataFrame) -> pd.DataFrame:
@@ -43,21 +41,22 @@ class CompositeGeneration(ProtocolPostProcessor):
                 'Tile',
                 'Custom Step',
                 'Raw',
-                *PostFunction.list_values()
+                *PostFunction.list_values(),
             ],
-            dropna=False
+            dropna=False,
         )
-    
 
     def _generate_filename(self, df: pd.DataFrame, **kwargs) -> str:
         row0 = df.iloc[0]
 
-        objective_short_name = self._get_objective_short_name_if_has_turret(objective_id=row0['Objective'])
+        objective_short_name = self._get_objective_short_name_if_has_turret(
+            objective_id=row0['Objective']
+        )
 
         # Prepend custom root + step name if available
         custom_root = row0.get('Custom Root', '') if 'Custom Root' in row0 else ''
         if custom_root not in (None, ''):
-            prefix = f"{custom_root}_{row0['Name']}"
+            prefix = f'{custom_root}_{row0["Name"]}'
         else:
             prefix = row0['Name']
         name = common_utils.generate_default_step_name(
@@ -71,9 +70,8 @@ class CompositeGeneration(ProtocolPostProcessor):
             stitched=row0['Stitched'],
         )
 
-        outfile = f"{name}.tiff"
+        outfile = f'{name}.tiff'
         return outfile
-
 
     def _filter_ignored_types(self, df: pd.DataFrame) -> pd.DataFrame:
 
@@ -87,7 +85,6 @@ class CompositeGeneration(ProtocolPostProcessor):
         df = df[df[PostFunction.HYPERSTACK.value] == False]
 
         return df
-    
 
     def _group_algorithm(
         self,
@@ -105,10 +102,9 @@ class CompositeGeneration(ProtocolPostProcessor):
         output_file_loc_rel = kwargs.get('output_file_loc')
         return CompositeGeneration._create_composite_image(
             path=path,
-            df=df[['Filepath','Color']],
+            df=df[['Filepath', 'Color']],
             output_file_loc=path / output_file_loc_rel if output_file_loc_rel else None,
         )
-    
 
     @staticmethod
     def _add_record(
@@ -138,15 +134,19 @@ class CompositeGeneration(ProtocolPostProcessor):
             **kwargs,
         )
 
-
     @staticmethod
-    def _create_composite_image(path: pathlib.Path, df: pd.DataFrame, output_file_loc: pathlib.Path = None):
+    def _create_composite_image(
+        path: pathlib.Path, df: pd.DataFrame, output_file_loc: pathlib.Path = None
+    ):
 
         BF_present = False
-        BF_channel = ""
+        BF_channel = ''
 
         allowed_BF_layers = common_utils.get_transmitted_layers()
-        allowed_layers = [*common_utils.get_fluorescence_layers(), *common_utils.get_luminescence_layers()]
+        allowed_layers = [
+            *common_utils.get_fluorescence_layers(),
+            *common_utils.get_luminescence_layers(),
+        ]
         img = None
 
         for layer in allowed_BF_layers:
@@ -178,7 +178,7 @@ class CompositeGeneration(ProtocolPostProcessor):
             img_dtype = None
 
             if BF_present:
-                logger.info("CompositeGeneration] Generating transmitted channel composite")
+                logger.info('CompositeGeneration] Generating transmitted channel composite')
                 BF_row = df[df['Color'] == BF_channel]
                 BF_image_filename = BF_row['Filepath'].iloc[0]
                 BF_image = images[BF_image_filename]
@@ -192,7 +192,7 @@ class CompositeGeneration(ProtocolPostProcessor):
                 else:
                     transmitted_image = BF_image
             else:
-                logger.info("CompositeGeneration] Generating fluorescent channel composite")
+                logger.info('CompositeGeneration] Generating fluorescent channel composite')
 
             for _, row in df.iterrows():
                 layer = row['Color']
@@ -228,17 +228,14 @@ class CompositeGeneration(ProtocolPostProcessor):
                     ctx = _app_ctx.ctx
                     if ctx is not None:
                         with ctx.settings_lock:
-                            threshold = settings[layer]["composite_brightness_threshold"]
+                            threshold = settings[layer]['composite_brightness_threshold']
                     else:
-                        threshold = settings[layer]["composite_brightness_threshold"]
+                        threshold = settings[layer]['composite_brightness_threshold']
                     brightness_thresholds[layer] = threshold / 100 * max_value
 
             if not channel_images and transmitted_image is None:
                 status = False
-                error = (
-                    "Composite Generation Error: no channel images "
-                    "available for this group"
-                )
+                error = 'Composite Generation Error: no channel images available for this group'
             else:
                 dtype = img_dtype or np.uint8
                 max_value = 255 if dtype == np.uint8 else 4095
@@ -270,8 +267,8 @@ class CompositeGeneration(ProtocolPostProcessor):
                     )
 
         except Exception as e:
-            logger.error(f"CompositeGeneration] Error generating composite: {e}")
-            error = f"Error generating composite: {e}"
+            logger.error(f'CompositeGeneration] Error generating composite: {e}')
+            error = f'Error generating composite: {e}'
             status = False
 
         # When output_file_loc is provided: this subclass wrote the
@@ -285,7 +282,7 @@ class CompositeGeneration(ProtocolPostProcessor):
             return_image = img if status else None
             if status and return_image is None:
                 status = False
-                error = "Composite Generation Error: No final image"
+                error = 'Composite Generation Error: No final image'
 
         return {
             'status': status,
@@ -293,10 +290,10 @@ class CompositeGeneration(ProtocolPostProcessor):
             'image': return_image,
             'metadata': {
                 'color': 'Composite',
-            }
+            },
         }
-       
 
-if __name__ == "__main__":
+
+if __name__ == '__main__':
     composite_gen = CompositeGeneration(has_turret=False)
-    composite_gen.load_folder(pathlib.Path(os.getenv("SAMPLE_IMAGE_FOLDER")))
+    composite_gen.load_folder(pathlib.Path(os.getenv('SAMPLE_IMAGE_FOLDER')))

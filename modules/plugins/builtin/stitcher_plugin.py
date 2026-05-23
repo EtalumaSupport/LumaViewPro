@@ -37,6 +37,7 @@ Return shape:
         each output file would require a Stitcher API change which is
         out of scope for the canary).
 """
+
 from __future__ import annotations
 
 import logging
@@ -112,6 +113,7 @@ def _stitcher_processor(
         tiling_cfg = pathlib.Path('data') / 'tiling.json'
 
     from modules.stitcher import Stitcher
+
     stitcher = Stitcher(has_turret=has_turret)
 
     try:
@@ -122,8 +124,8 @@ def _stitcher_processor(
         )
     except Exception as e:
         logger.error(
-            f'[Plugins ] stitcher: load_folder raised '
-            f'{type(e).__name__}: {e}', exc_info=True,
+            f'[Plugins ] stitcher: load_folder raised {type(e).__name__}: {e}',
+            exc_info=True,
         )
         return ProcessorResult(
             success=False,

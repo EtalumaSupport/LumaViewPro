@@ -14,8 +14,7 @@ from lvp_logger import logger
 
 
 class ProtocolPostRecord:
-
-    FILE_HEADER = "LumaViewPro Protocol Post-Processing Record"
+    FILE_HEADER = 'LumaViewPro Protocol Post-Processing Record'
     CURRENT_VERSION = 1
     DEFAULT_FILENAME = 'protocol_post_record.tsv'
 
@@ -50,11 +49,7 @@ class ProtocolPostRecord:
         *PostFunction.list_values(),
     )
 
-    def __init__(
-        self,
-        file_loc: pathlib.Path,
-        records: pd.DataFrame | None = None
-    ):
+    def __init__(self, file_loc: pathlib.Path, records: pd.DataFrame | None = None):
         self._name = self.__class__.__name__
 
         self._file_loc = file_loc
@@ -70,7 +65,6 @@ class ProtocolPostRecord:
             self._records = records
         self._pending_records = []  # Accumulated dicts, merged lazily
 
-
     def _initialize_outfile(self, outfile: pathlib.Path):
         self._outfile_fp = open(outfile, 'w')
         self._outfile_csv = csv.writer(self._outfile_fp, delimiter='\t', lineterminator='\n')
@@ -79,16 +73,13 @@ class ProtocolPostRecord:
         self._outfile_csv.writerow([])
         self._outfile_csv.writerow(['Images'])
         self._outfile_csv.writerow(self.COLUMNS)
- 
 
     def _reopen_outfile(self, outfile: pathlib.Path):
         self._outfile_fp = open(outfile, 'a')
         self._outfile_csv = csv.writer(self._outfile_fp, delimiter='\t', lineterminator='\n')
 
-
     def complete(self):
         self._close_outfile()
-
 
     def _close_outfile(self):
         if self._outfile_fp is None:
@@ -98,33 +89,31 @@ class ProtocolPostRecord:
         self._outfile_fp = None
         self._outfile_csv = None
 
-
     @staticmethod
     def _create_empty_df() -> pd.DataFrame:
         post_functions = PostFunction.list_values()
         post_function_tuples = [(post_function, bool) for post_function in post_functions]
         dtypes = np.dtype(
             [
-                ("Filepath", str),
-                ("Timestamp", str),
-                ("Name", str),
-                ("Scan Count", int),
-                ("X", float),
-                ("Y", float),
-                ("Z", float),
-                ("Z-Slice", int),
-                ("Well", str),
-                ("Color", str),
-                ("Objective", str),
-                ("Tile Group ID", int),
-                ("Tile", str),
-                ("Custom Step", bool),
+                ('Filepath', str),
+                ('Timestamp', str),
+                ('Name', str),
+                ('Scan Count', int),
+                ('X', float),
+                ('Y', float),
+                ('Z', float),
+                ('Z-Slice', int),
+                ('Well', str),
+                ('Color', str),
+                ('Objective', str),
+                ('Tile Group ID', int),
+                ('Tile', str),
+                ('Custom Step', bool),
                 *post_function_tuples,
             ]
         )
         df = pd.DataFrame(np.empty(0, dtype=dtypes))
         return df
-
 
     def _flush_pending(self):
         """Merge accumulated record dicts into the DataFrame."""
@@ -132,13 +121,14 @@ class ProtocolPostRecord:
             return
         new_df = pd.DataFrame(self._pending_records)
         df_list = [self._records, new_df]
-        self._records = pd.concat([df for df in df_list if not df.empty], ignore_index=True).reset_index(drop=True)
+        self._records = pd.concat(
+            [df for df in df_list if not df.empty], ignore_index=True
+        ).reset_index(drop=True)
         self._pending_records.clear()
 
     def records(self) -> pd.DataFrame:
         self._flush_pending()
         return self._records
-    
 
     def file_exists_in_records(self, filepath: pathlib.Path) -> bool:
         # Check pending records first (avoid flushing for every lookup)
@@ -156,8 +146,9 @@ class ProtocolPostRecord:
             return True
 
         if num_matches > 1:
-            raise Exception(f"Expected 0 or 1 matched in post record for {filepath}, but found {num_matches}.")
-
+            raise Exception(
+                f'Expected 0 or 1 matched in post record for {filepath}, but found {num_matches}.'
+            )
 
     @staticmethod
     def _create_record_dict(
@@ -181,22 +172,22 @@ class ProtocolPostRecord:
         abs_path = root_path / file_path
 
         return {
-            "Filepath": file_path,
-            "Timestamp": timestamp,
-            "Name": name,
-            "Scan Count": scan_count,
-            "X": x,
-            "Y": y,
-            "Z": z,
-            "Z-Slice": z_slice,
-            "Well": well,
-            "Color": color,
-            "Objective": objective,
-            "Tile Group ID": tile_group_id,
-            "Tile": tile,
-            "Custom Step": custom_step,
-            "Raw": False,
-            "File Exists": abs_path.exists(),
+            'Filepath': file_path,
+            'Timestamp': timestamp,
+            'Name': name,
+            'Scan Count': scan_count,
+            'X': x,
+            'Y': y,
+            'Z': z,
+            'Z-Slice': z_slice,
+            'Well': well,
+            'Color': color,
+            'Objective': objective,
+            'Tile Group ID': tile_group_id,
+            'Tile': tile,
+            'Custom Step': custom_step,
+            'Raw': False,
+            'File Exists': abs_path.exists(),
             **kwargs,
         }
 
@@ -219,9 +210,9 @@ class ProtocolPostRecord:
         custom_step: bool,
         **kwargs: dict,
     ):
-        
+
         if self.file_exists_in_records(filepath=file_path):
-            logger.info(f"[{self._name} ] File {file_path} already exists in records. Skipping.")
+            logger.info(f'[{self._name} ] File {file_path} already exists in records. Skipping.')
 
         record_dict = self._create_record_dict(
             root_path=root_path,
@@ -239,7 +230,7 @@ class ProtocolPostRecord:
             tile_group_id=tile_group_id,
             tile=tile,
             custom_step=custom_step,
-            **kwargs
+            **kwargs,
         )
 
         self._pending_records.append(record_dict)
@@ -259,9 +250,8 @@ class ProtocolPostRecord:
             tile_group_id=tile_group_id,
             tile=tile,
             custom_step=custom_step,
-            **kwargs
+            **kwargs,
         )
-
 
     def _add_record_to_file(
         self,
@@ -303,29 +293,28 @@ class ProtocolPostRecord:
         )
         self._outfile_fp.flush()
 
-
     @classmethod
     def from_file(cls, file_path: pathlib.Path):
         with open(file_path, 'r') as fp:
-            csvreader = csv.reader(fp, delimiter='\t') 
+            csvreader = csv.reader(fp, delimiter='\t')
             header = next(csvreader)
             if header[0] != cls.FILE_HEADER:
-                raise Exception(f"Invalid protocol post-processing record")
-            
+                raise Exception(f'Invalid protocol post-processing record')
+
             version = next(csvreader)
             if version[0] != 'Version':
-                raise Exception(f"Version key not found")
-            
+                raise Exception(f'Version key not found')
+
             if int(version[1]) not in (1,):
-                raise Exception(f"Unsupported protocol execution record version")
-            
+                raise Exception(f'Unsupported protocol execution record version')
+
             # Search for "Images" to indicate start of images data
             while True:
                 tmp = next(csvreader)
                 if len(tmp) == 0:
                     continue
 
-                if tmp[0] == "Images":
+                if tmp[0] == 'Images':
                     break
 
             table_lines = []
@@ -340,7 +329,7 @@ class ProtocolPostRecord:
             ).fillna('')
 
             if len(df) == 0:
-                raise Exception(f"No steps in protocol execution record")
+                raise Exception(f'No steps in protocol execution record')
 
             df['Timestamp'] = pd.to_datetime(df['Timestamp'])
 
@@ -348,7 +337,9 @@ class ProtocolPostRecord:
             df['Filepath'] = df.apply(lambda row: pathlib.Path(row['Filepath']), axis=1)
 
             root_path = file_path.parent
-            df['File Exists'] = df.apply(lambda row: True if (root_path / row['Filepath']).is_file() else False, axis=1)
+            df['File Exists'] = df.apply(
+                lambda row: True if (root_path / row['Filepath']).is_file() else False, axis=1
+            )
 
             if len(df) == 0:
                 cls._create_empty_df()

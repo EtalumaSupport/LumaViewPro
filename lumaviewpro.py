@@ -123,9 +123,7 @@ if __name__ == '__main__':
     # tkinter is alive (used above for the Python-version dialog).
     from modules.app_config import get_lvp_lock_port as _get_lvp_lock_port
 
-    _lvp_lock_singleton = lvp_lock.LvpLock(
-        lock_port=_get_lvp_lock_port(source_path)
-    )
+    _lvp_lock_singleton = lvp_lock.LvpLock(lock_port=_get_lvp_lock_port(source_path))
     if not _lvp_lock_singleton.lock():
         _msg = 'Another instance of LVP may already be running. Exiting.'
         logger.error(f'[LVP Lock ] {_msg}')
@@ -148,9 +146,7 @@ if __name__ == '__main__':
             )
             _root.destroy()
         except Exception as popup_err:  # grain: ignore NAKED_EXCEPT
-            logger.warning(
-                f'[LVP Lock ] Could not display already-running popup: {popup_err}'
-            )
+            logger.warning(f'[LVP Lock ] Could not display already-running popup: {popup_err}')
         # os._exit terminates immediately; sys.exit raises SystemExit
         # which downstream cleanup paths may swallow before any Kivy
         # import has the chance to spin up.
@@ -376,12 +372,15 @@ class LumaViewProApp(TooltipMixin, App):
             open_layer = None
             try:
                 from modules.config_ui_getters import get_active_layer_config
+
                 active_layer, active_layer_config = get_active_layer_config()
             except Exception as e:
                 logger.debug(
                     '[LVP Main  ] _publish_layer_config: '
                     'get_active_layer_config failed; using defaults this '
-                    'tick: %s: %s', type(e).__name__, e,
+                    'tick: %s: %s',
+                    type(e).__name__,
+                    e,
                 )
             # During a protocol scan, override the accordion-derived
             # active layer with the currently-executing step's color
@@ -400,6 +399,7 @@ class LumaViewProApp(TooltipMixin, App):
                 if curr_color is not None:
                     try:
                         from modules.config_helpers import get_layer_configs
+
                         cfgs = get_layer_configs(ctx.settings, [curr_color])
                         active_layer = curr_color
                         active_layer_config = cfgs.get(curr_color, active_layer_config)
@@ -408,18 +408,24 @@ class LumaViewProApp(TooltipMixin, App):
                             '[LVP Main  ] _publish_layer_config: '
                             'get_layer_configs(%s) failed; sticking with '
                             'accordion-derived layer: %s: %s',
-                            curr_color, type(e).__name__, e,
+                            curr_color,
+                            type(e).__name__,
+                            e,
                         )
             if ctx.engineering_mode and ctx.image_settings is not None:
                 import modules.common_utils as _cu
+
                 for layer in _cu.get_layers():
                     accordion_item_obj = ctx.image_settings.accordion_item_lookup(layer=layer)
                     if not accordion_item_obj.collapse:
                         open_layer = layer
                         break
             scope_display_thread.update_layer_config(
-                active_layer, active_layer_config, open_layer,
+                active_layer,
+                active_layer_config,
+                open_layer,
             )
+
         Clock.schedule_interval(_publish_layer_config, 1.0 / 30)
 
         # Clear app initialization flag and apply settings for the default opened layer
@@ -806,6 +812,7 @@ class LumaViewProApp(TooltipMixin, App):
         # Engineering plugin (etaluma-engineering, dev/bench-only) loads
         # here; customer installs find nothing in the group.
         from modules.plugins import load_plugins
+
         load_plugins(ctx)
 
         # Register in-tree built-in plugins (Stitcher canary, plus
@@ -815,6 +822,7 @@ class LumaViewProApp(TooltipMixin, App):
         # registration then logs WARNING and continues, leaving the
         # legacy UI button paths still wired to the same Stitcher class.
         from modules.plugins.builtin import register_builtins
+
         register_builtins(ctx)
 
         # Attach UI-namespace plugin mounts now that the widget tree
@@ -829,7 +837,8 @@ class LumaViewProApp(TooltipMixin, App):
                     logger.info(f'[LVP Main  ] Mounted {plugin_name} at {mount_point}')
                 except Exception as e:
                     logger.error(
-                        f'[LVP Main  ] {plugin_name} mount failed: {e}', exc_info=True,
+                        f'[LVP Main  ] {plugin_name} mount failed: {e}',
+                        exc_info=True,
                     )
 
         # Enable engineering-only log files (autofocus.log, api.log).
@@ -903,6 +912,7 @@ class LumaViewProApp(TooltipMixin, App):
         # registration ordering.
         try:
             from modules.plugins import unload_plugins
+
             unload_plugins(ctx)
         except Exception as e:  # grain: ignore NAKED_EXCEPT
             logger.warning(f'[LVP Main  ] Plugin unload during shutdown raised: {e}')
@@ -944,17 +954,20 @@ class LumaViewProApp(TooltipMixin, App):
         logger.info('[LVP Main  ] lumaview.scope.illumination.leds_off()')
         try:
             from modules.sequential_io_executor import IOTask
-            fut = ctx.io_executor.put(
-                IOTask(action=lumaview.scope.illumination.leds_off),
-                return_future=True,
-            ) if ctx.io_executor is not None else None
+
+            fut = (
+                ctx.io_executor.put(
+                    IOTask(action=lumaview.scope.illumination.leds_off),
+                    return_future=True,
+                )
+                if ctx.io_executor is not None
+                else None
+            )
             if fut is not None:
                 try:
                     fut.result(timeout=2.0)
                 except Exception as e:
-                    logger.warning(
-                        f'[LVP Main  ] leds_off via io_executor timed out / failed: {e}'
-                    )
+                    logger.warning(f'[LVP Main  ] leds_off via io_executor timed out / failed: {e}')
             else:
                 logger.warning('[LVP Main  ] io_executor unavailable for shutdown leds_off')
         except Exception as e:  # grain: ignore NAKED_EXCEPT

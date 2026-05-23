@@ -24,6 +24,7 @@ Threading model (Stage B1):
     prevents stale callbacks after stop()/start() cycles.
   - FPS pacing lives on the thread (Event.wait(timeout=...) per iteration).
 """
+
 import logging
 import threading
 import time
@@ -48,16 +49,16 @@ import modules.app_context as _app_ctx
 logger = logging.getLogger('LVP.ui.scope_display')
 
 # --- Display constants ---
-BULLSEYE_FPS_CAP = 15          # Max FPS for CPU-intensive bullseye LUT rendering
-VALIDITY_DOT_RADIUS = 10       # Engineering-mode validity indicator dot radius (px)
-VALIDITY_DOT_MARGIN = 20       # Margin from image edge to dot center (px)
+BULLSEYE_FPS_CAP = 15  # Max FPS for CPU-intensive bullseye LUT rendering
+VALIDITY_DOT_RADIUS = 10  # Engineering-mode validity indicator dot radius (px)
+VALIDITY_DOT_MARGIN = 20  # Margin from image edge to dot center (px)
 
 
 class ScopeDisplay(Image):
     play = BooleanProperty(True)
 
     def __init__(self, **kwargs):
-        super(ScopeDisplay,self).__init__(**kwargs)
+        super(ScopeDisplay, self).__init__(**kwargs)
         logger.debug('[LVP Main  ] ScopeDisplay.__init__()')
         self.play = True
         # paused / _display_running / _display_generation / _min_frame_interval /
@@ -94,6 +95,7 @@ class ScopeDisplay(Image):
         # reads via `frame_interval_percentiles_ms()`. deque.append is
         # atomic in CPython so no lock needed for occasional snapshot reads.
         from collections import deque
+
         self._frame_interval_history = deque(maxlen=2000)
         self._last_frame_pull_time = None
 
@@ -101,14 +103,13 @@ class ScopeDisplay(Image):
         self._eng_stats_last_time = 0.0
 
         # Performance instrumentation (enabled via settings.debug_mode)
-        self._perf_log_interval = 5.0   # seconds between perf reports
+        self._perf_log_interval = 5.0  # seconds between perf reports
         self._perf_log_last_time = 0.0
         self._perf_grab_times = []
         self._perf_process_times = []
         self._perf_blit_schedule_times = []
         self._perf_blit_delays = []
         self._debug_perf = None  # lazy-resolved from settings.debug_mode on first frame
-
 
         # Bullseye frame rate cap (15 FPS — CPU-intensive LUT rendering)
         self._bullseye_min_interval = 1.0 / BULLSEYE_FPS_CAP
@@ -127,9 +128,13 @@ class ScopeDisplay(Image):
         self._display_update_counter = 0
 
         # Display loop state owned by ScopeDisplayThread. Widget keeps:
-        self._last_frame_ts = None       # camera timestamp of last displayed frame (dup check)
-        self._last_rendered_frame = None # (bytes, shape, monotonic_ts) for thread.add_frame_listener fan-out
-        self._PROTOCOL_HOLD_MS = 500     # hold deadline duration (bumped via thread.bump_protocol_hold)
+        self._last_frame_ts = None  # camera timestamp of last displayed frame (dup check)
+        self._last_rendered_frame = (
+            None  # (bytes, shape, monotonic_ts) for thread.add_frame_listener fan-out
+        )
+        self._PROTOCOL_HOLD_MS = (
+            500  # hold deadline duration (bumped via thread.bump_protocol_hold)
+        )
 
         # Crosshair canvas overlay (drawn on top of texture, not into pixels)
         self._crosshair_group = InstructionGroup()
@@ -142,7 +147,9 @@ class ScopeDisplay(Image):
         self.canvas.after.add(self._validity_group)
         self._validity_dot_visible = False
 
-        self.bind(size=self._on_size_changed, pos=self._on_size_changed, texture=self._on_size_changed)
+        self.bind(
+            size=self._on_size_changed, pos=self._on_size_changed, texture=self._on_size_changed
+        )
 
         # Create a black texture to avoid white flash on startup
         self._create_default_black_texture()
@@ -156,7 +163,9 @@ class ScopeDisplay(Image):
         """Create a default black texture to display before camera feed starts."""
         # Create a small black image (will be stretched to fit)
         black_image = np.zeros((100, 100), dtype=np.uint8)
-        texture = Texture.create(size=(black_image.shape[1], black_image.shape[0]), colorfmt='luminance')
+        texture = Texture.create(
+            size=(black_image.shape[1], black_image.shape[0]), colorfmt='luminance'
+        )
         texture.blit_buffer(black_image.tobytes(), colorfmt='luminance', bufferfmt='ubyte')
         self.texture = texture
 
@@ -192,26 +201,32 @@ class ScopeDisplay(Image):
         self._crosshair_group.add(Color(1, 1, 1, 0.6))
 
         # Vertical center line (full height of displayed image)
-        self._crosshair_group.add(Line(
-            points=[cx, cy - img_h / 2, cx, cy + img_h / 2],
-            width=line_width,
-        ))
+        self._crosshair_group.add(
+            Line(
+                points=[cx, cy - img_h / 2, cx, cy + img_h / 2],
+                width=line_width,
+            )
+        )
 
         # Horizontal center line (full width of displayed image)
-        self._crosshair_group.add(Line(
-            points=[cx - img_w / 2, cy, cx + img_w / 2, cy],
-            width=line_width,
-        ))
+        self._crosshair_group.add(
+            Line(
+                points=[cx - img_w / 2, cy, cx + img_w / 2, cy],
+                width=line_width,
+            )
+        )
 
         # 4 radiating circles, evenly spaced across half the minimum dimension
         num_circles = 4
         circle_spacing = min_dim / 2 / num_circles
         for i in range(num_circles):
             radius = (i + 1) * circle_spacing
-            self._crosshair_group.add(Line(
-                circle=(cx, cy, radius),
-                width=line_width,
-            ))
+            self._crosshair_group.add(
+                Line(
+                    circle=(cx, cy, radius),
+                    width=line_width,
+                )
+            )
 
     def show_crosshairs(self, show):
         """Show or hide the crosshair overlay."""
@@ -246,10 +261,12 @@ class ScopeDisplay(Image):
             self._validity_group.add(Color(0, 1, 0, 0.8))  # green
         else:
             self._validity_group.add(Color(1, 0, 0, 0.8))  # red
-        self._validity_group.add(Ellipse(
-            pos=(cx - dot_radius, cy - dot_radius),
-            size=(dot_radius * 2, dot_radius * 2),
-        ))
+        self._validity_group.add(
+            Ellipse(
+                pos=(cx - dot_radius, cy - dot_radius),
+                size=(dot_radius * 2, dot_radius * 2),
+            )
+        )
 
     def start(self, fps=None):
         logger.info('[LVP Main  ] ScopeDisplay.start()')
@@ -289,35 +306,48 @@ class ScopeDisplay(Image):
         if thread is not None:
             thread.resume()
 
-
     def touch(self, target: Widget, event: MotionEvent):
         if event.is_touch and (event.device == 'mouse') and (event.button == 'right'):
             norm_texture_width, norm_texture_height = self.norm_image_size
-            norm_texture_x_min = self.center_x - norm_texture_width/2
-            norm_texture_x_max = self.center_x + norm_texture_width/2
-            norm_texture_y_min = self.center_y - norm_texture_height/2
-            norm_texture_y_max = self.center_y + norm_texture_height/2
+            norm_texture_x_min = self.center_x - norm_texture_width / 2
+            norm_texture_x_max = self.center_x + norm_texture_width / 2
+            norm_texture_y_min = self.center_y - norm_texture_height / 2
+            norm_texture_y_max = self.center_y + norm_texture_height / 2
 
             click_pos_x = event.pos[0]
             click_pos_y = event.pos[1]
 
             # Check if click occurred within texture
-            if (click_pos_x >= norm_texture_x_min) and (click_pos_x <= norm_texture_x_max) and \
-               (click_pos_y >= norm_texture_y_min) and (click_pos_y <= norm_texture_y_max):
+            if (
+                (click_pos_x >= norm_texture_x_min)
+                and (click_pos_x <= norm_texture_x_max)
+                and (click_pos_y >= norm_texture_y_min)
+                and (click_pos_y <= norm_texture_y_max)
+            ):
                 norm_texture_click_pos_x = click_pos_x - norm_texture_x_min
                 norm_texture_click_pos_y = click_pos_y - norm_texture_y_min
                 texture_width, texture_height = self.texture_size
 
                 # Scale to image pixels
                 texture_click_pos_x = norm_texture_click_pos_x * texture_width / norm_texture_width
-                texture_click_pos_y = norm_texture_click_pos_y * texture_height / norm_texture_height
+                texture_click_pos_y = (
+                    norm_texture_click_pos_y * texture_height / norm_texture_height
+                )
 
                 # Distance from center
-                x_dist_pixel = texture_click_pos_x - texture_width/2 # Positive means to the right of center
-                y_dist_pixel = texture_click_pos_y - texture_height/2 # Positive means above center
+                x_dist_pixel = (
+                    texture_click_pos_x - texture_width / 2
+                )  # Positive means to the right of center
+                y_dist_pixel = (
+                    texture_click_pos_y - texture_height / 2
+                )  # Positive means above center
 
-                from modules.config_ui_getters import get_current_objective_info, get_binning_from_ui
+                from modules.config_ui_getters import (
+                    get_current_objective_info,
+                    get_binning_from_ui,
+                )
                 from ui.ui_helpers import move_relative_position
+
                 _, objective = get_current_objective_info()
                 pixel_size_um = common_utils.get_pixel_size(
                     focal_length=objective['focal_length'],
@@ -329,9 +359,13 @@ class ScopeDisplay(Image):
 
                 ctx = _app_ctx.ctx
                 from modules.sequential_io_executor import IOTask
-                ctx.io_executor.put(IOTask(move_relative_position, kwargs={'axis':'X', 'um':x_dist_um}))
-                ctx.io_executor.put(IOTask(move_relative_position, kwargs={'axis':'Y', 'um':y_dist_um}))
 
+                ctx.io_executor.put(
+                    IOTask(move_relative_position, kwargs={'axis': 'X', 'um': x_dist_um})
+                )
+                ctx.io_executor.put(
+                    IOTask(move_relative_position, kwargs={'axis': 'Y', 'um': y_dist_um})
+                )
 
     @staticmethod
     def add_crosshairs(image):
@@ -342,32 +376,35 @@ class ScopeDisplay(Image):
         else:
             is_color = False
 
-        center_x = round(width/2)
-        center_y = round(height/2)
+        center_x = round(width / 2)
+        center_y = round(height / 2)
 
         # Crosshairs - 2 pixels wide
         if is_color:
-            image[:,center_x-1:center_x+1,:] = 255
-            image[center_y-1:center_y+1,:,:] = 255
+            image[:, center_x - 1 : center_x + 1, :] = 255
+            image[center_y - 1 : center_y + 1, :, :] = 255
         else:
-            image[:,center_x-1:center_x+1] = 255
-            image[center_y-1:center_y+1,:] = 255
+            image[:, center_x - 1 : center_x + 1] = 255
+            image[center_y - 1 : center_y + 1, :] = 255
 
         # Radiating circles
         num_circles = 4
         minimum_dimension = min(height, width)
-        circle_spacing = round(minimum_dimension/ 2 / num_circles)
+        circle_spacing = round(minimum_dimension / 2 / num_circles)
         for i in range(num_circles):
-            radius = (i+1) * circle_spacing
-            rr, cc = skimage.draw.circle_perimeter(center_y, center_x, radius=radius, shape=image.shape)
+            radius = (i + 1) * circle_spacing
+            rr, cc = skimage.draw.circle_perimeter(
+                center_y, center_x, radius=radius, shape=image.shape
+            )
             image[rr, cc] = 255
 
             # To make circles 2 pixel wide...
-            rr, cc = skimage.draw.circle_perimeter(center_y, center_x, radius=radius+1, shape=image.shape)
+            rr, cc = skimage.draw.circle_perimeter(
+                center_y, center_x, radius=radius + 1, shape=image.shape
+            )
             image[rr, cc] = 255
 
         return image
-
 
     # Pre-built 256-entry LUT for bullseye color mapping (built once, used every frame)
     _bullseye_lut = None
@@ -380,19 +417,19 @@ class ScopeDisplay(Image):
         # with blue at 125-135 and red at 245-255
         color_bands = [
             # (start_exclusive, end_inclusive, R, G, B)
-            (  5,  15,   0, 255,   0),
-            ( 25,  35,   0, 255,   0),
-            ( 45,  55,   0, 255,   0),
-            ( 65,  75,   0, 255,   0),
-            ( 85,  95,   0, 255,   0),
-            (105, 115,   0, 255,   0),
-            (125, 135,   0,   0, 255),
-            (145, 155,   0, 255,   0),
-            (165, 175,   0, 255,   0),
-            (185, 195,   0, 255,   0),
-            (205, 215,   0, 255,   0),
-            (225, 235,   0, 255,   0),
-            (245, 255, 255,   0,   0),
+            (5, 15, 0, 255, 0),
+            (25, 35, 0, 255, 0),
+            (45, 55, 0, 255, 0),
+            (65, 75, 0, 255, 0),
+            (85, 95, 0, 255, 0),
+            (105, 115, 0, 255, 0),
+            (125, 135, 0, 0, 255),
+            (145, 155, 0, 255, 0),
+            (165, 175, 0, 255, 0),
+            (185, 195, 0, 255, 0),
+            (205, 215, 0, 255, 0),
+            (225, 235, 0, 255, 0),
+            (245, 255, 255, 0, 0),
         ]
         for start, end, r, g, b in color_bands:
             lut[start + 1 : end + 1] = [r, g, b]
@@ -433,7 +470,6 @@ class ScopeDisplay(Image):
             'n': n,
         }
 
-
     # _pull_next_frame, update_scopedisplay, _schedule_next retired in Stage B1.
     # The dedicated scope_display_thread owns the FPS-paced loop; this widget
     # provides _render_one_frame as the loop body (one iteration = one frame).
@@ -443,18 +479,18 @@ class ScopeDisplay(Image):
     def set_engineering_ui(self, mean, stddev, af_score, open_layer):
         ctx = _app_ctx.ctx
         open_layer_obj = ctx.image_settings.layer_lookup(layer=open_layer)
-        new_mean_text = f"Mean: {mean}"
+        new_mean_text = f'Mean: {mean}'
         if open_layer_obj.ids['image_stats_mean_id'].text != new_mean_text:
             open_layer_obj.ids['image_stats_mean_id'].text = new_mean_text
-        new_stddev_text = f"StdDev: {stddev}"
+        new_stddev_text = f'StdDev: {stddev}'
         if open_layer_obj.ids['image_stats_stddev_id'].text != new_stddev_text:
             open_layer_obj.ids['image_stats_stddev_id'].text = new_stddev_text
-        new_af_text = f"AF Score: {af_score}"
+        new_af_text = f'AF Score: {af_score}'
         if open_layer_obj.ids['image_af_score_id'].text != new_af_text:
             open_layer_obj.ids['image_af_score_id'].text = new_af_text
 
     def set_camera_disconnected_display(self):
-        self.source = "./data/icons/camera_to_USB.png"
+        self.source = './data/icons/camera_to_USB.png'
         self.camera_disconnected_display_set = True
         # Drop the bullseye RGB scratch buffer so a reconnect at a
         # different camera resolution doesn't retain the old allocation
@@ -482,8 +518,9 @@ class ScopeDisplay(Image):
         if self._debug_counter == 30:
             self._debug_counter = 0
 
-    def _render_one_frame(self, *, active_layer, active_layer_config, open_layer,
-                          dispatch_time=0, generation=0):
+    def _render_one_frame(
+        self, *, active_layer, active_layer_config, open_layer, dispatch_time=0, generation=0
+    ):
         """Render one display frame. Called by ScopeDisplayThread per iteration.
 
         Returns a status code from scope_display_thread (STATUS_OK /
@@ -493,8 +530,12 @@ class ScopeDisplay(Image):
         is RETIRED -- the loop owns pacing now.
         """
         from modules.scope_display_thread import (
-            STATUS_OK, STATUS_EMPTY, STATUS_DUPLICATE, STATUS_NOT_READY,
+            STATUS_OK,
+            STATUS_EMPTY,
+            STATUS_DUPLICATE,
+            STATUS_NOT_READY,
         )
+
         ctx = _app_ctx.ctx
 
         # SHUTDOWN-RACE-1: thread can dequeue here after ctx / ctx.scope
@@ -527,7 +568,9 @@ class ScopeDisplay(Image):
 
         # Update scale bar color based on active channel (black for transmitted, white for fluorescence)
         if active_layer is not None:
-            ctx.scope.imaging.set_scale_bar(enabled=ctx.scope.imaging.scale_bar_enabled, color=active_layer)
+            ctx.scope.imaging.set_scale_bar(
+                enabled=ctx.scope.imaging.scale_bar_enabled, color=active_layer
+            )
 
         # Likely not an IO call as image will be stored in buffer
         t_grab_start = time.monotonic()
@@ -575,8 +618,8 @@ class ScopeDisplay(Image):
 
             if active_layer_config is not None and active_layer_config['auto_gain']:
                 from modules.sequential_io_executor import IOTask
-                ctx.camera_executor.put(IOTask(action=self.get_true_gain_exp, args=(active_layer,)))
 
+                ctx.camera_executor.put(IOTask(action=self.get_true_gain_exp, args=(active_layer,)))
 
         t_eng_stats = 0
         if ctx.engineering_mode:
@@ -591,13 +634,13 @@ class ScopeDisplay(Image):
                 t_eng_start = time.monotonic()
                 mean = round(np.mean(a=image), 2)
                 stddev = round(np.std(a=image), 2)
-                af_score = autofocus_functions.focus_function(
-                    image=image, skip_score_logging=True
-                )
+                af_score = autofocus_functions.focus_function(image=image, skip_score_logging=True)
                 t_eng_stats = time.monotonic() - t_eng_start
 
                 if open_layer is not None:
-                    Clock.schedule_once(lambda dt: self.set_engineering_ui(mean, stddev, af_score, open_layer), 0)
+                    Clock.schedule_once(
+                        lambda dt: self.set_engineering_ui(mean, stddev, af_score, open_layer), 0
+                    )
 
         if self.use_bullseye:
             now_be = time.monotonic()
@@ -607,7 +650,12 @@ class ScopeDisplay(Image):
                 bullseye_bytes = image_bullseye.tobytes()
                 bullseye_shape = image_bullseye.shape
                 g = generation
-                Clock.schedule_once(lambda dt, b=bullseye_bytes, s=bullseye_shape, gen=g: self.create_and_set_bullseye_texture(b, s, gen), 0)
+                Clock.schedule_once(
+                    lambda dt, b=bullseye_bytes, s=bullseye_shape, gen=g: (
+                        self.create_and_set_bullseye_texture(b, s, gen)
+                    ),
+                    0,
+                )
                 # Publish for thread.add_frame_listener fan-out
                 self._last_rendered_frame = (bullseye_bytes, bullseye_shape, time.monotonic())
 
@@ -622,7 +670,12 @@ class ScopeDisplay(Image):
             image_shape = image.shape
             t_blit_scheduled = time.monotonic()
             g = generation
-            Clock.schedule_once(lambda dt, b=image_bytes, s=image_shape, ts=t_blit_scheduled, gen=g: self.create_and_set_texture(b, s, ts, gen), 0)
+            Clock.schedule_once(
+                lambda dt, b=image_bytes, s=image_shape, ts=t_blit_scheduled, gen=g: (
+                    self.create_and_set_texture(b, s, ts, gen)
+                ),
+                0,
+            )
             # Publish for thread.add_frame_listener fan-out
             self._last_rendered_frame = (image_bytes, image_shape, t_blit_scheduled)
 
@@ -644,19 +697,29 @@ class ScopeDisplay(Image):
                         avg_proc = sum(self._perf_process_times) / n * 1000
                         max_grab = max(self._perf_grab_times) * 1000
                         max_proc = max(self._perf_process_times) * 1000
-                        avg_queue = sum(self._perf_blit_schedule_times) / max(1, len(self._perf_blit_schedule_times)) * 1000
+                        avg_queue = (
+                            sum(self._perf_blit_schedule_times)
+                            / max(1, len(self._perf_blit_schedule_times))
+                            * 1000
+                        )
                         kivy_fps = Clock.get_fps()
                         kivy_rfps = Clock.get_rfps()
                         display_fps = self._display_fps_value
-                        avg_blit_delay = sum(self._perf_blit_delays) / max(1, len(self._perf_blit_delays)) * 1 if self._perf_blit_delays else 0
-                        max_blit_delay = max(self._perf_blit_delays) if self._perf_blit_delays else 0
+                        avg_blit_delay = (
+                            sum(self._perf_blit_delays) / max(1, len(self._perf_blit_delays)) * 1
+                            if self._perf_blit_delays
+                            else 0
+                        )
+                        max_blit_delay = (
+                            max(self._perf_blit_delays) if self._perf_blit_delays else 0
+                        )
                         capture_fps = self._capture_fps_value
                         logger.debug(
                             f'[PERF] capture={capture_fps:.1f} display={display_fps:.1f} '
                             f'kivy={kivy_fps:.0f}/{kivy_rfps:.0f} FPS | '
                             f'queue={avg_queue:.1f}ms grab={avg_grab:.1f}ms(max {max_grab:.1f}) '
                             f'proc={avg_proc:.1f}ms(max {max_proc:.1f}) '
-                            f'blit_delay={avg_blit_delay:.1f}ms(max {max_blit_delay:.0f}) eng={t_eng_stats*1000:.1f}ms'
+                            f'blit_delay={avg_blit_delay:.1f}ms(max {max_blit_delay:.0f}) eng={t_eng_stats * 1000:.1f}ms'
                         )
                     self._perf_grab_times.clear()
                     self._perf_process_times.clear()
@@ -675,7 +738,11 @@ class ScopeDisplay(Image):
         # when the frame size changes; otherwise blit into the existing
         # one. Pre-cache fix: at the 15 fps bullseye cap this leaked
         # ~54k texture objects per hour.
-        if not hasattr(self, '_bullseye_texture') or self._bullseye_texture is None or self._bullseye_texture.size != size:
+        if (
+            not hasattr(self, '_bullseye_texture')
+            or self._bullseye_texture is None
+            or self._bullseye_texture.size != size
+        ):
             self._bullseye_texture = Texture.create(size=size, colorfmt='rgb')
         self._bullseye_texture.blit_buffer(image_bytes, colorfmt='rgb', bufferfmt='ubyte')
         self.texture = self._bullseye_texture
@@ -698,9 +765,15 @@ class ScopeDisplay(Image):
             blit_delay = (time.monotonic() - scheduled_time) * 1000
             self._perf_blit_delays.append(blit_delay)
             if blit_delay > 100:
-                logger.debug(f'[PERF] Blit callback delayed {blit_delay:.0f}ms (main thread congested)')
+                logger.debug(
+                    f'[PERF] Blit callback delayed {blit_delay:.0f}ms (main thread congested)'
+                )
         size = (shape[1], shape[0])
-        if not hasattr(self, '_mono_texture') or self._mono_texture is None or self._mono_texture.size != size:
+        if (
+            not hasattr(self, '_mono_texture')
+            or self._mono_texture is None
+            or self._mono_texture.size != size
+        ):
             self._mono_texture = Texture.create(size=size, colorfmt='luminance')
         self._mono_texture.blit_buffer(image_bytes, colorfmt='luminance', bufferfmt='ubyte')
         self.texture = self._mono_texture
@@ -745,8 +818,7 @@ class ScopeDisplay(Image):
             if thread is not None:
                 thread.bump_protocol_hold(self._PROTOCOL_HOLD_MS / 1000.0)
             _Clock.schedule_once(
-                lambda dt, b=data, s=shape, g=gen:
-                    self.create_and_set_texture(b, s, generation=g),
+                lambda dt, b=data, s=shape, g=gen: self.create_and_set_texture(b, s, generation=g),
                 0,
             )
         except Exception as e:
@@ -763,8 +835,11 @@ class ScopeDisplay(Image):
         elapsed = now - self._display_fps_last_time
         if elapsed >= 1.0:
             raw_display_fps = self._display_fps_count / elapsed
-            self._display_fps_value = min(raw_display_fps, self._capture_fps_value) \
-                if self._capture_fps_value > 0 else raw_display_fps
+            self._display_fps_value = (
+                min(raw_display_fps, self._capture_fps_value)
+                if self._capture_fps_value > 0
+                else raw_display_fps
+            )
             self._display_fps_count = 0
             self._display_fps_last_time = now
 

@@ -37,7 +37,7 @@ def image_to_texture(image, existing: Texture | None = None) -> Texture:
 
 def image_file_to_texture(image_file) -> Texture:
     image = image_utils.image_file_to_image(image_file=image_file)
-    
+
     if image is None:
         return None
 

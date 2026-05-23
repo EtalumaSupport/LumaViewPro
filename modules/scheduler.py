@@ -48,8 +48,7 @@ class Scheduler(Protocol):
     be idempotent (cancelling an already-cancelled handle is a no-op).
     """
 
-    def schedule_interval(self, callback: TickCallback,
-                          interval_s: float) -> object:
+    def schedule_interval(self, callback: TickCallback, interval_s: float) -> object:
         """Schedule ``callback`` to fire every ``interval_s`` seconds.
 
         Returns an opaque handle suitable for ``unschedule(handle)``.
@@ -91,6 +90,7 @@ class KivyClockScheduler:
         """
         if clock is None:
             from kivy.clock import Clock as _Clock
+
             clock = _Clock
         self._clock = clock
         self._handles: list[object] = []
@@ -99,8 +99,7 @@ class KivyClockScheduler:
 
     def schedule_interval(self, callback, interval_s):
         if self._closed:
-            raise RuntimeError(
-                'KivyClockScheduler is shutdown; refusing new schedule')
+            raise RuntimeError('KivyClockScheduler is shutdown; refusing new schedule')
 
         # Clock invokes callback(dt); accept callbacks that ignore it.
         def _wrapped(dt=0):
@@ -149,9 +148,13 @@ class _PeriodicTimer:
     scheduled interval a single opaque handle.
     """
 
-    def __init__(self, callback: TickCallback, interval_s: float,
-                 on_error: Optional[Callable[[BaseException], None]] = None,
-                 name: str = 'PeriodicTimer'):
+    def __init__(
+        self,
+        callback: TickCallback,
+        interval_s: float,
+        on_error: Optional[Callable[[BaseException], None]] = None,
+        name: str = 'PeriodicTimer',
+    ):
         self._callback = callback
         self._interval_s = interval_s
         self._on_error = on_error
@@ -219,8 +222,11 @@ class ThreadingTimerScheduler:
     serialize with other work should use their own lock.
     """
 
-    def __init__(self, name_prefix: str = 'LVP-MetricsTimer',
-                 on_callback_error: Optional[Callable[[BaseException], None]] = None):
+    def __init__(
+        self,
+        name_prefix: str = 'LVP-MetricsTimer',
+        on_callback_error: Optional[Callable[[BaseException], None]] = None,
+    ):
         """Initialize.
 
         Args:
@@ -241,8 +247,7 @@ class ThreadingTimerScheduler:
 
     def schedule_interval(self, callback, interval_s):
         if self._closed:
-            raise RuntimeError(
-                'ThreadingTimerScheduler is shutdown; refusing new schedule')
+            raise RuntimeError('ThreadingTimerScheduler is shutdown; refusing new schedule')
         with self._lock:
             self._next_id += 1
             tid = self._next_id
@@ -290,6 +295,7 @@ class ThreadingTimerScheduler:
 # hasn't migrated yet keeps building. Delete after the last caller
 # migrates.
 
+
 class _CallablePairScheduler:
     """Wraps a (schedule_interval_fn, unschedule_fn) pair as a Scheduler.
 
@@ -307,8 +313,7 @@ class _CallablePairScheduler:
 
     def schedule_interval(self, callback, interval_s):
         if self._closed:
-            raise RuntimeError(
-                '_CallablePairScheduler is shutdown; refusing new schedule')
+            raise RuntimeError('_CallablePairScheduler is shutdown; refusing new schedule')
 
         def _wrapped(dt=0):
             try:

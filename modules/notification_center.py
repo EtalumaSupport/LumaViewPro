@@ -31,22 +31,24 @@ logger = logging.getLogger('LVP.notifications')
 
 class Severity(IntEnum):
     """Notification severity levels (matches Python logging levels)."""
-    DEBUG = logging.DEBUG        # 10
-    INFO = logging.INFO          # 20
-    WARNING = logging.WARNING    # 30
-    ERROR = logging.ERROR        # 40
+
+    DEBUG = logging.DEBUG  # 10
+    INFO = logging.INFO  # 20
+    WARNING = logging.WARNING  # 30
+    ERROR = logging.ERROR  # 40
     CRITICAL = logging.CRITICAL  # 50
 
 
 @dataclass(frozen=True)
 class Notification:
     """Immutable notification payload delivered to listeners."""
+
     severity: Severity
-    category: str       # e.g. "Motor", "Camera", "FileIO", "Protocol"
-    title: str          # short summary shown in popup title
-    message: str        # detail shown in popup body
+    category: str  # e.g. "Motor", "Camera", "FileIO", "Protocol"
+    title: str  # short summary shown in popup title
+    message: str  # detail shown in popup body
     timestamp: float = field(default_factory=time.monotonic)
-    source: str = ""    # optional originating module/function
+    source: str = ''  # optional originating module/function
 
 
 class NotificationCenter:
@@ -93,11 +95,11 @@ class NotificationCenter:
         category: str,
         title: str,
         message: str,
-        source: str = "",
+        source: str = '',
     ) -> None:
         """Post a notification.  Thread-safe.  Always logs."""
         # Always log at the matching level
-        logger.log(int(severity), f"[{category}] {title}: {message}")
+        logger.log(int(severity), f'[{category}] {title}: {message}')
 
         # Forensics: every notification (independent of any UI popup
         # bridge that may suppress it post-shutdown) lands in
@@ -110,14 +112,15 @@ class NotificationCenter:
         # frozen pyinstaller builds suppress stderr from L1 users.
         try:
             from modules import gui_logger
+
             gui_logger.notification(
                 severity.name if hasattr(severity, 'name') else str(severity),
-                f"{category}/{title}", message, source=source or "")
-        except Exception as e:
-            logger.warning(
-                f'notification forensic write failed: '
-                f'{type(e).__name__}: {e}'
+                f'{category}/{title}',
+                message,
+                source=source or '',
             )
+        except Exception as e:
+            logger.warning(f'notification forensic write failed: {type(e).__name__}: {e}')
 
         # Dedup check + shutdown suppression
         key = (category, title)

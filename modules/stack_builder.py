@@ -10,6 +10,7 @@ import tifffile as tf
 import modules.image_utils as image_utils
 
 import logging
+
 logger = logging.getLogger('lvp_logger')
 
 
@@ -20,10 +21,11 @@ def _check_hyperstack_memory(num_t, num_z, num_c, h, w, dtype):
     available_bytes = psutil.virtual_memory().available
     if required_bytes > available_bytes * 0.8:
         raise MemoryError(
-            f"Hyperstack requires {required_bytes / 1e9:.1f} GB but only "
-            f"{available_bytes / 1e9:.1f} GB available. Reduce Z-slices, "
-            f"timepoints, or channels."
+            f'Hyperstack requires {required_bytes / 1e9:.1f} GB but only '
+            f'{available_bytes / 1e9:.1f} GB available. Reduce Z-slices, '
+            f'timepoints, or channels.'
         )
+
 
 import modules.common_utils as common_utils
 from modules.common_utils import PostFunction
@@ -32,7 +34,6 @@ from modules.protocol_post_record import ProtocolPostRecord
 
 
 class StackBuilder(ProtocolPostProcessor):
-
     def __init__(self, *args, **kwargs):
         super().__init__(
             post_function=PostFunction.HYPERSTACK,
@@ -40,7 +41,6 @@ class StackBuilder(ProtocolPostProcessor):
             **kwargs,
         )
         self._name = self.__class__.__name__
-        
 
     @staticmethod
     def _get_groups(df: pd.DataFrame) -> pd.DataFrame:
@@ -54,16 +54,17 @@ class StackBuilder(ProtocolPostProcessor):
                 'Tile Group ID',
                 'Custom Step',
                 'Raw',
-                *PostFunction.list_values()
+                *PostFunction.list_values(),
             ],
-            dropna=False
+            dropna=False,
         )
-    
 
     def _generate_filename(self, df: pd.DataFrame, **kwargs) -> str:
         row0 = df.iloc[0]
 
-        objective_short_name = self._get_objective_short_name_if_has_turret(objective_id=row0['Objective'])
+        objective_short_name = self._get_objective_short_name_if_has_turret(
+            objective_id=row0['Objective']
+        )
 
         name = common_utils.generate_default_step_name(
             custom_name_prefix=row0['Name'],
@@ -75,10 +76,9 @@ class StackBuilder(ProtocolPostProcessor):
             objective_short_name=objective_short_name,
             hyperstack=True,
         )
-        
-        outfile = f"{name}.ome.tiff"
+
+        outfile = f'{name}.ome.tiff'
         return outfile
-    
 
     def _filter_ignored_types(self, df: pd.DataFrame) -> pd.DataFrame:
 
@@ -86,7 +86,6 @@ class StackBuilder(ProtocolPostProcessor):
         df = df[df['Raw'] == True]
 
         return df
-    
 
     def _group_algorithm(
         self,
@@ -101,7 +100,6 @@ class StackBuilder(ProtocolPostProcessor):
             focal_length=kwargs['focal_length'],
             binning_size=kwargs['binning_size'],
         )
-
 
     @staticmethod
     def _add_record(
@@ -123,14 +121,13 @@ class StackBuilder(ProtocolPostProcessor):
             z=-1,
             z_slice=-1,
             well=row0['Well'],
-            color="Stack",
+            color='Stack',
             objective=row0['Objective'],
             tile_group_id=row0['Tile Group ID'],
             tile=row0['Tile'],
             custom_step=row0['Custom Step'],
             **kwargs,
         )
-
 
     @staticmethod
     def _generate_image_metadata(
@@ -142,7 +139,7 @@ class StackBuilder(ProtocolPostProcessor):
         focal_length: float,
     ):
 
-        axes = "TZCYX"
+        axes = 'TZCYX'
         photometric = 'minisblack'
 
         channel_names = df['Color'].unique().tolist()
@@ -165,9 +162,9 @@ class StackBuilder(ProtocolPostProcessor):
         sample_image_file_loc = path / row0['Filepath']
         sample_image = tf.imread(sample_image_file_loc)
 
-        metadata={
+        metadata = {
             'axes': axes,
-            'SignificantBits': sample_image.itemsize*8,
+            'SignificantBits': sample_image.itemsize * 8,
             'Pixels': {
                 'PhysicalSizeX': pixel_size_um,
                 'PhysicalSizeXUnit': 'um',
@@ -177,14 +174,14 @@ class StackBuilder(ProtocolPostProcessor):
             'Channel': {'Name': channel_names},
         }
 
-        options=dict(
+        options = dict(
             photometric=photometric,
             tile=(128, 128),
             compression='lzw',
             resolutionunit='CENTIMETER',
-            maxworkers=2
+            maxworkers=2,
         )
-        
+
         resolution = (1e4 / pixel_size_um, 1e4 / pixel_size_um)
 
         return {
@@ -192,7 +189,6 @@ class StackBuilder(ProtocolPostProcessor):
             'options': options,
             'resolution': resolution,
         }
-    
 
     @staticmethod
     def _create_stack(
@@ -208,7 +204,7 @@ class StackBuilder(ProtocolPostProcessor):
 
         _, color_idx_map = np.unique(df['Color'], return_inverse=True)
         df['Color Index'] = color_idx_map
-        
+
         row0 = df.iloc[0]
         sample_image_file_loc = path / row0['Filepath']
         sample_image = tf.imread(sample_image_file_loc)
@@ -217,7 +213,7 @@ class StackBuilder(ProtocolPostProcessor):
 
         _check_hyperstack_memory(num_t, num_z, num_c, h, w, sample_image.dtype)
         stacked_image = np.zeros(
-            shape=(num_t, num_z, num_c, h, w), # Hyperstack order TZCYX
+            shape=(num_t, num_z, num_c, h, w),  # Hyperstack order TZCYX
             dtype=sample_image.dtype,
         )
 
@@ -238,16 +234,15 @@ class StackBuilder(ProtocolPostProcessor):
             if image_utils.is_color_image(image):
                 image = image_utils.rgb_image_to_gray(image=image)
 
-            stacked_image[t,z,c,:,:] = image
+            stacked_image[t, z, c, :, :] = image
             plane_metadata['PositionX'].append(row['X'])
             plane_metadata['PositionY'].append(row['Y'])
             plane_metadata['PositionZ'].append(row['Z'])
 
-
         num_planes = len(plane_metadata['PositionX'])
-        plane_metadata['PositionXUnit'] = num_planes*['mm']
-        plane_metadata['PositionYUnit'] = num_planes*['mm']
-        plane_metadata['PositionZUnit'] = num_planes*['um']
+        plane_metadata['PositionXUnit'] = num_planes * ['mm']
+        plane_metadata['PositionYUnit'] = num_planes * ['mm']
+        plane_metadata['PositionZUnit'] = num_planes * ['um']
 
         ome_info = StackBuilder._generate_image_metadata(
             df=df,
@@ -271,11 +266,7 @@ class StackBuilder(ProtocolPostProcessor):
             **ome_info['options'],
         )
 
-        return {
-            'status': True,
-            'error': None,
-            'metadata': {}
-        }
+        return {'status': True, 'error': None, 'metadata': {}}
 
     @staticmethod
     def create_single_recording_stack(
@@ -296,12 +287,12 @@ class StackBuilder(ProtocolPostProcessor):
 
         _, color_idx_map = np.unique(df['Color'], return_inverse=True)
         df['Color Index'] = color_idx_map
-        
+
         h, w = sample_image_shape[0], sample_image_shape[1]
 
         _check_hyperstack_memory(num_t, num_z, num_c, h, w, sample_image.dtype)
         stacked_image = np.zeros(
-            shape=(num_t, num_z, num_c, h, w), # Hyperstack order TZCYX
+            shape=(num_t, num_z, num_c, h, w),  # Hyperstack order TZCYX
             dtype=sample_image.dtype,
         )
 
@@ -322,16 +313,15 @@ class StackBuilder(ProtocolPostProcessor):
             if image_utils.is_color_image(image):
                 image = image_utils.rgb_image_to_gray(image=image)
 
-            stacked_image[t,z,c,:,:] = image
+            stacked_image[t, z, c, :, :] = image
             plane_metadata['PositionX'].append(row['X'])
             plane_metadata['PositionY'].append(row['Y'])
             plane_metadata['PositionZ'].append(row['Z'])
 
-
         num_planes = len(plane_metadata['PositionX'])
-        plane_metadata['PositionXUnit'] = num_planes*['mm']
-        plane_metadata['PositionYUnit'] = num_planes*['mm']
-        plane_metadata['PositionZUnit'] = num_planes*['um']
+        plane_metadata['PositionXUnit'] = num_planes * ['mm']
+        plane_metadata['PositionYUnit'] = num_planes * ['mm']
+        plane_metadata['PositionZUnit'] = num_planes * ['um']
 
         ome_info = StackBuilder._generate_image_metadata(
             df=df,
@@ -355,16 +345,12 @@ class StackBuilder(ProtocolPostProcessor):
             **ome_info['options'],
         )
 
-        return {
-            'status': True,
-            'error': None,
-            'metadata': {}
-        }
+        return {'status': True, 'error': None, 'metadata': {}}
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     stack_builder = StackBuilder(has_turret=False)
-    tiling_configs_file_loc=pathlib.Path(os.getenv('SOURCE_ROOT')) / "data" / "tiling.json"
+    tiling_configs_file_loc = pathlib.Path(os.getenv('SOURCE_ROOT')) / 'data' / 'tiling.json'
     stack_builder.load_folder(
         path=os.getenv('SAMPLE_IMAGE_FOLDER'),
         tiling_configs_file_loc=tiling_configs_file_loc,
