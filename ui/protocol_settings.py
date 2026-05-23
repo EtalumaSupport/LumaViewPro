@@ -1958,6 +1958,25 @@ class ProtocolSettings(FloatLayout):
         ctx = _app_ctx.ctx
         sequenced_capture_runner = ctx.sequenced_capture_runner
 
+        def restore_layer_shader_for_open_accordion():
+            """Re-apply the shader for the currently-open accordion's
+            layer. Called by protocol_cleanup to undo per-step shader
+            changes (Red tint for Red step, etc.) so the live preview
+            returns to the user's visible-layer false-color setting.
+            Runs on the UI thread via _schedule_ui in protocol_cleanup.
+            """
+            ctx_inner = _app_ctx.ctx
+            for layer_name in common_utils.get_layers():
+                accordion_item = ctx_inner.image_settings.accordion_item_lookup(
+                    layer=layer_name
+                )
+                if not accordion_item.collapse:
+                    layer_obj = ctx_inner.image_settings.layer_lookup(layer=layer_name)
+                    layer_obj.update_shader(dt=0)
+                    return
+            # No open accordion -- default to BF (no false-color tint)
+            ctx_inner.viewer.update_shader(false_color='BF')
+
         callbacks.update(
             {
                 'move_position': _handle_ui_update_for_axis,
@@ -1973,6 +1992,7 @@ class ProtocolSettings(FloatLayout):
                 'restore_autofocus_state': lambda layer, value: settings[layer].__setitem__(
                     'autofocus', value
                 ),
+                'restore_layer_shader': restore_layer_shader_for_open_accordion,
             }
         )
 

@@ -58,6 +58,17 @@ class ProtocolCallbacks:
     pause_live_ui: Optional[Callable] = None  # () -> None
     resume_live_ui: Optional[Callable] = None  # () -> None
 
+    # --- UI shader / false-color state ---
+    # Each protocol step calls layer_control.apply_settings() which sets
+    # the OpenGL shader white_point for that layer's false-color (Red
+    # tint for Red step, etc.). Without a cleanup-time restore, the
+    # last step's shader stays active and tints the live preview after
+    # protocol stop. Sibling category to the LED-driver-state restore
+    # (the LED hardware is cleared by leds_off; this clears the UI
+    # shader). Callable signature: () -> None. Re-applies the shader
+    # for the currently-open accordion (or BF default if none open).
+    restore_layer_shader: Optional[Callable] = None
+
     @classmethod
     def from_dict(cls, d: dict[str, Any] | None) -> ProtocolCallbacks:
         """Build from a plain dict, ignoring unknown keys."""

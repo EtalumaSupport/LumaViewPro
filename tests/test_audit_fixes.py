@@ -2892,6 +2892,125 @@ class TestPIW2_DisksUsageDeduped:
         )
 
 
+class TestProtocolCleanupRestoresLayerShader_ShaderHygiene:
+    """Cluster sibling of LED-state-hygiene-at-transition (#666 / #659 /
+    #617): the OpenGL shader's false-color white_point also needs a
+    cleanup-time restore.
+
+    Bug shape (sim repro 2026-05-23): protocol step on Red layer calls
+    Red_LayerControl.apply_settings() which calls
+    ShaderViewer.update_shader('Red'), writing
+    `white_point = (white, 0.0, 0.0, 1.0)` to the canvas shader.
+    Subsequent rendered frames are red-tinted via this multiplier.
+    When the protocol stops, protocol_cleanup restores LEDs, AF,
+    camera state, and stage position -- but NOT shader state. The
+    last protocol step's tint persists indefinitely on the live
+    preview canvas regardless of which accordion the user opens.
+
+    Fix: ProtocolCallbacks gains `restore_layer_shader`; protocol_cleanup
+    invokes it via _schedule_ui after the LED restore block. The GUI
+    caller wires it to a function that re-applies the
+    currently-open accordion's shader (falling back to BF if none
+    open).
+    """
+
+    def _cleanup_src(self):
+        from pathlib import Path
+
+        return (
+            Path(__file__).resolve().parent.parent
+            / 'modules' / 'protocol_cleanup.py'
+        ).read_text()
+
+    def _callbacks_src(self):
+        from pathlib import Path
+
+        return (
+            Path(__file__).resolve().parent.parent
+            / 'modules' / 'protocol_callbacks.py'
+        ).read_text()
+
+    def _protocol_settings_src(self):
+        from pathlib import Path
+
+        return (
+            Path(__file__).resolve().parent.parent
+            / 'ui' / 'protocol_settings.py'
+        ).read_text()
+
+    def test_callback_field_exists_in_protocol_callbacks(self):
+        """ProtocolCallbacks must declare a restore_layer_shader field
+        so the cleanup module can invoke it through the typed contract
+        (not a magic-string dict)."""
+        src = self._callbacks_src()
+        assert 'restore_layer_shader' in src, (
+            'ProtocolCallbacks must declare restore_layer_shader (the '
+            'sibling-of-LED-state shader-hygiene-at-transition fix)'
+        )
+
+    def test_cleanup_invokes_restore_layer_shader(self):
+        """protocol_cleanup must call callbacks.restore_layer_shader
+        on UI thread (via _schedule_ui) as part of its restore steps.
+        Catches a future revert that drops the call."""
+        src = self._cleanup_src()
+        assert 'callbacks.restore_layer_shader' in src, (
+            'protocol_cleanup must invoke callbacks.restore_layer_shader'
+        )
+        # The invocation must be UI-thread-dispatched (Rule 15 -- the
+        # cleanup module is GUI-agnostic; UI work goes via _schedule_ui).
+        idx = src.find('callbacks.restore_layer_shader')
+        assert idx != -1
+        # The line surrounding the call should include _schedule_ui.
+        nearby = src[max(0, idx - 100):idx + 150]
+        assert '_schedule_ui' in nearby, (
+            'restore_layer_shader call must be UI-thread-dispatched '
+            'via _schedule_ui (Rule 15)'
+        )
+
+    def test_cleanup_shader_restore_protected_by_try_except(self):
+        """The shader restore must not abort the rest of cleanup if it
+        raises (fault tolerance -- all restore steps must run
+        regardless of any one failing). Sibling pattern to the LED /
+        AF / camera restore blocks."""
+        src = self._cleanup_src()
+        idx = src.find('callbacks.restore_layer_shader')
+        assert idx != -1
+        # The 200 chars before the call should contain a `try:` and the
+        # 200 chars after should contain a matching except clause that
+        # appends to cleanup_errors.
+        window = src[max(0, idx - 200):idx + 400]
+        assert 'try:' in window, (
+            'restore_layer_shader call must be inside a try block '
+            '(fault tolerance pattern matching LED / AF / camera blocks)'
+        )
+        assert 'cleanup_errors.append' in window, (
+            'restore_layer_shader exception path must append to '
+            'cleanup_errors so the summary notification surfaces the '
+            'failure'
+        )
+
+    def test_protocol_settings_wires_restore_layer_shader_callback(self):
+        """The GUI caller (ui/protocol_settings.py) must register the
+        restore_layer_shader callback when building the callbacks dict
+        for the run, otherwise the cleanup call no-ops and the bug
+        recurs."""
+        src = self._protocol_settings_src()
+        assert "'restore_layer_shader'" in src or '"restore_layer_shader"' in src, (
+            'ui/protocol_settings.py must wire the restore_layer_shader '
+            'callback into the callbacks dict it passes to '
+            'sequenced_capture_runner.run(). Without this wire, '
+            'protocol_cleanup invokes None and the shader-tint bug '
+            'recurs.'
+        )
+        # Verify the callback body iterates accordions + calls
+        # update_shader -- the canonical "find open accordion, apply
+        # its shader" pattern (mirrors update_bullseye_state).
+        assert 'update_shader(' in src, (
+            'GUI callback must call update_shader to re-apply the '
+            'currently-open accordion shader'
+        )
+
+
 class TestPF2_FileIoExecutorClearedOnAbort:
     """PF-2: on hardware-disconnect / abort cleanup, file_io_executor's
     pending queue was NOT cleared — only io_executor's was. Queued IOTasks

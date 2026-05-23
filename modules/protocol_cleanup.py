@@ -117,7 +117,24 @@ def run_cleanup(
     except Exception as ex:
         logger.error(f'[PROTOCOL] Error restoring LED states during cleanup: {ex}')
         cleanup_errors.append(f'Restore LED states: {type(ex).__name__}: {ex}')
-    logger.info(f'[{logger_name}] Cleanup: LED/camera restore complete')
+    logger.info(f'[{logger_name}] Cleanup: LED restore complete')
+
+    # --- Restore layer shader / false-color (UI side) ---
+    # Each protocol step calls layer_control.apply_settings() which
+    # writes the OpenGL shader white_point for that layer's
+    # false-color (Red tint for the Red step, Green tint for Green,
+    # etc.). Without this restore the last step's shader stays
+    # active and tints the live preview after protocol stop. Cluster
+    # sibling of LED-state-hygiene-at-transition (#666 / #659 /
+    # #617): driver LED state was already cleared above; this is
+    # the sibling UI-shader-state clear. Bugs cluster -- one cleanup
+    # pass covers both halves.
+    try:
+        if callbacks.restore_layer_shader:
+            _schedule_ui(lambda dt: callbacks.restore_layer_shader(), 0)
+    except Exception as ex:
+        logger.error(f'[PROTOCOL] Error restoring layer shader during cleanup: {ex}')
+        cleanup_errors.append(f'Restore layer shader: {type(ex).__name__}: {ex}')
 
     # --- Restore autofocus states ---
     # Guard against None / empty (the common case when no AF was active
