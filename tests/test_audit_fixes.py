@@ -9879,6 +9879,42 @@ class TestProfileTraceGateIsNotEnvVar:
         )
 
 
+class TestTracemallocGateIsNotEnvVar:
+    """tracemalloc must NOT be gated by an environment variable.
+
+    Per the options-menu rule, runtime toggles live in settings.json or
+    as a code constant -- never as an environment variable. The earlier
+    LVP_TRACEMALLOC gate violated that rule and was migrated to the
+    tracemalloc_enabled settings key. This AST scan pins the migration
+    so the env-var pattern doesn't sneak back in.
+    """
+
+    def _common_utils_source(self):
+        from pathlib import Path
+        return (Path(__file__).resolve().parent.parent
+                / "modules" / "common_utils.py").read_text()
+
+    def test_no_lvp_tracemalloc_env_var_in_module(self):
+        import ast
+        src = self._common_utils_source()
+        tree = ast.parse(src)
+
+        hits = []
+
+        class Visitor(ast.NodeVisitor):
+            def visit_Constant(self, node):
+                if isinstance(node.value, str) and node.value == "LVP_TRACEMALLOC":
+                    hits.append((node.lineno, node.value))
+                self.generic_visit(node)
+
+        Visitor().visit(tree)
+        assert not hits, (
+            "modules/common_utils.py must not reference LVP_TRACEMALLOC "
+            "as a string literal -- the env-var gate is retired in favor "
+            f"of the tracemalloc_enabled settings key. Hits: {hits}"
+        )
+
+
 class TestCameraDelHandlesPartialConstruction:
     """Camera.__del__ must short-circuit on a partially-constructed
     instance instead of firing "no attribute _state_lock" warnings.

@@ -200,3 +200,24 @@ def load_profile_trace_setting(directory):
         "enabled": bool(temp_settings.get("profile_trace_enabled", False)),
         "output_dir": temp_settings.get("profile_trace_output_dir") or None,
     }
+
+
+def load_tracemalloc_setting(directory):
+    """Read tracemalloc_enabled from settings.
+
+    Returns bool. Missing or unreadable settings file resolves to False
+    so the caller never has to guard for absence; tracemalloc defaults
+    OFF in that case (10-30% process-memory overhead is the cost).
+
+    Called from modules/common_utils.py at module-import time, mirroring
+    the timing of load_profile_trace_setting() above. Replaces the prior
+    LVP_TRACEMALLOC environment-variable gate.
+    """
+    try:
+        filename = _resolve_settings_path(directory)
+        with open(filename, "r") as read_file:
+            temp_settings = json.load(read_file)
+    except Exception:
+        return False
+
+    return bool(temp_settings.get("tracemalloc_enabled", False))

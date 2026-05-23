@@ -597,20 +597,39 @@ def query_defender_metrics():
 # ---------------------------------------------------------------------------
 # tracemalloc top-N allocators — TEMPORARY INSTRUMENTATION (2026-04-30)
 #
-# Off by default. Enable via env var LVP_TRACEMALLOC=1. When on, tracemalloc
-# is started at first call and a snapshot is taken; top-N allocators are
-# returned. Overhead: ~10-30% process memory. Use only when needed.
+# Off by default. Enable via tracemalloc_enabled: true in data/settings.json.
+# When on, tracemalloc is started at first call and a snapshot is taken;
+# top-N allocators are returned. Overhead: ~10-30% process memory. Use only
+# when needed.
 # ---------------------------------------------------------------------------
 
 _tracemalloc_started = False
 
 
+def _read_tracemalloc_gate():
+    # Reuse lvp_logger.lvp_appdata so the production-installed path
+    # (~/Documents/LumaViewPro <version>/data/) resolves the same way
+    # the logger's debug-mode gate does. Fall back to the source root
+    # when lvp_logger isn't importable (e.g. unit tests that exercise
+    # this module in isolation).
+    from modules.settings_init import load_tracemalloc_setting
+    try:
+        import lvp_logger
+        base_dir = lvp_logger.lvp_appdata
+    except (ImportError, AttributeError):
+        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    return load_tracemalloc_setting(base_dir)
+
+
+_tracemalloc_enabled = _read_tracemalloc_gate()
+
+
 def query_tracemalloc_top_n(n=5):
     """Return list of top-N allocators by current size, or [] if disabled.
 
-    Enable via env var LVP_TRACEMALLOC=1.
+    Enable via tracemalloc_enabled: true in data/settings.json.
     """
-    if os.environ.get('LVP_TRACEMALLOC', '0') != '1':
+    if not _tracemalloc_enabled:
         return []
     global _tracemalloc_started
     try:

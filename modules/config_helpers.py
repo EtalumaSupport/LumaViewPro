@@ -561,11 +561,12 @@ def log_system_metrics(settings: dict):
                 f"[FUTURES METRICS] {' | '.join(futures_parts)}",
             )
 
-    # --- tracemalloc top-N (env-flag gated) ---
-    # Off by default. Enable with LVP_TRACEMALLOC=1 env var. Adds 10-30%
-    # process memory overhead so reserved for targeted runs. When on,
-    # logs top-5 allocators by current size — direct pre/post verification
-    # that audited buffer-reuse sites no longer allocate on hot path.
+    # --- tracemalloc top-N (settings-gated) ---
+    # Off by default. Enable with tracemalloc_enabled: true in
+    # data/settings.json. Adds 10-30% process memory overhead so reserved
+    # for targeted runs. When on, logs top-5 allocators by current size —
+    # direct pre/post verification that audited buffer-reuse sites no
+    # longer allocate on hot path.
     try:
         from modules import common_utils as _cu  # noqa: WPS433
         tm = _cu.query_tracemalloc_top_n(n=5)
