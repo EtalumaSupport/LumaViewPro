@@ -16,6 +16,7 @@ Rules implemented:
     rule_24  -- ASCII-only in strings passed to logger / print / notifications
     rule_27a -- no `# TODO` / `# FIXME` / `# XXX` in source comments
     rule_27b -- no rule / audit / session / smoke / wave / phase IDs in comments
+    rule_27d -- same patterns as 27b but applied to docstrings
     rule_28  -- no internal IDs in notifications.{level} string args
     rule_42  -- WARN on "healthy"/"fine"/"within range" in comments without a
                 `PERFORMANCE_BUDGETS.md` cite in the same file
@@ -61,6 +62,11 @@ _TODO_PATTERN = re.compile(r'\b(TODO|FIXME|XXX)\b')
 _COMMENT_ID_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
     (re.compile(r'\bRule\s+\d+\b'), 'Rule N reference'),
     (re.compile(r'\baudit\s+[A-Z][A-Za-z0-9_-]*\b', re.IGNORECASE), 'audit reference'),
+    # Snake-case audit-doc identifiers -- the form audit docs ship with
+    # as filenames. Distinct from the natural-language pattern above
+    # because the snake-case form has no space between the keyword and
+    # the rest of the identifier.
+    (re.compile(r'\bAUDIT_[A-Z][A-Z0-9_-]*\b'), 'AUDIT_* doc reference'),
     (re.compile(r'\bfix\s+#\d+\b', re.IGNORECASE), 'fix #N reference'),
     (re.compile(r'\bsession\s+\d+\b', re.IGNORECASE), 'session N reference'),
     (re.compile(r'\bSmoke\s+\d+\b'), 'Smoke N reference'),
@@ -202,11 +208,17 @@ def _is_test_path(path: str) -> bool:
     code path are load-bearing for the test's purpose; Rule 27's "no
     chronology" goal is the opposite shape -- production code.
 
+    Also exempts this rule-check file itself -- its purpose is to talk
+    about the rule keywords + patterns it enforces, which inherently
+    requires mentioning the words "audit", "Rule N", etc.
+
     Matches files under any directory named ``tests`` OR whose basename
     starts with ``test_`` (the pytest convention).
     """
     norm = path.replace('\\', '/')
     if '/tests/' in norm or norm.startswith('tests/'):
+        return True
+    if norm.endswith('tools/check_rules.py') or norm == 'check_rules.py':
         return True
     basename = norm.rsplit('/', 1)[-1]
     return basename.startswith('test_')
@@ -251,6 +263,49 @@ def _check_rule_27b(source: str, path: str) -> list[Violation]:
                     tok.start[1],
                     'rule_27b',
                     f'{label} {m.group(0)!r} in comment; record decisions, not chronology',
+                )
+            )
+            break
+    return violations
+
+
+def _iter_docstrings(tree: ast.AST):
+    """Yield (lineno, col, text) for each module / class / function
+    docstring in the AST.
+
+    Docstrings are string-literal expression statements, not COMMENT
+    tokens, so the tokenize-based `_iter_comments` walk misses them.
+    Rule 27 applies to docstrings too -- they end up in `help()`,
+    `__doc__`, and IDE tooltips, so audit-doc IDs in docstrings are
+    just as much chronology-leaking as comment refs.
+    """
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+            doc = ast.get_docstring(node, clean=False)
+            if not doc:
+                continue
+            if node.body and isinstance(node.body[0], ast.Expr):
+                first = node.body[0]
+                yield first.lineno, first.col_offset, doc
+
+
+def _check_rule_27d(tree: ast.AST, path: str) -> list[Violation]:
+    """Same patterns as 27b (comments) but applied to docstrings."""
+    if _is_test_path(path):
+        return []
+    violations: list[Violation] = []
+    for lineno, col, text in _iter_docstrings(tree):
+        for pat, label in _COMMENT_ID_PATTERNS:
+            m = pat.search(text)
+            if not m:
+                continue
+            violations.append(
+                Violation(
+                    path,
+                    lineno,
+                    col,
+                    'rule_27d',
+                    f'{label} {m.group(0)!r} in docstring; record decisions, not chronology',
                 )
             )
             break
@@ -304,6 +359,7 @@ def check_source(content: str, path: str) -> list[Violation]:
     else:
         violations.extend(_check_rule_24(tree, path))
         violations.extend(_check_rule_28(tree, path))
+        violations.extend(_check_rule_27d(tree, path))
     violations.extend(_check_rule_27a(content, path))
     violations.extend(_check_rule_27b(content, path))
     violations.extend(_check_rule_42(content, path))
