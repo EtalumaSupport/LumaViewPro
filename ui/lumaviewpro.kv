@@ -1328,6 +1328,38 @@
 					font_size: '12sp'
 					on_release: root.apply_tiling()
 
+			BoxLayout:
+				orientation: 'horizontal'
+				id: tiling_overlap_box_layout_id
+				size_hint_y: None
+				height: '30dp'
+				opacity: 1
+				spacing: '5dp'
+
+				Label:
+					id: tiling_overlap_label_id
+					text: 'Overlap'
+					tooltip_text: 'Set tile overlap percentage for acquisition tiling'
+					size_hint_y: None
+					height: '30dp'
+					size_hint_x: None
+					width: '75dp'
+					font_size: '12sp'
+
+				Spinner:
+					id: tiling_overlap_spinner
+					sync_height: True
+					text: '0%'
+					tooltip_text: 'Set tile overlap percentage for acquisition tiling'
+					font_size: '12sp'
+					size_hint_y: None
+					size_hint_x: None
+					width: '65dp'
+					height: '30dp'
+					option_cls: "SpinnerOption0"
+					text_autoupdate: True
+					values: ('0%', '10%', '15%', '20%')
+
 			# Post-protocol creation Z-Stacking
 			BoxLayout:
 				orientation: 'horizontal'

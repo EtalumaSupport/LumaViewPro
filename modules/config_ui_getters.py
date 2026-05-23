@@ -19,6 +19,7 @@ import modules.app_context as _app_ctx
 import modules.common_utils as common_utils
 import modules.config_helpers as config_helpers
 from modules.stack_builder import StackBuilder
+from modules.tiling_config import TilingConfig
 from modules.zstack_config import ZStackConfig
 import modules.labware as labware
 
@@ -197,6 +198,9 @@ def get_sequenced_capture_config_from_ui() -> dict:
     labware_id, _ = get_selected_labware()
     protocol_settings = _app_ctx.ctx.motion_settings.ids['protocol_settings_id']
     tiling = protocol_settings.ids['tiling_size_spinner'].text
+    tiling_overlap_percent = TilingConfig.validate_overlap_percent(
+        protocol_settings.ids['tiling_overlap_spinner'].text.strip().rstrip('%')
+    )
     use_zstacking = protocol_settings.ids['acquire_zstack_id'].active
     frame_dimensions = get_current_frame_dimensions()
     zstack_params = get_zstack_params()
@@ -209,6 +213,7 @@ def get_sequenced_capture_config_from_ui() -> dict:
         'zstack_params': zstack_params,
         'use_zstacking': use_zstacking,
         'tiling': tiling,
+        'tiling_overlap_percent': tiling_overlap_percent,
         'layer_configs': layer_configs,
         'period': time_params['period'],
         'duration': time_params['duration'],

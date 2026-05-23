@@ -204,3 +204,23 @@ class TilingConfig:
             }
 
         return tiles
+    
+    @staticmethod
+    def validate_overlap_percent(overlap_percent: float) -> float:
+        try:
+            overlap_percent = float(overlap_percent)
+        except (TypeError, ValueError):
+            raise ValueError(f"Tile overlap must be a number, got {overlap_percent!r}")
+        
+        if overlap_percent < 0.0 or overlap_percent > 50.0:
+            raise ValueError(
+                f"Tile overlap must be between 0 and 50 percent, got {overlap_percent}"
+            )
+        return overlap_percent
+    
+    @staticmethod
+    def fill_factor_from_overlap_percent(overlap_percent: float) -> float:
+        overlap_percent = TilingConfig.validate_overlap_percent(overlap_percent)
+        overlap_fraction = overlap_percent / 100.0
+        return 1.0 - overlap_fraction
+
