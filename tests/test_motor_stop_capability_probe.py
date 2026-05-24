@@ -95,8 +95,15 @@ class TestExchangeCommandExpectUnsupportedSuppresses:
             '`if not expect_unsupported:` so callers opting into '
             'the probe shape can suppress the false alarm.'
         )
-        assert "_serial_log.warning(f'{self._label} FIRMWARE ERROR:" in src, (
-            'FIRMWARE ERROR warning must still fire for non-probe '
-            'callers -- the warning is the diagnostic for real '
-            'firmware errors.'
+        # Format-agnostic: the warning call may be one-line or wrapped
+        # across multiple lines by ruff/black. Assert both halves are
+        # present rather than coupling to whitespace.
+        assert '_serial_log.warning(' in src, (
+            'FIRMWARE ERROR warning must still fire via _serial_log.warning '
+            'for non-probe callers -- the warning is the diagnostic for '
+            'real firmware errors.'
+        )
+        assert "f'{self._label} FIRMWARE ERROR:" in src, (
+            'FIRMWARE ERROR warning template must still cite {self._label} '
+            'so the log line identifies which board emitted the error.'
         )
