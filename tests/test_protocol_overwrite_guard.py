@@ -16,6 +16,7 @@ Defense-in-depth, two layers:
 """
 
 import pathlib
+import re
 import textwrap
 
 import pytest
@@ -35,8 +36,14 @@ def test_lumascope_api_supports_if_collision_mode():
     # from Lumascope to modules.image_save; the if_collision branch
     # lives there now. Path retarget per Rule 48 (c); semantic intent
     # ("generate_image_save_path supports if_collision mode") preserved.
+    #
+    # Quote-agnostic: ruff format may emit either single- or double-
+    # quoted string literals depending on the formatter pass that last
+    # touched the line (commit 4a5a2422 converted production to single
+    # quotes on 2026-05-22). Assert the comparison + the value rather
+    # than coupling to the specific quote character.
     src = (REPO_ROOT / 'modules' / 'image_save.py').read_text()
-    assert 'tail_id_mode == "if_collision"' in src, (
+    assert re.search(r"""tail_id_mode\s*==\s*['"]if_collision['"]""", src), (
         'image_save.generate_image_save_path must support the '
         '"if_collision" tail_id_mode for write-time defense against '
         'duplicate filenames. (#636)'
@@ -44,13 +51,15 @@ def test_lumascope_api_supports_if_collision_mode():
 
 
 def test_protocol_image_writer_uses_if_collision():
+    # Quote-agnostic: same rationale as
+    # test_lumascope_api_supports_if_collision_mode above.
     src = (REPO_ROOT / 'modules' / 'protocol_image_writer.py').read_text()
-    assert 'tail_id_mode="if_collision"' in src, (
+    assert re.search(r"""tail_id_mode\s*=\s*['"]if_collision['"]""", src), (
         'protocol_image_writer.py must pass tail_id_mode="if_collision" '
-        'to scope.save_image — without it, duplicate step filenames '
+        'to scope.save_image -- without it, duplicate step filenames '
         'silently overwrite. (#636)'
     )
-    assert 'tail_id_mode=None' not in src, (
+    assert not re.search(r'tail_id_mode\s*=\s*None\b', src), (
         'protocol_image_writer.py must not pass tail_id_mode=None on the '
         'save_image call (regressed to overwrite-prone behavior).'
     )
