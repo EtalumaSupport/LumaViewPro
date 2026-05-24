@@ -50,6 +50,7 @@ class SimulatedLEDBoard:
         timing: str = 'fast',
         firmware_version: str = '2.0.1',
         protocol_version: str = 'legacy',  # v3.0 STUB: 'legacy' or 'v3'
+        supports_firmware_stim: bool = False,
         fail_after: int | None = None,
         fail_on: set | None = None,
         **kwargs,
@@ -63,6 +64,7 @@ class SimulatedLEDBoard:
         self._delay = delay
         self.firmware_version = firmware_version  # Configurable for testing old firmware paths
         self.protocol_version = protocol_version  # v3.0 STUB: for future v3.0 simulation testing
+        self._supports_firmware_stim = supports_firmware_stim
 
         # Failure injection
         self._fail_after = fail_after  # disconnect after N commands
@@ -314,6 +316,15 @@ class SimulatedLEDBoard:
         for ch in self._channel_states:
             self._channel_states[ch] = 0
         self.exchange_command('LEDS_ENF')
+
+    def supports_firmware_stim(self) -> bool:
+        """Return the configured firmware-STIM-support flag.
+
+        Test-injectable: pass ``supports_firmware_stim=True`` to the
+        constructor to simulate v3.0.8+ firmware; defaults to False so
+        existing sim runs match pre-v3.0.8 behavior.
+        """
+        return self._supports_firmware_stim
 
     def get_status(self) -> str:
         """Return a synthetic STATUS line describing currently-on channels.
