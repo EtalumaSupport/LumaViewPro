@@ -1,4 +1,3 @@
 4.0.0-beta14
-2026-05-24 14:58
-fix/firmware-error-test-format
-b629102a
+2026-05-24 15:03
+4.0.0-beta
