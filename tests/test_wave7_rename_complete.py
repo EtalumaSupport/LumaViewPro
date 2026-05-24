@@ -824,3 +824,94 @@ def test_no_self_compute_focus_score_calls_in_lumascope():
         'Lumascope reached compute_focus_score via bare self -- the '
         'wrapper retires in Phase 7f and has no internal callers:\n  ' + '\n  '.join(failures)
     )
+
+
+# Phase 8 (RuntimeState population) -- see docs/WAVE7_PHASE_8_PLAN.md.
+# 12 settings-host methods relocate from Lumascope to RuntimeState.
+# Two guards staged xfail(strict=True) at 8b; the bare-scope guard flips
+# at 8e (production callers migrated), the inside-class guard flips at
+# 8d (the 4 self.set_X sites in initialize() update with the body move).
+#
+# Today's counts (from 8a inventory in WAVE7_PHASE_8_PLAN.md):
+#   - bare-scope: 11 production sites across image_save.py / scope_session.py
+#     / protocol_image_writer.py / 4 ui/ files
+#   - inside-class self: 4 sites in _lumascope.py::initialize (lines
+#     622, 624, 625, 628)
+RUNTIME_STATE_ONLY_METHODS = frozenset(
+    {
+        'set_labware',
+        'get_labware',
+        'set_objective',
+        'get_current_objective_id',
+        'get_objective_info',
+        'get_available_objectives',
+        'get_current_objective',
+        'set_turret_config',
+        'get_turret_config',
+        'set_stage_offset',
+        'get_stage_offset',
+        'get_well_label',
+    }
+)
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason='Phase 8b: scope.X for the 12 settings-host methods migrates '
+    'to scope.runtime_state.X at Phase 8e. xfail flips to xpass when the '
+    'production callers are migrated -- that is the signal to remove this '
+    'decorator.',
+)
+def test_no_runtime_state_method_calls_on_bare_scope_in_production():
+    """All 12 settings-host methods belong on scope.runtime_state by 8f.
+    Production callers via `scope.X` / `ctx.scope.X` / `lumaview.scope.X`
+    must migrate to the `.runtime_state.` chain at 8e."""
+    failures: list[str] = []
+    for path in _iter_prod_files():
+        try:
+            source = path.read_text(encoding='utf-8')
+        except (OSError, UnicodeDecodeError) as e:
+            failures.append(f'{path}: read failed: {e}')
+            continue
+        try:
+            tree = ast.parse(source, filename=str(path))
+        except SyntaxError as e:
+            failures.append(f'{path}: parse failed: {e}')
+            continue
+        for lineno, attr in _find_chain_method_accesses(tree, RUNTIME_STATE_ONLY_METHODS):
+            rel = path.relative_to(_REPO_ROOT)
+            failures.append(
+                f'{rel}:{lineno}: scope.{attr} -- migrate to scope.runtime_state.{attr}'
+            )
+    assert not failures, (
+        'Settings-host methods reached on bare scope -- migrate to '
+        'scope.runtime_state per Phase 8e:\n  ' + '\n  '.join(failures)
+    )
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason='Phase 8b: Lumascope.initialize() has 4 self.set_X sites that '
+    'update to self.runtime_state.set_X at Phase 8d (the 4-line update '
+    'specced in the 8a inventory "initialize discrepancy" section). '
+    'xfail flips to xpass when 8d ships -- that is the signal to remove '
+    'this decorator.',
+)
+def test_no_self_runtime_state_calls_in_lumascope():
+    """Lumascope-internal self.X calls for the 12 settings-host methods
+    must migrate to self.runtime_state.X. The 4 known sites are all in
+    `initialize` (lines 622, 624, 625, 628); 8d updates them explicitly
+    because `initialize` itself is STAY (composition-root orchestration)
+    rather than relocating with the method bodies."""
+    source = _LUMASCOPE_PATH.read_text(encoding='utf-8')
+    tree = ast.parse(source, filename=str(_LUMASCOPE_PATH))
+    hits = _find_self_method_accesses(tree, RUNTIME_STATE_ONLY_METHODS)
+    failures = [
+        f'_lumascope.py:{lineno}: self.{attr} -- migrate to '
+        f'self.runtime_state.{attr} (Phase 8d)'
+        for lineno, attr in hits
+    ]
+    assert not failures, (
+        'Lumascope reached settings-host methods via bare self -- '
+        'migrate to self.runtime_state per Phase 8d:\n  ' + '\n  '.join(failures)
+    )

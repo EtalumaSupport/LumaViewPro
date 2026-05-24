@@ -19,6 +19,7 @@ import re
 
 from modules.lumascope_api import Lumascope
 from modules.lumascope_api.motion import MotionAPI
+from modules.lumascope_api.runtime_state import RuntimeState
 
 
 def _make_scope_with_turret(turret_config, current_pos=None):
@@ -26,6 +27,7 @@ def _make_scope_with_turret(turret_config, current_pos=None):
     lookup. Avoids the full hardware init path.
     """
     scope = Lumascope.__new__(Lumascope)
+    scope.runtime_state = RuntimeState(scope)
     scope._turret_config = turret_config
     # MotionAPI hosts the relocated body. __new__ skips __init__,
     # which is what sets scope.motion in production, so the test

@@ -187,6 +187,7 @@ from modules.exceptions import (
     ProtocolError,
 )
 from modules.lumascope_api.imaging import ImagingAPI
+from modules.lumascope_api.runtime_state import RuntimeState
 
 
 class TestDomainExceptions:
@@ -3589,6 +3590,7 @@ class TestCaptureAndWaitPassesChunksToValidity:
 
         # Construct without going through full init -- attributes set by hand
         scope = Lumascope.__new__(Lumascope)
+        scope.runtime_state = RuntimeState(scope)
         scope._camera_driver = None
         scope.imaging = ImagingAPI(scope, None)
         assert scope.imaging._get_latest_chunks() is None
@@ -4484,6 +4486,7 @@ class TestPylonDiagnosticProbe:
         from modules.lumascope_api.diagnostics import DiagnosticsAPI
 
         scope = Lumascope.__new__(Lumascope)
+        scope.runtime_state = RuntimeState(scope)
         scope._camera_driver = fake_camera
         scope.diagnostics = DiagnosticsAPI(scope)
         return scope
@@ -4501,6 +4504,7 @@ class TestPylonDiagnosticProbe:
         from modules.lumascope_api.diagnostics import DiagnosticsAPI
 
         scope = Lumascope.__new__(Lumascope)
+        scope.runtime_state = RuntimeState(scope)
         scope._camera_driver = None
         scope.diagnostics = DiagnosticsAPI(scope)
         result = scope.diagnostics.run_pylon_diagnostic_probe(duration_s=0.0)
@@ -4662,6 +4666,7 @@ class TestDeviceLinkThroughputLimitSetter:
         from modules.lumascope_api.imaging import ImagingAPI
 
         scope = Lumascope.__new__(Lumascope)
+        scope.runtime_state = RuntimeState(scope)
         scope._camera_driver = fake_camera
         scope.imaging = ImagingAPI(scope, fake_camera)
         return scope
@@ -4677,6 +4682,7 @@ class TestDeviceLinkThroughputLimitSetter:
         from modules.lumascope_api.imaging import ImagingAPI
 
         scope = Lumascope.__new__(Lumascope)
+        scope.runtime_state = RuntimeState(scope)
         scope._camera_driver = None
         scope.imaging = ImagingAPI(scope, None)
         assert scope.imaging._set_device_link_throughput_limit('Off') is False
@@ -6974,6 +6980,7 @@ class TestAcquisitionStopModeSetter:
         from modules.lumascope_api.imaging import ImagingAPI
 
         scope = Lumascope.__new__(Lumascope)
+        scope.runtime_state = RuntimeState(scope)
         scope._camera_driver = fake_camera
         scope.imaging = ImagingAPI(scope, fake_camera)
         return scope
@@ -6989,6 +6996,7 @@ class TestAcquisitionStopModeSetter:
         from modules.lumascope_api.imaging import ImagingAPI
 
         scope = Lumascope.__new__(Lumascope)
+        scope.runtime_state = RuntimeState(scope)
         scope._camera_driver = None
         scope.imaging = ImagingAPI(scope, None)
         assert scope.imaging._set_acquisition_stop_mode('Complete') is False
@@ -7112,6 +7120,7 @@ class TestGigeSetters:
         from modules.lumascope_api.imaging import ImagingAPI
 
         scope = Lumascope.__new__(Lumascope)
+        scope.runtime_state = RuntimeState(scope)
         scope._camera_driver = fake_camera
         scope.imaging = ImagingAPI(scope, fake_camera)
         return scope
@@ -7135,6 +7144,7 @@ class TestGigeSetters:
         from modules.lumascope_api.imaging import ImagingAPI
 
         scope = Lumascope.__new__(Lumascope)
+        scope.runtime_state = RuntimeState(scope)
         scope._camera_driver = None
         scope.imaging = ImagingAPI(scope, None)
         assert scope.imaging._set_bandwidth_reserve_mode('Performance') is False
@@ -7328,6 +7338,7 @@ class TestStreamGrabberSetters:
         from modules.lumascope_api.imaging import ImagingAPI
 
         scope = Lumascope.__new__(Lumascope)
+        scope.runtime_state = RuntimeState(scope)
         scope._camera_driver = fake_camera
         scope.imaging = ImagingAPI(scope, fake_camera)
         return scope
@@ -7343,6 +7354,7 @@ class TestStreamGrabberSetters:
         from modules.lumascope_api.imaging import ImagingAPI
 
         scope = Lumascope.__new__(Lumascope)
+        scope.runtime_state = RuntimeState(scope)
         scope._camera_driver = None
         scope.imaging = ImagingAPI(scope, None)
         assert scope.imaging._set_max_transfer_size(262144) is False
