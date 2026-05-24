@@ -297,7 +297,7 @@ class ScopeSession:
         Args:
             objective_id: Objective identifier (e.g. "10x Oly").
         """
-        self.scope.set_objective(objective_id)
+        self.scope.runtime_state.set_objective(objective_id)
 
     def get_current_plate_position(self) -> 'dict | None':
         import modules.config_helpers as config_helpers

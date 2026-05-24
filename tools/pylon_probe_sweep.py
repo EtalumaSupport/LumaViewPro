@@ -350,27 +350,13 @@ def _make_minimal_scope(camera: PylonCamera) -> Lumascope:
     """Construct a minimal Lumascope shell with only the camera attached.
 
     Bypasses the full Lumascope.__init__ (which expects scope / board /
-    settings). The setters this tool calls reach for both ``self.camera``
-    and ``self._camera_cache_lock``; we initialize the lock explicitly
-    so the shortcut is safe.
+    settings). The setters this tool calls go through
+    ``scope.imaging.<setter>``; ImagingAPI owns its own camera cache and
+    locks, so nothing needs to be wired onto the shell beyond the
+    camera handle.
     """
-    import threading
-
     scope = Lumascope.__new__(Lumascope)
     scope.camera = camera
-    scope._camera_cache_lock = threading.Lock()
-    scope._camera_cache = {
-        'active': True,
-        'gain_db': 0.0,
-        'exposure_ms': 0.0,
-        'frame_size': {'width': 0, 'height': 0},
-        'max_frame_size': {'width': 0, 'height': 0},
-        'min_frame_size': {'width': 0, 'height': 0},
-        'max_exposure_ms': 0.0,
-        'max_gain_db': 0.0,
-        'pixel_format': None,
-        'binning': 1,
-    }
     return scope
 
 

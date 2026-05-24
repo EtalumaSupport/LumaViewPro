@@ -889,26 +889,17 @@ def test_no_runtime_state_method_calls_on_bare_scope_in_production():
     )
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason='Phase 8b: Lumascope.initialize() has 4 self.set_X sites that '
-    'update to self.runtime_state.set_X at Phase 8d (the 4-line update '
-    'specced in the 8a inventory "initialize discrepancy" section). '
-    'xfail flips to xpass when 8d ships -- that is the signal to remove '
-    'this decorator.',
-)
 def test_no_self_runtime_state_calls_in_lumascope():
     """Lumascope-internal self.X calls for the 12 settings-host methods
-    must migrate to self.runtime_state.X. The 4 known sites are all in
-    `initialize` (lines 622, 624, 625, 628); 8d updates them explicitly
-    because `initialize` itself is STAY (composition-root orchestration)
-    rather than relocating with the method bodies."""
+    must reach via self.runtime_state. The 4 initialize() sites were
+    migrated in 8d; this guard pins that the method bodies (now
+    forwarders) and any future composition-root code don't reach back
+    onto bare self.X for these methods."""
     source = _LUMASCOPE_PATH.read_text(encoding='utf-8')
     tree = ast.parse(source, filename=str(_LUMASCOPE_PATH))
     hits = _find_self_method_accesses(tree, RUNTIME_STATE_ONLY_METHODS)
     failures = [
-        f'_lumascope.py:{lineno}: self.{attr} -- migrate to '
-        f'self.runtime_state.{attr} (Phase 8d)'
+        f'_lumascope.py:{lineno}: self.{attr} -- migrate to self.runtime_state.{attr} (Phase 8d)'
         for lineno, attr in hits
     ]
     assert not failures, (

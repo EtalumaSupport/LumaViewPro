@@ -25,6 +25,7 @@ from typing import TYPE_CHECKING, Any, ContextManager, Iterator
 
 import numpy as np
 
+from lib import profile_trace
 from lvp_logger import logger
 import modules.common_utils as common_utils
 import modules.image_utils as image_utils
@@ -138,6 +139,13 @@ class ImagingAPI:
         # IlluminationAPI._driver (Wave 7 Phase 2b / 3c precedent).
         del driver  # noqa -- intentionally unused, kept for backward call sites
 
+        # State / camera locks. _state_lock guards _capture_return /
+        # _autofocus_return / _scale_bar; _cam_lock serializes
+        # access to the camera driver itself (any path that touches
+        # the SDK reads/writes goes through this lock).
+        self._state_lock = threading.Lock()
+        self._cam_lock = profile_trace.TimedLock(threading.RLock(), name='imaging._cam_lock')
+
         # Camera change listeners -- push-based UI update mechanism.
         # Each listener is called with (param: str, value: float) whenever
         # camera gain or exposure changes. param is 'gain' or 'exposure'.
@@ -165,8 +173,8 @@ class ImagingAPI:
         self._focusing_event = threading.Event()  # set => autofocus in progress
 
         # Capture / autofocus return slots. Reads/writes under
-        # self._scope._state_lock (shared with other Lumascope state).
-        # Per the Sentinel-return contract: None means "no result yet."
+        # self._state_lock. Per the Sentinel-return contract: None
+        # means "no result yet."
         self._capture_return = None
         self._autofocus_return = None
 
@@ -200,7 +208,7 @@ class ImagingAPI:
             self._binning_size = 1
 
         # Scale-bar overlay config -- defaults disabled; users opt in via
-        # set_scale_bar(...). Reads/writes under self._scope._state_lock.
+        # set_scale_bar(...). Reads/writes under self._state_lock.
         self._scale_bar = {
             'enabled': False,
             'color': None,
@@ -390,7 +398,7 @@ class ImagingAPI:
         # Skip redundant SDK call if gain hasn't changed
         if abs(float(gain_db) - self.camera_gain) < 0.001:
             return
-        with self._scope._cam_lock:
+        with self._cam_lock:
             self._driver.gain(gain_db)
         self.frame_validity.invalidate('gain')
         # Record requested gain so capture_and_wait's chunk-match can clear
@@ -429,7 +437,7 @@ class ImagingAPI:
                 f'in milliseconds, not seconds or microseconds.\n'
                 f'Call stack:\n{_caller}'
             )
-        with self._scope._cam_lock:
+        with self._cam_lock:
             self._driver.exposure_t(exposure_ms)
         self.frame_validity.invalidate('exposure')
         # Record requested exposure for chunk-match. ChunkExposureTime is
@@ -1471,7 +1479,7 @@ class ImagingAPI:
             while True:
                 # Acquire cam_lock for camera grab -- prevents concurrent
                 # set_gain/set_exposure from another thread mid-frame.
-                with self._scope._cam_lock:
+                with self._cam_lock:
                     if force_new_capture:
                         grab_status, grab_image_ts = self._driver.grab_new_capture(
                             new_capture_timeout_s
@@ -1508,7 +1516,7 @@ class ImagingAPI:
                     # Saturated images are valid data (exposure/illumination
                     # too high), not a camera error. Don't loop until timeout.
                     retry_frame = None
-                    with self._scope._cam_lock:
+                    with self._cam_lock:
                         retry_status, _ = (
                             self._driver.grab_new_capture(new_capture_timeout_s)
                             if force_new_capture
@@ -1572,13 +1580,13 @@ class ImagingAPI:
             image = np.clip(combined, None, max_value).astype(orig_dtype)
 
         use_scale_bar = self._scale_bar['enabled']
-        if self._scope._objective is None:
+        if self._scope.runtime_state._objective is None:
             use_scale_bar = False
 
         if use_scale_bar:
             image = image_utils.add_scale_bar(
                 image=image,
-                objective=self._scope._objective,
+                objective=self._scope.runtime_state._objective,
                 binning_size=self._binning_size,
                 color=self._scale_bar.get('color'),
             )
@@ -1613,17 +1621,17 @@ class ImagingAPI:
             return None, None, None
         self.frame_validity.count_frame(chunk_data=chunks)
 
-        with self._scope._state_lock:
+        with self._state_lock:
             self._frame_buffer = tmp
 
         use_scale_bar = self._scale_bar['enabled']
-        if self._scope._objective is None:
+        if self._scope.runtime_state._objective is None:
             use_scale_bar = False
 
         if use_scale_bar:
             tmp = image_utils.add_scale_bar(
                 image=tmp,
-                objective=self._scope._objective,
+                objective=self._scope.runtime_state._objective,
                 binning_size=self._binning_size,
                 color=self._scale_bar.get('color'),
             )
@@ -1662,17 +1670,17 @@ class ImagingAPI:
             return None, None
         self.frame_validity.count_frame()
 
-        with self._scope._state_lock:
+        with self._state_lock:
             self._frame_buffer = tmp
 
         use_scale_bar = self._scale_bar['enabled']
-        if self._scope._objective is None:
+        if self._scope.runtime_state._objective is None:
             use_scale_bar = False
 
         if use_scale_bar:
             tmp = image_utils.add_scale_bar(
                 image=tmp,
-                objective=self._scope._objective,
+                objective=self._scope.runtime_state._objective,
                 binning_size=self._binning_size,
                 color=self._scale_bar.get('color'),
             )
@@ -1959,13 +1967,13 @@ class ImagingAPI:
             completed yet. Per the Sentinel-return contract:
             `if scope.imaging.capture_return is None: ...`.
         """
-        with self._scope._state_lock:
+        with self._state_lock:
             return self._capture_return
 
     @capture_return.setter
     def capture_return(self, value) -> None:
         """Store the latest capture result."""
-        with self._scope._state_lock:
+        with self._state_lock:
             self._capture_return = value
 
     @property
@@ -1976,13 +1984,13 @@ class ImagingAPI:
             The most recent autofocus return value (driver-defined), or
             None if autofocus has not run.
         """
-        with self._scope._state_lock:
+        with self._state_lock:
             return self._autofocus_return
 
     @autofocus_return.setter
     def autofocus_return(self, value) -> None:
         """Store the latest autofocus result."""
-        with self._scope._state_lock:
+        with self._state_lock:
             self._autofocus_return = value
 
     # --- Frame validity ---
@@ -2028,7 +2036,7 @@ class ImagingAPI:
         Returns:
             dict: Copy of the scale bar config (e.g. enabled, color).
         """
-        with self._scope._state_lock:
+        with self._state_lock:
             return dict(self._scale_bar)
 
     @property
@@ -2038,7 +2046,7 @@ class ImagingAPI:
         Returns:
             bool: True if the scale bar is enabled.
         """
-        with self._scope._state_lock:
+        with self._state_lock:
             return bool(self._scale_bar.get('enabled', False))
 
     def set_scale_bar(self, enabled: bool, color: str = None) -> None:
@@ -2063,7 +2071,7 @@ class ImagingAPI:
         Returns:
             Snapshot dict (defensive copy) of the scale-bar state.
         """
-        with self._scope._state_lock:
+        with self._state_lock:
             return dict(self._scale_bar)
 
     # --- Camera diagnostics (live in-flight only; data source = DiagnosticsAPI) ---

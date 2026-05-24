@@ -268,10 +268,13 @@ def test_load_accepts_unique_steps(tmp_path):
 
 
 class _MinimalScope:
-    """Bare-bones scope stand-in for generate_image_save_path tests."""
+    """Bare-bones scope stand-in for generate_image_save_path tests.
 
-    engineering_mode = False
-    _last_turret_position = None
+    `generate_image_save_path` reads `scope.motion._last_turret_position`
+    only when engineering mode is active; tests run with `_app_ctx.ctx`
+    unset, so the engineering-mode branch is never entered and the
+    `motion` attribute is not exercised here.
+    """
 
 
 def _patch_image_save_logger(monkeypatch):

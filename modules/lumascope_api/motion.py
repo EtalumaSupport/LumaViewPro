@@ -132,6 +132,11 @@ class MotionAPI:
         self._arrival_events: dict = {}
         self._move_profile: dict = {}
 
+        # Last turret position cache -- tmove() short-circuits a same-
+        # position request to avoid a no-op move command. Defaults to None
+        # so the first tmove() always goes through to the firmware.
+        self._last_turret_position: int | None = None
+
     def init_axes(self, present_axes: list[str]) -> None:
         """Populate per-axis state dicts from the list of detected axes.
 
@@ -311,18 +316,21 @@ class MotionAPI:
             int | None: Turret position (1-4), or None if not found.
         """
         if persisted_position is not None:
-            if self._scope._turret_config.get(persisted_position) == objective_id:
+            if self._scope.runtime_state._turret_config.get(persisted_position) == objective_id:
                 return persisted_position
 
         if prefer_current:
             try:
                 current_pos = self.get_current_position(axis='T')
-                if self._scope._turret_config.get(current_pos) == objective_id:
+                if self._scope.runtime_state._turret_config.get(current_pos) == objective_id:
                     return current_pos
             except Exception:
                 pass
 
-        for turret_position, turret_objective_id in self._scope._turret_config.items():
+        for (
+            turret_position,
+            turret_objective_id,
+        ) in self._scope.runtime_state._turret_config.items():
             if objective_id == turret_objective_id:
                 return turret_position
 
@@ -336,7 +344,7 @@ class MotionAPI:
                 objective ID; False if the slot is unconfigured.
         """
         position = self.get_current_position(axis='T')
-        if self._scope._turret_config[position] is None:
+        if self._scope.runtime_state._turret_config[position] is None:
             return False
 
         return True
@@ -538,13 +546,13 @@ class MotionAPI:
         # Commanding a move of the T axis is slow, even if the move is to the current position.
         # Use caching to determine if T is requested to move to it's current position, and bypass the
         # move altogether if it is.
-        if self._scope._last_turret_position == position:
+        if self._last_turret_position == position:
             return
 
         with self.safe_turret_move():
             logger.info(f'[SCOPE API ] Moving T to position {position}')
             self.move_absolute_position('T', position, wait_until_complete=True)
-            self._scope._last_turret_position = position
+            self._last_turret_position = position
 
     def has_turret(self) -> bool:
         """Check if the microscope has a turret axis.

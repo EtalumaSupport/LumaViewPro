@@ -4,7 +4,6 @@
 import datetime
 import os
 import pathlib
-import threading
 import time
 import warnings
 from typing import Any
@@ -83,9 +82,6 @@ def _fire_pre_release_warning(stacklevel: int = 3) -> None:
 
 
 import modules.common_utils as common_utils
-import modules.coord_transformations as coord_transformations
-from lib import profile_trace
-import modules.objectives_loader as objectives_loader
 import modules.image_utils as image_utils
 from modules.sequential_io_executor import SequentialIOExecutor, IOTask
 from modules.frame_validity import FrameValidity
@@ -294,39 +290,19 @@ class Lumascope:
         the single point of truth.
         """
         self._simulated = simulated
-        self._coordinate_transformer = coord_transformations.CoordinateTransformer()
-        self._objectives_loader = objectives_loader.ObjectiveLoader()
-
-        # State locks
-        self._state_lock = threading.Lock()
-        self._cam_lock = profile_trace.TimedLock(threading.RLock(), name='lumascope._cam_lock')
-        self._camera_cache_lock = threading.Lock()
-        self._camera_cache = {
-            'active': False,
-            'gain_db': 0.0,
-            'exposure_ms': 20.0,
-            'frame_size': {'width': 0, 'height': 0},
-            'max_frame_size': {'width': 0, 'height': 0},
-            'min_frame_size': {'width': 0, 'height': 0},
-            'max_exposure_ms': None,
-            'max_gain_db': None,
-        }
 
         # Driver slot defaults -- __init__ overrides _camera_driver with
         # the real driver; create_diagnostic leaves it None.
         self._camera_driver = None
 
-        # Objective + labware + turret state
-        self._labware = None
-        self._objective = None
-        self._objective_id = None
-        self._turret_config = {}
-        self._stage_offset = None
-        self._last_turret_position = None
-
-        # Misc per-instance flags + caches
-        self.engineering_mode = False
-        self.last_focus_score = None
+        # Settings-host state (_labware / _objective / _objective_id /
+        # _turret_config / _stage_offset) plus its helpers
+        # (_objectives_loader / _coordinate_transformer) live on
+        # self.runtime_state (constructed below in __init__ /
+        # create_diagnostic). _state_lock + _cam_lock + ImagingAPI's
+        # own caches live on self.imaging. _last_turret_position lives
+        # on self.motion. engineering_mode lives on the app context
+        # (ctx.engineering_mode).
 
         # Executor slot defaults (registered post-construction via
         # register_executors / register_executor_bundle)
@@ -515,17 +491,12 @@ class Lumascope:
                 '[SCOPE API ] No hardware detected (LED, motor, and camera all failed to initialize)'
             )
 
-        # State-slot init (_state_lock, _cam_lock, _camera_cache + lock,
-        # _labware / _objective / _turret_config / _stage_offset /
-        # _last_turret_position, engineering_mode, last_focus_score,
-        # executor slots, _source_path, metrics_logger=None) happened
-        # in _init_minimal above. self.is_stepping / step_capture_return
-        # were dropped in an earlier pass.
-        #
-        # _capturing_event, _focusing_event, _capture_return,
-        # _autofocus_return moved to ImagingAPI in Wave 7 Phase 4d.
-        # _homing_event and _turreting_event live on MotionAPI (Phase 2c).
-        # _suppress_value_warnings moved to ImagingAPI in Wave 7 Phase 4d.
+        # Most per-instance state lives on the sub-APIs: imaging owns
+        # camera-stream state + locks, motion owns per-axis state +
+        # _last_turret_position, illumination owns LED state,
+        # runtime_state owns settings-host state (labware / objective /
+        # turret_config / stage_offset). Lumascope holds driver slots,
+        # executor handles, source_path, and metrics_logger.
 
         # Frame validity, camera_cache, scale_bar, _binning_size, +
         # _camera_listeners/_frame_buffer/_capturing_event/_focusing_event/
@@ -619,13 +590,13 @@ class Lumascope:
         """
         self._notify_partial_hardware(config)
         self.illumination.leds_off()
-        self.set_labware(config.labware)
+        self.runtime_state.set_labware(config.labware)
         if config.turret_config:
-            self.set_turret_config(config.turret_config)
-        self.set_objective(config.objective_id)
+            self.runtime_state.set_turret_config(config.turret_config)
+        self.runtime_state.set_objective(config.objective_id)
         self.imaging.set_binning_size(config.binning_size)
         self.imaging.set_frame_size(config.frame_width, config.frame_height)
-        self.set_stage_offset(config.stage_offset)
+        self.runtime_state.set_stage_offset(config.stage_offset)
         self.imaging.set_scale_bar(enabled=config.scale_bar_enabled)
         self.motion.set_acceleration_limit(val_pct=config.acceleration_pct)
         logger.info('[SCOPE API ] Scope initialized')
@@ -1050,98 +1021,42 @@ class Lumascope:
 
     ########################################################################
     # SCOPE CONFIGURATION FUNCTIONS
+    # Canonical bodies live on RuntimeState; the forwarders below stay
+    # for one release as the LVP and engineering-plugin callers migrate
+    # off bare-scope reach onto the .runtime_state chain. Retired in 8f.
     ########################################################################
     def set_labware(self, labware) -> None:
-        """Set the current labware (well plate) for the microscope.
-
-        Args:
-            labware: Labware object describing the well plate geometry.
-        """
-        self._labware = labware
+        return self.runtime_state.set_labware(labware)
 
     def get_labware(self) -> 'Any | None':
-        """Get the currently installed labware.
-
-        Returns:
-            The current labware object, or None if not set.
-        """
-        return self._labware
+        return self.runtime_state.get_labware()
 
     def set_objective(self, objective_id: str) -> None:
-        """Set the active objective by ID.
-
-        Args:
-            objective_id: Objective identifier (e.g. "4x", "10x", "20x").
-        """
-        self._objective_id = objective_id
-        self._objective = self._objectives_loader.get_objective_info(objective_id=objective_id)
+        return self.runtime_state.set_objective(objective_id)
 
     def get_current_objective_id(self) -> str | None:
-        """Get the ID of the currently active objective.
-
-        Returns:
-            str | None: e.g. '20x Oly', or None if not set.
-        """
-        return getattr(self, '_objective_id', None)
+        return self.runtime_state.get_current_objective_id()
 
     def get_objective_info(self, objective_id: str) -> dict:
-        """Get objective metadata by ID.
-
-        Args:
-            objective_id: Objective identifier (e.g. "4x", "10x", "20x").
-
-        Returns:
-            dict: Objective info including focal_length, magnification, etc.
-        """
-        return self._objectives_loader.get_objective_info(objective_id=objective_id)
+        return self.runtime_state.get_objective_info(objective_id)
 
     def get_available_objectives(self) -> list[str]:
-        """Get list of all available objective IDs.
-
-        Returns:
-            list[str]: Objective identifiers (e.g. ["4x", "10x Oly", "20x Oly"]).
-        """
-        return self._objectives_loader.get_objectives_list()
+        return self.runtime_state.get_available_objectives()
 
     def get_current_objective(self) -> dict | None:
-        """Get the currently active objective info.
-
-        Returns:
-            dict | None: Active objective metadata, or None if not set.
-        """
-        return self._objective
+        return self.runtime_state.get_current_objective()
 
     def set_turret_config(self, turret_config: dict[int, str]) -> None:
-        """Set the turret objective configuration.
-
-        Args:
-            turret_config: Mapping of turret position (1-4) to objective ID.
-        """
-        self._turret_config = turret_config
+        return self.runtime_state.set_turret_config(turret_config)
 
     def get_turret_config(self) -> dict:
-        """Get the current turret objective configuration.
-
-        Returns:
-            dict: Mapping of turret position to objective ID.
-        """
-        return self._turret_config
+        return self.runtime_state.get_turret_config()
 
     def set_stage_offset(self, stage_offset) -> None:
-        """Set the stage offset for coordinate transformations.
-
-        Args:
-            stage_offset: Stage offset dict with axis offsets.
-        """
-        self._stage_offset = stage_offset
+        return self.runtime_state.set_stage_offset(stage_offset)
 
     def get_stage_offset(self) -> 'dict | None':
-        """Get the stage offset for coordinate transformations.
-
-        Returns:
-            Stage offset dict with axis offsets, or None if unset.
-        """
-        return self._stage_offset
+        return self.runtime_state.get_stage_offset()
 
     ########################################################################
     # LED BOARD FUNCTIONS
@@ -1154,34 +1069,7 @@ class Lumascope:
     ########################################################################
 
     def get_well_label(self) -> str:
-        """Get the well label for the current stage XY position.
-
-        Maps the current target X/Y stage position to a plate-frame
-        coordinate using the registered labware and stage offset, then
-        looks up the matching well label.
-
-        Returns:
-            str: Well label (e.g. ``"A1"``).
-
-        Raises:
-            Exception: Re-raises any error encountered reading target
-                position; logged before re-raise.
-        """
-        labware = self._labware
-
-        # Get target position
-        try:
-            x_target = self.motion.get_target_position('X')
-            y_target = self.motion.get_target_position('Y')
-        except Exception:
-            logger.exception('[LVP API  ] Error getting target position.')
-            raise
-
-        x_target, y_target = self._coordinate_transformer.stage_to_plate(
-            labware=labware, stage_offset=self._stage_offset, sx=x_target, sy=y_target
-        )
-
-        return labware.get_well_label(x=x_target, y=y_target)
+        return self.runtime_state.get_well_label()
 
     @classmethod
     def create_diagnostic(cls) -> 'Lumascope':

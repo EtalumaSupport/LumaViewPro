@@ -541,7 +541,7 @@ class TestScaleBarObjectiveInit:
         from modules.lumascope_api import Lumascope
 
         scope = Lumascope(simulate=True)
-        assert scope._objective is None
+        assert scope.runtime_state._objective is None
 
     def test_set_objective_populates(self):
         """set_objective() should populate _objective dict."""
@@ -549,8 +549,8 @@ class TestScaleBarObjectiveInit:
 
         scope = Lumascope(simulate=True)
         scope.set_objective('20x Oly')
-        assert scope._objective is not None
-        assert scope._objective['magnification'] == 20
+        assert scope.runtime_state._objective is not None
+        assert scope.runtime_state._objective['magnification'] == 20
 
     def test_scale_bar_disabled_without_objective(self):
         """Scale bar enabled but no objective → use_scale_bar forced False."""
@@ -559,7 +559,7 @@ class TestScaleBarObjectiveInit:
         scope = Lumascope(simulate=True)
         scope.imaging.set_scale_bar(enabled=True)
         assert scope.imaging._scale_bar['enabled'] is True
-        assert scope._objective is None
+        assert scope.runtime_state._objective is None
         # Internal logic forces use_scale_bar = False when _objective is None
 
     def test_scale_bar_works_with_objective(self):
@@ -570,7 +570,7 @@ class TestScaleBarObjectiveInit:
         scope.set_objective('20x Oly')
         scope.imaging.set_scale_bar(enabled=True)
         assert scope.imaging._scale_bar['enabled'] is True
-        assert scope._objective is not None
+        assert scope.runtime_state._objective is not None
 
 
 # ---------------------------------------------------------------------------

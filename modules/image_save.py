@@ -30,6 +30,7 @@ import numpy as np
 
 from lib.handle_trace import tick as _h_tick
 from lvp_logger import logger, version
+import modules.app_context as _app_ctx
 import modules.common_utils as common_utils
 import modules.image_utils as image_utils
 from modules.exceptions import CaptureError, ConfigError
@@ -91,8 +92,9 @@ def generate_image_save_path(
     ``None`` returns the bare path).
 
     Args:
-        scope: Read for ``engineering_mode`` + ``_last_turret_position``
-            (engineering-mode filename suffix).
+        scope: Read for ``motion._last_turret_position`` when
+            engineering mode is active. The engineering-mode flag itself
+            lives on the app context, not on scope.
         save_folder: Directory to save into (str or Path).
         file_root: Filename prefix.
         append: String appended to filename (e.g. color label).
@@ -113,9 +115,11 @@ def generate_image_save_path(
     if file_root is None:
         file_root = ''
 
-    # Append turret position in engineering mode
-    if scope.engineering_mode and scope._last_turret_position is not None:
-        append = f'{append}_T{scope._last_turret_position}'
+    # Append turret position in engineering mode. ctx may be unset in
+    # bare-fixture tests; getattr fallback keeps the default branch.
+    engineering_mode = getattr(_app_ctx.ctx, 'engineering_mode', False)
+    if engineering_mode and scope.motion._last_turret_position is not None:
+        append = f'{append}_T{scope.motion._last_turret_position}'
 
     if output_format == 'OME-TIFF':
         file_extension = '.ome.tiff'
@@ -183,16 +187,16 @@ def generate_image_metadata(scope: 'Lumascope', color, x, y, z) -> dict:
     Raises:
         ConfigError: If objective, labware, or stage offset are not set.
     """
-    if scope._objective is None:
+    if scope.runtime_state._objective is None:
         raise ConfigError('[SCOPE API ] Objective not set')
 
-    if 'focal_length' not in scope._objective:
+    if 'focal_length' not in scope.runtime_state._objective:
         raise ConfigError('[SCOPE API ] Objective focal length not provided')
 
-    if scope._labware is None:
+    if scope.runtime_state._labware is None:
         raise ConfigError('[SCOPE API ] Labware not set')
 
-    if scope._stage_offset is None:
+    if scope.runtime_state._stage_offset is None:
         raise ConfigError('[SCOPE API ] Stage offset not set')
 
     if x is None:
@@ -202,9 +206,9 @@ def generate_image_metadata(scope: 'Lumascope', color, x, y, z) -> dict:
     if z is None:
         z = 0
 
-    px, py = scope._coordinate_transformer.stage_to_plate(
-        labware=scope._labware,
-        stage_offset=scope._stage_offset,
+    px, py = scope.runtime_state._coordinate_transformer.stage_to_plate(
+        labware=scope.runtime_state._labware,
+        stage_offset=scope.runtime_state._stage_offset,
         sx=x,
         sy=y,
     )
@@ -216,7 +220,7 @@ def generate_image_metadata(scope: 'Lumascope', color, x, y, z) -> dict:
 
     pixel_size_um = round(
         common_utils.get_pixel_size(
-            focal_length=scope._objective['focal_length'],
+            focal_length=scope.runtime_state._objective['focal_length'],
             binning_size=scope.imaging._binning_size,
         ),
         common_utils.max_decimal_precision('pixel_size'),
@@ -230,8 +234,8 @@ def generate_image_metadata(scope: 'Lumascope', color, x, y, z) -> dict:
         'channel': color,
         'datetime': now_host.strftime('%Y:%m:%d %H:%M:%S'),
         'sub_sec_time': f'{now_host.microsecond // 1000:03d}',
-        'objective': scope._objective,
-        'focal_length': scope._objective['focal_length'],
+        'objective': scope.runtime_state._objective,
+        'focal_length': scope.runtime_state._objective['focal_length'],
         'plate_pos_mm': {'x': px, 'y': py},
         'x_pos': px,
         'y_pos': py,
