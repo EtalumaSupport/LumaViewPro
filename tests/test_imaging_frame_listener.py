@@ -300,3 +300,65 @@ def test_integration_plugin_namespace_fanout_via_simulated_camera():
     # After unregister, the handler is gone from the underlying wrapper
     # registry (one canonical source-of-truth per Rule 35).
     assert handler not in scope.imaging._frame_listener_wrappers
+
+
+def test_add_frame_listener_notifies_user_on_driver_registration_failure(monkeypatch):
+    """When the driver rejects register_frame_callback, add_frame_listener
+    must surface the failure via notifications.warning (Rule 14).
+
+    Pre-fix, the except handler logged + rolled back the dict entry but
+    fired no user-facing notification -- a plugin's frame handler would
+    silently never receive frames, with no signal to the user that the
+    registration failed. AUDIT_SILENT_FAIL_AST_2026-05-23 flagged this
+    as the one confirmed Class B Rule 14 violation in the listener
+    cluster.
+    """
+    from modules.lumascope_api import imaging as imaging_mod
+
+    scope = _make_simulated_scope()
+
+    # Force the driver-side registration to fail.
+    def boom(*_a, **_kw):
+        raise RuntimeError('synthetic driver rejection for test')
+
+    monkeypatch.setattr(scope._camera_driver, 'register_frame_callback', boom)
+
+    captured = []
+
+    class _RecordingNotifier:
+        def warning(self, category, title, message, **kw):
+            captured.append((category, title, message))
+
+        def info(self, *_a, **_kw):
+            pass
+
+        def error(self, *_a, **_kw):
+            pass
+
+        def critical(self, *_a, **_kw):
+            pass
+
+    monkeypatch.setattr(imaging_mod, 'notifications', _RecordingNotifier())
+
+    def handler(_image, _ts, _chunks):
+        pass
+
+    scope.imaging.add_frame_listener(handler, name='rejected_listener')
+
+    assert len(captured) == 1, (
+        f'add_frame_listener must fire exactly one notifications.warning '
+        f'when the driver rejects registration. Captured: {captured}'
+    )
+    category, title, message = captured[0]
+    assert category == 'Frame Listener', (
+        f"Notification category must be 'Frame Listener'; got {category!r}"
+    )
+    assert 'rejected_listener' in title, (
+        f'Notification title must name the listener so the user can correlate '
+        f'with their registration call; got title={title!r}'
+    )
+    # The dict rollback must still happen -- a future register attempt
+    # for the same handler must not see the stale wrapper entry.
+    assert handler not in scope.imaging._frame_listener_wrappers, (
+        'Failed registration must roll back the dict so a retry can fire.'
+    )

@@ -2164,6 +2164,19 @@ class ImagingAPI:
             with self._frame_listener_lock:
                 self._frame_listener_wrappers.pop(cb, None)
             logger.exception(f"[SCOPE API ] add_frame_listener failed for '{name}': {ex}")
+            # Driver-side registration failed -- the listener will
+            # never fire. Surface to the user so a plugin author
+            # whose frame handler quietly stopped receiving frames
+            # has a signal to investigate, instead of seeing no
+            # data and no error.
+            notifications.warning(
+                'Frame Listener',
+                f"Listener '{name}' failed to register",
+                'The camera driver rejected the frame-listener '
+                'registration. The handler will not receive frames. '
+                'Restart the application; if the failure repeats, '
+                'check the log for the underlying driver error.',
+            )
 
     def remove_frame_listener(self, cb) -> None:
         """Remove a listener registered via ``add_frame_listener``.
