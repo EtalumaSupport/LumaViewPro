@@ -133,15 +133,16 @@ def _detect_transport(camera) -> str:
 
     # Fallback: model-string substring match.
     model = (getattr(camera, 'model_name', None) or '').lower()
-    # Basler USB3 model suffixes: 'um' (mono USB), 'uc' (color USB)
-    # Basler GigE model suffixes: 'gm' (mono GigE), 'gc' (color GigE)
-    # Use the trailing position so 'um' inside 'gummed' etc. doesn't match
-    # (Basler models follow strict naming conventions; checking the last
-    # 4 chars covers the documented family suffixes).
-    tail = model[-4:]
-    if 'gm' in tail or 'gc' in tail:
+    # Basler model format: <prefix>-<rate><family-suffix><series?>
+    # family-suffix is 'um' (mono USB), 'uc' (color USB), 'gm' (mono GigE),
+    # 'gc' (color GigE). Optional trailing series tag e.g. 'BAS' for ACE 2.
+    # Match against the post-'-' segment so a substring search can't false-
+    # positive on prefix text and a trailing series tag doesn't push the
+    # family-suffix out of a fixed-width tail window.
+    segment = model.rsplit('-', 1)[-1] if '-' in model else model
+    if 'gm' in segment or 'gc' in segment:
         return 'gige'
-    if 'um' in tail or 'uc' in tail:
+    if 'um' in segment or 'uc' in segment:
         return 'usb3'
     return 'unknown'
 
