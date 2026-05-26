@@ -3,7 +3,6 @@
 import os
 import pathlib
 
-import cv2
 import numpy as np
 import pandas as pd
 import tifffile as tf
@@ -183,14 +182,16 @@ class CompositeGeneration(ProtocolPostProcessor):
                 BF_image_filename = BF_row['Filepath'].iloc[0]
                 BF_image = images[BF_image_filename]
                 img_dtype = BF_image.dtype
-                # tifffile returns mono 2D for single-channel TIFFs. For
-                # legacy 3-channel false-colored TIFFs (saved by older
-                # LVP versions), collapse to mono via RGB2GRAY weights
-                # (NOT BGR2GRAY -- tifffile is RGB-native, unlike cv2).
-                if image_utils.is_color_image(BF_image):
-                    transmitted_image = cv2.cvtColor(BF_image, cv2.COLOR_RGB2GRAY)
-                else:
-                    transmitted_image = BF_image
+                # 3-channel TIFFs come from the false-color save path
+                # (per-channel TIFFs widened to RGB with one plane
+                # populated). The RGB2GRAY luminance collapse used
+                # before attenuated single-plane data by 41-89% of its
+                # original intensity, producing a "mostly green"
+                # composite for Blue and Red layers. rgb_image_to_gray
+                # detects the single-populated-plane case and uses
+                # max-axis extraction instead, preserving the full
+                # value. Mono 2D inputs (the common path) pass through.
+                transmitted_image = image_utils.rgb_image_to_gray(BF_image)
             else:
                 logger.info('CompositeGeneration] Generating fluorescent channel composite')
 
@@ -209,13 +210,12 @@ class CompositeGeneration(ProtocolPostProcessor):
                 if img_dtype is None:
                     img_dtype = f_image.dtype
 
-                # Same legacy-3-channel collapse as the transmitted path.
-                # Single-channel TIFFs come through as 2D; legacy
-                # 3-channel false-colored TIFFs collapse via RGB2GRAY.
-                if image_utils.is_color_image(f_image):
-                    img_gray = cv2.cvtColor(f_image, cv2.COLOR_RGB2GRAY)
-                else:
-                    img_gray = np.array(f_image)
+                # Same collapse as the transmitted path: detect
+                # single-populated-plane (the false-color save shape)
+                # and preserve via max-axis; pass through mono 2D
+                # inputs unchanged. RGB2GRAY luminance was destroying
+                # 41-89% of single-plane signal pre-fix.
+                img_gray = image_utils.rgb_image_to_gray(f_image)
 
                 channel_images[layer] = img_gray
 
