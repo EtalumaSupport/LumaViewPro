@@ -654,7 +654,6 @@ class LumaViewProApp(TooltipMixin, App):
             # camera_type='auto' lets the registry pick by priority (Pylon -> IDS
             # -> FX2). The legacy settings['camera_type'] field is vestigial.
             lumaview = MainDisplay(camera_type='auto', simulate=simulate_mode)
-            lumaview.scope.engineering_mode = ENGINEERING_MODE
             cell_count_content = CellCountControls()
             graphing_controls = GraphingControls()
         except Exception:

@@ -255,7 +255,11 @@ mutated without explicit reconnect):
 events):
 - `firmware_versions: dict[str, str]` (`{'motor': '3.0.9', 'led': '3.0.7'}`) -- changes when boards are reflashed
 - `firmware_features: dict[str, frozenset[str]]` (per subsystem; populated once FW4.0 ships; reflects current firmware, not declared support). **Pass-2 C-10 + pass-3 verification**: ships with empty default. Callers treat empty as "feature unknown" not "feature absent". The same empty-set semantic applies in Rule 8 capability-probe corollary text. FW4.0 promotion populates this surface; until then field firmware lacks `INFO.features` and the dict stays empty.
+- Settings-host state (Wave 7 Phase 8): `_labware`, `_objective`, `_objective_id`, `_turret_config`, `_stage_offset`. User-config runtime state that callers adjust during a session (load a labware, change objective, etc.). Capabilities is hardware-identity (frozen by reconnect); runtime_state covers everything mutable that lives above the driver layer.
+- Settings-host helpers (Wave 7 Phase 8): `_objectives_loader`, `_coordinate_transformer`. Helper objects that operate on the settings-host state.
 - (future: `connection_status`, `usb_link_state`, etc. as they accrete)
+
+**Settings-host method surface** (Wave 7 Phase 8): `set_labware` / `get_labware` / `set_objective` / `get_current_objective_id` / `get_objective_info` / `get_available_objectives` / `get_current_objective` / `set_turret_config` / `get_turret_config` / `set_stage_offset` / `get_stage_offset` / `get_well_label`. The L2-canonical chain is `session.scope.runtime_state.set_objective(...)` (or `session.set_objective(...)` for the ScopeSession-forwarded surface).
 
 **Capability invalidation policy (pass-2 A-10 integrated, 2026-05-11)**: capabilities are immutable per Lumascope instance. Reconnect = new Lumascope = new capabilities. REST clients re-poll `/capabilities` on connection events. `add_capability_listener` is NOT provided -- capability changes are scope-lifecycle changes, not runtime mutations.
 
@@ -928,7 +932,9 @@ The rule-change commit references the following locked names:
 - **Sub-API attribute names (SIX, pass-3 amended per D2)**: `scope.motion`, `scope.illumination`,
   `scope.imaging`, `scope.diagnostics`, `scope.capabilities`, **`scope.io`** (reserved for USB-to-IO trigger device F9; ships as empty placeholder in Wave 7 Phase 1)
 - Runtime state surface: `scope.runtime_state` (pass-1 amendment;
-  firmware_versions + firmware_features + future runtime-mutable values)
+  firmware_versions + firmware_features + settings-host state per
+  Wave 7 Phase 8 (labware / objective / turret / stage + helpers) +
+  future runtime-mutable values)
 - **Hardware features surface (pass-3 D5)**: `scope.capabilities.hardware_features: dict[str, frozenset[str]]` alongside `firmware_features` -- captures USB-to-IO trigger and other non-firmware-gated hardware capabilities
 - **Illuminator capability shape (pass-3 D3)**: `scope.capabilities.illuminators: tuple[IlluminatorSpec, ...]` with each spec carrying `kind`/`channels_or_patterns`/`unit`/`max_intensity`; `led_colors`/`led_channels`/`led_max_ma` become derived properties for backcompat
 - **IlluminationAPI canonical surface (pass-3 D3)**: `set_channel(channel_spec, intensity)` / `clear_channel(channel_spec)` / `get_illuminator_state(illuminator_id)` / `illuminator_states`. `led_on(channel, mA)` / `led_off(channel)` / `leds_off()` survive as Rule 30 backcompat forwarders for the current LED illuminator.

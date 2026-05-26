@@ -133,15 +133,16 @@ def _detect_transport(camera) -> str:
 
     # Fallback: model-string substring match.
     model = (getattr(camera, 'model_name', None) or '').lower()
-    # Basler USB3 model suffixes: 'um' (mono USB), 'uc' (color USB)
-    # Basler GigE model suffixes: 'gm' (mono GigE), 'gc' (color GigE)
-    # Use the trailing position so 'um' inside 'gummed' etc. doesn't match
-    # (Basler models follow strict naming conventions; checking the last
-    # 4 chars covers the documented family suffixes).
-    tail = model[-4:]
-    if 'gm' in tail or 'gc' in tail:
+    # Basler model format: <prefix>-<rate><family-suffix><series?>
+    # family-suffix is 'um' (mono USB), 'uc' (color USB), 'gm' (mono GigE),
+    # 'gc' (color GigE). Optional trailing series tag e.g. 'BAS' for ACE 2.
+    # Match against the post-'-' segment so a substring search can't false-
+    # positive on prefix text and a trailing series tag doesn't push the
+    # family-suffix out of a fixed-width tail window.
+    segment = model.rsplit('-', 1)[-1] if '-' in model else model
+    if 'gm' in segment or 'gc' in segment:
         return 'gige'
-    if 'um' in tail or 'uc' in tail:
+    if 'um' in segment or 'uc' in segment:
         return 'usb3'
     return 'unknown'
 
@@ -350,27 +351,13 @@ def _make_minimal_scope(camera: PylonCamera) -> Lumascope:
     """Construct a minimal Lumascope shell with only the camera attached.
 
     Bypasses the full Lumascope.__init__ (which expects scope / board /
-    settings). The setters this tool calls reach for both ``self.camera``
-    and ``self._camera_cache_lock``; we initialize the lock explicitly
-    so the shortcut is safe.
+    settings). The setters this tool calls go through
+    ``scope.imaging.<setter>``; ImagingAPI owns its own camera cache and
+    locks, so nothing needs to be wired onto the shell beyond the
+    camera handle.
     """
-    import threading
-
     scope = Lumascope.__new__(Lumascope)
     scope.camera = camera
-    scope._camera_cache_lock = threading.Lock()
-    scope._camera_cache = {
-        'active': True,
-        'gain_db': 0.0,
-        'exposure_ms': 0.0,
-        'frame_size': {'width': 0, 'height': 0},
-        'max_frame_size': {'width': 0, 'height': 0},
-        'min_frame_size': {'width': 0, 'height': 0},
-        'max_exposure_ms': 0.0,
-        'max_gain_db': 0.0,
-        'pixel_format': None,
-        'binning': 1,
-    }
     return scope
 
 

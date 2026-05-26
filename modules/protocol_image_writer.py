@@ -272,9 +272,14 @@ class ProtocolImageWriter:
             else:
                 combined_prefix = step['Name']
 
-            # In engineering mode, include turret position in filename
+            # In engineering mode, include turret position in filename.
+            # engineering_mode lives on the app context (ctx); fall back to
+            # False when ctx is unset (bare-fixture test paths).
+            import modules.app_context as _app_ctx_im
+
             turret_pos = None
-            if self._scope.engineering_mode and self._scope.motion.has_turret():
+            engineering_mode = getattr(_app_ctx_im.ctx, 'engineering_mode', False)
+            if engineering_mode and self._scope.motion.has_turret():
                 try:
                     turret_pos = int(self._scope.motion.get_current_position('T'))
                 except Exception as e:

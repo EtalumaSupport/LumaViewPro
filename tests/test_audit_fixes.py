@@ -187,6 +187,7 @@ from modules.exceptions import (
     ProtocolError,
 )
 from modules.lumascope_api.imaging import ImagingAPI
+from modules.lumascope_api.runtime_state import RuntimeState
 
 
 class TestDomainExceptions:
@@ -2517,9 +2518,8 @@ class TestAOC2_RetrySaturationCheckOutsideCamLock:
         """Structural: retry_frame must be initialized before the with block so the
         outside-lock check can reference it whether or not the grab succeeded.
 
-        get_image body relocated to imaging.py in Wave 7 Phase 4d; cam_lock
-        access went from self._cam_lock to self._scope._cam_lock (the lock
-        stays on Lumascope; ImagingAPI reaches it via the back-reference).
+        get_image body and its cam_lock now both live on ImagingAPI;
+        access is self._cam_lock directly.
         """
         from pathlib import Path
 
@@ -2528,7 +2528,7 @@ class TestAOC2_RetrySaturationCheckOutsideCamLock:
         ).read_text()
         # Find the retry block; verify retry_frame = None precedes the with statement.
         idx_init = src.find('retry_frame = None')
-        idx_lock = src.find('with self._scope._cam_lock:', idx_init)
+        idx_lock = src.find('with self._cam_lock:', idx_init)
         idx_retry_grab = src.find('retry_status', idx_lock)
         assert idx_init != -1, 'AOC-2: expected `retry_frame = None` initializer.'
         assert idx_init < idx_lock < idx_retry_grab, (
@@ -2918,25 +2918,20 @@ class TestProtocolCleanupRestoresLayerShader_ShaderHygiene:
         from pathlib import Path
 
         return (
-            Path(__file__).resolve().parent.parent
-            / 'modules' / 'protocol_cleanup.py'
+            Path(__file__).resolve().parent.parent / 'modules' / 'protocol_cleanup.py'
         ).read_text()
 
     def _callbacks_src(self):
         from pathlib import Path
 
         return (
-            Path(__file__).resolve().parent.parent
-            / 'modules' / 'protocol_callbacks.py'
+            Path(__file__).resolve().parent.parent / 'modules' / 'protocol_callbacks.py'
         ).read_text()
 
     def _protocol_settings_src(self):
         from pathlib import Path
 
-        return (
-            Path(__file__).resolve().parent.parent
-            / 'ui' / 'protocol_settings.py'
-        ).read_text()
+        return (Path(__file__).resolve().parent.parent / 'ui' / 'protocol_settings.py').read_text()
 
     def test_callback_field_exists_in_protocol_callbacks(self):
         """ProtocolCallbacks must declare a restore_layer_shader field
@@ -2961,10 +2956,9 @@ class TestProtocolCleanupRestoresLayerShader_ShaderHygiene:
         idx = src.find('callbacks.restore_layer_shader')
         assert idx != -1
         # The line surrounding the call should include _schedule_ui.
-        nearby = src[max(0, idx - 100):idx + 150]
+        nearby = src[max(0, idx - 100) : idx + 150]
         assert '_schedule_ui' in nearby, (
-            'restore_layer_shader call must be UI-thread-dispatched '
-            'via _schedule_ui (Rule 15)'
+            'restore_layer_shader call must be UI-thread-dispatched via _schedule_ui (Rule 15)'
         )
 
     def test_cleanup_shader_restore_protected_by_try_except(self):
@@ -2978,7 +2972,7 @@ class TestProtocolCleanupRestoresLayerShader_ShaderHygiene:
         # The 200 chars before the call should contain a `try:` and the
         # 200 chars after should contain a matching except clause that
         # appends to cleanup_errors.
-        window = src[max(0, idx - 200):idx + 400]
+        window = src[max(0, idx - 200) : idx + 400]
         assert 'try:' in window, (
             'restore_layer_shader call must be inside a try block '
             '(fault tolerance pattern matching LED / AF / camera blocks)'
@@ -3006,8 +3000,7 @@ class TestProtocolCleanupRestoresLayerShader_ShaderHygiene:
         # update_shader -- the canonical "find open accordion, apply
         # its shader" pattern (mirrors update_bullseye_state).
         assert 'update_shader(' in src, (
-            'GUI callback must call update_shader to re-apply the '
-            'currently-open accordion shader'
+            'GUI callback must call update_shader to re-apply the currently-open accordion shader'
         )
 
 
@@ -3065,17 +3058,15 @@ class TestAccordionStaysPutAcrossProtocolStopStart_AccordionDrift:
         # Find go_to_step_update_ui body
         start = src.find('def go_to_step_update_ui(')
         assert start != -1
-        body = src[start:start + 4000]
+        body = src[start : start + 4000]
         end = body.find('\ndef ', 1)
         if end != -1:
             body = body[:end]
         set_expanded_idx = body.find('set_expanded_layer(')
-        assert set_expanded_idx != -1, (
-            'set_expanded_layer call must exist in go_to_step_update_ui'
-        )
+        assert set_expanded_idx != -1, 'set_expanded_layer call must exist in go_to_step_update_ui'
         # The 250 chars before the set_expanded_layer call must
         # contain `if not called_from_protocol:`.
-        guard_window = body[max(0, set_expanded_idx - 250):set_expanded_idx]
+        guard_window = body[max(0, set_expanded_idx - 250) : set_expanded_idx]
         assert 'if not called_from_protocol' in guard_window, (
             'set_expanded_layer call must be gated by '
             '`if not called_from_protocol:` to prevent accordion drift '
@@ -3095,12 +3086,10 @@ class TestAccordionStaysPutAcrossProtocolStopStart_AccordionDrift:
         # later). Capture the window around it.
         # Find the lambda that takes dt and calls go_to_step_update_ui.
         schedule_idx = src.find('lambda dt: go_to_step_update_ui(')
-        assert schedule_idx != -1, (
-            'Schedule call for go_to_step_update_ui must exist'
-        )
+        assert schedule_idx != -1, 'Schedule call for go_to_step_update_ui must exist'
         # The schedule should pass called_from_protocol=called_from_protocol.
         # Window: 200 chars after the lambda start.
-        window = src[schedule_idx:schedule_idx + 200]
+        window = src[schedule_idx : schedule_idx + 200]
         assert 'called_from_protocol=called_from_protocol' in window, (
             'Schedule closure must forward called_from_protocol from '
             'go_to_step scope into go_to_step_update_ui'
@@ -3589,6 +3578,7 @@ class TestCaptureAndWaitPassesChunksToValidity:
 
         # Construct without going through full init -- attributes set by hand
         scope = Lumascope.__new__(Lumascope)
+        scope.runtime_state = RuntimeState(scope)
         scope._camera_driver = None
         scope.imaging = ImagingAPI(scope, None)
         assert scope.imaging._get_latest_chunks() is None
@@ -4484,6 +4474,7 @@ class TestPylonDiagnosticProbe:
         from modules.lumascope_api.diagnostics import DiagnosticsAPI
 
         scope = Lumascope.__new__(Lumascope)
+        scope.runtime_state = RuntimeState(scope)
         scope._camera_driver = fake_camera
         scope.diagnostics = DiagnosticsAPI(scope)
         return scope
@@ -4501,6 +4492,7 @@ class TestPylonDiagnosticProbe:
         from modules.lumascope_api.diagnostics import DiagnosticsAPI
 
         scope = Lumascope.__new__(Lumascope)
+        scope.runtime_state = RuntimeState(scope)
         scope._camera_driver = None
         scope.diagnostics = DiagnosticsAPI(scope)
         result = scope.diagnostics.run_pylon_diagnostic_probe(duration_s=0.0)
@@ -4662,6 +4654,7 @@ class TestDeviceLinkThroughputLimitSetter:
         from modules.lumascope_api.imaging import ImagingAPI
 
         scope = Lumascope.__new__(Lumascope)
+        scope.runtime_state = RuntimeState(scope)
         scope._camera_driver = fake_camera
         scope.imaging = ImagingAPI(scope, fake_camera)
         return scope
@@ -4677,6 +4670,7 @@ class TestDeviceLinkThroughputLimitSetter:
         from modules.lumascope_api.imaging import ImagingAPI
 
         scope = Lumascope.__new__(Lumascope)
+        scope.runtime_state = RuntimeState(scope)
         scope._camera_driver = None
         scope.imaging = ImagingAPI(scope, None)
         assert scope.imaging._set_device_link_throughput_limit('Off') is False
@@ -6974,6 +6968,7 @@ class TestAcquisitionStopModeSetter:
         from modules.lumascope_api.imaging import ImagingAPI
 
         scope = Lumascope.__new__(Lumascope)
+        scope.runtime_state = RuntimeState(scope)
         scope._camera_driver = fake_camera
         scope.imaging = ImagingAPI(scope, fake_camera)
         return scope
@@ -6989,6 +6984,7 @@ class TestAcquisitionStopModeSetter:
         from modules.lumascope_api.imaging import ImagingAPI
 
         scope = Lumascope.__new__(Lumascope)
+        scope.runtime_state = RuntimeState(scope)
         scope._camera_driver = None
         scope.imaging = ImagingAPI(scope, None)
         assert scope.imaging._set_acquisition_stop_mode('Complete') is False
@@ -7112,6 +7108,7 @@ class TestGigeSetters:
         from modules.lumascope_api.imaging import ImagingAPI
 
         scope = Lumascope.__new__(Lumascope)
+        scope.runtime_state = RuntimeState(scope)
         scope._camera_driver = fake_camera
         scope.imaging = ImagingAPI(scope, fake_camera)
         return scope
@@ -7135,6 +7132,7 @@ class TestGigeSetters:
         from modules.lumascope_api.imaging import ImagingAPI
 
         scope = Lumascope.__new__(Lumascope)
+        scope.runtime_state = RuntimeState(scope)
         scope._camera_driver = None
         scope.imaging = ImagingAPI(scope, None)
         assert scope.imaging._set_bandwidth_reserve_mode('Performance') is False
@@ -7328,6 +7326,7 @@ class TestStreamGrabberSetters:
         from modules.lumascope_api.imaging import ImagingAPI
 
         scope = Lumascope.__new__(Lumascope)
+        scope.runtime_state = RuntimeState(scope)
         scope._camera_driver = fake_camera
         scope.imaging = ImagingAPI(scope, fake_camera)
         return scope
@@ -7343,6 +7342,7 @@ class TestStreamGrabberSetters:
         from modules.lumascope_api.imaging import ImagingAPI
 
         scope = Lumascope.__new__(Lumascope)
+        scope.runtime_state = RuntimeState(scope)
         scope._camera_driver = None
         scope.imaging = ImagingAPI(scope, None)
         assert scope.imaging._set_max_transfer_size(262144) is False
@@ -9365,24 +9365,12 @@ class TestCreateDiagnosticSharesInitMinimal:
 
     # Slots that _init_minimal sets on every Lumascope instance, regardless
     # of which constructor path was used. If a future refactor drops one,
-    # this guard catches it.
+    # this guard catches it. State that lives on sub-APIs (imaging.*,
+    # motion.*, runtime_state.*) is asserted by sub-API-owned guards;
+    # this list only covers the composition-root-owned slots.
     REQUIRED_SHARED_SLOTS = (
         '_simulated',
-        '_coordinate_transformer',
-        '_objectives_loader',
-        '_state_lock',
-        '_cam_lock',
-        '_camera_cache_lock',
-        '_camera_cache',
         '_camera_driver',
-        '_labware',
-        '_objective',
-        '_objective_id',
-        '_turret_config',
-        '_stage_offset',
-        '_last_turret_position',
-        'engineering_mode',
-        'last_focus_score',
         '_camera_executor',
         '_io_executor',
         '_file_io_executor',
@@ -11274,10 +11262,7 @@ class TestShowPopupMessageMarshalsDoneToUiThread:
     def _protocol_settings_src(self):
         from pathlib import Path
 
-        return (
-            Path(__file__).resolve().parent.parent
-            / 'ui' / 'protocol_settings.py'
-        ).read_text()
+        return (Path(__file__).resolve().parent.parent / 'ui' / 'protocol_settings.py').read_text()
 
     def test_show_popup_message_does_not_write_done_on_bg_thread(self):
         """Bare `self.done = True` inside `_show_popup_message` writes a
@@ -11293,8 +11278,7 @@ class TestShowPopupMessageMarshalsDoneToUiThread:
             re.DOTALL,
         )
         assert match is not None, (
-            '_show_popup_message method body not found; test selector '
-            'is out of date'
+            '_show_popup_message method body not found; test selector is out of date'
         )
         body = match.group(0)
         # The bare assignment must not appear -- any `self.done = True`
@@ -11359,17 +11343,13 @@ class TestProtocolPostProcessorNoBareCvImwrite_F35_2:
         from pathlib import Path
 
         return (
-            Path(__file__).resolve().parent.parent
-            / 'modules' / 'protocol_post_processor.py'
+            Path(__file__).resolve().parent.parent / 'modules' / 'protocol_post_processor.py'
         ).read_text()
 
     def _stitcher_src(self):
         from pathlib import Path
 
-        return (
-            Path(__file__).resolve().parent.parent
-            / 'modules' / 'stitcher.py'
-        ).read_text()
+        return (Path(__file__).resolve().parent.parent / 'modules' / 'stitcher.py').read_text()
 
     def test_protocol_post_processor_has_no_cv2_imports_or_calls(self):
         """No `import cv2` / `from cv2 ...` and no `cv2.<attr>(...)`
@@ -11381,8 +11361,7 @@ class TestProtocolPostProcessorNoBareCvImwrite_F35_2:
         src = self._post_processor_src()
         # No imports.
         assert not re.search(r'^(import cv2|from cv2 )', src, re.MULTILINE), (
-            'F35.2 regression: protocol_post_processor.py must not '
-            'import cv2 (BGR-native).'
+            'F35.2 regression: protocol_post_processor.py must not import cv2 (BGR-native).'
         )
         # No method/attribute calls (cv2.foo(...) or cv2.foo. ...).
         assert not re.search(r'\bcv2\.\w+\s*\(', src), (
@@ -11463,16 +11442,14 @@ class TestEmergencyShutdownBoundedLeds_F6:
         from pathlib import Path
 
         return (
-            Path(__file__).resolve().parent.parent
-            / 'modules' / 'lumascope_api' / 'illumination.py'
+            Path(__file__).resolve().parent.parent / 'modules' / 'lumascope_api' / 'illumination.py'
         ).read_text()
 
     def _lumascope_src(self):
         from pathlib import Path
 
         return (
-            Path(__file__).resolve().parent.parent
-            / 'modules' / 'lumascope_api' / '_lumascope.py'
+            Path(__file__).resolve().parent.parent / 'modules' / 'lumascope_api' / '_lumascope.py'
         ).read_text()
 
     def test_leds_off_emergency_method_exists(self):
@@ -11562,16 +11539,14 @@ class TestSequentialIoExecutorWaitForIdle_F7:
         from pathlib import Path
 
         return (
-            Path(__file__).resolve().parent.parent
-            / 'modules' / 'sequential_io_executor.py'
+            Path(__file__).resolve().parent.parent / 'modules' / 'sequential_io_executor.py'
         ).read_text()
 
     def _cleanup_src(self):
         from pathlib import Path
 
         return (
-            Path(__file__).resolve().parent.parent
-            / 'modules' / 'protocol_cleanup.py'
+            Path(__file__).resolve().parent.parent / 'modules' / 'protocol_cleanup.py'
         ).read_text()
 
     def test_wait_for_idle_method_exists(self):
@@ -11655,10 +11630,7 @@ class TestShowPopupHostWidgetProxy_F9:
     def _popup_src(self):
         from pathlib import Path
 
-        return (
-            Path(__file__).resolve().parent.parent
-            / 'ui' / 'progress_popup.py'
-        ).read_text()
+        return (Path(__file__).resolve().parent.parent / 'ui' / 'progress_popup.py').read_text()
 
     def test_host_widget_proxy_class_exists(self):
         """The proxy class must be declared in progress_popup.py."""

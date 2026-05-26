@@ -283,7 +283,7 @@ class TestBackToBackMoves_618:
 class TestMoveRelProfile_674:
     """Regression for #674 crosshair-prediction during relative moves.
 
-    Bug shape (bench bundle SN12062-2026-05-22-182105.zip):
+    Original bug (bench bundle SN12062-2026-05-22-182105.zip):
     `move_relative_position` did NOT write `_move_profile[axis]`. State
     still transitioned to MOVING, so `get_current_position` routed through
     `_predicted_position` -- which returned None for a missing profile and
@@ -291,42 +291,77 @@ class TestMoveRelProfile_674:
     just been updated to the target, so the crosshair jumped to the
     target instead of animating along the ramp.
 
-    Fix: mirror move_absolute_position's profile-write block, computing
-    `target_pos = start_pos + um`.
+    Initial fix: mirror move_absolute_position's profile-write block.
+
+    H3 refinement (bench 2026-05-26 -- this commit): profile-write must
+    happen AFTER the driver call returns, not before. The serial round-
+    trip to write the hardware target takes ~50 ms during which the motor
+    has NOT begun physical motion. Capturing start_time before the driver
+    call made _predicted_position's elapsed lead the motor by the full
+    serial RT, producing a visible crosshair-outruns-stage effect on long
+    moves. Profile-write still precedes _set_axis_state(MOVING) so the
+    predictor is ready by the time the move is observable as in-progress.
     """
 
-    def test_source_writes_profile_before_driver_call(self):
-        """Source pin: _move_profile write must appear BEFORE the
-        move_rel_pos driver call in move_relative_position. Catches a
-        revert that drops the profile-write but keeps the driver call."""
+    def test_source_writes_profile_after_driver_before_state_transition(self):
+        """Source pin: _move_profile write must appear AFTER the
+        move_rel_pos driver call AND BEFORE the state transition to
+        MOVING. Catches a revert in either direction (#674 fix dropped,
+        or H3 fix reverted to pre-driver-call write)."""
         body = _find_method_source('MotionAPI', 'move_relative_position')
         profile_idx = body.find('self._move_profile[axis] = {')
         driver_idx = body.find('self._driver.move_rel_pos(')
+        state_idx = body.find('self._set_axis_state(axis, AxisState.MOVING)')
         assert profile_idx != -1, (
-            'move_relative_position must write self._move_profile[axis] (issue #674 fix)'
+            'move_relative_position must write self._move_profile[axis] (#674 fix)'
         )
         assert driver_idx != -1, 'move_rel_pos call missing'
-        assert profile_idx < driver_idx, (
-            'profile write must precede the driver call so the predictor '
-            'has a valid ramp when state transitions to MOVING'
+        assert state_idx != -1, '_set_axis_state(MOVING) missing'
+        assert driver_idx < profile_idx, (
+            'profile write must follow the driver call so start_time captures '
+            'post-serial-RT timing (H3 refinement to #674 fix)'
+        )
+        assert profile_idx < state_idx, (
+            'profile write must precede _set_axis_state(MOVING) so the '
+            'predictor is ready when the axis becomes observably MOVING'
         )
 
-    def test_runtime_profile_set_when_driver_called(self):
-        """Production path: call scope.motion.move_relative_position and
-        snapshot _move_profile[axis] at the moment the driver call fires.
-        Profile must be present, with start_pos from cache and
-        target_pos = start_pos + um.
+    def test_source_move_absolute_position_h3_ordering(self):
+        """Source pin for the ABSOLUTE-move path: bench evidence
+        (2026-05-26 LS850 click-on-plate) confirmed the visible bug is
+        most dramatic on absolute moves through io_executor's task queue.
+        The H3 fix applies symmetrically: profile write must follow the
+        move_abs_pos driver call AND precede the MOVING state transition."""
+        body = _find_method_source('MotionAPI', 'move_absolute_position')
+        profile_idx = body.find('self._move_profile[axis] = {')
+        driver_idx = body.find('self._driver.move_abs_pos(')
+        state_idx = body.find('self._set_axis_state(axis, AxisState.MOVING)')
+        assert profile_idx != -1, (
+            'move_absolute_position must write self._move_profile[axis]'
+        )
+        assert driver_idx != -1, 'move_abs_pos call missing'
+        assert state_idx != -1, '_set_axis_state(MOVING) missing'
+        assert driver_idx < profile_idx, (
+            'profile write must follow the driver call (H3 refinement); '
+            'start_time captured before the ~50 ms serial RT would make '
+            '_predicted_position lead the motor on every move'
+        )
+        assert profile_idx < state_idx, (
+            'profile write must precede _set_axis_state(MOVING)'
+        )
 
-        Hooking the driver call (not the API) ensures we observe BEFORE
-        state transitions to MOVING -- the predictor must be ready by
-        then or get_current_position will fall through to the cache."""
+    def test_runtime_profile_set_after_driver_returns(self):
+        """Production path: profile must be present + populated correctly
+        right after move_relative_position returns. Hooked at the driver
+        call's RETURN moment (still inside move_rel_pos, before the outer
+        method writes profile), profile should be UNSET -- proves the
+        write is positioned after the driver call returns."""
         from modules.lumascope_api import Lumascope
 
         scope = Lumascope(simulate=True)
         scope._motion_driver.set_timing_mode('fast')
 
-        # Prime: move to a known non-zero start so the relative delta is
-        # distinguishable from zero. wait_until_complete clears profile.
+        # Prime: move to a known non-zero start; wait_until_complete clears profile.
         scope.motion.move_absolute_position('X', 1000.0, wait_until_complete=True)
         with scope.motion._move_profile_lock:
             assert scope.motion._move_profile.get('X') is None, (
@@ -336,75 +371,112 @@ class TestMoveRelProfile_674:
         observed = {}
         orig_move_rel = scope._motion_driver.move_rel_pos
 
-        def snapshot_then_call(axis, um, *args, **kwargs):
+        def snapshot_at_driver_return(axis, um, *args, **kwargs):
+            result = orig_move_rel(axis, um, *args, **kwargs)
+            # Snapshot RIGHT before returning to the outer method. With
+            # the H3 fix, profile is still None here -- the outer method
+            # writes it after this returns. With the pre-H3 code, profile
+            # would already be set here.
             with scope.motion._move_profile_lock:
                 profile = scope.motion._move_profile.get(axis)
-            observed['profile'] = None if profile is None else dict(profile)
-            return orig_move_rel(axis, um, *args, **kwargs)
+            observed['profile_at_driver_return'] = (
+                None if profile is None else dict(profile)
+            )
+            return result
 
-        scope._motion_driver.move_rel_pos = snapshot_then_call
+        scope._motion_driver.move_rel_pos = snapshot_at_driver_return
 
         delta = 300.0
         scope.motion.move_relative_position('X', delta, wait_until_complete=False)
 
-        profile = observed.get('profile')
+        # H3 invariant: profile not yet written at driver-return.
+        assert observed.get('profile_at_driver_return') is None, (
+            'profile must be UNSET when the driver call returns -- the outer '
+            'move_relative_position writes it AFTER the driver returns so '
+            'start_time captures post-serial-RT timing (H3 refinement). '
+            f'Observed: {observed.get("profile_at_driver_return")!r}'
+        )
+
+        # Sanity: profile IS set by the time move_relative_position returns.
+        with scope.motion._move_profile_lock:
+            profile = scope.motion._move_profile.get('X')
         assert profile is not None, (
-            "_move_profile['X'] must be written BEFORE move_rel_pos is called -- issue #674 fix"
+            '_move_profile[X] must be written by the time move_relative_position '
+            'returns (still required for the predictor when state is MOVING)'
         )
-        assert profile['start_pos'] == pytest.approx(1000.0, abs=5.0), (
-            f'start_pos should match cache before move; got {profile["start_pos"]}'
-        )
-        assert profile['target_pos'] == pytest.approx(1300.0, abs=5.0), (
-            f'target_pos must equal start_pos + um; got {profile["target_pos"]}'
-        )
-        ramp = profile['ramp']
-        assert ramp and ramp.get('vmax', 0) > 0, (
-            f'ramp must contain valid trapezoid params; got {ramp}'
-        )
+        assert profile['start_pos'] == pytest.approx(1000.0, abs=5.0)
+        assert profile['target_pos'] == pytest.approx(1300.0, abs=5.0)
+        assert profile['ramp'] and profile['ramp'].get('vmax', 0) > 0
 
     def test_runtime_predictor_returns_non_none_during_move(self):
-        """End-to-end behavior: _predicted_position('X') must not return
-        None while state is MOVING after a relative move. This is the
-        actual crosshair-animation precondition.
-
-        Without the fix: profile stays None, predictor returns None,
-        get_current_position falls through to the (already-updated)
-        cache. With the fix: predictor returns an interpolated position."""
+        """End-to-end: after move_relative_position returns and state is
+        MOVING, _predicted_position must return a value. This is the
+        crosshair-animation precondition (regardless of pre-H3 vs post-H3
+        positioning of the profile-write -- by the time the outer method
+        returns, profile must be set)."""
         from modules.lumascope_api import AxisState, Lumascope
 
         scope = Lumascope(simulate=True)
         scope._motion_driver.set_timing_mode('fast')
 
         scope.motion.move_absolute_position('X', 1000.0, wait_until_complete=True)
-
-        # Hook the driver call so we can observe during the move without
-        # racing the motion monitor.
-        observed = {}
-        orig_move_rel = scope._motion_driver.move_rel_pos
-
-        def observe_then_call(axis, um, *args, **kwargs):
-            result = orig_move_rel(axis, um, *args, **kwargs)
-            # At this point profile is set; state hasn't transitioned to
-            # MOVING yet (that happens immediately after this returns).
-            observed['predicted_pre_move_state'] = scope.motion._predicted_position(axis)
-            return result
-
-        scope._motion_driver.move_rel_pos = observe_then_call
-
         scope.motion.move_relative_position('X', 500.0, wait_until_complete=False)
 
-        predicted = observed.get('predicted_pre_move_state')
+        # Observation AFTER the move method returns: profile must be set,
+        # state must be MOVING (or just transitioned), and predictor must
+        # return a valid interpolated position.
+        predicted = scope.motion._predicted_position('X')
         assert predicted is not None, (
-            '_predicted_position must return a value once the profile is '
-            'set -- None means the crosshair will fall through to cache'
+            '_predicted_position must return a value once profile is set -- '
+            'None means the crosshair will fall through to cache'
         )
-
-        # State is now MOVING (or just transitioned to MOVING); the
-        # predictor must continue to return non-None for the duration of
-        # the move. Verify the state side too.
         with scope.motion._axis_state_lock:
             state = scope.motion._axis_state.get('X')
         assert state == AxisState.MOVING, (
             f'state should be MOVING immediately after move_rel returns '
             f'(wait_until_complete=False); got {state!r}'
+        )
+
+    def test_h3_start_time_captured_after_driver_delay(self):
+        """H3 timing invariant: profile.start_time must be captured AFTER
+        the driver call returns. Inject a known delay into the driver and
+        verify start_time > (t_before_call + delay). Without the H3 fix,
+        start_time would be < (t_before_call + delay) because it was
+        captured BEFORE the driver call."""
+        import time as _time
+
+        from modules.lumascope_api import Lumascope
+
+        scope = Lumascope(simulate=True)
+        scope._motion_driver.set_timing_mode('fast')
+
+        scope.motion.move_absolute_position('X', 1000.0, wait_until_complete=True)
+
+        DELAY_S = 0.040  # 40 ms -- well above scheduler jitter; below an arrow's perception threshold
+        orig_move_rel = scope._motion_driver.move_rel_pos
+
+        def slow_driver(axis, um, *args, **kwargs):
+            _time.sleep(DELAY_S)
+            return orig_move_rel(axis, um, *args, **kwargs)
+
+        scope._motion_driver.move_rel_pos = slow_driver
+
+        t_before = _time.monotonic()
+        scope.motion.move_relative_position('X', 300.0, wait_until_complete=False)
+        t_after = _time.monotonic()
+
+        with scope.motion._move_profile_lock:
+            profile = scope.motion._move_profile.get('X')
+        assert profile is not None, 'profile must be set after move returns'
+        start_time = profile['start_time']
+        # H3 invariant: start_time > t_before + DELAY_S (was captured AFTER the driver call).
+        # Pre-H3 code: start_time <= t_before + small-margin (captured BEFORE the driver call).
+        assert start_time >= t_before + DELAY_S * 0.9, (
+            f'profile.start_time={start_time:.6f} must be at least t_before+90%*delay '
+            f'(={t_before + DELAY_S * 0.9:.6f}); H3 fix captures start_time AFTER '
+            f'the driver call. Pre-H3, start_time was captured BEFORE the call.'
+        )
+        assert start_time <= t_after, (
+            f'profile.start_time={start_time:.6f} must precede move-method return '
+            f't_after={t_after:.6f}'
         )

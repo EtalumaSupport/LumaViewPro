@@ -117,6 +117,10 @@ class NullLEDBoard:
         """
         return None
 
+    def supports_firmware_stim(self) -> bool:
+        """Null implementation: no hardware = no firmware STIM support."""
+        return False
+
     def wait_until_on(self, timeout_s=5.0) -> None:
         """Null implementation: no-op."""
         pass

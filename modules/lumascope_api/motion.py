@@ -132,6 +132,11 @@ class MotionAPI:
         self._arrival_events: dict = {}
         self._move_profile: dict = {}
 
+        # Last turret position cache -- tmove() short-circuits a same-
+        # position request to avoid a no-op move command. Defaults to None
+        # so the first tmove() always goes through to the firmware.
+        self._last_turret_position: int | None = None
+
     def init_axes(self, present_axes: list[str]) -> None:
         """Populate per-axis state dicts from the list of detected axes.
 
@@ -311,18 +316,21 @@ class MotionAPI:
             int | None: Turret position (1-4), or None if not found.
         """
         if persisted_position is not None:
-            if self._scope._turret_config.get(persisted_position) == objective_id:
+            if self._scope.runtime_state._turret_config.get(persisted_position) == objective_id:
                 return persisted_position
 
         if prefer_current:
             try:
                 current_pos = self.get_current_position(axis='T')
-                if self._scope._turret_config.get(current_pos) == objective_id:
+                if self._scope.runtime_state._turret_config.get(current_pos) == objective_id:
                     return current_pos
             except Exception:
                 pass
 
-        for turret_position, turret_objective_id in self._scope._turret_config.items():
+        for (
+            turret_position,
+            turret_objective_id,
+        ) in self._scope.runtime_state._turret_config.items():
             if objective_id == turret_objective_id:
                 return turret_position
 
@@ -336,7 +344,7 @@ class MotionAPI:
                 objective ID; False if the slot is unconfigured.
         """
         position = self.get_current_position(axis='T')
-        if self._scope._turret_config[position] is None:
+        if self._scope.runtime_state._turret_config[position] is None:
             return False
 
         return True
@@ -538,13 +546,13 @@ class MotionAPI:
         # Commanding a move of the T axis is slow, even if the move is to the current position.
         # Use caching to determine if T is requested to move to it's current position, and bypass the
         # move altogether if it is.
-        if self._scope._last_turret_position == position:
+        if self._last_turret_position == position:
             return
 
         with self.safe_turret_move():
             logger.info(f'[SCOPE API ] Moving T to position {position}')
             self.move_absolute_position('T', position, wait_until_complete=True)
-            self._scope._last_turret_position = position
+            self._last_turret_position = position
 
     def has_turret(self) -> bool:
         """Check if the microscope has a turret axis.
@@ -1184,21 +1192,19 @@ class MotionAPI:
             _api_log.debug(f'move_abs ignored: {axis} not present on this scope')
             return
 
-        # Store motion profile for position prediction before moving
+        # Capture start_pos + ramp before driving. start_time is captured
+        # AFTER the driver call returns -- the serial round-trip to write
+        # the hardware target takes ~50 ms, during which the motor has not
+        # begun physical motion yet. If start_time were captured BEFORE the
+        # driver call, _predicted_position's `elapsed` would lead the motor's
+        # real elapsed by the full serial RT latency, and the UI crosshair
+        # would visibly outrun the stage on long moves.
         with self._pos_cache_lock:
             start_pos = self._pos_cache.get(axis, 0.0)
         try:
             ramp = self._driver.motorconfig.ramp_params(axis)
         except Exception:
             ramp = None
-        if ramp:
-            with self._move_profile_lock:
-                self._move_profile[axis] = {
-                    'start_time': time.monotonic(),
-                    'start_pos': start_pos,
-                    'target_pos': float(pos),
-                    'ramp': ramp,
-                }
 
         # Write the hardware target BEFORE transitioning the axis to MOVING.
         # Previously the order was reversed: _set_axis_state(MOVING) cleared
@@ -1216,11 +1222,17 @@ class MotionAPI:
             self._driver.move_abs_pos(
                 axis, pos, overshoot_enabled=overshoot_enabled, ignore_limits=ignore_limits
             )
-        except Exception as e:
-            with self._move_profile_lock:
-                self._move_profile[axis] = None
-            _api_log.error(f'move_abs {axis}={pos:.1f}um FAILED: {e}')
+        except Exception:
+            _api_log.error(f'move_abs {axis}={pos:.1f}um FAILED')
             raise
+        if ramp:
+            with self._move_profile_lock:
+                self._move_profile[axis] = {
+                    'start_time': time.monotonic(),
+                    'start_pos': start_pos,
+                    'target_pos': float(pos),
+                    'ramp': ramp,
+                }
         self._set_axis_state(axis, AxisState.MOVING)
         with self._pos_cache_lock:
             self._pos_cache[axis] = float(pos)
@@ -1265,10 +1277,13 @@ class MotionAPI:
             _api_log.debug(f'move_rel ignored: {axis} not present on this scope')
             return
 
-        # Store motion profile for position prediction before moving --
-        # mirrors move_absolute_position. Without this, get_current_position
-        # falls through to the just-updated cache (= target) during the move
-        # and the crosshair jumps instead of animating.
+        # Capture start_pos + ramp before driving. start_time is captured
+        # AFTER the driver call returns -- mirrors move_absolute_position.
+        # The ~50 ms serial round-trip to write the hardware target precedes
+        # any physical motion; capturing start_time before that would make
+        # _predicted_position's elapsed-since-arm lead the motor's real
+        # elapsed by the full serial RT, and the UI crosshair would visibly
+        # outrun the stage on long moves.
         with self._pos_cache_lock:
             start_pos = self._pos_cache.get(axis, 0.0)
         target_pos = start_pos + float(um)
@@ -1276,6 +1291,14 @@ class MotionAPI:
             ramp = self._driver.motorconfig.ramp_params(axis)
         except Exception:
             ramp = None
+
+        # Write hardware target BEFORE transitioning axis to MOVING --
+        # same race fix as move_absolute_position (#618).
+        try:
+            self._driver.move_rel_pos(axis, um, overshoot_enabled=overshoot_enabled)
+        except Exception:
+            _api_log.error(f'move_rel {axis}={um:+.1f}um FAILED')
+            raise
         if ramp:
             with self._move_profile_lock:
                 self._move_profile[axis] = {
@@ -1284,16 +1307,6 @@ class MotionAPI:
                     'target_pos': target_pos,
                     'ramp': ramp,
                 }
-
-        # Write hardware target BEFORE transitioning axis to MOVING --
-        # same race fix as move_absolute_position (#618).
-        try:
-            self._driver.move_rel_pos(axis, um, overshoot_enabled=overshoot_enabled)
-        except Exception as e:
-            with self._move_profile_lock:
-                self._move_profile[axis] = None
-            _api_log.error(f'move_rel {axis}={um:+.1f}um FAILED: {e}')
-            raise
         self._set_axis_state(axis, AxisState.MOVING)
         with self._pos_cache_lock:
             self._pos_cache[axis] = self._pos_cache.get(axis, 0.0) + float(um)

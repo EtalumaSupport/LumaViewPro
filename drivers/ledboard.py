@@ -192,6 +192,60 @@ class LEDBoard(SerialBoard):
                 'reason': 'no response from LED board',
             }
 
+    def supports_firmware_stim(self) -> bool:
+        """Probe firmware for STIM command support. Result cached after first call.
+
+        Host-side pulse scheduling is unreliable below ~20 ms pulse width
+        because the USB-UART bridge batches back-to-back fast-path writes:
+        host-scheduled 50 ms pulses can collapse to ~3 ms physical LED on-
+        time. Firmware STIM (LED firmware v3.0.8+) runs the pulse train
+        inside the LED firmware with sub-microsecond pulse-edge accuracy
+        via ticks_us busy-wait, eliminating the bridge-batching problem.
+
+        Probe sends `STIM 0 0 1 2 1` (intentionally invalid mA=0). v3.0.8+
+        replies with `STIM: mA must be > 0` (parser recognized). Pre-v3.0.8
+        firmware echoes the command and returns `Command not recognized`.
+
+        Returns:
+            bool: True if firmware understands the STIM command (v3.0.8+),
+            False otherwise (pre-v3.0.8 or no LED board connected). Result
+            is cached on the instance so subsequent calls return without
+            re-probing the bus.
+        """
+        if hasattr(self, '_supports_stim_cached'):
+            return self._supports_stim_cached
+        with self._lock:
+            if self.driver is None:
+                return False
+            saved_timeout = self.driver.timeout
+            self.driver.timeout = 0.3
+            try:
+                self.driver.reset_input_buffer()
+                self.driver.write(b'STIM 0 0 1 2 1\n')
+                got_stim = False
+                deadline = time.monotonic() + 2.5
+                while time.monotonic() < deadline:
+                    line = self.driver.readline()
+                    if not line:
+                        continue
+                    s = line.decode('utf-8', 'ignore').strip()
+                    if 'Command not recognized' in s:
+                        got_stim = False
+                        break
+                    if s.startswith('STIM:') or s.startswith('STIM_DIAG:'):
+                        got_stim = True
+                        break
+                # Drain residual bytes so subsequent commands see a clean buffer
+                time.sleep(0.2)
+                if self.driver.in_waiting:
+                    self.driver.read(self.driver.in_waiting)
+            finally:
+                if self.driver is not None:
+                    self.driver.timeout = saved_timeout
+        self._supports_stim_cached = got_stim
+        logger.info(f'{self._label} firmware STIM support: {got_stim}')
+        return got_stim
+
     def get_status(self) -> None:
         """Stub -- LED firmware does not implement a STATUS command.
 

@@ -13,9 +13,27 @@ import argparse
 from tools.pylon_probe_sweep import (
     _build_gige_cells,
     _build_usb3_cells,
+    _detect_transport,
     _format_cell_id,
     _resolve_resolutions,
 )
+
+
+class _FakeCamera:
+    """Minimal stub for _detect_transport's model-name fallback path.
+
+    `active` is truthy (a sentinel object) so the early-return on no-active
+    doesn't fire; calling .GetTLNodeMap() raises, dropping the function
+    into the model-name fallback that the regression test exercises.
+    """
+
+    class _ActiveStub:
+        def GetTLNodeMap(self):
+            raise RuntimeError('test stub: no TL node map')
+
+    def __init__(self, model_name: str):
+        self.active = self._ActiveStub()
+        self.model_name = model_name
 
 
 def _make_args(**overrides):
@@ -152,3 +170,33 @@ class TestFormatCellId:
         assert 'bw=Performance' in out
         assert 'pkt=9000' in out
         assert 'spcd=50' in out
+
+
+class TestDetectTransportModelFallback:
+    """Model-name fallback must classify Basler ACE + ACE 2 + GigE families."""
+
+    def test_basler_ace_usb_mono(self):
+        assert _detect_transport(_FakeCamera('daA3840-45um')) == 'usb3'
+
+    def test_basler_ace_usb_color(self):
+        assert _detect_transport(_FakeCamera('daA3840-45uc')) == 'usb3'
+
+    def test_basler_ace_gige_mono(self):
+        assert _detect_transport(_FakeCamera('dmA3536-9gm')) == 'gige'
+
+    def test_basler_ace_gige_color(self):
+        assert _detect_transport(_FakeCamera('dmA3536-9gc')) == 'gige'
+
+    def test_basler_ace2_usb_mono_with_bas_series(self):
+        # Lumi-board camera; earlier 4-char tail check missed this and
+        # produced "ERROR: unknown transport 'unknown'" at bench launch.
+        assert _detect_transport(_FakeCamera('a2A3536-31umBAS')) == 'usb3'
+
+    def test_basler_ace2_usb_color_with_bas_series(self):
+        assert _detect_transport(_FakeCamera('a2A3840-45ucBAS')) == 'usb3'
+
+    def test_unknown_model_returns_unknown(self):
+        assert _detect_transport(_FakeCamera('foobar-vendor')) == 'unknown'
+
+    def test_empty_model_returns_unknown(self):
+        assert _detect_transport(_FakeCamera('')) == 'unknown'

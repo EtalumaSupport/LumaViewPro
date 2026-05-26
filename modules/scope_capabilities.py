@@ -151,6 +151,15 @@ class ScopeCapabilities:
     smaller-than-max region; this field gives the upper bound."""
 
     # ---- Cross-cutting feature flags ----
+    has_firmware_stim: bool = False
+    """True when the LED firmware advertises the STIM pulse-train command
+    (LED firmware v3.0.8+). Probed at boot via `led.supports_firmware_stim()`.
+    Host-side pulse scheduling is unreliable below ~20 ms pulse width
+    because the USB-UART bridge batches back-to-back fast-path writes;
+    firmware STIM eliminates the bridge-batching problem by running the
+    pulse train inside the LED firmware with sub-microsecond pulse-edge
+    accuracy. Caller gates with `caps.supports('firmware_stim')`."""
+
     hardware_features: frozenset[str] = frozenset()
     """Set of hardware-feature tokens this scope advertises. Per Rule 8
     empty-default semantic: empty means 'feature set unknown / no
@@ -248,6 +257,11 @@ class ScopeCapabilities:
         # LED
         led_channels = _probe('led.available_channels', lambda: tuple(led.available_channels()), ())
         led_colors = _probe('led.available_colors', lambda: tuple(led.available_colors()), ())
+        has_firmware_stim = _probe(
+            'led.supports_firmware_stim',
+            lambda: bool(led.supports_firmware_stim()),
+            False,
+        )
 
         # Camera
         camera_model = ''
@@ -283,6 +297,7 @@ class ScopeCapabilities:
             led_channels=led_channels,
             led_colors=led_colors,
             led_max_ma=led_max_ma,
+            has_firmware_stim=has_firmware_stim,
             camera_model=camera_model,
             camera_supports_auto_gain=camera_supports_auto_gain,
             camera_supports_auto_exposure=camera_supports_auto_exposure,
