@@ -169,17 +169,35 @@ def _resolve_resolutions(spec: list[str], sensor_w: int, sensor_h: int):
       - 'sensor-max'   -> (sensor_w, sensor_h)
       - integer N      -> (N, N)
       - WxH            -> (W, H)
+
+    A non-numeric, non-'sensor-max' token that doesn't contain 'x' indicates
+    the operator typed a sibling flag name (e.g. 'dltl-modes') without the
+    leading '--', so argparse's nargs='+' for --resolutions greedily consumed
+    it. Print a clear error naming the bad token and exit cleanly rather than
+    letting the bare int() ValueError crash to a CRITICAL traceback.
     """
     out = []
     for tok in spec:
         if tok == 'sensor-max':
             out.append((sensor_w, sensor_h))
-        elif 'x' in tok:
-            w, h = tok.lower().split('x', 1)
-            out.append((int(w), int(h)))
-        else:
-            n = int(tok)
-            out.append((n, n))
+            continue
+        try:
+            if 'x' in tok:
+                w, h = tok.lower().split('x', 1)
+                out.append((int(w), int(h)))
+            else:
+                n = int(tok)
+                out.append((n, n))
+        except ValueError:
+            print(
+                f'ERROR: --resolutions got non-numeric token {tok!r}. Expected '
+                f"'sensor-max', an integer N (square N x N), or WxH (e.g. '2100x1500'). "
+                f"Likely cause: a sibling flag was typed without '--' so argparse's "
+                f'--resolutions list greedily consumed it. Re-run with the full --flag '
+                f'prefix on every option.',
+                file=sys.stderr,
+            )
+            sys.exit(2)
     return out
 
 
