@@ -300,6 +300,43 @@ class ImagingAPI:
             with self._camera_cache_lock:
                 self._camera_cache['active'] = bool(self._driver and self._driver.active)
 
+    def _refresh_cache_from_hardware_after_auto(self) -> None:
+        """Resync gain + exposure cache to hardware after an auto cycle.
+
+        The auto-gain / auto-exposure SDK paths drive hardware values
+        directly without going through this layer's cache, so when the
+        auto cycle toggles off the cache may hold a stale pre-auto
+        value. Without this refresh, the cache-equality skip at
+        ``set_gain`` / ``set_exposure_time`` short-circuits subsequent
+        setter calls and hardware silently stays at the converged auto
+        value -- the user-visible failure shape was a protocol's first
+        run capturing at an unintended exposure inherited from a
+        pre-scan live-mode AG cycle.
+
+        Soft-fails on hardware-read exceptions by clearing the cached
+        values to a sentinel so the next setter falls through (better
+        than a stale cached value silently passing the equality check).
+        """
+        if not self._driver or not self._driver.active:
+            return
+        try:
+            gain = self._driver.get_gain()
+            exp = self._driver.get_exposure_t()
+        except Exception as e:
+            with self._camera_cache_lock:
+                self._camera_cache['gain_db'] = -1.0
+                self._camera_cache['exposure_ms'] = -1.0
+            logger.warning(
+                f'[SCOPE API ] cache refresh after auto-off failed: {e}; '
+                f'cache invalidated to force next setter through.'
+            )
+            return
+        with self._camera_cache_lock:
+            if gain is not None:
+                self._camera_cache['gain_db'] = float(gain)
+            if exp is not None:
+                self._camera_cache['exposure_ms'] = float(exp)
+
     def _invalidate_camera_cache(self) -> None:
         """Mark camera cache as inactive (e.g. on disconnect)."""
         with self._camera_cache_lock:
@@ -424,6 +461,9 @@ class ImagingAPI:
         # Auto-gain dynamically adjusts the value; clear the manual target
         # so chunk-match falls back to skip-frames calibration.
         self.frame_validity.set_target('gain', None)
+        # Hardware-truth wins over cache after the auto cycle ends.
+        if not state:
+            self._refresh_cache_from_hardware_after_auto()
 
     def set_auto_exposure_time(self, state: bool = True) -> None:
         """Enable or disable automatic exposure adjustment.
@@ -439,6 +479,9 @@ class ImagingAPI:
         # Auto-exposure dynamically adjusts the value; clear the manual
         # target so chunk-match falls back to skip-frames calibration.
         self.frame_validity.set_target('exposure', None)
+        # Hardware-truth wins over cache after the auto cycle ends.
+        if not state:
+            self._refresh_cache_from_hardware_after_auto()
 
     def set_frame_size(self, w: int, h: int) -> None:
         """Set the camera frame size in pixels.
@@ -1827,6 +1870,10 @@ class ImagingAPI:
             min_gain_db=min_gain_db,
             max_gain_db=max_gain_db,
         )
+        # One-shot AG always ends with the auto cycle complete and the
+        # SDK toggled back to Off internally; hardware holds the
+        # converged value while LVP's cache is still pre-auto.
+        self._refresh_cache_from_hardware_after_auto()
 
     def update_camera_config(self) -> ContextManager[Any]:
         """Context manager for batched camera config updates.
