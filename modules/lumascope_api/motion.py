@@ -1042,7 +1042,10 @@ class MotionAPI:
     def get_target_position(self, axis: str | None = None) -> 'float | dict | None':
         """Get the target position for an axis (where it is commanded to go).
 
-        Reads from the push-based position cache -- zero serial I/O.
+        During MOVING: returns the target captured in _move_profile when the
+        move was commanded. This is what the host told the chip; no serial
+        I/O. During IDLE: returns the cached current position (which is the
+        last polled motor position, ~1 microstep off the commanded target).
 
         Args:
             axis: Axis name ("X", "Y", "Z", "T"), or None for all axes.
@@ -1052,16 +1055,29 @@ class MotionAPI:
                 axis positions. Returns 0 if motion board inactive, None if
                 axis T requested but no turret present.
         """
+        if axis is None:
+            result = {}
+            for ax in self._scope.capabilities.axes:
+                result[ax] = self.get_target_position(ax)
+            return result
         if axis == 'T' and not self._driver.has_turret():
             return None
+        with self._axis_state_lock:
+            state = self._axis_state.get(axis, AxisState.UNKNOWN)
+        if state == AxisState.MOVING:
+            with self._move_profile_lock:
+                profile = self._move_profile.get(axis)
+            if profile is not None and profile.get('target_pos') is not None:
+                return float(profile['target_pos'])
         return self._read_position_cache(axis)
 
     def get_current_position(self, axis: str | None = None) -> 'float | dict':
         """Get the current position for an axis.
 
-        During MOVING: returns predicted position based on trapezoidal
-        ramp profile and elapsed time (smooth UI updates, zero serial I/O).
-        During IDLE: returns cached target position (confirmed by firmware).
+        Reads from the in-memory position cache. During MOVING the cache
+        is refreshed by _motion_monitor_loop polling the motor's actual
+        position from hardware on every cycle; during IDLE the cache
+        holds the last confirmed position.
 
         Args:
             axis: Axis name ("X", "Y", "Z", "T"), or None for all axes.
@@ -1075,14 +1091,6 @@ class MotionAPI:
             for ax in self._scope.capabilities.axes:
                 result[ax] = self.get_current_position(ax)
             return result
-
-        with self._axis_state_lock:
-            state = self._axis_state.get(axis, AxisState.UNKNOWN)
-        if state == AxisState.MOVING:
-            predicted = self._predicted_position(axis)
-            if predicted is not None:
-                return predicted
-
         return self._read_position_cache(axis)
 
     def _predicted_position(self, axis: str) -> float | None:
@@ -1234,8 +1242,10 @@ class MotionAPI:
                     'ramp': ramp,
                 }
         self._set_axis_state(axis, AxisState.MOVING)
-        with self._pos_cache_lock:
-            self._pos_cache[axis] = float(pos)
+        # No move-init cache write: cache holds CURRENT position, which is
+        # still start_pos until _motion_monitor_loop reads it from hardware
+        # on its first cycle. Target is held in _move_profile[axis], where
+        # get_target_position picks it up during MOVING.
         self._fire_position_listeners(axis)
         self._scope.imaging.frame_validity.invalidate('z_move' if axis == 'Z' else 'xy_move')
         _api_log.info(f'move_abs {axis}={pos:.1f}um{" wait" if wait_until_complete else ""}')
@@ -1284,8 +1294,20 @@ class MotionAPI:
         # _predicted_position's elapsed-since-arm lead the motor's real
         # elapsed by the full serial RT, and the UI crosshair would visibly
         # outrun the stage on long moves.
-        with self._pos_cache_lock:
-            start_pos = self._pos_cache.get(axis, 0.0)
+        #
+        # If a prior move is still in flight on this axis, accumulate against
+        # the prior move's commanded target (mirrors the driver-layer
+        # `move_rel_pos` semantics: it reads `target_pos()` from firmware,
+        # not `current_pos()`, so chained relative moves add to the previous
+        # target). At IDLE the cache holds the post-arrival current position
+        # (~= previous target), so reading cache as start_pos is correct.
+        with self._move_profile_lock:
+            prior_profile = self._move_profile.get(axis)
+        if prior_profile is not None and prior_profile.get('target_pos') is not None:
+            start_pos = float(prior_profile['target_pos'])
+        else:
+            with self._pos_cache_lock:
+                start_pos = self._pos_cache.get(axis, 0.0)
         target_pos = start_pos + float(um)
         try:
             ramp = self._driver.motorconfig.ramp_params(axis)
@@ -1308,8 +1330,10 @@ class MotionAPI:
                     'ramp': ramp,
                 }
         self._set_axis_state(axis, AxisState.MOVING)
-        with self._pos_cache_lock:
-            self._pos_cache[axis] = self._pos_cache.get(axis, 0.0) + float(um)
+        # No move-init cache write: cache holds CURRENT position, which is
+        # still start_pos until _motion_monitor_loop reads it from hardware
+        # on its first cycle. Target is held in _move_profile[axis], where
+        # get_target_position picks it up during MOVING.
         self._fire_position_listeners(axis)
         self._scope.imaging.frame_validity.invalidate('z_move' if axis == 'Z' else 'xy_move')
         _api_log.info(f'move_rel {axis}={um:+.1f}um{" wait" if wait_until_complete else ""}')
@@ -1431,13 +1455,42 @@ class MotionAPI:
                     for ax in moving_axes:
                         if self._motion_monitor_stop.is_set():
                             break
+                        if not self._driver.is_connected():
+                            continue
+                        # Read motor actual position from hardware and update
+                        # the cache so get_current_position (and the crosshair
+                        # via the position listener) tracks the motor instead
+                        # of the cached target. Fixes #674 H4 -- previously,
+                        # get_current_position routed through _predicted_position,
+                        # whose trapezoidal model used unrealistic ramp_params
+                        # (motorconfig amax=50000 vs firmware register 30000;
+                        # converted to ~70-116 m/s^2 vs real stage <5 m/s^2)
+                        # and raced the motor 5-10x ahead.
                         try:
-                            if self._driver.is_connected() and self.get_target_status(ax):
-                                # Axis has arrived -- transition to IDLE
+                            actual = self._driver.current_pos(ax)
+                            if actual is not None:
+                                with self._pos_cache_lock:
+                                    self._pos_cache[ax] = float(actual)
+                        except Exception as e:
+                            _api_log.debug(f'motion monitor current_pos({ax}) failed: {e}')
+                        # Arrival check: firmware-authoritative via the
+                        # position_reached (STATUS_R bit 22) signal. The motor
+                        # owns this -- it knows when XACTUAL == XTARGET at the
+                        # microstep level, including final-step settling and
+                        # the firmware Zstop logic. On arrival, cache holds
+                        # whatever current_pos read above returned -- that
+                        # is the actual motor position, which may differ from
+                        # the commanded target by up to ~1 microstep (X/Y
+                        # ~0.078 um, Z ~0.025 um) due to microstep
+                        # quantization. Reporting the polled value (not the
+                        # commanded target) keeps the cache honest about
+                        # where the motor physically is.
+                        try:
+                            if self.get_target_status(ax):
                                 self._set_axis_state(ax, AxisState.IDLE)
                             else:
-                                # Still moving -- fire position listener so UI
-                                # updates crosshair during motion (fixes #601)
+                                # Still moving -- propagate the refreshed
+                                # cache value to UI listeners.
                                 self._fire_position_listeners(ax)
                         except Exception as e:
                             logger.warning(

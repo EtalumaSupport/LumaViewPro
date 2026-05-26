@@ -870,9 +870,16 @@ class TestPositionCache:
         assert result['Z'] == 300.0
 
     def test_get_current_position_matches_target(self, sim_scope):
-        """After a blocking move, get_current_position returns the target."""
+        """After a blocking move, get_current_position is at the target
+        within microstep precision. The motor lands at the nearest
+        microstep to the commanded value; converting back to um round-
+        trips through that quantization (~0.078 um on X/Y, ~0.025 um on
+        Z), so exact equality is not achievable. #674 H4 changed the
+        cache contract from 'snap to commanded target on arrival' to
+        'reflect motor's polled actual', exposing this quantization
+        residual."""
         sim_scope.motion.move_absolute_position('Z', 7777.0, wait_until_complete=True)
-        assert sim_scope.motion.get_current_position('Z') == 7777.0
+        assert sim_scope.motion.get_current_position('Z') == pytest.approx(7777.0, abs=0.1)
 
     def test_refresh_after_homing(self, sim_scope):
         """refresh_position_cache syncs cache from hardware (used after homing)."""
