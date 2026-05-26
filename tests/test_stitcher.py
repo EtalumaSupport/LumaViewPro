@@ -146,6 +146,7 @@ class TestCropToContent:
 # ---------------------------------------------------------------------------
 
 from modules.stitcher import Stitcher
+import modules.common_utils as common_utils
 
 
 class TestSimplePositionStitcher:
@@ -247,3 +248,30 @@ class TestSimplePositionStitcher:
         assert result['status'] is True
         assert result['image'].dtype == np.uint16
         assert result['image'].shape == (64, 32)
+
+
+class TestPositionAwareStitcher:
+    def test_preserves_overlap_from_stage_positions(self, tmp_path):
+        left = np.full((50, 50), 100, dtype=np.uint8)
+        right = np.full((50, 50), 200, dtype=np.uint8)
+        cv2.imwrite(str(tmp_path / 'left.tiff'), left)
+        cv2.imwrite(str(tmp_path / 'right.tiff'), right)
+
+        fov = common_utils.get_field_of_view(
+            focal_length=18.0,
+            frame_size={'width': 50, 'height': 50},
+            binning_size=1,
+        )
+        half_fov_mm = fov['width'] / 2 / 1000
+        df = pd.DataFrame([
+            {'Filepath': 'left.tiff', 'X': 0.0, 'Y': 0.0, 'Objective': '10x Oly'},
+            {'Filepath': 'right.tiff', 'X': -half_fov_mm, 'Y': 0.0, 'Objective': '10x Oly'},
+        ])
+
+        result = Stitcher(has_turret=False)._position_stitcher(tmp_path, df)
+
+        assert result['status'] is True
+        assert result['image'].shape == (50, 75)
+        assert result['image'][:, :25].mean() == pytest.approx(100)
+        assert result['image'][:, 25:50].mean() == pytest.approx(150)
+        assert result['image'][:, 50:].mean() == pytest.approx(200)

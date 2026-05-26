@@ -83,6 +83,20 @@ class Stitcher(ProtocolPostProcessor):
         df: pd.DataFrame,
         **kwargs,
     ):
+        position_result = self._position_stitcher(
+            path=path,
+            df=df[['Filepath', 'X', 'Y', 'Objective', 'Color']],
+            output_file_loc=kwargs.get('output_file_loc'),
+        )
+        if position_result['status']:
+            return position_result
+
+        logger_msg = position_result['error']
+        import logging
+        logging.getLogger('LVP.ui.protocol_settings').warning(
+            f"[Stitch] Position-aware stitch failed ({logger_msg}); "
+            "falling back to simple grid stitch"
+        )
         return Stitcher._simple_position_stitcher(
             path=path,
             df=df[['Filepath', 'X', 'Y']],
@@ -231,6 +245,148 @@ class Stitcher(ProtocolPostProcessor):
             output_image = image_utils.maybe_apply_false_color(
                 data=stitched_img,
                 color=df['Color'].iloc[0],
+            )
+            output_file_loc_abs = path / output_file_loc
+            output_file_loc_abs.parent.mkdir(parents=True, exist_ok=True)
+            tf.imwrite(
+                str(output_file_loc_abs),
+                output_image,
+                compression='lzw',
+            )
+            return_image = None
+        else:
+            return_image = stitched_img
+
+        return {
+            'status': True,
+            'error': None,
+            'image': return_image,
+            'metadata': {
+                'center': center,
+            },
+        }
+
+
+    def _position_stitcher(
+        self,
+        path: pathlib.Path,
+        df: pd.DataFrame,
+        output_file_loc: pathlib.Path | None = None,
+    ):
+        """Place tiles using recorded stage positions.
+
+        Unlike _simple_position_stitcher, this preserves the pixel overlap
+        implied by the stage coordinates instead of treating every adjacent
+        tile as edge-to-edge. Overlapping pixels are averaged.
+        """
+        required_cols = {'Filepath', 'X', 'Y', 'Objective'}
+        if not required_cols.issubset(df.columns):
+            missing = sorted(required_cols.difference(df.columns))
+            return {
+                'status': False,
+                'error': f"missing required columns: {missing}",
+            }
+
+        df = df.copy()
+        df['X'] = df['X'].astype(float)
+        df['Y'] = df['Y'].astype(float)
+
+        images = {}
+        for _, row in df.iterrows():
+            image_filepath = path / row['Filepath']
+            image = tf.imread(str(image_filepath))
+            if image is None:
+                return {
+                    'status': False,
+                    'error': f'unable to read image: {image_filepath}',
+                }
+            images[row['Filepath']] = image
+
+        sample_row = df.iloc[0]
+        sample = images[sample_row['Filepath']]
+        image_h = sample.shape[0]
+        image_w = sample.shape[1]
+
+        try:
+            objective = self._objectives_helper.get_objective_info(
+                objective_id=sample_row['Objective']
+            )
+            fov = common_utils.get_field_of_view(
+                focal_length=objective['focal_length'],
+                frame_size={'width': image_w, 'height': image_h},
+                binning_size=1,
+            )
+        except Exception as e:
+            return {
+                'status': False,
+                'error': f"unable to determine objective field of view: {e}",
+            }
+
+        um_per_pixel_x = fov['width'] / image_w
+        um_per_pixel_y = fov['height'] / image_h
+        if um_per_pixel_x <= 0 or um_per_pixel_y <= 0:
+            return {
+                'status': False,
+                'error': 'invalid field-of-view scale',
+            }
+
+        x_max = df['X'].max()
+        y_min = df['Y'].min()
+        df['x_pix'] = ((x_max - df['X']) * 1000 / um_per_pixel_x).round().astype(int)
+        df['y_pix'] = ((df['Y'] - y_min) * 1000 / um_per_pixel_y).round().astype(int)
+
+        stitched_w = int(df['x_pix'].max() + image_w)
+        stitched_h = int(df['y_pix'].max() + image_h)
+        if stitched_w <= 0 or stitched_h <= 0:
+            return {
+                'status': False,
+                'error': 'invalid stitched image dimensions',
+            }
+
+        is_color_image = image_utils.is_color_image(image=sample)
+        if is_color_image:
+            acc_shape = (stitched_h, stitched_w, sample.shape[2])
+            weight_shape = (stitched_h, stitched_w, 1)
+        else:
+            acc_shape = (stitched_h, stitched_w)
+            weight_shape = (stitched_h, stitched_w)
+
+        accumulator = np.zeros(acc_shape, dtype=np.float64)
+        weights = np.zeros(weight_shape, dtype=np.float64)
+
+        for _, row in df.iterrows():
+            image = images[row['Filepath']]
+            y0 = int(row['y_pix'])
+            x0 = int(row['x_pix'])
+            y1 = y0 + image.shape[0]
+            x1 = x0 + image.shape[1]
+
+            accumulator[y0:y1, x0:x1] += image.astype(np.float64)
+            weights[y0:y1, x0:x1] += 1.0
+
+        filled = weights > 0
+        output = np.zeros(acc_shape, dtype=np.float64)
+        if is_color_image:
+            np.divide(accumulator, weights, out=output, where=filled)
+        else:
+            np.divide(accumulator, weights, out=output, where=filled)
+
+        if np.issubdtype(sample.dtype, np.integer):
+            info = np.iinfo(sample.dtype)
+            output = np.clip(output, info.min, info.max)
+
+        center = {
+            'x': round(df['X'].unique().mean(), common_utils.max_decimal_precision(parameter='x')),
+            'y': round(df['Y'].unique().mean(), common_utils.max_decimal_precision(parameter='y')),
+        }
+
+        stitched_img = output.astype(sample.dtype)
+
+        if output_file_loc is not None:
+            color = df['Color'].iloc[0] if 'Color' in df.columns else ''
+            output_image = image_utils.maybe_apply_false_color(
+                data=stitched_img,
+                color=color,
             )
             output_file_loc_abs = path / output_file_loc
             output_file_loc_abs.parent.mkdir(parents=True, exist_ok=True)

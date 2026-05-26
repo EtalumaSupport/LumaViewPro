@@ -2,6 +2,7 @@
 
 import itertools
 import json
+import math
 import pathlib
 
 from lvp_logger import logger
@@ -117,8 +118,19 @@ class TilingConfig:
             binning_size=binning_size,
         )
 
-        x_fov = fill_factor * fov_size['width']
-        y_fov = fill_factor * fov_size['height']
+        x_step = fill_factor * fov_size['width']
+        y_step = fill_factor * fov_size['height']
+
+        target_m = tiling_mxn['m']
+        target_n = tiling_mxn['n']
+        actual_m = self._overlap_preserving_tile_count(
+            target_count=target_m,
+            fill_factor=fill_factor,
+        )
+        actual_n = self._overlap_preserving_tile_count(
+            target_count=target_n,
+            fill_factor=fill_factor,
+        )
 
         # Stage center derived from motorconfig travel limits.
         # Guards: ctx not initialized (CLI / headless startup), scope
@@ -140,17 +152,25 @@ class TilingConfig:
             x_center = DEFAULT_STAGE_TRAVEL_UM['x'] / 2
             y_center = DEFAULT_STAGE_TRAVEL_UM['y'] / 2
         tiling_min = {
-            'x': x_center - tiling_mxn['n'] * x_fov / 2,
-            'y': y_center - tiling_mxn['m'] * y_fov / 2,
+            'x': x_center - target_n * fov_size['width'] / 2,
+            'y': y_center - target_m * fov_size['height'] / 2,
         }
 
         tiling_max = {
-            'x': x_center + tiling_mxn['n'] * x_fov / 2,
-            'y': y_center + tiling_mxn['m'] * y_fov / 2,
+            'x': x_center + target_n * fov_size['width'] / 2,
+            'y': y_center + target_m * fov_size['height'] / 2,
         }
 
         return {
             'mxn': tiling_mxn,
+            'actual_mxn': {
+                'm': actual_m,
+                'n': actual_n,
+            },
+            'step': {
+                'x': x_step,
+                'y': y_step,
+            },
             'min': tiling_min,
             'max': tiling_max,
         }
@@ -171,15 +191,11 @@ class TilingConfig:
             binning_size=binning_size,
         )
 
-        tiling_mxn = ranges['mxn']
-        tiling_min = ranges['min']
-        tiling_max = ranges['max']
+        tiling_mxn = ranges['actual_mxn']
+        x_step = ranges['step']['x']
+        y_step = ranges['step']['y']
 
         tiles = {}
-        ax = (tiling_max['x'] + tiling_min['x']) / 2
-        ay = (tiling_max['y'] + tiling_min['y']) / 2
-        dx = (tiling_max['x'] - tiling_min['x']) / tiling_mxn['n']
-        dy = (tiling_max['y'] - tiling_min['y']) / tiling_mxn['m']
 
         PRECISION = 2  # Digits
 
@@ -193,28 +209,37 @@ class TilingConfig:
                 tile_label = f'{row_letter}{col_number}'
 
             tiles[tile_label] = {
-                'x': round(tiling_min['x'] + (j + 0.5) * dx - ax, PRECISION),
-                'y': round(tiling_min['y'] + (i + 0.5) * dy - ay, PRECISION),
+                'x': round((j - (tiling_mxn['n'] - 1) / 2) * x_step, PRECISION),
+                'y': round((i - (tiling_mxn['m'] - 1) / 2) * y_step, PRECISION),
             }
 
         return tiles
-    
+
+    @staticmethod
+    def _overlap_preserving_tile_count(target_count: int, fill_factor: float) -> int:
+        if target_count <= 1:
+            return target_count
+        if fill_factor >= 1.0:
+            return target_count
+
+        target_span_in_fovs = target_count - 1
+        return math.ceil(target_span_in_fovs / fill_factor + 1 - 1e-12)
+
     @staticmethod
     def validate_overlap_percent(overlap_percent: float) -> float:
         try:
             overlap_percent = float(overlap_percent)
         except (TypeError, ValueError):
-            raise ValueError(f"Tile overlap must be a number, got {overlap_percent!r}")
-        
+            raise ValueError(f'Tile overlap must be a number, got {overlap_percent!r}')
+
         if overlap_percent < 0.0 or overlap_percent > 50.0:
             raise ValueError(
-                f"Tile overlap must be between 0 and 50 percent, got {overlap_percent}"
+                f'Tile overlap must be between 0 and 50 percent, got {overlap_percent}'
             )
         return overlap_percent
-    
+
     @staticmethod
     def fill_factor_from_overlap_percent(overlap_percent: float) -> float:
         overlap_percent = TilingConfig.validate_overlap_percent(overlap_percent)
         overlap_fraction = overlap_percent / 100.0
         return 1.0 - overlap_fraction
-
