@@ -222,11 +222,20 @@ class ZProjector(ProtocolPostProcessor):
         if not result['status']:
             return result
 
+        # Widen mono fluorescence to RGB before save so the projection
+        # output matches the per-slice capture's false-color shape.
+        # Without this, the bare tifffile write below produces grayscale
+        # for Blue/Green/Red/Lumi projections.
+        output_image = image_utils.maybe_apply_false_color(
+            data=result['image'],
+            color=df['Color'].iloc[0],
+        )
+
         output_file_loc_abs = path / output_file_loc
         output_file_loc_abs.parent.mkdir(exist_ok=True, parents=True)
         tf.imwrite(
             output_file_loc_abs,
-            data=result['image'],
+            data=output_image,
             compression='lzw',
         )
 

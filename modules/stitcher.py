@@ -224,11 +224,19 @@ class Stitcher(ProtocolPostProcessor):
         # minisblack, 3D shape[-1]=3 -> rgb. Signal subclass-wrote via
         # image=None so the base class skips its own write branch.
         if output_file_loc is not None:
+            # Widen mono fluorescence to RGB before save so the stitched
+            # output matches the per-tile capture's false-color shape.
+            # Without this, the bare tifffile write below produces
+            # grayscale for Blue/Green/Red/Lumi stitches.
+            output_image = image_utils.maybe_apply_false_color(
+                data=stitched_img,
+                color=df['Color'].iloc[0],
+            )
             output_file_loc_abs = path / output_file_loc
             output_file_loc_abs.parent.mkdir(parents=True, exist_ok=True)
             tf.imwrite(
                 str(output_file_loc_abs),
-                stitched_img,
+                output_image,
                 compression='lzw',
             )
             return_image = None

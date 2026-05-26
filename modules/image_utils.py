@@ -279,6 +279,50 @@ def get_imagej_lut(colormap: LvpColormap):
         raise NotImplementedError(f'Unsupported colormap: {colormap}')
 
 
+def maybe_apply_false_color(
+    data: np.ndarray,
+    color: str,
+    use_false_color_16bit: bool | None = None,
+    output_buf: np.ndarray | None = None,
+) -> np.ndarray:
+    """Widen single-channel fluorescence to 3-channel RGB when the
+    layer-color setting is on; pass other inputs through unchanged.
+
+    Mono uint8/uint16 fluorescence (Blue/Green/Red/Lumi) becomes 3-channel
+    RGB so Windows Preview and FIJI render in color. File size grows ~3x.
+    Already-RGB inputs, transmitted layers (BF/PC/DF), and unknown layer
+    names pass through.
+
+    The setting key ``false_color_16bit`` is legacy -- the gate covers
+    both 8-bit and 12/16-bit captures because the user-facing intent
+    is "save fluorescence in false color regardless of bit depth."
+
+    Caller may pass the resolved bool to skip the per-save settings_lock
+    acquire; ``None`` triggers a one-shot lock read.
+    """
+    if not (
+        data.dtype in (np.uint8, np.uint16)
+        and not is_color_image(data)
+        and color in common_utils.get_image_layers()
+    ):
+        return data
+    try:
+        if use_false_color_16bit is None:
+            from modules import app_context as _app_ctx
+
+            with _app_ctx.ctx.settings_lock:
+                use_false_color_16bit = _app_ctx.ctx.settings.get('false_color_16bit', False)
+        if use_false_color_16bit:
+            return add_false_color(data, color, output=output_buf)
+    except Exception:
+        logger.exception(
+            '[image_utils] maybe_apply_false_color: false-color application '
+            'failed for color=%s; returning input',
+            color,
+        )
+    return data
+
+
 def write_tiff(
     data,
     file_loc: pathlib.Path,
@@ -294,37 +338,12 @@ def write_tiff(
     if extratags is None:
         extratags = []
 
-    # Convert single-channel fluorescence to 3-channel RGB for false color
-    # in all viewers. File size grows ~3x in exchange for color in Windows
-    # Preview and FIJI. Caller may pass the resolved bool to skip the
-    # per-save settings_lock acquire; falls back to a one-shot lock read
-    # when None for ad-hoc callers. The setting key
-    # ``false_color_16bit`` is legacy -- the feature now applies to both
-    # 8-bit (uint8) and 12/16-bit (uint16) captures because 8-bit
-    # fluorescence z-stacks and z-projections were saving grayscale too
-    # (the original 16-bit-only gate was an oversight).
-    # false_color_buf is the in-place RGB destination for add_false_color;
-    # rgb_buf is retained for API compat and will be retired once callers
-    # drop it.
-    if (
-        data.dtype in (np.uint8, np.uint16)
-        and not is_color_image(data)
-        and color in common_utils.get_image_layers()
-    ):
-        try:
-            if use_false_color_16bit is None:
-                from modules import app_context as _app_ctx
-
-                with _app_ctx.ctx.settings_lock:
-                    use_false_color_16bit = _app_ctx.ctx.settings.get('false_color_16bit', False)
-            if use_false_color_16bit:
-                data = add_false_color(data, color, output=false_color_buf)
-        except Exception:
-            logger.exception(
-                '[image_utils] save_image: false-color application failed '
-                'for color=%s; saving without false color',
-                color,
-            )
+    data = maybe_apply_false_color(
+        data=data,
+        color=color,
+        use_false_color_16bit=use_false_color_16bit,
+        output_buf=false_color_buf,
+    )
 
     kwargs = {}
     # Enable BigTIFF for datasets >3.8 GB to prevent silent corruption at 4 GB boundary
