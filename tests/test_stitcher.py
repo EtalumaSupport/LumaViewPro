@@ -14,7 +14,13 @@ import pytest
 # stitch_algorithms.py — feature-based stitching, color transfer, border crop
 # ---------------------------------------------------------------------------
 
-from modules.stitch_algorithms import _image_stats, color_transfer, _grab_contours, crop_to_content
+from modules.stitch_algorithms import (
+    _image_stats,
+    color_transfer,
+    _grab_contours,
+    crop_to_content,
+    stitch_registered_tiles,
+)
 
 
 class TestImageStats:
@@ -275,3 +281,33 @@ class TestPositionAwareStitcher:
         assert result['image'][:, :25].mean() == pytest.approx(100)
         assert result['image'][:, 25:50].mean() == pytest.approx(150)
         assert result['image'][:, 50:].mean() == pytest.approx(200)
+
+    def test_registered_stitch_recovers_neighbor_jitter(self):
+        rng = np.random.default_rng(123)
+        base = rng.integers(0, 255, (80, 180, 3), dtype=np.uint8)
+        tile_w = 100
+        tile_h = 80
+        nominal_step = 75
+        left_jitter = (0, 0)
+        right_jitter = (4, -2)
+        pad = 8
+        padded = cv2.copyMakeBorder(base, pad, pad, pad, pad, cv2.BORDER_REFLECT_101)
+        left = padded[
+            pad + left_jitter[1] : pad + left_jitter[1] + tile_h,
+            pad + left_jitter[0] : pad + left_jitter[0] + tile_w,
+        ]
+        right = padded[
+            pad + right_jitter[1] : pad + right_jitter[1] + tile_h,
+            pad + nominal_step + right_jitter[0] : pad + nominal_step + right_jitter[0] + tile_w,
+        ]
+
+        _, registered = stitch_registered_tiles(
+            [
+                {'tile': left, 'x_px': 0, 'y_px': 0},
+                {'tile': right, 'x_px': nominal_step, 'y_px': 0},
+            ],
+            output_shape=(tile_h, nominal_step + tile_w),
+        )
+
+        assert registered[1]['registration_offset_x_px'] == pytest.approx(4, abs=1)
+        assert registered[1]['registration_offset_y_px'] == pytest.approx(-2, abs=1)
