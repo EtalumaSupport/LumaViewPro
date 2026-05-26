@@ -147,6 +147,48 @@ if __name__ == '__main__':
             _root.destroy()
         except Exception as popup_err:  # grain: ignore NAKED_EXCEPT
             logger.warning(f'[LVP Lock ] Could not display already-running popup: {popup_err}')
+        # After the popup dismiss, if our parent process is a console
+        # shell (cmd.exe / PowerShell), post WM_CLOSE to its window so
+        # the user's shell doesn't stay orphaned next to a popup they
+        # already acknowledged. Windowed PyInstaller builds detach from
+        # the launching console; the parent shell has no idea LVP just
+        # exited and won't self-close. Best-effort: any error logs +
+        # falls through to os._exit unchanged.
+        if windows_machine:
+            try:
+                import ctypes
+                from ctypes import wintypes
+
+                import psutil
+
+                _parent = psutil.Process(os.getpid()).parent()
+                _parent_name = (_parent.name() or '').lower() if _parent else ''
+                if _parent_name in ('cmd.exe', 'powershell.exe', 'pwsh.exe'):
+                    _user32 = ctypes.windll.user32
+                    _enum_proc_type = ctypes.WINFUNCTYPE(
+                        wintypes.BOOL, wintypes.HWND, wintypes.LPARAM
+                    )
+                    _parent_pid = _parent.pid
+                    _hwnds: list[int] = []
+
+                    def _enum_cb(hwnd, _lparam):
+                        _pid = wintypes.DWORD()
+                        _user32.GetWindowThreadProcessId(hwnd, ctypes.byref(_pid))
+                        if _pid.value == _parent_pid and _user32.IsWindowVisible(hwnd):
+                            _hwnds.append(hwnd)
+                        return True
+
+                    _user32.EnumWindows(_enum_proc_type(_enum_cb), 0)
+                    _WM_CLOSE = 0x0010
+                    for _h in _hwnds:
+                        _user32.PostMessageW(_h, _WM_CLOSE, 0, 0)
+                    if _hwnds:
+                        logger.info(
+                            f'[LVP Lock ] Closed parent {_parent_name} window '
+                            f'(pid={_parent_pid}, hwnds={len(_hwnds)}) after popup.'
+                        )
+            except Exception as console_err:  # grain: ignore NAKED_EXCEPT
+                logger.warning(f'[LVP Lock ] Could not close parent console window: {console_err}')
         # os._exit terminates immediately; sys.exit raises SystemExit
         # which downstream cleanup paths may swallow before any Kivy
         # import has the chance to spin up.
