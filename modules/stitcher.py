@@ -85,7 +85,7 @@ class Stitcher(ProtocolPostProcessor):
     ):
         return Stitcher._simple_position_stitcher(
             path=path,
-            df=df[['Filepath', 'X', 'Y']],
+            df=df[['Filepath', 'X', 'Y', 'Color']],
             output_file_loc=kwargs.get('output_file_loc'),
         )
 

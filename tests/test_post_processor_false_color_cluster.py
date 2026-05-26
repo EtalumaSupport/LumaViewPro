@@ -174,6 +174,53 @@ class TestStitcherAppliesFalseColorForFluorescence:
                 )
 
 
+class TestStitcherGroupAlgorithmCarriesColor:
+    """Production call path: _group_algorithm receives the full-shape df
+    from protocol_post_processor.load_folder and slices it before passing
+    to _simple_position_stitcher. The slice must include 'Color' so the
+    downstream false-color gate has it to read.
+
+    The earlier TestStitcherAppliesFalseColorForFluorescence tests skip
+    _group_algorithm and call _simple_position_stitcher directly with a
+    Color-bearing df, so they cannot catch a column-list narrowing in
+    _group_algorithm. This class exercises the production-shape path."""
+
+    def test_group_algorithm_slice_preserves_color(self, tmp_path, false_color_setting_on):
+        rows = []
+        for ix, x in enumerate((0.0, 1.0)):
+            for iy, y in enumerate((0.0, 1.0)):
+                p = tmp_path / f'tile_{ix}_{iy}.tiff'
+                _write_mono_tiff(p, value=200, shape=(4, 4))
+                rows.append({
+                    'Filepath': p.name,
+                    'Color': 'Green',
+                    'X': x,
+                    'Y': y,
+                    'Well': 'A1',
+                    'Z-Slice': 0,
+                    'Objective': '20x',
+                    'Scan Count': 0,
+                })
+        df = pd.DataFrame(rows)
+        stitcher = Stitcher.__new__(Stitcher)
+        result = stitcher._group_algorithm(
+            path=tmp_path,
+            df=df,
+            output_file_loc=pd.Series(['stitched.tiff'])[0],
+        )
+        assert result['status'], (
+            f"_group_algorithm returned status=False: {result.get('error')}. "
+            f'Pre-fix: narrowing the df to [Filepath, X, Y] dropped Color, '
+            f"so _simple_position_stitcher raised KeyError on df['Color']."
+        )
+        out = tf.imread(str(tmp_path / 'stitched.tiff'))
+        assert out.ndim == 3 and out.shape[2] == 3, (
+            f'Stitched output via _group_algorithm with false-color on must '
+            f'save as 3-channel RGB, got shape {out.shape}.'
+        )
+        assert (out[..., 1] == 200).all(), 'Green plane must carry tile value'
+
+
 class TestPostProcessorSkipsFalseColorForTransmitted:
     """Transmitted layers (BF/PC/DF) must stay grayscale -- they are not
     in ``common_utils.get_image_layers()`` so the gate must pass
