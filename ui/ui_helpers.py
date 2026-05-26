@@ -25,6 +25,7 @@ logger = logging.getLogger('LVP.modules.ui_helpers')
 # Saved-folder helper
 # ============================================================================
 
+
 def set_last_save_folder(dir):
     if dir is None:
         return
@@ -37,15 +38,18 @@ def set_last_save_folder(dir):
 # Protocol nav helpers
 # ============================================================================
 
+
 def focus_log(positions, values):
     ctx = _app_ctx.ctx
     ctx.focus_round = config_helpers.focus_log(positions, values, ctx.focus_round, ctx.source_path)
+
 
 def update_autofocus_selection_after_protocol():
     ctx = _app_ctx.ctx
     for layer in common_utils.get_layers():
         layer_obj = ctx.image_settings.layer_lookup(layer=layer)
         layer_obj.init_autofocus()
+
 
 def find_nearest_step(x, y, protocol):
     return config_helpers.find_nearest_step(x, y, protocol)
@@ -75,16 +79,18 @@ def scope_leds_off(no_callback: bool = False):
 # Protocol Step Navigation Helpers
 # ============================================================================
 
+
 def _update_step_number_callback(step_num: int):
     ctx = _app_ctx.ctx
     protocol_settings = ctx.motion_settings.ids['protocol_settings_id']
-    protocol_settings.curr_step = step_num-1
+    protocol_settings.curr_step = step_num - 1
     _schedule_ui(lambda dt: protocol_settings.update_step_ui(), 0)
 
 
 # ============================================================================
 # Motion Helpers
 # ============================================================================
+
 
 def _handle_ui_update_for_axis(axis: str, vertical_control: bool = False):
     ctx = _app_ctx.ctx
@@ -93,6 +99,7 @@ def _handle_ui_update_for_axis(axis: str, vertical_control: bool = False):
         ctx.motion_settings.ids['verticalcontrol_id'].update_gui(vertical_control=vertical_control)
     elif axis in ('X', 'Y', 'XY'):
         ctx.motion_settings.update_xy_stage_control_gui()
+
 
 def _handle_autofocus_ui(pos: float):
     ctx = _app_ctx.ctx
@@ -112,25 +119,30 @@ def move_absolute_position(
     wait_until_complete: bool = False,
     overshoot_enabled: bool = True,
     protocol: bool = False,
-    vertical_control: bool = False
+    vertical_control: bool = False,
 ):
     ctx = _app_ctx.ctx
 
     if axis == 'T':
         # Turret moves go through the GUI widget which manages homing and objective settings
         if not protocol:
-            ctx.io_executor.put(IOTask(
-                action=ctx.motion_settings.ids['verticalcontrol_id'].turret_select,
-                kwargs={'selected_position': pos},
-                callback=_handle_ui_update_for_axis,
-                cb_kwargs={'axis': axis, 'vertical_control': vertical_control},
-            ))
+            ctx.io_executor.put(
+                IOTask(
+                    action=ctx.motion_settings.ids['verticalcontrol_id'].turret_select,
+                    kwargs={'selected_position': pos},
+                    callback=_handle_ui_update_for_axis,
+                    cb_kwargs={'axis': axis, 'vertical_control': vertical_control},
+                )
+            )
         else:
-            ctx.motion_settings.ids['verticalcontrol_id'].turret_select(selected_position=pos, protocol=True)
+            ctx.motion_settings.ids['verticalcontrol_id'].turret_select(
+                selected_position=pos, protocol=True
+            )
     else:
         if not protocol:
             ctx.scope.motion.move_absolute_async(
-                axis, pos,
+                axis,
+                pos,
                 wait_until_complete=wait_until_complete,
                 overshoot_enabled=overshoot_enabled,
                 callback=_handle_ui_update_for_axis,
@@ -141,7 +153,8 @@ def move_absolute_position(
             # call the scope primitive directly. Submitting to the
             # same executor would deadlock.
             ctx.scope.motion.move_absolute_position(
-                axis=axis, pos=pos,
+                axis=axis,
+                pos=pos,
                 wait_until_complete=wait_until_complete,
                 overshoot_enabled=overshoot_enabled,
             )
@@ -150,14 +163,12 @@ def move_absolute_position(
 
 
 def move_relative_position(
-    axis: str,
-    um: float,
-    wait_until_complete: bool = False,
-    overshoot_enabled: bool = True
+    axis: str, um: float, wait_until_complete: bool = False, overshoot_enabled: bool = True
 ):
     ctx = _app_ctx.ctx
     ctx.scope.motion.move_relative_async(
-        axis, um,
+        axis,
+        um,
         wait_until_complete=wait_until_complete,
         overshoot_enabled=overshoot_enabled,
         callback=_handle_ui_update_for_axis,
@@ -168,7 +179,7 @@ def move_relative_position(
 def move_home(axis: str):
     ctx = _app_ctx.ctx
     axis = axis.upper()
-    set_title_event_text("Homing, please wait...")
+    set_title_event_text('Homing, please wait...')
     ctx.scope.motion.move_home_async(axis, callback=move_home_cb, cb_args=(axis))
 
 
@@ -203,17 +214,17 @@ def set_title_event_text(text):
 # Should only be called from main thread
 def set_recording_title(progress=None):
     if progress is None:
-        set_title_event_text("Recording Video...")
+        set_title_event_text('Recording Video...')
     else:
-        set_title_event_text(f"Recording Video... {int(progress)}%")
+        set_title_event_text(f'Recording Video... {int(progress)}%')
 
 
 # Should only be called from main thread
 def set_writing_title(progress=None):
     if progress is None:
-        set_title_event_text("Writing Video...")
+        set_title_event_text('Writing Video...')
     else:
-        set_title_event_text(f"Writing Video... {int(progress)}%")
+        set_title_event_text(f'Writing Video... {int(progress)}%')
 
 
 def reset_title():
@@ -229,11 +240,13 @@ def move_home_cb(axis):
 # Histogram / Contrast Helpers
 # ============================================================================
 
+
 def live_histo_off():
     ctx = _app_ctx.ctx
     if ctx.live_histo_setting and ctx.scope_display.use_live_image_histogram_equalization:
         ctx.scope_display.use_live_image_histogram_equalization = False
         logger.info('[LVP Main  ] Live Histogram Equalization] False')
+
 
 def live_histo_reverse():
     ctx = _app_ctx.ctx
@@ -246,26 +259,28 @@ def live_histo_reverse():
 # UI State Helpers
 # ============================================================================
 
+
 def reset_acquire_ui():
     ctx = _app_ctx.ctx
     for layer in common_utils.get_layers():
         layer_obj = ctx.image_settings.layer_lookup(layer=layer)
         layer_obj._initializing = True
         try:
-            if ctx.settings[layer]['acquire'] == "image":
+            if ctx.settings[layer]['acquire'] == 'image':
                 layer_obj.ids['acquire_image'].active = True
-            elif ctx.settings[layer]['acquire'] == "video":
+            elif ctx.settings[layer]['acquire'] == 'video':
                 layer_obj.ids['acquire_video'].active = True
             else:
                 layer_obj.ids['acquire_none'].active = True
         finally:
             layer_obj._initializing = False
 
+
 def reset_stim_ui():
     ctx = _app_ctx.ctx
     for layer in common_utils.get_layers():
         layer_obj = ctx.image_settings.layer_lookup(layer=layer)
-        if "stim_config" in ctx.settings[layer]:
+        if 'stim_config' in ctx.settings[layer]:
             if ctx.settings[layer]['stim_config'] is not None:
                 with ctx.settings_lock:
                     ctx.settings[layer]['stim_config']['enabled'] = False
@@ -280,6 +295,7 @@ def reset_stim_ui():
 # ============================================================================
 # ScrollView Memory Cleanup
 # ============================================================================
+
 
 def cleanup_scrollview_viewport(scrollview):
     """

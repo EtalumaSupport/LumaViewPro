@@ -59,11 +59,13 @@ COMPLETION_TIMEOUT = 30  # generous for CI
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _make_executors():
     """Create and start all SequentialIOExecutors + protocol_thread."""
     from modules.protocol_thread import ProtocolThread
+
     names = ['io', 'file_io', 'camera', 'autofocus']
-    execs = {n: SequentialIOExecutor(name=f"INTEG_{n.upper()}") for n in names}
+    execs = {n: SequentialIOExecutor(name=f'INTEG_{n.upper()}') for n in names}
     for e in execs.values():
         e.start()
     pt = ProtocolThread()
@@ -102,7 +104,7 @@ def _make_image_capture_config():
     }
 
 
-TILING_CONFIGS = pathlib.Path(__file__).parent.parent / "data" / "tiling.json"
+TILING_CONFIGS = pathlib.Path(__file__).parent.parent / 'data' / 'tiling.json'
 
 
 def _make_protocol(steps_config):
@@ -116,42 +118,60 @@ def _make_protocol(steps_config):
     import pandas as pd
 
     defaults = {
-        'color': 'BF', 'illumination_ma': 50.0, 'gain_db': 1.0, 'exposure_ms': 10.0,
-        'auto_gain': False, 'auto_focus': False, 'acquire': 'image',
-        'false_color': False, 'sum_count': 1,
-        'video_config': {'duration': 1, 'fps': 5}, 'stim_config': {},
-        'x': 10.0, 'y': 20.0, 'z': 5000.0, 'well': 'A1', 'name': None,
-        'tile': '', 'z_slice': 0, 'tile_group_id': 0, 'zstack_group_id': 0,
+        'color': 'BF',
+        'illumination_ma': 50.0,
+        'gain_db': 1.0,
+        'exposure_ms': 10.0,
+        'auto_gain': False,
+        'auto_focus': False,
+        'acquire': 'image',
+        'false_color': False,
+        'sum_count': 1,
+        'video_config': {'duration': 1, 'fps': 5},
+        'stim_config': {},
+        'x': 10.0,
+        'y': 20.0,
+        'z': 5000.0,
+        'well': 'A1',
+        'name': None,
+        'tile': '',
+        'z_slice': 0,
+        'tile_group_id': 0,
+        'zstack_group_id': 0,
         'objective': '10x Oly',
     }
 
     rows = []
     for i, cfg in enumerate(steps_config):
         merged = {**defaults, **cfg}
-        name = merged['name'] or f"step_{i}_{merged['color']}"
-        rows.append({
-            'Name': name,
-            'X': merged['x'], 'Y': merged['y'], 'Z': merged['z'],
-            'Auto_Focus': merged['auto_focus'],
-            'Color': merged['color'],
-            'False_Color': merged['false_color'],
-            'Illumination': merged['illumination_ma'],
-            'Gain': merged['gain_db'],
-            'Auto_Gain': merged['auto_gain'],
-            'Exposure': merged['exposure_ms'],
-            'Sum': merged['sum_count'],
-            'Objective': merged['objective'],
-            'Well': merged['well'],
-            'Tile': merged['tile'],
-            'Z-Slice': merged['z_slice'],
-            'Custom Step': True,
-            'Tile Group ID': merged['tile_group_id'],
-            'Z-Stack Group ID': merged['zstack_group_id'],
-            'Acquire': merged['acquire'],
-            'Video Config': merged['video_config'],
-            'Stim_Config': merged['stim_config'],
-            'Step Index': i,
-        })
+        name = merged['name'] or f'step_{i}_{merged["color"]}'
+        rows.append(
+            {
+                'Name': name,
+                'X': merged['x'],
+                'Y': merged['y'],
+                'Z': merged['z'],
+                'Auto_Focus': merged['auto_focus'],
+                'Color': merged['color'],
+                'False_Color': merged['false_color'],
+                'Illumination': merged['illumination_ma'],
+                'Gain': merged['gain_db'],
+                'Auto_Gain': merged['auto_gain'],
+                'Exposure': merged['exposure_ms'],
+                'Sum': merged['sum_count'],
+                'Objective': merged['objective'],
+                'Well': merged['well'],
+                'Tile': merged['tile'],
+                'Z-Slice': merged['z_slice'],
+                'Custom Step': True,
+                'Tile Group ID': merged['tile_group_id'],
+                'Z-Stack Group ID': merged['zstack_group_id'],
+                'Acquire': merged['acquire'],
+                'Video Config': merged['video_config'],
+                'Stim_Config': merged['stim_config'],
+                'Step Index': i,
+            }
+        )
 
     df = pd.DataFrame(rows)
     config = {
@@ -170,7 +190,10 @@ def _wait_for_executor_idle(executor, timeout=5.0):
     """Wait until executor is fully idle (not running and file IO drained)."""
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
-        if not executor._run_in_progress_event.is_set() and not executor.file_io_executor.is_protocol_queue_active():
+        if (
+            not executor._run_in_progress_event.is_set()
+            and not executor.file_io_executor.is_protocol_queue_active()
+        ):
             return True
         time.sleep(0.05)
     return False
@@ -203,8 +226,13 @@ def _run_and_wait(executor, protocol, tmp_path, **run_kwargs):
         leds_state_at_end=run_kwargs.pop('leds_state_at_end', 'off'),
         enable_image_saving=run_kwargs.pop('enable_image_saving', False),
         initial_autofocus_states={
-            'BF': False, 'PC': False, 'DF': False,
-            'Red': False, 'Green': False, 'Blue': False, 'Lumi': False,
+            'BF': False,
+            'PC': False,
+            'DF': False,
+            'Red': False,
+            'Green': False,
+            'Blue': False,
+            'Lumi': False,
         },
         **run_kwargs,
     )
@@ -216,6 +244,7 @@ def _run_and_wait(executor, protocol, tmp_path, **run_kwargs):
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture
 def scope():
@@ -300,6 +329,7 @@ def af_executor(scope, executors):
 # Tier 1: Single-step protocols with real simulated hardware
 # ===========================================================================
 
+
 class TestIntegrationSingleStep:
     """Verify that single-step protocols drive real simulator state correctly."""
 
@@ -307,7 +337,7 @@ class TestIntegrationSingleStep:
         """Most basic integration test — protocol runs to completion on simulated hardware."""
         protocol = _make_protocol([{'color': 'BF', 'illumination_ma': 100.0}])
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
-        assert completed, "Protocol did not complete within timeout"
+        assert completed, 'Protocol did not complete within timeout'
 
     def test_leds_off_after_completion(self, executor, scope, tmp_path):
         """After protocol completes with leds_state_at_end='off', all LEDs should be off."""
@@ -317,13 +347,20 @@ class TestIntegrationSingleStep:
 
         # All LED channels should be off
         for color in ('BF', 'PC', 'DF', 'Red', 'Green', 'Blue'):
-            assert not scope.illumination.led_enabled(color), f"LED {color} still on after protocol"
+            assert not scope.illumination.led_enabled(color), f'LED {color} still on after protocol'
 
     def test_camera_settings_applied(self, executor, scope, tmp_path):
         """Verify gain and exposure are set on the real camera simulator."""
-        protocol = _make_protocol([{
-            'color': 'BF', 'gain_db': 5.0, 'exposure_ms': 25.0, 'illumination_ma': 50.0,
-        }])
+        protocol = _make_protocol(
+            [
+                {
+                    'color': 'BF',
+                    'gain_db': 5.0,
+                    'exposure_ms': 25.0,
+                    'illumination_ma': 50.0,
+                }
+            ]
+        )
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed
 
@@ -335,15 +372,21 @@ class TestIntegrationSingleStep:
     def test_motor_position_set(self, executor, scope, tmp_path):
         """Verify the motor moves to the protocol step position."""
         z_target = 7000.0  # um
-        protocol = _make_protocol([{
-            'color': 'BF', 'z': z_target, 'illumination_ma': 50.0,
-        }])
+        protocol = _make_protocol(
+            [
+                {
+                    'color': 'BF',
+                    'z': z_target,
+                    'illumination_ma': 50.0,
+                }
+            ]
+        )
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed
 
         # Z position should be near the target (simulator moves instantly in fast mode)
         z_pos = scope._motion_driver.current_pos('Z')
-        assert abs(z_pos - z_target) < 100.0, f"Z position {z_pos} not near target {z_target}"
+        assert abs(z_pos - z_target) < 100.0, f'Z position {z_pos} not near target {z_target}'
 
     def test_image_captured(self, executor, scope, tmp_path):
         """Verify that an image was actually captured during the protocol."""
@@ -366,9 +409,15 @@ class TestIntegrationAutoGain:
 
     def test_auto_gain_completes(self, executor, scope, tmp_path):
         """Auto-gain protocol step completes without error."""
-        protocol = _make_protocol([{
-            'color': 'BF', 'auto_gain': True, 'illumination_ma': 50.0,
-        }])
+        protocol = _make_protocol(
+            [
+                {
+                    'color': 'BF',
+                    'auto_gain': True,
+                    'illumination_ma': 50.0,
+                }
+            ]
+        )
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed
 
@@ -378,9 +427,15 @@ class TestIntegrationAutoGain:
         scope._camera_driver.gain(1.0)
         initial_gain = scope._camera_driver.get_gain()
 
-        protocol = _make_protocol([{
-            'color': 'BF', 'auto_gain': True, 'illumination_ma': 50.0,
-        }])
+        protocol = _make_protocol(
+            [
+                {
+                    'color': 'BF',
+                    'auto_gain': True,
+                    'illumination_ma': 50.0,
+                }
+            ]
+        )
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed
         # We can't assert the exact gain value since it depends on auto-gain logic,
@@ -391,40 +446,47 @@ class TestIntegrationAutoGain:
 # Tier 2: Multi-step protocols
 # ===========================================================================
 
+
 class TestIntegrationMultiChannel:
     """Multi-channel protocols with real simulated hardware."""
 
     def test_two_channel_completes(self, executor, scope, tmp_path):
         """BF + Green two-channel protocol completes."""
-        protocol = _make_protocol([
-            {'color': 'BF', 'illumination_ma': 100.0},
-            {'color': 'Green', 'illumination_ma': 75.0},
-        ])
+        protocol = _make_protocol(
+            [
+                {'color': 'BF', 'illumination_ma': 100.0},
+                {'color': 'Green', 'illumination_ma': 75.0},
+            ]
+        )
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed
 
     def test_three_channel_completes(self, executor, scope, tmp_path):
         """BF + Green + Red three-channel protocol completes."""
-        protocol = _make_protocol([
-            {'color': 'BF', 'illumination_ma': 100.0},
-            {'color': 'Green', 'illumination_ma': 75.0},
-            {'color': 'Red', 'illumination_ma': 50.0},
-        ])
+        protocol = _make_protocol(
+            [
+                {'color': 'BF', 'illumination_ma': 100.0},
+                {'color': 'Green', 'illumination_ma': 75.0},
+                {'color': 'Red', 'illumination_ma': 50.0},
+            ]
+        )
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed
 
     def test_all_leds_off_after_multi_channel(self, executor, scope, tmp_path):
         """After multi-channel protocol, all LEDs should be off."""
-        protocol = _make_protocol([
-            {'color': 'BF', 'illumination_ma': 100.0},
-            {'color': 'Green', 'illumination_ma': 75.0},
-            {'color': 'Red', 'illumination_ma': 50.0},
-        ])
+        protocol = _make_protocol(
+            [
+                {'color': 'BF', 'illumination_ma': 100.0},
+                {'color': 'Green', 'illumination_ma': 75.0},
+                {'color': 'Red', 'illumination_ma': 50.0},
+            ]
+        )
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed
 
         for color in ('BF', 'PC', 'DF', 'Red', 'Green', 'Blue'):
-            assert not scope.illumination.led_enabled(color), f"LED {color} still on"
+            assert not scope.illumination.led_enabled(color), f'LED {color} still on'
 
 
 class TestIntegrationZStack:
@@ -434,8 +496,7 @@ class TestIntegrationZStack:
         """3-slice Z-stack completes and motor visits all Z positions."""
         z_positions = [4000.0, 5000.0, 6000.0]
         steps = [
-            {'color': 'BF', 'z': z, 'z_slice': i, 'zstack_group_id': 1,
-             'illumination_ma': 50.0}
+            {'color': 'BF', 'z': z, 'z_slice': i, 'zstack_group_id': 1, 'illumination_ma': 50.0}
             for i, z in enumerate(z_positions)
         ]
         protocol = _make_protocol(steps)
@@ -447,8 +508,7 @@ class TestIntegrationZStack:
         initial_z = scope._motion_driver.current_pos('Z')
         z_positions = [4000.0, 5000.0, 6000.0]
         steps = [
-            {'color': 'BF', 'z': z, 'z_slice': i, 'zstack_group_id': 1,
-             'illumination_ma': 50.0}
+            {'color': 'BF', 'z': z, 'z_slice': i, 'zstack_group_id': 1, 'illumination_ma': 50.0}
             for i, z in enumerate(z_positions)
         ]
         protocol = _make_protocol(steps)
@@ -457,8 +517,9 @@ class TestIntegrationZStack:
 
         z_final = scope._motion_driver.current_pos('Z')
         # Motor should have moved to one of the Z-stack positions
-        assert z_final in z_positions or abs(z_final - initial_z) > 100.0, \
+        assert z_final in z_positions or abs(z_final - initial_z) > 100.0, (
             f"Z={z_final} didn't move from initial {initial_z}"
+        )
 
 
 class TestIntegrationMultiWell:
@@ -466,10 +527,12 @@ class TestIntegrationMultiWell:
 
     def test_two_wells_completes(self, executor, scope, tmp_path):
         """Two-well protocol completes (different XY positions)."""
-        protocol = _make_protocol([
-            {'color': 'BF', 'x': 10.0, 'y': 20.0, 'well': 'A1', 'illumination_ma': 50.0},
-            {'color': 'BF', 'x': 30.0, 'y': 40.0, 'well': 'A2', 'illumination_ma': 50.0},
-        ])
+        protocol = _make_protocol(
+            [
+                {'color': 'BF', 'x': 10.0, 'y': 20.0, 'well': 'A1', 'illumination_ma': 50.0},
+                {'color': 'BF', 'x': 30.0, 'y': 40.0, 'well': 'A2', 'illumination_ma': 50.0},
+            ]
+        )
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed
 
@@ -480,8 +543,14 @@ class TestIntegrationTiling:
     def test_1x3_tiling_completes(self, executor, scope, tmp_path):
         """1x3 tile pattern completes."""
         steps = [
-            {'color': 'BF', 'x': 10.0 + i * 1.0, 'y': 20.0,
-             'tile': f'T{i}', 'tile_group_id': 1, 'illumination_ma': 50.0}
+            {
+                'color': 'BF',
+                'x': 10.0 + i * 1.0,
+                'y': 20.0,
+                'tile': f'T{i}',
+                'tile_group_id': 1,
+                'illumination_ma': 50.0,
+            }
             for i in range(3)
         ]
         protocol = _make_protocol(steps)
@@ -493,6 +562,7 @@ class TestIntegrationTiling:
 # Tier 3: Autofocus with real focus simulation
 # ===========================================================================
 
+
 class TestIntegrationAutofocus:
     """Autofocus tests using real AutofocusRunner + SimulatedCamera focus sim."""
 
@@ -502,13 +572,20 @@ class TestIntegrationAutofocus:
         scope._camera_driver.set_test_pattern('focus_target')
         scope._camera_driver.set_focal_z(5000.0)
 
-        protocol = _make_protocol([{
-            'color': 'BF', 'auto_focus': True, 'z': 5000.0,
-            'illumination_ma': 100.0,
-        }])
-        completed, _ = _run_and_wait(af_executor, protocol, tmp_path,
-                                      update_z_pos_from_autofocus=True)
-        assert completed, "Autofocus protocol did not complete"
+        protocol = _make_protocol(
+            [
+                {
+                    'color': 'BF',
+                    'auto_focus': True,
+                    'z': 5000.0,
+                    'illumination_ma': 100.0,
+                }
+            ]
+        )
+        completed, _ = _run_and_wait(
+            af_executor, protocol, tmp_path, update_z_pos_from_autofocus=True
+        )
+        assert completed, 'Autofocus protocol did not complete'
 
     def test_camera_state_restored_before_af_signals_done(self, scope, executors):
         """Regression test for #610: AF must restore camera state before
@@ -542,6 +619,7 @@ class TestIntegrationAutofocus:
         # is satisfied and the Future resolves when AFE.run()'s finally
         # block has fully restored camera state.
         from modules.autofocus_thread import AutofocusThread
+
         thread = AutofocusThread(afe=af)
         thread.start()
         try:
@@ -564,18 +642,19 @@ class TestIntegrationAutofocus:
         actual_gain = scope.imaging.get_gain()
         actual_exp = scope.imaging.get_exposure_time()
         assert abs(actual_gain - 20.0) < 0.1, (
-            f"Camera gain should be restored to 20.0 (pre-AF) when "
-            f"the AF Future resolves, but got {actual_gain}"
+            f'Camera gain should be restored to 20.0 (pre-AF) when '
+            f'the AF Future resolves, but got {actual_gain}'
         )
         assert abs(actual_exp - 100.0) < 0.1, (
-            f"Camera exposure should be restored to 100.0ms (pre-AF) when "
-            f"the AF Future resolves, but got {actual_exp}"
+            f'Camera exposure should be restored to 100.0ms (pre-AF) when '
+            f'the AF Future resolves, but got {actual_exp}'
         )
 
 
 # ===========================================================================
 # Tier 4: State assertion tests
 # ===========================================================================
+
 
 class TestIntegrationStateAssertions:
     """Verify simulator state matches expectations after protocol runs."""
@@ -620,28 +699,30 @@ class TestIntegrationStateAssertions:
         # Camera grabbing state is managed externally, should still be active
         assert scope._camera_driver.is_grabbing()
 
-    @pytest.mark.skip(reason="Executor reuse bug: second run() starts but run_complete callback "
-                             "never fires. Debug shows: run enters, _reset_vars clears state, "
-                             "protocol_start sets flags, run_loop task submitted — but cleanup's "
-                             "run_complete callback doesn't reach the test's done.set(). "
-                             "Two fixes applied (is_protocol_queue_active, protocol_start clears "
-                             "stale protocol_finish), but deeper issue remains in cleanup callback "
-                             "dispatch. Needs executor simplification in 4.1.")
+    @pytest.mark.skip(
+        reason='Executor reuse bug: second run() starts but run_complete callback '
+        'never fires. Debug shows: run enters, _reset_vars clears state, '
+        "protocol_start sets flags, run_loop task submitted — but cleanup's "
+        "run_complete callback doesn't reach the test's done.set(). "
+        'Two fixes applied (is_protocol_queue_active, protocol_start clears '
+        'stale protocol_finish), but deeper issue remains in cleanup callback '
+        'dispatch. Needs executor simplification in 4.1.'
+    )
     def test_second_run_after_first(self, executor, scope, tmp_path):
         """A second protocol run completes after the first finishes."""
         protocol = _make_protocol([{'color': 'BF', 'illumination_ma': 50.0}])
 
         # First run
         completed_1, _ = _run_and_wait(executor, protocol, tmp_path)
-        assert completed_1, "First protocol run did not complete"
+        assert completed_1, 'First protocol run did not complete'
 
         # Wait for executor to be fully idle (run_in_progress cleared, queue drained)
         idle = _wait_for_executor_idle(executor, timeout=5.0)
-        assert idle, "Executor did not reach idle state after first run"
+        assert idle, 'Executor did not reach idle state after first run'
 
         # Second run — should start without being blocked
         completed_2, _ = _run_and_wait(executor, protocol, tmp_path)
-        assert completed_2, "Second protocol run did not complete (back-to-back blocked)"
+        assert completed_2, 'Second protocol run did not complete (back-to-back blocked)'
 
     def test_different_exposure_per_step(self, executor, scope, tmp_path):
         """Protocol with varying exposure times completes."""
@@ -656,8 +737,7 @@ class TestIntegrationStateAssertions:
     def test_different_gain_per_step(self, executor, scope, tmp_path):
         """Protocol with varying gain values completes."""
         steps = [
-            {'color': 'BF', 'gain_db': g, 'illumination_ma': 50.0}
-            for g in [1.0, 2.0, 5.0, 10.0]
+            {'color': 'BF', 'gain_db': g, 'illumination_ma': 50.0} for g in [1.0, 2.0, 5.0, 10.0]
         ]
         protocol = _make_protocol(steps)
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
@@ -725,9 +805,12 @@ class TestHeadlessSession:
     def test_protocol_runner_runs_protocol(self, tmp_path):
         """ProtocolRunner should execute a protocol to completion on headless session."""
         settings = {
-            'BF': {'autofocus': False}, 'PC': {'autofocus': False},
-            'DF': {'autofocus': False}, 'Red': {'autofocus': False},
-            'Green': {'autofocus': False}, 'Blue': {'autofocus': False},
+            'BF': {'autofocus': False},
+            'PC': {'autofocus': False},
+            'DF': {'autofocus': False},
+            'Red': {'autofocus': False},
+            'Green': {'autofocus': False},
+            'Blue': {'autofocus': False},
             'Lumi': {'autofocus': False},
             'stage_offset': {'x': 0.0, 'y': 0.0},
             'live_folder': str(tmp_path),
@@ -747,18 +830,19 @@ class TestHeadlessSession:
             protocol = _make_protocol([{'color': 'BF', 'illumination_ma': 100.0}])
 
             done = threading.Event()
+
             def on_complete(**kwargs):
                 done.set()
 
             runner.run_single_scan(
                 protocol=protocol,
-                sequence_name="headless_test",
+                sequence_name='headless_test',
                 parent_dir=str(tmp_path),
                 callbacks={'run_complete': on_complete, 'files_complete': lambda **kw: None},
             )
 
             completed = done.wait(timeout=COMPLETION_TIMEOUT)
-            assert completed, "Headless protocol did not complete within timeout"
+            assert completed, 'Headless protocol did not complete within timeout'
         finally:
             runner.shutdown()
             session.shutdown_executors()
@@ -849,6 +933,7 @@ class TestRestAPIPrep:
     def test_system_info_no_hardware(self):
         """get_system_info() should handle missing hardware gracefully."""
         from drivers.null_motorboard import NullMotionBoard
+
         session = ScopeSession.create_headless()
         session.scope._motion_driver = NullMotionBoard()
         session.scope._led_driver = None
@@ -861,6 +946,7 @@ class TestRestAPIPrep:
     def test_encode_image_png(self):
         """encode_image() should encode numpy array to PNG bytes."""
         from modules.image_utils import encode_image
+
         img = np.zeros((100, 100), dtype=np.uint8)
         data = encode_image(img, 'png')
         assert isinstance(data, bytes)
@@ -871,6 +957,7 @@ class TestRestAPIPrep:
     def test_encode_image_jpeg(self):
         """encode_image() should encode numpy array to JPEG bytes."""
         from modules.image_utils import encode_image
+
         img = np.zeros((100, 100), dtype=np.uint8)
         data = encode_image(img, 'jpeg')
         assert isinstance(data, bytes)
@@ -880,12 +967,14 @@ class TestRestAPIPrep:
     def test_encode_image_invalid_format(self):
         """encode_image() should raise ValueError for unsupported format."""
         from modules.image_utils import encode_image
+
         img = np.zeros((100, 100), dtype=np.uint8)
-        with pytest.raises(ValueError, match="Unsupported"):
+        with pytest.raises(ValueError, match='Unsupported'):
             encode_image(img, 'bmp')
 
     def test_rest_api_log_filter_logic(self):
         """RestAPIFilter logic: only pass records with api_request=True."""
+
         # Replicate the filter logic here since lvp_logger is mocked in this test file
         class RestAPIFilter(logging.Filter):
             def filter(self, record):
@@ -942,6 +1031,7 @@ class TestRestAPIPrep:
     def test_autofocus_thread_abort_noop_when_idle(self):
         """AutofocusThread.abort() should be safe when no run is in flight."""
         from modules.autofocus_thread import AutofocusThread
+
         session = ScopeSession.create_headless()
         session.start_executors()
         try:
@@ -962,6 +1052,7 @@ class TestRestAPIPrep:
         """AutofocusThread.run_autofocus() resolves Future with the
         best focus position when AF completes."""
         from modules.autofocus_thread import AutofocusThread
+
         session = ScopeSession.create_headless()
         session.start_executors()
         try:
@@ -986,6 +1077,7 @@ class TestRestAPIPrep:
         surfaces AutofocusAborted."""
         from modules.autofocus_thread import AutofocusThread
         from modules.exceptions import AutofocusAborted
+
         session = ScopeSession.create_headless()
         session.start_executors()
         try:
@@ -1014,7 +1106,9 @@ class TestRestAPIPrep:
 
     def test_settings_has_rest_api_section(self):
         """Default settings template should include rest_api configuration."""
-        settings_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'data', 'settings.json')
+        settings_path = os.path.join(
+            os.path.dirname(os.path.dirname(__file__)), 'data', 'settings.json'
+        )
         with open(settings_path) as f:
             settings = json.load(f)
         assert 'rest_api' in settings

@@ -20,6 +20,7 @@ class ScopeInitConfig:
     are True so callers that don't supply scope_config preserve the
     pre-filter behavior.
     """
+
     labware: object
     objective_id: str
     turret_config: dict | None
@@ -33,7 +34,9 @@ class ScopeInitConfig:
     expects_led: bool = True
 
     @classmethod
-    def from_settings(cls, settings, labware, scope_config: dict | None = None) -> 'ScopeInitConfig':
+    def from_settings(
+        cls, settings, labware, scope_config: dict | None = None
+    ) -> 'ScopeInitConfig':
         """Build config from LVP settings dict and labware object.
 
         scope_config: the entry for the active scope from scopes.json

@@ -12,6 +12,7 @@ try:
     import imagej.doctor
     import imagej
     import scyjava
+
     imagej_imported = True
     logging.getLogger('scyjava').setLevel(level=logging.INFO)
     logging.getLogger('imagej').setLevel(level=logging.INFO)
@@ -23,17 +24,18 @@ def init_ij():
     """Initialize ImageJ and return a helper instance."""
     import imagej.doctor
     import imagej
+
     imagej.doctor.checkup()
     return ImageJHelper()
 
 
 class ZProjectMethod(enum.Enum):
-    Min                 = "min"
-    Max                 = "max"
-    Average             = "avg"
-    Median              = "median"
-    Sum                 = "sum"
-    StdDev              = "sd"
+    Min = 'min'
+    Max = 'max'
+    Average = 'avg'
+    Median = 'median'
+    Sum = 'sum'
+    StdDev = 'sd'
 
     @classmethod
     def list(cls):
@@ -41,54 +43,55 @@ class ZProjectMethod(enum.Enum):
 
 
 class ImageJHelper:
-
     def __init__(self):
         try:
             imagej.doctor.checkup()
         except Exception as ex:
-            logger.info(f"[ImageJ Helper] Unable to run ImageJ Doctor Checkup: {ex}")
+            logger.info(f'[ImageJ Helper] Unable to run ImageJ Doctor Checkup: {ex}')
 
         self._test_dependencies()
 
         if not imagej_imported:
-            logger.error(f"[ImageJ Helper] ImageJ module failed to import, unable to use {self.__class__.__name__}")
+            logger.error(
+                f'[ImageJ Helper] ImageJ module failed to import, unable to use {self.__class__.__name__}'
+            )
             self._ij = None
             return
-        
+
         try:
-            self._ij = imagej.init("sc.fiji:fiji:2.14.0", add_legacy=False, mode="headless") # mode="interactive"
-            logger.info(f"[ImageJ Helper] ImageJ version: {self._ij.getVersion()}")
+            self._ij = imagej.init(
+                'sc.fiji:fiji:2.14.0', add_legacy=False, mode='headless'
+            )  # mode="interactive"
+            logger.info(f'[ImageJ Helper] ImageJ version: {self._ij.getVersion()}')
         except Exception as ex:
             self._ij = None
-            logger.error(f"[ImageJ Helper] Unable to initialize ImageJ: {ex}")
-
+            logger.error(f'[ImageJ Helper] Unable to initialize ImageJ: {ex}')
 
     def _test_dependencies(self):
         import importlib
+
         for pkg in ('imglyb', 'jgo', 'jpype', 'labeling', 'numpy', 'scyjava', 'xarray'):
             try:
                 mod = importlib.import_module(pkg)
-                logger.info(f"Imported {mod.__name__}")
+                logger.info(f'Imported {mod.__name__}')
             except Exception as ex:
-                logger.error(f"Unable to import {pkg}: {ex}")
-
+                logger.error(f'Unable to import {pkg}: {ex}')
 
     def _log_uninitialized(self):
-        logger.error(f"[ImageJ Helper] ImageJ not initialized")
-
+        logger.error(f'[ImageJ Helper] ImageJ not initialized')
 
     def zproject(self, images_data: list[np.ndarray], method: ZProjectMethod) -> np.ndarray:
         if not self._ij:
             self._log_uninitialized()
             return None
-        
+
         if len(images_data) == 0:
-            logger.error(f"[ImageJ Helper] zproject -> No images provided")
+            logger.error(f'[ImageJ Helper] zproject -> No images provided')
             return None
-        
+
         orig_dtype = images_data[0].dtype
-        images_to_stack = scyjava.jimport("ij.plugin.ImagesToStack")()
-        z_projector = scyjava.jimport("ij.plugin.ZProjector")()
+        images_to_stack = scyjava.jimport('ij.plugin.ImagesToStack')()
+        z_projector = scyjava.jimport('ij.plugin.ZProjector')()
 
         jimages = []
         for image_data in images_data:
@@ -96,7 +99,6 @@ class ImageJHelper:
             jimp = self._ij.py.to_imageplus(jimage)
             jimages.append(jimp)
 
-        
         jstack = images_to_stack.run(jimages)
 
         j_z_project_result = z_projector.run(jstack, method.value)

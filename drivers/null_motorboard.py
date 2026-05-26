@@ -35,15 +35,15 @@ class NullMotionBoard:
 
     def __init__(self, motorconfig_defaults_file: pathlib.Path | None = None):
         # Required attributes accessed directly by lumascope_api and callers
-        self.driver = True              # truthy sentinel -- satisfies `not self.motion.driver`
+        self.driver = True  # truthy sentinel -- satisfies `not self.motion.driver`
         self.overshoot = False
         self.thread_lock = threading.RLock()
-        self._lock = self.thread_lock   # alias used by SerialBoard pattern
+        self._lock = self.thread_lock  # alias used by SerialBoard pattern
         self._state_lock = threading.Lock()
         self.port = None
         self.found = False
         self._fullinfo = None
-        self.initial_homing_complete = True   # trivially "homed" (no motors to home)
+        self.initial_homing_complete = True  # trivially "homed" (no motors to home)
         self.initial_t_homing_complete = True
         self._has_turret = False
         self._connect_fails = 0
@@ -53,7 +53,7 @@ class NullMotionBoard:
 
         # Load motorconfig for coordinate transforms (uses defaults)
         if motorconfig_defaults_file is None:
-            motorconfig_defaults_file = pathlib.Path("data/motorconfig_defaults.json")
+            motorconfig_defaults_file = pathlib.Path('data/motorconfig_defaults.json')
         try:
             self.motorconfig = MotorConfig(defaults_file=motorconfig_defaults_file)
         except Exception:
@@ -63,9 +63,9 @@ class NullMotionBoard:
         self.backlash = 0.0
 
         self.axes_config = {
-            'Z': {'limits': {'min': 0., 'max': 14000.}, 'move_func': self.z_um2ustep},
-            'X': {'limits': {'min': 0., 'max': 120000.}, 'move_func': self.xy_um2ustep},
-            'Y': {'limits': {'min': 0., 'max': 80000.}, 'move_func': self.xy_um2ustep},
+            'Z': {'limits': {'min': 0.0, 'max': 14000.0}, 'move_func': self.z_um2ustep},
+            'X': {'limits': {'min': 0.0, 'max': 120000.0}, 'move_func': self.xy_um2ustep},
+            'Y': {'limits': {'min': 0.0, 'max': 80000.0}, 'move_func': self.xy_um2ustep},
             'T': {'move_func': self.t_pos2ustep},
         }
 
@@ -256,10 +256,14 @@ class NullMotionBoard:
             'model': None,
             'serial_number': None,
             'firmware_version': None,
-            'x_homed': False, 'x_present': False,
-            'y_homed': False, 'y_present': False,
-            'z_homed': False, 'z_present': False,
-            't_homed': False, 't_present': False,
+            'x_homed': False,
+            'x_present': False,
+            'y_homed': False,
+            'y_present': False,
+            'z_homed': False,
+            'z_present': False,
+            't_homed': False,
+            't_present': False,
         }
 
     def get_axes_config(self) -> dict:

@@ -30,16 +30,17 @@ import pathlib
 
 def _set_exposure_time_source() -> str:
     # Phase 4d relocated set_exposure_time's body from _lumascope.py to imaging.py.
-    src_path = (pathlib.Path(__file__).resolve().parent.parent
-                / "modules" / "lumascope_api" / "imaging.py")
+    src_path = (
+        pathlib.Path(__file__).resolve().parent.parent / 'modules' / 'lumascope_api' / 'imaging.py'
+    )
     source = src_path.read_text()
     tree = ast.parse(source)
     for node in ast.walk(tree):
-        if isinstance(node, ast.FunctionDef) and node.name == "set_exposure_time":
+        if isinstance(node, ast.FunctionDef) and node.name == 'set_exposure_time':
             text = ast.get_source_segment(source, node)
             assert text is not None
             return text
-    raise AssertionError("set_exposure_time not found in imaging.py")
+    raise AssertionError('set_exposure_time not found in imaging.py')
 
 
 class TestSetExposureTimeWarningThreshold:
@@ -58,16 +59,18 @@ class TestSetExposureTimeWarningThreshold:
             # Walk every Compare in the function body, find any
             # `exposure_ms < <Num>` form
             if isinstance(node, ast.Compare):
-                if (len(node.ops) == 1
-                        and isinstance(node.ops[0], ast.Lt)
-                        and isinstance(node.left, ast.Name)
-                        and node.left.id == "exposure_ms"
-                        and isinstance(node.comparators[0], ast.Constant)
-                        and isinstance(node.comparators[0].value, (int, float))):
+                if (
+                    len(node.ops) == 1
+                    and isinstance(node.ops[0], ast.Lt)
+                    and isinstance(node.left, ast.Name)
+                    and node.left.id == 'exposure_ms'
+                    and isinstance(node.comparators[0], ast.Constant)
+                    and isinstance(node.comparators[0].value, (int, float))
+                ):
                     thresholds.append(node.comparators[0].value)
         assert thresholds, (
-            "set_exposure_time must contain a `exposure_ms < <threshold>` "
-            "comparison for the sanity-check warning gate."
+            'set_exposure_time must contain a `exposure_ms < <threshold>` '
+            'comparison for the sanity-check warning gate.'
         )
         # The new threshold must be no higher than 0.01 ms (10 us).
         # Pylon physical min is 10-35 us across Basler USB3 sensors;
@@ -75,10 +78,10 @@ class TestSetExposureTimeWarningThreshold:
         # fires on legitimate values.
         for thresh in thresholds:
             assert thresh <= 0.01, (
-                f"set_exposure_time warning threshold is {thresh} ms; "
-                f"must be <= 0.01 ms (10 us) to avoid false positives "
-                f"on bright-BF values like 0.03 ms (30 us) that the "
-                f"camera handles natively."
+                f'set_exposure_time warning threshold is {thresh} ms; '
+                f'must be <= 0.01 ms (10 us) to avoid false positives '
+                f'on bright-BF values like 0.03 ms (30 us) that the '
+                f'camera handles natively.'
             )
 
     def test_warning_no_longer_claims_image_will_be_nearly_black(self):
@@ -87,18 +90,18 @@ class TestSetExposureTimeWarningThreshold:
         # wrong: Pylon silently clamps below the sensor minimum, so
         # the captured image is at minimum exposure, not zero. Lock
         # the corrected wording so a revert is caught.
-        assert "nearly black" not in body, (
+        assert 'nearly black' not in body, (
             "set_exposure_time warning must not say 'nearly black' -- "
-            "Pylon silently clamps below the physical minimum, so the "
-            "captured image is at the sensor minimum, not zero. Rule 20."
+            'Pylon silently clamps below the physical minimum, so the '
+            'captured image is at the sensor minimum, not zero. Rule 20.'
         )
 
     def test_warning_text_describes_clamping_behavior(self):
         body = _set_exposure_time_source()
         # New wording must mention the clamping behavior so the user
         # understands what actually happens at impossible values.
-        assert "clamp" in body.lower(), (
-            "set_exposure_time warning should describe the clamping "
-            "behavior so the user understands what happens at "
-            "below-minimum values."
+        assert 'clamp' in body.lower(), (
+            'set_exposure_time warning should describe the clamping '
+            'behavior so the user understands what happens at '
+            'below-minimum values.'
         )

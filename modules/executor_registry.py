@@ -79,9 +79,9 @@ class ExecutorBundle:
         priorities (HIGH + MED + LOW).
         """
         executors = [
-            ('IO',          self.io_executor),
-            ('CAMERA',      self.camera_executor),
-            ('FILE',        self.file_io_executor),
+            ('IO', self.io_executor),
+            ('CAMERA', self.camera_executor),
+            ('FILE', self.file_io_executor),
             ('WORKER_POOL', self.worker_pool),
         ]
         out = {}
@@ -119,15 +119,15 @@ def create_default(ui_dispatcher) -> ExecutorBundle:
     """
     import modules.app_context as _app_ctx
 
-    io_executor = SequentialIOExecutor(
-        name="IO", ui_dispatcher=ui_dispatcher)
-    camera_executor = SequentialIOExecutor(
-        name="CAMERA", ui_dispatcher=ui_dispatcher)
+    io_executor = SequentialIOExecutor(name='IO', ui_dispatcher=ui_dispatcher)
+    camera_executor = SequentialIOExecutor(name='CAMERA', ui_dispatcher=ui_dispatcher)
     # F-2: bounded protocol_queue prevents a save thread that falls
     # behind from letting the queue grow without bound.
     file_io_executor = SequentialIOExecutor(
-        name="FILE", ui_dispatcher=ui_dispatcher,
-        protocol_queue_maxsize=_FILE_IO_PROTOCOL_QUEUE_MAXSIZE)
+        name='FILE',
+        ui_dispatcher=ui_dispatcher,
+        protocol_queue_maxsize=_FILE_IO_PROTOCOL_QUEUE_MAXSIZE,
+    )
     # Thread is constructed here but NOT started. Start happens in
     # lumaviewpro.py:build() after ctx.scope_display (widget) and
     # ctx.scope_display_thread (this) are both wired into ctx;
@@ -140,8 +140,8 @@ def create_default(ui_dispatcher) -> ExecutorBundle:
     # submits self._run_loop_executor.run_loop and receives a Future.
     protocol_thread = ProtocolThread(ui_dispatcher=ui_dispatcher)
     worker_pool = SequentialIOExecutor(
-        name="WORKER_POOL", ui_dispatcher=ui_dispatcher,
-        priority_aware=True)
+        name='WORKER_POOL', ui_dispatcher=ui_dispatcher, priority_aware=True
+    )
 
     bundle = ExecutorBundle(
         io_executor=io_executor,
@@ -153,8 +153,10 @@ def create_default(ui_dispatcher) -> ExecutorBundle:
     )
 
     for ex in (
-        io_executor, camera_executor,
-        file_io_executor, worker_pool,
+        io_executor,
+        camera_executor,
+        file_io_executor,
+        worker_pool,
     ):
         ex.start()
     protocol_thread.start()
@@ -165,5 +167,6 @@ def create_default(ui_dispatcher) -> ExecutorBundle:
         'WORKER_POOL) + protocol_thread + scope_display_thread '
         '(started separately from lumaviewpro.build); stage/turret '
         'aliased to IO; AutofocusThread constructed in lumaviewpro.build '
-        'with the AFE handle')
+        'with the AFE handle'
+    )
     return bundle

@@ -31,7 +31,8 @@ class TestDriverRegistryUnit:
 
         @reg.register('alpha', priority=50)
         class Alpha:
-            def __init__(self, **kw): self.kw = kw
+            def __init__(self, **kw):
+                self.kw = kw
 
         instance = reg.create('alpha', foo=1)
         assert isinstance(instance, Alpha)
@@ -41,7 +42,8 @@ class TestDriverRegistryUnit:
         reg = DriverRegistry('fake')
 
         @reg.register('alpha', priority=50)
-        class Alpha: pass
+        class Alpha:
+            pass
 
         with pytest.raises(ValueError, match=r"Available: \['alpha'\]"):
             reg.create('nonexistent')
@@ -50,11 +52,14 @@ class TestDriverRegistryUnit:
         reg = DriverRegistry('fake')
 
         @reg.register('alpha', priority=50)
-        class Alpha: pass
+        class Alpha:
+            pass
 
         with pytest.raises(ValueError, match='already registered'):
+
             @reg.register('alpha', priority=60)
-            class Alpha2: pass
+            class Alpha2:
+                pass
 
     def test_auto_picks_highest_priority(self):
         reg = DriverRegistry('fake')
@@ -62,15 +67,18 @@ class TestDriverRegistryUnit:
 
         @reg.register('low', priority=10)
         class Low:
-            def __init__(self, **kw): order.append('low')
+            def __init__(self, **kw):
+                order.append('low')
 
         @reg.register('high', priority=100)
         class High:
-            def __init__(self, **kw): order.append('high')
+            def __init__(self, **kw):
+                order.append('high')
 
         @reg.register('mid', priority=50)
         class Mid:
-            def __init__(self, **kw): order.append('mid')
+            def __init__(self, **kw):
+                order.append('mid')
 
         instance = reg.create('auto')
         assert isinstance(instance, High)
@@ -82,11 +90,12 @@ class TestDriverRegistryUnit:
         @reg.register('broken', priority=100)
         class Broken:
             def __init__(self, **kw):
-                raise RuntimeError("no hardware")
+                raise RuntimeError('no hardware')
 
         @reg.register('works', priority=50)
         class Works:
-            def __init__(self, **kw): pass
+            def __init__(self, **kw):
+                pass
 
         instance = reg.create('auto')
         assert isinstance(instance, Works)
@@ -97,11 +106,12 @@ class TestDriverRegistryUnit:
         @reg.register('broken', priority=100)
         class Broken:
             def __init__(self, **kw):
-                raise RuntimeError("no hardware")
+                raise RuntimeError('no hardware')
 
         @reg.register('null', priority=0)
         class Null:
-            def __init__(self): pass
+            def __init__(self):
+                pass
 
         instance = reg.create('auto')
         assert isinstance(instance, Null)
@@ -139,8 +149,10 @@ class TestDriverRegistryUnit:
         class Disconnected:
             def __init__(self, **kw):
                 self.found = True
+
             def is_connected(self) -> bool:
                 return False
+
             def disconnect(self):
                 disconnect_called.append(True)
 
@@ -148,6 +160,7 @@ class TestDriverRegistryUnit:
         class Works:
             def __init__(self, **kw):
                 self.found = True
+
             def is_connected(self) -> bool:
                 return True
 
@@ -167,13 +180,18 @@ class TestDriverRegistryUnit:
         class Disconnected:
             def __init__(self, **kw):
                 self.found = True
+
             def is_connected(self) -> bool:
                 return False
-            def disconnect(self): pass
+
+            def disconnect(self):
+                pass
 
         @reg.register('null', priority=0)
         class Null:
-            def __init__(self, **kw): pass
+            def __init__(self, **kw):
+                pass
+
             def is_connected(self) -> bool:
                 return False
 
@@ -190,14 +208,18 @@ class TestDriverRegistryUnit:
         class Flaky:
             def __init__(self, **kw):
                 self.found = True
+
             def is_connected(self) -> bool:
-                raise RuntimeError("driver state corrupted")
-            def disconnect(self): pass
+                raise RuntimeError('driver state corrupted')
+
+            def disconnect(self):
+                pass
 
         @reg.register('works', priority=50)
         class Works:
             def __init__(self, **kw):
                 self.found = True
+
             def is_connected(self) -> bool:
                 return True
 
@@ -209,11 +231,13 @@ class TestDriverRegistryUnit:
 
         @reg.register('real', priority=100)
         class Real:
-            def __init__(self, **kw): pass
+            def __init__(self, **kw):
+                pass
 
         @reg.register('sim', priority=100, is_simulator=True)
         class Sim:
-            def __init__(self, **kw): pass
+            def __init__(self, **kw):
+                pass
 
         assert isinstance(reg.create('auto', simulate=True), Sim)
         assert isinstance(reg.create('auto', simulate=False), Real)
@@ -225,11 +249,13 @@ class TestDriverRegistryUnit:
 
         @reg.register('null', priority=0)
         class Null:
-            def __init__(self): pass
+            def __init__(self):
+                pass
 
         @reg.register('real', priority=100)
         class Real:
-            def __init__(self, **kw): pass
+            def __init__(self, **kw):
+                pass
 
         instance = reg.create('auto')
         assert isinstance(instance, Real)
@@ -241,11 +267,13 @@ class TestDriverRegistryUnit:
 
         @reg.register('high', priority=100)
         class High:
-            def __init__(self, **kw): pass
+            def __init__(self, **kw):
+                pass
 
         @reg.register('low', priority=10)
         class Low:
-            def __init__(self, **kw): pass
+            def __init__(self, **kw):
+                pass
 
         assert isinstance(reg.create('low'), Low)
 
@@ -270,6 +298,7 @@ class TestLumascopeUsesRegistry:
         """Cross-check with B1: whatever the registry returns in
         simulate mode must still satisfy the driver protocols."""
         from modules.lumascope_api import Lumascope
+
         scope = Lumascope(simulate=True)
         assert isinstance(scope._motion_driver, MotorBoardProtocol)
         assert isinstance(scope._led_driver, LEDBoardProtocol)
@@ -298,6 +327,7 @@ class TestLumascopeUsesRegistry:
         # 'ids' only present if ids_peak SDK is installed.
         try:
             import ids_peak  # noqa: F401
+
             ids_available = True
         except ImportError:
             ids_available = False
@@ -325,17 +355,21 @@ class TestRegistryAccommodatesCompositeHardware:
     def _make_fake_lvc_connection(self):
         class _FakeLVCConnection:
             _instance = None
+
             def __init__(self):
                 self.commands_sent: list[tuple] = []
                 self.lock = threading.Lock()
+
             @classmethod
             def get(cls):
                 if cls._instance is None:
                     cls._instance = cls()
                 return cls._instance
+
             @classmethod
             def reset(cls):
                 cls._instance = None
+
         return _FakeLVCConnection
 
     def test_camera_and_led_can_share_a_singleton_connection(self):
@@ -350,6 +384,7 @@ class TestRegistryAccommodatesCompositeHardware:
             def __init__(self, **kw):
                 self._conn = FakeConn.get()
                 self.found = True
+
             def led_on(self, channel, mA, **kw):
                 with self._conn.lock:
                     self._conn.commands_sent.append(('led', channel, mA))
@@ -359,6 +394,7 @@ class TestRegistryAccommodatesCompositeHardware:
             def __init__(self, **kw):
                 self._conn = FakeConn.get()
                 self.found = True
+
             def grab(self):
                 with self._conn.lock:
                     self._conn.commands_sent.append(('cam', 'grab'))
@@ -388,6 +424,7 @@ class TestRegistryAccommodatesCompositeHardware:
         assert FakeConn._instance is None
 
         local_reg = DriverRegistry('thing')
+
         @local_reg.register('lazy', priority=50)
         class Lazy:
             def __init__(self, **kw):

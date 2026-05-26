@@ -23,12 +23,12 @@ if TYPE_CHECKING:
 from modules.kivy_utils import schedule_ui as _schedule_ui
 
 # --- Disk-space estimation constants ---
-ESTIMATED_VIDEO_STEP_MB = 50   # MP4 compressed, ~10-50 MB typical
-ESTIMATED_IMAGE_STEP_MB = 8    # 1900x1900 16-bit TIFF ~7.2 MB + metadata
-MIN_REQUIRED_DISK_MB = 2048    # Minimum free disk space to start a scan (2 GB)
+ESTIMATED_VIDEO_STEP_MB = 50  # MP4 compressed, ~10-50 MB typical
+ESTIMATED_IMAGE_STEP_MB = 8  # 1900x1900 16-bit TIFF ~7.2 MB + metadata
+MIN_REQUIRED_DISK_MB = 2048  # Minimum free disk space to start a scan (2 GB)
 
 # --- Hardware health check ---
-HW_CHECK_INTERVAL_S = 30       # Seconds between hardware connection checks
+HW_CHECK_INTERVAL_S = 30  # Seconds between hardware connection checks
 
 
 class ProtocolRunLoop:
@@ -42,7 +42,7 @@ class ProtocolRunLoop:
         try:
             self._run_loop_inner()
         except Exception as ex:
-            logger.error(f"[PROTOCOL] Unhandled exception in run loop: {ex}", exc_info=True)
+            logger.error(f'[PROTOCOL] Unhandled exception in run loop: {ex}', exc_info=True)
         finally:
             # Safety net: ensure cleanup always runs so LEDs are turned off,
             # protocol state is reset, and resources are released even if an
@@ -64,16 +64,22 @@ class ProtocolRunLoop:
                     last_connection_check = now
                     try:
                         if not p._scope.are_all_connected():
-                            logger.error("[PROTOCOL] Hardware disconnected during run -- aborting protocol")
+                            logger.error(
+                                '[PROTOCOL] Hardware disconnected during run -- aborting protocol'
+                            )
                             from modules.notification_center import notifications
-                            notifications.error("Protocol", "Protocol Aborted",
-                                "Hardware disconnected during protocol run.")
+
+                            notifications.error(
+                                'Protocol',
+                                'Protocol Aborted',
+                                'Hardware disconnected during protocol run.',
+                            )
                             if p._state not in (ProtocolState.COMPLETING, ProtocolState.IDLE):
                                 p._set_state(ProtocolState.ERROR)
                             p._cleanup()
                             break
                     except Exception as ex:
-                        logger.warning(f"[PROTOCOL] Connection check failed: {ex}")
+                        logger.warning(f'[PROTOCOL] Connection check failed: {ex}')
 
                 # Check if we've completed all scans
                 remaining_scans = p.remaining_scans()
@@ -97,8 +103,7 @@ class ProtocolRunLoop:
                 if p._callbacks.protocol_iterate_pre:
                     _schedule_ui(
                         lambda dt: p._callbacks.protocol_iterate_pre(
-                            remaining_scans=remaining_scans,
-                            interval=p._protocol.period()
+                            remaining_scans=remaining_scans, interval=p._protocol.period()
                         )
                     )
 
@@ -124,18 +129,21 @@ class ProtocolRunLoop:
                         required_mb = max(MIN_REQUIRED_DISK_MB, estimated_mb)
                         ok, free_mb = check_disk_space_ok(p._parent_dir, required_mb)
                         if not ok:
-                            msg = (f"Insufficient disk space: {free_mb:.0f} MB free, "
-                                   f"need ~{required_mb:.0f} MB for {num_steps} steps.")
-                            logger.error(f"[PROTOCOL] {msg} -- aborting protocol")
+                            msg = (
+                                f'Insufficient disk space: {free_mb:.0f} MB free, '
+                                f'need ~{required_mb:.0f} MB for {num_steps} steps.'
+                            )
+                            logger.error(f'[PROTOCOL] {msg} -- aborting protocol')
                             from modules.notification_center import notifications
-                            notifications.error("Protocol", "Protocol Aborted", msg)
+
+                            notifications.error('Protocol', 'Protocol Aborted', msg)
                             # p._aborted IS protocol_thread.aborted; setting
                             # it from inside the run loop signals the next
                             # iteration to exit and triggers cleanup-on-exit.
                             p._aborted.set()
                             break
                 except Exception as e:
-                    logger.debug(f"[PROTOCOL] Disk space check failed (proceeding anyway): {e}")
+                    logger.debug(f'[PROTOCOL] Disk space check failed (proceeding anyway): {e}')
 
                 # Clean LED state before step 0 runs. Without this, a
                 # Live-mode LED enabled by the user before pressing Scan
@@ -155,7 +163,13 @@ class ProtocolRunLoop:
                     break
                 p._scan_in_progress.set()
                 p._set_state(ProtocolState.SCANNING)
-                p._auto_gain_deadline = time.monotonic() + p._autogain_settings['max_duration'].total_seconds()
+                # _auto_gain_deadline is set at ARM time per step in
+                # protocol_step_runner.scan_iterate (issue #673 fix).
+                # No scan-start init: that produced a past-deadline
+                # gate after AF and broke convergence. The default 0.0
+                # init on SequencedCaptureRunner is safe -- non-AG
+                # steps never read the deadline; AG steps overwrite it
+                # at arm time before the gate is ever consulted.
                 p._auto_gain_armed_step = -1
 
                 start_scan_time = datetime.datetime.now()
@@ -163,11 +177,13 @@ class ProtocolRunLoop:
                 end_scan_time = datetime.datetime.now()
                 scan_duration = end_scan_time - start_scan_time
 
-                logger.info(f"Protocol scan {p._scan_count} completed in {scan_duration.total_seconds():.2f} seconds")
+                logger.info(
+                    f'Protocol scan {p._scan_count} completed in {scan_duration.total_seconds():.2f} seconds'
+                )
 
                 with p._protocol_state_lock:
                     p._scan_count += 1
-                logger.debug(f"[{p.LOGGER_NAME}] Scan {p._scan_count}/{p._n_scans} completed")
+                logger.debug(f'[{p.LOGGER_NAME}] Scan {p._scan_count}/{p._n_scans} completed')
 
                 if p._callbacks.scan_iterate_post:
                     _schedule_ui(lambda dt: p._callbacks.scan_iterate_post(), 0)
@@ -197,16 +213,17 @@ class ProtocolRunLoop:
 
                 if not connected:
                     logger.error(
-                        f"[Protocol] Hardware disconnect during scan: {ex}",
+                        f'[Protocol] Hardware disconnect during scan: {ex}',
                         exc_info=True,
                     )
                     from modules.notification_center import notifications
+
                     notifications.error(
-                        "Protocol",
-                        "Protocol Aborted",
-                        "Hardware disconnected during protocol run. "
-                        "Check the camera, LED board, and motor board "
-                        "connections, then restart the scan.",
+                        'Protocol',
+                        'Protocol Aborted',
+                        'Hardware disconnected during protocol run. '
+                        'Check the camera, LED board, and motor board '
+                        'connections, then restart the scan.',
                     )
                     if p._state not in (
                         ProtocolState.COMPLETING,
@@ -224,9 +241,9 @@ class ProtocolRunLoop:
                 # do NOT break. The outer while loop's next iteration
                 # waits the protocol period and re-runs the scan.
                 logger.warning(
-                    f"[Protocol] Transient scan failure (hardware "
-                    f"still connected); will retry on next period: "
-                    f"{ex}",
+                    f'[Protocol] Transient scan failure (hardware '
+                    f'still connected); will retry on next period: '
+                    f'{ex}',
                     exc_info=True,
                 )
                 p._scan_in_progress.clear()

@@ -32,7 +32,9 @@ _REQUIRED_OBJECTIVE_FIELDS = {
 def _validate_objectives(objectives: dict, filepath: str) -> None:
     """Validate objectives.json structure: each entry must have required fields."""
     if not isinstance(objectives, dict):
-        raise ValueError(f"objectives.json at {filepath}: expected dict, got {type(objectives).__name__}")
+        raise ValueError(
+            f'objectives.json at {filepath}: expected dict, got {type(objectives).__name__}'
+        )
     for obj_id, obj in objectives.items():
         if not isinstance(obj, dict):
             raise ValueError(f"objectives.json: objective '{obj_id}' must be a dict")
@@ -42,37 +44,33 @@ def _validate_objectives(objectives: dict, filepath: str) -> None:
             elif not isinstance(obj[field], expected_type):
                 logger.warning(
                     f"[Objectives] '{obj_id}'.'{field}' should be "
-                    f"{expected_type}, got {type(obj[field]).__name__} in {filepath}"
+                    f'{expected_type}, got {type(obj[field]).__name__} in {filepath}'
                 )
 
 
 class ObjectiveLoader:
-
     def __init__(self, *arg, source_path: str | pathlib.Path | None = None):
-        filepath = resolve_data_file("objectives.json", source_path=source_path)
+        filepath = resolve_data_file('objectives.json', source_path=source_path)
         try:
-            with open(filepath, "r") as read_file:
+            with open(filepath, 'r') as read_file:
                 self._objectives = json.load(read_file)
         except FileNotFoundError:
             logger.error(f'[Objectives] objectives.json not found at {filepath}')
             raise RuntimeError(
-                f"Required file objectives.json not found at {filepath}. "
-                "Please reinstall or restore from backup."
+                f'Required file objectives.json not found at {filepath}. '
+                'Please reinstall or restore from backup.'
             )
         except json.JSONDecodeError as e:
             logger.error(f'[Objectives] objectives.json is corrupt: {e}')
             raise RuntimeError(
-                f"objectives.json is corrupt ({e}). "
-                "Please restore from backup or reinstall."
+                f'objectives.json is corrupt ({e}). Please restore from backup or reinstall.'
             )
 
         _validate_objectives(self._objectives, filepath)
         self._generate_short_names()
         self._objectives_df = pd.DataFrame.from_dict(self._objectives, orient='index')
-        
 
     def _create_short_name_from_objective_id(self, objective_id: str) -> str:
-
 
         tmp = objective_id.replace('w/o', 'No')
         tmp = tmp.replace('W/o', 'No')
@@ -86,7 +84,7 @@ class ObjectiveLoader:
         tmp = tmp.replace('\\', '')
         tmp = tmp.replace('-', '')
         tmp = tmp.replace('_', '')
-        
+
         # Split on whitespace
         tmp = tmp.split(' ')
 
@@ -97,7 +95,6 @@ class ObjectiveLoader:
         tmp = ''.join(tmp)
 
         return tmp
-    
 
     def _generate_short_names(self):
         # Generate short name to be used for protocol step names
@@ -110,60 +107,56 @@ class ObjectiveLoader:
         short_names = [v['short_name'] for v in self._objectives.values()]
         short_names_set = set(short_names)
         if len(short_names_set) < len(short_names):
-            raise Exception(f"Duplicate short names for objectives were generated")
-
+            raise Exception(f'Duplicate short names for objectives were generated')
 
     def find_objective_id_from_short_name(self, short_name: str) -> str | None:
         for k, v in self._objectives.items():
             if v['short_name'] == short_name:
                 return k
-            
+
         return None
-    
 
     def get_objective_info(
         self,
         objective_id: str | None = None,
         short_name: str | None = None,
     ) -> dict:
-        
-        if ((objective_id is None) and (short_name is None)) or \
-           ((objective_id is not None) and (short_name is not None)):
-            raise Exception(f"Must supply objective ID or short name, but not both")
-        
+
+        if ((objective_id is None) and (short_name is None)) or (
+            (objective_id is not None) and (short_name is not None)
+        ):
+            raise Exception(f'Must supply objective ID or short name, but not both')
+
         if short_name is not None:
-            objective_id = self.find_objective_id_from_short_name(short_name=short_name)             
-            
+            objective_id = self.find_objective_id_from_short_name(short_name=short_name)
+
             if objective_id not in self._objectives:
-                raise Exception(f"No objective found with short name {short_name}")
-            
+                raise Exception(f'No objective found with short name {short_name}')
+
         try:
             objective_info = None
             if objective_id in self._objectives:
                 objective_info = self._objectives[objective_id]
             else:
-                logger.warning(f"Exact match for objective ID {objective_id} not found, attmempting to use closest match")
+                logger.warning(
+                    f'Exact match for objective ID {objective_id} not found, attmempting to use closest match'
+                )
                 for key in self._objectives:
                     if key.startswith(objective_id):
                         objective_info = self._objectives[key]
                         break
 
                 if objective_info is None:
-                    logger.error(f"No close match found for objective ID {objective_id}")
+                    logger.error(f'No close match found for objective ID {objective_id}')
                     return None
 
         except Exception as e:
-            raise ConfigError(
-                f"Unable to retrieve information for objective {objective_id}"
-            ) from e
-        
+            raise ConfigError(f'Unable to retrieve information for objective {objective_id}') from e
+
         return objective_info
-    
 
     def get_objectives_list(self) -> list:
         return list(self._objectives.keys())
-    
 
     def get_objectives_dataframe(self) -> pd.DataFrame:
         return self._objectives_df
-    

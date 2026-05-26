@@ -15,28 +15,23 @@ from lvp_logger import logger
 
 
 class ProtocolPostProcessingHelper:
-
     def __init__(self):
         self._name = self.__class__.__name__
 
-
     @staticmethod
     def _get_image_filenames_from_folder(
-        path: pathlib.Path, 
+        path: pathlib.Path,
         exclude_subpaths: list = [],
         include_subpaths: list = [],
     ) -> dict[str, list[pathlib.Path]]:
-        
+
         raw_image_names = []
         post_image_names = []
-        raw_image_dirs = [
-            '.',
-            *common_utils.get_layers()
-        ]
+        raw_image_dirs = ['.', *common_utils.get_layers()]
 
         if (len(include_subpaths) != 0) and (len(exclude_subpaths) != 0):
-            raise Exception(f"Specify only include_subpaths OR exclude_subpaths. Not both.")
-        
+            raise Exception(f'Specify only include_subpaths OR exclude_subpaths. Not both.')
+
         tiff_images = path.rglob('*.tif[f]')
         ome_tiff_images = path.rglob('*.ome.tif[f]')
         images = []
@@ -44,15 +39,15 @@ class ProtocolPostProcessingHelper:
         images.extend(ome_tiff_images)
 
         # If folder is a collection of video frames, set the directory of the protocol record to be 1 level higher
-        if "_video" in str(path):
+        if '_video' in str(path):
             path = path.parent
 
         for image in images:
             image_name = pathlib.Path(os.path.relpath(image, path))
 
-            if "video_Frame" in str(image_name):
+            if 'video_Frame' in str(image_name):
                 parent_dir = str(image_name.parent.parent)
-            
+
             else:
                 parent_dir = str(image_name.parent)
 
@@ -61,7 +56,7 @@ class ProtocolPostProcessingHelper:
 
             elif len(include_subpaths) > 0 and (parent_dir not in include_subpaths):
                 continue
-            
+
             if parent_dir not in raw_image_dirs:
                 post_image_names.append(image_name)
             else:
@@ -72,11 +67,10 @@ class ProtocolPostProcessingHelper:
             'post': post_image_names,
         }
 
-
     @staticmethod
     def generate_output_dir_name(record: pd.Series) -> pathlib.Path:
         # Filter to only the true values
-        record = record[record==True]
+        record = record[record == True]
 
         # Get the post-processing function names, in alphabetical order
         used_functions = sorted(record.keys().to_list())
@@ -101,18 +95,22 @@ class ProtocolPostProcessingHelper:
             protocol_root_dir = path
         else:
             try:
-                protocol_execution_record_file_loc = path.parent / protocol_execution_record_filename
+                protocol_execution_record_file_loc = (
+                    path.parent / protocol_execution_record_filename
+                )
                 if protocol_execution_record_file_loc.is_file():
                     protocol_root_dir = path.parent
                 else:
                     return None
             except Exception:
                 return None
-            
+
         loc_data['protocol_root_dir'] = protocol_root_dir
         loc_data['protocol_execution_record'] = protocol_execution_record_file_loc
-        protocol_execution_record = ProtocolExecutionRecord.from_file(file_path=protocol_execution_record_file_loc)
-            
+        protocol_execution_record = ProtocolExecutionRecord.from_file(
+            file_path=protocol_execution_record_file_loc
+        )
+
         # Search for the post-processing record TSV
         post_record_filename = ProtocolPostRecord.DEFAULT_FILENAME
         post_record_file_loc = protocol_root_dir / post_record_filename
@@ -126,11 +124,10 @@ class ProtocolPostProcessingHelper:
         protocol_file_loc = protocol_root_dir / protocol_file_relative_loc
         if not protocol_file_loc.is_file():
             return None
-        
+
         loc_data['protocol'] = protocol_file_loc
-       
+
         return loc_data
- 
 
     def _get_raw_images_df(
         self,
@@ -138,18 +135,20 @@ class ProtocolPostProcessingHelper:
         protocol: Protocol,
         protocol_execution_record: ProtocolExecutionRecord,
     ) -> pd.DataFrame | None:
-                
+
         image_data = []
 
         for image_name in image_names:
             # If video frame, then set the filepath to be one level higher
-            if "_video_Frame" in str(image_name):
-                file_data = protocol_execution_record.get_data_from_filename(file_path=image_name.parent)
+            if '_video_Frame' in str(image_name):
+                file_data = protocol_execution_record.get_data_from_filename(
+                    file_path=image_name.parent
+                )
             else:
                 file_data = protocol_execution_record.get_data_from_filename(file_path=image_name)
 
             if file_data is None:
-                logger.warning(f"No info found in protocol execution record for {image_name}")
+                logger.warning(f'No info found in protocol execution record for {image_name}')
                 continue
 
             step_idx = file_data['Step Index']
@@ -180,14 +179,13 @@ class ProtocolPostProcessingHelper:
         df = df.fillna('')
 
         return df
-    
 
     def _get_post_images_df(
         self,
         image_names: list[pathlib.Path],
         protocol_post_record: ProtocolPostRecord,
     ) -> pd.DataFrame | None:
-        
+
         df = protocol_post_record.records()
         if len(df) == 0:
             return df
@@ -202,24 +200,13 @@ class ProtocolPostProcessingHelper:
 
         return df
 
-
     @staticmethod
     def _add_zproject_group_index(df: pd.DataFrame) -> pd.DataFrame:
         df['Z-Project Group Index'] = df.groupby(
-            by=[
-                'Scan Count',
-                'Well',
-                'Color',
-                'Objective',
-                'X',
-                'Y',
-                'Tile',
-                'Custom Step'
-            ],
-            dropna=False
+            by=['Scan Count', 'Well', 'Color', 'Objective', 'X', 'Y', 'Tile', 'Custom Step'],
+            dropna=False,
         ).ngroup()
         return df
-
 
     def load_folder(
         self,
@@ -232,16 +219,20 @@ class ProtocolPostProcessingHelper:
         protocol_tsvs = self._find_protocol_tsvs(path=selected_path)
 
         if protocol_tsvs is None:
-            logger.error(f"{self._name}: Protocol and/or protocol record not found in folder")
+            logger.error(f'{self._name}: Protocol and/or protocol record not found in folder')
             return {
                 'status': False,
-                'message': 'Protocol and/or Protocol Record not found in folder'
+                'message': 'Protocol and/or Protocol Record not found in folder',
             }
-        
+
         root_path = protocol_tsvs['protocol_root_dir']
-                
+
         # Special handling for logging this since it may be None or a pathlib file
-        protocol_post_record_str = "None" if protocol_tsvs['protocol_post_record'] is None else protocol_tsvs['protocol_post_record'].name
+        protocol_post_record_str = (
+            'None'
+            if protocol_tsvs['protocol_post_record'] is None
+            else protocol_tsvs['protocol_post_record'].name
+        )
 
         logger.info(f"""{self._name}: Found ->
             Selected dir:                      {selected_path}
@@ -253,81 +244,76 @@ class ProtocolPostProcessingHelper:
 
         try:
             protocol = Protocol.from_file(
-                file_path=protocol_tsvs['protocol'],
-                tiling_configs_file_loc=tiling_configs_file_loc
+                file_path=protocol_tsvs['protocol'], tiling_configs_file_loc=tiling_configs_file_loc
             )
         except Exception as e:
-            msg = f"Unable to load protocol file: {e}"
+            msg = f'Unable to load protocol file: {e}'
             return {
                 'status': False,
                 'message': msg,
             }
 
         if protocol is None:
-            msg = "Protocol not loaded"
-            logger.error(f"{self._name}: {msg}")
+            msg = 'Protocol not loaded'
+            logger.error(f'{self._name}: {msg}')
             return {
                 'status': False,
                 'message': msg,
             }
-        
+
         protocol_execution_record = ProtocolExecutionRecord.from_file(
             file_path=protocol_tsvs['protocol_execution_record'],
         )
 
         if protocol_execution_record is None:
-            msg = "Protocol Execution Record not loaded"
-            logger.error(f"{self._name}: {msg}")
+            msg = 'Protocol Execution Record not loaded'
+            logger.error(f'{self._name}: {msg}')
             return {
                 'status': False,
                 'message': msg,
             }
-        
+
         if protocol_execution_record.num_records() == 0:
-            msg = "Protocol Execution Record has no records"
-            logger.error(f"{self._name}: {msg}")
+            msg = 'Protocol Execution Record has no records'
+            logger.error(f'{self._name}: {msg}')
             return {
                 'status': False,
                 'message': msg,
             }
-        
-        
+
         protocol_post_record = None
         if protocol_tsvs['protocol_post_record'] is not None:
             try:
                 protocol_post_record = ProtocolPostRecord.from_file(
                     file_path=protocol_tsvs['protocol_post_record'],
                 )
-                logger.info(f"Loaded existing protocol post record {protocol_tsvs['protocol_post_record']}")
+                logger.info(
+                    f'Loaded existing protocol post record {protocol_tsvs["protocol_post_record"]}'
+                )
             except Exception:
-                logger.error(f"Unable to load the protocol post record file {protocol_tsvs['protocol_post_record']}. Creating new record.")
+                logger.error(
+                    f'Unable to load the protocol post record file {protocol_tsvs["protocol_post_record"]}. Creating new record.'
+                )
 
         if protocol_post_record is None:
             protocol_post_record = ProtocolPostRecord(
                 file_loc=root_path / ProtocolPostRecord.DEFAULT_FILENAME
             )
 
-        
         if selected_path == root_path:
-            include_subpaths=[]
+            include_subpaths = []
         else:
-            include_subpaths = [
-                selected_path.name
-            ]
+            include_subpaths = [selected_path.name]
 
         # If the selected folder is a specific folder of image frames, send the path as the selected folder instead of the root folder
         # Also ensure that we are only checking this folder for images
-        if "_video" in str(path):
+        if '_video' in str(path):
             image_names = self._get_image_filenames_from_folder(
-                path=path,
-                exclude_subpaths=[],
-                include_subpaths=[]
+                path=path, exclude_subpaths=[], include_subpaths=[]
             )
         else:
             image_names = self._get_image_filenames_from_folder(
-                path=root_path,
-                exclude_subpaths=[],
-                include_subpaths=include_subpaths
+                path=root_path, exclude_subpaths=[], include_subpaths=include_subpaths
             )
 
         raw_images_df = self._get_raw_images_df(
@@ -348,12 +334,12 @@ class ProtocolPostProcessingHelper:
         post_images_df['Raw'] = False
 
         if (len(raw_images_df) == 0) and (len(post_images_df) == 0):
-            log_msg = "No image files found in folder to process"
+            log_msg = 'No image files found in folder to process'
             user_msg = (
-                "No image files were found in this folder to process. "
-                "Check that the folder contains captured scan images."
+                'No image files were found in this folder to process. '
+                'Check that the folder contains captured scan images.'
             )
-            logger.error(f"{self._name}: {log_msg}")
+            logger.error(f'{self._name}: {log_msg}')
             return {
                 'status': False,
                 'message': user_msg,

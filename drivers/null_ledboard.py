@@ -32,8 +32,12 @@ class NullLEDBoard:
     """
 
     _COLOR_TO_CH = {
-        'Blue': 0, 'Green': 1, 'Red': 2,
-        'BF': 3, 'PC': 4, 'DF': 5,
+        'Blue': 0,
+        'Green': 1,
+        'Red': 2,
+        'BF': 3,
+        'PC': 4,
+        'DF': 5,
     }
     _CH_TO_COLOR = {v: k for k, v in _COLOR_TO_CH.items()}
 
@@ -183,6 +187,11 @@ class NullLEDBoard:
     # ------------------------------------------------------------------
     # Write-only (no-ops)
     # ------------------------------------------------------------------
-    def _write_command_fast(self, command): pass
-    def _safety_leds_off(self): pass
-    def _on_disconnect(self): pass
+    def _write_command_fast(self, command):
+        pass
+
+    def _safety_leds_off(self):
+        pass
+
+    def _on_disconnect(self):
+        pass

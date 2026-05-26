@@ -167,12 +167,14 @@ class TestSimplePositionStitcher:
     @pytest.fixture
     def tile_df(self):
         """DataFrame describing a 2x2 grid of tiles."""
-        return pd.DataFrame([
-            {'Filepath': 'tile_0_0.tiff', 'X': 0.0, 'Y': 0.0},
-            {'Filepath': 'tile_1_0.tiff', 'X': 1.0, 'Y': 0.0},
-            {'Filepath': 'tile_0_1.tiff', 'X': 0.0, 'Y': 1.0},
-            {'Filepath': 'tile_1_1.tiff', 'X': 1.0, 'Y': 1.0},
-        ])
+        return pd.DataFrame(
+            [
+                {'Filepath': 'tile_0_0.tiff', 'X': 0.0, 'Y': 0.0},
+                {'Filepath': 'tile_1_0.tiff', 'X': 1.0, 'Y': 0.0},
+                {'Filepath': 'tile_0_1.tiff', 'X': 0.0, 'Y': 1.0},
+                {'Filepath': 'tile_1_1.tiff', 'X': 1.0, 'Y': 1.0},
+            ]
+        )
 
     def test_output_dimensions(self, tile_dir, tile_df):
         result = Stitcher._simple_position_stitcher(tile_dir, tile_df)
@@ -208,10 +210,12 @@ class TestSimplePositionStitcher:
         t2 = np.full((40, 40, 3), [0, 255, 0], dtype=np.uint8)
         cv2.imwrite(str(tmp_path / 'a.tiff'), t1)
         cv2.imwrite(str(tmp_path / 'b.tiff'), t2)
-        df = pd.DataFrame([
-            {'Filepath': 'a.tiff', 'X': 0.0, 'Y': 0.0},
-            {'Filepath': 'b.tiff', 'X': 1.0, 'Y': 0.0},
-        ])
+        df = pd.DataFrame(
+            [
+                {'Filepath': 'a.tiff', 'X': 0.0, 'Y': 0.0},
+                {'Filepath': 'b.tiff', 'X': 1.0, 'Y': 0.0},
+            ]
+        )
         result = Stitcher._simple_position_stitcher(tmp_path, df)
         assert result['status'] is True
         img = result['image']
@@ -222,10 +226,7 @@ class TestSimplePositionStitcher:
         for i in range(3):
             tile = np.full((30, 30), (i + 1) * 60, dtype=np.uint8)
             cv2.imwrite(str(tmp_path / f't{i}.tiff'), tile)
-        df = pd.DataFrame([
-            {'Filepath': f't{i}.tiff', 'X': float(i), 'Y': 0.0}
-            for i in range(3)
-        ])
+        df = pd.DataFrame([{'Filepath': f't{i}.tiff', 'X': float(i), 'Y': 0.0} for i in range(3)])
         result = Stitcher._simple_position_stitcher(tmp_path, df)
         assert result['status'] is True
         assert result['image'].shape == (30, 90)
@@ -236,10 +237,12 @@ class TestSimplePositionStitcher:
         t2 = np.full((32, 32), 50000, dtype=np.uint16)
         cv2.imwrite(str(tmp_path / 'a.tiff'), t1)
         cv2.imwrite(str(tmp_path / 'b.tiff'), t2)
-        df = pd.DataFrame([
-            {'Filepath': 'a.tiff', 'X': 0.0, 'Y': 0.0},
-            {'Filepath': 'b.tiff', 'X': 0.0, 'Y': 1.0},
-        ])
+        df = pd.DataFrame(
+            [
+                {'Filepath': 'a.tiff', 'X': 0.0, 'Y': 0.0},
+                {'Filepath': 'b.tiff', 'X': 0.0, 'Y': 1.0},
+            ]
+        )
         result = Stitcher._simple_position_stitcher(tmp_path, df)
         assert result['status'] is True
         assert result['image'].dtype == np.uint16

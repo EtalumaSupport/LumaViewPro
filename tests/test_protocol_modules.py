@@ -30,6 +30,7 @@ from modules.protocol_callbacks import ProtocolCallbacks
 # protocol_state_machine.py
 # ===========================================================================
 
+
 class TestSequencedCaptureRunMode:
     """Verify enum values match expected protocol run modes."""
 
@@ -56,9 +57,7 @@ class TestProtocolState:
 
     def test_every_state_has_transition_entry(self):
         for state in ProtocolState:
-            assert state in PROTOCOL_STATE_TRANSITIONS, (
-                f"{state} missing from transition table"
-            )
+            assert state in PROTOCOL_STATE_TRANSITIONS, f'{state} missing from transition table'
 
 
 class TestValidateTransition:
@@ -101,33 +100,37 @@ class TestValidateTransition:
 
     # --- Invalid transitions ---
 
-    @pytest.mark.parametrize("old,new", [
-        (ProtocolState.IDLE, ProtocolState.SCANNING),
-        (ProtocolState.IDLE, ProtocolState.COMPLETING),
-        (ProtocolState.IDLE, ProtocolState.ERROR),
-        (ProtocolState.COMPLETING, ProtocolState.RUNNING),
-        (ProtocolState.COMPLETING, ProtocolState.SCANNING),
-        (ProtocolState.COMPLETING, ProtocolState.ERROR),
-        (ProtocolState.ERROR, ProtocolState.RUNNING),
-        (ProtocolState.ERROR, ProtocolState.SCANNING),
-        (ProtocolState.ERROR, ProtocolState.COMPLETING),
-    ])
+    @pytest.mark.parametrize(
+        'old,new',
+        [
+            (ProtocolState.IDLE, ProtocolState.SCANNING),
+            (ProtocolState.IDLE, ProtocolState.COMPLETING),
+            (ProtocolState.IDLE, ProtocolState.ERROR),
+            (ProtocolState.COMPLETING, ProtocolState.RUNNING),
+            (ProtocolState.COMPLETING, ProtocolState.SCANNING),
+            (ProtocolState.COMPLETING, ProtocolState.ERROR),
+            (ProtocolState.ERROR, ProtocolState.RUNNING),
+            (ProtocolState.ERROR, ProtocolState.SCANNING),
+            (ProtocolState.ERROR, ProtocolState.COMPLETING),
+        ],
+    )
     def test_invalid_transition_raises(self, old, new):
-        with pytest.raises(ValueError, match="Invalid state transition"):
+        with pytest.raises(ValueError, match='Invalid state transition'):
             validate_transition(old, new)
 
     def test_custom_logger_name_in_error_message(self):
-        with pytest.raises(ValueError, match="MyExecutor"):
+        with pytest.raises(ValueError, match='MyExecutor'):
             validate_transition(
                 ProtocolState.IDLE,
                 ProtocolState.SCANNING,
-                logger_name="MyExecutor",
+                logger_name='MyExecutor',
             )
 
 
 # ===========================================================================
 # protocol_callbacks.py
 # ===========================================================================
+
 
 class TestProtocolCallbacksFromDict:
     """Test ProtocolCallbacks.from_dict() factory."""
@@ -186,6 +189,7 @@ class TestProtocolCallbacksToDict:
 
     def test_to_dict_all_callbacks_set(self):
         import dataclasses
+
         fields = dataclasses.fields(ProtocolCallbacks)
         fn = lambda: None
         kwargs = {f.name: fn for f in fields}
@@ -218,17 +222,20 @@ class TestProtocolCallbacksToDict:
 # kivy_utils.py
 # ===========================================================================
 
+
 class TestScheduleUI:
     """Test schedule_ui falls back to direct call when no Kivy event loop."""
 
     def test_schedule_ui_calls_directly_without_kivy(self):
         from modules.kivy_utils import schedule_ui
+
         called_with = []
         schedule_ui(lambda dt: called_with.append(dt))
         assert called_with == [0]
 
     def test_schedule_ui_with_timeout(self):
         from modules.kivy_utils import schedule_ui
+
         called = []
         schedule_ui(lambda dt: called.append(dt), timeout=0.5)
         assert len(called) == 1
@@ -236,6 +243,7 @@ class TestScheduleUI:
     def test_schedule_ui_passes_dt_zero(self):
         """schedule_ui passes dt=0 to the function (matching Clock convention)."""
         from modules.kivy_utils import schedule_ui
+
         received_dt = []
         schedule_ui(lambda dt: received_dt.append(dt))
         assert received_dt == [0]
@@ -243,6 +251,7 @@ class TestScheduleUI:
     def test_schedule_ui_multiple_calls(self):
         """schedule_ui can be called multiple times."""
         from modules.kivy_utils import schedule_ui
+
         count = []
         for _ in range(5):
             schedule_ui(lambda dt: count.append(1))
@@ -252,6 +261,7 @@ class TestScheduleUI:
 # ===========================================================================
 # protocol_cleanup.py
 # ===========================================================================
+
 
 class _FakeExecutor:
     """Minimal stand-in for SequentialIOExecutor used in cleanup tests."""
@@ -313,7 +323,7 @@ class TestRunCleanup:
             set_state_fn=set_state,
             run_lock=threading.Lock(),
             scan_in_progress=threading.Event(),
-            leds_state_at_end="off",
+            leds_state_at_end='off',
             original_led_states={},
             original_autofocus_states={},
             saved_camera_state=None,
@@ -338,18 +348,21 @@ class TestRunCleanup:
 
     def test_cleanup_transitions_to_idle(self):
         from modules.protocol_cleanup import run_cleanup
+
         args, state, _ = self._make_cleanup_args()
         run_cleanup(**args)
         assert state[0] == ProtocolState.IDLE
 
     def test_cleanup_sets_run_not_in_progress(self):
         from modules.protocol_cleanup import run_cleanup
+
         args, _, run_in_progress = self._make_cleanup_args()
         run_cleanup(**args)
         assert run_in_progress[0] is False
 
     def test_cleanup_fires_run_complete_callback(self):
         from modules.protocol_cleanup import run_cleanup
+
         completed = []
         cb = ProtocolCallbacks(run_complete=lambda protocol=None: completed.append(True))
         args, _, _ = self._make_cleanup_args(callbacks=cb)
@@ -358,6 +371,7 @@ class TestRunCleanup:
 
     def test_cleanup_fires_files_complete_when_no_queue(self):
         from modules.protocol_cleanup import run_cleanup
+
         files_done = []
         cb = ProtocolCallbacks(
             run_complete=lambda protocol=None: None,
@@ -369,6 +383,7 @@ class TestRunCleanup:
 
     def test_cleanup_handles_missing_callbacks_gracefully(self):
         from modules.protocol_cleanup import run_cleanup
+
         cb = ProtocolCallbacks()  # all None
         args, state, _ = self._make_cleanup_args(callbacks=cb)
         run_cleanup(**args)  # should not raise
@@ -376,16 +391,18 @@ class TestRunCleanup:
 
     def test_cleanup_calls_leds_off(self):
         from modules.protocol_cleanup import run_cleanup
+
         leds_off_called = []
         args, _, _ = self._make_cleanup_args(
             leds_off_fn=lambda: leds_off_called.append(True),
-            leds_state_at_end="off",
+            leds_state_at_end='off',
         )
         run_cleanup(**args)
         assert len(leds_off_called) == 1
 
     def test_cleanup_restores_leds_to_original(self):
         from modules.protocol_cleanup import run_cleanup
+
         restored = []
         # Schema matches lumascope_api.illumination's get_led_states():
         # color -> {'enabled': bool, 'illumination_ma': float}. The cleanup
@@ -395,9 +412,11 @@ class TestRunCleanup:
             'Green': {'enabled': False, 'illumination_ma': 0},
         }
         args, _, _ = self._make_cleanup_args(
-            leds_state_at_end="return_to_original",
+            leds_state_at_end='return_to_original',
             original_led_states=original_leds,
-            led_on_fn=lambda color=None, illumination=None, block=True, force=True: restored.append((color, illumination)),
+            led_on_fn=lambda color=None, illumination=None, block=True, force=True: restored.append(
+                (color, illumination)
+            ),
         )
         run_cleanup(**args)
         assert ('Red', 50) in restored
@@ -406,6 +425,7 @@ class TestRunCleanup:
 
     def test_cleanup_ends_all_executors(self):
         from modules.protocol_cleanup import run_cleanup
+
         args, _, _ = self._make_cleanup_args()
         run_cleanup(**args)
         assert args['io_executor'].protocol_ended
@@ -414,6 +434,7 @@ class TestRunCleanup:
 
     def test_cleanup_clears_scan_in_progress(self):
         from modules.protocol_cleanup import run_cleanup
+
         args, _, _ = self._make_cleanup_args()
         args['scan_in_progress'].set()
         run_cleanup(**args)
@@ -421,6 +442,7 @@ class TestRunCleanup:
 
     def test_cleanup_returns_to_position(self):
         from modules.protocol_cleanup import run_cleanup
+
         moved_to = []
         pos = {'x': 1.0, 'y': 2.0, 'z': 3.0}
         args, _, _ = self._make_cleanup_args(
@@ -433,10 +455,12 @@ class TestRunCleanup:
     def test_cleanup_from_error_state(self):
         """Cleanup from ERROR state should transition ERROR -> IDLE."""
         from modules.protocol_cleanup import run_cleanup
+
         state = [ProtocolState.ERROR]
         args, _, _ = self._make_cleanup_args()
         # Override state functions to use ERROR as starting state
         args['get_state_fn'] = lambda: state[0]
+
         def set_state(s):
             # ERROR -> IDLE is valid
             if state[0] == ProtocolState.ERROR and s == ProtocolState.IDLE:
@@ -446,6 +470,7 @@ class TestRunCleanup:
             else:
                 validate_transition(state[0], s)
                 state[0] = s
+
         args['set_state_fn'] = set_state
         run_cleanup(**args)
         assert state[0] == ProtocolState.IDLE
@@ -455,12 +480,14 @@ class TestRunCleanup:
 # protocol_image_writer.py
 # ===========================================================================
 
+
 class TestProtocolImageWriterWriteCapture:
     """Test ProtocolImageWriter.write_capture — the file-IO thread method."""
 
     def _make_writer(self, execution_record=None):
         """Create a ProtocolImageWriter with minimal stubs."""
         from modules.protocol_image_writer import ProtocolImageWriter
+
         writer = ProtocolImageWriter(
             scope=MagicMock(),
             callbacks=ProtocolCallbacks(),
@@ -483,9 +510,12 @@ class TestProtocolImageWriterWriteCapture:
         )
         record.add_step.assert_called_once()
         call_kwargs = record.add_step.call_args
-        assert call_kwargs[1]['capture_result_file_name'] == 'unsaved' or \
-               call_kwargs[0][0] == 'unsaved' if call_kwargs[0] else \
-               'capture_result_file_name' in call_kwargs[1]
+        assert (
+            call_kwargs[1]['capture_result_file_name'] == 'unsaved'
+            or call_kwargs[0][0] == 'unsaved'
+            if call_kwargs[0]
+            else 'capture_result_file_name' in call_kwargs[1]
+        )
 
     def test_write_capture_saving_disabled_correct_unsaved_value(self):
         record = MagicMock()

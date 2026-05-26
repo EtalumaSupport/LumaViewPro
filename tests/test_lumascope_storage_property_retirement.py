@@ -39,24 +39,24 @@ import pathlib
 
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
-LUMASCOPE_SRC = REPO / "modules" / "lumascope_api" / "_lumascope.py"
+LUMASCOPE_SRC = REPO / 'modules' / 'lumascope_api' / '_lumascope.py'
 
 
 RETIRED_STORAGE_PROPERTIES = (
-    "_pos_cache",
-    "_pos_cache_lock",
-    "_axis_state",
-    "_axis_state_lock",
-    "_arrival_events",
-    "_move_profile",
-    "_move_profile_lock",
-    "_position_listeners",
-    "_position_listeners_lock",
-    "_motion_wake",
-    "_motion_monitor_stop",
-    "_motion_monitor_thread",
-    "_homing_event",
-    "_turreting_event",
+    '_pos_cache',
+    '_pos_cache_lock',
+    '_axis_state',
+    '_axis_state_lock',
+    '_arrival_events',
+    '_move_profile',
+    '_move_profile_lock',
+    '_position_listeners',
+    '_position_listeners_lock',
+    '_motion_wake',
+    '_motion_monitor_stop',
+    '_motion_monitor_thread',
+    '_homing_event',
+    '_turreting_event',
 )
 
 
@@ -64,9 +64,9 @@ def _lumascope_class_node() -> ast.ClassDef:
     source = LUMASCOPE_SRC.read_text()
     tree = ast.parse(source)
     for node in tree.body:
-        if isinstance(node, ast.ClassDef) and node.name == "Lumascope":
+        if isinstance(node, ast.ClassDef) and node.name == 'Lumascope':
             return node
-    raise AssertionError("class Lumascope not found in _lumascope.py")
+    raise AssertionError('class Lumascope not found in _lumascope.py')
 
 
 def _property_names(class_node: ast.ClassDef) -> set[str]:
@@ -78,10 +78,10 @@ def _property_names(class_node: ast.ClassDef) -> set[str]:
             continue
         for dec in child.decorator_list:
             # @property
-            if isinstance(dec, ast.Name) and dec.id == "property":
+            if isinstance(dec, ast.Name) and dec.id == 'property':
                 names.add(child.name)
             # @<name>.setter
-            if isinstance(dec, ast.Attribute) and dec.attr == "setter":
+            if isinstance(dec, ast.Attribute) and dec.attr == 'setter':
                 names.add(child.name)
     return names
 
@@ -96,9 +96,9 @@ class TestStoragePropertyRetirement:
         present = _property_names(cls)
         leaked = sorted(set(RETIRED_STORAGE_PROPERTIES) & present)
         assert not leaked, (
-            f"The following storage fields are back as @property on "
-            f"Lumascope: {leaked}. Per Wave 7 Phase 2c.5, callers reach "
-            f"these via scope.motion.<field>; do not re-introduce the "
-            f"band-aid forwarders. See class docstring for the full list "
-            f"and the public-API exceptions that still belong here."
+            f'The following storage fields are back as @property on '
+            f'Lumascope: {leaked}. Per Wave 7 Phase 2c.5, callers reach '
+            f'these via scope.motion.<field>; do not re-introduce the '
+            f'band-aid forwarders. See class docstring for the full list '
+            f'and the public-API exceptions that still belong here.'
         )

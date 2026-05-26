@@ -26,6 +26,7 @@ The harness ctx exposes:
 The scope mock is intentionally minimal. Plugins that exercise scope
 methods should set attributes on ctx.scope explicitly per test.
 """
+
 from __future__ import annotations
 
 import sys

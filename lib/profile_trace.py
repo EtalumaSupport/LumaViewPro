@@ -23,6 +23,7 @@ modules/frame_validity.py).
 CSVs auto-close on process exit via atexit. Thread-safe via a single
 module-level lock. Writes are line-buffered — no tail-buffer loss on crash.
 """
+
 import atexit
 import os
 import threading
@@ -34,6 +35,7 @@ try:
     from lvp_logger import logger
 except ImportError:
     import logging
+
     logger = logging.getLogger(__name__)
 
 
@@ -49,13 +51,13 @@ def enable(output_dir=None):
     if ENABLE_PROFILE_TRACE:
         return
     if output_dir is None:
-        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-        output_dir = Path("./logs/profile") / ts
+        ts = datetime.now().strftime('%Y%m%d_%H%M%S')
+        output_dir = Path('./logs/profile') / ts
     _output_dir = Path(output_dir)
     _output_dir.mkdir(parents=True, exist_ok=True)
     ENABLE_PROFILE_TRACE = True
     atexit.register(disable)
-    logger.info(f"[PROFILE   ] Trace enabled. Writing to {_output_dir}")
+    logger.info(f'[PROFILE   ] Trace enabled. Writing to {_output_dir}')
 
 
 def disable():
@@ -84,13 +86,13 @@ def trace(filename, header, fields):
             if fh is None:
                 path = _output_dir / filename
                 need_header = not path.exists()
-                fh = open(path, "a", buffering=1)
+                fh = open(path, 'a', buffering=1)
                 if need_header:
-                    fh.write(header + "\n")
+                    fh.write(header + '\n')
                 _writers[filename] = fh
-            fh.write(",".join(str(x) for x in fields) + "\n")
+            fh.write(','.join(str(x) for x in fields) + '\n')
     except Exception as e:
-        logger.warning(f"[PROFILE   ] trace write failed ({filename}): {e}")
+        logger.warning(f'[PROFILE   ] trace write failed ({filename}): {e}')
 
 
 class timer:
@@ -107,7 +109,8 @@ class timer:
     The extra-fields callable is only invoked when tracing is enabled,
     so it's safe to do non-trivial formatting inside it.
     """
-    __slots__ = ("filename", "header", "extra_fn", "t0")
+
+    __slots__ = ('filename', 'header', 'extra_fn', 't0')
 
     def __init__(self, filename, header, extra_fn):
         self.filename = filename
@@ -127,9 +130,9 @@ class timer:
             try:
                 extra = self.extra_fn()
             except Exception as e:
-                logger.warning(f"[PROFILE   ] timer extra_fn failed: {e}")
+                logger.warning(f'[PROFILE   ] timer extra_fn failed: {e}')
                 return
-            trace(self.filename, self.header, [ts_ms, f"{dt_ms:.3f}", *extra])
+            trace(self.filename, self.header, [ts_ms, f'{dt_ms:.3f}', *extra])
 
 
 class TimedLock:
@@ -163,7 +166,8 @@ class TimedLock:
     (motion._axis_state_lock has a 1 ms invariant; LED owners lock
     has a similar guard for serial-call hosts).
     """
-    __slots__ = ("_lock", "_name", "_warn_hold_threshold_ms", "_tls")
+
+    __slots__ = ('_lock', '_name', '_warn_hold_threshold_ms', '_tls')
 
     def __init__(self, lock, name, warn_hold_threshold_ms=None):
         self._lock = lock
@@ -172,7 +176,7 @@ class TimedLock:
         self._tls = threading.local()
 
     def _stack(self):
-        s = getattr(self._tls, "stack", None)
+        s = getattr(self._tls, 'stack', None)
         if s is None:
             s = []
             self._tls.stack = s
@@ -210,20 +214,27 @@ class TimedLock:
                     and hold_ms > self._warn_hold_threshold_ms
                 ):
                     from lvp_logger import logger as _lock_logger
+
                     _lock_logger.warning(
-                        f"[LOCK] {self._name} held {hold_ms:.2f}ms by "
-                        f"{threading.current_thread().name} -- "
-                        f"invariant threshold {self._warn_hold_threshold_ms}ms exceeded"
+                        f'[LOCK] {self._name} held {hold_ms:.2f}ms by '
+                        f'{threading.current_thread().name} -- '
+                        f'invariant threshold {self._warn_hold_threshold_ms}ms exceeded'
                     )
 
                 if ENABLE_PROFILE_TRACE:
                     ts_ms = int(time.time() * 1000)
                     thread_name = threading.current_thread().name
                     trace(
-                        "lock_trace.csv",
-                        "ts_ms,duration_ms,lock_name,thread,acquire_wait_ms,hold_ms",
-                        [ts_ms, f"{(acquire_wait_ms + hold_ms):.3f}", self._name,
-                         thread_name, f"{acquire_wait_ms:.3f}", f"{hold_ms:.3f}"],
+                        'lock_trace.csv',
+                        'ts_ms,duration_ms,lock_name,thread,acquire_wait_ms,hold_ms',
+                        [
+                            ts_ms,
+                            f'{(acquire_wait_ms + hold_ms):.3f}',
+                            self._name,
+                            thread_name,
+                            f'{acquire_wait_ms:.3f}',
+                            f'{hold_ms:.3f}',
+                        ],
                     )
         self._lock.release()
         return False
@@ -252,6 +263,7 @@ class TimedLock:
 # the tracer infrastructure remains shippable without runtime config.
 def _read_settings_gate():
     from modules.settings_init import load_profile_trace_setting
+
     # Reuse lvp_logger.lvp_appdata so the production-installed path
     # (~/Documents/LumaViewPro <version>/data/) resolves the same way
     # the logger's debug-mode gate does. Fall back to the source root
@@ -259,6 +271,7 @@ def _read_settings_gate():
     # this module in isolation).
     try:
         import lvp_logger
+
         base_dir = lvp_logger.lvp_appdata
     except (ImportError, AttributeError):
         base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -266,5 +279,5 @@ def _read_settings_gate():
 
 
 _gate = _read_settings_gate()
-if _gate["enabled"]:
-    enable(output_dir=Path(_gate["output_dir"]) if _gate["output_dir"] else None)
+if _gate['enabled']:
+    enable(output_dir=Path(_gate['output_dir']) if _gate['output_dir'] else None)

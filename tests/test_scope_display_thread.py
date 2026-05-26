@@ -5,6 +5,7 @@ publish/read, pause/resume, listener fan-out.
 Headless-only (no Kivy). The thread is GUI-agnostic per Rule 15 so
 these tests drive the production code path directly.
 """
+
 import threading
 import time
 from collections import deque
@@ -23,31 +24,36 @@ from modules.scope_display_thread import (
 
 class _FakeCtx:
     """Minimal ctx for the thread's ctx_provider lookups."""
+
     def __init__(self):
-        self.scope = object()           # truthy
-        self.scope_display = None       # set later
+        self.scope = object()  # truthy
+        self.scope_display = None  # set later
         self.engineering_mode = False
 
 
 class _FakeWidget:
     """Stand-in for ScopeDisplay. Records calls and lets tests control
     the status code returned by _render_one_frame."""
+
     def __init__(self, status_sequence=None):
         self.status_sequence = status_sequence or [STATUS_OK]
-        self.calls = []                       # (cycle_start, generation)
+        self.calls = []  # (cycle_start, generation)
         self._status_index = 0
         self._last_rendered_frame = (b'fake_bytes', (10, 10), 0.0)
         self._frame_interval_history = deque(maxlen=200)
 
-    def _render_one_frame(self, *, active_layer, active_layer_config,
-                          open_layer, dispatch_time, generation):
-        self.calls.append({
-            'active_layer': active_layer,
-            'active_layer_config': active_layer_config,
-            'open_layer': open_layer,
-            'dispatch_time': dispatch_time,
-            'generation': generation,
-        })
+    def _render_one_frame(
+        self, *, active_layer, active_layer_config, open_layer, dispatch_time, generation
+    ):
+        self.calls.append(
+            {
+                'active_layer': active_layer,
+                'active_layer_config': active_layer_config,
+                'open_layer': open_layer,
+                'dispatch_time': dispatch_time,
+                'generation': generation,
+            }
+        )
         if self._status_index < len(self.status_sequence):
             s = self.status_sequence[self._status_index]
             self._status_index += 1
@@ -55,7 +61,9 @@ class _FakeWidget:
             s = self.status_sequence[-1]
         if s == STATUS_OK:
             self._last_rendered_frame = (
-                b'frame_bytes', (10, 10), time.monotonic(),
+                b'frame_bytes',
+                (10, 10),
+                time.monotonic(),
             )
         return s
 
@@ -142,9 +150,7 @@ def test_bump_protocol_hold_pauses_rendering():
     time.sleep(0.2)
     # Hold still active; few/no new calls.
     delta_during_hold = len(widget.calls) - calls_before_hold
-    assert delta_during_hold <= 2, (
-        f'expected near-zero calls during hold; got {delta_during_hold}'
-    )
+    assert delta_during_hold <= 2, f'expected near-zero calls during hold; got {delta_during_hold}'
     time.sleep(0.2)
     # Hold expired; calls resumed.
     assert len(widget.calls) - calls_before_hold > 2
@@ -244,14 +250,13 @@ def test_status_not_ok_does_not_fan_out_to_listeners():
     time.sleep(0.15)
     t.stop()
     assert received == [], (
-        'listeners must only fire on STATUS_OK; '
-        f'got {len(received)} calls on STATUS_EMPTY'
+        f'listeners must only fire on STATUS_OK; got {len(received)} calls on STATUS_EMPTY'
     )
 
 
 def test_widget_unavailable_loop_retries_without_crash():
     ctx = _FakeCtx()
-    ctx.scope_display = None   # widget not built yet
+    ctx.scope_display = None  # widget not built yet
     t = ScopeDisplayThread(ctx_provider=lambda: ctx)
     t.start(fps=30)
     time.sleep(0.2)
@@ -311,15 +316,15 @@ def test_widget_start_delegate_silently_noops_when_thread_missing():
         ctx_now = _app_ctx.ctx
         thread = getattr(ctx_now, 'scope_display_thread', None) if ctx_now else None
         assert thread is None
-        if thread is not None:           # mirrors widget code
-            thread.start(fps=30)         # never reached
+        if thread is not None:  # mirrors widget code
+            thread.start(fps=30)  # never reached
 
         # Case 2: ctx exists but scope_display_thread field absent
-        _app_ctx.ctx = _FakeCtx()        # no scope_display_thread attribute
+        _app_ctx.ctx = _FakeCtx()  # no scope_display_thread attribute
         ctx_now = _app_ctx.ctx
         thread = getattr(ctx_now, 'scope_display_thread', None) if ctx_now else None
         assert thread is None
         if thread is not None:
-            thread.start(fps=30)         # never reached
+            thread.start(fps=30)  # never reached
     finally:
         _app_ctx.ctx = saved_ctx

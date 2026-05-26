@@ -28,6 +28,7 @@ invocation while the first is in flight returns a Future that immediately
 resolves to a RuntimeError ("Protocol already in progress"); the in-flight
 run is not affected. Mirrors AutofocusThread (B2).
 """
+
 import logging
 import queue
 import threading
@@ -154,9 +155,7 @@ class ProtocolThread:
         future: Future = Future()
         with self._state_lock:
             if self._current_future is not None and not self._current_future.done():
-                future.set_exception(
-                    RuntimeError('Protocol already in progress')
-                )
+                future.set_exception(RuntimeError('Protocol already in progress'))
                 return future
             self._current_future = future
             # Clear _aborted under the same lock that publishes
@@ -171,9 +170,7 @@ class ProtocolThread:
             # happen but degrade gracefully by failing the new Future.
             with self._state_lock:
                 self._current_future = None
-            future.set_exception(
-                RuntimeError('Protocol request queue full')
-            )
+            future.set_exception(RuntimeError('Protocol request queue full'))
         return future
 
     def abort(self) -> None:
@@ -227,9 +224,7 @@ class ProtocolThread:
                 result = run_loop_callable(**kwargs)
                 future.set_result(result)
             except Exception as ex:
-                logger.exception(
-                    f'protocol run raised: {type(ex).__name__}: {ex}'
-                )
+                logger.exception(f'protocol run raised: {type(ex).__name__}: {ex}')
                 future.set_exception(ex)
             finally:
                 with self._state_lock:

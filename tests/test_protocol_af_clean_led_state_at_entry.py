@@ -31,8 +31,7 @@ import pathlib
 
 
 def _module_source(rel_path: str) -> str:
-    return (pathlib.Path(__file__).resolve().parent.parent
-            / rel_path).read_text()
+    return (pathlib.Path(__file__).resolve().parent.parent / rel_path).read_text()
 
 
 def _function_node(source: str, func_name: str) -> ast.FunctionDef:
@@ -41,7 +40,7 @@ def _function_node(source: str, func_name: str) -> ast.FunctionDef:
     for node in ast.walk(tree):
         if isinstance(node, ast.FunctionDef) and node.name == func_name:
             return node
-    raise AssertionError(f"function {func_name!r} not found in source")
+    raise AssertionError(f'function {func_name!r} not found in source')
 
 
 def _call_lineno(func_node: ast.FunctionDef, attr_chain: str) -> int | None:
@@ -52,7 +51,7 @@ def _call_lineno(func_node: ast.FunctionDef, attr_chain: str) -> int | None:
     Walks the function body recursively (handles nested ifs/trys/etc.).
     Returns None if no match.
     """
-    target_parts = attr_chain.split(".")
+    target_parts = attr_chain.split('.')
     for node in ast.walk(func_node):
         if not isinstance(node, ast.Call):
             continue
@@ -66,7 +65,7 @@ def _call_lineno(func_node: ast.FunctionDef, attr_chain: str) -> int | None:
             chain.append(cur.id)
         chain.reverse()
         # Match if the trailing N parts equal target_parts
-        if len(chain) >= len(target_parts) and chain[-len(target_parts):] == target_parts:
+        if len(chain) >= len(target_parts) and chain[-len(target_parts) :] == target_parts:
             return node.lineno
     return None
 
@@ -74,6 +73,7 @@ def _call_lineno(func_node: ast.FunctionDef, attr_chain: str) -> int | None:
 # ---------------------------------------------------------------------------
 # Site 1: protocol scan-start leds_off
 # ---------------------------------------------------------------------------
+
 
 class TestProtocolRunLoopLedsOffAtScanStart:
     """Lock the scan-start leds_off in protocol_run_loop._run_loop_inner.
@@ -85,52 +85,53 @@ class TestProtocolRunLoopLedsOffAtScanStart:
     after it, so the scan-start hook is the only place this happens.
     """
 
-    SRC = "modules/protocol_run_loop.py"
-    FUNC = "_run_loop_inner"
+    SRC = 'modules/protocol_run_loop.py'
+    FUNC = '_run_loop_inner'
 
     def test_leds_off_call_exists_in_run_loop_inner(self):
         func = _function_node(_module_source(self.SRC), self.FUNC)
-        lineno = _call_lineno(func, "leds_off")
+        lineno = _call_lineno(func, 'leds_off')
         assert lineno is not None, (
-            f"{self.SRC}::{self.FUNC} must call leds_off() at scan start. "
-            "Without this, a Live-mode LED enabled before Scan press leaks "
+            f'{self.SRC}::{self.FUNC} must call leds_off() at scan start. '
+            'Without this, a Live-mode LED enabled before Scan press leaks '
             "into step 0's illumination (issue #666 root cause)."
         )
 
     def test_leds_off_precedes_go_to_step(self):
         func = _function_node(_module_source(self.SRC), self.FUNC)
-        leds_off_ln = _call_lineno(func, "leds_off")
-        go_to_step_ln = _call_lineno(func, "go_to_step")
+        leds_off_ln = _call_lineno(func, 'leds_off')
+        go_to_step_ln = _call_lineno(func, 'go_to_step')
         assert leds_off_ln is not None and go_to_step_ln is not None, (
-            f"{self.SRC}::{self.FUNC} must contain both leds_off and "
-            f"go_to_step calls (got leds_off={leds_off_ln}, "
-            f"go_to_step={go_to_step_ln})."
+            f'{self.SRC}::{self.FUNC} must contain both leds_off and '
+            f'go_to_step calls (got leds_off={leds_off_ln}, '
+            f'go_to_step={go_to_step_ln}).'
         )
         assert leds_off_ln < go_to_step_ln, (
-            f"leds_off (line {leds_off_ln}) must precede go_to_step "
+            f'leds_off (line {leds_off_ln}) must precede go_to_step '
             f"(line {go_to_step_ln}) in {self.FUNC}. Otherwise step 0's "
-            "motion runs with the pre-scan LED still lit and the first "
-            "captured image is blown out."
+            'motion runs with the pre-scan LED still lit and the first '
+            'captured image is blown out.'
         )
 
     def test_leds_off_precedes_scan_loop(self):
         func = _function_node(_module_source(self.SRC), self.FUNC)
-        leds_off_ln = _call_lineno(func, "leds_off")
-        scan_loop_ln = _call_lineno(func, "scan_loop")
+        leds_off_ln = _call_lineno(func, 'leds_off')
+        scan_loop_ln = _call_lineno(func, 'scan_loop')
         assert leds_off_ln is not None and scan_loop_ln is not None, (
-            f"{self.SRC}::{self.FUNC} must contain both leds_off and "
-            f"scan_loop calls (got leds_off={leds_off_ln}, "
-            f"scan_loop={scan_loop_ln})."
+            f'{self.SRC}::{self.FUNC} must contain both leds_off and '
+            f'scan_loop calls (got leds_off={leds_off_ln}, '
+            f'scan_loop={scan_loop_ln}).'
         )
         assert leds_off_ln < scan_loop_ln, (
-            f"leds_off (line {leds_off_ln}) must precede scan_loop "
-            f"(line {scan_loop_ln}) in {self.FUNC}."
+            f'leds_off (line {leds_off_ln}) must precede scan_loop '
+            f'(line {scan_loop_ln}) in {self.FUNC}.'
         )
 
 
 # ---------------------------------------------------------------------------
 # Site 2: autofocus run-start leds_off
 # ---------------------------------------------------------------------------
+
 
 class TestAutofocusRunnerLedsOffAtRunStart:
     """Lock the AF-run-start leds_off in autofocus_runner.run.
@@ -145,32 +146,32 @@ class TestAutofocusRunnerLedsOffAtRunStart:
     handles user-visible preservation independently.
     """
 
-    SRC = "modules/autofocus_runner.py"
-    FUNC = "run"
+    SRC = 'modules/autofocus_runner.py'
+    FUNC = 'run'
 
     def test_leds_off_call_exists_in_run(self):
         func = _function_node(_module_source(self.SRC), self.FUNC)
-        lineno = _call_lineno(func, "leds_off")
+        lineno = _call_lineno(func, 'leds_off')
         assert lineno is not None, (
-            f"{self.SRC}::{self.FUNC} must call leds_off before "
-            "self._led_on() so the AF scan illuminates with only the "
-            "AF channel (not pre-AF Live LED + AF LED combined)."
+            f'{self.SRC}::{self.FUNC} must call leds_off before '
+            'self._led_on() so the AF scan illuminates with only the '
+            'AF channel (not pre-AF Live LED + AF LED combined).'
         )
 
     def test_leds_off_precedes_led_on(self):
         func = _function_node(_module_source(self.SRC), self.FUNC)
-        leds_off_ln = _call_lineno(func, "leds_off")
-        led_on_ln = _call_lineno(func, "_led_on")
+        leds_off_ln = _call_lineno(func, 'leds_off')
+        led_on_ln = _call_lineno(func, '_led_on')
         assert leds_off_ln is not None and led_on_ln is not None, (
-            f"{self.SRC}::{self.FUNC} must contain both leds_off and "
-            f"_led_on calls (got leds_off={leds_off_ln}, "
-            f"_led_on={led_on_ln})."
+            f'{self.SRC}::{self.FUNC} must contain both leds_off and '
+            f'_led_on calls (got leds_off={leds_off_ln}, '
+            f'_led_on={led_on_ln}).'
         )
         assert leds_off_ln < led_on_ln, (
-            f"leds_off (line {leds_off_ln}) must precede _led_on "
+            f'leds_off (line {leds_off_ln}) must precede _led_on '
             f"(line {led_on_ln}) in {self.FUNC}. Otherwise AF's _led_on "
-            "fires before the pre-AF Live LED is cleared and the focus "
-            "metric integrates mixed illumination."
+            'fires before the pre-AF Live LED is cleared and the focus '
+            'metric integrates mixed illumination.'
         )
 
     def test_leds_off_follows_save_led_state(self):
@@ -179,16 +180,16 @@ class TestAutofocusRunnerLedsOffAtRunStart:
         save_led_state -> leds_off -> _led_on -> ... -> restore_led_state.
         """
         func = _function_node(_module_source(self.SRC), self.FUNC)
-        save_ln = _call_lineno(func, "save_led_state")
-        leds_off_ln = _call_lineno(func, "leds_off")
+        save_ln = _call_lineno(func, 'save_led_state')
+        leds_off_ln = _call_lineno(func, 'leds_off')
         assert save_ln is not None and leds_off_ln is not None, (
-            f"{self.SRC}::{self.FUNC} must call both save_led_state and "
-            f"leds_off (got save_led_state={save_ln}, "
-            f"leds_off={leds_off_ln})."
+            f'{self.SRC}::{self.FUNC} must call both save_led_state and '
+            f'leds_off (got save_led_state={save_ln}, '
+            f'leds_off={leds_off_ln}).'
         )
         assert save_ln < leds_off_ln, (
-            f"save_led_state (line {save_ln}) must precede leds_off "
-            f"(line {leds_off_ln}) so the pre-AF LED state is captured "
-            "before being cleared. Otherwise post-AF restore_led_state "
-            "would restore the wrong snapshot."
+            f'save_led_state (line {save_ln}) must precede leds_off '
+            f'(line {leds_off_ln}) so the pre-AF LED state is captured '
+            'before being cleared. Otherwise post-AF restore_led_state '
+            'would restore the wrong snapshot.'
         )

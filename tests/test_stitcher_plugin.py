@@ -15,6 +15,7 @@ coverage of Stitcher._simple_position_stitcher -- those exercise the
 algorithm directly. This file exercises the plugin SHIM around the
 already-tested Stitcher class.
 """
+
 from __future__ import annotations
 
 import pathlib
@@ -106,7 +107,8 @@ def test_processor_rejects_empty_input_dir(harness_ctx):
 
 
 def test_processor_returns_processor_result_on_missing_folder(
-    harness_ctx, tmp_path,
+    harness_ctx,
+    tmp_path,
 ):
     # A path that exists but has no protocol files -> Stitcher.load_folder
     # surfaces a clean {'status': False, 'message': '...'} which the
@@ -141,8 +143,7 @@ def test_processor_catches_exceptions_and_returns_failure(harness_ctx):
     fake = MagicMock()
     fake.load_folder.side_effect = RuntimeError('boom')
 
-    with patch.object(stitcher_plugin, 'Stitcher', return_value=fake,
-                      create=True):
+    with patch.object(stitcher_plugin, 'Stitcher', return_value=fake, create=True):
         # Patch the lazy import target -- the processor does
         # `from modules.stitcher import Stitcher` inside the call.
         with patch('modules.stitcher.Stitcher', return_value=fake):
@@ -223,12 +224,14 @@ def test_processor_real_stitch_via_test_fixtures(harness_ctx, tmp_path):
     for name, img in tiles.items():
         cv2.imwrite(str(tmp_path / name), img)
 
-    df = pd.DataFrame([
-        {'Filepath': 'tile_0_0.tiff', 'X': 0.0, 'Y': 0.0},
-        {'Filepath': 'tile_1_0.tiff', 'X': 1.0, 'Y': 0.0},
-        {'Filepath': 'tile_0_1.tiff', 'X': 0.0, 'Y': 1.0},
-        {'Filepath': 'tile_1_1.tiff', 'X': 1.0, 'Y': 1.0},
-    ])
+    df = pd.DataFrame(
+        [
+            {'Filepath': 'tile_0_0.tiff', 'X': 0.0, 'Y': 0.0},
+            {'Filepath': 'tile_1_0.tiff', 'X': 1.0, 'Y': 0.0},
+            {'Filepath': 'tile_0_1.tiff', 'X': 0.0, 'Y': 1.0},
+            {'Filepath': 'tile_1_1.tiff', 'X': 1.0, 'Y': 1.0},
+        ]
+    )
 
     # Drive Stitcher's pure stitch function via the platform path: the
     # full load_folder pipeline requires a protocol tsv + execution

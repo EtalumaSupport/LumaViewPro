@@ -14,7 +14,6 @@ from modules.contrast_stretcher import ContrastStretcher
 
 
 class TestRollingWindow:
-
     def test_window_drops_oldest_when_full(self):
         cs = ContrastStretcher(window_len=3, bottom_pct=0, top_pct=0)
         # Seed with 4 known images; window=3 means only the last 3

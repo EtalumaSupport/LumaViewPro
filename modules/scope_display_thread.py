@@ -28,6 +28,7 @@ Public API:
                            streaming / plugin live-processing.
                            callback(bytes, shape, generation, monotonic_ts)
 """
+
 import logging
 import threading
 import time
@@ -40,9 +41,9 @@ logger = logging.getLogger('LVP.modules.scope_display_thread')
 # Status codes returned by _render_one_frame on the widget. Kept here
 # so the widget contract is documented in one place.
 STATUS_OK = 0
-STATUS_EMPTY = 1       # no new frame in buffer
-STATUS_DUPLICATE = 2   # same camera timestamp as last frame
-STATUS_NOT_READY = 3   # ctx is None / scope disconnected / similar
+STATUS_EMPTY = 1  # no new frame in buffer
+STATUS_DUPLICATE = 2  # same camera timestamp as last frame
+STATUS_NOT_READY = 3  # ctx is None / scope disconnected / similar
 
 
 class ScopeDisplayThread:
@@ -115,8 +116,9 @@ class ScopeDisplayThread:
 
     def start(self, fps: int = 30) -> None:
         if self._thread is not None and self._thread.is_alive():
-            logger.debug('scope_display_thread already running; '
-                         'set_fps + resume instead of re-start')
+            logger.debug(
+                'scope_display_thread already running; set_fps + resume instead of re-start'
+            )
             self.set_fps(fps)
             self.resume()
             return
@@ -303,6 +305,4 @@ class ScopeDisplayThread:
             try:
                 cb(data, shape, gen, ts)
             except Exception:
-                logger.exception(
-                    f'frame_listener {getattr(cb, "__name__", str(cb))} raised'
-                )
+                logger.exception(f'frame_listener {getattr(cb, "__name__", str(cb))} raised')

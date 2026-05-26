@@ -10,34 +10,40 @@ from lvp_logger import logger
 
 
 class ProtocolExecutionRecord:
-
-    FILE_HEADER = "LumaViewPro Protocol Execution Record"
+    FILE_HEADER = 'LumaViewPro Protocol Execution Record'
     CURRENT_VERSION = 3
     DEFAULT_FILENAME = 'protocol_record.tsv'
-    COLUMNS = ('Filename', 'Step Name', 'Step Index', 'Scan Count', 'Timestamp', 'Frame Count', 'Duration (s)')
+    COLUMNS = (
+        'Filename',
+        'Step Name',
+        'Step Index',
+        'Scan Count',
+        'Timestamp',
+        'Frame Count',
+        'Duration (s)',
+    )
 
     def __init__(
         self,
-        protocol_file_loc: pathlib.Path, # | None = None,
+        protocol_file_loc: pathlib.Path,  # | None = None,
         outfile: pathlib.Path | None = None,
-        records: pd.DataFrame | None = None
+        records: pd.DataFrame | None = None,
     ):
         if (outfile is not None) and (records is not None):
-            raise Exception(f"Specify only outfile OR records")
-        
+            raise Exception(f'Specify only outfile OR records')
+
         if (outfile is None) and (records is None):
-            raise Exception(f"Must specify outfile or records")
-        
+            raise Exception(f'Must specify outfile or records')
+
         self._protocol_file_loc = pathlib.Path(protocol_file_loc)
 
         if outfile is not None:
-            self._mode = "to_file"
+            self._mode = 'to_file'
             self._outfile = outfile
             self._initialize_outfile(outfile=outfile)
         else:
-            self._mode = "from_file"
+            self._mode = 'from_file'
             self._records = records
-
 
     def _initialize_outfile(self, outfile: pathlib.Path):
         """Create file with header. Each add_step will append separately."""
@@ -48,19 +54,15 @@ class ProtocolExecutionRecord:
             csv_writer.writerow(['Protocol File', str(self._protocol_file_loc)])
             csv_writer.writerow(self.COLUMNS)
 
-    
     def protocol_file_loc(self) -> pathlib.Path:
         return self._protocol_file_loc
-    
 
     def complete(self):
         self._close_outfile()
 
-
     def _close_outfile(self):
         # Execution record is written in append mode; nothing to close
         pass
-
 
     def add_step(
         self,
@@ -70,58 +72,67 @@ class ProtocolExecutionRecord:
         scan_count: int,
         timestamp: datetime.datetime,
         frame_count: int = 1,
-        duration_sec: float = 0.0
+        duration_sec: float = 0.0,
     ):
-        if self._mode != "to_file":
-            raise Exception(f"add_step() can only be called when the instance is initialized with an 'outfile'.")
-        
+        if self._mode != 'to_file':
+            raise Exception(
+                f"add_step() can only be called when the instance is initialized with an 'outfile'."
+            )
+
         try:
             with open(self._outfile, 'a', newline='') as fp:
                 csv_writer = csv.writer(fp, delimiter='\t', lineterminator='\n')
-                csv_writer.writerow([capture_result_file_name, step_name, step_index, scan_count, timestamp, frame_count, duration_sec])
+                csv_writer.writerow(
+                    [
+                        capture_result_file_name,
+                        step_name,
+                        step_index,
+                        scan_count,
+                        timestamp,
+                        frame_count,
+                        duration_sec,
+                    ]
+                )
         except Exception as e:
-            logger.error(f"ProtocolExecutionRecord: Failed to write step {step_name}: {e}")
-        
-    
+            logger.error(f'ProtocolExecutionRecord: Failed to write step {step_name}: {e}')
+
     def get_data_from_filename(self, file_path: str | pathlib.Path) -> dict | None:
         record = self._records.loc[self._records['Filename'] == str(file_path)]
         if len(record) != 1:
             return None
-        
+
         first_row = record.iloc[0]
         return {
             'Step Index': first_row['Step Index'],
             'Scan Count': first_row['Scan Count'],
-            'Timestamp': first_row['Timestamp']
+            'Timestamp': first_row['Timestamp'],
         }
-    
-    
+
     def num_records(self) -> int:
         return len(self._records)
-
 
     @classmethod
     def from_file(cls, file_path: pathlib.Path):
         with open(file_path, 'r') as fp:
-            csvreader = csv.reader(fp, delimiter='\t') 
+            csvreader = csv.reader(fp, delimiter='\t')
             header = next(csvreader)
             if header[0] != cls.FILE_HEADER:
-                raise Exception(f"Invalid protocol execution record")
-            
+                raise Exception(f'Invalid protocol execution record')
+
             version = next(csvreader)
             if version[0] != 'Version':
-                raise Exception(f"Version key not found")
-            
+                raise Exception(f'Version key not found')
+
             if int(version[1]) not in (2, 3):  # Add 3 to supported versions
-                raise Exception(f"Unsupported protocol execution record version")
-            
+                raise Exception(f'Unsupported protocol execution record version')
+
             protocol_file_loc_row = next(csvreader)
-            if protocol_file_loc_row[0] != "Protocol File":
-                raise Exception(f"Protocol file location not found in file")
-            
+            if protocol_file_loc_row[0] != 'Protocol File':
+                raise Exception(f'Protocol file location not found in file')
+
             protocol_file_loc = protocol_file_loc_row[1]
-            
-            _ = next(csvreader) # Column names
+
+            _ = next(csvreader)  # Column names
 
             records = []
             for row in csvreader:
@@ -130,9 +141,9 @@ class ProtocolExecutionRecord:
                     'Step Name': row[1],
                     'Step Index': int(row[2]),
                     'Scan Count': int(row[3]),
-                    'Timestamp': datetime.datetime.strptime(row[4], "%Y-%m-%d %H:%M:%S.%f")
+                    'Timestamp': datetime.datetime.strptime(row[4], '%Y-%m-%d %H:%M:%S.%f'),
                 }
-                
+
                 # Handle version 3 additions
                 if len(row) > 5:
                     record_dict['Frame Count'] = int(row[5])
@@ -141,14 +152,9 @@ class ProtocolExecutionRecord:
                     # Default values for older versions
                     record_dict['Frame Count'] = 1
                     record_dict['Duration (s)'] = 0.0
-                    
+
                 records.append(record_dict)
 
             df = pd.DataFrame(records)
 
-            return ProtocolExecutionRecord(
-                records=df,
-                protocol_file_loc=protocol_file_loc
-            )
-
-            
+            return ProtocolExecutionRecord(records=df, protocol_file_loc=protocol_file_loc)

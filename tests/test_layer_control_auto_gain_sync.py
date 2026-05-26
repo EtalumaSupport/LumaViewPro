@@ -38,7 +38,7 @@ import pathlib
 
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
-LAYER_CONTROL_SRC = REPO / "ui" / "layer_control.py"
+LAYER_CONTROL_SRC = REPO / 'ui' / 'layer_control.py'
 
 
 def _method_body(class_name: str, method_name: str) -> str:
@@ -52,11 +52,10 @@ def _method_body(class_name: str, method_name: str) -> str:
                     text = ast.get_source_segment(source, child)
                     if text is None:
                         raise AssertionError(
-                            f"could not extract source for "
-                            f"{class_name}.{method_name}")
+                            f'could not extract source for {class_name}.{method_name}'
+                        )
                     return text
-    raise AssertionError(
-        f"{class_name}.{method_name} not found in {LAYER_CONTROL_SRC}")
+    raise AssertionError(f'{class_name}.{method_name} not found in {LAYER_CONTROL_SRC}')
 
 
 class TestApplySettingsSyncsAutoGainCheckbox:
@@ -81,14 +80,12 @@ class TestApplySettingsSyncsAutoGainCheckbox:
         """The auto_gain block must contain the CheckBox.active <- settings
         sync. Structural check; a future cleanup that drops the sync
         line would reintroduce the #655 toggle/camera divergence."""
-        body = _method_body("LayerControl", "apply_settings")
-        assert (
-            "self.ids['auto_gain'].active = auto_gain_enabled" in body
-        ), (
-            "LayerControl.apply_settings must sync the auto_gain CheckBox "
+        body = _method_body('LayerControl', 'apply_settings')
+        assert "self.ids['auto_gain'].active = auto_gain_enabled" in body, (
+            'LayerControl.apply_settings must sync the auto_gain CheckBox '
             ".active flag to settings[layer]['auto_gain'] inside the "
-            "non-protocol auto_gain block. See class docstring for the "
-            "#655 divergence this protects against."
+            'non-protocol auto_gain block. See class docstring for the '
+            '#655 divergence this protects against.'
         )
 
     def test_apply_settings_syncs_slider_disabled(self):
@@ -97,24 +94,16 @@ class TestApplySettingsSyncsAutoGainCheckbox:
         AG-vs-manual mode. Without this, after a settings-driven AG
         toggle change the user might still see editable sliders for
         values the camera is actively overriding (or vice versa)."""
-        body = _method_body("LayerControl", "apply_settings")
+        body = _method_body('LayerControl', 'apply_settings')
         # Pattern: for slider_item in ('gain_slider', 'gain_text', ...)
         # Loose check (any iteration over those four ids assigning disabled).
-        assert "gain_slider" in body, (
-            "apply_settings auto_gain sync must reference gain_slider"
-        )
-        assert "gain_text" in body, (
-            "apply_settings auto_gain sync must reference gain_text"
-        )
-        assert "exp_slider" in body, (
-            "apply_settings auto_gain sync must reference exp_slider"
-        )
-        assert "exp_text" in body, (
-            "apply_settings auto_gain sync must reference exp_text"
-        )
-        assert ".disabled = auto_gain_enabled" in body, (
-            "apply_settings auto_gain sync must set .disabled = "
-            "auto_gain_enabled on the gain/exposure slider + text widgets."
+        assert 'gain_slider' in body, 'apply_settings auto_gain sync must reference gain_slider'
+        assert 'gain_text' in body, 'apply_settings auto_gain sync must reference gain_text'
+        assert 'exp_slider' in body, 'apply_settings auto_gain sync must reference exp_slider'
+        assert 'exp_text' in body, 'apply_settings auto_gain sync must reference exp_text'
+        assert '.disabled = auto_gain_enabled' in body, (
+            'apply_settings auto_gain sync must set .disabled = '
+            'auto_gain_enabled on the gain/exposure slider + text widgets.'
         )
 
     def test_apply_settings_sync_precedes_iotask_queue(self):
@@ -122,14 +111,16 @@ class TestApplySettingsSyncsAutoGainCheckbox:
         IOTask queue so the UI reflects the new state by the time the
         camera command lands. The opposite order would leave a brief
         window where the camera state has changed but the UI lags."""
-        body = _method_body("LayerControl", "apply_settings")
+        body = _method_body('LayerControl', 'apply_settings')
         sync_idx = body.find("self.ids['auto_gain'].active = auto_gain_enabled")
-        queue_idx = body.find("apply_layer_camera_settings")
-        assert sync_idx >= 0, "sync line missing (precondition test_apply_settings_syncs_checkbox_active)"
-        assert queue_idx >= 0, "apply_layer_camera_settings call missing (precondition)"
+        queue_idx = body.find('apply_layer_camera_settings')
+        assert sync_idx >= 0, (
+            'sync line missing (precondition test_apply_settings_syncs_checkbox_active)'
+        )
+        assert queue_idx >= 0, 'apply_layer_camera_settings call missing (precondition)'
         assert sync_idx < queue_idx, (
-            "CheckBox sync must precede the apply_layer_camera_settings "
-            "IOTask queue. Reverse ordering leaves a window where the "
+            'CheckBox sync must precede the apply_layer_camera_settings '
+            'IOTask queue. Reverse ordering leaves a window where the '
             "camera state has changed but the UI hasn't caught up."
         )
 
@@ -139,15 +130,15 @@ class TestApplySettingsSyncsAutoGainCheckbox:
         During protocols, protocol_step_runner manages AG state with
         ignore_auto_gain=True; syncing the toggle UI from settings
         during a protocol-driven layer switch would be incorrect."""
-        body = _method_body("LayerControl", "apply_settings")
+        body = _method_body('LayerControl', 'apply_settings')
         # Find the guard line and the sync line; assert sync comes after the guard.
-        guard_idx = body.find("if not protocol_running_global.is_set():")
+        guard_idx = body.find('if not protocol_running_global.is_set():')
         sync_idx = body.find("self.ids['auto_gain'].active = auto_gain_enabled")
-        assert guard_idx >= 0, "protocol_running guard not found (precondition)"
-        assert sync_idx >= 0, "sync line not found (precondition)"
+        assert guard_idx >= 0, 'protocol_running guard not found (precondition)'
+        assert sync_idx >= 0, 'sync line not found (precondition)'
         assert guard_idx < sync_idx, (
-            "auto_gain CheckBox sync must be INSIDE the "
-            "`if not protocol_running_global.is_set():` block, not "
-            "outside it. Syncing during a protocol-driven layer change "
+            'auto_gain CheckBox sync must be INSIDE the '
+            '`if not protocol_running_global.is_set():` block, not '
+            'outside it. Syncing during a protocol-driven layer change '
             "would fight protocol_step_runner's AG management."
         )

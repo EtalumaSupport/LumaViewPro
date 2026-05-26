@@ -23,11 +23,10 @@ class Histogram(Widget):
             self.bg_color = (1, 1, 1, 1)
 
         self.hist_range_set = False
-        self.edges = [0,255]
+        self.edges = [0, 255]
         self.stablize = 0.3
         self._mesh = None
         self._mesh_color = None
-
 
     def histogram(self, *args):
         ctx = _app_ctx.ctx
@@ -75,8 +74,26 @@ class Histogram(Widget):
             for i in range(bins):
                 bx = x + i * bin_size
                 bar_h = heights[i]
-                vertices.extend([bx, y, 0, 0, bx, y + bar_h, 0, 0,
-                                 bx + bin_size, y, 0, 0, bx + bin_size, y + bar_h, 0, 0])
+                vertices.extend(
+                    [
+                        bx,
+                        y,
+                        0,
+                        0,
+                        bx,
+                        y + bar_h,
+                        0,
+                        0,
+                        bx + bin_size,
+                        y,
+                        0,
+                        0,
+                        bx + bin_size,
+                        y + bar_h,
+                        0,
+                        0,
+                    ]
+                )
 
             # Build indices for individual triangle strips per bar
             indices = []

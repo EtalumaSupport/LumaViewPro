@@ -65,11 +65,14 @@ def _build_single_step_ag_protocol(color='BF', auto_gain=True):
     """
     import pandas as pd
     import pathlib
-    tiling_path = pathlib.Path(__file__).parent.parent / "data" / "tiling.json"
+
+    tiling_path = pathlib.Path(__file__).parent.parent / 'data' / 'tiling.json'
 
     step = {
         'Name': f'A1_{color}_AG',
-        'X': 24.55, 'Y': 24.0, 'Z': 6247.4,
+        'X': 24.55,
+        'Y': 24.0,
+        'Z': 6247.4,
         'Auto_Focus': False,
         'Color': color,
         'False_Color': color != 'BF',
@@ -108,6 +111,7 @@ def _build_single_step_ag_protocol(color='BF', auto_gain=True):
 # Fixtures (mirror tests/test_protocol_execution.py shape)
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture
 def scope():
     s = Lumascope(simulate=True)
@@ -123,11 +127,12 @@ def scope():
 @pytest.fixture
 def executors():
     from modules.protocol_thread import ProtocolThread
+
     execs = {
-        'io': SequentialIOExecutor(name="TEST_IO"),
-        'file_io': SequentialIOExecutor(name="TEST_FILE"),
-        'camera': SequentialIOExecutor(name="TEST_CAMERA"),
-        'autofocus': SequentialIOExecutor(name="TEST_AF"),
+        'io': SequentialIOExecutor(name='TEST_IO'),
+        'file_io': SequentialIOExecutor(name='TEST_FILE'),
+        'camera': SequentialIOExecutor(name='TEST_CAMERA'),
+        'autofocus': SequentialIOExecutor(name='TEST_AF'),
     }
     for e in execs.values():
         e.start()
@@ -176,6 +181,7 @@ def executor(scope, executors):
 
 class _ApiLogCapture(logging.Handler):
     """Captures records from the 'LVP.api' logger."""
+
     def __init__(self):
         super().__init__(level=logging.INFO)
         self.records: list[tuple[float, str]] = []
@@ -218,8 +224,13 @@ def _run_protocol(executor, protocol, tmp_path):
         callbacks=callbacks,
         leds_state_at_end='off',
         initial_autofocus_states={
-            'BF': False, 'PC': False, 'DF': False,
-            'Red': False, 'Green': False, 'Blue': False, 'Lumi': False,
+            'BF': False,
+            'PC': False,
+            'DF': False,
+            'Red': False,
+            'Green': False,
+            'Blue': False,
+            'Lumi': False,
         },
     )
 
@@ -230,6 +241,7 @@ def _run_protocol(executor, protocol, tmp_path):
 # ---------------------------------------------------------------------------
 # The regression test
 # ---------------------------------------------------------------------------
+
 
 class TestProtocolAutoGainFires:
     """When a protocol step has Auto_Gain=True, the capture path must
@@ -252,7 +264,7 @@ class TestProtocolAutoGainFires:
             api_logger.removeHandler(capture)
             api_logger.setLevel(prev_level)
 
-        assert completed, "Protocol did not complete within timeout"
+        assert completed, 'Protocol did not complete within timeout'
 
         # Find save_camera_state(protocol) and restore_camera_state(protocol);
         # the protocol's execution window lives between them. Within that
@@ -268,32 +280,29 @@ class TestProtocolAutoGainFires:
                 break
 
         assert save_idx is not None, (
-            "Did not see save_camera_state(protocol) -- protocol did "
-            "not enter its run window. Records sample:\n"
-            + "\n".join(f"  {m}" for _, m in capture.records[:40])
+            'Did not see save_camera_state(protocol) -- protocol did '
+            'not enter its run window. Records sample:\n'
+            + '\n'.join(f'  {m}' for _, m in capture.records[:40])
         )
         assert restore_idx is not None, (
-            "Did not see restore_camera_state(protocol) -- protocol "
-            "did not complete cleanly."
+            'Did not see restore_camera_state(protocol) -- protocol did not complete cleanly.'
         )
 
         auto_gain_true_events = [
-            i for i in range(save_idx, restore_idx)
+            i
+            for i in range(save_idx, restore_idx)
             if 'apply_layer_camera_settings' in capture.records[i][1]
             and 'auto_gain=True' in capture.records[i][1]
         ]
 
         assert len(auto_gain_true_events) >= 1, (
-            f"#673 reproduced: protocol step with Auto_Gain=True did NOT "
-            f"fire `apply_layer_camera_settings ... auto_gain=True` "
-            f"within the protocol window (save_idx={save_idx}, "
-            f"restore_idx={restore_idx}). This means set_auto_gain "
-            f"never fired and the camera held inherited gain/exposure.\n"
-            f"In-window events:\n"
-            + "\n".join(
-                f"  [{i}] {capture.records[i][1]}"
-                for i in range(save_idx, restore_idx)
-            )
+            f'#673 reproduced: protocol step with Auto_Gain=True did NOT '
+            f'fire `apply_layer_camera_settings ... auto_gain=True` '
+            f'within the protocol window (save_idx={save_idx}, '
+            f'restore_idx={restore_idx}). This means set_auto_gain '
+            f'never fired and the camera held inherited gain/exposure.\n'
+            f'In-window events:\n'
+            + '\n'.join(f'  [{i}] {capture.records[i][1]}' for i in range(save_idx, restore_idx))
         )
 
     def test_no_auto_gain_step_does_not_enable_auto_gain(self, executor, tmp_path):
@@ -335,6 +344,5 @@ class TestProtocolAutoGainFires:
             and 'auto_gain=True' in capture.records[i][1]
         ]
         assert not bad_events, (
-            f"Static-gain (Auto_Gain=False) step erroneously enabled AG: "
-            f"{bad_events}"
+            f'Static-gain (Auto_Gain=False) step erroneously enabled AG: {bad_events}'
         )

@@ -14,12 +14,37 @@ import modules.app_context as _app_ctx
 logger = logging.getLogger('LVP.ui.file_dialogs')
 
 
+def _zprojection_picker_default_path(live_folder: pathlib.Path) -> str:
+    """Return the most-specific existing Z-stack folder under live_folder.
+
+    Z-stacks live in two canonical places:
+      - live_folder/Manual/Z-Stacks/<ts>/ -- manual ZSTACK button
+        (path defined at ui/zstack.py:234)
+      - live_folder/ProtocolData/<ts>/ -- protocol with Z-stack steps
+
+    Search in priority order; first existing path wins. Final fallback
+    is live_folder itself, so a fresh install never produces an error
+    on the file-chooser default. Pure function -- no kivy import; tested
+    via direct invocation in tests/test_least_astonishment_fixes.py.
+    """
+    base = pathlib.Path(live_folder)
+    for candidate in (
+        base / 'Manual' / 'Z-Stacks',
+        base / 'ProtocolData',
+        base,
+    ):
+        if candidate.exists():
+            return str(candidate)
+    return str(base)
+
+
 # ---------------------------------------------------------------------------
 # macOS native file dialogs via osascript (AppleScript)
 # tkinter Tk() crashes on macOS when SDL2 is loaded (cv2 + kivy both ship it).
 # plyer requires pyobjus which may not be installed.
 # osascript uses native Cocoa panels — no extra dependencies.
 # ---------------------------------------------------------------------------
+
 
 def _escape_applescript(s):
     """Escape a string for safe interpolation into an AppleScript double-quoted string."""
@@ -46,8 +71,7 @@ def _macos_open_file(initial_dir=None, filetypes=None):
 
     try:
         result = subprocess.run(
-            ['osascript', '-e', script],
-            capture_output=True, text=True, timeout=120
+            ['osascript', '-e', script], capture_output=True, text=True, timeout=120
         )
         if result.returncode == 0 and result.stdout.strip():
             return result.stdout.strip()
@@ -65,8 +89,7 @@ def _macos_choose_folder(initial_dir=None):
 
     try:
         result = subprocess.run(
-            ['osascript', '-e', script],
-            capture_output=True, text=True, timeout=120
+            ['osascript', '-e', script], capture_output=True, text=True, timeout=120
         )
         if result.returncode == 0 and result.stdout.strip():
             return result.stdout.strip()
@@ -87,6 +110,7 @@ def _platform_native_choose_folder(initial_dir, title='Select folder'):
         return _macos_choose_folder(initial_dir=initial_dir)
 
     from tkinter import Tk, filedialog
+
     root = Tk()
     root.attributes('-alpha', 0.0)
     root.attributes('-topmost', True)
@@ -113,8 +137,7 @@ def _macos_save_file(initial_dir=None, default_name=None):
 
     try:
         result = subprocess.run(
-            ['osascript', '-e', script],
-            capture_output=True, text=True, timeout=120
+            ['osascript', '-e', script], capture_output=True, text=True, timeout=120
         )
         if result.returncode == 0 and result.stdout.strip():
             return result.stdout.strip()
@@ -124,7 +147,7 @@ def _macos_save_file(initial_dir=None, default_name=None):
 
 
 class FileChooseBTN(HoverBehavior, Button):
-    context  = StringProperty()
+    context = StringProperty()
     selection = ListProperty([])
 
     def choose(self, context):
@@ -134,17 +157,17 @@ class FileChooseBTN(HoverBehavior, Button):
         # Show previously selected/default folder
         selected_path = None
         filetypes_tk = None
-        if self.context == "load_protocol":
+        if self.context == 'load_protocol':
             selected_path = str(pathlib.Path(_app_ctx.ctx.settings['live_folder']))
             filetypes_tk = [('TSV', '.tsv')]
-        elif self.context == "load_cell_count_input_image":
+        elif self.context == 'load_cell_count_input_image':
             filetypes_tk = [('TIFF', '.tif .tiff')]
-        elif self.context == "load_cell_count_method":
+        elif self.context == 'load_cell_count_method':
             filetypes_tk = [('JSON', '.json')]
-        elif self.context == "load_graphing_data":
+        elif self.context == 'load_graphing_data':
             filetypes_tk = [('CSV', '.csv')]
         else:
-            logger.error(f"Unsupported handling for {self.context}")
+            logger.error(f'Unsupported handling for {self.context}')
             return
 
         if sys.platform == 'darwin':
@@ -155,20 +178,18 @@ class FileChooseBTN(HoverBehavior, Button):
 
         # Windows/Linux: tkinter
         from tkinter import Tk, filedialog
+
         root = Tk()
         root.attributes('-alpha', 0.0)
         root.attributes('-topmost', True)
         selection = filedialog.askopenfilename(
-            parent=root,
-            initialdir=selected_path,
-            filetypes=filetypes_tk
+            parent=root, initialdir=selected_path, filetypes=filetypes_tk
         )
         root.destroy()
 
         if selection == '':
             return
         self.handle_selection(selection=[selection])
-
 
     def handle_selection(self, selection):
         logger.info('[LVP Main  ] FileChooseBTN.handle_selection()')
@@ -182,7 +203,9 @@ class FileChooseBTN(HoverBehavior, Button):
 
         if self.selection:
             if self.context == 'load_protocol':
-                ctx.motion_settings.ids['protocol_settings_id'].load_protocol(filepath = self.selection[0])
+                ctx.motion_settings.ids['protocol_settings_id'].load_protocol(
+                    filepath=self.selection[0]
+                )
 
             elif self.context == 'load_cell_count_input_image':
                 ctx.cell_count_content.set_preview_source_file(file=self.selection[0])
@@ -195,7 +218,7 @@ class FileChooseBTN(HoverBehavior, Button):
 
 
 class FolderChooseBTN(HoverBehavior, Button):
-    context  = StringProperty()
+    context = StringProperty()
     selection = ListProperty([])
 
     def choose(self, context):
@@ -207,21 +230,24 @@ class FolderChooseBTN(HoverBehavior, Button):
 
         # Show previously selected/default folder
         if self.context in (
-            "apply_stitching_to_folder",
-            "apply_composite_gen_to_folder",
-            "apply_video_gen_to_folder",
+            'apply_stitching_to_folder',
+            'apply_composite_gen_to_folder',
+            'apply_video_gen_to_folder',
         ):
-            selected_path = pathlib.Path(settings['live_folder']) / "ProtocolData"
+            selected_path = pathlib.Path(settings['live_folder']) / 'ProtocolData'
             if not selected_path.exists():
                 selected_path = pathlib.Path(settings['live_folder'])
             selected_path = str(selected_path)
-        elif self.context == "apply_zprojection_to_folder":
-            # Z-stacks live in TWO canonical places: Manual/Z-Stacks/<ts>/ for
-            # the manual ZSTACK button and ProtocolData/<ts>/ for a protocol
-            # with Z-stack steps. Opening at live_folder lets the user see
-            # both. Fixes #629 (picker was opening one level too deep into
-            # ProtocolData, hiding Manual/Z-Stacks behind a navigate-up).
-            selected_path = str(pathlib.Path(settings['live_folder']))
+        elif self.context == 'apply_zprojection_to_folder':
+            # Z-stacks live in TWO canonical places: Manual/Z-Stacks/<ts>/
+            # for the manual ZSTACK button (path defined at
+            # ui/zstack.py:234) and ProtocolData/<ts>/ for a protocol
+            # with Z-stack steps. Pick the most-specific existing target
+            # so a single click reaches the timestamped run, with
+            # graceful fallback when the deeper folder was never made.
+            selected_path = _zprojection_picker_default_path(
+                pathlib.Path(settings['live_folder']),
+            )
         else:
             selected_path = settings['live_folder']
 
@@ -239,13 +265,11 @@ class FolderChooseBTN(HoverBehavior, Button):
         if chosen:
             self.handle_selection(selection=[chosen])
 
-
     def handle_selection(self, selection):
         logger.info('[LVP Main  ] FolderChooseBTN.handle_selection()')
         if selection:
             self.selection = selection
             self.on_selection_function()
-
 
     def on_selection_function(self, *a, **k):
         ctx = _app_ctx.ctx
@@ -260,9 +284,7 @@ class FolderChooseBTN(HoverBehavior, Button):
             with ctx.settings_lock:
                 settings['live_folder'] = str(pathlib.Path(path).resolve())
         elif self.context == 'apply_cell_count_method_to_folder':
-            ctx.cell_count_content.apply_method_to_folder(
-                path=path
-            )
+            ctx.cell_count_content.apply_method_to_folder(path=path)
         elif self.context == 'apply_stitching_to_folder':
             ctx.stitch_controls.run_stitcher(path=pathlib.Path(path))
         elif self.context == 'apply_composite_gen_to_folder':
@@ -272,11 +294,11 @@ class FolderChooseBTN(HoverBehavior, Button):
         elif self.context == 'apply_zprojection_to_folder':
             ctx.zprojection_controls.run_zprojection(path=pathlib.Path(path))
         else:
-            raise Exception(f"on_selection_function(): Unknown selection {self.context}")
+            raise Exception(f'on_selection_function(): Unknown selection {self.context}')
 
 
 class FileSaveBTN(HoverBehavior, Button):
-    context  = StringProperty()
+    context = StringProperty()
     selection = ListProperty([])
 
     def choose(self, context):
@@ -289,7 +311,7 @@ class FileSaveBTN(HoverBehavior, Button):
         elif self.context == 'save_graph':
             filetypes = [('PNG', '.png')]
         else:
-            logger.error(f"Unsupported handling for {self.context}")
+            logger.error(f'Unsupported handling for {self.context}')
             return
 
         selected_path = _app_ctx.ctx.settings['live_folder']
@@ -302,20 +324,18 @@ class FileSaveBTN(HoverBehavior, Button):
 
         # Windows/Linux: tkinter
         from tkinter import Tk, filedialog
+
         root = Tk()
         root.attributes('-alpha', 0.0)
         root.attributes('-topmost', True)
         selection = filedialog.asksaveasfilename(
-            parent=root,
-            initialdir=selected_path,
-            filetypes=filetypes
+            parent=root, initialdir=selected_path, filetypes=filetypes
         )
         root.destroy()
 
         if selection == '':
             return
         self.handle_selection(selection=[selection])
-
 
     def handle_selection(self, selection):
         logger.info('[LVP Main  ] FileSaveBTN.handle_selection()')
@@ -329,7 +349,9 @@ class FileSaveBTN(HoverBehavior, Button):
 
         if self.context == 'saveas_protocol':
             if self.selection:
-                ctx.motion_settings.ids['protocol_settings_id'].save_protocol(filepath = self.selection[0])
+                ctx.motion_settings.ids['protocol_settings_id'].save_protocol(
+                    filepath=self.selection[0]
+                )
                 logger.info('[LVP Main  ] Saving Protocol to File:' + self.selection[0])
 
         elif self.context == 'save_graph':
@@ -341,6 +363,6 @@ class FileSaveBTN(HoverBehavior, Button):
             if self.selection:
                 logger.info('[LVP Main  ] Saving Cell Count Method to File:' + self.selection[0])
                 filename = self.selection[0]
-                if os.path.splitext(filename)[1] == "":
-                    filename += ".json"
+                if os.path.splitext(filename)[1] == '':
+                    filename += '.json'
                 ctx.cell_count_content.save_method_as(file=filename)

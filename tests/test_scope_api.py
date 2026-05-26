@@ -27,6 +27,7 @@ from modules.scope_session import ScopeSession
 # Fixtures
 # ---------------------------------------------------------------------------
 
+
 def _make_layer_settings(**overrides):
     """Build a minimal layer settings dict."""
     defaults = {
@@ -48,6 +49,7 @@ def _make_layer_settings(**overrides):
 def _make_settings(layers=None, with_stim=False):
     """Build a minimal settings dict with the standard layers."""
     from modules.common_utils import get_layers
+
     if layers is None:
         layers = get_layers()
 
@@ -116,9 +118,11 @@ def _make_real_scope_with_mock_executors(led=True, motor=True):
     scope = lumascope_api.Lumascope(simulate=True)
     if not led:
         from drivers.null_ledboard import NullLEDBoard
+
         scope._led_driver = NullLEDBoard()
     if not motor:
         from drivers.null_motorboard import NullMotionBoard
+
         scope._motion_driver = NullMotionBoard()
     io_ex = _make_mock_executor()
     cam_ex = _make_mock_executor()
@@ -130,11 +134,13 @@ def _make_real_scope_with_mock_executors(led=True, motor=True):
 # config_helpers tests
 # ===========================================================================
 
+
 class TestGetLayerConfigs:
     def test_returns_all_layers(self):
         settings = _make_settings()
         configs = config_helpers.get_layer_configs(settings)
         from modules.common_utils import get_layers
+
         assert set(configs.keys()) == set(get_layers())
 
     def test_specific_layers_filter(self):
@@ -146,6 +152,7 @@ class TestGetLayerConfigs:
         settings = _make_settings()
         configs = config_helpers.get_layer_configs(settings)
         from modules.common_utils import max_decimal_precision
+
         precision = max_decimal_precision('illumination')
         for cfg in configs.values():
             # Value should be rounded to the expected precision
@@ -155,6 +162,7 @@ class TestGetLayerConfigs:
         settings = _make_settings()
         configs = config_helpers.get_layer_configs(settings)
         from modules.common_utils import max_decimal_precision
+
         precision = max_decimal_precision('gain')
         for cfg in configs.values():
             assert cfg['gain_db'] == round(1.23456, precision)
@@ -163,6 +171,7 @@ class TestGetLayerConfigs:
         settings = _make_settings()
         configs = config_helpers.get_layer_configs(settings)
         from modules.common_utils import max_decimal_precision
+
         precision = max_decimal_precision('exposure')
         for cfg in configs.values():
             assert cfg['exposure_ms'] == round(10.56789, precision)
@@ -207,9 +216,17 @@ class TestGetLayerConfigs:
         settings = _make_settings()
         configs = config_helpers.get_layer_configs(settings, specific_layers=['BF'])
         expected_keys = {
-            'acquire', 'video_config', 'stim_config', 'autofocus',
-            'false_color', 'illumination_ma', 'gain_db', 'auto_gain',
-            'exposure_ms', 'sum', 'focus',
+            'acquire',
+            'video_config',
+            'stim_config',
+            'autofocus',
+            'false_color',
+            'illumination_ma',
+            'gain_db',
+            'auto_gain',
+            'exposure_ms',
+            'sum',
+            'focus',
         }
         assert set(configs['BF'].keys()) == expected_keys
 
@@ -280,12 +297,15 @@ class TestFindNearestStep:
 
     def test_finds_nearest(self):
         import pandas as pd
+
         proto = MagicMock()
         proto.num_steps.return_value = 3
-        proto.steps.return_value = pd.DataFrame({
-            'X': [0, 10, 20],
-            'Y': [0, 10, 20],
-        })
+        proto.steps.return_value = pd.DataFrame(
+            {
+                'X': [0, 10, 20],
+                'Y': [0, 10, 20],
+            }
+        )
         assert config_helpers.find_nearest_step(9, 11, proto) == 1
         assert config_helpers.find_nearest_step(0, 0, proto) == 0
         assert config_helpers.find_nearest_step(100, 100, proto) == 2
@@ -314,11 +334,11 @@ class TestBlockWaitForThreads:
     def test_logs_exceptions(self):
         mock_log = MagicMock()
         f = Future()
-        f.set_exception(ValueError("test error"))
+        f.set_exception(ValueError('test error'))
         with patch.object(config_helpers, 'logger', mock_log):
-            config_helpers.block_wait_for_threads([f], log_loc="TEST")
+            config_helpers.block_wait_for_threads([f], log_loc='TEST')
         mock_log.error.assert_called()
-        assert "test error" in str(mock_log.error.call_args)
+        assert 'test error' in str(mock_log.error.call_args)
 
 
 class TestGetCurrentPlatePosition:
@@ -327,16 +347,22 @@ class TestGetCurrentPlatePosition:
         scope._motion_driver = None  # No motor board connected
         type(scope).motor_connected = PropertyMock(return_value=False)
         result = config_helpers.get_current_plate_position(
-            scope, _make_settings(), MagicMock(), MagicMock(),
+            scope,
+            _make_settings(),
+            MagicMock(),
+            MagicMock(),
         )
         assert result == {'x': 0, 'y': 0, 'z': 0}
 
     def test_falls_back_on_labware_error(self):
         scope = _make_mock_scope()
         loader = MagicMock()
-        loader.get_plate.side_effect = Exception("not found")
+        loader.get_plate.side_effect = Exception('not found')
         result = config_helpers.get_current_plate_position(
-            scope, _make_settings(), MagicMock(), loader,
+            scope,
+            _make_settings(),
+            MagicMock(),
+            loader,
         )
         # Should return rounded stage positions
         assert result['z'] != 0  # Z=500 from mock
@@ -345,9 +371,11 @@ class TestGetCurrentPlatePosition:
 class TestLogSystemMetrics:
     def test_calls_system_metrics(self):
         settings = _make_settings()
-        with patch('modules.common_utils.system_metrics') as mock_metrics, \
-             patch('modules.common_utils.check_disk_space') as mock_disk, \
-             patch('modules.common_utils.get_extra_disks_info') as mock_extra:
+        with (
+            patch('modules.common_utils.system_metrics') as mock_metrics,
+            patch('modules.common_utils.check_disk_space') as mock_disk,
+            patch('modules.common_utils.get_extra_disks_info') as mock_extra,
+        ):
             mock_metrics.return_value = {
                 'cpu_percent_total': 25.0,
                 'ram_available_gb': 8.0,
@@ -362,6 +390,7 @@ class TestLogSystemMetrics:
             mock_extra.return_value = None
             config_helpers.log_system_metrics(settings)
             import pathlib
+
             expected_path = str(pathlib.Path('/tmp').resolve())
             mock_metrics.assert_called_once_with(path=expected_path)
 
@@ -369,6 +398,7 @@ class TestLogSystemMetrics:
 # ===========================================================================
 # Lumascope executor-backed command API tests (LAYER-A')
 # ===========================================================================
+
 
 class TestLumascopeLedAPI:
     def test_leds_off_async_dispatches(self):
@@ -439,7 +469,7 @@ class TestLumascopeLedAPI:
         have not been registered (rather than silently no-op'ing or
         dispatching to None)."""
         scope = lumascope_api.Lumascope(simulate=True)
-        with pytest.raises(RuntimeError, match="register_executors"):
+        with pytest.raises(RuntimeError, match='register_executors'):
             scope.illumination.leds_off_async()
 
 
@@ -456,7 +486,8 @@ class TestLumascopeMotionAPI:
         scope, io_ex, _ = _make_real_scope_with_mock_executors()
         cb = MagicMock()
         scope.motion.move_absolute_async(
-            'X', 1000,
+            'X',
+            1000,
             wait_until_complete=True,
             overshoot_enabled=False,
             callback=cb,
@@ -525,6 +556,7 @@ class TestLumascopeMotionAPI:
 # ScopeSession tests
 # ===========================================================================
 
+
 class TestScopeSession:
     def _make_session(self, **kwargs):
         """Build a ScopeSession bound to a real Lumascope(simulate=True) +
@@ -546,8 +578,10 @@ class TestScopeSession:
         settings = _make_settings()
         scope, io, cam = _make_real_scope_with_mock_executors()
         session = ScopeSession(
-            settings=settings, scope=scope,
-            io_executor=io, camera_executor=cam,
+            settings=settings,
+            scope=scope,
+            io_executor=io,
+            camera_executor=cam,
             source_path='/test',
         )
         assert session.settings is settings
@@ -562,6 +596,7 @@ class TestScopeSession:
         session = self._make_session()
         configs = session.get_layer_configs()
         from modules.common_utils import get_layers
+
         assert set(configs.keys()) == set(get_layers())
 
     def test_get_layer_configs_with_filter(self):

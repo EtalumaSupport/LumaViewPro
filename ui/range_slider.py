@@ -6,11 +6,17 @@ from kivy.lang import Builder
 from kivy.metrics import sp
 from kivy.uix.widget import Widget
 from kivy.uix.boxlayout import BoxLayout
-from kivy.properties import (NumericProperty, AliasProperty, OptionProperty,
-                             ReferenceListProperty, BoundedNumericProperty, ListProperty,
-                             ObjectProperty)
+from kivy.properties import (
+    NumericProperty,
+    AliasProperty,
+    OptionProperty,
+    ReferenceListProperty,
+    BoundedNumericProperty,
+    ListProperty,
+    ObjectProperty,
+)
 
-Builder.load_string('''
+Builder.load_string("""
 <RangeSlider>:
     canvas:
         Color:
@@ -37,7 +43,7 @@ Builder.load_string('''
             pos: (self.value2_pos[0] - sp(16), self.center_y - sp(17)) if self.orientation == 'horizontal' else (self.center_x - sp(16), self.value2_pos[1] - sp(16))
             size: (sp(32), sp(32))
             source: 'atlas://data/images/defaulttheme/slider_cursor{}'.format('_disabled' if self.disabled else '')
-''')
+""")
 
 
 class RangeSlider(Widget):
@@ -45,9 +51,10 @@ class RangeSlider(Widget):
 
     Check module documentation for more details.
     """
-    connector_color = ListProperty([.2, .7, 0.9, 1])
-    '''Connector bar color, in the format (r, g, b, a).
-    for disabling this bar use a = .0 '''
+
+    connector_color = ListProperty([0.2, 0.7, 0.9, 1])
+    """Connector bar color, in the format (r, g, b, a).
+    for disabling this bar use a = .0 """
 
     def _get_value(self):
         return [self.value1, self.value2]
@@ -56,37 +63,37 @@ class RangeSlider(Widget):
         self.value1, self.value2 = value
 
     value = AliasProperty(_get_value, _set_value, bind=('value1', 'value2'))
-    '''Current value used for the both sliders.
+    """Current value used for the both sliders.
 
     :attr:`value` is an :class:`~kivy.properties.AliasProperty` and defaults
-    to [0, 0].'''
-    
-    value1 = ObjectProperty(0.)
-    '''Current value used for the first slider.
+    to [0, 0]."""
+
+    value1 = ObjectProperty(0.0)
+    """Current value used for the first slider.
 
     :attr:`value` is a :class:`~kivy.properties.NumericProperty` and defaults
-    to 0.'''
+    to 0."""
 
-    value2 = ObjectProperty(100.)
-    '''Current value used for the second slider.
+    value2 = ObjectProperty(100.0)
+    """Current value used for the second slider.
 
     :attr:`value` is a :class:`~kivy.properties.NumericProperty` and defaults
-    to 0.'''
+    to 0."""
 
-    min = NumericProperty(0.)
-    '''Minimum value allowed for :attr:`value`.
+    min = NumericProperty(0.0)
+    """Minimum value allowed for :attr:`value`.
 
     :attr:`min` is a :class:`~kivy.properties.NumericProperty` and defaults to
-    0.'''
+    0."""
 
-    max = NumericProperty(100.)
-    '''Maximum value allowed for :attr:`value`.
+    max = NumericProperty(100.0)
+    """Maximum value allowed for :attr:`value`.
 
     :attr:`max` is a :class:`~kivy.properties.NumericProperty` and defaults to
-    100.'''
+    100."""
 
     padding = NumericProperty(sp(16))
-    '''Padding of the slider. The padding is used for graphical representation
+    """Padding of the slider. The padding is used for graphical representation
     and interaction. It prevents the cursor from going out of the bounds of the
     slider bounding box.
 
@@ -95,18 +102,17 @@ class RangeSlider(Widget):
     width without having the cursor go out of the widget.
 
     :attr:`padding` is a :class:`~kivy.properties.NumericProperty` and defaults
-    to sp(16).'''
+    to sp(16)."""
 
-    orientation = OptionProperty('horizontal', options=(
-        'vertical', 'horizontal'))
-    '''Orientation of the slider.
+    orientation = OptionProperty('horizontal', options=('vertical', 'horizontal'))
+    """Orientation of the slider.
 
     :attr:`orientation` is an :class:`~kivy.properties.OptionProperty` and
     defaults to 'horizontal'. Can take a value of 'vertical' or 'horizontal'.
-    '''
+    """
 
     range = ReferenceListProperty(min, max)
-    '''Range of the slider in the format (minimum value, maximum value)::
+    """Range of the slider in the format (minimum value, maximum value)::
 
         >>> slider = Slider(min=10, max=80)
         >>> slider.range
@@ -119,10 +125,10 @@ class RangeSlider(Widget):
 
     :attr:`range` is a :class:`~kivy.properties.ReferenceListProperty` of
     (:attr:`min`, :attr:`max`) properties.
-    '''
+    """
 
     step = BoundedNumericProperty(0, min=0)
-    '''Step size of the slider.
+    """Step size of the slider.
 
     .. versionadded:: 1.4.0
 
@@ -131,7 +137,7 @@ class RangeSlider(Widget):
     last step will be capped by slider.max
 
     :attr:`step` is a :class:`~kivy.properties.NumericProperty` and defaults
-    to 1.'''
+    to 1."""
 
     # The following two methods constrain the slider's value
     # to range(min,max). Otherwise it may happen that self.value < self.min
@@ -166,8 +172,7 @@ class RangeSlider(Widget):
         if step == 0:
             self.value1 = val
         else:
-            self.value1 = min(round((val - vmin) / step) * step + vmin,
-                              self.max)
+            self.value1 = min(round((val - vmin) / step) * step + vmin, self.max)
 
     def set_norm_value2(self, value):
         vmin = self.min
@@ -176,15 +181,16 @@ class RangeSlider(Widget):
         if step == 0:
             self.value2 = val
         else:
-            self.value2 = min(round((val - vmin) / step) * step + vmin,
-                              self.max)
+            self.value2 = min(round((val - vmin) / step) * step + vmin, self.max)
 
-    value1_normalized = AliasProperty(get_norm_value1, set_norm_value1,
-                                      bind=('value1', 'min', 'max', 'step'))
-    value2_normalized = AliasProperty(get_norm_value2, set_norm_value2,
-                                      bind=('value2', 'min', 'max', 'step'))
+    value1_normalized = AliasProperty(
+        get_norm_value1, set_norm_value1, bind=('value1', 'min', 'max', 'step')
+    )
+    value2_normalized = AliasProperty(
+        get_norm_value2, set_norm_value2, bind=('value2', 'min', 'max', 'step')
+    )
 
-    '''Normalized value inside the :attr:`range` (min/max) to 0-1 range::
+    """Normalized value inside the :attr:`range` (min/max) to 0-1 range::
 
         >>> slider = Slider(value=50, min=0, max=100)
         >>> slider.value
@@ -210,7 +216,7 @@ class RangeSlider(Widget):
         200
 
     :attr:`value_normalized` is an :class:`~kivy.properties.AliasProperty`.
-    '''
+    """
 
     def get_value1_pos(self):
         padding = self.padding
@@ -240,14 +246,12 @@ class RangeSlider(Widget):
             if self.width == 0:
                 self.value1_normalized = 0
             else:
-                self.value1_normalized = (x - self.x - padding
-                                          ) / float(self.width - 2 * padding)
+                self.value1_normalized = (x - self.x - padding) / float(self.width - 2 * padding)
         else:
             if self.height == 0:
                 self.value1_normalized = 0
             else:
-                self.value1_normalized = (y - self.y - padding
-                                          ) / float(self.height - 2 * padding)
+                self.value1_normalized = (y - self.y - padding) / float(self.height - 2 * padding)
 
     def set_value2_pos(self, pos):
         padding = self.padding
@@ -257,25 +261,27 @@ class RangeSlider(Widget):
             if self.width == 0:
                 self.value2_normalized = 0
             else:
-                self.value2_normalized = (x - self.x - padding
-                                          ) / float(self.width - 2 * padding)
+                self.value2_normalized = (x - self.x - padding) / float(self.width - 2 * padding)
         else:
             if self.height == 0:
                 self.value2_normalized = 0
             else:
-                self.value2_normalized = (y - self.y - padding
-                                          ) / float(self.height - 2 * padding)
+                self.value2_normalized = (y - self.y - padding) / float(self.height - 2 * padding)
 
-    value1_pos = AliasProperty(get_value1_pos, set_value1_pos,
-                               bind=('x', 'y', 'width', 'height', 'min',
-                                     'max', 'value1_normalized', 'orientation'))
-    value2_pos = AliasProperty(get_value2_pos, set_value2_pos,
-                               bind=('x', 'y', 'width', 'height', 'min',
-                                     'max', 'value2_normalized', 'orientation'))
-    '''Position of the internal cursor, based on the normalized value.
+    value1_pos = AliasProperty(
+        get_value1_pos,
+        set_value1_pos,
+        bind=('x', 'y', 'width', 'height', 'min', 'max', 'value1_normalized', 'orientation'),
+    )
+    value2_pos = AliasProperty(
+        get_value2_pos,
+        set_value2_pos,
+        bind=('x', 'y', 'width', 'height', 'min', 'max', 'value2_normalized', 'orientation'),
+    )
+    """Position of the internal cursor, based on the normalized value.
 
     :attr:`value_pos` is an :class:`~kivy.properties.AliasProperty`.
-    '''
+    """
 
     def _touch_normalized_value(self, touch):
         pos = touch.pos
@@ -283,11 +289,9 @@ class RangeSlider(Widget):
         x = min(self.right - padding, max(pos[0], self.x + padding))
         y = min(self.top - padding, max(pos[1], self.y + padding))
         if self.orientation == 'horizontal':
-            value = (x - self.x - padding
-                     ) / float(self.width - 2 * padding)
+            value = (x - self.x - padding) / float(self.width - 2 * padding)
         else:
-            value = (y - self.y - padding
-                     ) / float(self.height - 2 * padding)
+            value = (y - self.y - padding) / float(self.height - 2 * padding)
         return value
 
     def on_touch_down(self, touch):
@@ -323,5 +327,4 @@ class RangeSlider(Widget):
 
     def get_current_range_str(self):
         min_value, max_value = self._get_value()
-        return f"{min_value} - {max_value}"
-        
+        return f'{min_value} - {max_value}'

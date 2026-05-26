@@ -2,8 +2,8 @@
 
 import socket
 
-class LvpLock:
 
+class LvpLock:
     def __init__(self, lock_port: int = 0):
         """Create an instance lock.
 
@@ -20,10 +20,9 @@ class LvpLock:
         # ports. See issue #559. Bind-only sockets release the port immediately
         # on process exit (no TIME_WAIT concern since we never listen()).
 
-
     def lock(self) -> bool:
         try:
-            self._lock_socket.bind(("127.0.0.1", self._lock_port))
+            self._lock_socket.bind(('127.0.0.1', self._lock_port))
             return True
         except (socket.error, OSError) as e:
             return False

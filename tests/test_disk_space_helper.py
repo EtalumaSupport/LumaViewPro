@@ -55,13 +55,14 @@ def _stub_disk_usage(free_bytes: float):
 # Helper behavior
 # ---------------------------------------------------------------------------
 
+
 def test_returns_tuple_of_bool_and_float(monkeypatch):
     """The helper returns (ok: bool, free_mb: float)."""
     free_mb_truth = 1500.0
     free_bytes = free_mb_truth * 1024 * 1024
-    monkeypatch.setattr(common_utils.psutil, "disk_usage", _stub_disk_usage(free_bytes))
+    monkeypatch.setattr(common_utils.psutil, 'disk_usage', _stub_disk_usage(free_bytes))
 
-    result = check_disk_space_ok("/", 500)
+    result = check_disk_space_ok('/', 500)
 
     assert isinstance(result, tuple) and len(result) == 2
     ok, free_mb = result
@@ -74,20 +75,22 @@ def test_returns_tuple_of_bool_and_float(monkeypatch):
 def test_ok_true_when_threshold_met(monkeypatch):
     """Threshold below free space => ok=True."""
     monkeypatch.setattr(
-        common_utils.psutil, "disk_usage",
-        _stub_disk_usage(2_000_000_000)  # 2 GB free
+        common_utils.psutil,
+        'disk_usage',
+        _stub_disk_usage(2_000_000_000),  # 2 GB free
     )
-    ok, free_mb = check_disk_space_ok("/", 500)
+    ok, free_mb = check_disk_space_ok('/', 500)
     assert ok is True
 
 
 def test_ok_false_when_threshold_exceeds_free(monkeypatch):
     """Threshold above free space => ok=False."""
     monkeypatch.setattr(
-        common_utils.psutil, "disk_usage",
-        _stub_disk_usage(100 * 1024 * 1024)  # 100 MB free
+        common_utils.psutil,
+        'disk_usage',
+        _stub_disk_usage(100 * 1024 * 1024),  # 100 MB free
     )
-    ok, free_mb = check_disk_space_ok("/", 500)
+    ok, free_mb = check_disk_space_ok('/', 500)
     assert ok is False
     assert free_mb == pytest.approx(100.0)
 
@@ -97,22 +100,24 @@ def test_str_coercion_of_path_argument(monkeypatch):
     received = {}
 
     def spy_disk_usage(path):
-        received["path"] = path
+        received['path'] = path
         return SimpleNamespace(total=0, used=0, free=10**9)
 
-    monkeypatch.setattr(common_utils.psutil, "disk_usage", spy_disk_usage)
-    check_disk_space_ok(pathlib.Path("/tmp/example"), 0)
-    assert received["path"] == "/tmp/example"
-    assert isinstance(received["path"], str)
+    monkeypatch.setattr(common_utils.psutil, 'disk_usage', spy_disk_usage)
+    check_disk_space_ok(pathlib.Path('/tmp/example'), 0)
+    assert received['path'] == '/tmp/example'
+    assert isinstance(received['path'], str)
 
 
 def test_propagates_oserror(monkeypatch):
     """psutil.disk_usage raises => helper raises (caller decides swallow)."""
+
     def boom(path):
-        raise OSError("disk probe failed")
-    monkeypatch.setattr(common_utils.psutil, "disk_usage", boom)
+        raise OSError('disk probe failed')
+
+    monkeypatch.setattr(common_utils.psutil, 'disk_usage', boom)
     with pytest.raises(OSError):
-        check_disk_space_ok("/", 0)
+        check_disk_space_ok('/', 0)
 
 
 # ---------------------------------------------------------------------------
@@ -120,24 +125,22 @@ def test_propagates_oserror(monkeypatch):
 # ---------------------------------------------------------------------------
 
 SITES = {
-    "modules/protocol_image_writer.py": "common_utils.check_disk_space_ok",
-    "modules/protocol_run_loop.py": "check_disk_space_ok",
-    "ui/main_display.py": "common_utils.check_disk_space_ok",
+    'modules/protocol_image_writer.py': 'common_utils.check_disk_space_ok',
+    'modules/protocol_run_loop.py': 'check_disk_space_ok',
+    'ui/main_display.py': 'common_utils.check_disk_space_ok',
 }
 
 
-@pytest.mark.parametrize("relpath, needle", list(SITES.items()))
+@pytest.mark.parametrize('relpath, needle', list(SITES.items()))
 def test_site_uses_helper(relpath, needle):
     src = (REPO / relpath).read_text()
-    assert needle in src, (
-        f"{relpath} no longer calls {needle}; the consolidated probe is gone"
-    )
+    assert needle in src, f'{relpath} no longer calls {needle}; the consolidated probe is gone'
 
 
-@pytest.mark.parametrize("relpath", list(SITES.keys()))
+@pytest.mark.parametrize('relpath', list(SITES.keys()))
 def test_site_no_longer_calls_shutil_disk_usage(relpath):
     src = (REPO / relpath).read_text()
-    assert "shutil.disk_usage" not in src, (
-        f"{relpath} still calls shutil.disk_usage; this is exactly the "
-        "Windows-disagree-with-psutil case the consolidation prevents"
+    assert 'shutil.disk_usage' not in src, (
+        f'{relpath} still calls shutil.disk_usage; this is exactly the '
+        'Windows-disagree-with-psutil case the consolidation prevents'
     )

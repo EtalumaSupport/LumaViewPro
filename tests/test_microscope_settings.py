@@ -121,8 +121,8 @@ class TestCoalescingApplier:
         # MicroscopeSettings class (which imports Kivy).
         import importlib.util
         import pathlib
-        src = pathlib.Path(__file__).parent.parent / 'ui' / \
-              'microscope_settings.py'
+
+        src = pathlib.Path(__file__).parent.parent / 'ui' / 'microscope_settings.py'
         # Load only the helper by reading the source and exec'ing the
         # class block. Heavier but avoids Kivy / Clock imports at
         # module load.
@@ -132,9 +132,7 @@ class TestCoalescingApplier:
         start = text.index('class _CoalescingApplier:')
         end = text.index('class MicroscopeSettings')
         snippet = (
-            'import logging, threading\n'
-            'logger = logging.getLogger(__name__)\n'
-            + text[start:end]
+            'import logging, threading\nlogger = logging.getLogger(__name__)\n' + text[start:end]
         )
         ns = {}
         exec(compile(snippet, str(src), 'exec'), ns)

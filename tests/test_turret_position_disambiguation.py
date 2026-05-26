@@ -13,6 +13,7 @@ was no rank 2 — so the lookup always landed on rank 3 = position 1.
 This file exercises rank 2 directly so the disambiguation survives
 restarts and post-home situations.
 """
+
 from pathlib import Path
 import re
 
@@ -36,8 +37,10 @@ def _make_scope_with_turret(turret_config, current_pos=None):
         # Bypass the full position-cache plumbing for the test.
         scope.motion.get_current_position = lambda axis=None: current_pos
     else:
+
         def _raise(*_a, **_kw):
             raise RuntimeError('current pos unavailable in test')
+
         scope.motion.get_current_position = _raise
     return scope
 

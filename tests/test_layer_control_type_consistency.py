@@ -43,12 +43,13 @@ import pytest
 
 
 REPO = pathlib.Path(__file__).parent.parent
-LAYER_CONTROL_SRC = REPO / "ui" / "layer_control.py"
+LAYER_CONTROL_SRC = REPO / 'ui' / 'layer_control.py'
 
 
 # ---------------------------------------------------------------------------
 # Extract bare functions from the LayerControl class source
 # ---------------------------------------------------------------------------
+
 
 def _extract_method_source(source: str, class_name: str, method_name: str) -> str:
     """Return the source text of a method body as a top-level function."""
@@ -58,7 +59,7 @@ def _extract_method_source(source: str, class_name: str, method_name: str) -> st
             for child in node.body:
                 if isinstance(child, ast.FunctionDef) and child.name == method_name:
                     return ast.unparse(child)
-    raise AssertionError(f"{class_name}.{method_name} not found in source")
+    raise AssertionError(f'{class_name}.{method_name} not found in source')
 
 
 def _compile_handler(method_name: str, extra_globals: dict):
@@ -69,18 +70,19 @@ def _compile_handler(method_name: str, extra_globals: dict):
     logger, gui_logger, and _app_ctx.
     """
     src = LAYER_CONTROL_SRC.read_text()
-    fn_src = _extract_method_source(src, "LayerControl", method_name)
+    fn_src = _extract_method_source(src, 'LayerControl', method_name)
     ns = {
-        "np": np,
+        'np': np,
         **extra_globals,
     }
-    exec(compile(fn_src, f"<layer_control::{method_name}>", "exec"), ns)
+    exec(compile(fn_src, f'<layer_control::{method_name}>', 'exec'), ns)
     return ns[method_name]
 
 
 # ---------------------------------------------------------------------------
 # Fakes
 # ---------------------------------------------------------------------------
+
 
 def _make_slider_mock(value: float, minv: float = 0.0, maxv: float = 1000.0) -> MagicMock:
     m = MagicMock()
@@ -113,14 +115,15 @@ def _make_fake_self(layer: str) -> SimpleNamespace:
 # Compiled handlers (fixture-scoped so parse happens once)
 # ---------------------------------------------------------------------------
 
-@pytest.fixture(scope="module")
+
+@pytest.fixture(scope='module')
 def handler_globals():
     """Globals the extracted handlers need at call time."""
     app_ctx_stub = SimpleNamespace(ctx=SimpleNamespace(settings={}))
     return {
-        "logger": MagicMock(),
-        "gui_logger": MagicMock(),
-        "_app_ctx": app_ctx_stub,
+        'logger': MagicMock(),
+        'gui_logger': MagicMock(),
+        '_app_ctx': app_ctx_stub,
     }
 
 
@@ -136,28 +139,29 @@ def settings(handler_globals):
             },
         },
     }
-    handler_globals["_app_ctx"].ctx.settings = s
+    handler_globals['_app_ctx'].ctx.settings = s
     return s
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture(scope='module')
 def pulse_count_handler(handler_globals):
-    return _compile_handler("stim_pulse_count_slider", handler_globals)
+    return _compile_handler('stim_pulse_count_slider', handler_globals)
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture(scope='module')
 def pulse_width_handler(handler_globals):
-    return _compile_handler("stim_pulse_width_slider", handler_globals)
+    return _compile_handler('stim_pulse_width_slider', handler_globals)
 
 
 # ---------------------------------------------------------------------------
 # pulse_count — slider path
 # ---------------------------------------------------------------------------
 
+
 class TestPulseCountSliderWritesInt:
     """Slider path must cast to int, matching the text path's cast=int."""
 
-    @pytest.mark.parametrize("slider_val", [7.5, 10.3, 0.9, 42.0, 99.999])
+    @pytest.mark.parametrize('slider_val', [7.5, 10.3, 0.9, 42.0, 99.999])
     def test_slider_stores_int_type(self, settings, pulse_count_handler, slider_val):
         fake = _make_fake_self('Blue')
         fake.ids['stim_pulse_count_slider'] = _make_slider_mock(slider_val)
@@ -166,14 +170,14 @@ class TestPulseCountSliderWritesInt:
 
         stored = settings['Blue']['stim_config']['pulse_count']
         assert type(stored) is int, (
-            f"slider wrote {type(stored).__name__} ({stored!r}); "
-            f"expected int. Float would desync from text-path cast=int."
+            f'slider wrote {type(stored).__name__} ({stored!r}); '
+            f'expected int. Float would desync from text-path cast=int.'
         )
         assert stored == int(slider_val)
 
 
 class TestPulseWidthSliderWritesInt:
-    @pytest.mark.parametrize("slider_val", [7.5, 10.3, 0.9, 42.0, 99.999])
+    @pytest.mark.parametrize('slider_val', [7.5, 10.3, 0.9, 42.0, 99.999])
     def test_slider_stores_int_type(self, settings, pulse_width_handler, slider_val):
         fake = _make_fake_self('Blue')
         fake.ids['stim_pulse_width_slider'] = _make_slider_mock(slider_val)
@@ -188,6 +192,7 @@ class TestPulseWidthSliderWritesInt:
 # ---------------------------------------------------------------------------
 # Cross-path consistency: slider then text (and vice versa) must leave int
 # ---------------------------------------------------------------------------
+
 
 class TestCrossPathConsistency:
     """After any mix of slider and text updates, settings value stays int.
@@ -208,12 +213,12 @@ class TestCrossPathConsistency:
 
         # Simulate the text path's final write (cast=int, see
         # _validate_and_apply_text_input lines 119+127 in layer_control.py)
-        settings['Blue']['stim_config']['pulse_count'] = int(float("12"))
+        settings['Blue']['stim_config']['pulse_count'] = int(float('12'))
         assert type(settings['Blue']['stim_config']['pulse_count']) is int
 
     def test_simulated_text_then_slider(self, settings, pulse_width_handler):
         # Text path first (simulated cast=int write)
-        settings['Blue']['stim_config']['pulse_width'] = int(float("15"))
+        settings['Blue']['stim_config']['pulse_width'] = int(float('15'))
         assert type(settings['Blue']['stim_config']['pulse_width']) is int
 
         fake = _make_fake_self('Blue')
@@ -226,6 +231,7 @@ class TestCrossPathConsistency:
 # ---------------------------------------------------------------------------
 # Sanity: apply_settings is still called (handler wiring unchanged)
 # ---------------------------------------------------------------------------
+
 
 class TestHandlerStillAppliesSettings:
     def test_pulse_count_calls_apply(self, settings, pulse_count_handler):

@@ -33,11 +33,11 @@ class ProtocolState(enum.Enum):
         ERROR    -> IDLE                 (cleanup finished after error)
     """
 
-    IDLE = "idle"
-    RUNNING = "running"
-    SCANNING = "scanning"
-    COMPLETING = "completing"
-    ERROR = "error"
+    IDLE = 'idle'
+    RUNNING = 'running'
+    SCANNING = 'scanning'
+    COMPLETING = 'completing'
+    ERROR = 'error'
 
 
 # Allowed state transitions: {from_state: {set of valid to_states}}
@@ -53,7 +53,7 @@ PROTOCOL_STATE_TRANSITIONS: dict[ProtocolState, set[ProtocolState]] = {
 def validate_transition(
     old_state: ProtocolState,
     new_state: ProtocolState,
-    logger_name: str = "SequencedCaptureRunner",
+    logger_name: str = 'SequencedCaptureRunner',
 ) -> None:
     """Raise ``ValueError`` if *old_state* → *new_state* is not allowed."""
     if old_state == new_state:
@@ -61,12 +61,10 @@ def validate_transition(
     allowed = PROTOCOL_STATE_TRANSITIONS.get(old_state, set())
     if new_state not in allowed:
         msg = (
-            f"[{logger_name}] Invalid state transition: "
-            f"{old_state.value} -> {new_state.value} "
-            f"(allowed: {', '.join(s.value for s in allowed)})"
+            f'[{logger_name}] Invalid state transition: '
+            f'{old_state.value} -> {new_state.value} '
+            f'(allowed: {", ".join(s.value for s in allowed)})'
         )
         logger.error(msg)
         raise ValueError(msg)
-    logger.debug(
-        f"[{logger_name}] State: {old_state.value} -> {new_state.value}"
-    )
+    logger.debug(f'[{logger_name}] State: {old_state.value} -> {new_state.value}')

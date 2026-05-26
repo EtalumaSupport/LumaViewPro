@@ -9,9 +9,11 @@ from ui.hover_behavior import HoverBehavior
 
 class RoundedButton(HoverBehavior, Button):
     """Button with rounded corners and hover highlighting."""
+
     pass
 
 
 class RoundedToggleButton(HoverBehavior, ToggleButton):
     """Toggle button with rounded corners and hover highlighting."""
+
     pass

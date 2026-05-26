@@ -18,7 +18,6 @@ logger = logging.getLogger('LVP.ui.stage')
 
 
 class Stage(Widget):
-
     def _triggered_full_redraw(self, *args):
         """Triggered version of full_redraw to debounce rapid events."""
         self.full_redraw()
@@ -30,22 +29,19 @@ class Stage(Widget):
         self._cached_step_locations_hash = None
         self.draw_labware(full_redraw=True)
 
-
     def remove_parent(self):
         ctx = _app_ctx.ctx
         if self.parent is not None:
             self.parent.remove_widget(ctx.stage)
 
-
     def get_id(self):
         return id(self)
-
 
     def __init__(self, **kwargs):
         super(Stage, self).__init__(**kwargs)
         logger.debug('[LVP Main  ] Stage.__init__()')
-        self.ROI_min = [0,0]
-        self.ROI_max = [0,0]
+        self.ROI_min = [0, 0]
+        self.ROI_max = [0, 0]
         self._motion_enabled = True
         self.ROIs = []
 
@@ -62,10 +58,7 @@ class Stage(Widget):
         # Use a trigger to debounce redraw calls and prevent memory leaks from excessive events
         self._redraw_trigger = Clock.create_trigger(self._triggered_full_redraw, 0.1)
         self.full_redraw()
-        self.bind(
-            pos=self._redraw_trigger,
-            size=self._redraw_trigger
-        )
+        self.bind(pos=self._redraw_trigger, size=self._redraw_trigger)
         self._protocol_step_locations_df = None
         self._protocol_step_redraw = False
         self._protocol_step_locations_show = False
@@ -92,8 +85,8 @@ class Stage(Widget):
                 limits = ctx.scope.capabilities.axis_travel_limits_um
                 return (limits['X'], limits['Y'])
         from modules.common_utils import DEFAULT_STAGE_TRAVEL_UM
-        return (DEFAULT_STAGE_TRAVEL_UM["x"], DEFAULT_STAGE_TRAVEL_UM["y"])
 
+        return (DEFAULT_STAGE_TRAVEL_UM['x'], DEFAULT_STAGE_TRAVEL_UM['y'])
 
     def _create_persistent_canvas_objects(self):
         """Create persistent canvas objects for crosshairs and selected well.
@@ -101,11 +94,11 @@ class Stage(Widget):
         Using canvas.after ensures they're always drawn on top of everything else."""
         with self.canvas.after:
             # Selected well (green ellipse)
-            self._selected_well_color = Color(0., 1., 0., 1.)
+            self._selected_well_color = Color(0.0, 1.0, 0.0, 1.0)
             self._selected_well_line = Line(ellipse=(0, 0, 0, 0), group='selected_well')
 
             # Crosshairs (red lines) - drawn last so they're on top
-            self._crosshair_color = Color(1., 0., 0., 1.)
+            self._crosshair_color = Color(1.0, 0.0, 0.0, 1.0)
             self._crosshair_h_line = Line(points=[0, 0, 0, 0], width=1, group='crosshairs')
             self._crosshair_v_line = Line(points=[0, 0, 0, 0], width=1, group='crosshairs')
 
@@ -113,17 +106,15 @@ class Stage(Widget):
         self._protocol_step_locations_show = enable
         self._protocol_step_redraw = True
 
-
     def set_protocol_steps(self, df):
         # Filter to only keep the X/Y locations
         df = df.copy()
-        df = df[['X','Y']]
+        df = df[['X', 'Y']]
         self._protocol_step_locations_df = df.drop_duplicates()
         self._protocol_step_redraw = True
         # Invalidate step locations FBO cache
         self._step_locations_fbo = None
         self._cached_step_locations_hash = None
-
 
     def append_ROI(self, x_min, y_min, x_max, y_max):
         self.ROI_min = [x_min, y_min]
@@ -140,13 +131,12 @@ class Stage(Widget):
             return
 
         if self.collide_point(*touch.pos) and (touch.button == 'left' or touch.button == 'right'):
-
             # Get mouse position in pixels
             (mouse_x, mouse_y) = touch.pos
 
             # Convert to relative mouse position in pixels
-            mouse_x = mouse_x-self.x
-            mouse_y = mouse_y-self.y
+            mouse_x = mouse_x - self.x
+            mouse_y = mouse_y - self.y
 
             # Create current labware instance
             _, labware = get_selected_labware()
@@ -159,8 +149,8 @@ class Stage(Widget):
             scale_y = dim_max['y'] / self.height
 
             # Convert to plate position in mm (from the top left)
-            plate_x = mouse_x*scale_x
-            plate_y = dim_max['y'] - mouse_y*scale_y
+            plate_x = mouse_x * scale_x
+            plate_y = dim_max['y'] - mouse_y * scale_y
 
             # Convert from plate position to stage position
             ctx = _app_ctx.ctx
@@ -168,10 +158,7 @@ class Stage(Widget):
             coordinate_transformer = ctx.coordinate_transformer
             _, labware = get_selected_labware()
             stage_x, stage_y = coordinate_transformer.plate_to_stage(
-                labware=labware,
-                stage_offset=settings['stage_offset'],
-                px=plate_x,
-                py=plate_y
+                labware=labware, stage_offset=settings['stage_offset'], px=plate_x, py=plate_y
             )
 
             if touch.button == 'left':
@@ -181,18 +168,24 @@ class Stage(Widget):
 
             elif touch.button == 'right':
                 try:
-                    logger.info(f"[Stage   ] Finding nearest step to {plate_x}, {plate_y}")
-                    step_idx = find_nearest_step(x=plate_x, y=plate_y, protocol=ctx.motion_settings.ids['protocol_settings_id']._protocol)
+                    logger.info(f'[Stage   ] Finding nearest step to {plate_x}, {plate_y}')
+                    step_idx = find_nearest_step(
+                        x=plate_x,
+                        y=plate_y,
+                        protocol=ctx.motion_settings.ids['protocol_settings_id']._protocol,
+                    )
                     if step_idx == -1:
                         return
 
-                    go_to_step(protocol=ctx.motion_settings.ids['protocol_settings_id']._protocol,
-                               step_idx=step_idx,
-                               called_from_protocol=False,
-                               include_move=True)
-                    logger.info(f"[Stage   ] Successfully moved to step {step_idx}")
+                    go_to_step(
+                        protocol=ctx.motion_settings.ids['protocol_settings_id']._protocol,
+                        step_idx=step_idx,
+                        called_from_protocol=False,
+                        include_move=True,
+                    )
+                    logger.info(f'[Stage   ] Successfully moved to step {step_idx}')
                 except Exception as e:
-                    logger.error(f"[Stage   ] Error finding nearest step: {e}")
+                    logger.error(f'[Stage   ] Error finding nearest step: {e}')
             # move_absolute_position('X', stage_x)
             # move_absolute_position('Y', stage_y)
 
@@ -222,10 +215,12 @@ class Stage(Widget):
         labware_name, labware = get_selected_labware()
 
         if labware_name in self._labware_fbos:
-            logger.debug(f"[Stage     ] Using cached labware FBO for {labware_name}")
+            logger.debug(f'[Stage     ] Using cached labware FBO for {labware_name}')
             return self._labware_fbos[labware_name]
 
-        logger.debug(f"[Stage     ] Creating new labware FBO for {labware_name}, size=({int(self.width)}, {int(self.height)})")
+        logger.debug(
+            f'[Stage     ] Creating new labware FBO for {labware_name}, size=({int(self.width)}, {int(self.height)})'
+        )
 
         # Labware FBO is not cached - create new one
         fbo_width = int(self.width)
@@ -237,6 +232,7 @@ class Stage(Widget):
 
         # Clear to transparent
         from kivy.graphics.opengl import glClearColor, glClear, GL_COLOR_BUFFER_BIT
+
         glClearColor(0, 0, 0, 0)
         glClear(GL_COLOR_BUFFER_BIT)
 
@@ -257,32 +253,32 @@ class Stage(Widget):
             dim_max = labware.get_dimensions()
 
             # mm to pixels scale
-            scale_x = w/dim_max['x']
-            scale_y = h/dim_max['y']
+            scale_x = w / dim_max['x']
+            scale_y = h / dim_max['y']
 
             # Stage Coordinates from motorconfig
             x_max, y_max = self._stage_limits_um()
             stage_w = x_max / 1000.0
             stage_h = y_max / 1000.0
 
-            stage_x = settings['stage_offset']['x']/1000
-            stage_y = settings['stage_offset']['y']/1000
+            stage_x = settings['stage_offset']['x'] / 1000
+            stage_y = settings['stage_offset']['y'] / 1000
 
             # Draw stage area outline
-            Color(.2, .2, .2, 0.5)
+            Color(0.2, 0.2, 0.2, 0.5)
             Rectangle(
-                pos=(x+(dim_max['x']-stage_w-stage_x)*scale_x, y+stage_y*scale_y),
-                size=(stage_w*scale_x, stage_h*scale_y)
+                pos=(x + (dim_max['x'] - stage_w - stage_x) * scale_x, y + stage_y * scale_y),
+                size=(stage_w * scale_x, stage_h * scale_y),
             )
 
             # Draw plate outline from above
             # Add 0.5 pixel offset to prevent edge clipping (lines are centered on coords)
-            Color(50/255, 164/255, 206/255, 1.)  # kivy aqua
-            Line(points=(x+0.5, y+0.5, x+0.5, y+h-15), width=1)          # Left
-            Line(points=(x+w-0.5, y+0.5, x+w-0.5, y+h-0.5), width=1)         # Right
-            Line(points=(x+0.5, y+0.5, x+w-0.5, y+0.5), width=1)             # Bottom
-            Line(points=(x+15, y+h-0.5, x+w-0.5, y+h-0.5), width=1)      # Top
-            Line(points=(x+0.5, y+h-15, x+15, y+h-0.5), width=1)     # Diagonal
+            Color(50 / 255, 164 / 255, 206 / 255, 1.0)  # kivy aqua
+            Line(points=(x + 0.5, y + 0.5, x + 0.5, y + h - 15), width=1)  # Left
+            Line(points=(x + w - 0.5, y + 0.5, x + w - 0.5, y + h - 0.5), width=1)  # Right
+            Line(points=(x + 0.5, y + 0.5, x + w - 0.5, y + 0.5), width=1)  # Bottom
+            Line(points=(x + 15, y + h - 0.5, x + w - 0.5, y + h - 0.5), width=1)  # Top
+            Line(points=(x + 0.5, y + h - 15, x + 15, y + h - 0.5), width=1)  # Diagonal
 
             # Draw ROI rectangle if set
             if self.ROI_max[0] > self.ROI_min[0]:
@@ -292,7 +288,7 @@ class Stage(Widget):
                     sx=self.ROI_min[0],
                     sy=self.ROI_min[1],
                     scale_x=scale_x,
-                    scale_y=scale_y
+                    scale_y=scale_y,
                 )
 
                 roi_max_x, roi_max_y = coordinate_transformer.stage_to_pixel(
@@ -301,11 +297,19 @@ class Stage(Widget):
                     sx=self.ROI_max[0],
                     sy=self.ROI_max[1],
                     scale_x=scale_x,
-                    scale_y=scale_y
+                    scale_y=scale_y,
                 )
 
-                Color(50/255, 164/255, 206/255, 1.)
-                Line(rectangle=(x+roi_min_x, y+roi_min_y, roi_max_x - roi_min_x, roi_max_y - roi_min_y), width=1)
+                Color(50 / 255, 164 / 255, 206 / 255, 1.0)
+                Line(
+                    rectangle=(
+                        x + roi_min_x,
+                        y + roi_min_y,
+                        roi_max_x - roi_min_x,
+                        roi_max_y - roi_min_y,
+                    ),
+                    width=1,
+                )
 
             # Draw all wells
             cols = labware.config['columns']
@@ -332,7 +336,7 @@ class Stage(Widget):
                         px=well_plate_x,
                         py=well_plate_y,
                         scale_x=scale_x,
-                        scale_y=scale_y
+                        scale_y=scale_y,
                     )
                     # Use float for precise positioning to avoid rounding errors
                     x_center = x + well_pixel_x
@@ -341,7 +345,7 @@ class Stage(Widget):
                     # Draw ellipse
                     Ellipse(
                         pos=(x_center - well_radius_pixel_x, y_center - well_radius_pixel_y),
-                        size=(well_radius_pixel_x * 2, well_radius_pixel_y * 2)
+                        size=(well_radius_pixel_x * 2, well_radius_pixel_y * 2),
                     )
 
         # Force FBO to render
@@ -367,9 +371,11 @@ class Stage(Widget):
         step_hash = hash(tuple(self._protocol_step_locations_df.to_records(index=False).tolist()))
 
         # Return cached FBO if it's still valid
-        if (self._step_locations_fbo is not None and
-            self._cached_step_locations_hash == step_hash and
-            self._cached_labware_name == labware_name):
+        if (
+            self._step_locations_fbo is not None
+            and self._cached_step_locations_hash == step_hash
+            and self._cached_labware_name == labware_name
+        ):
             return self._step_locations_fbo
 
         # Create new FBO for step locations
@@ -382,6 +388,7 @@ class Stage(Widget):
 
         # Clear to transparent
         from kivy.graphics.opengl import glClearColor, glClear, GL_COLOR_BUFFER_BIT
+
         glClearColor(0, 0, 0, 0)
         glClear(GL_COLOR_BUFFER_BIT)
 
@@ -399,28 +406,28 @@ class Stage(Widget):
             dim_max = labware.get_dimensions()
 
             # mm to pixels scale
-            scale_x = w/dim_max['x']
-            scale_y = h/dim_max['y']
+            scale_x = w / dim_max['x']
+            scale_y = h / dim_max['y']
 
             # Draw protocol step markers
             half_size = 2
-            Color(1., 1., 0., 1.)  # Yellow color for step markers
+            Color(1.0, 1.0, 0.0, 1.0)  # Yellow color for step markers
 
             for _, step in self._protocol_step_locations_df.iterrows():
                 pixel_x, pixel_y = coordinate_transformer.plate_to_pixel(
-                    labware=labware,
-                    px=step['X'],
-                    py=step['Y'],
-                    scale_x=scale_x,
-                    scale_y=scale_y
+                    labware=labware, px=step['X'], py=step['Y'], scale_x=scale_x, scale_y=scale_y
                 )
 
                 x_center = x + pixel_x
                 y_center = y + pixel_y
 
                 # Draw crosshair for step location
-                Line(points=(x_center-half_size, y_center, x_center+half_size, y_center), width=1)  # horizontal
-                Line(points=(x_center, y_center-half_size, x_center, y_center+half_size), width=1)  # vertical
+                Line(
+                    points=(x_center - half_size, y_center, x_center + half_size, y_center), width=1
+                )  # horizontal
+                Line(
+                    points=(x_center, y_center - half_size, x_center, y_center + half_size), width=1
+                )  # vertical
 
         # Force FBO to render
         fbo.draw()
@@ -430,7 +437,6 @@ class Stage(Widget):
         self._cached_step_locations_hash = step_hash
 
         return fbo
-
 
     def draw_labware_io_calculations(self, full_redraw: bool = False):
         ctx = _app_ctx.ctx
@@ -460,7 +466,12 @@ class Stage(Widget):
             position_available = False
 
         if not full_redraw and not self._protocol_step_redraw and position_available:
-            if x_target == self._prev_x_target and y_target == self._prev_y_target and x_current == self._prev_x_current and y_current == self._prev_y_current:
+            if (
+                x_target == self._prev_x_target
+                and y_target == self._prev_y_target
+                and x_current == self._prev_x_current
+                and y_current == self._prev_y_current
+            ):
                 return
 
         # Create current labware instance
@@ -478,6 +489,7 @@ class Stage(Widget):
                 self.canvas.clear()
                 self.canvas.after.clear()
                 self._create_persistent_canvas_objects()
+
             Clock.schedule_once(clear_and_recreate, 0)
 
         if self._protocol_step_redraw:
@@ -492,12 +504,11 @@ class Stage(Widget):
         dim_max = labware.get_dimensions()
 
         # mm to pixels scale
-        scale_x = w/dim_max['x']
-        scale_y = h/dim_max['y']
+        scale_x = w / dim_max['x']
+        scale_y = h / dim_max['y']
 
-
-        stage_x = settings['stage_offset']['x']/1000
-        stage_y = settings['stage_offset']['y']/1000
+        stage_x = settings['stage_offset']['x'] / 1000
+        stage_y = settings['stage_offset']['y'] / 1000
 
         cols = labware.config['columns']
         rows = labware.config['rows']
@@ -541,11 +552,8 @@ class Stage(Widget):
         if position_available:
             # Draw selected well (updates when target changes)
             target_plate_x, target_plate_y = coordinate_transformer.stage_to_plate(
-                    labware=labware,
-                    stage_offset=settings['stage_offset'],
-                    sx=x_target,
-                    sy=y_target
-                )
+                labware=labware, stage_offset=settings['stage_offset'], sx=x_target, sy=y_target
+            )
 
             target_i, target_j = labware.get_well_index(target_plate_x, target_plate_y)
             target_well_plate_x, target_well_plate_y = labware.get_well_position(target_i, target_j)
@@ -554,38 +562,44 @@ class Stage(Widget):
                 px=target_well_plate_x,
                 py=target_well_plate_y,
                 scale_x=scale_x,
-                scale_y=scale_y
+                scale_y=scale_y,
             )
-            target_well_center_x = int(x+target_well_pixel_x) # on screen center
-            target_well_center_y = int(y+target_well_pixel_y) # on screen center
+            target_well_center_x = int(x + target_well_pixel_x)  # on screen center
+            target_well_center_y = int(y + target_well_pixel_y)  # on screen center
 
             # Update selected well ellipse properties (instead of recreating)
             ellipse_params = (
                 target_well_center_x - well_radius_pixel_x,
                 target_well_center_y - well_radius_pixel_y,
                 well_radius_pixel_x * 2,
-                well_radius_pixel_y * 2
+                well_radius_pixel_y * 2,
             )
-            Clock.schedule_once(lambda dt, ep=ellipse_params: setattr(self._selected_well_line, 'ellipse', ep), 0)
+            Clock.schedule_once(
+                lambda dt, ep=ellipse_params: setattr(self._selected_well_line, 'ellipse', ep), 0
+            )
 
             # Draw crosshairs (updates every frame - but only 2 lines!)
             pixel_x, pixel_y = coordinate_transformer.stage_to_pixel(
-                    labware=labware,
-                    stage_offset=settings['stage_offset'],
-                    sx=x_current,
-                    sy=y_current,
-                    scale_x=scale_x,
-                    scale_y=scale_y
-                )
+                labware=labware,
+                stage_offset=settings['stage_offset'],
+                sx=x_current,
+                sy=y_current,
+                scale_x=scale_x,
+                scale_y=scale_y,
+            )
 
-            x_center = x+pixel_x
-            y_center = y+pixel_y
+            x_center = x + pixel_x
+            y_center = y + pixel_y
 
             # Update crosshairs properties (instead of recreating)
-            h_line_points = [x_center-10, y_center, x_center+10, y_center]
-            v_line_points = [x_center, y_center-10, x_center, y_center+10]
-            Clock.schedule_once(lambda dt, pts=h_line_points: setattr(self._crosshair_h_line, 'points', pts), 0)
-            Clock.schedule_once(lambda dt, pts=v_line_points: setattr(self._crosshair_v_line, 'points', pts), 0)
+            h_line_points = [x_center - 10, y_center, x_center + 10, y_center]
+            v_line_points = [x_center, y_center - 10, x_center, y_center + 10]
+            Clock.schedule_once(
+                lambda dt, pts=h_line_points: setattr(self._crosshair_h_line, 'points', pts), 0
+            )
+            Clock.schedule_once(
+                lambda dt, pts=v_line_points: setattr(self._crosshair_v_line, 'points', pts), 0
+            )
 
             self._prev_x_target = x_target
             self._prev_y_target = y_target
@@ -593,10 +607,15 @@ class Stage(Widget):
             self._prev_y_current = y_current
         else:
             # Hide crosshairs and selected well by setting them to zero size/empty points
-            Clock.schedule_once(lambda dt: setattr(self._selected_well_line, 'ellipse', (0, 0, 0, 0)), 0)
-            Clock.schedule_once(lambda dt: setattr(self._crosshair_h_line, 'points', [0, 0, 0, 0]), 0)
-            Clock.schedule_once(lambda dt: setattr(self._crosshair_v_line, 'points', [0, 0, 0, 0]), 0)
-
+            Clock.schedule_once(
+                lambda dt: setattr(self._selected_well_line, 'ellipse', (0, 0, 0, 0)), 0
+            )
+            Clock.schedule_once(
+                lambda dt: setattr(self._crosshair_h_line, 'points', [0, 0, 0, 0]), 0
+            )
+            Clock.schedule_once(
+                lambda dt: setattr(self._crosshair_v_line, 'points', [0, 0, 0, 0]), 0
+            )
 
     def schedule_to_draw(self, draw_function, *args, **kwargs):
         """
@@ -611,15 +630,25 @@ class Stage(Widget):
             self.schedule_to_draw(self.draw_line, points=[0, 0, 100, 100], color=(1, 0, 0, 1))
             self.schedule_to_draw(self.draw_circle, pos=(50, 50), radius=20)
         """
+
         def execute_draw(_):
             try:
                 draw_function(*args, **kwargs)
             except Exception as e:
-                print(f"Error in scheduled draw operation: {e}")
+                print(f'Error in scheduled draw operation: {e}')
 
         Clock.schedule_once(execute_draw, 0)
 
-    def draw_line(self, points=None, color=(1, 1, 1, 1), width=1, group=None, circle=None, ellipse=None, rectangle=None):
+    def draw_line(
+        self,
+        points=None,
+        color=(1, 1, 1, 1),
+        width=1,
+        group=None,
+        circle=None,
+        ellipse=None,
+        rectangle=None,
+    ):
         """Draw a line on the canvas - safe to call from schedule_to_draw_on_canvas"""
         with self.canvas:
             Color(*color)
@@ -653,18 +682,22 @@ class Stage(Widget):
         try:
             labware_fbo = self.create_labware_fbo()
             if labware_fbo and labware_fbo.texture:
-                self.draw_fbo_texture(texture=labware_fbo.texture, pos=(x, y), size=(w, h), group='labware_fbo')
+                self.draw_fbo_texture(
+                    texture=labware_fbo.texture, pos=(x, y), size=(w, h), group='labware_fbo'
+                )
         except Exception as e:
-            logger.exception(f"[Stage     ] Error drawing labware FBO: {e}")
+            logger.exception(f'[Stage     ] Error drawing labware FBO: {e}')
 
     def _draw_steps_fbo_scheduled(self, x, y, w, h, *args):
         """Scheduled callback for drawing steps FBO."""
         try:
             steps_fbo = self.create_step_locations_fbo()
             if steps_fbo and steps_fbo.texture:
-                self.draw_fbo_texture(texture=steps_fbo.texture, pos=(x, y), size=(w, h), group='steps_fbo')
+                self.draw_fbo_texture(
+                    texture=steps_fbo.texture, pos=(x, y), size=(w, h), group='steps_fbo'
+                )
         except Exception as e:
-            logger.exception(f"[Stage     ] Error drawing steps FBO: {e}")
+            logger.exception(f'[Stage     ] Error drawing steps FBO: {e}')
 
     def draw_fbo_texture(self, texture, pos, size, group=None):
         """Draw an FBO texture on the canvas - safe to call from schedule_to_draw_on_canvas"""
@@ -672,7 +705,6 @@ class Stage(Widget):
             Color(1, 1, 1, 1)  # White color with full opacity to render texture as-is
             # Draw the FBO texture directly - Kivy handles FBO texture coordinates automatically
             Rectangle(texture=texture, pos=pos, size=size, group=group)
-
 
     def get_target_xy(self):
         scope = _app_ctx.ctx.scope
@@ -685,7 +717,9 @@ class Stage(Widget):
 
         return (target_stage_x, target_stage_y)
 
-    def get_target_callback(self, scale_x, scale_y, well_radius_pixel_x, x, y, result=None, exception=None):
+    def get_target_callback(
+        self, scale_x, scale_y, well_radius_pixel_x, x, y, result=None, exception=None
+    ):
         settings = _app_ctx.ctx.settings
         coordinate_transformer = _app_ctx.ctx.coordinate_transformer
         io_executor = _app_ctx.ctx.io_executor
@@ -699,7 +733,7 @@ class Stage(Widget):
                 labware=labware,
                 stage_offset=settings['stage_offset'],
                 sx=target_stage_x,
-                sy=target_stage_y
+                sy=target_stage_y,
             )
 
             target_i, target_j = labware.get_well_index(target_plate_x, target_plate_y)
@@ -709,32 +743,30 @@ class Stage(Widget):
                 px=target_well_plate_x,
                 py=target_well_plate_y,
                 scale_x=scale_x,
-                scale_y=scale_y
+                scale_y=scale_y,
             )
-            target_well_center_x = int(x+target_well_pixel_x) # on screen center
-            target_well_center_y = int(y+target_well_pixel_y) # on screen center
+            target_well_center_x = int(x + target_well_pixel_x)  # on screen center
+            target_well_center_y = int(y + target_well_pixel_y)  # on screen center
 
             # Green selection circle
             with self.canvas:
-                Color(0., 1., 0., 1., group='selected_well')
-                Line(circle=(target_well_center_x, target_well_center_y, well_radius_pixel_x), group='selected_well')
+                Color(0.0, 1.0, 0.0, 1.0, group='selected_well')
+                Line(
+                    circle=(target_well_center_x, target_well_center_y, well_radius_pixel_x),
+                    group='selected_well',
+                )
 
             #  Red Crosshairs
             # ------------------
             if self._motion_enabled:
-                io_executor.put(IOTask(
-                    action=self.motion_enabled_io,
-                    callback=self.motion_enabled_callback,
-                    cb_args=(
-                        scale_x,
-                        scale_y,
-                        x,
-                        y,
-                        labware
-                    ),
-                    pass_result=True
-                ))
-
+                io_executor.put(
+                    IOTask(
+                        action=self.motion_enabled_io,
+                        callback=self.motion_enabled_callback,
+                        cb_args=(scale_x, scale_y, x, y, labware),
+                        pass_result=True,
+                    )
+                )
 
     def motion_enabled_io(self):
         scope = _app_ctx.ctx.scope
@@ -765,14 +797,22 @@ class Stage(Widget):
                 sx=x_current,
                 sy=y_current,
                 scale_x=scale_x,
-                scale_y=scale_y
+                scale_y=scale_y,
             )
 
-            x_center = x+pixel_x
-            y_center = y+pixel_y
+            x_center = x + pixel_x
+            y_center = y + pixel_y
             with self.canvas:
-                Color(1., 0., 0., 1., group='crosshairs')
-                Line(points=(x_center-10, y_center, x_center+10, y_center), width = 1, group='crosshairs') # horizontal line
-                Line(points=(x_center, y_center-10, x_center, y_center+10), width = 1, group='crosshairs') # vertical line
+                Color(1.0, 0.0, 0.0, 1.0, group='crosshairs')
+                Line(
+                    points=(x_center - 10, y_center, x_center + 10, y_center),
+                    width=1,
+                    group='crosshairs',
+                )  # horizontal line
+                Line(
+                    points=(x_center, y_center - 10, x_center, y_center + 10),
+                    width=1,
+                    group='crosshairs',
+                )  # vertical line
             x = 1
             y = 1

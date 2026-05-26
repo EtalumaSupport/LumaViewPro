@@ -12,6 +12,7 @@ over the widget.  Use in KV rules to change appearance on hover::
                       (0.35, 0.38, 0.42, 1) if self.state == 'normal' else \\
                       (0.25, 0.28, 0.32, 1)
 """
+
 from kivy.core.window import Window
 from kivy.properties import BooleanProperty
 

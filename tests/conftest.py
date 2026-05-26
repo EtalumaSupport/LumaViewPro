@@ -16,6 +16,7 @@ When a hardware flag is set, the corresponding SDK is NOT mocked so the
 real module loads. Hardware tests are gated by markers (`ids_hardware`,
 `pylon_hardware`) — see `pytest_collection_modifyitems` below.
 """
+
 import os
 import sys
 from unittest.mock import MagicMock
@@ -25,8 +26,8 @@ import pytest
 # Keep Kivy from writing anything to ~/.kivy/logs/ during tests. App code
 # sets these in lumaviewpro.py + lvp_logger.py, but pytest may import Kivy
 # before either runs, so set them here as well.
-os.environ.setdefault("KIVY_NO_CONSOLELOG", "1")
-os.environ.setdefault("KIVY_NO_FILELOG", "1")
+os.environ.setdefault('KIVY_NO_CONSOLELOG', '1')
+os.environ.setdefault('KIVY_NO_FILELOG', '1')
 
 # ---------------------------------------------------------------------------
 # Path setup — make `from drivers.x import Y` work from tests/
@@ -70,6 +71,7 @@ for _flag, _mods in _HARDWARE_FLAG_MOCKS.items():
 # Idempotent (uses setdefault) so files that still call install_mock_deps()
 # are no-ops.
 
+
 def install_mock_deps():
     """Install MagicMock entries for heavy deps not present on dev machines.
 
@@ -79,7 +81,7 @@ def install_mock_deps():
     mock_logger = MagicMock()
     mock_lvp_logger = MagicMock()
     mock_lvp_logger.logger = mock_logger
-    mock_lvp_logger.version = "test"
+    mock_lvp_logger.version = 'test'
     mock_lvp_logger.is_thread_paused = MagicMock(return_value=False)
     mock_lvp_logger.unpause_thread = MagicMock()
     mock_lvp_logger.pause_thread = MagicMock()
@@ -122,54 +124,72 @@ install_mock_deps()
 # Pytest hooks
 # ---------------------------------------------------------------------------
 
+
 def pytest_addoption(parser):
     """Register hardware-test opt-in flags."""
+
     def _safe(*args, **kwargs):
         try:
             parser.addoption(*args, **kwargs)
         except (ValueError, Exception):
             pass  # already registered by another plugin/conftest
 
-    _safe("--run-hardware", action="store_true", default=False,
-          help="Run hardware serial tests (firmware boards via SerialBoard)")
-    _safe("--run-ids-hardware", action="store_true", default=False,
-          help="Run IDS Peak hardware tests (real SDK + connected camera)")
-    _safe("--run-pylon-hardware", action="store_true", default=False,
-          help="Run Pylon hardware tests (real SDK + connected camera)")
-    _safe("--run-timing-sensitive", action="store_true", default=False,
-          help="Run wall-clock timing-sensitive tests (can be flaky under load)")
+    _safe(
+        '--run-hardware',
+        action='store_true',
+        default=False,
+        help='Run hardware serial tests (firmware boards via SerialBoard)',
+    )
+    _safe(
+        '--run-ids-hardware',
+        action='store_true',
+        default=False,
+        help='Run IDS Peak hardware tests (real SDK + connected camera)',
+    )
+    _safe(
+        '--run-pylon-hardware',
+        action='store_true',
+        default=False,
+        help='Run Pylon hardware tests (real SDK + connected camera)',
+    )
+    _safe(
+        '--run-timing-sensitive',
+        action='store_true',
+        default=False,
+        help='Run wall-clock timing-sensitive tests (can be flaky under load)',
+    )
 
 
 def pytest_configure(config):
     """Register custom markers used by hardware tests."""
     config.addinivalue_line(
-        "markers",
-        "ids_hardware: requires real IDS Peak SDK + connected camera "
-        "(only runs with --run-ids-hardware)",
+        'markers',
+        'ids_hardware: requires real IDS Peak SDK + connected camera '
+        '(only runs with --run-ids-hardware)',
     )
     config.addinivalue_line(
-        "markers",
-        "pylon_hardware: requires real Pylon SDK + connected camera "
-        "(only runs with --run-pylon-hardware)",
+        'markers',
+        'pylon_hardware: requires real Pylon SDK + connected camera '
+        '(only runs with --run-pylon-hardware)',
     )
     config.addinivalue_line(
-        "markers",
-        "timing_sensitive: measures wall-clock timing and can be flaky "
-        "under CI/load (only runs with --run-timing-sensitive)",
+        'markers',
+        'timing_sensitive: measures wall-clock timing and can be flaky '
+        'under CI/load (only runs with --run-timing-sensitive)',
     )
 
 
 def pytest_collection_modifyitems(config, items):
     """Skip hardware-marked tests unless the matching opt-in flag is set."""
     gates = [
-        ("ids_hardware",    "--run-ids-hardware"),
-        ("pylon_hardware",  "--run-pylon-hardware"),
-        ("timing_sensitive", "--run-timing-sensitive"),
+        ('ids_hardware', '--run-ids-hardware'),
+        ('pylon_hardware', '--run-pylon-hardware'),
+        ('timing_sensitive', '--run-timing-sensitive'),
     ]
     for marker, flag in gates:
         if config.getoption(flag, default=False):
             continue
-        skip = pytest.mark.skip(reason=f"needs {flag}")
+        skip = pytest.mark.skip(reason=f'needs {flag}')
         for item in items:
             if marker in item.keywords:
                 item.add_marker(skip)
@@ -179,10 +199,12 @@ def pytest_collection_modifyitems(config, items):
 # Shared fixtures
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture
 def sim_scope():
     """Lumascope with simulated hardware in fast timing mode."""
     from modules.lumascope_api import Lumascope
+
     s = Lumascope(simulate=True)
     s._led_driver.set_timing_mode('fast')
     s._motion_driver.set_timing_mode('fast')

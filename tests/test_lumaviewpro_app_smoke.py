@@ -56,14 +56,15 @@ def _pyflakes_available():
     """Return True if pyflakes is importable in this environment."""
     try:
         import pyflakes  # noqa: F401
+
         return True
     except ImportError:
         return False
 
 
 @pytest.mark.skipif(
-    not _pyflakes_available(),
-    reason="pyflakes not installed; install with `pip install pyflakes`")
+    not _pyflakes_available(), reason='pyflakes not installed; install with `pip install pyflakes`'
+)
 @pytest.mark.parametrize('relpath', _SCAN_FILES)
 def test_no_undefined_names(relpath):
     """Fail if pyflakes finds any ``undefined name`` reference.
@@ -74,7 +75,7 @@ def test_no_undefined_names(relpath):
     exactly the undefined-name class.
     """
     target = os.path.join(_project_root(), relpath)
-    assert os.path.exists(target), f"target file missing: {target}"
+    assert os.path.exists(target), f'target file missing: {target}'
 
     # Run pyflakes as a subprocess so its output is exactly what the
     # operator would see when running it manually. Capture stdout
@@ -83,21 +84,23 @@ def test_no_undefined_names(relpath):
     # subset.
     proc = subprocess.run(
         [sys.executable, '-m', 'pyflakes', target],
-        capture_output=True, text=True,
+        capture_output=True,
+        text=True,
     )
     output = proc.stdout + proc.stderr
 
     undefined_lines = [
-        line for line in output.splitlines()
+        line
+        for line in output.splitlines()
         if 'undefined name' in line or 'may be undefined' in line
     ]
     assert not undefined_lines, (
-        f"pyflakes found undefined names in {relpath}:\n"
-        + "\n".join(f"  {line}" for line in undefined_lines)
-        + "\n\nThis catches the exact class of bug that broke "
-          "production startup on 2026-05-04 (LVP-A-3 partial). A "
-          "module-level identifier was deleted on the assumption it "
-          "was build-only, but the AppContext kwarg pass-through "
-          "still referenced it — and no smoke test ran App.build() "
-          "to catch the resulting NameError."
+        f'pyflakes found undefined names in {relpath}:\n'
+        + '\n'.join(f'  {line}' for line in undefined_lines)
+        + '\n\nThis catches the exact class of bug that broke '
+        'production startup on 2026-05-04 (LVP-A-3 partial). A '
+        'module-level identifier was deleted on the assumption it '
+        'was build-only, but the AppContext kwarg pass-through '
+        'still referenced it — and no smoke test ran App.build() '
+        'to catch the resulting NameError.'
     )

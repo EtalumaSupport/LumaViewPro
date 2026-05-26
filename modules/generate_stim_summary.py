@@ -44,7 +44,7 @@ def parse_stimulation_profile(filepath):
         with open(filepath, 'r') as f:
             lines = f.readlines()
     except Exception as ex:
-        print(f"  Warning: could not read {filepath}: {ex}")
+        print(f'  Warning: could not read {filepath}: {ex}')
         return result
 
     in_event_log = False
@@ -104,20 +104,20 @@ def parse_stimulation_profile(filepath):
 def write_timing_stats(f, label, values):
     """Write a timing statistics block."""
     if not values:
-        f.write(f"  {label}: no data\n")
+        f.write(f'  {label}: no data\n')
         return
-    f.write(f"  {label}:\n")
-    f.write(f"    count:  {len(values)}\n")
-    f.write(f"    mean:   {statistics.mean(values):.4f} ms\n")
+    f.write(f'  {label}:\n')
+    f.write(f'    count:  {len(values)}\n')
+    f.write(f'    mean:   {statistics.mean(values):.4f} ms\n')
     if len(values) > 1:
-        f.write(f"    std:    {statistics.stdev(values):.4f} ms\n")
+        f.write(f'    std:    {statistics.stdev(values):.4f} ms\n')
     else:
-        f.write(f"    std:    0.0000 ms\n")
-    f.write(f"    min:    {min(values):.4f} ms\n")
-    f.write(f"    max:    {max(values):.4f} ms\n")
+        f.write(f'    std:    0.0000 ms\n')
+    f.write(f'    min:    {min(values):.4f} ms\n')
+    f.write(f'    max:    {max(values):.4f} ms\n')
     sv = sorted(values)
-    f.write(f"    p95:    {sv[int(len(sv) * 0.95)] if len(sv) >= 20 else max(sv):.4f} ms\n")
-    f.write(f"    p99:    {sv[int(len(sv) * 0.99)] if len(sv) >= 100 else max(sv):.4f} ms\n")
+    f.write(f'    p95:    {sv[int(len(sv) * 0.95)] if len(sv) >= 20 else max(sv):.4f} ms\n')
+    f.write(f'    p99:    {sv[int(len(sv) * 0.99)] if len(sv) >= 100 else max(sv):.4f} ms\n')
 
 
 def write_outlier_details(f, values, label, expected_ms=None):
@@ -129,16 +129,15 @@ def write_outlier_details(f, values, label, expected_ms=None):
     threshold = mean + 3 * std
     outliers = [(i, v) for i, v in enumerate(values) if v > threshold]
     if outliers:
-        f.write(f"  {label} 3-sigma outliers (>{threshold:.4f} ms):\n")
+        f.write(f'  {label} 3-sigma outliers (>{threshold:.4f} ms):\n')
         for idx, val in outliers:
-            f.write(f"    pulse {idx}: {val:.4f} ms\n")
+            f.write(f'    pulse {idx}: {val:.4f} ms\n')
     if expected_ms is not None and expected_ms > 0:
-        deviations = [(i, v) for i, v in enumerate(values)
-                      if abs(v - expected_ms) > 3.0]
+        deviations = [(i, v) for i, v in enumerate(values) if abs(v - expected_ms) > 3.0]
         if deviations:
-            f.write(f"  {label} >3ms deviation from expected {expected_ms:.1f} ms:\n")
+            f.write(f'  {label} >3ms deviation from expected {expected_ms:.1f} ms:\n')
             for idx, val in deviations:
-                f.write(f"    pulse {idx}: {val:.4f} ms (delta={val - expected_ms:+.4f})\n")
+                f.write(f'    pulse {idx}: {val:.4f} ms (delta={val - expected_ms:+.4f})\n')
 
 
 def generate_stimulation_summary(folder_path):
@@ -148,18 +147,18 @@ def generate_stimulation_summary(folder_path):
     a stimulation_summary.txt with per-color aggregate statistics.
     """
     folder = Path(folder_path)
-    profile_dir = folder / "stimulation_profile"
+    profile_dir = folder / 'stimulation_profile'
 
     if not profile_dir.exists():
-        print(f"No stimulation_profile/ directory in {folder}")
+        print(f'No stimulation_profile/ directory in {folder}')
         return
 
-    profile_files = sorted(profile_dir.glob("stimulation_profile_*.txt"))
+    profile_files = sorted(profile_dir.glob('stimulation_profile_*.txt'))
     if not profile_files:
-        print(f"No profile files found in {profile_dir}")
+        print(f'No profile files found in {profile_dir}')
         return
 
-    print(f"Found {len(profile_files)} profile file(s)")
+    print(f'Found {len(profile_files)} profile file(s)')
 
     # Parse all files, group by color
     by_color = {}
@@ -184,38 +183,39 @@ def generate_stimulation_summary(folder_path):
         by_color[color]['files'].append(pf.name)
 
     # Write summary
-    summary_path = profile_dir / "stimulation_summary.txt"
+    summary_path = profile_dir / 'stimulation_summary.txt'
     with open(summary_path, 'w') as f:
-        f.write("Stimulation Summary Report\n")
-        f.write(f"{'=' * 50}\n")
-        f.write(f"Profile files: {len(profile_files)}\n")
-        f.write(f"Colors: {', '.join(sorted(by_color.keys()))}\n\n")
+        f.write('Stimulation Summary Report\n')
+        f.write(f'{"=" * 50}\n')
+        f.write(f'Profile files: {len(profile_files)}\n')
+        f.write(f'Colors: {", ".join(sorted(by_color.keys()))}\n\n')
 
         for color in sorted(by_color.keys()):
             data = by_color[color]
-            f.write(f"\n--- {color} ---\n")
-            f.write(f"  Frequency:    {data['frequency']} Hz\n")
-            f.write(f"  Pulse Width:  {data['pulse_width']} ms\n")
-            f.write(f"  Illumination: {data['illumination']} mA\n")
-            f.write(f"  Total pulses: {data['total_pulses']}\n")
-            f.write(f"  Source files: {len(data['files'])}\n\n")
+            f.write(f'\n--- {color} ---\n')
+            f.write(f'  Frequency:    {data["frequency"]} Hz\n')
+            f.write(f'  Pulse Width:  {data["pulse_width"]} ms\n')
+            f.write(f'  Illumination: {data["illumination"]} mA\n')
+            f.write(f'  Total pulses: {data["total_pulses"]}\n')
+            f.write(f'  Source files: {len(data["files"])}\n\n')
 
-            write_timing_stats(f, "LED ON command time", data['led_on_cmd'])
-            write_timing_stats(f, "LED OFF command time", data['led_off_cmd'])
-            write_timing_stats(f, "Actual LED on-time", data['actual_on'])
+            write_timing_stats(f, 'LED ON command time', data['led_on_cmd'])
+            write_timing_stats(f, 'LED OFF command time', data['led_off_cmd'])
+            write_timing_stats(f, 'Actual LED on-time', data['actual_on'])
 
-            f.write(f"\n  --- Outlier Analysis ---\n")
-            write_outlier_details(f, data['actual_on'], "Actual on-time",
-                                  expected_ms=data['pulse_width'])
-            write_outlier_details(f, data['led_on_cmd'], "ON command")
-            write_outlier_details(f, data['led_off_cmd'], "OFF command")
+            f.write(f'\n  --- Outlier Analysis ---\n')
+            write_outlier_details(
+                f, data['actual_on'], 'Actual on-time', expected_ms=data['pulse_width']
+            )
+            write_outlier_details(f, data['led_on_cmd'], 'ON command')
+            write_outlier_details(f, data['led_off_cmd'], 'OFF command')
 
-    print(f"Summary written to {summary_path}")
+    print(f'Summary written to {summary_path}')
 
 
 def main():
     if len(sys.argv) != 2:
-        print("Usage: python -m modules.generate_stim_summary <folder_path>")
+        print('Usage: python -m modules.generate_stim_summary <folder_path>')
         sys.exit(1)
     generate_stimulation_summary(sys.argv[1])
 

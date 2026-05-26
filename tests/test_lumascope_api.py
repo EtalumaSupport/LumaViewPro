@@ -115,12 +115,11 @@ class TestLumascopeHome:
 
         assert received, (
             "home() on NullMotionBoard must notify 'Motor Not Connected' "
-            "rather than silently no-op. User needs to know why nothing "
-            "happened so they can fix the cause (port held, USB unplugged, etc.)."
+            'rather than silently no-op. User needs to know why nothing '
+            'happened so they can fix the cause (port held, USB unplugged, etc.).'
         )
         assert any('Motor Not Connected' in n.title for n in received), (
-            f"expected 'Motor Not Connected' notification, got: "
-            f"{[n.title for n in received]}"
+            f"expected 'Motor Not Connected' notification, got: {[n.title for n in received]}"
         )
 
     def test_home_short_circuits_on_disconnected_motor(self):
@@ -129,6 +128,7 @@ class TestLumascopeHome:
         burning the IO_WORKER. Issue #632 'spinning beachball' — user
         had to force-quit the app while home() was blocked."""
         import time
+
         received = self._capture_errors()
         scope = Lumascope(simulate=True)
         scope._motion_driver = NullMotionBoard()
@@ -138,18 +138,17 @@ class TestLumascopeHome:
         elapsed = time.monotonic() - t0
 
         assert elapsed < 0.5, (
-            f"home() on disconnected motor took {elapsed:.2f}s — must be "
-            f"< 0.5s. Beachball regression."
+            f'home() on disconnected motor took {elapsed:.2f}s — must be '
+            f'< 0.5s. Beachball regression.'
         )
-        assert received, (
-            "home() short-circuit must still fire the Rule 14 notification."
-        )
+        assert received, 'home() short-circuit must still fire the Rule 14 notification.'
 
     def test_thome_short_circuits_on_disconnected_motor(self):
         """Same contract as home() — thome must fail-fast with a clear
         notification rather than letting exchange_command burn its
         15s timeout."""
         import time
+
         received = self._capture_errors()
         scope = Lumascope(simulate=True)
         scope._motion_driver = NullMotionBoard()
@@ -158,13 +157,9 @@ class TestLumascopeHome:
         scope.motion.thome()
         elapsed = time.monotonic() - t0
 
-        assert elapsed < 0.5, (
-            f"thome() on disconnected motor took {elapsed:.2f}s — must be "
-            f"< 0.5s."
-        )
+        assert elapsed < 0.5, f'thome() on disconnected motor took {elapsed:.2f}s — must be < 0.5s.'
         assert any('Motor Not Connected' in n.title for n in received), (
-            f"thome() must notify 'Motor Not Connected', got: "
-            f"{[n.title for n in received]}"
+            f"thome() must notify 'Motor Not Connected', got: {[n.title for n in received]}"
         )
 
     def test_home_on_z_only_board_marks_z_idle(self):
@@ -179,23 +174,24 @@ class TestLumascopeHome:
 
         # Driver returns True (the partial-home case is its responsibility).
         home_calls = []
+
         def fake_home(*args, **kwargs):
             home_calls.append((args, kwargs))
             return True
+
         scope._motion_driver.home = fake_home
 
         scope.motion.home()
 
         assert home_calls, (
-            "Lumascope.motion.home() must call motion.home() so firmware can "
-            "home the axes the board has (#618 follow-up)"
+            'Lumascope.motion.home() must call motion.home() so firmware can '
+            'home the axes the board has (#618 follow-up)'
         )
         assert received == [], (
-            f"home() on Z-only board with True driver return must not "
-            f"notify: {received}"
+            f'home() on Z-only board with True driver return must not notify: {received}'
         )
         assert scope.motion.get_axis_state('Z') == AxisState.IDLE, (
-            f"Z must be marked IDLE on success, got {scope.motion.get_axis_state('Z')}"
+            f'Z must be marked IDLE on success, got {scope.motion.get_axis_state("Z")}'
         )
 
     def test_home_real_failure_DOES_notify(self):
@@ -210,12 +206,11 @@ class TestLumascopeHome:
         scope.motion.home()
 
         assert received, (
-            "Real homing failure (driver returned False) must raise the "
-            "Homing Failed notification"
+            'Real homing failure (driver returned False) must raise the Homing Failed notification'
         )
         for ax in scope.capabilities.axes:
             assert scope.motion.get_axis_state(ax) == AxisState.UNKNOWN, (
-                f"{ax} must be UNKNOWN after real homing failure"
+                f'{ax} must be UNKNOWN after real homing failure'
             )
 
     def test_home_full_xyz_success(self):
@@ -227,14 +222,16 @@ class TestLumascopeHome:
 
         home_called = []
         original_home = scope._motion_driver.home
+
         def spy_home():
             home_called.append(True)
             return original_home()
+
         scope._motion_driver.home = spy_home
 
         scope.motion.home()
 
-        assert home_called, "home() on full XYZ hardware must call motion.home"
+        assert home_called, 'home() on full XYZ hardware must call motion.home'
         for ax in ('X', 'Y', 'Z'):
             assert scope.motion.get_axis_state(ax) == AxisState.IDLE
 
@@ -249,8 +246,10 @@ class TestMotorBoardGetMicroscopeModelDisconnect:
 
     def test_returns_none_when_fullinfo_not_cached(self):
         from drivers.motorboard import MotorBoard
+
         board = MotorBoard.__new__(MotorBoard)
         import threading
+
         board._state_lock = threading.Lock()
         board._fullinfo = None
         # Must return None, must not raise. Caller (UI) treats None
@@ -259,8 +258,10 @@ class TestMotorBoardGetMicroscopeModelDisconnect:
 
     def test_returns_model_from_cached_fullinfo(self):
         from drivers.motorboard import MotorBoard
+
         board = MotorBoard.__new__(MotorBoard)
         import threading
+
         board._state_lock = threading.Lock()
         board._fullinfo = {'model': 'LS850', 'serial': '12074'}
         assert board.get_microscope_model() == 'LS850'
@@ -268,8 +269,10 @@ class TestMotorBoardGetMicroscopeModelDisconnect:
     def test_returns_none_when_model_key_missing(self):
         # Defense-in-depth: malformed cache shouldn't crash either.
         from drivers.motorboard import MotorBoard
+
         board = MotorBoard.__new__(MotorBoard)
         import threading
+
         board._state_lock = threading.Lock()
         board._fullinfo = {'serial': '12074'}  # no 'model' key
         assert board.get_microscope_model() is None
@@ -293,15 +296,16 @@ class TestMotorBoardHomePartialResponse:
 
         board = MotorBoard.__new__(MotorBoard)
         import threading
+
         board._state_lock = threading.Lock()
         board.initial_homing_complete = False
-        board.exchange_command = MagicMock(return_value="ERROR: X not present")
+        board.exchange_command = MagicMock(return_value='ERROR: X not present')
 
         result = board.home()
 
         assert result is True, (
             "Driver must treat 'ERROR: X not present' as partial-home "
-            "success — firmware homed Z (and T) before reporting missing X"
+            'success — firmware homed Z (and T) before reporting missing X'
         )
         assert board.initial_homing_complete is True
 
@@ -311,9 +315,10 @@ class TestMotorBoardHomePartialResponse:
 
         board = MotorBoard.__new__(MotorBoard)
         import threading
+
         board._state_lock = threading.Lock()
         board.initial_homing_complete = False
-        board.exchange_command = MagicMock(return_value="ERROR: Y not present")
+        board.exchange_command = MagicMock(return_value='ERROR: Y not present')
 
         assert board.home() is True
         assert board.initial_homing_complete is True
@@ -324,9 +329,10 @@ class TestMotorBoardHomePartialResponse:
 
         board = MotorBoard.__new__(MotorBoard)
         import threading
+
         board._state_lock = threading.Lock()
         board.initial_homing_complete = False
-        board.exchange_command = MagicMock(return_value="XYZ home complete")
+        board.exchange_command = MagicMock(return_value='XYZ home complete')
 
         assert board.home() is True
         assert board.initial_homing_complete is True
@@ -340,11 +346,12 @@ class TestMotorBoardHomePartialResponse:
 
         board = MotorBoard.__new__(MotorBoard)
         import threading
+
         board._state_lock = threading.Lock()
         board.initial_homing_complete = False
-        board.exchange_command = MagicMock(return_value="ERROR: timeout")
+        board.exchange_command = MagicMock(return_value='ERROR: timeout')
 
-        with pytest.raises(HardwareError, match="firmware error"):
+        with pytest.raises(HardwareError, match='firmware error'):
             board.home()
         assert board.initial_homing_complete is False
 
@@ -356,11 +363,12 @@ class TestMotorBoardHomePartialResponse:
 
         board = MotorBoard.__new__(MotorBoard)
         import threading
+
         board._state_lock = threading.Lock()
         board.initial_homing_complete = False
         board.exchange_command = MagicMock(return_value=None)
 
-        with pytest.raises(HardwareError, match="no response"):
+        with pytest.raises(HardwareError, match='no response'):
             board.home()
         assert board.initial_homing_complete is False
 
@@ -385,6 +393,7 @@ class TestFrameValidityDuringHoming:
             captured['z_state'] = scope.motion.get_axis_state('Z')
             captured['pending'] = dict(scope.imaging.frame_validity.pending_sources)
             return True
+
         scope._motion_driver.zhome = fake_zhome
 
         scope.motion.zhome()
@@ -392,11 +401,11 @@ class TestFrameValidityDuringHoming:
         assert captured['z_state'] == AxisState.HOMING
         assert 'z_move' in captured['pending'], (
             "zhome() must invalidate 'z_move' so frame_validity "
-            "can consult the settle-check callback (#609)"
+            'can consult the settle-check callback (#609)'
         )
         assert captured['is_valid'] is False, (
-            "frame_validity.is_valid must be False while Z is homing — "
-            "the frame valid marker should not be green during homing"
+            'frame_validity.is_valid must be False while Z is homing — '
+            'the frame valid marker should not be green during homing'
         )
 
     def test_home_marks_frame_invalid_during_motion_full_xyz(self):
@@ -406,12 +415,14 @@ class TestFrameValidityDuringHoming:
         captured = {}
 
         original_home = scope._motion_driver.home
+
         def spy_home():
             captured['is_valid'] = scope.imaging.frame_validity.is_valid
             captured['pending'] = dict(scope.imaging.frame_validity.pending_sources)
             captured['x_state'] = scope.motion.get_axis_state('X')
             captured['z_state'] = scope.motion.get_axis_state('Z')
             return original_home()
+
         scope._motion_driver.home = spy_home
 
         scope.motion.home()
@@ -421,13 +432,14 @@ class TestFrameValidityDuringHoming:
         assert 'xy_move' in captured['pending']
         assert 'z_move' in captured['pending']
         assert captured['is_valid'] is False, (
-            "frame_validity.is_valid must be False while XYZ are homing"
+            'frame_validity.is_valid must be False while XYZ are homing'
         )
 
     def test_home_marks_frame_invalid_z_only_board(self):
         """LS820: only Z present. home() must invalidate z_move only,
         not xy_move or turret (those sources aren't in motion)."""
         from modules.scope_capabilities import ScopeCapabilities
+
         scope = Lumascope(simulate=True)
         scope._motion_driver.detect_present_axes = lambda: ['Z']
         # Rebuild the capability snapshot after patching the driver —
@@ -435,7 +447,9 @@ class TestFrameValidityDuringHoming:
         # frozen snapshot built at init), so the test needs to
         # re-snapshot to reflect the patched motion.
         scope.capabilities = ScopeCapabilities.from_drivers(
-            motion=scope._motion_driver, led=scope._led_driver, camera=scope._camera_driver,
+            motion=scope._motion_driver,
+            led=scope._led_driver,
+            camera=scope._camera_driver,
         )
         captured = {}
 
@@ -443,6 +457,7 @@ class TestFrameValidityDuringHoming:
             captured['pending'] = dict(scope.imaging.frame_validity.pending_sources)
             captured['is_valid'] = scope.imaging.frame_validity.is_valid
             return True
+
         scope._motion_driver.home = fake_home
 
         scope.motion.home()
@@ -458,6 +473,7 @@ class TestFrameValidityDuringHoming:
         # no-ops there. The phantom-T behavior the original test relied
         # on is gone.
         from drivers.simulated_motorboard import SimulatedMotorBoard
+
         scope = Lumascope(simulate=True)
         scope._motion_driver = SimulatedMotorBoard(model='LS850T')
         present = scope._motion_driver.detect_present_axes()
@@ -471,11 +487,13 @@ class TestFrameValidityDuringHoming:
 
         captured = {}
         original_thome = scope._motion_driver.thome
+
         def spy_thome():
             captured['is_valid'] = scope.imaging.frame_validity.is_valid
             captured['t_state'] = scope.motion.get_axis_state('T')
             captured['pending'] = dict(scope.imaging.frame_validity.pending_sources)
             return original_thome()
+
         scope._motion_driver.thome = spy_thome
 
         scope.motion.thome()
@@ -483,7 +501,7 @@ class TestFrameValidityDuringHoming:
         assert captured['t_state'] == AxisState.HOMING
         assert 'turret' in captured['pending'], (
             "thome() must invalidate 'turret' so the frame valid marker "
-            "goes red while the turret is rotating (#609)"
+            'goes red while the turret is rotating (#609)'
         )
         assert captured['is_valid'] is False
 
@@ -506,6 +524,7 @@ class TestProtocolConformance:
 
     def test_motorboard_satisfies_protocol(self):
         from drivers.motorboard import MotorBoard
+
         # Use __new__ to skip __init__ — we only need the class to expose
         # the Protocol's method set, not to actually open a serial port.
         instance = MotorBoard.__new__(MotorBoard)
@@ -521,6 +540,7 @@ class TestProtocolConformance:
 
     def test_ledboard_satisfies_protocol(self):
         from drivers.ledboard import LEDBoard
+
         instance = LEDBoard.__new__(LEDBoard)
         assert isinstance(instance, LEDBoardProtocol)
 
@@ -558,6 +578,7 @@ class TestLEDChannelDiscovery:
 
     def test_ledboard_available_channels_from_color_map(self):
         from drivers.ledboard import LEDBoard
+
         instance = LEDBoard.__new__(LEDBoard)
         assert instance.available_channels() == tuple(LEDBoard._COLOR_TO_CH.values())
         assert instance.available_colors() == tuple(LEDBoard._COLOR_TO_CH.keys())
@@ -585,12 +606,13 @@ class TestLEDChannelDiscovery:
         class FourChannelLED(SimulatedLEDBoard):
             _COLOR_TO_CH = {'Blue': 0, 'Green': 1, 'Red': 2, 'BF': 3}
             _CH_TO_COLOR = {v: k for k, v in _COLOR_TO_CH.items()}
+
         scope._led_driver = FourChannelLED()
 
         scope.illumination.led_on(0, 100)  # Blue — valid on 4-channel driver
-        with pytest.raises(ValueError, match=r"LED channel must be one of"):
+        with pytest.raises(ValueError, match=r'LED channel must be one of'):
             scope.illumination.led_on(5, 100)  # DF — out of range on 4-channel driver
-        with pytest.raises(ValueError, match=r"LED channel must be one of"):
+        with pytest.raises(ValueError, match=r'LED channel must be one of'):
             scope.illumination.led_on(4, 100)  # PC — out of range too
 
     def test_api_validation_error_message_reflects_actual_channels(self):
@@ -602,21 +624,22 @@ class TestLEDChannelDiscovery:
         class TwoChannelLED(SimulatedLEDBoard):
             _COLOR_TO_CH = {'BF': 0, 'Blue': 1}
             _CH_TO_COLOR = {v: k for k, v in _COLOR_TO_CH.items()}
+
         scope._led_driver = TwoChannelLED()
 
         try:
             scope.illumination.led_on(3, 100)
         except ValueError as e:
             msg = str(e)
-            assert "(0, 1)" in msg, f"error message must list actual channels, got: {msg}"
-            assert "0-5" not in msg, f"error must not mention stale 0-5 range: {msg}"
+            assert '(0, 1)' in msg, f'error message must list actual channels, got: {msg}'
+            assert '0-5' not in msg, f'error must not mention stale 0-5 range: {msg}'
 
     def test_no_hardcoded_LED_VALID_CHANNELS_constant(self):
         """The class-level `LED_VALID_CHANNELS = range(6)` constant has
         been deleted in favor of `self.led.available_channels()`."""
         assert not hasattr(Lumascope, 'LED_VALID_CHANNELS'), (
-            "Lumascope.LED_VALID_CHANNELS must be removed — call sites "
-            "now read from self.led.available_channels() per audit B3"
+            'Lumascope.LED_VALID_CHANNELS must be removed — call sites '
+            'now read from self.led.available_channels() per audit B3'
         )
 
 
@@ -641,7 +664,7 @@ class TestPerAxisDictsFromDriver:
         scope = Lumascope(simulate=True)
         present = set(scope._motion_driver.detect_present_axes())
         assert present == {'X', 'Y', 'Z', 'T'}, (
-            f"Default sim should be LS850T (XYZT with turret), got {present}"
+            f'Default sim should be LS850T (XYZT with turret), got {present}'
         )
         assert set(scope.motion._pos_cache.keys()) == present
         assert set(scope.motion._axis_state.keys()) == present
@@ -727,9 +750,9 @@ class TestPerAxisDictsFromDriver:
         """Input sanity check still rejects non-axis names. _VALID_AXIS_NAMES
         is the input vocabulary; axes_present() is the capability query."""
         scope = Lumascope(simulate=True)
-        with pytest.raises(ValueError, match=r"Axis must be one of"):
+        with pytest.raises(ValueError, match=r'Axis must be one of'):
             scope.motion.move_absolute_position('Q', 0)
-        with pytest.raises(ValueError, match=r"Axis must be one of"):
+        with pytest.raises(ValueError, match=r'Axis must be one of'):
             scope.motion.move_relative_position('Q', 0)
 
     def test_no_hardcoded_VALID_AXES_constant(self):
@@ -738,10 +761,10 @@ class TestPerAxisDictsFromDriver:
         axis names we accept as input" — which is now the private
         `_VALID_AXIS_NAMES`."""
         assert not hasattr(Lumascope, 'VALID_AXES'), (
-            "Lumascope.VALID_AXES must be removed — its name was misleading "
-            "(implied capability, meant vocabulary). Use axes_present() for "
-            "capability queries; _VALID_AXIS_NAMES is the private input "
-            "vocabulary tuple."
+            'Lumascope.VALID_AXES must be removed — its name was misleading '
+            '(implied capability, meant vocabulary). Use axes_present() for '
+            'capability queries; _VALID_AXIS_NAMES is the private input '
+            'vocabulary tuple.'
         )
         assert hasattr(Lumascope, '_VALID_AXIS_NAMES')
         assert tuple(Lumascope._VALID_AXIS_NAMES) == ('X', 'Y', 'Z', 'T')
@@ -766,15 +789,29 @@ class TestRunGrabLifecycleBenchmark:
 
     def test_returns_required_dict_keys(self):
         scope = self._scope_with_camera()
-        r = scope.diagnostics.run_grab_lifecycle_benchmark(num_cycles=3,
-                                                inter_cycle_delay_ms=0)
-        for k in ('num_cycles', 'inter_cycle_delay_ms', 'vary_settings',
-                  'slow_threshold_s', 'slow_cycle_count', 'slow_cycles',
-                  'cycle_p50_s', 'cycle_p95_s', 'cycle_p99_s',
-                  'stop_p50_s', 'stop_p95_s', 'stop_p99_s',
-                  'start_p50_s', 'start_p95_s', 'start_p99_s',
-                  'total_elapsed_s', 'camera_model', 'pylon_version',
-                  'errors', 'written_to'):
+        r = scope.diagnostics.run_grab_lifecycle_benchmark(num_cycles=3, inter_cycle_delay_ms=0)
+        for k in (
+            'num_cycles',
+            'inter_cycle_delay_ms',
+            'vary_settings',
+            'slow_threshold_s',
+            'slow_cycle_count',
+            'slow_cycles',
+            'cycle_p50_s',
+            'cycle_p95_s',
+            'cycle_p99_s',
+            'stop_p50_s',
+            'stop_p95_s',
+            'stop_p99_s',
+            'start_p50_s',
+            'start_p95_s',
+            'start_p99_s',
+            'total_elapsed_s',
+            'camera_model',
+            'pylon_version',
+            'errors',
+            'written_to',
+        ):
             assert k in r, f'Missing key: {k}'
         assert r['num_cycles'] == 3
         assert r['inter_cycle_delay_ms'] == 0
@@ -789,7 +826,8 @@ class TestRunGrabLifecycleBenchmark:
         r = scope.diagnostics.run_grab_lifecycle_benchmark(num_cycles=3)
         assert r['errors'], (
             'Inactive-camera path must populate errors so the operator '
-            'sees why the benchmark produced no data')
+            'sees why the benchmark produced no data'
+        )
         assert any('not active' in e.lower() for e in r['errors'])
         # No samples means percentile fields stay at defaults.
         assert r['cycle_p50_s'] == 0.0
@@ -799,9 +837,9 @@ class TestRunGrabLifecycleBenchmark:
         """slow_threshold_s=0.0 forces every cycle to count as slow,
         verifying the slow-cycle accounting + 50-entry cap."""
         scope = self._scope_with_camera()
-        r = scope.diagnostics.run_grab_lifecycle_benchmark(num_cycles=4,
-                                                inter_cycle_delay_ms=0,
-                                                slow_threshold_s=0.0)
+        r = scope.diagnostics.run_grab_lifecycle_benchmark(
+            num_cycles=4, inter_cycle_delay_ms=0, slow_threshold_s=0.0
+        )
         assert r['slow_cycle_count'] == 4
         assert len(r['slow_cycles']) == 4
         for entry in r['slow_cycles']:
@@ -818,16 +856,18 @@ class TestRunGrabLifecycleBenchmark:
         def _track(gain):
             gain_calls.append(gain)
             return original_set_gain(gain)
+
         scope.imaging.set_gain = _track
 
-        scope.diagnostics.run_grab_lifecycle_benchmark(num_cycles=4,
-                                            inter_cycle_delay_ms=0,
-                                            vary_settings=True)
+        scope.diagnostics.run_grab_lifecycle_benchmark(
+            num_cycles=4, inter_cycle_delay_ms=0, vary_settings=True
+        )
         # 4 in-loop calls + restore at end (if vary_settings AND original_gain)
         # The benchmark restores original gain after the loop, so total may be 5.
         in_loop = gain_calls[:4]
-        assert in_loop == [1.0, 4.0, 1.0, 4.0], \
+        assert in_loop == [1.0, 4.0, 1.0, 4.0], (
             f'vary_settings should alternate 1.0/4.0; got {in_loop}'
+        )
 
     def test_writes_json_artifact(self, tmp_path, monkeypatch):
         """Persists results to data/camera_timing/. Filename includes camera
@@ -835,13 +875,13 @@ class TestRunGrabLifecycleBenchmark:
         per data point."""
         import json
         import os
+
         scope = self._scope_with_camera()
-        r = scope.diagnostics.run_grab_lifecycle_benchmark(num_cycles=2,
-                                                inter_cycle_delay_ms=0)
-        assert r['written_to'] is not None, \
+        r = scope.diagnostics.run_grab_lifecycle_benchmark(num_cycles=2, inter_cycle_delay_ms=0)
+        assert r['written_to'] is not None, (
             f'JSON persistence path empty; errors: {r.get("errors")}'
-        assert os.path.exists(r['written_to']), \
-            f'Promised JSON not at {r["written_to"]}'
+        )
+        assert os.path.exists(r['written_to']), f'Promised JSON not at {r["written_to"]}'
         with open(r['written_to']) as f:
             persisted = json.load(f)
         assert persisted['num_cycles'] == 2
@@ -868,6 +908,7 @@ class TestScopeCapabilities:
     def test_capabilities_built_at_init(self):
         scope = Lumascope(simulate=True)
         from modules.scope_capabilities import ScopeCapabilities
+
         assert isinstance(scope.capabilities, ScopeCapabilities)
 
     def test_ls850t_default_sim_capabilities(self):
@@ -880,15 +921,19 @@ class TestScopeCapabilities:
         assert caps.has_turret is True
         assert len(caps.led_channels) == 6
         from modules.scope_capabilities import LED_MAX_MA
+
         assert caps.led_max_ma == LED_MAX_MA
 
     def test_ls850t_capabilities_has_turret(self):
         from drivers.simulated_motorboard import SimulatedMotorBoard
         from modules.scope_capabilities import ScopeCapabilities
+
         scope = Lumascope(simulate=True)
         scope._motion_driver = SimulatedMotorBoard(model='LS850T')
         scope.capabilities = ScopeCapabilities.from_drivers(
-            motion=scope._motion_driver, led=scope._led_driver, camera=scope._camera_driver,
+            motion=scope._motion_driver,
+            led=scope._led_driver,
+            camera=scope._camera_driver,
         )
         assert scope.capabilities.axes == ('X', 'Y', 'Z', 'T')
         assert scope.capabilities.has_turret is True
@@ -897,10 +942,13 @@ class TestScopeCapabilities:
     def test_z_only_sim_capabilities(self):
         """LS820 / LVC LS620-style Z-only scope."""
         from modules.scope_capabilities import ScopeCapabilities
+
         scope = Lumascope(simulate=True)
         scope._motion_driver.detect_present_axes = lambda: ['Z']
         scope.capabilities = ScopeCapabilities.from_drivers(
-            motion=scope._motion_driver, led=scope._led_driver, camera=scope._camera_driver,
+            motion=scope._motion_driver,
+            led=scope._led_driver,
+            camera=scope._camera_driver,
         )
         assert scope.capabilities.axes == ('Z',)
         assert scope.capabilities.has_focus is True
@@ -909,8 +957,11 @@ class TestScopeCapabilities:
 
     def test_null_motor_capabilities_empty_axes(self):
         from modules.scope_capabilities import ScopeCapabilities
+
         caps = ScopeCapabilities.from_drivers(
-            motion=NullMotionBoard(), led=NullLEDBoard(), camera=None,
+            motion=NullMotionBoard(),
+            led=NullLEDBoard(),
+            camera=None,
         )
         assert caps.axes == ()
         assert caps.has_focus is False
@@ -923,6 +974,7 @@ class TestScopeCapabilities:
         with the documented types. Callers treat empty as 'feature
         unknown' per Rule 8 corollary."""
         from modules.lumascope_api.runtime_state import RuntimeState
+
         scope_stub = object()
         rs = RuntimeState(scope_stub)
         assert rs.firmware_versions == {}
@@ -939,8 +991,11 @@ class TestScopeCapabilities:
         Unknown feature returns False, never raises."""
         from modules.scope_capabilities import ScopeCapabilities
         from drivers.simulated_motorboard import SimulatedMotorBoard
+
         caps = ScopeCapabilities.from_drivers(
-            motion=SimulatedMotorBoard(), led=NullLEDBoard(), camera=None,
+            motion=SimulatedMotorBoard(),
+            led=NullLEDBoard(),
+            camera=None,
         )
         # has_X fields
         assert caps.supports('focus') is caps.has_focus
@@ -957,8 +1012,11 @@ class TestScopeCapabilities:
         """Per B3 compat: NullLEDBoard reports 6 channels so Rule 8
         silent no-ops work on channels 0-5. Capabilities mirrors that."""
         from modules.scope_capabilities import ScopeCapabilities
+
         caps = ScopeCapabilities.from_drivers(
-            motion=NullMotionBoard(), led=NullLEDBoard(), camera=None,
+            motion=NullMotionBoard(),
+            led=NullLEDBoard(),
+            camera=None,
         )
         assert len(caps.led_channels) == 6
         assert caps.led_channels == (0, 1, 2, 3, 4, 5)
@@ -972,7 +1030,9 @@ class TestScopeCapabilities:
             _CH_TO_COLOR = {v: k for k, v in _COLOR_TO_CH.items()}
 
         caps = ScopeCapabilities.from_drivers(
-            motion=NullMotionBoard(), led=FourChannelLED(), camera=None,
+            motion=NullMotionBoard(),
+            led=FourChannelLED(),
+            camera=None,
         )
         assert caps.led_channels == (0, 1, 2, 3)
         assert set(caps.led_colors) == {'Blue', 'Green', 'Red', 'BF'}
@@ -981,6 +1041,7 @@ class TestScopeCapabilities:
         """The dataclass is frozen — any attempt to mutate a field
         raises FrozenInstanceError. This enforces the "snapshot" contract."""
         import dataclasses
+
         scope = Lumascope(simulate=True)
         with pytest.raises(dataclasses.FrozenInstanceError):
             scope.capabilities.axes = ('X',)  # type: ignore[misc]
@@ -1001,6 +1062,7 @@ class TestScopeCapabilities:
         remain live properties."""
         scope = Lumascope(simulate=True)
         from modules.scope_capabilities import ScopeCapabilities
+
         cap_fields = {f.name for f in dataclasses_fields(ScopeCapabilities)}
         assert 'motor_connected' not in cap_fields
         assert 'led_connected' not in cap_fields
@@ -1013,6 +1075,7 @@ class TestScopeCapabilities:
 def dataclasses_fields(cls):
     """Helper — imported late to keep the imports tidy."""
     import dataclasses as _dc
+
     return _dc.fields(cls)
 
 
@@ -1036,9 +1099,11 @@ class TestSetExposureTimeValueWarningSuppression:
 
     def _patch_logger(self, monkeypatch):
         from unittest.mock import MagicMock
+
         # Phase 4d relocated set_exposure_time's body to imaging.py; the
         # warning is now emitted via imaging.py's `logger` import.
         import modules.lumascope_api.imaging as imaging_mod
+
         mock = MagicMock()
         monkeypatch.setattr(imaging_mod, 'logger', mock)
         return mock
@@ -1049,9 +1114,9 @@ class TestSetExposureTimeValueWarningSuppression:
         scope.imaging.set_exposure_time(0.003)
         # Find the warning among any other logger calls
         warn_msgs = [str(c) for c in mock_logger.warning.call_args_list]
-        assert any('set_exposure_time(0.003ms)' in m and 'below' in m
-                   for m in warn_msgs), (
-            f'expected sub-0.005ms warning but got: {warn_msgs}')
+        assert any('set_exposure_time(0.003ms)' in m and 'below' in m for m in warn_msgs), (
+            f'expected sub-0.005ms warning but got: {warn_msgs}'
+        )
 
     def test_warning_suppressed_inside_context_manager(self, monkeypatch):
         mock_logger = self._patch_logger(monkeypatch)
@@ -1059,9 +1124,9 @@ class TestSetExposureTimeValueWarningSuppression:
         with scope.imaging.suppress_value_warnings():
             scope.imaging.set_exposure_time(0.003)
         warn_msgs = [str(c) for c in mock_logger.warning.call_args_list]
-        assert not any('set_exposure_time(0.003ms)' in m
-                       for m in warn_msgs), (
-            f'expected no sub-0.005ms warning inside context, got: {warn_msgs}')
+        assert not any('set_exposure_time(0.003ms)' in m for m in warn_msgs), (
+            f'expected no sub-0.005ms warning inside context, got: {warn_msgs}'
+        )
 
     def test_flag_restored_after_normal_exit(self):
         scope = Lumascope(simulate=True)
@@ -1097,4 +1162,5 @@ class TestSetExposureTimeValueWarningSuppression:
         scope.imaging.set_exposure_time(20.0)
         warn_msgs = [str(c) for c in mock_logger.warning.call_args_list]
         assert not any('very low' in m for m in warn_msgs), (
-            f'no sub-0.1ms warning expected, got: {warn_msgs}')
+            f'no sub-0.1ms warning expected, got: {warn_msgs}'
+        )

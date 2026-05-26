@@ -104,21 +104,25 @@ class DriverRegistry:
                 orders — `create(simulate=True)` only considers simulators
                 and `create(simulate=False)` only considers real drivers.
         """
+
         def decorator(cls):
             if name in self._entries:
                 existing = self._entries[name].cls.__name__
                 raise ValueError(
-                    f"{self._kind} driver name {name!r} already registered "
-                    f"to {existing}; cannot also register {cls.__name__}"
+                    f'{self._kind} driver name {name!r} already registered '
+                    f'to {existing}; cannot also register {cls.__name__}'
                 )
             self._entries[name] = _RegistryEntry(
-                cls=cls, priority=priority, is_simulator=is_simulator,
+                cls=cls,
+                priority=priority,
+                is_simulator=is_simulator,
             )
             logger.debug(
                 f'[registry] {self._kind}: registered {name!r} → '
                 f'{cls.__name__} (priority={priority}, sim={is_simulator})'
             )
             return cls
+
         return decorator
 
     def get(self, name: str) -> Type[Any]:
@@ -127,8 +131,7 @@ class DriverRegistry:
         if entry is None:
             available = sorted(self._entries.keys())
             raise ValueError(
-                f"No {self._kind} driver registered as {name!r}. "
-                f"Available: {available}"
+                f'No {self._kind} driver registered as {name!r}. Available: {available}'
             )
         return entry.cls
 
@@ -168,9 +171,9 @@ class DriverRegistry:
 
         if not candidates:
             raise ValueError(
-                f"{self._kind} registry has no "
-                f"{'simulator' if simulate else 'real'} drivers. "
-                f"Auto-create cannot proceed."
+                f'{self._kind} registry has no '
+                f'{"simulator" if simulate else "real"} drivers. '
+                f'Auto-create cannot proceed.'
             )
 
         # Try each candidate in priority order. Skip the null driver
@@ -288,9 +291,7 @@ class DriverRegistry:
         # No null driver registered — raise with the last real-driver error.
         if last_error is not None:
             raise last_error
-        raise ValueError(
-            f"{self._kind} registry has no real drivers and no null fallback."
-        )
+        raise ValueError(f'{self._kind} registry has no real drivers and no null fallback.')
 
     def registered_names(self) -> list[str]:
         """For tests and diagnostics."""

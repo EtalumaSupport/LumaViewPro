@@ -17,7 +17,6 @@ from lvp_logger import logger
 
 
 class VideoBuilder(ProtocolPostProcessor):
-
     def __init__(self, *args, **kwargs):
         super().__init__(
             post_function=PostFunction.VIDEO,
@@ -26,7 +25,6 @@ class VideoBuilder(ProtocolPostProcessor):
         )
         self._name = self.__class__.__name__
 
-    
     @staticmethod
     def _get_groups(df: pd.DataFrame) -> pd.DataFrame:
         return df.groupby(
@@ -40,19 +38,20 @@ class VideoBuilder(ProtocolPostProcessor):
                 'Tile',
                 'Custom Step',
                 'Raw',
-                *PostFunction.list_values()
+                *PostFunction.list_values(),
             ],
-            dropna=False
+            dropna=False,
         )
-
 
     def _generate_filename(self, df: pd.DataFrame, **kwargs) -> str:
         row0 = df.iloc[0]
-        objective_short_name = self._get_objective_short_name_if_has_turret(objective_id=row0['Objective'])
+        objective_short_name = self._get_objective_short_name_if_has_turret(
+            objective_id=row0['Objective']
+        )
 
         # Use custom root + step name if available
         custom_root = row0.get('Custom Root', '') if 'Custom Root' in row0 else ''
-        prefix = f"{custom_root}_{row0['Name']}" if custom_root not in (None, '') else row0['Name']
+        prefix = f'{custom_root}_{row0["Name"]}' if custom_root not in (None, '') else row0['Name']
         name = common_utils.generate_default_step_name(
             custom_name_prefix=prefix,
             well_label=row0['Well'],
@@ -65,9 +64,8 @@ class VideoBuilder(ProtocolPostProcessor):
             video=True,
         )
 
-        outfile = f"{name}.mp4"
+        outfile = f'{name}.mp4'
         return outfile
-    
 
     def _filter_ignored_types(self, df: pd.DataFrame) -> pd.DataFrame:
 
@@ -78,7 +76,6 @@ class VideoBuilder(ProtocolPostProcessor):
         df = df[df[PostFunction.HYPERSTACK.value] == False]
 
         return df
-    
 
     def _group_algorithm(
         self,
@@ -96,7 +93,6 @@ class VideoBuilder(ProtocolPostProcessor):
             total_groups=kwargs['total_groups'],
             current_group=kwargs['current_group'],
         )
-    
 
     @staticmethod
     def _add_record(
@@ -126,7 +122,6 @@ class VideoBuilder(ProtocolPostProcessor):
             **kwargs,
         )
 
-
     def _create_video(
         self,
         path: pathlib.Path,
@@ -138,27 +133,25 @@ class VideoBuilder(ProtocolPostProcessor):
         total_groups=1,
         current_group=1,
     ) -> bool:
-        
 
         def strip_filetype(filename: str):
             filename_og = filename
             filename_flipped = filename[::-1]
-            if "." in filename_flipped:
-                while filename_flipped[0] != ".":
+            if '.' in filename_flipped:
+                while filename_flipped[0] != '.':
                     filename_flipped = filename_flipped[1:]
                 filename_flipped = filename_flipped[1:]
                 return filename_flipped[::-1]
             else:
-                logger.error(f"Invalid filename {filename}")
+                logger.error(f'Invalid filename {filename}')
                 return
-            
+
         def get_frame_num(filename):
             filename = str(filename)
             stripped_filename = strip_filetype(filename)
             return stripped_filename[-4:]
 
-    
-        if "video_Frame" in str(df['Filepath'].values[0]):
+        if 'video_Frame' in str(df['Filepath'].values[0]):
             df['Frame Num'] = df['Filepath'].apply(get_frame_num)
             df = df.sort_values(by=['Frame Num'], ascending=True)
             enable_timestamp_overlay = False
@@ -171,21 +164,23 @@ class VideoBuilder(ProtocolPostProcessor):
         def _get_image_info() -> tuple:
             source_image_sample_filename = df['Filepath'].values[0]
             source_image_sample_filepath = path / source_image_sample_filename
-            source_image_sample = cv2.imread(str(source_image_sample_filepath), cv2.IMREAD_UNCHANGED)
+            source_image_sample = cv2.imread(
+                str(source_image_sample_filepath), cv2.IMREAD_UNCHANGED
+            )
             if source_image_sample is None:
-                raise ValueError(f"Failed to read sample image: {source_image_sample_filepath}")
+                raise ValueError(f'Failed to read sample image: {source_image_sample_filepath}')
             is_color = True if source_image_sample.ndim == 3 else False
-            
+
             if is_color:
                 frame_height, frame_width, _ = source_image_sample.shape
             else:
                 frame_height, frame_width = source_image_sample.shape
-            
+
             return (frame_height, frame_width), is_color
-        
+
         def _get_timestamp_str(val):
             frame_ts = val.to_pydatetime()
-            frame_ts_str = frame_ts.strftime("%Y-%m-%d %H:%M:%S")
+            frame_ts_str = frame_ts.strftime('%Y-%m-%d %H:%M:%S')
             return frame_ts_str
 
         (frame_height, frame_width), is_color = _get_image_info()
@@ -197,7 +192,7 @@ class VideoBuilder(ProtocolPostProcessor):
             include_timestamp_overlay=enable_timestamp_overlay,
         )
 
-        logger.info(f"[{self._name}] Writing video to {output_file_loc}")
+        logger.info(f'[{self._name}] Writing video to {output_file_loc}')
 
         # Progress bar percentage calculation
         end_percentage = (current_group / total_groups) * 100
@@ -211,7 +206,7 @@ class VideoBuilder(ProtocolPostProcessor):
             image_path = path / row['Filepath']
             image = cv2.imread(str(image_path), cv2.IMREAD_UNCHANGED)
             if image is None:
-                logger.error(f"[{self._name}] Failed to read image: {image_path}")
+                logger.error(f'[{self._name}] Failed to read image: {image_path}')
                 continue
 
             # cv2.imread returns BGR for 3-channel images regardless of source
@@ -232,7 +227,7 @@ class VideoBuilder(ProtocolPostProcessor):
 
         video.finish()
 
-        logger.debug(f"[{self._name}] - Complete")
+        logger.debug(f'[{self._name}] - Complete')
 
         return {
             'status': True,

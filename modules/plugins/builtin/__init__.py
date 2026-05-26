@@ -19,6 +19,7 @@ dispatch) keep working unchanged. The plugin registration is additive
 without touching the UI handlers, which is the contract Phase A
 needs to validate before retire-D9 starts.
 """
+
 from __future__ import annotations
 
 import logging
@@ -45,13 +46,10 @@ def register_builtins(ctx: Any) -> None:
 
     from modules.plugins.builtin import stitcher_plugin
 
-    for module, name in (
-        (stitcher_plugin, 'stitcher'),
-    ):
+    for module, name in ((stitcher_plugin, 'stitcher'),):
         try:
             module.register(ctx)
         except Exception as e:
             logger.warning(
-                f'[Plugins ] built-in {name} failed to register: '
-                f'{type(e).__name__}: {e}'
+                f'[Plugins ] built-in {name} failed to register: {type(e).__name__}: {e}'
             )

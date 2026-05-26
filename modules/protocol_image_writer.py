@@ -45,7 +45,7 @@ class ProtocolImageWriter:
     this class owns no mutable state of its own.
     """
 
-    LOGGER_NAME = "SequencedCaptureRunner"
+    LOGGER_NAME = 'SequencedCaptureRunner'
 
     def __init__(
         self,
@@ -81,13 +81,21 @@ class ProtocolImageWriter:
         # Allocated lazily on first matching save; re-allocated on shape/dtype change.
         # file_io_executor runs single-threaded, so reuse across saves is safe.
         self._convert_buf_12to16 = None  # PIW-5: 2D uint16, eliminates image.copy() in convert
-        self._false_color_buf = None     # 3D uint16 RGB, in-place destination for add_false_color
-        self._rgb_buf = None             # Retained for API compat; unused -- retire when callers drop it
+        self._false_color_buf = None  # 3D uint16 RGB, in-place destination for add_false_color
+        self._rgb_buf = None  # Retained for API compat; unused -- retire when callers drop it
         self._consecutive_capture_failures = 0
         self._MAX_CONSECUTIVE_CAPTURE_FAILURES = 3
 
-    def _record_dropped_capture(self, *, step, step_index, scan_count,
-                                capture_time, name, reason="capture_failed_queue_full"):
+    def _record_dropped_capture(
+        self,
+        *,
+        step,
+        step_index,
+        scan_count,
+        capture_time,
+        name,
+        reason='capture_failed_queue_full',
+    ):
         """F-2: log a dropped protocol capture in the execution record.
 
         Called when ``file_io_executor.protocol_put`` returns
@@ -100,7 +108,7 @@ class ProtocolImageWriter:
         try:
             self._execution_record.add_step(
                 capture_result_file_name=reason,
-                step_name=name if name else "unknown",
+                step_name=name if name else 'unknown',
                 step_index=step_index,
                 scan_count=scan_count,
                 timestamp=capture_time,
@@ -108,14 +116,15 @@ class ProtocolImageWriter:
                 duration_sec=0.0,
             )
         except Exception as ex:
-            logger.error(
-                f"[Protocol-Writer] Failed to record dropped capture: {ex}")
+            logger.error(f'[Protocol-Writer] Failed to record dropped capture: {ex}')
 
     def _get_convert_buf_12to16(self, array):
         """Get-or-allocate the 12->16 conversion buffer matching array's shape/dtype."""
-        if (self._convert_buf_12to16 is None
-                or self._convert_buf_12to16.shape != array.shape
-                or self._convert_buf_12to16.dtype != array.dtype):
+        if (
+            self._convert_buf_12to16 is None
+            or self._convert_buf_12to16.shape != array.shape
+            or self._convert_buf_12to16.dtype != array.dtype
+        ):
             self._convert_buf_12to16 = np.empty(array.shape, dtype=array.dtype)
         return self._convert_buf_12to16
 
@@ -126,9 +135,11 @@ class ProtocolImageWriter:
         (false_color_buf, rgb_buf). Re-allocated together on shape/dtype change.
         """
         target_shape = (array_2d.shape[0], array_2d.shape[1], 3)
-        if (self._false_color_buf is None
-                or self._false_color_buf.shape != target_shape
-                or self._false_color_buf.dtype != array_2d.dtype):
+        if (
+            self._false_color_buf is None
+            or self._false_color_buf.shape != target_shape
+            or self._false_color_buf.dtype != array_2d.dtype
+        ):
             self._false_color_buf = np.empty(target_shape, dtype=array_2d.dtype)
             self._rgb_buf = np.empty(target_shape, dtype=array_2d.dtype)
         return self._false_color_buf, self._rgb_buf
@@ -164,10 +175,9 @@ class ProtocolImageWriter:
         # Wraps capture body in try/finally — single row per capture invocation
         # captures duration + outcome + step identity, regardless of return path.
         # Disambiguates "real stall" vs "between-step pause" in the timeline.
-        _trace_enabled = (profile_trace is not None
-                          and profile_trace.ENABLE_PROFILE_TRACE)
+        _trace_enabled = profile_trace is not None and profile_trace.ENABLE_PROFILE_TRACE
         _proto_t0 = time.perf_counter() if _trace_enabled else None
-        _proto_outcome = "unknown"
+        _proto_outcome = 'unknown'
         # step is dict-like (supports .get) but not always a dict subclass —
         # smoke 1 showed isinstance(step, dict) returned False even though
         # step.get('Name', '?') works fine (the existing CAPTURE DIAG line
@@ -181,27 +191,29 @@ class ProtocolImageWriter:
             _proto_color = '?'
         if _trace_enabled:
             logger.info(
-                f"[PROTO STATE] capture_start step={_proto_step_name} "
-                f"color={_proto_color} curr_step={curr_step} "
-                f"scan_count={scan_count}"
+                f'[PROTO STATE] capture_start step={_proto_step_name} '
+                f'color={_proto_color} curr_step={curr_step} '
+                f'scan_count={scan_count}'
             )
 
         try:
-            is_video = step['Acquire'] == "video"
+            is_video = step['Acquire'] == 'video'
 
             # #610 diagnostic: trace camera settings decision at each capture
             _ag = step['Auto_Gain']
             _curr_gain = self._scope.imaging.get_gain()
             _curr_exp = self._scope.imaging.get_exposure_time()
             logger.debug(
-                f"[CAPTURE DIAG] step={step.get('Name','?')} color={step['Color']} "
-                f"Auto_Gain={_ag!r} (type={type(_ag).__name__}) "
-                f"step_gain={step['Gain']} step_exp={step['Exposure']} "
-                f"camera_gain={_curr_gain} camera_exp={_curr_exp}"
+                f'[CAPTURE DIAG] step={step.get("Name", "?")} color={step["Color"]} '
+                f'Auto_Gain={_ag!r} (type={type(_ag).__name__}) '
+                f'step_gain={step["Gain"]} step_exp={step["Exposure"]} '
+                f'camera_gain={_curr_gain} camera_exp={_curr_exp}'
             )
 
             if not step['Auto_Gain']:
-                logger.debug(f"[CAPTURE DIAG] Applying step camera settings: gain={step['Gain']}, exp={step['Exposure']}")
+                logger.debug(
+                    f'[CAPTURE DIAG] Applying step camera settings: gain={step["Gain"]}, exp={step["Exposure"]}'
+                )
                 # STALL-1 fix: removed the `with self._scope.imaging.update_camera_config():`
                 # wrapper that was here. update_camera_config() does StopGrabbing +
                 # StartGrabbing, which Pylon SDK only requires for buffer-geometry
@@ -232,20 +244,20 @@ class ProtocolImageWriter:
                 # max_duration seconds of convergence; the apply is
                 # therefore skipped to avoid restarting AG mid-grab.
                 logger.debug(
-                    f"[CAPTURE DIAG] Auto_Gain step: armed in scan_iterate "
-                    f"with target gain={step['Gain']}dB exp={step['Exposure']}ms; "
-                    f"convergence completed via _auto_gain_deadline wait"
+                    f'[CAPTURE DIAG] Auto_Gain step: armed in scan_iterate '
+                    f'with target gain={step["Gain"]}dB exp={step["Exposure"]}ms; '
+                    f'convergence completed via _auto_gain_deadline wait'
                 )
 
             # Objective short name for filename
             objective_short_name = None
             if self._scope.motion.has_turret():
-                obj_info = self._scope.get_objective_info(objective_id=step["Objective"])
+                obj_info = self._scope.get_objective_info(objective_id=step['Objective'])
                 if obj_info is not None:
                     objective_short_name = obj_info.get('short_name')
                 else:
                     logger.warning(
-                        f"[PROTOCOL] Turret available but no objective info for ID "
+                        f'[PROTOCOL] Turret available but no objective info for ID '
                         f"'{step['Objective']}' -- using None for filename"
                     )
 
@@ -256,7 +268,7 @@ class ProtocolImageWriter:
                 capture_root = ''
 
             if capture_root not in (None, ''):
-                combined_prefix = f"{capture_root}_{step['Name']}"
+                combined_prefix = f'{capture_root}_{step["Name"]}'
             else:
                 combined_prefix = step['Name']
 
@@ -269,7 +281,9 @@ class ProtocolImageWriter:
                     logger.debug(
                         '[%s] get_current_position(T) failed; turret '
                         'position omitted from filename: %s: %s',
-                        self.LOGGER_NAME, type(e).__name__, e,
+                        self.LOGGER_NAME,
+                        type(e).__name__,
+                        e,
                     )
 
             name = common_utils.generate_default_step_name(
@@ -291,13 +305,16 @@ class ProtocolImageWriter:
                     '[%s] sanitize_step_name failed for name=%r; using '
                     'unsanitized name, file save may fail if name contains '
                     'invalid path characters',
-                    self.LOGGER_NAME, name,
+                    self.LOGGER_NAME,
+                    name,
                 )
 
             # Illuminate
             if self._scope.led_connected:
                 self._led_on(color=step['Color'], illumination=step['Illumination'], block=True)
-                logger.info(f"[{self.LOGGER_NAME} ] scope.illumination.led_on({step['Color']}, {step['Illumination']})")
+                logger.info(
+                    f'[{self.LOGGER_NAME} ] scope.illumination.led_on({step["Color"]}, {step["Illumination"]})'
+                )
             else:
                 logger.warning('LED controller not available.')
 
@@ -323,40 +340,45 @@ class ProtocolImageWriter:
                     if video_result is None:
                         # Cancelled or zero frames — skip write
                         self._leds_off()
-                        _proto_outcome = "video_cancelled"
+                        _proto_outcome = 'video_cancelled'
                         return
 
                     self._leds_off()
 
                     _capture_time = datetime.datetime.now()
-                    _put_result = self._file_io_executor.protocol_put(IOTask(
-                        action=self.write_capture,
-                        kwargs={
-                            "is_video": is_video,
-                            "video_as_frames": video_as_frames,
-                            "video_result": video_result,
-                            "save_folder": save_folder,
-                            "use_color": use_color,
-                            "name": name,
-                            "output_format": output_format,
-                            "step": step,
-                            "captured_image": None,
-                            "step_index": curr_step,
-                            "scan_count": scan_count,
-                            "capture_time": _capture_time,
-                            "enable_image_saving": enable_image_saving,
-                            "separate_folder_per_channel": separate_folder_per_channel,
-                        },
-                        silent_on_failure=True,
-                    ))
+                    _put_result = self._file_io_executor.protocol_put(
+                        IOTask(
+                            action=self.write_capture,
+                            kwargs={
+                                'is_video': is_video,
+                                'video_as_frames': video_as_frames,
+                                'video_result': video_result,
+                                'save_folder': save_folder,
+                                'use_color': use_color,
+                                'name': name,
+                                'output_format': output_format,
+                                'step': step,
+                                'captured_image': None,
+                                'step_index': curr_step,
+                                'scan_count': scan_count,
+                                'capture_time': _capture_time,
+                                'enable_image_saving': enable_image_saving,
+                                'separate_folder_per_channel': separate_folder_per_channel,
+                            },
+                            silent_on_failure=True,
+                        )
+                    )
                     if _put_result is PROTOCOL_QUEUE_FULL:
                         self._record_dropped_capture(
-                            step=step, step_index=curr_step,
-                            scan_count=scan_count, capture_time=_capture_time,
-                            name=name)
-                        _proto_outcome = "video_dropped_queue_full"
+                            step=step,
+                            step_index=curr_step,
+                            scan_count=scan_count,
+                            capture_time=_capture_time,
+                            name=name,
+                        )
+                        _proto_outcome = 'video_dropped_queue_full'
                         return
-                    _proto_outcome = "video_success"
+                    _proto_outcome = 'video_success'
                     return  # Video: leds_off already called at line 181
 
                 else:
@@ -366,46 +388,59 @@ class ProtocolImageWriter:
                         all_ones_check=True,
                         timeout_s=1.0,
                         sum_count=sum_count,
-                        sum_delay_s=step["Exposure"] / 1000,
+                        sum_delay_s=step['Exposure'] / 1000,
                         sum_iteration_callback=sum_iteration_callback,
                     )
 
                     if captured_image is None:
                         self._consecutive_capture_failures += 1
-                        logger.error(f"[PROTOCOL] Capture failed for step {curr_step} ({step.get('Name', '?')}), scan {scan_count} -- camera inactive or frame drain failed (failure {self._consecutive_capture_failures}/{self._MAX_CONSECUTIVE_CAPTURE_FAILURES})")
+                        logger.error(
+                            f'[PROTOCOL] Capture failed for step {curr_step} ({step.get("Name", "?")}), scan {scan_count} -- camera inactive or frame drain failed (failure {self._consecutive_capture_failures}/{self._MAX_CONSECUTIVE_CAPTURE_FAILURES})'
+                        )
                         # Still record the step with "capture_failed" so the record isn't silently missing.
                         # If the file-IO queue is also full, fall back to recording directly (synchronously)
                         # so the failure isn't doubly hidden.
                         _failed_capture_time = datetime.datetime.now()
-                        _put_result = self._file_io_executor.protocol_put(IOTask(
-                            action=self.write_capture,
-                            kwargs={
-                                "step": step,
-                                "step_index": curr_step,
-                                "scan_count": scan_count,
-                                "capture_time": _failed_capture_time,
-                                "enable_image_saving": enable_image_saving,
-                                "separate_folder_per_channel": separate_folder_per_channel,
-                            },
-                            silent_on_failure=True,
-                        ))
+                        _put_result = self._file_io_executor.protocol_put(
+                            IOTask(
+                                action=self.write_capture,
+                                kwargs={
+                                    'step': step,
+                                    'step_index': curr_step,
+                                    'scan_count': scan_count,
+                                    'capture_time': _failed_capture_time,
+                                    'enable_image_saving': enable_image_saving,
+                                    'separate_folder_per_channel': separate_folder_per_channel,
+                                },
+                                silent_on_failure=True,
+                            )
+                        )
                         if _put_result is PROTOCOL_QUEUE_FULL:
                             self._record_dropped_capture(
-                                step=step, step_index=curr_step,
+                                step=step,
+                                step_index=curr_step,
                                 scan_count=scan_count,
                                 capture_time=_failed_capture_time,
-                                name=name)
+                                name=name,
+                            )
                         self._leds_off()
-                        if self._consecutive_capture_failures >= self._MAX_CONSECUTIVE_CAPTURE_FAILURES:
+                        if (
+                            self._consecutive_capture_failures
+                            >= self._MAX_CONSECUTIVE_CAPTURE_FAILURES
+                        ):
                             from modules.notification_center import notifications
-                            notifications.critical("Protocol", "Camera Failure",
-                                f"Camera failed {self._consecutive_capture_failures} consecutive captures. Aborting protocol.")
+
+                            notifications.critical(
+                                'Protocol',
+                                'Camera Failure',
+                                f'Camera failed {self._consecutive_capture_failures} consecutive captures. Aborting protocol.',
+                            )
                             self._abort_fn()
-                        _proto_outcome = "capture_failed"
+                        _proto_outcome = 'capture_failed'
                         return
 
                     self._consecutive_capture_failures = 0  # Reset on success
-                    logger.info(f"Protocol Image Captured: {name}")
+                    logger.info(f'Protocol Image Captured: {name}')
 
                     # DISPLAY-1: hold the captured image on screen for at
                     # least 500 ms so the user can see the saved frame
@@ -416,6 +451,7 @@ class ProtocolImageWriter:
                     # (early init / standalone tools) is fine.
                     try:
                         import modules.app_context as _app_ctx
+
                         ctx = _app_ctx.ctx
                         if ctx is not None and getattr(ctx, 'scope_display', None) is not None:
                             ctx.scope_display.hold_protocol_saved_image(captured_image)
@@ -423,73 +459,86 @@ class ProtocolImageWriter:
                         logger.debug(f'[PROTOCOL] hold_protocol_saved_image failed: {_e}')
 
                     _success_capture_time = datetime.datetime.now()
-                    _put_result = self._file_io_executor.protocol_put(IOTask(
-                        action=self.write_capture,
-                        kwargs={
-                            "save_folder": save_folder,
-                            "use_color": use_color,
-                            "name": name,
-                            "output_format": output_format,
-                            "step": step,
-                            "captured_image": captured_image,
-                            "step_index": curr_step,
-                            "scan_count": scan_count,
-                            "capture_time": _success_capture_time,
-                            "enable_image_saving": enable_image_saving,
-                            "separate_folder_per_channel": separate_folder_per_channel,
-                        },
-                        silent_on_failure=True,
-                    ))
+                    _put_result = self._file_io_executor.protocol_put(
+                        IOTask(
+                            action=self.write_capture,
+                            kwargs={
+                                'save_folder': save_folder,
+                                'use_color': use_color,
+                                'name': name,
+                                'output_format': output_format,
+                                'step': step,
+                                'captured_image': captured_image,
+                                'step_index': curr_step,
+                                'scan_count': scan_count,
+                                'capture_time': _success_capture_time,
+                                'enable_image_saving': enable_image_saving,
+                                'separate_folder_per_channel': separate_folder_per_channel,
+                            },
+                            silent_on_failure=True,
+                        )
+                    )
                     if _put_result is PROTOCOL_QUEUE_FULL:
                         self._record_dropped_capture(
-                            step=step, step_index=curr_step,
+                            step=step,
+                            step_index=curr_step,
                             scan_count=scan_count,
                             capture_time=_success_capture_time,
-                            name=name)
-                        _proto_outcome = "dropped_queue_full"
+                            name=name,
+                        )
+                        _proto_outcome = 'dropped_queue_full'
                         return
-                    _proto_outcome = "success"
+                    _proto_outcome = 'success'
 
             else:
                 _not_saving_capture_time = datetime.datetime.now()
-                _put_result = self._file_io_executor.protocol_put(IOTask(
-                    action=self.write_capture,
-                    kwargs={
-                        "step": step,
-                        "enable_image_saving": enable_image_saving,
-                        "separate_folder_per_channel": separate_folder_per_channel,
-                    },
-                    silent_on_failure=True,
-                ))
+                _put_result = self._file_io_executor.protocol_put(
+                    IOTask(
+                        action=self.write_capture,
+                        kwargs={
+                            'step': step,
+                            'enable_image_saving': enable_image_saving,
+                            'separate_folder_per_channel': separate_folder_per_channel,
+                        },
+                        silent_on_failure=True,
+                    )
+                )
                 if _put_result is PROTOCOL_QUEUE_FULL:
                     self._record_dropped_capture(
-                        step=step, step_index=curr_step,
+                        step=step,
+                        step_index=curr_step,
                         scan_count=scan_count,
                         capture_time=_not_saving_capture_time,
-                        name=name)
-                    _proto_outcome = "not_saving_dropped_queue_full"
+                        name=name,
+                    )
+                    _proto_outcome = 'not_saving_dropped_queue_full'
                 else:
-                    _proto_outcome = "not_saving"
+                    _proto_outcome = 'not_saving'
 
             if not keep_led_on:
                 self._leds_off()
         except Exception:
-            _proto_outcome = "exception"
+            _proto_outcome = 'exception'
             raise
         finally:
             if _trace_enabled and _proto_t0 is not None:
                 _proto_dt_ms = (time.perf_counter() - _proto_t0) * 1000.0
                 logger.info(
-                    f"[PROTO STATE] capture_end step={_proto_step_name} "
-                    f"outcome={_proto_outcome} dt_ms={_proto_dt_ms:.1f}"
+                    f'[PROTO STATE] capture_end step={_proto_step_name} '
+                    f'outcome={_proto_outcome} dt_ms={_proto_dt_ms:.1f}'
                 )
                 profile_trace.trace(
-                    "proto_state_trace.csv",
-                    "ts_ms,duration_ms,step_name,color,curr_step,"
-                    "scan_count,outcome",
-                    [int(time.time() * 1000), f"{_proto_dt_ms:.3f}",
-                     _proto_step_name, _proto_color, curr_step,
-                     scan_count, _proto_outcome],
+                    'proto_state_trace.csv',
+                    'ts_ms,duration_ms,step_name,color,curr_step,scan_count,outcome',
+                    [
+                        int(time.time() * 1000),
+                        f'{_proto_dt_ms:.3f}',
+                        _proto_step_name,
+                        _proto_color,
+                        curr_step,
+                        scan_count,
+                        _proto_outcome,
+                    ],
                 )
 
     def write_capture(
@@ -522,8 +571,12 @@ class ProtocolImageWriter:
                 ok, free_mb = common_utils.check_disk_space_ok(save_folder, 500)
                 if not ok:
                     from modules.notification_center import notifications
-                    notifications.critical("FileIO", "Disk Space Critical",
-                        f"Only {free_mb:.0f} MB free. Aborting protocol to prevent data loss.")
+
+                    notifications.critical(
+                        'FileIO',
+                        'Disk Space Critical',
+                        f'Only {free_mb:.0f} MB free. Aborting protocol to prevent data loss.',
+                    )
                     self._abort_fn()
                     return
             except Exception:
@@ -545,11 +598,13 @@ class ProtocolImageWriter:
 
             else:
                 if captured_image is None:
-                    logger.warning(f"[PROTOCOL] _write_capture: captured_image is None for step {step_index} ({step.get('Name', '?') if step else '?'}), scan {scan_count}, recording as capture_failed")
+                    logger.warning(
+                        f'[PROTOCOL] _write_capture: captured_image is None for step {step_index} ({step.get("Name", "?") if step else "?"}), scan {scan_count}, recording as capture_failed'
+                    )
                     if self._execution_record is not None:
                         self._execution_record.add_step(
-                            capture_result_file_name="capture_failed",
-                            step_name=name if name else "unknown",
+                            capture_result_file_name='capture_failed',
+                            step_name=name if name else 'unknown',
                             step_index=step_index,
                             scan_count=scan_count,
                             timestamp=capture_time,
@@ -563,12 +618,16 @@ class ProtocolImageWriter:
                 # color + RGB buffers for any 2D single-channel capture
                 # (uint8 or uint16) when false-color is enabled -- the
                 # write_tiff gate accepts both bit depths now.
-                is_uint16_2d = (hasattr(captured_image, 'dtype')
-                                and captured_image.dtype == np.uint16
-                                and getattr(captured_image, 'ndim', 0) == 2)
-                is_2d_single_channel = (hasattr(captured_image, 'dtype')
-                                        and captured_image.dtype in (np.uint8, np.uint16)
-                                        and getattr(captured_image, 'ndim', 0) == 2)
+                is_uint16_2d = (
+                    hasattr(captured_image, 'dtype')
+                    and captured_image.dtype == np.uint16
+                    and getattr(captured_image, 'ndim', 0) == 2
+                )
+                is_2d_single_channel = (
+                    hasattr(captured_image, 'dtype')
+                    and captured_image.dtype in (np.uint8, np.uint16)
+                    and getattr(captured_image, 'ndim', 0) == 2
+                )
                 out_12to16 = self._get_convert_buf_12to16(captured_image) if is_uint16_2d else None
                 if self._false_color_16bit and is_2d_single_channel:
                     false_color_buf, rgb_buf = self._get_false_color_bufs(captured_image)
@@ -585,7 +644,7 @@ class ProtocolImageWriter:
                     # slip past load-time validation (#636). Plain
                     # filename when no file exists; numeric suffix only
                     # on actual collision.
-                    tail_id_mode="if_collision",
+                    tail_id_mode='if_collision',
                     output_format=output_format,
                     true_color=step['Color'],
                     x=step['X'],
@@ -598,16 +657,16 @@ class ProtocolImageWriter:
                 )
 
             if capture_result is None:
-                capture_result_filepath_name = "unsaved"
+                capture_result_filepath_name = 'unsaved'
             elif isinstance(capture_result, dict):
                 capture_result_filepath_name = capture_result['metadata']['file_loc']
             elif separate_folder_per_channel:
-                capture_result_filepath_name = pathlib.Path(step["Color"]) / capture_result.name
+                capture_result_filepath_name = pathlib.Path(step['Color']) / capture_result.name
             else:
                 capture_result_filepath_name = capture_result.name
 
         else:
-            capture_result_filepath_name = "unsaved"
+            capture_result_filepath_name = 'unsaved'
 
         if self._execution_record is not None:
             try:
@@ -618,8 +677,10 @@ class ProtocolImageWriter:
                     scan_count=scan_count,
                     timestamp=capture_time,
                     frame_count=captured_frames if is_video else 1,
-                    duration_sec=duration_sec if is_video else 0.0
+                    duration_sec=duration_sec if is_video else 0.0,
                 )
-                logger.info(f"Protocol-Writer] Added step to protocol execution record")
+                logger.info(f'Protocol-Writer] Added step to protocol execution record')
             except Exception as ex:
-                logger.error(f"[Protocol-Writer] Failed to add step to protocol execution record: {ex}")
+                logger.error(
+                    f'[Protocol-Writer] Failed to add step to protocol execution record: {ex}'
+                )

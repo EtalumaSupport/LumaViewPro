@@ -7,6 +7,7 @@ frame-listener infrastructure.
   (driver pump fires real callbacks at exposure rate), plus the
   ctx.plugins.live_processing namespace fan-out path.
 """
+
 import threading
 import time
 from unittest.mock import MagicMock, patch
@@ -46,8 +47,10 @@ def test_in_budget_handler_does_not_count_toward_drop():
 def test_over_budget_increments_consecutive_counter():
     """Slow handler increments the over-budget counter each call."""
     imaging = _make_imaging_stub()
+
     def slow(*args):
         time.sleep((HANDLER_BUDGET_MS + 5) / 1000.0)
+
     w = _BudgetedHandler(imaging, slow, name='slow')
     w(None, None, None)
     w(None, None, None)
@@ -77,8 +80,10 @@ def test_one_in_budget_call_resets_counter():
 def test_drop_at_K_consecutive_over_budget():
     """K consecutive over-budget hits triggers auto-remove + notification."""
     imaging = _make_imaging_stub()
+
     def slow(*args):
         time.sleep((HANDLER_BUDGET_MS + 5) / 1000.0)
+
     w = _BudgetedHandler(imaging, slow, name='slow-plugin')
     with patch('modules.lumascope_api.imaging.notifications') as mock_notify:
         for _ in range(HANDLER_DROP_K):
@@ -100,8 +105,10 @@ def test_handler_exception_does_not_count_toward_budget():
     accumulate the counter to K and silently drop the plugin.
     """
     imaging = _make_imaging_stub()
+
     def raises(*args):
-        raise RuntimeError("boom")
+        raise RuntimeError('boom')
+
     w = _BudgetedHandler(imaging, raises, name='raises')
     for _ in range(5):
         w(None, None, None)
@@ -139,6 +146,7 @@ def _make_simulated_scope():
     tens-of-ms range even when waiting for K=30 callbacks.
     """
     from modules.lumascope_api._lumascope import Lumascope
+
     scope = Lumascope(simulate=True)
     scope.imaging.set_exposure_time(1.0)
     return scope
@@ -171,7 +179,7 @@ def test_integration_basic_fanout_via_simulated_camera():
     _start_sim_pump(scope)
     try:
         assert done.wait(timeout=2.0), (
-            f"listener did not receive 5 frames within 2s; got {len(received)}"
+            f'listener did not receive 5 frames within 2s; got {len(received)}'
         )
     finally:
         scope.imaging.remove_frame_listener(listener)
@@ -182,6 +190,7 @@ def test_integration_basic_fanout_via_simulated_camera():
     # Payload shape: image is a numpy array, ts is a datetime.
     import datetime
     import numpy as np
+
     assert isinstance(received[0][0], np.ndarray)
     assert isinstance(received[0][1], datetime.datetime)
 
@@ -201,9 +210,11 @@ def test_integration_drop_policy_via_simulated_camera():
 
     # Monkey-patch _remove_wrapper so we can observe the drop event.
     original_remove = scope.imaging._remove_wrapper
+
     def observing_remove(wrapper):
         original_remove(wrapper)
         removed.set()
+
     scope.imaging._remove_wrapper = observing_remove  # type: ignore[method-assign]
 
     scope.imaging.add_frame_listener(slow_listener, name='slow_integration')
@@ -212,8 +223,8 @@ def test_integration_drop_policy_via_simulated_camera():
         # K=30 over-budget hits at ~slow_ms each = ~slow_ms * K wall-clock
         # plus pump scheduling overhead. 5s budget is generous.
         assert removed.wait(timeout=5.0), (
-            f"slow listener was not auto-removed within 5s; "
-            f"call_count={call_count[0]} (expected at least {HANDLER_DROP_K})"
+            f'slow listener was not auto-removed within 5s; '
+            f'call_count={call_count[0]} (expected at least {HANDLER_DROP_K})'
         )
         assert call_count[0] >= HANDLER_DROP_K
     finally:
@@ -246,7 +257,7 @@ def test_integration_concurrent_register_unregister():
     t1.join(timeout=5.0)
     t2.join(timeout=5.0)
 
-    assert not errors, f"concurrent register/unregister raised: {errors}"
+    assert not errors, f'concurrent register/unregister raised: {errors}'
     # All listeners registered + unregistered cleanly.
     assert scope.imaging._frame_listener_wrappers == {}
 
@@ -257,6 +268,7 @@ def test_integration_plugin_namespace_fanout_via_simulated_camera():
     fires the handler. Tests the end-to-end registration -> driver fan-out
     path that intern-led live_processing plugins will exercise."""
     from modules.plugins import PluginRegistry, PluginSpec
+
     scope = _make_simulated_scope()
     registry = PluginRegistry()
     registry.live_processing.bind_scope(scope)
@@ -279,7 +291,7 @@ def test_integration_plugin_namespace_fanout_via_simulated_camera():
     _start_sim_pump(scope)
     try:
         assert done.wait(timeout=2.0), (
-            f"plugin handler did not receive 3 frames; got {len(received)}"
+            f'plugin handler did not receive 3 frames; got {len(received)}'
         )
     finally:
         registry.live_processing.unregister('ns_fanout_demo')
@@ -288,3 +300,65 @@ def test_integration_plugin_namespace_fanout_via_simulated_camera():
     # After unregister, the handler is gone from the underlying wrapper
     # registry (one canonical source-of-truth per Rule 35).
     assert handler not in scope.imaging._frame_listener_wrappers
+
+
+def test_add_frame_listener_notifies_user_on_driver_registration_failure(monkeypatch):
+    """When the driver rejects register_frame_callback, add_frame_listener
+    must surface the failure via notifications.warning (Rule 14).
+
+    Pre-fix, the except handler logged + rolled back the dict entry but
+    fired no user-facing notification -- a plugin's frame handler would
+    silently never receive frames, with no signal to the user that the
+    registration failed. AUDIT_SILENT_FAIL_AST_2026-05-23 flagged this
+    as the one confirmed Class B Rule 14 violation in the listener
+    cluster.
+    """
+    from modules.lumascope_api import imaging as imaging_mod
+
+    scope = _make_simulated_scope()
+
+    # Force the driver-side registration to fail.
+    def boom(*_a, **_kw):
+        raise RuntimeError('synthetic driver rejection for test')
+
+    monkeypatch.setattr(scope._camera_driver, 'register_frame_callback', boom)
+
+    captured = []
+
+    class _RecordingNotifier:
+        def warning(self, category, title, message, **kw):
+            captured.append((category, title, message))
+
+        def info(self, *_a, **_kw):
+            pass
+
+        def error(self, *_a, **_kw):
+            pass
+
+        def critical(self, *_a, **_kw):
+            pass
+
+    monkeypatch.setattr(imaging_mod, 'notifications', _RecordingNotifier())
+
+    def handler(_image, _ts, _chunks):
+        pass
+
+    scope.imaging.add_frame_listener(handler, name='rejected_listener')
+
+    assert len(captured) == 1, (
+        f'add_frame_listener must fire exactly one notifications.warning '
+        f'when the driver rejects registration. Captured: {captured}'
+    )
+    category, title, message = captured[0]
+    assert category == 'Frame Listener', (
+        f"Notification category must be 'Frame Listener'; got {category!r}"
+    )
+    assert 'rejected_listener' in title, (
+        f'Notification title must name the listener so the user can correlate '
+        f'with their registration call; got title={title!r}'
+    )
+    # The dict rollback must still happen -- a future register attempt
+    # for the same handler must not see the stale wrapper entry.
+    assert handler not in scope.imaging._frame_listener_wrappers, (
+        'Failed registration must roll back the dict so a retry can fire.'
+    )

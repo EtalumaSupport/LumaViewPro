@@ -77,6 +77,7 @@ import modules.kivy_utils as _kivy_utils
 # Tests
 # ---------------------------------------------------------------------------
 
+
 class TestHeadlessImports:
     """Verify modules/ imports don't load Kivy."""
 
@@ -95,8 +96,8 @@ class TestHeadlessImports:
         # Verify no kivy module is in sys.modules
         kivy_loaded = [name for name in sys.modules if name == 'kivy' or name.startswith('kivy.')]
         assert not kivy_loaded, (
-            f"Kivy modules unexpectedly loaded by protocol chain: {kivy_loaded}. "
-            "This violates Rule 15 (executors must be GUI-agnostic)."
+            f'Kivy modules unexpectedly loaded by protocol chain: {kivy_loaded}. '
+            'This violates Rule 15 (executors must be GUI-agnostic).'
         )
 
     def test_schedule_ui_falls_back_to_direct_invocation(self):
@@ -110,7 +111,7 @@ class TestHeadlessImports:
             called.append(dt)
 
         schedule_ui(my_func)
-        assert called == [0], "schedule_ui should have invoked func directly with dt=0"
+        assert called == [0], 'schedule_ui should have invoked func directly with dt=0'
 
     def test_schedule_ui_with_dispatcher(self):
         """When dispatcher is set, schedule_ui goes through it."""
@@ -121,8 +122,10 @@ class TestHeadlessImports:
 
         _kivy_utils.set_ui_dispatcher(fake_dispatcher)
         try:
+
             def my_func(dt):
                 pass
+
             schedule_ui(my_func, timeout=0.5)
             assert len(calls) == 1
             assert calls[0][0] is my_func
@@ -136,8 +139,9 @@ class TestHeadlessProtocolExecution:
 
     def _make_executors(self):
         from modules.protocol_thread import ProtocolThread
+
         names = ['io', 'file_io', 'camera', 'autofocus']
-        execs = {n: SequentialIOExecutor(name=f"HEADLESS_{n.upper()}") for n in names}
+        execs = {n: SequentialIOExecutor(name=f'HEADLESS_{n.upper()}') for n in names}
         for e in execs.values():
             e.start()
         pt = ProtocolThread()
@@ -159,40 +163,44 @@ class TestHeadlessProtocolExecution:
         """Build a minimal single-step protocol."""
         import pandas as pd
 
-        TILING_CONFIGS = pathlib.Path(__file__).parent.parent / "data" / "tiling.json"
+        TILING_CONFIGS = pathlib.Path(__file__).parent.parent / 'data' / 'tiling.json'
 
-        rows = [{
-            'Name': 'A1_BF',
-            'X': 10.0, 'Y': 20.0, 'Z': 5000.0,
-            'Auto_Focus': False,
-            'Color': 'BF',
-            'False_Color': False,
-            'Illumination': 100.0,
-            'Gain': 1.0,
-            'Auto_Gain': False,
-            'Exposure': 10.0,
-            'Sum': 1,
-            'Objective': '10x Oly',
-            'Well': 'A1',
-            'Tile': '',
-            'Z-Slice': 0,
-            'Custom Step': True,
-            'Tile Group ID': 0,
-            'Z-Stack Group ID': 0,
-            'Acquire': 'image',
-            'Video Config': {'duration': 1, 'fps': 5},
-            'Stim_Config': {},
-            'Step Index': 0,
-        }]
+        rows = [
+            {
+                'Name': 'A1_BF',
+                'X': 10.0,
+                'Y': 20.0,
+                'Z': 5000.0,
+                'Auto_Focus': False,
+                'Color': 'BF',
+                'False_Color': False,
+                'Illumination': 100.0,
+                'Gain': 1.0,
+                'Auto_Gain': False,
+                'Exposure': 10.0,
+                'Sum': 1,
+                'Objective': '10x Oly',
+                'Well': 'A1',
+                'Tile': '',
+                'Z-Slice': 0,
+                'Custom Step': True,
+                'Tile Group ID': 0,
+                'Z-Stack Group ID': 0,
+                'Acquire': 'image',
+                'Video Config': {'duration': 1, 'fps': 5},
+                'Stim_Config': {},
+                'Step Index': 0,
+            }
+        ]
         df = pd.DataFrame(rows)
         config = {
-            "version": Protocol.CURRENT_VERSION,
-            "steps": df,
-            "period": datetime.timedelta(minutes=1),
-            "duration": datetime.timedelta(hours=1),
-            "labware_id": "6 well microplate",
-            "capture_root": "",
-            "tiling": "1x1",
+            'version': Protocol.CURRENT_VERSION,
+            'steps': df,
+            'period': datetime.timedelta(minutes=1),
+            'duration': datetime.timedelta(hours=1),
+            'labware_id': '6 well microplate',
+            'capture_root': '',
+            'tiling': '1x1',
         }
         return Protocol(tiling_configs_file_loc=TILING_CONFIGS, config=config)
 
@@ -273,19 +281,25 @@ class TestHeadlessProtocolExecution:
                 leds_state_at_end='off',
                 enable_image_saving=False,
                 initial_autofocus_states={
-                    'BF': False, 'PC': False, 'DF': False,
-                    'Red': False, 'Green': False, 'Blue': False, 'Lumi': False,
+                    'BF': False,
+                    'PC': False,
+                    'DF': False,
+                    'Red': False,
+                    'Green': False,
+                    'Blue': False,
+                    'Lumi': False,
                 },
             )
 
-            assert done.wait(timeout=30), "Protocol did not complete within timeout"
+            assert done.wait(timeout=30), 'Protocol did not complete within timeout'
 
             # Check Kivy was never loaded during the protocol run
-            kivy_loaded = [name for name in sys.modules
-                           if name == 'kivy' or name.startswith('kivy.')]
+            kivy_loaded = [
+                name for name in sys.modules if name == 'kivy' or name.startswith('kivy.')
+            ]
             assert not kivy_loaded, (
-                f"Kivy modules loaded during protocol run: {kivy_loaded}. "
-                "Rule 15 violation: executors must be GUI-agnostic."
+                f'Kivy modules loaded during protocol run: {kivy_loaded}. '
+                'Rule 15 violation: executors must be GUI-agnostic.'
             )
         finally:
             try:

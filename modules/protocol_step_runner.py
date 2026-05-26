@@ -72,7 +72,7 @@ class ProtocolStepRunner:
 
                 collected = gc.collect()
                 if collected > 0:
-                    logger.info(f"[Scan Watchdog] GC collected {collected} objects")
+                    logger.info(f'[Scan Watchdog] GC collected {collected} objects')
 
             # Run one step iteration. Exceptions propagate to the
             # outer run loop for fatal/transient classification.
@@ -102,10 +102,12 @@ class ProtocolStepRunner:
 
         if p._af_future is not None and p._af_future.done():
             _cam_gain = p._scope.imaging.get_gain() if p._scope.imaging.camera_active else '?'
-            _cam_exp = p._scope.imaging.get_exposure_time() if p._scope.imaging.camera_active else '?'
+            _cam_exp = (
+                p._scope.imaging.get_exposure_time() if p._scope.imaging.camera_active else '?'
+            )
             logger.info(
-                f"[SCAN DIAG] AF gate passed: future.done()=True "
-                f"camera_gain={_cam_gain} camera_exp={_cam_exp} step={p._curr_step}"
+                f'[SCAN DIAG] AF gate passed: future.done()=True '
+                f'camera_gain={_cam_gain} camera_exp={_cam_exp} step={p._curr_step}'
             )
 
         remaining_scans = p.remaining_scans()
@@ -117,10 +119,13 @@ class ProtocolStepRunner:
         # Check motion timeout
         if p._scope.motion.is_moving():
             if time.monotonic() - p._step_start_time > p.STEP_TIMEOUT_SECONDS:
-                timeout_msg = f"Step {p._curr_step} timed out waiting for motion ({p.STEP_TIMEOUT_SECONDS}s)."
-                logger.error(f"[PROTOCOL] {timeout_msg} -- transitioning to ERROR state")
+                timeout_msg = (
+                    f'Step {p._curr_step} timed out waiting for motion ({p.STEP_TIMEOUT_SECONDS}s).'
+                )
+                logger.error(f'[PROTOCOL] {timeout_msg} -- transitioning to ERROR state')
                 from modules.notification_center import notifications
-                notifications.error("Protocol", "Protocol Error -- Motion Timeout", timeout_msg)
+
+                notifications.error('Protocol', 'Protocol Error -- Motion Timeout', timeout_msg)
                 p._scan_in_progress.clear()
                 try:
                     p._set_state(ProtocolState.ERROR)
@@ -146,7 +151,7 @@ class ProtocolStepRunner:
         # --- Pipeline timing instrumentation ---
         _t_settle = time.monotonic()
         _settle_wait_ms = (_t_settle - p._step_start_time) * 1000
-        logger.debug(f"[TIMING] Step {p._curr_step} motion settle: {_settle_wait_ms:.1f}ms")
+        logger.debug(f'[TIMING] Step {p._curr_step} motion settle: {_settle_wait_ms:.1f}ms')
 
         # Camera settings (gain, exposure) and LED_ON are handled by
         # protocol_image_writer.capture() right before the actual frame grab.
@@ -164,7 +169,9 @@ class ProtocolStepRunner:
                 if p._update_z_pos_from_autofocus:
                     new_z_pos = p._autofocus_runner.best_focus_position()
                     p._protocol.modify_step_z_height(step_idx=p._curr_step, z=new_z_pos)
-                logger.info(f'[Capture   ] Skipping AF on {step["Color"]} -- using BF result Z={p._autofocus_runner.best_focus_position()}')
+                logger.info(
+                    f'[Capture   ] Skipping AF on {step["Color"]} -- using BF result Z={p._autofocus_runner.best_focus_position()}'
+                )
                 step = dict(step)
                 step['Auto_Focus'] = False
 
@@ -203,25 +210,41 @@ class ProtocolStepRunner:
         # overexposed / unconverged images. Arm once per step
         # (_auto_gain_armed_step is a one-shot keyed on _curr_step).
         if step['Auto_Gain'] and p._auto_gain_armed_step != p._curr_step:
-            fut = p._io_executor.protocol_put(IOTask(
-                action=p._scope.imaging.apply_layer_camera_settings,
-                kwargs={
-                    'gain_db': step['Gain'],
-                    'exposure_ms': step['Exposure'],
-                    'auto_gain': True,
-                    'auto_gain_settings': p._autogain_settings,
-                }
-            ), return_future=True)
+            fut = p._io_executor.protocol_put(
+                IOTask(
+                    action=p._scope.imaging.apply_layer_camera_settings,
+                    kwargs={
+                        'gain_db': step['Gain'],
+                        'exposure_ms': step['Exposure'],
+                        'auto_gain': True,
+                        'auto_gain_settings': p._autogain_settings,
+                    },
+                ),
+                return_future=True,
+            )
             if fut:
                 fut.result(timeout=30)
             p._auto_gain_armed_step = p._curr_step
-
-        # Check if autogain has time-finished
-        if step['Auto_Gain'] and time.monotonic() < p._auto_gain_deadline:
+            # Set the convergence deadline AT ARM TIME, one-shot per
+            # step. Pre-fix the deadline was initialized once at scan-
+            # start (before AF, which takes ~10s), so the gate below
+            # was already past-deadline on the first AG step and fell
+            # through immediately -- capture grabbed ~70-120ms after
+            # arm with no real convergence window (issue #673). Setting
+            # it here + returning lets subsequent scan_iterate ticks
+            # poll the gate; they return early until the deadline
+            # expires, giving AG the full max_duration to converge.
+            p._auto_gain_deadline = (
+                time.monotonic() + p._autogain_settings['max_duration'].total_seconds()
+            )
             return
 
-        # Reset autogain deadline for next step
-        p._auto_gain_deadline = time.monotonic() + p._autogain_settings['max_duration'].total_seconds()
+        # Wait for autogain convergence window. Subsequent ticks after
+        # the arm-tick re-enter here and return-early until the deadline
+        # set above expires; first non-returning tick falls through to
+        # capture.
+        if step['Auto_Gain'] and time.monotonic() < p._auto_gain_deadline:
+            return
 
         # Update Z position with autofocus results
         if step['Auto_Focus'] and p._update_z_pos_from_autofocus:
@@ -234,14 +257,14 @@ class ProtocolStepRunner:
         if p._callbacks.autofocus_complete:
             _schedule_ui(lambda dt: p._callbacks.autofocus_complete(), 0)
 
-        if step["Auto_Focus"]:
+        if step['Auto_Focus']:
             p._autofocus_count += 1
 
         # --- Capture ---
         if remaining_scans > 0:
             if not p._disable_saving_artifacts:
                 if p._separate_folder_per_channel:
-                    save_folder = p._run_dir / step["Color"]
+                    save_folder = p._run_dir / step['Color']
                     save_folder.mkdir(parents=True, exist_ok=True)
                 else:
                     save_folder = p._run_dir
@@ -273,7 +296,7 @@ class ProtocolStepRunner:
                     output_format=output_format,
                     protocol=p._protocol,
                     scan_count=p._scan_count,
-                    sum_count=step["Sum"],
+                    sum_count=step['Sum'],
                     enable_image_saving=p._enable_image_saving,
                     image_capture_config=p._image_capture_config,
                     autogain_settings=p._autogain_settings,
@@ -283,7 +306,9 @@ class ProtocolStepRunner:
                     keep_led_on=_keep_led,
                 )
                 _t_capture_done = time.monotonic()
-                logger.debug(f"[TIMING] Step {p._curr_step} capture+save: {(_t_capture_done - _t_capture_start)*1000:.1f}ms")
+                logger.debug(
+                    f'[TIMING] Step {p._curr_step} capture+save: {(_t_capture_done - _t_capture_start) * 1000:.1f}ms'
+                )
 
             else:
                 # No saving — turn off LEDs manually (capture normally does this)
@@ -291,13 +316,16 @@ class ProtocolStepRunner:
 
         # Disable autogain when moving between steps
         if step['Auto_Gain']:
-            fut = p._io_executor.protocol_put(IOTask(
-                action=p._scope.imaging.set_auto_gain,
-                kwargs={
-                    "state": False,
-                    "settings": p._autogain_settings,
-                }
-            ), return_future=True)
+            fut = p._io_executor.protocol_put(
+                IOTask(
+                    action=p._scope.imaging.set_auto_gain,
+                    kwargs={
+                        'state': False,
+                        'settings': p._autogain_settings,
+                    },
+                ),
+                return_future=True,
+            )
             if fut:
                 # 30s window: leaves headroom under Pylon USB3 stress where
                 # a single io_executor task can stretch past 5s without
@@ -305,7 +333,9 @@ class ProtocolStepRunner:
                 # below and restore_camera_state in protocol_cleanup.
                 fut.result(timeout=30)
 
-        logger.debug(f"[TIMING] Step {p._curr_step} total: {(time.monotonic() - p._step_start_time)*1000:.1f}ms")
+        logger.debug(
+            f'[TIMING] Step {p._curr_step} total: {(time.monotonic() - p._step_start_time) * 1000:.1f}ms'
+        )
 
         num_steps = p._protocol.num_steps()
         if p._curr_step < num_steps - 1:
@@ -367,10 +397,15 @@ class ProtocolStepRunner:
                 if p._callbacks.move_position:
                     _schedule_ui(lambda dt: p._callbacks.move_position('Z'), 0)
 
-    def _move_axis_through_io(self, axis: str, pos, *,
-                               wait_until_complete: bool = False,
-                               overshoot_enabled: bool = False,
-                               timeout: float = 60.0):
+    def _move_axis_through_io(
+        self,
+        axis: str,
+        pos,
+        *,
+        wait_until_complete: bool = False,
+        overshoot_enabled: bool = False,
+        timeout: float = 60.0,
+    ):
         """Submit a single-axis move to io_executor and wait for completion.
 
         Used by ``default_move`` and ``_grease_redist_w_pos`` to keep
@@ -430,8 +465,10 @@ class ProtocolStepRunner:
         # that needs the live z position.
         z_orig = p._scope.motion.get_current_position(axis=axis)
         self._move_axis_through_io(
-            axis, 0,
-            wait_until_complete=True, overshoot_enabled=True,
+            axis,
+            0,
+            wait_until_complete=True,
+            overshoot_enabled=True,
             timeout=120.0,
         )
 
@@ -439,8 +476,10 @@ class ProtocolStepRunner:
             _schedule_ui(lambda dt, a=axis: p._callbacks.move_position(a))
 
         self._move_axis_through_io(
-            axis, z_orig,
-            wait_until_complete=True, overshoot_enabled=True,
+            axis,
+            z_orig,
+            wait_until_complete=True,
+            overshoot_enabled=True,
             timeout=120.0,
         )
 
@@ -449,9 +488,11 @@ class ProtocolStepRunner:
 
         elapsed = time.monotonic() - _t_start
         if elapsed > 30:
-            logger.warning(f"[PROTOCOL] Grease redistribution took {elapsed:.1f}s (> 30s threshold)")
+            logger.warning(
+                f'[PROTOCOL] Grease redistribution took {elapsed:.1f}s (> 30s threshold)'
+            )
         else:
-            logger.debug(f"[PROTOCOL] Grease redistribution completed in {elapsed:.1f}s")
+            logger.debug(f'[PROTOCOL] Grease redistribution completed in {elapsed:.1f}s')
 
         p._grease_redistribution_event.set()
 
@@ -465,16 +506,16 @@ class ProtocolStepRunner:
         UI update is handled by the LED observer — no manual callback needed.
         """
         p = self._p
-        fut = p._io_executor.protocol_put(IOTask(
-            action=p._scope.illumination.leds_off
-        ), return_future=True)
+        fut = p._io_executor.protocol_put(
+            IOTask(action=p._scope.illumination.leds_off), return_future=True
+        )
         if fut:
             fut.result(timeout=30)
         else:
             try:
                 p._scope.illumination.leds_off()
             except Exception as ex:
-                logger.warning(f"[{p.LOGGER_NAME}] Direct leds_off fallback failed: {ex}")
+                logger.warning(f'[{p.LOGGER_NAME}] Direct leds_off fallback failed: {ex}')
         # LED observer handles UI sync — no manual callback
 
     def led_on(self, color: str, illumination: float, block: bool = True, force: bool = False):
@@ -486,15 +527,18 @@ class ProtocolStepRunner:
         if p._aborted.is_set() and not force:
             return
 
-        fut = p._io_executor.protocol_put(IOTask(
-            action=p._scope.illumination.led_on,
-            kwargs={
-                "channel": p._scope.illumination.color2ch(color),
-                "mA": illumination,
-                "block": block,
-                "owner": "protocol",
-            },
-        ), return_future=True)
+        fut = p._io_executor.protocol_put(
+            IOTask(
+                action=p._scope.illumination.led_on,
+                kwargs={
+                    'channel': p._scope.illumination.color2ch(color),
+                    'mA': illumination,
+                    'block': block,
+                    'owner': 'protocol',
+                },
+            ),
+            return_future=True,
+        )
         if fut:
             fut.result(timeout=30)
         # Sleep for 5 ms to ensure that LED properly turns on before next action

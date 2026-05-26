@@ -78,7 +78,7 @@ class DiagnosticsAPI:
 
         try:
             fs = self._scope._camera_driver.get_frame_size()
-            info['resolution'] = f"{fs.get('width', '?')}x{fs.get('height', '?')}"
+            info['resolution'] = f'{fs.get("width", "?")}x{fs.get("height", "?")}'
             info['frame_size'] = fs
         except Exception as e:
             info['resolution'] = f'Error: {e}'
@@ -151,8 +151,7 @@ class DiagnosticsAPI:
         for i in range(int(num_frames)):
             if progress_cb and i % 250 == 0:
                 try:
-                    progress_cb(int(100 * i / max(num_frames, 1)),
-                                f"Frame {i}/{num_frames}")
+                    progress_cb(int(100 * i / max(num_frames, 1)), f'Frame {i}/{num_frames}')
                 except Exception:
                     pass
             try:
@@ -169,42 +168,40 @@ class DiagnosticsAPI:
             except Exception as e:
                 results['num_frames_error'] += 1
                 if len(results['errors']) < 20:
-                    results['errors'].append(
-                        f"Frame {i}: {type(e).__name__}: {e}")
+                    results['errors'].append(f'Frame {i}: {type(e).__name__}: {e}')
 
             if time.monotonic() - start > timeout_s:
-                results['errors'].append(
-                    f"Timeout at frame {i} after {timeout_s}s")
+                results['errors'].append(f'Timeout at frame {i} after {timeout_s}s')
                 results['passed'] = False
                 break
 
         elapsed = time.monotonic() - start
         results['elapsed_seconds'] = round(elapsed, 2)
         if elapsed > 0:
-            results['mb_per_second'] = round(
-                results['total_bytes'] / (1024 * 1024) / elapsed, 2)
-            results['fps_actual'] = round(
-                results['num_frames_received'] / elapsed, 1)
+            results['mb_per_second'] = round(results['total_bytes'] / (1024 * 1024) / elapsed, 2)
+            results['fps_actual'] = round(results['num_frames_received'] / elapsed, 1)
         results['frame_sizes'] = sorted(frame_size_set)
 
         if results['num_frames_none'] > 0:
             results['passed'] = False
             results['errors'].append(
-                f"{results['num_frames_none']} frames returned None -- "
-                f"possible USB disconnect or bandwidth issue")
+                f'{results["num_frames_none"]} frames returned None -- '
+                f'possible USB disconnect or bandwidth issue'
+            )
         if results['num_frames_error'] > 0:
             results['passed'] = False
         if len(frame_size_set) > 1:
             results['passed'] = False
             results['errors'].append(
-                f"Inconsistent frame sizes: {sorted(frame_size_set)} -- "
-                f"possible data corruption or config change during test")
+                f'Inconsistent frame sizes: {sorted(frame_size_set)} -- '
+                f'possible data corruption or config change during test'
+            )
 
         logger.info(
-            f"[SCOPE API ] run_camera_bandwidth_test: {results['num_frames_received']}/{num_frames} "
-            f"frames in {results['elapsed_seconds']}s "
-            f"({results['mb_per_second']} MB/s, {results['fps_actual']} fps), "
-            f"passed={results['passed']}"
+            f'[SCOPE API ] run_camera_bandwidth_test: {results["num_frames_received"]}/{num_frames} '
+            f'frames in {results["elapsed_seconds"]}s '
+            f'({results["mb_per_second"]} MB/s, {results["fps_actual"]} fps), '
+            f'passed={results["passed"]}'
         )
         return results
 
@@ -259,9 +256,15 @@ class DiagnosticsAPI:
             'slow_threshold_s': float(slow_threshold_s),
             'slow_cycle_count': 0,
             'slow_cycles': [],
-            'cycle_p50_s': 0.0, 'cycle_p95_s': 0.0, 'cycle_p99_s': 0.0,
-            'stop_p50_s': 0.0,  'stop_p95_s': 0.0,  'stop_p99_s': 0.0,
-            'start_p50_s': 0.0, 'start_p95_s': 0.0, 'start_p99_s': 0.0,
+            'cycle_p50_s': 0.0,
+            'cycle_p95_s': 0.0,
+            'cycle_p99_s': 0.0,
+            'stop_p50_s': 0.0,
+            'stop_p95_s': 0.0,
+            'stop_p99_s': 0.0,
+            'start_p50_s': 0.0,
+            'start_p95_s': 0.0,
+            'start_p99_s': 0.0,
             'total_elapsed_s': 0.0,
             'camera_model': None,
             'pylon_version': None,
@@ -289,8 +292,7 @@ class DiagnosticsAPI:
         for i in range(int(num_cycles)):
             if progress_cb and i % 10 == 0:
                 try:
-                    progress_cb(int(100 * i / max(num_cycles, 1)),
-                                f"Cycle {i}/{num_cycles}")
+                    progress_cb(int(100 * i / max(num_cycles, 1)), f'Cycle {i}/{num_cycles}')
                 except Exception:
                     pass
 
@@ -318,8 +320,7 @@ class DiagnosticsAPI:
                 self._scope._camera_driver.start_grabbing()
                 start_s = time.monotonic() - t1
             except Exception as e:
-                results['errors'].append(
-                    f"Cycle {i}: {type(e).__name__}: {e}")
+                results['errors'].append(f'Cycle {i}: {type(e).__name__}: {e}')
                 # Try to leave the camera grabbing for the next iteration;
                 # if it fails, the next stop_grabbing will surface it too.
                 continue
@@ -334,12 +335,14 @@ class DiagnosticsAPI:
                 # Cap the per-cycle log to keep the JSON small even on
                 # pathological runs (every cycle slow).
                 if len(results['slow_cycles']) < 50:
-                    results['slow_cycles'].append({
-                        'idx': i,
-                        'cycle_s': round(cycle_s, 4),
-                        'stop_s': round(stop_s, 4),
-                        'start_s': round(start_s, 4),
-                    })
+                    results['slow_cycles'].append(
+                        {
+                            'idx': i,
+                            'cycle_s': round(cycle_s, 4),
+                            'stop_s': round(stop_s, 4),
+                            'start_s': round(start_s, 4),
+                        }
+                    )
 
         results['total_elapsed_s'] = round(time.monotonic() - t_overall_start, 3)
 
@@ -350,8 +353,7 @@ class DiagnosticsAPI:
             if vary_settings and original_exposure is not None:
                 self._scope.imaging.set_exposure_time(float(original_exposure))
         except Exception as e:
-            results['errors'].append(
-                f"Restore settings failed: {type(e).__name__}: {e}")
+            results['errors'].append(f'Restore settings failed: {type(e).__name__}: {e}')
 
         def _pct(samples, q):
             if not samples:
@@ -361,9 +363,9 @@ class DiagnosticsAPI:
         results['cycle_p50_s'] = _pct(cycle_times, 50)
         results['cycle_p95_s'] = _pct(cycle_times, 95)
         results['cycle_p99_s'] = _pct(cycle_times, 99)
-        results['stop_p50_s']  = _pct(stop_times,  50)
-        results['stop_p95_s']  = _pct(stop_times,  95)
-        results['stop_p99_s']  = _pct(stop_times,  99)
+        results['stop_p50_s'] = _pct(stop_times, 50)
+        results['stop_p95_s'] = _pct(stop_times, 95)
+        results['stop_p99_s'] = _pct(stop_times, 99)
         results['start_p50_s'] = _pct(start_times, 50)
         results['start_p95_s'] = _pct(start_times, 95)
         results['start_p99_s'] = _pct(start_times, 99)
@@ -372,6 +374,7 @@ class DiagnosticsAPI:
         # so a sweep across delays produces one file per data point.
         try:
             import json
+
             model = results['camera_model'] or 'unknown_camera'
             sdk = results['pylon_version'] or 'unknown_sdk'
             safe_model = str(model).replace(' ', '_').replace('/', '_')
@@ -387,15 +390,14 @@ class DiagnosticsAPI:
                 json.dump(results, f, indent=2)
             results['written_to'] = str(out_path)
         except Exception as e:
-            results['errors'].append(
-                f"Persist failed: {type(e).__name__}: {e}")
+            results['errors'].append(f'Persist failed: {type(e).__name__}: {e}')
 
         logger.info(
-            f"[SCOPE API ] run_grab_lifecycle_benchmark: {num_cycles} cycles, "
-            f"delay={inter_cycle_delay_ms}ms, vary={vary_settings} -> "
-            f"cycle p50={results['cycle_p50_s']}s p95={results['cycle_p95_s']}s "
-            f"p99={results['cycle_p99_s']}s, slow={results['slow_cycle_count']} "
-            f"(>={slow_threshold_s}s), total={results['total_elapsed_s']}s"
+            f'[SCOPE API ] run_grab_lifecycle_benchmark: {num_cycles} cycles, '
+            f'delay={inter_cycle_delay_ms}ms, vary={vary_settings} -> '
+            f'cycle p50={results["cycle_p50_s"]}s p95={results["cycle_p95_s"]}s '
+            f'p99={results["cycle_p99_s"]}s, slow={results["slow_cycle_count"]} '
+            f'(>={slow_threshold_s}s), total={results["total_elapsed_s"]}s'
         )
         return results
 
@@ -487,6 +489,7 @@ class DiagnosticsAPI:
         # Host metadata
         import socket
         import platform as _platform
+
         host_versions = self._safe_pylon_versions()
         snapshot['host'] = {
             'os': self._human_os_version(),
@@ -498,17 +501,15 @@ class DiagnosticsAPI:
 
         now_utc = datetime.datetime.now(datetime.timezone.utc)
         end_iso = now_utc.isoformat()
-        start_iso = (now_utc - datetime.timedelta(
-            seconds=snapshot.get('duration_s_actual', duration_s)
-        )).isoformat()
+        start_iso = (
+            now_utc - datetime.timedelta(seconds=snapshot.get('duration_s_actual', duration_s))
+        ).isoformat()
         snapshot['timestamps'] = {'start_iso': start_iso, 'end_iso': end_iso}
 
         # Filter-by-load top-level keys (per v4 author request: easier
         # to grep across many files than parsing camera.firmware_version
         # nested)
-        snapshot['firmware_version'] = (
-            snapshot.get('camera', {}).get('firmware_version')
-        )
+        snapshot['firmware_version'] = snapshot.get('camera', {}).get('firmware_version')
 
         dltl_token = self._dltl_filename_token(snapshot.get('config', {}))
         snapshot['dltl_config'] = dltl_token
@@ -516,10 +517,8 @@ class DiagnosticsAPI:
         # JSON file write
         try:
             import json
-            out_dir = (
-                pathlib.Path(os.path.dirname(__file__)).parent
-                / 'data' / 'pylon_probe'
-            )
+
+            out_dir = pathlib.Path(os.path.dirname(__file__)).parent / 'data' / 'pylon_probe'
             out_dir.mkdir(parents=True, exist_ok=True)
 
             def _safe_token(v: str | None, fallback: str) -> str:
@@ -530,14 +529,10 @@ class DiagnosticsAPI:
                     s = s.replace(bad, '_')
                 return s
 
-            model_t = _safe_token(
-                snapshot.get('camera', {}).get('model_name'), 'unknown_model')
-            serial_t = _safe_token(
-                snapshot.get('camera', {}).get('serial'), 'unknown_serial')
+            model_t = _safe_token(snapshot.get('camera', {}).get('model_name'), 'unknown_model')
+            serial_t = _safe_token(snapshot.get('camera', {}).get('serial'), 'unknown_serial')
             fw_t = _safe_token(snapshot.get('firmware_version'), 'unknown_fw')
-            host_t = _safe_token(
-                snapshot['host']['hostname'], 'unknown_host'
-            ).replace('.', '_')
+            host_t = _safe_token(snapshot['host']['hostname'], 'unknown_host').replace('.', '_')
             ts_t = now_utc.strftime('%Y%m%dT%H%M%SZ')
 
             fname = f'{model_t}__sn{serial_t}__fw{fw_t}__{host_t}__{dltl_token}__{ts_t}.json'
@@ -546,9 +541,7 @@ class DiagnosticsAPI:
                 json.dump(snapshot, f, indent=2, default=str)
             snapshot['output_path'] = str(out_path)
         except Exception as e:
-            snapshot.setdefault('errors', []).append(
-                f'JSON write failed: {type(e).__name__}: {e}'
-            )
+            snapshot.setdefault('errors', []).append(f'JSON write failed: {type(e).__name__}: {e}')
 
         if progress_cb is not None:
             try:
@@ -657,8 +650,7 @@ class DiagnosticsAPI:
         )
         try:
             # driver exchange_multiline keeps bare `timeout` (pyserial-shaped)
-            result = board.exchange_multiline(
-                command, timeout=timeout_s, end_markers=end_markers)
+            result = board.exchange_multiline(command, timeout=timeout_s, end_markers=end_markers)
             return result if result else 'No response'
         except Exception as e:
             logger.warning(
@@ -789,9 +781,7 @@ class DiagnosticsAPI:
         return {
             'model': info.get('model', 'unknown'),
             'serial_number': info.get('serial_number', 'unknown'),
-            'firmware_version': getattr(
-                self._scope._motion_driver, 'firmware_version', None
-            ),
+            'firmware_version': getattr(self._scope._motion_driver, 'firmware_version', None),
         }
 
     def get_led_info(self) -> dict:
@@ -800,14 +790,11 @@ class DiagnosticsAPI:
         Returns:
             dict: Keys 'firmware_version', 'connected'.
         """
-        if (not self._scope._led_driver
-                or not self._scope._led_driver.is_connected()):
+        if not self._scope._led_driver or not self._scope._led_driver.is_connected():
             return {'firmware_version': None, 'connected': False}
 
         return {
-            'firmware_version': getattr(
-                self._scope._led_driver, 'firmware_version', None
-            ),
+            'firmware_version': getattr(self._scope._led_driver, 'firmware_version', None),
             'connected': True,
         }
 
@@ -817,8 +804,7 @@ class DiagnosticsAPI:
         Returns:
             dict: Keys 'model', 'pixel_format', 'connected'.
         """
-        if (not self._scope._camera_driver
-                or not self._scope._camera_driver.active):
+        if not self._scope._camera_driver or not self._scope._camera_driver.active:
             return {'model': None, 'pixel_format': None, 'connected': False}
 
         return {
@@ -834,16 +820,12 @@ class DiagnosticsAPI:
             dict with model, sensor, pixel_size_um, shutter, resolution,
             gain_range, max_exposure, binning_sizes. None if no camera.
         """
-        if (not self._scope._camera_driver
-                or not self._scope._camera_driver.active):
+        if not self._scope._camera_driver or not self._scope._camera_driver.active:
             return None
         try:
             profile = self._scope._camera_driver.profile
             exposure_min_us = getattr(profile, 'exposure_min_us', None)
-            exposure_min_ms = (
-                exposure_min_us / 1000.0
-                if exposure_min_us is not None else None
-            )
+            exposure_min_ms = exposure_min_us / 1000.0 if exposure_min_us is not None else None
             return {
                 'model': profile.model_name,
                 'sensor': profile.sensor,
@@ -892,11 +874,13 @@ class DiagnosticsAPI:
         out = {'pypylon_version': None, 'pylon_sdk_version': None}
         try:
             import pypylon as _pyp
+
             out['pypylon_version'] = getattr(_pyp, '__version__', None)
         except Exception:
             pass
         try:
             from pypylon import pylon as _pylon
+
             for fn_name in ('GetPylonVersion', 'GetVersionString'):
                 fn = getattr(_pylon, fn_name, None)
                 if callable(fn):
@@ -921,6 +905,7 @@ class DiagnosticsAPI:
         on Linux / unknown.
         """
         import platform as _pl
+
         sys_name = _pl.system()
         try:
             if sys_name == 'Darwin':
@@ -970,5 +955,5 @@ class DiagnosticsAPI:
         if target in ('motor', 'motion'):
             return self._scope._motion_driver
         raise ValueError(
-            f"send_diagnostic_command: unknown target {target!r} "
-            f"(expected 'led' or 'motor')")
+            f"send_diagnostic_command: unknown target {target!r} (expected 'led' or 'motor')"
+        )

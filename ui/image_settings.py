@@ -17,18 +17,16 @@ logger = logging.getLogger('LVP.ui.image_settings')
 # Accordion Item Widgets (Layer/Channel Selection)
 # ============================================================================
 
-class AccordionItemXyStageControl(AccordionItem):
 
+class AccordionItemXyStageControl(AccordionItem):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-
 
     def update_gui(self, full_redraw: bool = False):
         self.ids['xy_stagecontrol_id'].update_gui(full_redraw=full_redraw)
 
 
 class AccordionItemImageSettingsBase(AccordionItem):
-
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
 
@@ -37,31 +35,26 @@ class AccordionItemImageSettingsBase(AccordionItem):
 
 
 class AccordionItemImageSettingsLumiControl(AccordionItemImageSettingsBase):
-
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
 
 
 class AccordionItemImageSettingsDfControl(AccordionItemImageSettingsBase):
-
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
 
 
 class AccordionItemImageSettingsRedControl(AccordionItemImageSettingsBase):
-
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
 
 
 class AccordionItemImageSettingsGreenControl(AccordionItemImageSettingsBase):
-
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
 
 
 class AccordionItemImageSettingsBlueControl(AccordionItemImageSettingsBase):
-
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
 
@@ -69,6 +62,7 @@ class AccordionItemImageSettingsBlueControl(AccordionItemImageSettingsBase):
 # ============================================================================
 # ImageSettings — Right Sidebar Panel (Channel Controls, LED, Exposure)
 # ============================================================================
+
 
 class ImageSettings(BoxLayout):
     settings_width = dp(300)
@@ -104,9 +98,9 @@ class ImageSettings(BoxLayout):
         # Debounce accordion_collapse — Kivy fires multiple collapse events
         # when switching tabs (one per item). Trigger collapses them into one.
         self._accordion_collapse_trigger = Clock.create_trigger(
-            lambda dt: self._do_accordion_collapse(), 0)
+            lambda dt: self._do_accordion_collapse(), 0
+        )
         Clock.schedule_once(self._init_ui, 0)
-
 
     def layer_lookup(self, layer: str):
         LAYER_MAP = {
@@ -122,7 +116,6 @@ class ImageSettings(BoxLayout):
         else:
             return self.ids[layer]
 
-
     def accordion_item_lookup(self, layer: str):
         LAYER_MAP = {
             'DF': self._accordion_item_df_control,
@@ -135,8 +128,7 @@ class ImageSettings(BoxLayout):
         if layer in LAYER_MAP:
             return LAYER_MAP[layer]
         else:
-            return self.ids[f"{layer}_accordion"]
-
+            return self.ids[f'{layer}_accordion']
 
     def set_expanded_layer(self, layer: str, *largs) -> None:
         """
@@ -153,7 +145,7 @@ class ImageSettings(BoxLayout):
             accordion_item_obj = self.accordion_item_lookup(layer=a_layer)
 
             # Check if we need to collapse this accordion
-            target_collapsed = (layer != a_layer)
+            target_collapsed = layer != a_layer
 
             if layer == a_layer:
                 accordion_item_obj.collapse = False
@@ -166,10 +158,12 @@ class ImageSettings(BoxLayout):
                         if isinstance(child, ScrollView):
                             # Schedule cleanup after collapse animation completes
                             from ui.ui_helpers import cleanup_scrollview_viewport
-                            Clock.schedule_once(lambda dt, sv=child: cleanup_scrollview_viewport(sv), 0.2)
+
+                            Clock.schedule_once(
+                                lambda dt, sv=child: cleanup_scrollview_viewport(sv), 0.2
+                            )
 
                 accordion_item_obj.collapse = True
-
 
     def set_lumi_layer_control_visibility(self, visible: bool) -> None:
         if visible:
@@ -177,13 +171,11 @@ class ImageSettings(BoxLayout):
         else:
             self._hide_lumi_layer_control()
 
-
     def _show_lumi_layer_control(self):
         if not self._accordion_item_lumi_control_visible:
             self._accordion_item_lumi_control_visible = True
             self.ids['accordion_id'].add_widget(self._accordion_item_lumi_control, 0)
             self._resort_accordion()
-
 
     def _hide_lumi_layer_control(self):
         settings = _app_ctx.ctx.settings
@@ -194,20 +186,17 @@ class ImageSettings(BoxLayout):
             self._accordion_item_lumi_control_visible = False
             self.ids['accordion_id'].remove_widget(self._accordion_item_lumi_control)
 
-
     def set_df_layer_control_visibility(self, visible: bool) -> None:
         if visible:
             self._show_df_layer_control()
         else:
             self._hide_df_layer_control()
 
-
     def _show_df_layer_control(self):
         if not self._accordion_item_df_control_visible:
             self._accordion_item_df_control_visible = True
             self.ids['accordion_id'].add_widget(self._accordion_item_df_control, 0)
             self._resort_accordion()
-
 
     def _hide_df_layer_control(self):
         settings = _app_ctx.ctx.settings
@@ -218,13 +207,11 @@ class ImageSettings(BoxLayout):
             self._accordion_item_df_control_visible = False
             self.ids['accordion_id'].remove_widget(self._accordion_item_df_control)
 
-
     def set_phasecontrast_layer_control_visibility(self, visible: bool) -> None:
         if visible:
             self._show_pc_layer_control()
         else:
             self._hide_pc_layer_control()
-
 
     def _resolve_pc_accordion(self):
         """Return the PC_accordion widget, resolving from self.ids on
@@ -244,7 +231,6 @@ class ImageSettings(BoxLayout):
             self.ids['accordion_id'].add_widget(widget)
             self._resort_accordion()
 
-
     def _hide_pc_layer_control(self):
         settings = _app_ctx.ctx.settings if _app_ctx.ctx else None
         if settings and 'PC' in settings:
@@ -255,13 +241,11 @@ class ImageSettings(BoxLayout):
             self._accordion_item_pc_control_visible = False
             self.ids['accordion_id'].remove_widget(widget)
 
-
     def set_fluoresence_layer_controls_visibility(self, visible: bool) -> None:
         if visible:
             self._show_fluorescence_layer_controls()
         else:
             self._hide_fluorescence_layer_controls()
-
 
     def _show_fluorescence_layer_controls(self):
         if not self._accordion_item_fluorescence_control_visible:
@@ -270,7 +254,6 @@ class ImageSettings(BoxLayout):
             self.ids['accordion_id'].add_widget(self._accordion_item_green_control, 0)
             self.ids['accordion_id'].add_widget(self._accordion_item_red_control, 0)
             self._resort_accordion()
-
 
     def _hide_fluorescence_layer_controls(self):
         settings = _app_ctx.ctx.settings
@@ -287,7 +270,6 @@ class ImageSettings(BoxLayout):
             self.ids['accordion_id'].remove_widget(self._accordion_item_blue_control)
             self.ids['accordion_id'].remove_widget(self._accordion_item_green_control)
             self.ids['accordion_id'].remove_widget(self._accordion_item_red_control)
-
 
     def _resort_accordion(self):
         """Rebuild the accordion children list in canonical layer order.
@@ -309,23 +291,23 @@ class ImageSettings(BoxLayout):
             return
 
         widget_for_layer = {
-            'BF':    self.ids.get('BF_accordion'),
-            'PC':    self._resolve_pc_accordion(),
-            'DF':    self._accordion_item_df_control,
-            'Blue':  self._accordion_item_blue_control,
+            'BF': self.ids.get('BF_accordion'),
+            'PC': self._resolve_pc_accordion(),
+            'DF': self._accordion_item_df_control,
+            'Blue': self._accordion_item_blue_control,
             'Green': self._accordion_item_green_control,
-            'Red':   self._accordion_item_red_control,
-            'Lumi':  self._accordion_item_lumi_control,
+            'Red': self._accordion_item_red_control,
+            'Lumi': self._accordion_item_lumi_control,
         }
         flu_visible = self._accordion_item_fluorescence_control_visible
         visible_for_layer = {
-            'BF':    True,
-            'PC':    self._accordion_item_pc_control_visible,
-            'DF':    self._accordion_item_df_control_visible,
-            'Blue':  flu_visible,
+            'BF': True,
+            'PC': self._accordion_item_pc_control_visible,
+            'DF': self._accordion_item_df_control_visible,
+            'Blue': flu_visible,
             'Green': flu_visible,
-            'Red':   flu_visible,
-            'Lumi':  self._accordion_item_lumi_control_visible,
+            'Red': flu_visible,
+            'Lumi': self._accordion_item_lumi_control_visible,
         }
 
         # Walk the live children list directly and remove any widget we
@@ -368,13 +350,14 @@ class ImageSettings(BoxLayout):
                     pass
             accordion.add_widget(widget)
 
-
     def _init_ui(self, dt=0):
         ctx = _app_ctx.ctx
         if ctx is None:
             self._init_ui_retries += 1
             if self._init_ui_retries > 50:
-                logger.error('[LVP Main  ] ImageSettings._init_ui: ctx still None after 50 retries, giving up')
+                logger.error(
+                    '[LVP Main  ] ImageSettings._init_ui: ctx still None after 50 retries, giving up'
+                )
                 return
             Clock.schedule_once(self._init_ui, 0.1)
             return
@@ -386,7 +369,6 @@ class ImageSettings(BoxLayout):
         self.set_layer_gain_ranges()
         self.enable_image_stats_if_needed()
 
-
     def enable_image_stats_if_needed(self):
         if _app_ctx.ctx.engineering_mode:
             for layer in common_utils.get_layers():
@@ -395,14 +377,15 @@ class ImageSettings(BoxLayout):
                 layer_obj.ids['image_stats_stddev_id'].height = '30dp'
                 layer_obj.ids['image_af_score_id'].height = '30dp'
 
-
     def set_layer_exposure_ranges(self):
         ctx = _app_ctx.ctx
         for layer in common_utils.get_fluorescence_layers():
             layer_obj = self.layer_lookup(layer=layer)
-            layer_obj.ids['exp_slider'].min = 1.0   # 1ms floor — sub-ms never realistic for fluorescence
+            layer_obj.ids[
+                'exp_slider'
+            ].min = 1.0  # 1ms floor — sub-ms never realistic for fluorescence
             layer_obj.ids['exp_slider'].max = ctx.max_exposure
-            layer_obj.ids['exp_slider'].step = 1.0   # Integer steps only
+            layer_obj.ids['exp_slider'].step = 1.0  # Integer steps only
 
         for layer in common_utils.get_transmitted_layers():
             layer_obj = self.layer_lookup(layer=layer)
@@ -416,9 +399,9 @@ class ImageSettings(BoxLayout):
 
         for layer in common_utils.get_luminescence_layers():
             layer_obj = self.layer_lookup(layer=layer)
-            layer_obj.ids['exp_slider'].min = 1.0   # 1ms floor
+            layer_obj.ids['exp_slider'].min = 1.0  # 1ms floor
             layer_obj.ids['exp_slider'].max = ctx.max_exposure
-            layer_obj.ids['exp_slider'].step = 1.0   # Integer steps only
+            layer_obj.ids['exp_slider'].step = 1.0  # Integer steps only
 
     def set_layer_gain_ranges(self):
         """Size each layer's gain slider to the connected camera's cap.
@@ -435,7 +418,6 @@ class ImageSettings(BoxLayout):
             layer_obj = self.layer_lookup(layer=layer)
             layer_obj.ids['gain_slider'].max = ctx.max_gain
 
-
     def assign_led_button_down_images(self):
         led_button_down_background_map = {
             'Red': './data/icons/ToggleRR.png',
@@ -445,10 +427,11 @@ class ImageSettings(BoxLayout):
         }
 
         for layer in common_utils.get_layers_with_led():
-            button_down_image = led_button_down_background_map.get(layer, './data/icons/ToggleRW.png')
+            button_down_image = led_button_down_background_map.get(
+                layer, './data/icons/ToggleRW.png'
+            )
             layer_obj = self.layer_lookup(layer=layer)
             layer_obj.ids['enable_led_btn'].background_down = button_down_image
-
 
     # Hide (and unhide) main settings
     def toggle_settings(self):
@@ -486,21 +469,21 @@ class ImageSettings(BoxLayout):
             label = layer_obj.ids['composite_threshold_label']
             slider = layer_obj.ids['composite_threshold_slider']
             text = layer_obj.ids['composite_threshold_text']
-            label.text = ""
+            label.text = ''
             label.visible = False
             label.opacity = 0
             slider.disabled = True
             slider.visible = False
-            slider.cursor_size = '0dp','0dp'
+            slider.cursor_size = '0dp', '0dp'
             slider.opacity = 0
-            slider.value_track_color = (0., )*4
+            slider.value_track_color = (0.0,) * 4
             text.disabled = True
             text.visible = False
             text.width = '0dp'
-            text.text = ""
+            text.text = ''
             text.opacity = 0
             layer_obj.ids['false_color_label'].text = ''
-            layer_obj.ids['false_color'].color = (0., )*4
+            layer_obj.ids['false_color'].color = (0.0,) * 4
 
             # Adjust 'Illumination' range
             layer_obj.ids['ill_slider'].step = 1
@@ -517,6 +500,7 @@ class ImageSettings(BoxLayout):
     def _do_accordion_collapse(self):
         logger.info('[LVP Main  ] ImageSettings.accordion_collapse()')
         from ui.ui_helpers import scope_leds_off
+
         ctx = _app_ctx.ctx
 
         # Skip during app initialization - will be called explicitly after init completes
@@ -565,7 +549,6 @@ class ImageSettings(BoxLayout):
             layer_obj = self.layer_lookup(layer=layer)
             layer_obj.apply_settings()
 
-
     def check_settings(self, *args):
         logger.info('[LVP Main  ] ImageSettings.check_settings()')
         lumaview = _app_ctx.ctx.lumaview
@@ -582,4 +565,6 @@ def set_histogram_layer(active_layer):
 
         if layer == active_layer:
             Clock.schedule_interval(layer_ref.ids['histo_id'].histogram, 0.5)
-            logger.info(f'[LVP Main  ] Clock.schedule_interval(...[{active_layer}]...histogram, 0.5)')
+            logger.info(
+                f'[LVP Main  ] Clock.schedule_interval(...[{active_layer}]...histogram, 0.5)'
+            )

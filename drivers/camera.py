@@ -6,13 +6,14 @@ import threading
 import numpy as np
 
 from lvp_logger import logger
+
 try:
     from lvp_logger import camera_logger as _cam_log
 except ImportError:
     _cam_log = None
 from drivers.camera_profiles import CameraProfile, lookup_profile
 
-default_max_exposure = 1_000 # in ms
+default_max_exposure = 1_000  # in ms
 
 
 class ImageHandlerBase:
@@ -516,8 +517,10 @@ class Camera(ABC):
         that reads from it.
         """
         self.profile = lookup_profile(self.model_name)
-        logger.info(f'[CAM Class ] Loaded profile: {self.profile.model_name} '
-                     f'(sensor={self.profile.sensor}, driver={self.profile.driver})')
+        logger.info(
+            f'[CAM Class ] Loaded profile: {self.profile.model_name} '
+            f'(sensor={self.profile.sensor}, driver={self.profile.driver})'
+        )
 
     def _query_dynamic_capabilities(self):
         """Query SDK for dynamic values and merge into profile.
@@ -627,7 +630,7 @@ class Camera(ABC):
                 self.array = image
             return True, image_ts
         except Exception as ex:
-            _cam_log.exception(f"[CAM Class ] grab() - get_last_image() failed: {ex}")
+            _cam_log.exception(f'[CAM Class ] grab() - get_last_image() failed: {ex}')
             return False, None
 
     def get_array(self) -> np.ndarray:
@@ -669,7 +672,7 @@ class Camera(ABC):
                 self.array = image
             return True, image, image_ts
         except Exception as ex:
-            _cam_log.exception(f"[CAM Class ] grab_latest() failed: {ex}")
+            _cam_log.exception(f'[CAM Class ] grab_latest() failed: {ex}')
             return False, None, None
 
     def register_frame_callback(self, cb) -> None:
@@ -712,16 +715,14 @@ class Camera(ABC):
             return False, None, None, None
 
         try:
-            result, image, image_ts, chunks = (
-                self.cam_image_handler.get_last_image_with_chunks()
-            )
+            result, image, image_ts, chunks = self.cam_image_handler.get_last_image_with_chunks()
             if not result or image is None:
                 return False, None, None, None
             with self._array_lock:
                 self.array = image
             return True, image, image_ts, chunks
         except Exception as ex:
-            _cam_log.exception(f"[CAM Class ] grab_latest_with_chunks() failed: {ex}")
+            _cam_log.exception(f'[CAM Class ] grab_latest_with_chunks() failed: {ex}')
             return False, None, None, None
 
     @abstractmethod
@@ -751,7 +752,9 @@ class Camera(ABC):
         pass
 
     @abstractmethod
-    def update_auto_gain_min_max(self, min_gain_db: float | None, max_gain_db: float | None) -> None:
+    def update_auto_gain_min_max(
+        self, min_gain_db: float | None, max_gain_db: float | None
+    ) -> None:
         """Update the auto-gain bounds.
 
         Args:
@@ -784,7 +787,7 @@ class Camera(ABC):
         state: bool = True,
         target_brightness: float = 0.5,
         min_gain_db: float | None = None,
-        max_gain_db: float | None = None
+        max_gain_db: float | None = None,
     ) -> None:
         """Enable or disable continuous auto-gain.
 
@@ -802,7 +805,7 @@ class Camera(ABC):
         state: bool = True,
         target_brightness: float = 0.5,
         min_gain_db: float | None = None,
-        max_gain_db: float | None = None
+        max_gain_db: float | None = None,
     ) -> None:
         """Run a single auto-gain iteration.
 

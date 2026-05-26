@@ -96,7 +96,7 @@ class MotionAPI:
         # round-trip (typically 30-200 ms on the motor bus).
         self._axis_state_lock = profile_trace.TimedLock(
             threading.Lock(),
-            name="motion._axis_state_lock",
+            name='motion._axis_state_lock',
             warn_hold_threshold_ms=1.0,
         )
 
@@ -116,7 +116,7 @@ class MotionAPI:
         self._move_profile_lock = threading.Lock()
 
         # Boolean operation flags use threading.Event for wait/signal.
-        self._homing_event = threading.Event()     # set => homing in progress
+        self._homing_event = threading.Event()  # set => homing in progress
         self._turreting_event = threading.Event()  # set => turret move in progress
 
         # Motion monitor thread handle -- populated by start_monitor().
@@ -194,9 +194,16 @@ class MotionAPI:
     # against the Phase 2a inventory stays readable.
     # ------------------------------------------------------------------
 
-    def move_absolute_async(self, axis, pos, *, wait_until_complete=False,
-                            overshoot_enabled=True, callback=None,
-                            cb_kwargs=None) -> None:
+    def move_absolute_async(
+        self,
+        axis,
+        pos,
+        *,
+        wait_until_complete=False,
+        overshoot_enabled=True,
+        callback=None,
+        cb_kwargs=None,
+    ) -> None:
         """Submit ``move_absolute_position`` to the io_executor.
 
         Args:
@@ -208,18 +215,21 @@ class MotionAPI:
             cb_kwargs: Optional kwargs passed to the callback.
         """
         from modules.sequential_io_executor import IOTask  # local-import: avoid cycle
+
         ex = self._scope._require_executor(self._scope._io_executor, 'move_absolute_async')
-        ex.put(IOTask(
-            action=self.move_absolute_position,
-            kwargs={
-                'axis': axis,
-                'pos': pos,
-                'wait_until_complete': wait_until_complete,
-                'overshoot_enabled': overshoot_enabled,
-            },
-            callback=callback,
-            cb_kwargs=cb_kwargs,
-        ))
+        ex.put(
+            IOTask(
+                action=self.move_absolute_position,
+                kwargs={
+                    'axis': axis,
+                    'pos': pos,
+                    'wait_until_complete': wait_until_complete,
+                    'overshoot_enabled': overshoot_enabled,
+                },
+                callback=callback,
+                cb_kwargs=cb_kwargs,
+            )
+        )
 
     def stop_motion(self) -> None:
         """Stop all in-flight motor moves (LVP-A-1).
@@ -249,19 +259,20 @@ class MotionAPI:
             else:
                 logger.debug(
                     '[SCOPE API ] stop_motion: firmware does not '
-                    'implement STOP; motors will latch on disconnect')
+                    'implement STOP; motors will latch on disconnect'
+                )
         except Exception as e:
             # Rule 14 -- log + notify, but don't re-raise: stop_motion
             # is called from shutdown paths where the caller can't
             # meaningfully recover and a raised exception would leave
             # disconnect() half-done.
-            logger.warning(
-                f'[SCOPE API ] stop_motion failed: {type(e).__name__}: {e}')
+            logger.warning(f'[SCOPE API ] stop_motion failed: {type(e).__name__}: {e}')
             try:
                 notifications.warning(
-                    'Motion', 'Motor stop failed',
-                    f'STOP command failed during shutdown: '
-                    f'{type(e).__name__}: {e}')
+                    'Motion',
+                    'Motor stop failed',
+                    f'STOP command failed during shutdown: {type(e).__name__}: {e}',
+                )
             except Exception:
                 pass
 
@@ -347,10 +358,10 @@ class MotionAPI:
         homing is preserved for diagnostics.
         """
         before = self.get_limit_switch_status_all_axes()
-        logger.info(f"Limit switch status before homing: {before}", extra={'force_error': True})
+        logger.info(f'Limit switch status before homing: {before}', extra={'force_error': True})
         yield
         after = self.get_limit_switch_status_all_axes()
-        logger.info(f"Limit switch status after homing: {after}", extra={'force_error': True})
+        logger.info(f'Limit switch status after homing: {after}', extra={'force_error': True})
 
     def home(self) -> bool:
         """Home every axis the motor board has.
@@ -384,11 +395,11 @@ class MotionAPI:
             # the missing motor.
             if not getattr(self._scope, 'no_hardware', False):
                 notifications.error(
-                    "Motion",
-                    "Motor Not Connected",
-                    "Cannot home -- motor controller is not connected. "
-                    "Check the USB cable and that no other program "
-                    "(Thonny, mpremote, etc.) is holding the port.",
+                    'Motion',
+                    'Motor Not Connected',
+                    'Cannot home -- motor controller is not connected. '
+                    'Check the USB cable and that no other program '
+                    '(Thonny, mpremote, etc.) is holding the port.',
                 )
             return False
         present_axes = self._scope.capabilities.axes
@@ -407,8 +418,9 @@ class MotionAPI:
                 result = self._driver.home()
             if result is False:
                 logger.error('[SCOPE API ] Homing failed')
-                notifications.error("Motion", "Homing Failed",
-                    "Homing failed. Position is unknown.")
+                notifications.error(
+                    'Motion', 'Homing Failed', 'Homing failed. Position is unknown.'
+                )
                 for ax in present_axes:
                     self._set_axis_state(ax, AxisState.UNKNOWN)
                 return False
@@ -420,8 +432,9 @@ class MotionAPI:
             logger.exception('[SCOPE API ] Homing exception')
             for ax in present_axes:
                 self._set_axis_state(ax, AxisState.UNKNOWN)
-            notifications.error("Motion", "Homing Error",
-                "Homing encountered an error. Position is unknown.")
+            notifications.error(
+                'Motion', 'Homing Error', 'Homing encountered an error. Position is unknown.'
+            )
             return False
         finally:
             self.is_homing = False
@@ -470,11 +483,11 @@ class MotionAPI:
             logger.warning('[SCOPE API ] thome() called with motor not connected')
             if not getattr(self._scope, 'no_hardware', False):
                 notifications.error(
-                    "Motion",
-                    "Motor Not Connected",
-                    "Cannot home turret -- motor controller is not connected. "
-                    "Check the USB cable and that no other program is "
-                    "holding the port.",
+                    'Motion',
+                    'Motor Not Connected',
+                    'Cannot home turret -- motor controller is not connected. '
+                    'Check the USB cable and that no other program is '
+                    'holding the port.',
                 )
             return False
 
@@ -490,8 +503,9 @@ class MotionAPI:
                     result = self._driver.thome()
             if result is False:
                 logger.error('[SCOPE API ] Turret homing failed')
-                notifications.error("Motion", "Homing Failed",
-                    "Turret homing failed. Position is unknown.")
+                notifications.error(
+                    'Motion', 'Homing Failed', 'Turret homing failed. Position is unknown.'
+                )
                 self._set_axis_state('T', AxisState.UNKNOWN)
                 return False
             self._set_axis_state('T', AxisState.IDLE)
@@ -501,8 +515,9 @@ class MotionAPI:
         except Exception:
             logger.exception('[SCOPE API ] Turret homing exception')
             self._set_axis_state('T', AxisState.UNKNOWN)
-            notifications.error("Motion", "Homing Error",
-                "Turret homing encountered an error. Position is unknown.")
+            notifications.error(
+                'Motion', 'Homing Error', 'Turret homing encountered an error. Position is unknown.'
+            )
             _api_log.info('thome DONE')
             return False
 
@@ -591,7 +606,9 @@ class MotionAPI:
             status = self._driver.home_status(axis)
             return status
         except Exception as e:
-            logger.exception(f"[SCOPE API ] get_home_status({axis}) failed; treating as not home: {e}")
+            logger.exception(
+                f'[SCOPE API ] get_home_status({axis}) failed; treating as not home: {e}'
+            )
             return False
 
     def get_target_status(self, axis: str) -> bool:
@@ -611,7 +628,9 @@ class MotionAPI:
             status = self._driver.target_status(axis)
             return status
         except Exception as e:
-            logger.exception(f"[SCOPE API ] get_target_status({axis}) failed; treating as not at target: {e}")
+            logger.exception(
+                f'[SCOPE API ] get_target_status({axis}) failed; treating as not at target: {e}'
+            )
             return False
 
     def get_reference_status(self, axis: str) -> str:
@@ -729,8 +748,9 @@ class MotionAPI:
         else:
             self._turreting_event.clear()
 
-    def move_absolute_sync(self, axis, pos, *, wait_until_complete=True,
-                           overshoot_enabled=True, timeout_s=30) -> None:
+    def move_absolute_sync(
+        self, axis, pos, *, wait_until_complete=True, overshoot_enabled=True, timeout_s=30
+    ) -> None:
         """Run ``move_absolute_position`` through the io_executor and block.
 
         Blocks until both the IOTask completes and (when
@@ -744,6 +764,7 @@ class MotionAPI:
             timeout_s: Max seconds to wait for completion.
         """
         from modules.sequential_io_executor import IOTask  # local-import: avoid cycle
+
         ex = self._scope._require_executor(self._scope._io_executor, 'move_absolute_sync')
         task = IOTask(
             action=self.move_absolute_position,
@@ -758,9 +779,16 @@ class MotionAPI:
         if fut:
             fut.result(timeout=timeout_s)
 
-    def move_relative_async(self, axis, um, *, wait_until_complete=False,
-                            overshoot_enabled=True, callback=None,
-                            cb_kwargs=None) -> None:
+    def move_relative_async(
+        self,
+        axis,
+        um,
+        *,
+        wait_until_complete=False,
+        overshoot_enabled=True,
+        callback=None,
+        cb_kwargs=None,
+    ) -> None:
         """Submit ``move_relative_position`` to the io_executor.
 
         Args:
@@ -772,18 +800,21 @@ class MotionAPI:
             cb_kwargs: Optional kwargs passed to the callback.
         """
         from modules.sequential_io_executor import IOTask  # local-import: avoid cycle
+
         ex = self._scope._require_executor(self._scope._io_executor, 'move_relative_async')
-        ex.put(IOTask(
-            action=self.move_relative_position,
-            kwargs={
-                'axis': axis,
-                'um': um,
-                'wait_until_complete': wait_until_complete,
-                'overshoot_enabled': overshoot_enabled,
-            },
-            callback=callback,
-            cb_kwargs=cb_kwargs,
-        ))
+        ex.put(
+            IOTask(
+                action=self.move_relative_position,
+                kwargs={
+                    'axis': axis,
+                    'um': um,
+                    'wait_until_complete': wait_until_complete,
+                    'overshoot_enabled': overshoot_enabled,
+                },
+                callback=callback,
+                cb_kwargs=cb_kwargs,
+            )
+        )
 
     def move_home_async(self, axis, *, callback=None, cb_args=None) -> None:
         """Home an axis (or the whole scope) via the io_executor.
@@ -796,6 +827,7 @@ class MotionAPI:
             cb_args: Optional positional args passed to the callback.
         """
         from modules.sequential_io_executor import IOTask  # local-import: avoid cycle
+
         ex = self._scope._require_executor(self._scope._io_executor, 'move_home_async')
         a = axis.upper()
         # Homing legitimately takes 10-60+ seconds depending on travel
@@ -804,14 +836,32 @@ class MotionAPI:
         # a warning here.
         HOME_THRESHOLD = 120.0
         if a == 'Z':
-            ex.put(IOTask(action=self.zhome, callback=callback, cb_args=cb_args,
-                          slow_task_threshold_sec=HOME_THRESHOLD))
+            ex.put(
+                IOTask(
+                    action=self.zhome,
+                    callback=callback,
+                    cb_args=cb_args,
+                    slow_task_threshold_sec=HOME_THRESHOLD,
+                )
+            )
         elif a in ('ALL', 'XY'):
-            ex.put(IOTask(action=self.home, callback=callback, cb_args=cb_args,
-                          slow_task_threshold_sec=HOME_THRESHOLD))
+            ex.put(
+                IOTask(
+                    action=self.home,
+                    callback=callback,
+                    cb_args=cb_args,
+                    slow_task_threshold_sec=HOME_THRESHOLD,
+                )
+            )
         elif a == 'T':
-            ex.put(IOTask(action=self.thome, callback=callback, cb_args=cb_args,
-                          slow_task_threshold_sec=HOME_THRESHOLD))
+            ex.put(
+                IOTask(
+                    action=self.thome,
+                    callback=callback,
+                    cb_args=cb_args,
+                    slow_task_threshold_sec=HOME_THRESHOLD,
+                )
+            )
         else:
             logger.warning(f'[SCOPE API ] Unknown home axis: {axis}')
 
@@ -878,10 +928,7 @@ class MotionAPI:
             bool: True if any axis is in MOVING or HOMING state.
         """
         with self._axis_state_lock:
-            return any(
-                s in (AxisState.MOVING, AxisState.HOMING)
-                for s in self._axis_state.values()
-            )
+            return any(s in (AxisState.MOVING, AxisState.HOMING) for s in self._axis_state.values())
 
     def get_axis_limits(self, axis: str) -> dict | None:
         """Get the travel limits for an axis.
@@ -913,8 +960,9 @@ class MotionAPI:
                 result = self._driver.zhome()
             if result is False:
                 logger.error('[SCOPE API ] Z homing failed')
-                notifications.error("Motion", "Homing Failed",
-                    "Z axis homing failed. Position is unknown.")
+                notifications.error(
+                    'Motion', 'Homing Failed', 'Z axis homing failed. Position is unknown.'
+                )
                 self._set_axis_state('Z', AxisState.UNKNOWN)
                 return False
             self._set_axis_state('Z', AxisState.IDLE)
@@ -924,8 +972,9 @@ class MotionAPI:
         except Exception:
             logger.exception('[SCOPE API ] Z homing exception')
             self._set_axis_state('Z', AxisState.UNKNOWN)
-            notifications.error("Motion", "Homing Error",
-                "Z axis homing encountered an error. Position is unknown.")
+            notifications.error(
+                'Motion', 'Homing Error', 'Z axis homing encountered an error. Position is unknown.'
+            )
             _api_log.info('zhome DONE')
             return False
 
@@ -1064,6 +1113,7 @@ class MotionAPI:
         if distance <= (s_accel + s_decel):
             # Triangular profile -- never reaches VMAX
             import math
+
             t_peak = math.sqrt(2.0 * distance / (amax + amax * amax / dmax))
             v_peak = amax * t_peak
             s_accel_tri = 0.5 * amax * t_peak * t_peak
@@ -1098,10 +1148,14 @@ class MotionAPI:
         s = max(0.0, min(s, distance))
         return start_pos + direction * s
 
-    def move_absolute_position(self, axis: str, pos: float,
-                               wait_until_complete: bool = False,
-                               overshoot_enabled: bool = True,
-                               ignore_limits: bool = False) -> None:
+    def move_absolute_position(
+        self,
+        axis: str,
+        pos: float,
+        wait_until_complete: bool = False,
+        overshoot_enabled: bool = True,
+        ignore_limits: bool = False,
+    ) -> None:
         """Move an axis to an absolute position.
 
         Args:
@@ -1115,11 +1169,13 @@ class MotionAPI:
             ValueError: If axis is invalid or pos is not numeric / out of bounds.
         """
         if axis not in _VALID_AXIS_NAMES:
-            raise ValueError(f"Axis must be one of {_VALID_AXIS_NAMES}, got {axis!r}")
+            raise ValueError(f'Axis must be one of {_VALID_AXIS_NAMES}, got {axis!r}')
         if not isinstance(pos, (int, float)):
-            raise ValueError(f"Position must be numeric, got {type(pos).__name__}")
+            raise ValueError(f'Position must be numeric, got {type(pos).__name__}')
         if abs(pos) > MOTOR_POSITION_LIMIT:
-            raise ValueError(f"Position {pos} um exceeds safety limit of +/-{MOTOR_POSITION_LIMIT} um")
+            raise ValueError(
+                f'Position {pos} um exceeds safety limit of +/-{MOTOR_POSITION_LIMIT} um'
+            )
 
         # Rule 8: silently no-op for axes that aren't present on this
         # hardware. _arrival_events is sized to detect_present_axes() at
@@ -1157,7 +1213,9 @@ class MotionAPI:
         # the new value, so position_reached is reliably False and the
         # motion monitor polls until real arrival.
         try:
-            self._driver.move_abs_pos(axis, pos, overshoot_enabled=overshoot_enabled, ignore_limits=ignore_limits)
+            self._driver.move_abs_pos(
+                axis, pos, overshoot_enabled=overshoot_enabled, ignore_limits=ignore_limits
+            )
         except Exception as e:
             with self._move_profile_lock:
                 self._move_profile[axis] = None
@@ -1168,16 +1226,19 @@ class MotionAPI:
             self._pos_cache[axis] = float(pos)
         self._fire_position_listeners(axis)
         self._scope.imaging.frame_validity.invalidate('z_move' if axis == 'Z' else 'xy_move')
-        _api_log.info(f'move_abs {axis}={pos:.1f}um'
-                      f'{" wait" if wait_until_complete else ""}')
+        _api_log.info(f'move_abs {axis}={pos:.1f}um{" wait" if wait_until_complete else ""}')
 
         if wait_until_complete is True:
             self.wait_until_finished_moving()
             self._set_axis_state(axis, AxisState.IDLE)
 
-    def move_relative_position(self, axis: str, um: float,
-                               wait_until_complete: bool = False,
-                               overshoot_enabled: bool = False) -> None:
+    def move_relative_position(
+        self,
+        axis: str,
+        um: float,
+        wait_until_complete: bool = False,
+        overshoot_enabled: bool = False,
+    ) -> None:
         """Move an axis by a relative distance.
 
         Args:
@@ -1190,11 +1251,13 @@ class MotionAPI:
             ValueError: If axis is invalid or um is not numeric / out of bounds.
         """
         if axis not in _VALID_AXIS_NAMES:
-            raise ValueError(f"Axis must be one of {_VALID_AXIS_NAMES}, got {axis!r}")
+            raise ValueError(f'Axis must be one of {_VALID_AXIS_NAMES}, got {axis!r}')
         if not isinstance(um, (int, float)):
-            raise ValueError(f"Distance must be numeric, got {type(um).__name__}")
+            raise ValueError(f'Distance must be numeric, got {type(um).__name__}')
         if abs(um) > MOTOR_POSITION_LIMIT:
-            raise ValueError(f"Distance {um} um exceeds safety limit of +/-{MOTOR_POSITION_LIMIT} um")
+            raise ValueError(
+                f'Distance {um} um exceeds safety limit of +/-{MOTOR_POSITION_LIMIT} um'
+            )
 
         # Rule 8: silently no-op for axes that aren't present on this
         # hardware. See move_absolute_position for the rationale.
@@ -1202,11 +1265,33 @@ class MotionAPI:
             _api_log.debug(f'move_rel ignored: {axis} not present on this scope')
             return
 
+        # Store motion profile for position prediction before moving --
+        # mirrors move_absolute_position. Without this, get_current_position
+        # falls through to the just-updated cache (= target) during the move
+        # and the crosshair jumps instead of animating.
+        with self._pos_cache_lock:
+            start_pos = self._pos_cache.get(axis, 0.0)
+        target_pos = start_pos + float(um)
+        try:
+            ramp = self._driver.motorconfig.ramp_params(axis)
+        except Exception:
+            ramp = None
+        if ramp:
+            with self._move_profile_lock:
+                self._move_profile[axis] = {
+                    'start_time': time.monotonic(),
+                    'start_pos': start_pos,
+                    'target_pos': target_pos,
+                    'ramp': ramp,
+                }
+
         # Write hardware target BEFORE transitioning axis to MOVING --
         # same race fix as move_absolute_position (#618).
         try:
             self._driver.move_rel_pos(axis, um, overshoot_enabled=overshoot_enabled)
         except Exception as e:
+            with self._move_profile_lock:
+                self._move_profile[axis] = None
             _api_log.error(f'move_rel {axis}={um:+.1f}um FAILED: {e}')
             raise
         self._set_axis_state(axis, AxisState.MOVING)
@@ -1214,8 +1299,7 @@ class MotionAPI:
             self._pos_cache[axis] = self._pos_cache.get(axis, 0.0) + float(um)
         self._fire_position_listeners(axis)
         self._scope.imaging.frame_validity.invalidate('z_move' if axis == 'Z' else 'xy_move')
-        _api_log.info(f'move_rel {axis}={um:+.1f}um'
-                      f'{" wait" if wait_until_complete else ""}')
+        _api_log.info(f'move_rel {axis}={um:+.1f}um{" wait" if wait_until_complete else ""}')
 
         if wait_until_complete is True:
             self.wait_until_finished_moving()
@@ -1273,9 +1357,9 @@ class MotionAPI:
             self._axis_state[axis] = state
         if profile_trace.ENABLE_PROFILE_TRACE and old_state != state:
             profile_trace.trace(
-                "motion_trace.csv",
-                "ts_ms,duration_ms,event,axis,detail",
-                [int(time.time() * 1000), 0, "transition", axis, f"{old_state}->{state}"],
+                'motion_trace.csv',
+                'ts_ms,duration_ms,event,axis,detail',
+                [int(time.time() * 1000), 0, 'transition', axis, f'{old_state}->{state}'],
             )
 
         if state in (AxisState.MOVING, AxisState.HOMING):
@@ -1312,8 +1396,7 @@ class MotionAPI:
                 moving_axes = []
                 with self._axis_state_lock:
                     moving_axes = [
-                        ax for ax, st in self._axis_state.items()
-                        if st == AxisState.MOVING
+                        ax for ax, st in self._axis_state.items() if st == AxisState.MOVING
                     ]
 
                 if not moving_axes:
@@ -1328,9 +1411,9 @@ class MotionAPI:
 
                 # Query firmware for each MOVING axis
                 with profile_trace.timer(
-                    "motion_trace.csv",
-                    "ts_ms,duration_ms,event,axis,detail",
-                    lambda: ["poll", ",".join(moving_axes), ""],
+                    'motion_trace.csv',
+                    'ts_ms,duration_ms,event,axis,detail',
+                    lambda: ['poll', ','.join(moving_axes), ''],
                 ):
                     for ax in moving_axes:
                         if self._motion_monitor_stop.is_set():
@@ -1344,6 +1427,8 @@ class MotionAPI:
                                 # updates crosshair during motion (fixes #601)
                                 self._fire_position_listeners(ax)
                         except Exception as e:
-                            logger.warning(f'[SCOPE API ] Motion monitor: target_status({ax}) failed: {e}')
+                            logger.warning(
+                                f'[SCOPE API ] Motion monitor: target_status({ax}) failed: {e}'
+                            )
 
                 time.sleep(self._MOTION_POLL_INTERVAL)

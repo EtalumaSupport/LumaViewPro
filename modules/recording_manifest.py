@@ -106,30 +106,23 @@ def build_session_manifest(
         dict suitable for json.dump.
     """
     fps_stats = compute_fps_stats(timestamps)
-    recording_start_iso = (
-        timestamps[0].isoformat(timespec='microseconds')
-        if timestamps else None
-    )
-    recording_end_iso = (
-        timestamps[-1].isoformat(timespec='microseconds')
-        if timestamps else None
-    )
+    recording_start_iso = timestamps[0].isoformat(timespec='microseconds') if timestamps else None
+    recording_end_iso = timestamps[-1].isoformat(timespec='microseconds') if timestamps else None
 
     frame_index = []
     for i in range(captured_frames):
-        ts_iso = (
-            timestamps[i].isoformat(timespec='microseconds')
-            if i < len(timestamps) else None
-        )
+        ts_iso = timestamps[i].isoformat(timespec='microseconds') if i < len(timestamps) else None
         chunks = chunks_per_frame[i] if i < len(chunks_per_frame) else None
         ts_ticks = chunks.get('Timestamp') if chunks else None
         frame_id = chunks.get('FrameID') if chunks else None
-        frame_index.append({
-            'i': i,
-            'ts_host_iso': ts_iso,
-            'ts_camera_ticks': int(ts_ticks) if ts_ticks is not None else None,
-            'frame_id': int(frame_id) if frame_id is not None else None,
-        })
+        frame_index.append(
+            {
+                'i': i,
+                'ts_host_iso': ts_iso,
+                'ts_camera_ticks': int(ts_ticks) if ts_ticks is not None else None,
+                'frame_id': int(frame_id) if frame_id is not None else None,
+            }
+        )
 
     return {
         'manifest_version': 1,

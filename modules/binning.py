@@ -15,5 +15,5 @@ def binning_size_int_to_str(val: int):
     for k, v in BINNING_SIZE_MAP.items():
         if v == val:
             return k
-        
+
     return '1x1'

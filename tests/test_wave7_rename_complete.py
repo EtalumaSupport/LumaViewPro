@@ -88,23 +88,22 @@ def test_no_legacy_scope_driver_accesses_in_production():
         try:
             source = path.read_text(encoding='utf-8')
         except (OSError, UnicodeDecodeError) as e:
-            failures.append(f"{path}: read failed: {e}")
+            failures.append(f'{path}: read failed: {e}')
             continue
         try:
             tree = ast.parse(source, filename=str(path))
         except SyntaxError as e:
-            failures.append(f"{path}: parse failed: {e}")
+            failures.append(f'{path}: parse failed: {e}')
             continue
         for lineno, attr in _find_banned_accesses(tree):
             rel = path.relative_to(_REPO_ROOT)
             failures.append(
-                f"{rel}:{lineno}: scope.{attr} -- use scope._{attr}_driver "
-                f"(post-Wave-7 rename). See test_wave7_rename_complete.py."
+                f'{rel}:{lineno}: scope.{attr} -- use scope._{attr}_driver '
+                f'(post-Wave-7 rename). See test_wave7_rename_complete.py.'
             )
     assert not failures, (
-        "Wave 7 rename incomplete -- production code still uses the "
-        "pre-rename driver attribute names:\n  "
-        + "\n  ".join(failures)
+        'Wave 7 rename incomplete -- production code still uses the '
+        'pre-rename driver attribute names:\n  ' + '\n  '.join(failures)
     )
 
 
@@ -113,22 +112,49 @@ def test_no_legacy_scope_driver_accesses_in_production():
 # Derived by diffing dir(scope.motion) against dir(scope) on a
 # `Lumascope(simulate=True)` instance; hardcoded here so the test is
 # pure-AST (no simulator instantiation at collection time).
-MOTION_ONLY_METHODS = frozenset({
-    'add_position_listener', 'get_actual_position', 'get_axes_config',
-    'get_axis_limits', 'get_axis_state', 'get_current_position',
-    'get_home_status', 'get_limit_switch_status',
-    'get_limit_switch_status_all_axes', 'get_overshoot',
-    'get_reference_status', 'get_target_position', 'get_target_status',
-    'get_turret_position_for_objective_id', 'has_homed', 'has_thomed',
-    'has_turret', 'home', 'init_axes', 'is_any_axis_moving',
-    'is_current_turret_position_objective_set', 'is_moving',
-    'move_absolute_async', 'move_absolute_position', 'move_absolute_sync',
-    'move_home_async', 'move_relative_async', 'move_relative_position',
-    'refresh_position_cache', 'remove_position_listener',
-    'safe_turret_move', 'set_acceleration_limit',
-    'set_precision_mode', 'stop_motion', 'thome', 'tmove',
-    'wait_until_finished_moving', 'xycenter', 'zhome',
-})
+MOTION_ONLY_METHODS = frozenset(
+    {
+        'add_position_listener',
+        'get_actual_position',
+        'get_axes_config',
+        'get_axis_limits',
+        'get_axis_state',
+        'get_current_position',
+        'get_home_status',
+        'get_limit_switch_status',
+        'get_limit_switch_status_all_axes',
+        'get_overshoot',
+        'get_reference_status',
+        'get_target_position',
+        'get_target_status',
+        'get_turret_position_for_objective_id',
+        'has_homed',
+        'has_thomed',
+        'has_turret',
+        'home',
+        'init_axes',
+        'is_any_axis_moving',
+        'is_current_turret_position_objective_set',
+        'is_moving',
+        'move_absolute_async',
+        'move_absolute_position',
+        'move_absolute_sync',
+        'move_home_async',
+        'move_relative_async',
+        'move_relative_position',
+        'refresh_position_cache',
+        'remove_position_listener',
+        'safe_turret_move',
+        'set_acceleration_limit',
+        'set_precision_mode',
+        'stop_motion',
+        'thome',
+        'tmove',
+        'wait_until_finished_moving',
+        'xycenter',
+        'zhome',
+    }
+)
 
 
 def _find_motion_method_accesses(tree: ast.AST) -> list[tuple[int, str]]:
@@ -155,22 +181,19 @@ def test_no_motion_method_calls_on_bare_scope_in_production():
         try:
             source = path.read_text(encoding='utf-8')
         except (OSError, UnicodeDecodeError) as e:
-            failures.append(f"{path}: read failed: {e}")
+            failures.append(f'{path}: read failed: {e}')
             continue
         try:
             tree = ast.parse(source, filename=str(path))
         except SyntaxError as e:
-            failures.append(f"{path}: parse failed: {e}")
+            failures.append(f'{path}: parse failed: {e}')
             continue
         for lineno, attr in _find_motion_method_accesses(tree):
             rel = path.relative_to(_REPO_ROOT)
-            failures.append(
-                f"{rel}:{lineno}: scope.{attr} -- use scope.motion.{attr}"
-            )
+            failures.append(f'{rel}:{lineno}: scope.{attr} -- use scope.motion.{attr}')
     assert not failures, (
-        "Motion methods reached on bare scope -- production code must "
-        "go through scope.motion.<method>:\n  "
-        + "\n  ".join(failures)
+        'Motion methods reached on bare scope -- production code must '
+        'go through scope.motion.<method>:\n  ' + '\n  '.join(failures)
     )
 
 
@@ -180,16 +203,38 @@ def test_no_motion_method_calls_on_bare_scope_in_production():
 # against dir(scope) on a `Lumascope(simulate=True)` instance;
 # hardcoded here so the test is pure-AST (no simulator instantiation
 # at collection time).
-ILLUMINATION_ONLY_METHODS = frozenset({
-    'add_led_listener', 'ch2color', 'color2ch', 'get_led_ma',
-    'get_led_state', 'get_led_states', 'get_led_status', 'led_enabled',
-    'led_illumination', 'led_off', 'led_off_async', 'led_off_fast',
-    'led_on', 'led_on_async', 'led_on_fast', 'led_on_sync',
-    'led_states', 'leds_disable', 'leds_enable', 'leds_off',
-    'leds_off_async', 'leds_off_fast', 'leds_off_owned',
-    'leds_off_sync', 'remove_led_listener', 'restore_led_state',
-    'save_led_state', 'wait_until_led_on',
-})
+ILLUMINATION_ONLY_METHODS = frozenset(
+    {
+        'add_led_listener',
+        'ch2color',
+        'color2ch',
+        'get_led_ma',
+        'get_led_state',
+        'get_led_states',
+        'get_led_status',
+        'led_enabled',
+        'led_illumination',
+        'led_off',
+        'led_off_async',
+        'led_off_fast',
+        'led_on',
+        'led_on_async',
+        'led_on_fast',
+        'led_on_sync',
+        'led_states',
+        'leds_disable',
+        'leds_enable',
+        'leds_off',
+        'leds_off_async',
+        'leds_off_fast',
+        'leds_off_owned',
+        'leds_off_sync',
+        'remove_led_listener',
+        'restore_led_state',
+        'save_led_state',
+        'wait_until_led_on',
+    }
+)
 
 
 def _find_illumination_method_accesses(tree: ast.AST) -> list[tuple[int, str]]:
@@ -211,22 +256,19 @@ def test_no_illumination_method_calls_on_bare_scope_in_production():
         try:
             source = path.read_text(encoding='utf-8')
         except (OSError, UnicodeDecodeError) as e:
-            failures.append(f"{path}: read failed: {e}")
+            failures.append(f'{path}: read failed: {e}')
             continue
         try:
             tree = ast.parse(source, filename=str(path))
         except SyntaxError as e:
-            failures.append(f"{path}: parse failed: {e}")
+            failures.append(f'{path}: parse failed: {e}')
             continue
         for lineno, attr in _find_illumination_method_accesses(tree):
             rel = path.relative_to(_REPO_ROOT)
-            failures.append(
-                f"{rel}:{lineno}: scope.{attr} -- use scope.illumination.{attr}"
-            )
+            failures.append(f'{rel}:{lineno}: scope.{attr} -- use scope.illumination.{attr}')
     assert not failures, (
-        "Illumination methods reached on bare scope -- production code "
-        "must go through scope.illumination.<method>:\n  "
-        + "\n  ".join(failures)
+        'Illumination methods reached on bare scope -- production code '
+        'must go through scope.illumination.<method>:\n  ' + '\n  '.join(failures)
     )
 
 
@@ -264,13 +306,12 @@ def test_no_self_illumination_calls_in_lumascope():
     tree = ast.parse(source, filename=str(_LUMASCOPE_PATH))
     hits = _find_self_method_accesses(tree, ILLUMINATION_ONLY_METHODS)
     failures = [
-        f"_lumascope.py:{lineno}: self.{attr} -- use self.illumination.{attr}"
+        f'_lumascope.py:{lineno}: self.{attr} -- use self.illumination.{attr}'
         for lineno, attr in hits
     ]
     assert not failures, (
-        "Lumascope reached illumination-only methods via bare self -- "
-        "migrate to self.illumination.<method>:\n  "
-        + "\n  ".join(failures)
+        'Lumascope reached illumination-only methods via bare self -- '
+        'migrate to self.illumination.<method>:\n  ' + '\n  '.join(failures)
     )
 
 
@@ -281,13 +322,11 @@ def test_no_self_motion_calls_in_lumascope():
     tree = ast.parse(source, filename=str(_LUMASCOPE_PATH))
     hits = _find_self_method_accesses(tree, MOTION_ONLY_METHODS)
     failures = [
-        f"_lumascope.py:{lineno}: self.{attr} -- use self.motion.{attr}"
-        for lineno, attr in hits
+        f'_lumascope.py:{lineno}: self.{attr} -- use self.motion.{attr}' for lineno, attr in hits
     ]
     assert not failures, (
-        "Lumascope reached motion-only methods via bare self -- "
-        "migrate to self.motion.<method>:\n  "
-        + "\n  ".join(failures)
+        'Lumascope reached motion-only methods via bare self -- '
+        'migrate to self.motion.<method>:\n  ' + '\n  '.join(failures)
     )
 
 
@@ -301,34 +340,75 @@ def test_no_self_motion_calls_in_lumascope():
 # `register_frame_callback` / `unregister_frame_callback` deprecated
 # aliases that 4d.5b had kept as forwarders; only the new names
 # (`add_frame_listener` / `remove_frame_listener`) remain.
-IMAGING_ONLY_METHODS = frozenset({
-    'add_camera_listener', 'add_frame_listener', 'apply_layer_camera_settings',
-    'auto_gain_once', 'autofocus_return', 'camera_active',
-    'camera_exposure_ms', 'camera_frame_size', 'camera_gain',
-    'camera_max_exposure',
-    'camera_max_gain', 'camera_min_frame_size', 'camera_pixel_format',
-    'capture_and_wait', 'capture_and_wait_sync',
-    'capture_return', 'count_frame',
-    'frame_is_valid', 'frames_until_valid', 'get_available_binning_sizes',
-    'get_binning_size', 'get_exposure_time',
-    'get_frame_size', 'get_gain', 'get_height', 'get_image',
-    'get_image_from_buffer', 'get_image_with_chunks_from_buffer',
-    'get_max_height', 'get_max_width', 'get_pixel_format',
-    'get_supported_pixel_formats', 'get_width', 'is_capturing',
-    'is_focusing', 'log_camera_temps',
-    'remove_camera_listener', 'remove_frame_listener', 'restore_camera_state',
-    'save_camera_state', 'scale_bar_config', 'scale_bar_enabled',
-    'set_acquisition_stop_mode', 'set_auto_exposure_time', 'set_auto_gain',
-    'set_bandwidth_reserve_mode', 'set_binning_size',
-    'set_device_link_throughput_limit', 'set_exposure_sync',
-    'set_exposure_time', 'set_frame_size', 'set_gain', 'set_gain_sync',
-    'set_gev_inter_packet_delay', 'set_gev_packet_size',
-    'set_max_acquisition_frame_rate', 'set_max_transfer_size',
-    'set_num_max_queued_urbs', 'set_pixel_format', 'set_scale_bar',
-    'start_camera_temp_logging', 'stop_camera_temp_logging',
-    'suppress_value_warnings',
-    'update_auto_gain_target_brightness', 'update_camera_config',
-})
+IMAGING_ONLY_METHODS = frozenset(
+    {
+        'add_camera_listener',
+        'add_frame_listener',
+        'apply_layer_camera_settings',
+        'auto_gain_once',
+        'autofocus_return',
+        'camera_active',
+        'camera_exposure_ms',
+        'camera_frame_size',
+        'camera_gain',
+        'camera_max_exposure',
+        'camera_max_gain',
+        'camera_min_frame_size',
+        'camera_pixel_format',
+        'capture_and_wait',
+        'capture_and_wait_sync',
+        'capture_return',
+        'count_frame',
+        'frame_is_valid',
+        'frames_until_valid',
+        'get_available_binning_sizes',
+        'get_binning_size',
+        'get_exposure_time',
+        'get_frame_size',
+        'get_gain',
+        'get_height',
+        'get_image',
+        'get_image_from_buffer',
+        'get_image_with_chunks_from_buffer',
+        'get_max_height',
+        'get_max_width',
+        'get_pixel_format',
+        'get_supported_pixel_formats',
+        'get_width',
+        'is_capturing',
+        'is_focusing',
+        'log_camera_temps',
+        'remove_camera_listener',
+        'remove_frame_listener',
+        'restore_camera_state',
+        'save_camera_state',
+        'scale_bar_config',
+        'scale_bar_enabled',
+        'set_acquisition_stop_mode',
+        'set_auto_exposure_time',
+        'set_auto_gain',
+        'set_bandwidth_reserve_mode',
+        'set_binning_size',
+        'set_device_link_throughput_limit',
+        'set_exposure_sync',
+        'set_exposure_time',
+        'set_frame_size',
+        'set_gain',
+        'set_gain_sync',
+        'set_gev_inter_packet_delay',
+        'set_gev_packet_size',
+        'set_max_acquisition_frame_rate',
+        'set_max_transfer_size',
+        'set_num_max_queued_urbs',
+        'set_pixel_format',
+        'set_scale_bar',
+        'start_camera_temp_logging',
+        'stop_camera_temp_logging',
+        'suppress_value_warnings',
+        'update_auto_gain_target_brightness',
+        'update_camera_config',
+    }
+)
 
 
 def _find_imaging_method_accesses(tree: ast.AST) -> list[tuple[int, str]]:
@@ -357,22 +437,19 @@ def test_no_imaging_method_calls_on_bare_scope_in_production():
         try:
             source = path.read_text(encoding='utf-8')
         except (OSError, UnicodeDecodeError) as e:
-            failures.append(f"{path}: read failed: {e}")
+            failures.append(f'{path}: read failed: {e}')
             continue
         try:
             tree = ast.parse(source, filename=str(path))
         except SyntaxError as e:
-            failures.append(f"{path}: parse failed: {e}")
+            failures.append(f'{path}: parse failed: {e}')
             continue
         for lineno, attr in _find_imaging_method_accesses(tree):
             rel = path.relative_to(_REPO_ROOT)
-            failures.append(
-                f"{rel}:{lineno}: scope.{attr} -- use scope.imaging.{attr}"
-            )
+            failures.append(f'{rel}:{lineno}: scope.{attr} -- use scope.imaging.{attr}')
     assert not failures, (
-        "Imaging methods reached on bare scope -- production code must "
-        "go through scope.imaging.<method>:\n  "
-        + "\n  ".join(failures)
+        'Imaging methods reached on bare scope -- production code must '
+        'go through scope.imaging.<method>:\n  ' + '\n  '.join(failures)
     )
 
 
@@ -384,13 +461,11 @@ def test_no_self_imaging_calls_in_lumascope():
     tree = ast.parse(source, filename=str(_LUMASCOPE_PATH))
     hits = _find_self_method_accesses(tree, IMAGING_ONLY_METHODS)
     failures = [
-        f"_lumascope.py:{lineno}: self.{attr} -- use self.imaging.{attr}"
-        for lineno, attr in hits
+        f'_lumascope.py:{lineno}: self.{attr} -- use self.imaging.{attr}' for lineno, attr in hits
     ]
     assert not failures, (
-        "Lumascope reached imaging-only methods via bare self -- "
-        "migrate to self.imaging.<method>:\n  "
-        + "\n  ".join(failures)
+        'Lumascope reached imaging-only methods via bare self -- '
+        'migrate to self.imaging.<method>:\n  ' + '\n  '.join(failures)
     )
 
 
@@ -399,12 +474,17 @@ def test_no_self_imaging_calls_in_lumascope():
 # Phase 5 plan section 3.1 -- 7 stateless probes on the diagnostics.py
 # facade as of 2026-05-19. Same shape as IMAGING_ONLY_METHODS /
 # MOTION_ONLY_METHODS / ILLUMINATION_ONLY_METHODS.
-DIAGNOSTICS_ONLY_METHODS = frozenset({
-    'get_camera_temperatures', 'get_camera_diagnostic_info',
-    'run_camera_bandwidth_test', 'run_grab_lifecycle_benchmark',
-    'run_pylon_diagnostic_probe', 'send_diagnostic_command',
-    'send_diagnostic_command_multiline',
-})
+DIAGNOSTICS_ONLY_METHODS = frozenset(
+    {
+        'get_camera_temperatures',
+        'get_camera_diagnostic_info',
+        'run_camera_bandwidth_test',
+        'run_grab_lifecycle_benchmark',
+        'run_pylon_diagnostic_probe',
+        'send_diagnostic_command',
+        'send_diagnostic_command_multiline',
+    }
+)
 
 
 def _find_diagnostics_method_accesses(tree: ast.AST) -> list[tuple[int, str]]:
@@ -429,22 +509,19 @@ def test_no_diagnostics_method_calls_on_bare_scope_in_production():
         try:
             source = path.read_text(encoding='utf-8')
         except (OSError, UnicodeDecodeError) as e:
-            failures.append(f"{path}: read failed: {e}")
+            failures.append(f'{path}: read failed: {e}')
             continue
         try:
             tree = ast.parse(source, filename=str(path))
         except SyntaxError as e:
-            failures.append(f"{path}: parse failed: {e}")
+            failures.append(f'{path}: parse failed: {e}')
             continue
         for lineno, attr in _find_diagnostics_method_accesses(tree):
             rel = path.relative_to(_REPO_ROOT)
-            failures.append(
-                f"{rel}:{lineno}: scope.{attr} -- use scope.diagnostics.{attr}"
-            )
+            failures.append(f'{rel}:{lineno}: scope.{attr} -- use scope.diagnostics.{attr}')
     assert not failures, (
-        "Diagnostics methods reached on bare scope -- production code "
-        "must go through scope.diagnostics.<method>:\n  "
-        + "\n  ".join(failures)
+        'Diagnostics methods reached on bare scope -- production code '
+        'must go through scope.diagnostics.<method>:\n  ' + '\n  '.join(failures)
     )
 
 
@@ -457,13 +534,12 @@ def test_no_self_diagnostics_calls_in_lumascope():
     tree = ast.parse(source, filename=str(_LUMASCOPE_PATH))
     hits = _find_self_method_accesses(tree, DIAGNOSTICS_ONLY_METHODS)
     failures = [
-        f"_lumascope.py:{lineno}: self.{attr} -- use self.diagnostics.{attr}"
+        f'_lumascope.py:{lineno}: self.{attr} -- use self.diagnostics.{attr}'
         for lineno, attr in hits
     ]
     assert not failures, (
-        "Lumascope reached diagnostics-only methods via bare self -- "
-        "migrate to self.diagnostics.<method>:\n  "
-        + "\n  ".join(failures)
+        'Lumascope reached diagnostics-only methods via bare self -- '
+        'migrate to self.diagnostics.<method>:\n  ' + '\n  '.join(failures)
     )
 
 
@@ -478,17 +554,26 @@ def test_no_self_diagnostics_calls_in_lumascope():
 #   3. Inside-class self-guard -- no `self.<image_save_method>` in
 #      _lumascope.py. Flips at 6c (instance bodies move to module;
 #      wrappers are thin forwarders that don't self-call).
-IMAGE_SAVE_METHODS = frozenset({
-    'save_image', 'save_live_image', 'get_next_save_path',
-    'generate_image_save_path', 'generate_image_metadata',
-    'prepare_image_for_saving',
-})
+IMAGE_SAVE_METHODS = frozenset(
+    {
+        'save_image',
+        'save_live_image',
+        'get_next_save_path',
+        'generate_image_save_path',
+        'generate_image_metadata',
+        'prepare_image_for_saving',
+    }
+)
 
-IMAGE_SAVE_STATIC_METHODS = frozenset({
-    'save_image_static', 'get_next_save_path_static',
-    'generate_image_save_path_static', 'generate_image_metadata_static',
-    'prepare_image_for_saving_static',
-})
+IMAGE_SAVE_STATIC_METHODS = frozenset(
+    {
+        'save_image_static',
+        'get_next_save_path_static',
+        'generate_image_save_path_static',
+        'generate_image_metadata_static',
+        'prepare_image_for_saving_static',
+    }
+)
 
 
 def _find_image_save_method_accesses(tree: ast.AST) -> list[tuple[int, str]]:
@@ -532,23 +617,22 @@ def test_no_image_save_method_calls_on_bare_scope_in_production():
         try:
             source = path.read_text(encoding='utf-8')
         except (OSError, UnicodeDecodeError) as e:
-            failures.append(f"{path}: read failed: {e}")
+            failures.append(f'{path}: read failed: {e}')
             continue
         try:
             tree = ast.parse(source, filename=str(path))
         except SyntaxError as e:
-            failures.append(f"{path}: parse failed: {e}")
+            failures.append(f'{path}: parse failed: {e}')
             continue
         for lineno, attr in _find_image_save_method_accesses(tree):
             rel = path.relative_to(_REPO_ROOT)
             failures.append(
-                f"{rel}:{lineno}: scope.{attr} -- "
-                f"use `from modules.image_save import {attr}; {attr}(scope, ...)`"
+                f'{rel}:{lineno}: scope.{attr} -- '
+                f'use `from modules.image_save import {attr}; {attr}(scope, ...)`'
             )
     assert not failures, (
-        "image_save methods reached on bare scope -- production code "
-        "must import the free functions from modules.image_save:\n  "
-        + "\n  ".join(failures)
+        'image_save methods reached on bare scope -- production code '
+        'must import the free functions from modules.image_save:\n  ' + '\n  '.join(failures)
     )
 
 
@@ -558,25 +642,24 @@ def test_no_lumascope_class_static_method_calls():
         try:
             source = path.read_text(encoding='utf-8')
         except (OSError, UnicodeDecodeError) as e:
-            failures.append(f"{path}: read failed: {e}")
+            failures.append(f'{path}: read failed: {e}')
             continue
         try:
             tree = ast.parse(source, filename=str(path))
         except SyntaxError as e:
-            failures.append(f"{path}: parse failed: {e}")
+            failures.append(f'{path}: parse failed: {e}')
             continue
         for lineno, attr in _find_lumascope_static_method_accesses(tree):
             rel = path.relative_to(_REPO_ROOT)
             bare_name = attr.removesuffix('_static')
             failures.append(
-                f"{rel}:{lineno}: Lumascope.{attr} retired -- "
-                f"use `from modules.image_save import {bare_name}`"
+                f'{rel}:{lineno}: Lumascope.{attr} retired -- '
+                f'use `from modules.image_save import {bare_name}`'
             )
     assert not failures, (
-        "Lumascope.*_static methods called -- the static chain is "
-        "retired in Phase 6c; use the free functions in "
-        "modules.image_save:\n  "
-        + "\n  ".join(failures)
+        'Lumascope.*_static methods called -- the static chain is '
+        'retired in Phase 6c; use the free functions in '
+        'modules.image_save:\n  ' + '\n  '.join(failures)
     )
 
 
@@ -589,15 +672,14 @@ def test_no_self_image_save_calls_in_lumascope():
     tree = ast.parse(source, filename=str(_LUMASCOPE_PATH))
     hits = _find_self_method_accesses(tree, IMAGE_SAVE_METHODS)
     failures = [
-        f"_lumascope.py:{lineno}: self.{attr} -- "
-        f"use `from modules.image_save import {attr}; {attr}(self, ...)`"
+        f'_lumascope.py:{lineno}: self.{attr} -- '
+        f'use `from modules.image_save import {attr}; {attr}(self, ...)`'
         for lineno, attr in hits
     ]
     assert not failures, (
-        "Lumascope reached image_save methods via bare self -- the "
-        "bodies live in modules.image_save after Phase 6c; call the "
-        "free function with self as the scope arg:\n  "
-        + "\n  ".join(failures)
+        'Lumascope reached image_save methods via bare self -- the '
+        'bodies live in modules.image_save after Phase 6c; call the '
+        'free function with self as the scope arg:\n  ' + '\n  '.join(failures)
     )
 
 
@@ -624,17 +706,21 @@ def test_no_self_image_save_calls_in_lumascope():
 # Phase 5 deliberately left on Lumascope -- Phase 7 finishes the
 # migration. Kept separate so the two phases' guard staging stays
 # obvious.
-DIAGNOSTIC_FACADE_GETTERS = frozenset({
-    'get_motor_info', 'get_led_info', 'get_camera_info',
-    'get_camera_profile_info', 'get_system_info', 'get_microscope_model',
-})
+DIAGNOSTIC_FACADE_GETTERS = frozenset(
+    {
+        'get_motor_info',
+        'get_led_info',
+        'get_camera_info',
+        'get_camera_profile_info',
+        'get_system_info',
+        'get_microscope_model',
+    }
+)
 
 COMPUTE_FOCUS_SCORE_RETIRED = frozenset({'compute_focus_score'})
 
 
-def _find_chain_method_accesses(
-    tree: ast.AST, banned: frozenset[str]
-) -> list[tuple[int, str]]:
+def _find_chain_method_accesses(tree: ast.AST, banned: frozenset[str]) -> list[tuple[int, str]]:
     """Find `<chain ending in scope>.<banned_method>` accesses.
 
     Parameterized variant of the per-sub-API finders above. Same shape
@@ -658,25 +744,20 @@ def test_no_diagnostic_facade_getter_calls_on_bare_scope_in_production():
         try:
             source = path.read_text(encoding='utf-8')
         except (OSError, UnicodeDecodeError) as e:
-            failures.append(f"{path}: read failed: {e}")
+            failures.append(f'{path}: read failed: {e}')
             continue
         try:
             tree = ast.parse(source, filename=str(path))
         except SyntaxError as e:
-            failures.append(f"{path}: parse failed: {e}")
+            failures.append(f'{path}: parse failed: {e}')
             continue
-        for lineno, attr in _find_chain_method_accesses(
-            tree, DIAGNOSTIC_FACADE_GETTERS
-        ):
+        for lineno, attr in _find_chain_method_accesses(tree, DIAGNOSTIC_FACADE_GETTERS):
             rel = path.relative_to(_REPO_ROOT)
-            failures.append(
-                f"{rel}:{lineno}: scope.{attr} -- "
-                f"use scope.diagnostics.{attr}"
-            )
+            failures.append(f'{rel}:{lineno}: scope.{attr} -- use scope.diagnostics.{attr}')
     assert not failures, (
-        "Diagnostic facade getters reached on bare scope -- production "
-        "code must go through scope.diagnostics.<getter> after Phase 7e:\n  "
-        + "\n  ".join(failures)
+        'Diagnostic facade getters reached on bare scope -- production '
+        'code must go through scope.diagnostics.<getter> after Phase 7e:\n  '
+        + '\n  '.join(failures)
     )
 
 
@@ -688,14 +769,12 @@ def test_no_self_diagnostic_facade_getter_calls_in_lumascope():
     tree = ast.parse(source, filename=str(_LUMASCOPE_PATH))
     hits = _find_self_method_accesses(tree, DIAGNOSTIC_FACADE_GETTERS)
     failures = [
-        f"_lumascope.py:{lineno}: self.{attr} -- "
-        f"use self.diagnostics.{attr}"
+        f'_lumascope.py:{lineno}: self.{attr} -- use self.diagnostics.{attr}'
         for lineno, attr in hits
     ]
     assert not failures, (
-        "Lumascope reached diagnostic facade getters via bare self -- "
-        "migrate to self.diagnostics.<getter>:\n  "
-        + "\n  ".join(failures)
+        'Lumascope reached diagnostic facade getters via bare self -- '
+        'migrate to self.diagnostics.<getter>:\n  ' + '\n  '.join(failures)
     )
 
 
@@ -705,28 +784,25 @@ def test_no_compute_focus_score_calls_on_scope_in_production():
         try:
             source = path.read_text(encoding='utf-8')
         except (OSError, UnicodeDecodeError) as e:
-            failures.append(f"{path}: read failed: {e}")
+            failures.append(f'{path}: read failed: {e}')
             continue
         try:
             tree = ast.parse(source, filename=str(path))
         except SyntaxError as e:
-            failures.append(f"{path}: parse failed: {e}")
+            failures.append(f'{path}: parse failed: {e}')
             continue
-        for lineno, attr in _find_chain_method_accesses(
-            tree, COMPUTE_FOCUS_SCORE_RETIRED
-        ):
+        for lineno, attr in _find_chain_method_accesses(tree, COMPUTE_FOCUS_SCORE_RETIRED):
             rel = path.relative_to(_REPO_ROOT)
             failures.append(
-                f"{rel}:{lineno}: scope.{attr} retired -- "
-                f"use `from modules import autofocus_functions; "
-                f"autofocus_functions.focus_function(image=..., "
-                f"skip_score_logging=True)`"
+                f'{rel}:{lineno}: scope.{attr} retired -- '
+                f'use `from modules import autofocus_functions; '
+                f'autofocus_functions.focus_function(image=..., '
+                f'skip_score_logging=True)`'
             )
     assert not failures, (
-        "compute_focus_score reached on scope -- the wrapper retires in "
-        "Phase 7f; callers must use modules.autofocus_functions."
-        "focus_function directly:\n  "
-        + "\n  ".join(failures)
+        'compute_focus_score reached on scope -- the wrapper retires in '
+        'Phase 7f; callers must use modules.autofocus_functions.'
+        'focus_function directly:\n  ' + '\n  '.join(failures)
     )
 
 
@@ -740,12 +816,11 @@ def test_no_self_compute_focus_score_calls_in_lumascope():
     tree = ast.parse(source, filename=str(_LUMASCOPE_PATH))
     hits = _find_self_method_accesses(tree, COMPUTE_FOCUS_SCORE_RETIRED)
     failures = [
-        f"_lumascope.py:{lineno}: self.{attr} -- the wrapper retires "
-        f"in Phase 7f; do not add new internal callers"
+        f'_lumascope.py:{lineno}: self.{attr} -- the wrapper retires '
+        f'in Phase 7f; do not add new internal callers'
         for lineno, attr in hits
     ]
     assert not failures, (
-        "Lumascope reached compute_focus_score via bare self -- the "
-        "wrapper retires in Phase 7f and has no internal callers:\n  "
-        + "\n  ".join(failures)
+        'Lumascope reached compute_focus_score via bare self -- the '
+        'wrapper retires in Phase 7f and has no internal callers:\n  ' + '\n  '.join(failures)
     )

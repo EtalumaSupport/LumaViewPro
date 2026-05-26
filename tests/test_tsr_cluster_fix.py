@@ -40,6 +40,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 # MotorBoard driver-method tests -- the FW-version gating layer.
 # ---------------------------------------------------------------------------
 
+
 class _FakeMotorBoard:
     """Just-enough MotorBoard surface for testing the diagnostic methods.
 
@@ -50,6 +51,7 @@ class _FakeMotorBoard:
 
     def __init__(self, response_map):
         from drivers.motorboard import MotorBoard
+
         self._response_map = response_map
         self._real_methods = MotorBoard
 
@@ -61,11 +63,15 @@ def _make_motor_with_responses(response_map):
     """Build an object that has the real diagnostic methods bound, but
     a stubbed exchange_command."""
     from drivers.motorboard import MotorBoard
+
     fake = _FakeMotorBoard(response_map)
     # Bind the diagnostic methods we care about
     for name in (
-        '_diagnostic_query', 'read_voltages', 'read_drv_status',
-        'read_fanspeed', 'set_fan_duty',
+        '_diagnostic_query',
+        'read_voltages',
+        'read_drv_status',
+        'read_fanspeed',
+        'set_fan_duty',
     ):
         method = getattr(MotorBoard, name)
         setattr(fake, name, method.__get__(fake, _FakeMotorBoard))
@@ -76,15 +82,19 @@ class TestMotorDriverDiagnosticGating:
     """Driver methods return None on legacy FW, parsed values on new FW."""
 
     def test_read_voltages_unsupported_firmware_returns_none(self):
-        motor = _make_motor_with_responses({
-            'VOLTAGE': "ERROR: command 'VOLTAGE' not found:",
-        })
+        motor = _make_motor_with_responses(
+            {
+                'VOLTAGE': "ERROR: command 'VOLTAGE' not found:",
+            }
+        )
         assert motor.read_voltages() is None
 
     def test_read_voltages_supported_firmware_parses_dict(self):
-        motor = _make_motor_with_responses({
-            'VOLTAGE': '24V=OK 5V=5.18 3V3=3.31 1V2=1.24',
-        })
+        motor = _make_motor_with_responses(
+            {
+                'VOLTAGE': '24V=OK 5V=5.18 3V3=3.31 1V2=1.24',
+            }
+        )
         result = motor.read_voltages()
         assert result is not None
         assert result['5V'] == pytest.approx(5.18)
@@ -97,23 +107,29 @@ class TestMotorDriverDiagnosticGating:
         # Firmware accepted VOLTAGE but every rail came back N/A --
         # this is the "supported but no readings" path the writer
         # must render as INCONCLUSIVE.
-        motor = _make_motor_with_responses({
-            'VOLTAGE': '24V=OK 5V=N/A 3V3=N/A 1V2=N/A',
-        })
+        motor = _make_motor_with_responses(
+            {
+                'VOLTAGE': '24V=OK 5V=N/A 3V3=N/A 1V2=N/A',
+            }
+        )
         result = motor.read_voltages()
         assert result is not None
         assert all(v is None for v in result.values())
 
     def test_read_drv_status_returns_int(self):
-        motor = _make_motor_with_responses({
-            'DRVSTAT_X': '0x80000000',
-        })
+        motor = _make_motor_with_responses(
+            {
+                'DRVSTAT_X': '0x80000000',
+            }
+        )
         assert motor.read_drv_status('X') == 0x80000000
 
     def test_read_drv_status_unsupported_returns_none(self):
-        motor = _make_motor_with_responses({
-            'DRVSTAT_X': "ERROR: command 'DRVSTAT_X' not found:",
-        })
+        motor = _make_motor_with_responses(
+            {
+                'DRVSTAT_X': "ERROR: command 'DRVSTAT_X' not found:",
+            }
+        )
         assert motor.read_drv_status('X') is None
 
     def test_read_drv_status_invalid_axis_raises(self):
@@ -122,9 +138,11 @@ class TestMotorDriverDiagnosticGating:
             motor.read_drv_status('Q')
 
     def test_read_fanspeed_unsupported_returns_none(self):
-        motor = _make_motor_with_responses({
-            'FANSPEED': "ERROR: command 'FANSPEED' not found:",
-        })
+        motor = _make_motor_with_responses(
+            {
+                'FANSPEED': "ERROR: command 'FANSPEED' not found:",
+            }
+        )
         assert motor.read_fanspeed() is None
 
     def test_read_fanspeed_parses_int(self):
@@ -132,9 +150,11 @@ class TestMotorDriverDiagnosticGating:
         assert motor.read_fanspeed() == 1234
 
     def test_set_fan_duty_unsupported_returns_false(self):
-        motor = _make_motor_with_responses({
-            'FAN:50': "ERROR: command 'FAN' not found:",
-        })
+        motor = _make_motor_with_responses(
+            {
+                'FAN:50': "ERROR: command 'FAN' not found:",
+            }
+        )
         assert motor.set_fan_duty(50) is False
 
     def test_set_fan_duty_supported_returns_true(self):
@@ -151,23 +171,27 @@ class TestMotorDriverDiagnosticGating:
 # DiagnosticsAPI sub-API -- thin delegation that handles missing driver.
 # ---------------------------------------------------------------------------
 
+
 class TestDiagnosticsApiDelegation:
     """The sub-API delegates to driver; returns sentinel when driver absent."""
 
     def test_read_motor_voltages_no_driver_returns_none(self):
         from modules.lumascope_api.diagnostics import DiagnosticsAPI
+
         scope = MagicMock(spec=[])  # no _motion_driver attribute
         api = DiagnosticsAPI(scope)
         assert api.read_motor_voltages() is None
 
     def test_set_motor_fan_duty_no_driver_returns_false(self):
         from modules.lumascope_api.diagnostics import DiagnosticsAPI
+
         scope = MagicMock(spec=[])
         api = DiagnosticsAPI(scope)
         assert api.set_motor_fan_duty(50) is False
 
     def test_read_motor_voltages_forwards_to_driver(self):
         from modules.lumascope_api.diagnostics import DiagnosticsAPI
+
         scope = MagicMock()
         scope._motion_driver.read_voltages.return_value = {'5V': 5.0}
         api = DiagnosticsAPI(scope)
@@ -178,11 +202,13 @@ class TestDiagnosticsApiDelegation:
 # TSR check_voltage_tolerance -- tri-state passed (True / False / None).
 # ---------------------------------------------------------------------------
 
+
 class TestVoltageToleranceTriState:
     """Voltage check returns None for INCONCLUSIVE, not True for PASS."""
 
     def _make_diag(self, motor_connected, voltage_dict):
         from modules.tech_support_report import FirmwareDiagnostics
+
         scope = MagicMock()
         scope.motor_connected = motor_connected
         scope.diagnostics.read_motor_voltages.return_value = voltage_dict
@@ -236,12 +262,14 @@ class TestVoltageToleranceTriState:
 # _motor_ok / _led_ok use post-Wave-7 connection probes.
 # ---------------------------------------------------------------------------
 
+
 class TestMotorAndLedConnectionProbes:
     """The Wave-7-renamed sub-API namespaces don't expose .found; the
     fix uses scope.motor_connected / scope.led_connected live properties."""
 
     def test_motor_ok_true_via_live_property(self):
         from modules.tech_support_report import FirmwareDiagnostics
+
         scope = MagicMock()
         scope.motor_connected = True
         diag = FirmwareDiagnostics(scope=scope)
@@ -249,6 +277,7 @@ class TestMotorAndLedConnectionProbes:
 
     def test_motor_ok_false_via_live_property(self):
         from modules.tech_support_report import FirmwareDiagnostics
+
         scope = MagicMock()
         scope.motor_connected = False
         diag = FirmwareDiagnostics(scope=scope)
@@ -258,6 +287,7 @@ class TestMotorAndLedConnectionProbes:
         # Older diagnostic Lumascope shapes may lack the live property;
         # fall back to the underlying driver's found attribute.
         from modules.tech_support_report import FirmwareDiagnostics
+
         scope = MagicMock(spec=['_motion_driver'])
         scope._motion_driver = MagicMock()
         scope._motion_driver.found = True
@@ -266,6 +296,7 @@ class TestMotorAndLedConnectionProbes:
 
     def test_led_ok_uses_post_wave7_illumination_or_live(self):
         from modules.tech_support_report import FirmwareDiagnostics
+
         scope = MagicMock()
         scope.led_connected = True
         diag = FirmwareDiagnostics(scope=scope)
@@ -286,6 +317,7 @@ class TestMotorAndLedConnectionProbes:
 # ---------------------------------------------------------------------------
 # TSR call-site sanity: no raw VOLTAGE / DRVSTAT / FANSPEED command sends.
 # ---------------------------------------------------------------------------
+
 
 class TestTsrUsesDriverMethods:
     """After the cluster fix, TSR's diagnostic primitives go through the

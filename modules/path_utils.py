@@ -22,16 +22,16 @@ def read_version(script_root: pathlib.Path | None = None) -> tuple[str, str]:
     """
     if script_root is None:
         script_root = get_script_root()
-    version_file = script_root / "version.txt"
+    version_file = script_root / 'version.txt'
     try:
         lines = version_file.read_text().splitlines()
-        version = lines[0].strip() if len(lines) > 0 else ""
-        build_timestamp = lines[1].strip() if len(lines) > 1 else ""
+        version = lines[0].strip() if len(lines) > 0 else ''
+        build_timestamp = lines[1].strip() if len(lines) > 1 else ''
         return version, build_timestamp
     except FileNotFoundError:
-        return "", ""
+        return '', ''
     except OSError:
-        return "", ""
+        return '', ''
 
 
 def _read_version(script_root: pathlib.Path) -> str:
@@ -48,11 +48,11 @@ def get_source_root(
         return pathlib.Path(source_path)
 
     ctx = _app_ctx.ctx
-    if ctx is not None and getattr(ctx, "source_path", None):
+    if ctx is not None and getattr(ctx, 'source_path', None):
         return pathlib.Path(ctx.source_path)
 
     script_root = get_script_root()
-    if os.name != "nt" or not (script_root / "marker.lvpinstalled").exists():
+    if os.name != 'nt' or not (script_root / 'marker.lvpinstalled').exists():
         return script_root
 
     version = _read_version(script_root)
@@ -62,7 +62,7 @@ def get_source_root(
     import platformdirs
 
     documents_dir = pathlib.Path(platformdirs.user_documents_dir())
-    return documents_dir / f"LumaViewPro {version}"
+    return documents_dir / f'LumaViewPro {version}'
 
 
 def resolve_data_file(
@@ -70,7 +70,7 @@ def resolve_data_file(
     source_path: str | pathlib.Path | None = None,
 ) -> pathlib.Path:
     """Resolve a file under the writable data/ directory."""
-    return get_source_root(source_path).joinpath("data", *parts)
+    return get_source_root(source_path).joinpath('data', *parts)
 
 
 def resolve_script_file(*parts: str) -> pathlib.Path:

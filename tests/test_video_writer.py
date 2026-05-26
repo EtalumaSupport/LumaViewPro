@@ -33,11 +33,10 @@ class _FakeCv2VideoWriter:
 @pytest.fixture
 def cv2_writer(tmp_path):
     """VideoWriter forced onto the cv2 fallback path, capturing frames in memory."""
-    output_path = tmp_path / "test.avi"
+    output_path = tmp_path / 'test.avi'
     fake = _FakeCv2VideoWriter()
     with mock.patch('modules.video_writer.cv2.VideoWriter', return_value=fake):
-        writer = VideoWriter(output_file_loc=output_path, fps=30,
-                             include_timestamp_overlay=False)
+        writer = VideoWriter(output_file_loc=output_path, fps=30, include_timestamp_overlay=False)
         writer._use_pyav = False
         yield writer, fake
 
@@ -52,7 +51,7 @@ class TestVideoWriterCv2Fallback:
         writer.add_frame(image=rgb, timestamp=None)
         writer.finish()
         bgr = fake.frames[0]
-        assert bgr[:, :, 2].sum() > 0, "Red lands at BGR index 2"
+        assert bgr[:, :, 2].sum() > 0, 'Red lands at BGR index 2'
         assert bgr[:, :, 0].sum() == 0
         assert bgr[:, :, 1].sum() == 0
 
@@ -63,7 +62,7 @@ class TestVideoWriterCv2Fallback:
         writer.add_frame(image=rgb, timestamp=None)
         writer.finish()
         bgr = fake.frames[0]
-        assert bgr[:, :, 0].sum() > 0, "Blue lands at BGR index 0"
+        assert bgr[:, :, 0].sum() > 0, 'Blue lands at BGR index 0'
         assert bgr[:, :, 1].sum() == 0
         assert bgr[:, :, 2].sum() == 0
 

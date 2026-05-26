@@ -13,6 +13,7 @@ the load-bearing invariant -- _drain_and_release plus the per-item
 `finally: del grabResult` in _run are the mechanism. Tests assert
 those refs are released after stop().
 """
+
 import queue
 import time
 import unittest
@@ -68,7 +69,10 @@ def _make_worker(queue_depth=None):
     base._record_failure.return_value = False
     frame_queue = queue.Queue(maxsize=1)
     worker = _PylonImageGrabWorker(
-        parent, base, frame_queue, queue_depth=queue_depth,
+        parent,
+        base,
+        frame_queue,
+        queue_depth=queue_depth,
     )
     return worker, parent, base, frame_queue
 
@@ -347,10 +351,9 @@ class TestGrabResultRelease(unittest.TestCase):
         # weakref should be None on the next gc cycle.
         del gr
         import gc
+
         gc.collect()
-        self.assertIsNone(
-            ref(), 'worker did not release its grabResult reference after processing'
-        )
+        self.assertIsNone(ref(), 'worker did not release its grabResult reference after processing')
 
 
 if __name__ == '__main__':

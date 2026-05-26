@@ -26,16 +26,15 @@ import pathlib
 
 
 def _do_accordion_collapse_source() -> str:
-    src_path = (pathlib.Path(__file__).resolve().parent.parent
-                / "ui" / "image_settings.py")
+    src_path = pathlib.Path(__file__).resolve().parent.parent / 'ui' / 'image_settings.py'
     source = src_path.read_text()
     tree = ast.parse(source)
     for node in ast.walk(tree):
-        if isinstance(node, ast.FunctionDef) and node.name == "_do_accordion_collapse":
+        if isinstance(node, ast.FunctionDef) and node.name == '_do_accordion_collapse':
             text = ast.get_source_segment(source, node)
             assert text is not None
             return text
-    raise AssertionError("_do_accordion_collapse not found in ui/image_settings.py")
+    raise AssertionError('_do_accordion_collapse not found in ui/image_settings.py')
 
 
 class TestAccordionCollapseLedOffInLiveMode:
@@ -64,23 +63,24 @@ class TestAccordionCollapseLedOffInLiveMode:
             if isinstance(test, ast.Call):
                 func = test.func
                 args = test.args
-                if (isinstance(func, ast.Attribute)
-                        and func.attr == "get"
-                        and args
-                        and isinstance(args[0], ast.Constant)
-                        and args[0].value == "protocol_led_on"):
+                if (
+                    isinstance(func, ast.Attribute)
+                    and func.attr == 'get'
+                    and args
+                    and isinstance(args[0], ast.Constant)
+                    and args[0].value == 'protocol_led_on'
+                ):
                     # Found the buggy guard -- check it's not followed
                     # by a bare return.
-                    body_returns = (len(node.body) == 1
-                                    and isinstance(node.body[0], ast.Return))
+                    body_returns = len(node.body) == 1 and isinstance(node.body[0], ast.Return)
                     assert not body_returns, (
-                        "_do_accordion_collapse must not contain a "
-                        "standalone `if protocol_led_on: return` guard. "
-                        "This skips LED cleanup in Live mode whenever "
-                        "the user had previously enabled Protocol LEDs "
-                        "On, causing #659 (LED stuck after accordion "
-                        "switch). Gate on ctx.protocol_running.is_set() "
-                        "instead."
+                        '_do_accordion_collapse must not contain a '
+                        'standalone `if protocol_led_on: return` guard. '
+                        'This skips LED cleanup in Live mode whenever '
+                        'the user had previously enabled Protocol LEDs '
+                        'On, causing #659 (LED stuck after accordion '
+                        'switch). Gate on ctx.protocol_running.is_set() '
+                        'instead.'
                     )
 
     def test_still_guards_during_protocol_running(self):
@@ -88,19 +88,19 @@ class TestAccordionCollapseLedOffInLiveMode:
         # The protocol-active guard must remain so step_navigation's
         # LED-on for the current step survives accordion-collapse events
         # fired during the step transition.
-        assert "protocol_running.is_set()" in body, (
-            "_do_accordion_collapse must still skip LED cleanup when a "
+        assert 'protocol_running.is_set()' in body, (
+            '_do_accordion_collapse must still skip LED cleanup when a '
             "protocol is actively running. Without this, step_navigation's "
-            "LED-on for the current step would be killed by the accordion-"
-            "collapse event that fires when set_expanded_layer opens the "
+            'LED-on for the current step would be killed by the accordion-'
+            'collapse event that fires when set_expanded_layer opens the '
             "step's channel (#605)."
         )
 
     def test_calls_scope_leds_off(self):
         body = _do_accordion_collapse_source()
         # The actual LED cleanup must still be present below the guards.
-        assert "scope_leds_off" in body, (
-            "_do_accordion_collapse must call scope_leds_off to clear "
+        assert 'scope_leds_off' in body, (
+            '_do_accordion_collapse must call scope_leds_off to clear '
             "the previous channel's LED before applying the new layer's "
-            "settings."
+            'settings.'
         )

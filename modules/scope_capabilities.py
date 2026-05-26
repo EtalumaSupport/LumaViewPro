@@ -82,9 +82,9 @@ class ScopeCapabilities:
     ('X','Y','Z') for LS850, ('X','Y','Z','T') for LS850T, () for no
     motor hardware."""
 
-    has_focus: bool           # 'Z' in axes
-    has_xy_stage: bool        # 'X' and 'Y' in axes
-    has_turret: bool          # 'T' in axes
+    has_focus: bool  # 'Z' in axes
+    has_xy_stage: bool  # 'X' and 'Y' in axes
+    has_turret: bool  # 'T' in axes
 
     motor_model: str
     """Scope model string reported by `motion.get_microscope_model()`, or
@@ -217,12 +217,8 @@ class ScopeCapabilities:
                 driver advertises a different cap.
         """
         # Motion
-        axes = _probe('detect_present_axes',
-                      lambda: tuple(motion.detect_present_axes()),
-                      ())
-        model = _probe('get_microscope_model',
-                       lambda: motion.get_microscope_model() or '',
-                       '')
+        axes = _probe('detect_present_axes', lambda: tuple(motion.detect_present_axes()), ())
+        model = _probe('get_microscope_model', lambda: motion.get_microscope_model() or '', '')
 
         # Travel limits + optics per present axis (read once at boot;
         # motorconfig is loaded once at driver init and is immutable
@@ -231,25 +227,27 @@ class ScopeCapabilities:
         motorconfig = getattr(motion, 'motorconfig', None)
         if motorconfig is not None:
             for ax in axes:
-                limit = _probe(f'travel_limit_um[{ax}]',
-                               lambda ax=ax: float(motorconfig.travel_limit_um(ax)),
-                               None)
+                limit = _probe(
+                    f'travel_limit_um[{ax}]',
+                    lambda ax=ax: float(motorconfig.travel_limit_um(ax)),
+                    None,
+                )
                 if limit is not None:
                     travel_limits[ax] = limit
-        pixel_size_um = _probe('motorconfig.pixel_size',
-                               lambda: float(motorconfig.pixel_size()) if motorconfig is not None else 2.0,
-                               2.0)
-        lens_focal_length_mm = _probe('motorconfig.lens_focal_length',
-                                      lambda: float(motorconfig.lens_focal_length()) if motorconfig is not None else 47.8,
-                                      47.8)
+        pixel_size_um = _probe(
+            'motorconfig.pixel_size',
+            lambda: float(motorconfig.pixel_size()) if motorconfig is not None else 2.0,
+            2.0,
+        )
+        lens_focal_length_mm = _probe(
+            'motorconfig.lens_focal_length',
+            lambda: float(motorconfig.lens_focal_length()) if motorconfig is not None else 47.8,
+            47.8,
+        )
 
         # LED
-        led_channels = _probe('led.available_channels',
-                              lambda: tuple(led.available_channels()),
-                              ())
-        led_colors = _probe('led.available_colors',
-                            lambda: tuple(led.available_colors()),
-                            ())
+        led_channels = _probe('led.available_channels', lambda: tuple(led.available_channels()), ())
+        led_colors = _probe('led.available_colors', lambda: tuple(led.available_colors()), ())
 
         # Camera
         camera_model = ''
@@ -269,9 +267,7 @@ class ScopeCapabilities:
                 camera_binning_sizes = tuple(getattr(profile, 'binning_sizes', ()) or ())
                 exposure_max_us = getattr(profile, 'exposure_max_us', 0) or 0
                 camera_max_exposure_ms = int(exposure_max_us / 1000)
-            size = _probe('camera.get_max_frame_size',
-                          lambda: camera.get_max_frame_size(),
-                          None)
+            size = _probe('camera.get_max_frame_size', lambda: camera.get_max_frame_size(), None)
             if size:
                 camera_max_frame_size = (int(size.get('width', 0)), int(size.get('height', 0)))
 

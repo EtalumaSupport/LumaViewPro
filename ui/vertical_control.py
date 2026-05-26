@@ -34,8 +34,8 @@ AF_SAFETY_TIMEOUT_S = 15  # Seconds before AF is considered stuck and force-rese
 # VerticalControl — Z-Axis, Objectives, Turret, and Autofocus
 # ============================================================================
 
-class VerticalControl(BoxLayout):
 
+class VerticalControl(BoxLayout):
     def __init__(self, **kwargs):
         super(VerticalControl, self).__init__(**kwargs)
         logger.debug('[LVP Main  ] VerticalControl.__init__()')
@@ -46,21 +46,24 @@ class VerticalControl(BoxLayout):
         self.record_autofocus_to_file = False
         self._next_pos = None
 
-        self.queue_slider_position_trigger = Clock.create_trigger(lambda dt: self.queue_slider_position(), 0.1)
-
+        self.queue_slider_position_trigger = Clock.create_trigger(
+            lambda dt: self.queue_slider_position(), 0.1
+        )
 
     def update_gui(self, vertical_control=False):
         ctx = _app_ctx.ctx
         if ctx.sequenced_capture_runner.run_in_progress():
             return
         if not vertical_control:
-            ctx.io_executor.put(IOTask(
-                action=ctx.lumaview.scope.motion.get_target_position,
-                args=('Z'),
-                callback=self.execute_kivy_gui,
-                cb_kwargs={"vertical_control":vertical_control},
-                pass_result=True
-            ))
+            ctx.io_executor.put(
+                IOTask(
+                    action=ctx.lumaview.scope.motion.get_target_position,
+                    args=('Z'),
+                    callback=self.execute_kivy_gui,
+                    cb_kwargs={'vertical_control': vertical_control},
+                    pass_result=True,
+                )
+            )
         else:
             Clock.schedule_once(lambda dt: self.update_text_only(), 0)
 
@@ -81,7 +84,6 @@ class VerticalControl(BoxLayout):
             if self.ids['z_position_id'].text != new_text:
                 self.ids['z_position_id'].text = new_text
 
-
     def execute_kivy_gui(self, vertical_control=False, result=None, exception=None):
         """IOTask callback — runs on worker thread. Must schedule widget access."""
         if exception is not None:
@@ -95,6 +97,7 @@ class VerticalControl(BoxLayout):
         # Widget access must happen on the main Kivy thread (H24).
         # This callback runs on the IO worker thread.
         from kivy.clock import Clock
+
         if not vertical_control:
             Clock.schedule_once(lambda dt, p=set_pos: self._update_z_position(p), 0)
         else:
@@ -140,11 +143,13 @@ class VerticalControl(BoxLayout):
             logger.warning(f'[Motion] {label}: no objective info: {e}')
             return
         step = objective['z_coarse' if coarse else 'z_fine']
-        ctx.io_executor.put(IOTask(
-            action=move_relative_position,
-            args=('Z', direction * step),
-            kwargs={"overshoot_enabled": overshoot_enabled},
-        ))
+        ctx.io_executor.put(
+            IOTask(
+                action=move_relative_position,
+                args=('Z', direction * step),
+                kwargs={'overshoot_enabled': overshoot_enabled},
+            )
+        )
 
     @debounce(0.2)
     def coarse_up(self, overshoot_enabled: bool = False):
@@ -162,7 +167,6 @@ class VerticalControl(BoxLayout):
     def coarse_down(self, overshoot_enabled: bool = False):
         self._z_jog(-1, coarse=True, overshoot_enabled=overshoot_enabled)
 
-
     def set_position(self, pos):
         ctx = _app_ctx.ctx
         if ctx.protocol_running.is_set():
@@ -177,10 +181,7 @@ class VerticalControl(BoxLayout):
 
     def queue_slider_position(self):
         ctx = _app_ctx.ctx
-        ctx.io_executor.put(IOTask(
-            action=move_absolute_position,
-            args=('Z', self._next_pos)
-        ))
+        ctx.io_executor.put(IOTask(action=move_absolute_position, args=('Z', self._next_pos)))
         self._next_pos = None
 
     def set_bookmark(self):
@@ -233,11 +234,12 @@ class VerticalControl(BoxLayout):
             if ctx.protocol_running.is_set():
                 return
             logger.info('[LVP Main  ] VerticalControl.home()')
-            ctx.io_executor.put(IOTask(action=move_home, kwargs={"axis":'Z'}))
+            ctx.io_executor.put(IOTask(action=move_home, kwargs={'axis': 'Z'}))
         except Exception as e:
             logger.error(f'[UI] home failed: {e}', exc_info=True)
             from ui.notification_popup import show_notification_popup
-            show_notification_popup(title="Error", message=str(e))
+
+            show_notification_popup(title='Error', message=str(e))
 
     def load_objective_from_settings(self):
         settings = _app_ctx.ctx.settings
@@ -248,7 +250,6 @@ class VerticalControl(BoxLayout):
         logger.info('[LVP Main  ] VerticalControl.load_objectives()')
         spinner = self.ids['objective_spinner2']
         spinner.values = ctx.objective_helper.get_objectives_list()
-
 
     def select_objective(self):
         try:
@@ -272,7 +273,7 @@ class VerticalControl(BoxLayout):
 
             # Update magnification UI info
             microscope_settings_id = ctx.motion_settings.ids['microscope_settings_id']
-            microscope_settings_id.ids['magnification_id'].text = f"{objective['magnification']}"
+            microscope_settings_id.ids['magnification_id'].text = f'{objective["magnification"]}'
 
             # Update selected to be consistent with other selector
             ms_objective_spinner = microscope_settings_id.ids['objective_spinner']
@@ -280,7 +281,7 @@ class VerticalControl(BoxLayout):
 
             # Set objective in lumascope
             if ctx.lumaview.scope.motion.has_turret():
-                ctx.lumaview.scope.set_turret_config(turret_config=settings["turret_objectives"])
+                ctx.lumaview.scope.set_turret_config(turret_config=settings['turret_objectives'])
 
             ctx.lumaview.scope.set_objective(objective_id=objective_id)
 
@@ -290,13 +291,17 @@ class VerticalControl(BoxLayout):
                 frame_size=settings['frame'],
                 binning_size=get_binning_from_ui(),
             )
-            microscope_settings_id.ids['field_of_view_width_id'].text = str(round(fov_size['width'],0))
-            microscope_settings_id.ids['field_of_view_height_id'].text = str(round(fov_size['height'],0))
+            microscope_settings_id.ids['field_of_view_width_id'].text = str(
+                round(fov_size['width'], 0)
+            )
+            microscope_settings_id.ids['field_of_view_height_id'].text = str(
+                round(fov_size['height'], 0)
+            )
         except Exception as e:
             logger.error(f'[UI] select_objective failed: {e}', exc_info=True)
             from ui.notification_popup import show_notification_popup
-            show_notification_popup(title="Error", message=str(e))
 
+            show_notification_popup(title='Error', message=str(e))
 
     def _reset_run_autofocus_button(self, **kwargs):
         ctx = _app_ctx.ctx
@@ -305,11 +310,9 @@ class VerticalControl(BoxLayout):
         self.ids['autofocus_id'].state = 'normal'
         self.ids['autofocus_id'].text = 'Autofocus'
 
-
     def _set_run_autofocus_button(self, **kwargs):
         self.ids['autofocus_id'].state = 'down'
         self.ids['autofocus_id'].text = 'Focusing...'
-
 
     def _cleanup_at_end_of_autofocus(self):
         ctx = _app_ctx.ctx
@@ -317,12 +320,13 @@ class VerticalControl(BoxLayout):
         # SequencedCaptureRunner.reset() unwinds any running protocol
         # (its _cleanup chain calls autofocus_thread.abort() on the AF
         # thread). AFE state is reset implicitly on the next AFE.run().
-        ctx.worker_pool.put(IOTask(
-            action=ctx.sequenced_capture_runner.reset,
-            callback=self._reset_run_autofocus_button,
-            priority=PRIORITY_HIGH,
-        ))
-
+        ctx.worker_pool.put(
+            IOTask(
+                action=ctx.sequenced_capture_runner.reset,
+                callback=self._reset_run_autofocus_button,
+                priority=PRIORITY_HIGH,
+            )
+        )
 
     def _autofocus_run_complete(self, **kwargs):
         ctx = _app_ctx.ctx
@@ -350,7 +354,6 @@ class VerticalControl(BoxLayout):
                 ctx.autofocus_thread.abort()
         except Exception:
             pass
-
 
     def _build_standalone_af_args(
         self,
@@ -386,7 +389,9 @@ class VerticalControl(BoxLayout):
 
         if ctx.engineering_mode:
             save_autofocus_data = True
-            parent_dir = pathlib.Path(settings['live_folder']).resolve() / "Autofocus Characterization"
+            parent_dir = (
+                pathlib.Path(settings['live_folder']).resolve() / 'Autofocus Characterization'
+            )
         else:
             save_autofocus_data = False
             parent_dir = None
@@ -419,6 +424,7 @@ class VerticalControl(BoxLayout):
                 Clock.unschedule(self._af_safety_event)
         except Exception:
             pass
+
         def _af_safety(dt):
             try:
                 if ctx.autofocus_thread is not None and ctx.autofocus_thread.is_running:
@@ -427,6 +433,7 @@ class VerticalControl(BoxLayout):
                     logger.warning('[AF Safety] Autofocus appeared stuck. Forced abort.')
             except Exception:
                 pass
+
         self._af_safety_event = Clock.schedule_once(_af_safety, AF_SAFETY_TIMEOUT_S)
 
         active_layer, active_layer_config = get_active_layer_config()
@@ -445,20 +452,22 @@ class VerticalControl(BoxLayout):
             lambda _f: _schedule_ui(lambda _dt: self._autofocus_run_complete(), 0)
         )
 
-
     @debounce(1.0)
     def turret_home(self):
         gui_logger.button('HOME_TURRET')
         ctx = _app_ctx.ctx
         if ctx.protocol_running.is_set():
             return
+
         def _on_turret_homed():
             Clock.schedule_once(lambda dt: self._reset_turret_buttons(), 0)
 
-        ctx.io_executor.put(IOTask(
-            action=ctx.lumaview.scope.motion.thome,
-            callback=_on_turret_homed,
-        ))
+        ctx.io_executor.put(
+            IOTask(
+                action=ctx.lumaview.scope.motion.thome,
+                callback=_on_turret_homed,
+            )
+        )
 
     def _reset_turret_buttons(self):
         self.ids['turret_pos_1_btn'].state = 'normal'
@@ -466,65 +475,65 @@ class VerticalControl(BoxLayout):
         self.ids['turret_pos_3_btn'].state = 'normal'
         self.ids['turret_pos_4_btn'].state = 'normal'
 
-
     def set_turret_objective(self):
         ctx = _app_ctx.ctx
         settings = ctx.settings
         gui_logger.select('TURRET_OBJECTIVE', self.ids['objective_spinner2'].text)
 
         selected_turret = None
-        for position in range(1,5):
-            if self.ids[f"turret_pos_{position}_btn"].state == 'down':
+        for position in range(1, 5):
+            if self.ids[f'turret_pos_{position}_btn'].state == 'down':
                 selected_turret = position
 
         if selected_turret is None:
-            logger.error("VerticalControl] SetTurretObjective] No turret button selected")
+            logger.error('VerticalControl] SetTurretObjective] No turret button selected')
             return
 
         try:
-            selected_turret_id = self.ids[f"turret_pos_{selected_turret}_btn"]
+            selected_turret_id = self.ids[f'turret_pos_{selected_turret}_btn']
 
             # Find magnification of the selected objective
             desired_objective_id = self.ids['objective_spinner2'].text
-            magnification = ctx.objective_helper.get_objective_info(objective_id=desired_objective_id)['magnification']
+            magnification = ctx.objective_helper.get_objective_info(
+                objective_id=desired_objective_id
+            )['magnification']
 
             # Change turret text
-            selected_turret_id.text = f"{magnification}x"
+            selected_turret_id.text = f'{magnification}x'
 
             # Update settings
             with _app_ctx.ctx.settings_lock:
-                settings["turret_objectives"][selected_turret] = desired_objective_id
+                settings['turret_objectives'][selected_turret] = desired_objective_id
 
         except Exception as e:
-            logger.exception(f"SetTurretObjective] Error: {e}")
+            logger.exception(f'SetTurretObjective] Error: {e}')
             return
 
     def reset_turret_objective(self):
         settings = _app_ctx.ctx.settings
 
         selected_turret = None
-        for position in range(1,5):
-            if self.ids[f"turret_pos_{position}_btn"].state == 'down':
+        for position in range(1, 5):
+            if self.ids[f'turret_pos_{position}_btn'].state == 'down':
                 selected_turret = position
 
         if selected_turret is None:
-            logger.error("VerticalControl] ResetTurretObjective] No turret button selected")
+            logger.error('VerticalControl] ResetTurretObjective] No turret button selected')
             return
 
         try:
-            selected_turret_id = self.ids[f"turret_pos_{selected_turret}_btn"]
+            selected_turret_id = self.ids[f'turret_pos_{selected_turret}_btn']
 
             # Change turret text
             selected_turret_id.text = str(selected_turret)
 
             # Update settings
             with _app_ctx.ctx.settings_lock:
-                settings["turret_objectives"][selected_turret] = None
+                settings['turret_objectives'][selected_turret] = None
 
         except Exception as e:
-            logger.exception(f"ResetTurretObjective] Error: {e}")
+            logger.exception(f'ResetTurretObjective] Error: {e}')
             return
-
 
     @debounce(0.5)
     def turret_select(self, selected_position, protocol=False):
@@ -546,7 +555,9 @@ class VerticalControl(BoxLayout):
                 selected_position = int(selected_position)
 
             if not protocol:
-                ctx.io_executor.put(IOTask(ctx.lumaview.scope.motion.tmove, kwargs={'position':selected_position}))
+                ctx.io_executor.put(
+                    IOTask(ctx.lumaview.scope.motion.tmove, kwargs={'position': selected_position})
+                )
             else:
                 ctx.lumaview.scope.motion.tmove(position=selected_position)
 
@@ -556,15 +567,17 @@ class VerticalControl(BoxLayout):
             # turret. (#488)
             settings['turret_position'] = selected_position
 
-            for available_position in range(1,5):
+            for available_position in range(1, 5):
                 if selected_position == available_position:
                     state = 'down'
 
                     # Check if an objective has been saved to that turret
-                    turret_position_objective = settings["turret_objectives"][selected_position]
+                    turret_position_objective = settings['turret_objectives'][selected_position]
                     if turret_position_objective is not None:
                         # If an objective has been assigned to the turret position, change to that objective
-                        Clock.schedule_once(lambda dt: self.update_spinner_text(selected_position), 0)
+                        Clock.schedule_once(
+                            lambda dt: self.update_spinner_text(selected_position), 0
+                        )
                         Clock.schedule_once(lambda dt: self.select_objective(), 0)
 
                 else:
@@ -574,17 +587,18 @@ class VerticalControl(BoxLayout):
         except Exception as e:
             logger.error(f'[UI] turret_select failed: {e}', exc_info=True)
             from ui.notification_popup import show_notification_popup
-            show_notification_popup(title="Error", message=str(e))
+
+            show_notification_popup(title='Error', message=str(e))
 
     def update_spinner_text(self, selected_position):
         settings = _app_ctx.ctx.settings
-        self.ids["objective_spinner2"].text = settings["turret_objectives"][selected_position]
+        self.ids['objective_spinner2'].text = settings['turret_objectives'][selected_position]
 
     def update_turret_btn_state(self, position, state):
         self.ids[f'turret_pos_{position}_btn'].state = state
 
     def update_all_turret_btn_states(self, selected_position):
-        for available_position in range(1,5):
+        for available_position in range(1, 5):
             if selected_position == available_position:
                 state = 'down'
             else:
@@ -600,15 +614,17 @@ class VerticalControl(BoxLayout):
             settings['turret_position'] = int(turret_position)
         except (TypeError, ValueError):
             pass
-        for available_position in range(1,5):
+        for available_position in range(1, 5):
             if turret_position == available_position:
                 state = 'down'
 
                 # Check if an objective has been saved to that turret
-                turret_position_objective = settings["turret_objectives"][turret_position]
+                turret_position_objective = settings['turret_objectives'][turret_position]
                 if turret_position_objective is not None:
                     # If an objective has been assigned to the turret position, change to that objective
-                    self.ids["objective_spinner2"].text = settings["turret_objectives"][turret_position]
+                    self.ids['objective_spinner2'].text = settings['turret_objectives'][
+                        turret_position
+                    ]
                     self.select_objective()
 
             else:

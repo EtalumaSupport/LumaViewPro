@@ -19,6 +19,7 @@ from modules.lumascope_api import Lumascope
 # Fixtures
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture
 def scope():
     """Simulated Lumascope with fast timing."""
@@ -34,6 +35,7 @@ def scope():
 # ---------------------------------------------------------------------------
 # LED Listener Tests
 # ---------------------------------------------------------------------------
+
 
 class TestLEDListener:
     """Tests for add_led_listener / _fire_led_listeners."""
@@ -72,7 +74,7 @@ class TestLEDListener:
         scope.illumination.led_on_fast(channel=0, mA=100)
         scope.illumination.led_off_fast(channel=0)
         assert len(events) == 2
-        assert events[0][1] is True   # on
+        assert events[0][1] is True  # on
         assert events[1][1] is False  # off
 
     def test_listener_not_fired_on_skip(self, scope):
@@ -93,8 +95,10 @@ class TestLEDListener:
 
     def test_listener_exception_does_not_propagate(self, scope):
         """A broken listener must not prevent the LED command from succeeding."""
+
         def bad_listener(c, e, m, o):
-            raise RuntimeError("broken listener")
+            raise RuntimeError('broken listener')
+
         scope.illumination.add_led_listener(bad_listener)
         # Should not raise
         scope.illumination.led_on(channel=0, mA=100)
@@ -129,6 +133,7 @@ class TestLEDListener:
 # ---------------------------------------------------------------------------
 # Ownership Tests
 # ---------------------------------------------------------------------------
+
 
 class TestLEDOwnership:
     """Tests for LED ownership tracking."""
@@ -166,7 +171,9 @@ class TestLEDOwnership:
         scope.illumination.led_on(channel=1, mA=50, owner='protocol')
         scope.illumination.leds_off_owned('autofocus')
         assert not scope.illumination.led_enabled(scope.illumination.ch2color(0))  # AF's LED off
-        assert scope.illumination.led_enabled(scope.illumination.ch2color(1))       # protocol's LED still on
+        assert scope.illumination.led_enabled(
+            scope.illumination.ch2color(1)
+        )  # protocol's LED still on
 
     def test_ownership_with_listener(self, scope):
         """Ownership info is passed through to listeners."""
@@ -179,6 +186,7 @@ class TestLEDOwnership:
 # ---------------------------------------------------------------------------
 # Save/Restore Tests
 # ---------------------------------------------------------------------------
+
 
 class TestLEDSaveRestore:
     """Tests for save_led_state / restore_led_state."""
@@ -225,16 +233,19 @@ class TestLEDSaveRestore:
         scope.illumination.led_on(channel=3, mA=200, owner='autofocus')  # BF for AF
         # AF finishes
         scope.illumination.leds_off_owned('autofocus')  # only kills AF's LED
-        assert scope.illumination.led_enabled(scope.illumination.ch2color(0))   # user's Blue still on
+        assert scope.illumination.led_enabled(
+            scope.illumination.ch2color(0)
+        )  # user's Blue still on
         assert not scope.illumination.led_enabled(scope.illumination.ch2color(3))  # AF's BF off
         # Restore (should be a no-op since user's LED was never touched)
         scope.illumination.restore_led_state(snapshot, owner='autofocus')
-        assert scope.illumination.led_enabled(scope.illumination.ch2color(0))   # still on
+        assert scope.illumination.led_enabled(scope.illumination.ch2color(0))  # still on
 
 
 # ---------------------------------------------------------------------------
 # Camera Listener Tests
 # ---------------------------------------------------------------------------
+
 
 class TestCameraListener:
     """Tests for add_camera_listener / _fire_camera_listeners."""
@@ -271,7 +282,8 @@ class TestCameraListener:
 
     def test_camera_listener_exception_does_not_propagate(self, scope):
         def bad_listener(p, v):
-            raise RuntimeError("broken")
+            raise RuntimeError('broken')
+
         scope.imaging.add_camera_listener(bad_listener)
         scope.imaging.set_gain(5.0)  # should not raise
 
@@ -279,6 +291,7 @@ class TestCameraListener:
 # ---------------------------------------------------------------------------
 # Camera Save/Restore Tests
 # ---------------------------------------------------------------------------
+
 
 class TestCameraSaveRestore:
     """Tests for save_camera_state / restore_camera_state."""

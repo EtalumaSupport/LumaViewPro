@@ -2,6 +2,7 @@
 """
 Tests for ProtocolTimeEstimator — protocol imaging time estimation.
 """
+
 import datetime
 from unittest.mock import patch, MagicMock
 
@@ -27,6 +28,7 @@ from modules.protocol_time_estimator import (
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _make_protocol(steps_data, period_min=20.0, duration_hr=1.0):
     """Create a mock Protocol with given steps."""
     protocol = MagicMock()
@@ -45,7 +47,9 @@ def _valid_step(**overrides) -> dict:
     """Return a minimal valid step dict."""
     step = {
         'Name': 'A1_Blue',
-        'X': 0.0, 'Y': 0.0, 'Z': 5000.0,
+        'X': 0.0,
+        'Y': 0.0,
+        'Z': 5000.0,
         'Auto_Focus': False,
         'Color': 'Blue',
         'False_Color': False,
@@ -75,8 +79,7 @@ OBJ_10X = {
 def _mock_objectives():
     mock_loader = MagicMock()
     mock_loader.get_objective_info.return_value = OBJ_10X
-    with patch('modules.protocol_time_estimator.ObjectiveLoader',
-               return_value=mock_loader):
+    with patch('modules.protocol_time_estimator.ObjectiveLoader', return_value=mock_loader):
         yield mock_loader
 
 
@@ -84,12 +87,18 @@ def _mock_objectives():
 # StepTimeEstimate tests
 # ---------------------------------------------------------------------------
 
+
 class TestStepTimeEstimate:
     def test_total_is_sum_of_components(self):
         est = StepTimeEstimate(
-            step_index=0, step_name='test',
-            move_time_s=0.1, led_time_s=0.01, autofocus_time_s=2.0,
-            autogain_time_s=1.0, capture_time_s=0.5, overhead_s=0.02,
+            step_index=0,
+            step_name='test',
+            move_time_s=0.1,
+            led_time_s=0.01,
+            autofocus_time_s=2.0,
+            autogain_time_s=1.0,
+            capture_time_s=0.5,
+            overhead_s=0.02,
         )
         assert abs(est.total_s - 3.63) < 0.001
 
@@ -101,6 +110,7 @@ class TestStepTimeEstimate:
 # ---------------------------------------------------------------------------
 # Movement estimation tests
 # ---------------------------------------------------------------------------
+
 
 class TestMovementEstimation:
     def test_no_movement_first_step(self):
@@ -131,7 +141,7 @@ class TestMovementEstimation:
         curr = _valid_step(X=50000, Y=0, Z=6000)  # 50mm X, 1mm Z
         t = estimator._estimate_movement(curr, prev)
         xy_time = 50000.0 / XY_SPEED_UM_PER_S  # 1.0s
-        z_time = 1000.0 / Z_SPEED_UM_PER_S      # 0.2s
+        z_time = 1000.0 / Z_SPEED_UM_PER_S  # 0.2s
         assert abs(t - max(xy_time, z_time)) < 0.0001
 
     def test_z_downward_overshoot(self):
@@ -149,6 +159,7 @@ class TestMovementEstimation:
 # ---------------------------------------------------------------------------
 # Autofocus estimation tests
 # ---------------------------------------------------------------------------
+
 
 class TestAutofocusEstimation:
     def test_autofocus_positive_time(self):
@@ -174,6 +185,7 @@ class TestAutofocusEstimation:
 # ---------------------------------------------------------------------------
 # Single step estimation tests
 # ---------------------------------------------------------------------------
+
 
 class TestStepEstimation:
     def test_basic_image_step(self):
@@ -208,16 +220,15 @@ class TestStepEstimation:
 
     def test_sum_increases_capture_time(self):
         estimator = ProtocolTimeEstimator()
-        est1 = estimator._estimate_step(
-            0, pd.Series(_valid_step(Sum=1)), None, OBJ_10X)
-        est4 = estimator._estimate_step(
-            0, pd.Series(_valid_step(Sum=4)), None, OBJ_10X)
+        est1 = estimator._estimate_step(0, pd.Series(_valid_step(Sum=1)), None, OBJ_10X)
+        est4 = estimator._estimate_step(0, pd.Series(_valid_step(Sum=4)), None, OBJ_10X)
         assert est4.capture_time_s > est1.capture_time_s
 
 
 # ---------------------------------------------------------------------------
 # Full protocol estimation tests
 # ---------------------------------------------------------------------------
+
 
 class TestProtocolEstimation:
     def test_empty_protocol(self):
@@ -236,11 +247,13 @@ class TestProtocolEstimation:
 
     def test_multi_step_protocol(self):
         estimator = ProtocolTimeEstimator()
-        protocol = _make_protocol([
-            _valid_step(X=0, Y=0),
-            _valid_step(X=1000, Y=0),
-            _valid_step(X=2000, Y=0),
-        ])
+        protocol = _make_protocol(
+            [
+                _valid_step(X=0, Y=0),
+                _valid_step(X=1000, Y=0),
+                _valid_step(X=2000, Y=0),
+            ]
+        )
         result = estimator.estimate(protocol)
         assert result.scan_estimate.num_steps == 3
         # Steps 2 and 3 should have movement time
@@ -249,8 +262,7 @@ class TestProtocolEstimation:
 
     def test_scan_within_period(self):
         estimator = ProtocolTimeEstimator()
-        protocol = _make_protocol(
-            [_valid_step()], period_min=20.0, duration_hr=1.0)
+        protocol = _make_protocol([_valid_step()], period_min=20.0, duration_hr=1.0)
         result = estimator.estimate(protocol)
         assert result.scan_fits_in_period
         assert result.scan_overrun_s == 0.0
@@ -258,9 +270,7 @@ class TestProtocolEstimation:
     def test_scan_exceeds_period(self):
         estimator = ProtocolTimeEstimator()
         # 100 AF steps with long exposure should exceed a 1-minute period
-        steps = [_valid_step(Auto_Focus=True, Exposure=500,
-                             X=i * 1000, Y=0)
-                 for i in range(20)]
+        steps = [_valid_step(Auto_Focus=True, Exposure=500, X=i * 1000, Y=0) for i in range(20)]
         protocol = _make_protocol(steps, period_min=1.0, duration_hr=1.0)
         result = estimator.estimate(protocol)
         assert not result.scan_fits_in_period
@@ -268,8 +278,7 @@ class TestProtocolEstimation:
 
     def test_num_scans(self):
         estimator = ProtocolTimeEstimator()
-        protocol = _make_protocol(
-            [_valid_step()], period_min=20.0, duration_hr=2.0)
+        protocol = _make_protocol([_valid_step()], period_min=20.0, duration_hr=2.0)
         result = estimator.estimate(protocol)
         assert result.num_scans == 6  # 120min / 20min
 

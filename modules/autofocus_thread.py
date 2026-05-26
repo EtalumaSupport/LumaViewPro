@@ -28,6 +28,7 @@ invocation while the first is in flight returns a Future that resolves
 immediately to a RuntimeError ("Autofocus already in progress"); the
 in-flight run is not affected.
 """
+
 import logging
 import queue
 import threading
@@ -152,9 +153,7 @@ class AutofocusThread:
         future: Future = Future()
         with self._state_lock:
             if self._current_future is not None and not self._current_future.done():
-                future.set_exception(
-                    RuntimeError('Autofocus already in progress')
-                )
+                future.set_exception(RuntimeError('Autofocus already in progress'))
                 return future
             self._current_future = future
             # Clear _aborted under the same lock that publishes
@@ -173,9 +172,7 @@ class AutofocusThread:
             # happen but degrade gracefully by failing the new Future.
             with self._state_lock:
                 self._current_future = None
-            future.set_exception(
-                RuntimeError('Autofocus request queue full')
-            )
+            future.set_exception(RuntimeError('Autofocus request queue full'))
         return future
 
     def abort(self) -> None:
@@ -231,9 +228,7 @@ class AutofocusThread:
                 logger.info(f'autofocus run aborted: {ex}')
                 future.set_exception(ex)
             except Exception as ex:
-                logger.exception(
-                    f'autofocus run raised: {type(ex).__name__}: {ex}'
-                )
+                logger.exception(f'autofocus run raised: {type(ex).__name__}: {ex}')
                 future.set_exception(ex)
             finally:
                 with self._state_lock:

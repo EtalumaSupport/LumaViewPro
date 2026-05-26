@@ -44,20 +44,20 @@ from modules.lumascope_api import Lumascope
 
 
 # Z-stack parameters (all values in micrometers)
-Z_START_UM = 4000.0    # Starting Z position (um)
-Z_END_UM = 6000.0      # Ending Z position (um)
-Z_STEP_UM = 200.0      # Step size between slices (um)
+Z_START_UM = 4000.0  # Starting Z position (um)
+Z_END_UM = 6000.0  # Ending Z position (um)
+Z_STEP_UM = 200.0  # Step size between slices (um)
 
 # Illumination settings
-LED_COLOR = "BF"       # Brightfield
-LED_MA = 100           # LED current (mA)
-EXPOSURE_MS = 50       # Exposure time (ms)
+LED_COLOR = 'BF'  # Brightfield
+LED_MA = 100  # LED current (mA)
+EXPOSURE_MS = 50  # Exposure time (ms)
 
 
 def main():
     # Create scope in simulate mode -- no hardware required
     scope = Lumascope(simulate=True)
-    print("Scope initialized (simulate=True)")
+    print('Scope initialized (simulate=True)')
 
     # Simulator-mode setup: kick the simulated camera into grabbing.
     scope._camera_driver.start_grabbing()
@@ -65,12 +65,11 @@ def main():
     # Configure illumination
     scope.illumination.led_on(channel=LED_COLOR, mA=LED_MA)
     scope.imaging.set_exposure_time(EXPOSURE_MS)
-    print(f"LED: {LED_COLOR} at {LED_MA} mA, exposure: {EXPOSURE_MS} ms")
+    print(f'LED: {LED_COLOR} at {LED_MA} mA, exposure: {EXPOSURE_MS} ms')
 
     # Calculate the number of slices
     num_slices = int((Z_END_UM - Z_START_UM) / Z_STEP_UM) + 1
-    print(f"\nZ-stack: {Z_START_UM} to {Z_END_UM} um, step={Z_STEP_UM} um "
-          f"({num_slices} slices)")
+    print(f'\nZ-stack: {Z_START_UM} to {Z_END_UM} um, step={Z_STEP_UM} um ({num_slices} slices)')
 
     # Capture Z-stack
     z_stack_images = []
@@ -79,7 +78,9 @@ def main():
     for i in range(num_slices):
         # Move Z to target position (um) and wait for completion
         scope.motion.move_absolute_position(
-            'Z', z_pos_um, wait_until_complete=True,
+            'Z',
+            z_pos_um,
+            wait_until_complete=True,
         )
 
         # Read back the actual position (um, from the push-based cache)
@@ -88,17 +89,18 @@ def main():
         # Capture a frame valid for the current Z + LED + exposure state
         image = scope.imaging.capture_and_wait(force_to_8bit=True)
         if image is None:
-            print(f"  Slice {i:3d}: FAILED at Z={z_pos_um:.1f} um")
+            print(f'  Slice {i:3d}: FAILED at Z={z_pos_um:.1f} um')
             z_pos_um += Z_STEP_UM
             continue
 
         z_stack_images.append(image)
-        print(f"  Slice {i:3d}: Z={actual_z_um:.1f} um, "
-              f"shape={image.shape}, mean={image.mean():.1f}")
+        print(
+            f'  Slice {i:3d}: Z={actual_z_um:.1f} um, shape={image.shape}, mean={image.mean():.1f}'
+        )
 
         z_pos_um += Z_STEP_UM
 
-    print(f"\nCaptured {len(z_stack_images)} / {num_slices} slices")
+    print(f'\nCaptured {len(z_stack_images)} / {num_slices} slices')
 
     # NOTE: To save each slice as a file, import from modules.image_save:
     #   from modules.image_save import save_image
@@ -113,7 +115,7 @@ def main():
     # Clean up
     scope.illumination.leds_off()
     scope.disconnect()
-    print("Scope disconnected")
+    print('Scope disconnected')
 
 
 if __name__ == '__main__':

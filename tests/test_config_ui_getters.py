@@ -28,6 +28,7 @@ def _patch_ctx(monkeypatch, *, spinner_text: str, settings: dict, loader):
     ctx.wellplate_loader = loader
 
     import modules.app_context as app_context
+
     monkeypatch.setattr(app_context, 'ctx', ctx)
     return ctx
 
@@ -39,12 +40,15 @@ class TestGetSelectedLabware:
         loader = MagicMock()
         plate = MagicMock()
         loader.get_plate.return_value = plate
-        _patch_ctx(monkeypatch,
-                   spinner_text='96 well microplate',
-                   settings={'protocol': {'labware': 'unused-fallback'}},
-                   loader=loader)
+        _patch_ctx(
+            monkeypatch,
+            spinner_text='96 well microplate',
+            settings={'protocol': {'labware': 'unused-fallback'}},
+            loader=loader,
+        )
 
         from modules.config_ui_getters import get_selected_labware
+
         labware_id, obj = get_selected_labware()
         assert labware_id == '96 well microplate'
         assert obj is plate
@@ -53,12 +57,15 @@ class TestGetSelectedLabware:
         loader = MagicMock()
         plate = MagicMock()
         loader.get_plate.return_value = plate
-        _patch_ctx(monkeypatch,
-                   spinner_text='',
-                   settings={'protocol': {'labware': '96 well microplate'}},
-                   loader=loader)
+        _patch_ctx(
+            monkeypatch,
+            spinner_text='',
+            settings={'protocol': {'labware': '96 well microplate'}},
+            loader=loader,
+        )
 
         from modules.config_ui_getters import get_selected_labware
+
         labware_id, obj = get_selected_labware()
         assert labware_id == '96 well microplate'
         assert obj is plate
@@ -71,17 +78,22 @@ class TestGetSelectedLabware:
         # cleanly to DEFAULT_LABWARE_ID rather than returning None.
         loader = MagicMock()
         default_plate = MagicMock()
+
         def fake_get_plate(plate_key=None):
             if plate_key == 'New':
                 raise KeyError('New')
             return default_plate
+
         loader.get_plate.side_effect = fake_get_plate
-        _patch_ctx(monkeypatch,
-                   spinner_text='New',
-                   settings={'protocol': {'labware': 'New'}},
-                   loader=loader)
+        _patch_ctx(
+            monkeypatch,
+            spinner_text='New',
+            settings={'protocol': {'labware': 'New'}},
+            loader=loader,
+        )
 
         from modules.config_ui_getters import get_selected_labware
+
         labware_id, obj = get_selected_labware()
         # Falls back to '96 well microplate' (DEFAULT_LABWARE_ID).
         assert labware_id == '96 well microplate'
@@ -91,12 +103,10 @@ class TestGetSelectedLabware:
         loader = MagicMock()
         default_plate = MagicMock()
         loader.get_plate.return_value = default_plate
-        _patch_ctx(monkeypatch,
-                   spinner_text='',
-                   settings={},
-                   loader=loader)
+        _patch_ctx(monkeypatch, spinner_text='', settings={}, loader=loader)
 
         from modules.config_ui_getters import get_selected_labware
+
         labware_id, obj = get_selected_labware()
         assert labware_id == '96 well microplate'
         assert obj is default_plate
@@ -106,18 +116,23 @@ class TestGetSelectedLabware:
         # in loader.get_plate_list().
         loader = MagicMock()
         first_plate = MagicMock()
+
         def fake_get_plate(plate_key=None):
             if plate_key in ('nonexistent plate', '96 well microplate'):
                 raise KeyError('not found')
             return first_plate
+
         loader.get_plate.side_effect = fake_get_plate
         loader.get_plate_list.return_value = ['some-other-plate']
-        _patch_ctx(monkeypatch,
-                   spinner_text='nonexistent plate',
-                   settings={'protocol': {'labware': 'nonexistent plate'}},
-                   loader=loader)
+        _patch_ctx(
+            monkeypatch,
+            spinner_text='nonexistent plate',
+            settings={'protocol': {'labware': 'nonexistent plate'}},
+            loader=loader,
+        )
 
         from modules.config_ui_getters import get_selected_labware
+
         labware_id, obj = get_selected_labware()
         assert labware_id == 'some-other-plate'
         assert obj is first_plate
@@ -128,17 +143,22 @@ class TestGetSelectedLabware:
         # path is impossible — labware_id is always a non-None string.
         loader = MagicMock()
         default_plate = MagicMock()
+
         def fake_get_plate(plate_key=None):
             if plate_key == 'New':
                 raise KeyError('New')
             return default_plate
+
         loader.get_plate.side_effect = fake_get_plate
-        _patch_ctx(monkeypatch,
-                   spinner_text='New',
-                   settings={'protocol': {'labware': 'New'}},
-                   loader=loader)
+        _patch_ctx(
+            monkeypatch,
+            spinner_text='New',
+            settings={'protocol': {'labware': 'New'}},
+            loader=loader,
+        )
 
         from modules.config_ui_getters import get_selected_labware
+
         labware_id, _ = get_selected_labware()
         assert isinstance(labware_id, str)
         assert labware_id  # non-empty

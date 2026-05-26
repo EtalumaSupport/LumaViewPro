@@ -90,8 +90,7 @@ def check_auth(settings: dict, provided_key: str | None) -> tuple[bool, str]:
     # Non-localhost with no key configured: reject (misconfiguration)
     if not stored_key:
         logger.error(
-            'REST API bound to %s without api_key configured — '
-            'rejecting request for safety', host
+            'REST API bound to %s without api_key configured -- rejecting request for safety', host
         )
         return False, 'API key required when binding to non-localhost'
 
@@ -127,8 +126,10 @@ def ensure_api_key_for_non_localhost(settings: dict) -> str | None:
         rest_api['api_key'] = new_key
         settings['rest_api'] = rest_api
         logger.warning(
-            'Auto-generated API key for non-localhost binding (%s). '
-            'Key: %s...%s', host, new_key[:8], new_key[-4:]
+            'Auto-generated API key for non-localhost binding (%s). Key: %s...%s',
+            host,
+            new_key[:8],
+            new_key[-4:],
         )
         return new_key
 

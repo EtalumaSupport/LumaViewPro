@@ -10,27 +10,27 @@ Architecture
 
 Three objects live in this file:
 
-1. ``_FX2Connection`` — module-level singleton that owns the USB handle,
+1. ``_FX2Connection`` -- module-level singleton that owns the USB handle,
    firmware upload, control transfers, I2C, sensor register R/W, and ISO
    streaming. Constructed lazily the first time any driver calls
    ``_FX2Connection.get()``. Raises on any failure; the registry treats a
    raise as "this driver isn't available" and falls through to the next
-   candidate. Private — never touched from outside this module.
+   candidate. Private -- never touched from outside this module.
 
-2. ``FX2Camera`` — registered as ``@camera_registry.register('fx2', ...)``.
+2. ``FX2Camera`` -- registered as ``@camera_registry.register('fx2', ...)``.
    Implements the Camera ABC. Pulls ``_FX2Connection.get()`` in ``__init__``
    so the camera and LED end up sharing the same USB handle.
 
-3. ``FX2LEDController`` — registered as ``@led_registry.register('fx2', ...)``.
+3. ``FX2LEDController`` -- registered as ``@led_registry.register('fx2', ...)``.
    Satisfies LEDBoardProtocol. Thin command translator: no state tracking,
    no ``led_ma`` dict, no ``is_led_on`` bookkeeping. Source of truth for
    LED state is ``Lumascope._led_owners`` (post-B3 / Stage 2 architecture).
    The class exists only to convert LVP's (channel, mA) calls into FX2
    I2C byte sequences. State-query protocol methods return sentinel
-   defaults (-1 / False / dict-of-False) — matching NullLEDBoard.
+   defaults (-1 / False / dict-of-False) -- matching NullLEDBoard.
 
 The camera and LED objects both hold a reference to the same
-``_FX2Connection._instance`` — proven viable by
+``_FX2Connection._instance`` -- proven viable by
 ``TestRegistryAccommodatesCompositeHardware`` in tests/test_driver_registry.py.
 No special casing required in ``Lumascope.__init__``.
 
@@ -38,8 +38,8 @@ Dependencies
 ------------
 
 - ``pyusb``  (firmware upload + control transfers)
-- ``libusb1`` (isochronous streaming on macOS/Linux — python-libusb1 binding)
-- ``drivers.winusb_iso`` (isochronous streaming on Windows — ctypes wrapper)
+- ``libusb1`` (isochronous streaming on macOS/Linux -- python-libusb1 binding)
+- ``drivers.winusb_iso`` (isochronous streaming on Windows -- ctypes wrapper)
 - Native ``libusb-1.0`` library (macOS: ``brew install libusb``;
   Windows: vendored ``libusb-1.0.dll`` via PyInstaller binaries list)
 
@@ -48,7 +48,7 @@ Import-time safety
 
 All USB / libusb1 imports are wrapped in try/except. If neither library is
 installed, the module still imports and registers with the camera and LED
-registries — but ``_FX2Connection.__init__`` raises ``ImportError`` on
+registries -- but ``_FX2Connection.__init__`` raises ``ImportError`` on
 first use, so the registry's auto-detect fallthrough handles it cleanly
 without breaking non-FX2 scopes on dev machines without pyusb.
 
@@ -77,6 +77,7 @@ from datetime import datetime
 import numpy as np
 
 from lvp_logger import logger
+
 try:
     from lvp_logger import camera_logger as _cam_log
 except ImportError:
@@ -87,14 +88,14 @@ from drivers.registry import camera_registry, led_registry
 # Wire-level logging for the FX2 (LumaviewClassic LS560/620/720) USB
 # control-transfer + I2C path. Without this, every i2c_write to set LED
 # brightness, every objective turret move, every sensor register write
-# happens with zero serial.log trace — invisible from the supported
+# happens with zero serial.log trace -- invisible from the supported
 # debug surface. Adds the same `serial.log` line shape SerialBoard uses
 # (`{label} {op} -> {result} ({elapsed_ms}ms)`), so a single grep on
 # `serial.log` covers RP2040 LED + RP2040 motor + sim + FX2 in one
 # place.
 _serial_log = logging.getLogger('LVP.serial')
 
-# Vendor-request integer → human-readable name. Populated lazily after
+# Vendor-request integer -> human-readable name. Populated lazily after
 # the VR_* constants below are defined.
 _VR_NAMES: dict[int, str] = {}
 
@@ -103,9 +104,11 @@ def _vr_name(req: int) -> str:
     """Return a human-readable name for a vendor request, or hex fallback."""
     return _VR_NAMES.get(req, f'VR_0x{req:02X}')
 
+
 try:
     import usb.core
     import usb.util
+
     _HAS_USB = True
     _USBError = usb.core.USBError
     _USBTimeoutError = usb.core.USBTimeoutError
@@ -124,12 +127,14 @@ _HAS_USB_BACKEND = False
 if _HAS_USB:
     try:
         import usb.backend.libusb1
+
         _HAS_USB_BACKEND = usb.backend.libusb1.get_backend() is not None
     except Exception:
         _HAS_USB_BACKEND = False
 
 try:
     import usb1
+
     _HAS_USB1 = True
 except ImportError:
     _HAS_USB1 = False
@@ -138,36 +143,34 @@ except ImportError:
 # FX2 (LumaviewClassic) drivers require pyusb plus a loadable libusb-1.0
 # native backend on every platform, plus libusb1 on macOS / Linux for ISO
 # streaming. On systems missing those, FX2 hardware fundamentally cannot
-# be reached — registering the drivers anyway causes the registry to
+# be reached -- registering the drivers anyway causes the registry to
 # attempt instantiation on every auto-detect run, raise NoBackendError /
 # ImportError, and dump a confusing traceback on systems that simply
 # don't have LVC hardware. Skip-with-INFO-log is the right
 # classification: this driver class isn't applicable to this install.
-_FX2_AVAILABLE = (
-    _HAS_USB and _HAS_USB_BACKEND and (sys.platform == 'win32' or _HAS_USB1)
-)
+_FX2_AVAILABLE = _HAS_USB and _HAS_USB_BACKEND and (sys.platform == 'win32' or _HAS_USB1)
 if not _FX2_AVAILABLE:
     if not _HAS_USB:
         logger.info(
-            "[FX2 Driver] pyusb not installed — FX2 (LumaviewClassic) "
-            "drivers will not be registered. Install pyusb to enable "
-            "LVC hardware support: pip install pyusb"
+            '[FX2 Driver] pyusb not installed -- FX2 (LumaviewClassic) '
+            'drivers will not be registered. Install pyusb to enable '
+            'LVC hardware support: pip install pyusb'
         )
     elif not _HAS_USB_BACKEND:
         logger.info(
-            "[FX2 Driver] libusb-1.0 native library not loadable -- FX2 "
-            "(LumaviewClassic) drivers will not be registered. Install "
-            "the native library to enable LVC hardware support: macOS: "
-            "brew install libusb; Windows: ensure libusb-1.0.dll is on "
-            "PATH or vendored alongside the executable; Linux: apt "
-            "install libusb-1.0-0."
+            '[FX2 Driver] libusb-1.0 native library not loadable -- FX2 '
+            '(LumaviewClassic) drivers will not be registered. Install '
+            'the native library to enable LVC hardware support: macOS: '
+            'brew install libusb; Windows: ensure libusb-1.0.dll is on '
+            'PATH or vendored alongside the executable; Linux: apt '
+            'install libusb-1.0-0.'
         )
     elif not _HAS_USB1:
         logger.info(
-            "[FX2 Driver] libusb1 not installed -- FX2 (LumaviewClassic) "
-            "drivers will not be registered on macOS/Linux. Install "
-            "libusb1 (pip install libusb1) plus the native libusb to "
-            "enable LVC hardware support."
+            '[FX2 Driver] libusb1 not installed -- FX2 (LumaviewClassic) '
+            'drivers will not be registered on macOS/Linux. Install '
+            'libusb1 (pip install libusb1) plus the native libusb to '
+            'enable LVC hardware support.'
         )
 
 
@@ -187,24 +190,24 @@ def _register_if_fx2_available(registry, name, **kwargs):
 # ---------------------------------------------------------------------------
 
 VID = 0x04B4
-PID_BOOT = 0x8613   # FX2 bootloader (before firmware upload)
-PID_APP = 0xEA17    # Running firmware
+PID_BOOT = 0x8613  # FX2 bootloader (before firmware upload)
+PID_APP = 0xEA17  # Running firmware
 
-# Vendor request codes — FX2 firmware vendor command handler
-VR_ANCHOR_DLD = 0xA0          # Cypress standard: firmware upload
+# Vendor request codes -- FX2 firmware vendor command handler
+VR_ANCHOR_DLD = 0xA0  # Cypress standard: firmware upload
 VR_I2C_READ = 0xB2
 VR_I2C_WRITE = 0xB3
-VR_I2C_MT9P031_READ = 0xB4    # Async MT9P031 register read (5s timeout OK)
+VR_I2C_MT9P031_READ = 0xB4  # Async MT9P031 register read (5s timeout OK)
 VR_INIT_GPIF = 0xB9
 # VR_IMAGE_SENSOR_CLK_MANAGED_WRITE (0xBA) was defined here as
 # VR_SENSOR_CLK_WRITE and used by sensor_reg_write. It switches IFCLK
-# to internal, does the I2C write, then switches back — which disrupts
+# to internal, does the I2C write, then switches back -- which disrupts
 # ISO streaming because the GPIF pixel clock depends on IFCLK. Removed
 # 2026-04-15 after finding it was the root cause of visible image
 # corruption on every gain/exposure slider drag. LVC defines the same
 # constant in `I2C_Control.cs:52` but never calls it; LVC's production
 # path uses VR_I2C_WRITE (0xB3) for sensor writes via
-# `AptinaMT9P031_Control.WriteWord16 → I2C_Control.Write`. We now
+# `AptinaMT9P031_Control.WriteWord16 -> I2C_Control.Write`. We now
 # match LVC. See docs/AUDIT_FX2_RUNTIME.md Bug 6.
 VR_SET_IFCLK_SRC = 0xBB
 VR_CODE_VERSION = 0xBC
@@ -213,17 +216,19 @@ VR_STOP_STREAMING = 0xBE
 
 # Populate _VR_NAMES once constants are defined (used by serial.log
 # emission below for human-readable trace lines).
-_VR_NAMES.update({
-    VR_ANCHOR_DLD:        'VR_ANCHOR_DLD',
-    VR_I2C_READ:          'VR_I2C_READ',
-    VR_I2C_WRITE:         'VR_I2C_WRITE',
-    VR_I2C_MT9P031_READ:  'VR_I2C_MT9P031_READ',
-    VR_INIT_GPIF:         'VR_INIT_GPIF',
-    VR_SET_IFCLK_SRC:     'VR_SET_IFCLK_SRC',
-    VR_CODE_VERSION:      'VR_CODE_VERSION',
-    VR_START_STREAMING:   'VR_START_STREAMING',
-    VR_STOP_STREAMING:    'VR_STOP_STREAMING',
-})
+_VR_NAMES.update(
+    {
+        VR_ANCHOR_DLD: 'VR_ANCHOR_DLD',
+        VR_I2C_READ: 'VR_I2C_READ',
+        VR_I2C_WRITE: 'VR_I2C_WRITE',
+        VR_I2C_MT9P031_READ: 'VR_I2C_MT9P031_READ',
+        VR_INIT_GPIF: 'VR_INIT_GPIF',
+        VR_SET_IFCLK_SRC: 'VR_SET_IFCLK_SRC',
+        VR_CODE_VERSION: 'VR_CODE_VERSION',
+        VR_START_STREAMING: 'VR_START_STREAMING',
+        VR_STOP_STREAMING: 'VR_STOP_STREAMING',
+    }
+)
 
 # Vendor requests that the i2c_write / i2c_read wrappers route through
 # control_transfer_*. Logged at the i2c_* layer (with addr/data); the
@@ -231,8 +236,8 @@ _VR_NAMES.update({
 _I2C_VR_REQUESTS = frozenset({VR_I2C_READ, VR_I2C_WRITE})
 
 # I2C addresses
-I2C_SENSOR = 0x5D   # MT9P031 image sensor
-I2C_LED = 0x2A      # Peripheral controller (LEDs)
+I2C_SENSOR = 0x5D  # MT9P031 image sensor
+I2C_LED = 0x2A  # Peripheral controller (LEDs)
 
 
 # ---------------------------------------------------------------------------
@@ -241,8 +246,8 @@ I2C_LED = 0x2A      # Peripheral controller (LEDs)
 
 IMG_WIDTH = 1900
 IMG_HEIGHT = 1900
-FRAME_BYTES = IMG_WIDTH * IMG_HEIGHT              # raw pixel count (8-bit mono)
-FRAME_DELIM = b'\x01\xfe\x00\xff'                 # injected between frames by GpifWaveform_Isr
+FRAME_BYTES = IMG_WIDTH * IMG_HEIGHT  # raw pixel count (8-bit mono)
+FRAME_DELIM = b'\x01\xfe\x00\xff'  # injected between frames by GpifWaveform_Isr
 
 # MT9P031 register addresses
 REG_ROW_START = 0x01
@@ -262,7 +267,7 @@ MAX_EXPOSURE_ROWS = 65535
 
 # Row time from MT9P031 datasheet (Table 8):
 #   EXTCLK = 12 MHz (FX2 24 MHz crystal / 2)
-#   PLL: M=27, N=1, P1=13 → pixel_clock = 24.923 MHz
+#   PLL: M=27, N=1, P1=13 -> pixel_clock = 24.923 MHz
 #   Row period = 2 × max(W/2 + HBMIN, 486) = 2 × 1401 = 2802 pixel clocks
 #   (W=1902, HBMIN=450 with Row_BLC enabled)
 #   tROW = 2802 / 24.923 MHz = 112.4 μs = 0.1124 ms
@@ -282,10 +287,10 @@ _SHUTTER_OVERHEAD_MS = 0.0171
 _COLOR_TO_CH = {'Blue': 0, 'Green': 1, 'Red': 2, 'BF': 3}
 _CH_TO_COLOR = {v: k for k, v in _COLOR_TO_CH.items()}
 _CH_TO_I2C = {
-    0: 0x43,  # Blue  → 'C'
-    1: 0x42,  # Green → 'B'
-    2: 0x41,  # Red   → 'A'
-    3: 0x44,  # BF    → 'D'
+    0: 0x43,  # Blue  -> 'C'
+    1: 0x42,  # Green -> 'B'
+    2: 0x41,  # Red   -> 'A'
+    3: 0x44,  # BF    -> 'D'
 }
 
 
@@ -293,15 +298,16 @@ _CH_TO_I2C = {
 # ISO streaming parameters (matches C# ReadISOStream_WinUsb reference config)
 # ---------------------------------------------------------------------------
 
-ISO_ALT_INTERFACE = 3     # Alt interface 3 = ISO IN, 3x1024/microframe
-ISO_NUM_TRANSFERS = 16    # Pending transfers in flight
-ISO_NUM_PACKETS = 256     # ISO packets per transfer (C# reference uses 256)
+ISO_ALT_INTERFACE = 3  # Alt interface 3 = ISO IN, 3x1024/microframe
+ISO_NUM_TRANSFERS = 16  # Pending transfers in flight
+ISO_NUM_PACKETS = 256  # ISO packets per transfer (C# reference uses 256)
 ISO_MAX_PACKET_SIZE = 3072  # 3 × 1024 bytes per microframe
 
 
 # ---------------------------------------------------------------------------
 # Intel HEX parser
 # ---------------------------------------------------------------------------
+
 
 def parse_intel_hex(hex_path: str) -> tuple[bytes, int]:
     """Parse an Intel HEX file into a flat byte array.
@@ -313,7 +319,7 @@ def parse_intel_hex(hex_path: str) -> tuple[bytes, int]:
     Returns:
         (data, end_addr): data is a 16 KB bytes object, end_addr is the
         highest address that was actually written (used to size the
-        firmware upload — everything past end_addr stays 0xFF).
+        firmware upload -- everything past end_addr stays 0xFF).
     """
     buf = bytearray(0x4000)
     for i in range(len(buf)):
@@ -333,7 +339,7 @@ def parse_intel_hex(hex_path: str) -> tuple[bytes, int]:
             if record_type != 0:  # only handle data records
                 continue
             for i in range(count):
-                byte_val = int(line[9 + i * 2:11 + i * 2], 16)
+                byte_val = int(line[9 + i * 2 : 11 + i * 2], 16)
                 buf[addr] = byte_val
                 addr += 1
             if addr > end_addr:
@@ -343,29 +349,30 @@ def parse_intel_hex(hex_path: str) -> tuple[bytes, int]:
 
 
 # ---------------------------------------------------------------------------
-# Gain conversion — MT9P031 datasheet (DS_F, pages 35-36) and register
+# Gain conversion -- MT9P031 datasheet (DS_F, pages 35-36) and register
 # reference (RR_A pages 16-17).
 # ---------------------------------------------------------------------------
 # Global Gain register (0x35) bit fields:
-#   Bits [14:8] = Digital_Gain     — legal values [0, 120] per RR_A
+#   Bits [14:8] = Digital_Gain     -- legal values [0, 120] per RR_A
 #   Bit  [6]    = Analog_Multiplier (0 or 1)
-#   Bits [5:0]  = Analog_Gain      — legal values [8, 63] per RR_A
+#   Bits [5:0]  = Analog_Gain      -- legal values [8, 63] per RR_A
 #
 # Analog gain:  AG = (1 + Analog_Multiplier) × (Analog_Gain / 8)
 # Digital gain: DG = 1 + (Digital_Gain / 8)
 # Total gain:   AG × DG
 #
 # Strategy (datasheet recommended):
-#   ≤ 4x:  analog only (multiplier=0) — best noise performance
+#   ≤ 4x:  analog only (multiplier=0) -- best noise performance
 #   ≤ 8x:  analog with multiplier=1
 #   > 8x:  max analog (8x) + digital for the rest
 #
 # Range: 1x (0 dB) to 128x (42.1 dB). The LumaviewClassic LVC driver
 # reference originally had `min(127, ...)` on the digital clamp and a
-# comment claiming ~135x max — that was outside the documented legal
+# comment claiming ~135x max -- that was outside the documented legal
 # range per RR_A. The audit in
 # LumaviewClassic/docs/DATASHEET_VERIFICATION.md §5 corrected this to
 # 120 / 128x. See also the docstring on `_gain_db_to_register`.
+
 
 def _gain_db_to_register(db: float) -> int:
     """Convert gain in dB to MT9P031 global gain register value."""
@@ -405,8 +412,9 @@ def _register_to_gain_db(reg: int) -> tuple[float, float]:
 
 
 # ---------------------------------------------------------------------------
-# StreamStats — frame rate / throughput diagnostics
+# StreamStats -- frame rate / throughput diagnostics
 # ---------------------------------------------------------------------------
+
 
 class StreamStats:
     """Accumulates streaming diagnostics. Thread-safe."""
@@ -451,7 +459,7 @@ class StreamStats:
             self._delimiters_seen += 1
 
     def record_shifted_frame(self, size: int) -> None:
-        """Frame between two delimiters was the wrong size — either oversized
+        """Frame between two delimiters was the wrong size -- either oversized
         (likely a missed delimiter caused two frames to be concatenated, or a
         false-positive delimiter elsewhere in pixel data inflated the buffer)
         OR sized between `needed` and `expected` (off-by-some-rows, also wrong).
@@ -527,7 +535,9 @@ class StreamStats:
             'shifted_sizes': recent_shifted,
             'delimiters_seen': self._delimiters_seen,
             'total_MB': round(self._total_bytes / (1024 * 1024), 1),
-            'throughput_MBps': round(self._total_bytes / (1024 * 1024) / elapsed, 2) if elapsed > 0 else 0,
+            'throughput_MBps': round(self._total_bytes / (1024 * 1024) / elapsed, 2)
+            if elapsed > 0
+            else 0,
             'fps_current': round(cur_fps, 1),
             'fps_average': round(avg_fps, 2),
             'usb_errors': self._usb_errors,
@@ -536,13 +546,14 @@ class StreamStats:
 
 
 # ---------------------------------------------------------------------------
-# _FX2Connection — module-level singleton owning the USB handle
+# _FX2Connection -- module-level singleton owning the USB handle
 # ---------------------------------------------------------------------------
+
 
 class _FX2Connection:
     """Singleton owning the FX2 USB device.
 
-    Lazily constructed on first ``_FX2Connection.get()``. Private — external
+    Lazily constructed on first ``_FX2Connection.get()``. Private -- external
     callers should never reference this class directly. ``FX2Camera`` and
     ``FX2LEDController`` reach it only via ``get()`` in their ``__init__``.
 
@@ -550,7 +561,7 @@ class _FX2Connection:
         The FX2 chip is one USB device with two functional sub-devices
         (camera + LED). pyusb cannot share a device handle across two
         independent driver objects safely, and the B2 driver registry
-        constructs camera and LED separately — so both registered
+        constructs camera and LED separately -- so both registered
         drivers share the same underlying connection via this module-level
         instance. Proven viable by
         ``tests/test_driver_registry.py::TestRegistryAccommodatesCompositeHardware``.
@@ -559,8 +570,8 @@ class _FX2Connection:
     _instance: '_FX2Connection | None' = None
     _instance_lock = threading.Lock()
 
-    FIRMWARE_RE_ENUM_TIMEOUT = 15.0   # seconds to wait for re-enumeration
-    FIRMWARE_CHUNK_SIZE = 0x800       # vendor req 0xA0 upload chunk
+    FIRMWARE_RE_ENUM_TIMEOUT = 15.0  # seconds to wait for re-enumeration
+    FIRMWARE_CHUNK_SIZE = 0x800  # vendor req 0xA0 upload chunk
 
     @classmethod
     def get(cls) -> '_FX2Connection':
@@ -604,8 +615,7 @@ class _FX2Connection:
     def __init__(self):
         if not _HAS_USB:
             raise ImportError(
-                "pyusb is required for FX2 hardware access. "
-                "Install with: pip install pyusb"
+                'pyusb is required for FX2 hardware access. Install with: pip install pyusb'
             )
         # libusb1 is needed for ISO streaming on macOS/Linux. Windows uses
         # the native WinUSB path (drivers/winusb_iso.py) and doesn't need
@@ -614,21 +624,21 @@ class _FX2Connection:
         # seconds in when they hit "start streaming".
         if sys.platform != 'win32' and not _HAS_USB1:
             raise ImportError(
-                "libusb1 (python-libusb1) is required for FX2 ISO streaming "
-                "on macOS / Linux. Install with: pip install libusb1. "
-                "On macOS you also need the native library: brew install libusb."
+                'libusb1 (python-libusb1) is required for FX2 ISO streaming '
+                'on macOS / Linux. Install with: pip install libusb1. '
+                'On macOS you also need the native library: brew install libusb.'
             )
         self._dev = None
         self._lock = threading.Lock()
-        # During streaming, the pyusb handle is closed — only one handle
+        # During streaming, the pyusb handle is closed -- only one handle
         # at a time. Control transfers issued while streaming route
         # through whichever of these is live:
-        #   _iso_handle_for_ctrl      → usb1 handle (macOS/Linux ISO path)
-        #   _winusb_reader_for_ctrl   → WinUsbIsoReader (Windows WinUSB path)
+        #   _iso_handle_for_ctrl      -> usb1 handle (macOS/Linux ISO path)
+        #   _winusb_reader_for_ctrl   -> WinUsbIsoReader (Windows WinUSB path)
         # Both default to None; FX2Camera's streaming start/stop code sets
         # and clears them in lockstep with its own handles.
         # NOTE: losing the winusb branch was the bug in 4.0.0-LVCtest vs
-        # the LVC upstream — restoring it here per the LVC reference.
+        # the LVC upstream -- restoring it here per the LVC reference.
         self._iso_handle_for_ctrl = None
         self._winusb_reader_for_ctrl = None
 
@@ -655,8 +665,7 @@ class _FX2Connection:
         dev = usb.core.find(idVendor=VID, idProduct=PID_BOOT)
         if dev is None:
             raise RuntimeError(
-                f"No Lumascope FX2 device found "
-                f"(checked PID 0x{PID_APP:04X} and 0x{PID_BOOT:04X})"
+                f'No Lumascope FX2 device found (checked PID 0x{PID_APP:04X} and 0x{PID_BOOT:04X})'
             )
 
         logger.info(
@@ -680,8 +689,8 @@ class _FX2Connection:
                 return
 
         raise RuntimeError(
-            f"FX2 did not re-enumerate after firmware upload "
-            f"(waited {self.FIRMWARE_RE_ENUM_TIMEOUT:.0f}s)"
+            f'FX2 did not re-enumerate after firmware upload '
+            f'(waited {self.FIRMWARE_RE_ENUM_TIMEOUT:.0f}s)'
         )
 
     def _setup_device(self):
@@ -689,7 +698,7 @@ class _FX2Connection:
         dev = self._dev
 
         # On macOS/Linux, detach the kernel driver if it grabbed the
-        # interface. Windows pyusb raises NotImplementedError here — ignore.
+        # interface. Windows pyusb raises NotImplementedError here -- ignore.
         try:
             if dev.is_kernel_driver_active(0):
                 dev.detach_kernel_driver(0)
@@ -714,28 +723,28 @@ class _FX2Connection:
 
         Two hex files ship with the driver:
 
-        - ``LumascopeClassic.hex`` (45068 bytes) — **patched** variant
+        - ``LumascopeClassic.hex`` (45068 bytes) -- **patched** variant
           with a modified product string ("LS Classic") to improve
           device enumeration after firmware upload. Confirmed identical
           (SHA256 ``c15a9294…``) to ``LumascopeClassic_patched.hex`` in
           the ``LumaviewClassic`` development repo. This is the primary
           production firmware.
-        - ``Lumascope600.hex`` (28434 bytes) — original smaller firmware
+        - ``Lumascope600.hex`` (28434 bytes) -- original smaller firmware
           (AUTOIN=1024). Kept as a fallback for any unit that refuses
           to re-enumerate with the patched variant.
 
         History note: the ``4.0.0-LVCtest`` integration branch in LVP
         shipped the **unpatched** ``LumascopeClassic_original.hex``
         (SHA256 ``4d457a86…``) under the name ``LumascopeClassic.hex``
-        — a packaging mismatch that the LVC upstream later corrected.
+        -- a packaging mismatch that the LVC upstream later corrected.
         Stage 3 of the 4.1.0-dev port intentionally copies the patched
         variant from ``LumaviewClassic/firmware/LumascopeClassic.hex``,
         NOT from the ``4.0.0-LVCtest`` branch. If this file is ever
         re-copied from anywhere, verify its SHA256 matches.
 
         Search order (first hit wins):
-          1. ``<base>/firmware/LumascopeClassic.hex``   (patched — preferred)
-          2. ``<base>/firmware/Lumascope600.hex``       (original — fallback)
+          1. ``<base>/firmware/LumascopeClassic.hex``   (patched -- preferred)
+          2. ``<base>/firmware/Lumascope600.hex``       (original -- fallback)
           3. ``<base>/../firmware/<...>``               (dev tree: drivers/ is one level below repo root)
 
         Under PyInstaller, ``<base>`` is ``sys._MEIPASS``; otherwise it's
@@ -757,7 +766,7 @@ class _FX2Connection:
                 return path
 
         raise FileNotFoundError(
-            f"FX2 firmware hex file not found. Searched: {', '.join(candidates)}"
+            f'FX2 firmware hex file not found. Searched: {", ".join(candidates)}'
         )
 
     def _upload_firmware(self, dev, hex_path: str):
@@ -774,12 +783,10 @@ class _FX2Connection:
         while addr < end_addr:
             remaining = end_addr - addr
             length = min(chunk, remaining)
-            dev.ctrl_transfer(
-                0x40, VR_ANCHOR_DLD, addr, 0, data[addr:addr + length]
-            )
+            dev.ctrl_transfer(0x40, VR_ANCHOR_DLD, addr, 0, data[addr : addr + length])
             addr += length
 
-        # Release 8051 from reset — firmware boots and the device re-enumerates
+        # Release 8051 from reset -- firmware boots and the device re-enumerates
         dev.ctrl_transfer(0x40, VR_ANCHOR_DLD, 0xE600, 0, b'\x00')
         logger.info('[FX2 Conn  ] firmware upload complete, 8051 released')
 
@@ -836,7 +843,7 @@ class _FX2Connection:
                 )
             raise
         elapsed_ms = (time.monotonic() - t_start) * 1000
-        # Skip log emission for I2C ops — the i2c_write wrapper logs
+        # Skip log emission for I2C ops -- the i2c_write wrapper logs
         # with richer detail (addr + data bytes).
         if request not in _I2C_VR_REQUESTS:
             _serial_log.info(
@@ -923,9 +930,7 @@ class _FX2Connection:
         """
         t_start = time.monotonic()
         try:
-            result = self.control_transfer_out(
-                VR_I2C_WRITE, value=0, index=addr, data=bytes(data)
-            )
+            result = self.control_transfer_out(VR_I2C_WRITE, value=0, index=addr, data=bytes(data))
         except Exception as e:
             elapsed_ms = (time.monotonic() - t_start) * 1000
             _serial_log.error(
@@ -980,13 +985,13 @@ class _FX2Connection:
         `wLengthL` as the byte count, truncates to 3 bytes max, and writes
         the received payload to I2C without touching IFCLK.
 
-        WARNING — do NOT route sensor writes through 0xBA
+        WARNING -- do NOT route sensor writes through 0xBA
         (VR_IMAGE_SENSOR_CLK_MANAGED_WRITE). That variant switches IFCLK to
         internal, does the I2C write, then switches back. The GPIF pixel
         clock depends on IFCLK, so every 0xBA call disrupts streaming and
         produces visible image corruption on the next ISO frame. Our Stage
         3 port originally used 0xBA because the firmware comment for it
-        says "sensor clock managed write" — a misleading name. LVC defines
+        says "sensor clock managed write" -- a misleading name. LVC defines
         the constant but never calls it from any production code path; the
         real production path is plain VR_I2C_WRITE (0xB3). Fixed
         2026-04-15. See docs/AUDIT_FX2_RUNTIME.md Bug 6.
@@ -998,9 +1003,7 @@ class _FX2Connection:
         high = (value >> 8) & 0xFF
         low = value & 0xFF
         data = bytes([reg, high, low])
-        self.control_transfer_out(
-            VR_I2C_WRITE, value=0, index=I2C_SENSOR, data=data
-        )
+        self.control_transfer_out(VR_I2C_WRITE, value=0, index=I2C_SENSOR, data=data)
 
     def sensor_reg_read(self, reg: int) -> int:
         """Read 16-bit value from MT9P031 register via vendor request 0xB4.
@@ -1099,7 +1102,7 @@ class _FX2Connection:
         """Release USB resources. Idempotent, swallows errors.
 
         Called from ``__init__`` on construction failure and from
-        ``_reset_for_test``. Does NOT null out ``_instance`` — that's
+        ``_reset_for_test``. Does NOT null out ``_instance`` -- that's
         ``_reset_for_test``'s job.
         """
         if self._dev is not None:
@@ -1117,15 +1120,16 @@ class _FX2Connection:
 
 
 # ---------------------------------------------------------------------------
-# _FX2ImageHandler — frame buffering (inherits LVP's ImageHandlerBase)
+# _FX2ImageHandler -- frame buffering (inherits LVP's ImageHandlerBase)
 # ---------------------------------------------------------------------------
+
 
 class _FX2ImageHandler(ImageHandlerBase):
     """Thread-safe frame buffer for FX2 camera.
 
     The LVC reference driver carried a standalone fallback implementation
     with its own ``_new``/``_failure_count`` state for running outside
-    LVP. We drop that here — the 4.1.0-dev module only runs inside LVP,
+    LVP. We drop that here -- the 4.1.0-dev module only runs inside LVP,
     so ``ImageHandlerBase`` is always available and its behavior is what
     the rest of the camera stack expects.
 
@@ -1135,8 +1139,9 @@ class _FX2ImageHandler(ImageHandlerBase):
 
 
 # ---------------------------------------------------------------------------
-# FX2Camera — Camera ABC implementation
+# FX2Camera -- Camera ABC implementation
 # ---------------------------------------------------------------------------
+
 
 @_register_if_fx2_available(camera_registry, 'fx2', priority=80)
 class FX2Camera(Camera):
@@ -1148,7 +1153,7 @@ class FX2Camera(Camera):
     registry falls through to FX2.
 
     Shares its USB connection with ``FX2LEDController`` via the module-
-    level ``_FX2Connection`` singleton — both drivers call
+    level ``_FX2Connection`` singleton -- both drivers call
     ``_FX2Connection.get()`` in their constructors and end up pointing
     at the same handle without any coordination from Lumascope.__init__.
     """
@@ -1161,7 +1166,7 @@ class FX2Camera(Camera):
     FRAME_SIZE_STEP = 4
 
     def __init__(self, **kwargs):
-        # Grab the FX2 connection BEFORE super().__init__() — the Camera
+        # Grab the FX2 connection BEFORE super().__init__() -- the Camera
         # base class calls self.connect() at the end of its __init__,
         # and that needs self._fx2 live. If _FX2Connection.get() raises
         # (no FX2 hardware, no pyusb, firmware upload fails), the
@@ -1169,7 +1174,7 @@ class FX2Camera(Camera):
         # next camera driver candidate.
         self._fx2 = _FX2Connection.get()
 
-        # Streaming state — initialized here so connect() can see them
+        # Streaming state -- initialized here so connect() can see them
         # even though connect() runs inside super().__init__().
         self._grabbing = False
         self._grab_thread: threading.Thread | None = None
@@ -1203,7 +1208,7 @@ class FX2Camera(Camera):
         # (our usb_event_thread + grab_thread) keep running. Module-
         # level globals get GC'd, including the libusb1 USBContext,
         # which destroys its internal mutexes. The daemon event thread
-        # is still inside `handleEventsTimeout` — its next mutex lock
+        # is still inside `handleEventsTimeout` -- its next mutex lock
         # hits a destroyed mutex and crashes Python with
         # ``Assertion failed: pthread_mutex_destroy(mutex) == 0``
         # in libusb1's ``usbi_mutex_destroy``. Reproduced 2026-04-15
@@ -1213,7 +1218,7 @@ class FX2Camera(Camera):
         # Fix: atexit hook calls ``stop_grabbing`` before any Python
         # GC happens. atexit runs during normal interpreter shutdown
         # in LIFO order. The weakref ensures the hook doesn't pin the
-        # camera object in memory — if user code releases its FX2Camera
+        # camera object in memory -- if user code releases its FX2Camera
         # reference earlier, the camera can still be GC'd normally and
         # the atexit hook becomes a no-op.
         self_ref = weakref.ref(self)
@@ -1227,7 +1232,7 @@ class FX2Camera(Camera):
             try:
                 inst.stop_grabbing()
             except Exception:
-                pass  # swallow — interpreter shutdown is in progress
+                pass  # swallow -- interpreter shutdown is in progress
 
         atexit.register(_atexit_drain)
 
@@ -1235,7 +1240,7 @@ class FX2Camera(Camera):
     # `with FX2Camera() as cam:` ensures stop_grabbing + disconnect run
     # via __exit__ regardless of whether the body raises. This is the
     # primary recommended cleanup pattern for ad-hoc scripts and tests
-    # — the atexit hook above is a safety net for code that doesn't use
+    # -- the atexit hook above is a safety net for code that doesn't use
     # the context manager (e.g., long-lived LVP UI sessions where the
     # camera is held by the Lumascope object for the lifetime of the
     # app, not inside a `with` block).
@@ -1270,7 +1275,7 @@ class FX2Camera(Camera):
         and SimulatedCamera (drivers/simulated_camera.py:176). LVP's
         ScopeDisplay polls the camera assuming it's already grabbing; if
         connect() returns without starting streaming, the live view stays
-        blank. This bug bit on the first LS620 GUI launch (2026-04-15) —
+        blank. This bug bit on the first LS620 GUI launch (2026-04-15) --
         manual Stage 3.5 scripts didn't notice because they all called
         cam.start_grabbing() explicitly.
         """
@@ -1297,7 +1302,7 @@ class FX2Camera(Camera):
     def _query_dynamic_capabilities(self):
         """Populate profile's dynamic gain / exposure fields.
 
-        FX2 has no SDK to query — these are hardcoded from the MT9P031
+        FX2 has no SDK to query -- these are hardcoded from the MT9P031
         datasheet and the driver's row-time constant. We fill them in
         here so the rest of LVP can read ``scope.capabilities`` or
         ``camera.profile.gain.total_max_db`` and get real numbers
@@ -1318,13 +1323,12 @@ class FX2Camera(Camera):
             # drags the exposure slider above ~200 ms. Raising this
             # requires fixing the frame parser to handle variable frame
             # timing OR doing stop-grab / set / start-grab on every
-            # exposure change — both Stage 3.6+ work, both non-trivial.
+            # exposure change -- both Stage 3.6+ work, both non-trivial.
             # Hardware-validated 2026-04-15 on the first LS620 GUI run.
             SAFE_EXPOSURE_MAX_MS = 178
             self.profile.exposure_max_us = SAFE_EXPOSURE_MAX_MS * 1000
             logger.debug(
-                '[FX2 Cam   ] profile capabilities: gain 0.0-42.1 dB, '
-                'exposure %.3f-%.3f ms',
+                '[FX2 Cam   ] profile capabilities: gain 0.0-42.1 dB, exposure %.3f-%.3f ms',
                 self.profile.exposure_min_us / 1000,
                 self.profile.exposure_max_us / 1000,
             )
@@ -1338,28 +1342,28 @@ class FX2Camera(Camera):
 
         Uses individual 3-byte register writes because the FX2 firmware's
         I2C handler truncates writes longer than 3 bytes. 10 ms sleep
-        between writes is conservative — the sensor responds much faster
+        between writes is conservative -- the sensor responds much faster
         but this matches the LVC reference that hardware-validated at
         63/63 frames.
 
         WARNING: do NOT call ``self._fx2.init_gpif()`` here. Per the
         firmware disassembly (see LumaviewClassic/docs/STREAMING_ANALYSIS.md
-        §3.2), VR_INIT_GPIF calls TD_Init() → Init_GPIF() → SetISOInterface()
+        §3.2), VR_INIT_GPIF calls TD_Init() -> Init_GPIF() -> SetISOInterface()
         internally, which resets EP2 configuration. The clock-managed
         write (0xBA) already handles IFCLK switching without calling
         init_gpif.
         """
         fx2 = self._fx2
 
-        # Initial window — set a default BEFORE PLL config. Overwritten
+        # Initial window -- set a default BEFORE PLL config. Overwritten
         # by the set_frame_size() call at the end of this method.
         fx2.sensor_reg_write(REG_ROW_START, 0x0036)  # sensor default row_start
         time.sleep(0.01)
         fx2.sensor_reg_write(REG_COL_START, 0x0010)  # sensor default col_start
         time.sleep(0.01)
-        fx2.sensor_reg_write(REG_ROW_SIZE, 0x0797)   # sensor default 1943
+        fx2.sensor_reg_write(REG_ROW_SIZE, 0x0797)  # sensor default 1943
         time.sleep(0.01)
-        fx2.sensor_reg_write(REG_COL_SIZE, 0x0A1F)   # sensor default 2591
+        fx2.sensor_reg_write(REG_COL_SIZE, 0x0A1F)  # sensor default 2591
         time.sleep(0.01)
 
         # PLL power on
@@ -1367,7 +1371,7 @@ class FX2Camera(Camera):
         time.sleep(0.01)
 
         # PLL config: M=0x1B=27, N_divider=0x01, P1_divider=0x0D=13.
-        # EXTCLK = 12 MHz → pixel_clock ≈ 24.92 MHz → ~4.5 fps at 1900×1900.
+        # EXTCLK = 12 MHz -> pixel_clock ≈ 24.92 MHz -> ~4.5 fps at 1900×1900.
         # NOTE on register interpretation: the MT9P031 datasheet formula
         # says N = N_divider + 1 and P1 = P1_divider + 1, but the
         # working silicon uses the raw register values directly (M, N,
@@ -1386,7 +1390,7 @@ class FX2Camera(Camera):
         # PLL activate
         fx2.sensor_reg_write(REG_PLL_CTRL, 0x0053)
         time.sleep(0.2)  # datasheet requires 1ms for VCO lock; 200ms is defensive
-        # Do NOT call init_gpif() here — see docstring warning.
+        # Do NOT call init_gpif() here -- see docstring warning.
 
         # Blue-strip fix per MT9P031 developer guide (DG_A page 7).
         # Prevents a blue strip artifact when bright light hits the top
@@ -1396,11 +1400,11 @@ class FX2Camera(Camera):
         time.sleep(0.01)
 
         # Black level calibration
-        fx2.sensor_reg_write(REG_BLC, 0x6000)        # lock green + red/blue BLC channels
+        fx2.sensor_reg_write(REG_BLC, 0x6000)  # lock green + red/blue BLC channels
         time.sleep(0.01)
         # Read Mode 2 bits we set:
-        #   bit  6 (0x0040) — Row_BLC enabled (sensor default)
-        #   bit 14 (0x4000) — Mirror_Column = horizontal flip. Per
+        #   bit  6 (0x0040) -- Row_BLC enabled (sensor default)
+        #   bit 14 (0x4000) -- Mirror_Column = horizontal flip. Per
         #                     Linux kernel mt9p031.c register defs.
         #                     LS620 optic path delivers a left/right-
         #                     reversed view through the eyepiece vs the
@@ -1408,13 +1412,13 @@ class FX2Camera(Camera):
         #                     it at the sensor (free, no CPU cost,
         #                     applies to live view + captures uniformly).
         # If the image ends up upside down instead of mirrored, swap
-        # bit 14 → bit 15 (0x4000 → 0x8000) for Mirror_Row instead.
+        # bit 14 -> bit 15 (0x4000 -> 0x8000) for Mirror_Row instead.
         fx2.sensor_reg_write(REG_READ_MODE2, 0x4040)
         time.sleep(0.01)
         fx2.sensor_reg_write(REG_ROW_BLACK, 0x0000)  # black target = 0 (microscopy optimization)
         time.sleep(0.01)
 
-        # Set default window to full 1900×1900 — also configures the
+        # Set default window to full 1900×1900 -- also configures the
         # col_size/row_size registers correctly with centering.
         self.set_frame_size(IMG_WIDTH, IMG_HEIGHT)
 
@@ -1424,9 +1428,11 @@ class FX2Camera(Camera):
 
     def start_grabbing(self):
         if self._grabbing:
-            if _cam_log is not None: _cam_log.info('fx2 start_grabbing SKIPPED: already grabbing')
+            if _cam_log is not None:
+                _cam_log.info('fx2 start_grabbing SKIPPED: already grabbing')
             return
-        if _cam_log is not None: _cam_log.info('fx2 start_grabbing')
+        if _cam_log is not None:
+            _cam_log.info('fx2 start_grabbing')
         self.stream_stats.reset()
         self._grabbing = True  # set BEFORE starting threads that check it
         self._use_winusb_iso = False
@@ -1435,16 +1441,19 @@ class FX2Camera(Camera):
         if sys.platform == 'win32':
             # Windows: WinUSB native ISO API (not libusb1).
             self._use_winusb_iso = True
-            if _cam_log is not None: _cam_log.info('fx2 path=winusb_iso')
+            if _cam_log is not None:
+                _cam_log.info('fx2 path=winusb_iso')
             self._start_winusb_iso_streaming()
         elif _HAS_USB1:
             # macOS / Linux: libusb1 async ISO.
             self._use_iso = True
-            if _cam_log is not None: _cam_log.info('fx2 path=libusb1_iso')
+            if _cam_log is not None:
+                _cam_log.info('fx2 path=libusb1_iso')
             self._start_iso_streaming()
         else:
             # Fallback: bulk transfers. ~0.7 fps, useful only for bring-up.
-            if _cam_log is not None: _cam_log.info('fx2 path=bulk_fallback')
+            if _cam_log is not None:
+                _cam_log.info('fx2 path=bulk_fallback')
             self._start_bulk_streaming()
 
         self._grab_thread = threading.Thread(target=self._grab_loop, daemon=True)
@@ -1452,7 +1461,7 @@ class FX2Camera(Camera):
 
     def _start_iso_streaming(self):
         """macOS / Linux ISO path via python-libusb1."""
-        # Close the pyusb handle — only one handle on the device at a time.
+        # Close the pyusb handle -- only one handle on the device at a time.
         try:
             usb.util.dispose_resources(self._fx2._dev)
         except Exception:
@@ -1470,7 +1479,7 @@ class FX2Camera(Camera):
         self._iso_handle.claimInterface(0)
         self._iso_handle.setInterfaceAltSetting(0, ISO_ALT_INTERFACE)
 
-        # Route control transfers through this handle while streaming —
+        # Route control transfers through this handle while streaming --
         # the pyusb handle is closed, so the connection's normal
         # control_transfer_out/in path would fail without this swap.
         self._fx2._iso_handle_for_ctrl = self._iso_handle
@@ -1495,33 +1504,34 @@ class FX2Camera(Camera):
             xfer.submit()
             self._iso_transfers.append(xfer)
 
-        # USB event pump in a dedicated thread — libusb1 needs someone
+        # USB event pump in a dedicated thread -- libusb1 needs someone
         # to call handleEventsTimeout() to process ISO completions.
-        self._usb_event_thread = threading.Thread(
-            target=self._usb_event_loop, daemon=True
-        )
+        self._usb_event_thread = threading.Thread(target=self._usb_event_loop, daemon=True)
         self._usb_event_thread.start()
 
-        # Now start streaming — transfers are ready to receive data.
+        # Now start streaming -- transfers are ready to receive data.
         self._iso_handle.controlWrite(0x40, VR_START_STREAMING, 0, 0, b'')
 
         logger.info(
             '[FX2 Cam   ] streaming started (ISO alt %d, EP 0x82, %d transfers × %d packets)',
-            ISO_ALT_INTERFACE, ISO_NUM_TRANSFERS, ISO_NUM_PACKETS,
+            ISO_ALT_INTERFACE,
+            ISO_NUM_TRANSFERS,
+            ISO_NUM_PACKETS,
         )
 
     def _start_winusb_iso_streaming(self):
         """Windows ISO path via WinUSB native API."""
         from drivers.winusb_iso import WinUsbIsoReader
 
-        # Close the pyusb handle — WinUSB needs exclusive device access.
+        # Close the pyusb handle -- WinUSB needs exclusive device access.
         try:
             usb.util.dispose_resources(self._fx2._dev)
         except Exception:
             pass
 
         self._winusb_reader = WinUsbIsoReader(
-            VID, PID_APP,
+            VID,
+            PID_APP,
             pipe_id=0x82,
             alt_interface=ISO_ALT_INTERFACE,
             num_slots=ISO_NUM_TRANSFERS,
@@ -1530,13 +1540,13 @@ class FX2Camera(Camera):
         self._winusb_reader.start()
 
         # Send VR_START_STREAMING through the WinUSB reader (can't use
-        # the pyusb handle — it's closed).
+        # the pyusb handle -- it's closed).
         self._winusb_reader.device.control_transfer(0x40, VR_START_STREAMING, 0, 0)
 
         # Route control transfers through the WinUSB reader while
         # streaming. Restoring this branch (which the 4.0.0-LVCtest
         # integration branch had dropped) is the entire reason we went
-        # back to the LVC upstream as the port source — without it,
+        # back to the LVC upstream as the port source -- without it,
         # any LED command or exposure/gain change during streaming
         # would fail on Windows.
         self._fx2._winusb_reader_for_ctrl = self._winusb_reader
@@ -1551,7 +1561,7 @@ class FX2Camera(Camera):
         )
 
     def _start_bulk_streaming(self):
-        """Bulk fallback via pyusb. Tops out at ~0.7 fps on macOS — only
+        """Bulk fallback via pyusb. Tops out at ~0.7 fps on macOS -- only
         useful for hardware bring-up on systems without libusb1 installed.
         """
         self._fx2.set_alt_interface(0)
@@ -1560,18 +1570,18 @@ class FX2Camera(Camera):
         with self._iso_buf_lock:
             self._iso_buf = bytearray()
 
-        self._bulk_reader_thread = threading.Thread(
-            target=self._bulk_reader_loop, daemon=True
-        )
+        self._bulk_reader_thread = threading.Thread(target=self._bulk_reader_loop, daemon=True)
         self._bulk_reader_thread.start()
 
         logger.info('[FX2 Cam   ] streaming started (bulk alt 0, EP 0x82) -- fallback mode')
 
     def stop_grabbing(self):
         if not self._grabbing:
-            if _cam_log is not None: _cam_log.info('fx2 stop_grabbing SKIPPED: not grabbing')
+            if _cam_log is not None:
+                _cam_log.info('fx2 stop_grabbing SKIPPED: not grabbing')
             return
-        if _cam_log is not None: _cam_log.info('fx2 stop_grabbing')
+        if _cam_log is not None:
+            _cam_log.info('fx2 stop_grabbing')
         self._grabbing = False
 
         if self._use_winusb_iso:
@@ -1589,8 +1599,12 @@ class FX2Camera(Camera):
         logger.info(
             '[FX2 Cam   ] streaming stopped: %d frames in %.1fs (%.1f fps avg), '
             '%d partial, %d USB errors, %.1f MB total',
-            s['good_frames'], s['elapsed_s'], s['fps_average'],
-            s['partial_frames'], s['usb_errors'], s['total_MB'],
+            s['good_frames'],
+            s['elapsed_s'],
+            s['fps_average'],
+            s['partial_frames'],
+            s['usb_errors'],
+            s['total_MB'],
         )
 
     def _stop_iso_streaming(self):
@@ -1654,9 +1668,7 @@ class FX2Camera(Camera):
         """Stop WinUSB ISO streaming and restore the pyusb handle."""
         if self._winusb_reader is not None:
             try:
-                self._winusb_reader.device.control_transfer(
-                    0x40, VR_STOP_STREAMING, 0, 0
-                )
+                self._winusb_reader.device.control_transfer(0x40, VR_STOP_STREAMING, 0, 0)
             except Exception:
                 pass
             self._winusb_reader.stop()
@@ -1682,16 +1694,12 @@ class FX2Camera(Camera):
             pass
 
     def is_grabbing(self) -> bool:
-        return (
-            self._grabbing
-            and self._grab_thread is not None
-            and self._grab_thread.is_alive()
-        )
+        return self._grabbing and self._grab_thread is not None and self._grab_thread.is_alive()
 
     # -- Reader threads ----------------------------------------------------
 
     def _iso_callback(self, transfer):
-        """libusb1 callback — called when an ISO transfer completes."""
+        """libusb1 callback -- called when an ISO transfer completes."""
         if transfer.getStatus() == usb1.TRANSFER_COMPLETED:
             with self._iso_buf_lock:
                 for status, buf in transfer.iterISO():
@@ -1707,7 +1715,8 @@ class FX2Camera(Camera):
                 logger.debug(
                     '[FX2 Cam   ] _iso_callback: transfer resubmit failed; '
                     'grab loop will stall if this persists: %s: %s',
-                    type(e).__name__, e,
+                    type(e).__name__,
+                    e,
                 )
 
     def _bulk_reader_loop(self):
@@ -1753,7 +1762,7 @@ class FX2Camera(Camera):
         local_buf: bytearray | None = None  # audit fix: explicit init
 
         while self._grabbing:
-            # Re-read dimensions every iteration — the UI can call
+            # Re-read dimensions every iteration -- the UI can call
             # set_frame_size() between frames.
             w = self._width
             h = self._height
@@ -1779,17 +1788,17 @@ class FX2Camera(Camera):
             while True:
                 idx = buf.find(FRAME_DELIM)
                 if idx < 0:
-                    # No complete frame — put unconsumed data back and
+                    # No complete frame -- put unconsumed data back and
                     # trim if it's gotten out of hand. Single lock
                     # acquisition covers both (audit fix).
                     with self._iso_buf_lock:
                         self._iso_buf = buf + self._iso_buf
                         if len(self._iso_buf) > needed * 3:
-                            self._iso_buf = self._iso_buf[-(needed * 2):]
+                            self._iso_buf = self._iso_buf[-(needed * 2) :]
                     break
 
                 frame_data = buf[:idx]
-                buf = buf[idx + len(FRAME_DELIM):]
+                buf = buf[idx + len(FRAME_DELIM) :]
 
                 # Strict frame validation. The MT9P031 + FX2 GPIF emits
                 # frames with EXACTLY one extra row of stride padding
@@ -1803,7 +1812,7 @@ class FX2Camera(Camera):
                 # PRE-FIX (AUDIT_FX2_RUNTIME.md): the check was
                 # `len(frame_data) >= needed`, which silently accepted
                 # arbitrary oversized frames as "good" and reshaped
-                # them from a misaligned offset → visually corrupt
+                # them from a misaligned offset -> visually corrupt
                 # frames flagged as good, no telemetry. Stage 3.5 Phase
                 # 8 missed this entirely because the partial-frame
                 # counter only fires on undersize.
@@ -1830,19 +1839,22 @@ class FX2Camera(Camera):
                     if not first_frame_logged:
                         first_frame_logged = True
                         logger.info(
-                            '[FX2 Cam   ] first frame: %dx%d, stride=%d, '
-                            '%d bytes, mean=%.1f',
-                            w, h, stride, len(frame_data), float(image.mean()),
+                            '[FX2 Cam   ] first frame: %dx%d, stride=%d, %d bytes, mean=%.1f',
+                            w,
+                            h,
+                            stride,
+                            len(frame_data),
+                            float(image.mean()),
                         )
                 elif len(frame_data) > needed:
-                    # Wrong size but bigger than minimum — either
+                    # Wrong size but bigger than minimum -- either
                     # oversized (missed delimiter, two frames glued)
                     # or sized between `needed` and `expected`
                     # (off-by-rows). Either way, the bytes are
                     # misaligned and would render as garbage.
                     stats.record_shifted_frame(len(frame_data))
                 elif len(frame_data) > 0:
-                    # Severely undersized — bytes dropped before the
+                    # Severely undersized -- bytes dropped before the
                     # next delimiter was found.
                     stats.record_partial_frame(len(frame_data))
 
@@ -1855,9 +1867,14 @@ class FX2Camera(Camera):
                     '[FX2 Cam   ] stream: %.1f fps (avg %.2f), '
                     '%d good / %d partial / %d shifted, '
                     '%.1f MB/s, %d errors, %d timeouts',
-                    s['fps_current'], s['fps_average'],
-                    s['good_frames'], s['partial_frames'], s['shifted_frames'],
-                    s['throughput_MBps'], s['usb_errors'], s['usb_timeouts'],
+                    s['fps_current'],
+                    s['fps_average'],
+                    s['good_frames'],
+                    s['partial_frames'],
+                    s['shifted_frames'],
+                    s['throughput_MBps'],
+                    s['usb_errors'],
+                    s['usb_timeouts'],
                 )
 
     # -- Grab API (mostly inherits from Camera; override for clarity) ------
@@ -1902,20 +1919,25 @@ class FX2Camera(Camera):
         col_start = max(0, (2592 - sensor_w) // 2 + 16) & ~1
         row_start = max(0, (1944 - sensor_h) // 2 + 54) & ~1
 
-        # Individual 3-byte writes — firmware truncates multi-byte I2C.
+        # Individual 3-byte writes -- firmware truncates multi-byte I2C.
         self._fx2.sensor_reg_write(REG_ROW_START, row_start)
         self._fx2.sensor_reg_write(REG_COL_START, col_start)
         self._fx2.sensor_reg_write(REG_ROW_SIZE, sensor_h)
         self._fx2.sensor_reg_write(REG_COL_SIZE, sensor_w)
 
-        # Flush the ISO buffer — data captured with the old window is
+        # Flush the ISO buffer -- data captured with the old window is
         # now misaligned and would desync the frame parser.
         with self._iso_buf_lock:
             self._iso_buf = bytearray()
 
         logger.info(
             '[FX2 Cam   ] frame size %dx%d (sensor %dx%d, row_start=%d, col_start=%d)',
-            w, h, sensor_w, sensor_h, row_start, col_start,
+            w,
+            h,
+            sensor_w,
+            sensor_h,
+            row_start,
+            col_start,
         )
 
     def get_frame_size(self):
@@ -1973,7 +1995,10 @@ class FX2Camera(Camera):
             ),
         )
         self._exposure_rows = rows
-        if _cam_log is not None: _cam_log.info(f'fx2 sensor_reg_write(REG_EXPOSURE={REG_EXPOSURE:#x}, rows={rows}) (={target_ms}ms)')
+        if _cam_log is not None:
+            _cam_log.info(
+                f'fx2 sensor_reg_write(REG_EXPOSURE={REG_EXPOSURE:#x}, rows={rows}) (={target_ms}ms)'
+            )
         self._fx2.sensor_reg_write(REG_EXPOSURE, rows)
 
     def get_exposure_t(self):
@@ -1989,7 +2014,10 @@ class FX2Camera(Camera):
         db = max(0.0, min(42.1, float(g)))
         reg = _gain_db_to_register(db)
         self._gain_reg = reg
-        if _cam_log is not None: _cam_log.info(f'fx2 sensor_reg_write(REG_GLOBAL_GAIN={REG_GLOBAL_GAIN:#x}, reg={reg:#x}) (={db}dB)')
+        if _cam_log is not None:
+            _cam_log.info(
+                f'fx2 sensor_reg_write(REG_GLOBAL_GAIN={REG_GLOBAL_GAIN:#x}, reg={reg:#x}) (={db}dB)'
+            )
         self._fx2.sensor_reg_write(REG_GLOBAL_GAIN, reg)
 
     def get_gain(self):
@@ -2012,8 +2040,8 @@ class FX2Camera(Camera):
 
     def init_camera_config(self):
         """Apply sensible defaults for exposure and gain on startup."""
-        self.exposure_t(50.0)  # 50 ms default — typical microscopy starting point
-        self.gain(0.0)         # 0 dB = 1x gain
+        self.exposure_t(50.0)  # 50 ms default -- typical microscopy starting point
+        self.gain(0.0)  # 0 dB = 1x gain
 
     def get_all_temperatures(self) -> dict:
         return {}  # MT9P031 has no temperature sensor
@@ -2032,7 +2060,7 @@ class FX2Camera(Camera):
 
 
 # ---------------------------------------------------------------------------
-# FX2LEDController — thin command translator, no state
+# FX2LEDController -- thin command translator, no state
 # ---------------------------------------------------------------------------
 
 
@@ -2044,8 +2072,10 @@ def _read_fx2_wire_setting() -> bool:
     shippable without runtime config.
     """
     from modules.settings_init import load_fx2_debug_wire_setting
+
     try:
         import lvp_logger
+
         base_dir = lvp_logger.lvp_appdata
     except (ImportError, AttributeError):
         base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -2066,18 +2096,18 @@ class FX2LEDController:
     ``Lumascope._led_owners`` / ``save_led_state`` / ``restore_led_state``,
     so this driver drops all state bookkeeping. The LEDBoardProtocol
     state-query methods still exist (the protocol requires them) but
-    return sentinel defaults matching NullLEDBoard — the real truth
+    return sentinel defaults matching NullLEDBoard -- the real truth
     lives above the driver layer.
 
-    **LED channel → I2C ASCII byte mapping** lives in this class only:
-    LVP integer channels 0/1/2/3 → ASCII bytes 0x43/0x42/0x41/0x44
+    **LED channel -> I2C ASCII byte mapping** lives in this class only:
+    LVP integer channels 0/1/2/3 -> ASCII bytes 0x43/0x42/0x41/0x44
     ('C'/'B'/'A'/'D') which the FX2 peripheral controller uses on the
-    wire. Never leak the ASCII form above the driver — that's a
+    wire. Never leak the ASCII form above the driver -- that's a
     project-memory directive.
 
     **Fast variants.** The LED protocol requires ``led_on_fast`` /
     ``led_off_fast`` / ``leds_off_fast`` for time-critical toggling.
-    These FX2 variants are IDENTICAL to the normal versions — the I2C
+    These FX2 variants are IDENTICAL to the normal versions -- the I2C
     writes have no serial-handshake latency to skip, so "fast" is the
     same as "normal".
     """
@@ -2089,7 +2119,7 @@ class FX2LEDController:
     _COLOR_TO_CH = _COLOR_TO_CH  # module-level dict
     _CH_TO_COLOR = _CH_TO_COLOR
 
-    # Max mA per channel — used to scale (0, _max_ma) → (0, 255)
+    # Max mA per channel -- used to scale (0, _max_ma) -> (0, 255)
     # brightness. 200 mA is approximate; real max depends on LED model
     # and series resistor value. Not safety-critical because the FX2
     # hardware enforces its own current limit via the peripheral
@@ -2101,7 +2131,7 @@ class FX2LEDController:
     # slider > ~150 mA silently fails to light LED on LS620 FX2"
     # report (2026-04-16). Captures:
     #   * LED-toggle entry at FX2LEDController.led_on (mA + type)
-    #   * mA→brightness conversion input/output
+    #   * mA->brightness conversion input/output
     #   * Each of the 3 I2C bytes written (hex dump)
     #   * PREAMBLE-COLLISION flag when brightness == 0xFF (the _MAX_MA=200
     #     clamp to the 0xFF I2C preamble byte at mA >= 200)
@@ -2118,7 +2148,7 @@ class FX2LEDController:
         return cls._FX2_DEBUG_WIRE or _FX2_WIRE_SETTING
 
     def __init__(self, **kwargs):
-        # Grab the singleton — raises if no FX2 hardware, registry
+        # Grab the singleton -- raises if no FX2 hardware, registry
         # fallthrough handles that case cleanly.
         self._fx2 = _FX2Connection.get()
         self._enabled = True
@@ -2155,7 +2185,7 @@ class FX2LEDController:
         the FX2 USB connection for 30 ms, during which ISO data keeps
         arriving but cannot be drained. If the UI sends dozens of LED
         writes per second (Kivy slider drags), the ISO buffer can
-        desync the frame parser. Stage 3.5 will verify and fix —
+        desync the frame parser. Stage 3.5 will verify and fix --
         leading candidate is a debounce on the UI side (16 ms minimum
         between writes).
         """
@@ -2170,9 +2200,11 @@ class FX2LEDController:
         if self._wire_debug_enabled():
             wire_hex = ' '.join(f'0x{b:02X}' for b, _ in writes)
             logger.info(
-                '[FX2 LED diag] _led_write ch=%d i2c_ch=0x%02X '
-                'brightness=0x%02X wire=[%s]%s',
-                channel, i2c_channel, brightness, wire_hex,
+                '[FX2 LED diag] _led_write ch=%d i2c_ch=0x%02X brightness=0x%02X wire=[%s]%s',
+                channel,
+                i2c_channel,
+                brightness,
+                wire_hex,
                 ' PREAMBLE-COLLISION' if brightness == 0xFF else '',
             )
         for byte_val, label in writes:
@@ -2180,30 +2212,42 @@ class FX2LEDController:
                 result = self._fx2.i2c_write(I2C_LED, [byte_val])
             except Exception as e:
                 logger.error(
-                    '[FX2 LED  ] i2c_write raised on %s byte=0x%02x '
-                    '(ch=%d mA_equiv=%d): %s: %s',
-                    label, byte_val, channel, brightness,
-                    type(e).__name__, e,
+                    '[FX2 LED  ] i2c_write raised on %s byte=0x%02x (ch=%d mA_equiv=%d): %s: %s',
+                    label,
+                    byte_val,
+                    channel,
+                    brightness,
+                    type(e).__name__,
+                    e,
                 )
                 raise
             if result is not None and result != 1:
                 logger.warning(
                     '[FX2 LED  ] short write on %s byte=0x%02x '
                     '(ch=%d mA_equiv=%d): wrote %r of 1 byte expected',
-                    label, byte_val, channel, brightness, result,
+                    label,
+                    byte_val,
+                    channel,
+                    brightness,
+                    result,
                 )
             time.sleep(0.01)
 
     def _ma_to_brightness(self, mA) -> int:
         """Convert mA to 0-255 brightness value."""
         brightness = max(0, min(255, round(float(mA) * 255.0 / self._MAX_MA)))
-        # Rule 12 workaround: mA→byte conversion trace. See
-        # _FX2_DEBUG_WIRE block above.
+        # Workaround trace for mA->byte conversion. See the
+        # _FX2_DEBUG_WIRE block above for the full instrumentation
+        # rationale (LED driver brightness curve verification).
         if self._wire_debug_enabled():
             logger.debug(
                 '[FX2 LED diag] _ma_to_brightness mA=%r type=%s -> '
                 'brightness=%d (0x%02X) _MAX_MA=%d',
-                mA, type(mA).__name__, brightness, brightness, self._MAX_MA,
+                mA,
+                type(mA).__name__,
+                brightness,
+                brightness,
+                self._MAX_MA,
             )
         return brightness
 
@@ -2213,7 +2257,7 @@ class FX2LEDController:
         return tuple(self._COLOR_TO_CH.values())  # (0, 1, 2, 3)
 
     def available_colors(self) -> tuple:
-        return tuple(self._COLOR_TO_CH.keys())    # ('Blue', 'Green', 'Red', 'BF')
+        return tuple(self._COLOR_TO_CH.keys())  # ('Blue', 'Green', 'Red', 'BF')
 
     def color2ch(self, color: str) -> int:
         return self._COLOR_TO_CH.get(color, -1)
@@ -2228,13 +2272,15 @@ class FX2LEDController:
             return
         # Rule 12 workaround: driver-entry trace (mA + type) for the
         # slider > ~150 mA silent-fail bench investigation. See
-        # _FX2_DEBUG_WIRE block above. INFO level intentionally — this
+        # _FX2_DEBUG_WIRE block above. INFO level intentionally -- this
         # is one of the two key divergence points (int vs float entry).
         if self._wire_debug_enabled():
             logger.info(
-                '[FX2 LED diag] led_on ENTRY ch=%d mA=%r type=%s '
-                'block=%s',
-                channel, mA, type(mA).__name__, block,
+                '[FX2 LED diag] led_on ENTRY ch=%d mA=%r type=%s block=%s',
+                channel,
+                mA,
+                type(mA).__name__,
+                block,
             )
         brightness = self._ma_to_brightness(mA)
         self._led_write(channel, brightness)
@@ -2253,7 +2299,7 @@ class FX2LEDController:
         self.leds_off()
         self._enabled = False
 
-    # -- Fast variants (same as normal — I2C has no serial handshake) -----
+    # -- Fast variants (same as normal -- I2C has no serial handshake) -----
 
     def led_on_fast(self, channel: int, mA: int):
         self.led_on(channel, mA)
@@ -2264,9 +2310,9 @@ class FX2LEDController:
     def leds_off_fast(self):
         self.leds_off()
 
-    # -- State queries (sentinel defaults — real state is in API) ---------
+    # -- State queries (sentinel defaults -- real state is in API) ---------
     # These methods exist because LEDBoardProtocol requires them. The
-    # driver has no idea what's currently lit — that's owned by
+    # driver has no idea what's currently lit -- that's owned by
     # Lumascope._led_owners. Callers should read state through the API
     # (scope.get_led_state(color)), never by reaching into the driver.
 
@@ -2310,5 +2356,3 @@ class FX2LEDController:
         # so there's nothing to exchange. Return None to match the
         # NullLEDBoard sentinel pattern.
         return None
-
-

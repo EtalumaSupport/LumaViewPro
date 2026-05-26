@@ -3,9 +3,9 @@
 import os
 import pathlib
 
-import cv2
 import numpy as np
 import pandas as pd
+import tifffile as tf
 
 import modules.common_utils as common_utils
 import modules.image_utils as image_utils
@@ -16,7 +16,6 @@ from modules.protocol_post_record import ProtocolPostRecord
 
 
 class Stitcher(ProtocolPostProcessor):
-
     def __init__(self, *args, **kwargs):
         super().__init__(
             post_function=PostFunction.STITCHED,
@@ -24,7 +23,6 @@ class Stitcher(ProtocolPostProcessor):
             **kwargs,
         )
         self._name = self.__class__.__name__
-        
 
     @staticmethod
     def _get_groups(df: pd.DataFrame) -> pd.DataFrame:
@@ -38,19 +36,20 @@ class Stitcher(ProtocolPostProcessor):
                 'Tile Group ID',
                 'Custom Step',
                 'Raw',
-                *PostFunction.list_values()
+                *PostFunction.list_values(),
             ],
-            dropna=False
+            dropna=False,
         )
-    
 
     def _generate_filename(self, df: pd.DataFrame, **kwargs) -> str:
         row0 = df.iloc[0]
-        objective_short_name = self._get_objective_short_name_if_has_turret(objective_id=row0['Objective'])
+        objective_short_name = self._get_objective_short_name_if_has_turret(
+            objective_id=row0['Objective']
+        )
 
         # Use custom root + step name if available
         custom_root = row0.get('Custom Root', '') if 'Custom Root' in row0 else ''
-        prefix = f"{custom_root}_{row0['Name']}" if custom_root not in (None, '') else row0['Name']
+        prefix = f'{custom_root}_{row0["Name"]}' if custom_root not in (None, '') else row0['Name']
         name = common_utils.generate_default_step_name(
             custom_name_prefix=prefix,
             well_label=row0['Well'],
@@ -61,10 +60,9 @@ class Stitcher(ProtocolPostProcessor):
             tile_label=None,
             stitched=True,
         )
-        
-        outfile = f"{name}.tiff"
+
+        outfile = f'{name}.tiff'
         return outfile
-    
 
     def _filter_ignored_types(self, df: pd.DataFrame) -> pd.DataFrame:
 
@@ -78,7 +76,6 @@ class Stitcher(ProtocolPostProcessor):
         df = df[df[PostFunction.HYPERSTACK.value] == False]
 
         return df
-    
 
     def _group_algorithm(
         self,
@@ -88,9 +85,9 @@ class Stitcher(ProtocolPostProcessor):
     ):
         return Stitcher._simple_position_stitcher(
             path=path,
-            df=df[['Filepath', 'X', 'Y']]
+            df=df[['Filepath', 'X', 'Y']],
+            output_file_loc=kwargs.get('output_file_loc'),
         )
-
 
     @staticmethod
     def _add_record(
@@ -115,23 +112,35 @@ class Stitcher(ProtocolPostProcessor):
             color=row0['Color'],
             objective=row0['Objective'],
             tile_group_id=row0['Tile Group ID'],
-            tile="",
+            tile='',
             custom_step=row0['Custom Step'],
             **kwargs,
         )
 
-
     @staticmethod
-    def _simple_position_stitcher(path: pathlib.Path, df: pd.DataFrame):
-        '''
+    def _simple_position_stitcher(
+        path: pathlib.Path,
+        df: pd.DataFrame,
+        output_file_loc: pathlib.Path | None = None,
+    ):
+        """
         Performs a simple concatenation of images, given a set of X/Y positions the images were captured from.
         Assumes no overlap between images.
-        '''
-        # Load source images
+
+        When output_file_loc is provided, writes the stitched output via
+        tifffile and returns image=None per the protocol_post_processor
+        subclass-write bypass contract (matches composite_generation +
+        zprojector). When None (test / legacy callers), returns the
+        stitched array for the caller to save.
+        """
+        # Load source images via tifffile (RGB-native; returns mono 2D
+        # for single-channel TIFFs). Matches the canonical read path
+        # used by composite_generation + zprojector, replacing the
+        # legacy cv2.imread BGR-native call.
         images = {}
         for _, row in df.iterrows():
             image_filepath = path / row['Filepath']
-            images[row['Filepath']] = cv2.imread(str(image_filepath), cv2.IMREAD_UNCHANGED)
+            images[row['Filepath']] = tf.imread(str(image_filepath))
 
         df = df.copy()
 
@@ -151,13 +160,13 @@ class Stitcher(ProtocolPostProcessor):
         source_image_sample = images[source_image_sample_filename]
         source_image_h = source_image_sample.shape[0]
         source_image_w = source_image_sample.shape[1]
-        
-        df = df.sort_values(['X','Y'], ascending=False)
+
+        df = df.sort_values(['X', 'Y'], ascending=False)
         df['x_index'] = df.groupby(by=['X']).ngroup()
         df['y_index'] = df.groupby(by=['Y']).ngroup()
         df['x_pix_range'] = df['x_index'] * source_image_w
         df['y_pix_range'] = df['y_index'] * source_image_h
-            
+
         stitched_im_x = source_image_w * num_x_tiles
         stitched_im_y = source_image_h * num_y_tiles
 
@@ -169,10 +178,11 @@ class Stitcher(ProtocolPostProcessor):
         if reverse_y:
             df['y_pix_range'] = stitched_im_y - df['y_pix_range']
 
-        
         is_color_image = image_utils.is_color_image(image=source_image_sample)
         if is_color_image:
-            stitched_img = np.zeros((stitched_im_y, stitched_im_x, 3), dtype=source_image_sample.dtype)
+            stitched_img = np.zeros(
+                (stitched_im_y, stitched_im_x, 3), dtype=source_image_sample.dtype
+            )
         else:
             stitched_img = np.zeros((stitched_im_y, stitched_im_x), dtype=source_image_sample.dtype)
 
@@ -188,37 +198,61 @@ class Stitcher(ProtocolPostProcessor):
             if reverse_y:
                 if reverse_x:
                     if is_color_image:
-                        stitched_img[y_val-im_y:y_val, x_val-im_x:x_val,:] = image
+                        stitched_img[y_val - im_y : y_val, x_val - im_x : x_val, :] = image
                     else:
-                        stitched_img[y_val-im_y:y_val, x_val-im_x:x_val] = image
+                        stitched_img[y_val - im_y : y_val, x_val - im_x : x_val] = image
                 else:
                     if is_color_image:
-                        stitched_img[y_val-im_y:y_val, x_val:x_val+im_x,:] = image
+                        stitched_img[y_val - im_y : y_val, x_val : x_val + im_x, :] = image
                     else:
-                        stitched_img[y_val-im_y:y_val, x_val:x_val+im_x] = image
+                        stitched_img[y_val - im_y : y_val, x_val : x_val + im_x] = image
             else:
-
                 if reverse_x:
                     if is_color_image:
-                        stitched_img[y_val:y_val+im_y, x_val-im_x:x_val,:] = image
+                        stitched_img[y_val : y_val + im_y, x_val - im_x : x_val, :] = image
                     else:
-                        stitched_img[y_val:y_val+im_y, x_val-im_x:x_val] = image
+                        stitched_img[y_val : y_val + im_y, x_val - im_x : x_val] = image
                 else:
                     if is_color_image:
-                        stitched_img[y_val:y_val+im_y, x_val:x_val+im_x,:] = image
+                        stitched_img[y_val : y_val + im_y, x_val : x_val + im_x, :] = image
                     else:
-                        stitched_img[y_val:y_val+im_y, x_val:x_val+im_x] = image
+                        stitched_img[y_val : y_val + im_y, x_val : x_val + im_x] = image
+
+        # Self-write when output_file_loc is provided (canonical path
+        # under protocol_post_processor). Matches composite_generation +
+        # zprojector. tifffile auto-detects photometric: 2D mono ->
+        # minisblack, 3D shape[-1]=3 -> rgb. Signal subclass-wrote via
+        # image=None so the base class skips its own write branch.
+        if output_file_loc is not None:
+            # Widen mono fluorescence to RGB before save so the stitched
+            # output matches the per-tile capture's false-color shape.
+            # Without this, the bare tifffile write below produces
+            # grayscale for Blue/Green/Red/Lumi stitches.
+            output_image = image_utils.maybe_apply_false_color(
+                data=stitched_img,
+                color=df['Color'].iloc[0],
+            )
+            output_file_loc_abs = path / output_file_loc
+            output_file_loc_abs.parent.mkdir(parents=True, exist_ok=True)
+            tf.imwrite(
+                str(output_file_loc_abs),
+                output_image,
+                compression='lzw',
+            )
+            return_image = None
+        else:
+            return_image = stitched_img
 
         return {
             'status': True,
             'error': None,
-            'image': stitched_img,
+            'image': return_image,
             'metadata': {
                 'center': center,
-            }
+            },
         }
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     stitcher = Stitcher(has_turret=False)
-    stitcher.load_folder(pathlib.Path(os.getenv("SAMPLE_IMAGE_FOLDER")))
+    stitcher.load_folder(pathlib.Path(os.getenv('SAMPLE_IMAGE_FOLDER')))

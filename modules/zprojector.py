@@ -19,7 +19,6 @@ from lvp_logger import logger
 
 
 class ZProjector(ProtocolPostProcessor):
-
     def __init__(
         self,
         ij_helper: imagej_helper.ImageJHelper = None,
@@ -32,12 +31,11 @@ class ZProjector(ProtocolPostProcessor):
             **kwargs,
         )
         self._name = self.__class__.__name__
-        
+
         if ij_helper is None:
             self._ij_helper = imagej_helper.ImageJHelper()
         else:
             self._ij_helper = ij_helper
-        
 
     @staticmethod
     def _get_groups(df: pd.DataFrame) -> pd.DataFrame:
@@ -52,19 +50,20 @@ class ZProjector(ProtocolPostProcessor):
                 'Tile',
                 'Custom Step',
                 'Raw',
-                *PostFunction.list_values()
+                *PostFunction.list_values(),
             ],
-            dropna=False
+            dropna=False,
         )
-    
 
     def _generate_filename(self, df: pd.DataFrame, **kwargs) -> str:
         row0 = df.iloc[0]
-        objective_short_name = self._get_objective_short_name_if_has_turret(objective_id=row0['Objective'])
+        objective_short_name = self._get_objective_short_name_if_has_turret(
+            objective_id=row0['Objective']
+        )
 
         # Use custom root + step name if available
         custom_root = row0.get('Custom Root', '') if 'Custom Root' in row0 else ''
-        prefix = f"{custom_root}_{row0['Name']}" if custom_root not in (None, '') else row0['Name']
+        prefix = f'{custom_root}_{row0["Name"]}' if custom_root not in (None, '') else row0['Name']
         name = common_utils.generate_default_step_name(
             custom_name_prefix=prefix,
             well_label=row0['Well'],
@@ -77,9 +76,8 @@ class ZProjector(ProtocolPostProcessor):
             zprojection=kwargs['method'].lower(),
         )
 
-        outfile = f"{name}.tiff"
+        outfile = f'{name}.tiff'
         return outfile
-    
 
     def _filter_ignored_types(self, df: pd.DataFrame) -> pd.DataFrame:
 
@@ -93,7 +91,6 @@ class ZProjector(ProtocolPostProcessor):
         df = df[df[PostFunction.HYPERSTACK.value] == False]
 
         return df
-    
 
     def _group_algorithm(
         self,
@@ -103,11 +100,10 @@ class ZProjector(ProtocolPostProcessor):
     ):
         return self._zproject(
             path=path,
-            df=df[['Filepath','Color']],
+            df=df[['Filepath', 'Color']],
             method=kwargs['method'],
             output_file_loc=kwargs['output_file_loc'],
         )
-
 
     @staticmethod
     def _add_record(
@@ -126,8 +122,8 @@ class ZProjector(ProtocolPostProcessor):
             scan_count=row0['Scan Count'],
             x=row0['X'],
             y=row0['Y'],
-            z="",
-            z_slice="",
+            z='',
+            z_slice='',
             well=row0['Well'],
             color=row0['Color'],
             objective=row0['Objective'],
@@ -137,16 +133,12 @@ class ZProjector(ProtocolPostProcessor):
             **kwargs,
         )
 
-
     @staticmethod
     def methods() -> list[str]:
         return imagej_helper.ZProjectMethod.list()
 
-
     def _zproject_for_multi_channel(
-        self,
-        images_data: list[np.ndarray],
-        method: str
+        self, images_data: list[np.ndarray], method: str
     ) -> np.ndarray | None:
         sample_image = images_data[0]
         used_color_planes = image_utils.get_used_color_planes(image=sample_image)
@@ -156,57 +148,49 @@ class ZProjector(ProtocolPostProcessor):
             images_for_color_plane = []
 
             for image_data in images_data:
-                images_for_color_plane.append(image_data[:,:,used_color_plane])
+                images_for_color_plane.append(image_data[:, :, used_color_plane])
 
             project_result = self._ij_helper.zproject(
-                images_data=images_for_color_plane,
-                method=method
+                images_data=images_for_color_plane, method=method
             )
 
             if project_result is None:
-                error = f"Failed to create Z-Projection for color plane {used_color_plane}"
+                error = f'Failed to create Z-Projection for color plane {used_color_plane}'
                 logger.error(error)
                 return {
                     'status': False,
                     'error': error,
                 }
-            
-            out_image[:,:,used_color_plane] = project_result
-        
+
+            out_image[:, :, used_color_plane] = project_result
+
         return {
             'status': True,
             'error': None,
             'image': out_image,
             'metadata': {},
         }
-    
 
     def _zproject_for_single_channel(
-        self,
-        images_data: list[np.ndarray],
-        method: str
+        self, images_data: list[np.ndarray], method: str
     ) -> np.ndarray | None:
-        project_result = self._ij_helper.zproject(
-            images_data=images_data,
-            method=method
-        )
+        project_result = self._ij_helper.zproject(images_data=images_data, method=method)
 
         if project_result is None:
-            error = f"Failed to create Z-Projection"
+            error = f'Failed to create Z-Projection'
             logger.error(error)
             return {
                 'status': False,
                 'error': error,
             }
-        
+
         return {
             'status': True,
             'error': None,
             'image': project_result,
             'metadata': {},
         }
-    
-    
+
     def _zproject(
         self,
         path: pathlib.Path,
@@ -230,10 +214,7 @@ class ZProjector(ProtocolPostProcessor):
                     method=method,
                 )
             else:  # Grayscale images
-                result = self._zproject_for_single_channel(
-                    images_data=orig_images,
-                    method=method
-                )
+                result = self._zproject_for_single_channel(images_data=orig_images, method=method)
         finally:
             # Release source images immediately — can be GBs for large stacks
             del orig_images
@@ -241,11 +222,20 @@ class ZProjector(ProtocolPostProcessor):
         if not result['status']:
             return result
 
+        # Widen mono fluorescence to RGB before save so the projection
+        # output matches the per-slice capture's false-color shape.
+        # Without this, the bare tifffile write below produces grayscale
+        # for Blue/Green/Red/Lumi projections.
+        output_image = image_utils.maybe_apply_false_color(
+            data=result['image'],
+            color=df['Color'].iloc[0],
+        )
+
         output_file_loc_abs = path / output_file_loc
         output_file_loc_abs.parent.mkdir(exist_ok=True, parents=True)
         tf.imwrite(
             output_file_loc_abs,
-            data=result['image'],
+            data=output_image,
             compression='lzw',
         )
 

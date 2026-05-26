@@ -14,49 +14,61 @@ Defense-in-depth, two layers:
    actual collision. ``protocol_image_writer.py`` passes this mode
    so a broken protocol that slips past validation cannot lose data.
 """
+
 import pathlib
+import re
 import textwrap
 
 import pytest
 
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
-TILING_CONFIGS = REPO_ROOT / "data" / "tiling.json"
+TILING_CONFIGS = REPO_ROOT / 'data' / 'tiling.json'
 
 
 # ---------------------------------------------------------------------------
 # Static-source checks — pinpoint the regression sites.
 # ---------------------------------------------------------------------------
 
+
 def test_lumascope_api_supports_if_collision_mode():
     # Phase 6c (2026-05-19) relocated generate_image_save_path body
     # from Lumascope to modules.image_save; the if_collision branch
     # lives there now. Path retarget per Rule 48 (c); semantic intent
     # ("generate_image_save_path supports if_collision mode") preserved.
-    src = (REPO_ROOT / "modules" / "image_save.py").read_text()
-    assert 'tail_id_mode == "if_collision"' in src, (
-        "image_save.generate_image_save_path must support the "
+    #
+    # Quote-agnostic: ruff format may emit either single- or double-
+    # quoted string literals depending on the formatter pass that last
+    # touched the line (commit 4a5a2422 converted production to single
+    # quotes on 2026-05-22). Assert the comparison + the value rather
+    # than coupling to the specific quote character.
+    src = (REPO_ROOT / 'modules' / 'image_save.py').read_text()
+    assert re.search(r"""tail_id_mode\s*==\s*['"]if_collision['"]""", src), (
+        'image_save.generate_image_save_path must support the '
         '"if_collision" tail_id_mode for write-time defense against '
-        "duplicate filenames. (#636)"
+        'duplicate filenames. (#636)'
     )
 
 
 def test_protocol_image_writer_uses_if_collision():
-    src = (REPO_ROOT / "modules" / "protocol_image_writer.py").read_text()
-    assert 'tail_id_mode="if_collision"' in src, (
-        "protocol_image_writer.py must pass tail_id_mode=\"if_collision\" "
-        "to scope.save_image — without it, duplicate step filenames "
-        "silently overwrite. (#636)"
+    # Quote-agnostic: same rationale as
+    # test_lumascope_api_supports_if_collision_mode above.
+    src = (REPO_ROOT / 'modules' / 'protocol_image_writer.py').read_text()
+    assert re.search(r"""tail_id_mode\s*=\s*['"]if_collision['"]""", src), (
+        'protocol_image_writer.py must pass tail_id_mode="if_collision" '
+        'to scope.save_image -- without it, duplicate step filenames '
+        'silently overwrite. (#636)'
     )
-    assert 'tail_id_mode=None' not in src, (
-        "protocol_image_writer.py must not pass tail_id_mode=None on the "
-        "save_image call (regressed to overwrite-prone behavior)."
+    assert not re.search(r'tail_id_mode\s*=\s*None\b', src), (
+        'protocol_image_writer.py must not pass tail_id_mode=None on the '
+        'save_image call (regressed to overwrite-prone behavior).'
     )
 
 
 # ---------------------------------------------------------------------------
 # Functional check — Protocol.from_file rejects duplicates.
 # ---------------------------------------------------------------------------
+
 
 def _build_tsv(step_rows: str) -> str:
     """Build a minimal v5 protocol TSV with the given step rows."""
@@ -87,9 +99,28 @@ _STIM_CFG = (
 
 def _step_row(name, well, tile, z_slice, tile_group, x, y, z):
     cells = [
-        name, str(x), str(y), str(z), 'False', 'BF', 'False', '50.0',
-        '1.8', 'False', '4.0', '1', '20x Oly', well, tile, str(z_slice),
-        'True', str(tile_group), '-1', 'image', _VIDEO_CFG, _STIM_CFG,
+        name,
+        str(x),
+        str(y),
+        str(z),
+        'False',
+        'BF',
+        'False',
+        '50.0',
+        '1.8',
+        'False',
+        '4.0',
+        '1',
+        '20x Oly',
+        well,
+        tile,
+        str(z_slice),
+        'True',
+        str(tile_group),
+        '-1',
+        'image',
+        _VIDEO_CFG,
+        _STIM_CFG,
     ]
     return '\t'.join(cells) + '\n'
 
@@ -104,10 +135,10 @@ def test_load_rejects_duplicate_filename_keys(tmp_path):
     rows = ''
     rows += _step_row('_PC_TA1', 'A1', '', -1, 0, 46.5, 34.6, 4972.9)
     rows += _step_row('_PC_TA1', 'A1', '', -1, 0, 60.1, 34.6, 5001.7)  # dup
-    tsv = tmp_path / "dup.tsv"
+    tsv = tmp_path / 'dup.tsv'
     tsv.write_text(_build_tsv(rows))
 
-    with pytest.raises(ValueError, match=r"duplicate"):
+    with pytest.raises(ValueError, match=r'duplicate'):
         Protocol.from_file(
             file_path=tsv,
             tiling_configs_file_loc=TILING_CONFIGS,
@@ -125,7 +156,7 @@ def test_load_accepts_same_name_in_different_tile_groups(tmp_path):
     rows += _step_row('_PC_TA1', 'A1', '', -1, 0, 46.5, 34.6, 4972.9)
     rows += _step_row('_PC_TA1', 'A1', '', -1, 1, 60.1, 34.6, 5001.7)
     rows += _step_row('_PC_TA1', 'A1', '', -1, 2, 73.7, 34.6, 5031.2)
-    tsv = tmp_path / "tiled.tsv"
+    tsv = tmp_path / 'tiled.tsv'
     tsv.write_text(_build_tsv(rows))
 
     proto = Protocol.from_file(
@@ -159,7 +190,7 @@ def test_load_warns_on_cross_tgid_filename_collision(tmp_path, monkeypatch):
     rows += _step_row('_PC_TA1', 'A1', '', -1, 1, 60.1, 34.6, 5001.7)
     rows += _step_row('_PC_TA1', 'A1', '', -1, 2, 73.7, 34.6, 5031.2)
     rows += _step_row('_PC_TA1', 'A1', '', -1, 3, 46.0, 47.9, 4953.4)
-    tsv = tmp_path / "cross_tgid.tsv"
+    tsv = tmp_path / 'cross_tgid.tsv'
     tsv.write_text(_build_tsv(rows))
 
     proto = Protocol.from_file(
@@ -167,21 +198,20 @@ def test_load_warns_on_cross_tgid_filename_collision(tmp_path, monkeypatch):
         tiling_configs_file_loc=TILING_CONFIGS,
     )
     assert proto.num_steps() == 4, (
-        "Cross-TGID duplicates must NOT be rejected (the legitimate tiled-"
-        "acquisition pattern still loads)."
+        'Cross-TGID duplicates must NOT be rejected (the legitimate tiled-'
+        'acquisition pattern still loads).'
     )
     assert len(captured_notifications) == 1, (
-        f"Cross-TGID duplicate filenames must fire exactly one "
-        f"notifications.warning at load time. Captured: {captured_notifications}"
+        f'Cross-TGID duplicate filenames must fire exactly one '
+        f'notifications.warning at load time. Captured: {captured_notifications}'
     )
     category, title, message = captured_notifications[0]
-    assert "Tile Group ID" in message, (
-        "Notification message must point the user at Tile Group ID as "
-        "the actionable fix (per Rule 28 -- direct + action-focused)."
+    assert 'Tile Group ID' in message, (
+        'Notification message must point the user at Tile Group ID as '
+        'the actionable fix (per Rule 28 -- direct + action-focused).'
     )
-    assert "preserve" in message.lower() or "no" in message.lower(), (
-        "Notification must reassure the user that data is intact "
-        "(the rename is data-preserving)."
+    assert 'preserve' in message.lower() or 'no' in message.lower(), (
+        'Notification must reassure the user that data is intact (the rename is data-preserving).'
     )
 
 
@@ -202,7 +232,7 @@ def test_load_no_warning_when_no_collisions(tmp_path, monkeypatch):
     rows = ''
     rows += _step_row('_PC_TA1', 'A1', '', -1, 0, 46.5, 34.6, 4972.9)
     rows += _step_row('_PC_TA2', 'A2', '', -1, 0, 47.9, 34.6, 4972.9)
-    tsv = tmp_path / "clean.tsv"
+    tsv = tmp_path / 'clean.tsv'
     tsv.write_text(_build_tsv(rows))
 
     Protocol.from_file(
@@ -210,8 +240,8 @@ def test_load_no_warning_when_no_collisions(tmp_path, monkeypatch):
         tiling_configs_file_loc=TILING_CONFIGS,
     )
     assert captured_notifications == [], (
-        f"No notification should fire for a well-formed protocol. "
-        f"Captured: {captured_notifications}"
+        f'No notification should fire for a well-formed protocol. '
+        f'Captured: {captured_notifications}'
     )
 
 
@@ -222,7 +252,7 @@ def test_load_accepts_unique_steps(tmp_path):
     rows = ''
     rows += _step_row('_PC_TA1', 'A1', '', -1, 0, 46.5, 34.6, 4972.9)
     rows += _step_row('_PC_TA2', 'A2', '', -1, 0, 47.9, 34.6, 4972.9)
-    tsv = tmp_path / "ok.tsv"
+    tsv = tmp_path / 'ok.tsv'
     tsv.write_text(_build_tsv(rows))
 
     proto = Protocol.from_file(
@@ -236,8 +266,10 @@ def test_load_accepts_unique_steps(tmp_path):
 # Functional check -- if_collision warns the user when it triggers.
 # ---------------------------------------------------------------------------
 
+
 class _MinimalScope:
     """Bare-bones scope stand-in for generate_image_save_path tests."""
+
     engineering_mode = False
     _last_turret_position = None
 
@@ -271,30 +303,30 @@ def test_if_collision_emits_warning_on_rename(tmp_path, monkeypatch):
     """
     from modules.image_save import generate_image_save_path
 
-    base = tmp_path / "_PC_TA1.tiff"
-    base.write_bytes(b"")
+    base = tmp_path / '_PC_TA1.tiff'
+    base.write_bytes(b'')
 
     captured = _patch_image_save_logger(monkeypatch)
 
     path = generate_image_save_path(
         scope=_MinimalScope(),
         save_folder=tmp_path,
-        file_root="_PC_TA1",
-        append="",
-        tail_id_mode="if_collision",
-        output_format="TIFF",
+        file_root='_PC_TA1',
+        append='',
+        tail_id_mode='if_collision',
+        output_format='TIFF',
     )
 
-    assert path.name == "_PC_TA1_000001.tiff", (
-        f"if_collision should append _000001 on first collision; got {path.name}"
+    assert path.name == '_PC_TA1_000001.tiff', (
+        f'if_collision should append _000001 on first collision; got {path.name}'
     )
     assert any(
-        level == 'WARNING' and "filename collision" in msg and "Tile Group ID" in msg
+        level == 'WARNING' and 'filename collision' in msg and 'Tile Group ID' in msg
         for level, msg in captured
     ), (
-        "if_collision must emit a WARNING naming the rename and pointing "
-        "the user at Tile Group ID as the likely cause. (#636 follow-up). "
-        f"Captured: {captured}"
+        'if_collision must emit a WARNING naming the rename and pointing '
+        'the user at Tile Group ID as the likely cause. (#636 follow-up). '
+        f'Captured: {captured}'
     )
 
 
@@ -307,13 +339,13 @@ def test_if_collision_no_warning_when_no_collision(tmp_path, monkeypatch):
     path = generate_image_save_path(
         scope=_MinimalScope(),
         save_folder=tmp_path,
-        file_root="_PC_TA1",
-        append="",
-        tail_id_mode="if_collision",
-        output_format="TIFF",
+        file_root='_PC_TA1',
+        append='',
+        tail_id_mode='if_collision',
+        output_format='TIFF',
     )
 
-    assert path.name == "_PC_TA1.tiff"
-    assert not any(
-        "filename collision" in msg for _, msg in captured
-    ), f"if_collision must not warn when there is no actual collision. Captured: {captured}"
+    assert path.name == '_PC_TA1.tiff'
+    assert not any('filename collision' in msg for _, msg in captured), (
+        f'if_collision must not warn when there is no actual collision. Captured: {captured}'
+    )

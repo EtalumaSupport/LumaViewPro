@@ -17,6 +17,7 @@ from drivers.ledboard import LEDBoard
 from drivers.pyloncamera import PylonCamera
 from modules.exceptions import CaptureError, ConfigError
 from modules.lumascope_api import _constants as _api_constants
+
 try:
     from drivers.idscamera import IDSCamera
 except ImportError:
@@ -55,11 +56,11 @@ _api_log = _logging.getLogger('LVP.api')
 # retire this one without the bundle.
 _PRE_RELEASE_WARNING_FIRED = False
 _PRE_RELEASE_WARNING_TEXT = (
-    "The Lumascope SDK API is PRE-RELEASE and subject to breaking "
-    "changes through LVP 4.2 (Wave 7 sub-API decomposition, capability "
-    "+ wire-contract changes, REST endpoint conventions). See "
-    "LumaViewPro/docs/LumascopeSkills.md preface for the migration "
-    "plan. Contact Etaluma support if you depend on this API."
+    'The Lumascope SDK API is PRE-RELEASE and subject to breaking '
+    'changes through LVP 4.2 (Wave 7 sub-API decomposition, capability '
+    '+ wire-contract changes, REST endpoint conventions). See '
+    'LumaViewPro/docs/LumascopeSkills.md preface for the migration '
+    'plan. Contact Etaluma support if you depend on this API.'
 )
 
 
@@ -93,10 +94,11 @@ from modules.notification_center import notifications
 
 class AxisState:
     """Possible states for a motion axis."""
-    UNKNOWN = 'unknown'    # Not homed / state not known
-    IDLE = 'idle'          # At known position, not moving
-    MOVING = 'moving'      # Move commanded, not yet arrived
-    HOMING = 'homing'      # Homing sequence in progress
+
+    UNKNOWN = 'unknown'  # Not homed / state not known
+    IDLE = 'idle'  # At known position, not moving
+    MOVING = 'moving'  # Move commanded, not yet arrived
+    HOMING = 'homing'  # Homing sequence in progress
 
 
 # ---------------------------------------------------------------------------
@@ -112,6 +114,7 @@ class AxisState:
 # should be one-liners.
 # ---------------------------------------------------------------------------
 
+
 def _notify_board_failure(label, short, message):
     """Surface a board-connect failure to the user via notification_center.
 
@@ -120,7 +123,8 @@ def _notify_board_failure(label, short, message):
     """
     try:
         from modules.notification_center import notifications
-        notifications.warning(label, f"{label} {short}", message)
+
+        notifications.warning(label, f'{label} {short}', message)
     except Exception as nx:
         logger.debug(f'{label}: notification center unavailable: {nx}')
 
@@ -143,16 +147,22 @@ def _try_connect_board(label, ctor, null_ctor):
         board = ctor()
         if not getattr(board, 'found', False):
             logger.error(f'{label}: not detected on USB')
-            _notify_board_failure(label, "not detected",
-                f"{label} not found on USB. Check USB cable and 24V power.")
+            _notify_board_failure(
+                label, 'not detected', f'{label} not found on USB. Check USB cable and 24V power.'
+            )
             return null_ctor()
         if getattr(board, 'driver', None) is None:
-            logger.error(f'{label}: detected on {board.port} but driver failed to open '
-                         f'(port may be held by another program -- Thonny, etc.)')
-            _notify_board_failure(label, "port in use or unreachable",
-                f"{label} detected on {board.port} but the port could not be opened. "
-                f"Close other programs holding the port (Thonny, serial monitors), "
-                f"then restart LVP.")
+            logger.error(
+                f'{label}: detected on {board.port} but driver failed to open '
+                f'(port may be held by another program -- Thonny, etc.)'
+            )
+            _notify_board_failure(
+                label,
+                'port in use or unreachable',
+                f'{label} detected on {board.port} but the port could not be opened. '
+                f'Close other programs holding the port (Thonny, serial monitors), '
+                f'then restart LVP.',
+            )
             return null_ctor()
         # Surface board-specific post-connect safety failures. LEDBoard
         # uses last_safety_off_error to report a connect-time LEDS_OFF
@@ -162,26 +172,34 @@ def _try_connect_board(label, ctor, null_ctor):
         # buried.
         safety_err = getattr(board, 'last_safety_off_error', None)
         if safety_err:
-            _notify_board_failure(label, "safety LEDS_OFF failed",
-                f"{label} connected but the safety LEDS_OFF command did "
-                f"not complete ({safety_err}). If the LEDs are stuck on, "
-                f"turn off illumination manually before placing a sample.")
+            _notify_board_failure(
+                label,
+                'safety LEDS_OFF failed',
+                f'{label} connected but the safety LEDS_OFF command did '
+                f'not complete ({safety_err}). If the LEDs are stuck on, '
+                f'turn off illumination manually before placing a sample.',
+            )
         return board
     except PermissionError as e:
         logger.error(f'{label}: PermissionError opening port: {e}')
-        _notify_board_failure(label, "port in use",
-            f"{label} port is in use by another program (e.g. Thonny). "
-            f"Close the other program and restart LVP to reconnect.")
+        _notify_board_failure(
+            label,
+            'port in use',
+            f'{label} port is in use by another program (e.g. Thonny). '
+            f'Close the other program and restart LVP to reconnect.',
+        )
         return null_ctor()
     except FileNotFoundError as e:
         logger.error(f'{label}: FileNotFoundError on port: {e}')
-        _notify_board_failure(label, "port not found",
-            f"{label} port disappeared during connect. Check USB cable.")
+        _notify_board_failure(
+            label, 'port not found', f'{label} port disappeared during connect. Check USB cable.'
+        )
         return null_ctor()
     except Exception as e:
         logger.error(f'{label}: connect failed: {type(e).__name__}: {e}', exc_info=True)
-        _notify_board_failure(label, "connect failed",
-            f"Could not connect to {label}: {type(e).__name__}: {e}")
+        _notify_board_failure(
+            label, 'connect failed', f'Could not connect to {label}: {type(e).__name__}: {e}'
+        )
         return null_ctor()
 
 
@@ -193,10 +211,7 @@ def _is_total_cold_start(led_driver, motion_driver) -> bool:
     in lumaviewpro.py says it all -- so the individual notifications
     are skipped to avoid 4 popups stacking on top of each other.
     """
-    return (
-        isinstance(led_driver, NullLEDBoard)
-        and isinstance(motion_driver, NullMotionBoard)
-    )
+    return isinstance(led_driver, NullLEDBoard) and isinstance(motion_driver, NullMotionBoard)
 
 
 def _notify_camera_failure(exc, *, suppress_if_cold_start: bool = False):
@@ -212,22 +227,28 @@ def _notify_camera_failure(exc, *, suppress_if_cold_start: bool = False):
     # Don't import pypylon at module load (adds cold-start time on
     # non-Pylon rigs). Match by type name string instead.
     if exc_type in ('RuntimeException', 'GenericException', 'LogicalErrorException'):
-        title = "Camera in use"
-        body = (f"Camera appears to be open in another application "
-                f"(Pylon Viewer, another LVP instance, etc.). "
-                f"Close it and restart LVP. ({exc_type}: {exc})")
+        title = 'Camera in use'
+        body = (
+            f'Camera appears to be open in another application '
+            f'(Pylon Viewer, another LVP instance, etc.). '
+            f'Close it and restart LVP. ({exc_type}: {exc})'
+        )
     elif isinstance(exc, PermissionError):
-        title = "Camera port in use"
-        body = (f"Camera port is in use by another program. "
-                f"Close the other program and restart LVP. ({exc})")
+        title = 'Camera port in use'
+        body = (
+            f'Camera port is in use by another program. '
+            f'Close the other program and restart LVP. ({exc})'
+        )
     elif isinstance(exc, FileNotFoundError):
-        title = "Camera not detected"
-        body = (f"Camera not found. Check USB cable and power. ({exc})")
+        title = 'Camera not detected'
+        body = f'Camera not found. Check USB cable and power. ({exc})'
     else:
-        title = "Camera not initialized"
-        body = (f"Could not connect to camera: {exc_type}: {exc}. "
-                f"Check USB cable, power, and close other programs that "
-                f"may hold the camera.")
+        title = 'Camera not initialized'
+        body = (
+            f'Could not connect to camera: {exc_type}: {exc}. '
+            f'Check USB cable, power, and close other programs that '
+            f'may hold the camera.'
+        )
     if suppress_if_cold_start:
         # Cold-start with no hardware -- caller has already detected
         # this is the third strike and a consolidated "No hardware
@@ -237,13 +258,13 @@ def _notify_camera_failure(exc, *, suppress_if_cold_start: bool = False):
         logger.warning(
             f'[SCOPE API ] Camera not initialized (suppressed user '
             f'notification, no_hardware path will fire consolidated): '
-            f'{title}: {body}')
+            f'{title}: {body}'
+        )
         return
-    _notify_board_failure("Camera", title, body)
+    _notify_board_failure('Camera', title, body)
 
 
-class Lumascope():
-
+class Lumascope:
     # --- Input validation constants ---
     # `LED_MAX_MA` retired here per freeze-audit Finding #38. Canonical
     # home is `modules.scope_capabilities.LED_MAX_MA` (also surfaced
@@ -278,10 +299,12 @@ class Lumascope():
 
         # State locks
         self._state_lock = threading.Lock()
-        self._cam_lock = profile_trace.TimedLock(threading.RLock(), name="lumascope._cam_lock")
+        self._cam_lock = profile_trace.TimedLock(threading.RLock(), name='lumascope._cam_lock')
         self._camera_cache_lock = threading.Lock()
         self._camera_cache = {
-            'active': False, 'gain_db': 0.0, 'exposure_ms': 20.0,
+            'active': False,
+            'gain_db': 0.0,
+            'exposure_ms': 20.0,
             'frame_size': {'width': 0, 'height': 0},
             'max_frame_size': {'width': 0, 'height': 0},
             'min_frame_size': {'width': 0, 'height': 0},
@@ -317,9 +340,13 @@ class Lumascope():
         # leaves it None.
         self.metrics_logger = None
 
-    def __init__(self, simulate: bool = False, camera_type: str = 'auto',
-                 register_atexit: bool = True,
-                 register_metrics: bool = True):
+    def __init__(
+        self,
+        simulate: bool = False,
+        camera_type: str = 'auto',
+        register_atexit: bool = True,
+        register_metrics: bool = True,
+    ):
         """Initialize Microscope.
 
         Args:
@@ -373,15 +400,14 @@ class Lumascope():
         motor_kwargs: dict = {}
         if simulate:
             from modules.settings_init import settings
-            motor_kwargs['model'] = (settings.get('microscope', 'LS850T')
-                                     if settings else 'LS850T')
+
+            motor_kwargs['model'] = settings.get('microscope', 'LS850T') if settings else 'LS850T'
         self._motion_driver: MotorBoardProtocol = motor_registry.create(
             'auto', simulate=simulate, **motor_kwargs
         )
         if simulate:
             logger.info(
-                f'[SCOPE API ] Using SIMULATED Motor Board '
-                f'(model={motor_kwargs.get("model")})'
+                f'[SCOPE API ] Using SIMULATED Motor Board (model={motor_kwargs.get("model")})'
             )
 
         # ----- MotionAPI (Wave 7 Phase 2c) -----
@@ -391,6 +417,7 @@ class Lumascope():
         # returns [] from detect_present_axes(), so a system with no motor
         # hardware ends up with empty dicts throughout.
         from modules.lumascope_api.motion import MotionAPI  # local-import: avoid cycle
+
         self.motion = MotionAPI(self, self._motion_driver)
         present_axes = self._motion_driver.detect_present_axes()
         self.motion.init_axes(present_axes)
@@ -434,7 +461,8 @@ class Lumascope():
             _notify_camera_failure(
                 _cam_exc,
                 suppress_if_cold_start=_is_total_cold_start(
-                    self._led_driver, self._motion_driver,
+                    self._led_driver,
+                    self._motion_driver,
                 ),
             )
 
@@ -461,6 +489,7 @@ class Lumascope():
         from modules.lumascope_api.diagnostics import DiagnosticsAPI
         from modules.lumascope_api.io import IOAPI
         from modules.lumascope_api.runtime_state import RuntimeState
+
         self.illumination = IlluminationAPI(self, self._led_driver)
         self.imaging = ImagingAPI(self, self._camera_driver)
         self.diagnostics = DiagnosticsAPI(self)
@@ -482,7 +511,9 @@ class Lumascope():
             and self._camera_driver is None
         )
         if self._no_hardware:
-            logger.warning('[SCOPE API ] No hardware detected (LED, motor, and camera all failed to initialize)')
+            logger.warning(
+                '[SCOPE API ] No hardware detected (LED, motor, and camera all failed to initialize)'
+            )
 
         # State-slot init (_state_lock, _cam_lock, _camera_cache + lock,
         # _labware / _objective / _turret_config / _stage_offset /
@@ -512,11 +543,14 @@ class Lumascope():
             if source == 'z_move':
                 return self.motion.get_axis_state('Z') in idle_or_absent
             elif source == 'xy_move':
-                return (self.motion.get_axis_state('X') in idle_or_absent and
-                        self.motion.get_axis_state('Y') in idle_or_absent)
+                return (
+                    self.motion.get_axis_state('X') in idle_or_absent
+                    and self.motion.get_axis_state('Y') in idle_or_absent
+                )
             elif source == 'turret':
                 return self.motion.get_axis_state('T') in idle_or_absent
             return True
+
         self.imaging.frame_validity.set_settle_check(_motion_settle_check)
         # _load_camera_timing relocated to ImagingAPI; called during
         # ImagingAPI.__init__ via the settle-check setup completion.
@@ -549,14 +583,14 @@ class Lumascope():
         if register_metrics:
             try:
                 from modules.metrics_logger import MetricsLogger
+
                 self.metrics_logger = MetricsLogger(
                     scope=self,
                     executor_bundle=None,  # set later via register_executor_bundle
-                    settings={},           # ditto
+                    settings={},  # ditto
                 )
             except Exception as _e:
-                logger.warning(
-                    f'[SCOPE API ] MetricsLogger construction failed: {_e}')
+                logger.warning(f'[SCOPE API ] MetricsLogger construction failed: {_e}')
 
         # LVP-A-7: register the emergency-shutdown atexit hook so EVERY
         # Lumascope user (Kivy app, REST server, headless tests, CLI
@@ -567,11 +601,10 @@ class Lumascope():
         if register_atexit:
             try:
                 import atexit
+
                 atexit.register(self._emergency_shutdown)
             except Exception as _e:
-                logger.warning(
-                    f'[SCOPE API ] atexit registration failed: {_e}')
-
+                logger.warning(f'[SCOPE API ] atexit registration failed: {_e}')
 
     def initialize(self, config) -> None:
         """Configure scope from connected to ready-to-use.
@@ -613,17 +646,17 @@ class Lumascope():
             return
         missing = []
         if config.expects_led and isinstance(self._led_driver, NullLEDBoard):
-            missing.append("LED Board")
+            missing.append('LED Board')
         if config.expects_motion and isinstance(self._motion_driver, NullMotionBoard):
-            missing.append("Motor Controller")
+            missing.append('Motor Controller')
         if not getattr(self._camera_driver, 'active', None):
-            missing.append("Camera")
+            missing.append('Camera')
         if missing:
             notifications.warning(
-                "Hardware", "Partial Hardware Detected",
-                f"Not connected: {', '.join(missing)}. Some features will be unavailable.",
+                'Hardware',
+                'Partial Hardware Detected',
+                f'Not connected: {", ".join(missing)}. Some features will be unavailable.',
             )
-
 
     # --- Executor-backed command API (LAYER-A' / Rule 2) ---
     #
@@ -633,8 +666,9 @@ class Lumascope():
     # modules/scope_commands.py helper functions where the caller had
     # to pass an executor on every call (parallel-paths anti-pattern).
 
-    def register_executors(self, *, camera_executor=None, io_executor=None,
-                           file_io_executor=None) -> None:
+    def register_executors(
+        self, *, camera_executor=None, io_executor=None, file_io_executor=None
+    ) -> None:
         """Register the executor handles used by the X_async / X_sync command methods.
 
         Call once at startup after the executors are constructed. Tests
@@ -686,12 +720,13 @@ class Lumascope():
     def _tiling_configs_path(self):
         """Resolve data/tiling.json from the registered source path."""
         import pathlib
+
         if self._source_path is None:
             raise RuntimeError(
-                "Lumascope.load_protocol/create_protocol require "
-                "register_source_path() to have been called."
+                'Lumascope.load_protocol/create_protocol require '
+                'register_source_path() to have been called.'
             )
-        return pathlib.Path(self._source_path) / "data" / "tiling.json"
+        return pathlib.Path(self._source_path) / 'data' / 'tiling.json'
 
     # --- Protocol API (LAYER-I / LV-16) ---
 
@@ -712,13 +747,13 @@ class Lumascope():
                 Protocol.from_file).
         """
         from modules.protocol import Protocol
+
         return Protocol.from_file(
             file_path=file_path,
             tiling_configs_file_loc=self._tiling_configs_path(),
         )
 
-    def create_protocol(self, *, config=None, input_config=None,
-                        empty_config=None) -> 'Protocol':
+    def create_protocol(self, *, config=None, input_config=None, empty_config=None) -> 'Protocol':
         """Construct a Protocol in-memory.
 
         Three modes (pass exactly one):
@@ -743,13 +778,11 @@ class Lumascope():
                 was not provided.
         """
         from modules.protocol import Protocol
-        provided = sum(
-            1 for x in (config, input_config, empty_config) if x is not None
-        )
+
+        provided = sum(1 for x in (config, input_config, empty_config) if x is not None)
         if provided != 1:
             raise ValueError(
-                "create_protocol(): pass exactly one of config=, "
-                "input_config=, or empty_config="
+                'create_protocol(): pass exactly one of config=, input_config=, or empty_config='
             )
         tcfg = self._tiling_configs_path()
         if input_config is not None:
@@ -782,13 +815,14 @@ class Lumascope():
             str: Sanitized step name.
         """
         from modules.protocol import Protocol
+
         return Protocol.sanitize_step_name(input=input)
 
     def _require_executor(self, executor, name):
         if executor is None:
             raise RuntimeError(
-                f"Lumascope.{name} requires register_executors() to have "
-                f"been called with the relevant executor handle."
+                f'Lumascope.{name} requires register_executors() to have '
+                f'been called with the relevant executor handle.'
             )
         return executor
 
@@ -809,7 +843,10 @@ class Lumascope():
         Returns:
             bool: True if a real (non-Null) motor board is connected.
         """
-        return not isinstance(self._motion_driver, NullMotionBoard) and self._motion_driver.is_connected()
+        return (
+            not isinstance(self._motion_driver, NullMotionBoard)
+            and self._motion_driver.is_connected()
+        )
 
     @property
     def led_connected(self) -> bool:
@@ -874,35 +911,39 @@ class Lumascope():
         # failure. Real drivers that raise inside disconnect() still
         # flip *_ok to False and fire a Rule-14 notification.
         led_ok = True
-        if (not isinstance(self._led_driver, NullLEDBoard)
-                and hasattr(self._led_driver, 'disconnect')):
+        if not isinstance(self._led_driver, NullLEDBoard) and hasattr(
+            self._led_driver, 'disconnect'
+        ):
             try:
                 self._led_driver.disconnect()
             except Exception as ex:
                 led_ok = False
-                logger.exception(f"[SCOPE API ] LED disconnect failed: {ex}")
+                logger.exception(f'[SCOPE API ] LED disconnect failed: {ex}')
                 notifications.error(
-                    "Hardware",
-                    "LED disconnect failed",
-                    f"LED board teardown raised {type(ex).__name__}: {ex}. "
-                    f"The serial port may be left open; reconnecting "
-                    f"may require a process restart.")
+                    'Hardware',
+                    'LED disconnect failed',
+                    f'LED board teardown raised {type(ex).__name__}: {ex}. '
+                    f'The serial port may be left open; reconnecting '
+                    f'may require a process restart.',
+                )
         self._led_driver = NullLEDBoard()
 
         motion_ok = True
-        if (not isinstance(self._motion_driver, NullMotionBoard)
-                and hasattr(self._motion_driver, 'disconnect')):
+        if not isinstance(self._motion_driver, NullMotionBoard) and hasattr(
+            self._motion_driver, 'disconnect'
+        ):
             try:
                 self._motion_driver.disconnect()
             except Exception as ex:
                 motion_ok = False
-                logger.exception(f"[SCOPE API ] Motion disconnect failed: {ex}")
+                logger.exception(f'[SCOPE API ] Motion disconnect failed: {ex}')
                 notifications.error(
-                    "Hardware",
-                    "Motor disconnect failed",
-                    f"Motor board teardown raised {type(ex).__name__}: {ex}. "
-                    f"The serial port may be left open; reconnecting "
-                    f"may require a process restart.")
+                    'Hardware',
+                    'Motor disconnect failed',
+                    f'Motor board teardown raised {type(ex).__name__}: {ex}. '
+                    f'The serial port may be left open; reconnecting '
+                    f'may require a process restart.',
+                )
         self._motion_driver = NullMotionBoard()
 
         camera_ok = True
@@ -911,13 +952,14 @@ class Lumascope():
                 camera_ok = bool(self._camera_driver.disconnect())
             except Exception as ex:
                 camera_ok = False
-                logger.exception(f"[SCOPE API ] Camera disconnect failed: {ex}")
+                logger.exception(f'[SCOPE API ] Camera disconnect failed: {ex}')
                 notifications.error(
-                    "Hardware",
-                    "Camera disconnect failed",
-                    f"Camera teardown raised {type(ex).__name__}: {ex}. "
-                    f"USB resources may not be fully released until the "
-                    f"app restarts.")
+                    'Hardware',
+                    'Camera disconnect failed',
+                    f'Camera teardown raised {type(ex).__name__}: {ex}. '
+                    f'USB resources may not be fully released until the '
+                    f'app restarts.',
+                )
             self._camera_driver = None
         elif self._camera_driver is not None:
             # Camera lacked a `disconnect` method (test-fixture artifact);
@@ -932,7 +974,8 @@ class Lumascope():
             logger.warning(
                 f'[SCOPE API ] Microscope disconnected with errors '
                 f'(led_ok={led_ok}, motion_ok={motion_ok}, '
-                f'camera_ok={camera_ok})')
+                f'camera_ok={camera_ok})'
+            )
 
         # Symmetric to atexit.register in __init__: each instance removes its
         # own hook on disconnect so test fixtures that construct + disconnect
@@ -940,10 +983,10 @@ class Lumascope():
         # atexit.unregister silently no-ops if the hook was never registered.
         try:
             import atexit
+
             atexit.unregister(self._emergency_shutdown)
         except Exception as _e:
-            logger.warning(
-                f'[SCOPE API ] atexit unregister failed: {_e}')
+            logger.warning(f'[SCOPE API ] atexit unregister failed: {_e}')
 
         return all_ok
 
@@ -955,9 +998,13 @@ class Lumascope():
         stops motion via the LVP-A-1 chain). Swallows every exception so
         atexit completes cleanly even when the logging stack or hardware
         access is already torn down.
+
+        Uses `leds_off_emergency` (bounded `_led_lock` acquire) rather
+        than `leds_off` to avoid atexit deadlock when an in-flight LED
+        command holds the lock.
         """
         try:
-            self.illumination.leds_off()
+            self.illumination.leds_off_emergency()
         except Exception:
             pass
         try:
@@ -965,9 +1012,7 @@ class Lumascope():
         except Exception:
             pass
         try:
-            logger.info(
-                '[SCOPE API ] _emergency_shutdown complete '
-                '(LEDs off, disconnected)')
+            logger.info('[SCOPE API ] _emergency_shutdown complete (LEDs off, disconnected)')
         except Exception:
             pass
 
@@ -1066,7 +1111,7 @@ class Lumascope():
         """
         return self._objective
 
-    def set_turret_config(self, turret_config: dict[int,str]) -> None:
+    def set_turret_config(self, turret_config: dict[int, str]) -> None:
         """Set the turret objective configuration.
 
         Args:
@@ -1081,7 +1126,6 @@ class Lumascope():
             dict: Mapping of turret position to objective ID.
         """
         return self._turret_config
-
 
     def set_stage_offset(self, stage_offset) -> None:
         """Set the stage offset for coordinate transformations.
@@ -1099,7 +1143,6 @@ class Lumascope():
         """
         return self._stage_offset
 
-
     ########################################################################
     # LED BOARD FUNCTIONS
     # Methods relocated to IlluminationAPI in Wave 7 Phase 3c / 3d;
@@ -1109,7 +1152,6 @@ class Lumascope():
     ########################################################################
     # CAMERA FUNCTIONS
     ########################################################################
-
 
     def get_well_label(self) -> str:
         """Get the well label for the current stage XY position.
@@ -1136,10 +1178,7 @@ class Lumascope():
             raise
 
         x_target, y_target = self._coordinate_transformer.stage_to_plate(
-            labware=labware,
-            stage_offset=self._stage_offset,
-            sx=x_target,
-            sy=y_target
+            labware=labware, stage_offset=self._stage_offset, sx=x_target, sy=y_target
         )
 
         return labware.get_well_label(x=x_target, y=y_target)
@@ -1164,11 +1203,13 @@ class Lumascope():
         # __init__, create_diagnostic, and future callers share one code path.
         from drivers.null_ledboard import NullLEDBoard
         from drivers.null_motorboard import NullMotionBoard
+
         instance._led_driver = _try_connect_board('LED board', LEDBoard, NullLEDBoard)
         instance._motion_driver = _try_connect_board('Motor board', MotorBoard, NullMotionBoard)
 
         # Construct MotionAPI and populate per-axis state (mirrors __init__ sequence).
         from modules.lumascope_api.motion import MotionAPI  # local-import: avoid cycle
+
         instance.motion = MotionAPI(instance, instance._motion_driver)
         present_axes = instance._motion_driver.detect_present_axes()
         instance.motion.init_axes(present_axes)
@@ -1195,6 +1236,7 @@ class Lumascope():
         from modules.lumascope_api.diagnostics import DiagnosticsAPI
         from modules.lumascope_api.io import IOAPI
         from modules.lumascope_api.runtime_state import RuntimeState
+
         instance.illumination = IlluminationAPI(instance, instance._led_driver)
         instance.imaging = ImagingAPI(instance, None)
         instance.diagnostics = DiagnosticsAPI(instance)
@@ -1204,14 +1246,15 @@ class Lumascope():
         # No-hardware probe mirrors __init__ -- diagnostic mode is never
         # simulate=True, so a NullLED + NullMotor + no camera means we
         # really do have no hardware.
-        instance._no_hardware = (
-            isinstance(instance._led_driver, NullLEDBoard)
-            and isinstance(instance._motion_driver, NullMotionBoard)
+        instance._no_hardware = isinstance(instance._led_driver, NullLEDBoard) and isinstance(
+            instance._motion_driver, NullMotionBoard
         )
 
-        logger.info('[SCOPE API ] Diagnostic scope created '
-                    f'(LED={instance.led_connected}, '
-                    f'Motor={instance.motor_connected})')
+        logger.info(
+            '[SCOPE API ] Diagnostic scope created '
+            f'(LED={instance.led_connected}, '
+            f'Motor={instance.motor_connected})'
+        )
         return instance
 
     ########################################################################
@@ -1222,11 +1265,9 @@ class Lumascope():
     # ILLUMINATE AND CAPTURE
     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-
     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     # AUTOFOCUS Functionality
     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
     # Legacy autofocus methods (autofocus, autofocus_iterate, focus_best) removed
     # 2026-03-31 — superseded by AutofocusRunner. No callers remained.
-

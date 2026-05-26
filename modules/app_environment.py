@@ -15,6 +15,7 @@ _logger = logging.getLogger('LVP.app_environment')
 @dataclass
 class AppEnvironment:
     """Immutable snapshot of application environment determined at startup."""
+
     script_path: str
     source_path: str
     version: str
@@ -35,22 +36,25 @@ def init_environment(main_file: str) -> AppEnvironment:
     # Determine script location from the main entry point
     abspath = os.path.abspath(main_file)
     basename = os.path.basename(main_file)
-    script_path = abspath[:-len(basename)]
+    script_path = abspath[: -len(basename)]
 
-    _logger.info(f"Script Location: {script_path}")
+    _logger.info(f'Script Location: {script_path}')
 
-    windows_machine = os.name == "nt"
+    windows_machine = os.name == 'nt'
 
     # Read version and build timestamp via shared reader
     from modules.path_utils import read_version
+
     version, build_timestamp = read_version(pathlib.Path(script_path))
 
     # Get git commit hash for build identification (dev mode only)
     if not build_timestamp:
         try:
             result = subprocess.run(
-                ["git", "rev-parse", "--short", "HEAD"],
-                capture_output=True, text=True, timeout=5,
+                ['git', 'rev-parse', '--short', 'HEAD'],
+                capture_output=True,
+                text=True,
+                timeout=5,
                 cwd=script_path,
             )
             if result.returncode == 0:
@@ -61,43 +65,44 @@ def init_environment(main_file: str) -> AppEnvironment:
     # Check if running as installed application
     lvp_installed = False
     try:
-        with open(os.path.join(script_path, "marker.lvpinstalled")) as f:
+        with open(os.path.join(script_path, 'marker.lvpinstalled')) as f:
             lvp_installed = True
     except Exception:
         pass
 
     # Determine source_path (data directory)
     if windows_machine and lvp_installed:
-        _logger.info("Machine-Type - WINDOWS")
+        _logger.info('Machine-Type - WINDOWS')
         import platformdirs
+
         documents_folder = platformdirs.user_documents_dir()
         # Use base version (without hash) for folder name
         # version is already path-safe (no timestamp, no parens)
-        lvp_appdata = os.path.join(documents_folder, f"LumaViewPro {version}")
+        lvp_appdata = os.path.join(documents_folder, f'LumaViewPro {version}')
 
         if not os.path.exists(lvp_appdata):
             os.mkdir(lvp_appdata)
 
         source_path = lvp_appdata
-        _logger.info(f"Data Location: {source_path}")
+        _logger.info(f'Data Location: {source_path}')
 
-        if not os.path.exists(os.path.join(lvp_appdata, "data")):
-            shutil.copytree(os.path.join(script_path, "data"), os.path.join(lvp_appdata, "data"))
+        if not os.path.exists(os.path.join(lvp_appdata, 'data')):
+            shutil.copytree(os.path.join(script_path, 'data'), os.path.join(lvp_appdata, 'data'))
 
         # Create logs directory if it doesn't exist. The source logs/ folder may not
         # exist in PyInstaller builds, so just create an empty directory structure.
-        logs_dir = os.path.join(lvp_appdata, "logs", "LVP_Log")
+        logs_dir = os.path.join(lvp_appdata, 'logs', 'LVP_Log')
         os.makedirs(logs_dir, exist_ok=True)
 
     elif windows_machine and not lvp_installed:
-        _logger.info("Machine-Type - WINDOWS (not installed)")
+        _logger.info('Machine-Type - WINDOWS (not installed)')
         source_path = script_path
     else:
-        _logger.info("Machine-Type - NON-WINDOWS")
+        _logger.info('Machine-Type - NON-WINDOWS')
         source_path = script_path
 
     num_cores = os.cpu_count()
-    _logger.info(f"Num cores identified as {num_cores}")
+    _logger.info(f'Num cores identified as {num_cores}')
 
     return AppEnvironment(
         script_path=script_path,

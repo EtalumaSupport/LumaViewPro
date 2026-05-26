@@ -17,9 +17,9 @@ logger = logging.getLogger('LVP.modules.app_config')
 
 
 def _iter_settings_files(source_path: str | pathlib.Path | None = None):
-    data_dir = get_source_root(source_path) / "data"
-    yield data_dir / "current.json"
-    yield data_dir / "settings.json"
+    data_dir = get_source_root(source_path) / 'data'
+    yield data_dir / 'current.json'
+    yield data_dir / 'settings.json'
 
 
 def load_log_level(source_path: str | pathlib.Path | None = None):
@@ -40,7 +40,7 @@ def load_log_level(source_path: str | pathlib.Path | None = None):
                 logger.setLevel(level=log_level)
                 return
             except Exception:
-                logger.warning("Failed to read log level from %s", settings_file, exc_info=True)
+                logger.warning('Failed to read log level from %s', settings_file, exc_info=True)
 
 
 def get_lvp_lock_port(source_path: str | pathlib.Path | None = None) -> int:
@@ -60,7 +60,7 @@ def get_lvp_lock_port(source_path: str | pathlib.Path | None = None) -> int:
             try:
                 return data['lvp_lock_port']
             except Exception:
-                logger.warning("Failed to read lvp_lock_port from %s", settings_file, exc_info=True)
+                logger.warning('Failed to read lvp_lock_port from %s', settings_file, exc_info=True)
 
     return DEFAULT_LVP_LOCK_PORT
 
@@ -83,7 +83,9 @@ def load_autofocus_log_enable(source_path: str | pathlib.Path | None = None):
                     autofocus_functions.enable_af_score_logging(enable=True)
                 return
             except Exception:
-                logger.warning("Failed to read autofocus log setting from %s", settings_file, exc_info=True)
+                logger.warning(
+                    'Failed to read autofocus log setting from %s', settings_file, exc_info=True
+                )
 
 
 def load_mode(source_path: str | pathlib.Path | None = None) -> bool:
@@ -102,9 +104,9 @@ def load_mode(source_path: str | pathlib.Path | None = None) -> bool:
             try:
                 mode = data['mode']
                 if mode == 'engineering':
-                    logger.info("Enabling engineering mode")
+                    logger.info('Enabling engineering mode')
                     return True
             except Exception:
-                logger.warning("Failed to read mode from %s", settings_file, exc_info=True)
+                logger.warning('Failed to read mode from %s', settings_file, exc_info=True)
 
     return False

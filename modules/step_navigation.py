@@ -23,9 +23,10 @@ def go_to_step(
     step_idx: int,
     ignore_auto_gain: bool = False,
     include_move: bool = True,
-    called_from_protocol: bool = True
+    called_from_protocol: bool = True,
 ):
     from modules.config_ui_getters import get_selected_labware
+
     # Deferred import: ui/ui_helpers.move_absolute_position wraps the
     # API call with UI update callbacks. step_navigation still reaches
     # upward here — tracked as part of LAYER-H/LV-13 follow-up.
@@ -55,92 +56,109 @@ def go_to_step(
     _schedule_ui(lambda dt: protocol_settings.generate_step_name_input(), 0)
     _schedule_ui(lambda dt: protocol_settings.update_step_ui(), 0)
 
-
     # Convert plate coordinates to stage coordinates
     if include_move:
         _, labware = get_selected_labware()
         sx, sy = coordinate_transformer.plate_to_stage(
-            labware=labware,
-            stage_offset=settings['stage_offset'],
-            px=step["X"],
-            py=step["Y"]
+            labware=labware, stage_offset=settings['stage_offset'], px=step['X'], py=step['Y']
         )
 
         turret_pos = None
         if ctx.scope.motion.has_turret():
-            step_objective_id = step["Objective"]
+            step_objective_id = step['Objective']
             turret_pos = ctx.scope.motion.get_turret_position_for_objective_id(
                 objective_id=step_objective_id,
                 persisted_position=settings.get('turret_position'),
             )
 
             if turret_pos is None:
-
-                logger.error(f"Cannot move turret for step {step_idx}. No position found with objective {step_objective_id}")
+                logger.error(
+                    f'Cannot move turret for step {step_idx}. No position found with objective {step_objective_id}'
+                )
 
                 error_msg = f"Cannot move turret to step {step_idx}. No objective position found matching step's objective: {step_objective_id}. Please check objective settings."
-                notifications.error("Protocol", "Protocol Objective Not Set", error_msg)
+                notifications.error('Protocol', 'Protocol Objective Not Set', error_msg)
 
         # Move into position
         if ctx.scope.motor_connected:
             if not called_from_protocol:
                 if turret_pos is not None:
-                    io_executor.put(IOTask(action=move_absolute_position,kwargs={"axis":'T',"pos": turret_pos,"protocol": False}))
-                    _schedule_ui(lambda dt: ctx.motion_settings.ids['verticalcontrol_id'].update_turret_gui(turret_pos), 0)
-                io_executor.put(IOTask(action=move_absolute_position,kwargs={"axis":'X',"pos": sx,"protocol": False}))
-                io_executor.put(IOTask(
+                    io_executor.put(
+                        IOTask(
+                            action=move_absolute_position,
+                            kwargs={'axis': 'T', 'pos': turret_pos, 'protocol': False},
+                        )
+                    )
+                    _schedule_ui(
+                        lambda dt: ctx.motion_settings.ids['verticalcontrol_id'].update_turret_gui(
+                            turret_pos
+                        ),
+                        0,
+                    )
+                io_executor.put(
+                    IOTask(
                         action=move_absolute_position,
-                        kwargs={
-                            "axis":'Y',
-                            "pos": sy,
-                            "protocol": False
-                        }
-                    ))
-                io_executor.put(IOTask(
+                        kwargs={'axis': 'X', 'pos': sx, 'protocol': False},
+                    )
+                )
+                io_executor.put(
+                    IOTask(
                         action=move_absolute_position,
-                        kwargs={
-                            "axis":'Z',
-                            "pos": step['Z'],
-                            "protocol": False
-                        }
-                    ))
+                        kwargs={'axis': 'Y', 'pos': sy, 'protocol': False},
+                    )
+                )
+                io_executor.put(
+                    IOTask(
+                        action=move_absolute_position,
+                        kwargs={'axis': 'Z', 'pos': step['Z'], 'protocol': False},
+                    )
+                )
             else:
                 if turret_pos is not None:
                     move_absolute_position(axis='T', pos=turret_pos, protocol=True)
-                    _schedule_ui(lambda dt: ctx.motion_settings.ids['verticalcontrol_id'].update_turret_gui(turret_pos), 0)
+                    _schedule_ui(
+                        lambda dt: ctx.motion_settings.ids['verticalcontrol_id'].update_turret_gui(
+                            turret_pos
+                        ),
+                        0,
+                    )
                 move_absolute_position('X', sx, protocol=True)
                 move_absolute_position('Y', sy, protocol=True)
-                move_absolute_position('Z', step["Z"], protocol=True, wait_until_complete=True)
+                move_absolute_position('Z', step['Z'], protocol=True, wait_until_complete=True)
         else:
             logger.warning('[LVP Main  ] Motion controller not available.')
 
         # Update settings to correspond with step — batch write under lock for thread safety
         color = step['Color']
         with ctx.settings_lock:
-            settings[color].update({
-                'autofocus': step['Auto_Focus'],
-                'false_color': step['False_Color'],
-                'ill_ma': step["Illumination"],
-                'gain_db': step["Gain"],
-                'auto_gain': step["Auto_Gain"],
-                'exp_ms': step["Exposure"],
-                'sum': step["Sum"],
-                'acquire': step['Acquire'],
-                'focus': step['Z'],  # Keep per-layer focus in sync with step (#535)
-            })
+            settings[color].update(
+                {
+                    'autofocus': step['Auto_Focus'],
+                    'false_color': step['False_Color'],
+                    'ill_ma': step['Illumination'],
+                    'gain_db': step['Gain'],
+                    'auto_gain': step['Auto_Gain'],
+                    'exp_ms': step['Exposure'],
+                    'sum': step['Sum'],
+                    'acquire': step['Acquire'],
+                    'focus': step['Z'],  # Keep per-layer focus in sync with step (#535)
+                }
+            )
 
         layer_obj = ctx.image_settings.layer_lookup(layer=color)
 
         # #610 diagnostic: trace what go_to_step does with camera settings
         _curr_gain = ctx.scope.imaging.get_gain() if ctx.scope.imaging.camera_active else '?'
-        _curr_exp = ctx.scope.imaging.get_exposure_time() if ctx.scope.imaging.camera_active else '?'
+        _curr_exp = (
+            ctx.scope.imaging.get_exposure_time() if ctx.scope.imaging.camera_active else '?'
+        )
         logger.debug(
-            f"[GO_TO_STEP DIAG] step_idx={step_idx} color={color} "
-            f"step_gain={step['Gain']} step_exp={step['Exposure']} "
-            f"step_auto_gain={step['Auto_Gain']!r} "
-            f"camera_gain={_curr_gain} camera_exp={_curr_exp} "
-            f"called_from_protocol={called_from_protocol} "
-            f"protocol_running={ctx.protocol_running.is_set()}"
+            f'[GO_TO_STEP DIAG] step_idx={step_idx} color={color} '
+            f'step_gain={step["Gain"]} step_exp={step["Exposure"]} '
+            f'step_auto_gain={step["Auto_Gain"]!r} '
+            f'camera_gain={_curr_gain} camera_exp={_curr_exp} '
+            f'called_from_protocol={called_from_protocol} '
+            f'protocol_running={ctx.protocol_running.is_set()}'
         )
 
         def temp():
@@ -161,7 +179,6 @@ def go_to_step(
         else:
             layer_obj.apply_settings(ignore_auto_gain=ignore_auto_gain, protocol=True)
 
-
         # Force stage crosshair + position text update after step navigation.
         # The move_position callback in _default_move normally handles this,
         # but when go_to_step is used (all UI-triggered protocols), _default_move
@@ -171,16 +188,34 @@ def go_to_step(
         # Also force a stage widget redraw so the crosshair/well indicator moves
         _schedule_ui(lambda dt: ctx.stage.draw_labware(), 0)
 
-        _schedule_ui(lambda dt: go_to_step_update_ui(step), 0)
+        # Capture called_from_protocol in the closure so the UI-thread
+        # callback knows whether this is a protocol-cycle invocation
+        # (skip accordion-open) or a manual-navigation one (do it).
+        # Reading ctx.protocol_running.is_set() inside the UI callback
+        # races at protocol-end: the last step's scheduled callback can
+        # fire AFTER cleanup clears protocol_running, see the cleared
+        # flag, and open the last-step's accordion (Red on a 4-channel
+        # protocol). Closure-capture is race-free.
+        _schedule_ui(
+            lambda dt: go_to_step_update_ui(
+                step, called_from_protocol=called_from_protocol
+            ),
+            0,
+        )
 
 
-def go_to_step_update_ui(step):
+def go_to_step_update_ui(step, called_from_protocol: bool = False):
     """Update UI widgets to reflect a protocol step.
 
     Delegates per-layer widget updates to LayerControl.set_step_state(),
     which encapsulates widget knowledge. This function handles only the
     cross-layer concerns: opening the settings panel, expanding the
     accordion, and setting the LED button during protocol preview.
+
+    ``called_from_protocol``: when True, skip the accordion expand
+    (the user's chosen open accordion is preserved during + after a
+    protocol run). When False (manual step navigation), expand to
+    the step's channel as the user expects.
     """
     ctx = _app_ctx.ctx
     settings = ctx.settings
@@ -193,13 +228,17 @@ def go_to_step_update_ui(step):
     ctx.image_settings.ids['toggle_imagesettings'].state = 'down'
     ctx.image_settings.toggle_settings()
 
-    # Expand accordion to step's channel and collapse the others. Direct
-    # `collapse = False` on a single item doesn't propagate to siblings in
-    # Kivy's Accordion — only user clicks auto-collapse others — so stepping
-    # from Green -> Red left the Green panel visually expanded. set_expanded_layer
-    # iterates all layers and has its own protocol_running guard + ScrollView
-    # cleanup, so call it unconditionally.
-    ctx.image_settings.set_expanded_layer(layer=color)
+    # Expand accordion to step's channel ONLY for manual navigation.
+    # Direct `collapse = False` on a single item doesn't propagate to
+    # siblings in Kivy's Accordion -- only user clicks auto-collapse
+    # others -- so manual nav from Green -> Red would leave Green
+    # visually expanded without this call. Protocol-cycle invocations
+    # skip the call entirely (the in-protocol guard inside
+    # set_expanded_layer has a race at protocol-end: the last step's
+    # UI-scheduled callback runs after protocol_running clears,
+    # leaving the accordion stuck on the last step's color).
+    if not called_from_protocol:
+        ctx.image_settings.set_expanded_layer(layer=color)
 
     # Delegate all per-layer widget updates to LayerControl
     layer_obj.set_step_state(step)
@@ -219,6 +258,7 @@ def go_to_step_update_ui(step):
     # Outside protocol: only if protocol_led_on is enabled (preview mode).
     if protocol_running_global.is_set() or settings.get('protocol_led_on', False):
         from ui.layer_control import LayerControl
+
         LayerControl._suppressing_led_log = True
         try:
             layer_obj.ids['enable_led_btn'].state = 'down'

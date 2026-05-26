@@ -8,20 +8,24 @@ For driver-layer hardware exceptions (HardwareError), see drivers/exceptions.py.
 
 class ProtocolError(Exception):
     """Protocol file parsing, validation, or execution error."""
+
     pass
 
 
 class ConfigError(Exception):
     """Application configuration or settings error."""
+
     pass
 
 
 class CaptureError(Exception):
     """Image capture, save, or processing failure."""
+
     pass
 
 
 class AutofocusAborted(Exception):
     """Autofocus run aborted by caller (e.g. user cancelled, protocol
     aborted, or app teardown)."""
+
     pass

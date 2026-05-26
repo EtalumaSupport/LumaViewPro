@@ -16,6 +16,7 @@ Rules implemented:
     rule_24  -- ASCII-only in strings passed to logger / print / notifications
     rule_27a -- no `# TODO` / `# FIXME` / `# XXX` in source comments
     rule_27b -- no rule / audit / session / smoke / wave / phase IDs in comments
+    rule_27d -- same patterns as 27b but applied to docstrings
     rule_28  -- no internal IDs in notifications.{level} string args
     rule_42  -- WARN on "healthy"/"fine"/"within range" in comments without a
                 `PERFORMANCE_BUDGETS.md` cite in the same file
@@ -26,6 +27,7 @@ today.
 
 Exit code: 0 clean (warns allowed), 1 blocks present.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -60,6 +62,11 @@ _TODO_PATTERN = re.compile(r'\b(TODO|FIXME|XXX)\b')
 _COMMENT_ID_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
     (re.compile(r'\bRule\s+\d+\b'), 'Rule N reference'),
     (re.compile(r'\baudit\s+[A-Z][A-Za-z0-9_-]*\b', re.IGNORECASE), 'audit reference'),
+    # Snake-case audit-doc identifiers -- the form audit docs ship with
+    # as filenames. Distinct from the natural-language pattern above
+    # because the snake-case form has no space between the keyword and
+    # the rest of the identifier.
+    (re.compile(r'\bAUDIT_[A-Z][A-Z0-9_-]*\b'), 'AUDIT_* doc reference'),
     (re.compile(r'\bfix\s+#\d+\b', re.IGNORECASE), 'fix #N reference'),
     (re.compile(r'\bsession\s+\d+\b', re.IGNORECASE), 'session N reference'),
     (re.compile(r'\bSmoke\s+\d+\b'), 'Smoke N reference'),
@@ -149,7 +156,7 @@ def _check_rule_24(tree: ast.Module, path: str) -> list[Violation]:
                     ln,
                     col,
                     'rule_24',
-                    f"non-ASCII char {ch!r} (U+{ord(ch):04X}) in logger/print/notification "
+                    f'non-ASCII char {ch!r} (U+{ord(ch):04X}) in logger/print/notification '
                     f"string; use ASCII (e.g. 'degC' not the degree sign)",
                 )
             )
@@ -171,7 +178,7 @@ def _check_rule_28(tree: ast.Module, path: str) -> list[Violation]:
                     ln,
                     col,
                     'rule_28',
-                    f"internal ID {m.group(0)!r} in notifications string; user-facing "
+                    f'internal ID {m.group(0)!r} in notifications string; user-facing '
                     f'strings must not include rule tags / audit IDs / fix-N refs',
                 )
             )
@@ -201,11 +208,17 @@ def _is_test_path(path: str) -> bool:
     code path are load-bearing for the test's purpose; Rule 27's "no
     chronology" goal is the opposite shape -- production code.
 
+    Also exempts this rule-check file itself -- its purpose is to talk
+    about the rule keywords + patterns it enforces, which inherently
+    requires mentioning the words "audit", "Rule N", etc.
+
     Matches files under any directory named ``tests`` OR whose basename
     starts with ``test_`` (the pytest convention).
     """
     norm = path.replace('\\', '/')
     if '/tests/' in norm or norm.startswith('tests/'):
+        return True
+    if norm.endswith('tools/check_rules.py') or norm == 'check_rules.py':
         return True
     basename = norm.rsplit('/', 1)[-1]
     return basename.startswith('test_')
@@ -256,6 +269,125 @@ def _check_rule_27b(source: str, path: str) -> list[Violation]:
     return violations
 
 
+def _iter_docstrings(tree: ast.AST):
+    """Yield (lineno, col, text) for each module / class / function
+    docstring in the AST.
+
+    Docstrings are string-literal expression statements, not COMMENT
+    tokens, so the tokenize-based `_iter_comments` walk misses them.
+    Rule 27 applies to docstrings too -- they end up in `help()`,
+    `__doc__`, and IDE tooltips, so audit-doc IDs in docstrings are
+    just as much chronology-leaking as comment refs.
+    """
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+            doc = ast.get_docstring(node, clean=False)
+            if not doc:
+                continue
+            if node.body and isinstance(node.body[0], ast.Expr):
+                first = node.body[0]
+                yield first.lineno, first.col_offset, doc
+
+
+def _check_rule_27d(tree: ast.AST, path: str) -> list[Violation]:
+    """Same patterns as 27b (comments) but applied to docstrings."""
+    if _is_test_path(path):
+        return []
+    violations: list[Violation] = []
+    for lineno, col, text in _iter_docstrings(tree):
+        for pat, label in _COMMENT_ID_PATTERNS:
+            m = pat.search(text)
+            if not m:
+                continue
+            violations.append(
+                Violation(
+                    path,
+                    lineno,
+                    col,
+                    'rule_27d',
+                    f'{label} {m.group(0)!r} in docstring; record decisions, not chronology',
+                )
+            )
+            break
+    return violations
+
+
+_POST_PROCESSOR_WRITE_PATHS = frozenset({
+    'modules/zprojector.py',
+    'modules/stitcher.py',
+})
+
+_TIFFFILE_NAMES = frozenset({'tf', 'tifffile'})
+
+_FALSE_COLOR_HELPER_NAMES = frozenset({
+    'maybe_apply_false_color',
+    'write_tiff',
+})
+
+
+def _check_rule_31c(tree: ast.AST, path: str) -> list[Violation]:
+    """Block bare ``tf.imwrite`` / ``tifffile.imwrite`` in post-processor
+    modules whose canonical save path is the false-color-aware
+    ``image_utils.write_tiff`` (or its extracted helper
+    ``image_utils.maybe_apply_false_color`` called before a bare
+    imwrite).
+
+    Bug shape this prevents: post-processor functions that compute a
+    fluorescence-shaped output and save via bare tifffile.imwrite
+    bypass the false-color RGB widening. Symptom: greyscale projection
+    / stitched / composite outputs even with the false_color_16bit
+    setting on.
+
+    Per-function pairing rule: a function may call tifffile.imwrite IF
+    the same function also calls one of the false-color helpers. A
+    function with bare imwrite and no paired helper call fires.
+
+    Path scope: only fires on the modules listed in
+    ``_POST_PROCESSOR_WRITE_PATHS`` -- the sinks where the canonical
+    route is established. Expand the set as other post-processors
+    migrate.
+    """
+    norm = path.replace('\\', '/')
+    if not any(norm.endswith(p) for p in _POST_PROCESSOR_WRITE_PATHS):
+        return []
+    violations: list[Violation] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        bare_imwrite_calls: list[ast.Call] = []
+        helper_seen = False
+        for sub in ast.walk(node):
+            if not isinstance(sub, ast.Call):
+                continue
+            f = sub.func
+            if isinstance(f, ast.Attribute):
+                if (
+                    f.attr == 'imwrite'
+                    and isinstance(f.value, ast.Name)
+                    and f.value.id in _TIFFFILE_NAMES
+                ):
+                    bare_imwrite_calls.append(sub)
+                elif f.attr in _FALSE_COLOR_HELPER_NAMES:
+                    helper_seen = True
+        if bare_imwrite_calls and not helper_seen:
+            for c in bare_imwrite_calls:
+                violations.append(
+                    Violation(
+                        path,
+                        c.lineno,
+                        c.col_offset,
+                        'rule_31c',
+                        f'bare tifffile.imwrite without a paired '
+                        f'image_utils.maybe_apply_false_color (or '
+                        f'image_utils.write_tiff) call in the same '
+                        f'function. Post-processor outputs must apply '
+                        f'the false-color gate before the bare imwrite, '
+                        f'or fluorescence saves grayscale.',
+                    )
+                )
+    return violations
+
+
 def _check_rule_42(source: str, path: str) -> list[Violation]:
     """WARN on `healthy` / `fine` / `within range` in comments without a
     `PERFORMANCE_BUDGETS.md` cite anywhere in the file.
@@ -303,6 +435,8 @@ def check_source(content: str, path: str) -> list[Violation]:
     else:
         violations.extend(_check_rule_24(tree, path))
         violations.extend(_check_rule_28(tree, path))
+        violations.extend(_check_rule_27d(tree, path))
+        violations.extend(_check_rule_31c(tree, path))
     violations.extend(_check_rule_27a(content, path))
     violations.extend(_check_rule_27b(content, path))
     violations.extend(_check_rule_42(content, path))

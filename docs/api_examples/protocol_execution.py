@@ -23,7 +23,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent.parent))
 _mock_logger = MagicMock()
 _mock_lvp_logger = MagicMock()
 _mock_lvp_logger.logger = _mock_logger
-_mock_lvp_logger.version = "example"
+_mock_lvp_logger.version = 'example'
 _mock_lvp_logger.is_thread_paused = MagicMock(return_value=False)
 _mock_lvp_logger.unpause_thread = MagicMock()
 _mock_lvp_logger.pause_thread = MagicMock()
@@ -56,8 +56,8 @@ def build_protocol_config():
     return {
         'labware_id': '96 Well Plate',
         'objective_id': '4x',
-        'period': datetime.timedelta(minutes=5),   # Time between scans
-        'duration': datetime.timedelta(hours=1),    # Total protocol duration
+        'period': datetime.timedelta(minutes=5),  # Time between scans
+        'duration': datetime.timedelta(hours=1),  # Total protocol duration
         'use_zstacking': False,
         'zstack_params': {'min': 0, 'max': 0, 'step': 0},
         'tiling': 'Center',
@@ -97,7 +97,7 @@ def build_protocol_config():
 def main():
     # Create scope in simulate mode
     scope = Lumascope(simulate=True)
-    print("Scope initialized (simulate=True)")
+    print('Scope initialized (simulate=True)')
 
     # Build session settings (minimal for headless operation)
     settings = {
@@ -108,18 +108,18 @@ def main():
     # Create a ScopeSession -- the GUI-independent state container
     session = ScopeSession.create(settings=settings, scope=scope)
     session.start_executors()
-    print("Session created, executors started")
+    print('Session created, executors started')
 
     # Create a ProtocolRunner from the session
     runner = session.create_protocol_runner()
 
     # Build the protocol configuration
     config = build_protocol_config()
-    print(f"\nProtocol config:")
-    print(f"  Positions: {len(config['positions'])}")
-    print(f"  Channels: {list(config['layer_configs'].keys())}")
-    print(f"  Period: {config['period']}")
-    print(f"  Duration: {config['duration']}")
+    print(f'\nProtocol config:')
+    print(f'  Positions: {len(config["positions"])}')
+    print(f'  Channels: {list(config["layer_configs"].keys())}')
+    print(f'  Period: {config["period"]}')
+    print(f'  Duration: {config["duration"]}')
 
     # NOTE: Creating a Protocol from a config dict requires a tiling
     # configurations file. For this example, we show the setup without
@@ -152,14 +152,14 @@ def main():
     #   # To abort a running protocol:
     #   runner.abort()
 
-    print("\nProtocol setup complete (not executed in simulate-only example)")
-    print("See comments in source for full execution flow")
+    print('\nProtocol setup complete (not executed in simulate-only example)')
+    print('See comments in source for full execution flow')
 
     # Clean up
     runner.shutdown()
     session.shutdown_executors()
     scope.disconnect()
-    print("Scope disconnected")
+    print('Scope disconnected')
 
 
 if __name__ == '__main__':

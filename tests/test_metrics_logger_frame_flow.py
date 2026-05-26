@@ -10,6 +10,7 @@ persistent faults to resurface; this suite locks in the new behavior:
   * +CRITICAL ticks (once): critical-severity popup escalation
   * fps recovery: all counters reset; next stall fires fresh
 """
+
 from unittest.mock import MagicMock
 
 import pytest
@@ -67,6 +68,7 @@ def stalled_logger(monkeypatch):
     # The heartbeat does a function-local import; patch the module
     # the import resolves through.
     from modules import notification_center
+
     monkeypatch.setattr(notification_center, 'notifications', fake_notifications)
 
     yield log, cam, fake_ctx, notifications_calls
@@ -88,8 +90,7 @@ def test_first_threshold_tick_fires_warning(stalled_logger):
 def test_refire_every_renotify_ticks_while_stall_persists(stalled_logger):
     log, _, _, calls = stalled_logger
     # Pump enough ticks to hit threshold + at least one refire cycle.
-    n_ticks = (ml._FRAME_FLOW_STALL_TICK_THRESHOLD
-               + ml._FRAME_FLOW_STALL_RENOTIFY_TICKS + 1)
+    n_ticks = ml._FRAME_FLOW_STALL_TICK_THRESHOLD + ml._FRAME_FLOW_STALL_RENOTIFY_TICKS + 1
     for _ in range(n_ticks):
         log._check_frame_flow_heartbeat()
     # Should have AT LEAST two warning popups (initial + one refire).
@@ -108,8 +109,7 @@ def test_escalates_to_critical_once_after_extended_stall(stalled_logger):
         log._check_frame_flow_heartbeat()
     criticals = [c for c in calls if c[0] == 'critical']
     assert len(criticals) == 1, (
-        f'critical escalation must fire exactly once per episode; '
-        f'got {len(criticals)} critical(s)'
+        f'critical escalation must fire exactly once per episode; got {len(criticals)} critical(s)'
     )
     # Pump more ticks; critical must NOT re-fire (one-shot escalation).
     for _ in range(ml._FRAME_FLOW_STALL_RENOTIFY_TICKS * 2):
@@ -160,6 +160,4 @@ def test_camera_inactive_resets_without_notifying(stalled_logger):
     cam.active = False
     log._check_frame_flow_heartbeat()
     assert log._frame_flow_stalled_ticks == 0
-    assert len(calls) == notify_count_after_stall, (
-        'inactive camera must reset counters silently'
-    )
+    assert len(calls) == notify_count_after_stall, 'inactive camera must reset counters silently'
