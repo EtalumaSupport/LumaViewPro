@@ -312,6 +312,82 @@ def _check_rule_27d(tree: ast.AST, path: str) -> list[Violation]:
     return violations
 
 
+_POST_PROCESSOR_WRITE_PATHS = frozenset({
+    'modules/zprojector.py',
+    'modules/stitcher.py',
+})
+
+_TIFFFILE_NAMES = frozenset({'tf', 'tifffile'})
+
+_FALSE_COLOR_HELPER_NAMES = frozenset({
+    'maybe_apply_false_color',
+    'write_tiff',
+})
+
+
+def _check_rule_31c(tree: ast.AST, path: str) -> list[Violation]:
+    """Block bare ``tf.imwrite`` / ``tifffile.imwrite`` in post-processor
+    modules whose canonical save path is the false-color-aware
+    ``image_utils.write_tiff`` (or its extracted helper
+    ``image_utils.maybe_apply_false_color`` called before a bare
+    imwrite).
+
+    Bug shape this prevents: post-processor functions that compute a
+    fluorescence-shaped output and save via bare tifffile.imwrite
+    bypass the false-color RGB widening. Symptom: greyscale projection
+    / stitched / composite outputs even with the false_color_16bit
+    setting on.
+
+    Per-function pairing rule: a function may call tifffile.imwrite IF
+    the same function also calls one of the false-color helpers. A
+    function with bare imwrite and no paired helper call fires.
+
+    Path scope: only fires on the modules listed in
+    ``_POST_PROCESSOR_WRITE_PATHS`` -- the sinks where the canonical
+    route is established. Expand the set as other post-processors
+    migrate.
+    """
+    norm = path.replace('\\', '/')
+    if not any(norm.endswith(p) for p in _POST_PROCESSOR_WRITE_PATHS):
+        return []
+    violations: list[Violation] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        bare_imwrite_calls: list[ast.Call] = []
+        helper_seen = False
+        for sub in ast.walk(node):
+            if not isinstance(sub, ast.Call):
+                continue
+            f = sub.func
+            if isinstance(f, ast.Attribute):
+                if (
+                    f.attr == 'imwrite'
+                    and isinstance(f.value, ast.Name)
+                    and f.value.id in _TIFFFILE_NAMES
+                ):
+                    bare_imwrite_calls.append(sub)
+                elif f.attr in _FALSE_COLOR_HELPER_NAMES:
+                    helper_seen = True
+        if bare_imwrite_calls and not helper_seen:
+            for c in bare_imwrite_calls:
+                violations.append(
+                    Violation(
+                        path,
+                        c.lineno,
+                        c.col_offset,
+                        'rule_31c',
+                        f'bare tifffile.imwrite without a paired '
+                        f'image_utils.maybe_apply_false_color (or '
+                        f'image_utils.write_tiff) call in the same '
+                        f'function. Post-processor outputs must apply '
+                        f'the false-color gate before the bare imwrite, '
+                        f'or fluorescence saves grayscale.',
+                    )
+                )
+    return violations
+
+
 def _check_rule_42(source: str, path: str) -> list[Violation]:
     """WARN on `healthy` / `fine` / `within range` in comments without a
     `PERFORMANCE_BUDGETS.md` cite anywhere in the file.
@@ -360,6 +436,7 @@ def check_source(content: str, path: str) -> list[Violation]:
         violations.extend(_check_rule_24(tree, path))
         violations.extend(_check_rule_28(tree, path))
         violations.extend(_check_rule_27d(tree, path))
+        violations.extend(_check_rule_31c(tree, path))
     violations.extend(_check_rule_27a(content, path))
     violations.extend(_check_rule_27b(content, path))
     violations.extend(_check_rule_42(content, path))
