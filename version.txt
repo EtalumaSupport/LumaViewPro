@@ -1,4 +1,3 @@
 4.0.0-beta14
-2026-05-26 10:39
-fix/composite-channel-extract-672
-62bedf13
+2026-05-26 10:40
+4.0.0-beta
