@@ -1192,21 +1192,19 @@ class MotionAPI:
             _api_log.debug(f'move_abs ignored: {axis} not present on this scope')
             return
 
-        # Store motion profile for position prediction before moving
+        # Capture start_pos + ramp before driving. start_time is captured
+        # AFTER the driver call returns -- the serial round-trip to write
+        # the hardware target takes ~50 ms, during which the motor has not
+        # begun physical motion yet. If start_time were captured BEFORE the
+        # driver call, _predicted_position's `elapsed` would lead the motor's
+        # real elapsed by the full serial RT latency, and the UI crosshair
+        # would visibly outrun the stage on long moves.
         with self._pos_cache_lock:
             start_pos = self._pos_cache.get(axis, 0.0)
         try:
             ramp = self._driver.motorconfig.ramp_params(axis)
         except Exception:
             ramp = None
-        if ramp:
-            with self._move_profile_lock:
-                self._move_profile[axis] = {
-                    'start_time': time.monotonic(),
-                    'start_pos': start_pos,
-                    'target_pos': float(pos),
-                    'ramp': ramp,
-                }
 
         # Write the hardware target BEFORE transitioning the axis to MOVING.
         # Previously the order was reversed: _set_axis_state(MOVING) cleared
@@ -1224,11 +1222,17 @@ class MotionAPI:
             self._driver.move_abs_pos(
                 axis, pos, overshoot_enabled=overshoot_enabled, ignore_limits=ignore_limits
             )
-        except Exception as e:
-            with self._move_profile_lock:
-                self._move_profile[axis] = None
-            _api_log.error(f'move_abs {axis}={pos:.1f}um FAILED: {e}')
+        except Exception:
+            _api_log.error(f'move_abs {axis}={pos:.1f}um FAILED')
             raise
+        if ramp:
+            with self._move_profile_lock:
+                self._move_profile[axis] = {
+                    'start_time': time.monotonic(),
+                    'start_pos': start_pos,
+                    'target_pos': float(pos),
+                    'ramp': ramp,
+                }
         self._set_axis_state(axis, AxisState.MOVING)
         with self._pos_cache_lock:
             self._pos_cache[axis] = float(pos)
@@ -1273,10 +1277,13 @@ class MotionAPI:
             _api_log.debug(f'move_rel ignored: {axis} not present on this scope')
             return
 
-        # Store motion profile for position prediction before moving --
-        # mirrors move_absolute_position. Without this, get_current_position
-        # falls through to the just-updated cache (= target) during the move
-        # and the crosshair jumps instead of animating.
+        # Capture start_pos + ramp before driving. start_time is captured
+        # AFTER the driver call returns -- mirrors move_absolute_position.
+        # The ~50 ms serial round-trip to write the hardware target precedes
+        # any physical motion; capturing start_time before that would make
+        # _predicted_position's elapsed-since-arm lead the motor's real
+        # elapsed by the full serial RT, and the UI crosshair would visibly
+        # outrun the stage on long moves.
         with self._pos_cache_lock:
             start_pos = self._pos_cache.get(axis, 0.0)
         target_pos = start_pos + float(um)
@@ -1284,6 +1291,14 @@ class MotionAPI:
             ramp = self._driver.motorconfig.ramp_params(axis)
         except Exception:
             ramp = None
+
+        # Write hardware target BEFORE transitioning axis to MOVING --
+        # same race fix as move_absolute_position (#618).
+        try:
+            self._driver.move_rel_pos(axis, um, overshoot_enabled=overshoot_enabled)
+        except Exception:
+            _api_log.error(f'move_rel {axis}={um:+.1f}um FAILED')
+            raise
         if ramp:
             with self._move_profile_lock:
                 self._move_profile[axis] = {
@@ -1292,16 +1307,6 @@ class MotionAPI:
                     'target_pos': target_pos,
                     'ramp': ramp,
                 }
-
-        # Write hardware target BEFORE transitioning axis to MOVING --
-        # same race fix as move_absolute_position (#618).
-        try:
-            self._driver.move_rel_pos(axis, um, overshoot_enabled=overshoot_enabled)
-        except Exception as e:
-            with self._move_profile_lock:
-                self._move_profile[axis] = None
-            _api_log.error(f'move_rel {axis}={um:+.1f}um FAILED: {e}')
-            raise
         self._set_axis_state(axis, AxisState.MOVING)
         with self._pos_cache_lock:
             self._pos_cache[axis] = self._pos_cache.get(axis, 0.0) + float(um)
