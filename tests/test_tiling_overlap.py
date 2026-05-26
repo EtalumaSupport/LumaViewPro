@@ -110,15 +110,54 @@ def test_ten_percent_overlap_reduces_tile_spacing_by_ten_percent():
     assert y_spacing_overlap == pytest.approx(y_spacing_no_overlap * 0.9, abs=0.02)
 
 
-def test_protocol_from_config_overlap_keeps_tile_count_and_reduces_spacing():
+def test_protocol_from_config_overlap_adds_tiles_and_reduces_spacing():
     protocol_no_overlap = _make_protocol_from_config(overlap_percent=0)
     protocol_ten_percent_overlap = _make_protocol_from_config(overlap_percent=10)
 
     assert len(protocol_no_overlap.steps()) == 4
-    assert len(protocol_ten_percent_overlap.steps()) == 4
+    assert len(protocol_ten_percent_overlap.steps()) == 9
 
     x_spacing_no_overlap, y_spacing_no_overlap = _protocol_tile_spacing(protocol_no_overlap)
     x_spacing_overlap, y_spacing_overlap = _protocol_tile_spacing(protocol_ten_percent_overlap)
 
     assert x_spacing_overlap == pytest.approx(x_spacing_no_overlap * 0.9, abs=0.0001)
     assert y_spacing_overlap == pytest.approx(y_spacing_no_overlap * 0.9, abs=0.0001)
+
+
+def test_overlap_preserves_at_least_original_coverage():
+    tiling_config = TilingConfig(tiling_configs_file_loc=TILING_CONFIGS)
+
+    common_kwargs = {
+        "config_label": "2x2",
+        "focal_length": 50.0,
+        "frame_size": {"width": 1920, "height": 1080},
+        "binning_size": 1,
+    }
+
+    tiles_no_overlap = tiling_config.get_tile_centers(
+        **common_kwargs,
+        fill_factor=TilingConfig.fill_factor_from_overlap_percent(0),
+    )
+    tiles_ten_percent_overlap = tiling_config.get_tile_centers(
+        **common_kwargs,
+        fill_factor=TilingConfig.fill_factor_from_overlap_percent(10),
+    )
+
+    x_spacing_no_overlap, y_spacing_no_overlap = _tile_spacing(tiles_no_overlap)
+    x_spacing_overlap, y_spacing_overlap = _tile_spacing(tiles_ten_percent_overlap)
+
+    x_coverage_no_overlap = x_spacing_no_overlap + x_spacing_no_overlap
+    y_coverage_no_overlap = y_spacing_no_overlap + y_spacing_no_overlap
+    x_coverage_overlap = (
+        max(t["x"] for t in tiles_ten_percent_overlap.values())
+        - min(t["x"] for t in tiles_ten_percent_overlap.values())
+        + x_spacing_no_overlap
+    )
+    y_coverage_overlap = (
+        max(t["y"] for t in tiles_ten_percent_overlap.values())
+        - min(t["y"] for t in tiles_ten_percent_overlap.values())
+        + y_spacing_no_overlap
+    )
+
+    assert x_coverage_overlap >= x_coverage_no_overlap - 0.02
+    assert y_coverage_overlap >= y_coverage_no_overlap - 0.02
