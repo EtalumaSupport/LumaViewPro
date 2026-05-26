@@ -196,3 +196,227 @@ def crop_to_content(image):
 
     x, y, w, h = cv2.boundingRect(area)
     return padded[y : y + h, x : x + w]
+
+
+# ---------------------------------------------------------------------------
+# Position-aware stitching with overlap registration
+# ---------------------------------------------------------------------------
+
+
+def _gray_float(image: np.ndarray) -> np.ndarray:
+    if image.ndim == 2:
+        gray = image
+    else:
+        gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
+    return gray.astype(np.float32)
+
+
+def _overlap_views(
+    left: np.ndarray,
+    right: np.ndarray,
+    dx: int,
+    dy: int,
+) -> tuple[np.ndarray, np.ndarray] | None:
+    h, w = left.shape[:2]
+    x0 = max(0, dx)
+    y0 = max(0, dy)
+    x1 = min(w, dx + w)
+    y1 = min(h, dy + h)
+    if x1 <= x0 or y1 <= y0:
+        return None
+
+    left_view = left[y0:y1, x0:x1]
+    right_view = right[y0 - dy : y1 - dy, x0 - dx : x1 - dx]
+    return left_view, right_view
+
+
+def _ncc_score(a: np.ndarray, b: np.ndarray) -> float:
+    a = a.astype(np.float32)
+    b = b.astype(np.float32)
+    a -= float(a.mean())
+    b -= float(b.mean())
+    denom = float(np.sqrt(np.sum(a * a) * np.sum(b * b)))
+    if denom <= 1e-6:
+        return -1.0
+    return float(np.sum(a * b) / denom)
+
+
+def estimate_overlap_offset(
+    reference: np.ndarray,
+    moving: np.ndarray,
+    nominal_dx: int,
+    nominal_dy: int,
+    max_correction_px: int = 12,
+    min_overlap_px: int = 16,
+) -> tuple[int, int, float]:
+    """Estimate moving-tile correction from overlap content.
+
+    Returns (correction_x, correction_y, score), where correction values are
+    added to the moving tile's nominal position relative to the reference
+    tile. The search is intentionally local: nominal stage coordinates already
+    provide the coarse placement, and overlap registration only handles small
+    acquisition/position errors.
+    """
+    ref_gray = _gray_float(reference)
+    mov_gray = _gray_float(moving)
+
+    best = (0, 0, -1.0)
+    for corr_y in range(-max_correction_px, max_correction_px + 1):
+        for corr_x in range(-max_correction_px, max_correction_px + 1):
+            views = _overlap_views(
+                ref_gray,
+                mov_gray,
+                dx=nominal_dx + corr_x,
+                dy=nominal_dy + corr_y,
+            )
+            if views is None:
+                continue
+            ref_view, mov_view = views
+            if ref_view.shape[0] < min_overlap_px or ref_view.shape[1] < min_overlap_px:
+                continue
+            score = _ncc_score(ref_view, mov_view)
+            if score > best[2]:
+                best = (corr_x, corr_y, score)
+
+    return best
+
+
+def _grid_keys(tiles: list[dict]) -> tuple[list[int], list[int], dict[tuple[int, int], int]]:
+    x_values = sorted({int(tile['x_px']) for tile in tiles})
+    y_values = sorted({int(tile['y_px']) for tile in tiles})
+    by_position = {
+        (int(tile['x_px']), int(tile['y_px'])): idx
+        for idx, tile in enumerate(tiles)
+    }
+    return x_values, y_values, by_position
+
+
+def align_tile_positions(
+    tiles: list[dict],
+    max_correction_px: int = 12,
+    min_overlap_px: int = 16,
+) -> list[dict]:
+    """Return tiles with overlap-registered x/y placement corrections."""
+    if not tiles:
+        return []
+
+    x_values, y_values, by_position = _grid_keys(tiles)
+    corrected = [dict(tile) for tile in tiles]
+    offsets: dict[int, tuple[int, int]] = {}
+
+    anchor = by_position[(x_values[0], y_values[0])]
+    offsets[anchor] = (0, 0)
+
+    changed = True
+    while changed:
+        changed = False
+        for y in y_values:
+            for x_idx, x in enumerate(x_values):
+                idx = by_position.get((x, y))
+                if idx is None or idx not in offsets:
+                    continue
+                base_dx, base_dy = offsets[idx]
+
+                neighbors = []
+                if x_idx + 1 < len(x_values):
+                    neighbors.append((x_values[x_idx + 1], y))
+                y_idx = y_values.index(y)
+                if y_idx + 1 < len(y_values):
+                    neighbors.append((x, y_values[y_idx + 1]))
+
+                for nx, ny in neighbors:
+                    nidx = by_position.get((nx, ny))
+                    if nidx is None or nidx in offsets:
+                        continue
+                    corr_x, corr_y, score = estimate_overlap_offset(
+                        reference=tiles[idx]['tile'],
+                        moving=tiles[nidx]['tile'],
+                        nominal_dx=nx - x,
+                        nominal_dy=ny - y,
+                        max_correction_px=max_correction_px,
+                        min_overlap_px=min_overlap_px,
+                    )
+                    offsets[nidx] = (base_dx + corr_x, base_dy + corr_y)
+                    corrected[nidx]['registration_score'] = score
+                    changed = True
+
+    for idx, tile in enumerate(corrected):
+        corr_x, corr_y = offsets.get(idx, (0, 0))
+        tile['registration_offset_x_px'] = corr_x
+        tile['registration_offset_y_px'] = corr_y
+        tile['registered_x_px'] = int(tile['x_px']) + corr_x
+        tile['registered_y_px'] = int(tile['y_px']) + corr_y
+
+    return corrected
+
+
+def stitch_registered_tiles(
+    tiles: list[dict],
+    max_correction_px: int = 12,
+    min_overlap_px: int = 16,
+    output_shape: tuple[int, int] | None = None,
+) -> tuple[np.ndarray, list[dict]]:
+    """Register overlapping tiles, then average-blend them into one image."""
+    if not tiles:
+        raise ValueError('Need at least one tile to stitch')
+
+    registered = align_tile_positions(
+        tiles=tiles,
+        max_correction_px=max_correction_px,
+        min_overlap_px=min_overlap_px,
+    )
+
+    sample = registered[0]['tile']
+    tile_h, tile_w = sample.shape[:2]
+    if output_shape is None:
+        min_x = min(int(tile['registered_x_px']) for tile in registered)
+        min_y = min(int(tile['registered_y_px']) for tile in registered)
+        max_x = max(int(tile['registered_x_px']) + tile_w for tile in registered)
+        max_y = max(int(tile['registered_y_px']) + tile_h for tile in registered)
+    else:
+        min_x = 0
+        min_y = 0
+        max_y, max_x = output_shape
+
+    if sample.ndim == 2:
+        acc_shape = (max_y - min_y, max_x - min_x)
+        weight_shape = acc_shape
+    else:
+        acc_shape = (max_y - min_y, max_x - min_x, sample.shape[2])
+        weight_shape = (max_y - min_y, max_x - min_x, 1)
+
+    accumulator = np.zeros(acc_shape, dtype=np.float64)
+    weights = np.zeros(weight_shape, dtype=np.float64)
+
+    for tile in registered:
+        image = tile['tile']
+        x0 = int(tile['registered_x_px']) - min_x
+        y0 = int(tile['registered_y_px']) - min_y
+        y1 = y0 + image.shape[0]
+        x1 = x0 + image.shape[1]
+
+        dst_x0 = max(0, x0)
+        dst_y0 = max(0, y0)
+        dst_x1 = min(acc_shape[1], x1)
+        dst_y1 = min(acc_shape[0], y1)
+        if dst_x1 <= dst_x0 or dst_y1 <= dst_y0:
+            continue
+
+        src_x0 = dst_x0 - x0
+        src_y0 = dst_y0 - y0
+        src_x1 = src_x0 + (dst_x1 - dst_x0)
+        src_y1 = src_y0 + (dst_y1 - dst_y0)
+
+        accumulator[dst_y0:dst_y1, dst_x0:dst_x1] += image[
+            src_y0:src_y1, src_x0:src_x1
+        ].astype(np.float64)
+        weights[dst_y0:dst_y1, dst_x0:dst_x1] += 1.0
+
+    output = np.zeros(acc_shape, dtype=np.float64)
+    np.divide(accumulator, weights, out=output, where=weights > 0)
+
+    if np.issubdtype(sample.dtype, np.integer):
+        info = np.iinfo(sample.dtype)
+        output = np.clip(output, info.min, info.max)
+
+    return output.astype(sample.dtype), registered

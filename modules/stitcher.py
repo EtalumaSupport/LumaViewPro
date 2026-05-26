@@ -9,6 +9,7 @@ import tifffile as tf
 
 import modules.common_utils as common_utils
 import modules.image_utils as image_utils
+from modules.stitch_algorithms import stitch_registered_tiles
 
 from modules.common_utils import PostFunction
 from modules.protocol_post_processor import ProtocolPostProcessor
@@ -348,44 +349,22 @@ class Stitcher(ProtocolPostProcessor):
                 'error': 'invalid stitched image dimensions',
             }
 
-        is_color_image = image_utils.is_color_image(image=sample)
-        if is_color_image:
-            acc_shape = (stitched_h, stitched_w, sample.shape[2])
-            weight_shape = (stitched_h, stitched_w, 1)
-        else:
-            acc_shape = (stitched_h, stitched_w)
-            weight_shape = (stitched_h, stitched_w)
-
-        accumulator = np.zeros(acc_shape, dtype=np.float64)
-        weights = np.zeros(weight_shape, dtype=np.float64)
-
+        tiles = []
         for _, row in df.iterrows():
-            image = images[row['Filepath']]
-            y0 = int(row['y_pix'])
-            x0 = int(row['x_pix'])
-            y1 = y0 + image.shape[0]
-            x1 = x0 + image.shape[1]
-
-            accumulator[y0:y1, x0:x1] += image.astype(np.float64)
-            weights[y0:y1, x0:x1] += 1.0
-
-        filled = weights > 0
-        output = np.zeros(acc_shape, dtype=np.float64)
-        if is_color_image:
-            np.divide(accumulator, weights, out=output, where=filled)
-        else:
-            np.divide(accumulator, weights, out=output, where=filled)
-
-        if np.issubdtype(sample.dtype, np.integer):
-            info = np.iinfo(sample.dtype)
-            output = np.clip(output, info.min, info.max)
+            tiles.append(
+                {
+                    'tile': images[row['Filepath']],
+                    'x_px': int(row['x_pix']),
+                    'y_px': int(row['y_pix']),
+                }
+            )
 
         center = {
             'x': round(df['X'].unique().mean(), common_utils.max_decimal_precision(parameter='x')),
             'y': round(df['Y'].unique().mean(), common_utils.max_decimal_precision(parameter='y')),
         }
 
-        stitched_img = output.astype(sample.dtype)
+        stitched_img, registered_tiles = stitch_registered_tiles(tiles)
 
         if output_file_loc is not None:
             color = df['Color'].iloc[0] if 'Color' in df.columns else ''
@@ -410,6 +389,7 @@ class Stitcher(ProtocolPostProcessor):
             'image': return_image,
             'metadata': {
                 'center': center,
+                'registered_tiles': registered_tiles,
             },
         }
 
