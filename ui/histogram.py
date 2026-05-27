@@ -30,6 +30,23 @@ class Histogram(Widget):
 
     def histogram(self, *args):
         ctx = _app_ctx.ctx
+
+        # Skip when live preview is paused. cam_toggle in main_display
+        # sets scope_display.play=False and pauses the display thread,
+        # but the 0.5 s histogram Clock keeps ticking; without this
+        # guard each tick fetches a frame from the camera buffer, builds
+        # a 128-bin mesh, and uploads to the GPU for nothing.
+        scope_display = getattr(ctx, 'scope_display', None)
+        if scope_display is not None and not scope_display.play:
+            return
+
+        # Skip during protocol acquisition. The histogram contends with
+        # the capture / protocol pipeline for get_image_from_buffer and
+        # the texture isn't user-visible during a run anyway.
+        protocol_running = getattr(ctx, 'protocol_running', None)
+        if protocol_running is not None and protocol_running.is_set():
+            return
+
         bins = 128
 
         if ctx.scope.imaging.camera_active:
