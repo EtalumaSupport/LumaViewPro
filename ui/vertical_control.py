@@ -143,13 +143,7 @@ class VerticalControl(BoxLayout):
             logger.warning(f'[Motion] {label}: no objective info: {e}')
             return
         step = objective['z_coarse' if coarse else 'z_fine']
-        ctx.io_executor.put(
-            IOTask(
-                action=move_relative_position,
-                args=('Z', direction * step),
-                kwargs={'overshoot_enabled': overshoot_enabled},
-            )
-        )
+        move_relative_position('Z', direction * step, overshoot_enabled=overshoot_enabled)
 
     @debounce(0.2)
     def coarse_up(self, overshoot_enabled: bool = False):
@@ -180,8 +174,7 @@ class VerticalControl(BoxLayout):
         self.queue_slider_position_trigger()
 
     def queue_slider_position(self):
-        ctx = _app_ctx.ctx
-        ctx.io_executor.put(IOTask(action=move_absolute_position, args=('Z', self._next_pos)))
+        move_absolute_position('Z', self._next_pos)
         self._next_pos = None
 
     def set_bookmark(self):
@@ -224,7 +217,7 @@ class VerticalControl(BoxLayout):
         logger.info('[LVP Main  ] VerticalControl.goto_bookmark()')
         with ctx.settings_lock:
             pos = ctx.settings['bookmark']['z']
-        ctx.io_executor.put(IOTask(action=move_absolute_position, args=('Z', pos)))
+        move_absolute_position('Z', pos)
 
     @debounce(1.0)
     def home(self):
@@ -234,7 +227,7 @@ class VerticalControl(BoxLayout):
             if ctx.protocol_running.is_set():
                 return
             logger.info('[LVP Main  ] VerticalControl.home()')
-            ctx.io_executor.put(IOTask(action=move_home, kwargs={'axis': 'Z'}))
+            move_home(axis='Z')
         except Exception as e:
             logger.error(f'[UI] home failed: {e}', exc_info=True)
             from ui.notification_popup import show_notification_popup

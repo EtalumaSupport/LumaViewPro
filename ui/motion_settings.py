@@ -448,7 +448,7 @@ class XYStageControl(BoxLayout):
             logger.warning(f'[Motion] {label}: no objective info: {e}')
             return
         step = objective['xy_coarse' if coarse else 'xy_fine']
-        ctx.io_executor.put(IOTask(action=move_relative_position, args=(axis, direction * step)))
+        move_relative_position(axis, direction * step)
 
     @debounce(0.2)
     def fine_left(self):
@@ -505,7 +505,7 @@ class XYStageControl(BoxLayout):
         logger.info(f'[LVP Main  ] X pos {x_pos} Stage X {stage_x}')
 
         # Move to x-position
-        ctx.io_executor.put(IOTask(action=move_absolute_position, args=('X', stage_x)))
+        move_absolute_position('X', stage_x)
 
     def set_yposition(self, y_pos):
         ctx = _app_ctx.ctx
@@ -529,7 +529,7 @@ class XYStageControl(BoxLayout):
         )
 
         # Move to y-position
-        ctx.io_executor.put(IOTask(action=move_absolute_position, args=('Y', stage_y)))
+        move_absolute_position('Y', stage_y)
 
     def set_xbookmark(self):
         gui_logger.button('SET_X_BOOKMARK')
@@ -590,7 +590,7 @@ class XYStageControl(BoxLayout):
         stage_x, _ = coordinate_transformer.plate_to_stage(
             labware=labware, stage_offset=settings['stage_offset'], px=x_pos, py=0
         )
-        ctx.io_executor.put(IOTask(move_absolute_position, args=('X', stage_x)))
+        move_absolute_position('X', stage_x)
 
     def goto_ybookmark(self):
         gui_logger.button('GOTO_Y_BOOKMARK')
@@ -608,9 +608,7 @@ class XYStageControl(BoxLayout):
         _, stage_y = coordinate_transformer.plate_to_stage(
             labware=labware, stage_offset=settings['stage_offset'], px=0, py=y_pos
         )
-        ctx.io_executor.put(
-            IOTask(move_absolute_position, args=('Y', stage_y))
-        )  # set current y position in um
+        move_absolute_position('Y', stage_y)  # set current y position in um
 
     # def calibrate(self):
     #     logger.info('[LVP Main  ] XYStageControl.calibrate()')
@@ -636,7 +634,7 @@ class XYStageControl(BoxLayout):
             logger.info('[LVP Main  ] XYStageControl.home()')
 
             if ctx.lumaview.scope.motor_connected:  # motor controller is actively connected
-                ctx.io_executor.put(IOTask(move_home, kwargs={'axis': 'ALL'}))
+                move_home(axis='ALL')
 
                 # Firmware seems to move the turret back to position 1 when performing XY homing
                 # Use this command to make sure the UI is in-sync

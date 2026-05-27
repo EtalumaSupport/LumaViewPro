@@ -13,7 +13,6 @@ from modules.kivy_utils import schedule_ui as _schedule_ui
 
 import modules.app_context as _app_ctx
 import modules.common_utils as common_utils
-from modules.sequential_io_executor import IOTask
 
 logger = logging.getLogger('LVP.modules.step_navigation')
 
@@ -36,7 +35,6 @@ def go_to_step(
     ctx = _app_ctx.ctx
     settings = ctx.settings
     coordinate_transformer = ctx.coordinate_transformer
-    io_executor = ctx.io_executor
 
     num_steps = protocol.num_steps()
     protocol_settings = ctx.motion_settings.ids['protocol_settings_id']
@@ -83,36 +81,16 @@ def go_to_step(
         if ctx.scope.motor_connected:
             if not called_from_protocol:
                 if turret_pos is not None:
-                    io_executor.put(
-                        IOTask(
-                            action=move_absolute_position,
-                            kwargs={'axis': 'T', 'pos': turret_pos, 'protocol': False},
-                        )
-                    )
+                    move_absolute_position(axis='T', pos=turret_pos, protocol=False)
                     _schedule_ui(
                         lambda dt: ctx.motion_settings.ids['verticalcontrol_id'].update_turret_gui(
                             turret_pos
                         ),
                         0,
                     )
-                io_executor.put(
-                    IOTask(
-                        action=move_absolute_position,
-                        kwargs={'axis': 'X', 'pos': sx, 'protocol': False},
-                    )
-                )
-                io_executor.put(
-                    IOTask(
-                        action=move_absolute_position,
-                        kwargs={'axis': 'Y', 'pos': sy, 'protocol': False},
-                    )
-                )
-                io_executor.put(
-                    IOTask(
-                        action=move_absolute_position,
-                        kwargs={'axis': 'Z', 'pos': step['Z'], 'protocol': False},
-                    )
-                )
+                move_absolute_position(axis='X', pos=sx, protocol=False)
+                move_absolute_position(axis='Y', pos=sy, protocol=False)
+                move_absolute_position(axis='Z', pos=step['Z'], protocol=False)
             else:
                 if turret_pos is not None:
                     # restore_z=False -- the Z move below overwrites Z with

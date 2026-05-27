@@ -162,9 +162,8 @@ class Stage(Widget):
             )
 
             if touch.button == 'left':
-                io_executor = ctx.io_executor
-                io_executor.put(IOTask(action=move_absolute_position, args=('X', stage_x)))
-                io_executor.put(IOTask(action=move_absolute_position, args=('Y', stage_y)))
+                move_absolute_position('X', stage_x)
+                move_absolute_position('Y', stage_y)
 
             elif touch.button == 'right':
                 try:

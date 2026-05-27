@@ -357,15 +357,8 @@ class ScopeDisplay(Image):
                 x_dist_um = x_dist_pixel * pixel_size_um
                 y_dist_um = y_dist_pixel * pixel_size_um
 
-                ctx = _app_ctx.ctx
-                from modules.sequential_io_executor import IOTask
-
-                ctx.io_executor.put(
-                    IOTask(move_relative_position, kwargs={'axis': 'X', 'um': x_dist_um})
-                )
-                ctx.io_executor.put(
-                    IOTask(move_relative_position, kwargs={'axis': 'Y', 'um': y_dist_um})
-                )
+                move_relative_position(axis='X', um=x_dist_um)
+                move_relative_position(axis='Y', um=y_dist_um)
 
     @staticmethod
     def add_crosshairs(image):
