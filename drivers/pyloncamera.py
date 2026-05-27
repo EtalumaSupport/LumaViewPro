@@ -2058,16 +2058,45 @@ class PylonCamera(Camera):
             def _align_down(value: int, granularity: int = 16) -> int:
                 return (max(int(value), granularity) // granularity) * granularity
 
-            roi_width = _align_down(self.active.Width.Max // 2)
-            roi_height = _align_down(self.active.Height.Max // 2)
-            roi_offset_x = _align_down((self.active.Width.Max - roi_width) // 2)
-            roi_offset_y = _align_down((self.active.Height.Max - roi_height) // 2)
-
             self.active.AutoFunctionROISelector.SetValue('ROI1')
-            self.active.AutoFunctionROIOffsetX.SetValue(roi_offset_x)
-            self.active.AutoFunctionROIOffsetY.SetValue(roi_offset_y)
+
+            # Pylon node interdependency: each AutoFunctionROIOffset*.Max
+            # equals (sensor bound) - (current AutoFunctionROIWidth/Height).
+            # An existing non-zero offset caps the achievable Width/Height
+            # below their nominal sensor Max, AND the centered-offset
+            # setpoint we want (~ Width.Max / 4) is rejected if computed
+            # against sensor Width.Max while OffsetX.Max is still
+            # constrained by the previous Width. The dart daA3840-45um
+            # reports AutoFunctionROIOffsetX.Max = 20 by default; ace 2
+            # reports the full sensor extent. Zero the offsets first to
+            # unlock the full Width / Height range, then re-center.
+            self.active.AutoFunctionROIOffsetX.SetValue(0)
+            self.active.AutoFunctionROIOffsetY.SetValue(0)
+
+            # Clamp each setpoint against the AutoFunctionROI* node's own
+            # Max -- some cameras (the dart family) report tighter bounds
+            # on these nodes than on Width / Height proper.
+            roi_width = _align_down(min(
+                self.active.Width.Max // 2,
+                int(self.active.AutoFunctionROIWidth.Max),
+            ))
+            roi_height = _align_down(min(
+                self.active.Height.Max // 2,
+                int(self.active.AutoFunctionROIHeight.Max),
+            ))
             self.active.AutoFunctionROIWidth.SetValue(roi_width)
             self.active.AutoFunctionROIHeight.SetValue(roi_height)
+
+            roi_offset_x = _align_down(min(
+                (self.active.Width.Max - roi_width) // 2,
+                int(self.active.AutoFunctionROIOffsetX.Max),
+            ))
+            roi_offset_y = _align_down(min(
+                (self.active.Height.Max - roi_height) // 2,
+                int(self.active.AutoFunctionROIOffsetY.Max),
+            ))
+            self.active.AutoFunctionROIOffsetX.SetValue(roi_offset_x)
+            self.active.AutoFunctionROIOffsetY.SetValue(roi_offset_y)
             self.active.AutoFunctionROIUseBrightness = True
             self.active.AutoTargetBrightness.SetValue(auto_target_brightness)
 
