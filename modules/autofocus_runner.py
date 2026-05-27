@@ -148,6 +148,7 @@ class AutofocusRunner:
         camera_gain: float | None = None,
         camera_exposure: float | None = None,
         abort_event: threading.Event | None = None,
+        keep_led_on: bool = False,
     ) -> float | None:
         """Run autofocus to completion synchronously on the caller's thread.
 
@@ -195,6 +196,15 @@ class AutofocusRunner:
         self._led_illumination = led_illumination
         self._camera_gain = camera_gain
         self._camera_exposure = camera_exposure
+        # When the protocol step that triggered AF will capture on the
+        # same channel + illumination as the AF scan, skip the AF-end
+        # LED off + state restore so the capture inherits the LED state
+        # already established by AF (#612). Saves the redundant
+        # off-on cycle (~50-200 ms + an extra LED mechanical cycle per
+        # AF-every-N step). Caller (protocol_step_runner) sets this;
+        # interactive AF runs default to False so pre-AF state is
+        # restored as before.
+        self._keep_led_on = keep_led_on
         self._last_progress_ts = time.monotonic()
 
         self._save_results_to_file = save_results_to_file
@@ -363,9 +373,18 @@ class AutofocusRunner:
                         'Could not restore Z position after autofocus stopped. '
                         'Move Z manually if needed.',
                     )
-            self._led_off()
-            if self._saved_led_state:
-                self._scope.illumination.restore_led_state(self._saved_led_state, owner='autofocus')
+            if self._keep_led_on:
+                # Skip the off + restore cycle so the downstream capture
+                # inherits the AF LED state. The caller has guaranteed
+                # the next operation will use the same channel +
+                # illumination (#612).
+                _af_log.info('[AF] keep_led_on -- skipping LED off + restore')
+            else:
+                self._led_off()
+                if self._saved_led_state:
+                    self._scope.illumination.restore_led_state(
+                        self._saved_led_state, owner='autofocus'
+                    )
             if self._saved_camera_state:
                 _af_log.info(
                     f'[AF DIAG] Restoring pre-AF camera state: '

@@ -196,6 +196,11 @@ class ProtocolStepRunner:
                 led_illumination=step['Illumination'],
                 camera_gain=step['Gain'],
                 camera_exposure=step['Exposure'],
+                # Capture immediately follows AF on the same step, so it
+                # uses the same channel + illumination AF just lit (#612).
+                # Tell AF to skip its off + state-restore cycle so the
+                # capture inherits the LED state already established.
+                keep_led_on=True,
             )
             return
 
