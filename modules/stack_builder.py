@@ -66,8 +66,14 @@ class StackBuilder(ProtocolPostProcessor):
             objective_id=row0['Objective']
         )
 
+        # Prepend the protocol's capture_root (passed in via kwargs by
+        # ProtocolPostProcessor.load_folder) so the stack output carries
+        # the same filename root as the per-image saves.
+        capture_root = kwargs.get('capture_root', '')
+        prefix = f'{capture_root}_{row0["Name"]}' if capture_root else row0['Name']
+
         name = common_utils.generate_default_step_name(
-            custom_name_prefix=row0['Name'],
+            custom_name_prefix=prefix,
             well_label=row0['Well'],
             color=None,
             z_height_idx=None,

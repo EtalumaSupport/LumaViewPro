@@ -61,9 +61,11 @@ class ZProjector(ProtocolPostProcessor):
             objective_id=row0['Objective']
         )
 
-        # Use custom root + step name if available
-        custom_root = row0.get('Custom Root', '') if 'Custom Root' in row0 else ''
-        prefix = f'{custom_root}_{row0["Name"]}' if custom_root not in (None, '') else row0['Name']
+        # Prepend the protocol's capture_root (passed in via kwargs by
+        # ProtocolPostProcessor.load_folder) so the z-projected output
+        # carries the same filename root as the per-image saves.
+        capture_root = kwargs.get('capture_root', '')
+        prefix = f'{capture_root}_{row0["Name"]}' if capture_root else row0['Name']
         name = common_utils.generate_default_step_name(
             custom_name_prefix=prefix,
             well_label=row0['Well'],
