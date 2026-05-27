@@ -444,6 +444,23 @@ class ProtocolSettings(FloatLayout):
             )
             return
 
+        if protocol.num_steps() == 0:
+            logger.warning(
+                '[LVP Main  ] new_protocol: no channels enabled for acquisition'
+            )
+            from ui.notification_popup import show_notification_popup
+
+            show_notification_popup(
+                title='No Channels Selected',
+                message=(
+                    'No channels are enabled for acquisition. Please enable '
+                    'at least one channel for image or video capture in the '
+                    'layer settings on the right, then create the protocol '
+                    'again.'
+                ),
+            )
+            return
+
         # new_protocol_ex builds the step table from the labware + scan
         # parameters; bounded work, fits on worker_pool MED so the UI
         # remains responsive while it runs.
