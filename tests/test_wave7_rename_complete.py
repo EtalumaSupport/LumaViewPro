@@ -864,13 +864,6 @@ RUNTIME_STATE_ONLY_METHODS = frozenset(
 )
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason='Phase 8b: scope.X for the 12 settings-host methods migrates '
-    'to scope.runtime_state.X at Phase 8e. xfail flips to xpass when the '
-    'production callers are migrated -- that is the signal to remove this '
-    'decorator.',
-)
 def test_no_runtime_state_method_calls_on_bare_scope_in_production():
     """All 12 settings-host methods belong on scope.runtime_state by 8f.
     Production callers via `scope.X` / `ctx.scope.X` / `lumaview.scope.X`
