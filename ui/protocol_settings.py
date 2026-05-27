@@ -261,7 +261,7 @@ class ProtocolSettings(FloatLayout):
             logger.error(f'Labware could not be loaded')
             return
 
-        ctx.lumaview.scope.set_labware(labware=labware)
+        ctx.lumaview.scope.runtime_state.set_labware(labware=labware)
 
         if self._protocol is not None:
             self._protocol.modify_labware(labware_id=labware_id)
@@ -577,7 +577,7 @@ class ProtocolSettings(FloatLayout):
 
         # Otherwise, check all the objectives used in the protocol and confirm
         # they are all part of the current turret config
-        turret_objective_ids = set(ctx.lumaview.scope.get_turret_config().values())
+        turret_objective_ids = set(ctx.lumaview.scope.runtime_state.get_turret_config().values())
         return protocol_objective_ids.issubset(turret_objective_ids)
 
     # Load Protocol from File

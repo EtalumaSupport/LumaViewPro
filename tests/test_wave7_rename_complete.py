@@ -59,14 +59,23 @@ def _iter_prod_files() -> list[pathlib.Path]:
 
 
 def _chain_ends_in_scope(node: ast.AST) -> bool:
-    """True iff the value chain of an Attribute node terminates in a
-    Name('scope') OR an Attribute(..., attr='scope'). Catches
-    `scope.camera`, `self.scope.camera`, `lumaview.scope.camera`,
-    `_app_ctx.ctx.scope.camera`, etc."""
+    """True iff the value chain terminates in `scope` or `_scope`.
+
+    The leading-underscore form is the private-handle convention used
+    inside modules that hold the Lumascope reference (e.g.
+    `self._scope`, `p._scope`). Catches `scope.camera`,
+    `self.scope.camera`, `lumaview.scope.camera`,
+    `_app_ctx.ctx.scope.camera`, `self._scope.camera`, etc.
+
+    Without the `_scope` case, every reach site that uses the private
+    handle silently bypasses the guard. All sub-API migration guards in
+    this file (motion, illumination, imaging, diagnostics, runtime_state,
+    image_save, diagnostic_facade, compute_focus_score) call through this
+    helper, so the hole would cascade to all of them."""
     if isinstance(node, ast.Name):
-        return node.id == 'scope'
+        return node.id in ('scope', '_scope')
     if isinstance(node, ast.Attribute):
-        return node.attr == 'scope'
+        return node.attr in ('scope', '_scope')
     return False
 
 
@@ -855,13 +864,6 @@ RUNTIME_STATE_ONLY_METHODS = frozenset(
 )
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason='Phase 8b: scope.X for the 12 settings-host methods migrates '
-    'to scope.runtime_state.X at Phase 8e. xfail flips to xpass when the '
-    'production callers are migrated -- that is the signal to remove this '
-    'decorator.',
-)
 def test_no_runtime_state_method_calls_on_bare_scope_in_production():
     """All 12 settings-host methods belong on scope.runtime_state by 8f.
     Production callers via `scope.X` / `ctx.scope.X` / `lumaview.scope.X`
