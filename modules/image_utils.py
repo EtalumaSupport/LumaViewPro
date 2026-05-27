@@ -544,6 +544,50 @@ def generate_tiff_data(
         'Plane': plane,
     }
 
+    # OME Plate + Instrument blocks (#491). The tifffile dict API
+    # serializes well-known OME keys into OME-XML where possible; less-
+    # standard keys ride along in the structured metadata and survive a
+    # round-trip through tifffile.TiffFile(...).imagej_metadata /
+    # .ome_metadata so consumers can extract them. The Objective sub-
+    # block reuses the existing per-image objective dict that already
+    # backs the Plane.Objective field. Not yet shipped: OME LightSource
+    # (LED wavelength + power -- not tracked per-color), OME Detector
+    # gain/zoom (partial -- only model today), OME FilterSet (filter
+    # wheel + dichroic info -- not tracked).
+    objective_dict = metadata.get('objective') or {}
+    instrument = metadata.get('instrument') or {}
+    plate = metadata.get('plate') or {}
+    if instrument:
+        tiff_metadata['Instrument'] = {
+            'Microscope': {
+                'Manufacturer': instrument.get('manufacturer') or 'Etaluma',
+                'Model': instrument.get('model') or '',
+                'SerialNumber': instrument.get('serial_number') or '',
+                'FirmwareVersion': instrument.get('firmware_version') or '',
+            },
+            'Objective': {
+                'Model': objective_dict.get('model') or '',
+                'Manufacturer': objective_dict.get('manufacturer') or '',
+                'Magnification': objective_dict.get('magnification'),
+                'LensNA': objective_dict.get('aperture'),
+                'WorkingDistance': objective_dict.get('working_distance'),
+                'Immersion': objective_dict.get('immersion') or 'Air',
+            },
+            'Detector': {
+                'Model': instrument.get('camera_model') or '',
+                'Type': 'CMOS',
+            },
+        }
+    if plate.get('rows') and plate.get('columns'):
+        tiff_metadata['Plate'] = {
+            'Name': plate.get('name') or '',
+            'Rows': plate.get('rows'),
+            'Columns': plate.get('columns'),
+            'WellLabel': metadata.get('well_label', ''),
+        }
+        if plate.get('standard'):
+            tiff_metadata['Plate']['Standard'] = plate['standard']
+
     # ImageJ adds unit, channel modality, LUT, and document block
     if image_type == 'imagej':
         tiff_metadata['unit'] = 'um'
@@ -551,6 +595,13 @@ def generate_tiff_data(
         tiff_metadata['Document'] = {
             'Manufacturer': metadata.get('camera_make', ''),
             'Device': metadata.get('microscope', ''),
+            'Model': metadata.get('microscope_model', '') or '',
+            'SerialNumber': instrument.get('serial_number') or '',
+            'FirmwareVersion': instrument.get('firmware_version') or '',
+            'CameraModel': instrument.get('camera_model') or '',
+            'PlateName': plate.get('name') or '',
+            'PlateRows': plate.get('rows') or '',
+            'PlateColumns': plate.get('columns') or '',
             'WellLabel': metadata.get('well_label', ''),
             'WellSite': metadata.get('well_site', ''),
         }

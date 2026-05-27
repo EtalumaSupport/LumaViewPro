@@ -227,9 +227,25 @@ def generate_image_metadata(scope: 'Lumascope', color, x, y, z) -> dict:
     )
 
     now_host = datetime.datetime.now()
+    microscope_model = scope.diagnostics.get_microscope_model()
+
+    # Instrument + Plate metadata for OME-XML compatibility (#491).
+    # Sourced from diagnostics + runtime_state; failures are non-fatal
+    # since the per-image save must not block on diagnostics flakes.
+    try:
+        motor_info = scope.diagnostics.get_motor_info()
+    except Exception:
+        motor_info = {'serial_number': None, 'firmware_version': None}
+    try:
+        camera_info = scope.diagnostics.get_camera_info()
+    except Exception:
+        camera_info = {'model': None}
+    plate_config = getattr(scope.runtime_state._labware, 'config', None) or {}
+
     metadata = {
         'camera_make': 'Etaluma',
-        'microscope': scope.diagnostics.get_microscope_model(),
+        'microscope': microscope_model,
+        'microscope_model': microscope_model,
         'software': f'LumaViewPro {version}',
         'channel': color,
         'datetime': now_host.strftime('%Y:%m:%d %H:%M:%S'),
@@ -253,6 +269,19 @@ def generate_image_metadata(scope: 'Lumascope', color, x, y, z) -> dict:
         'pixel_size_um': pixel_size_um,
         'well_label': well_label,
         'timestamp_iso': now_host.isoformat(timespec='microseconds'),
+        'instrument': {
+            'manufacturer': 'Etaluma',
+            'model': microscope_model,
+            'serial_number': motor_info.get('serial_number'),
+            'firmware_version': motor_info.get('firmware_version'),
+            'camera_model': camera_info.get('model'),
+        },
+        'plate': {
+            'name': microscope_model or 'Plate',
+            'rows': plate_config.get('rows'),
+            'columns': plate_config.get('columns'),
+            'standard': plate_config.get('standard'),
+        },
     }
 
     # Camera-side timestamp + frame-id provenance, when the camera
