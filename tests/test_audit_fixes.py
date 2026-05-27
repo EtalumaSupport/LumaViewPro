@@ -2741,9 +2741,22 @@ class TestPIW6_PF3_FalseColorRgbPreallocated:
         assert 'data = data[:, :, ::-1]' not in src, (
             'PIW-6: old stride-reversed-view BGR->RGB assignment should be replaced.'
         )
-        # add_false_color is called with the output buffer.
-        assert 'add_false_color(data, color, output=false_color_buf)' in src, (
-            'PF-3: add_false_color should be called with output=false_color_buf.'
+        # add_false_color is called with the pre-allocated output buffer.
+        # After the 3e2c8b9 (#669/#678) refactor the call was relocated from
+        # the write_tiff body into maybe_apply_false_color, which receives
+        # the buffer as `output_buf` and passes it through to add_false_color.
+        # The functional contract (no per-call allocation when the buffer is
+        # passed through write_tiff's false_color_buf param) is verified by
+        # the chain output_buf=false_color_buf at the helper boundary plus
+        # add_false_color(...output=output_buf) inside the helper.
+        assert 'add_false_color(data, color, output=output_buf)' in src, (
+            'PF-3: add_false_color should be called with output=output_buf '
+            '(post-refactor: pre-allocated buffer reused, no per-call alloc).'
+        )
+        assert 'output_buf=false_color_buf' in src, (
+            'PF-3: write_tiff must forward its false_color_buf param to '
+            'maybe_apply_false_color as output_buf so the pre-allocated '
+            'buffer reaches the add_false_color call.'
         )
 
     def test_write_tiff_signature_includes_buffers(self):
