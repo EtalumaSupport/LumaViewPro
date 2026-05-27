@@ -301,10 +301,18 @@ def encode_image(image: np.ndarray, fmt: str = 'png', jpeg_quality: int = 80) ->
     return buf.tobytes()
 
 
-def convert_12bit_to_8bit(image):
+def convert_12bit_to_8bit(image, out=None):
     if image.dtype == 'uint8':
         return image
 
+    # Mirror PIW-5's convert_12bit_to_16bit(out=) pattern. The
+    # caller-supplied out buffer eliminates the per-call fresh allocation
+    # for the LUT indexing result -- saves ~120 MB/s allocator churn on
+    # the 30fps Pylon 12-bit preview path. Mismatched shape/dtype falls
+    # back to fresh allocation rather than failing.
+    if out is not None and out.shape == image.shape and out.dtype == np.uint8:
+        np.take(_LUT_12_TO_8, image, out=out)
+        return out
     return _LUT_12_TO_8[image]
 
 
