@@ -115,13 +115,20 @@ class TestAFRaceCondition:
         currently prevents.
         """
         import inspect
+        import re
+
         from modules.autofocus_runner import AutofocusRunner
 
         source = inspect.getsource(AutofocusRunner._iterate)
         last_pass_start = source.index('if self._last_pass:')
         last_pass_block = source[last_pass_start:]
-        return_idx = last_pass_block.index('\n                return\n')
-        last_pass_block = last_pass_block[:return_idx]
+        # Locate the first bare `return` (any indent) that terminates the
+        # last-pass branch. Indent-agnostic: earlier versions of this test
+        # hard-coded 16-space indent, which broke when the branch body was
+        # de-nested.
+        m = re.search(r'\n +return\n', last_pass_block)
+        assert m is not None, 'last-pass block must end with a bare return'
+        last_pass_block = last_pass_block[: m.start()]
 
         move_count = last_pass_block.count('self._move_absolute_position')
         assert move_count >= 2, (
