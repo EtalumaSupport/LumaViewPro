@@ -993,7 +993,7 @@ class TestRestAPIPrep:
     def test_get_available_objectives(self):
         """get_available_objectives() should return list of objective IDs."""
         session = ScopeSession.create_headless()
-        objectives = session.scope.get_available_objectives()
+        objectives = session.scope.runtime_state.get_available_objectives()
         assert isinstance(objectives, list)
         assert len(objectives) > 0
         # Should contain known objectives from objectives.json
@@ -1002,14 +1002,14 @@ class TestRestAPIPrep:
     def test_get_current_objective_none_by_default(self):
         """get_current_objective() should return None before setting one."""
         session = ScopeSession.create_headless()
-        assert session.scope.get_current_objective() is None
+        assert session.scope.runtime_state.get_current_objective() is None
 
     def test_get_current_objective_after_set(self):
         """get_current_objective() should return info after set_objective()."""
         session = ScopeSession.create_headless()
-        objectives = session.scope.get_available_objectives()
-        session.scope.set_objective(objectives[0])
-        current = session.scope.get_current_objective()
+        objectives = session.scope.runtime_state.get_available_objectives()
+        session.scope.runtime_state.set_objective(objectives[0])
+        current = session.scope.runtime_state.get_current_objective()
         assert current is not None
         assert isinstance(current, dict)
 
@@ -1061,7 +1061,7 @@ class TestRestAPIPrep:
             thread = AutofocusThread(afe=af)
             thread.start()
             try:
-                objectives = session.scope.get_available_objectives()
+                objectives = session.scope.runtime_state.get_available_objectives()
                 future = thread.run_autofocus(objective_id=objectives[0])
                 result = future.result(timeout=30)
                 assert result is not None
@@ -1086,7 +1086,7 @@ class TestRestAPIPrep:
             thread = AutofocusThread(afe=af)
             thread.start()
             try:
-                objectives = session.scope.get_available_objectives()
+                objectives = session.scope.runtime_state.get_available_objectives()
                 future = thread.run_autofocus(objective_id=objectives[0])
 
                 # Give the thread a moment to enter AFE.run()
