@@ -4,7 +4,7 @@
 
 Iterates a configurable sweep matrix (pixel format x resolution x
 transport-specific knobs) and writes a per-cell JSON snapshot via
-``Lumascope.run_pylon_diagnostic_probe()`` -- the canonical
+``scope.diagnostics.run_pylon_diagnostic_probe()`` -- the canonical
 production probe API.
 
 USB3 cells vary DeviceLinkThroughputLimit (DLTL).
@@ -29,7 +29,7 @@ on model + serial + firmware + host + dltl-token + timestamp. Sweep
 runs print progress to stdout; one line per cell.
 
 Production-aligned per Architecture Rule 22: imports the canonical
-``PylonCamera`` driver and ``Lumascope.run_pylon_diagnostic_probe()``
+``PylonCamera`` driver and ``scope.diagnostics.run_pylon_diagnostic_probe()``
 API method. Transport-specific setters
 (``set_device_link_throughput_limit``,
 ``set_bandwidth_reserve_mode``, ``set_gev_packet_size``,
@@ -269,7 +269,7 @@ def _apply_cell(scope, transport: str, cell: dict, sensor_w: int, sensor_h: int)
     with scope.camera.update_camera_config():
         # Pixel format
         pf = cell['pixel_format']
-        log.append(('pixel_format', scope.set_pixel_format(pf)))
+        log.append(('pixel_format', scope.imaging.set_pixel_format(pf)))
 
         # Resolution + centered ROI
         w, h = cell['resolution']
@@ -541,7 +541,7 @@ def main():
                     print(f'    apply {knob}: {status}')
             if args.settle > 0:
                 time.sleep(args.settle)
-            snapshot = scope.run_pylon_diagnostic_probe(duration_s=args.duration)
+            snapshot = scope.diagnostics.run_pylon_diagnostic_probe(duration_s=args.duration)
             out_path = snapshot.get('output_path')
             errors = snapshot.get('errors') or []
             print(f'    -> {out_path}' + (f' (errors: {errors})' if errors else ''))
