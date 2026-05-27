@@ -120,6 +120,7 @@ def move_absolute_position(
     overshoot_enabled: bool = True,
     protocol: bool = False,
     vertical_control: bool = False,
+    restore_z: bool = True,
 ):
     ctx = _app_ctx.ctx
 
@@ -136,7 +137,7 @@ def move_absolute_position(
             )
         else:
             ctx.motion_settings.ids['verticalcontrol_id'].turret_select(
-                selected_position=pos, protocol=True
+                selected_position=pos, protocol=True, restore_z=restore_z
             )
     else:
         if not protocol:

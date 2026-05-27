@@ -115,7 +115,12 @@ def go_to_step(
                 )
             else:
                 if turret_pos is not None:
-                    move_absolute_position(axis='T', pos=turret_pos, protocol=True)
+                    # restore_z=False -- the Z move below overwrites Z with
+                    # step['Z'] immediately, so safe_turret_move's default
+                    # Z-restore-after-T-move would be wasted motion (#524).
+                    move_absolute_position(
+                        axis='T', pos=turret_pos, protocol=True, restore_z=False
+                    )
                     _schedule_ui(
                         lambda dt: ctx.motion_settings.ids['verticalcontrol_id'].update_turret_gui(
                             turret_pos

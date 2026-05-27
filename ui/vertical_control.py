@@ -536,7 +536,7 @@ class VerticalControl(BoxLayout):
             return
 
     @debounce(0.5)
-    def turret_select(self, selected_position, protocol=False):
+    def turret_select(self, selected_position, protocol=False, restore_z=True):
         try:
             if not protocol:
                 gui_logger.button(f'TURRET_POS_{selected_position}')
@@ -559,7 +559,9 @@ class VerticalControl(BoxLayout):
                     IOTask(ctx.lumaview.scope.motion.tmove, kwargs={'position': selected_position})
                 )
             else:
-                ctx.lumaview.scope.motion.tmove(position=selected_position)
+                ctx.lumaview.scope.motion.tmove(
+                    position=selected_position, restore_z=restore_z
+                )
 
             # Persist user's explicit turret choice so the next session
             # (or any post-home lookup) prefers this position when the

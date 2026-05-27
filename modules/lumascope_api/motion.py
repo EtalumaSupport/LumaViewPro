@@ -449,12 +449,22 @@ class MotionAPI:
             _api_log.info('home DONE')
 
     @contextlib.contextmanager
-    def safe_turret_move(self) -> Iterator[None]:
+    def safe_turret_move(self, restore_z: bool = True) -> Iterator[None]:
         """Context manager that lowers Z to 0 before turret motion and restores after.
 
         Use as ``with scope.motion.safe_turret_move(): ... move turret ...``.
         Sets ``is_turreting`` for the duration and restores the original
         Z position even if the body raises.
+
+        Args:
+            restore_z: When True (default), restore the original Z
+                position on exit. Set to False when the immediate next
+                operation will overwrite Z anyway (e.g. protocol
+                step-navigation moves T then immediately moves Z to the
+                step's target -- the restore is wasted motion). When
+                False, Z is left at 0 and the caller is responsible for
+                the next Z move. Standalone callers (UI turret button,
+                thome) leave the default True.
         """
         # Save off current Z position before moving Z to 0
         logger.info('[SCOPE API ] Moving Z to 0', extra={'force_error': True})
@@ -464,13 +474,21 @@ class MotionAPI:
         try:
             yield
         finally:
-            # Always clear the flag and restore Z, even if the body raised
-            # (e.g. driver HardwareError from thome). Without this, a failed
-            # turret home would leave is_turreting=True and the stage stuck
-            # at Z=0.
+            # Always clear the flag, even if the body raised (e.g. driver
+            # HardwareError from thome). Without this, a failed turret
+            # home would leave is_turreting=True and the stage stuck at
+            # Z=0.
             self.is_turreting = False
-            logger.info(f'[SCOPE API ] Restoring Z to {initial_z}', extra={'force_error': True})
-            self.move_absolute_position('Z', pos=initial_z, wait_until_complete=True)
+            if restore_z:
+                logger.info(
+                    f'[SCOPE API ] Restoring Z to {initial_z}', extra={'force_error': True}
+                )
+                self.move_absolute_position('Z', pos=initial_z, wait_until_complete=True)
+            else:
+                logger.info(
+                    '[SCOPE API ] Skipping Z restore -- caller will overwrite Z next',
+                    extra={'force_error': True},
+                )
 
     def thome(self) -> bool:
         """Home the turret axis. Moves Z to 0 during turret motion for safety.
@@ -537,11 +555,17 @@ class MotionAPI:
         """
         return self._driver.has_thomed()
 
-    def tmove(self, position: int) -> None:
+    def tmove(self, position: int, restore_z: bool = True) -> None:
         """Move the turret to a specific position. Skips if already there.
 
         Args:
             position: Target turret position (1-4).
+            restore_z: When True (default), restore the pre-move Z
+                position after the turret move completes. Set to False
+                when the caller will immediately set Z to a different
+                value (e.g. protocol step navigation moves T then Z to
+                the new step's target -- restoring Z first is wasted
+                motion).
         """
         # Commanding a move of the T axis is slow, even if the move is to the current position.
         # Use caching to determine if T is requested to move to it's current position, and bypass the
@@ -549,7 +573,7 @@ class MotionAPI:
         if self._last_turret_position == position:
             return
 
-        with self.safe_turret_move():
+        with self.safe_turret_move(restore_z=restore_z):
             logger.info(f'[SCOPE API ] Moving T to position {position}')
             self.move_absolute_position('T', position, wait_until_complete=True)
             self._last_turret_position = position
