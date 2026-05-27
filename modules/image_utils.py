@@ -93,6 +93,85 @@ def mono_to_rgb_falsecolor(mono: np.ndarray, layer: str) -> np.ndarray:
     return rgb
 
 
+def imread_color(path, *, is_color_native: bool = False) -> 'np.ndarray':
+    """Color-camera-aware image read. Phase 2 activation pending.
+
+    Stub helper that exists so Phase 2 (color-native camera path) can
+    flip the camera capability flag without touching processing modules.
+    Today the mono pipeline reads through ``tifffile.imread`` directly;
+    when a color-camera customer arrives, this wrapper routes to a
+    Bayer-aware reader.
+
+    Args:
+        path: TIFF / PNG file path.
+        is_color_native: Camera-capability flag from
+            ``scope.capabilities.is_color_native``.
+
+    Raises:
+        NotImplementedError: Phase 2 activation pending.
+    """
+    if not is_color_native:
+        # Mono pipeline -- callers should use tifffile.imread directly.
+        # The stub stays explicit until 1d migrates the production callers.
+        raise NotImplementedError(
+            'imread_color is only meaningful with a color-native camera. '
+            'Use tifffile.imread for the mono path.'
+        )
+    raise NotImplementedError('Phase 2 activation pending')
+
+
+def imwrite_color(
+    path, data, *, is_color_native: bool = False, color: str | None = None
+) -> None:
+    """Color-camera-aware image write. Phase 2 activation pending.
+
+    Stub helper for the color-native save path. Mono fluorescence saves
+    go through ``write_tiff`` with layer metadata; color-camera frames
+    will route through this wrapper to keep BGR / RGB / channel-order
+    decisions in one place.
+
+    Args:
+        path: Output TIFF / PNG path.
+        data: Image array.
+        is_color_native: Camera-capability flag.
+        color: Optional channel name for fluorescence false-color (unused
+            on the color-native path; carried so Phase 1f can collapse
+            mono + color-native call sites to one helper).
+
+    Raises:
+        NotImplementedError: Phase 2 activation pending.
+    """
+    if not is_color_native:
+        raise NotImplementedError(
+            'imwrite_color is only meaningful with a color-native camera. '
+            'Use write_tiff for the mono fluorescence + layer-metadata path.'
+        )
+    raise NotImplementedError('Phase 2 activation pending')
+
+
+def videowriter_color(*, is_color_native: bool = False, **kwargs):
+    """Color-camera-aware VideoWriter constructor. Phase 2 activation pending.
+
+    Stub factory that returns a VideoWriter configured for the camera's
+    native shape. Mono path will continue through the existing
+    ``modules.video_writer.VideoWriter`` class; color-native cameras
+    will get a Bayer-decoded path that skips ``add_false_color``.
+
+    Args:
+        is_color_native: Camera-capability flag.
+        **kwargs: Forward-compatible kwargs for the future implementation.
+
+    Raises:
+        NotImplementedError: Phase 2 activation pending.
+    """
+    if not is_color_native:
+        raise NotImplementedError(
+            'videowriter_color is only meaningful with a color-native camera. '
+            'Use modules.video_writer.VideoWriter for the mono path.'
+        )
+    raise NotImplementedError('Phase 2 activation pending')
+
+
 def add_false_color(array, color, output=None):
     src_dtype = array.dtype
     if (not image_utils.is_color_image(array)) and (
