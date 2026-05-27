@@ -1979,8 +1979,16 @@ class TestMotorBoardStateLock:
 class TestCameraStateLock:
     """Verify Camera _state_lock protects active/device_removed flags."""
 
-    def test_mark_disconnected_sets_both_flags_atomically(self):
-        """_mark_disconnected should set both flags under _state_lock."""
+    def test_mark_disconnected_sets_device_removed_flag(self):
+        """_mark_disconnected should set the device-removed flag under
+        _state_lock. It must NOT clear _active -- that release was relocated
+        to disconnect() on the async-teardown daemon thread by f01133c (bench
+        D2 Windows-11 daA3840 fix). Releasing _active from the SDK callback
+        thread fires the C++ wrapper destructor synchronously and races
+        in-flight grab work. TestCameraMarkDisconnectedDoesNotReleaseActiveOnCallbackThread
+        in test_audit_fixes.py guards the source-side contract; this is the
+        runtime-side mirror.
+        """
         from drivers.camera import Camera
 
         # Create a minimal concrete Camera subclass
@@ -2079,7 +2087,12 @@ class TestCameraStateLock:
         assert cam._device_removed is False
 
         cam._mark_disconnected()
-        assert cam.active is None
+        # _active is intentionally NOT cleared here -- the actual release
+        # happens in disconnect() on a safe thread context. Asserting it
+        # remains True after _mark_disconnected pins that contract; any
+        # future refactor that re-introduces _active=None inside
+        # _mark_disconnected will trip this guard alongside the AST guard.
+        assert cam.active is True
         assert cam._device_removed is True
         assert cam.is_device_removed() is True
 
@@ -2299,4 +2312,8 @@ class TestCameraStateLock:
             t.join(timeout=5)
         assert not errors
         assert cam._device_removed is True
-        assert cam.active is None
+        # _active intentionally NOT cleared by _mark_disconnected (see
+        # test_mark_disconnected_sets_device_removed_flag above for the
+        # callback-thread-safety rationale, f01133c). disconnect() owns
+        # the release.
+        assert cam.active is True
