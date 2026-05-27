@@ -48,6 +48,51 @@ def is_color_image(image) -> bool:
     return False
 
 
+def mono_to_rgb_falsecolor(mono: np.ndarray, layer: str) -> np.ndarray:
+    """Map a 2D mono array to a 3-channel RGB array via the layer's false color.
+
+    The single Phase-1 boundary helper for mono -> RGB widening. Use at
+    encode boundaries (live preview Kivy texture, MP4 / AVI encode) and
+    legacy-display paths -- NOT in the save pipeline (mono-native save
+    keeps 2D + layer metadata; widening to RGB at save bakes the false
+    color into the file).
+
+    Args:
+        mono: 2D ndarray of uint8 / uint16 dtype.
+        layer: Fluorescence channel name. ``Red``, ``Green``, ``Blue``,
+            ``Lumi`` place the mono signal in the matching RGB index.
+            Transmitted layers (``BF``, ``PC``, ``DF``) tile the mono
+            into all three channels (grayscale RGB). Unknown layers
+            tile into all three channels as a safe fallback.
+
+    Returns:
+        ``(H, W, 3)`` ndarray with the same dtype as ``mono``. Source
+        array is not modified.
+
+    Raises:
+        ValueError: ``mono`` is not 2D.
+    """
+    if mono.ndim != 2:
+        raise ValueError(
+            f'mono_to_rgb_falsecolor expects 2D input, got shape {mono.shape}'
+        )
+
+    h, w = mono.shape
+    rgb = np.zeros((h, w, 3), dtype=mono.dtype)
+
+    if layer in ('Blue', 'Lumi'):
+        rgb[:, :, 2] = mono
+    elif layer == 'Green':
+        rgb[:, :, 1] = mono
+    elif layer == 'Red':
+        rgb[:, :, 0] = mono
+    else:
+        rgb[:, :, 0] = mono
+        rgb[:, :, 1] = mono
+        rgb[:, :, 2] = mono
+    return rgb
+
+
 def add_false_color(array, color, output=None):
     src_dtype = array.dtype
     if (not image_utils.is_color_image(array)) and (
