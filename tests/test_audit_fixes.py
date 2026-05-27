@@ -9113,18 +9113,17 @@ class TestSessionSetObjectiveForwarder:
 
     def test_session_set_objective_forwards_to_scope(self):
         """Calling the Session forwarder updates the composition root's
-        objective state -- same path as scope.runtime_state.set_objective()
-        directly."""
+        objective state -- same path as scope.set_objective() directly."""
         from modules.scope_session import ScopeSession
 
         session = ScopeSession.create_headless()
-        available = session.scope.runtime_state.get_available_objectives()
+        available = session.scope.get_available_objectives()
         if not available:
             return  # no objectives loaded in this sim profile
         target = available[0] if isinstance(available, list) else next(iter(available))
 
         session.set_objective(target)
-        assert session.scope.runtime_state.get_current_objective_id() == target
+        assert session.scope.get_current_objective_id() == target
 
 
 class TestAxisTravelLimitsOnCapabilities:
@@ -9506,11 +9505,10 @@ class TestGetterSetterSymmetry:
     comment above set_acquisition_stop_mode."""
 
     def test_lumascope_get_stage_offset_exists(self, sim_scope):
-        # Canonical home post-Wave-7-Phase-8 is scope.runtime_state.
-        assert callable(getattr(sim_scope.runtime_state, 'get_stage_offset', None))
+        assert callable(getattr(sim_scope, 'get_stage_offset', None))
         # Round-trip: set then get returns the same value.
-        sim_scope.runtime_state.set_stage_offset({'x': 1.0, 'y': 2.0})
-        assert sim_scope.runtime_state.get_stage_offset() == {'x': 1.0, 'y': 2.0}
+        sim_scope.set_stage_offset({'x': 1.0, 'y': 2.0})
+        assert sim_scope.get_stage_offset() == {'x': 1.0, 'y': 2.0}
 
     def test_imaging_get_scale_bar_exists(self, sim_scope):
         assert callable(getattr(sim_scope.imaging, 'get_scale_bar', None))

@@ -1019,6 +1019,58 @@ class Lumascope:
 
         return led and motion and camera
 
+    ########################################################################
+    # SCOPE CONFIGURATION FUNCTIONS
+    # Canonical bodies live on RuntimeState; the forwarders below stay
+    # for one release as the LVP and engineering-plugin callers migrate
+    # off bare-scope reach onto the .runtime_state chain. Retired in 8f.
+    ########################################################################
+    def set_labware(self, labware) -> None:
+        return self.runtime_state.set_labware(labware)
+
+    def get_labware(self) -> 'Any | None':
+        return self.runtime_state.get_labware()
+
+    def set_objective(self, objective_id: str) -> None:
+        return self.runtime_state.set_objective(objective_id)
+
+    def get_current_objective_id(self) -> str | None:
+        return self.runtime_state.get_current_objective_id()
+
+    def get_objective_info(self, objective_id: str) -> dict:
+        return self.runtime_state.get_objective_info(objective_id)
+
+    def get_available_objectives(self) -> list[str]:
+        return self.runtime_state.get_available_objectives()
+
+    def get_current_objective(self) -> dict | None:
+        return self.runtime_state.get_current_objective()
+
+    def set_turret_config(self, turret_config: dict[int, str]) -> None:
+        return self.runtime_state.set_turret_config(turret_config)
+
+    def get_turret_config(self) -> dict:
+        return self.runtime_state.get_turret_config()
+
+    def set_stage_offset(self, stage_offset) -> None:
+        return self.runtime_state.set_stage_offset(stage_offset)
+
+    def get_stage_offset(self) -> 'dict | None':
+        return self.runtime_state.get_stage_offset()
+
+    ########################################################################
+    # LED BOARD FUNCTIONS
+    # Methods relocated to IlluminationAPI in Wave 7 Phase 3c / 3d;
+    # forwarders retired in 3f. Callers use scope.illumination.<method>.
+    ########################################################################
+
+    ########################################################################
+    # CAMERA FUNCTIONS
+    ########################################################################
+
+    def get_well_label(self) -> str:
+        return self.runtime_state.get_well_label()
+
     @classmethod
     def create_diagnostic(cls) -> 'Lumascope':
         """Create a minimal Lumascope for diagnostics (no camera init).
