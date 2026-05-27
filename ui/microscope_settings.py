@@ -1184,9 +1184,9 @@ class MicroscopeSettings(BoxLayout):
             vc_objective_spinner.text = objective_id
 
             if lumaview.scope.motion.has_turret():
-                lumaview.scope.runtime_state.set_turret_config(turret_config=settings['turret_objectives'])
+                lumaview.scope.set_turret_config(turret_config=settings['turret_objectives'])
 
-            lumaview.scope.runtime_state.set_objective(objective_id=objective_id)
+            lumaview.scope.set_objective(objective_id=objective_id)
 
             fov_size = common_utils.get_field_of_view(
                 focal_length=objective['focal_length'],

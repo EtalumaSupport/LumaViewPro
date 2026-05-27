@@ -274,9 +274,9 @@ class VerticalControl(BoxLayout):
 
             # Set objective in lumascope
             if ctx.lumaview.scope.motion.has_turret():
-                ctx.lumaview.scope.runtime_state.set_turret_config(turret_config=settings['turret_objectives'])
+                ctx.lumaview.scope.set_turret_config(turret_config=settings['turret_objectives'])
 
-            ctx.lumaview.scope.runtime_state.set_objective(objective_id=objective_id)
+            ctx.lumaview.scope.set_objective(objective_id=objective_id)
 
             # Update UI FOV
             fov_size = common_utils.get_field_of_view(

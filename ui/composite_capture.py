@@ -76,7 +76,7 @@ class CompositeCapture(FloatLayout):
 
         file_root = 'live_'
         color = 'BF'
-        well_label = ctx.scope.runtime_state.get_well_label()
+        well_label = ctx.scope.get_well_label()
 
         use_full_pixel_depth = ctx.scope_display.use_full_pixel_depth
         force_to_8bit_pixel_depth = not use_full_pixel_depth
@@ -470,7 +470,7 @@ class CompositeCapture(FloatLayout):
         )
 
         # File saving can run on this thread (no UI dependency)
-        append = f'{ctx.scope.runtime_state.get_well_label()}'
+        append = f'{ctx.scope.get_well_label()}'
 
         save_folder = pathlib.Path(live_folder) / 'Manual'
         save_folder.mkdir(parents=True, exist_ok=True)

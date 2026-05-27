@@ -212,7 +212,7 @@ def generate_image_metadata(scope: 'Lumascope', color, x, y, z) -> dict:
         sx=x,
         sy=y,
     )
-    well_label = scope.runtime_state.get_well_label()
+    well_label = scope.get_well_label()
 
     px = round(px, common_utils.max_decimal_precision('x'))
     py = round(py, common_utils.max_decimal_precision('y'))
