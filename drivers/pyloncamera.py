@@ -2031,9 +2031,12 @@ class PylonCamera(Camera):
     ) -> None:
         """Configure the AutoFunctionROI + auto-gain limits for AF use.
 
-        Sets ROI to the full sensor minus the existing offset, picks
-        the `MinimizeExposureTime` profile (autofocus prefers shorter
-        exposures), and applies caller-supplied gain bounds (or the
+        Sets ROI to a 50%x50% centered crop (avoids plate-edge + dust +
+        uneven-illumination contributions that caused BF AG/AE
+        oscillation), picks the `MinimizeGain` profile (stable
+        brightness on BF where light is bright + consistent; longer
+        exposure / lower noise on fluorescence is also the right
+        tradeoff), and applies caller-supplied gain bounds (or the
         camera's reported min/max when `None`).
 
         Args:
@@ -2045,15 +2048,28 @@ class PylonCamera(Camera):
                 camera's reported maximum.
         """
         try:
-            self.active.AutoFunctionROIWidth.SetValue(
-                self.active.Width.Max - 2 * self.active.AutoFunctionROIOffsetX.GetValue()
-            )
-            self.active.AutoFunctionROIHeight.SetValue(
-                self.active.Height.Max - 2 * self.active.AutoFunctionROIOffsetY.GetValue()
-            )
+            # AG/AE BF stability fix (#551): shrink AutoFunction ROI to
+            # ~50%x50% centered. Full-frame ROI samples plate edges + dust
+            # + uneven illumination on BF, which drives the auto-gain
+            # controller into oscillation. A 50% centered crop keeps the
+            # controller focused on the well center where illumination is
+            # uniform. Width / Height steps on Basler ace 2 / dart are
+            # multiples of 16 -- _align_down enforces.
+            def _align_down(value: int, granularity: int = 16) -> int:
+                return (max(int(value), granularity) // granularity) * granularity
+
+            roi_width = _align_down(self.active.Width.Max // 2)
+            roi_height = _align_down(self.active.Height.Max // 2)
+            roi_offset_x = _align_down((self.active.Width.Max - roi_width) // 2)
+            roi_offset_y = _align_down((self.active.Height.Max - roi_height) // 2)
+
+            self.active.AutoFunctionROISelector.SetValue('ROI1')
+            self.active.AutoFunctionROIOffsetX.SetValue(roi_offset_x)
+            self.active.AutoFunctionROIOffsetY.SetValue(roi_offset_y)
+            self.active.AutoFunctionROIWidth.SetValue(roi_width)
+            self.active.AutoFunctionROIHeight.SetValue(roi_height)
             self.active.AutoFunctionROIUseBrightness = True
             self.active.AutoTargetBrightness.SetValue(auto_target_brightness)
-            self.active.AutoFunctionROISelector.SetValue('ROI1')
 
             if min_gain is None:
                 min_gain = self.active.AutoGainLowerLimit.Min
@@ -2063,7 +2079,17 @@ class PylonCamera(Camera):
 
             self.active.AutoGainLowerLimit.SetValue(min_gain)
             self.active.AutoGainUpperLimit.SetValue(max_gain)
-            self.active.AutoFunctionProfile.SetValue('MinimizeExposureTime')
+
+            # AG/AE BF stability fix (#551): switch from
+            # 'MinimizeExposureTime' to 'MinimizeGain'. MinimizeGain pins
+            # gain at the lower limit and adjusts exposure first,
+            # yielding stable brightness on BF where light is bright and
+            # consistent. For fluorescence channels this trades higher
+            # exposure time for lower read noise, which is also the right
+            # tradeoff. The previous MinimizeExposureTime preference
+            # caused gain to track noise and bounce, especially on Red BF
+            # where the customer reported the instability.
+            self.active.AutoFunctionProfile.SetValue('MinimizeGain')
         except genicam.RuntimeException as e:
             _cam_log.error(
                 f'[CAM Class ] Camera communication error during init_auto_gain_focus: {e}'
