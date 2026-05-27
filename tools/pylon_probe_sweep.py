@@ -366,16 +366,24 @@ def _connect_camera(serial_filter: str | None) -> PylonCamera:
 
 
 def _make_minimal_scope(camera: PylonCamera) -> Lumascope:
-    """Construct a minimal Lumascope shell with only the camera attached.
+    """Construct a minimal Lumascope shell with the camera + sub-APIs attached.
 
     Bypasses the full Lumascope.__init__ (which expects scope / board /
-    settings). The setters this tool calls go through
-    ``scope.imaging.<setter>``; ImagingAPI owns its own camera cache and
-    locks, so nothing needs to be wired onto the shell beyond the
-    camera handle.
+    settings). The setters this tool calls route through
+    ``scope.imaging.<setter>`` and ``scope.diagnostics.<probe>`` -- both
+    sub-APIs resolve ``self._scope._camera_driver`` via @property, so the
+    canonical driver slot must be set in addition to the legacy
+    ``scope.camera`` alias used at the ``update_camera_config()`` +
+    ``active`` callsites in this tool.
     """
+    from modules.lumascope_api.imaging import ImagingAPI
+    from modules.lumascope_api.diagnostics import DiagnosticsAPI
+
     scope = Lumascope.__new__(Lumascope)
     scope.camera = camera
+    scope._camera_driver = camera
+    scope.imaging = ImagingAPI(scope, camera)
+    scope.diagnostics = DiagnosticsAPI(scope)
     return scope
 
 

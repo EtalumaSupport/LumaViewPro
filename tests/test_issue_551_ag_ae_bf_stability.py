@@ -123,3 +123,80 @@ def test_init_auto_gain_focus_aligns_to_16():
         'New ROI computation must align to the 16-px granularity Basler '
         'requires (use _align_down or explicit // 16 / * 16). (#551)'
     )
+
+
+def test_init_auto_gain_focus_zeroes_offset_before_sizing():
+    """Pylon node interdependency: AutoFunctionROIOffsetX/Y.Max equals
+    (sensor bound) - (current AutoFunctionROIWidth/Height). A non-zero
+    offset caps the achievable Width/Height; the centered-offset setpoint
+    computed against sensor Max is rejected if OffsetX.Max is still
+    constrained by the previous Width.
+
+    The dart daA3840-45um reports AutoFunctionROIOffsetX.Max = 20 by
+    default while ace 2 reports the full sensor extent; a centered
+    offset of ~960 (half of (Width.Max - roi_width)) raises
+    OutOfRangeException on the dart unless offsets are zeroed first.
+
+    Regression test: AutoFunctionROIOffsetX/Y(0) must appear in the
+    source BEFORE the centered SetValue on the same nodes, AND before
+    AutoFunctionROIWidth/Height get set.
+    """
+    method = _method_node('PylonCamera', 'init_auto_gain_focus')
+    src = ast.unparse(method)
+
+    offset_zero_x = src.find('AutoFunctionROIOffsetX.SetValue(0)')
+    offset_zero_y = src.find('AutoFunctionROIOffsetY.SetValue(0)')
+    width_set = src.find('AutoFunctionROIWidth.SetValue(')
+    height_set = src.find('AutoFunctionROIHeight.SetValue(')
+
+    assert offset_zero_x != -1, (
+        'init_auto_gain_focus must call AutoFunctionROIOffsetX.SetValue(0) '
+        'before setting Width / Height -- non-zero offset caps the '
+        'achievable Width and rejects the post-sizing centered offset '
+        'on smaller-sensor cameras (dart daA3840-45um).'
+    )
+    assert offset_zero_y != -1, (
+        'init_auto_gain_focus must call AutoFunctionROIOffsetY.SetValue(0) '
+        'before setting Width / Height -- same constraint as X axis.'
+    )
+    assert width_set != -1 and height_set != -1, (
+        'init_auto_gain_focus must set AutoFunctionROIWidth + '
+        'AutoFunctionROIHeight (the 50% centered ROI per #551).'
+    )
+    assert offset_zero_x < width_set, (
+        'Offset-zero must precede Width-set. Setting Width first while '
+        'an existing OffsetX exceeds the post-sizing OffsetX.Max raises '
+        'OutOfRangeException on the dart family.'
+    )
+    assert offset_zero_y < height_set, (
+        'Offset-zero must precede Height-set. Same reasoning as X.'
+    )
+
+
+def test_init_auto_gain_focus_clamps_to_autofunction_roi_max():
+    """Defensive clamp against the AutoFunctionROI* node's own Max --
+    some cameras (dart family) report tighter bounds on these nodes
+    than on the sensor's Width / Height proper. Without the clamp, a
+    50% centered crop derived from Width.Max can exceed
+    AutoFunctionROIWidth.Max and raise OutOfRangeException."""
+    method = _method_node('PylonCamera', 'init_auto_gain_focus')
+    src = ast.unparse(method)
+
+    # The clamp uses min(...) against the per-node Max.
+    assert re.search(r'AutoFunctionROIWidth\.Max', src), (
+        'init_auto_gain_focus must read AutoFunctionROIWidth.Max for '
+        'defensive clamp (dart family reports tighter bounds here than '
+        'on sensor Width.Max).'
+    )
+    assert re.search(r'AutoFunctionROIHeight\.Max', src), (
+        'init_auto_gain_focus must read AutoFunctionROIHeight.Max for '
+        'defensive clamp.'
+    )
+    assert re.search(r'AutoFunctionROIOffsetX\.Max', src), (
+        'init_auto_gain_focus must read AutoFunctionROIOffsetX.Max for '
+        'defensive clamp on the centered offset.'
+    )
+    assert re.search(r'AutoFunctionROIOffsetY\.Max', src), (
+        'init_auto_gain_focus must read AutoFunctionROIOffsetY.Max for '
+        'defensive clamp.'
+    )
