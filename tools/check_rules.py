@@ -388,6 +388,95 @@ def _check_rule_31c(tree: ast.AST, path: str) -> list[Violation]:
     return violations
 
 
+_BROKEN_SCOPE_METHODS = frozenset({
+    # Methods that were on Lumascope pre-Wave-7 and are now ONLY reachable
+    # via a sub-API namespace (scope.motion.X, scope.imaging.X, etc.).
+    # Lumascope itself no longer exposes a same-named forwarder, so bare
+    # `scope.<name>(...)` raises AttributeError at runtime.
+    # Bench-day 2026-05-26 surfaced 68 such calls in
+    # etaluma-engineering/.../camera_characterization.py that the test
+    # suite missed because every test scope was a MagicMock that silently
+    # absorbs any attribute access. This rule catches new occurrences at
+    # pre-commit, before they ship.
+    #
+    # New entries get added here when a method moves off Lumascope onto a
+    # sub-API. Whitelist: scope.motion.X / scope.imaging.X / scope.illumination.X /
+    # scope.diagnostics.X / scope.capabilities.X / scope.io.X / scope.runtime_state.X.
+    'move_absolute_position',
+    'move_relative_position',
+    'get_current_position',
+    'get_target_position',
+    'get_target_status',
+    'set_motor_precision_mode',
+    'set_pixel_format',
+    'set_frame_size',
+    'set_gain',
+    'set_exposure_t',
+    'set_exposure_time',
+    'capture_and_wait',
+    'get_channels',
+    'run_pylon_diagnostic_probe',
+})
+
+
+def _check_rule_35d(tree: ast.AST, path: str) -> list[Violation]:
+    """Block bare scope.<method> calls for methods relocated to sub-APIs.
+
+    Wave-7 sub-API decomposition moved camera / motion / diagnostics
+    methods off Lumascope onto namespaced sub-APIs (scope.imaging,
+    scope.motion, etc.). Lumascope no longer exposes the bare name, so
+    `scope.<name>(...)` is an AttributeError at runtime -- but tests
+    using MagicMock scopes silently absorb the access. This rule
+    AST-greps for the broken-name set on any Attribute access whose
+    base resolves to a name 'scope' (matches both bare `scope.X` and
+    `<owner>.scope.X` patterns).
+
+    Exempts test files (intentional MagicMock targeting), the lumascope_api/
+    package itself (the API surface that defines or forwards these names),
+    and this rule-check file. New broken-on-Lumascope names get added to
+    `_BROKEN_SCOPE_METHODS` as Wave-7 phases retire more forwarders.
+    """
+    norm = path.replace('\\', '/')
+    if _is_test_path(norm):
+        return []
+    if '/lumascope_api/' in norm or norm.endswith('lumascope_api.py'):
+        return []
+    violations: list[Violation] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Attribute):
+            continue
+        if node.attr not in _BROKEN_SCOPE_METHODS:
+            continue
+        base = node.value
+        # Match `scope.X` (bare) and `<expr>.scope.X` (e.g. self.scope.X,
+        # ctx.scope.X, lumaview.scope.X). The base of node is the thing to
+        # the left of `.X`; either a Name 'scope' or an Attribute whose
+        # .attr is 'scope'.
+        is_scope_base = (
+            (isinstance(base, ast.Name) and base.id == 'scope')
+            or (isinstance(base, ast.Attribute) and base.attr == 'scope')
+        )
+        if not is_scope_base:
+            continue
+        violations.append(
+            Violation(
+                path,
+                node.lineno,
+                node.col_offset,
+                'rule_35d',
+                f'bare scope.{node.attr}(...) -- the method moved to a '
+                f'sub-API namespace post-Wave-7. Route through '
+                f'scope.motion / scope.imaging / scope.illumination / '
+                f'scope.diagnostics / scope.capabilities / scope.io / '
+                f'scope.runtime_state as appropriate. Lumascope no '
+                f'longer exposes a same-named forwarder; MagicMock scopes '
+                f'in tests will silently absorb the access but bench '
+                f'hardware raises AttributeError.',
+            )
+        )
+    return violations
+
+
 def _check_rule_42(source: str, path: str) -> list[Violation]:
     """WARN on `healthy` / `fine` / `within range` in comments without a
     `PERFORMANCE_BUDGETS.md` cite anywhere in the file.
@@ -437,6 +526,7 @@ def check_source(content: str, path: str) -> list[Violation]:
         violations.extend(_check_rule_28(tree, path))
         violations.extend(_check_rule_27d(tree, path))
         violations.extend(_check_rule_31c(tree, path))
+        violations.extend(_check_rule_35d(tree, path))
     violations.extend(_check_rule_27a(content, path))
     violations.extend(_check_rule_27b(content, path))
     violations.extend(_check_rule_42(content, path))
