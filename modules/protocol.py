@@ -1115,6 +1115,12 @@ class Protocol:
         else:
             positions = None
 
+        # If the caller passes a per-well z map (from a prior in-memory
+        # Protocol), apply it to labware-derived positions so user-tuned
+        # focus survives a New click. Empty / missing means fall back to
+        # layer_config['focus'] as before.
+        previous_well_z = input_config.get('previous_well_z') or {}
+
         labware_id = input_config['labware_id']
         objective_id = input_config['objective_id']
         zstack_params = input_config['zstack_params']
@@ -1164,7 +1170,7 @@ class Protocol:
                     {
                         'x': well_x,
                         'y': well_y,
-                        'z': None,
+                        'z': previous_well_z.get(well_label),
                         'name': well_label,
                     }
                 )

@@ -432,6 +432,19 @@ class ProtocolSettings(FloatLayout):
             return
 
         config = get_sequenced_capture_config_from_ui()
+
+        # Carry over per-well z from the current in-memory protocol so a
+        # user who has focused well-by-well doesn't lose that work on a
+        # New click. First-row-per-well wins (the bottom slice for a
+        # zstack, the single Z for a non-zstack). Layer focus default
+        # still wins for wells the user hasn't touched.
+        if self._protocol is not None and self._protocol.num_steps() > 0:
+            steps = self._protocol.steps()
+            config['previous_well_z'] = {
+                str(well): float(group['Z'].iloc[0])
+                for well, group in steps.groupby('Well', sort=False)
+            }
+
         try:
             protocol = ctx.scope.create_protocol(input_config=config)
         except Exception as e:
