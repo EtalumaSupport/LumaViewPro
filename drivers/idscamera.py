@@ -35,6 +35,13 @@ atexit.register(_ids_library_cleanup)
 
 @camera_registry.register('ids', priority=80)
 class IDSCamera(Camera):
+    # IDS cameras drive the converter pipeline at 8-bit Mono (Mono8 forced
+    # at the SDK boundary so downstream code never has to handle Mono10 /
+    # Mono12 packed formats). Override the base default so capability
+    # consumers (buffer sizing, save-format selection) treat IDS frames as
+    # 8-bit from the start.
+    native_bit_depth = 8
+
     def __init__(self):
 
         self.device_manager = None

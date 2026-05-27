@@ -162,6 +162,16 @@ class ImageHandlerBase:
 
 
 class Camera(ABC):
+    # Color + native bit depth contract surfaced through scope.capabilities.
+    # Drivers override as needed: True for true color cameras (Bayer / 3-channel
+    # sensors); 8-bit for sensors that report only 8-bit Mono natively (IDS
+    # IMX676 / U3-34L0XCP-M); 16-bit container for sensors that pack Mono10 /
+    # Mono12 / Mono16 into uint16 buffers (Pylon family). The container width
+    # rather than the wire-level payload bits: downstream allocators size
+    # buffers to the container, not the payload.
+    is_color_native: bool = False
+    native_bit_depth: int = 16
+
     def __init__(self):
         self._state_lock = threading.Lock()
         self._array_lock = threading.Lock()

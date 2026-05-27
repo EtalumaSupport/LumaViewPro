@@ -150,6 +150,20 @@ class ScopeCapabilities:
     connected. Use ``scope.imaging.set_frame_size`` to request a
     smaller-than-max region; this field gives the upper bound."""
 
+    is_color_native: bool = False
+    """True if the camera natively produces 3-channel color frames
+    (Bayer-decoded RGB out of the SDK). False for mono cameras (the
+    LVP shipping fleet -- all Pylon and IDS sensors used to date).
+    Defaults to False so unknown/missing camera path treats output
+    as mono."""
+
+    native_bit_depth: int = 16
+    """Container bit depth that the driver delivers to downstream code.
+    Mono10 / Mono12 / Mono16 packed into uint16 buffers all report 16
+    (the container width, not the payload bits). Sensors that report
+    Mono8 directly (IDS IMX676 -- U3-34L0XCP-M) report 8. Drives
+    buffer sizing decisions in pipeline stages."""
+
     # ---- Cross-cutting feature flags ----
     has_firmware_stim: bool = False
     """True when the LED firmware advertises the STIM pulse-train command
@@ -271,6 +285,8 @@ class ScopeCapabilities:
         camera_binning_sizes: tuple[int, ...] = ()
         camera_max_exposure_ms = 0
         camera_max_frame_size: tuple[int, int] = (0, 0)
+        is_color_native = False
+        native_bit_depth = 16
         if camera is not None:
             profile = getattr(camera, 'profile', None)
             if profile is not None:
@@ -284,6 +300,8 @@ class ScopeCapabilities:
             size = _probe('camera.get_max_frame_size', lambda: camera.get_max_frame_size(), None)
             if size:
                 camera_max_frame_size = (int(size.get('width', 0)), int(size.get('height', 0)))
+            is_color_native = bool(getattr(camera, 'is_color_native', False))
+            native_bit_depth = int(getattr(camera, 'native_bit_depth', 16))
 
         return cls(
             axes=axes,
@@ -305,4 +323,6 @@ class ScopeCapabilities:
             camera_binning_sizes=camera_binning_sizes,
             camera_max_exposure_ms=camera_max_exposure_ms,
             camera_max_frame_size=camera_max_frame_size,
+            is_color_native=is_color_native,
+            native_bit_depth=native_bit_depth,
         )
