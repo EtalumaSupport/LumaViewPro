@@ -292,6 +292,12 @@ class _FakeExecutor:
     def protocol_finish_then_end(self):
         self._finish_called = True
 
+    def wait_for_idle(self, timeout: float = 1.0) -> bool:
+        # No worker thread in this stub; nothing in flight to wait for.
+        # Return True so the cleanup path proceeds without thinking it
+        # timed out and skipping the rest of the teardown.
+        return True
+
     def protocol_put(self, task):
         task.action()
 
