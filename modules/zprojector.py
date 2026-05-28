@@ -202,6 +202,9 @@ class ZProjector(ProtocolPostProcessor):
     ):
         method = imagej_helper.ZProjectMethod[method]
 
+        first_slice_row = df.iloc[0]
+        first_slice_path = path / first_slice_row['Filepath']
+
         orig_images = []
         for _, row in df.iterrows():
             image_filepath = path / row['Filepath']
@@ -224,17 +227,23 @@ class ZProjector(ProtocolPostProcessor):
         if not result['status']:
             return result
 
-        # Post-1d: save mono 2D directly. Layer color is on-disk as plain
-        # mono; Windows Preview shows grayscale, ImageJ / FIJI apply the
-        # per-layer LUT from user-side colormap config. Routing through
-        # write_tiff for PALETTE / LUT metadata is deferred to a follow-up
-        # commit (1d.5).
+        # Route through write_tiff so the projected output carries the
+        # layer's PALETTE colormap plus the source acquisition context
+        # forwarded from the first slice. Z position is inherited from
+        # the first slice as a representative value -- the projection
+        # collapses Z, so any single value is approximate.
         output_file_loc_abs = path / output_file_loc
         output_file_loc_abs.parent.mkdir(exist_ok=True, parents=True)
-        tf.imwrite(
-            output_file_loc_abs,
+        metadata = image_utils.build_postproc_output_metadata(
+            input_path=first_slice_path,
+            channel=first_slice_row['Color'],
+        )
+        image_utils.write_tiff(
             data=result['image'],
-            compression='lzw',
+            file_loc=output_file_loc_abs,
+            metadata=metadata,
+            ome=False,
+            color=first_slice_row['Color'],
         )
 
         del result['image']

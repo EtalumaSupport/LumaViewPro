@@ -222,22 +222,27 @@ class Stitcher(ProtocolPostProcessor):
 
         # Self-write when output_file_loc is provided (canonical path
         # under protocol_post_processor). Matches composite_generation +
-        # zprojector. tifffile auto-detects photometric: 2D mono ->
-        # minisblack, 3D shape[-1]=3 -> rgb. Signal subclass-wrote via
+        # zprojector. Routes through write_tiff so the output carries
+        # the layer's PALETTE colormap (Windows Preview / FIJI render
+        # the layer color) plus the source acquisition context
+        # (objective, exposure, gain, pixel size, plate, instrument)
+        # forwarded from the first tile. Signal subclass-wrote via
         # image=None so the base class skips its own write branch.
         if output_file_loc is not None:
-            # Post-1d: save mono 2D directly. Closes #678 structurally
-            # (the prior maybe_apply_false_color widening cooperated with
-            # downstream 3-ch readers to produce greyscale stitched
-            # outputs for fluorescence). Routing through write_tiff for
-            # PALETTE / LUT colormap metadata is deferred to a follow-up
-            # commit (1d.5); for now the file is plain mono.
             output_file_loc_abs = path / output_file_loc
             output_file_loc_abs.parent.mkdir(parents=True, exist_ok=True)
-            tf.imwrite(
-                str(output_file_loc_abs),
-                stitched_img,
-                compression='lzw',
+            first_tile_path = path / source_image_sample_filename
+            metadata = image_utils.build_postproc_output_metadata(
+                input_path=first_tile_path,
+                channel=source_image_sample_row['Color'],
+                plate_pos_mm_override=center,
+            )
+            image_utils.write_tiff(
+                data=stitched_img,
+                file_loc=output_file_loc_abs,
+                metadata=metadata,
+                ome=False,
+                color=source_image_sample_row['Color'],
             )
             return_image = None
         else:

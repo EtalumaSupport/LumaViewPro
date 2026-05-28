@@ -134,6 +134,197 @@ def read_tiff_with_legacy_collapse(path: pathlib.Path) -> np.ndarray:
     return img
 
 
+def read_postproc_input_metadata(path: pathlib.Path) -> dict | None:
+    """Reverse the write_tiff metadata serialization for one input TIFF.
+
+    Reads a TIFF written by ``write_tiff`` and reconstructs the flat
+    metadata dict that the caller originally passed in. Used by
+    post-processing modules (stitcher, zprojector) to propagate
+    acquisition context from inputs to derived outputs.
+
+    Returns None when the input has no recoverable structured metadata
+    (bare ``tifffile.imwrite`` outputs that carry only ``{'shape': ...}``,
+    or files written by a non-LumaViewPro pipeline). Returns None on any
+    parse failure so callers can fall back to defaults without crashing.
+
+    Args:
+        path: TIFF file path.
+
+    Returns:
+        Flat dict matching ``write_tiff``'s ``metadata`` parameter shape,
+        or None if the input carries no structured metadata.
+    """
+    try:
+        with tf.TiffFile(str(path)) as tif:
+            shaped = tif.shaped_metadata
+            datetime_tag = tif.pages[0].tags.get('DateTime')
+            datetime_value = datetime_tag.value if datetime_tag else None
+    except Exception:
+        return None
+
+    if not shaped:
+        return None
+    structured = shaped[0]
+    if 'Plane' not in structured:
+        # Bare tifffile.imwrite (only carries 'shape') or other non-LVP
+        # producer; no acquisition context to forward.
+        return None
+
+    plane = structured['Plane']
+    flat: dict = {
+        'plate_pos_mm': {
+            'x': plane['PositionX'],
+            'y': plane['PositionY'],
+        },
+        'z_pos_um': plane['PositionZ'],
+        'objective': plane.get('Objective', {}),
+        'exposure_time_ms': plane['ExposureTime'],
+        'gain_db': plane['Gain'],
+        'illumination_ma': plane['Illumination'],
+        'pixel_size_um': structured['PhysicalSizeX'],
+        'channel': structured['Channel']['Name'][0],
+    }
+    if datetime_value is not None:
+        flat['datetime'] = datetime_value
+
+    # Per-frame markers travel with the original capture, not with
+    # derived outputs. Read them so the helper is reusable; the builder
+    # for derived outputs strips them before passing to write_tiff.
+    if 'Timestamp' in plane:
+        flat['timestamp_iso'] = plane['Timestamp']
+    if 'TimestampCameraTicks' in plane:
+        flat['timestamp_camera_ticks'] = plane['TimestampCameraTicks']
+    if 'TimestampCameraTickHz' in plane:
+        flat['timestamp_camera_tick_hz'] = plane['TimestampCameraTickHz']
+    if 'FrameID' in plane:
+        flat['frame_id'] = plane['FrameID']
+
+    if 'Instrument' in structured:
+        inst = structured['Instrument']
+        microscope = inst.get('Microscope', {})
+        detector = inst.get('Detector', {})
+        flat['instrument'] = {
+            'manufacturer': microscope.get('Manufacturer'),
+            'model': microscope.get('Model'),
+            'serial_number': microscope.get('SerialNumber'),
+            'firmware_version': microscope.get('FirmwareVersion'),
+            'camera_model': detector.get('Model'),
+        }
+
+    if 'Plate' in structured:
+        p = structured['Plate']
+        flat['plate'] = {
+            'name': p.get('Name'),
+            'rows': p.get('Rows'),
+            'columns': p.get('Columns'),
+        }
+        if 'Standard' in p:
+            flat['plate']['standard'] = p['Standard']
+        if 'WellLabel' in p:
+            flat['well_label'] = p['WellLabel']
+
+    return flat
+
+
+def build_postproc_output_metadata(
+    input_path: pathlib.Path,
+    channel: str,
+    *,
+    plate_pos_mm_override: dict | None = None,
+    z_pos_um_override: float | None = None,
+) -> dict:
+    """Build a write_tiff metadata dict for a post-processing output.
+
+    Reads acquisition context from one representative input TIFF
+    (objective, exposure, gain, illumination, pixel size, instrument,
+    plate, well label) and forwards it into the derived output. Per-frame
+    timestamps and frame IDs are stripped because they describe the
+    original capture, not the derived image.
+
+    ``datetime`` is set to the post-processing wall-clock time so derived
+    outputs are distinguishable from the captures that fed them.
+
+    Callers in stitcher pass ``plate_pos_mm_override`` with the stitched
+    region's geometric center; zprojector leaves both overrides None and
+    inherits the input slice's position. Falls back to sentinel defaults
+    when the input has no structured metadata (test fixtures, external
+    files).
+
+    Args:
+        input_path: First-input TIFF; metadata is read from here.
+        channel: Layer color for the derived output (Blue / Green / Red
+            / Lumi / BF / PC / DF).
+        plate_pos_mm_override: Optional plate_pos_mm dict to override
+            the value read from the input.
+        z_pos_um_override: Optional z_pos_um to override the value read
+            from the input.
+
+    Returns:
+        Dict ready to pass as ``write_tiff``'s ``metadata`` parameter.
+    """
+    metadata = read_postproc_input_metadata(input_path)
+    if metadata is None:
+        metadata = {
+            'plate_pos_mm': {'x': 0.0, 'y': 0.0},
+            'z_pos_um': 0.0,
+            'objective': {},
+            'exposure_time_ms': 0.0,
+            'gain_db': 0.0,
+            'illumination_ma': 0.0,
+            'pixel_size_um': 1.0,
+        }
+    else:
+        for per_capture_field in (
+            'timestamp_iso',
+            'timestamp_camera_ticks',
+            'timestamp_camera_tick_hz',
+            'frame_id',
+        ):
+            metadata.pop(per_capture_field, None)
+
+    metadata['channel'] = channel
+    metadata['datetime'] = datetime.datetime.now().isoformat(timespec='seconds')
+
+    if plate_pos_mm_override is not None:
+        metadata['plate_pos_mm'] = plate_pos_mm_override
+    if z_pos_um_override is not None:
+        metadata['z_pos_um'] = z_pos_um_override
+
+    return metadata
+
+
+def build_composite_output_metadata(reference_input_path: pathlib.Path) -> dict:
+    """Build a write_tiff metadata dict for a composite output.
+
+    Composite outputs merge multiple input channels with different
+    per-channel exposure / gain / illumination, so those fields zero
+    out -- they describe the source captures, not the merged image.
+    Shared acquisition context (objective, position, pixel size,
+    instrument, plate, well_label) propagates from the reference input;
+    composite input channels share these at the same site.
+
+    ``channel`` is set to ``'Composite'`` to distinguish the derived
+    output from its per-channel sources. ``datetime`` is wall-clock
+    post-processing time.
+
+    Args:
+        reference_input_path: Any composite-input TIFF; shared metadata
+            is read from here. Callers pass the first available channel
+            (red -> green -> blue -> transmitted order).
+
+    Returns:
+        Dict ready to pass as write_tiff's ``metadata`` parameter.
+    """
+    metadata = build_postproc_output_metadata(
+        input_path=reference_input_path,
+        channel='Composite',
+    )
+    metadata['exposure_time_ms'] = 0.0
+    metadata['gain_db'] = 0.0
+    metadata['illumination_ma'] = 0.0
+    return metadata
+
+
 def imread_color(path, *, is_color_native: bool = False) -> 'np.ndarray':
     """Color-camera-aware image read. Phase 2 activation pending.
 

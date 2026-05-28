@@ -62,23 +62,13 @@ class TestStitcherGroupAlgorithmCarriesColor:
     """Production call path: _group_algorithm receives the full-shape df
     from protocol_post_processor.load_folder and slices it before passing
     to _simple_position_stitcher. The slice must include 'Color' so the
-    downstream false-color gate has it to read.
+    write_tiff routing can pass the layer through to the colormap gate.
 
     The earlier TestStitcherAppliesFalseColorForFluorescence tests skip
     _group_algorithm and call _simple_position_stitcher directly with a
     Color-bearing df, so they cannot catch a column-list narrowing in
     _group_algorithm. This class exercises the production-shape path."""
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason=(
-            'Deferred to the 1d.5 follow-up commit that routes Stitcher through '
-            'image_utils.write_tiff. Today Stitcher saves mono via bare tf.imwrite '
-            "and narrows the df subset without 'Color' (the 'Color' carry-through "
-            'is unnecessary until the write_tiff routing lands). Flips green when '
-            'the 1d.5 follow-up commit migrates Stitcher to write_tiff(..., color=...).'
-        ),
-    )
     def test_group_algorithm_slice_preserves_color(self, tmp_path, false_color_setting_on):
         rows = []
         for ix, x in enumerate((0.0, 1.0)):
@@ -104,15 +94,24 @@ class TestStitcherGroupAlgorithmCarriesColor:
         )
         assert result['status'], (
             f"_group_algorithm returned status=False: {result.get('error')}. "
-            f'Pre-fix: narrowing the df to [Filepath, X, Y] dropped Color, '
-            f"so _simple_position_stitcher raised KeyError on df['Color']."
+            f'Narrowing the df subset without Color drops the layer the '
+            f"write_tiff routing needs for the colormap gate."
         )
-        out = tf.imread(str(tmp_path / 'stitched.tiff'))
-        assert out.ndim == 3 and out.shape[2] == 3, (
-            f'Stitched output via _group_algorithm with false-color on must '
-            f'save as 3-channel RGB, got shape {out.shape}.'
+        with tf.TiffFile(str(tmp_path / 'stitched.tiff')) as tif:
+            page = tif.pages[0]
+            out = page.asarray()
+            photometric = page.tags['PhotometricInterpretation'].value
+            colormap_tag = page.tags.get('ColorMap')
+        assert out.ndim == 2, (
+            f'Stitched 8-bit fluorescence is mono on disk; layer color rides '
+            f'as the TIFF colormap tag. Got shape {out.shape}.'
         )
-        assert (out[..., 1] == 200).all(), 'Green plane must carry tile value'
+        assert (out == 200).all(), 'Stitched pixels must carry the tile value'
+        assert photometric == tf.PHOTOMETRIC.PALETTE, (
+            f'8-bit fluorescence must save with PALETTE photometric so Windows '
+            f'Preview and FIJI render the layer color. Got {photometric}.'
+        )
+        assert colormap_tag is not None, 'PALETTE photometric requires a ColorMap tag'
 
 
 class TestPostProcessorSkipsFalseColorForTransmitted:

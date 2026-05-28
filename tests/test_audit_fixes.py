@@ -11379,22 +11379,23 @@ class TestProtocolPostProcessorNoBareCvImwrite_F35_2:
         )
 
     def test_stitcher_writes_via_tifffile(self):
-        """Stitcher self-writes its output via tifffile (matches
-        composite_generation + zprojector pattern). Quote-tolerant on
-        the module alias (`tf` vs `tifffile`)."""
+        """Stitcher self-writes its output through the tifffile pathway.
+        Accepts either bare ``tifffile.imwrite`` (legacy direct call) or
+        ``image_utils.write_tiff`` (canonical mono-native wrapper that
+        routes through tifffile internally) -- both satisfy the F35.2
+        intent that the write does NOT go through cv2 (BGR-native)."""
         import re
 
         src = self._stitcher_src()
-        # Accept either alias style: `tf.imwrite(` or
-        # `tifffile.imwrite(`.
         matched = re.search(
-            r'(?:tf|tifffile)\.imwrite\s*\(',
+            r'(?:tf|tifffile)\.imwrite\s*\(|image_utils\.write_tiff\s*\(',
             src,
         )
         assert matched is not None, (
             'F35.2 regression: stitcher must write its stitched output '
-            'via tifffile.imwrite (matches composite_generation + '
-            'zprojector + video_builder + stack_builder pattern).'
+            'through tifffile (either bare tifffile.imwrite or via '
+            'image_utils.write_tiff). The BGR-native cv2 write path is '
+            'permanently retired.'
         )
 
     def test_stitcher_has_no_cv2_imports(self):

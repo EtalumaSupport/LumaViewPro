@@ -261,11 +261,16 @@ class CompositeGeneration(ProtocolPostProcessor):
                 )
                 if output_file_loc is not None:
                     output_file_loc.parent.mkdir(parents=True, exist_ok=True)
-                    tf.imwrite(
-                        str(output_file_loc),
-                        img,
-                        photometric='rgb',
-                        compression='lzw',
+                    reference_input_path = path / df.iloc[0]['Filepath']
+                    metadata = image_utils.build_composite_output_metadata(
+                        reference_input_path=reference_input_path,
+                    )
+                    image_utils.write_tiff(
+                        data=img,
+                        file_loc=output_file_loc,
+                        metadata=metadata,
+                        ome=False,
+                        color='Composite',
                     )
 
         except Exception as e:
@@ -396,24 +401,19 @@ class CompositeGeneration(ProtocolPostProcessor):
         img = result['image']
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
-        if format == 'tiff':
-            tf.imwrite(
-                str(output_path),
-                img,
-                photometric='rgb',
-                compression='lzw',
-            )
-        else:
-            # 'ome-tiff' — axes='YXS' in metadata names the layout for
-            # downstream OME-aware readers (FIJI / ImageJ Bio-Formats).
-            tf.imwrite(
-                str(output_path),
-                img,
-                photometric='rgb',
-                compression='lzw',
-                ome=True,
-                metadata={'axes': 'YXS'},
-            )
+        reference_input_path = (
+            red_path or green_path or blue_path or transmitted_path
+        )
+        metadata = image_utils.build_composite_output_metadata(
+            reference_input_path=pathlib.Path(reference_input_path),
+        )
+        image_utils.write_tiff(
+            data=img,
+            file_loc=output_path,
+            metadata=metadata,
+            ome=(format == 'ome-tiff'),
+            color='Composite',
+        )
 
         return {
             'status': True,
