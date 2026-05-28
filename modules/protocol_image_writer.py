@@ -81,8 +81,6 @@ class ProtocolImageWriter:
         # Allocated lazily on first matching save; re-allocated on shape/dtype change.
         # file_io_executor runs single-threaded, so reuse across saves is safe.
         self._convert_buf_12to16 = None  # PIW-5: 2D uint16, eliminates image.copy() in convert
-        self._false_color_buf = None  # 3D uint16 RGB, in-place destination for add_false_color
-        self._rgb_buf = None  # Retained for API compat; unused -- retire when callers drop it
         self._consecutive_capture_failures = 0
         self._MAX_CONSECUTIVE_CAPTURE_FAILURES = 3
 
@@ -127,22 +125,6 @@ class ProtocolImageWriter:
         ):
             self._convert_buf_12to16 = np.empty(array.shape, dtype=array.dtype)
         return self._convert_buf_12to16
-
-    def _get_false_color_bufs(self, array_2d):
-        """Get-or-allocate the (H, W, 3) BGR + RGB buffers for the false-color save path.
-
-        Both buffers share shape (H, W, 3) and array_2d.dtype. Returned as a tuple
-        (false_color_buf, rgb_buf). Re-allocated together on shape/dtype change.
-        """
-        target_shape = (array_2d.shape[0], array_2d.shape[1], 3)
-        if (
-            self._false_color_buf is None
-            or self._false_color_buf.shape != target_shape
-            or self._false_color_buf.dtype != array_2d.dtype
-        ):
-            self._false_color_buf = np.empty(target_shape, dtype=array_2d.dtype)
-            self._rgb_buf = np.empty(target_shape, dtype=array_2d.dtype)
-        return self._false_color_buf, self._rgb_buf
 
     def capture(
         self,
@@ -628,16 +610,7 @@ class ProtocolImageWriter:
                     and captured_image.dtype == np.uint16
                     and getattr(captured_image, 'ndim', 0) == 2
                 )
-                is_2d_single_channel = (
-                    hasattr(captured_image, 'dtype')
-                    and captured_image.dtype in (np.uint8, np.uint16)
-                    and getattr(captured_image, 'ndim', 0) == 2
-                )
                 out_12to16 = self._get_convert_buf_12to16(captured_image) if is_uint16_2d else None
-                if self._false_color_16bit and is_2d_single_channel:
-                    false_color_buf, rgb_buf = self._get_false_color_bufs(captured_image)
-                else:
-                    false_color_buf, rgb_buf = None, None
                 capture_result = save_image(
                     self._scope,
                     array=captured_image,
@@ -657,8 +630,6 @@ class ProtocolImageWriter:
                     z=step['Z'],
                     use_false_color_16bit=self._false_color_16bit,
                     out_12to16=out_12to16,
-                    false_color_buf=false_color_buf,
-                    rgb_buf=rgb_buf,
                 )
 
             if capture_result is None:
