@@ -492,6 +492,7 @@ class XYStageControl(BoxLayout):
         except Exception:
             logger.debug(f'[LVP Main  ] Invalid X position input: {x_pos!r}')
             return
+        gui_logger.button('SET_X_POSITION', f'plate_mm={x_pos:.3f}')
 
         # x_pos is the the plate position in mm
         # Find the coordinates for the stage
@@ -518,6 +519,7 @@ class XYStageControl(BoxLayout):
         except Exception:
             logger.debug(f'[LVP Main  ] Invalid Y position input: {y_pos!r}')
             return
+        gui_logger.button('SET_Y_POSITION', f'plate_mm={y_pos:.3f}')
 
         # y_pos is the the plate position in mm
         # Find the coordinates for the stage

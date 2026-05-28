@@ -42,6 +42,7 @@ from kivy.uix.widget import Widget
 from kivy.input import MotionEvent
 
 from modules.contrast_stretcher import ContrastStretcher
+from modules import gui_logger
 import modules.autofocus_functions as autofocus_functions
 import modules.common_utils as common_utils
 import modules.app_context as _app_ctx
@@ -357,6 +358,11 @@ class ScopeDisplay(Image):
                 x_dist_um = x_dist_pixel * pixel_size_um
                 y_dist_um = y_dist_pixel * pixel_size_um
 
+                gui_logger.button(
+                    'SCOPE_CLICK_TO_CENTER',
+                    f'dx_um={x_dist_um:.1f} dy_um={y_dist_um:.1f} '
+                    f'pixel_um={pixel_size_um:.3f}',
+                )
                 move_relative_position(axis='X', um=x_dist_um)
                 move_relative_position(axis='Y', um=y_dist_um)
 

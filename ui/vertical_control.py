@@ -171,6 +171,7 @@ class VerticalControl(BoxLayout):
             self._next_pos = float(pos)
         except Exception:
             return
+        gui_logger.slider('Z_POSITION', self._next_pos)
         self.queue_slider_position_trigger()
 
     def queue_slider_position(self):
