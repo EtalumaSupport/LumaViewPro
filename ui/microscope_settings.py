@@ -396,6 +396,11 @@ class MicroscopeSettings(BoxLayout):
             self.ids['live_image_output_format_spinner'].text = settings['image_output_format'][
                 'live'
             ]
+            # JPG quality slider reflects the saved preference; enable
+            # state is set by select_live_image_output_format (JPG only).
+            jpg_quality = int(settings.get('jpg_quality', 90))
+            self.ids['jpg_quality_slider'].value = jpg_quality
+            self.ids['jpg_quality_value_label'].text = str(jpg_quality)
             self.select_live_image_output_format()
 
             # Migrate legacy 'ImageJ Hyperstack' spinner value to the
@@ -786,6 +791,20 @@ class MicroscopeSettings(BoxLayout):
         fmt = self.ids['live_image_output_format_spinner'].text
         gui_logger.select('LIVE_IMAGE_OUTPUT_FORMAT', fmt)
         settings['image_output_format']['live'] = fmt
+        # The JPG quality slider applies only when the live format is JPG;
+        # disable it otherwise so it reads as inert for TIFF / OME-TIFF.
+        is_jpg = fmt == 'JPG'
+        if 'jpg_quality_slider' in self.ids:
+            self.ids['jpg_quality_slider'].disabled = not is_jpg
+            self.ids['jpg_quality_value_label'].disabled = not is_jpg
+
+    def update_jpg_quality(self, value):
+        settings = _app_ctx.ctx.settings
+        quality = int(value)
+        settings['jpg_quality'] = quality
+        if 'jpg_quality_value_label' in self.ids:
+            self.ids['jpg_quality_value_label'].text = str(quality)
+        gui_logger.slider('JPG_QUALITY', quality)
 
     def select_sequenced_image_output_format(self):
         settings = _app_ctx.ctx.settings

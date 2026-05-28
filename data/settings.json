@@ -5,6 +5,7 @@
         "live": "TIFF",
         "sequenced": "TIFF"
     },
+    "jpg_quality": 90,
     "separate_folder_per_channel": false,
     "stage_offset": {
         "x": 5500.0,

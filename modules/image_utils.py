@@ -717,6 +717,43 @@ def encode_image(image: np.ndarray, fmt: str = 'png', jpeg_quality: int = 80) ->
     return buf.tobytes()
 
 
+def encode_display_jpg(array, color, jpeg_quality: int = 90) -> bytes:
+    """Encode an image to JPEG bytes the way it appears on screen.
+
+    JPEG is 8-bit and cannot carry the mono-pixels-plus-color-metadata
+    form the TIFF path uses, so the channel's displayed color is baked
+    into the pixels here: the source is reduced to 8 bits and the false
+    color for the channel is rendered in. BF (and already-color sources)
+    stay grayscale / color. This is the "save what I see" export path;
+    TIFF / OME-TIFF remain the scientific, full-depth, metadata-bearing
+    formats.
+
+    Args:
+        array: Source image (2D mono, 8/12/16-bit) for one channel.
+        color: Channel color label (BF, Blue, Green, Red, Lumi, ...).
+        jpeg_quality: JPEG quality, 1-100.
+
+    Returns:
+        bytes: JPEG-encoded image.
+    """
+    img8 = convert_12bit_to_8bit(array)
+    if img8.ndim == 3:
+        # Already a display RGB image (e.g. a crosshairs / bullseye
+        # overlay). These share the false-color RGB convention, so take
+        # it as RGB rather than re-applying the layer color.
+        rgb = img8
+    else:
+        # Bake the channel's displayed color at this encode boundary
+        # (mono_to_rgb_falsecolor is the canonical mono -> RGB widening;
+        # BF / transmitted layers come back grayscale RGB).
+        rgb = mono_to_rgb_falsecolor(img8, color)
+    # The RGB produced above is R=0,G=1,B=2; cv2 (encode_image) treats a
+    # 3-channel array as BGR, so reverse the channel axis or the saved
+    # JPG would have red and blue swapped.
+    bgr = rgb[:, :, ::-1]
+    return encode_image(bgr, fmt='jpeg', jpeg_quality=jpeg_quality)
+
+
 def convert_12bit_to_8bit(image, out=None):
     if image.dtype == 'uint8':
         return image

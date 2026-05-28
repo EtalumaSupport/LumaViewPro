@@ -124,6 +124,7 @@ class CompositeCapture(FloatLayout):
                 sum_delay_s=sum_delay_s,
                 sum_iteration_callback=sum_iteration_callback,
                 turn_off_all_leds_after=False,
+                jpeg_quality=settings.get('jpg_quality', 90),
             )
 
         else:
@@ -143,6 +144,7 @@ class CompositeCapture(FloatLayout):
                     sum_delay_s=sum_delay_s,
                     sum_iteration_callback=sum_iteration_callback,
                     turn_off_all_leds_after=False,
+                    jpeg_quality=settings.get('jpg_quality', 90),
                 )
 
             image_orig = ctx.scope.imaging.capture_and_wait(force_to_8bit=force_to_8bit_pixel_depth)
@@ -170,6 +172,7 @@ class CompositeCapture(FloatLayout):
                 color=color,
                 tail_id_mode=None,
                 output_format=settings['image_output_format']['live'],
+                jpeg_quality=settings.get('jpg_quality', 90),
             )
 
             if use_bullseye:
@@ -192,6 +195,7 @@ class CompositeCapture(FloatLayout):
                 color=color,
                 tail_id_mode=None,
                 output_format=settings['image_output_format']['live'],
+                jpeg_quality=settings.get('jpg_quality', 90),
             )
 
     # capture and save a composite image using the current settings

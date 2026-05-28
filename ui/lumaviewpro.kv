@@ -2173,7 +2173,7 @@
 				height: '30dp'
 				Label:
 					text: 'Live Image Format'
-					tooltip_text: 'Choose between TIFF and OME-TIFF\nfor live image capture'
+					tooltip_text: 'TIFF / OME-TIFF (scientific, full depth) or\nJPG (8-bit, lossy, displayed color baked in)\nfor live image capture'
 					halign: 'left'
 					valign: 'middle'
 					text_size: self.size
@@ -2186,7 +2186,36 @@
 					option_cls: "SpinnerOption0"
 					text_autoupdate: True
 					on_text: root.select_live_image_output_format()
-					values: ('TIFF', 'OME-TIFF')
+					values: ('TIFF', 'OME-TIFF', 'JPG')
+
+			BoxLayout:
+				id: jpg_quality_row
+				orientation: 'horizontal'
+				size_hint_y: None
+				height: '30dp'
+				Label:
+					text: 'JPG Quality'
+					tooltip_text: 'JPEG quality 1-100. Higher = better image, larger file. Only used when Live Image Format is JPG.'
+					halign: 'left'
+					valign: 'middle'
+					text_size: self.size
+					font_size: '12sp'
+					size_hint_x: 0.5
+				ModSlider:
+					id: jpg_quality_slider
+					min: 0
+					max: 100
+					step: 5
+					value: 90
+					size_hint_x: 0.4
+					on_value: root.update_jpg_quality(self.value)
+				Label:
+					id: jpg_quality_value_label
+					text: '90'
+					halign: 'center'
+					valign: 'middle'
+					font_size: '12sp'
+					size_hint_x: 0.1
 
 			BoxLayout:
 				orientation: 'horizontal'

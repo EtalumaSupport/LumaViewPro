@@ -121,6 +121,8 @@ def generate_image_save_path(
 
     if output_format == 'OME-TIFF':
         file_extension = '.ome.tiff'
+    elif output_format == 'JPG':
+        file_extension = '.jpg'
     else:
         file_extension = '.tiff'
 
@@ -386,6 +388,7 @@ def save_image(
     out_12to16: np.ndarray | None = None,
     false_color_buf: np.ndarray | None = None,
     rgb_buf: np.ndarray | None = None,
+    jpeg_quality: int = 90,
 ) -> str:
     """Save an image array to a TIFF file with metadata.
 
@@ -397,7 +400,7 @@ def save_image(
         append: String appended to filename.
         color: Color label for the filename.
         tail_id_mode: "increment" for auto-numbered files, or None.
-        output_format: "TIFF" or "OME-TIFF".
+        output_format: "TIFF", "OME-TIFF", or "JPG".
         true_color: Actual channel color for metadata.
         x: Stage X position in um.
         y: Stage Y position in um.
@@ -408,6 +411,8 @@ def save_image(
         out_12to16: Preallocated 12-to-16-bit conversion buffer.
         false_color_buf: Preallocated false-color buffer.
         rgb_buf: Preallocated RGB buffer.
+        jpeg_quality: JPEG quality 1-100, used only when output_format
+            is "JPG".
 
     Returns:
         str: Path to the saved file.
@@ -453,16 +458,27 @@ def save_image(
         ome = False
 
     try:
-        image_utils.write_tiff(
-            data=image,
-            file_loc=file_loc,
-            metadata=metadata,
-            ome=ome,
-            color=color,
-            use_false_color_16bit=use_false_color_16bit,
-            false_color_buf=false_color_buf,
-            rgb_buf=rgb_buf,
-        )
+        if output_format == 'JPG':
+            # Convenience / sharing export: bake the displayed channel
+            # color into 8-bit pixels and write a JPEG. Encode from the
+            # raw camera array (not the TIFF-prepared image) so the JPG
+            # matches the live preview. No metadata is embedded; TIFF /
+            # OME-TIFF remain the metadata-bearing scientific formats.
+            jpg_bytes = image_utils.encode_display_jpg(
+                array, color, jpeg_quality=jpeg_quality
+            )
+            pathlib.Path(file_loc).write_bytes(jpg_bytes)
+        else:
+            image_utils.write_tiff(
+                data=image,
+                file_loc=file_loc,
+                metadata=metadata,
+                ome=ome,
+                color=color,
+                use_false_color_16bit=use_false_color_16bit,
+                false_color_buf=false_color_buf,
+                rgb_buf=rgb_buf,
+            )
 
         logger.info(f'[SCOPE API ] Saving Image to {file_loc}')
     except Exception:
@@ -499,6 +515,7 @@ def save_live_image(
     sum_iteration_callback=None,
     turn_off_all_leds_after: bool = False,
     use_executor: bool = False,
+    jpeg_quality: int = 90,
 ) -> str | None:
     """Grab the current live image from the camera and save to a TIFF file.
 
@@ -523,6 +540,8 @@ def save_live_image(
         sum_iteration_callback: Called after each summed frame.
         turn_off_all_leds_after: Turn off all LEDs after capture.
         use_executor: Reserved for future use.
+        jpeg_quality: JPEG quality 1-100, used only when output_format
+            is "JPG".
 
     Returns:
         str | None: Path to saved file, or None on failure.
@@ -553,4 +572,5 @@ def save_live_image(
         tail_id_mode,
         output_format=output_format,
         true_color=true_color,
+        jpeg_quality=jpeg_quality,
     )
