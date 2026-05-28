@@ -479,6 +479,18 @@ class ScopeDisplay(Image):
     # FPS pacing, generation, hold-deadline all live on the thread.
     pass
 
+    @staticmethod
+    def _eng_stats_due(open_layer, use_bullseye, now, last_time, interval=0.5):
+        """Whether engineering stats should be computed this frame.
+
+        open_layer is None when every layer accordion is collapsed, so the
+        stats are off-screen. Gate the whole compute on it -- not just the UI
+        dispatch -- so mean / std / focus do not run on hidden frames.
+        """
+        if open_layer is None or use_bullseye:
+            return False
+        return now - last_time >= interval
+
     def set_engineering_ui(self, mean, stddev, af_score, open_layer):
         ctx = _app_ctx.ctx
         open_layer_obj = ctx.image_settings.layer_lookup(layer=open_layer)
@@ -649,7 +661,9 @@ class ScopeDisplay(Image):
 
             # Engineering stats: 2x per second (time-based, not frame-based)
             now_eng = time.monotonic()
-            if now_eng - self._eng_stats_last_time >= 0.5 and not self.use_bullseye:
+            if self._eng_stats_due(
+                open_layer, self.use_bullseye, now_eng, self._eng_stats_last_time
+            ):
                 self._eng_stats_last_time = now_eng
                 t_eng_start = time.monotonic()
                 mean = round(np.mean(a=image), 2)
@@ -657,10 +671,9 @@ class ScopeDisplay(Image):
                 af_score = autofocus_functions.focus_function(image=image, skip_score_logging=True)
                 t_eng_stats = time.monotonic() - t_eng_start
 
-                if open_layer is not None:
-                    Clock.schedule_once(
-                        lambda dt: self.set_engineering_ui(mean, stddev, af_score, open_layer), 0
-                    )
+                Clock.schedule_once(
+                    lambda dt: self.set_engineering_ui(mean, stddev, af_score, open_layer), 0
+                )
 
         if self.use_bullseye:
             now_be = time.monotonic()
