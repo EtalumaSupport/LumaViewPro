@@ -325,6 +325,113 @@ def build_composite_output_metadata(reference_input_path: pathlib.Path) -> dict:
     return metadata
 
 
+def build_hyperstack_output_metadata(
+    reference_input_path: pathlib.Path,
+    *,
+    channel_names: list[str],
+    plane_positions: dict,
+    significant_bits: int,
+    pixel_size_um: float,
+) -> dict:
+    """Build a TZCYX hyperstack OME metadata dict for ``tf.imwrite``.
+
+    Reads acquisition context from one input-frame TIFF and reshapes
+    it into the OME hyperstack schema that tifffile consumes when
+    ``ome=True`` + ``axes='TZCYX'``. Per-plane positions arrive as
+    parallel lists (one entry per T*Z*C plane in scan order); they land
+    in the OME-XML ``<Plane>`` elements via tifffile's per-axis list
+    convention.
+
+    Pixel size is supplied separately rather than read from the input
+    because hyperstacks may use a different binning configuration than
+    the source captures; the caller passes the derived pixel_size_um.
+
+    Tifffile-OME-XML constraint: the underlying tifffile serializer
+    writes only Image > Pixels > Channel + Plane to OME-XML. Instrument,
+    Objective, and Plate keys in the metadata dict are silently dropped
+    by tifffile -- they remain in the returned dict for future-proofing
+    (if tifffile gains broader OME schema coverage), but consumers
+    cannot read those fields from current hyperstack outputs. Closing
+    the Instrument/Plate provenance gap requires either hand-rolled
+    OME-XML or a private-tag JSON sidecar; both deferred as separate
+    work.
+
+    Args:
+        reference_input_path: One input frame TIFF; acquisition context
+            is read from here. All hyperstack input frames share these
+            shared fields (same site, same objective, same scope).
+        channel_names: One channel name per C-axis position.
+        plane_positions: Dict with PositionX / PositionY / PositionZ
+            lists, one entry per T*Z*C plane in scan order. Caller is
+            responsible for list-length consistency with the data
+            array.
+        significant_bits: 8 for uint8 captures, 16 for uint16.
+        pixel_size_um: Hyperstack pixel size in microns.
+
+    Returns:
+        OME-shaped metadata dict; pass to ``tf.imwrite(..., metadata=)``.
+    """
+    inflat = read_postproc_input_metadata(reference_input_path) or {}
+
+    num_planes = len(plane_positions['PositionX'])
+
+    metadata: dict = {
+        'axes': 'TZCYX',
+        'SignificantBits': significant_bits,
+        'Pixels': {
+            'PhysicalSizeX': pixel_size_um,
+            'PhysicalSizeXUnit': 'um',
+            'PhysicalSizeY': pixel_size_um,
+            'PhysicalSizeYUnit': 'um',
+        },
+        'Channel': {'Name': channel_names},
+        'Plane': {
+            'PositionX': plane_positions['PositionX'],
+            'PositionY': plane_positions['PositionY'],
+            'PositionZ': plane_positions['PositionZ'],
+            'PositionXUnit': ['mm'] * num_planes,
+            'PositionYUnit': ['mm'] * num_planes,
+            'PositionZUnit': ['um'] * num_planes,
+        },
+    }
+
+    objective_dict = inflat.get('objective') or {}
+    instrument = inflat.get('instrument') or {}
+    plate = inflat.get('plate') or {}
+    if instrument:
+        metadata['Instrument'] = {
+            'Microscope': {
+                'Manufacturer': instrument.get('manufacturer') or 'Etaluma',
+                'Model': instrument.get('model') or '',
+                'SerialNumber': instrument.get('serial_number') or '',
+                'FirmwareVersion': instrument.get('firmware_version') or '',
+            },
+            'Objective': {
+                'Model': objective_dict.get('model') or '',
+                'Manufacturer': objective_dict.get('manufacturer') or '',
+                'Magnification': objective_dict.get('magnification'),
+                'LensNA': objective_dict.get('aperture'),
+                'WorkingDistance': objective_dict.get('working_distance'),
+                'Immersion': objective_dict.get('immersion') or 'Air',
+            },
+            'Detector': {
+                'Model': instrument.get('camera_model') or '',
+                'Type': 'CMOS',
+            },
+        }
+    if plate.get('rows') and plate.get('columns'):
+        metadata['Plate'] = {
+            'Name': plate.get('name') or '',
+            'Rows': plate.get('rows'),
+            'Columns': plate.get('columns'),
+            'WellLabel': inflat.get('well_label', ''),
+        }
+        if plate.get('standard'):
+            metadata['Plate']['Standard'] = plate['standard']
+
+    return metadata
+
+
 def imread_color(path, *, is_color_native: bool = False) -> 'np.ndarray':
     """Color-camera-aware image read. Phase 2 activation pending.
 

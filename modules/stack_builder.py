@@ -144,17 +144,10 @@ class StackBuilder(ProtocolPostProcessor):
         binning_size: int,
         focal_length: float,
     ):
-
-        axes = 'TZCYX'
-        photometric = 'minisblack'
-
         channel_names = df['Color'].unique().tolist()
-        z_vals = df['Z'].unique().tolist()
         row0 = df.iloc[0]
-
-        num_t = df['Scan Count'].nunique()
-        num_z = df['Z-Slice'].nunique()
-        num_c = df['Color'].nunique()
+        sample_image_file_loc = path / row0['Filepath']
+        sample_image = tf.imread(sample_image_file_loc)
 
         pixel_size_um = round(
             common_utils.get_pixel_size(
@@ -164,24 +157,20 @@ class StackBuilder(ProtocolPostProcessor):
             common_utils.max_decimal_precision('pixel_size'),
         )
 
-        row0 = df.iloc[0]
-        sample_image_file_loc = path / row0['Filepath']
-        sample_image = tf.imread(sample_image_file_loc)
-
-        metadata = {
-            'axes': axes,
-            'SignificantBits': sample_image.itemsize * 8,
-            'Pixels': {
-                'PhysicalSizeX': pixel_size_um,
-                'PhysicalSizeXUnit': 'um',
-                'PhysicalSizeY': pixel_size_um,
-                'PhysicalSizeYUnit': 'um',
+        metadata = image_utils.build_hyperstack_output_metadata(
+            reference_input_path=sample_image_file_loc,
+            channel_names=channel_names,
+            plane_positions={
+                'PositionX': plane_metadata['PositionX'],
+                'PositionY': plane_metadata['PositionY'],
+                'PositionZ': plane_metadata['PositionZ'],
             },
-            'Channel': {'Name': channel_names},
-        }
+            significant_bits=sample_image.itemsize * 8,
+            pixel_size_um=pixel_size_um,
+        )
 
         options = dict(
-            photometric=photometric,
+            photometric='minisblack',
             tile=(128, 128),
             compression='lzw',
             resolutionunit='CENTIMETER',

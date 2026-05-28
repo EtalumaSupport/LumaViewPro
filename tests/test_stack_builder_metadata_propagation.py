@@ -1,0 +1,340 @@
+"""Regression: stack_builder propagates per-plane positions + acquisition
+context into hyperstack OME-XML output.
+
+Bug shape (pre-fix): StackBuilder._create_stack collected per-plane
+PositionX/Y/Z lists from the dataframe and passed them to
+``_generate_image_metadata`` as the ``plane_metadata`` parameter, but
+the function ignored the parameter -- the positions were silently
+dropped from the OME-XML <Plane> elements. Multi-tile T-series Z-stacks
+saved with no per-plane provenance. Downstream FIJI / OME-aware readers
+could not reconstruct plane positions for the hyperstack.
+
+Additionally, ``_generate_image_metadata`` wrote only a minimal OME
+block (axes + SignificantBits + Pixels (size+unit) + Channel.Name). It
+did not propagate forward the source captures' objective, instrument,
+or plate metadata -- so hyperstacks lost all acquisition provenance
+that the per-frame TIFFs carry.
+
+Fix: route through ``image_utils.build_hyperstack_output_metadata``
+which (1) writes the plane_metadata lists into the OME Plane subdict
+so they reach the <Plane> XML elements; (2) reads structured metadata
+from one input frame and propagates Instrument + Plate + Objective
+forward.
+"""
+
+from __future__ import annotations
+
+import pathlib
+from unittest.mock import MagicMock
+
+import numpy as np
+import pandas as pd
+import pytest
+import tifffile as tf
+
+from modules import image_utils
+from modules import stack_builder as stack_builder_module
+from modules.stack_builder import StackBuilder
+
+
+@pytest.fixture(autouse=True)
+def _real_available_memory(monkeypatch):
+    """Conftest mocks psutil globally, leaving virtual_memory().available
+    a MagicMock that can't be compared with int. The hyperstack memory
+    pre-check needs a real int; route to a generous 16 GB sentinel so
+    the check passes for small test arrays."""
+    mem = MagicMock()
+    mem.available = 16 * 1024 * 1024 * 1024
+    monkeypatch.setattr(
+        stack_builder_module.psutil, 'virtual_memory', lambda: mem
+    )
+
+
+def _write_structured_input(
+    path: pathlib.Path,
+    *,
+    channel: str,
+    plate_pos_mm: dict,
+    z_pos_um: float,
+    value: int = 100,
+) -> None:
+    """Write a per-frame TIFF via image_utils.write_tiff so it carries
+    structured acquisition metadata (the realistic input shape for
+    stack_builder)."""
+    arr = np.full((4, 4), value, dtype=np.uint8)
+    image_utils.write_tiff(
+        data=arr,
+        file_loc=path,
+        metadata={
+            'datetime': '2026-05-27T12:00:00',
+            'plate_pos_mm': plate_pos_mm,
+            'z_pos_um': z_pos_um,
+            'objective': {
+                'model': 'PlanFluor20x',
+                'manufacturer': 'Nikon',
+                'magnification': 20,
+                'aperture': 0.45,
+                'working_distance': 8.1,
+                'immersion': 'Air',
+            },
+            'exposure_time_ms': 50.0,
+            'gain_db': 3.0,
+            'illumination_ma': 75.0,
+            'pixel_size_um': 0.5,
+            'channel': channel,
+            'instrument': {
+                'manufacturer': 'Etaluma',
+                'model': 'LS720',
+                'serial_number': 'SN12062',
+                'firmware_version': '4.0.0-beta14',
+                'camera_model': 'Basler a2A1920',
+            },
+            'plate': {
+                'name': '96-well',
+                'rows': 8,
+                'columns': 12,
+            },
+            'well_label': 'A1',
+        },
+        ome=False,
+        color=channel,
+    )
+
+
+class TestStackBuilderPropagatesPlanePositions:
+    """Per-plane PositionX/Y/Z must reach the OME-XML <Plane> elements.
+    Pre-fix: positions were collected then ignored by
+    _generate_image_metadata, silently dropped from the output."""
+
+    def test_z_stack_plane_positions_land_in_ome_xml(self, tmp_path):
+        # Build a single-channel Z-stack: 1 T x 3 Z x 1 C.
+        # Plane positions distinguishable: Z = 100.0, 110.0, 120.0 um.
+        z_positions = [100.0, 110.0, 120.0]
+        plate_pos = {'x': 12.5, 'y': 8.25}
+        rows = []
+        for z_idx, z_val in enumerate(z_positions):
+            fname = f'frame_t0_z{z_idx}_c0.tiff'
+            _write_structured_input(
+                tmp_path / fname,
+                channel='Green',
+                plate_pos_mm=plate_pos,
+                z_pos_um=z_val,
+                value=50 + z_idx * 10,
+            )
+            rows.append({
+                'Filepath': fname,
+                'Color': 'Green',
+                'Scan Count': 0,
+                'Z-Slice': z_idx,
+                'X': plate_pos['x'],
+                'Y': plate_pos['y'],
+                'Z': z_val,
+            })
+        df = pd.DataFrame(rows)
+
+        output_file_loc = pathlib.Path('out.ome.tiff')
+        result = StackBuilder._create_stack(
+            path=tmp_path,
+            df=df,
+            output_file_loc=output_file_loc,
+            focal_length=47.8,
+            binning_size=1,
+        )
+        assert result['status'], f'_create_stack failed: {result.get("error")}'
+
+        with tf.TiffFile(str(tmp_path / output_file_loc)) as tif:
+            ome_xml = tif.ome_metadata or ''
+
+        # OME-XML should contain one <Plane> per T*Z*C plane (1*3*1 = 3).
+        assert ome_xml.count('<Plane ') == 3, (
+            f'Hyperstack must emit one OME <Plane> per T*Z*C plane '
+            f'(expected 3, got {ome_xml.count("<Plane ")}).'
+        )
+
+        # Each plane must carry its PositionZ -- the bug pre-fix dropped
+        # these silently.
+        for z_val in z_positions:
+            assert f'PositionZ="{z_val}"' in ome_xml, (
+                f'Expected PositionZ="{z_val}" in OME-XML <Plane> element; '
+                f'missing means plane positions are not propagating into '
+                f'the hyperstack output (regression of the plane_metadata-'
+                f'ignored bug).'
+            )
+
+    def test_z_stack_plane_xy_positions_land_in_ome_xml(self, tmp_path):
+        # Distinguishable X/Y across planes -- catches a regression that
+        # only writes the first plane's position.
+        positions = [
+            (10.0, 5.0, 100.0),
+            (11.0, 6.0, 110.0),
+            (12.0, 7.0, 120.0),
+        ]
+        rows = []
+        for z_idx, (x, y, z) in enumerate(positions):
+            fname = f'frame_z{z_idx}.tiff'
+            _write_structured_input(
+                tmp_path / fname,
+                channel='Green',
+                plate_pos_mm={'x': x, 'y': y},
+                z_pos_um=z,
+            )
+            rows.append({
+                'Filepath': fname,
+                'Color': 'Green',
+                'Scan Count': 0,
+                'Z-Slice': z_idx,
+                'X': x,
+                'Y': y,
+                'Z': z,
+            })
+        df = pd.DataFrame(rows)
+
+        StackBuilder._create_stack(
+            path=tmp_path,
+            df=df,
+            output_file_loc=pathlib.Path('out.ome.tiff'),
+            focal_length=47.8,
+            binning_size=1,
+        )
+        with tf.TiffFile(str(tmp_path / 'out.ome.tiff')) as tif:
+            ome_xml = tif.ome_metadata or ''
+
+        for x, y, _ in positions:
+            assert f'PositionX="{x}"' in ome_xml, (
+                f'PositionX="{x}" missing from OME-XML; per-plane X '
+                f'positions not propagating to hyperstack output.'
+            )
+            assert f'PositionY="{y}"' in ome_xml, (
+                f'PositionY="{y}" missing from OME-XML; per-plane Y '
+                f'positions not propagating to hyperstack output.'
+            )
+
+
+class TestStackBuilderPropagatesPixelSizeAndChannels:
+    """Hyperstack output must carry forward the schema fields tifffile's
+    OME serializer accepts: PhysicalSizeX/Y, Channel.Name list, and
+    per-plane positions. Instrument / Plate / Objective are not asserted
+    here -- tifffile's OME-XML writer silently drops those elements
+    regardless of where they're placed in the metadata dict. Closing
+    that gap is a separate follow-up (hand-rolled OME-XML or extratags
+    sidecar)."""
+
+    def test_pixel_size_in_ome_xml(self, tmp_path):
+        rows = []
+        for z_idx in range(2):
+            fname = f'frame_z{z_idx}.tiff'
+            _write_structured_input(
+                tmp_path / fname,
+                channel='Red',
+                plate_pos_mm={'x': 0.0, 'y': 0.0},
+                z_pos_um=float(z_idx) * 10,
+            )
+            rows.append({
+                'Filepath': fname,
+                'Color': 'Red',
+                'Scan Count': 0,
+                'Z-Slice': z_idx,
+                'X': 0.0,
+                'Y': 0.0,
+                'Z': float(z_idx) * 10,
+            })
+        df = pd.DataFrame(rows)
+
+        StackBuilder._create_stack(
+            path=tmp_path,
+            df=df,
+            output_file_loc=pathlib.Path('out.ome.tiff'),
+            focal_length=47.8,
+            binning_size=1,
+        )
+        with tf.TiffFile(str(tmp_path / 'out.ome.tiff')) as tif:
+            ome_xml = tif.ome_metadata or ''
+
+        assert 'PhysicalSizeX=' in ome_xml, (
+            'Hyperstack OME-XML must declare PhysicalSizeX so consumers '
+            'can compute on-screen scale bars.'
+        )
+        assert 'PhysicalSizeXUnit="um"' in ome_xml, (
+            'PhysicalSizeX must declare its unit (microns).'
+        )
+
+    def test_channel_names_in_ome_xml(self, tmp_path):
+        rows = []
+        for channel in ('Green', 'Red'):
+            for z_idx in range(2):
+                fname = f'frame_{channel}_z{z_idx}.tiff'
+                _write_structured_input(
+                    tmp_path / fname,
+                    channel=channel,
+                    plate_pos_mm={'x': 0.0, 'y': 0.0},
+                    z_pos_um=float(z_idx) * 10,
+                )
+                rows.append({
+                    'Filepath': fname,
+                    'Color': channel,
+                    'Scan Count': 0,
+                    'Z-Slice': z_idx,
+                    'X': 0.0,
+                    'Y': 0.0,
+                    'Z': float(z_idx) * 10,
+                })
+        df = pd.DataFrame(rows)
+
+        StackBuilder._create_stack(
+            path=tmp_path,
+            df=df,
+            output_file_loc=pathlib.Path('out.ome.tiff'),
+            focal_length=47.8,
+            binning_size=1,
+        )
+        with tf.TiffFile(str(tmp_path / 'out.ome.tiff')) as tif:
+            ome_xml = tif.ome_metadata or ''
+
+        assert 'Name="Green"' in ome_xml, (
+            'Green channel name must reach OME-XML <Channel> element.'
+        )
+        assert 'Name="Red"' in ome_xml, (
+            'Red channel name must reach OME-XML <Channel> element.'
+        )
+
+
+class TestStackBuilderHandlesInputsWithoutStructuredMetadata:
+    """Inputs from bare tf.imwrite (test fixtures, external pipelines)
+    have no structured metadata. Stack builder must still produce a
+    valid hyperstack output -- fall back to minimal defaults rather
+    than crashing."""
+
+    def test_bare_input_falls_back_gracefully(self, tmp_path):
+        rows = []
+        for z_idx in range(2):
+            fname = f'frame_z{z_idx}.tiff'
+            # Bare tf.imwrite -- no structured metadata.
+            tf.imwrite(
+                str(tmp_path / fname),
+                np.full((4, 4), 100, dtype=np.uint8),
+                compression='lzw',
+            )
+            rows.append({
+                'Filepath': fname,
+                'Color': 'Green',
+                'Scan Count': 0,
+                'Z-Slice': z_idx,
+                'X': 0.0,
+                'Y': 0.0,
+                'Z': float(z_idx),
+            })
+        df = pd.DataFrame(rows)
+
+        result = StackBuilder._create_stack(
+            path=tmp_path,
+            df=df,
+            output_file_loc=pathlib.Path('out.ome.tiff'),
+            focal_length=47.8,
+            binning_size=1,
+        )
+        assert result['status'], (
+            f'Bare-input fallback path must not crash: {result.get("error")}'
+        )
+        # Output should still be a valid OME-TIFF.
+        with tf.TiffFile(str(tmp_path / 'out.ome.tiff')) as tif:
+            assert tif.is_ome, 'Hyperstack output must remain OME-tagged'
