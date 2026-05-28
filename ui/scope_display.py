@@ -114,7 +114,6 @@ class ScopeDisplay(Image):
         self._perf_process_times = []
         self._perf_blit_schedule_times = []
         self._perf_blit_delays = []
-        self._debug_perf = None  # lazy-resolved from settings.debug_mode on first frame
 
         # Bullseye frame rate cap (15 FPS -- CPU-intensive LUT rendering)
         self._bullseye_min_interval = 1.0 / BULLSEYE_FPS_CAP
@@ -501,6 +500,17 @@ class ScopeDisplay(Image):
         """
         return bool(ctx is not None and ctx.settings.get('focus_score_enabled', False))
 
+    @staticmethod
+    def _debug_perf_enabled(ctx):
+        """Whether [PERF] instrumentation is enabled (settings.debug_mode).
+
+        Read live each frame so a runtime debug_mode change takes effect. The
+        previous first-frame cache froze at whatever debug_mode was when the
+        first frame arrived -- if that was before settings finished loading it
+        stuck at False and [PERF] never logged even after debug_mode went on.
+        """
+        return bool(ctx is not None and ctx.settings.get('debug_mode', False))
+
     def set_engineering_ui(self, mean, stddev, af_score, open_layer):
         ctx = _app_ctx.ctx
         open_layer_obj = ctx.image_settings.layer_lookup(layer=open_layer)
@@ -627,10 +637,7 @@ class ScopeDisplay(Image):
         t_grab_end = time.monotonic()
 
         # Record queue wait for perf logging (settings.debug_mode only).
-        # On the very first frame _debug_perf is None (resolved below); we
-        # miss one queue-wait sample, which is irrelevant given the 5-second
-        # log window.
-        if self._debug_perf:
+        if self._debug_perf_enabled(ctx):
             self._perf_blit_schedule_times.append(t_queue_wait)
 
         # Capture FPS tracking + camera data rate
@@ -731,14 +738,11 @@ class ScopeDisplay(Image):
             # Publish for thread.add_frame_listener fan-out
             self._last_rendered_frame = (image_bytes, image_shape, t_blit_scheduled)
 
-            # Performance instrumentation gated on settings.debug_mode, cached on
-            # the first frame. This mirrors the debug_mode gate lvp_logger uses to
-            # set the LVP logger level + lift DEBUG suppression, so the [PERF]
-            # logger.debug below actually reaches the log when debug_mode is on.
-            if self._debug_perf is None:
-                ctx = _app_ctx.ctx
-                self._debug_perf = bool(ctx is not None and ctx.settings.get('debug_mode', False))
-            if self._debug_perf:
+            # Performance instrumentation gated on settings.debug_mode. Mirrors
+            # the debug_mode gate lvp_logger uses to set the LVP logger level +
+            # lift DEBUG suppression, so the [PERF] logger.debug below reaches
+            # the log when debug_mode is on.
+            if self._debug_perf_enabled(ctx):
                 self._perf_grab_times.append(t_grab_end - t_grab_start)
                 self._perf_process_times.append(t_process_end - t_process_start)
                 now_perf = time.monotonic()
@@ -814,7 +818,7 @@ class ScopeDisplay(Image):
     def create_and_set_texture(self, image_bytes, shape, scheduled_time=0, generation=0):
         if generation != self._current_generation():
             return  # Stale callback from previous start/stop cycle
-        if scheduled_time and self._debug_perf:
+        if scheduled_time and self._debug_perf_enabled(_app_ctx.ctx):
             blit_delay = (time.monotonic() - scheduled_time) * 1000
             self._perf_blit_delays.append(blit_delay)
             if blit_delay > 100:
