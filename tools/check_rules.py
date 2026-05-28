@@ -13,8 +13,15 @@ in untouched lines are not blocked. Use --all to flag every violation in
 every modified file (useful for cleanup sweeps).
 
 Rules implemented:
-    rule_24  -- ASCII-only in strings passed to logger / print / notifications
-                (.py); ASCII-only over the entire file (.kv)
+    rule_24  -- ASCII-only over the full source text per CLAUDE.md spec
+                ('every string ... every comment ... every docstring ...
+                every identifier in .py / .c / .h / .kv / similar files').
+                Source-text scan (not AST), so escape sequences like
+                '\\r\\n' read as ASCII source even though the resolved
+                string value contains U+000D. File-level exempt:
+                test_check_rules*.py. Line-level exempt registry:
+                _RULE_24_LINE_EXEMPT (load-bearing literals only).
+                Same source-text scan applied to .kv files.
     rule_27a -- no `# TODO` / `# FIXME` / `# XXX` in source comments
     rule_27b -- no rule / audit / session / smoke / wave / phase IDs in comments
     rule_27d -- same patterns as 27b but applied to docstrings
@@ -87,22 +94,6 @@ _NOTIFICATIONS_METHODS = frozenset({'info', 'warning', 'error', 'critical'})
 _PRINT_NAMES = frozenset({'print'})
 
 
-def _is_logger_or_notification_call(node: ast.AST) -> bool:
-    if not isinstance(node, ast.Call):
-        return False
-    fn = node.func
-    if isinstance(fn, ast.Name) and fn.id in _PRINT_NAMES:
-        return True
-    if isinstance(fn, ast.Attribute) and isinstance(fn.value, ast.Name):
-        base = fn.value.id
-        attr = fn.attr
-        if base in _LOGGER_BASES and attr in _LOGGER_METHODS:
-            return True
-        if base in _NOTIFICATIONS_BASES and attr in _NOTIFICATIONS_METHODS:
-            return True
-    return False
-
-
 def _is_notification_call(node: ast.AST) -> bool:
     if not isinstance(node, ast.Call):
         return False
@@ -141,37 +132,76 @@ def _arg_string_constants(call: ast.Call) -> list[tuple[str, int, int]]:
     return results
 
 
-def _check_rule_24(tree: ast.Module, path: str) -> list[Violation]:
+_RULE_24_LINE_EXEMPT: dict[str, frozenset[int]] = {
+    # CLI progress-bar block glyphs (U+2588 / U+2591) -- functional
+    # output; intentionally non-ASCII for terminal rendering.
+    'modules/tech_support_report.py': frozenset({2475}),
+    # Test asserts LumascopeSkills.md handles both U+2026 and '...';
+    # the unicode literal IS the test fixture, replacing it tautologizes.
+    'tests/test_audit_fixes.py': frozenset({9716}),
+}
+
+
+def _is_rule_24_exempt(path: str) -> bool:
+    """File-level exempt: test files whose purpose is to construct
+    synthetic non-ASCII fixtures for the rule_24 check itself. Pattern
+    matches test_check_rules*.py (sibling variants like rule_24_kv).
+    """
+    norm = path.replace('\\', '/')
+    basename = norm.rsplit('/', 1)[-1]
+    return basename.startswith('test_check_rules')
+
+
+def _rule_24_line_exempt(path: str, line: int) -> bool:
+    norm = path.replace('\\', '/')
+    return line in _RULE_24_LINE_EXEMPT.get(norm, frozenset())
+
+
+def _check_rule_24(source: str, path: str) -> list[Violation]:
+    """ASCII-only check over the full source text.
+
+    Per CLAUDE.md Rule 24, every string + every comment + every
+    docstring + every identifier in .py / .c / .h / .kv files must be
+    ASCII (0x20-0x7E plus tab + newline). Source-text line scan; this
+    correctly excludes escape sequences like '\\r\\n' (the source bytes
+    are ASCII even though the resolved string value contains U+000D).
+
+    Exemptions:
+      - File-level for `test_check_rules*.py` (synthetic fixtures).
+      - Line-level via `_RULE_24_LINE_EXEMPT` (load-bearing literals).
+    """
+    if _is_rule_24_exempt(path):
+        return []
     violations: list[Violation] = []
-    for node in ast.walk(tree):
-        if not _is_logger_or_notification_call(node):
+    for ln, line in enumerate(source.splitlines(), start=1):
+        m = _NON_ASCII.search(line)
+        if not m:
             continue
-        for s, ln, col in _arg_string_constants(node):
-            m = _NON_ASCII.search(s)
-            if not m:
-                continue
-            ch = m.group(0)
-            violations.append(
-                Violation(
-                    path,
-                    ln,
-                    col,
-                    'rule_24',
-                    f'non-ASCII char {ch!r} (U+{ord(ch):04X}) in logger/print/notification '
-                    f"string; use ASCII (e.g. 'degC' not the degree sign)",
-                )
+        if _rule_24_line_exempt(path, ln):
+            continue
+        ch = m.group(0)
+        violations.append(
+            Violation(
+                path,
+                ln,
+                m.start(),
+                'rule_24',
+                f"non-ASCII char {ch!r} (U+{ord(ch):04X}) in source; "
+                f"use ASCII (e.g. 'degC' not the degree sign, '--' not "
+                f"the em-dash, 'um' not the micro sign)",
             )
+        )
     return violations
 
 
 def _check_rule_24_kv(content: str, path: str) -> list[Violation]:
     """Rule 24 ASCII-only check for .kv files.
 
-    Unlike the .py path (which AST-parses just logger/print/notification
-    arg strings), .kv files have no AST gate -- the rule covers the
-    entire file per CLAUDE.md ("every string in source, every comment,
-    every docstring ... in .py / .c / .h / .kv / similar code files").
-    Plain regex byte-scan per line.
+    .kv files have no AST gate; the rule covers the entire file per
+    CLAUDE.md ("every string in source, every comment, every docstring
+    ... in .py / .c / .h / .kv / similar code files"). Same shape as
+    `_check_rule_24` for .py; separate function because .kv has no
+    file-level exempt today.
     """
     violations: list[Violation] = []
     for ln, line in enumerate(content.splitlines(), start=1):
@@ -538,6 +568,8 @@ def _check_rule_42(source: str, path: str) -> list[Violation]:
 def check_source(content: str, path: str) -> list[Violation]:
     """Run all enabled rule checks against one source file's content."""
     violations: list[Violation] = []
+    # Rule 24 is text-scan only -- run regardless of AST parseability.
+    violations.extend(_check_rule_24(content, path))
     try:
         tree = ast.parse(content, filename=path)
     except SyntaxError as e:
@@ -551,7 +583,6 @@ def check_source(content: str, path: str) -> list[Violation]:
             )
         )
     else:
-        violations.extend(_check_rule_24(tree, path))
         violations.extend(_check_rule_28(tree, path))
         violations.extend(_check_rule_27d(tree, path))
         violations.extend(_check_rule_31c(tree, path))
