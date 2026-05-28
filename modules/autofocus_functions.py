@@ -14,6 +14,11 @@ def enable_af_score_logging(enable: bool) -> None:
 
 
 def set_autofocus_algorithm(algorithm: str) -> None:
+    # Kept though nothing calls it yet: focus_function always runs the module
+    # default. This is the selection seam for future per-modality focus -- a
+    # different metric for fluorescence vs brightfield, or a newer algorithm --
+    # wired to a modality/settings key when that lands. Deleting it now would
+    # force re-deriving the dispatch then.
     global _focus_function
 
     if algorithm in ('vollath4', 'vollath4_numba'):
