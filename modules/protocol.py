@@ -660,6 +660,48 @@ class Protocol:
     def steps(self) -> pd.DataFrame:
         return self._config['steps']
 
+    def update_layer_focus(
+        self, layer: str, old_z: float | None, new_z: float
+    ) -> int:
+        """Propagate a new saved-focus Z to in-memory protocol steps that
+        sit at the layer's previous-focus Z.
+
+        Walks the step table and updates Z on every step whose Color
+        matches the layer AND whose current Z equals ``old_z`` (within a
+        small float tolerance). Steps the user explicitly tuned away
+        from the layer focus (Z != old_z) are left alone, preserving
+        per-well-tuned focus across saves.
+
+        When ``old_z`` is None (no prior baseline -- first save) no
+        steps are updated; the new value becomes the baseline for
+        subsequent saves.
+
+        Args:
+            layer: Color/layer name (BF, Blue, Green, Red, Lumi, etc.).
+            old_z: The previous saved-focus value, or None if no prior
+                baseline existed.
+            new_z: The new saved-focus value.
+
+        Returns:
+            Number of steps whose Z was updated.
+        """
+        if old_z is None:
+            return 0
+        steps_df = self._config['steps']
+        if steps_df is None or len(steps_df) == 0:
+            return 0
+        # Float tolerance: the saved-focus value comes from the motor
+        # board as a float; round-trip through pandas / JSON / settings
+        # can introduce sub-um drift. 1e-3 um is well below positioning
+        # repeatability, so an at-baseline comparison stays robust.
+        mask = (steps_df['Color'] == layer) & (
+            (steps_df['Z'] - old_z).abs() < 1e-3
+        )
+        count = int(mask.sum())
+        if count > 0:
+            steps_df.loc[mask, 'Z'] = new_z
+        return count
+
     def modify_autofocus(self, step_idx: int, enabled: bool):
         self._config['steps'].at[step_idx, 'Auto_Focus'] = enabled
 

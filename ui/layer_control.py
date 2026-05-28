@@ -737,8 +737,35 @@ class LayerControl(BoxLayout):
         ctx = _app_ctx.ctx
         settings = ctx.settings
         try:
+            old_focus = settings[self.layer].get('focus')
             pos = ctx.scope.motion.get_current_position('Z')
             settings[self.layer]['focus'] = pos
+            # Propagate the new saved-focus value to in-memory protocol
+            # steps that sit at the previous baseline. Per-well-tuned
+            # steps (Z != old_focus) are preserved untouched. The
+            # propagation is what makes the saved focus reach a fresh
+            # New click without the user having to also tune every well.
+            protocol = getattr(ctx, 'protocol', None)
+            if protocol is not None:
+                updated = protocol.update_layer_focus(
+                    layer=self.layer, old_z=old_focus, new_z=pos
+                )
+                if updated > 0:
+                    logger.info(
+                        f'[LVP Main  ] save_focus: propagated layer={self.layer} '
+                        f'Z={old_focus} -> Z={pos} to {updated} step(s)'
+                    )
+                    # Refresh the stage labware view + the steps table so
+                    # the updated Z values are visible immediately.
+                    from kivy.clock import Clock
+
+                    def _refresh(_dt):
+                        try:
+                            ctx.stage.set_protocol_steps(df=protocol.steps())
+                        except Exception:
+                            pass
+
+                    Clock.schedule_once(_refresh, 0)
         except Exception as e:
             logger.exception(f'[LVP Main  ] save_focus failed for layer {self.layer}: {e}')
             try:
