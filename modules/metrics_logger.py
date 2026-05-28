@@ -92,11 +92,11 @@ class MetricsLogger:
         self._bundle = executor_bundle
         self._settings = settings
 
-        # Scheduler bound at start() — None means not started.
+        # Scheduler bound at start() -- None means not started.
         self._scheduler: Optional[Scheduler] = None
         # Active schedule handles per tick (so each can be cancelled
         # independently). Keys: 'system_metrics', 'executor_watchdog'.
-        # Camera-temp lives on Lumascope already (LVP-A-2) — not stored
+        # Camera-temp lives on Lumascope already (LVP-A-2) -- not stored
         # here because Lumascope owns its own handle.
         self._handles: dict[str, object] = {}
 
@@ -260,7 +260,7 @@ class MetricsLogger:
             # daemon=True process-exit-reap scenario, not a queue
             # prune.
         except Exception:
-            # Best-effort — a watchdog that crashes silently mid-tick
+            # Best-effort -- a watchdog that crashes silently mid-tick
             # is preferable to one that takes the app down with it.
             pass
 
@@ -334,7 +334,7 @@ class MetricsLogger:
                 f'callable; got {type(scheduler).__name__}'
             )
 
-        # Initial snapshot — match the pre-LVP-A-12 behavior of logging
+        # Initial snapshot -- match the pre-LVP-A-12 behavior of logging
         # once on startup so the very first log line carries fingerprint
         # values rather than empty cells.
         self.tick_system_metrics()

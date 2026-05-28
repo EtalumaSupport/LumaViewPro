@@ -35,7 +35,7 @@ def read_version(script_root: pathlib.Path | None = None) -> tuple[str, str]:
 
 
 def _read_version(script_root: pathlib.Path) -> str:
-    """Legacy wrapper — returns version string only."""
+    """Legacy wrapper -- returns version string only."""
     version, _ = read_version(script_root)
     return version
 

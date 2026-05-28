@@ -8,19 +8,19 @@ convention is documented at ``modules/step_navigation.py`` and
 
 Two mode-entry sites were silently skipping the convention:
 
-* ``modules/protocol_run_loop.py::_run_loop_inner`` — at scan start
+* ``modules/protocol_run_loop.py::_run_loop_inner`` -- at scan start
   with a Live-mode LED still on from before the user pressed Scan, the
   first protocol step's ``led_on`` would add its channel on top of the
   pre-scan LED. Both LEDs lit, first step's image blown out.
 
-* ``modules/autofocus_runner.py::run`` — at AF start with a Live-mode
+* ``modules/autofocus_runner.py::run`` -- at AF start with a Live-mode
   LED on a different channel than the AF channel, AF's ``_led_on``
   would add its channel on top. AF's focus metric would see mixed
   illumination and converge to the wrong Z.
 
 Each fix inserts ``leds_off`` at the mode-entry hook BEFORE the
 operation's first ``led_on`` (or motion that precedes it). The tests
-below are structural AST locks — they fail if a future refactor drops
+below are structural AST locks -- they fail if a future refactor drops
 the call, reorders it, or moves it past the first ``led_on``.
 """
 

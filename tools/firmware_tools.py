@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""Firmware management tools — config backup, INI push, homing validation.
+"""Firmware management tools -- config backup, INI push, homing validation.
 
 All tools use the production driver stack (SerialBoard/MotorBoard/LEDBoard).
 For firmware flashing (UF2), use drivers/firmware_updater.py directly.
@@ -253,11 +253,11 @@ def _home_all(board, timeout=300):
 
 
 def cmd_homing_test(args):
-    """Run homing endurance test — N cycles, check position repeatability."""
+    """Run homing endurance test -- N cycles, check position repeatability."""
     # Per-axis tolerances (steps). XY Hall effect sensors have inherent
     # hysteresis; Z/T optical interrupters are very repeatable.
     TOLERANCE = {
-        'X': 10000,  # ~0.5mm — XY Hall sensor hysteresis
+        'X': 10000,  # ~0.5mm -- XY Hall sensor hysteresis
         'Y': 10000,
         'Z': 50,  # very repeatable (optical, slow double-pass)
         'T': 200,  # turret detent repeatability

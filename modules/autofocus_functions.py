@@ -56,7 +56,7 @@ def focus_function(
 # 5000 iterations on 1000x1000 uint16: 20s
 # 96 well plate center focus takes 6m
 def focus_vollath4_original(image: np.ndarray) -> float:
-    # Journal of Microscopy, Vol. 188, Pt 3, December 1997, pp. 264–272
+    # Journal of Microscopy, Vol. 188, Pt 3, December 1997, pp. 264-272
     image = image.astype(np.float64, copy=False)
     w, h = image.shape
 

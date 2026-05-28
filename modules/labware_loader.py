@@ -33,7 +33,7 @@ def _validate_labware(labware: dict, filepath: str) -> None:
         if not isinstance(items, dict):
             logger.warning(f"[Labware   ] category '{category}' should be dict in {filepath}")
             continue
-        # Only Wellplate category has the full schema — others have different shapes
+        # Only Wellplate category has the full schema -- others have different shapes
         if category != 'Wellplate':
             continue
         for name, entry in items.items():

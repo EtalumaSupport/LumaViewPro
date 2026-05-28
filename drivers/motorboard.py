@@ -326,7 +326,7 @@ class MotorBoard(SerialBoard):
     # Acceleration control functions
     # ----------------------------------------------------------
 
-    # Cache for acceleration limits — read once from firmware, reuse thereafter.
+    # Cache for acceleration limits -- read once from firmware, reuse thereafter.
     # Invalidated on reconnect via _on_disconnect().
     _accel_cache: dict = None
 
@@ -542,11 +542,11 @@ class MotorBoard(SerialBoard):
         return resp
 
     # ----------------------------------------------------------
-    # Precision mode — controls motor stop accuracy
+    # Precision mode -- controls motor stop accuracy
     # ----------------------------------------------------------
 
     # TMC5072 VSTOP register addresses per axis.
-    # VSTOP sets the velocity threshold for declaring "stopped" —
+    # VSTOP sets the velocity threshold for declaring "stopped" --
     # lower = more accurate final position, slightly slower settle.
     _VSTOP_ADDR = {
         'X': 0x2B,  # VSTOP_M1 on XY chip
@@ -801,7 +801,7 @@ class MotorBoard(SerialBoard):
             with self._state_lock:
                 self.initial_t_homing_complete = True
             return True
-        # "T not present" is not a failure — board just doesn't have a turret
+        # "T not present" is not a failure -- board just doesn't have a turret
         if 'not present' in resp.lower():
             return True
         raise HardwareError(f'thome(): firmware error: {resp}')
@@ -983,7 +983,7 @@ class MotorBoard(SerialBoard):
                     overshoot = max(1, overshoot)
                     self.move(axis, overshoot)
                     while not self.target_status('Z'):
-                        time.sleep(0.02)  # 50Hz — matches motion monitor rate
+                        time.sleep(0.02)  # 50Hz -- matches motion monitor rate
                 finally:
                     # Always clear overshoot flag, even on disconnect/exception
                     with self._state_lock:
@@ -1403,7 +1403,7 @@ class MotorBoard(SerialBoard):
         Returns:
             dict: ``{'min': float, 'max': float}`` in axis user units,
                 or ``None`` if the axis has no configured limits (the
-                turret axis T is the typical "no limits" case — it
+                turret axis T is the typical "no limits" case -- it
                 rotates freely with no software-enforced bounds).
 
         Raises:

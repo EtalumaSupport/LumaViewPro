@@ -36,7 +36,7 @@ def _require_labware(labware: lw.LabWare | None) -> lw.LabWare:
     """Boundary check shared by every public transform method."""
     if labware is None:
         raise NoLabwareSelectedError(
-            'no labware selected — coordinate transforms require a wellplate; '
+            'no labware selected -- coordinate transforms require a wellplate; '
             'select a labware in Protocol settings'
         )
     return labware
@@ -110,7 +110,7 @@ class CoordinateTransformer:
                 f'({dim_max["x"]:.1f}, {dim_max["y"]:.1f})mm'
             )
 
-        sx = (dim_max['x'] - stage_offset['x'] / 1000 - px) * 1000  # mm → um
+        sx = (dim_max['x'] - stage_offset['x'] / 1000 - px) * 1000  # mm -> um
         sy = (dim_max['y'] - stage_offset['y'] / 1000 - py) * 1000
 
         return sx, sy

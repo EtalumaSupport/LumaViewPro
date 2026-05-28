@@ -3,7 +3,7 @@
 """Typed callback contract for protocol execution.
 
 Replaces the magic-string ``callbacks`` dict with a typed dataclass.
-Callers can still pass plain dicts — use ``ProtocolCallbacks.from_dict()``
+Callers can still pass plain dicts -- use ``ProtocolCallbacks.from_dict()``
 to convert.  The executor and sub-modules use attribute access instead of
 ``'key' in dict`` checks.
 

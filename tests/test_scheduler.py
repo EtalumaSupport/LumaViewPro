@@ -1,5 +1,5 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""LVP-A-13 — Scheduler protocol + reference implementations.
+"""LVP-A-13 -- Scheduler protocol + reference implementations.
 
 ThreadingTimerScheduler is the load-bearing one for REST + headless
 soak; KivyClockScheduler is a thin pass-through that's exercised in
@@ -12,7 +12,7 @@ The interesting properties:
 - shutdown stops every scheduled interval AND refuses new schedules
 - schedule_interval after shutdown raises RuntimeError
 - callbacks that raise don't kill the timer (re-arms after error)
-- daemon threads — interpreter exit doesn't hang on a pending Timer
+- daemon threads -- interpreter exit doesn't hang on a pending Timer
 """
 
 import threading
@@ -42,7 +42,7 @@ class TestThreadingTimerScheduler:
                     evt.set()
 
             sched.schedule_interval(_cb, 0.05)
-            assert evt.wait(timeout=2.0), 'callback should have fired ≥3 times within 2s'
+            assert evt.wait(timeout=2.0), 'callback should have fired >=3 times within 2s'
             assert counter['n'] >= 3
         finally:
             sched.shutdown()
@@ -95,7 +95,7 @@ class TestThreadingTimerScheduler:
             sched.schedule_interval(lambda: None, 0.1)
 
     def test_callback_exception_doesnt_kill_timer(self):
-        """A callback that raises must not stop the scheduler — the
+        """A callback that raises must not stop the scheduler -- the
         next tick should still fire (matches Kivy Clock semantics)."""
         sched = ThreadingTimerScheduler()
         try:

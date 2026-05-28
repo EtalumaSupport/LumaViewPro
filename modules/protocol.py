@@ -203,7 +203,7 @@ class Protocol:
             self._config = config
 
         # Cache for num_steps() -- invalidated by _set_steps() and delete_step().
-        # num_steps was called 35× per step during real-HW protocol runs, so
+        # num_steps was called 35x per step during real-HW protocol runs, so
         # caching len(self._config['steps']) is a measurable win (M14 follow-up).
         self._num_steps_cache: int | None = None
 
@@ -530,7 +530,7 @@ class Protocol:
             try:
                 illum = float(step.get('Illumination', 0))
                 if illum < 0 or illum > 1000:
-                    errors.append(f'{label}: Illumination must be 0–1000 mA, got {illum}')
+                    errors.append(f'{label}: Illumination must be 0-1000 mA, got {illum}')
             except (ValueError, TypeError):
                 errors.append(f'{label}: Illumination is not a valid number')
 
@@ -588,7 +588,7 @@ class Protocol:
 
         Args:
             axis_limits: dict mapping axis name to {'min': float, 'max': float}
-                in µm. Example: {'X': {'min': 0, 'max': 120000}, ...}
+                in um. Example: {'X': {'min': 0, 'max': 120000}, ...}
 
         Returns:
             List of error strings. Empty list if all checks pass.
@@ -616,8 +616,8 @@ class Protocol:
                     limits = axis_limits[axis]
                     if pos < limits['min'] or pos > limits['max']:
                         errors.append(
-                            f'{label}: {axis} position {pos} µm is outside travel limits '
-                            f'({limits["min"]}–{limits["max"]} µm)'
+                            f'{label}: {axis} position {pos} um is outside travel limits '
+                            f'({limits["min"]}-{limits["max"]} um)'
                         )
 
         # Validate labware exists. Use is_known_plate() rather than plate_list

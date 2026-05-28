@@ -1,17 +1,17 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """
-Simulated LED Board — drop-in replacement for LEDBoard.
+Simulated LED Board -- drop-in replacement for LEDBoard.
 
 No serial hardware required. Tracks LED state, returns realistic responses,
 and supports configurable delays to simulate real timing.
 
 Timing modes:
-  'fast'      — zero delays (for tests)
-  'realistic' — serial delays matching real hardware (~12ms per command)
+  'fast'      -- zero delays (for tests)
+  'realistic' -- serial delays matching real hardware (~12ms per command)
 
 Failure injection (for testing error recovery):
-  fail_after=N      — disconnect after N commands (simulates USB cable pull)
-  fail_on={'LEDS_ENT'} — return None for specific commands (simulates timeout)
+  fail_after=N      -- disconnect after N commands (simulates USB cable pull)
+  fail_on={'LEDS_ENT'} -- return None for specific commands (simulates timeout)
 """
 
 import logging
@@ -24,14 +24,14 @@ from drivers.registry import led_registry
 # SerialBoard does (`{label} {command} -> {resp} ({elapsed_ms}ms)`).
 # Without this, sim runs leave serial.log empty and the operator can't
 # inspect "what is LVP actually sending? are there duplicates? what's
-# the timing?" — which is the whole reason for running in sim mode.
+# the timing?" -- which is the whole reason for running in sim mode.
 _serial_log = logging.getLogger('LVP.serial')
 
 
 @led_registry.register('sim', priority=100, is_simulator=True)
 class SimulatedLEDBoard:
-    TIMING_INSTANT = {'delay': 0.0}  # Zero delay — for unit tests only
-    TIMING_FAST = {'delay': 0.001}  # 1ms minimum — nothing returns instantly
+    TIMING_INSTANT = {'delay': 0.0}  # Zero delay -- for unit tests only
+    TIMING_FAST = {'delay': 0.001}  # 1ms minimum -- nothing returns instantly
     TIMING_REALISTIC = {'delay': 0.012}  # ~12ms per exchange (1ms flush + 10ms write + 1ms read)
 
     _COLOR_TO_CH = {
@@ -60,7 +60,7 @@ class SimulatedLEDBoard:
         self._lock = threading.RLock()
         self.port = '/dev/simulated_led'
         self.baudrate = 115200
-        self.driver = True  # truthy sentinel — not a real serial port
+        self.driver = True  # truthy sentinel -- not a real serial port
         self._delay = delay
         self.firmware_version = firmware_version  # Configurable for testing old firmware paths
         self.protocol_version = protocol_version  # v3.0 STUB: for future v3.0 simulation testing
@@ -253,7 +253,7 @@ class SimulatedLEDBoard:
             # No delay on fast path
             elapsed_ms = (time.monotonic() - t_start) * 1000
             logger.debug(f'[LED Sim   ] _write_command_fast({command})')
-            # SIM-SERIAL-LOG: write-only path → mark as TX with no response
+            # SIM-SERIAL-LOG: write-only path -> mark as TX with no response
             _serial_log.info(f'[LED Sim] {command} -> TX (write_fast, {elapsed_ms:.1f}ms)')
 
     def _close_driver(self):

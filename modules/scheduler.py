@@ -106,7 +106,7 @@ class KivyClockScheduler:
             try:
                 callback()
             except TypeError:
-                # Caller's callback wants the dt arg — pass it through.
+                # Caller's callback wants the dt arg -- pass it through.
                 callback(dt)
 
         handle = self._clock.schedule_interval(_wrapped, interval_s)

@@ -2,7 +2,7 @@
 WinUSB isochronous transfer support via ctypes.
 
 Mirrors the C# ReadISOStream_WinUsb implementation exactly.
-Windows only — uses winusb.dll, setupapi.dll, kernel32.dll directly.
+Windows only -- uses winusb.dll, setupapi.dll, kernel32.dll directly.
 """
 
 import ctypes
@@ -363,7 +363,7 @@ class WinUsbIsoReader:
         return self._dev
 
     def _read_loop(self):
-        """Main ISO read loop — runs in dedicated thread."""
+        """Main ISO read loop -- runs in dedicated thread."""
         dev = self._dev
         iface = dev.handle
         buffer_size = self._max_packet_size * self.packets_per_xfer
@@ -381,7 +381,7 @@ class WinUsbIsoReader:
                 self._submit_read(slot, buffer_size, n_packets, continue_stream)
                 continue_stream = True
 
-            # Round-robin: wait → extract → resubmit
+            # Round-robin: wait -> extract -> resubmit
             next_slot = 0
             while self._running:
                 slot = slots[next_slot]

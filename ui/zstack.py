@@ -146,7 +146,7 @@ class ZStack(FloatLayout):
             zstack_params = get_zstack_params()
             active_layer, active_layer_config = get_active_layer_config()
             active_layer_config['acquire'] = 'image'
-            # Z-stack manages Z positions explicitly — AF would override them
+            # Z-stack manages Z positions explicitly -- AF would override them
             active_layer_config['autofocus'] = False
 
             if not zstack_positions_valid:
@@ -217,7 +217,7 @@ class ZStack(FloatLayout):
                 'update_scope_display': lambda dt=0: None,
                 'run_complete': run_complete_func,
                 'update_step_number': _zstack_progress,
-                # LED observer handles UI sync — no manual callbacks needed
+                # LED observer handles UI sync -- no manual callbacks needed
                 'reset_autofocus_btns': update_autofocus_selection_after_protocol,
                 'set_recording_title': set_recording_title,
                 'set_writing_title': set_writing_title,

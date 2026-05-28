@@ -1,6 +1,6 @@
 # Copyright Etaluma, Inc.
 """
-MainDisplay — primary application display (recording, camera, fit/zoom)
+MainDisplay -- primary application display (recording, camera, fit/zoom)
 extracted from lumaviewpro.py.
 """
 

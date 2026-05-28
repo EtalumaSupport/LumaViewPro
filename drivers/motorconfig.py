@@ -1,6 +1,6 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 
-"""MotorConfig — reads per-unit hardware configuration from motorconfig.json.
+"""MotorConfig -- reads per-unit hardware configuration from motorconfig.json.
 
 Provides axis travel limits, microstep conversion factors, turret positions,
 board identity (model/serial), and optics parameters. Falls back to defaults
@@ -27,7 +27,7 @@ class MotorConfig:
         Missing keys are left at their default values.  This is safe for
         boards with minimal configs (e.g., only serial number and model).
 
-        Basic type validation is applied to numeric fields — if a board
+        Basic type validation is applied to numeric fields -- if a board
         sends a non-numeric value where a number is expected, the board
         value is rejected and the default is kept.
         """
@@ -137,7 +137,7 @@ class MotorConfig:
 
     # --- Motion ramp parameters (TMC5072 6-point ramp) ---
 
-    # Default ramp parameters from INI files (usteps/sec and usteps/sec²).
+    # Default ramp parameters from INI files (usteps/sec and usteps/sec^2).
     # Keyed by axis. These are hardware constants set at firmware load time.
     # Future: query dynamically from board via SPI or v3.1 firmware command.
     _DEFAULT_RAMP = {
@@ -190,14 +190,14 @@ class MotorConfig:
 
     # TMC5072 uses internal clock for velocity/acceleration registers.
     # Conversion: v_real = register * f_clk / 2^24 (in usteps/sec)
-    #             a_real = register * f_clk^2 / (512 * 2^24) (in usteps/sec²)
+    #             a_real = register * f_clk^2 / (512 * 2^24) (in usteps/sec^2)
     # f_clk = 16 MHz (internal oscillator, typical for TMC5072)
     _TMC_FCLK = 16_000_000
-    _TMC_VEL_FACTOR = _TMC_FCLK / (2**24)  # register → usteps/sec
-    _TMC_ACC_FACTOR = _TMC_FCLK**2 / (512 * 2**24)  # register → usteps/sec²
+    _TMC_VEL_FACTOR = _TMC_FCLK / (2**24)  # register -> usteps/sec
+    _TMC_ACC_FACTOR = _TMC_FCLK**2 / (512 * 2**24)  # register -> usteps/sec^2
 
     def ramp_params(self, axis: str) -> dict:
-        """Return ramp parameters converted to physical units (um/sec, um/sec²).
+        """Return ramp parameters converted to physical units (um/sec, um/sec^2).
 
         Converts TMC5072 register values to real usteps/sec, then to um/sec
         using the axis microstep-to-mm conversion.

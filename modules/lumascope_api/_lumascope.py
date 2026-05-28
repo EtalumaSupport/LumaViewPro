@@ -21,7 +21,7 @@ try:
     from drivers.idscamera import IDSCamera
 except ImportError:
     IDSCamera = None
-# FX2 (Lumaview Classic LS560/LS620/LS720) — the import side-effect is
+# FX2 (Lumaview Classic LS560/LS620/LS720) -- the import side-effect is
 # the entire point: it fires the @camera_registry.register('fx2') and
 # @led_registry.register('fx2') decorators inside the module. Nothing
 # in this file references fx2driver names directly; the registry
@@ -329,7 +329,7 @@ class Lumascope:
             simulate: If True, use simulated hardware (no USB devices needed).
             camera_type: Camera registry kind. 'auto' (default) tries the
                 registered real cameras in descending priority order
-                (Pylon → IDS today). Accepted explicit values: 'pylon',
+                (Pylon -> IDS today). Accepted explicit values: 'pylon',
                 'ids', 'sim', or any other key registered in
                 `drivers/registry.py::camera_registry`. Post-B2 this is
                 the only parameter the caller needs to steer driver
@@ -407,10 +407,10 @@ class Lumascope:
 
         # ----- Camera -----
         # Driver selection via camera_registry (audit B2). `camera_type`
-        # accepts: 'auto' (tries pylon → ids by priority), 'pylon', 'ids',
+        # accepts: 'auto' (tries pylon -> ids by priority), 'pylon', 'ids',
         # 'sim', or any other registered camera kind. Default 'auto' is
         # the right choice for most callers; the pre-B2 default was
-        # "pylon" which skipped auto-detect — callers that rely on that
+        # "pylon" which skipped auto-detect -- callers that rely on that
         # continue to pass camera_type='pylon' explicitly.
         # _frame_buffer slot moved to ImagingAPI in Wave 7 Phase 4d.
         # _camera_driver slot defaulted to None in _init_minimal; the
@@ -443,11 +443,11 @@ class Lumascope:
             )
 
         # ----- ScopeCapabilities (audit B7) -----
-        # Single source of truth for "what does this scope have" — built
+        # Single source of truth for "what does this scope have" -- built
         # once from the three drivers, frozen thereafter. Callers should
         # prefer `scope.capabilities.*` over the wrapper methods below.
         # Runtime connection state (`motor_connected`, `led_connected`)
-        # stays as live properties on Lumascope — those must reflect
+        # stays as live properties on Lumascope -- those must reflect
         # disconnects and can't be snapshotted.
         self.capabilities = ScopeCapabilities.from_drivers(
             motion=self._motion_driver,
@@ -472,7 +472,7 @@ class Lumascope:
         self.io = IOAPI(self)
         self.runtime_state = RuntimeState(self)
 
-        # Partial-hardware notification deferred to initialize(config) —
+        # Partial-hardware notification deferred to initialize(config) --
         # we need scope-config knowledge to distinguish "LS620 correctly
         # has no motor" from "LS820 motor failed to connect."
 
@@ -535,11 +535,11 @@ class Lumascope:
             try:
                 self.motion.refresh_position_cache()
             except Exception:
-                pass  # OK — cache stays at 0.0 if firmware unresponsive
+                pass  # OK -- cache stays at 0.0 if firmware unresponsive
 
         # LVP-A-13: pre-construct MetricsLogger so every Lumascope user
         # (Kivy app, REST API, headless tests, CLI tools) shares the
-        # same metrics surface — engineering plugin / status endpoints
+        # same metrics surface -- engineering plugin / status endpoints
         # can call self.metrics_logger.snapshot_executors() etc. without
         # waiting for the host to register one. Lifecycle is two-phase:
         # __init__ constructs (this block); the host calls
@@ -567,7 +567,7 @@ class Lumascope:
         # Lumascope user (Kivy app, REST server, headless tests, CLI
         # tools) gets the LED-off-and-disconnect safety net automatically.
         # Was previously inline in lumaviewpro.py:541-549, leaving every
-        # non-GUI entry point silently unprotected — exactly the failure
+        # non-GUI entry point silently unprotected -- exactly the failure
         # mode the comment cited (LED stays on, sample overheats).
         if register_atexit:
             try:
@@ -1106,4 +1106,4 @@ class Lumascope:
     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
     # Legacy autofocus methods (autofocus, autofocus_iterate, focus_best) removed
-    # 2026-03-31 — superseded by AutofocusRunner. No callers remained.
+    # 2026-03-31 -- superseded by AutofocusRunner. No callers remained.

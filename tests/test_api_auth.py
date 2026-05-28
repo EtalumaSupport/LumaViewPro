@@ -19,7 +19,7 @@ class TestGenerateApiKey:
     def test_returns_hex_string(self):
         key = generate_api_key()
         assert isinstance(key, str)
-        int(key, 16)  # Should not raise — valid hex
+        int(key, 16)  # Should not raise -- valid hex
 
     def test_correct_length(self):
         key = generate_api_key()

@@ -78,9 +78,9 @@ class TestMultipleSources:
         fv.invalidate('gain')  # needs 2 more frames from frame 1
         # led needs 1 more (target=2), gain needs 2 more (target=3)
         assert fv.frames_until_valid() == 2
-        fv.count_frame()  # frame 2 — led settles
+        fv.count_frame()  # frame 2 -- led settles
         assert fv.frames_until_valid() == 1
-        fv.count_frame()  # frame 3 — gain settles
+        fv.count_frame()  # frame 3 -- gain settles
         assert fv.is_valid
 
     def test_reinvalidate_same_source(self):
@@ -247,7 +247,7 @@ class TestEdgeCases:
         fv.invalidate('gain')  # target = 0 + 2 = 2
         fv.count_frame()  # frame 1
         assert len(fv.pending_sources) == 2
-        fv.count_frame()  # frame 2 — both settle
+        fv.count_frame()  # frame 2 -- both settle
         assert len(fv.pending_sources) == 0
 
     def test_frames_until_valid_never_negative(self):
@@ -432,7 +432,7 @@ class TestLoadCameraTiming:
         fv.count_frame()
         pending_before = fv.pending_sources.copy()
         fv.load_camera_timing({'skip_frames': {'led': 10}})
-        # Pending state unchanged — the already-queued invalidation keeps
+        # Pending state unchanged -- the already-queued invalidation keeps
         # its original threshold
         assert fv.pending_sources == pending_before
 
@@ -519,7 +519,7 @@ class TestLoadCameraTimingLumascope:
         assert fv.SKIP_FRAMES['gain'] == 4
 
     def test_missing_file_no_error(self, tmp_path):
-        """Missing timing file should not raise — silently skipped."""
+        """Missing timing file should not raise -- silently skipped."""
         import pathlib
 
         timing_dir = tmp_path / 'data' / 'camera_timing'
@@ -645,7 +645,7 @@ class TestCountFrameWithChunks:
         assert 'exposure' not in fv.pending_sources
 
     def test_chunks_dont_clear_led(self):
-        """LED has no chunk equivalent — must clear via skip-frames only."""
+        """LED has no chunk equivalent -- must clear via skip-frames only."""
         fv = FrameValidity()
         fv.invalidate('led')
         # Even with matching chunk values for OTHER sources, LED is not chunk-validatable
@@ -677,7 +677,7 @@ class TestCountFrameWithChunks:
         assert 'gain' not in fv.pending_sources  # cleared by skip_frames at frame 2
 
     def test_no_target_recorded_falls_back_to_skip_frames(self):
-        """If set_target was never called, chunk-match is impossible — skip-frames only."""
+        """If set_target was never called, chunk-match is impossible -- skip-frames only."""
         fv = FrameValidity()
         fv.invalidate('gain')
         # set_target NOT called -> _target_values is empty

@@ -3,7 +3,7 @@
 
 import os
 
-# Python version check — must run before any imports that require 3.11+
+# Python version check -- must run before any imports that require 3.11+
 import sys
 
 if sys.version_info < (3, 11):  # noqa: UP036 -- runtime check is load-bearing UX (friendly error before deeper SyntaxError on Python 3.10).
@@ -50,7 +50,7 @@ if __name__ == '__main__':
     live_view_fps = 30
     ij_helper = None
 
-    # Environment setup — paths, version, platform detection
+    # Environment setup -- paths, version, platform detection
     from modules.app_environment import init_environment
 
     _env = init_environment(main_file=__file__)
@@ -204,7 +204,7 @@ if __name__ == '__main__':
     Config.set('graphics', 'minimum_width', '1024')
     Config.set('graphics', 'minimum_height', '600')
 
-    # Maximized at launch — works correctly on macOS, Windows, and Linux
+    # Maximized at launch -- works correctly on macOS, Windows, and Linux
     Config.set('graphics', 'window_state', 'maximized')
 
     import kivy
@@ -243,7 +243,7 @@ if __name__ == '__main__':
 
     import ui.image_utils_kivy as image_utils_kivy
 
-    # Matplotlib-to-Kivy bridge → ui/figure_canvas.py
+    # Matplotlib-to-Kivy bridge -> ui/figure_canvas.py
     from ui.figure_canvas import FigureCanvasKivyAgg
     from ui.notification_popup import (
         show_confirmation_popup,
@@ -274,7 +274,7 @@ if __name__ == '__main__':
     ctx = None
 
 else:
-    # Subprocess/worker compatibility — Kivy not available
+    # Subprocess/worker compatibility -- Kivy not available
     from modules.subprocess_stubs import (
         AccordionItem,
         App,
@@ -313,7 +313,7 @@ else:
     )
 
 # ============================================================================
-# Imports — extracted modules (must be after Kivy init)
+# Imports -- extracted modules (must be after Kivy init)
 # ============================================================================
 
 from modules.app_config import (
@@ -373,7 +373,7 @@ from ui.zstack import ZStack
 
 
 class LumaViewProApp(TooltipMixin, App):
-    """Main application class — build, start, stop, tooltips."""
+    """Main application class -- build, start, stop, tooltips."""
 
     kv_file = 'ui/lumaviewpro.kv'
 
@@ -688,7 +688,7 @@ class LumaViewProApp(TooltipMixin, App):
         try:
             from kivy.core.window import Window
 
-            # Window min size uses SDL point coordinates — do NOT use dp()
+            # Window min size uses SDL point coordinates -- do NOT use dp()
             Window.minimum_width = 1024
             Window.minimum_height = 600
             Window.bind(on_resize=self._on_resize)
@@ -793,7 +793,7 @@ class LumaViewProApp(TooltipMixin, App):
             z_ui_update_func=_handle_autofocus_ui,
         )
 
-        # Create AppContext — central service registry
+        # Create AppContext -- central service registry
         ctx = AppContext(
             scope=lumaview.scope,
             lumaview=lumaview,
@@ -894,7 +894,7 @@ class LumaViewProApp(TooltipMixin, App):
         # init, so any early hardware errors surface as popups instead
         # of being logged-only.
 
-        # CPU profiling — enabled via debug_mode in settings.json
+        # CPU profiling -- enabled via debug_mode in settings.json
         # On exit, dumps a .profile file to logs/profile/ that can be
         # viewed with: pip install snakeviz && snakeviz <file>.profile
         if settings.get('debug_mode', False):

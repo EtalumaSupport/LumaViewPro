@@ -40,7 +40,7 @@ class ImageHandlerBase:
     def get_last_image(self):
         """Return (success, image, timestamp). Thread-safe.
 
-        No copy needed here — the stored frame is already a copy from the SDK
+        No copy needed here -- the stored frame is already a copy from the SDK
         callback (GetArray().copy() in Pylon, copy() in IDS). _store_frame()
         replaces the reference (not in-place), so the returned array remains
         valid even after the next frame arrives.
@@ -180,7 +180,7 @@ class Camera(ABC):
         # at once. update_camera_config() can yield arbitrarily long
         # configuration work (set_pixel_format, set_frame_size,
         # init_camera_config), so this is a separate lock from
-        # _state_lock — _state_lock holds for ms, _lifecycle_lock can
+        # _state_lock -- _state_lock holds for ms, _lifecycle_lock can
         # hold for seconds.
         self._lifecycle_lock = threading.RLock()
         self._active = False
@@ -205,7 +205,7 @@ class Camera(ABC):
         # via `found=False`, and `drivers/registry.py::create('auto')` skips
         # such instances and tries the next candidate. PylonCamera and
         # IDSCamera both catch their connect-failure exception internally
-        # and set `self.active = None` without raising — without this line,
+        # and set `self.active = None` without raising -- without this line,
         # the registry sees no exception and `getattr(instance, 'found', True)`
         # defaults to True, so the broken Pylon instance is returned and
         # FX2 (priority 80) never gets a turn. Discovered 2026-04-15 trying
@@ -523,7 +523,7 @@ class Camera(ABC):
         should then call _query_dynamic_capabilities() to populate
         SDK-queried fields (gain min/max, exposure min/max). Per Rule 2,
         `profile.exposure_max_us` is the single source of truth for the
-        max-exposure cap — `Camera.max_exposure` is a derived property
+        max-exposure cap -- `Camera.max_exposure` is a derived property
         that reads from it.
         """
         self.profile = lookup_profile(self.model_name)
@@ -544,7 +544,7 @@ class Camera(ABC):
     def max_exposure(self) -> float:
         """Maximum exposure cap in milliseconds.
 
-        Derived from `profile.exposure_max_us` — the single source of
+        Derived from `profile.exposure_max_us` -- the single source of
         truth (Rule 2). The profile's value is the sensor-datasheet
         ceiling by default and may be overwritten by
         `_query_dynamic_capabilities()` at connect time with an SDK-
@@ -567,7 +567,7 @@ class Camera(ABC):
     def max_gain(self) -> float:
         """Maximum gain cap in dB.
 
-        Derived from `profile.gain.total_max_db` — the single source of
+        Derived from `profile.gain.total_max_db` -- the single source of
         truth (Rule 2). The profile's value is the sensor-datasheet
         ceiling by default and may be overwritten by
         `_query_dynamic_capabilities()` at connect time (Pylon / IDS
@@ -575,7 +575,7 @@ class Camera(ABC):
         """
         if self.profile and self.profile.gain and self.profile.gain.total_max_db is not None:
             return float(self.profile.gain.total_max_db)
-        return 48.0  # legacy kv default — kept for cameras without a profile
+        return 48.0  # legacy kv default -- kept for cameras without a profile
 
     def get_max_gain(self) -> float:
         """Return the maximum gain cap in dB.
@@ -677,7 +677,7 @@ class Camera(ABC):
                 return False, None, None
 
             # Store for other consumers (e.g. recording), but the returned
-            # image IS the copy — callers don't need get_array().
+            # image IS the copy -- callers don't need get_array().
             with self._array_lock:
                 self.array = image
             return True, image, image_ts

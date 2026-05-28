@@ -31,7 +31,7 @@ AF_SAFETY_TIMEOUT_S = 15  # Seconds before AF is considered stuck and force-rese
 
 
 # ============================================================================
-# VerticalControl — Z-Axis, Objectives, Turret, and Autofocus
+# VerticalControl -- Z-Axis, Objectives, Turret, and Autofocus
 # ============================================================================
 
 
@@ -85,7 +85,7 @@ class VerticalControl(BoxLayout):
                 self.ids['z_position_id'].text = new_text
 
     def execute_kivy_gui(self, vertical_control=False, result=None, exception=None):
-        """IOTask callback — runs on worker thread. Must schedule widget access."""
+        """IOTask callback -- runs on worker thread. Must schedule widget access."""
         if exception is not None:
             raise exception
 
@@ -104,11 +104,11 @@ class VerticalControl(BoxLayout):
             Clock.schedule_once(lambda dt, p=set_pos: self._update_z_text(p), 0)
 
     def _update_z_position(self, pos):
-        """Update Z slider and text — must be called on main thread.
+        """Update Z slider and text -- must be called on main thread.
 
         Only updates text field when user is not typing (focus check),
         matching XY behavior. Without this, the text shows current
-        position during motion then snaps to target — confusing.
+        position during motion then snaps to target -- confusing.
         """
         self.ids['obj_position'].value = max(0, pos)
         if not self.ids['z_position_id'].focus:
@@ -117,7 +117,7 @@ class VerticalControl(BoxLayout):
                 self.ids['z_position_id'].text = new_text
 
     def _update_z_text(self, pos):
-        """Update Z text only — must be called on main thread."""
+        """Update Z text only -- must be called on main thread."""
         if not self.ids['z_position_id'].focus:
             new_text = format(max(0, pos), '.2f')
             if self.ids['z_position_id'].text != new_text:
@@ -250,7 +250,7 @@ class VerticalControl(BoxLayout):
             settings = ctx.settings
             objective_id = self.ids['objective_spinner2'].text
 
-            # #631: idempotent — see microscope_settings.MicroscopeSettings.select_objective.
+            # #631: idempotent -- see microscope_settings.MicroscopeSettings.select_objective.
             if objective_id == settings.get('objective_id'):
                 return
 
@@ -602,7 +602,7 @@ class VerticalControl(BoxLayout):
 
     def update_turret_gui(self, turret_position):
         settings = _app_ctx.ctx.settings
-        # Persist the position the turret physically ended up at — this
+        # Persist the position the turret physically ended up at -- this
         # is called after every protocol-driven or step-navigation T
         # move, so the persisted value tracks reality across moves. (#488)
         try:

@@ -1,6 +1,6 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 
-"""Main protocol run loop — scan timing, hardware checks, completion detection.
+"""Main protocol run loop -- scan timing, hardware checks, completion detection.
 
 Runs on the **protocol-executor** thread.  Extracted from
 ``sequenced_capture_runner.py`` during the protocol-decomposition refactor.
@@ -38,7 +38,7 @@ class ProtocolRunLoop:
         self._p = parent
 
     def run_loop(self):
-        """Main entry point — wraps inner loop with crash recovery."""
+        """Main entry point -- wraps inner loop with crash recovery."""
         try:
             self._run_loop_inner()
         except Exception as ex:
@@ -147,7 +147,7 @@ class ProtocolRunLoop:
 
                 # Clean LED state before step 0 runs. Without this, a
                 # Live-mode LED enabled by the user before pressing Scan
-                # stays lit when step 0's led_on fires — both channels
+                # stays lit when step 0's led_on fires -- both channels
                 # illuminate the sample simultaneously and the first
                 # step's image is blown out. led_on is additive at the
                 # API + driver layers; the leds_off-before-led_on

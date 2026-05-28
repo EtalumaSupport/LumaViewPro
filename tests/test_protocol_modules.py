@@ -170,7 +170,7 @@ class TestProtocolCallbacksFromDict:
 
 
 class TestProtocolCallbacksToDict:
-    """Test ProtocolCallbacks.to_dict() — must NOT use dataclasses.asdict()."""
+    """Test ProtocolCallbacks.to_dict() -- must NOT use dataclasses.asdict()."""
 
     def test_to_dict_only_non_none(self):
         fn = lambda: None
@@ -488,7 +488,7 @@ class TestRunCleanup:
 
 
 class TestProtocolImageWriterWriteCapture:
-    """Test ProtocolImageWriter.write_capture — the file-IO thread method."""
+    """Test ProtocolImageWriter.write_capture -- the file-IO thread method."""
 
     def _make_writer(self, execution_record=None):
         """Create a ProtocolImageWriter with minimal stubs."""
@@ -573,4 +573,4 @@ class TestProtocolImageWriterWriteCapture:
             captured_image=None,
             step={'Name': 'test'},
         )
-        # Should not crash — just returns
+        # Should not crash -- just returns

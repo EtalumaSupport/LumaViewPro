@@ -1,5 +1,5 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""Tests for stitcher modules — stitch_algorithms.py (feature-based) and stitcher.py (grid-based)."""
+"""Tests for stitcher modules -- stitch_algorithms.py (feature-based) and stitcher.py (grid-based)."""
 
 import pathlib
 import tempfile
@@ -11,23 +11,23 @@ import pytest
 
 
 # ---------------------------------------------------------------------------
-# stitch_algorithms.py — feature-based stitching, color transfer, border crop
+# stitch_algorithms.py -- feature-based stitching, color transfer, border crop
 # ---------------------------------------------------------------------------
 
 from modules.stitch_algorithms import _image_stats, color_transfer, _grab_contours, crop_to_content
 
 
 class TestImageStats:
-    """Test _image_stats — computes L*a*b* channel statistics."""
+    """Test _image_stats -- computes L*a*b* channel statistics."""
 
     def test_uniform_image(self):
-        # Uniform gray → known LAB values
+        # Uniform gray -> known LAB values
         img = np.full((100, 100, 3), 128, dtype=np.uint8)
         lab = cv2.cvtColor(img, cv2.COLOR_BGR2LAB)
         stats = _image_stats(lab)
         assert len(stats) == 6  # (lMean, lStd, aMean, aStd, bMean, bStd)
         l_mean, l_std, a_mean, a_std, b_mean, b_std = stats
-        assert l_std == 0.0  # uniform → zero std
+        assert l_std == 0.0  # uniform -> zero std
         assert a_std == 0.0
         assert b_std == 0.0
 
@@ -43,7 +43,7 @@ class TestImageStats:
 
 
 class TestColorTransfer:
-    """Test color_transfer — LAB color distribution transfer (Reinhard et al.)."""
+    """Test color_transfer -- LAB color distribution transfer (Reinhard et al.)."""
 
     def test_output_shape_matches_target(self):
         source = np.full((50, 50, 3), 200, dtype=np.uint8)
@@ -53,23 +53,23 @@ class TestColorTransfer:
         assert result.dtype == np.uint8
 
     def test_identical_images_unchanged(self):
-        # Uniform images have zero std — division guard returns identity-like result
+        # Uniform images have zero std -- division guard returns identity-like result
         img = np.full((50, 50, 3), 128, dtype=np.uint8)
         result = color_transfer(img.copy(), img.copy())
         assert result.shape == img.shape
         assert result.dtype == np.uint8
-        # With zero-std guard, uniform → uniform (LAB round-trip may shift slightly)
+        # With zero-std guard, uniform -> uniform (LAB round-trip may shift slightly)
         assert np.allclose(result, result[0, 0], atol=1)  # all pixels same
 
     def test_varied_identical_images(self):
-        # Non-uniform identical images → result ≈ input
+        # Non-uniform identical images -> result ~= input
         rng = np.random.RandomState(7)
         img = rng.randint(80, 180, (50, 50, 3), dtype=np.uint8)
         result = color_transfer(img.copy(), img.copy())
         assert np.allclose(result, img, atol=5)
 
     def test_different_colors_shifts_target(self):
-        # Bright source, dark target → result should be brighter than original target
+        # Bright source, dark target -> result should be brighter than original target
         source = np.full((50, 50, 3), 220, dtype=np.uint8)
         target = np.full((50, 50, 3), 50, dtype=np.uint8)
         result = color_transfer(source, target)
@@ -88,7 +88,7 @@ class TestColorTransfer:
 
 
 class TestGrabContours:
-    """Test _grab_contours — OpenCV 4.x contour extraction."""
+    """Test _grab_contours -- OpenCV 4.x contour extraction."""
 
     def test_two_element_tuple(self):
         # OpenCV 4.x returns (contours, hierarchy)
@@ -119,7 +119,7 @@ class TestGrabContours:
 
 
 class TestCropToContent:
-    """Test crop_to_content — crops stitched image to content area."""
+    """Test crop_to_content -- crops stitched image to content area."""
 
     def test_crops_black_border(self):
         # Create an image with content in the center and black border
@@ -133,16 +133,16 @@ class TestCropToContent:
         assert result.mean() > 0
 
     def test_full_content_image(self):
-        # No border → result ≈ input size (only the 10px border padding matters)
+        # No border -> result ~= input size (only the 10px border padding matters)
         img = np.full((100, 100, 3), 200, dtype=np.uint8)
         result = crop_to_content(img)
-        # Should be close to original dimensions (±20 from the added border)
+        # Should be close to original dimensions (+/-20 from the added border)
         assert abs(result.shape[0] - 100) <= 22
         assert abs(result.shape[1] - 100) <= 22
 
 
 # ---------------------------------------------------------------------------
-# Current stitcher.py — _simple_position_stitcher
+# Current stitcher.py -- _simple_position_stitcher
 # ---------------------------------------------------------------------------
 
 from modules.stitcher import Stitcher
@@ -180,7 +180,7 @@ class TestSimplePositionStitcher:
         result = Stitcher._simple_position_stitcher(tile_dir, tile_df)
         assert result['status'] is True
         img = result['image']
-        # 2x2 grid of 50x50 tiles → 100x100
+        # 2x2 grid of 50x50 tiles -> 100x100
         assert img.shape == (100, 100)
 
     def test_center_metadata(self, tile_dir, tile_df):
@@ -192,7 +192,7 @@ class TestSimplePositionStitcher:
     def test_all_pixels_filled(self, tile_dir, tile_df):
         result = Stitcher._simple_position_stitcher(tile_dir, tile_df)
         img = result['image']
-        # No black pixels — all tiles have nonzero values
+        # No black pixels -- all tiles have nonzero values
         assert img.min() > 0
 
     def test_single_tile(self, tmp_path):

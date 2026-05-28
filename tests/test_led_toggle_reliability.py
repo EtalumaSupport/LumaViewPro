@@ -1,29 +1,29 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""Regression tests for issue #617 — LED toggle unreliability on slider move.
+"""Regression tests for issue #617 -- LED toggle unreliability on slider move.
 
 Original report: "When you change a slider, the toggle turns off then back on
 very quickly. Sometimes it leaves the LED off."
 
 Two root causes were identified and fixed in the same commit:
 
-Fix A — `disable_leds_for_other_layers` overreach:
+Fix A -- `disable_leds_for_other_layers` overreach:
   Commit f8951a5 (Fix #614) made disable_leds_for_other_layers() call
   scope.illumination.leds_off_async() + led_on_async() on every apply_settings, to ensure
   only one LED is physically on when switching channels. That was correct
   for layer switches but wrong for slider-only moves on the active layer,
   which fire apply_settings many times per drag. Result: visible LED
-  flicker (off→on) every time the user moves any slider.
+  flicker (off->on) every time the user moves any slider.
 
   (Originally written as scope_commands.leds_off() / led_on(); migrated
   to scope.illumination.leds_off_async() / scope.illumination.led_on_async() in LAYER-A' 2026-05-02
   when modules/scope_commands.py was consolidated into the Lumascope API.)
 
   Fix: guard the leds_off/led_on cycle with a "is any other layer actually
-  on?" check. When only the current layer is lit, skip the bus cycle — the
+  on?" check. When only the current layer is lit, skip the bus cycle -- the
   normal led_on path (which dedupes) still updates illumination.
 
-Fix B — Widget handler recursion via programmatic widget writes:
-  ill_text() → sets slider.value → on_value fires → ill_slider() → which
+Fix B -- Widget handler recursion via programmatic widget writes:
+  ill_text() -> sets slider.value -> on_value fires -> ill_slider() -> which
   writes settings and schedules apply_settings. The handler's `_initializing`
   check only guarded logging and the apply call, not the settings write or
   the recursive chain. Similarly, the camera listener's _update_camera_ui
@@ -105,7 +105,7 @@ class TestFixA_DisableLedsForOtherLayersGuard:
 
     def test_disable_leds_preserves_614_semantics(self):
         """The fix must still call leds_off + led_on when another layer is
-        on — preserving the #614 guarantee that only one LED is physically
+        on -- preserving the #614 guarantee that only one LED is physically
         on at any time during layer switches."""
         source = LAYER_CONTROL.read_text()
         idx = source.find('def disable_leds_for_other_layers')
@@ -113,10 +113,10 @@ class TestFixA_DisableLedsForOtherLayersGuard:
         # Both commands must still be present inside the function (post
         # LAYER-A' migration to scope.X_async).
         assert 'ctx.scope.illumination.leds_off_async()' in body, (
-            'leds_off_async call removed — #614 fix for layer-switch cleanup lost'
+            'leds_off_async call removed -- #614 fix for layer-switch cleanup lost'
         )
         assert 'ctx.scope.illumination.led_on_async(' in body, (
-            'led_on_async call for current layer removed — #614 fix broken'
+            'led_on_async call for current layer removed -- #614 fix broken'
         )
 
 
@@ -182,7 +182,7 @@ class TestFixB2_ProgrammaticWidgetWriteWrapping:
         Structural fix (4.1 session 13 follow-up to #617): the slider is
         the user-input source of truth. The listener exists to display
         the actual camera value in the readout text, not to push values
-        back into the slider — doing so was the root cause of the
+        back into the slider -- doing so was the root cause of the
         handler-recursion feedback loop the `_initializing` flag was
         papering over.
 
@@ -198,12 +198,12 @@ class TestFixB2_ProgrammaticWidgetWriteWrapping:
         # Function is ~3000 chars; slice large enough to catch the body
         body = source[idx : idx + 3500]
 
-        # Text writes must still be present — this is the whole point of
+        # Text writes must still be present -- this is the whole point of
         # the listener.
         assert 'gain_text' in body, '_update_camera_ui must still update gain_text for #617 display'
         assert 'exp_text' in body, '_update_camera_ui must still update exp_text for #617 display'
 
-        # Must NOT write to slider.value — that path is the recursion root.
+        # Must NOT write to slider.value -- that path is the recursion root.
         for forbidden in (
             "gain_slider'].value =",
             "exp_slider'].value =",
@@ -212,7 +212,7 @@ class TestFixB2_ProgrammaticWidgetWriteWrapping:
         ):
             assert forbidden not in body, (
                 f'_update_camera_ui must not assign to slider.value; found '
-                f'{forbidden!r} — this is the recursion root from #617'
+                f'{forbidden!r} -- this is the recursion root from #617'
             )
 
         # Must still respect _initializing set by other code paths
@@ -223,7 +223,7 @@ class TestFixB2_ProgrammaticWidgetWriteWrapping:
             'path has set layer_obj._initializing'
         )
 
-        # Must NOT set _initializing itself anymore — no slider writes
+        # Must NOT set _initializing itself anymore -- no slider writes
         # means no recursion to protect against.
         assert 'layer_obj._initializing = True' not in body, (
             '_update_camera_ui should not set _initializing; text-only '

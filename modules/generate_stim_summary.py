@@ -86,9 +86,9 @@ def parse_stimulation_profile(filepath):
             parts = line.split()
             if len(parts) >= 4:
                 try:
-                    on_cmd = float(parts[1]) if parts[1] != '—' else None
-                    off_cmd = float(parts[2]) if parts[2] != '—' else None
-                    actual_on = float(parts[3]) if parts[3] != '—' else None
+                    on_cmd = float(parts[1]) if parts[1] != '--' else None
+                    off_cmd = float(parts[2]) if parts[2] != '--' else None
+                    actual_on = float(parts[3]) if parts[3] != '--' else None
                     if on_cmd is not None:
                         result['led_on_cmd'].append(on_cmd)
                     if off_cmd is not None:

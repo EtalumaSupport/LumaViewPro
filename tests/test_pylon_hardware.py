@@ -1,5 +1,5 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""Pylon hardware tests — opt-in via --run-pylon-hardware.
+"""Pylon hardware tests -- opt-in via --run-pylon-hardware.
 
 These tests require:
   1. Real pypylon SDK installed (not the conftest MagicMock)
@@ -8,7 +8,7 @@ These tests require:
 Skipped by default. Run with:
     pytest tests/test_pylon_hardware.py --run-pylon-hardware
 
-The `pylon_hardware` marker is gated by conftest.pytest_collection_modifyitems —
+The `pylon_hardware` marker is gated by conftest.pytest_collection_modifyitems --
 test bodies do NOT need their own skip dance.
 
 Mirrors the shape of test_ids_hardware.py so the abstraction is symmetric
@@ -204,12 +204,12 @@ class TestPylon(unittest.TestCase):
         self.assertGreater(
             len(gain_deltas),
             0,
-            'gain sweep produced no data — chunks flow broken or all gain sets failed',
+            'gain sweep produced no data -- chunks flow broken or all gain sets failed',
         )
         self.assertGreater(
             len(exp_deltas),
             0,
-            'exposure sweep produced no data — chunks flow broken or all exposure sets failed',
+            'exposure sweep produced no data -- chunks flow broken or all exposure sets failed',
         )
 
     def test_chunk_clear_short_circuits_skip_frames(self):
@@ -252,7 +252,7 @@ class TestPylon(unittest.TestCase):
         )
 
     def test_probe_chunk_capabilities(self):
-        """T1 (FRAME_VALIDITY_PLAN.md §3): static introspection probe
+        """T1 (FRAME_VALIDITY_PLAN.md sec.3): static introspection probe
         for chunk-data support. Answers whether ExposureTime / Gain /
         FrameID are supported on the connected camera. Print-heavy
         rather than strict-assert because the answer drives architecture

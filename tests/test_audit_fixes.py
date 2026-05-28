@@ -127,7 +127,7 @@ def _camera_sdk_mock_modules():
 def _common_mock_modules():
     """Return a dict of commonly needed mock modules (lvp_logger, platformdirs, etc).
 
-    NOTE: cv2 is NOT mocked — it's a real installed package with no Kivy
+    NOTE: cv2 is NOT mocked -- it's a real installed package with no Kivy
     dependency. Mocking it causes test-ordering contamination: image_utils
     caches the mock cv2 reference at import time, and monkeypatch cleanup
     can't fix the cached reference. This broke TestAddTimestampInPlace.
@@ -177,7 +177,7 @@ def _mock_heavy_deps(monkeypatch):
 
 
 # ===========================================================================
-# 1. Domain exceptions — no mocks needed, pure Python module
+# 1. Domain exceptions -- no mocks needed, pure Python module
 # ===========================================================================
 from drivers.exceptions import HardwareError
 from modules.exceptions import (
@@ -221,7 +221,7 @@ class TestDomainExceptions:
 
 
 # ===========================================================================
-# 2. Input validation — Lumascope API (needs mocks for camera/logger deps)
+# 2. Input validation -- Lumascope API (needs mocks for camera/logger deps)
 # ===========================================================================
 
 
@@ -405,7 +405,7 @@ class TestProtocolStateTransitions:
 
 
 # ===========================================================================
-# 5. Settings snapshot (AppContext) — no mocks needed, pure Python dataclass
+# 5. Settings snapshot (AppContext) -- no mocks needed, pure Python dataclass
 # ===========================================================================
 from modules.app_context import AppContext
 
@@ -476,7 +476,7 @@ class TestAppleScriptEscaping:
 
 
 # ===========================================================================
-# 7. FPS calculation edge case — pure math, no imports needed
+# 7. FPS calculation edge case -- pure math, no imports needed
 # ===========================================================================
 class TestFpsCalculation:
     """Verify FPS floor calculation used in protocol timing."""
@@ -502,7 +502,7 @@ class TestFpsCalculation:
 
 
 # ===========================================================================
-# 8. Phase 4f — Security hardening tests
+# 8. Phase 4f -- Security hardening tests
 # ===========================================================================
 
 
@@ -593,7 +593,7 @@ class TestLvpLock:
         lock = LvpLock(lock_port=0)
         lock.lock()
         lock.close()
-        # Socket should be closed — port property still works
+        # Socket should be closed -- port property still works
         assert isinstance(lock.port, int)
 
     def test_second_instance_blocked(self):
@@ -601,7 +601,7 @@ class TestLvpLock:
 
         Without this guarantee, a second LumaViewPro launch silently tramples
         the first's exclusive serial ports on Windows. The bug was an accidental
-        SO_REUSEADDR setsockopt — on Windows that has SO_REUSEPORT semantics
+        SO_REUSEADDR setsockopt -- on Windows that has SO_REUSEPORT semantics
         and explicitly allows live double-bind.
         """
         from modules.lvp_lock import LvpLock
@@ -616,7 +616,7 @@ class TestLvpLock:
             second = LvpLock(lock_port=port)
             try:
                 assert second.lock() is False, (
-                    'second lock on same port MUST fail — regression of #559 '
+                    'second lock on same port MUST fail -- regression of #559 '
                     '(SO_REUSEADDR reintroduced?)'
                 )
             finally:
@@ -723,7 +723,7 @@ class TestTechSupportPrivacyNotice:
 
 
 # ===========================================================================
-# 9. Phase 6 — Cleanup tests
+# 9. Phase 6 -- Cleanup tests
 # ===========================================================================
 
 
@@ -817,7 +817,7 @@ class TestGdiSamplerCtypesSignatures:
 
 
 # ===========================================================================
-# 9. Position cache — push-based, zero serial I/O
+# 9. Position cache -- push-based, zero serial I/O
 # ===========================================================================
 
 
@@ -825,7 +825,7 @@ class TestPositionCache:
     """Verify push-based position cache in Lumascope API.
 
     The position cache eliminates serial polling from the GUI layer.
-    Positions are updated on move commands and after homing — the GUI
+    Positions are updated on move commands and after homing -- the GUI
     reads from cache with zero hardware calls.
     """
 
@@ -904,7 +904,7 @@ class TestPositionCache:
 
 
 # ===========================================================================
-# 8. Axis state model — push-based state tracking (zero serial I/O)
+# 8. Axis state model -- push-based state tracking (zero serial I/O)
 # ===========================================================================
 
 
@@ -955,7 +955,7 @@ class TestAxisState:
         """After thome on a turret-equipped scope, T axis should be IDLE.
 
         Uses an LS850T sim explicitly instead of the default LS850
-        sim_scope fixture (which has no turret) — pre-B4 the test passed
+        sim_scope fixture (which has no turret) -- pre-B4 the test passed
         on LS850 only because `_axis_state['T']` was a phantom key from
         the hardcoded VALID_AXES tuple. Post-B4, T is correctly absent
         on no-turret scopes and `thome()` is a Rule 8 silent no-op there.
@@ -1068,7 +1068,7 @@ class TestAxisState:
 
 
 # ===========================================================================
-# Issue Regression Tests — each bug fix gets a test (Rule 18)
+# Issue Regression Tests -- each bug fix gets a test (Rule 18)
 # ===========================================================================
 
 
@@ -1272,7 +1272,7 @@ class TestIssue606_TurretObjectiveValidation:
 
 
 # ===========================================================================
-# Audit Fix Regression Tests — Session 8 (B6, B5, D2, G3, F7, G4)
+# Audit Fix Regression Tests -- Session 8 (B6, B5, D2, G3, F7, G4)
 # ===========================================================================
 
 
@@ -1285,7 +1285,7 @@ class TestB6_WriteMotorRegisterRemoved:
 
         scope = Lumascope(simulate=True)
         assert not hasattr(scope, 'write_motor_register'), (
-            'write_motor_register() should have been removed (B6 — zero callers)'
+            'write_motor_register() should have been removed (B6 -- zero callers)'
         )
 
 
@@ -2001,7 +2001,7 @@ class TestG4_MotorLogSuppression:
 
         source = pathlib.Path('drivers/motorboard.py').read_text()
         assert 'pause_thread()' not in source, (
-            'motorboard.py must not use pause_thread() — suppresses all thread logging (G4)'
+            'motorboard.py must not use pause_thread() -- suppresses all thread logging (G4)'
         )
 
     def test_connect_log_suppressed_flag_exists(self, _mock_heavy_deps):
@@ -2029,7 +2029,7 @@ class TestG4_MotorLogSuppression:
 
 class TestRule1_MotorBoardNoNotifications:
     """Rule 1: drivers must not fire user-facing notifications directly.
-    Notifications are the API layer's responsibility — it has scope
+    Notifications are the API layer's responsibility -- it has scope
     context to decide whether a driver failure is user-visible (LS820
     expected motor) vs expected absence (LS620 has no motor)."""
 
@@ -2038,7 +2038,7 @@ class TestRule1_MotorBoardNoNotifications:
 
         source = pathlib.Path('drivers/motorboard.py').read_text()
         assert 'from modules.notification_center import notifications' not in source, (
-            'MotorBoard must not import notifications — Rule 1 (call down, not up)'
+            'MotorBoard must not import notifications -- Rule 1 (call down, not up)'
         )
 
     def test_motorboard_does_not_call_notifications(self):
@@ -2067,7 +2067,7 @@ class TestRule1_CameraNoNotifications:
 
         source = pathlib.Path('drivers/camera.py').read_text()
         assert 'from modules.notification_center import notifications' not in source, (
-            'drivers/camera.py must not import notifications — Rule 1'
+            'drivers/camera.py must not import notifications -- Rule 1'
         )
 
     def test_camera_base_does_not_call_notifications(self):
@@ -2093,7 +2093,7 @@ class TestRule1_PylonCameraNoNotifications:
 
         source = pathlib.Path('drivers/pyloncamera.py').read_text()
         assert 'from modules.notification_center import notifications' not in source, (
-            'drivers/pyloncamera.py must not import notifications — Rule 1'
+            'drivers/pyloncamera.py must not import notifications -- Rule 1'
         )
 
     def test_pyloncamera_does_not_call_notifications(self):
@@ -2120,7 +2120,7 @@ class TestRule1_SerialBoardNoNotifications:
 
         source = pathlib.Path('drivers/serialboard.py').read_text()
         assert 'from modules.notification_center import notifications' not in source, (
-            'drivers/serialboard.py must not import notifications — Rule 1'
+            'drivers/serialboard.py must not import notifications -- Rule 1'
         )
 
     def test_serialboard_does_not_call_notifications(self):
@@ -2259,7 +2259,7 @@ class TestIssue637_DrawerCloseSaturation:
          cycling LED off/on
 
     Root cause: Kivy's Accordion auto-expands a different item when the
-    active one collapses (default behavior — at least one item must stay
+    active one collapses (default behavior -- at least one item must stay
     expanded). When the user closed the drawer, Kivy auto-expanded another
     layer's accordion item (e.g. DF) behind the scenes. ImageSettings's
     on-collapse handler fired and called apply_settings() on that newly-
@@ -2280,7 +2280,7 @@ class TestIssue637_DrawerCloseSaturation:
         source = pathlib.Path('ui/image_settings.py').read_text()
         idx = source.find('def _do_accordion_collapse')
         assert idx >= 0, '_do_accordion_collapse not found in ui/image_settings.py'
-        # Slice to just this method's body — find the next `def ` at the
+        # Slice to just this method's body -- find the next `def ` at the
         # same indent level. _do_accordion_collapse lives in a class so
         # subsequent methods use 4-space indent: '\n    def '.
         next_def = source.find('\n    def ', idx + 1)
@@ -2321,7 +2321,7 @@ class TestIssue643_LumiLS820PlateViewInProtocol:
         # Take a slice large enough to cover the method body
         body = source[idx : idx + 3000]
         assert 'XYStage' in body, (
-            'accordion_collapse must check XYStage capability (issue #643) — '
+            'accordion_collapse must check XYStage capability (issue #643) -- '
             'without this guard, Lumi/LS820 protocol accordion re-shows the '
             'plate view + crosshair.'
         )
@@ -2436,7 +2436,7 @@ class TestAOC1_SaturationCheckShortCircuit:
     `not np.any(tmp != max)` (short-circuit) instead of `np.all(tmp == max)`.
 
     Both forms allocate a bool array, but `np.any` short-circuits on the
-    first True at the C level — for the common (non-saturated) case, the
+    first True at the C level -- for the common (non-saturated) case, the
     first non-max pixel exits the reduction immediately. Equivalence over
     saturated / non-saturated / single-pixel-different / all-zero arrays.
     """
@@ -2492,14 +2492,14 @@ class TestAOC1_SaturationCheckShortCircuit:
 class TestAOC2_RetrySaturationCheckOutsideCamLock:
     """AOC-2: lumascope_api.get_image saturation-retry path used to hold
     cam_lock across the np.all validation walk on the retry frame. The walk
-    doesn't need camera state — only the buffer returned from get_array().
+    doesn't need camera state -- only the buffer returned from get_array().
     Holding cam_lock across the walk blocked concurrent set_gain/set_exposure
     from other threads for ~50-150 ms per saturated retry.
 
     Fix: move the saturation walk outside the cam_lock block. Retry frame
     is captured under the lock; the walk runs after the lock is released.
     Also applies the AOC-1 short-circuit pattern at the retry site
-    (feedback_default_to_expanding_scope — fix the cluster).
+    (feedback_default_to_expanding_scope -- fix the cluster).
     """
 
     def test_retry_saturation_walk_is_outside_cam_lock(self):
@@ -2624,7 +2624,7 @@ class TestPIW3_FalseColor16bitCachedAtRunStart:
 class TestPIW5_Convert12to16OutBuffer:
     """PIW-5: convert_12bit_to_16bit() allocated a fresh ndarray on every save
     via image.copy() (~24 MB pulse for protocol-scale images). Same family as
-    F-3 — fresh allocations on the hot save path.
+    F-3 -- fresh allocations on the hot save path.
 
     Fix: add `out=None` parameter; when caller supplies a buffer with matching
     shape and dtype, reuse it via np.copyto. Plumb a per-run reusable buffer
@@ -2704,13 +2704,13 @@ class TestPIW6_PF3_FalseColorRgbPreallocated:
     """PIW-6 + PF-3 (combined): retire allocations on the false-color save path.
 
     Before:
-      - add_false_color allocates (H, W, 3) BGR per save (~36 MB uint16)        — PF-3
+      - add_false_color allocates (H, W, 3) BGR per save (~36 MB uint16)        -- PF-3
       - data[:, :, ::-1] returns a stride-reversed VIEW; tifffile silently
-        calls np.ascontiguousarray on write (~36 MB uint16 alloc)               — PIW-6
+        calls np.ascontiguousarray on write (~36 MB uint16 alloc)               -- PIW-6
 
     After (final, post-e2ef49e):
       - add_false_color(data, color, output=false_color_buf) reuses caller buf
-        AND returns the canonical RGB ordering directly — PF-3 + #657 fix.
+        AND returns the canonical RGB ordering directly -- PF-3 + #657 fix.
       - write_tiff no longer needs a BGR->RGB conversion step; the stride-
         reverse anti-pattern is gone and the cv2.cvtColor intermediate was
         retired by e2ef49e once add_false_color became RGB-native.
@@ -2808,10 +2808,10 @@ class TestPIW6_PF3_FalseColorRgbPreallocated:
 
 class TestPIW1_NoTheatricalDelCapturedImage:
     """PIW-1: write_capture had `del captured_image` after save_image() completes.
-    The line is theatrical — captured_image is passed as a kwarg in the IOTask
+    The line is theatrical -- captured_image is passed as a kwarg in the IOTask
     queued at protocol_image_writer.py:303 (`"captured_image": captured_image`).
     The IOTask.kwargs dict holds the reference until the task completes, so the
-    local `del` only releases a local binding — actual memory reclaim happens
+    local `del` only releases a local binding -- actual memory reclaim happens
     when the IOTask is freed after task completion, regardless.
 
     Misleading "memory free" gesture; remove the line.
@@ -2824,7 +2824,7 @@ class TestPIW1_NoTheatricalDelCapturedImage:
             Path(__file__).resolve().parent.parent / 'modules' / 'protocol_image_writer.py'
         ).read_text()
         assert 'del captured_image' not in src, (
-            'PIW-1: theatrical `del captured_image` should be removed — IOTask kwargs holds the ref.'
+            'PIW-1: theatrical `del captured_image` should be removed -- IOTask kwargs holds the ref.'
         )
 
 
@@ -2835,8 +2835,8 @@ class TestPIW2_DisksUsageDeduped:
     non-actionable) and `protocol_image_writer._write_capture` (checks the
     actual save_folder, aborts the protocol on insufficient space).
 
-    The lumascope_api checks (a) checked the wrong path — root filesystem,
-    not the save folder — and (b) only logged at error level without aborting
+    The lumascope_api checks (a) checked the wrong path -- root filesystem,
+    not the save folder -- and (b) only logged at error level without aborting
     or notifying. The existing try/except in save_image already catches
     write failures via OSError and surfaces a user notification.
 
@@ -3082,13 +3082,13 @@ class TestAccordionStaysPutAcrossProtocolStopStart_AccordionDrift:
 
 class TestPF2_FileIoExecutorClearedOnAbort:
     """PF-2: on hardware-disconnect / abort cleanup, file_io_executor's
-    pending queue was NOT cleared — only io_executor's was. Queued IOTasks
+    pending queue was NOT cleared -- only io_executor's was. Queued IOTasks
     hold captured_image references; on a slow drain these can pin GB of
     memory and lock the next protocol-start until the drain completes.
 
     Distinct from normal completion, where draining is correct (writes user
     data to disk). The discriminator is `ProtocolState.ERROR` at cleanup
-    entry — that's an abort path; anything else (COMPLETING, IDLE) is
+    entry -- that's an abort path; anything else (COMPLETING, IDLE) is
     normal end.
 
     Fix: capture is_aborted from initial state BEFORE the COMPLETING
@@ -3137,10 +3137,10 @@ class TestPF2_FileIoExecutorClearedOnAbort:
 
 class TestPF5_ImageBufferRetired:
     """PF-5: Lumascope.image_buffer was a permanent shadow copy of the latest
-    get_image() result — Rule 2 violation. Only ever read by get_image() itself
+    get_image() result -- Rule 2 violation. Only ever read by get_image() itself
     (for chaining sum/scale-bar/8-bit-convert ops), never by external callers.
     Pinned one frame indefinitely between calls. The _state_lock around per-
-    write didn't actually serialize concurrent get_image calls — chained
+    write didn't actually serialize concurrent get_image calls -- chained
     writes from different threads could still interleave.
 
     Fix: chain through a local variable in get_image(). Remove the
@@ -3201,11 +3201,11 @@ class TestPF1_CpuPoolRetired:
     use_multiprocessing was hardcoded False, so the ProcessPoolExecutor
     construction at lumaviewpro.py:214-237 never ran. The
     sequenced_capture_writer.py module was only imported from that dead
-    block — the entire module was unreachable. The cpu_pool param threaded
+    block -- the entire module was unreachable. The cpu_pool param threaded
     through SequencedCaptureRunner.__init__ was always None.
 
     Per IMAGE_PROCESSING_ARCHITECTURE_2026-04-30.md: do NOT pre-build a
-    replacement pool — modules/postprocessing/ and modules/live_processing/
+    replacement pool -- modules/postprocessing/ and modules/live_processing/
     will be built greenfield when their first feature lands.
 
     Fix: deleted modules/sequenced_capture_writer.py entirely. Removed
@@ -4043,11 +4043,11 @@ class TestPylonCancelHandlingDefensive:
         assert '0xE2000102' in src, (
             'Source comment near _PYLON_ERR_BUFFER_CANCELED must reference '
             '0xE2000102 (the hex form of decimal 3791651074). If you found '
-            "0xE2008002 here, that's the prior typo — fix to 0xE2000102."
+            "0xE2008002 here, that's the prior typo -- fix to 0xE2000102."
         )
         assert '0xE2008002' not in src, (
             'Stale typo: 0xE2008002 must not appear in pyloncamera.py '
-            "source — that hex equals 3791683586 (NOT what's stored)."
+            "source -- that hex equals 3791683586 (NOT what's stored)."
         )
 
     def test_cancel_branch_uses_or_with_removal_flag(self):

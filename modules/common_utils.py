@@ -14,7 +14,7 @@ from lvp_logger import logger
 # ---------------------------------------------------------------------------
 # Hardware defaults (fallbacks when motorconfig/scope not available)
 # ---------------------------------------------------------------------------
-# LS850 full travel range — used as default stage limits when scope is not connected.
+# LS850 full travel range -- used as default stage limits when scope is not connected.
 DEFAULT_STAGE_TRAVEL_UM = {'x': 120000.0, 'y': 80000.0}
 
 # ---------------------------------------------------------------------------
@@ -364,7 +364,7 @@ _IS_WINDOWS = platform.system() == 'Windows'
 
 
 # ---------------------------------------------------------------------------
-# Windows perf-counter query (PDH) — TEMPORARY INSTRUMENTATION (2026-04-30)
+# Windows perf-counter query (PDH) -- TEMPORARY INSTRUMENTATION (2026-04-30)
 #
 # Added on branch `perf-instrumentation-4.0.0-beta` to capture standby cache
 # growth, nonpaged pool, and system file cache as part of the buffer-churn
@@ -388,8 +388,8 @@ class _PdhCountersOnce:
     disabled so subsequent calls return {} without retry overhead.
     """
 
-    # Counter paths — match `Get-Counter` PowerShell paths exactly.
-    # `\Memory\Available Bytes` is what Windows considers "available" — equals
+    # Counter paths -- match `Get-Counter` PowerShell paths exactly.
+    # `\Memory\Available Bytes` is what Windows considers "available" -- equals
     # standby + free + zero pages. Useful as a sanity check against the breakdown.
     _COUNTERS = {
         'standby_normal_bytes': r'\Memory\Standby Cache Normal Priority Bytes',
@@ -444,13 +444,13 @@ class _PdhCountersOnce:
                 ret = self._PdhAddCounterW(query, path, 0, ctypes.byref(handle))
                 if ret != self._ERROR_SUCCESS:
                     # Some counters (e.g. Standby Cache Core) may be absent
-                    # on older Windows builds — mark this one missing and
+                    # on older Windows builds -- mark this one missing and
                     # continue. PdhCollectQueryData still works on the rest.
                     continue
                 self._handles[name] = handle
 
             # First collect "primes" the counters; second collect gives real
-            # values. Some counters (rate-based) need 2 samples — for the byte
+            # values. Some counters (rate-based) need 2 samples -- for the byte
             # counters we use, a single collect is enough.
             self._PdhCollectQueryData(query)
 
@@ -495,7 +495,7 @@ def query_windows_perf_counters():
     """One-shot snapshot of selected Windows memory perf counters.
 
     Returns dict mapping field name to bytes value. Returns {} on non-Windows
-    or if PDH is unavailable. TEMPORARY — see `_PdhCountersOnce` docstring.
+    or if PDH is unavailable. TEMPORARY -- see `_PdhCountersOnce` docstring.
     """
     if _pdh_counters_singleton is None:
         return {}
@@ -503,7 +503,7 @@ def query_windows_perf_counters():
 
 
 # ---------------------------------------------------------------------------
-# Rate-tracker for cumulative counters — TEMPORARY INSTRUMENTATION (2026-04-30)
+# Rate-tracker for cumulative counters -- TEMPORARY INSTRUMENTATION (2026-04-30)
 #
 # Several metrics we want (page faults/sec, IO write/sec, MsMpEng read/sec)
 # come from cumulative counters. Cache the last value+timestamp and compute
@@ -532,7 +532,7 @@ def _delta_rate(key, current_value, now=None):
 
 
 # ---------------------------------------------------------------------------
-# Defender (MsMpEng.exe) metrics — TEMPORARY INSTRUMENTATION (2026-04-30)
+# Defender (MsMpEng.exe) metrics -- TEMPORARY INSTRUMENTATION (2026-04-30)
 #
 # Direct signal on the "Defender memory-maps every TIFF write" hypothesis.
 # If MsMpEng's IO read rate climbs proportional to our save rate, that's
@@ -597,7 +597,7 @@ def query_defender_metrics():
 
 
 # ---------------------------------------------------------------------------
-# tracemalloc top-N allocators — TEMPORARY INSTRUMENTATION (2026-04-30)
+# tracemalloc top-N allocators -- TEMPORARY INSTRUMENTATION (2026-04-30)
 #
 # Off by default. Enable via tracemalloc_enabled: true in data/settings.json.
 # When on, tracemalloc is started at first call and a snapshot is taken;
@@ -741,7 +741,7 @@ def system_metrics(path='/'):
     # --- Process I/O bytes (cumulative + rates, per-process) ---
     # Distinguishes "we wrote 50 GB this hour" from "Windows Defender did".
     # Both bytes counters reset only when the process restarts.
-    # Rates added 2026-04-30 (TEMPORARY) — at 60 s sampling interval, the
+    # Rates added 2026-04-30 (TEMPORARY) -- at 60 s sampling interval, the
     # rate gives MB/sec of TIFF writes; cross-reference with Defender IO
     # read rate to confirm "Defender mmaps every TIFF" hypothesis.
     try:
@@ -758,7 +758,7 @@ def system_metrics(path='/'):
 
     # --- Page faults (rate) ---
     # Sustained > 1000 pf/sec on a desktop = real memory pressure (paging
-    # working set in/out). Useful as a sanity signal — if pf/sec stays low
+    # working set in/out). Useful as a sanity signal -- if pf/sec stays low
     # while standby grows, the slowdown is allocator/standby-cache, not
     # real paging. If pf/sec spikes during slow state, real paging.
     try:
@@ -770,7 +770,7 @@ def system_metrics(path='/'):
     except Exception:
         pass
 
-    # --- GDI / USER objects (Windows only — main long-run-stability concern) ---
+    # --- GDI / USER objects (Windows only -- main long-run-stability concern) ---
     # GDI is what causes Windows-wide slowdown after 24h+ runs. Every
     # `Texture.create()` and unclosed matplotlib figure adds a GDI handle.
     # Process limit is 10,000; Windows desktop degrades around 5,000.
@@ -813,7 +813,7 @@ def system_metrics(path='/'):
 
     # --- Python GC (catches reference-cycle / closure-capture leaks) ---
     # `gc.get_objects()` is somewhat expensive (iterates all tracked
-    # objects) — fine at hourly cadence. Steady linear growth indicates
+    # objects) -- fine at hourly cadence. Steady linear growth indicates
     # accumulation, typically from observers/callbacks holding refs.
     try:
         metrics['gc_objects'] = len(gc.get_objects())
@@ -846,7 +846,7 @@ def system_metrics(path='/'):
 
     # --- Live GC depth (uncollected objects per generation) ---
     # Existing gc_genN_collections counts collections-since-start (a counter).
-    # gc.get_count() is the CURRENT depth — pairs with the counter to show
+    # gc.get_count() is the CURRENT depth -- pairs with the counter to show
     # both rate (collections/min) and steady-state pressure (depth growing
     # = generation 2 leaks).
     try:

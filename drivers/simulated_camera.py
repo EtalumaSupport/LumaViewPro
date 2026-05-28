@@ -1,6 +1,6 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """
-Simulated Camera — drop-in replacement for PylonCamera / IDSCamera.
+Simulated Camera -- drop-in replacement for PylonCamera / IDSCamera.
 
 No camera hardware required. Generates synthetic images, tracks all
 camera state (exposure, gain, binning, frame size, pixel format), and
@@ -80,7 +80,7 @@ class SimulatedCamera(Camera):
         self._pump_thread: threading.Thread | None = None
         self._pump_stop = threading.Event()
 
-        # Synthetic image state — can be set externally for test scenarios
+        # Synthetic image state -- can be set externally for test scenarios
         # 'gradient', 'black', 'white', 'noise', 'focus_target', 'image_cycle'
         self._test_pattern = 'gradient'
 
@@ -339,7 +339,7 @@ class SimulatedCamera(Camera):
 
         Generates a fresh image per tick so the callback gets a unique
         ``(image, ts, chunks=None)`` triple. SimulatedCamera has no
-        chunk surface, so chunks is always None — recording callers
+        chunk surface, so chunks is always None -- recording callers
         already treat None as "skip chunk-derived metadata."
         """
         while not self._pump_stop.is_set():
@@ -620,7 +620,7 @@ class SimulatedCamera(Camera):
 
         img = np.zeros((h, w), dtype=np.float32)
 
-        # Grid of fine lines (high frequency — most sensitive to defocus)
+        # Grid of fine lines (high frequency -- most sensitive to defocus)
         grid_spacing = 8
         img[::grid_spacing, :] = max_val * 0.4
         img[:, ::grid_spacing] = max_val * 0.4
@@ -686,7 +686,7 @@ class SimulatedCamera(Camera):
         raw = (self._exposure_us / 1_000_000.0) * max(1.0, self._gain) * 10.0
         brightness = min(1.0, raw)
         # For image cycling, apply a floor so patterns are visible even at
-        # short default exposures (2ms → raw=0.02, floor lifts to 0.5)
+        # short default exposures (2ms -> raw=0.02, floor lifts to 0.5)
         if self._test_pattern == 'image_cycle':
             brightness = max(0.5, brightness)
 
@@ -717,7 +717,7 @@ class SimulatedCamera(Camera):
             img = self._apply_defocus_blur(base * brightness, max_val)
             img = img.astype(dtype)
         else:
-            # Default gradient — also apply defocus blur if Z tracking is active
+            # Default gradient -- also apply defocus blur if Z tracking is active
             row = np.linspace(0, max_val * brightness, w, dtype=np.float32)
             img = np.tile(row, (h, 1)).astype(dtype)
 
@@ -746,7 +746,7 @@ class SimulatedCamera(Camera):
             now = time.monotonic()
             last = getattr(self, '_last_frame_time', 0.0)
             if now - last < exposure_s:
-                # Not enough time has passed — return the previous frame
+                # Not enough time has passed -- return the previous frame
                 return True, self._last_grab_ts
             self._last_frame_time = now
 

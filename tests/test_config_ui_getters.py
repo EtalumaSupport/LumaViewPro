@@ -5,7 +5,7 @@ Tests for UI-dependent config getters in modules/config_ui_getters.py.
 Headless equivalents in modules/config_helpers.py are tested in
 tests/test_headless_config.py. Per Eric's 2026-04-25 directive,
 get_selected_labware() ALWAYS returns a valid (labware_id, plate) tuple
-— never None — by falling back to the shipped default labware and then
+-- never None -- by falling back to the shipped default labware and then
 to the first available plate. Issue #634/#632 cluster: removing None
 from the contract retires the cluster of latent crash sites that
 consumed it without None-checking.
@@ -34,7 +34,7 @@ def _patch_ctx(monkeypatch, *, spinner_text: str, settings: dict, loader):
 
 
 class TestGetSelectedLabware:
-    """UI variant — always returns a valid (labware_id, plate) tuple."""
+    """UI variant -- always returns a valid (labware_id, plate) tuple."""
 
     def test_spinner_has_valid_labware(self, monkeypatch):
         loader = MagicMock()
@@ -73,7 +73,7 @@ class TestGetSelectedLabware:
     def test_spinner_has_stale_default_falls_back_to_default(self, monkeypatch):
         # Issue #634 regression: KV file used to ship `text: 'New'` as the
         # spinner default. On first run, the spinner read 'New' before
-        # settings synced to UI — and 'New' isn't a valid labware key.
+        # settings synced to UI -- and 'New' isn't a valid labware key.
         # Per Eric's 2026-04-25 directive, the function now falls back
         # cleanly to DEFAULT_LABWARE_ID rather than returning None.
         loader = MagicMock()
@@ -112,7 +112,7 @@ class TestGetSelectedLabware:
         assert obj is default_plate
 
     def test_loader_keyerror_falls_back_to_first_available(self, monkeypatch):
-        # Both requested AND default missing → fall back to first plate
+        # Both requested AND default missing -> fall back to first plate
         # in loader.get_plate_list().
         loader = MagicMock()
         first_plate = MagicMock()
@@ -140,7 +140,7 @@ class TestGetSelectedLabware:
     def test_caller_tuple_unpack_does_not_crash_on_any_input(self, monkeypatch):
         # The original #634 crash chain was `labware_id, _ = get_selected_labware()`
         # blowing up on TypeError. With the always-valid contract, this
-        # path is impossible — labware_id is always a non-None string.
+        # path is impossible -- labware_id is always a non-None string.
         loader = MagicMock()
         default_plate = MagicMock()
 

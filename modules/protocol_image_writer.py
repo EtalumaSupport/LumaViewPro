@@ -171,14 +171,14 @@ class ProtocolImageWriter:
             return
 
         # N5 (STALL-1 H5 disambiguator): proto-state trace.
-        # See docs/STALL1_INSTRUMENTATION_EXPERIMENT.md (Firmware repo) §4 N5.
-        # Wraps capture body in try/finally — single row per capture invocation
+        # See docs/STALL1_INSTRUMENTATION_EXPERIMENT.md (Firmware repo) sec.4 N5.
+        # Wraps capture body in try/finally -- single row per capture invocation
         # captures duration + outcome + step identity, regardless of return path.
         # Disambiguates "real stall" vs "between-step pause" in the timeline.
         _trace_enabled = profile_trace is not None and profile_trace.ENABLE_PROFILE_TRACE
         _proto_t0 = time.perf_counter() if _trace_enabled else None
         _proto_outcome = 'unknown'
-        # step is dict-like (supports .get) but not always a dict subclass —
+        # step is dict-like (supports .get) but not always a dict subclass --
         # smoke 1 showed isinstance(step, dict) returned False even though
         # step.get('Name', '?') works fine (the existing CAPTURE DIAG line
         # at protocol_image_writer.py:114 uses the same pattern). Drop the
@@ -343,7 +343,7 @@ class ProtocolImageWriter:
                     video_result = session.capture()
 
                     if video_result is None:
-                        # Cancelled or zero frames — skip write
+                        # Cancelled or zero frames -- skip write
                         self._leds_off()
                         _proto_outcome = 'video_cancelled'
                         return
@@ -449,7 +449,7 @@ class ProtocolImageWriter:
 
                     # DISPLAY-1: hold the captured image on screen for at
                     # least 500 ms so the user can see the saved frame
-                    # before the live preview overwrites it. NOT a delay —
+                    # before the live preview overwrites it. NOT a delay --
                     # the next protocol save bumps the hold deadline
                     # forward, so display tracks the most-recent saved
                     # frame in real time. Best-effort; missing scope_display

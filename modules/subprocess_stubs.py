@@ -113,7 +113,7 @@ class Texture:
     pass
 
 
-# Properties — accept arguments to match Kivy's interface
+# Properties -- accept arguments to match Kivy's interface
 class StringProperty:
     def __init__(self, default_value='', **kwargs):
         self.default_value = default_value

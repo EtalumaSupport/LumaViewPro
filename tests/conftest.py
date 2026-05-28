@@ -14,7 +14,7 @@ Hardware-test opt-in flags
 
 When a hardware flag is set, the corresponding SDK is NOT mocked so the
 real module loads. Hardware tests are gated by markers (`ids_hardware`,
-`pylon_hardware`) — see `pytest_collection_modifyitems` below.
+`pylon_hardware`) -- see `pytest_collection_modifyitems` below.
 """
 
 import os
@@ -30,7 +30,7 @@ os.environ.setdefault('KIVY_NO_CONSOLELOG', '1')
 os.environ.setdefault('KIVY_NO_FILELOG', '1')
 
 # ---------------------------------------------------------------------------
-# Path setup — make `from drivers.x import Y` work from tests/
+# Path setup -- make `from drivers.x import Y` work from tests/
 # ---------------------------------------------------------------------------
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -67,7 +67,7 @@ for _flag, _mods in _HARDWARE_FLAG_MOCKS.items():
 # Centralized mock installation
 # ---------------------------------------------------------------------------
 # Test files used to duplicate this block at module level. Now they don't
-# have to — conftest installs the union before any test is collected.
+# have to -- conftest installs the union before any test is collected.
 # Idempotent (uses setdefault) so files that still call install_mock_deps()
 # are no-ops.
 
@@ -96,12 +96,12 @@ def install_mock_deps():
         'kivy': MagicMock(),
         'kivy.clock': MagicMock(),
         'kivy.base': MagicMock(),
-        # FX2 / libusb (no hardware-test gate yet — always mocked)
+        # FX2 / libusb (no hardware-test gate yet -- always mocked)
         'usb': MagicMock(),
         'usb.core': MagicMock(),
         'usb.util': MagicMock(),
         'usb1': MagicMock(),
-        # Camera SDKs — skipped when their --run-*-hardware flag is set
+        # Camera SDKs -- skipped when their --run-*-hardware flag is set
         'pypylon': MagicMock(),
         'pypylon.pylon': MagicMock(),
         'pypylon.genicam': MagicMock(),
@@ -116,7 +116,7 @@ def install_mock_deps():
         sys.modules.setdefault(name, mock_mod)
 
 
-# Run at conftest import time — before any test file is collected.
+# Run at conftest import time -- before any test file is collected.
 install_mock_deps()
 
 

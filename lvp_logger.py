@@ -9,7 +9,7 @@ import os
 
 # Suppress Kivy's own file/console logging before any Kivy import can fire.
 # LVP routes the `kivy` logger into its file_handler / error_handler below,
-# so Kivy diagnostics still land in the main LVP logs — just not in
+# so Kivy diagnostics still land in the main LVP logs -- just not in
 # ~/.kivy/logs/. The app entry point (lumaviewpro.py) sets the same vars,
 # but lvp_logger is imported earlier by most code paths (tests, scripts,
 # standalone imports), so set them here too.
@@ -78,7 +78,7 @@ if windows_machine and lvp_installed:
     documents_folder = platformdirs.user_documents_dir()
     lvp_appdata = os.path.join(documents_folder, f'LumaViewPro {version}')
 
-    # Do NOT os.chdir() here — it changes global CWD as a side effect of import.
+    # Do NOT os.chdir() here -- it changes global CWD as a side effect of import.
     # Use absolute paths instead.
     pass
 
@@ -253,7 +253,7 @@ class ErrorOrForcedFilter(logging.Filter):
 
 error_file_handler.addFilter(ErrorOrForcedFilter())
 
-# REST API log handler — captures records marked with extra={'api_request': True}
+# REST API log handler -- captures records marked with extra={'api_request': True}
 rest_api_handler = RotatingFileHandler(
     REST_API_LOG_FILE,
     mode='a',
@@ -276,7 +276,7 @@ class RestAPIFilter(logging.Filter):
 
 rest_api_handler.addFilter(RestAPIFilter())
 
-# Serial log — dedicated file for all serial command/response traffic with timing.
+# Serial log -- dedicated file for all serial command/response traffic with timing.
 # Uses its own logger (LVP.serial) with propagate=False so serial traffic
 # does NOT appear in the main log.  Errors still go to the errors log.
 serial_logger = logging.getLogger('LVP.serial')
@@ -285,7 +285,7 @@ serial_logger.propagate = False  # Keep serial traffic out of the main log
 
 
 class SerialFormatter(logging.Formatter):
-    """Compact format for serial log: timestamp board command → response (timing)."""
+    """Compact format for serial log: timestamp board command -> response (timing)."""
 
     def __init__(self):
         super().__init__(
@@ -309,7 +309,7 @@ serial_logger.addHandler(serial_file_handler)
 # Also send serial errors/warnings to the errors log
 serial_logger.addHandler(error_file_handler)
 
-# Camera log — dedicated file for all camera SDK command traffic with
+# Camera log -- dedicated file for all camera SDK command traffic with
 # timing. Same shape as serial.log but for Pylon / IDS / FX2 / simulator
 # camera drivers. Captures every meaningful SDK call (Gain, ExposureTime,
 # StartGrabbing, StopGrabbing, PixelFormat, Binning, Width/Height, etc).
@@ -359,7 +359,7 @@ camera_logger.addHandler(error_file_handler)
 # real log_to.
 from lib.log_helpers import log_to  # noqa: E402
 
-# Metrics log — dedicated file for periodic runtime-health snapshots
+# Metrics log -- dedicated file for periodic runtime-health snapshots
 # (system metrics, handle/GC counts, buffer churn, frame-interval
 # percentiles). Routed here instead of errors.log so errors.log stays
 # signal-only. Uses standard CustomFormatter so existing log-parsing
@@ -383,8 +383,8 @@ metrics_logger.addHandler(metrics_file_handler)
 # Metrics errors/warnings still hit the errors log
 metrics_logger.addHandler(error_file_handler)
 
-# Autofocus log — dedicated file for AF sweep data, scores, timing.
-# Engineering mode only — handler attached via enable_engineering_logs().
+# Autofocus log -- dedicated file for AF sweep data, scores, timing.
+# Engineering mode only -- handler attached via enable_engineering_logs().
 af_logger = logging.getLogger('LVP.autofocus')
 af_logger.setLevel(logging.INFO)
 af_logger.propagate = False  # Keep AF data out of the main log
@@ -414,8 +414,8 @@ _af_file_handler.namer = lambda name: name.replace('.log', '') + '.log'
 _af_file_handler.setFormatter(AFFormatter())
 _af_file_handler.addFilter(ThreadPauseFilter())
 
-# API log — internal Lumascope API calls (state-changing operations).
-# Engineering mode only — handler attached via enable_engineering_logs().
+# API log -- internal Lumascope API calls (state-changing operations).
+# Engineering mode only -- handler attached via enable_engineering_logs().
 api_logger = logging.getLogger('LVP.api')
 api_logger.setLevel(logging.INFO)
 api_logger.propagate = False  # Keep API traffic out of the main log
@@ -478,7 +478,7 @@ logger.addHandler(file_handler)
 logger.addHandler(error_file_handler)
 logger.addHandler(rest_api_handler)
 
-# GUI interaction log — every user action for crash forensics
+# GUI interaction log -- every user action for crash forensics
 # WORKAROUND: INFO level during beta. Move to DEBUG once stable.
 gui_handler = RotatingFileHandler(
     GUI_LOG_FILE, maxBytes=5 * 1024 * 1024, backupCount=2, encoding='utf-8'
@@ -617,7 +617,7 @@ def log_environment_banner(source_path: str, version_str: str):
     except Exception as e:
         logger.info(f'[LVP Main  ] Kivy: unavailable ({e})')
 
-    # Camera SDKs — log both the Python binding version AND the
+    # Camera SDKs -- log both the Python binding version AND the
     # underlying SDK runtime. Binding/SDK mismatch has bitten us before.
     try:
         import importlib.metadata as _imeta
@@ -629,7 +629,7 @@ def log_environment_banner(source_path: str, version_str: str):
         from pypylon import pylon as _pylon
 
         # Prefer the dotted string (e.g. "10.2.1.0471") over the raw
-        # list form GetPylonVersion() returns — the list renders as
+        # list form GetPylonVersion() returns -- the list renders as
         # `[10, 2, 1, 471]` in logs, which looks like a bug report
         # waiting to happen.
         try:

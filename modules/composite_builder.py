@@ -9,7 +9,7 @@ capture path and the post-capture composite generation path.
 
 import numpy as np
 
-# Canonical RGB color mapping — single source of truth for channel-to-RGB index.
+# Canonical RGB color mapping -- single source of truth for channel-to-RGB index.
 # Index 0 = Red, 1 = Green, 2 = Blue (standard RGB ordering).
 # Callers using BGR (OpenCV) must convert at their boundaries.
 CHANNEL_RGB_INDEX = {
@@ -81,7 +81,7 @@ def build_composite(
 
             img[changed, channel_index] = img_gray[changed]
     else:
-        # No transmitted channel — assign each channel directly
+        # No transmitted channel -- assign each channel directly
         img = np.zeros((h, w, 3), dtype=dtype)
         for channel_name, img_gray in channel_images.items():
             channel_index = CHANNEL_RGB_INDEX.get(channel_name)

@@ -2,12 +2,12 @@
 """
 Integration tests for protocol execution through SequencedCaptureRunner.
 
-Tier 1: Core execution paths — verifies that the most common protocol
+Tier 1: Core execution paths -- verifies that the most common protocol
 configurations run to completion without crashing and produce the
 expected sequence of hardware calls.
 
 Uses Lumascope(simulate=True) with real SimulatedLEDBoard, SimulatedMotorBoard,
-and SimulatedCamera — no hardware or Kivy needed.
+and SimulatedCamera -- no hardware or Kivy needed.
 """
 
 import datetime
@@ -45,7 +45,7 @@ from modules.protocol import Protocol
 # ---------------------------------------------------------------------------
 # Test constants
 # ---------------------------------------------------------------------------
-COMPLETION_TIMEOUT = 15  # seconds — generous for CI
+COMPLETION_TIMEOUT = 15  # seconds -- generous for CI
 
 
 # ---------------------------------------------------------------------------
@@ -349,7 +349,7 @@ def executor(scope, executors):
 
 
 class TestSingleScanBasicImage:
-    """Test 1: Simplest happy path — single scan, single BF image step."""
+    """Test 1: Simplest happy path -- single scan, single BF image step."""
 
     def test_completes_successfully(self, executor, scope, tmp_path):
         protocol = _make_single_step_protocol(color='BF')
@@ -394,7 +394,7 @@ class TestSingleScanAutoGain:
         protocol = _make_single_step_protocol(color='BF', auto_gain=True)
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed
-        # Auto gain cycle ran successfully — gain value should have been adjusted
+        # Auto gain cycle ran successfully -- gain value should have been adjusted
         # from the initial value by the auto-gain convergence logic
         assert scope._camera_driver.get_gain() > 0
 
@@ -403,7 +403,7 @@ class TestSingleScanAutoGain:
         protocol = _make_single_step_protocol(color='BF', auto_gain=True, gain=5.0)
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed
-        # _capture still calls set_gain — but _scan_iterate should skip it
+        # _capture still calls set_gain -- but _scan_iterate should skip it
         # We can't easily distinguish, so just verify completion
 
 
@@ -427,7 +427,7 @@ class TestSingleScanAutoFocus:
 
 
 class TestSingleScanAutoFocusNoneResult:
-    """C2 fix: autofocus returns None — protocol must not crash."""
+    """C2 fix: autofocus returns None -- protocol must not crash."""
 
     def test_completes_when_autofocus_returns_none(self, executor, scope, tmp_path):
         protocol = _make_single_step_protocol(color='BF', auto_focus=True)
@@ -514,7 +514,7 @@ class TestAFSliderRaceRegression:
         assert completed
 
         assert pre_af_z not in z_ui_calls, (
-            f'scan_iterate scheduled z_ui_update_func({pre_af_z}) — this overwrites '
+            f'scan_iterate scheduled z_ui_update_func({pre_af_z}) -- this overwrites '
             f"the AF executor's UI write to best_focus_position. Bug #563 has regressed."
         )
 
@@ -531,7 +531,7 @@ class TestSingleScanFluorescence:
         protocol = _make_single_step_protocol(color='Red', illumination=100.0)
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed
-        # After protocol with leds_state_at_end='off', LEDs are off —
+        # After protocol with leds_state_at_end='off', LEDs are off --
         # completion confirms the LED was used during the protocol
 
     @pytest.mark.parametrize('color', ['Red', 'Green', 'Blue', 'PC', 'DF', 'Lumi'])
@@ -610,7 +610,7 @@ class TestMultiStepMultiChannel:
         # Note: the executor deep-copies the protocol at run start (P2-14),
         # so we cannot spy on the original mock's .step() calls.
         # Completion of a 3-step protocol without error confirms all steps
-        # were visited — individual step execution is covered by other tests.
+        # were visited -- individual step execution is covered by other tests.
 
 
 # ===========================================================================
@@ -783,7 +783,7 @@ def _make_zstack_steps(num_slices, color='BF', well='A1', z_start=4000.0, z_step
 
 
 class TestTiling2x2:
-    """2x2 tile grid — simplest tiling case."""
+    """2x2 tile grid -- simplest tiling case."""
 
     def test_completes(self, executor, scope, tmp_path):
         steps = _make_tile_grid_steps(rows=2, cols=2)
@@ -802,7 +802,7 @@ class TestTiling2x2:
 
 
 class TestTilingAsymmetric1x3:
-    """1x3 tile grid — single row, three columns."""
+    """1x3 tile grid -- single row, three columns."""
 
     def test_completes(self, executor, scope, tmp_path):
         steps = _make_tile_grid_steps(rows=1, cols=3)
@@ -821,7 +821,7 @@ class TestTilingAsymmetric1x3:
 
 
 class TestTilingAsymmetric3x1:
-    """3x1 tile grid — three rows, single column."""
+    """3x1 tile grid -- three rows, single column."""
 
     def test_completes(self, executor, scope, tmp_path):
         steps = _make_tile_grid_steps(rows=3, cols=1)
@@ -831,7 +831,7 @@ class TestTilingAsymmetric3x1:
 
 
 class TestTilingAsymmetric3x5:
-    """3x5 tile grid — 15 total tiles."""
+    """3x5 tile grid -- 15 total tiles."""
 
     def test_completes(self, executor, scope, tmp_path):
         steps = _make_tile_grid_steps(rows=3, cols=5)
@@ -866,7 +866,7 @@ class TestTilingMultiChannel:
 
 
 class TestZStack:
-    """Z-stack execution — multiple z-slices at one position."""
+    """Z-stack execution -- multiple z-slices at one position."""
 
     def test_3_slice_zstack(self, executor, scope, tmp_path):
         steps = _make_zstack_steps(num_slices=3)
@@ -1236,7 +1236,7 @@ class TestCancellationMidRun:
     """Verify that reset() stops execution cleanly."""
 
     def test_reset_during_multi_scan(self, executor, scope, tmp_path):
-        """Start a long protocol and cancel it — should not hang."""
+        """Start a long protocol and cancel it -- should not hang."""
         protocol = _make_single_step_protocol(color='BF')
         protocol.modify_time_params(
             period=datetime.timedelta(seconds=0.1),
@@ -1286,7 +1286,7 @@ class TestCancellationMidRun:
         assert completed, 'Protocol did not complete after reset()'
 
     def test_reset_before_first_scan_completes(self, executor, scope, tmp_path):
-        """Reset immediately — should still invoke run_complete."""
+        """Reset immediately -- should still invoke run_complete."""
         steps = _make_tile_grid_steps(rows=3, cols=5)  # 15 steps
         protocol = _make_multi_step_protocol(steps)
 
@@ -1369,7 +1369,7 @@ class TestBackToBackRuns:
 
         self._wait_for_file_queue(executor)
 
-        # Second run — uses a fresh tmp subdir to avoid directory collision
+        # Second run -- uses a fresh tmp subdir to avoid directory collision
         completed2, _ = _run_and_wait(executor, protocol, tmp_path / 'run2')
         assert completed2, 'Second run did not complete'
 
@@ -1429,7 +1429,7 @@ class TestDisconnectedScope:
             },
         )
 
-        # Should NOT have started — run_complete should NOT fire
+        # Should NOT have started -- run_complete should NOT fire
         started = done.wait(timeout=2.0)
         assert not started, 'Protocol should not have started with disconnected scope'
         assert not executor.run_in_progress()
@@ -1441,7 +1441,7 @@ class TestDisconnectedScope:
 
 
 class TestZeroExposure:
-    """Zero exposure — tests floor behavior in timing paths."""
+    """Zero exposure -- tests floor behavior in timing paths."""
 
     def test_zero_exposure_completes(self, executor, scope, tmp_path):
         protocol = _make_single_step_protocol(color='BF', exposure=0.0)
@@ -1450,7 +1450,7 @@ class TestZeroExposure:
 
 
 class TestZeroIllumination:
-    """Zero illumination — LED should still be called."""
+    """Zero illumination -- LED should still be called."""
 
     def test_zero_illumination_completes(self, executor, scope, tmp_path):
         protocol = _make_single_step_protocol(color='BF', illumination=0.0)
@@ -1482,7 +1482,7 @@ class TestLargeSum:
 
 
 class TestLargeProtocol:
-    """Protocol with many steps — verifies no accumulation bugs."""
+    """Protocol with many steps -- verifies no accumulation bugs."""
 
     def test_50_step_single_scan(self, executor, scope, tmp_path):
         steps = [{'color': 'BF', 'x': float(i), 'y': 0.0} for i in range(50)]
@@ -1614,7 +1614,7 @@ class TestSavingWithNoneParentDir:
 
 
 class TestWithTurret:
-    """Scope with turret enabled — objective name included in filenames."""
+    """Scope with turret enabled -- objective name included in filenames."""
 
     def test_turret_protocol_completes(self, executor, scope, tmp_path):
         scope._motion_driver._has_turret = True
@@ -1629,7 +1629,7 @@ class TestWithTurret:
 
 
 class TestMinimalCallbacks:
-    """Run with only the required run_complete callback — no optional ones."""
+    """Run with only the required run_complete callback -- no optional ones."""
 
     def test_completes_with_minimal_callbacks(self, executor, scope, tmp_path):
         protocol = _make_single_step_protocol(color='BF')
@@ -1639,7 +1639,7 @@ class TestMinimalCallbacks:
         def on_complete(**kwargs):
             done.set()
 
-        # Only provide run_complete — no go_to_step or move_position.
+        # Only provide run_complete -- no go_to_step or move_position.
         # This forces _go_to_step to use _default_move (which we've mocked).
         executor.run(
             protocol=protocol,
@@ -1695,7 +1695,7 @@ class TestVideoEdgeCases:
 
 
 # ===========================================================================
-# Tier 3: Robustness & Error Handling — P0/P1 audit fix coverage
+# Tier 3: Robustness & Error Handling -- P0/P1 audit fix coverage
 # ===========================================================================
 
 # ---------------------------------------------------------------------------
@@ -1704,7 +1704,7 @@ class TestVideoEdgeCases:
 
 
 class TestCleanupConcurrency:
-    """P0-1: _cleanup() guarded by threading.Lock — no double cleanup."""
+    """P0-1: _cleanup() guarded by threading.Lock -- no double cleanup."""
 
     def test_concurrent_reset_no_crash(self, executor, scope, tmp_path):
         """Call reset() from multiple threads while protocol is running."""
@@ -1758,7 +1758,7 @@ class TestCleanupConcurrency:
         protocol = _make_single_step_protocol(color='BF')
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed
-        # Protocol already completed and cleaned up — reset again should be harmless
+        # Protocol already completed and cleaned up -- reset again should be harmless
         executor.reset()
         executor.reset()
 
@@ -1840,7 +1840,7 @@ class TestCaptureFailure:
         scope.imaging.capture_and_wait = original_capture
 
     def test_multiple_capture_failures_still_complete(self, executor, scope, tmp_path):
-        """Three steps all fail capture — protocol runs to completion."""
+        """Three steps all fail capture -- protocol runs to completion."""
         protocol = _make_multi_step_protocol(
             [
                 {'color': 'BF'},
@@ -1887,7 +1887,7 @@ class TestStepTimeout:
 
         def slow_target(axis):
             call_count[0] += 1
-            # First ~200 calls (first step) — never reach target
+            # First ~200 calls (first step) -- never reach target
             if call_count[0] < 200:
                 return False
             return original_get_target(axis)

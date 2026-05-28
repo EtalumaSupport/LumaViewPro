@@ -117,11 +117,11 @@ class ScopeSession:
         if executor_bundle is not None:
             scope.register_executor_bundle(executor_bundle, settings=settings)
         # LAYER-I: register source_path for scope.load_protocol /
-        # create_protocol — falls back to current working dir for the
+        # create_protocol -- falls back to current working dir for the
         # rare ScopeSession path that doesn't pass source_path.
         scope.register_source_path(source_path)
 
-        # Optional helpers — import and construct if available.
+        # Optional helpers -- import and construct if available.
         # Every silent helper-init failure has a downstream AttributeError
         # waiting for whichever UI action first reads the missing helper;
         # surface a warning at the failure site so the user knows which
@@ -220,7 +220,7 @@ class ScopeSession:
             if default_settings is not None:
                 settings = default_settings.copy()
             else:
-                # Settings not loaded yet (e.g. headless/test usage) — load from disk
+                # Settings not loaded yet (e.g. headless/test usage) -- load from disk
                 import json
 
                 settings_path = os.path.join(source_path, 'data', 'settings.json')
@@ -538,7 +538,7 @@ class ScopeSession:
                 turret-positioning. Matches the App's ``--no-home``
                 CLI flag semantics.
         """
-        # Local import to avoid circular import at module load — ui_helpers
+        # Local import to avoid circular import at module load -- ui_helpers
         # imports many UI modules but the functions used here (move_home,
         # move_absolute_position) operate on the scope and don't actually
         # need a GUI surface.

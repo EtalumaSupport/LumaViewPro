@@ -1,6 +1,6 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """
-SerialBoard — base class for RP2040-based serial controllers.
+SerialBoard -- base class for RP2040-based serial controllers.
 
 Shared infrastructure for LEDBoard and MotorBoard: port discovery,
 connect/disconnect, firmware version detection, serial exchange with
@@ -63,7 +63,7 @@ class SerialBoard:
         # from firmware_responding=False, which also covers pre-v3.0
         # legacy boards that answer INFO with unparseable text. A
         # silent board is hung (or the port/hub is stuck) and needs
-        # a hardware power cycle — see #619. Callers should check
+        # a hardware power cycle -- see #619. Callers should check
         # this before issuing commands; exchange_command fails fast.
         self.firmware_silent = False
         # Running total of non-empty bytes captured by
@@ -119,7 +119,7 @@ class SerialBoard:
                 write_timeout=self.write_timeout,
             )
         except serial.SerialException:
-            # M29: Port may have changed (different USB port) — re-scan.
+            # M29: Port may have changed (different USB port) -- re-scan.
             logger.info(f'{self._label} Port {self.port} failed, re-scanning...')
             old_port = self.port
             self.port = None
@@ -140,7 +140,7 @@ class SerialBoard:
                 raise
         # Log opened-port state so connect diagnostics are visible in serial.log
         # even when nothing else gets logged (e.g. board goes silent before
-        # first response). Added for #619 — "LED board found but totally
+        # first response). Added for #619 -- "LED board found but totally
         # silent" needs a full diagnostic trail.
         try:
             _serial_log.info(
@@ -155,7 +155,7 @@ class SerialBoard:
         """Drain all pending data from the serial buffer.
 
         Returns the total number of bytes drained. Also logs what was
-        drained to serial.log when non-empty — when a board goes silent
+        drained to serial.log when non-empty -- when a board goes silent
         (#619), knowing WHAT was in the buffer before we threw it away
         is the difference between "stale response to the previous
         command" (board was responding, we just missed it) and "USB
@@ -194,19 +194,19 @@ class SerialBoard:
         """Ensure firmware is running and detect version.
 
         Handles all common states the board might be in on connect:
-          - Normal operation (main.py running) — drain stale data, detect
-          - Friendly REPL (>>> prompt) — Ctrl-D soft reset to restart
-          - Raw REPL (Thonny left it here) — Ctrl-B to exit, then Ctrl-D
-          - Boot output still arriving — drain before commands
-          - Old firmware with WDT — Ctrl-D kills WDT timer, so skip it
-          - **Silent board (hung firmware / stuck USB hub)** — sends zero
+          - Normal operation (main.py running) -- drain stale data, detect
+          - Friendly REPL (>>> prompt) -- Ctrl-D soft reset to restart
+          - Raw REPL (Thonny left it here) -- Ctrl-B to exit, then Ctrl-D
+          - Boot output still arriving -- drain before commands
+          - Old firmware with WDT -- Ctrl-D kills WDT timer, so skip it
+          - **Silent board (hung firmware / stuck USB hub)** -- sends zero
             bytes across everything. Skip destructive Ctrl-D recovery
             and surface as a hard failure (#619).
 
         Strategy:
           1. Drain stale buffer, try version detection.
           2. If that fails but we saw SOME bytes (drain content or
-             partial INFO response), the board is doing something —
+             partial INFO response), the board is doing something --
              try full recovery with Ctrl-C/B/D soft reset.
           3. If we've seen ZERO bytes, skip the soft reset path
              entirely (it isn't going to help a board that can't even
@@ -240,7 +240,7 @@ class SerialBoard:
             f'{self._label} RESET step1 drain: {drained}B in {(time.monotonic() - t0) * 1000:.0f}ms'
         )
 
-        # Step 2: Flush board's input buffer — USB CDC enumeration can
+        # Step 2: Flush board's input buffer -- USB CDC enumeration can
         # leave stale bytes (e.g. \x00) that arrive after our drain and
         # get prepended to the first real command. A blank newline makes
         # the board process (and reject) any partial garbage, clearing
@@ -254,7 +254,7 @@ class SerialBoard:
             f'{self._label} RESET step2 drain: {drained}B in {(time.monotonic() - t0) * 1000:.0f}ms'
         )
 
-        # Step 3: Try version detection — works if firmware is running
+        # Step 3: Try version detection -- works if firmware is running
         _serial_log.info(
             f'{self._label} RESET step3 detect (in_waiting={self._safe_in_waiting()}B)'
         )
@@ -275,11 +275,11 @@ class SerialBoard:
             )
             return  # Firmware running (version may or may not be parseable)
 
-        # Step 4: Soft-reset recovery — always attempted.
+        # Step 4: Soft-reset recovery -- always attempted.
         #
         # We send Ctrl-C / Ctrl-C / Ctrl-B / Ctrl-D regardless of
         # whether any bytes have been seen so far. The reason
-        # matters and is not obvious — an earlier version of this
+        # matters and is not obvious -- an earlier version of this
         # code had a `skip_soft_reset = (bytes_ever_seen == 0)`
         # optimization that bypassed step 4 when no bytes had been
         # seen yet, on the theory "if the board sent nothing, Ctrl-D
@@ -297,12 +297,12 @@ class SerialBoard:
         # disconnect happened the board can be left in either
         # friendly REPL (`>>>` prompt, idle) or raw REPL (silent,
         # buffered). Either way our first INFO write doesn't reach
-        # main.py — the REPL just echoes it as input.
+        # main.py -- the REPL just echoes it as input.
         #
         # Observed example (2026-04-14, LS850T bench after Thonny
         # connect/disconnect cycle): step 4 drain after Ctrl-D
         # captured 252 bytes containing `>>>` followed by
-        # `MPY: soft reboot` and the normal v3.0.9 INFO banner —
+        # `MPY: soft reboot` and the normal v3.0.9 INFO banner --
         # proving the board was sitting at the friendly-REPL prompt
         # and Ctrl-D triggered the soft reset that restarted
         # main.py. The raw-REPL case produces no echo at all but
@@ -311,7 +311,7 @@ class SerialBoard:
         # In both cases, `bytes_ever_seen` stays at 0 during steps
         # 1-3 even though the board is perfectly alive and listening.
         # Sending Ctrl-D is exactly what wakes either REPL state up:
-        # it tells MicroPython "soft-reset" → main.py restarts →
+        # it tells MicroPython "soft-reset" -> main.py restarts ->
         # normal operation resumes.
         #
         # The recovery sequence Ctrl-C / Ctrl-C / Ctrl-B / Ctrl-D
@@ -319,7 +319,7 @@ class SerialBoard:
         #
         #   - Ctrl-C interrupts any in-flight REPL input
         #   - Ctrl-B exits raw REPL back to friendly REPL
-        #   - Ctrl-D soft-resets MicroPython → restarts main.py
+        #   - Ctrl-D soft-resets MicroPython -> restarts main.py
         #
         # On a board that's truly silent / hung (the in-house bench
         # brick case from #619), this step still fires and costs
@@ -438,7 +438,7 @@ class SerialBoard:
         connect/recovery sequence shows up in serial.log with its byte
         count, elapsed time, and any exception. When a board goes
         silent (#619), this tells us whether our commands are even
-        reaching the OS-level serial driver — critical for telling
+        reaching the OS-level serial driver -- critical for telling
         "board not responding" apart from "our write failed."
 
         Returns the number of bytes written (0 on failure). Exceptions
@@ -485,7 +485,7 @@ class SerialBoard:
         """Open serial connection, reset firmware, detect version.
 
         On a genuinely silent board (zero bytes across entire connect
-        sequence — see #619), surfaces a user-visible error notification
+        sequence -- see #619), surfaces a user-visible error notification
         rather than silently degrading to "legacy, no version info."
         The legacy-no-version fallback is preserved for pre-v3.0 boards
         that DO respond to INFO with unparseable bytes.
@@ -503,11 +503,11 @@ class SerialBoard:
                 elif self.firmware_silent:
                     # Board detected on USB but sent zero bytes across
                     # every drain + detection attempt. Not a legacy
-                    # firmware case — the firmware is hung or the USB
+                    # firmware case -- the firmware is hung or the USB
                     # hub UART bridge is stuck. Needs a hardware power
                     # cycle. See #619.
                     logger.error(
-                        f'{self._label} Connected but board is SILENT — '
+                        f'{self._label} Connected but board is SILENT -- '
                         f'zero bytes received during connect sequence'
                     )
                 else:
@@ -574,21 +574,21 @@ class SerialBoard:
             firmware_responding: True if board sent a meaningful INFO response
         """
         # Snapshot pre-INFO driver state so serial.log shows what the
-        # port looked like before we asked for version info. #619 —
+        # port looked like before we asked for version info. #619 --
         # when the board falls through to "legacy, no version info"
         # we need to know whether the port was truly silent or had
         # partial/stale bytes waiting.
         pre_in_waiting = self._safe_in_waiting()
         _serial_log.info(f'{self._label} DETECT begin (in_waiting={pre_in_waiting}B)')
         try:
-            # Use a short timeout for version detection — we don't want
+            # Use a short timeout for version detection -- we don't want
             # to block for the board's default timeout (could be 2-30s)
             # on each of the 6 readline() calls. 0.5s per line is enough
             # for USB CDC response delivery.
             #
             # stop_on_empty=True so we break out of the readline loop
             # as soon as an empty line arrives after non-empty content.
-            # Motor INFO is single-line — without this, we waste 5 ×
+            # Motor INFO is single-line -- without this, we waste 5 x
             # 0.5s = 2.5s on every motor connect waiting for lines
             # that never come. LED INFO is multi-line with no empty
             # lines inside the content, so this is also safe for LED.
@@ -602,7 +602,7 @@ class SerialBoard:
 
             # Accumulate non-empty response bytes so _reset_firmware
             # can track whether any detection attempt ever saw output.
-            # Only non-empty lines count — empty strings from readline
+            # Only non-empty lines count -- empty strings from readline
             # timeouts are what we're trying to detect as "silent."
             # getattr default for the __new__ test-construction path.
             prev = getattr(self, '_detect_response_bytes', 0)
@@ -629,7 +629,7 @@ class SerialBoard:
                 )
                 return
 
-            # Board is responding — mark it even if we can't parse a version
+            # Board is responding -- mark it even if we can't parse a version
             self.firmware_responding = True
 
             # v3.0 STUB: JSON Lines protocol detection
@@ -773,7 +773,7 @@ class SerialBoard:
             # Fail fast on silent boards (#619). exchange_command()
             # is called for version detection from inside
             # _detect_firmware_version, so we explicitly allow INFO
-            # through — otherwise the silent flag becomes sticky and
+            # through -- otherwise the silent flag becomes sticky and
             # a future reconnect can never clear it. Every other
             # command on a silent board is rejected immediately so
             # the user sees failures at full speed instead of dozens
@@ -793,7 +793,7 @@ class SerialBoard:
             if self.driver is None:
                 # #539/#632: dedupe identical reconnect failures within a 2s
                 # window. Pre-fix this fired a fresh full-stack log per command
-                # while disconnected — measured at ~73 reconnect attempts/sec
+                # while disconnected -- measured at ~73 reconnect attempts/sec
                 # during a mid-AF USB yank, dwarfing the actual signal.
                 try:
                     logger.info(f'{self._label} Auto-reconnect triggered by {command}')
@@ -804,7 +804,7 @@ class SerialBoard:
                     last_class = getattr(self, '_last_reconnect_err_class', None)
                     last_time = getattr(self, '_last_reconnect_err_time', 0.0)
                     if last_class == err_class and (now - last_time) < 2.0:
-                        # Same error class repeated within 2s — drop to debug;
+                        # Same error class repeated within 2s -- drop to debug;
                         # the first occurrence already has the full stack.
                         _serial_log.debug(
                             f'{self._label} {command} -> RECONNECT FAILED: same {err_class}'
@@ -882,7 +882,7 @@ class SerialBoard:
 
                 elapsed_ms = (time.monotonic() - t_start) * 1000
 
-                # Serial log: compact command → response with timing
+                # Serial log: compact command -> response with timing
                 resp_repr = repr(response)
                 if len(resp_repr) > 200:
                     resp_repr = resp_repr[:200] + '...'
@@ -1023,7 +1023,7 @@ class SerialBoard:
         """Write-only fast path: send command without reading a response.
 
         Emits a FAST entry to serial.log with lock-wait, write, and total
-        timing — the exchange_command path logs end-to-end duration, but the
+        timing -- the exchange_command path logs end-to-end duration, but the
         fast path is exactly what stim uses and without this line every stim
         write is invisible in serial.log. Also reports in_waiting at entry so
         response backlog from prior fast-path writes shows up in the trace.
@@ -1070,7 +1070,7 @@ class SerialBoard:
             )
 
     # ------------------------------------------------------------------
-    # Raw REPL — file operations on board filesystem
+    # Raw REPL -- file operations on board filesystem
     # ------------------------------------------------------------------
     def enter_raw_repl(self, soft_reset=True):
         """Interrupt firmware and enter MicroPython raw REPL.
@@ -1099,7 +1099,7 @@ class SerialBoard:
         """Exit raw REPL and reboot firmware.
 
         After exit, the board reboots and firmware resumes. The serial
-        connection remains open — call exchange_command() normally after.
+        connection remains open -- call exchange_command() normally after.
         """
         with self._lock:
             if self.driver is None:

@@ -37,7 +37,7 @@ def stage_offset():
 
 class TestRejectsNoneLabware:
     """Every public coord transform must raise NoLabwareSelectedError
-    when labware is None — boundary check (Rule 8). Without this, callers
+    when labware is None -- boundary check (Rule 8). Without this, callers
     that propagate `(None, None)` from get_selected_labware() crash deep
     inside `labware.get_dimensions()` instead of getting a clear error.
     """
@@ -82,7 +82,7 @@ class TestRejectsNoneLabware:
             )
 
     def test_no_labware_error_is_value_error_subclass(self):
-        # Existing callers may catch ValueError generically — ensure
+        # Existing callers may catch ValueError generically -- ensure
         # NoLabwareSelectedError is recognized as such.
         assert issubclass(NoLabwareSelectedError, ValueError)
 

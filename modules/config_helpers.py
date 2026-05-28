@@ -192,7 +192,7 @@ def get_current_plate_position(
 
 
 def log_environment_once():
-    """Log fixed environment fingerprint — system boot time, uptime, OS build,
+    """Log fixed environment fingerprint -- system boot time, uptime, OS build,
     Pylon SDK version, Defender state. Once-per-startup pairs with the
     per-tick log_system_metrics surface so post-mortem can correlate a
     runtime metric trace against the host's exact version state.
@@ -287,7 +287,7 @@ def log_system_metrics(settings: dict):
             f'Low disk space: {free_space:.1f} MB remaining',
         )
 
-    # System uptime per-tick — pairs with [ENV METRICS] boot timestamp
+    # System uptime per-tick -- pairs with [ENV METRICS] boot timestamp
     # logged once at startup. Lets post-hoc log analysis tag each tick
     # with "system has been up for N hours" to filter out runs
     # contaminated by long-uptime memory exhaustion.
@@ -326,7 +326,7 @@ def log_system_metrics(settings: dict):
     # unhealthy patterns.
 
     # GDI / USER objects (Windows only). The #1 cause of "Windows feels
-    # slow after 24 hours" — process limit is 10k, desktop degrades at ~5k.
+    # slow after 24 hours" -- process limit is 10k, desktop degrades at ~5k.
     gdi = metrics.get('gdi_objects', -1)
     if gdi >= 0:
         metrics_logger.info(
@@ -406,10 +406,10 @@ def log_system_metrics(settings: dict):
     # diagnosing buffer-churn / slow-onset memory growth on Windows.
     #
     # Standby split: Normal + Reserve + Core = total standby cache.
-    #   - Standby growing while RAM available stays high → mapped-file
+    #   - Standby growing while RAM available stays high -> mapped-file
     #     accumulation (the slowdown signal).
-    #   - Nonpaged pool growing → kernel-side leak (Pylon DMA, drivers).
-    #   - System cache (\Memory\Cache Bytes) is the file-system cache —
+    #   - Nonpaged pool growing -> kernel-side leak (Pylon DMA, drivers).
+    #   - System cache (\Memory\Cache Bytes) is the file-system cache --
     #     overlaps with standby on Windows; track both for cross-check.
     pdh_keys = [
         'pdh_standby_normal_bytes',
@@ -450,8 +450,8 @@ def log_system_metrics(settings: dict):
         )
 
     # --- Buffer-churn signals from the live capture path ---
-    # capture_fps × frame_nbytes = MB/sec the camera produces. Each frame
-    # currently allocates ~3 fresh OS-level buffers (camera copy, 12→8 LUT,
+    # capture_fps x frame_nbytes = MB/sec the camera produces. Each frame
+    # currently allocates ~3 fresh OS-level buffers (camera copy, 12->8 LUT,
     # tobytes()). The standby-cache growth in [PDH METRICS] should track
     # this product roughly.
     try:
@@ -475,7 +475,7 @@ def log_system_metrics(settings: dict):
         except Exception as e:
             logger.debug(f'[BUFFER METRICS] unavailable: {e}')
 
-        # Frame-interval percentiles — consumer-stall detection.
+        # Frame-interval percentiles -- consumer-stall detection.
         # Spikes in p99/max correlate with main-thread congestion
         # or worker-thread blocks; tracking these surfaces UI lock
         # contention and IO scheduling issues.
@@ -497,7 +497,7 @@ def log_system_metrics(settings: dict):
     # --- Defender (MsMpEng.exe) metrics ---
     # Direct signal for the "Defender memory-maps every TIFF write"
     # interaction. If defender_io_read_mbps tracks our io_write_mbps
-    # × ~1, Defender is the slowdown source. defender_private_mb
+    # x ~1, Defender is the slowdown source. defender_private_mb
     # growing alongside standby_total_mb is also implicating.
     defender_private = metrics.get('defender_private_mb')
     if defender_private is not None:
@@ -598,7 +598,7 @@ def log_system_metrics(settings: dict):
     # --- tracemalloc top-N (settings-gated) ---
     # Off by default. Enable with tracemalloc_enabled: true in
     # data/settings.json. Adds 10-30% process memory overhead so reserved
-    # for targeted runs. When on, logs top-5 allocators by current size —
+    # for targeted runs. When on, logs top-5 allocators by current size --
     # direct pre/post verification that audited buffer-reuse sites no
     # longer allocate on hot path.
     try:
@@ -623,7 +623,7 @@ def log_system_metrics(settings: dict):
 
 def focus_log(positions, values, focus_round: int, source_path: str) -> int:
     """Log autofocus positions and scores to file. Returns incremented focus_round."""
-    if False:  # disabled — kept for future use
+    if False:  # disabled -- kept for future use
         log_file = os.path.join(source_path, 'logs', 'focus_log.txt')
         try:
             file = open(log_file, 'a')
@@ -649,7 +649,7 @@ def block_wait_for_threads(futures: list, log_loc: str = 'LVP') -> None:
 
 
 # ---------------------------------------------------------------------------
-# Headless config getters — GUI-free equivalents of config_ui_getters.py
+# Headless config getters -- GUI-free equivalents of config_ui_getters.py
 #
 # These read from the settings dict (or scope object) instead of Kivy widgets.
 # Used by the REST API and any non-GUI context.
@@ -730,7 +730,7 @@ def get_selected_labware_from_settings(
     the cluster by construction.
 
     The only way this raises is if the wellplate loader is empty (broken
-    install / labware.json missing) — that's a genuine fatal that the
+    install / labware.json missing) -- that's a genuine fatal that the
     caller cannot reasonably recover from.
     """
     labware_id = settings.get('protocol', {}).get('labware', '') or DEFAULT_LABWARE_ID

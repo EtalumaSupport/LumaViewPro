@@ -22,7 +22,7 @@ def _validate_settings(settings: dict, filepath: str, logger) -> None:
     """Check that loaded settings contain all required keys and types.
 
     Raises on missing critical keys. Warns on missing optional keys or
-    type mismatches — allows the app to start with partial config.
+    type mismatches -- allows the app to start with partial config.
     """
     missing = _REQUIRED_SETTINGS_KEYS - settings.keys()
     if missing:
@@ -101,7 +101,7 @@ def load_settings(logger, filename, lvp_appdata):
 def _deep_merge_defaults(current: dict, defaults: dict, path: str = '', logger=None) -> list[str]:
     """Recursively merge missing keys from defaults into current.
 
-    Only adds keys that are absent in current — never overwrites existing
+    Only adds keys that are absent in current -- never overwrites existing
     values. Returns list of keys that were added (for logging).
     """
     added = []
@@ -126,7 +126,7 @@ def load_lvp_settings(logger, lvp_appdata):
         try:
             load_settings(logger, current_path, lvp_appdata)
         except (json.JSONDecodeError, ValueError):
-            # current.json is corrupt — fall back to settings.json
+            # current.json is corrupt -- fall back to settings.json
             logger.warning(f'[Settings ] {current_path} is corrupt, falling back to settings.json')
             settings = None
             if os.path.exists(settings_path):

@@ -172,7 +172,7 @@ class MicroscopeSettings(BoxLayout):
         ctx.scope_display.start()
 
         # LVP-A-5: ScopeSession owns the standard startup orchestration
-        # (ALL-axis home + turret-positioning) — same path the App's
+        # (ALL-axis home + turret-positioning) -- same path the App's
         # on_start uses. Pre-LVP-A-5 this block was open-coded here and
         # had subtly drifted from the App's version.
         ctx.session.start_application_session(disable_homing=ctx.disable_homing)
@@ -223,7 +223,7 @@ class MicroscopeSettings(BoxLayout):
 
         MOT-1: motor serial write goes through ``io_executor`` instead of
         running synchronously on MainThread. The slider's ``on_value`` event
-        can fire at up to 60 Hz on a smooth drag — without the executor route,
+        can fire at up to 60 Hz on a smooth drag -- without the executor route,
         every tick blocks the UI on a serial write. Settings dict is still
         updated synchronously so other UI code reading the slider sees the
         committed value immediately.
@@ -257,7 +257,7 @@ class MicroscopeSettings(BoxLayout):
         Reads ``self._pending_acceleration_pct`` (latest stash from
         ``set_acceleration_limit``) and submits an IOTask through
         ``io_executor``. If the slider moved again while the trigger was
-        pending, only the latest value reaches the motor — no queued
+        pending, only the latest value reaches the motor -- no queued
         command burst. See MOT-1 docstring on ``set_acceleration_limit``.
         """
         ctx = _app_ctx.ctx
@@ -282,7 +282,7 @@ class MicroscopeSettings(BoxLayout):
         ctx = _app_ctx.ctx
         fps_val = int(self.ids['live_view_fps_slider'].value)
         gui_logger.slider('FPS', fps_val)
-        # Values above 60 mean "uncapped" — store 0 as sentinel
+        # Values above 60 mean "uncapped" -- store 0 as sentinel
         if fps_val > 60:
             fps_val = 0
         ctx.live_view_fps = fps_val
@@ -409,7 +409,7 @@ class MicroscopeSettings(BoxLayout):
 
             ctx.max_exposure = max_exposure
 
-            # Parallel treatment for gain — see #gain-slider-clamp note.
+            # Parallel treatment for gain -- see #gain-slider-clamp note.
             # Pre-fix, the gain slider was hardcoded 0-48 dB in the kv,
             # which let users overdrive LS620 past its usable range (the
             # image went black at high gain). Pulling the cap from the
@@ -453,7 +453,7 @@ class MicroscopeSettings(BoxLayout):
             self.ids['frame_width_id'].text = str(settings['frame']['width'] * binning_size)
             self.ids['frame_height_id'].text = str(settings['frame']['height'] * binning_size)
 
-            # Pixel Binning — UI recalculation only, scope.imaging.set_binning_size()
+            # Pixel Binning -- UI recalculation only, scope.imaging.set_binning_size()
             # handled by scope.initialize() below
             self.ids['binning_spinner'].text = binning_size_str
             self.select_binning_size()
@@ -520,7 +520,7 @@ class MicroscopeSettings(BoxLayout):
             else:
                 self.ids['enable_scale_bar_btn'].state = 'normal'
 
-            # Single hardware initialization call — replaces scattered
+            # Single hardware initialization call -- replaces scattered
             # scope.imaging.set_frame_size / set_binning_size / set_stage_offset /
             # set_turret_config / set_objective / set_scale_bar / set_acceleration_limit
             labware_id, labware = get_selected_labware()
@@ -684,7 +684,7 @@ class MicroscopeSettings(BoxLayout):
                     layer_obj.update_stim_controls_visibility()
 
         except json.JSONDecodeError as e:
-            # Real "incompatible JSON" — file content can't be parsed.
+            # Real "incompatible JSON" -- file content can't be parsed.
             logger.error(f'[LVP Main  ] load_settings: JSON parse error in {filename}: {e}')
         except FileNotFoundError as e:
             logger.error(f'[LVP Main  ] load_settings: settings file missing: {e}')
@@ -692,7 +692,7 @@ class MicroscopeSettings(BoxLayout):
             # LOG-3 / UI-LOAD-1: this used to log "Incompatible JSON file
             # for Microscope Settings" for ANY exception during load. Per
             # CLAUDE.md Rule 20, the message must name the actual failure
-            # mode — kivy widget exceptions, attribute errors, etc. were
+            # mode -- kivy widget exceptions, attribute errors, etc. were
             # being misattributed to the JSON file. Bit us 2026-05-03
             # debugging the UI-1 follow-up: the wrapped wording sent the
             # operator to the JSON file when the bug was in widget code,
@@ -706,7 +706,7 @@ class MicroscopeSettings(BoxLayout):
             # the build path. Without this, a kivy WidgetException in the
             # accordion-widget tree was caught and swallowed, then the
             # next call to set_ui_features_for_scope hit the same bug
-            # uncaught — a misleading "double-crash with first one
+            # uncaught -- a misleading "double-crash with first one
             # hidden" pattern.
             raise
 
@@ -922,7 +922,7 @@ class MicroscopeSettings(BoxLayout):
         """Save the current settings dict to disk as JSON.
 
         LVP-A-4: when ``force=False`` (default), the save is skipped if
-        no hardware was connected during the session — without hardware
+        no hardware was connected during the session -- without hardware
         the slider defaults (0.01ms exposure, etc.) would overwrite the
         user's real per-channel settings in current.json. The gate
         previously lived inline in ``lumaviewpro.py:on_stop``; lifted
@@ -952,7 +952,7 @@ class MicroscopeSettings(BoxLayout):
             )
             if not had_hardware:
                 logger.info(
-                    '[LVP Main  ] save_settings: skipped — no hardware was '
+                    '[LVP Main  ] save_settings: skipped -- no hardware was '
                     'connected this session (would overwrite real per-channel '
                     'values with slider defaults). Pass force=True to override.'
                 )
@@ -1093,12 +1093,12 @@ class MicroscopeSettings(BoxLayout):
         # holder when XYStage=False so we don't render an empty hole
         # where the plate-layout used to be. The kv-defined
         # ``protocol_stage_holder_id`` FloatLayout has
-        # ``height: self.width * 2 / 3`` — that allocation is
+        # ``height: self.width * 2 / 3`` -- that allocation is
         # unconditional, so removing the stage widget left the space
         # but no content. Setting height=0 collapses it; re-binding to
         # width on switch back restores it. The xy_stage_holder lives
         # inside the xy-stage AccordionItem which is itself hidden via
-        # set_xystage_control_visibility(False) — no separate fix
+        # set_xystage_control_visibility(False) -- no separate fix
         # needed there.
         protocol_stage_holder = protocol_settings.ids.get('protocol_stage_holder_id')
         if protocol_stage_holder is not None:
@@ -1117,11 +1117,11 @@ class MicroscopeSettings(BoxLayout):
                 protocol_stage_holder.size_hint_y = None
                 protocol_stage_holder.height = 0
 
-        # UI-1 follow-up (2026-05-03): cheap "reset on switch" — explicit
+        # UI-1 follow-up (2026-05-03): cheap "reset on switch" -- explicit
         # resort of both accordions after any scope-config change so
-        # successive LS850 ↔ LS820 ↔ LS620 transitions can't leave the
+        # successive LS850 <-> LS820 <-> LS620 transitions can't leave the
         # children list in a non-canonical state. Eric 2026-05-03:
-        # "maybe it could do a fully reset when you switch" — this is
+        # "maybe it could do a fully reset when you switch" -- this is
         # that approach.
         try:
             ctx.motion_settings._resort_accordion()
@@ -1144,7 +1144,7 @@ class MicroscopeSettings(BoxLayout):
             ctx = _app_ctx.ctx
             settings = ctx.settings
 
-            # #631: idempotent — if the spinner text matches current settings, no
+            # #631: idempotent -- if the spinner text matches current settings, no
             # work to do. Defends against on_text firing for programmatic text
             # writes (e.g. settings load, mirror-spinner sync) without redoing
             # hardware calls or notifications.
@@ -1167,7 +1167,7 @@ class MicroscopeSettings(BoxLayout):
                     notifications.warning(
                         'Objective',
                         'Objective Not in Turret',
-                        f"[Objective] Cannot select '{objective_id}' — not assigned "
+                        f"[Objective] Cannot select '{objective_id}' -- not assigned "
                         f'to any turret position. Assign it in Objective Control > '
                         f'Turret before using.',
                     )
@@ -1251,7 +1251,7 @@ class MicroscopeSettings(BoxLayout):
         self.ids['field_of_view_width_id'].text = str(round(fov_size['width'], 0))
         self.ids['field_of_view_height_id'].text = str(round(fov_size['height'], 0))
 
-        # Coalesce rapid frame_size() calls — see _CoalescingApplier
+        # Coalesce rapid frame_size() calls -- see _CoalescingApplier
         # + issue #624. The UI can fire this method several times in
         # quick succession when the user tabs between width and height
         # text fields (on_focus loss + on_text_validate both bound to

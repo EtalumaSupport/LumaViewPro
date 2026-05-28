@@ -2,7 +2,7 @@
 """
 Tests for serial driver thread safety and error handling.
 
-Uses mock serial ports — no hardware needed.
+Uses mock serial ports -- no hardware needed.
 Tests the fixes in ledboard.py and motorboard.py for:
 - Single lock preventing interleaved writes
 - Safe driver cleanup on errors (no bare self.driver = None)
@@ -151,7 +151,7 @@ class TestLEDBoardLocking:
         assert resp is None
 
     def test_driver_stays_open_on_timeout(self):
-        """H-17: Timeout is transient — driver stays open for retry.
+        """H-17: Timeout is transient -- driver stays open for retry.
 
         Only fatal exceptions close the driver. SerialTimeoutException
         keeps it open so the next command can succeed without reconnecting.
@@ -187,7 +187,7 @@ class TestLEDBoardLocking:
         t.start()
         write_started.wait(timeout=2)
 
-        # Try _write_command_fast — should block until exchange finishes
+        # Try _write_command_fast -- should block until exchange finishes
         start = time.time()
         board._write_command_fast('LED0_OFF')
         elapsed = time.time() - start
@@ -425,7 +425,7 @@ class TestLEDBoardCommands:
         board.driver.write.assert_called_with(b'LEDS_OFF\n')
 
     def test_get_status_returns_none(self):
-        """get_status() returns None — LED firmware has no STATUS command."""
+        """get_status() returns None -- LED firmware has no STATUS command."""
         board = self._make_board()
         result = board.get_status()
         assert result is None
@@ -646,7 +646,7 @@ class TestMotorBoardHoming:
         assert board.has_homed() is True
 
     def test_home_sets_flag_on_partial_success(self):
-        """home() should set initial_homing_complete on partial home — the
+        """home() should set initial_homing_complete on partial home -- the
         firmware homed Z (and T if present) before reporting that X or Y
         is not physically wired on this board (LS820 case, #618 follow-up)."""
         board = self._make_board()
@@ -654,7 +654,7 @@ class TestMotorBoardHoming:
         board.home()
         assert board.has_homed() is True, (
             'Partial home (Z homed before firmware reported missing X/Y) '
-            'must set the homed flag — Z is at its reference position'
+            'must set the homed flag -- Z is at its reference position'
         )
 
     def test_home_no_flag_on_real_failure(self):
@@ -1244,7 +1244,7 @@ class TestLEDNoneHandling:
                 return b'LED 3 set to 100 mA. LED3_100\r\n'
 
         board.driver.readline = mock_readline
-        # Should not crash — first response is empty string (not None), second succeeds
+        # Should not crash -- first response is empty string (not None), second succeeds
         board.led_on(channel=3, mA=100, block=True)
         assert board.led_ma['BF'] == 100
 
@@ -1264,7 +1264,7 @@ class TestLEDNoneHandling:
         assert call_count[0] == 2
 
     def test_wait_until_on_returns_immediately(self):
-        """wait_until_on returns immediately — STATUS not implemented in firmware."""
+        """wait_until_on returns immediately -- STATUS not implemented in firmware."""
         board = self._make_board()
         # Should return without sending any commands
         board.wait_until_on()
@@ -1523,7 +1523,7 @@ class TestSerialDesyncRecovery:
 
         type(board.driver).in_waiting = property(lambda self: dynamic_in_waiting())
 
-        # Run 25 cycles — should not crash or desync
+        # Run 25 cycles -- should not crash or desync
         successes = 0
         for i in range(25):
             board.leds_off()
@@ -1534,17 +1534,17 @@ class TestSerialDesyncRecovery:
 
         # Most cycles should succeed (some may fail due to simulated timeouts)
         # The key is: no crashes, no permanent desync cascade
-        assert successes > 15, f'Only {successes}/25 cycles succeeded — desync cascade?'
+        assert successes > 15, f'Only {successes}/25 cycles succeeded -- desync cascade?'
 
 
 class TestSilentBoardHandling:
-    """Regression tests for #619 Phase B — silent board detection.
+    """Regression tests for #619 Phase B -- silent board detection.
 
     A "silent" board sends zero bytes during the entire connect
     sequence. Distinguished from a legacy (pre-v3.0) board that
     responds to INFO with unparseable text but still echoes bytes.
     Silent boards are hung firmware or a stuck USB hub and cannot
-    recover via Ctrl-D — they need a hardware power cycle.
+    recover via Ctrl-D -- they need a hardware power cycle.
 
     The structural fix:
     - _reset_firmware tracks bytes_ever_seen and skips the Ctrl-D
@@ -1609,7 +1609,7 @@ class TestSilentBoardHandling:
     def _make_responsive_legacy_board(self):
         """Build an LEDBoard that responds to INFO with unparseable
         bytes (old LED firmware that has no version string). This is
-        the case the silent-board path must NOT trigger on — it's a
+        the case the silent-board path must NOT trigger on -- it's a
         genuinely legacy board, not a hung one."""
         board = self._make_silent_board()
         # readline returns SOMETHING (the legacy firmware's INFO reply)
@@ -1642,7 +1642,7 @@ class TestSilentBoardHandling:
         """The soft-reset recovery path (step 4) must run even when
         `bytes_ever_seen == 0`. Ctrl-D is the only way to wake up a
         board that was just used by Thonny and left in raw REPL
-        state — in that state, MicroPython doesn't echo or execute
+        state -- in that state, MicroPython doesn't echo or execute
         anything until Ctrl-D arrives, so the board looks silent to
         drain + INFO detect but is actually alive.
 
@@ -1698,7 +1698,7 @@ class TestSilentBoardHandling:
 
         assert result is None, 'Silent board must return None from exchange_command'
         assert elapsed_ms < 100, (
-            f'Silent board exchange must fail fast (<100ms), took {elapsed_ms:.0f}ms — '
+            f'Silent board exchange must fail fast (<100ms), took {elapsed_ms:.0f}ms -- '
             f'suggests the timeout path was hit'
         )
         board.driver.write.assert_not_called()
@@ -1711,7 +1711,7 @@ class TestSilentBoardHandling:
         board.firmware_silent = True  # simulate prior silent connect
 
         # INFO should still reach the driver. We don't care about the
-        # response — just that write was called.
+        # response -- just that write was called.
         board.driver.write.reset_mock()
         board.exchange_command('INFO')
         # At least one write happened (driver.write called with b'INFO\n')
@@ -1723,11 +1723,11 @@ class TestSilentBoardHandling:
     def test_responsive_legacy_board_does_not_trigger_silent(self):
         """Pre-v3.0 LED boards respond to INFO with unparseable text
         (no version string) but still echo bytes. They must take the
-        normal legacy path — firmware_silent must stay False."""
+        normal legacy path -- firmware_silent must stay False."""
         board = self._make_responsive_legacy_board()
         board._reset_firmware()
         assert board.firmware_silent is False, (
-            "A board that sent ANY bytes is not silent — it's legacy"
+            "A board that sent ANY bytes is not silent -- it's legacy"
         )
 
     def test_silent_board_reset_clears_stale_silent_flag(self):
@@ -1760,7 +1760,7 @@ class TestSilentBoardHandling:
 
     def test_silent_board_cannot_auto_reconnect_loop(self):
         """Repeated exchange_command on a silent board must not loop
-        forever — each call returns None fast without calling
+        forever -- each call returns None fast without calling
         self.connect()."""
         board = self._make_silent_board()
         board.firmware_silent = True
@@ -1779,7 +1779,7 @@ class TestExchangeCommandStopOnEmpty:
     _detect_firmware_version calls exchange_command('INFO',
     response_numlines=6, timeout=0.5, stop_on_empty=True). The motor
     firmware sends INFO as a single line but the reader was waiting
-    the full per-line timeout × 5 on all the empty subsequent lines,
+    the full per-line timeout x 5 on all the empty subsequent lines,
     wasting 2.5s on every healthy motor connect.
 
     stop_on_empty=True breaks out of the readline loop once an empty
@@ -1810,14 +1810,14 @@ class TestExchangeCommandStopOnEmpty:
         return board
 
     def test_stop_on_empty_breaks_after_first_empty(self):
-        """Motor INFO case: one content line then empty lines — must
+        """Motor INFO case: one content line then empty lines -- must
         break on first empty line after content, not read all 6."""
         board = self._make_led_board()
         # Motor INFO reply style: one content line, then empty lines
         # (which represent readline timeouts in the real driver).
         board.driver.readline.side_effect = [
             b'EL-0940-04 Integrated Mainboard Firmware: 2026-04-01 v3.0.9\r\n',
-            b'',  # empty — should break the loop
+            b'',  # empty -- should break the loop
             b'SHOULD_NOT_READ\r\n',  # must not reach this line
             b'ALSO_SHOULD_NOT_READ\r\n',
             b'ALSO_SHOULD_NOT_READ\r\n',
@@ -1836,7 +1836,7 @@ class TestExchangeCommandStopOnEmpty:
         )
 
     def test_stop_on_empty_reads_full_multiline_led_info(self):
-        """LED INFO case: all 6 lines have content — stop_on_empty
+        """LED INFO case: all 6 lines have content -- stop_on_empty
         must NOT trigger because no empty line appears."""
         board = self._make_led_board()
         board.driver.readline.side_effect = [
@@ -1852,10 +1852,10 @@ class TestExchangeCommandStopOnEmpty:
         assert len(resp) == 6
         assert 'v3.0.7' in resp[1]
         assert 'Heap free' in resp[5]
-        # All 6 lines present means the break was NOT taken — safe.
+        # All 6 lines present means the break was NOT taken -- safe.
 
     def test_stop_on_empty_without_any_content_reads_all(self):
-        """Silent board case: every line is empty — must read all 6
+        """Silent board case: every line is empty -- must read all 6
         (the 'no content at all' signal is what Phase B's silent
         detection relies on)."""
         board = self._make_led_board()

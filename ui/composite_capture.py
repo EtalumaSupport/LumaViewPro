@@ -1,6 +1,6 @@
 # Copyright Etaluma, Inc.
 """
-CompositeCapture — shared image capture capabilities extracted from lumaviewpro.py.
+CompositeCapture -- shared image capture capabilities extracted from lumaviewpro.py.
 
 Provides live_capture() and composite_capture() methods inherited by MainDisplay.
 """
@@ -281,7 +281,7 @@ class CompositeCapture(FloatLayout):
         use_full_pixel_depth,
         saved_video_false_color=None,
     ):
-        """Runs on background thread — performs hardware I/O without blocking UI."""
+        """Runs on background thread -- performs hardware I/O without blocking UI."""
         try:
             self._composite_capture_worker_inner(
                 z_stage_present=z_stage_present,
@@ -320,11 +320,11 @@ class CompositeCapture(FloatLayout):
         use_full_pixel_depth,
         saved_video_false_color=None,
     ):
-        """Inner worker — actual composite capture logic."""
+        """Inner worker -- actual composite capture logic."""
         ctx = _app_ctx.ctx
         settings = ctx.settings
 
-        # Snapshot settings at entry for thread safety — avoids seeing partial
+        # Snapshot settings at entry for thread safety -- avoids seeing partial
         # updates from the UI thread during the capture sequence.
         all_layers = (
             *common_utils.get_transmitted_layers(),
@@ -351,7 +351,7 @@ class CompositeCapture(FloatLayout):
         channel_images = {}
         brightness_thresholds = {}
 
-        # Capture transmitted channel (BF/PC/DF) — use first found as base
+        # Capture transmitted channel (BF/PC/DF) -- use first found as base
         for trans_layer in common_utils.get_transmitted_layers():
             if layer_settings[trans_layer]['acquire'] == 'image':
                 acquired_channel_count += 1
@@ -414,7 +414,7 @@ class CompositeCapture(FloatLayout):
                 # Stage B1: see comment above; update_scopedisplay retired.
                 sum_iteration_callback = None
 
-                # Compute brightness threshold (percentage → absolute value)
+                # Compute brightness threshold (percentage -> absolute value)
                 brightness_thresholds[layer] = (
                     layer_settings[layer]['composite_brightness_threshold'] / 100 * max_value
                 )
@@ -440,7 +440,7 @@ class CompositeCapture(FloatLayout):
 
             ctx.scope.illumination.leds_off_sync()
 
-            # Unschedule histogram on main thread — widget access must not happen from worker
+            # Unschedule histogram on main thread -- widget access must not happen from worker
             def _unschedule_histo(dt, layer_name=layer):
                 lo = ctx.image_settings.layer_lookup(layer=layer_name)
                 Clock.unschedule(lo.ids['histo_id'].histogram)

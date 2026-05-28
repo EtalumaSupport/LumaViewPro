@@ -60,7 +60,7 @@ class AccordionItemImageSettingsBlueControl(AccordionItemImageSettingsBase):
 
 
 # ============================================================================
-# ImageSettings — Right Sidebar Panel (Channel Controls, LED, Exposure)
+# ImageSettings -- Right Sidebar Panel (Channel Controls, LED, Exposure)
 # ============================================================================
 
 
@@ -70,7 +70,7 @@ class ImageSettings(BoxLayout):
 
     # Canonical top-to-bottom display order for the right-side accordion.
     # Used by _resort_accordion() so live scope-model transitions
-    # (LS620 → LS850 etc.) place re-added layer accordions in the right
+    # (LS620 -> LS850 etc.) place re-added layer accordions in the right
     # spot instead of pinning them to the bottom (UI-1, 2026-05-02).
     _LAYER_DISPLAY_ORDER = ('BF', 'PC', 'DF', 'Blue', 'Green', 'Red', 'Lumi')
 
@@ -90,12 +90,12 @@ class ImageSettings(BoxLayout):
         # _init_ui once self.ids is available. Visible-by-default here
         # matches the kv starting state; set_phasecontrast_layer_control_visibility
         # hides it for scopes that declare PhaseContrast=false
-        # (LS560/LS620 — PC on those scopes is BF with a mechanical
+        # (LS560/LS620 -- PC on those scopes is BF with a mechanical
         # phase slider, not a separate LED channel).
         self._accordion_item_pc_control = None
         self._accordion_item_pc_control_visible = True
         self._init_ui_retries = 0
-        # Debounce accordion_collapse — Kivy fires multiple collapse events
+        # Debounce accordion_collapse -- Kivy fires multiple collapse events
         # when switching tabs (one per item). Trigger collapses them into one.
         self._accordion_collapse_trigger = Clock.create_trigger(
             lambda dt: self._do_accordion_collapse(), 0
@@ -274,7 +274,7 @@ class ImageSettings(BoxLayout):
     def _resort_accordion(self):
         """Rebuild the accordion children list in canonical layer order.
 
-        Live scope-model transitions (LS620 → LS850, etc.) re-add
+        Live scope-model transitions (LS620 -> LS850, etc.) re-add
         previously hidden layer-control widgets via add_widget(...,0),
         which appends to the children list and ends up at the BOTTOM of
         the visible accordion regardless of canonical order. After every
@@ -311,7 +311,7 @@ class ImageSettings(BoxLayout):
         }
 
         # Walk the live children list directly and remove any widget we
-        # track. ``widget.parent is accordion`` was unreliable here —
+        # track. ``widget.parent is accordion`` was unreliable here --
         # Kivy's parent attribute can lag the children list during
         # add_widget calls inside the same event tick. Membership in
         # ``accordion.children`` is the ground truth.
@@ -321,7 +321,7 @@ class ImageSettings(BoxLayout):
         # differs from the underlying widget's id. Today all the
         # right-side widgets are python instance refs (no kv ids in
         # ``widget_for_layer``) so id() happens to work, but the left-
-        # side resort hit this exact trap 2026-05-03 — using uid is the
+        # side resort hit this exact trap 2026-05-03 -- using uid is the
         # defensive choice.
         tracked_uids = {w.uid for w in widget_for_layer.values() if w is not None}
         present = [w for w in list(accordion.children) if w.uid in tracked_uids]
@@ -330,10 +330,10 @@ class ImageSettings(BoxLayout):
 
         # Walk forward through canonical order. ``add_widget`` with no
         # index prepends to the children list; the accordion renders
-        # children in reverse order (children[0] is drawn last → bottom),
+        # children in reverse order (children[0] is drawn last -> bottom),
         # so the FIRST canonical layer added ends up at the bottom of
         # the children list and at the TOP of the visual accordion. The
-        # final iteration (Lumi) lands at children[0] → bottom of display.
+        # final iteration (Lumi) lands at children[0] -> bottom of display.
         for layer in self._LAYER_DISPLAY_ORDER:
             if not visible_for_layer.get(layer, False):
                 continue
@@ -383,7 +383,7 @@ class ImageSettings(BoxLayout):
             layer_obj = self.layer_lookup(layer=layer)
             layer_obj.ids[
                 'exp_slider'
-            ].min = 1.0  # 1ms floor — sub-ms never realistic for fluorescence
+            ].min = 1.0  # 1ms floor -- sub-ms never realistic for fluorescence
             layer_obj.ids['exp_slider'].max = ctx.max_exposure
             layer_obj.ids['exp_slider'].step = 1.0  # Integer steps only
 
@@ -407,7 +407,7 @@ class ImageSettings(BoxLayout):
         """Size each layer's gain slider to the connected camera's cap.
 
         Parallel to set_layer_exposure_ranges. Pre-fix the gain slider
-        was hardcoded 0-48 dB in the kv regardless of camera — that
+        was hardcoded 0-48 dB in the kv regardless of camera -- that
         let LS620 users drag past the usable range and black out the
         image. `ctx.max_gain` is populated from
         Lumascope.camera_max_gain in load_settings (and the same
@@ -529,7 +529,7 @@ class ImageSettings(BoxLayout):
         # the camera or LEDs. Kivy's accordion auto-expands a different
         # item when the active one collapses (default Accordion behavior),
         # so a drawer-close event would otherwise trigger apply_settings
-        # for whichever item Kivy auto-expanded — applying that layer's
+        # for whichever item Kivy auto-expanded -- applying that layer's
         # exposure/gain to the camera while the user's LED was still on a
         # different channel. Saturated-image symptom in #637.
         if self.ids['toggle_imagesettings'].state == 'normal':

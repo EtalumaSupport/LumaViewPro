@@ -4,7 +4,7 @@
 Regression coverage for the deque-window invariant: rolling average
 must use only the last `window_len` samples; old samples must be
 dropped automatically when the window is full. Pre-deque code used a
-list with .pop(0) — fine functionally but O(n) per drop, and it's
+list with .pop(0) -- fine functionally but O(n) per drop, and it's
 easy to break the rolling-window invariant when refactoring.
 """
 
@@ -29,18 +29,18 @@ class TestRollingWindow:
 
     def test_window_average_uses_only_recent_samples(self):
         """If the window correctly drops old values, the rolling average
-        of `min` should reflect only recent samples — not history."""
+        of `min` should reflect only recent samples -- not history."""
         cs = ContrastStretcher(window_len=2, bottom_pct=0, top_pct=0)
         # Two updates with min=100 (force via uniform image)
         for _ in range(2):
             img = np.full((40, 40), 100, dtype=np.uint8)
             cs.update(img)
         assert list(cs._data['min']) == [100.0, 100.0]
-        # One update with min=200 — window slides, oldest 100 drops
+        # One update with min=200 -- window slides, oldest 100 drops
         img = np.full((40, 40), 200, dtype=np.uint8)
         cs.update(img)
         assert list(cs._data['min']) == [100.0, 200.0]
-        # One more — both 100s are gone
+        # One more -- both 100s are gone
         img = np.full((40, 40), 200, dtype=np.uint8)
         cs.update(img)
         assert list(cs._data['min']) == [200.0, 200.0]

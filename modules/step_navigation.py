@@ -28,7 +28,7 @@ def go_to_step(
 
     # Deferred import: ui/ui_helpers.move_absolute_position wraps the
     # API call with UI update callbacks. step_navigation still reaches
-    # upward here — tracked as part of LAYER-H/LV-13 follow-up.
+    # upward here -- tracked as part of LAYER-H/LV-13 follow-up.
     from ui.ui_helpers import move_absolute_position
     from modules.notification_center import notifications
 
@@ -111,7 +111,7 @@ def go_to_step(
         else:
             logger.warning('[LVP Main  ] Motion controller not available.')
 
-        # Update settings to correspond with step — batch write under lock for thread safety
+        # Update settings to correspond with step -- batch write under lock for thread safety
         color = step['Color']
         with ctx.settings_lock:
             settings[color].update(
@@ -226,7 +226,7 @@ def go_to_step_update_ui(step, called_from_protocol: bool = False):
     # Delegate all per-layer widget updates to LayerControl
     layer_obj.set_step_state(step)
 
-    # Stim config spans multiple layers — update non-current layers too
+    # Stim config spans multiple layers -- update non-current layers too
     sc = step.get('Stim_Config')
     if isinstance(sc, dict):
         for layer in sc:

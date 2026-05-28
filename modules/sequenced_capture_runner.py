@@ -420,7 +420,7 @@ class SequencedCaptureRunner:
             for axis in self._scope.capabilities.axes:
                 # get_axis_limits returns None for axes without
                 # software-enforced bounds (T axis is the canonical
-                # case). Skip those — validate_for_run only checks
+                # case). Skip those -- validate_for_run only checks
                 # axes present in the dict.
                 limits = self._scope.motion.get_axis_limits(axis)
                 if limits is not None:
@@ -497,7 +497,7 @@ class SequencedCaptureRunner:
         else:
             self._original_autofocus_states = self.get_initial_autofocus_states()
 
-        # Lightweight copy — shares read-only loaders, copies only the mutable
+        # Lightweight copy -- shares read-only loaders, copies only the mutable
         # steps DataFrame (which AF modifies via modify_step_z_height). Much
         # cheaper than deepcopy for large protocols (M14).
         self._protocol = protocol.copy_for_execution()
@@ -551,7 +551,7 @@ class SequencedCaptureRunner:
         )
         # PIW-3: read once per run under settings_lock to avoid per-save lock acquires
         # in image_utils.write_tiff. Mid-run UI changes intentionally do not retro-affect
-        # an in-flight protocol — saves use the value as of run-start.
+        # an in-flight protocol -- saves use the value as of run-start.
         # bf_af_for_fluorescence shares the same snapshot lane so mid-run
         # toggles do not produce inconsistent AF behavior across steps
         # within one scan; protocol_step_runner reads p._bf_af_for_fluorescence.
@@ -636,7 +636,7 @@ class SequencedCaptureRunner:
         Note: With the loop-based approach, most work happens in executor threads,
         so there's less to unschedule than before.
         """
-        # Legacy Clock.unschedule calls removed — with the loop-based
+        # Legacy Clock.unschedule calls removed -- with the loop-based
         # architecture, iterators run on executor threads, not Kivy Clock.
         self._protocol_iterator = None
         self._scan_iterator = None

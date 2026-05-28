@@ -79,7 +79,7 @@ class ProtocolRunner:
         return self._executor
 
     # ------------------------------------------------------------------
-    # Config helpers (pure — no GUI reads)
+    # Config helpers (pure -- no GUI reads)
     # ------------------------------------------------------------------
 
     def build_image_capture_config(

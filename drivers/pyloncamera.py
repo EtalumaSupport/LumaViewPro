@@ -489,7 +489,7 @@ class PylonCamera(Camera):
             except Exception as e:
                 _cam_log.warning(f'[INSTR PYLON ] start: stat-node dump failed: {e}')
             finally:
-                # Mark done regardless of success/failure — don't retry
+                # Mark done regardless of success/failure -- don't retry
                 # the failing walk on every restart.
                 self._pylon_self_validation_done = True
 
@@ -945,7 +945,7 @@ class PylonCamera(Camera):
 
                     try:
                         # Prefer dotted-string form (GetPylonVersionString)
-                        # over the raw list GetPylonVersion returns —
+                        # over the raw list GetPylonVersion returns --
                         # see lumaviewpro.py for the same rationale.
                         try:
                             _ver_str = pylon.GetPylonVersionString()
@@ -957,7 +957,7 @@ class PylonCamera(Camera):
                         _log_cam('warning', f'[CAM Class ] Could not read Pylon SDK version: {e}')
 
                     # Transport + device class identify the kernel
-                    # driver stack Pylon is routing through — useful
+                    # driver stack Pylon is routing through -- useful
                     # when the runtime SDK says one thing but Device
                     # Manager shows a stale WinUSB/USB3Vision driver.
                     try:
@@ -976,7 +976,7 @@ class PylonCamera(Camera):
                     _log_cam('info', f'[CAM Class ] Camera Firmware Version: {firmware}')
 
                     # Current pixel format + resolution + binning drive
-                    # the DMA buffer footprint — critical context for
+                    # the DMA buffer footprint -- critical context for
                     # memory / throughput analysis.
                     try:
                         pix = (
@@ -1185,7 +1185,7 @@ class PylonCamera(Camera):
                 self._read_timestamp_tick_frequency()
                 self.set_pixel_format(pixel_format='Mono8')
                 self.auto_gain(state=False)
-                # Set explicit gain — camera default after UserSetLoad is undefined
+                # Set explicit gain -- camera default after UserSetLoad is undefined
                 self.gain(0.0)
                 camera.ReverseX.SetValue(True)
                 if not self._use_camera_emulation:
@@ -3388,7 +3388,7 @@ def _read_validity_chunks(grabResult) -> dict | None:
 
 
 class ImageHandler(pylon.ImageEventHandler):
-    """Pylon camera image handler — receives frames via SDK callbacks.
+    """Pylon camera image handler -- receives frames via SDK callbacks.
 
     Uses ImageHandlerBase via composition (not inheritance) to avoid
     metaclass conflict with pylon.ImageEventHandler.

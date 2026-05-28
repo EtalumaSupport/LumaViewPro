@@ -91,7 +91,7 @@ class ProtocolStepRunner:
 
         if p._aborted.is_set():
             return
-        # Video encoding runs on FILE_WORKER in background — do NOT block
+        # Video encoding runs on FILE_WORKER in background -- do NOT block
         # the next step waiting for it. Frames are already captured and queued.
         if not p._scan_in_progress.is_set():
             return
@@ -278,7 +278,7 @@ class ProtocolStepRunner:
                 if output_format == 'ImageJ Hyperstack':
                     output_format = 'TIFF'
 
-                # Video encoding runs on FILE_WORKER after capture — no gate needed
+                # Video encoding runs on FILE_WORKER after capture -- no gate needed
 
                 # Keep LED on between consecutive steps of the same channel
                 # (e.g., Z-stack slices). Avoids unnecessary LED cycling.
@@ -316,7 +316,7 @@ class ProtocolStepRunner:
                 )
 
             else:
-                # No saving — turn off LEDs manually (capture normally does this)
+                # No saving -- turn off LEDs manually (capture normally does this)
                 self.leds_off()
 
         # Disable autogain when moving between steps
@@ -353,7 +353,7 @@ class ProtocolStepRunner:
             self.go_to_step(step_idx=p._curr_step)
             return
 
-        # End of scan — grease redistribution if needed
+        # End of scan -- grease redistribution if needed
         if p._autofocus_count >= 100:
             self.perform_grease_redistribution()
             p._autofocus_count = 0
@@ -508,7 +508,7 @@ class ProtocolStepRunner:
     def leds_off(self):
         """Turn all LEDs off via the IO executor.
 
-        UI update is handled by the LED observer — no manual callback needed.
+        UI update is handled by the LED observer -- no manual callback needed.
         """
         p = self._p
         fut = p._io_executor.protocol_put(
@@ -521,12 +521,12 @@ class ProtocolStepRunner:
                 p._scope.illumination.leds_off()
             except Exception as ex:
                 logger.warning(f'[{p.LOGGER_NAME}] Direct leds_off fallback failed: {ex}')
-        # LED observer handles UI sync — no manual callback
+        # LED observer handles UI sync -- no manual callback
 
     def led_on(self, color: str, illumination: float, block: bool = True, force: bool = False):
         """Turn on a single LED channel via the IO executor.
 
-        UI update is handled by the LED observer — no manual callback needed.
+        UI update is handled by the LED observer -- no manual callback needed.
         """
         p = self._p
         if p._aborted.is_set() and not force:
@@ -548,4 +548,4 @@ class ProtocolStepRunner:
             fut.result(timeout=30)
         # Sleep for 5 ms to ensure that LED properly turns on before next action
         time.sleep(0.005)
-        # LED observer handles UI sync — no manual callback
+        # LED observer handles UI sync -- no manual callback

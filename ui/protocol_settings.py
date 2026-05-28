@@ -176,7 +176,7 @@ class ProtocolSettings(FloatLayout):
         self.select_labware()
         self.update_step_ui()
 
-        # DISABLED: BF AF for fluorescence — not yet tested, hidden for 4.0.0.
+        # DISABLED: BF AF for fluorescence -- not yet tested, hidden for 4.0.0.
         # Force off regardless of saved settings to prevent untested code path.
         if 'protocol' in settings:
             settings['protocol']['bf_af_for_fluorescence'] = False
@@ -280,7 +280,7 @@ class ProtocolSettings(FloatLayout):
             labware_spinner.text = 'Center Plate'
         else:
             # UI-1 follow-up (plate-spinner): when re-enabling labware
-            # selection after a scope switch (e.g., LS620 → LS850), the
+            # selection after a scope switch (e.g., LS620 -> LS850), the
             # spinner widget is re-enabled but the dropdown values are
             # still locked to ['Center Plate'] from the prior
             # select_labware('Center Plate') call. User can click the
@@ -1473,7 +1473,7 @@ class ProtocolSettings(FloatLayout):
                 'go_to_step': go_to_step,
                 'run_complete': self._autofocus_run_complete_callback,
                 'files_complete': self._autofocus_files_complete,
-                # LED observer handles UI sync — no manual callbacks needed
+                # LED observer handles UI sync -- no manual callbacks needed
                 'reset_autofocus_btns': update_autofocus_selection_after_protocol,
                 'set_recording_title': set_recording_title,
                 'set_writing_title': set_writing_title,
@@ -1653,7 +1653,7 @@ class ProtocolSettings(FloatLayout):
             self._cleanup_at_end_of_protocol(autofocus_scan=False)
             return
 
-        # All validation passed — now commit to running
+        # All validation passed -- now commit to running
         protocol_running_global = ctx.protocol_running
         protocol_running_global.set()
         ctx.stage.set_motion_capability(False)
@@ -1668,7 +1668,7 @@ class ProtocolSettings(FloatLayout):
             'scan_iterate_post': run_not_started_func,
             'run_complete': run_complete_func,
             'files_complete': self._scan_files_complete,
-            # LED observer handles UI sync — no manual callbacks needed
+            # LED observer handles UI sync -- no manual callbacks needed
             'pause_live_ui': lambda: (
                 ctx.scope_display.stop(),
                 Clock.unschedule(ctx.motion_settings.update_xy_stage_control_gui),
@@ -1874,7 +1874,7 @@ class ProtocolSettings(FloatLayout):
                 self._cleanup_at_end_of_protocol(autofocus_scan=False)
                 return
 
-            # All validation passed — now commit to running
+            # All validation passed -- now commit to running
             protocol_running_global = ctx.protocol_running
             protocol_running_global.set()
             ctx.stage.set_motion_capability(False)
@@ -1891,7 +1891,7 @@ class ProtocolSettings(FloatLayout):
                 'autofocus_complete': self._autofocus_complete_callback,
                 'run_complete': run_complete_func,
                 'files_complete': self._protocol_files_complete,
-                # LED observer handles UI sync — no manual callbacks needed
+                # LED observer handles UI sync -- no manual callbacks needed
                 'pause_live_ui': lambda: (
                     ctx.scope_display.stop(),
                     Clock.unschedule(ctx.motion_settings.update_xy_stage_control_gui),
@@ -1974,7 +1974,7 @@ class ProtocolSettings(FloatLayout):
         ctx = _app_ctx.ctx
         ctx.motion_settings.ids['verticalcontrol_id']._reset_run_autofocus_button()
         ctx.motion_settings.ids['verticalcontrol_id'].is_complete = False
-        # LED observer handles UI button sync after AF — no manual update needed
+        # LED observer handles UI button sync after AF -- no manual update needed
 
     def run_sequenced_capture(
         self,
@@ -2015,7 +2015,7 @@ class ProtocolSettings(FloatLayout):
         callbacks.update(
             {
                 'move_position': _handle_ui_update_for_axis,
-                # LED observer handles UI sync — no manual callbacks needed
+                # LED observer handles UI sync -- no manual callbacks needed
                 'update_step_number': _update_step_number_callback,
                 'go_to_step': go_to_step,
                 # Stage B1: update_scopedisplay retired -- thread runs continuously
@@ -2097,7 +2097,7 @@ class ProtocolSettings(FloatLayout):
             self._reset_run_autofocus_scan_button()
             ctx.stage.set_motion_capability(True)
 
-            # LED observer handles UI button sync after protocol — no manual refresh needed
+            # LED observer handles UI button sync after protocol -- no manual refresh needed
 
     def cancel_all_protocols(self):
         logger.info('[LVP Main  ] ProtocolSettings.cancel_all_protocols()')

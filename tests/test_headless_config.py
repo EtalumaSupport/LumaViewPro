@@ -2,7 +2,7 @@
 """
 Tests for headless (GUI-free) config helpers in modules/config_helpers.py.
 
-These functions must work without Kivy or any UI — they read from
+These functions must work without Kivy or any UI -- they read from
 the settings dict only.
 """
 
@@ -78,7 +78,7 @@ class TestGetImageCaptureConfig:
 
 class TestGetSelectedLabware:
     """get_selected_labware_from_settings ALWAYS returns a valid plate per
-    Eric's 2026-04-25 directive — never None. Falls back to the shipped
+    Eric's 2026-04-25 directive -- never None. Falls back to the shipped
     default, then to the first available plate, then raises only if the
     loader is genuinely empty (broken install).
     """
@@ -93,7 +93,7 @@ class TestGetSelectedLabware:
         assert obj is plate
 
     def test_empty_settings_falls_back_to_default(self):
-        # No labware in settings → use DEFAULT_LABWARE_ID '96 well microplate'.
+        # No labware in settings -> use DEFAULT_LABWARE_ID '96 well microplate'.
         loader = MagicMock()
         plate = MagicMock()
         loader.get_plate.return_value = plate
@@ -102,7 +102,7 @@ class TestGetSelectedLabware:
         assert obj is plate
 
     def test_loader_keyerror_falls_back_to_default(self):
-        # Settings has a labware id but loader doesn't recognize it →
+        # Settings has a labware id but loader doesn't recognize it ->
         # fall back to default.
         loader = MagicMock()
         default_plate = MagicMock()
@@ -119,7 +119,7 @@ class TestGetSelectedLabware:
         assert obj is default_plate
 
     def test_loader_keyerror_on_default_falls_back_to_first_available(self):
-        # Both requested AND default missing → fall back to first plate
+        # Both requested AND default missing -> fall back to first plate
         # in the loader's list.
         loader = MagicMock()
         first_plate = MagicMock()
@@ -138,7 +138,7 @@ class TestGetSelectedLabware:
 
     def test_loader_completely_empty_raises_valueerror(self):
         # Genuinely-broken install: labware.json missing entirely. The
-        # function must raise rather than return None — caller can't
+        # function must raise rather than return None -- caller can't
         # recover from a missing labware database.
         loader = MagicMock()
         loader.get_plate.side_effect = KeyError('not found')

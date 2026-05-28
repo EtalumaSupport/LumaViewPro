@@ -43,14 +43,14 @@ fail, falls back to the registered 'null' driver (or raises if no null
 is registered). In simulate mode, only `is_simulator=True` drivers are
 considered.
 
-**Composite hardware — FX2 / Lumaview Classic pattern:** The FX2 chip
+**Composite hardware -- FX2 / Lumaview Classic pattern:** The FX2 chip
 exposes both a camera and an LED controller over a single shared USB
 connection. Stage 3 will register `FX2Camera` in the camera registry and
 `FX2LEDController` in the LED registry as two independent drivers that
 internally share a module-level `_FX2Connection` singleton. From the
 registry's point of view they're separate entries; the shared connection
 is an implementation detail inside the fx2driver module. Note: this
-pattern applies to camera+LED only — LS720 motion uses a standalone
+pattern applies to camera+LED only -- LS720 motion uses a standalone
 USB-to-serial motor controller, not the FX2, and will register as its
 own independent motor driver.
 
@@ -80,13 +80,13 @@ class DriverRegistry:
 
     One instance per driver kind (motor / LED / camera). Populated at
     import time via the `@register` decorator; queried at runtime via
-    `create()`. The registry is not thread-safe for registration — all
+    `create()`. The registry is not thread-safe for registration -- all
     `@register` calls happen once at module import, before any thread
     has a chance to call `create()`.
     """
 
     def __init__(self, kind: str):
-        self._kind = kind  # 'motor' | 'led' | 'camera' — for error messages
+        self._kind = kind  # 'motor' | 'led' | 'camera' -- for error messages
         self._entries: dict[str, _RegistryEntry] = {}
 
     def register(self, name: str, *, priority: int = 50, is_simulator: bool = False) -> Callable:
@@ -101,7 +101,7 @@ class DriverRegistry:
                 Null drivers MUST be 0 so they sort last.
             is_simulator: True if this driver is for simulate=True mode.
                 Simulators and real drivers live in separate priority
-                orders — `create(simulate=True)` only considers simulators
+                orders -- `create(simulate=True)` only considers simulators
                 and `create(simulate=False)` only considers real drivers.
         """
 
@@ -118,7 +118,7 @@ class DriverRegistry:
                 is_simulator=is_simulator,
             )
             logger.debug(
-                f'[registry] {self._kind}: registered {name!r} → '
+                f'[registry] {self._kind}: registered {name!r} -> '
                 f'{cls.__name__} (priority={priority}, sim={is_simulator})'
             )
             return cls
@@ -152,7 +152,7 @@ class DriverRegistry:
                 SimulatedCamera.
 
         Returns:
-            A driver instance. Never returns None — always raises or
+            A driver instance. Never returns None -- always raises or
             returns a concrete driver (possibly the null fallback).
 
         Raises:
@@ -163,7 +163,7 @@ class DriverRegistry:
             cls = self.get(name)
             return cls(**kwargs)
 
-        # Auto mode — pick by priority, filtered by simulate flag.
+        # Auto mode -- pick by priority, filtered by simulate flag.
         candidates = sorted(
             (e for e in self._entries.values() if e.is_simulator == simulate),
             key=lambda e: -e.priority,
@@ -177,7 +177,7 @@ class DriverRegistry:
             )
 
         # Try each candidate in priority order. Skip the null driver
-        # until all real drivers have been attempted — null is the
+        # until all real drivers have been attempted -- null is the
         # explicit fallback, not a candidate.
         real_candidates = [e for e in candidates if e.priority > 0]
         null_candidates = [e for e in candidates if e.priority == 0]
@@ -197,7 +197,7 @@ class DriverRegistry:
                         f'found=False, trying next candidate'
                     )
                     continue
-                # Found-but-not-connected — port discovered before open()
+                # Found-but-not-connected -- port discovered before open()
                 # raised (e.g. PermissionError because Thonny has the
                 # port). MotorBoard.connect() / LEDBoard.connect()
                 # swallow open() failures and leave self.driver = None,
@@ -207,7 +207,7 @@ class DriverRegistry:
                 # later (issue #632/#634 cluster: get_microscope_model
                 # indexes None info, home() burns its full 30s timeout
                 # on auto-reconnect, etc.). Reject the same way as
-                # found=False — fall through to null fallback.
+                # found=False -- fall through to null fallback.
                 if hasattr(instance, 'is_connected'):
                     try:
                         connected = instance.is_connected()
@@ -241,15 +241,15 @@ class DriverRegistry:
                     f'({type(e).__name__}: {e}), trying next candidate'
                 )
 
-        # All real drivers exhausted — fall back to null if one is registered.
+        # All real drivers exhausted -- fall back to null if one is registered.
         # Three distinct cases the operator needs to be able to tell apart:
-        #   1. last_error set                — at least one driver raised.
+        #   1. last_error set                -- at least one driver raised.
         #      The exception is the smoking gun, log it with traceback.
-        #   2. found_false_names non-empty   — at least one driver instantiated
+        #   2. found_false_names non-empty   -- at least one driver instantiated
         #      but reported `found=False` (SerialBoard with no port, FX2 with
         #      no device). Name the drivers that were tried so the operator
         #      can see WHICH hardware path was probed.
-        #   3. neither                       — registry actually empty for
+        #   3. neither                       -- registry actually empty for
         #      this kind. Misconfiguration; the import that wires up the
         #      driver is missing.
         # Pre-fix the case-3 message used to fire for case-2 too, which made
@@ -282,13 +282,13 @@ class DriverRegistry:
             else:
                 logger.info(
                     f'[registry] {self._kind}: registry is empty for this '
-                    f'kind (no real drivers registered — check that the '
+                    f'kind (no real drivers registered -- check that the '
                     f'driver module is imported somewhere). Falling back '
                     f'to {entry.cls.__name__}'
                 )
             return entry.cls()
 
-        # No null driver registered — raise with the last real-driver error.
+        # No null driver registered -- raise with the last real-driver error.
         if last_error is not None:
             raise last_error
         raise ValueError(f'{self._kind} registry has no real drivers and no null fallback.')
@@ -298,7 +298,7 @@ class DriverRegistry:
         return sorted(self._entries.keys())
 
 
-# Three global registries — one per driver kind.
+# Three global registries -- one per driver kind.
 motor_registry = DriverRegistry('motor')
 led_registry = DriverRegistry('led')
 camera_registry = DriverRegistry('camera')

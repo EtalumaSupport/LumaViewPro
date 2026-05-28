@@ -1,5 +1,5 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""IDS Peak hardware tests — opt-in via --run-ids-hardware.
+"""IDS Peak hardware tests -- opt-in via --run-ids-hardware.
 
 These tests require:
   1. Real ids_peak SDK installed (not the conftest MagicMock)
@@ -8,7 +8,7 @@ These tests require:
 Skipped by default. Run with:
     pytest tests/test_ids_hardware.py --run-ids-hardware
 
-The `ids_hardware` marker is gated by conftest.pytest_collection_modifyitems —
+The `ids_hardware` marker is gated by conftest.pytest_collection_modifyitems --
 test bodies do NOT need their own skip dance.
 """
 

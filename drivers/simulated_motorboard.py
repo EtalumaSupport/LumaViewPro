@@ -50,11 +50,11 @@ class SimulatedMotorBoard:
     TIMING_INSTANT = {
         'cmd_delay': 0.0,
         'move_delay': 0.0,
-        'simulate_move_duration': False,  # Truly instant — for unit tests only
+        'simulate_move_duration': False,  # Truly instant -- for unit tests only
         'fast_move_duration': 0.0,
     }
     TIMING_FAST = {
-        'cmd_delay': 0.001,  # 1ms minimum — nothing returns instantly
+        'cmd_delay': 0.001,  # 1ms minimum -- nothing returns instantly
         'move_delay': 0.0,
         'simulate_move_duration': True,  # Simulates brief move duration
         'fast_move_duration': 0.003,  # 3ms per move in fast mode
@@ -226,7 +226,7 @@ class SimulatedMotorBoard:
     # ------------------------------------------------------------------
     # Serial simulation
     # ------------------------------------------------------------------
-    # Fast SPI register reads — return in ~100-200µs on real hardware.
+    # Fast SPI register reads -- return in ~100-200us on real hardware.
     # Matched by startswith(), so 'STATUS_RZ' matches 'STATUS_R'.
     _FAST_PREFIXES = ('STATUS_R', 'TARGET_R', 'ACTUAL_R', 'VOLTAGE', 'CURRENT')
 
@@ -364,7 +364,7 @@ class SimulatedMotorBoard:
                 if self._fast_move_duration > 0:
                     # Fast mode: position updates instantly but target_status
                     # returns False for a brief period so the motion monitor
-                    # can detect the MOVING→IDLE transition.
+                    # can detect the MOVING->IDLE transition.
                     self._actual[axis] = value
                     self._move_end_time[axis] = time.monotonic() + self._fast_move_duration
                 else:
@@ -403,7 +403,7 @@ class SimulatedMotorBoard:
 
         # Tech-support diagnostic commands. The Python-level helpers
         # (get_voltage / get_current / get_motordetect / read_status)
-        # already return realistic shapes — but tech_support_report
+        # already return realistic shapes -- but tech_support_report
         # talks to the board via raw exchange_command (LV-24 layer), so
         # the raw-text branches need to mirror the same content.
         if cmd == 'VOLTAGE':
@@ -428,8 +428,8 @@ class SimulatedMotorBoard:
             axis = cmd[len('DRVSTAT_') :]
             return f'{axis}: DRV_STATUS=0x80000000 (standstill)'
 
-        # Fan speed setter — `FAN:<value>` (real firmware accepts a duty
-        # cycle 0-100). Tech-support pulses it 50 → 0 to verify the
+        # Fan speed setter -- `FAN:<value>` (real firmware accepts a duty
+        # cycle 0-100). Tech-support pulses it 50 -> 0 to verify the
         # tachometer responds; sim just acks. (Read side is FANSPEED.)
         if cmd.startswith('FAN:'):
             return f'FAN OK ({cmd[4:]})'
@@ -485,14 +485,14 @@ class SimulatedMotorBoard:
             speed = self.AXIS_SPEEDS.get(axis, self.AXIS_SPEEDS['X'])
             return distance_usteps / speed if speed > 0 else 0.0
 
-        # TMC5072 register → real units conversion
+        # TMC5072 register -> real units conversion
         fclk = 16_000_000
         vel_factor = fclk / (2**24)
         acc_factor = fclk**2 / (512 * 2**24)
 
         vmax = ramp['vmax'] * vel_factor  # usteps/sec
-        amax = ramp['amax'] * acc_factor  # usteps/sec²
-        dmax = ramp['dmax'] * acc_factor  # usteps/sec²
+        amax = ramp['amax'] * acc_factor  # usteps/sec^2
+        dmax = ramp['dmax'] * acc_factor  # usteps/sec^2
 
         if vmax <= 0 or amax <= 0 or dmax <= 0:
             speed = self.AXIS_SPEEDS.get(axis, self.AXIS_SPEEDS['X'])
@@ -533,7 +533,7 @@ class SimulatedMotorBoard:
         # Bit 0: home reference (status_stop_left)
         if self._homed.get(axis, False) and self._actual.get(axis, 0) == 0:
             status |= 1 << 0
-        # Bit 9: position_reached — only True when move duration has elapsed
+        # Bit 9: position_reached -- only True when move duration has elapsed
         # AND actual == target. In fast mode, actual is set instantly but
         # target_status waits for the brief delay before reporting reached.
         end_time = self._move_end_time.get(axis, 0.0)

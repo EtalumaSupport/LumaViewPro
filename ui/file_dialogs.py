@@ -42,7 +42,7 @@ def _zprojection_picker_default_path(live_folder: pathlib.Path) -> str:
 # macOS native file dialogs via osascript (AppleScript)
 # tkinter Tk() crashes on macOS when SDL2 is loaded (cv2 + kivy both ship it).
 # plyer requires pyobjus which may not be installed.
-# osascript uses native Cocoa panels — no extra dependencies.
+# osascript uses native Cocoa panels -- no extra dependencies.
 # ---------------------------------------------------------------------------
 
 

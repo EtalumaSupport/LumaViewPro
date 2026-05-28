@@ -22,7 +22,7 @@ Usage:
     # ... frames are grabbed by live view, counter increments ...
     fv.frames_until_valid()                # Still >0 if Z still moving
     # ... Z arrives at target, settle check returns True ...
-    fv.frames_until_valid()                # Returns 0 — next frame is valid
+    fv.frames_until_valid()                # Returns 0 -- next frame is valid
 
 Autofocus can exclude Z motion from validity checks since a slightly
 defocused frame still produces a valid focus score:
@@ -49,7 +49,7 @@ class FrameValidity:
     DEFAULT_SKIP_FRAMES = 2
 
     # Per-source skip frame counts (camera pipeline flush).
-    # Default skip counts — overridden by per-camera measured values
+    # Default skip counts -- overridden by per-camera measured values
     # from data/camera_timing/<model>.json via load_camera_timing().
     SKIP_FRAMES = {
         'led': 2,  # LED on/off or current change (measured: 2 on a2A3536)
@@ -85,7 +85,7 @@ class FrameValidity:
     # dart with firmware 1.1.0 and 2.6.0): observed deltas were bit-
     # identical across hardware and firmware -- quantization happens at
     # the Pylon SDK / genicam nodemap layer, not in camera firmware.
-    # Gain round-trip error peaked at ~5e-5 dB (float ε), exposure was
+    # Gain round-trip error peaked at ~5e-5 dB (float epsilon), exposure was
     # bit-exact in microseconds. Tolerances set ~20x above observed max
     # for safety across future firmware revisions.
     DEFAULT_CHUNK_TOLERANCE = {
@@ -288,7 +288,7 @@ class FrameValidity:
                 if frame_remaining > 0:
                     max_remaining = max(max_remaining, frame_remaining)
                 elif source in self.MOTION_SOURCES and self._settle_check_fn is not None:
-                    # Frame count met but axis still moving — keep draining
+                    # Frame count met but axis still moving -- keep draining
                     if not self._settle_check_fn(source):
                         max_remaining = max(max_remaining, 1)
             return max(0, max_remaining)

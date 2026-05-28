@@ -18,7 +18,7 @@ class ContrastStretcher:
 
         # deque(maxlen=window_len) is O(1) for both append and the
         # implicit drop of the oldest entry once the window is full.
-        # Pre-deque code used a list with .pop(0), which is O(n) — fine
+        # Pre-deque code used a list with .pop(0), which is O(n) -- fine
         # at window_len=3 today, but this future-proofs against larger
         # window sizes without changing semantics.
         self._data = {

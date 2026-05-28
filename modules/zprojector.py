@@ -221,7 +221,7 @@ class ZProjector(ProtocolPostProcessor):
             else:  # Grayscale images
                 result = self._zproject_for_single_channel(images_data=orig_images, method=method)
         finally:
-            # Release source images immediately — can be GBs for large stacks
+            # Release source images immediately -- can be GBs for large stacks
             del orig_images
 
         if not result['status']:

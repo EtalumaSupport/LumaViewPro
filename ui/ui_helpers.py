@@ -1,6 +1,6 @@
 # Copyright Etaluma, Inc.
 """
-UI helper functions — manipulate Kivy widgets, window titles, LED buttons.
+UI helper functions -- manipulate Kivy widgets, window titles, LED buttons.
 
 Moved from modules/ui_helpers.py to ui/ because this is GUI code (imports
 Kivy Window, ScrollView). A compatibility shim at modules/ui_helpers.py
@@ -59,7 +59,7 @@ def find_nearest_step(x, y, protocol):
 # LED / Illumination Helpers
 # ============================================================================
 
-# _handle_ui_for_leds_off and _handle_ui_for_led removed —
+# _handle_ui_for_leds_off and _handle_ui_for_led removed --
 # LED observer handles UI sync. See Phase 1 commit 96defe3.
 
 
@@ -69,7 +69,7 @@ def scope_leds_off(no_callback: bool = False):
     if ctx.protocol_running.is_set():
         return
 
-    # LED observer handles UI button sync — no manual callback needed.
+    # LED observer handles UI button sync -- no manual callback needed.
     # The no_callback parameter is kept for API compatibility but is now
     # effectively always True (observer replaces the callback).
     ctx.scope.illumination.leds_off_async()
@@ -150,7 +150,7 @@ def move_absolute_position(
                 cb_kwargs={'axis': axis},
             )
         else:
-            # Already running on the io_executor (protocol thread) —
+            # Already running on the io_executor (protocol thread) --
             # call the scope primitive directly. Submitting to the
             # same executor would deadlock.
             ctx.scope.motion.move_absolute_position(
@@ -190,7 +190,7 @@ def move_home(axis: str):
 #
 # Single-owner title bar:
 # - shader.py::_update_status_bar is the ONLY caller of Window.set_title().
-# - Other callers set the event-suffix via set_title_event_text() — the next
+# - Other callers set the event-suffix via set_title_event_text() -- the next
 #   status-bar tick (~5 Hz) composes the final title with FPS + MB/s + suffix.
 # - This eliminates: (a) the FPS getting clobbered by event messages,
 #   (b) the LumaViewPro / Lumaview Pro spelling oscillation between tickers,
@@ -207,7 +207,7 @@ def get_title_event_text():
 def set_title_event_text(text):
     """Set the suffix shown after the FPS/MB/s portion of the window title.
     Pass None or '' to clear. Safe to call from any thread (single attribute
-    write on a module-level CPython str/None — atomic under GIL)."""
+    write on a module-level CPython str/None -- atomic under GIL)."""
     global _title_event_text
     _title_event_text = text or None
 

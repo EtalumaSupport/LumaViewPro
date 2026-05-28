@@ -2,7 +2,7 @@
 """
 Tests for drivers/firmware_updater.py.
 
-Uses mock serial ports and mock filesystem — no hardware needed.
+Uses mock serial ports and mock filesystem -- no hardware needed.
 Covers version parsing, board configs, BOOTSEL detection, serial port
 lookup, FWUPDATE command, config backup/restore, UpdateResult, and
 the top-level update_firmware orchestrator.
@@ -61,7 +61,7 @@ class TestParseUf2Version:
 
 
 # ---------------------------------------------------------------------------
-# 2. BoardConfig — LED and MOTOR configs
+# 2. BoardConfig -- LED and MOTOR configs
 # ---------------------------------------------------------------------------
 
 
@@ -93,7 +93,7 @@ class TestBoardConfig:
 
 
 # ---------------------------------------------------------------------------
-# 3. _detect_bootsel_drive — mock filesystem, macOS path
+# 3. _detect_bootsel_drive -- mock filesystem, macOS path
 # ---------------------------------------------------------------------------
 
 
@@ -128,7 +128,7 @@ class TestDetectBootselDrive:
 
 
 # ---------------------------------------------------------------------------
-# 4. _find_serial_port — mock list_ports.comports()
+# 4. _find_serial_port -- mock list_ports.comports()
 # ---------------------------------------------------------------------------
 
 
@@ -165,7 +165,7 @@ class TestFindSerialPort:
 
 
 # ---------------------------------------------------------------------------
-# 5-6. _send_fwupdate_command — mock serial, verify bytes + error
+# 5-6. _send_fwupdate_command -- mock serial, verify bytes + error
 # ---------------------------------------------------------------------------
 
 
@@ -426,7 +426,7 @@ class TestUpdateResult:
 
 
 # ---------------------------------------------------------------------------
-# 13. update_firmware — same version skips update
+# 13. update_firmware -- same version skips update
 # ---------------------------------------------------------------------------
 
 
@@ -456,7 +456,7 @@ class TestUpdateFirmwareSameVersion:
 
 
 # ---------------------------------------------------------------------------
-# 14. update_firmware — pre-existing BOOTSEL drive causes abort
+# 14. update_firmware -- pre-existing BOOTSEL drive causes abort
 # ---------------------------------------------------------------------------
 
 
@@ -479,7 +479,7 @@ class TestUpdateFirmwareBootselAbort:
 
 
 # ---------------------------------------------------------------------------
-# 15. Progress callback — called at each stage, exception-safe
+# 15. Progress callback -- called at each stage, exception-safe
 # ---------------------------------------------------------------------------
 
 

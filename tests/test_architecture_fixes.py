@@ -3,15 +3,15 @@
 Tests for architecture audit fixes (2026-03-12, expanded 2026-05-02 LAYER-G).
 
 Covers:
-  1. Layer violation fixes — full directory scan per Architecture Rule 1
+  1. Layer violation fixes -- full directory scan per Architecture Rule 1
      (Firmware/docs/CLAUDE.md): lower layers must not import upward.
        - modules/*.py must not import from ui/
        - drivers/*.py must not import from modules/ or ui/
        - lib/*.py must not import from drivers/, modules/, or ui/
-  2. config_getters → config_ui_getters rename
+  2. config_getters -> config_ui_getters rename
   3. stitch_algorithms.py cleanup (feature_stitch, color_transfer, crop_to_content)
   4. Dead code removal (position_stitcher removed from stitcher.py)
-  5. Tiny file consolidation — enums/classes merged into parent modules
+  5. Tiny file consolidation -- enums/classes merged into parent modules
 """
 
 import glob
@@ -26,7 +26,7 @@ import pytest
 
 
 # ---------------------------------------------------------------------------
-# 1. Layer violations — Architecture Rule 1: only call/import down one level
+# 1. Layer violations -- Architecture Rule 1: only call/import down one level
 # ---------------------------------------------------------------------------
 
 _REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
@@ -90,7 +90,7 @@ _KNOWN_MODULE_VIOLATIONS = {
 def _parametrized_with_known_violations(paths, known):
     """Build a parametrize list, attaching xfail(strict=False) marks to
     files in `known`. xfail flips to xpass when the violation is fixed
-    elsewhere — non-strict so it doesn't fail the run; the file is
+    elsewhere -- non-strict so it doesn't fail the run; the file is
     expected to disappear from `paths` once the structural fix lands.
     """
     out = []
@@ -122,7 +122,7 @@ class TestLayerViolations:
     """Verify every source file respects Architecture Rule 1.
 
     Lower layers must not import upward. Higher layers may import down.
-    Test parametrized over each *.py file in modules/, drivers/, lib/ —
+    Test parametrized over each *.py file in modules/, drivers/, lib/ --
     new files added under those directories are checked automatically.
     """
 
@@ -216,7 +216,7 @@ class TestConfigGettersRename:
 
 
 # ---------------------------------------------------------------------------
-# 3. stitch_algorithms.py — cleaned up functions
+# 3. stitch_algorithms.py -- cleaned up functions
 # ---------------------------------------------------------------------------
 
 
@@ -278,7 +278,7 @@ class TestStitchAlgorithmsModule:
 
 
 # ---------------------------------------------------------------------------
-# 4. Dead code removal — position_stitcher removed from stitcher.py
+# 4. Dead code removal -- position_stitcher removed from stitcher.py
 # ---------------------------------------------------------------------------
 
 
@@ -301,7 +301,7 @@ class TestStitcherDeadCodeRemoved:
 
 
 # ---------------------------------------------------------------------------
-# 5. Tiny file consolidation — merged into parent modules
+# 5. Tiny file consolidation -- merged into parent modules
 # ---------------------------------------------------------------------------
 
 
@@ -395,7 +395,7 @@ class TestTinyFileConsolidation:
         assert not violations, f'Files still importing deleted modules: {violations}'
 
     def test_all_python_files_compile(self):
-        """Every .py file must be valid Python syntax — catches refactor leftovers."""
+        """Every .py file must be valid Python syntax -- catches refactor leftovers."""
         import os
         import py_compile
 

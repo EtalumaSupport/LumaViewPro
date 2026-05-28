@@ -1492,7 +1492,7 @@ class ImagingAPI:
                         tmp = self._driver.get_array()  # thread-safe copy
 
                 if not grab_status:
-                    # Check if camera disconnected — don't retry for 5 seconds
+                    # Check if camera disconnected -- don't retry for 5 seconds
                     # if the camera is gone (H20).
                     if not self._driver.active:
                         logger.error('[SCOPE API ] get_image: camera disconnected')
@@ -1512,7 +1512,7 @@ class ImagingAPI:
                     continue
 
                 if all_ones_check and not np.any(tmp != np.iinfo(tmp.dtype).max):
-                    # Saturated frame — retry once to confirm, then accept.
+                    # Saturated frame -- retry once to confirm, then accept.
                     # Saturated images are valid data (exposure/illumination
                     # too high), not a camera error. Don't loop until timeout.
                     retry_frame = None
@@ -1525,7 +1525,7 @@ class ImagingAPI:
                         if retry_status:
                             self.frame_validity.count_frame()
                             retry_frame = self._driver.get_array()
-                    # Saturation walk is outside cam_lock — no camera state needed,
+                    # Saturation walk is outside cam_lock -- no camera state needed,
                     # and the walk would otherwise block concurrent set_gain/set_exposure.
                     if retry_frame is not None:
                         if np.any(retry_frame != np.iinfo(retry_frame.dtype).max):
@@ -1548,7 +1548,7 @@ class ImagingAPI:
                     f'[SCOPE API ] get_image earliest_image_time {earliest_image_ts} not met -> Image TS: {grab_image_ts}'
                 )
 
-                # Timestamp not met — check timeout then retry
+                # Timestamp not met -- check timeout then retry
                 if datetime.datetime.now() > stop_time:
                     logger.error(f'[SCOPE API ] get_image timeout ({stop_time}) exceeded')
                     return None
@@ -2108,7 +2108,7 @@ class ImagingAPI:
             interval_s: Seconds between log emissions; default 4 hours.
         """
         # Defensive: if a previous logger is already running, stop it
-        # before starting a new one (idempotent — safe to call repeatedly).
+        # before starting a new one (idempotent -- safe to call repeatedly).
         if getattr(self, '_camera_temp_event', None) is not None:
             self.stop_camera_temp_logging(unschedule_fn)
 

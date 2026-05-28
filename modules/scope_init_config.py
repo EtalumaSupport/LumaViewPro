@@ -16,7 +16,7 @@ class ScopeInitConfig:
     `expects_motion` / `expects_led` reflect what the selected scope's
     `scopes.json` entry says it should have, used by `initialize()` to
     filter the partial-hardware notification (LS620 correctly has no
-    motor — don't pop a "Motor Controller missing" warning). Defaults
+    motor -- don't pop a "Motor Controller missing" warning). Defaults
     are True so callers that don't supply scope_config preserve the
     pre-filter behavior.
     """

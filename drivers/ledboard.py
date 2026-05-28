@@ -52,8 +52,8 @@ class LEDBoard(SerialBoard):
 
         # Safety: immediately turn off all LEDs after connecting.
         # Old crashed LED firmware (pre-v3.0.4) can leave all LEDs stuck on
-        # at full current (~500mA × 6 channels = 3A), causing thermal damage
-        # to the board (measured 62°C). New v3.0.4+ firmware initializes LEDs
+        # at full current (~500mA x 6 channels = 3A), causing thermal damage
+        # to the board (measured 62degC). New v3.0.4+ firmware initializes LEDs
         # off on boot, but this guard protects against old firmware and
         # interrupted previous sessions.
         self._safety_leds_off()
@@ -283,11 +283,11 @@ class LEDBoard(SerialBoard):
     # state with no external readers; eligible for follow-up dead-code
     # removal.
 
-    # Safety limits — defense-in-depth validation at driver level.
+    # Safety limits -- defense-in-depth validation at driver level.
     # The API layer (lumascope_api.py) also validates, but the driver
     # must enforce independently in case of direct calls.
     _MAX_CHANNEL = 5
-    _MAX_MA = 1000  # Firmware CH_MAX — absolute hardware limit
+    _MAX_MA = 1000  # Firmware CH_MAX -- absolute hardware limit
 
     def _validate_and_build_led_cmd(self, channel, mA):
         """Validate channel/mA and return (color, command) string.

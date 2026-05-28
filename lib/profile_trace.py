@@ -21,7 +21,7 @@ callers in drivers/serialboard.py, modules/lumascope_api.py,
 modules/frame_validity.py).
 
 CSVs auto-close on process exit via atexit. Thread-safe via a single
-module-level lock. Writes are line-buffered — no tail-buffer loss on crash.
+module-level lock. Writes are line-buffered -- no tail-buffer loss on crash.
 """
 
 import atexit
@@ -140,10 +140,10 @@ class TimedLock:
     acquire-wait + hold time per acquire-release cycle to `lock_trace.csv`
     when ``profile_trace_enabled`` is set in settings.json.
 
-    Threading audit §10.2 — validates SerialBoard._lock hold-time claim
+    Threading audit sec.10.2 -- validates SerialBoard._lock hold-time claim
     (~32 ms per round-trip, documented at drivers/motorboard.py:79 from a
     2026-04-13 bench run) across more sessions, and surfaces outliers.
-    Zero overhead when tracing is disabled — __enter__/__exit__ short-circuit
+    Zero overhead when tracing is disabled -- __enter__/__exit__ short-circuit
     before time.perf_counter().
 
     Thread-safe for RLock re-entry: uses a per-instance thread-local
@@ -240,7 +240,7 @@ class TimedLock:
         return False
 
     # Pass-through API for code that calls acquire()/release() directly.
-    # NOTE: these paths do NOT emit trace rows — only `with` context records
+    # NOTE: these paths do NOT emit trace rows -- only `with` context records
     # (common case, keeps hot path simple). Code that needs tracing on
     # explicit acquire/release can wrap the operation in `with self.lock:`.
     def acquire(self, *a, **kw):

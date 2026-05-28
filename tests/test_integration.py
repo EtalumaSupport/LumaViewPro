@@ -7,9 +7,9 @@ these tests use real simulated hardware and verify end-to-end behavior by
 inspecting simulator state after protocol runs.
 
 Test tiers:
-  - Tier 1: Single-step protocols — verify LED, motor, camera state
-  - Tier 2: Multi-step protocols — multi-channel, Z-stack, tiling
-  - Tier 3: Autofocus — real AutofocusRunner with SimulatedCamera focus simulation
+  - Tier 1: Single-step protocols -- verify LED, motor, camera state
+  - Tier 2: Multi-step protocols -- multi-channel, Z-stack, tiling
+  - Tier 3: Autofocus -- real AutofocusRunner with SimulatedCamera focus simulation
 """
 
 import datetime
@@ -210,7 +210,7 @@ def _run_and_wait(executor, protocol, tmp_path, **run_kwargs):
 
     callbacks = run_kwargs.pop('callbacks', {})
     callbacks['run_complete'] = on_complete
-    # Don't provide go_to_step — let the executor use _default_move for real motor movement
+    # Don't provide go_to_step -- let the executor use _default_move for real motor movement
     callbacks.setdefault('move_position', lambda axis: None)
 
     executor.run(
@@ -276,7 +276,7 @@ def executor(scope, executors):
     from modules.labware_loader import WellPlateLoader
 
     # Use a mock autofocus executor for non-AF tests.
-    # AF executor is the one mock we keep — real AF needs real camera focus
+    # AF executor is the one mock we keep -- real AF needs real camera focus
     # simulation which is only set up in the af_executor fixture.
     mock_af = MagicMock()
     mock_af.reset = MagicMock()
@@ -334,7 +334,7 @@ class TestIntegrationSingleStep:
     """Verify that single-step protocols drive real simulator state correctly."""
 
     def test_completes_with_simulated_scope(self, executor, scope, tmp_path):
-        """Most basic integration test — protocol runs to completion on simulated hardware."""
+        """Most basic integration test -- protocol runs to completion on simulated hardware."""
         protocol = _make_protocol([{'color': 'BF', 'illumination_ma': 100.0}])
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed, 'Protocol did not complete within timeout'
@@ -365,7 +365,7 @@ class TestIntegrationSingleStep:
         assert completed
 
         # The camera should have had gain and exposure set during the protocol.
-        # After completion, values may be restored — but the simulator should have
+        # After completion, values may be restored -- but the simulator should have
         # received the calls. We verify the camera is still functional.
         assert scope._camera_driver.is_connected()
 
@@ -702,7 +702,7 @@ class TestIntegrationStateAssertions:
     @pytest.mark.skip(
         reason='Executor reuse bug: second run() starts but run_complete callback '
         'never fires. Debug shows: run enters, _reset_vars clears state, '
-        "protocol_start sets flags, run_loop task submitted — but cleanup's "
+        "protocol_start sets flags, run_loop task submitted -- but cleanup's "
         "run_complete callback doesn't reach the test's done.set(). "
         'Two fixes applied (is_protocol_queue_active, protocol_start clears '
         'stale protocol_finish), but deeper issue remains in cleanup callback '
@@ -720,7 +720,7 @@ class TestIntegrationStateAssertions:
         idle = _wait_for_executor_idle(executor, timeout=5.0)
         assert idle, 'Executor did not reach idle state after first run'
 
-        # Second run — should start without being blocked
+        # Second run -- should start without being blocked
         completed_2, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed_2, 'Second protocol run did not complete (back-to-back blocked)'
 

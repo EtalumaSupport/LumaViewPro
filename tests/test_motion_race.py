@@ -1,5 +1,5 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""Regression tests for issue #618 — move_absolute_position race condition.
+"""Regression tests for issue #618 -- move_absolute_position race condition.
 
 Original report: backlash characterization script's upwards pass captured
 images at wildly wrong Z positions, intermittently. Same image (stddev=4.35)
@@ -24,7 +24,7 @@ producing the dropouts.
 Fix: write the hardware target first, THEN transition the axis to MOVING.
 By the time `_set_axis_state(MOVING)` clears the arrival event, the new
 XTARGET is already on the hardware, so any subsequent `position_reached`
-poll reflects the new (correct) target — guaranteed False until real
+poll reflects the new (correct) target -- guaranteed False until real
 arrival. The same fix was applied to `move_relative_position`.
 
 Side effect: the same race affected `AutofocusRunner._iterate()`, which
@@ -101,7 +101,7 @@ class TestSourceOrder_618:
 
 
 # ---------------------------------------------------------------------------
-# Runtime ordering test — uses real Lumascope(simulate=True) and traces
+# Runtime ordering test -- uses real Lumascope(simulate=True) and traces
 # the actual call sequence.
 # ---------------------------------------------------------------------------
 
@@ -175,7 +175,7 @@ class TestRuntimeOrder_618:
 
 
 # ---------------------------------------------------------------------------
-# Race simulation — directly trigger the failure mode the old code had.
+# Race simulation -- directly trigger the failure mode the old code had.
 # ---------------------------------------------------------------------------
 
 
@@ -188,7 +188,7 @@ class TestRaceSimulation_618:
     def test_motion_monitor_cannot_falsely_set_idle_during_move(self):
         """The motion monitor (or any caller) inspecting axis state during
         motion.move_abs_pos must not see the axis as MOVING with an
-        already-set arrival event — that's the race signature."""
+        already-set arrival event -- that's the race signature."""
         from modules.lumascope_api import Lumascope, AxisState
 
         scope = Lumascope(simulate=True)
@@ -237,7 +237,7 @@ class TestRaceSimulation_618:
 
 
 # ---------------------------------------------------------------------------
-# Integration smoke test — back-to-back moves end up at the right place.
+# Integration smoke test -- back-to-back moves end up at the right place.
 # ---------------------------------------------------------------------------
 
 

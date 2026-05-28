@@ -68,7 +68,7 @@ class MemoryLeakProfiler:
 
     @classmethod
     def _save_comparison(cls, old_snap, new_snap, filename):
-        # 'traceback' grouping is the "True Root" tool—it shows the full call path
+        # 'traceback' grouping is the "True Root" tool--it shows the full call path
         stats = new_snap.compare_to(old_snap, 'traceback')
 
         filepath = os.path.join(cls.LOG_DIR, filename)

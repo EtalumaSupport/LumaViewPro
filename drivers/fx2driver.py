@@ -268,9 +268,9 @@ MAX_EXPOSURE_ROWS = 65535
 # Row time from MT9P031 datasheet (Table 8):
 #   EXTCLK = 12 MHz (FX2 24 MHz crystal / 2)
 #   PLL: M=27, N=1, P1=13 -> pixel_clock = 24.923 MHz
-#   Row period = 2 × max(W/2 + HBMIN, 486) = 2 × 1401 = 2802 pixel clocks
+#   Row period = 2 x max(W/2 + HBMIN, 486) = 2 x 1401 = 2802 pixel clocks
 #   (W=1902, HBMIN=450 with Row_BLC enabled)
-#   tROW = 2802 / 24.923 MHz = 112.4 μs = 0.1124 ms
+#   tROW = 2802 / 24.923 MHz = 112.4 us = 0.1124 ms
 _ROW_TIME_MS = 0.1124
 # Shutter overhead SO = 426 pixel clocks = 0.0171 ms
 _SHUTTER_OVERHEAD_MS = 0.0171
@@ -301,7 +301,7 @@ _CH_TO_I2C = {
 ISO_ALT_INTERFACE = 3  # Alt interface 3 = ISO IN, 3x1024/microframe
 ISO_NUM_TRANSFERS = 16  # Pending transfers in flight
 ISO_NUM_PACKETS = 256  # ISO packets per transfer (C# reference uses 256)
-ISO_MAX_PACKET_SIZE = 3072  # 3 × 1024 bytes per microframe
+ISO_MAX_PACKET_SIZE = 3072  # 3 x 1024 bytes per microframe
 
 
 # ---------------------------------------------------------------------------
@@ -357,20 +357,20 @@ def parse_intel_hex(hex_path: str) -> tuple[bytes, int]:
 #   Bit  [6]    = Analog_Multiplier (0 or 1)
 #   Bits [5:0]  = Analog_Gain      -- legal values [8, 63] per RR_A
 #
-# Analog gain:  AG = (1 + Analog_Multiplier) × (Analog_Gain / 8)
+# Analog gain:  AG = (1 + Analog_Multiplier) x (Analog_Gain / 8)
 # Digital gain: DG = 1 + (Digital_Gain / 8)
-# Total gain:   AG × DG
+# Total gain:   AG x DG
 #
 # Strategy (datasheet recommended):
-#   ≤ 4x:  analog only (multiplier=0) -- best noise performance
-#   ≤ 8x:  analog with multiplier=1
+#   <= 4x:  analog only (multiplier=0) -- best noise performance
+#   <= 8x:  analog with multiplier=1
 #   > 8x:  max analog (8x) + digital for the rest
 #
 # Range: 1x (0 dB) to 128x (42.1 dB). The LumaviewClassic LVC driver
 # reference originally had `min(127, ...)` on the digital clamp and a
 # comment claiming ~135x max -- that was outside the documented legal
 # range per RR_A. The audit in
-# LumaviewClassic/docs/DATASHEET_VERIFICATION.md §5 corrected this to
+# LumaviewClassic/docs/DATASHEET_VERIFICATION.md sec.5 corrected this to
 # 120 / 128x. See also the docstring on `_gain_db_to_register`.
 
 
@@ -391,7 +391,7 @@ def _gain_db_to_register(db: float) -> int:
         digital_val = 0
     else:
         # Max analog (8x) + digital
-        analog_val = 32  # AG = 2 × 32/8 = 8.0
+        analog_val = 32  # AG = 2 x 32/8 = 8.0
         analog_mult = 1
         dg_needed = mult / 8.0
         digital_val = min(120, max(0, round((dg_needed - 1) * 8)))
@@ -726,7 +726,7 @@ class _FX2Connection:
         - ``LumascopeClassic.hex`` (45068 bytes) -- **patched** variant
           with a modified product string ("LS Classic") to improve
           device enumeration after firmware upload. Confirmed identical
-          (SHA256 ``c15a9294…``) to ``LumascopeClassic_patched.hex`` in
+          (SHA256 ``c15a9294...``) to ``LumascopeClassic_patched.hex`` in
           the ``LumaviewClassic`` development repo. This is the primary
           production firmware.
         - ``Lumascope600.hex`` (28434 bytes) -- original smaller firmware
@@ -735,7 +735,7 @@ class _FX2Connection:
 
         History note: the ``4.0.0-LVCtest`` integration branch in LVP
         shipped the **unpatched** ``LumascopeClassic_original.hex``
-        (SHA256 ``4d457a86…``) under the name ``LumascopeClassic.hex``
+        (SHA256 ``4d457a86...``) under the name ``LumascopeClassic.hex``
         -- a packaging mismatch that the LVC upstream later corrected.
         Stage 3 of the 4.1.0-dev port intentionally copies the patched
         variant from ``LumaviewClassic/firmware/LumascopeClassic.hex``,
@@ -1311,12 +1311,12 @@ class FX2Camera(Camera):
         try:
             self.profile.gain.total_min_db = 0.0
             self.profile.gain.total_max_db = 42.1  # 128x, per audit-corrected math
-            self.profile.exposure_min_us = _ROW_TIME_MS * 1000  # 1 row = 112.4 μs
+            self.profile.exposure_min_us = _ROW_TIME_MS * 1000  # 1 row = 112.4 us
             # Cap exposure at the legacy LVC 178 ms value (matches what
             # was known-safe in the original LumaviewClassic UI). The
-            # MT9P031 register itself supports up to MAX_EXPOSURE_ROWS ×
+            # MT9P031 register itself supports up to MAX_EXPOSURE_ROWS x
             # row_time = 7,366 ms, BUT above the per-frame readout time
-            # (~214 ms at 1900 rows × 0.1124 ms/row) the sensor inserts
+            # (~214 ms at 1900 rows x 0.1124 ms/row) the sensor inserts
             # vertical blanking rows to extend the frame period, which
             # changes the bytes/sec rate mid-stream and desyncs the FX2
             # frame parser. Visible as image corruption when the user
@@ -1348,7 +1348,7 @@ class FX2Camera(Camera):
 
         WARNING: do NOT call ``self._fx2.init_gpif()`` here. Per the
         firmware disassembly (see LumaviewClassic/docs/STREAMING_ANALYSIS.md
-        §3.2), VR_INIT_GPIF calls TD_Init() -> Init_GPIF() -> SetISOInterface()
+        sec.3.2), VR_INIT_GPIF calls TD_Init() -> Init_GPIF() -> SetISOInterface()
         internally, which resets EP2 configuration. The clock-managed
         write (0xBA) already handles IFCLK switching without calling
         init_gpif.
@@ -1371,14 +1371,14 @@ class FX2Camera(Camera):
         time.sleep(0.01)
 
         # PLL config: M=0x1B=27, N_divider=0x01, P1_divider=0x0D=13.
-        # EXTCLK = 12 MHz -> pixel_clock ≈ 24.92 MHz -> ~4.5 fps at 1900×1900.
+        # EXTCLK = 12 MHz -> pixel_clock ~= 24.92 MHz -> ~4.5 fps at 1900x1900.
         # NOTE on register interpretation: the MT9P031 datasheet formula
         # says N = N_divider + 1 and P1 = P1_divider + 1, but the
         # working silicon uses the raw register values directly (M, N,
         # P1 as written). The VCO constraint (180-360 MHz) only passes
         # with raw interpretation (12*27/1 = 324 MHz), not with +1
         # (12*27/2 = 162 MHz). See
-        # LumaviewClassic/docs/DATASHEET_VERIFICATION.md §1 for the full
+        # LumaviewClassic/docs/DATASHEET_VERIFICATION.md sec.1 for the full
         # audit. The comment used to say M=27/N=1/P1=13; we keep that
         # convention but note that it's raw-register math, not
         # datasheet-formula math.
@@ -1418,7 +1418,7 @@ class FX2Camera(Camera):
         fx2.sensor_reg_write(REG_ROW_BLACK, 0x0000)  # black target = 0 (microscopy optimization)
         time.sleep(0.01)
 
-        # Set default window to full 1900×1900 -- also configures the
+        # Set default window to full 1900x1900 -- also configures the
         # col_size/row_size registers correctly with centering.
         self.set_frame_size(IMG_WIDTH, IMG_HEIGHT)
 
@@ -1513,7 +1513,7 @@ class FX2Camera(Camera):
         self._iso_handle.controlWrite(0x40, VR_START_STREAMING, 0, 0, b'')
 
         logger.info(
-            '[FX2 Cam   ] streaming started (ISO alt %d, EP 0x82, %d transfers × %d packets)',
+            '[FX2 Cam   ] streaming started (ISO alt %d, EP 0x82, %d transfers x %d packets)',
             ISO_ALT_INTERFACE,
             ISO_NUM_TRANSFERS,
             ISO_NUM_PACKETS,
@@ -1749,7 +1749,7 @@ class FX2Camera(Camera):
         """Extract frames from the ISO / bulk data buffer.
 
         Audit fixes applied vs. the LVC reference (per
-        LumaviewClassic/docs/OPTIMIZATION_ANALYSIS.md §8):
+        LumaviewClassic/docs/OPTIMIZATION_ANALYSIS.md sec.8):
         - ``local_buf`` is explicitly initialized before the loop instead
           of relying on ``'local_buf' not in dir()`` (fragile, un-Pythonic).
         - The trim-after-prepend operation shares a single lock acquisition
@@ -1897,7 +1897,7 @@ class FX2Camera(Camera):
     def set_frame_size(self, w, h):
         """Set the sensor readout window.
 
-        The sensor is configured to output (display + 1) × (display + 1)
+        The sensor is configured to output (display + 1) x (display + 1)
         pixels. The extra column becomes a 0x00 sync byte between rows
         after GPIF processing; the extra row is discarded by the grab
         loop (``skip_first_row``). Dimensions are rounded down to
@@ -1914,7 +1914,7 @@ class FX2Camera(Camera):
         # Sensor registers want (display + 1) per LVC reference.
         sensor_w = w + 1
         sensor_h = h + 1
-        # Center the window on the active pixel area (2592 × 1944 with
+        # Center the window on the active pixel area (2592 x 1944 with
         # offsets 16 col / 54 row) and force even alignment.
         col_start = max(0, (2592 - sensor_w) // 2 + 16) & ~1
         row_start = max(0, (1944 - sensor_h) // 2 + 54) & ~1
@@ -1967,23 +1967,23 @@ class FX2Camera(Camera):
         """Set exposure time in milliseconds.
 
         Formula from MT9P031 datasheet DS_F p31:
-            tEXP = SW × tROW - SO × 2 × tPIXCLK
+            tEXP = SW x tROW - SO x 2 x tPIXCLK
         Inverted:
             SW = (tEXP + SO_ms) / tROW_ms
 
         NOTE on accuracy: ``_ROW_TIME_MS = 0.1124`` assumes EXTCLK=12 MHz.
         The LVC OPTIMIZATION_ANALYSIS doc measured actual throughput
-        and computed EXTCLK ≈ 7.6 MHz instead, which would put the row
+        and computed EXTCLK ~= 7.6 MHz instead, which would put the row
         time at 0.1205 ms (7% higher). Hardware validation passed with
         0.1124 ms so we keep it, but precise exposure calibration for
-        brightness-matched captures may be ±7% off. Stage 3.5 bench
+        brightness-matched captures may be +/-7% off. Stage 3.5 bench
         work can measure row time directly with a pulsed reference
         LED and a known-duration trigger.
 
         NOTE on effect timing: MT9P031 has a 2-frame pipeline delay
         between writing the shutter width register and seeing the new
         exposure in output frames. Callers that depend on exact timing
-        (autofocus, protocol captures) must wait ≥2 frames after an
+        (autofocus, protocol captures) must wait >=2 frames after an
         exposure change before relying on the new value.
         """
         target_ms = float(exposure_ms)
@@ -2050,7 +2050,7 @@ class FX2Camera(Camera):
         pass  # Frame rate is determined by PLL / exposure, not a software cap
 
     def set_binning_size(self, size: int) -> bool:
-        return size == 1  # only 1×1 supported in this port
+        return size == 1  # only 1x1 supported in this port
 
     def get_binning_size(self) -> int:
         return 1
@@ -2179,7 +2179,7 @@ class FX2LEDController:
         (2026-04-15); propagating the return value catches it at the
         driver layer instead.
 
-        NOTE: the 3× 10 ms delays (30 ms total per LED command) are
+        NOTE: the 3x 10 ms delays (30 ms total per LED command) are
         the known root cause of the slider-corruption effect documented
         in project memory. During streaming, each LED command holds
         the FX2 USB connection for 30 ms, during which ISO data keeps

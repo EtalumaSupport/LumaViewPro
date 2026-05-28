@@ -11,7 +11,7 @@ Tests every permutation of protocol creation, save/load, and execution:
 - Edge cases (empty protocol, single step, max steps)
 
 These tests verify that:
-1. Protocols survive save → load round-trips with all config intact
+1. Protocols survive save -> load round-trips with all config intact
 2. Protocols execute to completion on simulated hardware
 3. Step validation catches invalid configs before execution
 """
@@ -258,7 +258,7 @@ def executor(scope, executors):
 def real_executor(scope, executors):
     """Executor with REAL wellplate loader and coordinate transformer.
 
-    This exercises the full code path including move_abs_pos → axes_config,
+    This exercises the full code path including move_abs_pos -> axes_config,
     which catches init bugs that mocked fixtures miss.
     """
     from modules.coord_transformations import CoordinateTransformer
@@ -333,7 +333,7 @@ def _run_and_wait(executor, protocol, tmp_path, **run_kwargs):
 
 
 class TestRoundTripBasic:
-    """Protocol save → load preserves all data."""
+    """Protocol save -> load preserves all data."""
 
     def test_single_bf_image_step(self, tmp_path):
         proto = _build_protocol([_make_step(color='BF', acquire='image')])
@@ -389,7 +389,7 @@ class TestRoundTripBasic:
         must still load. Pandas' default CSV stringification produced this format
         in older versions; json.loads rejects it. Before the fix, legacy TSVs
         came back with DEFAULT_STIM_CONFIG (enabled=False, ill=100) on every
-        step instead of the saved stim values — stim ran but fired no pulses
+        step instead of the saved stim values -- stim ran but fired no pulses
         because every channel was read as disabled.
         """
         stim_legacy = (
@@ -494,7 +494,7 @@ class TestRoundTripBasic:
         Microplate". The WellPlateLoader alias table resolves it to
         "384 well microplate" at runtime (get_plate), so the protocol runs. But
         validate_for_run() was checking plate_list membership directly, which
-        excludes aliases — so validation rejected names that runtime would
+        excludes aliases -- so validation rejected names that runtime would
         accept. This asymmetry blocked every legacy Corning protocol with
         'Labware ... not found'. Validator must now accept any name that
         resolves via the alias table.
@@ -648,7 +648,7 @@ class TestRoundTripMultiStep:
         assert reloaded.step(idx=2)['Z-Slice'] == 2
 
     def test_double_save_load(self, tmp_path):
-        """Save → load → save → load preserves data (no drift)."""
+        """Save -> load -> save -> load preserves data (no drift)."""
         sc = _stim_config_enabled(channels=['Red', 'Blue'])
         vc = {'duration': 2.0, 'fps': 15}
         steps = [
@@ -838,7 +838,7 @@ class TestExecuteWithStim:
         assert completed, 'Video with stim protocol did not complete'
 
     def test_image_with_stim_disabled(self, executor, scope, tmp_path):
-        """Stim config present but disabled — should not affect image capture."""
+        """Stim config present but disabled -- should not affect image capture."""
         sc = _default_stim_config()
         steps = [_make_step(stim_config=sc)]
         proto = _build_protocol(steps)
@@ -847,7 +847,7 @@ class TestExecuteWithStim:
 
 
 class TestExecuteSaveLoadRun:
-    """The full pipeline: create → save → reload → execute."""
+    """The full pipeline: create -> save -> reload -> execute."""
 
     def test_bf_save_load_run(self, executor, scope, tmp_path):
         proto = _build_protocol([_make_step(color='BF')])
@@ -891,7 +891,7 @@ class TestExecuteSaveLoadRun:
         assert completed, 'Reloaded multi-well tiled protocol did not complete'
 
     def test_back_to_back_different_protocols(self, executor, scope, tmp_path):
-        """Run protocol A, then protocol B — verifies state cleanup between runs."""
+        """Run protocol A, then protocol B -- verifies state cleanup between runs."""
         proto_a = _build_protocol(
             [
                 _make_step(name='A1_BF', color='BF'),
@@ -1149,7 +1149,7 @@ class TestRoundTripCombinations:
         assert reloaded.num_steps() == 6
 
     def test_multiwell_multichannel(self, tmp_path):
-        """Multi-well × multi-channel protocol."""
+        """Multi-well x multi-channel protocol."""
         steps = []
         for well, x, y in [('A1', 10, 20), ('A2', 30, 20), ('B1', 10, 40)]:
             for color, ill in [('BF', 50), ('Green', 200), ('Red', 150)]:
@@ -1172,7 +1172,7 @@ class TestRoundTripCombinations:
         assert reloaded.step(idx=8)['Color'] == 'Red'
 
     def test_tiling_1x3(self, tmp_path):
-        """1 row × 3 columns tiling."""
+        """1 row x 3 columns tiling."""
         steps = [
             _make_step(name=f'A1_BF_T0{i}', tile=f'T0{i}', tile_group_id=1, x=10 + i * 5)
             for i in range(3)
@@ -1182,7 +1182,7 @@ class TestRoundTripCombinations:
         assert reloaded.num_steps() == 3
 
     def test_tiling_3x5(self, tmp_path):
-        """3 rows × 5 columns tiling (15 tiles)."""
+        """3 rows x 5 columns tiling (15 tiles)."""
         steps = []
         for row in range(3):
             for col in range(5):
@@ -1200,7 +1200,7 @@ class TestRoundTripCombinations:
         assert reloaded.num_steps() == 15
 
     def test_multiwell_tiled_multichannel(self, tmp_path):
-        """The real-world protocol: multi-well × tiled × multi-channel."""
+        """The real-world protocol: multi-well x tiled x multi-channel."""
         steps = []
         for well, wx, wy in [('A1', 10, 20), ('A2', 30, 20)]:
             for tile_idx, (tx, ty) in enumerate([(0, 0), (5, 0), (0, 5), (5, 5)]):
@@ -1218,7 +1218,7 @@ class TestRoundTripCombinations:
                     )
         proto = _build_protocol(steps)
         reloaded = _save_and_reload(proto, tmp_path)
-        assert reloaded.num_steps() == 16  # 2 wells × 4 tiles × 2 channels
+        assert reloaded.num_steps() == 16  # 2 wells x 4 tiles x 2 channels
 
     def test_multiple_objectives(self, tmp_path):
         """Steps with different objectives."""
@@ -1435,7 +1435,7 @@ class TestExecuteCancellation:
     """Protocol cancellation mid-run."""
 
     def test_cancel_during_multi_step(self, executor, scope, tmp_path):
-        """Cancel a long protocol after it starts — should clean up gracefully."""
+        """Cancel a long protocol after it starts -- should clean up gracefully."""
         import time
 
         steps = [_make_step(name=f'step_{i}', color='BF') for i in range(20)]
@@ -1511,7 +1511,7 @@ class TestRealPathExecution:
     and simulated MotorBoard. These catch init/config bugs that mocked tests miss.
 
     The axes_config AttributeError (2026-03-27) would have been caught here
-    because _default_move → scope.move_absolute_position → motion.move_abs_pos
+    because _default_move -> scope.move_absolute_position -> motion.move_abs_pos
     accesses self.axes_config, which must be initialized in __init__.
     """
 
@@ -1568,7 +1568,7 @@ class TestRealPathExecution:
         assert completed, '2x2 tiling with real motion did not complete'
 
     def test_save_load_run_real_motion(self, real_executor, scope, tmp_path):
-        """Full pipeline: create → save → reload → run with real motion."""
+        """Full pipeline: create -> save -> reload -> run with real motion."""
         steps = [
             _make_step(name='A1_BF', color='BF', x=10.0, y=20.0, z=5000.0),
             _make_step(name='A1_Green', color='Green', x=10.0, y=20.0, z=5000.0),
@@ -1576,7 +1576,7 @@ class TestRealPathExecution:
         proto = _build_protocol(steps)
         reloaded = _save_and_reload(proto, tmp_path / 'save')
         completed, _ = _run_and_wait(real_executor, reloaded, tmp_path)
-        assert completed, 'Save→load→run with real motion did not complete'
+        assert completed, 'Save->load->run with real motion did not complete'
 
     def test_video_real_motion(self, real_executor, scope, tmp_path):
         """Video capture with real motion path."""
@@ -1591,7 +1591,7 @@ class TestRealPathExecution:
         assert completed, 'Video with real motion did not complete'
 
     def test_back_to_back_real_motion(self, real_executor, scope, tmp_path):
-        """Two protocols back-to-back with real motion — verifies state cleanup."""
+        """Two protocols back-to-back with real motion -- verifies state cleanup."""
         import time
 
         proto_a = _build_protocol([_make_step(name='A1_BF', color='BF')])
@@ -1615,7 +1615,7 @@ class TestRealPathExecution:
 
 
 class TestProtocolValidation:
-    """Thorough validation testing — every field boundary."""
+    """Thorough validation testing -- every field boundary."""
 
     def test_valid_protocol_no_errors(self):
         proto = _build_protocol([_make_step()])
@@ -1767,7 +1767,7 @@ class TestProtocolNumStepsCache:
     """Regression tests for Protocol.num_steps() caching.
 
     Added after real-hardware profiling (2026-04-13) showed num_steps() was
-    called 1281 times during a 36-step protocol run — roughly 35× per step —
+    called 1281 times during a 36-step protocol run -- roughly 35x per step --
     because executor/validation code paths repeatedly asked for the count.
     The cache must be invalidated by every mutation path that can change the
     step count; these tests pin the invariant so a future mutation site
@@ -1995,7 +1995,7 @@ class TestExecutorEdgeCases:
 
 
 # ===========================================================================
-# PART 9: Protocol Mutation Tests (insert, delete, modify — the UI actions)
+# PART 9: Protocol Mutation Tests (insert, delete, modify -- the UI actions)
 # ===========================================================================
 
 
@@ -2025,7 +2025,7 @@ def _layer_config(
 
 
 class TestProtocolInsertStep:
-    """Test insert_step — simulates user adding steps in the UI."""
+    """Test insert_step -- simulates user adding steps in the UI."""
 
     def test_insert_first_step(self):
         proto = _build_protocol([_make_step(name='existing')])
@@ -2118,7 +2118,7 @@ class TestProtocolInsertStep:
         assert step['Stim_Config']['Green']['enabled'] is True
 
     def test_insert_save_load_run(self, real_executor, scope, tmp_path):
-        """Insert a step, save, reload, and run — full pipeline."""
+        """Insert a step, save, reload, and run -- full pipeline."""
         proto = _build_protocol([_make_step(name='original', color='BF')])
         proto.insert_step(
             step_name='added_green',
@@ -2141,7 +2141,7 @@ class TestProtocolInsertStep:
 
 
 class TestProtocolDeleteStep:
-    """Test delete_step — simulates user removing steps in the UI."""
+    """Test delete_step -- simulates user removing steps in the UI."""
 
     def test_delete_only_step(self):
         proto = _build_protocol([_make_step()])
@@ -2199,7 +2199,7 @@ class TestProtocolDeleteStep:
 
 
 class TestProtocolModifyStep:
-    """Test modify_step — simulates user editing a step in the UI."""
+    """Test modify_step -- simulates user editing a step in the UI."""
 
     def test_modify_color_and_illumination(self):
         proto = _build_protocol([_make_step(color='BF', illumination=50.0)])
@@ -2338,7 +2338,7 @@ class TestLumascapeAPIMotor:
         assert pos == pytest.approx(3000.0, abs=1.0)
 
     def test_get_target_position_from_cache(self, scope):
-        """get_target_position uses cache — zero serial I/O."""
+        """get_target_position uses cache -- zero serial I/O."""
         scope.motion.move_absolute_position('Z', 5000.0)
         pos = scope.motion.get_target_position('Z')
         assert pos == pytest.approx(5000.0, abs=1.0)

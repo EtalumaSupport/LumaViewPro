@@ -1,5 +1,5 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""Tests for NullMotionBoard — verifies interface compliance and no-op behavior."""
+"""Tests for NullMotionBoard -- verifies interface compliance and no-op behavior."""
 
 import threading
 from unittest.mock import MagicMock

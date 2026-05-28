@@ -113,7 +113,7 @@ class IDSCamera(Camera):
                 self.remote_nodemap = None
                 self.data_stream = None
                 self.device_manager = None
-                # Library.Close() deferred to atexit — don't call here
+                # Library.Close() deferred to atexit -- don't call here
                 logger.info('[CAM Class ] Disconnected from IDS camera')
                 return True
             else:
@@ -228,7 +228,7 @@ class IDSCamera(Camera):
                     logger.info(f'[CAM Class ] DeviceLinkThroughputLimit set to {node.Maximum()} B/s')
                 except Exception as e:
                     logger.debug(f'[CAM Class ] DeviceLinkThroughputLimit not available: {e}')
-                # Set resolution and exposure BEFORE maximizing frame rate —
+                # Set resolution and exposure BEFORE maximizing frame rate --
                 # AcquisitionFrameRate.Maximum() depends on current resolution,
                 # pixel format, and exposure time.
                 self.exposure_t(10)
@@ -269,7 +269,7 @@ class IDSCamera(Camera):
     def start_grabbing(self):
         if _cam_log is not None: _cam_log.info('ids start_grabbing: alloc buffers + StartAcquisition + AcquisitionStart')
         try:
-            # Allocate buffers — minimum + 3 extra to prevent starvation during
+            # Allocate buffers -- minimum + 3 extra to prevent starvation during
             # frame conversion. With only min (2-3), the camera runs out of
             # buffers while ConvertTo holds one, capping throughput at ~10 fps.
             payload_size = self.remote_nodemap.FindNode("PayloadSize").Value()
@@ -278,7 +278,7 @@ class IDSCamera(Camera):
                 buffer = self.data_stream.AllocAndAnnounceBuffer(payload_size)
                 self.data_stream.QueueBuffer(buffer)
 
-            # Re-maximize frame rate — stop/start cycles reset it.
+            # Re-maximize frame rate -- stop/start cycles reset it.
             # Must be done AFTER resolution is set (max depends on frame size).
             try:
                 fr = self.remote_nodemap.FindNode("AcquisitionFrameRate")
@@ -753,9 +753,9 @@ class IDSCamera(Camera):
         pass
 
 class ImageHandler(ImageHandlerBase):
-    """IDS camera image handler — polls for frames on a background thread."""
+    """IDS camera image handler -- polls for frames on a background thread."""
 
-    # Override base class: 10 failures × 1s timeout = ~10s disconnect detection
+    # Override base class: 10 failures x 1s timeout = ~10s disconnect detection
     MAX_CONSECUTIVE_FAILURES = 10
 
     def __init__(self, data_stream: ids_peak.DataStream, parent_cam: 'IDSCamera'):
@@ -779,7 +779,7 @@ class ImageHandler(ImageHandlerBase):
             self._grab_thread = None
 
     def _grab_loop(self):
-        # Pre-create converter for Mono10→Mono8 (reuse avoids per-frame alloc)
+        # Pre-create converter for Mono10->Mono8 (reuse avoids per-frame alloc)
         try:
             converter = ids_peak_ipl.ImageConverter()
             converter.PreAllocateConversion(

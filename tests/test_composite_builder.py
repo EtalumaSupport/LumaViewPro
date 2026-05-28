@@ -1,5 +1,5 @@
 # Copyright Etaluma, Inc.
-"""Tests for modules/composite_builder.py — shared composite image builder."""
+"""Tests for modules/composite_builder.py -- shared composite image builder."""
 
 import numpy as np
 import pytest
@@ -130,11 +130,11 @@ class TestBuildCompositeWithTransmitted:
             transmitted_image=bf,
             brightness_thresholds={'Green': 50},
         )
-        # Top-left quadrant: above threshold → green channel set, others cleared
+        # Top-left quadrant: above threshold -> green channel set, others cleared
         assert img[0, 0, 0] == 0  # Red cleared
         assert img[0, 0, 1] == 200  # Green set
         assert img[0, 0, 2] == 0  # Blue cleared
-        # Top-right: below threshold → transmitted preserved
+        # Top-right: below threshold -> transmitted preserved
         assert img[0, 2, 0] == 100
         assert img[0, 2, 1] == 100
         assert img[0, 2, 2] == 100
@@ -172,7 +172,7 @@ class TestBuildCompositeWithTransmitted:
             channel_images={'Unknown': np.full((4, 4), 200, dtype=np.uint8)},
             transmitted_image=bf,
         )
-        # Unknown channel ignored — transmitted preserved
+        # Unknown channel ignored -- transmitted preserved
         np.testing.assert_array_equal(img[:, :, 0], 100)
         np.testing.assert_array_equal(img[:, :, 1], 100)
         np.testing.assert_array_equal(img[:, :, 2], 100)

@@ -1,19 +1,19 @@
 # Copyright Etaluma, Inc.
 """
-ScopeDisplay — pull-based image display loop.
+ScopeDisplay -- pull-based image display loop.
 
-Image Pipeline (sensor → screen):
-  1. Camera SDK callback → ImageHandler._store_frame()     [1 copy: SDK buffer → numpy]
-  2. grab_latest() → returns stored reference               [0 copies]
+Image Pipeline (sensor -> screen):
+  1. Camera SDK callback -> ImageHandler._store_frame()     [1 copy: SDK buffer -> numpy]
+  2. grab_latest() -> returns stored reference               [0 copies]
   3. get_image_from_buffer():
      - scale bar overlay (in-place on the reference)        [0 copies]
-     - 12→8 bit LUT conversion (if force_to_8bit)           [1 copy: LUT indexing]
+     - 12->8 bit LUT conversion (if force_to_8bit)           [1 copy: LUT indexing]
   4. Worker thread: contrast stretch / bullseye LUT          [1 copy: LUT indexing]
-  5. image.tobytes() → blit_buffer() to GPU texture          [1 copy: tobytes]
+  5. image.tobytes() -> blit_buffer() to GPU texture          [1 copy: tobytes]
 
 Copy budget:
   8-bit path:  SDK(1) + tobytes(1)                    = 2 copies
-  12-bit path: SDK(1) + 12→8 LUT(1) + tobytes(1)     = 3 copies
+  12-bit path: SDK(1) + 12->8 LUT(1) + tobytes(1)     = 3 copies
 
 Threading model (Stage B1):
   - Main thread (Kivy): create_and_set_texture() / create_and_set_bullseye_texture()
@@ -76,17 +76,17 @@ class ScopeDisplay(Image):
         self._bullseye_rgb_buf = None
         self._bullseye_buf_shape = None
 
-        # FPS tracking — capture thread (frames grabbed from camera)
+        # FPS tracking -- capture thread (frames grabbed from camera)
         self._capture_fps_count = 0
         self._capture_fps_last_time = time.monotonic()
         self._capture_fps_value = 0.0
 
-        # Display FPS tracking — main thread (frames actually rendered on screen)
+        # Display FPS tracking -- main thread (frames actually rendered on screen)
         self._display_fps_count = 0
         self._display_fps_last_time = time.monotonic()
         self._display_fps_value = 0.0
 
-        # Camera data rate (MB/s) — computed from capture FPS and frame size
+        # Camera data rate (MB/s) -- computed from capture FPS and frame size
         self._camera_mbps = 0.0
         self._last_frame_nbytes = 0
 
@@ -111,7 +111,7 @@ class ScopeDisplay(Image):
         self._perf_blit_delays = []
         self._debug_perf = None  # lazy-resolved from settings.debug_mode on first frame
 
-        # Bullseye frame rate cap (15 FPS — CPU-intensive LUT rendering)
+        # Bullseye frame rate cap (15 FPS -- CPU-intensive LUT rendering)
         self._bullseye_min_interval = 1.0 / BULLSEYE_FPS_CAP
         self._bullseye_last_time = 0.0
 
@@ -487,7 +487,7 @@ class ScopeDisplay(Image):
         self.camera_disconnected_display_set = True
         # Drop the bullseye RGB scratch buffer so a reconnect at a
         # different camera resolution doesn't retain the old allocation
-        # (swapping 2K→4K→2K otherwise leaks ~60 MB per cycle).
+        # (swapping 2K->4K->2K otherwise leaks ~60 MB per cycle).
         self._bullseye_rgb_buf = None
         self._bullseye_buf_shape = None
         return
@@ -585,7 +585,7 @@ class ScopeDisplay(Image):
             self._perf_blit_schedule_times.append(t_queue_wait)
 
         # Capture FPS tracking + camera data rate
-        # Use raw camera frame size (before 12→8 bit conversion) so the
+        # Use raw camera frame size (before 12->8 bit conversion) so the
         # displayed data rate reflects actual camera throughput, not the
         # post-conversion display throughput.
         self._capture_fps_count += 1
@@ -727,7 +727,7 @@ class ScopeDisplay(Image):
         if generation != self._current_generation():
             return  # Stale callback from previous start/stop cycle
         size = (shape[1], shape[0])
-        # Mirror the mono path's caching — only allocate a new GDI texture
+        # Mirror the mono path's caching -- only allocate a new GDI texture
         # when the frame size changes; otherwise blit into the existing
         # one. Pre-cache fix: at the 15 fps bullseye cap this leaked
         # ~54k texture objects per hour.
@@ -783,7 +783,7 @@ class ScopeDisplay(Image):
         a stale live grab) and bumps the hold deadline to ``now +
         PROTOCOL_HOLD_MS`` so the live preview's pull loop pauses long
         enough for the save to be visible. The next protocol save bumps
-        the deadline forward again — there's no added delay anywhere,
+        the deadline forward again -- there's no added delay anywhere,
         only a minimum-visible-time floor on the most-recent saved
         frame.
 
@@ -820,7 +820,7 @@ class ScopeDisplay(Image):
     def _count_display_fps(self):
         """Track actual rendered frame rate (called on main thread after blit).
 
-        Capped at capture FPS — display cannot render more frames than
+        Capped at capture FPS -- display cannot render more frames than
         the camera produces, any excess is measurement window jitter.
         """
         self._display_fps_count += 1

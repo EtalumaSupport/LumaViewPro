@@ -612,7 +612,7 @@ def encode_image(image: np.ndarray, fmt: str = 'png', jpeg_quality: int = 80) ->
 
     Args:
         image: 2D (grayscale) or 3D (color) numpy array.
-        fmt: Output format — 'png', 'jpeg', or 'tiff'.
+        fmt: Output format -- 'png', 'jpeg', or 'tiff'.
         jpeg_quality: JPEG quality (1-100), only used for JPEG format.
 
     Returns:
@@ -706,7 +706,7 @@ def get_tiff_colormap(colormap: LvpColormap, dtype):
     """Build a TIFF colormap array for PALETTE photometric (8-bit only).
 
     Returns a (3, 256) array suitable for tifffile's ``colormap`` parameter.
-    Only used for 8-bit false-color images — Windows Preview supports PALETTE
+    Only used for 8-bit false-color images -- Windows Preview supports PALETTE
     with uint8 but NOT with uint16.
     """
     if dtype not in ('uint8', np.uint8):
@@ -871,9 +871,9 @@ def write_tiff(
             )
 
         else:
-            # 8-bit fluorescence: PALETTE photometric with colormap — gives
+            # 8-bit fluorescence: PALETTE photometric with colormap -- gives
             # false color in both Windows Preview and ImageJ.
-            # 16-bit fluorescence: MINISBLACK photometric — Windows Preview
+            # 16-bit fluorescence: MINISBLACK photometric -- Windows Preview
             # compatible (shows grayscale). Color via ImageJ LUT metadata
             # (imagej type) or OME Channel metadata (ome type).
             # BF/PC/DF: always MINISBLACK, no colormap needed.
@@ -914,8 +914,8 @@ def generate_tiff_data(
         photometric = tf.PHOTOMETRIC.MINISBLACK
         modality = color
     elif color in common_utils.get_image_layers():
-        # 8-bit: PALETTE with colormap — works in Windows Preview and ImageJ.
-        # 16-bit: MINISBLACK — Windows Preview can't handle PALETTE with uint16.
+        # 8-bit: PALETTE with colormap -- works in Windows Preview and ImageJ.
+        # 16-bit: MINISBLACK -- Windows Preview can't handle PALETTE with uint16.
         #         Color is provided via ImageJ LUT metadata (ImageJ type) or
         #         OME Channel metadata (OME type).
         if data.dtype == np.uint8:
@@ -1056,8 +1056,8 @@ def generate_tiff_data(
             'WellSite': metadata.get('well_site', ''),
         }
         # Embed color LUT in ImageJ metadata (not TIFF tag 320).
-        # Windows Preview ignores ImageJ metadata → sees MINISBLACK → works.
-        # ImageJ reads its own metadata → auto-applies color LUT → shows color.
+        # Windows Preview ignores ImageJ metadata -> sees MINISBLACK -> works.
+        # ImageJ reads its own metadata -> auto-applies color LUT -> shows color.
         # mode='color' tells FIJI to apply the LUT (otherwise defaults to grayscale).
         colormap_type = color_channel_to_colormap_type(color_channel=color)
         lut = get_imagej_lut(colormap_type)
@@ -1279,13 +1279,13 @@ def add_scale_bar(
     mask = cached['mask']
 
     if cached['value'] == 0:
-        # Black scale bar for transmitted channels — set masked pixels to 0
+        # Black scale bar for transmitted channels -- set masked pixels to 0
         if is_color:
             image[mask] = 0
         else:
             image[mask] = 0
     else:
-        # White scale bar — apply overlay values
+        # White scale bar -- apply overlay values
         image[mask] = cached['overlay'][mask]
 
     return image
@@ -1330,7 +1330,7 @@ def add_timestamp(image, timestamp_str: str, in_place: bool = True):
 
     if not in_place:
         image = image.copy()
-    # Ensure array is C-contiguous — np.flip() produces non-contiguous
+    # Ensure array is C-contiguous -- np.flip() produces non-contiguous
     # views that OpenCV rejects with "Layout incompatible with cv::Mat"
     if not image.flags['C_CONTIGUOUS']:
         image = np.ascontiguousarray(image)

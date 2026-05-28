@@ -55,13 +55,13 @@ class TestFindBestGaussianFit:
     """Tests for Gaussian peak interpolation."""
 
     def test_symmetric_gaussian_peak_on_grid(self):
-        """Peak exactly on a grid point — fit should match raw max closely."""
+        """Peak exactly on a grid point -- fit should match raw max closely."""
         df = _make_gaussian_curve(center=50.0, sigma=10.0, z_min=0, z_max=100, step=5.0)
         result = AutofocusRunner._find_best(df)
         assert abs(result - 50.0) < 1.0
 
     def test_gaussian_peak_between_grid_points(self):
-        """Peak at 53.0 with 10um steps — raw max is 50 or 60, fit should find ~53."""
+        """Peak at 53.0 with 10um steps -- raw max is 50 or 60, fit should find ~53."""
         df = _make_gaussian_curve(center=53.0, sigma=15.0, z_min=0, z_max=100, step=10.0)
         result = AutofocusRunner._find_best(df)
         # Fit should be closer to 53 than the nearest grid point
@@ -71,7 +71,7 @@ class TestFindBestGaussianFit:
         assert abs(result - 53.0) <= abs(raw_max_pos - 53.0)
 
     def test_gaussian_fit_with_noise(self):
-        """Noisy Gaussian — fit should still be reasonable."""
+        """Noisy Gaussian -- fit should still be reasonable."""
         df = _make_gaussian_curve(
             center=50.0, sigma=12.0, z_min=0, z_max=100, step=5.0, noise_std=20.0
         )
@@ -95,7 +95,7 @@ class TestFindBestGaussianFit:
         """If fit peak is outside measured range, fall back to raw max."""
         # Create a curve that's mostly on one edge (peak off the measured range)
         z = np.array([0, 5, 10, 15, 20, 25, 30], dtype=float)
-        # Monotonically increasing — peak is above 30
+        # Monotonically increasing -- peak is above 30
         scores = np.array([10, 20, 40, 80, 160, 320, 640], dtype=float)
         df = pd.DataFrame({'position': z, 'score': scores})
         result = AutofocusRunner._find_best(df)

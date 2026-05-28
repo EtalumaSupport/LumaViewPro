@@ -197,7 +197,7 @@ class VideoCaptureSession:
                     video_images.put_nowait((image, datetime.datetime.now()))
                     captured_frames += 1
                 except queue.Full:
-                    # VF-5: do NOT `continue` here — that bypasses the
+                    # VF-5: do NOT `continue` here -- that bypasses the
                     # per-frame sleep below and turns the capture loop into
                     # a hot-spin against the writer thread when the queue
                     # is full. Drop the frame, log it, fall through to the
@@ -514,7 +514,7 @@ class StimulationController:
             if remaining > 0.003:
                 time.sleep(remaining - 0.002)
             # else: busy-wait the last <3ms. A time.sleep(100us) here yields
-            # the GIL and the OS scheduler can take 100us–20+ms to resume us,
+            # the GIL and the OS scheduler can take 100us-20+ms to resume us,
             # lengthening the next pulse by whatever it waits. Matters for
             # OFF edges that are 10 ms after their ON: measured on 2026-04-19
             # that a yielding spin produced pulse-width stddev 5.9 ms and
@@ -763,9 +763,9 @@ class StimulationController:
                     )
                     n_pulses = max(len(on_durations), len(off_durations), len(actual_on_times))
                     for i in range(n_pulses):
-                        on_d = f'{on_durations[i]:.4f}' if i < len(on_durations) else '—'
-                        off_d = f'{off_durations[i]:.4f}' if i < len(off_durations) else '—'
-                        act = f'{actual_on_times[i]:.4f}' if i < len(actual_on_times) else '—'
+                        on_d = f'{on_durations[i]:.4f}' if i < len(on_durations) else '--'
+                        off_d = f'{off_durations[i]:.4f}' if i < len(off_durations) else '--'
+                        act = f'{actual_on_times[i]:.4f}' if i < len(actual_on_times) else '--'
                         f.write(f'{i:>6} {on_d:>12} {off_d:>13} {act:>15}\n')
 
                 logger.info(f'[STIMULATOR] Profiling data saved to {filepath}')

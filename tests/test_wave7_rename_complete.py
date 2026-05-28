@@ -700,7 +700,7 @@ def test_no_self_image_save_calls_in_lumascope():
 #      both `xfail strict=True` until their respective flip stages.
 #      Bare-scope flips at 7e (production caller migration); inside-
 #      class flips at 7c (get_system_info body relocates with its 3
-#      self.X self-calls per WAVE7_PHASE_7_PLAN §9 #5).
+#      self.X self-calls per WAVE7_PHASE_7_PLAN sec.9 #5).
 #
 #   2. compute_focus_score RETIRES outright (no replacement on a
 #      sub-API; callers migrate to

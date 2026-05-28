@@ -137,11 +137,11 @@ def _claim_waiter() -> _ReusableTaskWaiter:
 """
 IOTask
 - Encapsulates a single unit of work:
-    • action:         callable performing the I/O
-    • args, kwargs:   parameters for action
-    • callback:       optional function to call when done
-    • cb_args, cb_kwargs: arguments for callback
-    • pass_result:    if True, injects (result, exception) into cb_kwargs
+    - action:         callable performing the I/O
+    - args, kwargs:   parameters for action
+    - callback:       optional function to call when done
+    - cb_args, cb_kwargs: arguments for callback
+    - pass_result:    if True, injects (result, exception) into cb_kwargs
 - Usage:
     task = IOTask(
         action=grab_image,
@@ -176,7 +176,7 @@ class IOTask:
             self.silent_on_failure = silent_on_failure
             if args is None:
                 self.args = ()
-            # if it’s a sequence (list, tuple, etc) but not a string
+            # if it's a sequence (list, tuple, etc) but not a string
             elif isinstance(args, Sequence) and not isinstance(args, (str, bytes)):
                 self.args = tuple(args)
             else:
@@ -187,7 +187,7 @@ class IOTask:
             self.protocol = None
             self.name = ""
 
-            # Per-task slow threshold. None → use class default at run-time
+            # Per-task slow threshold. None -> use class default at run-time
             # (allows the class default to be tuned without per-instance
             # surprises). Pass an explicit float to override (e.g. 30.0
             # for tasks expected to take up to ~30 sec under normal load).
@@ -195,7 +195,7 @@ class IOTask:
 
             if cb_args is None:
                 self.cb_args = ()
-            # if it’s a sequence (list, tuple, etc) but not a string
+            # if it's a sequence (list, tuple, etc) but not a string
             elif isinstance(cb_args, Sequence) and not isinstance(cb_args, (str, bytes)):
                 self.cb_args = tuple(cb_args)
             else:
@@ -477,7 +477,7 @@ class SequentialIOExecutor:
         # F-2: bounded queues use put_nowait so an overflowing save thread
         # surfaces a drop signal instead of blocking the protocol thread
         # that's submitting the next frame. Unbounded queues (default,
-        # backwards compat) take the original blocking put — put_nowait
+        # backwards compat) take the original blocking put -- put_nowait
         # on an unbounded Queue is identical to put().
         try:
             self.protocol_queue.put_nowait(task)
@@ -516,7 +516,7 @@ class SequentialIOExecutor:
         # Clear stale finish flag from previous run. If protocol_finish is
         # still set (dispatcher hasn't processed it yet), clear it now so
         # the dispatcher doesn't asynchronously call protocol_end() during
-        # the new run — that would clear protocol_running mid-execution.
+        # the new run -- that would clear protocol_running mid-execution.
         if self.protocol_finish.is_set():
             self.protocol_finish.clear()
             logger.info(f"{self.name} Cleared stale protocol_finish flag")

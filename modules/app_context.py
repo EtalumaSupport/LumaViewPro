@@ -5,12 +5,12 @@ from dataclasses import dataclass, field
 
 from modules.plugins import PluginRegistry
 
-# Module-level singleton — set by LumaViewProApp.build() after construction.
+# Module-level singleton -- set by LumaViewProApp.build() after construction.
 # Extracted modules import this module and access `app_context.ctx` to avoid
 # circular imports with lumaviewpro.py.
 ctx = None
 
-# Early registrations — widgets that register during KV tree construction
+# Early registrations -- widgets that register during KV tree construction
 # before ctx exists. Copied to ctx fields when ctx is created.
 _early_lock = threading.Lock()
 _early_registrations = {}

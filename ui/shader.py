@@ -66,7 +66,7 @@ uniform vec4       color;
 
 
 # ============================================================================
-# ShaderViewer — GPU Shader-Based Image Display with Pan/Zoom
+# ShaderViewer -- GPU Shader-Based Image Display with Pan/Zoom
 # ============================================================================
 
 
@@ -123,10 +123,10 @@ void main (void) {
         Window.bind(mouse_pos=self._on_mouse_pos)
 
         # Scroll-to-focus: accumulate scroll ticks and debounce into single move
-        self._scroll_z_pending = 0.0  # Accumulated Z delta (µm)
+        self._scroll_z_pending = 0.0  # Accumulated Z delta (um)
         self._scroll_z_trigger = Clock.create_trigger(self._flush_scroll_z, 0.05)
         self._scroll_last_time = 0.0  # monotonic time of last scroll event
-        self._scroll_inertia_window = 0.15  # seconds — scrolls faster than this get multiplied
+        self._scroll_inertia_window = 0.15  # seconds -- scrolls faster than this get multiplied
 
     def _key_up(self, *args):
         if len(args) < 5:  # No modifiers present
@@ -161,7 +161,7 @@ void main (void) {
                     return
 
             if 'ctrl' in self._active_key_presses:
-                # Focus control — accumulate scroll ticks, debounce into single move
+                # Focus control -- accumulate scroll ticks, debounce into single move
                 if ctx.protocol_running.is_set():
                     return
 
@@ -182,16 +182,16 @@ void main (void) {
                 self._scroll_last_time = now
 
                 if dt < self._scroll_inertia_window and dt > 0:
-                    # Scale up when scrolling fast (up to 2x — was 5x; at low mag
-                    # z_fine is already 25-50 µm and 5× drove 125-250 µm per tick
-                    # past the user's intent, esp at 4x/10x. 2× keeps the
+                    # Scale up when scrolling fast (up to 2x -- was 5x; at low mag
+                    # z_fine is already 25-50 um and 5x drove 125-250 um per tick
+                    # past the user's intent, esp at 4x/10x. 2x keeps the
                     # "fast scroll = bigger step" feel without overshoot.
                     speed_factor = min(2.0, self._scroll_inertia_window / dt)
                 else:
                     speed_factor = 1.0
 
                 # Replace, don't accumulate. Only the LAST tick's intent commits
-                # when the user stops — fast scrolling still produces a bigger
+                # when the user stops -- fast scrolling still produces a bigger
                 # move per tick (via speed_factor) but no leftover motion after
                 # the user stops, and sign flips become immediate.
                 delta = step_um * speed_factor
@@ -200,7 +200,7 @@ void main (void) {
                 elif touch.button == 'scrollup':
                     self._scroll_z_pending = -delta
 
-                # Reset the debounce trigger — fires 50ms after last scroll event
+                # Reset the debounce trigger -- fires 50ms after last scroll event
                 self._scroll_z_trigger()
 
             else:
@@ -263,9 +263,9 @@ void main (void) {
     def _update_status_bar(self, dt):
         """Periodic status bar update (~5 Hz). SOLE owner of Window.set_title().
 
-        Composes: 'LumaViewPro {ver} — Capture: X | Display: Y FPS [ | Camera: Z MB/s ]
+        Composes: 'LumaViewPro {ver} -- Capture: X | Display: Y FPS [ | Camera: Z MB/s ]
         [ | Pixel: (px, py) | Plate: (sx, sy) mm ]
-        [ — {event_text} ]'. Other call sites push their event text into
+        [ -- {event_text} ]'. Other call sites push their event text into
         ui_helpers.set_title_event_text() instead of writing the title directly,
         which prevents FPS clobbering and product-name spelling oscillation.
         """
@@ -281,12 +281,12 @@ void main (void) {
             if scope_display:
                 capture_fps = scope_display._capture_fps_value
                 display_fps = scope_display._display_fps_value
-                title = f'LumaViewPro {ctx.version} — Capture: {capture_fps:.0f} | Display: {display_fps:.0f} FPS'
+                title = f'LumaViewPro {ctx.version} -- Capture: {capture_fps:.0f} | Display: {display_fps:.0f} FPS'
                 if ctx.engineering_mode:
                     mbps = scope_display._camera_mbps
                     title += f' | Camera: {mbps:.1f} MB/s'
 
-                # Cursor XY readouts — pixel + plate coords when mouse
+                # Cursor XY readouts -- pixel + plate coords when mouse
                 # hovers the live view. Restored after d423d3c's
                 # single-owner pattern dropped them. (#638)
                 if self._mouse_over_image:
@@ -321,7 +321,7 @@ void main (void) {
 
                 event_text = get_title_event_text()
                 if event_text:
-                    title += f'   —   {event_text}'
+                    title += f'   --   {event_text}'
                 Window.set_title(title)
         except Exception as e:
             logger.debug(f'[LVP Main  ] Status bar update failed: {e}')

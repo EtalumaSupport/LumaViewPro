@@ -54,18 +54,18 @@ def run_cleanup(
     autofocus_thread,
     file_io_executor,
     camera_executor,
-    # Mutable flag — set to False when done
+    # Mutable flag -- set to False when done
     set_run_in_progress_fn,
     logger_name: str = 'SequencedCaptureRunner',
 ):
-    """Core cleanup logic — restores state, fires callbacks, ends executors.
+    """Core cleanup logic -- restores state, fires callbacks, ends executors.
 
     Called from ``SequencedCaptureRunner._cleanup_inner()``.
     """
     # PF-2: capture initial state BEFORE the COMPLETING transition below so we
     # can distinguish abort (ERROR) from normal end. On abort (e.g. hardware
     # disconnect), file_io_executor's pending queue is cleared along with the
-    # other executors — otherwise queued frames stay pinned in memory while
+    # other executors -- otherwise queued frames stay pinned in memory while
     # they slowly drain to disk, which can lock the next protocol-start.
     is_aborted = get_state_fn() == ProtocolState.ERROR
 
@@ -168,7 +168,7 @@ def run_cleanup(
     # PROTO-CLEAN-1: dispatch the gain/exposure SDK calls through
     # camera_executor (CAMERA_WORKER) instead of running on MainThread.
     # Pylon's set_gain / set_exposure_time take noticeable time on real
-    # hardware — running on MainThread blocked the UI for the duration
+    # hardware -- running on MainThread blocked the UI for the duration
     # of protocol stop. Submit-and-wait so cleanup still serializes:
     # the next steps (return-to-position, executor end) need camera
     # state restored before they run, otherwise live preview after stop
@@ -193,7 +193,7 @@ def run_cleanup(
             if fut is not None:
                 fut.result(timeout=30)
             else:
-                # Executor disabled / protocol already ended — fall back to
+                # Executor disabled / protocol already ended -- fall back to
                 # a direct call so state is still restored. Real-hardware
                 # path normally hits the executor branch above; this branch
                 # mostly covers tests / shutdown races.
@@ -251,7 +251,7 @@ def run_cleanup(
     io_executor.clear_protocol_pending()
     if is_aborted:
         # PF-2: drop pending writes on abort. Drain (the COMPLETING-path default)
-        # would write everything queued to disk before releasing memory — fine on
+        # would write everything queued to disk before releasing memory -- fine on
         # normal completion, but on disconnect/error the user wants control back
         # without waiting for many GB of frames to slowly drain.
         file_io_executor.clear_protocol_pending()

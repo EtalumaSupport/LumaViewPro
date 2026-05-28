@@ -19,12 +19,12 @@ ScopeCapabilities is that place. It's a frozen dataclass built once at
 init from the three drivers (motion / LED / camera). Callers read fields
 directly. The existing capability methods on Lumascope (`axes_present`,
 `has_turret`, etc.) stay as thin wrappers so no caller code has to
-change — but new code should prefer `scope.capabilities.*`.
+change -- but new code should prefer `scope.capabilities.*`.
 
 **Scope:** ScopeCapabilities contains static hardware *structure* (what
-axes exist, what LED channels exist, what camera profile is loaded) —
+axes exist, what LED channels exist, what camera profile is loaded) --
 things that don't change at runtime. It deliberately does NOT include
-live connection state (`motor_connected`, `led_connected`, etc.) — those
+live connection state (`motor_connected`, `led_connected`, etc.) -- those
 must reflect disconnects at runtime and stay as live Lumascope
 properties, not frozen snapshot fields.
 """
@@ -71,13 +71,13 @@ class ScopeCapabilities:
     """Immutable snapshot of what a scope has.
 
     Built once at `Lumascope.__init__` from the three drivers. Fields
-    are tuples (not lists) to reinforce immutability — a caller that
+    are tuples (not lists) to reinforce immutability -- a caller that
     wants to mutate would have to shallow-copy into their own list.
     """
 
     # ---- Motion ----
     axes: tuple[str, ...]
-    """Axes physically present on this scope — from
+    """Axes physically present on this scope -- from
     `motion.detect_present_axes()`. e.g. ('Z',) for LS820/LVC LS620,
     ('X','Y','Z') for LS850, ('X','Y','Z','T') for LS850T, () for no
     motor hardware."""
@@ -121,12 +121,12 @@ class ScopeCapabilities:
 
     # ---- LED ----
     led_channels: tuple[int, ...]
-    """LED channel indices available — from `led.available_channels()`.
+    """LED channel indices available -- from `led.available_channels()`.
     RP2040 = (0,1,2,3,4,5), FX2/LVC = (0,1,2,3). NullLEDBoard also returns
     the 6-channel set for Rule 8 silent-noop compatibility."""
 
     led_colors: tuple[str, ...]
-    """Color names available — from `led.available_colors()`."""
+    """Color names available -- from `led.available_colors()`."""
 
     led_max_ma: int
     """Maximum LED current per channel, in mA. Currently a constant
