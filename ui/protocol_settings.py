@@ -285,9 +285,7 @@ class ProtocolSettings(FloatLayout):
             # still locked to ['Center Plate'] from the prior
             # select_labware('Center Plate') call. User can click the
             # spinner but has no other choices. Restore the full plate
-            # list and the saved labware. Bug surfaced 2026-05-03 in
-            # sim; UI-1 TODO entry called this out as the "plate-
-            # selection blocking on scope change" follow-up.
+            # list and the saved labware.
             ctx = _app_ctx.ctx
             saved_labware = ctx.settings.get('protocol', {}).get('labware')
             wellplate_loader = ctx.wellplate_loader

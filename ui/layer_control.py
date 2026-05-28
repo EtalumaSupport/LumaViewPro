@@ -247,10 +247,10 @@ class LayerControl(BoxLayout):
             return
         logger.info('[LVP Main  ] LayerControl.ill_slider()')
         illumination = round(self.ids['ill_slider'].value)  # Round to integer (step=1)
-        # Rule 12 workaround: slider-vs-text divergence trace for the
-        # > ~150 mA silent-fail bench investigation. See _FX2_DEBUG_WIRE
-        # block at top of this file. INFO level -- this is a key
-        # divergence point (int from slider vs float from text).
+        # Slider-vs-text divergence trace for the > ~150 mA silent-
+        # fail bench investigation. See _FX2_DEBUG_WIRE block at top
+        # of this file. INFO level -- this is a key divergence point
+        # (int from slider vs float from text).
         if _fx2_wire_debug_enabled():
             logger.info(
                 '[FX2 LED diag] ill_slider ENTRY layer=%s raw_value=%r '
@@ -291,10 +291,10 @@ class LayerControl(BoxLayout):
             return
 
         illumination = float(np.clip(ill_val, ill_min, ill_max))
-        # Rule 12 workaround: text-entry divergence trace for the
-        # > ~150 mA silent-fail bench investigation. See _FX2_DEBUG_WIRE
-        # block at top of this file. INFO level -- this is the other key
-        # divergence point (float from text vs int from slider).
+        # Text-entry divergence trace for the > ~150 mA silent-fail
+        # bench investigation. See _FX2_DEBUG_WIRE block at top of
+        # this file. INFO level -- this is the other key divergence
+        # point (float from text vs int from slider).
         if _fx2_wire_debug_enabled():
             logger.info(
                 '[FX2 LED diag] ill_text ENTRY layer=%s raw_text=%r '

@@ -232,8 +232,7 @@ class MicroscopeSettings(BoxLayout):
         ticks into one motor write per debounce window, matching the
         ``_CoalescingApplier`` pattern used for ``frame_size`` and
         ``apply_settings``. Final settle of the slider always lands on the
-        last value the user picked. Layer-audit Cluster A LV-7. Sourced from
-        ``docs/AUDIT_LAYER_VIOLATIONS_2026-05-01.md``.
+        last value the user picked.
         """
         ctx = _app_ctx.ctx
         with ctx.settings_lock:
@@ -690,11 +689,10 @@ class MicroscopeSettings(BoxLayout):
             logger.error(f'[LVP Main  ] load_settings: settings file missing: {e}')
         except Exception as e:
             # LOG-3 / UI-LOAD-1: this used to log "Incompatible JSON file
-            # for Microscope Settings" for ANY exception during load. Per
-            # CLAUDE.md Rule 20, the message must name the actual failure
-            # mode -- kivy widget exceptions, attribute errors, etc. were
-            # being misattributed to the JSON file. Bit us 2026-05-03
-            # debugging the UI-1 follow-up: the wrapped wording sent the
+            # for Microscope Settings" for ANY exception during load. The
+            # message must name the actual failure mode -- kivy widget
+            # exceptions, attribute errors, etc. were being misattributed
+            # to the JSON file. Bit us when the wrapped wording sent the
             # operator to the JSON file when the bug was in widget code,
             # AND the swallow let execution continue into a second crash
             # in set_ui_features_for_scope below.

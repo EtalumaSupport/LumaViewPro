@@ -28,8 +28,8 @@ Outputs land in ``data/pylon_probe/`` with per-cell filenames keyed
 on model + serial + firmware + host + dltl-token + timestamp. Sweep
 runs print progress to stdout; one line per cell.
 
-Production-aligned per Architecture Rule 22: imports the canonical
-``PylonCamera`` driver and ``scope.diagnostics.run_pylon_diagnostic_probe()``
+Production-aligned: imports the canonical ``PylonCamera`` driver
+and ``scope.diagnostics.run_pylon_diagnostic_probe()``
 API method. Transport-specific setters
 (``set_device_link_throughput_limit``,
 ``set_bandwidth_reserve_mode``, ``set_gev_packet_size``,

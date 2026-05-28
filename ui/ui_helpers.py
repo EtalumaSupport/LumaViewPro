@@ -112,7 +112,7 @@ def _handle_autofocus_ui(pos: float):
 # scope primitive directly (re-submitting to the same executor would
 # deadlock). `protocol=False` is the UI-thread case: dispatches via
 # the API's async path. Two distinct call contexts; one canonical
-# call pattern per context (Rule 2).
+# call pattern per context.
 def move_absolute_position(
     axis: str,
     pos: float,

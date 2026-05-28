@@ -1,15 +1,14 @@
 #!/usr/bin/env python3
-"""Install / uninstall the Rule 31 pre-commit hook in this git repo.
+"""Install / uninstall the pre-commit hook in this git repo.
 
 The hook delegates to ``tools/check_rules.py --staged`` so every commit
-runs the mechanical CLAUDE.md Rule 24/27/28 checks before the commit
-lands. Pairs with the always-loaded Rule 31 entry in CLAUDE.md.
+runs the mechanical CLAUDE.md rule checks before the commit lands.
 
 LVP-specific: the managed hook ALSO bumps version.txt (timestamp +
 branch fields) after the rule check passes, replacing the standalone
-version-bump hook that lived in LVP before Rule 31 hook integration.
-Order is intentional: rule check first so a violation fails fast and
-version.txt isn't touched on a doomed commit.
+version-bump hook that lived in LVP previously. Order is intentional:
+rule check first so a violation fails fast and version.txt isn't
+touched on a doomed commit.
 
 Modes:
 
