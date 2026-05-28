@@ -1557,6 +1557,17 @@ class TestSilentBoardHandling:
       when firmware_silent is True
     """
 
+    @pytest.fixture(autouse=True)
+    def _skip_recovery_waits(self, monkeypatch):
+        """Skip the real firmware-boot wait (~5s in _reset_firmware step
+        4) plus the smaller per-step waits. The recovery sequence is
+        exercised end-to-end logically; the wall-clock waits exist to
+        give real hardware time to come back up after Ctrl-D and
+        contribute nothing to a mock-driver test."""
+        import drivers.serialboard
+
+        monkeypatch.setattr(drivers.serialboard.time, 'sleep', lambda _: None)
+
     def _make_silent_board(self):
         """Build an LEDBoard whose serial driver returns zero bytes
         for every read and reports in_waiting=0 forever. Simulates

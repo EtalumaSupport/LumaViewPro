@@ -217,6 +217,7 @@ class TestLumascopeHome:
         """Sanity: home() on a simulated LS850-style scope (X+Y+Z) must
         execute and mark all present axes IDLE on the success path."""
         scope = Lumascope(simulate=True)
+        scope._motion_driver.set_timing_mode('instant')
         present = scope._motion_driver.detect_present_axes()
         assert 'X' in present and 'Y' in present
 

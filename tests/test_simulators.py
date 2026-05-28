@@ -124,7 +124,7 @@ class TestSimulatedMotorBoard:
         assert board.has_turret() is False
 
     def test_homing_xyz(self):
-        board = SimulatedMotorBoard()
+        board = SimulatedMotorBoard(timing='instant')
         board.home()
         assert board.has_homed() is True
         assert board.current_pos('X') == 0
@@ -373,7 +373,7 @@ class TestSimulatedMotorBoard:
 
     def test_home_returns_bool(self):
         """home() should return True on success."""
-        board = SimulatedMotorBoard()
+        board = SimulatedMotorBoard(timing='instant')
         result = board.home()
         assert result is True
 
@@ -434,7 +434,7 @@ class TestAllModels:
 
     @pytest.mark.parametrize('model', ALL_MODELS)
     def test_homing_works(self, model):
-        board = SimulatedMotorBoard(model=model)
+        board = SimulatedMotorBoard(model=model, timing='instant')
         board.home()
         assert board.has_homed() is True
 
@@ -1373,7 +1373,7 @@ class TestFailureInjection:
 
     def test_motor_fail_on_multiple_commands(self):
         """Multiple commands can be targeted for failure."""
-        m = SimulatedMotorBoard(fail_on={'ZHOME', 'THOME'})
+        m = SimulatedMotorBoard(fail_on={'ZHOME', 'THOME'}, timing='instant')
         assert m.exchange_command('ZHOME') is None
         assert m.exchange_command('THOME') is None
         assert m.exchange_command('HOME') is not None  # not in fail set
@@ -1386,7 +1386,7 @@ class TestFailureInjection:
 
     def test_motor_fail_after_affects_move(self):
         """Mid-protocol disconnect: move starts OK, then fails."""
-        m = SimulatedMotorBoard(fail_after=5)
+        m = SimulatedMotorBoard(fail_after=5, timing='instant')
         m.exchange_command('HOME')  # cmd 1
         m.move_abs_pos('Z', 5000)  # uses multiple commands
         # Eventually commands fail

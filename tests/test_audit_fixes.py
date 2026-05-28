@@ -946,6 +946,7 @@ class TestAxisState:
         """After home(), present axes should be IDLE."""
         from modules.lumascope_api import AxisState
 
+        sim_scope._motion_driver.set_timing_mode('instant')
         sim_scope.motion.home()
         for ax in sim_scope.capabilities.axes:
             assert sim_scope.motion.get_axis_state(ax) == AxisState.IDLE
@@ -1009,6 +1010,7 @@ class TestAxisState:
         """is_any_axis_moving() returns False when all axes are IDLE."""
         from modules.lumascope_api import AxisState
 
+        sim_scope._motion_driver.set_timing_mode('instant')
         # Home all axes to set them IDLE
         sim_scope.motion.zhome()
         sim_scope.motion.home()
