@@ -275,7 +275,16 @@ def _read_settings_gate():
         base_dir = lvp_logger.lvp_appdata
     except (ImportError, AttributeError):
         base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    return load_profile_trace_setting(base_dir)
+    result = load_profile_trace_setting(base_dir)
+    # Tests that register a bare MagicMock as `modules.settings_init`
+    # (without configuring `load_profile_trace_setting`) cause the call
+    # above to return a MagicMock. The MagicMock is truthy under
+    # `result['enabled']` and Path-stringifiable as `result['output_dir']`,
+    # which produced a stray `LumaViewPro/MagicMock/` directory at the
+    # repo root. Treat any non-dict return as the safe-OFF default.
+    if not isinstance(result, dict):
+        return {'enabled': False, 'output_dir': None}
+    return result
 
 
 _gate = _read_settings_gate()
