@@ -1460,6 +1460,19 @@ class ImagingAPI:
                 (camera inactive, frame drain failed, timeout exceeded).
                 Per the Sentinel-return contract preface in LumascopeSkills:
                 `if image is None: ...` to detect failure.
+
+                Shape is (H, W) 2D mono for mono-native cameras and
+                (H, W, 3) RGB for color-native cameras. Probe
+                `scope.capabilities.is_color_native` to disambiguate.
+                This method does NOT apply layer false-color -- apply
+                at the display / encode boundary via
+                `image_utils.mono_to_rgb_falsecolor(img, layer)`.
+
+                Dtype is uint8 when force_to_8bit=True or for 8-bit
+                cameras; uint16 when force_to_8bit=False for 12/16-bit
+                cameras (uint16 container holds the native bit width).
+                Probe `scope.capabilities.native_bit_depth` for the
+                source depth.
         """
 
         if not self._driver or not self._driver.active:

@@ -444,6 +444,14 @@ image = scope.imaging.get_image(force_to_8bit=False)   # keep native 12/16-bit
 # Returns numpy.ndarray on success, None on failure (camera inactive,
 # frame drain failed, timeout). Per the sentinel-return contract:
 #   if image is None: ...
+#
+# Shape is (H, W) 2D mono for mono-native cameras and (H, W, 3) RGB
+# for color-native cameras (see scope.capabilities.is_color_native).
+# Layer false-color is NOT applied here -- apply at the display /
+# encode boundary via image_utils.mono_to_rgb_falsecolor(img, layer).
+# Dtype is uint8 with force_to_8bit=True (default) or for 8-bit
+# cameras; uint16 with force_to_8bit=False for 12/16-bit cameras
+# (see scope.capabilities.native_bit_depth).
 
 # Frame-validity capture — PREFERRED for all real captures.
 # Waits for all pending changes (LED, gain, exposure, motion) to settle,
@@ -706,6 +714,8 @@ caps.supports('trigger_in')     # also searches has_X / camera_supports_X / hard
 
 # Camera
 caps.camera_model               # 'MT9P031-LS620', 'acA2500-60um', etc.
+caps.is_color_native            # True for color-native sensors; False for mono-native (default)
+caps.native_bit_depth           # 8 (e.g. IDS) or 16 (uint16 container; holds 12/16-bit native)
 caps.camera_supports_auto_gain
 caps.camera_supports_auto_exposure
 caps.camera_pixel_formats       # e.g. ('Mono8',) or ('Mono8', 'Mono12')
@@ -787,6 +797,39 @@ The full set of free functions in `modules.image_save`:
 | `generate_image_metadata(scope, color, x, y, z)` | Build the TIFF metadata dict for the current capture settings + position. |
 | `generate_image_save_path(scope, save_folder, ...)` | Generate the next unused file path under `tail_id_mode`. |
 | `get_next_save_path(scope, path)` | Increment the trailing numeric ID on an existing path. |
+
+### Image utilities (`modules.image_utils`)
+
+Boundary helpers that ride alongside the mono-native pipeline. Two
+patterns matter to L2 callers:
+
+```python
+from modules import image_utils
+
+# Map a mono frame to RGB false-color at the display / encode boundary.
+# Use this when you have a mono fluorescence frame from get_image() and
+# need a 3-channel array for display, video encode, or a downstream
+# tool that expects RGB. Mono pipeline saves do NOT call this -- the
+# layer is recorded as TIFF metadata instead.
+rgb = image_utils.mono_to_rgb_falsecolor(mono_frame, layer='Blue')
+# layer in {'Blue', 'Green', 'Red', 'BF', 'Lumi', ...}
+# Returns 3-channel ndarray, same dtype as input.
+
+# Read a TIFF and collapse legacy 3-channel false-color-replica files
+# to mono on the fly. Use this when reading any TIFF that may have
+# been written by a pre-mono-native LumaViewPro: the 3-channel files
+# with one populated channel auto-collapse to 2D mono; true color
+# composites (multiple non-zero channels) pass through unchanged.
+img = image_utils.read_tiff_with_legacy_collapse(path)
+# Returns 2D mono ndarray for mono and collapsed-legacy files;
+# 3D RGB ndarray for real color composites.
+```
+
+The save pipeline emits mono fluorescence TIFFs with layer metadata
+in the TIFF ImageDescription field; the legacy reader bridges that
+to consumers that previously assumed a 3-channel shape. FIJI, MATLAB
+``imread``, and tifffile all handle mono 2D natively; the false-
+color is purely a display-time concern.
 
 ### Coordinate transformations (`modules.coord_transformations`)
 
