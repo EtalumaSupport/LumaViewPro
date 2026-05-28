@@ -51,6 +51,7 @@ import zipfile
 
 import platformdirs
 
+from modules import settings_init
 from modules.path_utils import get_script_root, get_source_root
 
 logger = logging.getLogger(__name__)
@@ -143,18 +144,24 @@ def _get_lvp_logs_dir():
 
 
 def _get_capture_dir():
-    """Return the capture output directory (from settings.json or defaults)."""
-    data_dir = _get_lvp_data_dir()
-    settings_file = data_dir / 'settings.json'
-    if settings_file.exists():
-        try:
-            with open(settings_file, 'r') as f:
-                settings = json.load(f)
-            capture_path = settings.get('capture_path', '')
-            if capture_path and pathlib.Path(capture_path).is_dir():
-                return pathlib.Path(capture_path)
-        except (json.JSONDecodeError, OSError):
-            pass
+    """Return the capture output directory (from settings or defaults).
+
+    The configured directory is the canonical live_folder key, resolved
+    current.json-first via _resolve_settings_path -- current.json holds the
+    absolute path microscope_settings resolved at runtime, while settings.json
+    may still carry the unresolved './capture' default.
+    """
+    try:
+        settings_file = settings_init._resolve_settings_path(str(_get_lvp_data_dir().parent))
+        with open(settings_file, 'r') as f:
+            settings = json.load(f)
+        live_folder = settings.get('live_folder', '')
+        if live_folder:
+            resolved = pathlib.Path(live_folder).resolve()
+            if resolved.is_dir():
+                return resolved
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        pass
     # Fallback: common locations
     docs = _get_user_documents()
     for name in ['EtalumaCaptures', 'Etaluma', 'LumaViewPro']:
