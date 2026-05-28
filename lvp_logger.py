@@ -191,8 +191,11 @@ logger = logging.getLogger(__name__)
 
 # Set up the 'LVP' parent logger so all LVP.* child loggers (used throughout the
 # codebase) inherit handlers and don't propagate to root/Kivy console.
+# Level follows debug_mode: at INFO, DEBUG records (incl. the preview [PERF]
+# lines) are dropped at the logger before any handler sees them, so the level
+# -- not just logging.disable below -- has to drop to DEBUG when debug_mode is on.
 _lvp_parent = logging.getLogger('LVP')
-_lvp_parent.setLevel(logging.INFO)
+_lvp_parent.setLevel(logging.DEBUG if debug else logging.INFO)
 
 # Prevent logs from propagating to root (and the console)
 if not debug:
@@ -200,7 +203,7 @@ if not debug:
     _lvp_parent.propagate = False
 
 # determines lowest level of messages to log (DEBUG < INFO < WARNING < ERROR < CRITICAL)
-logger.setLevel(logging.INFO)
+logger.setLevel(logging.DEBUG if debug else logging.INFO)
 
 # obtains name of the module (file) importing lvp_logger
 filename = '%s' % __file__

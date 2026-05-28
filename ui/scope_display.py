@@ -699,9 +699,10 @@ class ScopeDisplay(Image):
             # Publish for thread.add_frame_listener fan-out
             self._last_rendered_frame = (image_bytes, image_shape, t_blit_scheduled)
 
-            # Performance instrumentation gated on settings.debug_mode. lvp_logger
-            # force-disables DEBUG-level emission, so logger.isEnabledFor(DEBUG) is
-            # always False; the cached settings flag is what actually toggles perf.
+            # Performance instrumentation gated on settings.debug_mode, cached on
+            # the first frame. This mirrors the debug_mode gate lvp_logger uses to
+            # set the LVP logger level + lift DEBUG suppression, so the [PERF]
+            # logger.debug below actually reaches the log when debug_mode is on.
             if self._debug_perf is None:
                 ctx = _app_ctx.ctx
                 self._debug_perf = bool(ctx is not None and ctx.settings.get('debug_mode', False))
