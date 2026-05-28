@@ -169,7 +169,7 @@ class CompositeCapture(FloatLayout):
                 append=append,
                 color=color,
                 tail_id_mode=None,
-                output_format=settings['image_output_format'],
+                output_format=settings['image_output_format']['live'],
             )
 
             if use_bullseye:
@@ -191,7 +191,7 @@ class CompositeCapture(FloatLayout):
                 append=f'{append}_overlay',
                 color=color,
                 tail_id_mode=None,
-                output_format=settings['image_output_format'],
+                output_format=settings['image_output_format']['live'],
             )
 
     # capture and save a composite image using the current settings
