@@ -491,6 +491,16 @@ class ScopeDisplay(Image):
             return False
         return now - last_time >= interval
 
+    @staticmethod
+    def _focus_score_enabled(ctx):
+        """Whether the per-frame Vollath focus score is enabled.
+
+        Read live each frame so the engineering-tab toggle takes effect
+        without a restart; a value cached on the first frame would freeze at
+        whatever the setting was when the first frame arrived.
+        """
+        return bool(ctx is not None and ctx.settings.get('focus_score_enabled', False))
+
     def set_engineering_ui(self, mean, stddev, af_score, open_layer):
         ctx = _app_ctx.ctx
         open_layer_obj = ctx.image_settings.layer_lookup(layer=open_layer)
@@ -668,7 +678,16 @@ class ScopeDisplay(Image):
                 t_eng_start = time.monotonic()
                 mean = round(np.mean(a=image), 2)
                 stddev = round(np.std(a=image), 2)
-                af_score = autofocus_functions.focus_function(image=image, skip_score_logging=True)
+                # The Vollath focus score is the costly per-frame stat; the
+                # engineering-tab "Focus Score" toggle suppresses it. Mean and
+                # std stay (cheap). Display-only -- autofocus scores its own
+                # frames independently and is unaffected.
+                if self._focus_score_enabled(ctx):
+                    af_score = autofocus_functions.focus_function(
+                        image=image, skip_score_logging=True
+                    )
+                else:
+                    af_score = 'off'
                 t_eng_stats = time.monotonic() - t_eng_start
 
                 Clock.schedule_once(
