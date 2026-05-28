@@ -351,8 +351,8 @@ class SimulatedLEDBoard:
         while 'STATUS' not in status:
             status = self.get_status()
 
-    # State-query methods retired in Wave 7 Phase 3d.5; see ledboard.py
-    # for rationale.
+    # State-query methods have been retired; see ledboard.py for
+    # rationale.
 
     def led_on(self, channel: int, mA: int, block: bool = False) -> None:
         """Turn on the LED on a channel at a given current.

@@ -338,9 +338,6 @@ class Camera(ABC):
           - ``camera.log`` :enter / :exit lines emit on every level so
             nested patterns (init_camera_config wrapping
             set_pixel_format) stay visible in diagnostic logs.
-
-        Smoke 3 camera.log 2026-04-30 captured both failure modes that
-        this method now covers.
         """
         try:
             from lvp_logger import camera_logger as _cam_log
@@ -521,7 +518,7 @@ class Camera(ABC):
 
         Called by subclass connect() after model_name is known. Subclasses
         should then call _query_dynamic_capabilities() to populate
-        SDK-queried fields (gain min/max, exposure min/max). Per Rule 2,
+        SDK-queried fields (gain min/max, exposure min/max).
         `profile.exposure_max_us` is the single source of truth for the
         max-exposure cap -- `Camera.max_exposure` is a derived property
         that reads from it.
@@ -545,11 +542,10 @@ class Camera(ABC):
         """Maximum exposure cap in milliseconds.
 
         Derived from `profile.exposure_max_us` -- the single source of
-        truth (Rule 2). The profile's value is the sensor-datasheet
-        ceiling by default and may be overwritten by
-        `_query_dynamic_capabilities()` at connect time with an SDK-
-        queried or driver-narrowed cap (e.g. FX2's 178 ms safe-frame
-        ceiling).
+        truth. The profile's value is the sensor-datasheet ceiling by
+        default and may be overwritten by `_query_dynamic_capabilities()`
+        at connect time with an SDK-queried or driver-narrowed cap
+        (e.g. FX2's 178 ms safe-frame ceiling).
         """
         if self.profile and self.profile.exposure_max_us:
             return self.profile.exposure_max_us / 1000.0
@@ -568,10 +564,10 @@ class Camera(ABC):
         """Maximum gain cap in dB.
 
         Derived from `profile.gain.total_max_db` -- the single source of
-        truth (Rule 2). The profile's value is the sensor-datasheet
-        ceiling by default and may be overwritten by
-        `_query_dynamic_capabilities()` at connect time (Pylon / IDS
-        live-query their SDK; FX2 hardcodes the MT9P031 value).
+        truth. The profile's value is the sensor-datasheet ceiling by
+        default and may be overwritten by `_query_dynamic_capabilities()`
+        at connect time (Pylon / IDS live-query their SDK; FX2 hardcodes
+        the MT9P031 value).
         """
         if self.profile and self.profile.gain and self.profile.gain.total_max_db is not None:
             return float(self.profile.gain.total_max_db)

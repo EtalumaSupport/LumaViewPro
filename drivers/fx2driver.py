@@ -208,7 +208,7 @@ VR_INIT_GPIF = 0xB9
 # constant in `I2C_Control.cs:52` but never calls it; LVC's production
 # path uses VR_I2C_WRITE (0xB3) for sensor writes via
 # `AptinaMT9P031_Control.WriteWord16 -> I2C_Control.Write`. We now
-# match LVC. See docs/AUDIT_FX2_RUNTIME.md Bug 6.
+# match LVC.
 VR_SET_IFCLK_SRC = 0xBB
 VR_CODE_VERSION = 0xBC
 VR_START_STREAMING = 0xBD
@@ -369,9 +369,8 @@ def parse_intel_hex(hex_path: str) -> tuple[bytes, int]:
 # Range: 1x (0 dB) to 128x (42.1 dB). The LumaviewClassic LVC driver
 # reference originally had `min(127, ...)` on the digital clamp and a
 # comment claiming ~135x max -- that was outside the documented legal
-# range per RR_A. The audit in
-# LumaviewClassic/docs/DATASHEET_VERIFICATION.md sec.5 corrected this to
-# 120 / 128x. See also the docstring on `_gain_db_to_register`.
+# range per RR_A. The corrected legal max is 120 / 128x. See the
+# docstring on `_gain_db_to_register` for the conversion derivation.
 
 
 def _gain_db_to_register(db: float) -> int:
@@ -467,7 +466,6 @@ class StreamStats:
         partial frame is lost bytes BEFORE the next delimiter; a shifted frame
         is wrong-but-still-bigger-than-minimum, indicating the parser found
         bytes from outside the intended frame. Both are discarded.
-        See docs/AUDIT_FX2_RUNTIME.md Fix 1 (2026-04-15).
 
         Args:
             size: Observed inter-delimiter buffer size in bytes.
@@ -994,7 +992,7 @@ class _FX2Connection:
         says "sensor clock managed write" -- a misleading name. LVC defines
         the constant but never calls it from any production code path; the
         real production path is plain VR_I2C_WRITE (0xB3). Fixed
-        2026-04-15. See docs/AUDIT_FX2_RUNTIME.md Bug 6.
+        2026-04-15.
 
         Args:
             reg: MT9P031 register address (one byte).
@@ -1748,8 +1746,7 @@ class FX2Camera(Camera):
     def _grab_loop(self):
         """Extract frames from the ISO / bulk data buffer.
 
-        Audit fixes applied vs. the LVC reference (per
-        LumaviewClassic/docs/OPTIMIZATION_ANALYSIS.md sec.8):
+        Departures from the LVC reference:
         - ``local_buf`` is explicitly initialized before the loop instead
           of relying on ``'local_buf' not in dir()`` (fragile, un-Pythonic).
         - The trim-after-prepend operation shares a single lock acquisition
@@ -1759,7 +1756,7 @@ class FX2Camera(Camera):
         stats = self.stream_stats
         last_stats_log = time.monotonic()
         first_frame_logged = False
-        local_buf: bytearray | None = None  # audit fix: explicit init
+        local_buf: bytearray | None = None  # explicit init
 
         while self._grabbing:
             # Re-read dimensions every iteration -- the UI can call
@@ -1790,7 +1787,7 @@ class FX2Camera(Camera):
                 if idx < 0:
                     # No complete frame -- put unconsumed data back and
                     # trim if it's gotten out of hand. Single lock
-                    # acquisition covers both (audit fix).
+                    # acquisition covers both.
                     with self._iso_buf_lock:
                         self._iso_buf = buf + self._iso_buf
                         if len(self._iso_buf) > needed * 3:
@@ -1809,21 +1806,20 @@ class FX2Camera(Camera):
                 # is hardware-constant for fixed frame size; the
                 # `as_strided` block below silently truncates it.
                 #
-                # PRE-FIX (AUDIT_FX2_RUNTIME.md): the check was
+                # PRIOR BEHAVIOR: the check was
                 # `len(frame_data) >= needed`, which silently accepted
                 # arbitrary oversized frames as "good" and reshaped
                 # them from a misaligned offset -> visually corrupt
-                # frames flagged as good, no telemetry. Stage 3.5 Phase
-                # 8 missed this entirely because the partial-frame
-                # counter only fires on undersize.
+                # frames flagged as good, no telemetry. The partial-
+                # frame counter only fires on undersize and missed
+                # this entirely.
                 #
-                # POST-FIX: strict equality on `expected`. Anything
-                # else is discarded, distinct shifted/partial counters
-                # give honest telemetry on which failure mode dominates.
-                # If frame size or readout config ever changes such
-                # that the +stride invariant breaks, the shifted
-                # counter will spike and we re-measure. See
-                # docs/AUDIT_FX2_RUNTIME.md Fix 1.
+                # CURRENT BEHAVIOR: strict equality on `expected`.
+                # Anything else is discarded, distinct shifted/partial
+                # counters give honest telemetry on which failure mode
+                # dominates. If frame size or readout config ever
+                # changes such that the +stride invariant breaks, the
+                # shifted counter will spike and we re-measure.
                 expected = needed + stride
 
                 if len(frame_data) == expected:
@@ -2175,9 +2171,9 @@ class FX2LEDController:
 
         Each byte is wrapped in try/except and the i2c_write return
         value is checked against the expected 1-byte count. A silent
-        short-write would have masked Bug 2 in AUDIT_FX2_RUNTIME.md
-        (2026-04-15); propagating the return value catches it at the
-        driver layer instead.
+        short-write would mask LED-state corruption at the I2C layer;
+        propagating the return value catches it at the driver layer
+        instead.
 
         NOTE: the 3x 10 ms delays (30 ms total per LED command) are
         the known root cause of the slider-corruption effect documented
@@ -2195,8 +2191,8 @@ class FX2LEDController:
             (i2c_channel, 'channel'),
             (brightness & 0xFF, 'brightness'),
         ]
-        # Rule 12 workaround: byte-level wire trace for the slider > ~150 mA
-        # silent-fail bench investigation. See _FX2_DEBUG_WIRE block above.
+        # Byte-level wire trace for the slider > ~150 mA silent-fail
+        # bench investigation. See _FX2_DEBUG_WIRE block above.
         if self._wire_debug_enabled():
             wire_hex = ' '.join(f'0x{b:02X}' for b, _ in writes)
             logger.info(
@@ -2270,10 +2266,10 @@ class FX2LEDController:
     def led_on(self, channel: int, mA: int, block: bool = False, timeout: float = 5.0):
         if not self._enabled:
             return
-        # Rule 12 workaround: driver-entry trace (mA + type) for the
-        # slider > ~150 mA silent-fail bench investigation. See
-        # _FX2_DEBUG_WIRE block above. INFO level intentionally -- this
-        # is one of the two key divergence points (int vs float entry).
+        # Driver-entry trace (mA + type) for the slider > ~150 mA
+        # silent-fail bench investigation. See _FX2_DEBUG_WIRE block
+        # above. INFO level intentionally -- this is one of the two
+        # key divergence points (int vs float entry).
         if self._wire_debug_enabled():
             logger.info(
                 '[FX2 LED diag] led_on ENTRY ch=%d mA=%r type=%s block=%s',

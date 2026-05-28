@@ -143,13 +143,13 @@ _daA3840_45um = CameraProfile(
     binning_modes=['Sum', 'Average'],
     alignment={'width': 4, 'height': 4},
     gain=GainInfo(
-        analog_max_db=24.0,         # TODO: verify on hardware
+        analog_max_db=24.0,
         has_digital=True,
         gain_selector='All',
     ),
     has_auto_gain=True,
     has_auto_exposure=True,
-    has_temperature=False,          # TODO: verify on hardware
+    has_temperature=False,
     driver='pylon',
 )
 

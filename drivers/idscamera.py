@@ -208,7 +208,6 @@ class IDSCamera(Camera):
                 else:
                     preferred = 'Mono10g40IDS'
                 self.set_pixel_format(preferred)
-                #TODO: auto gain
                 self.remote_nodemap.FindNode("ReverseX").SetValue(True)
                 # Ensure freerun mode (no external trigger)
                 try:
@@ -499,7 +498,6 @@ class IDSCamera(Camera):
             return -1
 
     def auto_exposure_t(self, state = True):
-        #TODO: Implement for IDS cameras that support auto exposure
         try:
             return self.remote_nodemap.HasNode("ExposureAuto")
         except Exception as e:
@@ -507,7 +505,7 @@ class IDSCamera(Camera):
             return False
 
     def get_all_temperatures(self):
-        return {} #TODO: Implement for IDS cameras that support temperature readings
+        return {}
 
     def set_device_link_throughput_limit(
         self,
@@ -583,7 +581,7 @@ class IDSCamera(Camera):
         # runtime-parameter class as ExposureTime, see exposure_t above).
         # Previous wrap in update_camera_config() forced an unnecessary
         # stop_grabbing/start_grabbing cycle on every call (same class as
-        # STALL-1's per-step wrapper). docs/TODO.md item 24.
+        # STALL-1's per-step wrapper).
         try:
             if _cam_log is not None:
                 _cam_log.info(
@@ -676,7 +674,6 @@ class IDSCamera(Camera):
             return False, None
 
     def update_auto_gain_target_brightness(self, auto_target_brightness: float):
-        #TODO: Implement for IDS cameras that support auto gain
         try:
             return self.remote_nodemap.HasNode("GainAuto")
         except Exception as e:
@@ -684,7 +681,6 @@ class IDSCamera(Camera):
             return False
 
     def update_auto_gain_min_max(self, min_gain_db: float | None, max_gain_db: float | None):
-        #TODO: Implement for IDS cameras that support auto gain
         try:
             return self.remote_nodemap.HasNode("GainAuto")
         except Exception as e:
@@ -727,7 +723,6 @@ class IDSCamera(Camera):
         min_gain_db: float | None = None,
         max_gain_db: float | None = None
     ):
-        #TODO: Implement functionality for IDS cameras that support auto gain
         try:
             return self.remote_nodemap.HasNode("GainAuto")
         except Exception as e:
@@ -741,7 +736,6 @@ class IDSCamera(Camera):
         min_gain_db: float | None = None,
         max_gain_db: float | None = None
     ):
-        #TODO: Implement functionality for IDS cameras that support auto gain
         try:
             return self.remote_nodemap.HasNode("GainAuto")
         except Exception as e:
@@ -749,7 +743,6 @@ class IDSCamera(Camera):
             return False
 
     def set_test_pattern(self, enabled: bool = False, pattern: str = 'Black'):
-        #TODO: Implement
         pass
 
 class ImageHandler(ImageHandlerBase):

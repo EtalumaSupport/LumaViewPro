@@ -67,7 +67,7 @@ class LEDBoard(SerialBoard):
         sample photobleaching. Uses fire-and-forget write to minimize
         delay. If the board doesn't respond, this is a best-effort
         attempt; the failure is recorded in self.last_safety_off_error
-        so the API layer can fire a Rule 14 notification.
+        so the API layer can fire a user-visible notification.
         """
         try:
             self._write_command_fast('LEDS_OFF')
@@ -254,7 +254,6 @@ class LEDBoard(SerialBoard):
         """
         # NOTE: LED firmware does not implement a STATUS command.
         # This always returns "Command not recognized". Do not use.
-        # TODO: Add STATUS handler to LED firmware in 4.1, or remove this method.
         logger.warning('[LED Class ] get_status() called but LED firmware has no STATUS command')
         return None
 
@@ -270,17 +269,16 @@ class LEDBoard(SerialBoard):
         """
         # NOTE: Relies on get_status() which is not implemented in LED firmware.
         # This always returns False. Do not use.
-        # TODO: Implement in 4.1 with v3.1 protocol, or remove.
         logger.warning(
             '[LED Class ] wait_until_on() called but STATUS command not implemented in firmware'
         )
         return False
 
     # State-query methods (get_led_ma / is_led_on / get_led_state /
-    # get_led_states) retired in Wave 7 Phase 3d.5. LED state is
-    # API-primary (single SoT on IlluminationAPI). The `self.led_ma`
-    # dict + `_update_state_cache` writes remain as driver-internal
-    # state with no external readers; eligible for follow-up dead-code
+    # get_led_states) have been retired. LED state is API-primary
+    # (single SoT on IlluminationAPI). The `self.led_ma` dict +
+    # `_update_state_cache` writes remain as driver-internal state
+    # with no external readers; eligible for follow-up dead-code
     # removal.
 
     # Safety limits -- defense-in-depth validation at driver level.

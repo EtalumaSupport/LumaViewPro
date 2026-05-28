@@ -215,7 +215,7 @@ class SerialBoard:
              retries, mark firmware_silent = True. connect() surfaces
              this as a user-visible error.
 
-        Diagnostic logging (#619 Phase A): every step is logged to
+        Diagnostic logging (#619): every step is logged to
         serial.log with per-step timing, bytes drained/written, and
         driver state.
         """

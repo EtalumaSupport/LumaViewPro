@@ -7,7 +7,7 @@ MotorBoard connection failure). All methods return safe defaults:
 positions return 0.0, moves complete immediately, homing reports done.
 
 This eliminates the need for ``if not self.motion`` guards throughout the
-codebase (Rule 8: API handles missing hardware gracefully).
+codebase (the API handles missing hardware gracefully).
 
 The Lumascope API assigns ``self.motion = NullMotionBoard()`` instead of
 ``self.motion = None``, so callers never need to check for None.

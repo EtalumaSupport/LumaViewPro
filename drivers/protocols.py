@@ -129,9 +129,9 @@ class LEDBoardProtocol(Protocol):
     def leds_disable(self) -> None: ...
 
     # State queries (get_led_ma / is_led_on / get_led_state /
-    # get_led_states) retired in Wave 7 Phase 3d.5. LED state is
-    # API-primary (Rule 2 SoT lives on IlluminationAPI). Callers read
-    # via scope.illumination.<query>; the driver no longer exposes
+    # get_led_states) have been retired. LED state is API-primary
+    # (SoT lives on IlluminationAPI). Callers read via
+    # scope.illumination.<query>; the driver no longer exposes
     # state via the protocol surface.
 
     # --- Channel mapping ---

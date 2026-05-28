@@ -100,7 +100,7 @@ _PYLON_ERR_PAYLOAD_DISCARDED = 0xE2050012
 # MAX_CONSECUTIVE_FAILURES auto-disconnect (128 frames at 30fps). Fast
 # classification short-circuits the cascade so the disconnect surfaces
 # in 1 frame instead of 128, and the user notification (driven by
-# _mark_disconnected -> API layer per Rule 14) fires immediately
+# _mark_disconnected -> API layer) fires immediately
 # instead of 4 seconds late behind a wall of WARNING log lines.
 _PYLON_ERR_DEVICE_NOT_FOUND = 433
 
@@ -1648,7 +1648,7 @@ class PylonCamera(Camera):
         Used by ``set_max_transfer_size`` and ``set_num_max_queued_urbs``.
         Both write a single integer node on the StreamGrabber NodeMap
         with identical error / log shape; this helper is the canonical
-        path so the two public setters stay one-liners (Rule 35).
+        path so the two public setters stay one-liners.
         """
         if not self.active:
             return False
@@ -3103,12 +3103,11 @@ class PylonCamera(Camera):
     def read_diagnostic_snapshot(
         self,
         # 3.0s default: matches the bench probe shape used to
-        # characterize dart vs ace 2 on Mac (session 65 / 68).
-        # Long enough for cumulative counters to advance visibly at
-        # 18-30 fps without being so long the operator gets bored.
-        # Falsify: if running this at 3s misses a class of error that
-        # only shows up over longer windows, callers raise the value
-        # explicitly per-call.
+        # characterize dart vs ace 2 on Mac. Long enough for
+        # cumulative counters to advance visibly at 18-30 fps without
+        # being so long the operator gets bored. Falsify: if running
+        # this at 3s misses a class of error that only shows up over
+        # longer windows, callers raise the value explicitly per-call.
         duration_s: float = 3.0,
         drain_camera_side_errors: bool = True,
     ) -> dict:
