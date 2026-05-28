@@ -14,6 +14,7 @@ every modified file (useful for cleanup sweeps).
 
 Rules implemented:
     rule_24  -- ASCII-only in strings passed to logger / print / notifications
+                (.py); ASCII-only over the entire file (.kv)
     rule_27a -- no `# TODO` / `# FIXME` / `# XXX` in source comments
     rule_27b -- no rule / audit / session / smoke / wave / phase IDs in comments
     rule_27d -- same patterns as 27b but applied to docstrings
@@ -160,6 +161,34 @@ def _check_rule_24(tree: ast.Module, path: str) -> list[Violation]:
                     f"string; use ASCII (e.g. 'degC' not the degree sign)",
                 )
             )
+    return violations
+
+
+def _check_rule_24_kv(content: str, path: str) -> list[Violation]:
+    """Rule 24 ASCII-only check for .kv files.
+
+    Unlike the .py path (which AST-parses just logger/print/notification
+    arg strings), .kv files have no AST gate -- the rule covers the
+    entire file per CLAUDE.md ("every string in source, every comment,
+    every docstring ... in .py / .c / .h / .kv / similar code files").
+    Plain regex byte-scan per line.
+    """
+    violations: list[Violation] = []
+    for ln, line in enumerate(content.splitlines(), start=1):
+        m = _NON_ASCII.search(line)
+        if not m:
+            continue
+        ch = m.group(0)
+        violations.append(
+            Violation(
+                path,
+                ln,
+                m.start(),
+                'rule_24',
+                f'non-ASCII char {ch!r} (U+{ord(ch):04X}) in .kv file; '
+                f"use ASCII (e.g. 'um' not the micro sign, '--' not the em-dash)",
+            )
+        )
     return violations
 
 
@@ -541,6 +570,14 @@ def _staged_python_files() -> list[str]:
     return [p for p in out.splitlines() if p.endswith('.py')]
 
 
+def _staged_kv_files() -> list[str]:
+    out = subprocess.check_output(
+        ['git', 'diff', '--cached', '--name-only', '--diff-filter=AM'],
+        text=True,
+    )
+    return [p for p in out.splitlines() if p.endswith('.kv')]
+
+
 def _read_staged_content(path: str) -> str:
     return subprocess.check_output(['git', 'show', f':{path}'], text=True)
 
@@ -607,6 +644,16 @@ def main(argv: list[str] | None = None) -> int:
                 added = _added_lines(p)
                 file_violations = _filter_to_added(file_violations, added)
             violations.extend(file_violations)
+        for p in _staged_kv_files():
+            try:
+                content = _read_staged_content(p)
+            except subprocess.CalledProcessError:
+                continue
+            file_violations = _check_rule_24_kv(content, p)
+            if not args.all:
+                added = _added_lines(p)
+                file_violations = _filter_to_added(file_violations, added)
+            violations.extend(file_violations)
     else:
         for p in args.paths or []:
             try:
@@ -614,7 +661,10 @@ def main(argv: list[str] | None = None) -> int:
             except OSError as e:
                 print(f'{p}: cannot read: {e}', file=sys.stderr)
                 continue
-            violations.extend(check_source(content, p))
+            if p.endswith('.kv'):
+                violations.extend(_check_rule_24_kv(content, p))
+            else:
+                violations.extend(check_source(content, p))
 
     if not violations:
         return 0
