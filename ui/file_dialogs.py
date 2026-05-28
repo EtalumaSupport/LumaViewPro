@@ -10,6 +10,7 @@ from kivy.uix.button import Button
 
 from ui.hover_behavior import HoverBehavior
 import modules.app_context as _app_ctx
+from modules import gui_logger
 
 logger = logging.getLogger('LVP.ui.file_dialogs')
 
@@ -151,6 +152,7 @@ class FileChooseBTN(HoverBehavior, Button):
     selection = ListProperty([])
 
     def choose(self, context):
+        gui_logger.button('FILE_CHOOSE_OPEN', f'context={context}')
         logger.info(f'[LVP Main  ] FileChooseBTN.choose({context})')
         self.context = context
 
@@ -199,6 +201,10 @@ class FileChooseBTN(HoverBehavior, Button):
 
     def on_selection_function(self, *a, **k):
         logger.info('[LVP Main  ] FileChooseBTN.on_selection_function()')
+        if self.selection:
+            gui_logger.select(
+                'FILE_CHOOSE', f'context={self.context} path={self.selection[0]}'
+            )
         ctx = _app_ctx.ctx
 
         if self.selection:
@@ -222,6 +228,7 @@ class FolderChooseBTN(HoverBehavior, Button):
     selection = ListProperty([])
 
     def choose(self, context):
+        gui_logger.button('FOLDER_CHOOSE_OPEN', f'context={context}')
         logger.info(f'[LVP Main  ] FolderChooseBTN.choose({context})')
         self.context = context
 
@@ -277,6 +284,9 @@ class FolderChooseBTN(HoverBehavior, Button):
         logger.info('[LVP Main  ] FolderChooseBTN.on_selection_function()')
         if self.selection:
             path = self.selection[0]
+            gui_logger.select(
+                'FOLDER_CHOOSE', f'context={self.context} path={path}'
+            )
         else:
             return
 
@@ -302,6 +312,7 @@ class FileSaveBTN(HoverBehavior, Button):
     selection = ListProperty([])
 
     def choose(self, context):
+        gui_logger.button('FILE_SAVE_OPEN', f'context={context}')
         logger.info('[LVP Main  ] FileSaveBTN.choose()')
         self.context = context
         if self.context == 'saveas_protocol':
@@ -345,6 +356,10 @@ class FileSaveBTN(HoverBehavior, Button):
 
     def on_selection_function(self, *a, **k):
         logger.info('[LVP Main  ] FileSaveBTN.on_selection_function()')
+        if self.selection:
+            gui_logger.select(
+                'FILE_SAVE', f'context={self.context} path={self.selection[0]}'
+            )
         ctx = _app_ctx.ctx
 
         if self.context == 'saveas_protocol':

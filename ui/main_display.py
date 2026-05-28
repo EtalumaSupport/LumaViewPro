@@ -67,8 +67,10 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
 
             scope_display = self.ids['viewer_id'].ids['scope_display_id']
             if not self.scope.imaging.camera_active:
+                gui_logger.button('CAM_TOGGLE', 'no-op (camera inactive)')
                 return
 
+            gui_logger.toggle('CAM_PLAY', not scope_display.play)
             if scope_display.play:
                 scope_display.play = False
                 # Stage B1: pause() instead of stop()+start() so the
@@ -157,6 +159,7 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
         )
 
     def open_save_folder_button(self):
+        gui_logger.button('OPEN_SAVE_FOLDER')
         from ui.post_processing import open_last_save_folder
 
         open_last_save_folder()
@@ -946,6 +949,7 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
         self.current_captured_frames = max(self.current_captured_frames, slot_index + 1)
 
     def fit_image(self):
+        gui_logger.button('FIT_IMAGE')
         logger.info('[LVP Main  ] MainDisplay.fit_image()')
         if not self.scope.imaging.camera_active:
             return
@@ -954,6 +958,7 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
 
     def one2one_image(self):
         try:
+            gui_logger.button('ONE_TO_ONE_IMAGE')
             logger.info('[LVP Main  ] MainDisplay.one2one_image()')
             if not self.scope.imaging.camera_active:
                 return

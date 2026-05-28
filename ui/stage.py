@@ -9,6 +9,7 @@ from kivy.graphics import Color, Line, Rectangle, Ellipse, Fbo
 from kivy.uix.widget import Widget
 
 import modules.app_context as _app_ctx
+from modules import gui_logger
 from modules.config_ui_getters import get_selected_labware
 from modules.sequential_io_executor import IOTask
 from modules.step_navigation import go_to_step
@@ -162,6 +163,10 @@ class Stage(Widget):
             )
 
             if touch.button == 'left':
+                gui_logger.button(
+                    'STAGE_CLICK',
+                    f'left plate=({plate_x:.2f},{plate_y:.2f}) stage=({stage_x:.0f},{stage_y:.0f})',
+                )
                 move_absolute_position('X', stage_x)
                 move_absolute_position('Y', stage_y)
 
@@ -174,8 +179,16 @@ class Stage(Widget):
                         protocol=ctx.motion_settings.ids['protocol_settings_id']._protocol,
                     )
                     if step_idx == -1:
+                        gui_logger.button(
+                            'STAGE_CLICK',
+                            f'right plate=({plate_x:.2f},{plate_y:.2f}) step=none',
+                        )
                         return
 
+                    gui_logger.button(
+                        'STAGE_CLICK',
+                        f'right plate=({plate_x:.2f},{plate_y:.2f}) step={step_idx}',
+                    )
                     go_to_step(
                         protocol=ctx.motion_settings.ids['protocol_settings_id']._protocol,
                         step_idx=step_idx,
