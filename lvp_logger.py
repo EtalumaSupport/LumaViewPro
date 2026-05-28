@@ -666,8 +666,9 @@ def _thread_except_hook(args):
 threading.excepthook = _thread_except_hook
 minimize_logger_window()
 
-# Gate global DEBUG suppression behind an env var so investigations can
-# enable debug logging without rebuilding. Default preserves the
-# long-standing behavior of silencing debug-level chatter.
-if os.environ.get('LVP_DEBUG_ENABLED') != '1':
+# Gate global DEBUG suppression on the same debug_mode setting that the
+# rest of the logger already honors (computed above). When debug_mode is
+# off, silence debug-level chatter; when on, DEBUG records (including the
+# preview [PERF] lines) reach the log. One toggle, read from settings.
+if not debug:
     logging.disable(logging.DEBUG)

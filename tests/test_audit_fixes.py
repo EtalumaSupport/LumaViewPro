@@ -10917,6 +10917,45 @@ class TestProfileTraceGateIsNotEnvVar:
         )
 
 
+class TestDebugGateIsNotEnvVar:
+    """The global DEBUG-suppression gate must NOT read an env var.
+
+    Per the options-menu rule, runtime toggles live in settings.json or
+    as a code constant -- never as an environment variable. The earlier
+    LVP_DEBUG_ENABLED gate was a second knob alongside debug_mode: both
+    had to be set to get DEBUG / [PERF] output. It was migrated to read
+    the debug_mode setting (already loaded at logger import via
+    load_debug_setting). This AST scan pins the migration so the env-var
+    pattern doesn't sneak back in.
+    """
+
+    def _lvp_logger_source(self):
+        from pathlib import Path
+
+        return (Path(__file__).resolve().parent.parent / 'lvp_logger.py').read_text()
+
+    def test_no_lvp_debug_enabled_env_var_in_module(self):
+        import ast
+
+        src = self._lvp_logger_source()
+        tree = ast.parse(src)
+
+        hits = []
+
+        class Visitor(ast.NodeVisitor):
+            def visit_Constant(self, node):
+                if isinstance(node.value, str) and node.value == 'LVP_DEBUG_ENABLED':
+                    hits.append((node.lineno, node.value))
+                self.generic_visit(node)
+
+        Visitor().visit(tree)
+        assert not hits, (
+            'lvp_logger.py must not reference LVP_DEBUG_ENABLED as a '
+            'string literal -- the env-var gate is retired in favor of '
+            f'the debug_mode settings key. Hits: {hits}'
+        )
+
+
 class TestTracemallocGateIsNotEnvVar:
     """tracemalloc must NOT be gated by an environment variable.
 
