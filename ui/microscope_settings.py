@@ -143,6 +143,7 @@ class MicroscopeSettings(BoxLayout):
     def reconnect(self):
         ctx = _app_ctx.ctx
 
+        gui_logger.button('RECONNECT_MICROSCOPE')
         logger.info('[LVP Main  ] Reconnecting to microscope...')
 
         lumaview = ctx.lumaview
@@ -770,17 +771,20 @@ class MicroscopeSettings(BoxLayout):
     def update_false_color_16bit_state(self):
         settings = _app_ctx.ctx.settings
         enabled = self.ids['false_color_16bit_btn'].state == 'down'
+        gui_logger.toggle('FALSE_COLOR_16BIT', enabled)
         settings['false_color_16bit'] = enabled
 
     def select_live_image_output_format(self):
         settings = _app_ctx.ctx.settings
-        settings['image_output_format']['live'] = self.ids['live_image_output_format_spinner'].text
+        fmt = self.ids['live_image_output_format_spinner'].text
+        gui_logger.select('LIVE_IMAGE_OUTPUT_FORMAT', fmt)
+        settings['image_output_format']['live'] = fmt
 
     def select_sequenced_image_output_format(self):
         settings = _app_ctx.ctx.settings
-        settings['image_output_format']['sequenced'] = self.ids[
-            'sequenced_image_output_format_spinner'
-        ].text
+        fmt = self.ids['sequenced_image_output_format_spinner'].text
+        gui_logger.select('SEQUENCED_IMAGE_OUTPUT_FORMAT', fmt)
+        settings['image_output_format']['sequenced'] = fmt
 
     def select_video_recording_format(self):
         settings = _app_ctx.ctx.settings
@@ -864,34 +868,30 @@ class MicroscopeSettings(BoxLayout):
 
     def update_live_image_histogram_equalization(self):
         ctx = _app_ctx.ctx
-        if self.ids['enable_live_image_histogram_equalization_btn'].state == 'down':
-            ctx.scope_display.use_live_image_histogram_equalization = True
-            ctx.live_histo_setting = True
-        else:
-            ctx.scope_display.use_live_image_histogram_equalization = False
-            ctx.live_histo_setting = False
+        enabled = self.ids['enable_live_image_histogram_equalization_btn'].state == 'down'
+        gui_logger.toggle('LIVE_HISTOGRAM_EQUALIZATION', enabled)
+        ctx.scope_display.use_live_image_histogram_equalization = enabled
+        ctx.live_histo_setting = enabled
 
     def update_show_tooltips(self):
         ctx = _app_ctx.ctx
         settings = ctx.settings
-        if self.ids['show_tooltips_btn'].state == 'down':
-            ctx.show_tooltips = True
-            settings['show_tooltips'] = True
-        else:
-            ctx.show_tooltips = False
-            settings['show_tooltips'] = False
+        enabled = self.ids['show_tooltips_btn'].state == 'down'
+        gui_logger.toggle('SHOW_TOOLTIPS', enabled)
+        ctx.show_tooltips = enabled
+        settings['show_tooltips'] = enabled
 
     def update_protocol_led_on(self):
         settings = _app_ctx.ctx.settings
-        if self.ids['protocol_led_on_btn'].state == 'down':
-            settings['protocol_led_on'] = True
-        else:
-            settings['protocol_led_on'] = False
+        enabled = self.ids['protocol_led_on_btn'].state == 'down'
+        gui_logger.toggle('PROTOCOL_LED_ON', enabled)
+        settings['protocol_led_on'] = enabled
 
     def update_stimulation_settings(self):
         """Toggle stimulation features globally across all channels."""
         settings = _app_ctx.ctx.settings
         stimulation_enabled = self.ids['stimulation_settings_btn'].state == 'down'
+        gui_logger.toggle('STIMULATION_ENABLED', stimulation_enabled)
         settings['stimulation_enabled'] = stimulation_enabled
 
         # Update all layer controls
