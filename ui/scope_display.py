@@ -77,6 +77,10 @@ class ScopeDisplay(Image):
         self._bullseye_rgb_buf = None
         self._bullseye_buf_shape = None
 
+        # Reusable 8-bit LUT destination for the preview 12->8 conversion;
+        # (re)allocated lazily to match the frame in _render_one_frame.
+        self._display_8bit_buf = None
+
         # FPS tracking -- capture thread (frames grabbed from camera)
         self._capture_fps_count = 0
         self._capture_fps_last_time = time.monotonic()
@@ -496,6 +500,7 @@ class ScopeDisplay(Image):
         # (swapping 2K->4K->2K otherwise leaks ~60 MB per cycle).
         self._bullseye_rgb_buf = None
         self._bullseye_buf_shape = None
+        self._display_8bit_buf = None
         return
 
     def source_clear(self):
@@ -573,9 +578,25 @@ class ScopeDisplay(Image):
 
         # Likely not an IO call as image will be stored in buffer
         t_grab_start = time.monotonic()
-        image, frame_ts = ctx.scope.imaging.get_image_from_buffer(force_to_8bit=True)
+        # Reuse one 8-bit LUT buffer across frames so the 12->8 conversion
+        # in get_image_from_buffer does not allocate a fresh ~W*H array
+        # every frame on the 30 fps preview. tobytes() below copies before
+        # the next frame overwrites it, so a single slot is safe (same
+        # pattern as the bullseye buffer). Only this preview thread owns
+        # and passes this buffer; the histogram (main thread) passes none.
+        image, frame_ts = ctx.scope.imaging.get_image_from_buffer(
+            force_to_8bit=True, out_8bit=self._display_8bit_buf
+        )
         if image is None or image.size == 0:
             return STATUS_EMPTY
+
+        # (Re)allocate the reusable buffer to match the frame so the NEXT
+        # frame's conversion writes into it. The 8-bit camera path returns
+        # its own buffer and never uses this; the cost is one idle buffer.
+        if image.ndim == 2 and image.dtype == np.uint8 and (
+            self._display_8bit_buf is None or self._display_8bit_buf.shape != image.shape
+        ):
+            self._display_8bit_buf = np.empty(image.shape, dtype=np.uint8)
 
         # Skip duplicate frames (same camera timestamp = same data)
         if frame_ts is not None and frame_ts == self._last_frame_ts:
