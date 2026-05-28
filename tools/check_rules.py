@@ -374,6 +374,7 @@ def _check_rule_27d(tree: ast.AST, path: str) -> list[Violation]:
 _POST_PROCESSOR_WRITE_PATHS = frozenset({
     'modules/zprojector.py',
     'modules/stitcher.py',
+    'modules/composite_generation.py',
 })
 
 _TIFFFILE_NAMES = frozenset({'tf', 'tifffile'})
@@ -381,6 +382,31 @@ _TIFFFILE_NAMES = frozenset({'tf', 'tifffile'})
 _FALSE_COLOR_HELPER_NAMES = frozenset({
     'maybe_apply_false_color',
     'write_tiff',
+})
+
+_RULE_31A_PATH_SCOPE = ('modules/', 'ui/')
+_RULE_31A_FILE_EXEMPT = frozenset({
+    # image_utils.py owns image_file_to_image (multi-format L1 file
+    # loader called from the post-processing UI + Kivy display path)
+    # plus the imread_color / imwrite_color / videowriter_color
+    # capability-flag wrappers. cv2 use is by definition boundary code.
+    'modules/image_utils.py',
+    # video_writer.py owns the cv2.VideoWriter XVID fallback for the
+    # canonical VideoWriter class -- the wrapper that surrounding
+    # callers consume; direct cv2.VideoWriter outside this class swaps
+    # BGR / RGB at the file boundary.
+    'modules/video_writer.py',
+})
+_RULE_31A_BANNED_CV2_ATTRS = frozenset({'imread', 'imwrite', 'VideoWriter'})
+
+_RULE_31B_BOUNDARY_PATHS = frozenset({
+    # The display / encode boundary where mono -> RGB false-color
+    # widening is correct. Save / process callers must apply false
+    # color via mono_to_rgb_falsecolor at the display / encode edge,
+    # not at the storage edge -- mono fluorescence saves keep the
+    # layer as TIFF metadata.
+    'ui/main_display.py',
+    'modules/video_capture.py',
 })
 
 
@@ -444,6 +470,113 @@ def _check_rule_31c(tree: ast.AST, path: str) -> list[Violation]:
                         f'or fluorescence saves grayscale.',
                     )
                 )
+    return violations
+
+
+def _check_rule_31a(tree: ast.AST, path: str) -> list[Violation]:
+    """Block bare ``cv2.imread`` / ``cv2.imwrite`` / ``cv2.VideoWriter``
+    in production ``modules/`` and ``ui/`` outside the canonical owner
+    files.
+
+    Bug shape this prevents: callers reach for ``cv2.imread`` /
+    ``cv2.imwrite`` directly to read or write image files. cv2 is
+    BGR-native; viewers (tifffile, FIJI, OS preview) and the rest of
+    the pipeline are RGB-native, so a bare cv2 call swaps channels at
+    the file boundary and silently corrupts color order. The canonical
+    routes are the ``image_utils.imread_color`` /
+    ``image_utils.imwrite_color`` / ``image_utils.videowriter_color``
+    capability-flag wrappers (which live in ``modules/image_utils.py``)
+    plus the ``modules.video_writer.VideoWriter`` wrapper class
+    (which owns the cv2.VideoWriter XVID fallback).
+
+    Path scope: only fires on ``modules/`` and ``ui/`` sources. File-
+    level exempt for the canonical owner files in
+    ``_RULE_31A_FILE_EXEMPT``. Test files exempt via ``_is_test_path``.
+    """
+    if _is_test_path(path):
+        return []
+    norm = path.replace('\\', '/')
+    if not any(norm.startswith(scope) for scope in _RULE_31A_PATH_SCOPE):
+        return []
+    if norm in _RULE_31A_FILE_EXEMPT:
+        return []
+    violations: list[Violation] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        f = node.func
+        if not isinstance(f, ast.Attribute):
+            continue
+        if (
+            isinstance(f.value, ast.Name)
+            and f.value.id == 'cv2'
+            and f.attr in _RULE_31A_BANNED_CV2_ATTRS
+        ):
+            violations.append(
+                Violation(
+                    path,
+                    node.lineno,
+                    node.col_offset,
+                    'rule_31a',
+                    f'bare cv2.{f.attr} in modules/ or ui/; route through '
+                    f'image_utils.imread_color / imwrite_color / '
+                    f'videowriter_color (capability-flag wrappers) or the '
+                    f'canonical modules.video_writer.VideoWriter class. '
+                    f'cv2 is BGR-native and bare calls swap channels at '
+                    f'the file boundary.',
+                )
+            )
+    return violations
+
+
+def _check_rule_31b(tree: ast.AST, path: str) -> list[Violation]:
+    """Block ``add_false_color`` callsites outside the display / encode
+    boundary.
+
+    Bug shape this prevents: a save / process module widens a mono
+    fluorescence frame to a 3-channel RGB replica via
+    ``add_false_color`` before write. The pre-mono-native save path
+    used this; the mono-native pipeline keeps the layer as TIFF
+    metadata and applies false-color only at the display / encode
+    boundary. Bringing ``add_false_color`` back into a save / process
+    path bakes false-color into the stored file and breaks downstream
+    consumers that expect mono + layer metadata.
+
+    Path scope: any production ``.py``. Allowed call sites are listed
+    in ``_RULE_31B_BOUNDARY_PATHS`` -- the manual record path and
+    protocol video capture. Test files exempt via ``_is_test_path``.
+    """
+    if _is_test_path(path):
+        return []
+    norm = path.replace('\\', '/')
+    if norm in _RULE_31B_BOUNDARY_PATHS:
+        return []
+    violations: list[Violation] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        f = node.func
+        if isinstance(f, ast.Attribute) and f.attr == 'add_false_color':
+            pass
+        elif isinstance(f, ast.Name) and f.id == 'add_false_color':
+            pass
+        else:
+            continue
+        boundary_list = ', '.join(sorted(_RULE_31B_BOUNDARY_PATHS))
+        violations.append(
+            Violation(
+                path,
+                node.lineno,
+                node.col_offset,
+                'rule_31b',
+                f'add_false_color callsite outside the display / encode '
+                f'boundary. Allowed call sites: {boundary_list}. Mono '
+                f'fluorescence saves carry the layer as TIFF metadata; '
+                f'widening to RGB at the save / process layer bakes false '
+                f'color into the file. Apply false-color at the display / '
+                f'encode boundary via image_utils.mono_to_rgb_falsecolor.',
+            )
+        )
     return violations
 
 
@@ -585,6 +718,8 @@ def check_source(content: str, path: str) -> list[Violation]:
     else:
         violations.extend(_check_rule_28(tree, path))
         violations.extend(_check_rule_27d(tree, path))
+        violations.extend(_check_rule_31a(tree, path))
+        violations.extend(_check_rule_31b(tree, path))
         violations.extend(_check_rule_31c(tree, path))
         violations.extend(_check_rule_35d(tree, path))
     violations.extend(_check_rule_27a(content, path))
