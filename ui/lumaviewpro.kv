@@ -1252,6 +1252,24 @@
 					background_down: './data/icons/R_down.png'
 					on_release: root.next_step()
 			
+			BoxLayout:
+				orientation: 'horizontal'
+				size_hint_y: None
+				height: '20dp'
+				spacing: '3dp'
+				Label:
+					text: 'Focus'
+					tooltip_text: 'Z for this step. Bold means it tracks the saved focus, so Save Focus will update it; normal means it was tuned for this well and will be left alone.'
+					size_hint_x: None
+					width: '75dp'
+					font_size: '12sp'
+				Label:
+					id: step_focus_z_label
+					text: ''
+					font_size: '12sp'
+					halign: 'center'
+					valign: 'center'
+
 			# Modify individual Steps in Protocol
 			BoxLayout:
 				orientation: 'horizontal'

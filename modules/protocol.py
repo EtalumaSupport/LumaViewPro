@@ -33,6 +33,13 @@ class ProtocolFormatError(Exception):
 
 class Protocol:
     PROTOCOL_FILE_HEADER = 'LumaViewPro Protocol'
+    # Saved-focus values come from the motor board as floats; a round-trip
+    # through pandas / JSON / settings can introduce sub-um drift. 1e-3 um is
+    # well below positioning repeatability, so an at-baseline comparison stays
+    # robust. Shared by the propagation mask (update_layer_focus) and the
+    # scalar at-baseline test (step_at_layer_focus) so the cue and the
+    # propagation can never disagree on what counts as "at the focus baseline."
+    FOCUS_BASELINE_TOLERANCE_UM = 1e-3
     COLUMNS = {
         1: [
             'Name',
@@ -690,17 +697,34 @@ class Protocol:
         steps_df = self._config['steps']
         if steps_df is None or len(steps_df) == 0:
             return 0
-        # Float tolerance: the saved-focus value comes from the motor
-        # board as a float; round-trip through pandas / JSON / settings
-        # can introduce sub-um drift. 1e-3 um is well below positioning
-        # repeatability, so an at-baseline comparison stays robust.
         mask = (steps_df['Color'] == layer) & (
-            (steps_df['Z'] - old_z).abs() < 1e-3
+            (steps_df['Z'] - old_z).abs() < self.FOCUS_BASELINE_TOLERANCE_UM
         )
         count = int(mask.sum())
         if count > 0:
             steps_df.loc[mask, 'Z'] = new_z
         return count
+
+    def step_at_layer_focus(self, step_idx: int, saved_focus: float | None) -> bool:
+        """Whether the step's Z sits at the given saved-focus baseline.
+
+        True means a Save Focus on this step's layer would propagate the new
+        value to this step (it tracks the layer baseline). False means the
+        step is per-well tuned (Z differs from the baseline) or there is no
+        baseline yet. Uses the same tolerance as update_layer_focus so the
+        UI cue and the propagation agree on what counts as at-baseline.
+
+        Args:
+            step_idx: Index of the step to test.
+            saved_focus: The layer's saved-focus Z, or None if none saved.
+
+        Returns:
+            True when the step is at the baseline within tolerance.
+        """
+        if saved_focus is None:
+            return False
+        step = self.step(idx=step_idx)
+        return abs(float(step['Z']) - saved_focus) < self.FOCUS_BASELINE_TOLERANCE_UM
 
     def modify_autofocus(self, step_idx: int, enabled: bool):
         self._config['steps'].at[step_idx, 'Auto_Focus'] = enabled

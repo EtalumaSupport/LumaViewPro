@@ -143,6 +143,53 @@ class TestProtocolUpdateLayerFocus:
         assert proto.steps().loc[0, 'Z'] == 5000.0
 
 
+class TestStepAtLayerFocus:
+    """The #681 step-editor cue reads step_at_layer_focus to decide whether
+    to render a step's Z bold (tracks the layer's saved focus, so Save Focus
+    would propagate to it) or normal (per-well tuned). It must agree with
+    update_layer_focus on what counts as at-baseline -- same tolerance.
+    """
+
+    def test_step_at_baseline_is_true(self):
+        proto = _make_protocol_with_steps([
+            {'Name': 'A1_BF', 'Color': 'BF', 'Z': 7000.0, 'X': 1, 'Y': 1},
+        ])
+        assert proto.step_at_layer_focus(step_idx=0, saved_focus=7000.0) is True
+
+    def test_user_tuned_step_is_false(self):
+        proto = _make_protocol_with_steps([
+            {'Name': 'A1_BF', 'Color': 'BF', 'Z': 5500.0, 'X': 1, 'Y': 1},
+        ])
+        assert proto.step_at_layer_focus(step_idx=0, saved_focus=7000.0) is False
+
+    def test_no_saved_focus_is_false(self):
+        proto = _make_protocol_with_steps([
+            {'Name': 'A1_BF', 'Color': 'BF', 'Z': 7000.0, 'X': 1, 'Y': 1},
+        ])
+        assert proto.step_at_layer_focus(step_idx=0, saved_focus=None) is False
+
+    def test_sub_micron_drift_still_at_baseline(self):
+        # Same tolerance as update_layer_focus: 0.0005 um drift is at-baseline.
+        proto = _make_protocol_with_steps([
+            {'Name': 'A1_BF', 'Color': 'BF', 'Z': 7000.0005, 'X': 1, 'Y': 1},
+        ])
+        assert proto.step_at_layer_focus(step_idx=0, saved_focus=7000.0) is True
+
+    def test_cue_and_propagation_agree(self):
+        # The cue must not claim "at baseline" for a step that
+        # update_layer_focus would NOT propagate to, and vice versa.
+        rows = [
+            {'Name': 'A1_BF', 'Color': 'BF', 'Z': 5500.0, 'X': 1, 'Y': 1},  # tuned
+            {'Name': 'B1_BF', 'Color': 'BF', 'Z': 7000.0, 'X': 1, 'Y': 1},  # baseline
+        ]
+        cue_proto = _make_protocol_with_steps([dict(r) for r in rows])
+        prop_proto = _make_protocol_with_steps([dict(r) for r in rows])
+        cue = [cue_proto.step_at_layer_focus(i, 7000.0) for i in range(2)]
+        prop_proto.update_layer_focus(layer='BF', old_z=7000.0, new_z=4500.0)
+        propagated = [prop_proto.steps().loc[i, 'Z'] == 4500.0 for i in range(2)]
+        assert cue == propagated == [False, True]
+
+
 class TestExecuteSaveFocusStructure:
     """AST-side lock: execute_save_focus must call update_layer_focus
     on the in-memory protocol in the same try block that sets settings.

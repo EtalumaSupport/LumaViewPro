@@ -762,6 +762,10 @@ class LayerControl(BoxLayout):
                     def _refresh(_dt):
                         try:
                             ctx.stage.set_protocol_steps(df=protocol.steps())
+                            # Steps that tracked the old baseline now hold the
+                            # new Z; refresh the step editor so its per-step
+                            # focus readout reflects the propagated value.
+                            ctx.motion_settings.ids['protocol_settings_id'].update_step_ui()
                         except Exception:
                             pass
 
