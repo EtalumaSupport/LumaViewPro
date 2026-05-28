@@ -7,6 +7,12 @@ settings = None
 
 debug_setting = None
 
+# Which file load_debug_setting() actually read debug_mode from
+# (current.json or settings.json basename), so the startup banner can
+# state the source. Editing the wrong file is a common confusion -- the
+# live value comes from current.json once it exists, not settings.json.
+debug_setting_source = None
+
 # Required top-level keys that must exist in a valid settings file.
 # Missing keys cause hard-to-debug runtime errors downstream.
 _REQUIRED_SETTINGS_KEYS = frozenset(
@@ -175,10 +181,11 @@ def _resolve_settings_path(directory):
 
 
 def load_debug_setting(directory):
-    global debug_setting
+    global debug_setting, debug_setting_source
 
     try:
         filename = _resolve_settings_path(directory)
+        debug_setting_source = os.path.basename(filename)
 
         with open(filename, 'r') as read_file:
             temp_settings = json.load(read_file)

@@ -600,6 +600,18 @@ def log_environment_banner(source_path: str, version_str: str):
         f'[LVP Main  ] Git:       {_git_hash or "unknown (use BuildGUID or Branch + Built)"}'
     )
 
+    # debug_mode gates all DEBUG-level output (including the preview [PERF]
+    # lines). State the resolved value AND which file it came from so a
+    # support bundle alone answers "was debug on, and where is it set?" --
+    # the live value is read from current.json once that exists, so editing
+    # settings.json has no effect on an established install.
+    from modules import settings_init as _si
+
+    logger.info(
+        f'[LVP Main  ] Debug:     debug_mode={debug} '
+        f'(from {_si.debug_setting_source or "default -- settings file unread"})'
+    )
+
     # Host + OS + Python + key library versions.
     try:
         import platform as _platform
