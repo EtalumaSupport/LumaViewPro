@@ -192,7 +192,11 @@ class StackBuilder(ProtocolPostProcessor):
         output_file_loc: pathlib.Path,
         focal_length: float,
         binning_size: int,
+        sort_order: list[str] | None = None,
     ):
+        if sort_order is None:
+            sort_order = ['Scan Count', 'Z-Slice', 'Color Index']
+
         num_t = df['Scan Count'].nunique()
         num_z = df['Z-Slice'].nunique()
         num_c = df['Color'].nunique()
@@ -212,7 +216,7 @@ class StackBuilder(ProtocolPostProcessor):
             dtype=sample_image.dtype,
         )
 
-        df = df.sort_values(by=['Scan Count', 'Z-Slice', 'Color Index'], ascending=True)
+        df = df.sort_values(by=sort_order, ascending=True)
 
         plane_metadata = {
             'PositionX': [],
@@ -271,76 +275,26 @@ class StackBuilder(ProtocolPostProcessor):
         focal_length: float,
         binning_size: int,
     ):
-        num_t = df['Scan Count'].nunique()
-        num_z = df['Z-Slice'].nunique()
-        num_c = df['Color'].nunique()
-
-        row0 = df.iloc[0]
-        sample_image_file_loc = path / row0['Filepath']
-        sample_image = tf.imread(sample_image_file_loc)
-        sample_image_shape = sample_image.shape
-
-        _, color_idx_map = np.unique(df['Color'], return_inverse=True)
-        df['Color Index'] = color_idx_map
-
-        h, w = sample_image_shape[0], sample_image_shape[1]
-
-        _check_hyperstack_memory(num_t, num_z, num_c, h, w, sample_image.dtype)
-        stacked_image = np.zeros(
-            shape=(num_t, num_z, num_c, h, w),  # Hyperstack order TZCYX
-            dtype=sample_image.dtype,
-        )
-
-        df = df.sort_values(by=['Scan Count'], ascending=True)
-
-        plane_metadata = {
-            'PositionX': [],
-            'PositionY': [],
-            'PositionZ': [],
-        }
-
-        for _, row in df.iterrows():
-            t = row['Scan Count']
-            z = row['Z-Slice']
-            c = row['Color Index']
-            image = tf.imread(path / row['Filepath'])
-
-            if image_utils.is_color_image(image):
-                image = image_utils.rgb_image_to_gray(image=image)
-
-            stacked_image[t, z, c, :, :] = image
-            plane_metadata['PositionX'].append(row['X'])
-            plane_metadata['PositionY'].append(row['Y'])
-            plane_metadata['PositionZ'].append(row['Z'])
-
-        num_planes = len(plane_metadata['PositionX'])
-        plane_metadata['PositionXUnit'] = num_planes * ['mm']
-        plane_metadata['PositionYUnit'] = num_planes * ['mm']
-        plane_metadata['PositionZUnit'] = num_planes * ['um']
-
-        ome_info = StackBuilder._generate_image_metadata(
-            df=df,
+        # Manual-recording entry point: sorts by Scan Count alone (Z and
+        # Color axes collapse to single values for single recordings)
+        # and accepts an absolute output_file_loc that the caller has
+        # already resolved against the save folder. Delegates to
+        # _create_stack for the canonical write path; output_file_loc
+        # is normalized to relative-to-path so _create_stack's internal
+        # `path / output_file_loc` join reconstructs the original
+        # absolute target.
+        try:
+            rel_loc = output_file_loc.relative_to(path)
+        except ValueError:
+            rel_loc = pathlib.Path(output_file_loc.name)
+        return StackBuilder._create_stack(
             path=path,
-            output_file_loc=output_file_loc,
-            plane_metadata=plane_metadata,
+            df=df,
+            output_file_loc=rel_loc,
             focal_length=focal_length,
             binning_size=binning_size,
+            sort_order=['Scan Count'],
         )
-
-        output_file_loc_abs = output_file_loc
-        output_file_loc_abs.parent.mkdir(exist_ok=True, parents=True)
-        tf.imwrite(
-            output_file_loc_abs,
-            data=stacked_image,
-            bigtiff=stacked_image.nbytes > 3.8 * 1024 * 1024 * 1024,
-            ome=True,
-            imagej=True,
-            metadata=ome_info['metadata'],
-            resolution=ome_info['resolution'],
-            **ome_info['options'],
-        )
-
-        return {'status': True, 'error': None, 'metadata': {}}
 
 
 if __name__ == '__main__':
