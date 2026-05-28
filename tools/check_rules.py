@@ -375,6 +375,7 @@ _POST_PROCESSOR_WRITE_PATHS = frozenset({
     'modules/zprojector.py',
     'modules/stitcher.py',
     'modules/composite_generation.py',
+    'modules/stack_builder.py',
 })
 
 _TIFFFILE_NAMES = frozenset({'tf', 'tifffile'})

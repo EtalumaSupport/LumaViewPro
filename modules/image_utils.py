@@ -784,7 +784,37 @@ def write_tiff(
     use_false_color_16bit: bool | None = None,
     false_color_buf: np.ndarray | None = None,
     rgb_buf: np.ndarray | None = None,
+    hyperstack_metadata: dict | None = None,
+    hyperstack_options: dict | None = None,
+    hyperstack_resolution: tuple | None = None,
 ):
+    if hyperstack_metadata is not None:
+        # Hyperstack TZCYX path: 5D data with caller-prepared OME
+        # metadata (from build_hyperstack_output_metadata) and explicit
+        # per-tiff options. Bypasses the per-image branches below --
+        # maybe_apply_false_color expects 2D mono input, generate_tiff_data
+        # generates per-image metadata, and _validate_type rejects the
+        # ome=True + imagej=True combo that hyperstack readers (FIJI,
+        # ImageJ) consume together. The caller (stack_builder) supplies
+        # the full OME dict + write options + resolution; this branch
+        # passes them through verbatim.
+        use_bigtiff = data.nbytes > 3.8 * 1024 * 1024 * 1024
+        write_options = hyperstack_options or {}
+        with tf.TiffWriter(
+            str(file_loc),
+            ome=True,
+            imagej=True,
+            bigtiff=use_bigtiff,
+        ) as tif:
+            tif.write(
+                data,
+                resolution=hyperstack_resolution,
+                metadata=hyperstack_metadata,
+                software=f'LumaViewPro {version}',
+                **write_options,
+            )
+        return
+
     if extratags is None:
         extratags = []
 

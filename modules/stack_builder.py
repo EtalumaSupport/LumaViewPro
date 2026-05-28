@@ -254,15 +254,20 @@ class StackBuilder(ProtocolPostProcessor):
 
         output_file_loc_abs = path / output_file_loc
         output_file_loc_abs.parent.mkdir(exist_ok=True, parents=True)
-        tf.imwrite(
-            output_file_loc_abs,
+        # Route through write_tiff's hyperstack override hook so the
+        # canonical LVP write path owns the file-creation side of the
+        # save pipeline. metadata / ome / color are unused on this path
+        # (the hyperstack_* kwargs carry the OME-XML + write options);
+        # the placeholder kwargs satisfy the existing signature.
+        image_utils.write_tiff(
             data=stacked_image,
-            bigtiff=stacked_image.nbytes > 3.8 * 1024 * 1024 * 1024,
+            file_loc=output_file_loc_abs,
+            metadata={},
             ome=True,
-            imagej=True,
-            metadata=ome_info['metadata'],
-            resolution=ome_info['resolution'],
-            **ome_info['options'],
+            color='',
+            hyperstack_metadata=ome_info['metadata'],
+            hyperstack_options=ome_info['options'],
+            hyperstack_resolution=ome_info['resolution'],
         )
 
         return {'status': True, 'error': None, 'metadata': {}}

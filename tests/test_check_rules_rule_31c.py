@@ -145,15 +145,38 @@ def _build_composite(arr, path):
 '''
         assert _violations(src, 'modules/composite_generation.py') == []
 
-    def test_stack_builder_still_out_of_scope(self):
-        # stack_builder.py is not yet covered by rule_31c -- the bare
-        # tf.imwrite migration there is the back-burnered stack_builder
-        # follow-on cluster. Hook extends to stack_builder when the
-        # cluster lands.
+    def test_stack_builder_bare_tf_imwrite_blocks(self):
+        # stack_builder joined the post-processor write path set when
+        # the hyperstack write was routed through image_utils.write_tiff
+        # (via the hyperstack_metadata override hook). A regression that
+        # reintroduces a bare tifffile.imwrite in stack_builder bypasses
+        # the canonical save path; the rule catches it.
         src = '''
 import tifffile as tf
 
 def _save(arr, path):
     tf.imwrite(str(path), arr, ome=True)
+'''
+        violations = _violations(src, 'modules/stack_builder.py')
+        assert len(violations) == 1
+        assert violations[0].rule == 'rule_31c'
+
+    def test_stack_builder_with_write_tiff_helper_passes(self):
+        # The new canonical shape: stack_builder calls write_tiff with
+        # the hyperstack_metadata override. The helper presence in the
+        # same function satisfies the pairing requirement even if a
+        # bare imwrite slipped in (belt-and-suspenders).
+        src = '''
+from modules import image_utils
+
+def _create_stack(arr, path):
+    image_utils.write_tiff(
+        data=arr,
+        file_loc=path,
+        metadata={},
+        ome=True,
+        color='',
+        hyperstack_metadata={'axes': 'TZCYX'},
+    )
 '''
         assert _violations(src, 'modules/stack_builder.py') == []
