@@ -3615,8 +3615,8 @@ class ImageHandler(pylon.ImageEventHandler):
             except BaseException as e:
                 _log_safely(f'profile_trace.trace raised {type(e).__name__}: {e}')
             try:
-                # Env-gated handle-leak tracking; zero overhead when disabled.
-                # Enable with LVP_HANDLE_TRACE=1.
+                # Handle-leak tracking; zero overhead when disabled. Enable
+                # via the profiling.handle_trace_enabled setting.
                 from lib.handle_trace import tick as _h_tick
 
                 _h_tick('OnImageGrabbed')

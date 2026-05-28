@@ -10917,6 +10917,49 @@ class TestProfileTraceGateIsNotEnvVar:
         )
 
 
+class TestHandleTraceGateIsNotEnvVar:
+    """handle_trace must NOT be gated by an environment variable.
+
+    Per the options-menu rule, runtime toggles live in settings.json or
+    as a code constant -- never as an environment variable. The earlier
+    LVP_HANDLE_TRACE / LVP_OBJ_SAMPLE_EVERY module-load gate was a
+    redundant second path alongside the profiling.handle_trace_enabled
+    settings key that microscope_settings.start_app() already honors. The
+    env block was deleted; this AST scan pins the removal so it can't
+    return.
+    """
+
+    def _handle_trace_source(self):
+        from pathlib import Path
+
+        return (Path(__file__).resolve().parent.parent / 'lib' / 'handle_trace.py').read_text()
+
+    def test_no_handle_trace_env_vars_in_module(self):
+        import ast
+
+        src = self._handle_trace_source()
+        tree = ast.parse(src)
+
+        hits = []
+
+        class Visitor(ast.NodeVisitor):
+            def visit_Constant(self, node):
+                if isinstance(node.value, str) and node.value in (
+                    'LVP_HANDLE_TRACE',
+                    'LVP_OBJ_SAMPLE_EVERY',
+                ):
+                    hits.append((node.lineno, node.value))
+                self.generic_visit(node)
+
+        Visitor().visit(tree)
+        assert not hits, (
+            'lib/handle_trace.py must not reference LVP_HANDLE_TRACE / '
+            'LVP_OBJ_SAMPLE_EVERY as string literals -- the env-var gate '
+            'is retired in favor of the profiling.handle_trace_enabled '
+            f'settings key. Hits: {hits}'
+        )
+
+
 class TestDebugGateIsNotEnvVar:
     """The global DEBUG-suppression gate must NOT read an env var.
 

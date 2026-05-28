@@ -490,8 +490,8 @@ def save_image(
         )
         raise
 
-    # Env-gated handle-leak tracking; zero overhead when disabled.
-    # Enable with LVP_HANDLE_TRACE=1.
+    # Handle-leak tracking; zero overhead when disabled. Enable via the
+    # profiling.handle_trace_enabled setting.
     _h_tick('save_image')
 
     return file_loc

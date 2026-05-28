@@ -317,9 +317,7 @@ class MicroscopeSettings(BoxLayout):
 
             # Handle / object-type leak diagnostic. Same opt-in pattern as
             # the memory profiler above; settings-driven so customers and
-            # bench operators can enable without rebuilding or setting
-            # env vars. Env var LVP_HANDLE_TRACE=1 also works (handled at
-            # module load in lib/handle_trace.py).
+            # bench operators can enable without rebuilding.
             if settings.get('profiling', {}).get('handle_trace_enabled', False):
                 from lib import handle_trace as _handle_trace
 
