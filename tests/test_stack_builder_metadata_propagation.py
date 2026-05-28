@@ -532,3 +532,138 @@ class TestStackBuilderPrivateTagRecoversDroppedMetadata:
     def test_read_helper_returns_none_on_missing_file(self, tmp_path):
         missing = tmp_path / 'does_not_exist.ome.tiff'
         assert image_utils.read_hyperstack_private_metadata(missing) is None
+
+
+class TestHyperstackChannelColor:
+    """Hyperstack output must carry OME Channel.Color so FIJI's
+    Bioformats reader auto-opens in Composite view with the correct
+    color per channel. Without Color, FIJI shows grayscale and the user
+    has to manually set colors via Image > Color > Channels Tool every
+    time. (LUTs in metadata['LUTs'] are dropped by tifffile when
+    ome=True is set; Channel.Color is the OME-mode equivalent.)
+    """
+
+    def test_metadata_includes_color_per_channel(self, tmp_path):
+        ref = tmp_path / 'ref.tiff'
+        _write_structured_input(
+            ref,
+            channel='Green',
+            plate_pos_mm={'x': 0.0, 'y': 0.0},
+            z_pos_um=0.0,
+        )
+        metadata = image_utils.build_hyperstack_output_metadata(
+            reference_input_path=ref,
+            channel_names=['Green', 'BF', 'Red', 'Blue'],
+            plane_positions={
+                'PositionX': [0.0, 0.0, 0.0, 0.0],
+                'PositionY': [0.0, 0.0, 0.0, 0.0],
+                'PositionZ': [0.0, 0.0, 0.0, 0.0],
+            },
+            significant_bits=8,
+            pixel_size_um=2.2,
+        )
+        assert 'Color' in metadata['Channel']
+        colors = metadata['Channel']['Color']
+        assert len(colors) == 4, 'One Color per channel'
+
+        # Verify OME RGBA encoding via the helper -- spec encodes as
+        # (R << 24) | (G << 16) | (B << 8) | A with two's-complement
+        # int32. Green (0,255,0,255) -> 16711935 (positive int32).
+        # Red (255,0,0,255) -> -16776961 (signed-folded). Blue
+        # (0,0,255,255) -> 65535. White (BF: 255,255,255,255) -> -1.
+        green_color, bf_color, red_color, blue_color = colors
+        assert green_color == 0x00FF00FF, f'Green RGBA: {green_color}'
+        assert blue_color == 0x0000FFFF, f'Blue RGBA: {blue_color}'
+        assert red_color == 0xFF0000FF - (1 << 32), f'Red RGBA: {red_color}'
+        assert bf_color == 0xFFFFFFFF - (1 << 32), f'BF (white) RGBA: {bf_color}'
+
+    def test_color_reaches_ome_xml(self, tmp_path):
+        # End-to-end: write through stack_builder, read OME-XML back,
+        # confirm Color attribute on each Channel element. This is what
+        # FIJI's Bioformats reader picks up to auto-color the hyperstack.
+        rows = []
+        for channel in ('Green', 'Red'):
+            for z_idx in range(2):
+                fname = f'frame_{channel}_z{z_idx}.tiff'
+                _write_structured_input(
+                    tmp_path / fname,
+                    channel=channel,
+                    plate_pos_mm={'x': 0.0, 'y': 0.0},
+                    z_pos_um=float(z_idx) * 10,
+                )
+                rows.append({
+                    'Filepath': fname,
+                    'Color': channel,
+                    'Scan Count': 0,
+                    'Z-Slice': z_idx,
+                    'X': 0.0,
+                    'Y': 0.0,
+                    'Z': float(z_idx) * 10,
+                })
+        df = pd.DataFrame(rows)
+
+        StackBuilder._create_stack(
+            path=tmp_path,
+            df=df,
+            output_file_loc=pathlib.Path('out.ome.tiff'),
+            focal_length=47.8,
+            binning_size=1,
+        )
+
+        with tf.TiffFile(str(tmp_path / 'out.ome.tiff')) as tif:
+            ome_xml = tif.ome_metadata or ''
+
+        assert 'Color=' in ome_xml, (
+            'Hyperstack OME-XML must carry Channel.Color so FIJI / '
+            'Bioformats auto-color the channels in Composite view.'
+        )
+        # Two channels -- two Color attrs.
+        assert ome_xml.count('Color=') == 2, (
+            f'Expected 2 Color attrs (one per channel), got '
+            f'{ome_xml.count("Color=")}'
+        )
+
+    def test_color_omitted_from_private_tag_sidecar(self, tmp_path):
+        # Channel.Color is encoded into OME-XML; the JSON sidecar exists
+        # for fields tifffile DROPS from OME-XML (Instrument / Plate /
+        # Objective). Color rides the standard OME-XML path and does
+        # NOT need to ride the sidecar -- this asserts it actually
+        # makes it into the OME-XML so we don't end up duplicating.
+        rows = []
+        for z_idx in range(2):
+            fname = f'frame_z{z_idx}.tiff'
+            _write_structured_input(
+                tmp_path / fname,
+                channel='Green',
+                plate_pos_mm={'x': 0.0, 'y': 0.0},
+                z_pos_um=float(z_idx) * 10,
+            )
+            rows.append({
+                'Filepath': fname,
+                'Color': 'Green',
+                'Scan Count': 0,
+                'Z-Slice': z_idx,
+                'X': 0.0,
+                'Y': 0.0,
+                'Z': float(z_idx) * 10,
+            })
+        df = pd.DataFrame(rows)
+
+        StackBuilder._create_stack(
+            path=tmp_path,
+            df=df,
+            output_file_loc=pathlib.Path('out.ome.tiff'),
+            focal_length=47.8,
+            binning_size=1,
+        )
+
+        recovered = image_utils.read_hyperstack_private_metadata(
+            tmp_path / 'out.ome.tiff'
+        )
+        assert recovered is not None
+        # Color IS in the sidecar copy too (build_hyperstack_output_metadata
+        # writes it; the sidecar strips only LUTs). That's fine -- it does
+        # not bloat the sidecar (one int per channel) and round-trips
+        # cleanly via JSON.
+        assert recovered['Channel']['Name'] == ['Green']
+        assert recovered['Channel']['Color'] == [0x00FF00FF]

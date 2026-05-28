@@ -401,6 +401,23 @@ def build_hyperstack_output_metadata(
 
     num_planes = len(plane_positions['PositionX'])
 
+    # Per-channel OME Color hints so FIJI's Bioformats reader auto-
+    # opens the hyperstack in Composite view with the right color per
+    # channel. OME-XML uses a signed 32-bit RGBA integer per channel
+    # (R << 24 | G << 16 | B << 8 | A, two's-complement-folded into
+    # int32). Tifffile drops metadata['LUTs'] when ome=True is set on
+    # the writer (the OME-XML is the canonical color carrier in that
+    # mode); Channel.Color reaches the same FIJI auto-rendering path
+    # via Bioformats. Channels not mapped by LvpColormap fall back to
+    # white (-1) which FIJI renders as plain grayscale.
+    channel_colors: list[int] = []
+    for name in channel_names:
+        try:
+            colormap_type = color_channel_to_colormap_type(color_channel=name)
+        except Exception:
+            colormap_type = LvpColormap.GRAY
+        channel_colors.append(_lvp_colormap_to_ome_rgba(colormap_type))
+
     metadata: dict = {
         'axes': 'TZCYX',
         'SignificantBits': significant_bits,
@@ -410,7 +427,7 @@ def build_hyperstack_output_metadata(
             'PhysicalSizeY': pixel_size_um,
             'PhysicalSizeYUnit': 'um',
         },
-        'Channel': {'Name': channel_names},
+        'Channel': {'Name': channel_names, 'Color': channel_colors},
         'Plane': {
             'PositionX': plane_positions['PositionX'],
             'PositionY': plane_positions['PositionY'],
@@ -789,6 +806,25 @@ def get_tiff_colormap(colormap: LvpColormap, dtype):
     return cmap_array
 
 
+def _lvp_colormap_to_ome_rgba(colormap: 'LvpColormap') -> int:
+    """Map an LVP colormap to the signed-32-bit OME Channel.Color value.
+
+    OME-XML encodes Channel.Color as ``(R << 24) | (G << 16) | (B << 8) | A``
+    with the unsigned 32-bit result reinterpreted as Python signed int32.
+    Used by FIJI's Bioformats reader to assign a per-channel LUT when
+    opening the hyperstack -- without it, FIJI defaults to grayscale.
+    """
+    color_map = {
+        LvpColormap.RED: (255, 0, 0),
+        LvpColormap.GREEN: (0, 255, 0),
+        LvpColormap.BLUE: (0, 0, 255),
+        LvpColormap.GRAY: (255, 255, 255),
+    }
+    r, g, b = color_map.get(colormap, (255, 255, 255))
+    unsigned = (r << 24) | (g << 16) | (b << 8) | 0xFF
+    return unsigned - (1 << 32) if unsigned >= (1 << 31) else unsigned
+
+
 def get_imagej_lut(colormap: LvpColormap):
     """Build an ImageJ-style LUT: (3, 256) uint8 array.
 
@@ -866,8 +902,18 @@ def write_tiff(
         # ignore the unknown tag.
         use_bigtiff = data.nbytes > 3.8 * 1024 * 1024 * 1024
         write_options = hyperstack_options or {}
+        # Strip rendering-hint keys from the JSON sidecar copy. LUTs +
+        # Channel.Color are encoded into the file's TIFF / OME-XML
+        # sections directly; the sidecar is for LVP-aware consumers
+        # recovering the dropped-by-tifffile OME subtrees (Instrument /
+        # Plate / Objective), not for re-deriving the file's render
+        # hints. Bloats the sidecar by ~3 KB per channel of LUT data
+        # for zero downstream value if left in.
+        sidecar_metadata = {
+            k: v for k, v in hyperstack_metadata.items() if k != 'LUTs'
+        }
         sidecar_json = json.dumps(
-            hyperstack_metadata, default=_json_default_numpy
+            sidecar_metadata, default=_json_default_numpy
         )
         sidecar_extratag = (
             LVP_HYPERSTACK_METADATA_TIFF_TAG,
