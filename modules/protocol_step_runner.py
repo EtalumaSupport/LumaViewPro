@@ -275,7 +275,7 @@ class ProtocolStepRunner:
                     save_folder = p._run_dir
 
                 output_format = p._image_capture_config['output_format']['sequenced']
-                if output_format == 'ImageJ Hyperstack':
+                if output_format == 'OME-TIFF Hyperstack':
                     output_format = 'TIFF'
 
                 # Video encoding runs on FILE_WORKER after capture -- no gate needed

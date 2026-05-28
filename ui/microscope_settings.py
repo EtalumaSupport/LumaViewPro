@@ -398,9 +398,16 @@ class MicroscopeSettings(BoxLayout):
             ]
             self.select_live_image_output_format()
 
-            self.ids['sequenced_image_output_format_spinner'].text = settings[
-                'image_output_format'
-            ]['sequenced']
+            # Migrate legacy 'ImageJ Hyperstack' spinner value to the
+            # honest 'OME-TIFF Hyperstack' label. The underlying file
+            # format never changed (always OME-TIFF); only the label
+            # was misleading. Migrating on load means existing user
+            # settings.json files keep working without manual edits.
+            sequenced_fmt = settings['image_output_format']['sequenced']
+            if sequenced_fmt == 'ImageJ Hyperstack':
+                sequenced_fmt = 'OME-TIFF Hyperstack'
+                settings['image_output_format']['sequenced'] = sequenced_fmt
+            self.ids['sequenced_image_output_format_spinner'].text = sequenced_fmt
             self.select_sequenced_image_output_format()
 
             # camera_max_exposure returns None when no camera is connected;

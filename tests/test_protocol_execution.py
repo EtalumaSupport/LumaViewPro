@@ -1212,13 +1212,13 @@ class TestHighExposure:
         assert completed
 
 
-class TestImageJHyperstackFormat:
-    """ImageJ Hyperstack output format (converted to TIFF internally)."""
+class TestOmeTiffHyperstackFormat:
+    """OME-TIFF Hyperstack output format (formerly labeled 'ImageJ Hyperstack')."""
 
     def test_completes_with_hyperstack_format(self, executor, scope, tmp_path):
         protocol = _make_single_step_protocol(color='BF')
         config = _make_image_capture_config()
-        config['output_format']['sequenced'] = 'ImageJ Hyperstack'
+        config['output_format']['sequenced'] = 'OME-TIFF Hyperstack'
         completed, _ = _run_and_wait(executor, protocol, tmp_path, image_capture_config=config)
         assert completed
 

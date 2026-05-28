@@ -272,18 +272,18 @@ def get_protocol_time_params() -> dict:
 def create_hyperstacks_if_needed():
     ctx = _app_ctx.ctx
     image_capture_config = get_image_capture_config_from_ui()
-    if image_capture_config['output_format']['sequenced'] == 'ImageJ Hyperstack':
+    if image_capture_config['output_format']['sequenced'] == 'OME-TIFF Hyperstack':
         import threading
         from modules.notification_center import notifications
 
         notifications.info(
             'FileIO',
             'Saving Hyperstacks',
-            'Building ImageJ Hyperstacks from captured data.\n'
+            'Building OME-TIFF Hyperstacks from captured data.\n'
             'This may take several minutes for large datasets.',
         )
 
-        logger.info('Building ImageJ Hyperstacks from captured data')
+        logger.info('Building OME-TIFF Hyperstacks from captured data')
         _, objective = get_current_objective_info()
         run_dir = ctx.sequenced_capture_runner.run_dir()
         tiling_loc = pathlib.Path(ctx.source_path) / 'data' / 'tiling.json'

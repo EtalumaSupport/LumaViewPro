@@ -2176,7 +2176,7 @@
 				height: '30dp'
 				Label:
 					text: 'Sequenced Image Format'
-					tooltip_text: 'Choose between TIFF, OME-TIFF or\nImageJ Hyperstack with TIFF\nfor Protocol image capture'
+					tooltip_text: 'Choose between TIFF, OME-TIFF, or\nOME-TIFF Hyperstack\nfor Protocol image capture'
 					halign: 'left'
 					valign: 'middle'
 					text_size: self.size
@@ -2189,7 +2189,7 @@
 					option_cls: "SpinnerOption0"
 					text_autoupdate: True
 					on_text: root.select_sequenced_image_output_format()
-					values: ('TIFF', 'OME-TIFF', 'ImageJ Hyperstack')
+					values: ('TIFF', 'OME-TIFF', 'OME-TIFF Hyperstack')
 
 			BoxLayout:
 				orientation: 'horizontal'

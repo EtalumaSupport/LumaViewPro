@@ -670,7 +670,7 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
             if video_as_frames:
                 image_capture_config = ui_snapshot['image_capture_config']
 
-                if image_capture_config['output_format']['sequenced'] == 'ImageJ Hyperstack':
+                if image_capture_config['output_format']['sequenced'] == 'OME-TIFF Hyperstack':
                     include_hyperstack_generation = True
                     _, objective = ui_snapshot['objective_info']
                     stack_builder = StackBuilder(
