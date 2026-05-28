@@ -1,5 +1,5 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""Driver registry — retires the hardcoded if/elif chains in Lumascope.__init__.
+"""Driver registry -- retires the hardcoded if/elif chains in Lumascope.__init__.
 
 Pre-B2, `Lumascope.__init__` hardcoded driver selection:
 
@@ -11,8 +11,8 @@ Pre-B2, `Lumascope.__init__` hardcoded driver selection:
 
 Adding a new hardware variant (e.g., the FX2 driver for Lumaview Classic,
 or a TMC5240-based RP2350 motor board) meant editing this constructor
-and coupling it to every driver class. Rule 10 ("New hardware = new
-driver, zero changes above") was violated.
+and coupling it to every driver class. New hardware should mean a new
+driver with zero changes above this layer.
 
 B2 replaces the chains with three registries (motor / LED / camera).
 Each driver self-registers via decorator:

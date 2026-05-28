@@ -1,6 +1,6 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 #
-# Rule 15: Executors must be GUI-agnostic. No Kivy imports here.
+# Executors must be GUI-agnostic. No Kivy imports here.
 # UI callbacks are dispatched via _ui_dispatch(), which defaults to
 # direct invocation. The GUI layer passes Clock.schedule_once as
 # the ui_dispatcher parameter when constructing executors.
@@ -171,8 +171,8 @@ class IOTask:
             # When True, _on_task_done skips the generic "Task failed"
             # notification on exception -- the caller's callback (or its
             # surrounding context) is responsible for user-facing
-            # notification. Logs are unaffected. Rule 14: API/caller
-            # decides whether to notify, not the executor.
+            # notification. Logs are unaffected. The API/caller decides
+            # whether to notify, not the executor.
             self.silent_on_failure = silent_on_failure
             if args is None:
                 self.args = ()
@@ -386,7 +386,7 @@ class SequentialIOExecutor:
         self.protocol_complete_cb_args = ()
         self.protocol_complete_cb_kwargs = {}
 
-        # UI dispatcher — Rule 15: executors don't import GUI frameworks.
+        # UI dispatcher -- executors don't import GUI frameworks.
         # GUI layer passes Clock.schedule_once; tests/headless use default.
         self._ui_dispatch = ui_dispatcher or _direct_dispatch
 
@@ -679,12 +679,12 @@ class SequentialIOExecutor:
                     f'cancelled (by-contract)'
                 )
             elif getattr(task, 'silent_on_failure', False):
-                # Caller opted in to handle its own notification (Rule 14:
-                # API/caller decides, not the executor). Exception is still
-                # logged at ERROR via IOTask.run() and captured in the
-                # exception passed to the callback. Suppress the generic
-                # "Task failed" popup. Used for the protocol image-writer
-                # retry path where per-failure popups would stack
+                # Caller opted in to handle its own notification (API/caller
+                # decides, not the executor). Exception is still logged at
+                # ERROR via IOTask.run() and captured in the exception
+                # passed to the callback. Suppress the generic "Task failed"
+                # popup. Used for the protocol image-writer retry path
+                # where per-failure popups would stack
                 # (see protocol_image_writer.execute_step).
                 pass
             else:

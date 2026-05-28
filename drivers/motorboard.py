@@ -256,10 +256,10 @@ class MotorBoard(SerialBoard):
         if info is None:
             # Connection never completed (port held / open() failed) so
             # FULLINFO was never cached. Defensive: the registry's
-            # is_connected() gate (commit a5f5eff) should keep callers
-            # from ever seeing a real MotorBoard with _fullinfo=None,
-            # but defense-in-depth per Rule 8 — driver methods must
-            # never raise on a disconnected instance.
+            # is_connected() gate should keep callers from ever seeing a
+            # real MotorBoard with _fullinfo=None, but defense-in-depth
+            # demands driver methods never raise on a disconnected
+            # instance.
             return None
         return info.get('model')
 
@@ -1430,9 +1430,9 @@ class MotorBoard(SerialBoard):
     # commands added in firmware revisions after 2024-09-10. Older
     # firmware responds with `ERROR: command 'X' not found:` and the
     # driver returns None / False instead of leaking that response to
-    # callers. Per Rule 10 the firmware-shape knowledge stays here so
-    # diagnostic callers (TSR, future REST diagnostic endpoint) need
-    # not parse raw firmware responses.
+    # callers. Firmware-shape knowledge stays here so diagnostic
+    # callers (TSR, future REST diagnostic endpoint) need not parse
+    # raw firmware responses.
 
     def _diagnostic_query(self, command: str) -> str | None:
         """Send a capability-gated diagnostic command.

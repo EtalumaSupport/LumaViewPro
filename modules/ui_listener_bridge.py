@@ -65,7 +65,7 @@ class UIListenerBridge:
                 ``Clock.schedule_once(func, dt)`` -- used to marshal
                 listener callbacks (which fire on the worker thread
                 that caused the change) onto the UI thread. Passed
-                instead of imported per Rule 15.
+                instead of imported (the bridge stays GUI-agnostic).
         """
         self._scope = scope
         self._ctx = ctx
@@ -78,8 +78,8 @@ class UIListenerBridge:
         self._pending_led_updates: dict[str, bool] = {}
 
         # LayerControl is imported lazily inside the LED listener to
-        # avoid a UI-import at module-load time (the bridge module is
-        # explicitly Rule-15: no GUI imports).
+        # avoid a UI-import at module-load time (the bridge module
+        # stays GUI-agnostic: no GUI imports).
         self._LayerControl = None
 
     # ------------------ Listener implementations ------------------
@@ -111,8 +111,8 @@ class UIListenerBridge:
         ctx = self._ctx
         scope = self._scope
 
-        # Lazy import — keeps Rule 15 clean (no GUI module imported at
-        # bridge construction time).
+        # Lazy import keeps the executor layer GUI-agnostic (no GUI
+        # module imported at bridge construction time).
         if self._LayerControl is None:
             from ui.layer_control import LayerControl
 

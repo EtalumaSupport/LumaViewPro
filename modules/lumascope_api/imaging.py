@@ -1561,9 +1561,9 @@ class ImagingAPI:
 
                 time.sleep(sum_delay_s)
 
-        # PF-5: chain via a local variable instead of self.image_buffer. The
-        # old field was a permanent shadow copy of the latest get_image result,
-        # only ever read by get_image itself — Rule 2 violation that pinned a
+        # Chain via a local variable instead of self.image_buffer. The old
+        # field was a permanent shadow copy of the latest get_image result,
+        # only ever read by get_image itself -- shadow state that pinned a
         # frame indefinitely between calls. The _state_lock around per-write
         # didn't actually serialize concurrent get_image calls anyway (chained
         # writes from different threads could still interleave).

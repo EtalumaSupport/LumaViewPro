@@ -1,5 +1,5 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""Scope capability dataclass — the canonical "what does this scope have" query.
+"""Scope capability dataclass -- the canonical "what does this scope have" query.
 
 Pre-B7, callers asked capability questions piecemeal:
     scope.axes_present()            # list[str]
@@ -12,8 +12,8 @@ Pre-B7, callers asked capability questions piecemeal:
 Each query touched the driver layer. Queries from different subsystems had
 subtly different code paths, different error-handling, and different names
 for the same underlying facts ("has_turret" vs "'T' in axes_present" vs
-"motion.has_turret()"). Rule 9 ("Query capabilities, don't assume") called
-for a single place where this information lives.
+"motion.has_turret()"). Callers need a single place where this information
+lives -- query capabilities, don't assume.
 
 ScopeCapabilities is that place. It's a frozen dataclass built once at
 init from the three drivers (motion / LED / camera). Callers read fields
@@ -45,7 +45,7 @@ def _probe(label: str, fn: Callable[[], Any], fallback: Any) -> Any:
     code) propagate so they surface for debugging.
 
     Catches:
-        - AttributeError / NotImplementedError: feature absent per Rule 8.
+        - AttributeError / NotImplementedError: feature absent.
         - HardwareError: real driver fault. Logged at warning so it's
           visible in main log; fallback used so capability dataclass
           still constructs.
@@ -61,8 +61,8 @@ def _probe(label: str, fn: Callable[[], Any], fallback: Any) -> Any:
 
 # Canonical home for the LED current cap (matches firmware CH_MAX).
 # Lumascope previously carried this as a `LED_MAX_MA` class constant
-# (freeze-audit Finding #38) which surfaced the same value on two
-# layers with inconsistent SoT; capabilities is the right home.
+# which surfaced the same value on two layers with inconsistent SoT;
+# capabilities is the right home.
 LED_MAX_MA: int = 1000
 
 
@@ -193,9 +193,9 @@ class ScopeCapabilities:
     def supports(self, feature: str) -> bool:
         """Return True if the scope advertises the named feature.
 
-        Cross-surface helper that the Rule 8 capability-probe corollary
-        cites: callers test for a feature by token rather than by
-        knowing which surface owns it. Searches the boolean
+        Cross-surface helper for the capability-probe pattern: callers
+        test for a feature by token rather than by knowing which surface
+        owns it. Searches the boolean
         `has_<feature>` fields (motion-shape: focus / xy_stage /
         turret) and the boolean `camera_supports_<feature>` fields
         (camera-shape: auto_gain / auto_exposure) for a match. Unknown

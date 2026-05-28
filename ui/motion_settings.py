@@ -98,8 +98,8 @@ class MotionSettings(BoxLayout):
         # removes it once at config load via remove_parent(); without this
         # guard, opening the protocol or XY-stage accordion brings the plate
         # view + crosshair back. Mirrors the same selected_scope_config check
-        # that microscope_settings.set_ui_features_for_scope uses (Rule 9 —
-        # query capabilities, don't assume).
+        # that microscope_settings.set_ui_features_for_scope uses -- query
+        # capabilities, don't assume.
         settings = ctx.settings
         microscope_settings = self.ids['microscope_settings_id']
         scope_configs = microscope_settings.scopes
