@@ -69,3 +69,26 @@ def popup_response(title, response):
     can tell what the user saw but not what they did with it.
     """
     _log.info(f'POPUP_RESPONSE {response} | {title}')
+
+
+def window_event(event_name: str, detail: str = '') -> None:
+    """Log a Kivy Window-level lifecycle event.
+
+    Captures the events that the OS / window manager / global keyboard
+    shortcuts deliver outside any registered widget -- the events that
+    would otherwise leave a gap when reading the GUI log to reconstruct
+    "what triggered shutdown / minimize / focus change?" Wired from the
+    Window.bind sites in ``lumaviewpro.py``.
+
+    Event names (kebab-cased for stable log-scraping):
+    - ``close-requested`` -- ``on_request_close`` fired; the close
+      sequence about to start. Detail includes ``protocol_running``.
+    - ``close`` -- ``on_close`` fired; the window is closing for real.
+    - ``minimize`` / ``maximize`` / ``restore`` -- window-state change.
+    - ``focus`` -- focus gained or lost. Detail includes ``focused``.
+    - ``keyboard`` -- a non-widget-consumed key event (Alt-F4 etc.).
+      Detail names the key + modifiers.
+    """
+    detail = (detail or '').strip()
+    suffix = f' {detail}' if detail else ''
+    _log.info(f'WINDOW {event_name}{suffix}')

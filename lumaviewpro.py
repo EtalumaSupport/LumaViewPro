@@ -316,6 +316,7 @@ else:
 # Imports -- extracted modules (must be after Kivy init)
 # ============================================================================
 
+from modules import gui_logger
 from modules.app_config import (
     load_autofocus_log_enable,
     load_log_level,
@@ -693,6 +694,21 @@ class LumaViewProApp(TooltipMixin, App):
             Window.minimum_height = 600
             Window.bind(on_resize=self._on_resize)
             Window.bind(on_request_close=self.on_request_close)
+            # Window-level lifecycle bindings -- log every event the OS /
+            # window manager / global keyboard shortcut can deliver
+            # outside any registered widget. Without these, a shutdown
+            # triggered by Alt-F4 / window-X / OS-close leaves the GUI
+            # log silent and post-mortem cannot name the trigger.
+            Window.bind(on_close=self._on_window_close)
+            Window.bind(on_keyboard=self._on_window_keyboard)
+            # SDL2-only events: minimize / maximize / restore. Bind under
+            # try/except so non-SDL2 window providers (rare) don't crash.
+            for _evt in ('on_minimize', 'on_maximize', 'on_restore'):
+                try:
+                    Window.bind(**{_evt: getattr(self, f'_on_window_{_evt[3:]}')})
+                except Exception as _e:
+                    logger.debug(f'[LVP Main  ] Window.bind({_evt}) failed: {_e}')
+            Window.bind(focus=self._on_window_focus)
             # camera_type='auto' lets the registry pick by priority (Pylon -> IDS
             # -> FX2). The legacy settings['camera_type'] field is vestigial.
             lumaview = MainDisplay(camera_type='auto', simulate=simulate_mode)
@@ -910,13 +926,69 @@ class LumaViewProApp(TooltipMixin, App):
         Clock.schedule_once(ctx.motion_settings.check_settings, 0.1)
         Clock.schedule_once(ctx.image_settings.check_settings, 0.1)
 
+    def _on_window_close(self, *args) -> None:
+        """Kivy on_close hook -- the window is closing for real."""
+        gui_logger.window_event('close')
+
+    def _on_window_keyboard(
+        self, window, key: int, scancode: int, codepoint, modifier
+    ) -> bool:
+        """Kivy on_keyboard hook -- log non-widget-consumed key events.
+
+        Only logs keys of forensic interest: Escape (Kivy
+        exit_on_escape is disabled, so this never closes the app, but
+        the keypress is worth seeing), Alt-F4, and Ctrl-Q. Routine
+        typing in widgets doesn't pollute the GUI log. Returns False
+        so Kivy's regular handler chain continues unchanged.
+        """
+        mods = tuple(sorted(modifier)) if modifier else ()
+        # 27 = Escape; 282-293 = F1-F12 (293 = F4); 113 = Q
+        if key == 27:
+            gui_logger.window_event('keyboard', f'key=Escape mods={mods}')
+        elif key == 293 and 'alt' in mods:
+            gui_logger.window_event('keyboard', f'key=Alt-F4 mods={mods}')
+        elif key == 113 and 'ctrl' in mods:
+            gui_logger.window_event('keyboard', f'key=Ctrl-Q mods={mods}')
+        return False
+
+    def _on_window_minimize(self, *args) -> None:
+        gui_logger.window_event('minimize')
+
+    def _on_window_maximize(self, *args) -> None:
+        gui_logger.window_event('maximize')
+
+    def _on_window_restore(self, *args) -> None:
+        gui_logger.window_event('restore')
+
+    def _on_window_focus(self, window, focused: bool) -> None:
+        """Kivy Window.focus property change -- log focus gain / loss.
+
+        Focus changes are routine (clicking between LVP and another
+        app); the value comes from knowing whether the user moved
+        attention elsewhere just before a shutdown / freeze.
+        """
+        gui_logger.window_event('focus', f'focused={focused}')
+
     def on_request_close(self, *args) -> bool:
         """Kivy on_request_close hook: show a confirmation popup if a protocol is running.
 
         Returns:
             True to prevent window close (popup shown); False to allow close.
         """
-        if ctx.protocol_running.is_set():
+        protocol_running = ctx.protocol_running.is_set()
+        # Crash-forensics: log the close request to BOTH the main log
+        # (so post-mortem can correlate against the shutdown sequence)
+        # and the GUI interactions log (so the gui-log timeline names
+        # the trigger). Without this line, an X-button / Alt-F4 close
+        # produces a silent shutdown -- the gap that prompted this hook.
+        logger.info(
+            f'[LVP Main  ] on_request_close fired; '
+            f'protocol_running={protocol_running}'
+        )
+        gui_logger.window_event(
+            'close-requested', f'protocol_running={protocol_running}'
+        )
+        if protocol_running:
             Clock.schedule_once(
                 lambda dt: show_confirmation_popup(
                     title='Confirm Exit',
