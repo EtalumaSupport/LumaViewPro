@@ -817,6 +817,7 @@ class MicroscopeSettings(BoxLayout):
             return
         settings.setdefault('manual_video', {})
         settings['manual_video']['max_fps'] = value
+        gui_logger.text_input_debounced('MANUAL_VIDEO_MAX_FPS', value)
 
     def update_manual_video_max_duration(self):
         # Memmap allocates max_fps * duration frames; the disk-space
@@ -841,6 +842,7 @@ class MicroscopeSettings(BoxLayout):
             return
         settings.setdefault('manual_video', {})
         settings['manual_video']['max_duration_seconds'] = value
+        gui_logger.text_input_debounced('MANUAL_VIDEO_MAX_DURATION_S', value)
 
     def update_scale_bar_state(self):
         ctx = _app_ctx.ctx

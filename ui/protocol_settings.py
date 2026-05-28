@@ -192,6 +192,10 @@ class ProtocolSettings(FloatLayout):
         except Exception:
             logger.exception('[LVP Main  ] Update Period is not an acceptable value')
 
+        gui_logger.text_input_debounced(
+            'PROTOCOL_PERIOD', self.ids['capture_period'].text
+        )
+
         time_params = get_protocol_time_params()
         self._protocol.modify_time_params(
             period=time_params['period'],
@@ -207,6 +211,10 @@ class ProtocolSettings(FloatLayout):
             settings['protocol']['duration'] = float(self.ids['capture_dur'].text)
         except Exception:
             logger.warning('[LVP Main  ] Update Duration is not an acceptable value')
+
+        gui_logger.text_input_debounced(
+            'PROTOCOL_DURATION', self.ids['capture_dur'].text
+        )
 
         time_params = get_protocol_time_params()
         self._protocol.modify_time_params(
@@ -235,6 +243,7 @@ class ProtocolSettings(FloatLayout):
         self.ids['capture_root'].text = sanitized
         if hasattr(self, '_protocol') and (self._protocol is not None):
             self._protocol.modify_capture_root(capture_root=sanitized)
+        gui_logger.text_input_debounced('CAPTURE_ROOT', sanitized)
 
     # Labware Selection
     def select_labware(self, labware: str = None):

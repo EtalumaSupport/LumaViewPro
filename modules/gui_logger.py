@@ -71,6 +71,42 @@ def popup_response(title, response):
     _log.info(f'POPUP_RESPONSE {response} | {title}')
 
 
+_debounce_timers: dict = {}
+_debounce_default_delay_s: float = 1.5
+
+
+def text_input_debounced(
+    name: str, value, delay_s: float = _debounce_default_delay_s
+) -> None:
+    """Debounced text-input final-value log.
+
+    Each call cancels the previous pending log for ``name`` and
+    schedules a fresh one ``delay_s`` seconds out. After the user
+    stops typing for ``delay_s``, the final value logs as
+    ``TEXT_INPUT <name> <value>``. Cheap typing during the delay
+    window does NOT produce per-keystroke entries -- only the final
+    committed value reaches gui_interactions.log.
+
+    Used by per-keystroke handlers like protocol period / duration /
+    capture-root and the manual-video max-fps / max-duration fields
+    where on_text fires per-character.
+    """
+    from kivy.clock import Clock
+
+    existing = _debounce_timers.pop(name, None)
+    if existing is not None:
+        try:
+            existing.cancel()
+        except Exception:
+            pass
+
+    def _emit(_dt):
+        _debounce_timers.pop(name, None)
+        _log.info(f'TEXT_INPUT {name} {value}')
+
+    _debounce_timers[name] = Clock.schedule_once(_emit, delay_s)
+
+
 def window_event(event_name: str, detail: str = '') -> None:
     """Log a Kivy Window-level lifecycle event.
 
