@@ -189,21 +189,25 @@ def custom_except_hook(exc_type, exc_value, exc_traceback):
 # ensures logger is specific to the file importing lvp_logger
 logger = logging.getLogger(__name__)
 
-# Set up the 'LVP' parent logger so all LVP.* child loggers (used throughout the
-# codebase) inherit handlers and don't propagate to root/Kivy console.
-# Level follows debug_mode: at INFO, DEBUG records (incl. the preview [PERF]
-# lines) are dropped at the logger before any handler sees them, so the level
-# -- not just logging.disable below -- has to drop to DEBUG when debug_mode is on.
+# Single source of truth for the verbosity floor: debug_mode picks DEBUG vs
+# INFO, and that one level is the ONLY thing gating DEBUG output. The level is
+# applied to both logger trees that write to the main log -- the 'LVP' parent
+# (all LVP.* child loggers, incl. the preview [PERF] line) and lvp_logger's own
+# logger. Loggers that want a fixed floor regardless of debug_mode set their own
+# level (e.g. LVP.camera stays DEBUG -- the always-on camera.log firehose).
+# Note: do NOT reintroduce a global logging.disable() here -- it overrides every
+# logger's own level (it was silently starving camera.log of DEBUG) and split
+# the toggle into two gates. The per-logger level is the canonical mechanism.
+_log_level = logging.DEBUG if debug else logging.INFO
+
 _lvp_parent = logging.getLogger('LVP')
-_lvp_parent.setLevel(logging.DEBUG if debug else logging.INFO)
+_lvp_parent.setLevel(_log_level)
+logger.setLevel(_log_level)
 
 # Prevent logs from propagating to root (and the console)
 if not debug:
     logger.propagate = False
     _lvp_parent.propagate = False
-
-# determines lowest level of messages to log (DEBUG < INFO < WARNING < ERROR < CRITICAL)
-logger.setLevel(logging.DEBUG if debug else logging.INFO)
 
 # obtains name of the module (file) importing lvp_logger
 filename = '%s' % __file__
@@ -680,10 +684,3 @@ def _thread_except_hook(args):
 
 threading.excepthook = _thread_except_hook
 minimize_logger_window()
-
-# Gate global DEBUG suppression on the same debug_mode setting that the
-# rest of the logger already honors (computed above). When debug_mode is
-# off, silence debug-level chatter; when on, DEBUG records (including the
-# preview [PERF] lines) reach the log. One toggle, read from settings.
-if not debug:
-    logging.disable(logging.DEBUG)

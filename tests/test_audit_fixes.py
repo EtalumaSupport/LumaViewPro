@@ -10998,6 +10998,34 @@ class TestDebugGateIsNotEnvVar:
             f'the debug_mode settings key. Hits: {hits}'
         )
 
+    def test_no_global_logging_disable_in_lvp_logger(self):
+        # logging.disable() is a process-global DEBUG kill-switch that
+        # overrides every logger's own level (it was silently starving
+        # camera.log's always-on DEBUG firehose) and split the debug
+        # toggle into two gates. The canonical mechanism is the per-logger
+        # level driven by debug_mode; the global disable must not return.
+        import ast
+
+        src = self._lvp_logger_source()
+        tree = ast.parse(src)
+
+        hits = []
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call):
+                func = node.func
+                if (
+                    isinstance(func, ast.Attribute)
+                    and func.attr == 'disable'
+                    and isinstance(func.value, ast.Name)
+                    and func.value.id == 'logging'
+                ):
+                    hits.append(node.lineno)
+        assert not hits, (
+            'lvp_logger.py must not call logging.disable() -- DEBUG gating '
+            'is the per-logger level driven by debug_mode, not a global '
+            f'kill-switch. Found at line(s): {hits}'
+        )
+
 
 class TestTracemallocGateIsNotEnvVar:
     """tracemalloc must NOT be gated by an environment variable.
