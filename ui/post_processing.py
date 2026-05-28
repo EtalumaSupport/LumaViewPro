@@ -411,6 +411,8 @@ class GraphingControls(BoxLayout):
         self.initialize_graph()
 
     def set_x_axis(self):
+        axis = self.ids['graphing_x_axis_spinner'].text
+        gui_logger.select('GRAPHING_X_AXIS', axis)
         if self._source_csv:
             self.selected_x_axis = self.ids['graphing_x_axis_spinner'].text
             self.ids.x_axis_label_input.text = self.selected_x_axis
@@ -443,6 +445,7 @@ class GraphingControls(BoxLayout):
             self.update_graph()
 
     def set_y_axis(self):
+        gui_logger.select('GRAPHING_Y_AXIS', self.ids['graphing_y_axis_spinner'].text)
         if self._source_csv:
             self.selected_y_axis = self.ids['graphing_y_axis_spinner'].text
             self.ids.y_axis_label_input.text = self.selected_y_axis
@@ -980,9 +983,9 @@ class CellCountControls(BoxLayout):
         )
 
     def slider_adjustment_threshold(self):
-        self._settings['segmentation']['parameters']['threshold'] = self.ids[
-            'slider_cell_count_threshold_id'
-        ].value
+        value = self.ids['slider_cell_count_threshold_id'].value
+        gui_logger.slider('CELL_COUNT_THRESHOLD', value)
+        self._settings['segmentation']['parameters']['threshold'] = value
 
         if self.ENABLE_PREVIEW_AUTO_REFRESH:
             self._regenerate_image_preview()
@@ -995,6 +998,7 @@ class CellCountControls(BoxLayout):
             )
         )
 
+        gui_logger.slider('CELL_COUNT_AREA_RANGE', f'{int(low)}-{int(high)}')
         self._settings['filters']['area']['min'], self._settings['filters']['area']['max'] = (
             low,
             high,
@@ -1013,6 +1017,7 @@ class CellCountControls(BoxLayout):
             )
         )
 
+        gui_logger.slider('CELL_COUNT_PERIMETER_RANGE', f'{int(low)}-{int(high)}')
         (
             self._settings['filters']['perimeter']['min'],
             self._settings['filters']['perimeter']['max'],
@@ -1024,45 +1029,41 @@ class CellCountControls(BoxLayout):
             self._regenerate_image_preview()
 
     def slider_adjustment_sphericity(self):
-        self._settings['filters']['sphericity']['min'] = self.ids[
-            'slider_cell_count_sphericity_id'
-        ].value[0]
-        self._settings['filters']['sphericity']['max'] = self.ids[
-            'slider_cell_count_sphericity_id'
-        ].value[1]
+        lo = self.ids['slider_cell_count_sphericity_id'].value[0]
+        hi = self.ids['slider_cell_count_sphericity_id'].value[1]
+        gui_logger.slider('CELL_COUNT_SPHERICITY_RANGE', f'{lo}-{hi}')
+        self._settings['filters']['sphericity']['min'] = lo
+        self._settings['filters']['sphericity']['max'] = hi
 
         if self.ENABLE_PREVIEW_AUTO_REFRESH:
             self._regenerate_image_preview()
 
     def slider_adjustment_min_intensity(self):
-        self._settings['filters']['intensity']['min']['min'] = self.ids[
-            'slider_cell_count_min_intensity_id'
-        ].value[0]
-        self._settings['filters']['intensity']['min']['max'] = self.ids[
-            'slider_cell_count_min_intensity_id'
-        ].value[1]
+        lo = self.ids['slider_cell_count_min_intensity_id'].value[0]
+        hi = self.ids['slider_cell_count_min_intensity_id'].value[1]
+        gui_logger.slider('CELL_COUNT_MIN_INTENSITY_RANGE', f'{lo}-{hi}')
+        self._settings['filters']['intensity']['min']['min'] = lo
+        self._settings['filters']['intensity']['min']['max'] = hi
 
         if self.ENABLE_PREVIEW_AUTO_REFRESH:
             self._regenerate_image_preview()
 
     def slider_adjustment_mean_intensity(self):
-        self._settings['filters']['intensity']['mean']['min'] = self.ids[
-            'slider_cell_count_mean_intensity_id'
-        ].value[0]
-        self._settings['filters']['intensity']['mean']['max'] = self.ids[
-            'slider_cell_count_mean_intensity_id'
-        ].value[1]
+        lo = self.ids['slider_cell_count_mean_intensity_id'].value[0]
+        hi = self.ids['slider_cell_count_mean_intensity_id'].value[1]
+        gui_logger.slider('CELL_COUNT_MEAN_INTENSITY_RANGE', f'{lo}-{hi}')
+        self._settings['filters']['intensity']['mean']['min'] = lo
+        self._settings['filters']['intensity']['mean']['max'] = hi
 
         if self.ENABLE_PREVIEW_AUTO_REFRESH:
             self._regenerate_image_preview()
 
     def slider_adjustment_max_intensity(self):
-        self._settings['filters']['intensity']['max']['min'] = self.ids[
-            'slider_cell_count_max_intensity_id'
-        ].value[0]
-        self._settings['filters']['intensity']['max']['max'] = self.ids[
-            'slider_cell_count_max_intensity_id'
-        ].value[1]
+        lo = self.ids['slider_cell_count_max_intensity_id'].value[0]
+        hi = self.ids['slider_cell_count_max_intensity_id'].value[1]
+        gui_logger.slider('CELL_COUNT_MAX_INTENSITY_RANGE', f'{lo}-{hi}')
+        self._settings['filters']['intensity']['max']['min'] = lo
+        self._settings['filters']['intensity']['max']['max'] = hi
 
         if self.ENABLE_PREVIEW_AUTO_REFRESH:
             self._regenerate_image_preview()
