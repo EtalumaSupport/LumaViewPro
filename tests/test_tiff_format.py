@@ -316,27 +316,6 @@ class TestTiff16BitFalseColorOn:
         return mock.patch('modules.app_context.ctx', mock_ctx)
 
     @pytest.mark.parametrize('color', ['Red', 'Green', 'Blue', 'Lumi'])
-    def test_rgb_3_channel(self, img_16bit, metadata, tmp_tiff, color):
-        path = tmp_tiff()
-        with self._mock_settings():
-            image_utils.write_tiff(
-                data=img_16bit, file_loc=path, metadata=metadata, ome=False, color=color
-            )
-        info = _read_tiff(path)
-        assert len(info['shape']) == 3, f'Expected 3D shape, got {info["shape"]}'
-        assert info['shape'][2] == 3, f'Expected 3 channels, got {info["shape"]}'
-
-    @pytest.mark.parametrize('color', ['Red', 'Green', 'Blue', 'Lumi'])
-    def test_photometric_rgb(self, img_16bit, metadata, tmp_tiff, color):
-        path = tmp_tiff()
-        with self._mock_settings():
-            image_utils.write_tiff(
-                data=img_16bit, file_loc=path, metadata=metadata, ome=False, color=color
-            )
-        info = _read_tiff(path)
-        assert info['photometric'] == tf.PHOTOMETRIC.RGB
-
-    @pytest.mark.parametrize('color', ['Red', 'Green', 'Blue', 'Lumi'])
     def test_no_colormap_tag(self, img_16bit, metadata, tmp_tiff, color):
         path = tmp_tiff()
         with self._mock_settings():
@@ -345,33 +324,6 @@ class TestTiff16BitFalseColorOn:
             )
         info = _read_tiff(path)
         assert not info['has_colormap_tag']
-
-    def test_green_channel_data_correct(self, img_16bit, metadata, tmp_tiff):
-        """Green false color: R=0, G=data, B=0."""
-        path = tmp_tiff()
-        with self._mock_settings():
-            image_utils.write_tiff(
-                data=img_16bit, file_loc=path, metadata=metadata, ome=False, color='Green'
-            )
-        with tf.TiffFile(str(path)) as f:
-            img = f.pages[0].asarray()
-        assert img[:, :, 0].sum() == 0, 'Red channel should be zero'
-        assert img[:, :, 1].sum() > 0, 'Green channel should have data'
-        assert img[:, :, 2].sum() == 0, 'Blue channel should be zero'
-
-    def test_red_channel_data_correct(self, img_16bit, metadata, tmp_tiff):
-        """Red false color: R=data, G=0, B=0. add_false_color is RGB-native so Red lands at channel 0."""
-        path = tmp_tiff()
-        with self._mock_settings():
-            image_utils.write_tiff(
-                data=img_16bit, file_loc=path, metadata=metadata, ome=False, color='Red'
-            )
-        with tf.TiffFile(str(path)) as f:
-            img = f.pages[0].asarray()
-        # At least one non-green channel should have data
-        assert img.sum() > 0, 'Image should have data'
-        # Green channel should be zero for red false color
-        assert img[:, :, 1].sum() == 0, 'Green channel should be zero for Red'
 
     def test_bf_not_affected(self, img_16bit, metadata, tmp_tiff):
         """BF should remain single-channel even when false_color_16bit is on."""

@@ -93,6 +93,47 @@ def mono_to_rgb_falsecolor(mono: np.ndarray, layer: str) -> np.ndarray:
     return rgb
 
 
+# Module-level once-per-process flag for legacy-collapse log noise control.
+_legacy_collapse_warned: bool = False
+
+
+def read_tiff_with_legacy_collapse(path: pathlib.Path) -> np.ndarray:
+    """Read a TIFF, collapsing pre-1d 3-channel false-color-replica files
+    to mono. Mono inputs and true color outputs pass through.
+
+    The pre-1d save pipeline widened mono fluorescence to 3-channel RGB
+    with one populated channel (Blue/Green/Red/Lumi) before write. Post-
+    1d the save path is mono. This reader bridges the two on-disk
+    formats so post-1d consumers (VideoBuilder, CompositeGeneration) see
+    a uniform 2D mono shape regardless of file age.
+
+    Detection rule: 3-channel input with exactly one channel non-zero
+    AND the other two channels entirely zero is treated as legacy
+    false-color-replica and collapsed to mono. True color outputs
+    (composite RGB with multiple channels carrying signal) pass through
+    unchanged.
+
+    Args:
+        path: TIFF file path.
+
+    Returns:
+        2D mono ndarray for mono and collapsed-legacy files; 3D RGB
+        ndarray for real color images.
+    """
+    global _legacy_collapse_warned
+    img = tf.imread(str(path))
+    if img.ndim == 3 and img.shape[2] == 3:
+        nonzero_channels = [i for i in range(3) if img[..., i].any()]
+        if len(nonzero_channels) == 1:
+            if not _legacy_collapse_warned:
+                logger.info(
+                    f'Legacy false-color TIFF detected at {path}; loaded as mono'
+                )
+                _legacy_collapse_warned = True
+            return img[..., nonzero_channels[0]].copy()
+    return img
+
+
 def imread_color(path, *, is_color_native: bool = False) -> 'np.ndarray':
     """Color-camera-aware image read. Phase 2 activation pending.
 
@@ -417,41 +458,20 @@ def maybe_apply_false_color(
     use_false_color_16bit: bool | None = None,
     output_buf: np.ndarray | None = None,
 ) -> np.ndarray:
-    """Widen single-channel fluorescence to 3-channel RGB when the
-    layer-color setting is on; pass other inputs through unchanged.
+    """Pass through to mono pipeline. Legacy 3-channel widening retired.
 
-    Mono uint8/uint16 fluorescence (Blue/Green/Red/Lumi) becomes 3-channel
-    RGB so Windows Preview and FIJI render in color. File size grows ~3x.
-    Already-RGB inputs, transmitted layers (BF/PC/DF), and unknown layer
-    names pass through.
+    Mono fluorescence captures save as 2D mono + layer color metadata
+    (PALETTE photometric for 8-bit, ImageJ LUT or OME Channel metadata
+    for 16-bit) via ``write_tiff``; Windows Preview and FIJI render color
+    from the metadata without the ~3x file-size penalty of 3-channel
+    replicas. ``mono_to_rgb_falsecolor`` is the explicit boundary helper
+    for the rare path that genuinely needs RGB (video encode).
 
-    The setting key ``false_color_16bit`` is legacy -- the gate covers
-    both 8-bit and 12/16-bit captures because the user-facing intent
-    is "save fluorescence in false color regardless of bit depth."
-
-    Caller may pass the resolved bool to skip the per-save settings_lock
-    acquire; ``None`` triggers a one-shot lock read.
+    Parameters ``use_false_color_16bit`` and ``output_buf`` are accepted
+    but ignored; callers wired up for the legacy widening continue to
+    compile. Removal scheduled for Phase 1e.
     """
-    if not (
-        data.dtype in (np.uint8, np.uint16)
-        and not is_color_image(data)
-        and color in common_utils.get_image_layers()
-    ):
-        return data
-    try:
-        if use_false_color_16bit is None:
-            from modules import app_context as _app_ctx
-
-            with _app_ctx.ctx.settings_lock:
-                use_false_color_16bit = _app_ctx.ctx.settings.get('false_color_16bit', False)
-        if use_false_color_16bit:
-            return add_false_color(data, color, output=output_buf)
-    except Exception:
-        logger.exception(
-            '[image_utils] maybe_apply_false_color: false-color application '
-            'failed for color=%s; returning input',
-            color,
-        )
+    del use_false_color_16bit, output_buf
     return data
 
 

@@ -325,7 +325,7 @@ def write_video(
     else:
         output_file_loc = save_folder / f'{name}.mp4'
         video_writer = VideoWriter(
-            output_file_loc=output_file_loc,
+            output_path=output_file_loc,
             fps=result.calculated_fps,
             include_timestamp_overlay=True,
         )
@@ -347,7 +347,7 @@ def write_video(
                 except Exception as e:
                     logger.error(f'[PROTOCOL-VIDEO] FAILED TO WRITE FRAME: {e}')
         finally:
-            video_writer.finish()
+            video_writer.close()
             del video_writer
 
         _drain_queue(video_images)

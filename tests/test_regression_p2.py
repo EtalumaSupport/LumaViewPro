@@ -229,7 +229,7 @@ class TestVideoBitDepth:
 
         out_path = pathlib.Path('/tmp/test_video_16bit.avi')
         writer = VideoWriter(
-            output_file_loc=out_path,
+            output_path=out_path,
             fps=10.0,
             include_timestamp_overlay=False,
         )
@@ -260,7 +260,7 @@ class TestVideoBitDepth:
 
         out_path = pathlib.Path('/tmp/test_video_8bit.avi')
         writer = VideoWriter(
-            output_file_loc=out_path,
+            output_path=out_path,
             fps=10.0,
             include_timestamp_overlay=False,
         )
@@ -284,7 +284,7 @@ class TestVideoBitDepth:
 
         out_path = pathlib.Path('/tmp/test_video_color16.avi')
         writer = VideoWriter(
-            output_file_loc=out_path,
+            output_path=out_path,
             fps=10.0,
             include_timestamp_overlay=False,
         )

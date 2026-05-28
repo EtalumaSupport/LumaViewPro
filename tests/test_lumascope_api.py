@@ -467,6 +467,7 @@ class TestFrameValidityDuringHoming:
         assert 'turret' not in captured['pending']
         assert captured['is_valid'] is False
 
+    @pytest.mark.slow
     def test_thome_marks_frame_invalid_during_motion(self):
         # Must use a turret-equipped sim (LS850T) since post-B4 the
         # default LS850 sim has no T axis and `thome()` correctly

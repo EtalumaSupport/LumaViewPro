@@ -224,20 +224,16 @@ class ZProjector(ProtocolPostProcessor):
         if not result['status']:
             return result
 
-        # Widen mono fluorescence to RGB before save so the projection
-        # output matches the per-slice capture's false-color shape.
-        # Without this, the bare tifffile write below produces grayscale
-        # for Blue/Green/Red/Lumi projections.
-        output_image = image_utils.maybe_apply_false_color(
-            data=result['image'],
-            color=df['Color'].iloc[0],
-        )
-
+        # Post-1d: save mono 2D directly. Layer color is on-disk as plain
+        # mono; Windows Preview shows grayscale, ImageJ / FIJI apply the
+        # per-layer LUT from user-side colormap config. Routing through
+        # write_tiff for PALETTE / LUT metadata is deferred to a follow-up
+        # commit (1d.5).
         output_file_loc_abs = path / output_file_loc
         output_file_loc_abs.parent.mkdir(exist_ok=True, parents=True)
         tf.imwrite(
             output_file_loc_abs,
-            data=output_image,
+            data=result['image'],
             compression='lzw',
         )
 

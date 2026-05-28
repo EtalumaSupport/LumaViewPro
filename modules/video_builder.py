@@ -1,10 +1,7 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 
-import itertools
 import pathlib
 
-import cv2
-import numpy as np
 import pandas as pd
 
 import modules.image_utils as image_utils
@@ -12,6 +9,7 @@ import modules.common_utils as common_utils
 from modules.common_utils import PostFunction
 from modules.protocol_post_processor import ProtocolPostProcessor
 from modules.protocol_post_record import ProtocolPostRecord
+from modules.video_writer import VideoWriter
 
 from lvp_logger import logger
 
@@ -85,9 +83,12 @@ class VideoBuilder(ProtocolPostProcessor):
         df: pd.DataFrame,
         **kwargs,
     ):
+        # 'Color' included so _create_video can drive VideoWriter's in-writer
+        # false-color from the layer name (one group is one color per
+        # _get_groups).
         return self._create_video(
             path=path,
-            df=df[['Filepath', 'Scan Count', 'Timestamp']],
+            df=df[['Filepath', 'Scan Count', 'Timestamp', 'Color']],
             frames_per_sec=kwargs['frames_per_sec'],
             enable_timestamp_overlay=kwargs['enable_timestamp_overlay'],
             output_file_loc=kwargs['output_file_loc'],
@@ -134,10 +135,9 @@ class VideoBuilder(ProtocolPostProcessor):
         popup=None,
         total_groups=1,
         current_group=1,
-    ) -> bool:
+    ) -> dict:
 
         def strip_filetype(filename: str):
-            filename_og = filename
             filename_flipped = filename[::-1]
             if '.' in filename_flipped:
                 while filename_flipped[0] != '.':
@@ -161,36 +161,16 @@ class VideoBuilder(ProtocolPostProcessor):
         else:
             df = df.sort_values(by=['Scan Count'], ascending=True)
 
-        from modules.video_writer import VideoWriter
-
-        def _get_image_info() -> tuple:
-            source_image_sample_filename = df['Filepath'].values[0]
-            source_image_sample_filepath = path / source_image_sample_filename
-            source_image_sample = cv2.imread(
-                str(source_image_sample_filepath), cv2.IMREAD_UNCHANGED
-            )
-            if source_image_sample is None:
-                raise ValueError(f'Failed to read sample image: {source_image_sample_filepath}')
-            is_color = True if source_image_sample.ndim == 3 else False
-
-            if is_color:
-                frame_height, frame_width, _ = source_image_sample.shape
-            else:
-                frame_height, frame_width = source_image_sample.shape
-
-            return (frame_height, frame_width), is_color
-
-        def _get_timestamp_str(val):
-            frame_ts = val.to_pydatetime()
-            frame_ts_str = frame_ts.strftime('%Y-%m-%d %H:%M:%S')
-            return frame_ts_str
-
-        (frame_height, frame_width), is_color = _get_image_info()
+        # Layer color drives VideoWriter's internal false-color application.
+        # One protocol-output group is one color per _get_groups, so the
+        # first row carries the right value for the whole video.
+        layer_color = df.iloc[0]['Color'] if 'Color' in df.columns else None
         output_file_loc_abs = path / output_file_loc
         output_file_loc_abs.parent.mkdir(exist_ok=True, parents=True)
         video = VideoWriter(
-            output_file_loc=output_file_loc_abs,
+            output_path=output_file_loc_abs,
             fps=frames_per_sec,
+            color=layer_color,
             include_timestamp_overlay=enable_timestamp_overlay,
         )
 
@@ -206,17 +186,15 @@ class VideoBuilder(ProtocolPostProcessor):
         i = 0
         for _, row in df.iterrows():
             image_path = path / row['Filepath']
-            image = cv2.imread(str(image_path), cv2.IMREAD_UNCHANGED)
-            if image is None:
-                logger.error(f'[{self._name}] Failed to read image: {image_path}')
+            try:
+                image = image_utils.read_tiff_with_legacy_collapse(image_path)
+            except Exception as e:
+                logger.error(f'[{self._name}] Failed to read image: {image_path}: {e}')
                 continue
 
-            # cv2.imread returns BGR for 3-channel images regardless of source
-            # file format. VideoWriter expects RGB per the canonical save-path
-            # convention; without this conversion the false-colored blue
-            # channel saved to TIFF lands in the red channel of the mp4.
-            if image.ndim == 3:
-                image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+            # Post-1d: image is mono 2D (legacy 3-channel collapses to mono
+            # via read_tiff_with_legacy_collapse). VideoWriter applies the
+            # layer false-color and any cv2 BGR-swap internally.
 
             # Timestamp overlay and 8-bit conversion handled by VideoWriter.add_frame()
             frame_ts = row['Timestamp'].to_pydatetime() if enable_timestamp_overlay else None
@@ -227,7 +205,7 @@ class VideoBuilder(ProtocolPostProcessor):
 
             i += 1
 
-        video.finish()
+        video.close()
 
         logger.debug(f'[{self._name}] - Complete')
 
@@ -235,4 +213,87 @@ class VideoBuilder(ProtocolPostProcessor):
             'status': True,
             'error': None,
             'metadata': {},
+        }
+
+    def build_video(
+        self,
+        source_dir: pathlib.Path,
+        output_file: pathlib.Path,
+        *,
+        false_color: bool = False,
+        color: str | None = None,
+        fps: int = 10,
+        include_timestamp_overlay: bool = False,
+    ) -> dict:
+        """Build a single video file from mono TIFFs in source_dir.
+
+        Public path-based entry point that wraps VideoWriter directly,
+        parallel to the protocol-post-processor pipeline (load_folder ->
+        _create_video). Reads source_dir/*.tiff in lexical filename order
+        via the legacy-collapse helper so pre-1d 3-channel-replica files
+        and post-1d mono files both produce uniform mono input.
+
+        Args:
+            source_dir: Directory of TIFF inputs, one per frame.
+            output_file: Destination video file. .mp4 routes to PyAV H.264;
+                cv2 fallback rewrites the suffix to .avi.
+            false_color: When True, the layer false-color is applied inside
+                VideoWriter. Requires ``color``; raises ValueError otherwise.
+                When False, encode grayscale.
+            color: Layer name ('Red', 'Green', 'Blue', 'Lumi', 'BF', ...).
+                Required when ``false_color=True``; ignored otherwise.
+            fps: Frames per second.
+            include_timestamp_overlay: Overlay frame timestamps.
+
+        Returns:
+            {'status': bool, 'error': str | None, 'frame_count': int}.
+
+        Raises:
+            ValueError: If false_color=True and color is None, or if
+                source_dir contains no .tiff / .tif files.
+        """
+        source_dir = pathlib.Path(source_dir)
+        output_file = pathlib.Path(output_file)
+
+        if false_color and color is None:
+            raise ValueError(
+                'build_video: color is required when false_color=True. '
+                "Pass e.g. color='Blue' to specify which layer to false-color."
+            )
+
+        tiff_paths = sorted(source_dir.glob('*.tiff')) + sorted(source_dir.glob('*.tif'))
+        if not tiff_paths:
+            raise ValueError(f'build_video: no .tiff / .tif files in {source_dir}')
+
+        writer_color = color if false_color else None
+        writer = VideoWriter(
+            output_path=output_file,
+            fps=fps,
+            color=writer_color,
+            include_timestamp_overlay=include_timestamp_overlay,
+        )
+
+        frame_count = 0
+        status = True
+        error = None
+        try:
+            for tiff_path in tiff_paths:
+                try:
+                    image = image_utils.read_tiff_with_legacy_collapse(tiff_path)
+                except Exception as e:
+                    logger.error(f'[{self._name}] build_video: failed to read {tiff_path}: {e}')
+                    continue
+                writer.add_frame(image)
+                frame_count += 1
+        except Exception as e:
+            logger.exception(f'[{self._name}] build_video: encode failed')
+            status = False
+            error = str(e)
+        finally:
+            writer.close()
+
+        return {
+            'status': status,
+            'error': error,
+            'frame_count': frame_count,
         }

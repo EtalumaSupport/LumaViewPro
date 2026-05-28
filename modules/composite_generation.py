@@ -296,6 +296,132 @@ class CompositeGeneration(ProtocolPostProcessor):
         }
 
 
+    _SUPPORTED_FORMATS = ('tiff', 'ome-tiff')
+
+    def generate_composite_from_paths(
+        self,
+        output_path: pathlib.Path,
+        *,
+        red_path: pathlib.Path | None = None,
+        green_path: pathlib.Path | None = None,
+        blue_path: pathlib.Path | None = None,
+        transmitted_path: pathlib.Path | None = None,
+        transmitted_layer: str | None = None,
+        format: str = 'tiff',
+        brightness_thresholds: dict | None = None,
+    ) -> dict:
+        """Build a composite from per-channel mono TIFFs at the given paths.
+
+        Public path-based entry point that wraps the protocol-post-processor
+        DataFrame pipeline (load_folder -> _group_algorithm ->
+        _create_composite_image). Synthesizes the minimal DataFrame the
+        underlying composite builder needs from the per-channel path args.
+
+        Args:
+            output_path: Destination file.
+            red_path, green_path, blue_path: Mono TIFF inputs per fluorescence
+                channel. None = channel absent from composite.
+            transmitted_path: Optional brightfield / phase-contrast / darkfield
+                input; folded into composite via the build_composite
+                transmitted path.
+            transmitted_layer: Layer name for transmitted_path (e.g. 'BF',
+                'PC', 'DF'). Required when transmitted_path is set;
+                rejected otherwise.
+            format: Output format. Supported: 'tiff' (plain RGB) and
+                'ome-tiff' (OME-TIFF with axes='YXS'). Reserved for future:
+                'png', 'jpg'. ValueError for any other value.
+            brightness_thresholds: Optional per-layer composite-brightness
+                threshold (absolute, not percentage). Forwarded to
+                build_composite; None = no thresholding.
+
+        Returns:
+            {'status': bool, 'error': str | None, 'image': np.ndarray | None}.
+
+        Raises:
+            ValueError: If format is unsupported, if transmitted_path and
+                transmitted_layer are not both-set or both-None, or if no
+                channel paths are provided.
+        """
+        output_path = pathlib.Path(output_path)
+
+        if format not in self._SUPPORTED_FORMATS:
+            raise ValueError(
+                f"generate_composite_from_paths: unsupported format '{format}'. "
+                f'Supported: {self._SUPPORTED_FORMATS}.'
+            )
+
+        if (transmitted_path is None) != (transmitted_layer is None):
+            raise ValueError(
+                'generate_composite_from_paths: transmitted_path and '
+                'transmitted_layer must be provided together.'
+            )
+
+        rows = []
+        if red_path is not None:
+            rows.append({'Color': 'Red', 'Filepath': pathlib.Path(red_path)})
+        if green_path is not None:
+            rows.append({'Color': 'Green', 'Filepath': pathlib.Path(green_path)})
+        if blue_path is not None:
+            rows.append({'Color': 'Blue', 'Filepath': pathlib.Path(blue_path)})
+        if transmitted_path is not None:
+            rows.append(
+                {'Color': transmitted_layer, 'Filepath': pathlib.Path(transmitted_path)}
+            )
+
+        if not rows:
+            raise ValueError(
+                'generate_composite_from_paths: at least one channel path required.'
+            )
+
+        df = pd.DataFrame(rows)
+
+        # Run the canonical composite builder with output_file_loc=None to
+        # get the RGB array back; the wrapper handles the write with
+        # format-aware kwargs. Absolute paths in df['Filepath'] survive
+        # the `path / row['Filepath']` join inside _create_composite_image
+        # (pathlib discards the left operand when the right is absolute).
+        result = CompositeGeneration._create_composite_image(
+            path=pathlib.Path('.'),
+            df=df,
+            output_file_loc=None,
+        )
+
+        if not result['status'] or result.get('image') is None:
+            return {
+                'status': False,
+                'error': result.get('error') or 'Composite Generation Error: no image produced',
+                'image': None,
+            }
+
+        img = result['image']
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+
+        if format == 'tiff':
+            tf.imwrite(
+                str(output_path),
+                img,
+                photometric='rgb',
+                compression='lzw',
+            )
+        else:
+            # 'ome-tiff' — axes='YXS' in metadata names the layout for
+            # downstream OME-aware readers (FIJI / ImageJ Bio-Formats).
+            tf.imwrite(
+                str(output_path),
+                img,
+                photometric='rgb',
+                compression='lzw',
+                ome=True,
+                metadata={'axes': 'YXS'},
+            )
+
+        return {
+            'status': True,
+            'error': None,
+            'image': img,
+        }
+
+
 if __name__ == '__main__':
     composite_gen = CompositeGeneration(has_turret=False)
     composite_gen.load_folder(pathlib.Path(os.getenv('SAMPLE_IMAGE_FOLDER')))

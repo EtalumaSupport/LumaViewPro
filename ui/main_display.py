@@ -818,7 +818,7 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
                 output_file_loc = video_save_folder / f'Video_{start_time_str}.mp4'
 
                 video_writer = VideoWriter(
-                    output_file_loc=output_file_loc,
+                    output_path=output_file_loc,
                     fps=calculated_fps,
                     include_timestamp_overlay=True,
                 )
@@ -840,7 +840,7 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
                         lambda dt, p=progress: setattr(self, 'video_writing_progress', p), 0
                     )
 
-                video_writer.finish()
+                video_writer.close()
                 logger.info(f'Manual-Video] Mp4 written to {output_file_loc}')
 
             logger.info('Manual-Video] Video writing finished.')

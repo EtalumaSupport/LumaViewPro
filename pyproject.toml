@@ -4,6 +4,7 @@ addopts = "--tb=short -q"
 markers = [
     "requires_led_v2: requires LED firmware v2.0+",
     "requires_motor_v2: requires motor firmware v2.0+",
+    "slow: long-running tests (>60s); skip during iteration via `-m \"not slow\"`",
 ]
 
 [tool.coverage.run]

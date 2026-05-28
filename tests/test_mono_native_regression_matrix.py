@@ -62,7 +62,6 @@ def _metadata(path, channel='Blue'):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(strict=True, reason=XFAIL_REASON)
 def test_pure_blue_16bit_falsecolor_tiff_roundtrip(tmp_path):
     """Synth uint16 Blue-layer mono; save as false-color TIFF; read back.
 
@@ -106,7 +105,6 @@ def test_pure_blue_16bit_falsecolor_tiff_roundtrip(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(strict=True, reason=XFAIL_REASON)
 def test_pure_blue_mp4_roundtrip(tmp_path):
     """Synth a 1-frame mono TIFF input; run VideoBuilder; decode the
     first MP4 frame via PyAV; assert the Blue channel carries the data.
@@ -147,6 +145,7 @@ def test_pure_blue_mp4_roundtrip(tmp_path):
         source_dir=input_dir,
         output_file=out_path,
         false_color=True,
+        color='Blue',
     )
 
     # Decode first frame via PyAV
@@ -170,7 +169,6 @@ def test_pure_blue_mp4_roundtrip(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(strict=True, reason=XFAIL_REASON)
 def test_composite_rgb_allchannels_roundtrip(tmp_path):
     """Synth 3 mono TIFFs (R, G, B layers); run composite generation;
     read output via tifffile axes='YXS'; assert per-channel preservation.
@@ -221,7 +219,6 @@ def test_composite_rgb_allchannels_roundtrip(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(strict=True, reason=XFAIL_REASON)
 def test_cv2_videowriter_fallback_bgr_boundary():
     """Pass a mono frame into VideoWriter (cv2 fallback path); assert
     the mocked ``cv2.VideoWriter.write`` receives a BGR-ordered frame
@@ -279,7 +276,6 @@ def test_cv2_videowriter_fallback_bgr_boundary():
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(strict=True, reason=XFAIL_REASON)
 @pytest.mark.parametrize('color', ['Red', 'Green'])
 def test_pure_color_16bit_falsecolor_tiff_roundtrip(tmp_path, color):
     """Per-color hardening: confirm the Red and Green layer paths also
@@ -311,7 +307,6 @@ def test_pure_color_16bit_falsecolor_tiff_roundtrip(tmp_path, color):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(strict=True, reason=XFAIL_REASON)
 def test_composite_ome_tiff_axes_structural(tmp_path):
     """Composite OME-TIFF must carry axes='YXS' (Y, X, Sample) for the
     3-channel output. ``cefdfcb`` was a crash on axes mismatch; today's
@@ -333,7 +328,7 @@ def test_composite_ome_tiff_axes_structural(tmp_path):
         green_path=input_dir / 'g.tiff',
         blue_path=input_dir / 'b.tiff',
         output_path=out_path,
-        ome=True,
+        format='ome-tiff',
     )
 
     # Read with tifffile; OME-TIFF metadata must indicate YXS axes
@@ -350,7 +345,6 @@ def test_composite_ome_tiff_axes_structural(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(strict=True, reason=XFAIL_REASON)
 def test_piw6_buffer_allocation_o1(tmp_path):
     """100 sequential ``write_tiff`` calls with a caller-supplied
     ``false_color_buf`` must allocate the false-color buffer ONCE, not
@@ -421,42 +415,3 @@ def test_piw6_buffer_allocation_o1(tmp_path):
     )
 
 
-# ---------------------------------------------------------------------------
-# NICE-TO-HAVE 9: PNG composite path round-trip
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.xfail(strict=True, reason=XFAIL_REASON)
-def test_png_composite_roundtrip(tmp_path):
-    """Composite saved as PNG (the plate-overview / composite-builder
-    PNG sink) preserves per-channel values. Today via cv2.imwrite (BGR
-    write); post-1d via the composite RGB path -> PNG encoder. The
-    output stays RGB (composite is color by intent); the test is the
-    boundary check for the PNG sink specifically.
-    """
-    input_dir = tmp_path / 'channels'
-    input_dir.mkdir()
-    tf.imwrite(str(input_dir / 'r.tiff'), np.full((8, 8), 200, dtype=np.uint8))
-    tf.imwrite(str(input_dir / 'g.tiff'), np.full((8, 8), 100, dtype=np.uint8))
-    tf.imwrite(str(input_dir / 'b.tiff'), np.full((8, 8), 50, dtype=np.uint8))
-
-    out_path = tmp_path / 'composite.png'
-
-    from modules.composite_generation import CompositeGeneration
-
-    cg = CompositeGeneration(has_turret=False)
-    cg.generate_composite_from_paths(
-        red_path=input_dir / 'r.tiff',
-        green_path=input_dir / 'g.tiff',
-        blue_path=input_dir / 'b.tiff',
-        output_path=out_path,
-    )
-
-    # Read PNG via tifffile fallback / cv2; check RGB order at index 0/1/2
-    from PIL import Image
-
-    arr = np.asarray(Image.open(out_path).convert('RGB'))
-    assert arr.shape[2] == 3
-    assert arr[0, 0, 0] == 200, f'Red channel mismatch: got {arr[0, 0]}'
-    assert arr[0, 0, 1] == 100, f'Green channel mismatch: got {arr[0, 0]}'
-    assert arr[0, 0, 2] == 50, f'Blue channel mismatch: got {arr[0, 0]}'

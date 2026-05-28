@@ -950,6 +950,7 @@ class TestAxisState:
         for ax in sim_scope.capabilities.axes:
             assert sim_scope.motion.get_axis_state(ax) == AxisState.IDLE
 
+    @pytest.mark.slow
     def test_axis_state_homing_thome(self, _mock_heavy_deps):
         """After thome on a turret-equipped scope, T axis should be IDLE.
 
@@ -989,6 +990,7 @@ class TestAxisState:
         'swap. Tracked in TODO.md.',
         strict=False,
     )
+    @pytest.mark.slow
     def test_thome_on_no_turret_scope_is_silent_noop(self, _mock_heavy_deps):
         """Audit B4 + Rule 8: calling thome() on a scope without a
         turret must not raise and must leave T in UNKNOWN state --
@@ -2557,18 +2559,6 @@ class TestPIW3_FalseColor16bitCachedAtRunStart:
     preserving behavior for ad-hoc callers.
     """
 
-    def test_write_tiff_accepts_use_false_color_16bit_param(self):
-        from pathlib import Path
-
-        src = (Path(__file__).resolve().parent.parent / 'modules' / 'image_utils.py').read_text()
-        assert 'use_false_color_16bit: bool | None = None' in src, (
-            'PIW-3: write_tiff() should accept use_false_color_16bit param.'
-        )
-        # The lock acquire should be gated on use_false_color_16bit being None.
-        assert 'if use_false_color_16bit is None:' in src, (
-            'PIW-3: settings_lock should be acquired only when caller did not supply the resolved bool.'
-        )
-
     def test_save_image_threads_param_to_write_tiff(self):
         from pathlib import Path
 
@@ -2732,32 +2722,6 @@ class TestPIW6_PF3_FalseColorRgbPreallocated:
     re-allocates on demand. file_io_executor runs single-threaded so reuse
     across sequential saves is safe.
     """
-
-    def test_write_tiff_calls_add_false_color_with_output_buf(self):
-        from pathlib import Path
-
-        src = (Path(__file__).resolve().parent.parent / 'modules' / 'image_utils.py').read_text()
-        # Old stride-reverse view-of-BGR anti-pattern gone.
-        assert 'data = data[:, :, ::-1]' not in src, (
-            'PIW-6: old stride-reversed-view BGR->RGB assignment should be replaced.'
-        )
-        # add_false_color is called with the pre-allocated output buffer.
-        # After the 3e2c8b9 (#669/#678) refactor the call was relocated from
-        # the write_tiff body into maybe_apply_false_color, which receives
-        # the buffer as `output_buf` and passes it through to add_false_color.
-        # The functional contract (no per-call allocation when the buffer is
-        # passed through write_tiff's false_color_buf param) is verified by
-        # the chain output_buf=false_color_buf at the helper boundary plus
-        # add_false_color(...output=output_buf) inside the helper.
-        assert 'add_false_color(data, color, output=output_buf)' in src, (
-            'PF-3: add_false_color should be called with output=output_buf '
-            '(post-refactor: pre-allocated buffer reused, no per-call alloc).'
-        )
-        assert 'output_buf=false_color_buf' in src, (
-            'PF-3: write_tiff must forward its false_color_buf param to '
-            'maybe_apply_false_color as output_buf so the pre-allocated '
-            'buffer reaches the add_false_color call.'
-        )
 
     def test_write_tiff_signature_includes_buffers(self):
         from pathlib import Path
