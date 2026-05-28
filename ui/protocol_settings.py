@@ -956,6 +956,7 @@ class ProtocolSettings(FloatLayout):
         try:
             ctx = _app_ctx.ctx
 
+            gui_logger.protocol_action('DELETE_STEP', f'curr_step={self.curr_step}')
             logger.info('[LVP Main  ] ProtocolSettings.delete_step()')
 
             if self._protocol.num_steps() <= 0:
@@ -1069,6 +1070,9 @@ class ProtocolSettings(FloatLayout):
 
     # add_step
     def insert_step(self, after_current_step: bool = True):
+        gui_logger.protocol_action(
+            'INSERT_STEP', f'after_current={after_current_step} curr_step={self.curr_step}'
+        )
         logger.info('[LVP Main  ] ProtocolSettings.insert_step()')
         io_executor = _app_ctx.ctx.io_executor
         io_executor.put(
@@ -1192,14 +1196,18 @@ class ProtocolSettings(FloatLayout):
             show_notification_popup(title='Error', message=str(e))
 
     def update_acquire_zstack(self):
-        pass
+        gui_logger.toggle(
+            'ACQUIRE_ZSTACK', bool(self.ids['acquire_zstack_id'].active)
+        )
 
     def update_show_step_locations(self):
         ctx = _app_ctx.ctx
-        ctx.stage.show_protocol_steps(enable=self.ids['show_step_locations_id'].active)
+        enabled = bool(self.ids['show_step_locations_id'].active)
+        gui_logger.toggle('SHOW_STEP_LOCATIONS', enabled)
+        ctx.stage.show_protocol_steps(enable=enabled)
 
     def update_tiling_selection(self):
-        pass
+        gui_logger.select('TILING', self.ids['tiling_size_spinner'].text)
 
     def determine_and_set_run_autofocus_scan_allow(self):
         tiling = self.ids['tiling_size_spinner'].text
@@ -1388,6 +1396,7 @@ class ProtocolSettings(FloatLayout):
         """Toggle: use BF autofocus result for all fluorescence channels."""
         ctx = _app_ctx.ctx
         enabled = self.ids['bf_af_for_fluorescence_btn'].state == 'down'
+        gui_logger.toggle('BF_AF_FOR_FLUORESCENCE', enabled)
         with ctx.settings_lock:
             ctx.settings['protocol']['bf_af_for_fluorescence'] = enabled
         logger.info(f'[Protocol  ] BF AF for fluorescence: {enabled}')

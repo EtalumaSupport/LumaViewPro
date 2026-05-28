@@ -9,6 +9,7 @@ from kivy.uix.scrollview import ScrollView
 
 import modules.app_context as _app_ctx
 import modules.common_utils as common_utils
+from modules import gui_logger
 
 logger = logging.getLogger('LVP.ui.image_settings')
 
@@ -140,6 +141,8 @@ class ImageSettings(BoxLayout):
         # Skip accordion toggling during protocol execution to prevent memory leaks
         if _app_ctx.ctx.protocol_running.is_set():
             return
+
+        gui_logger.select('IMAGE_LAYER', layer)
 
         for a_layer in common_utils.get_layers():
             accordion_item_obj = self.accordion_item_lookup(layer=a_layer)
@@ -437,6 +440,10 @@ class ImageSettings(BoxLayout):
     def toggle_settings(self):
         if not _app_ctx.ctx.protocol_running.is_set():
             self.update_transmitted()
+        # State after toggle reflects target visibility -- 'normal' = settings
+        # tab going invisible (panel collapsing to side), 'down' = expanding.
+        state_down = self.ids['toggle_imagesettings'].state == 'down'
+        gui_logger.toggle('IMAGE_SETTINGS_PANEL', state_down)
         logger.info('[LVP Main  ] ImageSettings.toggle_settings()')
         ctx = _app_ctx.ctx
         lumaview = ctx.lumaview
