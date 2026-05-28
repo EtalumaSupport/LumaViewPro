@@ -360,6 +360,8 @@ class LayerControl(BoxLayout):
             state = True
         else:
             state = False
+        if not init:
+            gui_logger.toggle(f'AUTO_GAIN_{self.layer}', state)
 
         for item in ('gain_slider', 'gain_text', 'exp_slider', 'exp_text'):
             self.ids[item].disabled = state
@@ -638,7 +640,9 @@ class LayerControl(BoxLayout):
     def false_color(self):
         settings = _app_ctx.ctx.settings
         logger.info('[LVP Main  ] LayerControl.false_color()')
-        settings[self.layer]['false_color'] = self.ids['false_color'].active
+        enabled = bool(self.ids['false_color'].active)
+        gui_logger.toggle(f'FALSE_COLOR_{self.layer}', enabled)
+        settings[self.layer]['false_color'] = enabled
         self.apply_settings()
 
     def init_acquire(self):
@@ -655,13 +659,21 @@ class LayerControl(BoxLayout):
         logger.info('[LVP Main  ] LayerControl.update_acquire()')
 
         if self.ids['acquire_image'].active:
+            mode = 'image'
+        elif self.ids['acquire_video'].active:
+            mode = 'video'
+        else:
+            mode = 'none'
+        gui_logger.select(f'ACQUIRE_{self.layer}', mode)
+
+        if mode == 'image':
             settings[self.layer]['acquire'] = 'image'
             if 'stim_config' in settings[self.layer]:
                 settings[self.layer]['stim_config']['enabled'] = False
             self.ids['stim_disable_btn'].active = True
             self.show_stim_controls = False
 
-        elif self.ids['acquire_video'].active:
+        elif mode == 'video':
             settings[self.layer]['acquire'] = 'video'
             if 'stim_config' in settings[self.layer]:
                 settings[self.layer]['stim_config']['enabled'] = False
@@ -703,7 +715,9 @@ class LayerControl(BoxLayout):
     def update_autofocus(self):
         settings = _app_ctx.ctx.settings
         logger.info('[LVP Main  ] LayerControl.update_autofocus()')
-        settings[self.layer]['autofocus'] = self.ids['autofocus'].active
+        enabled = bool(self.ids['autofocus'].active)
+        gui_logger.toggle(f'AUTOFOCUS_ENABLED_{self.layer}', enabled)
+        settings[self.layer]['autofocus'] = enabled
 
     def save_focus(self):
         gui_logger.button(f'SAVE_FOCUS_{self.layer}')
