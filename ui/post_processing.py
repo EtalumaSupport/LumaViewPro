@@ -21,6 +21,7 @@ from kivy.uix.floatlayout import FloatLayout
 from kivy.uix.popup import Popup
 
 from ui.progress_popup import show_popup
+from modules import gui_logger
 from modules.sequential_io_executor import IOTask
 from modules.stitcher import Stitcher
 from modules.composite_generation import CompositeGeneration
@@ -47,6 +48,7 @@ class StitchControls(BoxLayout):
 
     @show_popup
     def run_stitcher(self, popup, path):
+        gui_logger.button('RUN_STITCHER', f'path={path}')
         ctx = _app_ctx.ctx
         status_map = {True: 'Success', False: 'FAILED'}
         popup.title = 'Stitcher'
@@ -106,6 +108,7 @@ class ZProjectionControls(BoxLayout):
 
     @show_popup
     def run_zprojection(self, popup, path):
+        gui_logger.button('RUN_ZPROJECTION', f'path={path}')
         ctx = _app_ctx.ctx
         popup.title = 'Z-Projection'
         popup.progress = 0
@@ -257,6 +260,7 @@ class CompositeGenControls(BoxLayout):
 
     @show_popup
     def run_composite_gen(self, popup, path):
+        gui_logger.button('RUN_COMPOSITE_GEN', f'path={path}')
         ctx = _app_ctx.ctx
         status_map = {True: 'Success', False: 'FAILED'}
         popup.title = 'Composite Image Generation'
@@ -311,6 +315,7 @@ class VideoCreationControls(BoxLayout):
 
     @show_popup
     def run_video_gen(self, popup, path) -> None:
+        gui_logger.button('RUN_VIDEO_GEN', f'path={path}')
         ctx = _app_ctx.ctx
         status_map = {True: 'Success', False: 'FAILED'}
 
@@ -1063,6 +1068,10 @@ class CellCountControls(BoxLayout):
             self._regenerate_image_preview()
 
     def flourescent_mode_toggle(self):
+        gui_logger.toggle(
+            'CELL_COUNT_FLUORESCENT_MODE',
+            bool(self.ids['cell_count_fluorescent_mode_id'].active),
+        )
         self._settings['context']['fluorescent_mode'] = self.ids[
             'cell_count_fluorescent_mode_id'
         ].active
@@ -1193,6 +1202,7 @@ class PostProcessingAccordion(BoxLayout):
         logger.debug('[LVP Main  ] PostProcessingAccordian.convert_to_avi() not yet implemented')
 
     def open_cell_count(self):
+        gui_logger.button('OPEN_CELL_COUNT')
         ctx = _app_ctx.ctx
         if self._cell_count_popup is None:
             ctx.cell_count_content.set_post_processing_module(self.post)
@@ -1206,6 +1216,7 @@ class PostProcessingAccordion(BoxLayout):
         self._cell_count_popup.open()
 
     def open_graphing(self):
+        gui_logger.button('OPEN_GRAPHING')
         ctx = _app_ctx.ctx
         if self._graphing_popup is None:
             ctx.graphing_controls.set_post_processing_module(self.post)
