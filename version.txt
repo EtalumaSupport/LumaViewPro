@@ -1,4 +1,3 @@
 4.0.0-beta14
-2026-05-28 08:40
-rule24-sweep
-a94bb9ac
+2026-05-28 08:51
+color-audit-phase1
