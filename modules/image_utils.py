@@ -1,6 +1,7 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 import datetime
 import enum
+import json
 import pathlib
 
 import cv2
@@ -95,6 +96,31 @@ def mono_to_rgb_falsecolor(mono: np.ndarray, layer: str) -> np.ndarray:
 
 # Module-level once-per-process flag for legacy-collapse log noise control.
 _legacy_collapse_warned: bool = False
+
+
+# Private TIFF tag (range 32768-65535) carrying a JSON-encoded copy of
+# the full hyperstack metadata dict, including the Instrument / Plate /
+# Objective subtrees that tifffile's auto-OME-XML serializer silently
+# drops. LVP-aware consumers recover the dropped fields by parsing the
+# tag value as JSON via read_hyperstack_private_metadata; FIJI / ImageJ
+# / generic OME readers ignore the private tag harmlessly. The OME-XML
+# in ImageDescription (Image > Pixels > Channel + Plane) is unchanged
+# by this sidecar -- both representations coexist on the same IFD.
+LVP_HYPERSTACK_METADATA_TIFF_TAG: int = 51838
+
+
+def _json_default_numpy(obj):
+    """JSON-encode hook for numpy scalars / arrays that may sit in
+    hyperstack metadata dicts (positions sourced from pandas DataFrame
+    cells arrive as numpy.float64; channel-index lists as numpy arrays).
+    """
+    if hasattr(obj, 'item'):
+        return obj.item()
+    if hasattr(obj, 'tolist'):
+        return obj.tolist()
+    raise TypeError(
+        f'Object of type {type(obj).__name__} is not JSON serializable'
+    )
 
 
 def read_tiff_with_legacy_collapse(path: pathlib.Path) -> np.ndarray:
@@ -430,6 +456,40 @@ def build_hyperstack_output_metadata(
             metadata['Plate']['Standard'] = plate['standard']
 
     return metadata
+
+
+def read_hyperstack_private_metadata(path: pathlib.Path) -> dict | None:
+    """Read the LVP private-tag JSON metadata from a hyperstack TIFF.
+
+    Hyperstack writes carry the full metadata dict (including the
+    Instrument / Plate / Objective subtrees that tifffile's auto-OME
+    serializer drops) in a private TIFF tag alongside the standard
+    OME-XML. This reader returns the parsed JSON dict so LVP-aware
+    consumers can recover the dropped fields without parsing OME-XML.
+
+    Args:
+        path: Hyperstack TIFF file path.
+
+    Returns:
+        Parsed metadata dict matching what was passed to write_tiff's
+        ``hyperstack_metadata`` parameter at write time. Returns None
+        if the file has no private tag (third-party hyperstack TIFFs,
+        or LVP files written before this tag was introduced), if the
+        tag exists but is not valid JSON, or if the file cannot be
+        opened.
+    """
+    try:
+        with tf.TiffFile(str(path)) as tif:
+            page0 = tif.pages[0]
+            tag = page0.tags.get(LVP_HYPERSTACK_METADATA_TIFF_TAG)
+            if tag is None:
+                return None
+            value = tag.value
+            if isinstance(value, bytes):
+                value = value.decode('utf-8', errors='replace')
+            return json.loads(value)
+    except (OSError, ValueError, KeyError, json.JSONDecodeError):
+        return None
 
 
 def imread_color(path, *, is_color_native: bool = False) -> 'np.ndarray':
@@ -798,8 +858,26 @@ def write_tiff(
         # ImageJ) consume together. The caller (stack_builder) supplies
         # the full OME dict + write options + resolution; this branch
         # passes them through verbatim.
+        #
+        # JSON sidecar: tifffile's auto-OME serializer silently drops
+        # Instrument / Plate / Objective from the metadata dict. The
+        # full dict gets serialized into a private TIFF tag so
+        # LVP-aware consumers can recover those fields; FIJI / ImageJ
+        # ignore the unknown tag.
         use_bigtiff = data.nbytes > 3.8 * 1024 * 1024 * 1024
         write_options = hyperstack_options or {}
+        sidecar_json = json.dumps(
+            hyperstack_metadata, default=_json_default_numpy
+        )
+        sidecar_extratag = (
+            LVP_HYPERSTACK_METADATA_TIFF_TAG,
+            's',
+            0,
+            sidecar_json,
+            True,
+        )
+        caller_extratags = list(write_options.pop('extratags', []) or [])
+        caller_extratags.append(sidecar_extratag)
         with tf.TiffWriter(
             str(file_loc),
             ome=True,
@@ -811,6 +889,7 @@ def write_tiff(
                 resolution=hyperstack_resolution,
                 metadata=hyperstack_metadata,
                 software=f'LumaViewPro {version}',
+                extratags=caller_extratags,
                 **write_options,
             )
         return
