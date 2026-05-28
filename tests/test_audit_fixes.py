@@ -950,7 +950,6 @@ class TestAxisState:
         for ax in sim_scope.capabilities.axes:
             assert sim_scope.motion.get_axis_state(ax) == AxisState.IDLE
 
-    @pytest.mark.slow
     def test_axis_state_homing_thome(self, _mock_heavy_deps):
         """After thome on a turret-equipped scope, T axis should be IDLE.
 
@@ -990,7 +989,6 @@ class TestAxisState:
         'swap. Tracked in TODO.md.',
         strict=False,
     )
-    @pytest.mark.slow
     def test_thome_on_no_turret_scope_is_silent_noop(self, _mock_heavy_deps):
         """Audit B4 + Rule 8: calling thome() on a scope without a
         turret must not raise and must leave T in UNKNOWN state --

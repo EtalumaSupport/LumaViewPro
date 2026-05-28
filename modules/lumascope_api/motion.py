@@ -527,14 +527,26 @@ class MotionAPI:
                     self._set_axis_state('T', AxisState.HOMING)
                     self._scope.imaging.frame_validity.invalidate('turret')
                     result = self._driver.thome()
+                    # Transition T out of HOMING BEFORE exiting
+                    # safe_turret_move. The context manager's finally
+                    # restores Z via wait_until_complete=True, which calls
+                    # wait_until_finished_moving and iterates EVERY axis
+                    # arrival event. A still-HOMING T has a cleared event
+                    # and the motion monitor only polls MOVING (not
+                    # HOMING) axes, so the Z-restore's wait would hang on
+                    # T until the 120s default timeout fires. Setting T
+                    # to its post-homing state here keeps the Z restore
+                    # blocked only on the axis that's actually moving.
+                    if result is False:
+                        self._set_axis_state('T', AxisState.UNKNOWN)
+                    else:
+                        self._set_axis_state('T', AxisState.IDLE)
             if result is False:
                 logger.error('[SCOPE API ] Turret homing failed')
                 notifications.error(
                     'Motion', 'Homing Failed', 'Turret homing failed. Position is unknown.'
                 )
-                self._set_axis_state('T', AxisState.UNKNOWN)
                 return False
-            self._set_axis_state('T', AxisState.IDLE)
             self.refresh_position_cache()
             _api_log.info('thome DONE')
             return True
