@@ -1,8 +1,7 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 #
-# Rule 15: GUI-agnostic. No Kivy imports. The GUI host injects
-# ui_dispatcher (Clock.schedule_once in Kivy; direct invocation in
-# headless tests).
+# GUI-agnostic. No Kivy imports. The GUI host injects ui_dispatcher
+# (Clock.schedule_once in Kivy; direct invocation in headless tests).
 """ScopeDisplayThread -- dedicated long-lived thread that paces the
 live-display refresh loop.
 

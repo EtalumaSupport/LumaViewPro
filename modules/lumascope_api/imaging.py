@@ -1,15 +1,10 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """ImagingAPI -- sub-API for camera capture / image acquisition.
 
-Wave 7 Phase 4d -- stateful bodies and state slots fully relocated
-from Lumascope. ImagingAPI owns _camera_cache, _frame_buffer,
-_scale_bar, _capturing_event, _focusing_event, _camera_listeners,
+ImagingAPI owns _camera_cache, _frame_buffer, _scale_bar,
+_capturing_event, _focusing_event, _camera_listeners,
 _camera_temp_event, _binning_size, _suppress_value_warnings,
 _capture_return, _autofocus_return, and the frame_validity instance.
-
-See docs/PLUGIN_API_DESIGN_2026-05-09.md sec 2.3 for the canonical
-method list. Frame-listener registry and live_processing plugin
-infrastructure ship in Wave 7 Phase 4d.5.
 """
 
 from __future__ import annotations
@@ -83,9 +78,9 @@ class _BudgetedHandler:
         try:
             self._handler(image, timestamp, chunks)
         except Exception as e:
-            # Rule 5: log every error with context. Exception does not
-            # count toward budget -- a handler that crashes is a
-            # different failure class from a handler that's too slow.
+            # Log every error with context. Exception does not count
+            # toward budget -- a handler that crashes is a different
+            # failure class from a handler that's too slow.
             logger.exception(f"[SCOPE API ] live_processing handler '{self._name}' raised: {e}")
             return
         elapsed_ms = (time.perf_counter() - t0) * 1000.0
@@ -136,7 +131,7 @@ class ImagingAPI:
         # is a @property that re-resolves `self._scope._camera_driver` so
         # disconnect / reconnect / test hot-swap propagate without
         # rebinding ImagingAPI. Same pattern as MotionAPI._driver /
-        # IlluminationAPI._driver (Wave 7 Phase 2b / 3c precedent).
+        # IlluminationAPI._driver.
         del driver  # noqa -- intentionally unused, kept for backward call sites
 
         # State / camera locks. _state_lock guards _capture_return /
@@ -242,7 +237,7 @@ class ImagingAPI:
         """
         return self._scope._camera_driver
 
-    # --- Private helpers (Wave 7 Phase 4d relocated from Lumascope) ---
+    # --- Private helpers (relocated from Lumascope) ---
 
     def _load_camera_timing(self) -> None:
         """Load per-camera timing config if available.
@@ -2091,7 +2086,7 @@ class ImagingAPI:
     def start_camera_temp_logging(
         self, schedule_interval_fn, unschedule_fn, *, interval_s: float = 14400.0
     ) -> None:
-        """LVP-A-2: own the periodic camera-temp logging schedule.
+        """Own the periodic camera-temp logging schedule.
 
         Was previously a Clock.schedule_interval registered by the App
         and stored as a fresh attribute on the MainDisplay widget -- if
@@ -2101,7 +2096,7 @@ class ImagingAPI:
 
         Args:
             schedule_interval_fn: Callable matching ``Clock.schedule_interval(func, interval)``.
-                Passed in so this module stays GUI-agnostic per Rule 15.
+                Passed in so this module stays GUI-agnostic.
             unschedule_fn: Callable matching ``Clock.unschedule(event)``,
                 used by ``stop_camera_temp_logging`` and on
                 disconnect-while-logging.

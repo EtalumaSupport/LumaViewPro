@@ -296,12 +296,11 @@ class PostProcessingRegistry(_BaseNamespace):
 class LiveProcessingRegistry(_BaseNamespace):
     """Per-frame listener plugins. Thin proxy to scope.imaging.
 
-    Per WAVE7_PHASE_4D5_PLAN sec 9 alignment (2026-05-19): registry
-    forwards register / unregister to the canonical listener registry
-    on ImagingAPI (Rule 35 -- one source of truth for the fan-out
-    list). This class only keeps a name -> (spec, handler) lookup
-    table so unregister-by-plugin-name can resolve to the original
-    handler that ImagingAPI was given.
+    Registry forwards register / unregister to the canonical listener
+    registry on ImagingAPI (one source of truth for the fan-out list).
+    This class only keeps a name -> (spec, handler) lookup table so
+    unregister-by-plugin-name can resolve to the original handler that
+    ImagingAPI was given.
 
     Host wires the live Lumascope via bind_scope() before plugin
     discovery; load_plugins() does this automatically. Register() on
@@ -706,7 +705,7 @@ def _extract_spec(module: Any) -> Optional[PluginSpec]:
 
 
 def _notify_load_failure(ctx: Any, plugin_name: str, reason: str) -> None:
-    """Fire a user-facing notification per Rule 14 when a plugin fails to load.
+    """Fire a user-facing notification when a plugin fails to load.
 
     Best-effort: if notifications aren't wired (e.g. headless test
     harness), the failure is still logged and the function returns.

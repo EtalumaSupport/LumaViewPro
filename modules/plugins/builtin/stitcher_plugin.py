@@ -1,9 +1,9 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """Stitcher post-processing plugin -- thin adapter around modules.stitcher.Stitcher.
 
-This module exists to validate the ctx.plugins.post_processing contract
-against a real, shipping workload (Phase A canary). It does NOT
-reimplement stitching: the processor callable instantiates the same
+This module validates the ctx.plugins.post_processing contract
+against a real, shipping workload. It does NOT reimplement stitching:
+the processor callable instantiates the same
 Stitcher class the UI button path uses and forwards to its load_folder
 entry point. The UI button (StitchControls.run_stitcher) keeps working
 unchanged; registering here is additive.
@@ -167,9 +167,9 @@ def register(ctx: Any) -> None:
 
 
 def unregister(ctx: Any) -> None:
-    """No-op for the canary -- the Phase A registry has no remove
-    method, and the built-in is tied to the host's lifetime. Defined
-    so load_plugins's partial-failure cleanup path can call it without
+    """No-op for this built-in -- the registry has no remove method,
+    and the built-in is tied to the host's lifetime. Defined so
+    load_plugins's partial-failure cleanup path can call it without
     AttributeError if the spec moves to entry_points discovery later.
     """
     return

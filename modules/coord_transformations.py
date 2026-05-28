@@ -20,15 +20,15 @@ logger = logging.getLogger('LVP.coord_transformations')
 class NoLabwareSelectedError(ValueError):
     """Raised when a coord transform is called with no labware selected.
 
-    Per Rule 8 (`docs/CLAUDE.md`): the API boundary must reject invalid
-    inputs at the boundary, not crash deep inside `labware.get_dimensions()`.
-    Issue #634 fix made `get_selected_labware()` correctly return
+    The API boundary must reject invalid inputs at the boundary, not
+    crash deep inside `labware.get_dimensions()`. Issue #634 fix made
+    `get_selected_labware()` correctly return
     `(None, None)` when no labware is selected; ~12 caller sites then
     crashed with `AttributeError: 'NoneType' has no attribute
     'get_dimensions'` because they never None-checked. This exception
     is the structural answer: the boundary fails fast and informatively;
     the executor's `_safe_callback` translates it into one user-facing
-    Rule 14 notification per failure class.
+    notification per failure class.
     """
 
 

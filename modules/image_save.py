@@ -1,22 +1,20 @@
 #!/usr/bin/python3
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""Image-save free functions extracted from `Lumascope` per Wave 7 Phase 6.
+"""Image-save free functions extracted from `Lumascope`.
 
 These were instance methods on `Lumascope` whose work is file-I/O,
 path generation, and metadata-construction -- transformation steps
 that take a `scope` (or its discrete settings) and produce a saved
 image. They don't belong on the API root, which is the
-hardware-composition root. After Phase 6f retirement of the Lumascope
-wrappers, callers import directly from this module:
+hardware-composition root. The Lumascope wrappers have been retired;
+callers import directly from this module:
 
     from modules.image_save import save_image
     save_image(scope, array=img, save_folder='./out', ...)
 
 The 5 `*_static` duplicates that previously lived on Lumascope were
-retired in 6c as dead code -- they had zero external callers; the
-static chain existed only because it existed.
-
-See docs/WAVE7_PHASE_6_PLAN.md for the extraction plan.
+retired as dead code -- they had zero external callers; the static
+chain existed only because it existed.
 """
 
 from __future__ import annotations

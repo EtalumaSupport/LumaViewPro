@@ -89,7 +89,7 @@ class AppContext:
     metrics_logger: object = None  # MetricsLogger (LVP-A-12)
     ui_listener_bridge: object = None  # UIListenerBridge (LVP-A-6)
 
-    # Plugin platform (Phase A: registry; Phase B1/B2: entry-points discovery)
+    # Plugin platform: registry + entry-points discovery
     plugins: PluginRegistry = field(default_factory=PluginRegistry)
 
     # State

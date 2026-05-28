@@ -865,8 +865,8 @@ class FirmwareDiagnostics:
         Returns ``{rail_label: float | None}`` or ``None`` when the
         firmware does not support the VOLTAGE diagnostic (legacy
         firmware predating diagnostic queries). Driver-side parsing
-        per Rule 10 -- the firmware response shape lives on
-        MotorBoard.read_voltages, not here.
+        -- the firmware response shape lives on MotorBoard.read_voltages,
+        not here.
         """
         if not self._scope:
             return None

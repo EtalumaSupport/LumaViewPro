@@ -1,8 +1,8 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """UI dispatch utilities for module-layer code.
 
-Rule 15: Module-layer code must not import Kivy. This module provides
-a ui_dispatch function that is set by the GUI layer at startup.
+Module-layer code must not import Kivy. This module provides a
+ui_dispatch function that is set by the GUI layer at startup.
 Non-GUI contexts (tests, headless, REST) get direct invocation.
 """
 

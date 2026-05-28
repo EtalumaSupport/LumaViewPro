@@ -513,17 +513,16 @@ sys.excepthook = custom_except_hook
 
 
 def log_environment_banner(source_path: str, version_str: str):
-    """LVP-A-9: emit the standard launch-time environment fingerprint.
+    """Emit the standard launch-time environment fingerprint.
 
     Logs git hash, run time, host/OS, Python interpreter + version, Kivy,
     and camera SDK versions (pypylon binding + Pylon SDK runtime,
     ids_peak). Every entry point that ships should call this on startup
     so support bundles always identify the exact environment that
-    produced the log (Rule 22).
+    produced the log.
 
-    Originally inline at lumaviewpro.py:587-666 -- moved here so REST
-    API, headless test runner, CLI tools all get the same fingerprint
-    without copy-paste.
+    Centralized here so REST API, headless test runner, CLI tools all
+    get the same fingerprint without copy-paste.
     """
     import sys as _sys
 

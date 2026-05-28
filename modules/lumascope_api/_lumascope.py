@@ -64,7 +64,7 @@ _PRE_RELEASE_WARNING_TEXT = (
 
 
 def _fire_pre_release_warning(stacklevel: int = 3) -> None:
-    """Fire the Rule 30 PRE-RELEASE runtime FutureWarning once per process.
+    """Fire the PRE-RELEASE runtime FutureWarning once per process.
 
     Called from `Lumascope.__init__` and from `ScopeSession.create` /
     `create_headless` so any L2 entry point trips the warning, even
@@ -98,16 +98,14 @@ class AxisState:
 
 
 # ---------------------------------------------------------------------------
-# Rule 14 helpers (notify on failure)
+# Notify-on-failure helpers
 #
 # #632/#539 introduced `_try_connect_board` to replace the silent
-# `try/except: NullBoard()` pattern that hid LED-side failures. The audit
-# (docs/AUDIT_RULE_14_NOTIFY_2026-04-24.md) flagged two places that still
-# needed this plus the camera path, and recommended hoisting the helpers
-# to module scope so they can be reused by `__init__`, `create_diagnostic`,
-# and any future connect path without duplicating the error-class routing.
-# Keep the module-scope helpers as the single source of truth; call sites
-# should be one-liners.
+# `try/except: NullBoard()` pattern that hid LED-side failures. The
+# helpers are hoisted to module scope so they can be reused by
+# `__init__`, `create_diagnostic`, and any future connect path without
+# duplicating the error-class routing. The module-scope helpers are
+# the single source of truth; call sites should be one-liners.
 # ---------------------------------------------------------------------------
 
 
@@ -136,8 +134,8 @@ def _try_connect_board(label, ctor, null_ctor):
     failed) -- we detect that here and surface it as a clear failure instead
     of silently substituting Null*.
 
-    Rule 14: every case logs visibly and notifies the user with an
-    actionable, error-class-specific message.
+    Every case logs visibly and notifies the user with an actionable,
+    error-class-specific message.
     """
     try:
         board = ctor()
@@ -211,7 +209,7 @@ def _is_total_cold_start(led_driver, motion_driver) -> bool:
 
 
 def _notify_camera_failure(exc, *, suppress_if_cold_start: bool = False):
-    """Rule 14 audit A1 -- surface camera-init failure to the user.
+    """Surface camera-init failure to the user.
 
     The camera registry raises a variety of exception types depending on
     which backend (pypylon, ids_peak, FX2, simulated). pypylon's
@@ -262,9 +260,9 @@ def _notify_camera_failure(exc, *, suppress_if_cold_start: bool = False):
 
 class Lumascope:
     # --- Input validation constants ---
-    # `LED_MAX_MA` retired here per freeze-audit Finding #38. Canonical
-    # home is `modules.scope_capabilities.LED_MAX_MA` (also surfaced
-    # at `scope.capabilities.led_max_ma`). Callers that need the cap
+    # `LED_MAX_MA` has been retired here. Canonical home is
+    # `modules.scope_capabilities.LED_MAX_MA` (also surfaced at
+    # `scope.capabilities.led_max_ma`). Callers that need the cap
     # read from capabilities; the class constant created a parallel
     # SoT with the same value.
     # LED channel set comes from self._led_driver.available_channels() -- varies by
@@ -358,21 +356,20 @@ class Lumascope:
 
         # LED state slots (_led_listeners, _led_state, _led_owners,
         # _led_owner_lock, _led_listeners_lock, _led_lock) live on
-        # IlluminationAPI per Wave 7 Phase 3d.
+        # IlluminationAPI.
 
         # Camera state slots (_camera_listeners + lock, _frame_buffer,
         # _capturing_event, _focusing_event, _capture_return,
         # _autofocus_return, _suppress_value_warnings, _scale_bar,
         # _camera_cache + lock, _binning_size, _camera_temp_event,
-        # _camera_temp_unschedule_fn, frame_validity) live on ImagingAPI
-        # per Wave 7 Phase 4d.
+        # _camera_temp_unschedule_fn, frame_validity) live on ImagingAPI.
 
         # ----- Motion Control Board -----
         # Constructed BEFORE MotionAPI so MotionAPI._driver resolves on
         # the first call. Driver selection goes through the motor registry
-        # (audit B2) -- 'auto' tries real drivers in descending priority
-        # order and falls back to NullMotionBoard if all fail, so no
-        # manual try/except needed.
+        # -- 'auto' tries real drivers in descending priority order and
+        # falls back to NullMotionBoard if all fail, so no manual
+        # try/except needed.
         motor_kwargs: dict = {}
         if simulate:
             from modules.settings_init import settings
@@ -386,7 +383,7 @@ class Lumascope:
                 f'[SCOPE API ] Using SIMULATED Motor Board (model={motor_kwargs.get("model")})'
             )
 
-        # ----- MotionAPI (Wave 7 Phase 2c) -----
+        # ----- MotionAPI -----
         # Constructed AFTER the motion driver so _driver resolves correctly.
         # init_axes() sizes per-axis dicts to detect_present_axes(); then
         # start_monitor() spawns the background poll thread. NullMotionBoard
@@ -400,21 +397,20 @@ class Lumascope:
         self.motion.start_monitor()
 
         # ----- LED Control Board -----
-        # Same registry-based selection as motion (audit B2).
+        # Same registry-based selection as motion.
         self._led_driver: LEDBoardProtocol = led_registry.create('auto', simulate=simulate)
         if simulate:
             logger.info('[SCOPE API ] Using SIMULATED LED Board')
 
         # ----- Camera -----
-        # Driver selection via camera_registry (audit B2). `camera_type`
-        # accepts: 'auto' (tries pylon -> ids by priority), 'pylon', 'ids',
+        # Driver selection via camera_registry. `camera_type` accepts:
+        # 'auto' (tries pylon -> ids by priority), 'pylon', 'ids',
         # 'sim', or any other registered camera kind. Default 'auto' is
-        # the right choice for most callers; the pre-B2 default was
-        # "pylon" which skipped auto-detect -- callers that rely on that
-        # continue to pass camera_type='pylon' explicitly.
-        # _frame_buffer slot moved to ImagingAPI in Wave 7 Phase 4d.
-        # _camera_driver slot defaulted to None in _init_minimal; the
-        # registry call below overrides it on a successful connect.
+        # the right choice for most callers; legacy callers that need
+        # the prior "pylon" default pass camera_type='pylon' explicitly.
+        # _frame_buffer slot lives on ImagingAPI. _camera_driver slot
+        # defaulted to None in _init_minimal; the registry call below
+        # overrides it on a successful connect.
         camera_kwargs: dict = {}
         if simulate:
             camera_kwargs['z_position_func'] = lambda: self._motion_driver.current_pos('Z')
@@ -427,7 +423,7 @@ class Lumascope:
                 logger.info('[SCOPE API ] Using SIMULATED Camera')
         except Exception as _cam_exc:
             logger.exception('[SCOPE API ] Camera Board Not Initialized')
-            # Rule 14 A1: pre-fix code logged only; the user saw no popup and
+            # Prior behavior logged only; the user saw no popup and
             # every camera-dependent UI action silently returned None/False.
             # Same pattern #632/#539 fixed for the LED + motor boards.
             # Suppress the per-component popup when LED + motor have
@@ -442,7 +438,7 @@ class Lumascope:
                 ),
             )
 
-        # ----- ScopeCapabilities (audit B7) -----
+        # ----- ScopeCapabilities -----
         # Single source of truth for "what does this scope have" -- built
         # once from the three drivers, frozen thereafter. Callers should
         # prefer `scope.capabilities.*` over the wrapper methods below.
@@ -455,10 +451,10 @@ class Lumascope:
             camera=self._camera_driver,
         )
 
-        # ----- Sub-API wiring (Wave 7 Phase 1+) -----
+        # ----- Sub-API wiring -----
         # Six sub-APIs: motion, illumination, imaging, diagnostics,
-        # capabilities, io. motion was already constructed above (Phase 2c
-        # requires earlier construction so init_axes / start_monitor can run
+        # capabilities, io. motion was already constructed above (it needs
+        # earlier construction so init_axes / start_monitor can run
         # before the LED/camera drivers are set up). Remaining sub-APIs:
         from modules.lumascope_api.illumination import IlluminationAPI
         from modules.lumascope_api.imaging import ImagingAPI
@@ -478,8 +474,8 @@ class Lumascope:
 
         # Track whether any real hardware was found.
         # Camera check reads the (private) driver handle directly because
-        # the public `self.camera` attribute is the new ImagingAPI in
-        # Wave 7 Phase 1 -- not the driver.
+        # the public `self.camera` attribute is the ImagingAPI surface,
+        # not the driver.
         self._no_hardware = (
             not simulate
             and isinstance(self._led_driver, NullLEDBoard)
@@ -501,11 +497,11 @@ class Lumascope:
         # Frame validity, camera_cache, scale_bar, _binning_size, +
         # _camera_listeners/_frame_buffer/_capturing_event/_focusing_event/
         # _capture_return/_autofocus_return/_suppress_value_warnings/
-        # _camera_temp_event init relocated to ImagingAPI.__init__ in
-        # Wave 7 Phase 4d. _load_camera_timing + _populate_camera_cache
-        # are now ImagingAPI methods and run automatically during
-        # ImagingAPI.__init__. Lumascope wires up the motion-settle check
-        # against the relocated frame_validity instance below.
+        # _camera_temp_event init live on ImagingAPI.__init__.
+        # _load_camera_timing + _populate_camera_cache are ImagingAPI
+        # methods and run automatically during ImagingAPI.__init__.
+        # Lumascope wires up the motion-settle check against the
+        # frame_validity instance below.
         def _motion_settle_check(source: str) -> bool:
             # For absent axes (e.g., LS820 has no X/Y), treat UNKNOWN as settled.
             # Axes that were never homed or moved stay UNKNOWN -- they shouldn't
@@ -629,7 +625,7 @@ class Lumascope:
                 f'Not connected: {", ".join(missing)}. Some features will be unavailable.',
             )
 
-    # --- Executor-backed command API (LAYER-A' / Rule 2) ---
+    # --- Executor-backed command API ---
     #
     # Single canonical path for hardware operations that need executor
     # dispatch: caller invokes scope.X_async(...) or scope.X_sync(...);
@@ -798,14 +794,13 @@ class Lumascope:
         return executor
 
     # --- LED command API ---
-    # All LED methods + change-listener registry relocated to IlluminationAPI
-    # in Wave 7 Phase 3c/3d; forwarders retired in 3f. Callers use
-    # scope.illumination.
+    # All LED methods + change-listener registry live on IlluminationAPI;
+    # forwarders have been retired. Callers use scope.illumination.
 
     # --- Camera command API ---
     # All camera/imaging methods + state slots + change-listener registry
-    # relocated to ImagingAPI in Wave 7 Phase 4c/4d; forwarders retired in
-    # 4f. Callers use scope.imaging.
+    # live on ImagingAPI; forwarders have been retired. Callers use
+    # scope.imaging.
 
     @property
     def motor_connected(self) -> bool:
@@ -1054,19 +1049,19 @@ class Lumascope:
         instance.camera = None
         instance._frame_buffer = None
 
-        # Build capabilities (audit B7) -- diagnostic instances still need
-        # this so any code that reads scope.capabilities.* works.
+        # Build capabilities -- diagnostic instances still need this so
+        # any code that reads scope.capabilities.* works.
         instance.capabilities = ScopeCapabilities.from_drivers(
             motion=instance._motion_driver,
             led=instance._led_driver,
             camera=None,
         )
 
-        # Sub-API wiring (audit #35) -- diagnostic instances are now
-        # first-class enough that disconnect / scope.imaging / scope.illumination
-        # do not raise AttributeError. ImagingAPI tolerates camera=None
-        # (per its docstring); IlluminationAPI gets the connected LED
-        # driver (real or NullLEDBoard).
+        # Sub-API wiring -- diagnostic instances are first-class enough
+        # that disconnect / scope.imaging / scope.illumination do not
+        # raise AttributeError. ImagingAPI tolerates camera=None (per
+        # its docstring); IlluminationAPI gets the connected LED driver
+        # (real or NullLEDBoard).
         from modules.lumascope_api.illumination import IlluminationAPI
         from modules.lumascope_api.imaging import ImagingAPI
         from modules.lumascope_api.diagnostics import DiagnosticsAPI

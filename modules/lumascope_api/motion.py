@@ -1,18 +1,13 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """MotionAPI -- sub-API for stage / focus / turret motion.
 
-Wave 7 Phase 2b: 22 stateless method bodies relocated from Lumascope.
-Wave 7 Phase 2c: 18 stateful method bodies + all motion state slots
-    (_pos_cache, _axis_state, _arrival_events, _move_profile,
-    _position_listeners, _motion_wake, _motion_monitor_stop,
-    _motion_monitor_thread, _homing_event, _turreting_event) relocated
-    from _lumascope.py to this surface.
-Wave 7 Phase 2c.5: test callers migrated to scope.motion.X; intra-motion
-    self._scope.X band-aid forwarders removed (this surface now calls
-    its own methods directly); Lumascope @property shims for the state
-    slots deleted. Lumascope still keeps one-line method-name forwarders
-    (zhome, home, thome, move_absolute_position, etc.) for production
-    callers; those retire in Phase 2e/2f as production migrates.
+MotionAPI owns the motion state slots (_pos_cache, _axis_state,
+_arrival_events, _move_profile, _position_listeners, _motion_wake,
+_motion_monitor_stop, _motion_monitor_thread, _homing_event,
+_turreting_event) and the bodies of all stage / focus / turret
+methods. Lumascope keeps a small set of one-line method-name
+forwarders (zhome, home, thome, move_absolute_position, etc.) for
+production callers; those retire as production migrates.
 
 Constructor signature:
     MotionAPI(scope, driver) -- scope is the Lumascope back-ref;
@@ -77,7 +72,7 @@ class MotionAPI:
         self._scope = scope
 
         # ------------------------------------------------------------------
-        # Motion state slots (Wave 7 Phase 2c migration).
+        # Motion state slots.
         #
         # Locks and events are initialized here; per-axis dicts are
         # populated by init_axes() called from Lumascope.__init__ after the
@@ -143,7 +138,7 @@ class MotionAPI:
         Called from Lumascope.__init__ (and create_diagnostic) after the
         motion driver's detect_present_axes() has run. NullMotionBoard
         returns [] so a system with no motor hardware ends up with empty
-        dicts -- all state-touching methods handle that via Rule 8 no-ops.
+        dicts -- all state-touching methods handle that via no-ops.
 
         Args:
             present_axes: List of axis names the hardware actually has.
@@ -193,10 +188,9 @@ class MotionAPI:
         return self._scope._motion_driver
 
     # ------------------------------------------------------------------
-    # Stateless method bodies (relocated in Wave 7 Phase 2b).
+    # Stateless method bodies.
     #
-    # Order mirrors _lumascope.py source order so a side-by-side diff
-    # against the Phase 2a inventory stays readable.
+    # Order mirrors _lumascope.py source order.
     # ------------------------------------------------------------------
 
     def move_absolute_async(
@@ -239,8 +233,8 @@ class MotionAPI:
     def stop_motion(self) -> None:
         """Stop all in-flight motor moves (LVP-A-1).
 
-        Idempotent + safe-when-disconnected per Rule 4 + Rule 8 -- no-ops
-        when the motor board isn't connected. Uses the firmware-side
+        Idempotent + safe-when-disconnected -- no-ops when the motor
+        board isn't connected. Uses the firmware-side
         ``STOP`` command which the motor controller implements as
         ``motorstop`` (target=actual on all axes); same wire command the
         UI emergency-stop already uses, just routed through the API
@@ -267,10 +261,10 @@ class MotionAPI:
                     'implement STOP; motors will latch on disconnect'
                 )
         except Exception as e:
-            # Rule 14 -- log + notify, but don't re-raise: stop_motion
-            # is called from shutdown paths where the caller can't
-            # meaningfully recover and a raised exception would leave
-            # disconnect() half-done.
+            # Log + notify, but don't re-raise: stop_motion is called
+            # from shutdown paths where the caller can't meaningfully
+            # recover and a raised exception would leave disconnect()
+            # half-done.
             logger.warning(f'[SCOPE API ] stop_motion failed: {type(e).__name__}: {e}')
             try:
                 notifications.warning(
@@ -392,9 +386,9 @@ class MotionAPI:
         # dispatches into the driver where exchange_command tries to
         # auto-reconnect and burns its full timeout (~10 s). That was
         # the user-perceived "spinning beachball" in #632. Fire ONE
-        # clean Rule 14 notification with the right cause, instead of
-        # the misleading "Homing Failed. Position is unknown" that
-        # implies a homing-mechanics problem.
+        # clean notification with the right cause, instead of the
+        # misleading "Homing Failed. Position is unknown" that implies
+        # a homing-mechanics problem.
         if not self._scope.motor_connected:
             logger.warning('[SCOPE API ] home() called with motor not connected')
             # Suppress the per-component popup when the scope is in
@@ -504,7 +498,7 @@ class MotionAPI:
         # Short-circuit on disconnected motor -- same rationale as
         # home() above. Without this, thome dispatches into the driver
         # where exchange_command burns its 15s timeout doing failed
-        # auto-reconnect attempts. Fire one clean Rule 14 notification.
+        # auto-reconnect attempts. Fire one clean notification.
         if not self._scope.motor_connected:
             logger.warning('[SCOPE API ] thome() called with motor not connected')
             if not getattr(self._scope, 'no_hardware', False):
@@ -748,12 +742,11 @@ class MotionAPI:
             pass  # Legacy firmware doesn't support acceleration limits
 
     # ------------------------------------------------------------------
-    # Stateful method bodies (relocated in Wave 7 Phase 2c).
+    # Stateful method bodies.
     #
     # State slots (_pos_cache, _axis_state, _arrival_events, _move_profile,
     # _position_listeners, _motion_wake, _motion_monitor_*, _homing_event,
-    # _turreting_event) now live on this surface. Lumascope keeps transient
-    # @property forwarders for each slot; those retire in Phase 2f.
+    # _turreting_event) live on this surface.
     # ------------------------------------------------------------------
 
     # --- CR-2: Thread-safe properties for shared state ---
@@ -1229,9 +1222,9 @@ class MotionAPI:
                 f'Position {pos} um exceeds safety limit of +/-{MOTOR_POSITION_LIMIT} um'
             )
 
-        # Rule 8: silently no-op for axes that aren't present on this
-        # hardware. _arrival_events is sized to detect_present_axes() at
-        # init, so this is the canonical "is this axis trackable" check.
+        # Silently no-op for axes that aren't present on this hardware.
+        # _arrival_events is sized to detect_present_axes() at init,
+        # so this is the canonical "is this axis trackable" check.
         if axis not in self._arrival_events:
             _api_log.debug(f'move_abs ignored: {axis} not present on this scope')
             return
@@ -1317,8 +1310,8 @@ class MotionAPI:
                 f'Distance {um} um exceeds safety limit of +/-{MOTOR_POSITION_LIMIT} um'
             )
 
-        # Rule 8: silently no-op for axes that aren't present on this
-        # hardware. See move_absolute_position for the rationale.
+        # Silently no-op for axes that aren't present on this hardware.
+        # See move_absolute_position for the rationale.
         if axis not in self._arrival_events:
             _api_log.debug(f'move_rel ignored: {axis} not present on this scope')
             return
@@ -1418,9 +1411,9 @@ class MotionAPI:
         arrival event so waiters unblock. Fires position listeners on every
         transition.
 
-        Silently no-ops for axes that are not present on this hardware
-        (Rule 8). Per-axis dicts are sized to detect_present_axes() at
-        init, so hardcoded callers like xycenter() (X/Y) and thome() (T)
+        Silently no-ops for axes that are not present on this hardware.
+        Per-axis dicts are sized to detect_present_axes() at init, so
+        hardcoded callers like xycenter() (X/Y) and thome() (T)
         automatically degrade to no-ops on scopes that lack those axes.
         """
         if axis not in self._arrival_events:

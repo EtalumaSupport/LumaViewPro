@@ -18,8 +18,8 @@ status endpoint can also call the ``snapshot_*`` building blocks
 directly to dump current state on demand without waiting for the
 next tick.
 
-Stays GUI-agnostic per Rule 15 -- takes Clock-style scheduler/
-unscheduler callables instead of importing Kivy.
+Stays GUI-agnostic -- takes Clock-style scheduler / unscheduler
+callables instead of importing Kivy.
 """
 
 from __future__ import annotations
@@ -64,7 +64,7 @@ _SCOPE_DISPLAY_PRUNE_THRESHOLD = 20
 # from stall onset to first popup.
 _FRAME_FLOW_STALL_FPS = 0.1
 _FRAME_FLOW_STALL_TICK_THRESHOLD = 2
-# Rule 14 sticky-failure: persistent faults must resurface, not dedup
+# Sticky-failure policy: persistent faults must resurface, not dedup
 # forever. Re-fire the user-facing notification every N additional
 # stalled ticks while the stall persists; escalate to critical after
 # the stall has lasted this many ticks past the initial warning.
@@ -108,9 +108,9 @@ class MetricsLogger:
         # failures that don't raise an exception or trigger a timeout.
         self._frame_flow_stalled_ticks = 0
         # Tick count at which the user-facing notification was last
-        # fired (-1 = never). Drives Rule 14 sticky-failure refire:
-        # re-notify every _FRAME_FLOW_STALL_RENOTIFY_TICKS while the
-        # stall persists; escalate to critical at _CRITICAL_TICKS once.
+        # fired (-1 = never). Drives sticky-failure refire: re-notify
+        # every _FRAME_FLOW_STALL_RENOTIFY_TICKS while the stall
+        # persists; escalate to critical at _CRITICAL_TICKS once.
         self._frame_flow_stall_last_notified_tick = -1
         self._frame_flow_stall_critical_fired = False
 
@@ -197,7 +197,7 @@ class MetricsLogger:
                 f'silent grab failure. Check camera.log for last successful '
                 f'grab; investigate USB transport / Pylon SDK state.'
             )
-            # Rule 14 sticky-failure: persistent stalls keep resurfacing.
+            # Sticky-failure: persistent stalls keep resurfacing.
             # First popup at threshold; same-severity refire every
             # _RENOTIFY_TICKS thereafter; one critical escalation once
             # _CRITICAL_TICKS has passed. Recovery resets all of it.

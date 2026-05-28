@@ -402,7 +402,7 @@ class LumaViewProApp(TooltipMixin, App):
 
         # Stage B1: publish Kivy-side layer state to scope_display_thread at
         # 30Hz. The thread cannot read Kivy widget attrs from a non-UI
-        # thread (Rule 15). This callback reads
+        # thread (executors must stay GUI-agnostic). This callback reads
         # get_active_layer_config() + engineering-mode open-layer and
         # pushes them onto the thread; the thread reads under _config_lock
         # at each frame start. Staleness is bounded by 33ms (one tick).

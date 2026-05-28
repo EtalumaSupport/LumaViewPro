@@ -6,9 +6,9 @@ Pure functions for building the per-recording session_manifest.json file
 that lives next to the saved TIFFs. Kept Kivy-free so it can be unit-
 tested directly.
 
-Schema mirrors the char tool's manifest provenance shape (Firmware
-session 74 plugin 0.6.0) so manifests across LVP recordings and char
-runs are comparable. The frame_index gives downstream scripts a single
+Schema mirrors the char tool's manifest provenance shape so
+manifests across LVP recordings and char runs are comparable. The
+frame_index gives downstream scripts a single
 source of truth for frame ordering and per-frame timestamps without
 having to read every TIFF.
 """

@@ -1,12 +1,8 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """DiagnosticsAPI -- sub-API for hardware diagnostic probes.
 
-Wave 7 Phase 5 decomposition. Stateless probes for camera / motor /
-LED hardware. Bodies live here; Lumascope keeps thin one-line
-forwarders for the 7 public methods until 5f retires them.
-
-See docs/PLUGIN_API_DESIGN_2026-05-09.md sec 2.4 for the canonical
-method list. No persistent state -- per-call probes.
+Stateless probes for camera / motor / LED hardware. No persistent
+state -- per-call probes.
 """
 
 from __future__ import annotations
@@ -562,9 +558,9 @@ class DiagnosticsAPI:
     ) -> str:
         """Send a single firmware diagnostic command and return the response.
 
-        Wraps the driver's ``exchange_command`` with API-layer logging
-        (Rule 13). Diagnostic clients (tech-support report, bench tools)
-        MUST go through this method instead of reaching the driver directly
+        Wraps the driver's ``exchange_command`` with API-layer logging.
+        Diagnostic clients (tech-support report, bench tools) MUST go
+        through this method instead of reaching the driver directly
         (LV-24 / LV-32 / LV-40).
 
         Args:

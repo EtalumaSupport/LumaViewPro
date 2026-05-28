@@ -140,11 +140,10 @@ class TimedLock:
     acquire-wait + hold time per acquire-release cycle to `lock_trace.csv`
     when ``profile_trace_enabled`` is set in settings.json.
 
-    Threading audit sec.10.2 -- validates SerialBoard._lock hold-time claim
-    (~32 ms per round-trip, documented at drivers/motorboard.py:79 from a
-    2026-04-13 bench run) across more sessions, and surfaces outliers.
-    Zero overhead when tracing is disabled -- __enter__/__exit__ short-circuit
-    before time.perf_counter().
+    Validates SerialBoard._lock hold-time claim (~32 ms per round-trip,
+    documented at drivers/motorboard.py:79) across more sessions, and
+    surfaces outliers. Zero overhead when tracing is disabled --
+    __enter__/__exit__ short-circuit before time.perf_counter().
 
     Thread-safe for RLock re-entry: uses a per-instance thread-local
     stack of (t_wait_start, t_held_start) tuples so nested
