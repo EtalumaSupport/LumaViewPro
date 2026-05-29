@@ -8,14 +8,13 @@ state -- per-call probes.
 from __future__ import annotations
 
 import datetime
-import os
 import pathlib
 import time
 from typing import TYPE_CHECKING
 
 import numpy as np
 
-from lvp_logger import logger, version
+from lvp_logger import log_dir, logger, version
 
 if TYPE_CHECKING:
     from modules.lumascope_api._lumascope import Lumascope
@@ -366,8 +365,11 @@ class DiagnosticsAPI:
         results['start_p95_s'] = _pct(start_times, 95)
         results['start_p99_s'] = _pct(start_times, 99)
 
-        # Persist to data/camera_timing/ keyed by model + sdk version + delay
-        # so a sweep across delays produces one file per data point.
+        # Persist under the log folder (camera_timing/) keyed by model + sdk
+        # version + delay so a sweep across delays produces one file per data
+        # point. The log folder is the support-bundle root, so a benchmark run
+        # travels with the logs; writing under the source tree instead both
+        # polluted the checkout and left the data point out of the bundle.
         try:
             import json
 
@@ -376,7 +378,7 @@ class DiagnosticsAPI:
             safe_model = str(model).replace(' ', '_').replace('/', '_')
             safe_sdk = str(sdk).replace(' ', '_').replace('/', '_')
             ts = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
-            timing_dir = pathlib.Path(os.path.dirname(__file__)).parent / 'data' / 'camera_timing'
+            timing_dir = pathlib.Path(log_dir) / 'camera_timing'
             timing_dir.mkdir(parents=True, exist_ok=True)
             out_path = timing_dir / (
                 f'grab_lifecycle_benchmark_{safe_model}_sdk{safe_sdk}_'
@@ -410,7 +412,7 @@ class DiagnosticsAPI:
         grabber statistics counter deltas over a sampling window of
         ``duration_s`` seconds. Adds host metadata (OS, hostname,
         pypylon + pylon SDK versions) and writes a single JSON file
-        to ``data/pylon_probe/`` keyed on
+        to ``<log folder>/pylon_probe/`` keyed on
         ``<model>__sn<serial>__fw<firmware>__<host>__dltl<config>__<datetime>.json``.
 
         Designed for cross-host / cross-camera / cross-firmware
@@ -510,11 +512,12 @@ class DiagnosticsAPI:
         dltl_token = self._dltl_filename_token(snapshot.get('config', {}))
         snapshot['dltl_config'] = dltl_token
 
-        # JSON file write
+        # JSON file write -- under the log folder so the snapshot travels with
+        # the support bundle instead of landing in the source tree.
         try:
             import json
 
-            out_dir = pathlib.Path(os.path.dirname(__file__)).parent / 'data' / 'pylon_probe'
+            out_dir = pathlib.Path(log_dir) / 'pylon_probe'
             out_dir.mkdir(parents=True, exist_ok=True)
 
             def _safe_token(v: str | None, fallback: str) -> str:
