@@ -67,10 +67,6 @@ class VideoWriter:
         self._stream = None  # PyAV video stream
         self._cv2_video = None  # cv2.VideoWriter fallback
         self._finished = False
-        # True once the encoder has been init-attempted -- eagerly below, or
-        # lazily on the first frame. Tracked separately from _shape so the
-        # color-None eager case can defer init while still exposing _shape.
-        self._encoder_init_attempted = False
 
         # Eager-init only when caller provides dimensions AND color is set:
         # with color set the encoder always emits 3-channel RGB (false-color
@@ -81,7 +77,6 @@ class VideoWriter:
         # -- mirroring the no-dimensions path -- instead of locking in a gray
         # encoder that would corrupt RGB input.
         if self._shape is not None and color is not None:
-            self._encoder_init_attempted = True
             if self._use_pyav:
                 self._init_pyav(width, height, True)
             else:
@@ -178,9 +173,10 @@ class VideoWriter:
 
             # Init the encoder on the first frame when it was not opened
             # eagerly at __init__ -- no dimensions given, or color was None
-            # so is_color had to wait for the frame ndim.
-            if not self._encoder_init_attempted:
-                self._encoder_init_attempted = True
+            # so is_color had to wait for the frame ndim. Gate on the encoder
+            # not yet existing (rather than a separate flag) so a caller that
+            # injected its own _cv2_video / _stream is left intact.
+            if self._stream is None and self._cv2_video is None:
                 self._lazy_init_from_frame(image)
 
             if not self._is_correct_image_shape(image):
