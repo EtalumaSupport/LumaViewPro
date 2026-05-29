@@ -112,15 +112,27 @@ _PYLON_ERR_DEVICE_NOT_FOUND = 433
 # native-thread fast path; heavy work moves to _PylonImageGrabWorker).
 _PYLON_DEFENSE_BUILD = 'pylon-defense-3'
 
-# MaxNumBuffer cap applied post-Open() in connect(). 3 is the Windows
-# non-paged-pool bound originally observed (B34); bench data 2026-05-08
-# (Windows dart M, sensor-max Mono8) shows cap=3 and SDK-default both
-# run at 0% fail rate / 0 resyncs/sec. Override via
-# imaging._set_max_num_buffer() (Pylon InstantCamera node becomes RO
-# once grabbing has begun; the bench tool must call the lever before
-# the implicit AcquireContinuousConfiguration auto-start fires, or
-# stop/restart grabbing around the change).
-_DEFAULT_MAX_NUM_BUFFER = 3
+# MaxNumBuffer applied post-Open() in connect(). 10 is the pylon SDK /
+# Pylon Viewer default. A 3-buffer cap was tried to cut RAM, but on a slow
+# host the small pool let the grab worker fall behind under CPU load: the
+# camera discarded payloads ("bandwidth insufficient") and, once the
+# matching grab-result pool filled, dropped the connection entirely. More
+# buffers absorb the host stall for a few MB of RAM; revisit under a RAM /
+# buffer-reuse audit. Override via imaging._set_max_num_buffer() (the
+# InstantCamera node goes read-only once grabbing has begun; set it before
+# the implicit AcquireContinuousConfiguration auto-start, or stop/restart
+# grabbing around the change).
+_DEFAULT_MAX_NUM_BUFFER = 10
+
+# MaxTransferSize applied post-Open() in connect(), pinned regardless of
+# platform. It is the per-USB-transfer byte budget; bigger transfers mean
+# fewer kernel transitions and less CPU per frame. Per Basler's stream-
+# grabber doc the default "depends on the operating system" -- the OSX /
+# Pylon Viewer default is 256 KB, which is unstable here, whereas 1 MB
+# holds. That doc also requires this be set before grabbing starts, so the
+# connect-time requested-vs-actual readback is the tell that the post-Open
+# window applied it.
+_DEFAULT_MAX_TRANSFER_SIZE = 1024 * 1024  # 1 MB
 
 # Production grab strategy is LatestImageOnly -- frame_validity,
 # capture_and_wait, and the auto-discard skip_frames floor all depend
@@ -143,11 +155,11 @@ class PylonCamera(Camera):
             self._use_camera_emulation = False
 
         # StreamGrabber-tuning state -- written by imaging sub-API levers,
-        # read by connect() / start_grabbing(). Production defaults
-        # leave SDK defaults in place for MTS / NQU (set only when the
-        # lever is called); MaxNumBuffer + grab strategy have explicit
-        # defaults applied at every connect().
+        # read by connect() / start_grabbing(). MaxNumBuffer, MaxTransferSize,
+        # and grab strategy have explicit defaults applied at every connect();
+        # NumMaxQueuedUrbs stays at the SDK default (set only via the lever).
         self._max_num_buffer = _DEFAULT_MAX_NUM_BUFFER
+        self._max_transfer_size = _DEFAULT_MAX_TRANSFER_SIZE
         self._grab_strategy_name = _DEFAULT_GRAB_STRATEGY
 
         super().__init__()
@@ -928,6 +940,36 @@ class PylonCamera(Camera):
                     'warning',
                     f'[CAM Class ] StaticChunkNodeMapPoolSize set failed '
                     f'(node may be unavailable on this transport): {e}',
+                )
+
+            # MaxTransferSize. Pin the per-USB-transfer byte budget so it does
+            # not fall back to a platform default that is unstable here (OSX /
+            # Pylon Viewer uses 256 KB). Set in the same post-Open window as
+            # MaxNumBuffer; the requested-vs-actual readback is the tell that
+            # the window was early enough, since the StreamGrabber doc requires
+            # this before grab. USB3-only -- the node is absent on GigE.
+            try:
+                _sg_map = camera.GetStreamGrabberNodeMap()
+                _mts_node = _sg_map.GetNode('MaxTransferSize') if _sg_map is not None else None
+                if _mts_node is None:
+                    _log_cam(
+                        'debug',
+                        '[CAM Class ] MaxTransferSize node absent post-Open '
+                        '(non-USB transport or grabber not open); left at default',
+                    )
+                else:
+                    _mts_node.SetValue(int(self._max_transfer_size))
+                    _mts_actual = _mts_node.GetValue()
+                    _log_cam(
+                        'info',
+                        f'[CAM Class ] MaxTransferSize applied post-Open: '
+                        f'requested={self._max_transfer_size} actual={_mts_actual}',
+                    )
+            except Exception as e:
+                _log_cam(
+                    'warning',
+                    f'[CAM Class ] MaxTransferSize set failed (window may have '
+                    f'closed, or node not writable on this transport): {e}',
                 )
 
             # Store device identity if possible
