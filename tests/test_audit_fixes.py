@@ -2715,12 +2715,13 @@ class TestPIW6_PF3_FalseColorRgbPreallocated:
         reverse anti-pattern is gone and the cv2.cvtColor intermediate was
         retired by e2ef49e once add_false_color became RGB-native.
 
-    ProtocolImageWriter holds the false_color_buf per run (rgb_buf param on
-    write_tiff is retained for API compat per the comment in image_utils.py
-    and will retire once callers drop it). Buffer is lazy-allocated on first
-    uint16 2D save when false-color is enabled. Mismatched shape/dtype
-    re-allocates on demand. file_io_executor runs single-threaded so reuse
-    across sequential saves is safe.
+    Post mono-native: maybe_apply_false_color is a pass-through that ignores
+    caller-supplied buffers, so ProtocolImageWriter no longer pre-allocates
+    them -- it passes None and the downstream save lazily allocates only when
+    actually needed. The write_tiff / save_image false_color_buf + rgb_buf
+    params are retained as the color-audit enforcement surface (rule_31c
+    whitelist); only the dead pre-allocation in the protocol writer was
+    removed.
     """
 
     def test_write_tiff_signature_includes_buffers(self):
@@ -2734,31 +2735,28 @@ class TestPIW6_PF3_FalseColorRgbPreallocated:
             'PIW-6: write_tiff should accept rgb_buf param.'
         )
 
-    def test_protocol_image_writer_holds_both_buffers(self):
+    def test_protocol_image_writer_does_not_preallocate_dead_buffers(self):
+        # Post mono-native, maybe_apply_false_color ignores caller buffers,
+        # so the protocol writer's old (H,W,3) false-color + RGB pre-alloc
+        # was pure dead weight (~6x a mono frame per shape change). It was
+        # removed; the writer passes None and the downstream save lazily
+        # allocates only when needed. Lock the removal so it does not creep
+        # back in.
         from pathlib import Path
 
         src = (
             Path(__file__).resolve().parent.parent / 'modules' / 'protocol_image_writer.py'
         ).read_text()
-        assert 'self._false_color_buf = None' in src, (
-            'PF-3: ProtocolImageWriter should initialize false_color_buf to None.'
+        assert '_get_false_color_bufs' not in src, (
+            'PF-3 + PIW-6: the dead false-color buffer pre-allocation helper '
+            'should not be re-introduced; maybe_apply_false_color ignores it.'
         )
-        assert 'self._rgb_buf = None' in src, (
-            'PIW-6: ProtocolImageWriter should initialize rgb_buf to None.'
+        assert 'self._false_color_buf' not in src, (
+            'PF-3: protocol writer should not hold a pre-allocated false_color_buf.'
         )
-        assert '_get_false_color_bufs' in src, (
-            'PF-3 + PIW-6: helper that returns (false_color_buf, rgb_buf) tuple should exist.'
+        assert 'self._rgb_buf' not in src, (
+            'PIW-6: protocol writer should not hold a pre-allocated rgb_buf.'
         )
-        # Buffers only allocated when false-color is enabled AND capture is single-channel 2D.
-        # Gate covers uint8 + uint16 (relaxed from uint16-only by #669 fix).
-        assert 'if self._false_color_16bit and is_2d_single_channel:' in src, (
-            'PF-3 + PIW-6: buffer allocation should be gated on false_color_16bit AND 2D single-channel.'
-        )
-        # Both buffers passed to save_image.
-        assert 'false_color_buf=false_color_buf' in src, (
-            'PF-3: false_color_buf should be passed to save_image.'
-        )
-        assert 'rgb_buf=rgb_buf' in src, 'PIW-6: rgb_buf should be passed to save_image.'
 
     def test_save_image_threads_buffers_to_write_tiff(self):
         # Phase 6f (2026-05-19) retired the Lumascope.save_image wrapper;
