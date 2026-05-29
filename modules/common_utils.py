@@ -124,6 +124,28 @@ def generate_default_step_name(
     return name
 
 
+def resolve_step_rename(raw_text: str, sanitize) -> str | None:
+    """Resolve a step-name field value to the name to persist, or None.
+
+    Auto-named custom steps blank the name field so the default name shows
+    as a hint placeholder rather than editable text. A blank field
+    therefore means "no rename intended": persisting the empty string
+    would wipe the auto-assigned name, leaving added steps unnamed and
+    colliding on the same default name. Returns None for a blank field so
+    callers keep the existing name; a non-empty entry is a real rename and
+    is returned sanitized.
+
+    Args:
+        raw_text: the raw text from the step-name input field.
+        sanitize: callable that cleans a name (e.g. strips invalid chars).
+
+    Returns:
+        The sanitized name to persist, or None if the field is blank.
+    """
+    cleaned = sanitize(raw_text)
+    return cleaned if cleaned else None
+
+
 def get_tile_label_from_name(name: str) -> str | None:
     name = name.split('_')
 

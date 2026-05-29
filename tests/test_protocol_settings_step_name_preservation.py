@@ -1,35 +1,41 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""Regression tests for empty-step-name preservation in modify_step_ex.
+"""Regression tests for blank-step-name preservation on rename.
 
 Bug
 ---
-Repro: blank labware -> add 2x Blue video step -> add another in a new
-location -> change Step 2 to BF. The step name "custom0001" gets
-replaced with an empty string.
+Repro: blank labware -> add a custom step -> click into its (blanked)
+name field -> click Change (or just blur the field). The auto-assigned
+custom#### name is wiped to '' so the step falls back to the default
+name; two added steps then collide on the same default and the saved
+protocol TSV carries no names for them.
 
-Root cause: generate_step_name_input intentionally blanks
-step_name_input.text for auto-named custom#### steps so the default
-name shows in the hint instead. modify_step_ex then reads
-step_name_input.text (empty) and passes it through to
-Protocol.modify_step, which writes the empty string into the Name
-column.
+Root cause
+----------
+An auto-named custom step blanks step_name_input.text so the default
+name shows as a hint placeholder, not editable text. Two paths persist
+that field into the protocol:
+  - modify_step_ex      (the Change button)
+  - step_name_validation (on_text_validate / on_focus blur)
+modify_step_ex already preserved the existing name when the field was
+blank; step_name_validation did not -- it wrote the empty string
+straight to Protocol.modify_name, wiping the name on blur, before the
+Change path even ran.
 
 Fix
 ---
-In modify_step_ex, treat an empty input as "no rename intended" and
-preserve the existing step name from the protocol DataFrame. The guard
-runs before the stim-was-active preservation path and before the
-Protocol.modify_step call so any subsequent path sees the preserved
-name, not the empty string.
+Both paths route the field text through
+common_utils.resolve_step_rename, which returns None for a blank field
+("no rename intended"). On None, step_name_validation skips the write
+and modify_step_ex substitutes the existing name. A non-empty entry is
+the user's rename and passes through sanitized.
 
 Test approach
 -------------
-Source-level structural lock via AST: extract modify_step_ex's body and
-assert the empty-name guard exists, reads from self._protocol.step,
-and runs before the modify_step call. Behavioral exec is impractical
-here -- modify_step_ex pulls in Kivy ids, _app_ctx, show_notification_popup,
-ctx.stage, and several module-scope helpers; the mocking surface
-overwhelms the signal.
+resolve_step_rename is a pure support function (raw text + a sanitize
+callable; no Kivy / ctx), so its behavior is exercised directly at
+runtime. The two call sites stay Kivy-bound, so AST locks assert both
+route through the helper and that modify_step_ex's None-guard still
+precedes the Protocol.modify_step call.
 """
 
 from __future__ import annotations
@@ -54,55 +60,59 @@ def _method_node(class_name: str, method_name: str) -> ast.FunctionDef:
     raise AssertionError(f'{class_name}.{method_name} not found in source')
 
 
-class TestModifyStepExStepNamePreservation:
-    """Source-level lock on the empty-step-name guard in modify_step_ex."""
+class TestResolveStepRename:
+    """Runtime behavior of the shared blank-field rename policy."""
 
-    def test_step_name_read_from_input_field(self):
-        """Sanity-check the pre-existing read of step_name_input.text.
-        If this disappears the guard's premise is gone and the bug
-        cannot occur this way -- but neither can callers rename via
-        the input field. Fail loud so the guard test below can be
-        re-evaluated."""
-        body_src = ast.unparse(_method_node('ProtocolSettings', 'modify_step_ex'))
-        assert "self.ids['step_name_input'].text" in body_src, (
-            'modify_step_ex must read step_name from '
-            "self.ids['step_name_input'].text. If the input source moved, "
-            'update this test and revisit the empty-name guard.'
+    @staticmethod
+    def _resolve(raw: str):
+        from modules.common_utils import resolve_step_rename
+
+        # A sanitize stub that strips whitespace -- enough to drive the
+        # policy (blank-after-sanitize -> None). The real
+        # sanitize_step_name also drops invalid path chars; that is not
+        # what this policy gates on.
+        return resolve_step_rename(raw, lambda s: s.strip())
+
+    def test_empty_field_means_no_rename(self):
+        assert self._resolve('') is None
+
+    def test_whitespace_only_field_means_no_rename(self):
+        # Sanitizes down to empty -> still "no rename intended".
+        assert self._resolve('   ') is None
+
+    def test_real_name_passes_through_sanitized(self):
+        assert self._resolve('  My Step  ') == 'My Step'
+
+
+class TestRenamePathsRouteThroughHelper:
+    """Source-level lock: both persist paths use resolve_step_rename so the
+    blank-field policy cannot diverge between them."""
+
+    def test_step_name_validation_uses_helper_with_none_guard(self):
+        method = _method_node('ProtocolSettings', 'step_name_validation')
+        body_src = ast.unparse(method)
+        assert 'resolve_step_rename' in body_src, (
+            'step_name_validation must route the field text through '
+            'resolve_step_rename so a blank field does not clobber the '
+            'auto-assigned step name.'
+        )
+        assert 'is None' in body_src, (
+            'step_name_validation must guard the resolve_step_rename result '
+            'against None (blank field = no rename) before calling modify_name.'
         )
 
-    def test_empty_step_name_guard_present(self):
-        """modify_step_ex must contain an `if not step_name:` guard that
-        falls back to the existing protocol step's Name. Without this,
-        custom#### auto-named steps get clobbered to '' on Modify."""
+    def test_modify_step_ex_uses_helper_with_none_guard(self):
         method = _method_node('ProtocolSettings', 'modify_step_ex')
-        found_guard = False
-        for node in ast.walk(method):
-            if not isinstance(node, ast.If):
-                continue
-            # Match `if not step_name:`
-            test = node.test
-            if not (isinstance(test, ast.UnaryOp) and isinstance(test.op, ast.Not)):
-                continue
-            if not (isinstance(test.operand, ast.Name) and test.operand.id == 'step_name'):
-                continue
-            # Body must assign to step_name from self._protocol.step(...)
-            body_src = '\n'.join(ast.unparse(s) for s in node.body)
-            assert 'step_name' in body_src and 'self._protocol.step' in body_src, (
-                '`if not step_name:` guard must assign step_name from '
-                "self._protocol.step(idx=self.curr_step)['Name']. Found "
-                f'body: {body_src!r}'
-            )
-            found_guard = True
-            break
-        assert found_guard, (
-            'modify_step_ex must contain `if not step_name:` guard that '
-            'preserves the existing protocol step name. See class '
-            'docstring for the custom#### clobber bug this prevents.'
+        body_src = ast.unparse(method)
+        assert 'resolve_step_rename' in body_src, (
+            'modify_step_ex must route the field text through '
+            'resolve_step_rename so its blank-field handling matches '
+            'step_name_validation.'
         )
 
-    def test_guard_runs_before_modify_step_call(self):
-        """The guard must run before Protocol.modify_step(...) is called,
-        otherwise modify_step still sees the empty string."""
+    def test_modify_step_ex_none_guard_runs_before_modify_step(self):
+        """The None-guard must run before Protocol.modify_step(...), else
+        modify_step still receives an unresolved name."""
         method = _method_node('ProtocolSettings', 'modify_step_ex')
         guard_lineno = None
         modify_call_lineno = None
@@ -110,10 +120,10 @@ class TestModifyStepExStepNamePreservation:
             if (
                 guard_lineno is None
                 and isinstance(node, ast.If)
-                and isinstance(node.test, ast.UnaryOp)
-                and isinstance(node.test.op, ast.Not)
-                and isinstance(node.test.operand, ast.Name)
-                and node.test.operand.id == 'step_name'
+                and isinstance(node.test, ast.Compare)
+                and any(isinstance(op, ast.Is) for op in node.test.ops)
+                and isinstance(node.test.comparators[0], ast.Constant)
+                and node.test.comparators[0].value is None
             ):
                 guard_lineno = node.lineno
             if (
@@ -125,12 +135,14 @@ class TestModifyStepExStepNamePreservation:
                 and node.func.value.attr == '_protocol'
             ):
                 modify_call_lineno = node.lineno
-        assert guard_lineno is not None, 'step_name guard not found'
+        assert guard_lineno is not None, (
+            'modify_step_ex must contain an `if step_name is None:` guard '
+            'that preserves the existing protocol step name.'
+        )
         assert modify_call_lineno is not None, (
             'self._protocol.modify_step(...) call not found in modify_step_ex'
         )
         assert guard_lineno < modify_call_lineno, (
-            f'step_name guard at line {guard_lineno} must run before '
-            f'self._protocol.modify_step call at line {modify_call_lineno}; '
-            'otherwise modify_step still receives the empty step_name.'
+            f'None-guard at line {guard_lineno} must run before '
+            f'self._protocol.modify_step at line {modify_call_lineno}.'
         )

@@ -250,15 +250,20 @@ class ProtocolSettings(FloatLayout):
 
     def step_name_validation(self, text: str):
         ctx = _app_ctx.ctx
-        cleaned_str = ctx.scope.sanitize_step_name(text)
 
         if (
             hasattr(self, '_protocol')
             and (self._protocol is not None)
             and (self._protocol.num_steps() > 0 and self.curr_step >= 0)
         ):
-            self._protocol.modify_name(step_idx=self.curr_step, step_name=cleaned_str)
-            self.ids['step_name_input'].text = cleaned_str
+            new_name = common_utils.resolve_step_rename(text, ctx.scope.sanitize_step_name)
+            if new_name is None:
+                # Blank field = keep the existing name; leave the field
+                # empty so the auto-name hint shows.
+                self.ids['step_name_input'].text = ''
+                return
+            self._protocol.modify_name(step_idx=self.curr_step, step_name=new_name)
+            self.ids['step_name_input'].text = new_name
         else:
             self.ids['step_name_input'].text = ''
 
@@ -1060,14 +1065,12 @@ class ProtocolSettings(FloatLayout):
                 show_notification_popup(title='Protocol Step Modification Error', message=error_msg)
                 return
 
-            step_name = self.ids['step_name_input'].text
-
-            # Auto-named custom steps have step_name_input.text blanked by
-            # generate_step_name_input so the default appears as hint, not
-            # text. Treat an empty input as "no rename intended" and keep
-            # the existing name; otherwise modify_step would clobber the
-            # custom#### name with an empty string.
-            if not step_name:
+            step_name = common_utils.resolve_step_rename(
+                self.ids['step_name_input'].text, ctx.scope.sanitize_step_name
+            )
+            # None means a blank field (no rename intended); keep the
+            # existing name so modify_step does not clobber the auto-name.
+            if step_name is None:
                 step_name = self._protocol.step(idx=self.curr_step)['Name']
 
             # If the stim layer was active and the original acquire channel remains enabled,
