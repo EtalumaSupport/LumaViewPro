@@ -17,6 +17,7 @@ import tifffile
 
 from modules.stitch_algorithms import (
     _image_stats,
+    align_tile_positions,
     color_transfer,
     _grab_contours,
     crop_to_content,
@@ -313,6 +314,37 @@ class TestPositionAwareStitcher:
 
         assert registered[1]['registration_offset_x_px'] == pytest.approx(4, abs=1)
         assert registered[1]['registration_offset_y_px'] == pytest.approx(-2, abs=1)
+
+    def test_sparse_grid_registers_around_hole(self):
+        """A 3x3 group with a top-middle hole: the top-right tile is reachable
+        only via up from the row below. The old right/down-only walk stranded
+        it at zero offset; the 4-neighbor flood must register it -- and every
+        present tile except the anchor.
+        """
+        rng = np.random.default_rng(7)
+        base = rng.integers(0, 255, (140, 140), dtype=np.uint8)
+
+        def crop(gx, gy):
+            return base[gy * 40 : gy * 40 + 60, gx * 40 : gx * 40 + 60].copy()
+
+        tiles = []
+        for gy in range(3):
+            for gx in range(3):
+                if (gx, gy) == (1, 0):  # top-middle hole
+                    continue
+                tiles.append({'tile': crop(gx, gy), 'x_px': gx * 40, 'y_px': gy * 40})
+
+        registered = align_tile_positions(tiles, max_correction_px=8, min_overlap_px=16)
+
+        by_pos = {(int(t['x_px']), int(t['y_px'])): t for t in registered}
+        assert 'registration_score' in by_pos[(80, 0)], (
+            'top-right tile (reachable only via up) must be registered by the '
+            '4-neighbor flood, not stranded at zero offset'
+        )
+        for (x, y), t in by_pos.items():
+            if (x, y) == (0, 0):  # the anchor carries no registration score
+                continue
+            assert 'registration_score' in t, f'tile at ({x},{y}) was not registered'
 
     def test_position_stitch_save_restores_false_color_and_metadata(self, tmp_path):
         """Saving via the primary position-aware path must carry the 8-bit

@@ -13,6 +13,8 @@ These algorithms handle the harder case: overlapping tiles with potential
 lens distortion and illumination variation.
 """
 
+from collections import deque
+
 import cv2
 import numpy as np
 from lvp_logger import logger
@@ -296,7 +298,19 @@ def align_tile_positions(
     max_correction_px: int = 12,
     min_overlap_px: int = 16,
 ) -> list[dict]:
-    """Return tiles with overlap-registered x/y placement corrections."""
+    """Return tiles with overlap-registered x/y placement corrections.
+
+    Propagates registration offsets from a top-left anchor across the tile
+    lattice via a 4-neighbor (left/right/up/down) breadth-first flood, so
+    every tile reachable from the anchor through present neighbors is
+    registered -- not only those on a pure right/down path. Sparse or ragged
+    groups (a partially off-stage region drops interior tiles but keeps the
+    rest in one tile group) therefore register across the gap instead of
+    stranding the tiles past a hole at zero offset. Tiles with no overlap
+    path to the anchor (a disconnected component, or two tiles whose nominal
+    positions round to the same lattice key) keep nominal placement and are
+    logged.
+    """
     if not tiles:
         return []
 
@@ -304,41 +318,61 @@ def align_tile_positions(
     corrected = [dict(tile) for tile in tiles]
     offsets: dict[int, tuple[int, int]] = {}
 
+    x_index = {x: i for i, x in enumerate(x_values)}
+    y_index = {y: i for i, y in enumerate(y_values)}
+
     anchor = by_position[(x_values[0], y_values[0])]
     offsets[anchor] = (0, 0)
 
-    changed = True
-    while changed:
-        changed = False
-        for y in y_values:
-            for x_idx, x in enumerate(x_values):
-                idx = by_position.get((x, y))
-                if idx is None or idx not in offsets:
-                    continue
-                base_dx, base_dy = offsets[idx]
+    # 4-neighbor BFS over present lattice positions. Each dequeued tile
+    # registers any not-yet-placed grid neighbor that exists, then enqueues
+    # it. Exploring all four directions lets the flood route around a hole
+    # (reach a tile via up/left when the right/down path is blocked) --
+    # estimate_overlap_offset / _overlap_views handle the negative nominal
+    # displacement of left/up edges symmetrically.
+    queue: deque[int] = deque([anchor])
+    while queue:
+        idx = queue.popleft()
+        base_dx, base_dy = offsets[idx]
+        x = int(tiles[idx]['x_px'])
+        y = int(tiles[idx]['y_px'])
+        xi = x_index[x]
+        yi = y_index[y]
 
-                neighbors = []
-                if x_idx + 1 < len(x_values):
-                    neighbors.append((x_values[x_idx + 1], y))
-                y_idx = y_values.index(y)
-                if y_idx + 1 < len(y_values):
-                    neighbors.append((x, y_values[y_idx + 1]))
+        neighbors = []
+        if xi - 1 >= 0:
+            neighbors.append((x_values[xi - 1], y))
+        if xi + 1 < len(x_values):
+            neighbors.append((x_values[xi + 1], y))
+        if yi - 1 >= 0:
+            neighbors.append((x, y_values[yi - 1]))
+        if yi + 1 < len(y_values):
+            neighbors.append((x, y_values[yi + 1]))
 
-                for nx, ny in neighbors:
-                    nidx = by_position.get((nx, ny))
-                    if nidx is None or nidx in offsets:
-                        continue
-                    corr_x, corr_y, score = estimate_overlap_offset(
-                        reference=tiles[idx]['tile'],
-                        moving=tiles[nidx]['tile'],
-                        nominal_dx=nx - x,
-                        nominal_dy=ny - y,
-                        max_correction_px=max_correction_px,
-                        min_overlap_px=min_overlap_px,
-                    )
-                    offsets[nidx] = (base_dx + corr_x, base_dy + corr_y)
-                    corrected[nidx]['registration_score'] = score
-                    changed = True
+        for nx, ny in neighbors:
+            nidx = by_position.get((nx, ny))
+            if nidx is None or nidx in offsets:
+                continue
+            corr_x, corr_y, score = estimate_overlap_offset(
+                reference=tiles[idx]['tile'],
+                moving=tiles[nidx]['tile'],
+                nominal_dx=nx - x,
+                nominal_dy=ny - y,
+                max_correction_px=max_correction_px,
+                min_overlap_px=min_overlap_px,
+            )
+            offsets[nidx] = (base_dx + corr_x, base_dy + corr_y)
+            corrected[nidx]['registration_score'] = score
+            queue.append(nidx)
+
+    unregistered = [idx for idx in range(len(tiles)) if idx not in offsets]
+    if unregistered:
+        logger.warning(
+            f'align_tile_positions: {len(unregistered)} of {len(tiles)} tiles '
+            f'had no overlap path to the anchor (disconnected component or '
+            f'colliding nominal positions); placed at nominal stage position '
+            f'without registration correction'
+        )
 
     for idx, tile in enumerate(corrected):
         corr_x, corr_y = offsets.get(idx, (0, 0))
