@@ -971,26 +971,26 @@ def maybe_apply_false_color(
     use_false_color_16bit: bool | None = None,
     output_buf: np.ndarray | None = None,
 ) -> np.ndarray:
-    """Widen single-channel fluorescence to 3-channel RGB when the
+    """Widen single-channel 16-bit fluorescence to 3-channel RGB when the
     false-color setting is on; pass other inputs through unchanged.
 
-    Default OFF: mono fluorescence saves as 2D mono + layer color metadata
-    (PALETTE photometric for 8-bit, ImageJ LUT for 16-bit), which FIJI
-    renders in color but Windows Preview shows as grayscale for 16-bit.
-    Turning the setting ON bakes the layer false color into 3-channel RGB
-    so 12/16-bit fluorescence also renders in color in Windows Preview /
-    Explorer -- at ~3x the file size. The setting key is ``false_color_16bit``
-    but the gate covers 8-bit too: the user-facing intent is "save
-    fluorescence in false color regardless of bit depth."
+    Scope is 16-bit ONLY. 8-bit fluorescence already saves as 2D mono with a
+    PALETTE colormap, which renders in color in both Windows Preview and FIJI
+    at 1x file size, so it needs no widening. 16-bit cannot use PALETTE
+    (Windows Preview rejects uint16 palette), so default OFF it saves mono +
+    an ImageJ LUT -- color in FIJI, grayscale in Windows Preview. Turning the
+    setting ON bakes the layer false color into 3-channel RGB so 12/16-bit
+    fluorescence also renders in color in Windows Preview / Explorer, at ~3x
+    the file size.
 
-    Already-RGB inputs, transmitted layers (BF/PC/DF), and unknown layer
-    names always pass through. Callers may pass the resolved bool to skip
-    the per-save settings_lock acquire; ``None`` triggers a one-shot read
-    so derived-output paths (stitch / zproject) that call write_tiff
-    without the flag still honor the user setting.
+    Already-RGB inputs, 8-bit inputs, transmitted layers (BF/PC/DF), and
+    unknown layer names always pass through. Callers may pass the resolved
+    bool to skip the per-save settings_lock acquire; ``None`` triggers a
+    one-shot read so derived-output paths (stitch / zproject) that call
+    write_tiff without the flag still honor the user setting.
     """
     if not (
-        data.dtype in (np.uint8, np.uint16)
+        data.dtype == np.uint16
         and not is_color_image(data)
         and color in common_utils.get_image_layers()
     ):
