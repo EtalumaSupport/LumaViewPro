@@ -562,13 +562,22 @@ def main():
     scope = _make_minimal_scope(camera)
 
     # Apply Pylon tuning overrides via the imaging sub-API levers.
-    # Done post-connect so the driver is active; MaxNumBuffer storage
-    # update applies on the next reconnect (the InstantCamera node
-    # locks once AcquireContinuousConfiguration auto-starts grabbing).
-    # MaxTransferSize / NumMaxQueuedUrbs / grab strategy are
-    # accepted live (strategy takes effect on the next start_grabbing).
+    # MaxNumBuffer is special: it is the connect-time cap (applied post-Open
+    # in connect()), and the InstantCamera node goes read-only once the
+    # implicit AcquireContinuous auto-start begins grabbing -- so the live
+    # SetValue fails and the lever only STORES the value. Reconnect here so
+    # the stored cap is actually applied before the probe; without this the
+    # probe runs at the default cap and the buffer sweep silently does
+    # nothing (the "MaxNumBuffer cap applied post-Open: requested=N actual=N"
+    # line is the tell -- it must read the requested value, not the default).
+    # MaxTransferSize / NumMaxQueuedUrbs / grab strategy are accepted live,
+    # so set them AFTER the reconnect, on the fresh connection.
     if args.max_num_buffer is not None:
         scope.imaging._set_max_num_buffer(args.max_num_buffer)
+        camera.disconnect()
+        if not camera.connect():
+            print('ERROR: reconnect to apply the MaxNumBuffer override failed')
+            sys.exit(1)
     if args.grab_strategy is not None:
         scope.imaging._set_grab_strategy(args.grab_strategy)
     if args.max_transfer_size is not None:
