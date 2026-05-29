@@ -53,6 +53,7 @@ _LVP_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_LVP_ROOT))
 
 from drivers.pyloncamera import PylonCamera
+from lvp_logger import logger
 from modules.lumascope_api import Lumascope
 
 
@@ -558,6 +559,23 @@ def main():
     _route_lvp_logging_to_stdout()
     _print_environment_header()
 
+    # Record the invocation through the production logger so it lands in the
+    # LVP_Log bundle. The tool's own progress + deltas go to stdout only; a
+    # support bundle therefore cannot tell which command produced a run, and
+    # several runs append to the same log file. This line anchors each run and
+    # captures the knobs that are not otherwise logged (host_load_workers,
+    # duration, grab_strategy) -- MaxNumBuffer is the only knob the driver
+    # already logs at connect.
+    logger.info(f'[PROBE Sweep] run start: {" ".join(sys.argv)}')
+    logger.info(
+        f'[PROBE Sweep] params: duration={args.duration}s settle={args.settle}s '
+        f'pixel_formats={args.pixel_formats} resolutions={args.resolutions} '
+        f'max_num_buffer={args.max_num_buffer} grab_strategy={args.grab_strategy} '
+        f'host_load_workers={args.host_load_workers} '
+        f'max_transfer_size={args.max_transfer_size} num_queued_urbs={args.num_queued_urbs} '
+        f'camera_serial={args.camera_serial}'
+    )
+
     camera = _connect_camera(args.camera_serial)
     scope = _make_minimal_scope(camera)
 
@@ -631,13 +649,21 @@ def main():
             out_path = snapshot.get('output_path')
             errors = snapshot.get('errors') or []
             deltas = snapshot.get('deltas') or {}
-            print(
-                f'    deltas: total={deltas.get("Statistic_Total_Buffer_Count")} '
+            delta_summary = (
+                f'total={deltas.get("Statistic_Total_Buffer_Count")} '
                 f'failed={deltas.get("Statistic_Failed_Buffer_Count")} '
                 f'resync={deltas.get("Statistic_Resynchronization_Count")} '
                 f'missed={deltas.get("Statistic_Missed_Frame_Count")}'
             )
+            print(f'    deltas: {delta_summary}')
             print(f'    -> {out_path}' + (f' (errors: {errors})' if errors else ''))
+            # Also log the result so the failed-buffer count is in the bundle,
+            # keyed to the cell + the buffer / load knobs for this run.
+            logger.info(
+                f'[PROBE Sweep] cell {i}/{len(cells)} {cell_id} '
+                f'max_num_buffer={args.max_num_buffer} '
+                f'host_load_workers={args.host_load_workers}: {delta_summary}'
+            )
     finally:
         camera.stop_grabbing()
         camera.disconnect()
