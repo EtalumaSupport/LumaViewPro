@@ -910,14 +910,15 @@ class LumaViewProApp(TooltipMixin, App):
         # init, so any early hardware errors surface as popups instead
         # of being logged-only.
 
-        # CPU profiling -- enabled via debug_mode in settings.json
-        # On exit, dumps a .profile file to logs/profile/ that can be
-        # viewed with: pip install snakeviz && snakeviz <file>.profile
-        if settings.get('debug_mode', False):
+        # CPU profiling -- enabled via cprofile_enabled in settings.json,
+        # independent of debug_mode (which otherwise silently started a
+        # whole-app profiler). On exit, dumps a .profile file to logs/cprofile/
+        # viewable with: pip install snakeviz && snakeviz <file>.profile
+        if settings.get('cprofile_enabled', False):
             global profiling_helper
             profiling_helper = profiling_utils.ProfilingHelper()
             profiling_helper.enable()
-            logger.info('[LVP Main  ] cProfile enabled (debug_mode=true) -- will dump on exit')
+            logger.info('[LVP Main  ] cProfile enabled (cprofile_enabled=true) -- will dump on exit')
 
         return lumaview
 

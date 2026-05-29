@@ -195,6 +195,7 @@
     "step_channel_order": ["BF", "PC", "DF", "Green", "Blue", "Red", "Lumi"],
     "mode": "normal",
     "debug_mode": false,
+    "cprofile_enabled": false,
     "focus_score_enabled": false,
     "false_color_16bit": false,
     "profile_trace_enabled": false,

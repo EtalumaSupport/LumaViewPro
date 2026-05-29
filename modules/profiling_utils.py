@@ -8,7 +8,10 @@ import pstats
 class ProfilingHelper:
     def __init__(self, save_path: pathlib.Path | None = None):
         if save_path is None:
-            self._profile_artifact_path = pathlib.Path(f'./logs/profile/{self._get_timestamp()}')
+            # logs/cprofile/ -- kept distinct from logs/profile/, which is the
+            # profile_trace CSV namespace; sharing the dir mixed cProfile dumps
+            # with the per-frame trace CSVs.
+            self._profile_artifact_path = pathlib.Path(f'./logs/cprofile/{self._get_timestamp()}')
         else:
             self._profile_artifact_path = pathlib.Path(save_path)
 
