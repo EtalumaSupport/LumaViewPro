@@ -1156,6 +1156,12 @@ class FX2Camera(Camera):
     at the same handle without any coordination from Lumascope.__init__.
     """
 
+    # The FX2 sensor delivers Mono8 only (set_pixel_format accepts no other
+    # format; the grab loop builds uint8 buffers). Override the base 16-bit
+    # default so capability consumers (buffer sizing, save-format selection)
+    # treat FX2 frames as 8-bit from the start, matching IDSCamera.
+    native_bit_depth = 8
+
     # How often to log streaming stats (seconds). Set to 0 to disable.
     STATS_LOG_INTERVAL = 10.0
 

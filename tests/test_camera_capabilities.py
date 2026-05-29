@@ -18,6 +18,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from drivers.camera import Camera
+from drivers.fx2driver import FX2Camera
 from drivers.idscamera import IDSCamera
 from drivers.pyloncamera import PylonCamera
 from drivers.simulated_camera import SimulatedCamera
@@ -62,6 +63,18 @@ class TestIDSOverride:
 
     def test_ids_is_not_color_native(self):
         assert IDSCamera.is_color_native is False
+
+
+class TestFX2Override:
+    """The FX2 (Lumascope Classic, MT9P031) delivers Mono8 only -- the
+    driver accepts no other pixel format and builds uint8 buffers. The
+    capability flag must report 8-bit, not the inherited 16-bit default."""
+
+    def test_fx2_native_bit_depth_is_8(self):
+        assert FX2Camera.native_bit_depth == 8
+
+    def test_fx2_is_not_color_native(self):
+        assert FX2Camera.is_color_native is False
 
 
 class TestSimulatedDefaults:
