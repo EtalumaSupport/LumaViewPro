@@ -101,10 +101,12 @@ class CompositeGeneration(ProtocolPostProcessor):
         # tells the base class to skip its cv2.imwrite (which would swap
         # channels because cv2.imwrite is BGR-oriented).
         output_file_loc_rel = kwargs.get('output_file_loc')
+        output_format = kwargs.get('output_format', 'TIFF')
         return CompositeGeneration._create_composite_image(
             path=path,
             df=df[['Filepath', 'Color']],
             output_file_loc=path / output_file_loc_rel if output_file_loc_rel else None,
+            output_format=output_format,
         )
 
     @staticmethod
@@ -137,7 +139,10 @@ class CompositeGeneration(ProtocolPostProcessor):
 
     @staticmethod
     def _create_composite_image(
-        path: pathlib.Path, df: pd.DataFrame, output_file_loc: pathlib.Path = None
+        path: pathlib.Path,
+        df: pd.DataFrame,
+        output_file_loc: pathlib.Path = None,
+        output_format: str = 'TIFF',
     ):
 
         BF_present = False
@@ -265,11 +270,19 @@ class CompositeGeneration(ProtocolPostProcessor):
                     metadata = image_utils.build_composite_output_metadata(
                         reference_input_path=reference_input_path,
                     )
+                    # Honor the run's output format. The composite is a
+                    # single 2D RGB image, so only plain OME-TIFF applies --
+                    # 'OME-TIFF Hyperstack' has no per-frame meaning here and
+                    # falls through to a plain TIFF, matching the per-frame
+                    # hyperstack downgrade. Normalize case so the run-config
+                    # token ('OME-TIFF') and the path-API token ('ome-tiff')
+                    # both map to ome=True.
+                    ome = output_format.strip().upper() == 'OME-TIFF'
                     image_utils.write_tiff(
                         data=img,
                         file_loc=output_file_loc,
                         metadata=metadata,
-                        ome=False,
+                        ome=ome,
                         color='Composite',
                     )
 

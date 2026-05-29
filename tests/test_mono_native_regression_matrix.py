@@ -342,6 +342,39 @@ def test_composite_ome_tiff_axes_structural(tmp_path):
         )
 
 
+def test_composite_sequenced_path_honors_output_format(tmp_path):
+    """The sequenced composite path (_create_composite_image) must honor the
+    run output_format -- 'OME-TIFF' writes OME, 'TIFF' writes plain. It
+    previously hardcoded ome=False and ignored the setting.
+    """
+    import pandas as pd
+    from modules.composite_generation import CompositeGeneration
+
+    for ch in ('Red', 'Green', 'Blue'):
+        tf.imwrite(str(tmp_path / f'{ch}.tiff'), np.full((8, 8), 20000, dtype=np.uint16))
+    df = pd.DataFrame(
+        [
+            {'Color': 'Red', 'Filepath': 'Red.tiff'},
+            {'Color': 'Green', 'Filepath': 'Green.tiff'},
+            {'Color': 'Blue', 'Filepath': 'Blue.tiff'},
+        ]
+    )
+
+    ome_out = tmp_path / 'comp_ome.tiff'
+    CompositeGeneration._create_composite_image(
+        path=tmp_path, df=df, output_file_loc=ome_out, output_format='OME-TIFF'
+    )
+    with tf.TiffFile(str(ome_out)) as t:
+        assert t.ome_metadata is not None, 'OME-TIFF format must produce OME metadata'
+
+    plain_out = tmp_path / 'comp_plain.tiff'
+    CompositeGeneration._create_composite_image(
+        path=tmp_path, df=df, output_file_loc=plain_out, output_format='TIFF'
+    )
+    with tf.TiffFile(str(plain_out)) as t:
+        assert t.ome_metadata is None, 'TIFF format must not produce OME metadata'
+
+
 # ---------------------------------------------------------------------------
 # NICE-TO-HAVE 8: PIW-6 buffer-allocation O(1) regression
 # ---------------------------------------------------------------------------

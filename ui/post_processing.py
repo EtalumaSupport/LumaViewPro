@@ -272,6 +272,12 @@ class CompositeGenControls(BoxLayout):
             has_turret=ctx.lumaview.scope.motion.has_turret(),
         )
 
+        # The manual button has no run config, so the composite output format
+        # follows the sequenced-capture setting (least astonishment, no new
+        # UI control). Threaded the same way ZProjector threads its method.
+        with ctx.settings_lock:
+            output_format = ctx.settings['image_output_format']['sequenced']
+
         # For now, progress is only updated on the generation of each composite image, not each image that is used to generate the composite
         # May want to update this in the future
         ctx.file_io_executor.put(
@@ -282,6 +288,7 @@ class CompositeGenControls(BoxLayout):
                     pathlib.Path(ctx.source_path) / 'data' / 'tiling.json',
                     popup,
                 ),
+                kwargs={'output_format': output_format},
                 callback=self.composite_gen_callback,
                 cb_args=(popup, status_map),
                 pass_result=True,
