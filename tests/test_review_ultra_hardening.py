@@ -11,6 +11,7 @@ layer_control focus refresh).
 from __future__ import annotations
 
 import ast
+import inspect
 import pathlib
 
 
@@ -41,3 +42,19 @@ class TestAltF4Keycode:
         assert 'Alt-F4' in src
         assert 'key == 285' in src, 'Alt-F4 branch must test Kivy F4 keycode 285.'
         assert 'key == 293' not in src, '293 is F12, not F4.'
+
+
+class TestCompositeNoDeadThresholdParam:
+    """generate_composite_from_paths must not re-grow brightness_thresholds:
+    it was accepted + documented as 'forwarded to build_composite' but never
+    threaded -- the builder recomputes thresholds from settings, so the param
+    silently did nothing."""
+
+    def test_signature_has_no_brightness_thresholds(self):
+        from modules.composite_generation import CompositeGeneration
+
+        params = inspect.signature(
+            CompositeGeneration.generate_composite_from_paths
+        ).parameters
+        assert 'brightness_thresholds' not in params
+

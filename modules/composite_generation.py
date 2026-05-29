@@ -313,7 +313,6 @@ class CompositeGeneration(ProtocolPostProcessor):
         transmitted_path: pathlib.Path | None = None,
         transmitted_layer: str | None = None,
         format: str = 'tiff',
-        brightness_thresholds: dict | None = None,
     ) -> dict:
         """Build a composite from per-channel mono TIFFs at the given paths.
 
@@ -335,9 +334,6 @@ class CompositeGeneration(ProtocolPostProcessor):
             format: Output format. Supported: 'tiff' (plain RGB) and
                 'ome-tiff' (OME-TIFF with axes='YXS'). Reserved for future:
                 'png', 'jpg'. ValueError for any other value.
-            brightness_thresholds: Optional per-layer composite-brightness
-                threshold (absolute, not percentage). Forwarded to
-                build_composite; None = no thresholding.
 
         Returns:
             {'status': bool, 'error': str | None, 'image': np.ndarray | None}.
