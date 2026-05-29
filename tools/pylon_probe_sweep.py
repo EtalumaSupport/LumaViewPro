@@ -41,9 +41,12 @@ import argparse
 import logging
 import platform
 import sys
+import threading
 import time
 from importlib.metadata import PackageNotFoundError, version as _pkg_version
 from pathlib import Path
+
+import numpy as np
 
 # Add LumaViewPro root to path so imports work when run as script
 _LVP_ROOT = Path(__file__).resolve().parent.parent
@@ -387,6 +390,51 @@ def _make_minimal_scope(camera: PylonCamera) -> Lumascope:
     return scope
 
 
+def _host_load_loop(stop_event: threading.Event) -> None:
+    """Saturate one CPU core with the kind of per-frame work LVP does on the
+    host -- np.std over a 2100x2100 frame -- until stopped.
+
+    The bench question is why LVP sees payload-discard errors when the Pylon
+    Viewer bandwidth test (same ROI) does not: the tester does no host-side
+    work, so it never starves the grab worker. On a slow host, LVP's live
+    display + per-frame processing + AF SetValue saturate the cores and the
+    grab worker cannot drain the camera's buffers fast enough, overflowing
+    the camera-side FIFO (the "payload discarded / bandwidth insufficient"
+    error). This load reproduces that starvation so the sweep can show
+    whether a higher MaxNumBuffer absorbs it. std is chosen deliberately --
+    it is the costliest per-frame stat (two passes + sqrt) and mirrors the
+    engineering-preview compute.
+    """
+    frame = np.random.randint(0, 4096, size=(2100, 2100), dtype=np.uint16)
+    while not stop_event.is_set():
+        float(np.std(frame))
+
+
+class _HostLoad:
+    """Manage N background CPU workers that simulate slow-host load."""
+
+    def __init__(self, workers: int):
+        self._stop = threading.Event()
+        self._threads = [
+            threading.Thread(
+                target=_host_load_loop,
+                args=(self._stop,),
+                name=f'host-load-{i}',
+                daemon=True,
+            )
+            for i in range(max(0, workers))
+        ]
+
+    def start(self) -> None:
+        for t in self._threads:
+            t.start()
+
+    def stop(self) -> None:
+        self._stop.set()
+        for t in self._threads:
+            t.join(timeout=2.0)
+
+
 def main():
     parser = argparse.ArgumentParser(
         description='Pylon (Basler) bench-probe sweep orchestrator.',
@@ -469,6 +517,18 @@ def main():
         'scope.imaging._set_grab_strategy().',
     )
     parser.add_argument(
+        '--host-load-workers',
+        type=int,
+        default=0,
+        help='Background CPU workers running np.std on a 2100x2100 frame '
+        'during the sweep, simulating the slow-host per-frame load that '
+        'starves the Pylon grab worker and overflows the camera FIFO. '
+        '0 = none (transport-only baseline, like the Pylon Viewer bandwidth '
+        'test). Pair with --max-num-buffer to test whether more buffers '
+        'absorb the stall. To test the camera-reset hypothesis, power-cycle '
+        'the mainboard between runs and compare the failed-buffer delta.',
+    )
+    parser.add_argument(
         '--max-transfer-size',
         type=int,
         default=None,
@@ -537,6 +597,15 @@ def main():
 
     print(f'Sweep: {len(cells)} cells ({transport.upper()})')
 
+    host_load = _HostLoad(args.host_load_workers)
+    if args.host_load_workers > 0:
+        print(
+            f'Host load: {args.host_load_workers} CPU worker(s) running np.std on a '
+            f'2100x2100 frame (simulating slow-host per-frame work that starves the '
+            f'grab worker; failed= delta below is the payload-discard count)'
+        )
+        host_load.start()
+
     # Camera must be grabbing for stats counters to advance.
     camera.start_grabbing()
     try:
@@ -552,10 +621,18 @@ def main():
             snapshot = scope.diagnostics.run_pylon_diagnostic_probe(duration_s=args.duration)
             out_path = snapshot.get('output_path')
             errors = snapshot.get('errors') or []
+            deltas = snapshot.get('deltas') or {}
+            print(
+                f'    deltas: total={deltas.get("Statistic_Total_Buffer_Count")} '
+                f'failed={deltas.get("Statistic_Failed_Buffer_Count")} '
+                f'resync={deltas.get("Statistic_Resynchronization_Count")} '
+                f'missed={deltas.get("Statistic_Missed_Frame_Count")}'
+            )
             print(f'    -> {out_path}' + (f' (errors: {errors})' if errors else ''))
     finally:
         camera.stop_grabbing()
         camera.disconnect()
+        host_load.stop()
 
 
 if __name__ == '__main__':
