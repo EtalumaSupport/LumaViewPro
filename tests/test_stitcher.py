@@ -8,6 +8,7 @@ import cv2
 import numpy as np
 import pandas as pd
 import pytest
+import tifffile
 
 
 # ---------------------------------------------------------------------------
@@ -153,6 +154,7 @@ class TestCropToContent:
 
 from modules.stitcher import Stitcher
 import modules.common_utils as common_utils
+import modules.image_utils as image_utils
 
 
 class TestSimplePositionStitcher:
@@ -311,3 +313,31 @@ class TestPositionAwareStitcher:
 
         assert registered[1]['registration_offset_x_px'] == pytest.approx(4, abs=1)
         assert registered[1]['registration_offset_y_px'] == pytest.approx(-2, abs=1)
+
+    def test_position_stitch_save_restores_false_color_and_metadata(self, tmp_path):
+        """Saving via the primary position-aware path must carry the 8-bit
+        PALETTE false-color colormap and acquisition metadata -- mirroring the
+        simple-grid fallback -- not a bare grayscale, metadata-less TIFF.
+        """
+        red = np.full((50, 50), 120, dtype=np.uint8)
+        cv2.imwrite(str(tmp_path / 'r0.tiff'), red)
+        cv2.imwrite(str(tmp_path / 'r1.tiff'), red)
+        df = pd.DataFrame([
+            {'Filepath': 'r0.tiff', 'X': 0.0, 'Y': 0.0, 'Objective': '10x Oly', 'Color': 'Red'},
+            {'Filepath': 'r1.tiff', 'X': 1.0, 'Y': 0.0, 'Objective': '10x Oly', 'Color': 'Red'},
+        ])
+        out = pathlib.Path('stitched_red.tiff')
+
+        result = Stitcher(has_turret=False)._position_stitcher(
+            tmp_path, df, output_file_loc=out
+        )
+
+        assert result['status'] is True
+        assert result['image'] is None  # subclass-wrote signal
+        written = tmp_path / out
+        assert written.exists()
+        with tifffile.TiffFile(str(written)) as t:
+            page = t.pages[0]
+            assert page.photometric == tifffile.PHOTOMETRIC.PALETTE
+            assert page.colormap is not None
+        assert image_utils.read_postproc_input_metadata(written) is not None

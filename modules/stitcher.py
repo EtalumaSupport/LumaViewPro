@@ -367,17 +367,28 @@ class Stitcher(ProtocolPostProcessor):
         stitched_img, registered_tiles = stitch_registered_tiles(tiles)
 
         if output_file_loc is not None:
+            # Route through write_tiff (matching _simple_position_stitcher,
+            # zprojector, and composite_generation) so the stitched output
+            # carries the layer's PALETTE colormap -- Windows Preview / FIJI
+            # render the false color for 8-bit fluorescence -- plus the source
+            # acquisition context (objective, exposure, gain, pixel size,
+            # plate) forwarded from the first tile. A bare tf.imwrite drops
+            # both, leaving a flat grayscale, metadata-less file.
             color = df['Color'].iloc[0] if 'Color' in df.columns else ''
-            output_image = image_utils.maybe_apply_false_color(
-                data=stitched_img,
-                color=color,
-            )
             output_file_loc_abs = path / output_file_loc
             output_file_loc_abs.parent.mkdir(parents=True, exist_ok=True)
-            tf.imwrite(
-                str(output_file_loc_abs),
-                output_image,
-                compression='lzw',
+            first_tile_path = path / sample_row['Filepath']
+            metadata = image_utils.build_postproc_output_metadata(
+                input_path=first_tile_path,
+                channel=color,
+                plate_pos_mm_override=center,
+            )
+            image_utils.write_tiff(
+                data=stitched_img,
+                file_loc=output_file_loc_abs,
+                metadata=metadata,
+                ome=False,
+                color=color,
             )
             return_image = None
         else:
