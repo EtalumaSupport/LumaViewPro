@@ -163,7 +163,13 @@ class VideoBuilder(ProtocolPostProcessor):
 
         # Layer color drives VideoWriter's internal false-color application.
         # One protocol-output group is one color per _get_groups, so the
-        # first row carries the right value for the whole video.
+        # first row carries the right value for the whole video. The df is
+        # always projected with 'Color' and grouped by it, so the else-None
+        # fallback is effectively unreachable. Considered fail-fast on a
+        # missing/NaN color; rejected because BF/PC/DF carry a transmitted-
+        # light label that VideoWriter renders as grayscale -- a hard error
+        # would break legitimate brightfield-only videos. None falls through
+        # to grayscale, the safe default.
         layer_color = df.iloc[0]['Color'] if 'Color' in df.columns else None
         output_file_loc_abs = path / output_file_loc
         output_file_loc_abs.parent.mkdir(exist_ok=True, parents=True)

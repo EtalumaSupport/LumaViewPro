@@ -150,6 +150,14 @@ def read_tiff_with_legacy_collapse(path: pathlib.Path) -> np.ndarray:
     img = tf.imread(str(path))
     if img.ndim == 3 and img.shape[2] == 3:
         nonzero_channels = [i for i in range(3) if img[..., i].any()]
+        # Considered tightening this to a known-LUT match or a metadata
+        # marker so a genuine single-color composite is never collapsed;
+        # rejected because every 3-channel input that reaches this reader is
+        # a false-color replica (a legacy mono->RGB save, or a
+        # false_color_16bit-on save) -- real composites carry signal in
+        # multiple channels -- and the one-shot log line flags any collapse.
+        # Revisit if a true single-channel RGB output ever feeds VideoBuilder
+        # or CompositeGeneration.
         if len(nonzero_channels) == 1:
             if not _legacy_collapse_warned:
                 logger.info(
