@@ -896,20 +896,46 @@ def maybe_apply_false_color(
     use_false_color_16bit: bool | None = None,
     output_buf: np.ndarray | None = None,
 ) -> np.ndarray:
-    """Pass through to mono pipeline. Legacy 3-channel widening retired.
+    """Widen single-channel fluorescence to 3-channel RGB when the
+    false-color setting is on; pass other inputs through unchanged.
 
-    Mono fluorescence captures save as 2D mono + layer color metadata
-    (PALETTE photometric for 8-bit, ImageJ LUT or OME Channel metadata
-    for 16-bit) via ``write_tiff``; Windows Preview and FIJI render color
-    from the metadata without the ~3x file-size penalty of 3-channel
-    replicas. ``mono_to_rgb_falsecolor`` is the explicit boundary helper
-    for the rare path that genuinely needs RGB (video encode).
+    Default OFF: mono fluorescence saves as 2D mono + layer color metadata
+    (PALETTE photometric for 8-bit, ImageJ LUT for 16-bit), which FIJI
+    renders in color but Windows Preview shows as grayscale for 16-bit.
+    Turning the setting ON bakes the layer false color into 3-channel RGB
+    so 12/16-bit fluorescence also renders in color in Windows Preview /
+    Explorer -- at ~3x the file size. The setting key is ``false_color_16bit``
+    but the gate covers 8-bit too: the user-facing intent is "save
+    fluorescence in false color regardless of bit depth."
 
-    Parameters ``use_false_color_16bit`` and ``output_buf`` are accepted
-    but ignored; callers wired up for the legacy widening continue to
-    compile. Removal scheduled for Phase 1e.
+    Already-RGB inputs, transmitted layers (BF/PC/DF), and unknown layer
+    names always pass through. Callers may pass the resolved bool to skip
+    the per-save settings_lock acquire; ``None`` triggers a one-shot read
+    so derived-output paths (stitch / zproject) that call write_tiff
+    without the flag still honor the user setting.
     """
-    del use_false_color_16bit, output_buf
+    if not (
+        data.dtype in (np.uint8, np.uint16)
+        and not is_color_image(data)
+        and color in common_utils.get_image_layers()
+    ):
+        return data
+    try:
+        if use_false_color_16bit is None:
+            # Function-local import breaks the image_utils <-> app_context
+            # cycle; app_context imports image_utils at module load.
+            from modules import app_context as _app_ctx
+
+            with _app_ctx.ctx.settings_lock:
+                use_false_color_16bit = _app_ctx.ctx.settings.get('false_color_16bit', False)
+        if use_false_color_16bit:
+            return add_false_color(data, color, output=output_buf)
+    except Exception:
+        logger.exception(
+            '[image_utils] maybe_apply_false_color: false-color application '
+            'failed for color=%s; returning input',
+            color,
+        )
     return data
 
 

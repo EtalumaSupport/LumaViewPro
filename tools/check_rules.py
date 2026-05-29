@@ -408,6 +408,13 @@ _RULE_31B_BOUNDARY_PATHS = frozenset({
     # layer as TIFF metadata.
     'ui/main_display.py',
     'modules/video_capture.py',
+    # Sanctioned save-layer exception: the user-opt-in false_color_16bit
+    # setting (default OFF) deliberately widens 16-bit fluorescence to
+    # 3-channel RGB so it renders in color in Windows Preview, which
+    # cannot read the TIFF-metadata color path. maybe_apply_false_color
+    # is the single canonical gate for that opt-in; it no-ops when the
+    # setting is off, preserving the mono-native default everywhere else.
+    'modules/image_utils.py',
 })
 
 
@@ -544,8 +551,12 @@ def _check_rule_31b(tree: ast.AST, path: str) -> list[Violation]:
     consumers that expect mono + layer metadata.
 
     Path scope: any production ``.py``. Allowed call sites are listed
-    in ``_RULE_31B_BOUNDARY_PATHS`` -- the manual record path and
-    protocol video capture. Test files exempt via ``_is_test_path``.
+    in ``_RULE_31B_BOUNDARY_PATHS`` -- the manual record path, protocol
+    video capture, and image_utils itself (the sanctioned save-layer
+    exception: the opt-in false_color_16bit setting widens 16-bit
+    fluorescence to RGB for Windows-Preview color via
+    maybe_apply_false_color, which no-ops when the setting is off).
+    Test files exempt via ``_is_test_path``.
     """
     if _is_test_path(path):
         return []

@@ -63,18 +63,15 @@ def _metadata(path, channel='Blue'):
 
 
 def test_pure_blue_16bit_falsecolor_tiff_roundtrip(tmp_path):
-    """Synth uint16 Blue-layer mono; save as false-color TIFF; read back.
+    """Synth uint16 Blue-layer mono; save with the false-color opt-in ON;
+    read back.
 
-    Today: ``write_tiff`` widens the 2D mono to 3-channel RGB via
-    ``add_false_color`` and writes a 3D file. Read-back is ``(H, W, 3)``.
-
-    Post-1d: ``write_tiff`` keeps 2D mono and writes layer color as
-    tifffile metadata (PALETTE or ImageJ LUT). Read-back is ``(H, W)``
-    and the pixel value is preserved exactly.
-
-    Historical bug: ``11ec3c7`` (R/B swap at write boundary) and
-    ``e2ef49e`` (#657 frames -- add_false_color returns RGB). Mono-native
-    save eliminates both by removing the widening step.
+    Default OFF saves 2D mono + metadata (covered by test_tiff_format's
+    default-off cases). With ``use_false_color_16bit=True`` the layer color
+    is baked into 3-channel RGB so Windows Preview renders 16-bit
+    fluorescence in color. The Blue layer must land in RGB index 2 with the
+    value preserved exactly and the other planes zero (the R/B-swap and
+    wrong-channel-on-video defects guard against an ordering regression).
     """
     from modules.image_utils import write_tiff
 
@@ -92,12 +89,13 @@ def test_pure_blue_16bit_falsecolor_tiff_roundtrip(tmp_path):
 
     result = tf.imread(str(out_path))
 
-    assert result.ndim == 2, (
-        f'Post-1d: file should be 2D mono with layer metadata, got shape '
-        f'{result.shape}. Today fails because write_tiff widens to RGB.'
+    assert result.shape == (8, 8, 3), (
+        f'false_color_16bit=True must widen to 3-channel RGB, got {result.shape}.'
     )
     assert result.dtype == np.uint16
-    assert result[0, 0] == 42000
+    assert result[0, 0, 2] == 42000, 'Blue lands at RGB index 2'
+    assert result[0, 0, 0] == 0
+    assert result[0, 0, 1] == 0
 
 
 # ---------------------------------------------------------------------------
@@ -278,10 +276,10 @@ def test_cv2_videowriter_fallback_bgr_boundary():
 
 @pytest.mark.parametrize('color', ['Red', 'Green'])
 def test_pure_color_16bit_falsecolor_tiff_roundtrip(tmp_path, color):
-    """Per-color hardening: confirm the Red and Green layer paths also
-    produce 2D mono + metadata post-1d. Same shape as the Blue test;
-    catches asymmetries in the layer-color lookup. ``11ec3c7`` was
-    Red-specific; the parametrize widens the catch.
+    """Per-color hardening for the false-color opt-in: confirm the Red and
+    Green layer paths widen to 3-channel RGB with the value in the correct
+    plane. Catches asymmetries in the layer-color lookup (a historical
+    Red-specific R/B swap motivates the parametrize).
     """
     from modules.image_utils import write_tiff
 
@@ -298,8 +296,12 @@ def test_pure_color_16bit_falsecolor_tiff_roundtrip(tmp_path, color):
     )
 
     result = tf.imread(str(out_path))
-    assert result.ndim == 2, f'{color}: expected 2D mono, got {result.shape}'
-    assert result[0, 0] == 30000
+    assert result.shape == (8, 8, 3), f'{color}: expected 3-channel RGB, got {result.shape}'
+    expected_index = {'Red': 0, 'Green': 1}[color]
+    assert result[0, 0, expected_index] == 30000
+    for other in (0, 1, 2):
+        if other != expected_index:
+            assert result[0, 0, other] == 0, f'{color}: plane {other} should be zero'
 
 
 # ---------------------------------------------------------------------------
@@ -346,20 +348,19 @@ def test_composite_ome_tiff_axes_structural(tmp_path):
 
 
 def test_piw6_buffer_allocation_o1(tmp_path):
-    """100 sequential ``write_tiff`` calls with a caller-supplied
-    ``false_color_buf`` must allocate the false-color buffer ONCE, not
-    100 times. ``b9a91b1`` (PIW-6 false-color buffer pre-alloc) is the
-    historical fix; post-1d the buffer is mono-sized (1/3 of today),
-    but the O(1) reuse property must hold either way.
+    """100 sequential ``write_tiff`` calls on the false-color widen path
+    with a caller-supplied ``false_color_buf`` must allocate the
+    3-channel false-color buffer ONCE, not 100 times -- a caller-supplied
+    scratch buffer is reused across all saves; the O(1) reuse property
+    must hold.
     """
     from modules.image_utils import write_tiff
 
     data = np.full((64, 64), 42000, dtype=np.uint16)
-    # Post-1d: caller supplies a mono-sized scratch buffer (no widening
-    # to 3-channel inside write_tiff). Today's write_tiff with
-    # use_false_color_16bit=True allocates a 3-channel buffer per call
-    # unless false_color_buf is supplied.
-    scratch = np.zeros_like(data)
+    # The widen path produces (H, W, 3); the caller-supplied scratch must
+    # match that shape so add_false_color reuses it instead of allocating
+    # a fresh 3-channel buffer on every call.
+    scratch = np.zeros((64, 64, 3), dtype=data.dtype)
 
     # Track frame-sized allocations via np.zeros (add_false_color's fallback
     # when output shape mismatch) and np.empty (other internals). Filter to
@@ -404,14 +405,14 @@ def test_piw6_buffer_allocation_o1(tmp_path):
                 false_color_buf=scratch,
             )
 
-    # Post-1d: O(1) frame-sized allocations -- the mono-sized scratch is
-    # the right shape for the no-widen save path. Today: write_tiff widens
-    # to (H, W, 3) which the 2D scratch does NOT match, so add_false_color
-    # falls back to np.zeros((H, W, 3), ...) on every call -> O(n) = 100.
+    # O(1) frame-sized allocations: the (H, W, 3) scratch fits the widen
+    # output, so add_false_color reuses it across all 100 saves. A
+    # mismatched scratch would fall back to np.zeros((H, W, 3), ...) on
+    # every call -> O(n) = 100.
     assert frame_alloc_count['n'] < 10, (
         f'Expected O(1) frame-sized allocations across 100 saves; got '
-        f"{frame_alloc_count['n']}. Today fails because mono-sized "
-        f"scratch does not fit today's 3-channel widening output."
+        f"{frame_alloc_count['n']}. A mismatched scratch buffer forces a "
+        f'fresh 3-channel allocation per call.'
     )
 
 

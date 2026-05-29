@@ -85,6 +85,16 @@ def record(arr, color):
 '''
         assert _violations(src, 'ui/main_display.py') == []
 
+    def test_image_utils_py_is_exempt(self):
+        # Sanctioned save-layer exception: maybe_apply_false_color is the
+        # single gate for the opt-in false_color_16bit setting, which widens
+        # 16-bit fluorescence to RGB for Windows-Preview color.
+        src = '''
+def maybe_apply_false_color(data, color):
+    return add_false_color(data, color)
+'''
+        assert _violations(src, 'modules/image_utils.py') == []
+
 
 class TestRule31bScopedToProductionPaths:
     def test_test_file_does_not_fire(self):
