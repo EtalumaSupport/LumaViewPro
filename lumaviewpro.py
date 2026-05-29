@@ -943,10 +943,10 @@ class LumaViewProApp(TooltipMixin, App):
         so Kivy's regular handler chain continues unchanged.
         """
         mods = tuple(sorted(modifier)) if modifier else ()
-        # 27 = Escape; 282-293 = F1-F12 (293 = F4); 113 = Q
+        # 27 = Escape; 282-296 = F1-F15 (285 = F4, 293 = F12); 113 = Q
         if key == 27:
             gui_logger.window_event('keyboard', f'key=Escape mods={mods}')
-        elif key == 293 and 'alt' in mods:
+        elif key == 285 and 'alt' in mods:
             gui_logger.window_event('keyboard', f'key=Alt-F4 mods={mods}')
         elif key == 113 and 'ctrl' in mods:
             gui_logger.window_event('keyboard', f'key=Ctrl-Q mods={mods}')
