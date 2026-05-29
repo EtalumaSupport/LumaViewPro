@@ -73,3 +73,50 @@ class TestVideoWriterCv2Fallback:
         writer.close()
         assert fake.frames[0].shape == (100, 100)
         assert fake.frames[0].sum() > 0
+
+
+class TestEagerInitColorDeferral:
+    """A writer built with explicit width/height but color=None must defer
+    the is_color decision to the first frame: the eager path cannot know the
+    frame ndim, so locking is_color to color-None gray would corrupt a caller
+    that feeds pre-colored RGB. Mirrors the no-dimensions lazy path."""
+
+    def test_color_none_eager_dims_encodes_rgb_as_color(self, tmp_path):
+        captured = {}
+
+        def _fake_ctor(*args, **kwargs):
+            captured['isColor'] = kwargs.get('isColor')
+            return _FakeCv2VideoWriter()
+
+        out = tmp_path / 'eager.avi'
+        with mock.patch('modules.video_writer.cv2.VideoWriter', side_effect=_fake_ctor):
+            writer = VideoWriter(
+                output_path=out, fps=30, width=32, height=24,
+                color=None, include_timestamp_overlay=False,
+            )
+            writer._use_pyav = False
+            # color=None -> encoder init deferred until the first frame's ndim.
+            assert 'isColor' not in captured
+            rgb = np.zeros((24, 32, 3), dtype=np.uint8)
+            rgb[:, :, 0] = 200
+            writer.add_frame(image=rgb, timestamp=None)
+            writer.close()
+        assert captured.get('isColor') is True
+
+    def test_color_set_eager_dims_inits_immediately(self, tmp_path):
+        captured = {}
+
+        def _fake_ctor(*args, **kwargs):
+            captured['isColor'] = kwargs.get('isColor')
+            return _FakeCv2VideoWriter()
+
+        out = tmp_path / 'eager_color.avi'
+        with mock.patch('modules.video_writer.cv2.VideoWriter', side_effect=_fake_ctor):
+            with mock.patch('modules.video_writer._HAS_PYAV', False):
+                writer = VideoWriter(
+                    output_path=out, fps=30, width=32, height=24,
+                    color='Red', include_timestamp_overlay=False,
+                )
+            writer.close()
+        # color set -> output is always RGB; encoder opens eagerly as color.
+        assert captured.get('isColor') is True

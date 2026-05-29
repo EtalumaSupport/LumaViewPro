@@ -67,17 +67,25 @@ class VideoWriter:
         self._stream = None  # PyAV video stream
         self._cv2_video = None  # cv2.VideoWriter fallback
         self._finished = False
+        # True once the encoder has been init-attempted -- eagerly below, or
+        # lazily on the first frame. Tracked separately from _shape so the
+        # color-None eager case can defer init while still exposing _shape.
+        self._encoder_init_attempted = False
 
-        # Eager-init when caller provides dimensions. is_color reflects what
-        # the encoder will emit: color is not None means a 3-channel RGB
-        # stream (false-color from mono input or pre-colored input); color
-        # None means gray/mono.
-        if self._shape is not None:
-            is_color_encode = color is not None
+        # Eager-init only when caller provides dimensions AND color is set:
+        # with color set the encoder always emits 3-channel RGB (false-color
+        # from mono, or pre-colored input), so is_color is known without the
+        # first frame. When color is None, whether the stream is color depends
+        # on the first frame's ndim (a caller may feed pre-colored RGB into a
+        # None-color writer), so defer encoder init to _lazy_init_from_frame
+        # -- mirroring the no-dimensions path -- instead of locking in a gray
+        # encoder that would corrupt RGB input.
+        if self._shape is not None and color is not None:
+            self._encoder_init_attempted = True
             if self._use_pyav:
-                self._init_pyav(width, height, is_color_encode)
+                self._init_pyav(width, height, True)
             else:
-                self._init_cv2(width, height, is_color_encode)
+                self._init_cv2(width, height, True)
 
     @staticmethod
     def _get_timestamp_str(timestamp=None):
@@ -139,10 +147,11 @@ class VideoWriter:
         return (h, w) == self._shape
 
     def _lazy_init_from_frame(self, image: np.ndarray) -> None:
-        """Initialize the encoder from the first frame when the caller did
-        not supply width/height at __init__. Mirrors the eager-init path's
-        is_color determination: any RGB input OR a non-None ``color`` arg
-        produces a 3-channel output stream.
+        """Initialize the encoder from the first frame when it was not opened
+        eagerly at __init__ -- either no width/height was supplied, or color
+        was None so is_color could not be fixed without the frame's ndim.
+        Any RGB input OR a non-None ``color`` arg produces a 3-channel output
+        stream.
         """
         if image.ndim == 3:
             h, w, _ = image.shape
@@ -167,8 +176,11 @@ class VideoWriter:
             if self._finished:
                 return
 
-            # Lazy-init: caller did not supply width/height at __init__.
-            if self._shape is None:
+            # Init the encoder on the first frame when it was not opened
+            # eagerly at __init__ -- no dimensions given, or color was None
+            # so is_color had to wait for the frame ndim.
+            if not self._encoder_init_attempted:
+                self._encoder_init_attempted = True
                 self._lazy_init_from_frame(image)
 
             if not self._is_correct_image_shape(image):
