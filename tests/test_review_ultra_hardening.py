@@ -58,3 +58,21 @@ class TestCompositeNoDeadThresholdParam:
         ).parameters
         assert 'brightness_thresholds' not in params
 
+
+class TestSaveFocusRefresh:
+    """The scheduled save-focus refresh must log failures (not swallow them
+    with except: pass) so a stale-Z labware view is diagnosable, and must not
+    re-import Clock locally (the module-level import is in scope)."""
+
+    def test_refresh_callback_logs_on_failure(self):
+        src = _method_src('ui/layer_control.py', None, '_refresh')
+        assert 'logger.exception' in src, (
+            'the save_focus refresh callback must log on failure, not pass.'
+        )
+
+    def test_execute_save_focus_has_no_local_clock_reimport(self):
+        src = _method_src('ui/layer_control.py', 'LayerControl', 'execute_save_focus')
+        assert 'from kivy.clock import Clock' not in src, (
+            'execute_save_focus must use the module-level Clock import.'
+        )
+

@@ -757,8 +757,6 @@ class LayerControl(BoxLayout):
                     )
                     # Refresh the stage labware view + the steps table so
                     # the updated Z values are visible immediately.
-                    from kivy.clock import Clock
-
                     def _refresh(_dt):
                         try:
                             ctx.stage.set_protocol_steps(df=protocol.steps())
@@ -767,7 +765,16 @@ class LayerControl(BoxLayout):
                             # focus readout reflects the propagated value.
                             ctx.motion_settings.ids['protocol_settings_id'].update_step_ui()
                         except Exception:
-                            pass
+                            # Scheduled main-thread callback: the steps table
+                            # can be mid-rebuild on this tick. Log so a stale-Z
+                            # labware view / step editor is diagnosable instead
+                            # of failing silently.
+                            logger.exception(
+                                '[LVP Main  ] save_focus: stage / step-editor '
+                                f'refresh failed for layer {self.layer} after '
+                                'focus propagation; Z readouts may show stale '
+                                'values until the next UI update'
+                            )
 
                     Clock.schedule_once(_refresh, 0)
         except Exception as e:
