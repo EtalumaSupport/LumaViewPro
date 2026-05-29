@@ -19,6 +19,7 @@ real module loads. Hardware tests are gated by markers (`ids_hardware`,
 
 import os
 import sys
+import tempfile
 from unittest.mock import MagicMock
 
 import pytest
@@ -82,6 +83,11 @@ def install_mock_deps():
     mock_lvp_logger = MagicMock()
     mock_lvp_logger.logger = mock_logger
     mock_lvp_logger.version = 'test'
+    # Real writable path: production code (e.g. diagnostics probes) now reads
+    # log_dir to place output under the log folder. Without this it would be an
+    # auto-MagicMock, and Path(mock) -> Path('MagicMock/mock.log_dir/<id>'),
+    # which mkdir() leaks into the repo root.
+    mock_lvp_logger.log_dir = tempfile.gettempdir()
     mock_lvp_logger.is_thread_paused = MagicMock(return_value=False)
     mock_lvp_logger.unpause_thread = MagicMock()
     mock_lvp_logger.pause_thread = MagicMock()
