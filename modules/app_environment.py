@@ -40,6 +40,10 @@ def init_environment(main_file: str) -> AppEnvironment:
 
     _logger.info(f'Script Location: {script_path}')
 
+    # Recomputed independently of lvp_logger's identical os.name check by
+    # design: this is a constant, not divergent state, and lvp_logger is the
+    # lowest-level module (imported before this runs), so sharing one source
+    # buys nothing and only adds an early-startup import coupling.
     windows_machine = os.name == 'nt'
 
     # Read version and build timestamp via shared reader
