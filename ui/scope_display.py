@@ -514,6 +514,12 @@ class ScopeDisplay(Image):
     def set_engineering_ui(self, mean, stddev, af_score, open_layer):
         ctx = _app_ctx.ctx
         open_layer_obj = ctx.image_settings.layer_lookup(layer=open_layer)
+        # The layer accordion can collapse between the worker-thread compute
+        # that scheduled this update and the main-thread callback firing, in
+        # which case the layer is no longer resolvable and there is nothing
+        # on screen to update.
+        if open_layer_obj is None:
+            return
         new_mean_text = f'Mean: {mean}'
         if open_layer_obj.ids['image_stats_mean_id'].text != new_mean_text:
             open_layer_obj.ids['image_stats_mean_id'].text = new_mean_text

@@ -368,6 +368,13 @@ def stitch_registered_tiles(
 
     sample = registered[0]['tile']
     tile_h, tile_w = sample.shape[:2]
+    # All tiles in a stitch group must share channel layout; a mix of mono
+    # (ndim 2) and color (ndim 3) tiles would broadcast-fail in the
+    # accumulator blend below. Surface it as a clear error up front so the
+    # caller falls back to the simple grid stitch instead of hitting a
+    # cryptic broadcast ValueError mid-blend.
+    if any(tile['tile'].ndim != sample.ndim for tile in registered):
+        raise ValueError('Cannot stitch a mix of mono and color tiles in one group')
     if output_shape is None:
         min_x = min(int(tile['registered_x_px']) for tile in registered)
         min_y = min(int(tile['registered_y_px']) for tile in registered)

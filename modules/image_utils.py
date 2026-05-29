@@ -197,19 +197,26 @@ def read_postproc_input_metadata(path: pathlib.Path) -> dict | None:
         return None
 
     plane = structured['Plane']
-    flat: dict = {
-        'plate_pos_mm': {
-            'x': plane['PositionX'],
-            'y': plane['PositionY'],
-        },
-        'z_pos_um': plane['PositionZ'],
-        'objective': plane.get('Objective', {}),
-        'exposure_time_ms': plane['ExposureTime'],
-        'gain_db': plane['Gain'],
-        'illumination_ma': plane['Illumination'],
-        'pixel_size_um': structured['PhysicalSizeX'],
-        'channel': structured['Channel']['Name'][0],
-    }
+    try:
+        flat: dict = {
+            'plate_pos_mm': {
+                'x': plane['PositionX'],
+                'y': plane['PositionY'],
+            },
+            'z_pos_um': plane['PositionZ'],
+            'objective': plane.get('Objective', {}),
+            'exposure_time_ms': plane['ExposureTime'],
+            'gain_db': plane['Gain'],
+            'illumination_ma': plane['Illumination'],
+            'pixel_size_um': structured['PhysicalSizeX'],
+            'channel': structured['Channel']['Name'][0],
+        }
+    except (KeyError, IndexError, TypeError):
+        # Structured TIFF present but missing required acquisition keys
+        # (older LVP file, third-party producer, or a non-acquisition
+        # frame type); fall back to defaults rather than crashing the
+        # post-processing job, per this function's documented contract.
+        return None
     if datetime_value is not None:
         flat['datetime'] = datetime_value
 

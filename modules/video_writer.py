@@ -174,10 +174,6 @@ class VideoWriter:
             if not self._is_correct_image_shape(image):
                 logger.error('VideoWriter: Inconsistent Image Shape. Video will likely corrupt')
 
-            if self._include_timestamp_overlay:
-                ts = self._get_timestamp_str(timestamp)
-                image = image_utils.add_timestamp(image=image, timestamp_str=ts)
-
             # Ensure 8-bit
             if image.dtype != np.uint8:
                 image = (
@@ -191,6 +187,12 @@ class VideoWriter:
             # RGB input -> pass through (pre-colored caller).
             if image.ndim == 2 and self._color is not None:
                 image = image_utils.mono_to_rgb_falsecolor(image, layer=self._color)
+
+            # Timestamp last -- after false-color -- so the text stays
+            # neutral white instead of being tinted by the layer color map.
+            if self._include_timestamp_overlay:
+                ts = self._get_timestamp_str(timestamp)
+                image = image_utils.add_timestamp(image=image, timestamp_str=ts)
 
             if self._use_pyav and self._stream is not None:
                 try:

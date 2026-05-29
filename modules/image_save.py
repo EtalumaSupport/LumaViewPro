@@ -432,30 +432,44 @@ def save_image(
             'the protocol will retry on the next step.'
         )
 
-    image_data = prepare_image_for_saving(
-        scope,
-        array=array,
-        save_folder=save_folder,
-        file_root=file_root,
-        append=append,
-        color=color,
-        tail_id_mode=tail_id_mode,
-        output_format=output_format,
-        true_color=true_color,
-        x=x,
-        y=y,
-        z=z,
-        out_12to16=out_12to16,
-    )
-
-    image = image_data['image']
-    metadata = image_data['metadata']
-    file_loc = metadata['file_loc']
-
-    if output_format == 'OME-TIFF':
-        ome = True
+    if output_format == 'JPG':
+        # JPG is a convenience / sharing export: no metadata is embedded
+        # and the pixels come from the raw array (to match the live
+        # preview), so skip prepare_image_for_saving. Its
+        # generate_image_metadata step requires objective / labware to be
+        # configured, which an ad-hoc JPG snapshot taken before a protocol
+        # is set up has no reason to need. Only the save path is required.
+        image = None
+        metadata = None
+        file_loc = generate_image_save_path(
+            scope,
+            save_folder=save_folder,
+            file_root=file_root,
+            append=append,
+            tail_id_mode=tail_id_mode,
+            output_format=output_format,
+        )
     else:
-        ome = False
+        image_data = prepare_image_for_saving(
+            scope,
+            array=array,
+            save_folder=save_folder,
+            file_root=file_root,
+            append=append,
+            color=color,
+            tail_id_mode=tail_id_mode,
+            output_format=output_format,
+            true_color=true_color,
+            x=x,
+            y=y,
+            z=z,
+            out_12to16=out_12to16,
+        )
+        image = image_data['image']
+        metadata = image_data['metadata']
+        file_loc = metadata['file_loc']
+
+    ome = output_format == 'OME-TIFF'
 
     try:
         if output_format == 'JPG':
