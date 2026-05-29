@@ -673,3 +673,40 @@ class TestAddFalseColor:
         assert result[:, :, 0].sum() == 0, 'Red channel (index 0) should be zero'
         assert result[:, :, 1].sum() == 0, 'Green channel (index 1) should be zero'
         assert result[:, :, 2].sum() > 0, 'Blue channel (index 2) should have data'
+
+
+class TestOmeMetadataReadback:
+    """read_postproc_input_metadata recovers acquisition context from an
+    OME-TIFF input (which carries no shaped_metadata) via the OME-XML
+    fallback, instead of returning None and dropping all context on the
+    derived output."""
+
+    def test_ome_input_recovers_position_and_exposure(self, img_16bit, metadata, tmp_tiff):
+        path = tmp_tiff()
+        image_utils.write_tiff(
+            data=img_16bit, file_loc=path, metadata=metadata, ome=True, color='Green'
+        )
+        with tf.TiffFile(str(path)) as t:
+            assert not t.shaped_metadata, 'OME write should carry no shaped_metadata'
+            assert t.ome_metadata, 'OME write should carry an OME-XML description'
+
+        recovered = image_utils.read_postproc_input_metadata(path)
+        assert recovered is not None, 'OME-TIFF input must recover via the OME fallback'
+        assert recovered['plate_pos_mm']['x'] == pytest.approx(metadata['plate_pos_mm']['x'])
+        assert recovered['plate_pos_mm']['y'] == pytest.approx(metadata['plate_pos_mm']['y'])
+        assert recovered['z_pos_um'] == pytest.approx(metadata['z_pos_um'])
+        assert recovered['exposure_time_ms'] == pytest.approx(metadata['exposure_time_ms'])
+        assert recovered['pixel_size_um'] == pytest.approx(metadata['pixel_size_um'])
+
+    def test_ome_input_defaults_dropped_fields(self, img_16bit, metadata, tmp_tiff):
+        path = tmp_tiff()
+        image_utils.write_tiff(
+            data=img_16bit, file_loc=path, metadata=metadata, ome=True, color='Green'
+        )
+        recovered = image_utils.read_postproc_input_metadata(path)
+        # Gain / Illumination / Objective are dropped by tifffile's auto-OME
+        # serializer, so they take sentinel defaults rather than the input's
+        # values.
+        assert recovered['gain_db'] == 0.0
+        assert recovered['illumination_ma'] == 0.0
+        assert recovered['objective'] == {}

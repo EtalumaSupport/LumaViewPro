@@ -3,6 +3,7 @@ import datetime
 import enum
 import json
 import pathlib
+import xml.etree.ElementTree as ET
 
 import cv2
 import numpy as np
@@ -168,6 +169,66 @@ def read_tiff_with_legacy_collapse(path: pathlib.Path) -> np.ndarray:
     return img
 
 
+def _read_ome_input_metadata(ome_xml: str, datetime_value) -> dict | None:
+    """Recover the flat metadata dict from a tifffile-auto-OME description.
+
+    tifffile's auto-OME serializer preserves only a subset of the structured
+    metadata into the ImageDescription XML: Plane PositionX/Y/Z + ExposureTime,
+    Pixels PhysicalSizeX, and Channel Name. Gain/Illumination, Objective,
+    Instrument, and Plate are dropped at write and cannot be recovered -- they
+    take the same sentinel defaults build_postproc_output_metadata applies when
+    no structured metadata is present. Returns None on a parse failure or a
+    missing Plane position so the caller falls back to defaults.
+    """
+    try:
+        root = ET.fromstring(ome_xml)
+    except ET.ParseError:
+        return None
+
+    def _local(tag: str) -> str:
+        return tag.rsplit('}', 1)[-1]
+
+    pixels = next((el for el in root.iter() if _local(el.tag) == 'Pixels'), None)
+    if pixels is None:
+        return None
+    plane = next((el for el in pixels if _local(el.tag) == 'Plane'), None)
+    channel = next((el for el in pixels if _local(el.tag) == 'Channel'), None)
+    if plane is None:
+        return None
+
+    def _float(attrs: dict, key: str):
+        raw = attrs.get(key)
+        try:
+            return float(raw) if raw is not None else None
+        except (TypeError, ValueError):
+            return None
+
+    pos_x = _float(plane.attrib, 'PositionX')
+    pos_y = _float(plane.attrib, 'PositionY')
+    if pos_x is None or pos_y is None:
+        return None
+    pos_z = _float(plane.attrib, 'PositionZ')
+    exposure = _float(plane.attrib, 'ExposureTime')
+    pixel_size = _float(pixels.attrib, 'PhysicalSizeX')
+
+    flat: dict = {
+        'plate_pos_mm': {'x': pos_x, 'y': pos_y},
+        'z_pos_um': pos_z if pos_z is not None else 0.0,
+        # Dropped by tifffile's auto-OME serializer; default to match the
+        # no-structured-metadata path so the derived output is consistent.
+        'objective': {},
+        'exposure_time_ms': exposure if exposure is not None else 0.0,
+        'gain_db': 0.0,
+        'illumination_ma': 0.0,
+        'pixel_size_um': pixel_size if pixel_size is not None else 1.0,
+    }
+    if channel is not None and channel.attrib.get('Name'):
+        flat['channel'] = channel.attrib['Name']
+    if datetime_value is not None:
+        flat['datetime'] = datetime_value
+    return flat
+
+
 def read_postproc_input_metadata(path: pathlib.Path) -> dict | None:
     """Reverse the write_tiff metadata serialization for one input TIFF.
 
@@ -191,12 +252,18 @@ def read_postproc_input_metadata(path: pathlib.Path) -> dict | None:
     try:
         with tf.TiffFile(str(path)) as tif:
             shaped = tif.shaped_metadata
+            ome_xml = tif.ome_metadata
             datetime_tag = tif.pages[0].tags.get('DateTime')
             datetime_value = datetime_tag.value if datetime_tag else None
     except Exception:
         return None
 
     if not shaped:
+        # OME-TIFF inputs carry no shaped_metadata; recover what tifffile's
+        # auto-OME serializer preserved into the ImageDescription XML so an
+        # OME-TIFF tile still forwards acquisition context to derived outputs.
+        if ome_xml:
+            return _read_ome_input_metadata(ome_xml, datetime_value)
         return None
     structured = shaped[0]
     if 'Plane' not in structured:
