@@ -12,10 +12,11 @@ from each frame's own metadata.
 
 import datetime
 import json
+import pathlib
 
+import cv2
 import numpy as np
 import pandas as pd
-import pytest
 import tifffile as tf
 
 import modules.image_utils as image_utils
@@ -24,6 +25,36 @@ from modules.video_builder import VideoBuilder
 
 def _ts(frame_num: int) -> datetime.datetime:
     return datetime.datetime(2026, 5, 30, 14, 22, 0) + datetime.timedelta(seconds=frame_num)
+
+
+def _find_video(folder, stem):
+    # VideoWriter emits .mp4 when PyAV is present and falls back to .avi (cv2)
+    # when it is not, so the encode tests stay backend-agnostic: locate whatever
+    # was written and decode with cv2, which reads both. This lets the encode
+    # path run locally on macOS (cv2 fallback, no PyAV/OpenCV ffmpeg dylib
+    # collision) as well as on CI where PyAV is installed.
+    for ext in ('.mp4', '.avi'):
+        candidate = folder / f'{stem}{ext}'
+        if candidate.is_file():
+            return candidate
+    raise AssertionError(f'no video output for {stem}: {sorted(folder.glob(stem + ".*"))}')
+
+
+def _frame_count(video_path) -> int:
+    cap = cv2.VideoCapture(str(video_path))
+    count = 0
+    while cap.read()[0]:
+        count += 1
+    cap.release()
+    return count
+
+
+def _first_frame(video_path):
+    cap = cv2.VideoCapture(str(video_path))
+    ok, frame = cap.read()
+    cap.release()
+    assert ok, f'could not decode first frame of {video_path}'
+    return frame
 
 
 def _write_manual_frame(folder, frame_num, *, include_iso=True, value=20000):
@@ -94,7 +125,6 @@ def test_read_frame_timestamp_no_metadata_returns_none(tmp_path):
 
 
 def test_build_from_folder_manual_creates_video_excluding_hyperstack(tmp_path):
-    av = pytest.importorskip('av')
     folder = _make_manual_folder(tmp_path, n_frames=3, include_hyperstack=True)
 
     builder = VideoBuilder(has_turret=False)
@@ -107,14 +137,9 @@ def test_build_from_folder_manual_creates_video_excluding_hyperstack(tmp_path):
     )
 
     assert result['status'] is True
-    out = folder / f'{folder.name}.mp4'
-    assert out.is_file()
-
-    container = av.open(str(out))
-    frame_count = sum(1 for _ in container.decode(video=0))
-    container.close()
+    out = _find_video(folder, folder.name)
     # 3 numbered frames; the HyperStack.ome.tiff must be excluded.
-    assert frame_count == 3
+    assert _frame_count(out) == 3
 
 
 def test_build_from_folder_empty_returns_status_false(tmp_path):
@@ -153,15 +178,6 @@ def test_build_from_folder_routes_protocol_to_load_folder(tmp_path, monkeypatch)
 
 
 def test_timestamp_overlay_toggle_changes_output(tmp_path):
-    av = pytest.importorskip('av')
-
-    def _first_frame(folder):
-        out = folder / f'{folder.name}.mp4'
-        container = av.open(str(out))
-        frame = next(container.decode(video=0)).to_ndarray(format='gray')
-        container.close()
-        return frame
-
     off_folder = _make_manual_folder(tmp_path / 'off', n_frames=2, include_hyperstack=False)
     on_folder = _make_manual_folder(tmp_path / 'on', n_frames=2, include_hyperstack=False)
 
@@ -174,11 +190,12 @@ def test_timestamp_overlay_toggle_changes_output(tmp_path):
     )
 
     # The overlay draws a timestamp into the bottom-left; the frames must differ.
-    assert not np.array_equal(_first_frame(off_folder), _first_frame(on_folder))
+    off_frame = _first_frame(_find_video(off_folder, off_folder.name))
+    on_frame = _first_frame(_find_video(on_folder, on_folder.name))
+    assert not np.array_equal(off_frame, on_frame)
 
 
 def test_create_video_missing_timestamp_no_crash(tmp_path):
-    pytest.importorskip('av')
     # Frames with no recoverable timestamp + an empty df Timestamp (the value
     # the loader fills for missing data). Overlay ON must degrade to no overlay
     # rather than crash on ''.to_pydatetime().
@@ -201,10 +218,10 @@ def test_create_video_missing_timestamp_no_crash(tmp_path):
         df=df,
         frames_per_sec=5,
         enable_timestamp_overlay=True,
-        output_file_loc=folder / 'out.mp4',
+        output_file_loc=pathlib.Path('out.mp4'),
         popup=None,
         total_groups=1,
         current_group=1,
     )
     assert result['status'] is True
-    assert (folder / 'out.mp4').is_file()
+    assert _find_video(folder, 'out').is_file()
