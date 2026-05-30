@@ -1096,10 +1096,22 @@ class Protocol:
     def apply_zstacking(
         self,
         zstack_params: dict,
-    ):
+        axes_config: dict,
+    ) -> dict:
+        "Returns status dict"
+
+        status = {
+            'zslices_skipped': 0,
+        }
 
         if zstack_params['step_size'] <= 0 or zstack_params['range'] <= 0:
-            return
+            return status
+
+        try:
+            z_limits = axes_config['Z']['limits']
+        except Exception as e:
+            logger.error(f'Error getting Z axis limits from axes_config: {e}')
+            return status
 
         steps = self.steps()
         existing_max_zstack_group_id = steps['Z-Stack Group ID'].max()
@@ -1132,6 +1144,18 @@ class Protocol:
 
             # Create a z-stack
             for zstack_slice, zstack_position in zstack_positions.items():
+                # Skip slices whose Z would drive the stage past its travel
+                # limits, mirroring the XY tile-bounds skip in apply_tiling. A
+                # z-stack range wider than the Z travel otherwise pushed the
+                # protocol to the end of travel and crashed the run.
+                if zstack_position < z_limits['min'] or zstack_position > z_limits['max']:
+                    logger.info(
+                        f'[Protocol] Skipping z-slice {zstack_slice} (Z={zstack_position}) '
+                        f'for step {row_idx} - out of Z stage limits'
+                    )
+                    status['zslices_skipped'] += 1
+                    continue
+
                 name = common_utils.generate_default_step_name(
                     well_label=orig_step_df['Well'],
                     color=orig_step_df['Color'],
@@ -1173,6 +1197,8 @@ class Protocol:
             zstack_group_id += 1
 
         self._set_steps(pd.DataFrame.from_dict(new_steps))
+
+        return status
 
     @classmethod
     def from_config(cls, input_config: dict, tiling_configs_file_loc: pathlib.Path):

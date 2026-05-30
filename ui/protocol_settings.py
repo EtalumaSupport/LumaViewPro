@@ -420,9 +420,26 @@ class ProtocolSettings(FloatLayout):
                 logger.warning(f'Z-stacking parameters are zero. No changes applied.')
                 return
 
-            self._protocol.apply_zstacking(
+            axes_config = ctx.lumaview.scope.motion.get_axes_config()
+            zstack_status = self._protocol.apply_zstacking(
                 zstack_params=zstack_params,
+                axes_config=axes_config,
             )
+
+            zslices_skipped = zstack_status['zslices_skipped']
+            if zslices_skipped > 0:
+                error_msg = (
+                    f'Z-stacking skipped {zslices_skipped} slices that fall outside the '
+                    f'Z travel range. Reduce the range or adjust the focus position.'
+                )
+                from ui.notification_popup import show_notification_popup
+
+                Clock.schedule_once(
+                    lambda dt: show_notification_popup(
+                        title='Protocol Z-Stacking Warning', message=error_msg
+                    ),
+                    0,
+                )
 
             self._protocol.optimize_step_ordering()
             ctx.stage.set_protocol_steps(df=self._protocol.steps())
