@@ -16,26 +16,30 @@ logger = logging.getLogger('LVP.ui.file_dialogs')
 
 
 def _zprojection_picker_default_path(live_folder: pathlib.Path) -> str:
-    """Return the most-specific existing Z-stack folder under live_folder.
+    """Return the Z-stack folder the projection picker should open at.
 
     Z-stacks live in two canonical places:
       - live_folder/Manual/Z-Stacks/<ts>/ -- manual ZSTACK button
         (path defined at ui/zstack.py:234)
       - live_folder/ProtocolData/<ts>/ -- protocol with Z-stack steps
 
-    Search in priority order; first existing path wins. Final fallback
-    is live_folder itself, so a fresh install never produces an error
-    on the file-chooser default. Pure function -- no kivy import; tested
-    via direct invocation in tests/test_least_astonishment_fixes.py.
+    When exactly ONE of those exists, descend into it (the manual path is
+    listed first so a lone manual run is one click away). When BOTH exist,
+    open at live_folder instead so neither shadows the other -- always
+    descending into Manual/Z-Stacks otherwise hid protocol-produced
+    z-stacks even after a protocol run. Neither present also falls back to
+    live_folder, so a fresh install never yields an invalid picker target.
+    Pure function -- no kivy import; tested via direct invocation in
+    tests/test_least_astonishment_fixes.py.
     """
     base = pathlib.Path(live_folder)
-    for candidate in (
+    candidates = [
         base / 'Manual' / 'Z-Stacks',
         base / 'ProtocolData',
-        base,
-    ):
-        if candidate.exists():
-            return str(candidate)
+    ]
+    existing = [c for c in candidates if c.exists()]
+    if len(existing) == 1:
+        return str(existing[0])
     return str(base)
 
 
