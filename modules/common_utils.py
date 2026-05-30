@@ -89,7 +89,7 @@ def generate_default_step_name(
         name = f'{name}_{color}'
 
     if tile_label not in (None, '', -1):
-        if not f'_T{tile_label}' in name:
+        if f'_T{tile_label}' not in name:
             name = f'{name}_T{tile_label}'
 
     if objective_short_name not in (None, '', -1):
@@ -99,7 +99,7 @@ def generate_default_step_name(
         name = f'{name}_Turret{turret_position}'
 
     if z_height_idx not in (None, '', -1):
-        if not f'_Z{z_height_idx}' in name:
+        if f'_Z{z_height_idx}' not in name:
             name = f'{name}_Z{z_height_idx}'
 
     DESIRED_SCAN_COUNT_DIGITS = 4

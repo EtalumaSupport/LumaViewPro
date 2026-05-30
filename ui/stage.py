@@ -736,7 +736,7 @@ class Stage(Widget):
         coordinate_transformer = _app_ctx.ctx.coordinate_transformer
         io_executor = _app_ctx.ctx.io_executor
 
-        if not result is None:
+        if result is not None:
             target_stage_x = result[0]
             target_stage_y = result[1]
 
