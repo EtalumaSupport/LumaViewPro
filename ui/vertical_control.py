@@ -499,6 +499,13 @@ class VerticalControl(BoxLayout):
             with _app_ctx.ctx.settings_lock:
                 settings['turret_objectives'][selected_turret] = desired_objective_id
 
+            # Push the new assignment to the microscope -- the settings write
+            # alone does not reach hardware (mirrors select_objective).
+            if ctx.lumaview.scope.motion.has_turret():
+                ctx.lumaview.scope.runtime_state.set_turret_config(
+                    turret_config=settings['turret_objectives']
+                )
+
         except Exception as e:
             logger.exception(f'SetTurretObjective] Error: {e}')
             return
@@ -524,6 +531,13 @@ class VerticalControl(BoxLayout):
             # Update settings
             with _app_ctx.ctx.settings_lock:
                 settings['turret_objectives'][selected_turret] = None
+
+            # Push the cleared slot to the microscope -- the settings write
+            # alone does not reach hardware (mirrors select_objective).
+            if _app_ctx.ctx.lumaview.scope.motion.has_turret():
+                _app_ctx.ctx.lumaview.scope.runtime_state.set_turret_config(
+                    turret_config=settings['turret_objectives']
+                )
 
         except Exception as e:
             logger.exception(f'ResetTurretObjective] Error: {e}')
