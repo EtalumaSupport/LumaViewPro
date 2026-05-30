@@ -82,7 +82,7 @@ class SimulatedLEDBoard:
             'Green': -1,
         }
         self._enabled = True
-        self._channel_states = {i: 0 for i in range(6)}  # channel -> mA
+        self._channel_states = dict.fromkeys(range(6), 0)  # channel -> mA
 
     def set_timing_mode(self, mode: str) -> None:
         """Switch timing mode: 'instant', 'fast', or 'realistic'.

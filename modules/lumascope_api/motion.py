@@ -144,12 +144,12 @@ class MotionAPI:
         Args:
             present_axes: List of axis names the hardware actually has.
         """
-        self._pos_cache = {ax: 0.0 for ax in present_axes}
-        self._axis_state = {ax: AxisState.UNKNOWN for ax in present_axes}
+        self._pos_cache = dict.fromkeys(present_axes, 0.0)
+        self._axis_state = dict.fromkeys(present_axes, AxisState.UNKNOWN)
         self._arrival_events = {ax: threading.Event() for ax in present_axes}
         for ev in self._arrival_events.values():
             ev.set()  # Start as "arrived" (not moving)
-        self._move_profile = {ax: None for ax in present_axes}
+        self._move_profile = dict.fromkeys(present_axes)
 
     def start_monitor(self) -> None:
         """Spawn the motion monitor thread.

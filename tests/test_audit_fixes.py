@@ -967,12 +967,12 @@ class TestAxisState:
         scope._motion_driver = SimulatedMotorBoard(model='LS850T')
         present = scope._motion_driver.detect_present_axes()
         assert 'T' in present, 'LS850T sim must report T present'
-        scope.motion._pos_cache = {ax: 0.0 for ax in present}
-        scope.motion._axis_state = {ax: AxisState.UNKNOWN for ax in present}
+        scope.motion._pos_cache = dict.fromkeys(present, 0.0)
+        scope.motion._axis_state = dict.fromkeys(present, AxisState.UNKNOWN)
         scope.motion._arrival_events = {ax: threading.Event() for ax in present}
         for ev in scope.motion._arrival_events.values():
             ev.set()
-        scope.motion._move_profile = {ax: None for ax in present}
+        scope.motion._move_profile = dict.fromkeys(present)
 
         scope.motion.thome()
         assert scope.motion.get_axis_state('T') == AxisState.IDLE

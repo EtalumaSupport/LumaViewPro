@@ -886,7 +886,7 @@ class FirmwareDiagnostics:
         support DRVSTAT_<axis> on this axis (legacy firmware).
         """
         if not self._scope:
-            return {ax: None for ax in 'XYZT'}
+            return dict.fromkeys('XYZT')
         return {ax: self._scope.diagnostics.read_motor_drv_status(ax)
                 for ax in 'XYZT'}
 
