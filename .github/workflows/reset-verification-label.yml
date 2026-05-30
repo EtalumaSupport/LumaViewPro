@@ -1,11 +1,18 @@
-name: Reset verification label on activity
+name: Verification and retriage label automation
 
+# Issue label lifecycle, kept honest automatically:
+#
+#   "Fixed Needs verification"  --(reporter replies)-->  "New data - needs retriage"
+#   "New data - needs retriage" --(we re-fix + handoff)--> "Fixed Needs verification"
+#
 # "Fixed Needs verification" means "we believe this is fixed, awaiting the
 # reporter to confirm." The moment anyone comments after that, the issue has
-# been touched and the label is no longer trustworthy -- so strip it. The one
-# exception is our own fix-shipped handoff comments, which carry the
-# <!-- claude:annotation --> marker and are posted together WITH the label;
-# those must not remove it.
+# been touched and the label is no longer trustworthy. A reporter reply is
+# usually new data (often the fix failing), so we strip the verification label
+# AND flag the issue for re-triage. The one exception is our own fix-shipped
+# handoff comments, which carry the <!-- claude:annotation --> marker and are
+# posted together WITH the verification label; those must not strip it -- and
+# they clear any standing retriage flag, because the marker means we have acted.
 #
 # NOTE: GitHub runs issue_comment workflows from the DEFAULT branch, so this
 # file only takes effect once it is on main.
@@ -18,13 +25,46 @@ permissions:
   issues: write
 
 jobs:
-  reset-label:
+  # Reporter (or anyone) commented on a "Fixed Needs verification" issue without
+  # the handoff marker: the fix claim is no longer trustworthy and there is new
+  # input to weigh. Strip the verification label, raise the retriage flag.
+  verification-to-retriage:
     if: >-
       contains(github.event.issue.labels.*.name, 'Fixed Needs verification') &&
       !contains(github.event.comment.body, '<!-- claude:annotation -->')
     runs-on: ubuntu-latest
     steps:
-      - name: Remove the verification label
+      - name: Strip verification label, add retriage label
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const common = {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            };
+            await github.rest.issues.removeLabel({
+              ...common,
+              name: 'Fixed Needs verification',
+            }).catch(err => {
+              // 404 = label already absent (lost a race); anything else is real.
+              if (err.status !== 404) throw err;
+            });
+            await github.rest.issues.addLabels({
+              ...common,
+              labels: ['New data - needs retriage'],
+            });
+
+  # Our fix-shipped handoff (marker comment) landed on a retriage-flagged issue:
+  # we have acted again, so clear the retriage flag. The handoff step re-applies
+  # "Fixed Needs verification" itself, so this job only removes the stale flag.
+  clear-retriage-on-handoff:
+    if: >-
+      contains(github.event.issue.labels.*.name, 'New data - needs retriage') &&
+      contains(github.event.comment.body, '<!-- claude:annotation -->')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Remove the retriage label
         uses: actions/github-script@v7
         with:
           script: |
@@ -32,7 +72,7 @@ jobs:
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: context.issue.number,
-              name: 'Fixed Needs verification',
+              name: 'New data - needs retriage',
             }).catch(err => {
               // 404 = label already absent (lost a race); anything else is real.
               if (err.status !== 404) throw err;
