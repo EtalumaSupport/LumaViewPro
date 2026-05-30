@@ -140,7 +140,7 @@ def test_new_protocol_extracts_previous_well_z_before_create():
         'new_protocol must populate config["previous_well_z"] from '
         'self._protocol.steps() before create_protocol. (#535)'
     )
-    assert 'groupby' in src and "'Well'" in src or '"Well"' in src, (
+    assert ('groupby' in src and "'Well'" in src) or '"Well"' in src, (
         'new_protocol must groupby Well to build the per-well z map. (#535)'
     )
 

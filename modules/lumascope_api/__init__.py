@@ -33,12 +33,12 @@ from modules.lumascope_api.motion import MotionAPI
 from modules.lumascope_api.runtime_state import RuntimeState
 
 __all__ = [
+    'IOAPI',
     'AxisState',
     'Capabilities',
     'DiagnosticsAPI',
     'IlluminationAPI',
     'ImagingAPI',
-    'IOAPI',
     'Lumascope',
     'MotionAPI',
     'RuntimeState',

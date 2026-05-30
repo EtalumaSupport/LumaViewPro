@@ -326,7 +326,7 @@ class TestLumascopeUsesRegistry:
         assert 'sim' in camera_registry.registered_names()
         # 'ids' only present if ids_peak SDK is installed.
         try:
-            import ids_peak  # noqa: F401
+            import ids_peak
 
             ids_available = True
         except ImportError:

@@ -63,7 +63,7 @@ class _BudgetedHandler:
     auto-remove path.
     """
 
-    __slots__ = ('_imaging', '_handler', '_name', '_consecutive_over', '_removed')
+    __slots__ = ('_consecutive_over', '_handler', '_imaging', '_name', '_removed')
 
     def __init__(self, imaging: ImagingAPI, handler, name: str) -> None:
         self._imaging = imaging
@@ -133,7 +133,7 @@ class ImagingAPI:
         # disconnect / reconnect / test hot-swap propagate without
         # rebinding ImagingAPI. Same pattern as MotionAPI._driver /
         # IlluminationAPI._driver.
-        del driver  # noqa -- intentionally unused, kept for backward call sites
+        del driver
 
         # State / camera locks. _state_lock guards _capture_return /
         # _autofocus_return / _scale_bar; _cam_lock serializes

@@ -358,7 +358,7 @@ class MicroscopeSettings(BoxLayout):
                     live_folder = pathlib.Path.home() / 'Documents' / 'LumaViewPro' / 'capture'
                 live_folder = live_folder.resolve()
                 live_folder.mkdir(exist_ok=True, parents=True)
-                logger.info(f'[LVP Main  ] Defaulting live image folder to {str(live_folder)}')
+                logger.info(f'[LVP Main  ] Defaulting live image folder to {live_folder!s}')
 
             settings['live_folder'] = str(live_folder)
 

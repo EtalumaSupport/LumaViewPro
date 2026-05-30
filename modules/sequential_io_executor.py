@@ -208,7 +208,7 @@ class IOTask:
             try:
                 threading.current_thread().name = self.name
                 if not callable(self.action):
-                    logger.warning(f"{self.name} Worker received non-callable action: {str(self.action)}")
+                    logger.warning(f"{self.name} Worker received non-callable action: {self.action!s}")
                 t_start = time.monotonic()
                 res = self.action(*self.args, **self.kwargs)
                 elapsed = time.monotonic() - t_start
@@ -259,7 +259,7 @@ class IOTask:
             return self.run()
         
         def __repr__(self):
-            return f"<IOTask: Action: {str(self.action)} Callback: {str(self.callback)}>"
+            return f"<IOTask: Action: {self.action!s} Callback: {self.callback!s}>"
 
 
 """
