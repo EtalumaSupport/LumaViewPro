@@ -307,7 +307,7 @@ class CircularProgressBar(Widget):
             raise TypeError(
                 f'Normalised progress must be a float or an integer, not {type(norm_progress)}!'
             )
-        elif _NORMALISED_MIN > norm_progress or norm_progress > _NORMALISED_MAX:
+        elif norm_progress < _NORMALISED_MIN or norm_progress > _NORMALISED_MAX:
             raise ValueError(
                 f'Normalised progress must be between the corresponding min ({_NORMALISED_MIN}) and max ({_NORMALISED_MAX}), {norm_progress} is not!'
             )

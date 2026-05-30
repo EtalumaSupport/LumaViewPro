@@ -46,7 +46,7 @@ def _stitch(path):
 '''
         violations = _violations(src, 'modules/stitcher.py')
         assert len(violations) == 1
-        assert 'rule_31c' == violations[0].rule
+        assert violations[0].rule == 'rule_31c'
 
 
 class TestRule31cAllowsBareImwriteWithPairedHelper:

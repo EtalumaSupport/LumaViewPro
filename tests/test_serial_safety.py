@@ -124,7 +124,7 @@ class TestLEDBoardLocking:
         ]
         resp = board.exchange_command('LED0_100')
         assert resp is not None
-        assert 'LED 0 set to 100 mA.' == resp
+        assert resp == 'LED 0 set to 100 mA.'
 
     def test_exchange_command_reads_past_echo(self):
         """exchange_command should skip the RE: echo and return the result."""

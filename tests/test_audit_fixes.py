@@ -8953,7 +8953,7 @@ class TestImagingParamNamesUseUnitSuffix:
         import inspect
         from drivers.camera import Camera
 
-        method = getattr(Camera, 'exposure_t')
+        method = Camera.exposure_t
         params = set(inspect.signature(method).parameters)
         assert 'exposure_ms' in params, 'Camera.exposure_t missing exposure_ms param'
         assert 't' not in params, 'Camera.exposure_t still has bare `t` param'
@@ -10254,19 +10254,19 @@ class TestImagingAsyncSyncThreeVariantPattern:
         from modules.lumascope_api.imaging import ImagingAPI
 
         assert hasattr(ImagingAPI, 'set_gain_async')
-        assert callable(getattr(ImagingAPI, 'set_gain_async'))
+        assert callable(ImagingAPI.set_gain_async)
 
     def test_imaging_has_set_exposure_time_async(self):
         from modules.lumascope_api.imaging import ImagingAPI
 
         assert hasattr(ImagingAPI, 'set_exposure_time_async')
-        assert callable(getattr(ImagingAPI, 'set_exposure_time_async'))
+        assert callable(ImagingAPI.set_exposure_time_async)
 
     def test_imaging_has_capture_and_wait_async(self):
         from modules.lumascope_api.imaging import ImagingAPI
 
         assert hasattr(ImagingAPI, 'capture_and_wait_async')
-        assert callable(getattr(ImagingAPI, 'capture_and_wait_async'))
+        assert callable(ImagingAPI.capture_and_wait_async)
 
     def test_session_imaging_forwarders_renamed(self):
         from modules.scope_session import ScopeSession
