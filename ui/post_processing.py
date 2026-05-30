@@ -355,7 +355,7 @@ class VideoCreationControls(BoxLayout):
 
         ctx.file_io_executor.put(
             IOTask(
-                action=video_builder.load_folder,
+                action=video_builder.build_from_folder,
                 args=(
                     pathlib.Path(path),
                     pathlib.Path(ctx.source_path) / 'data' / 'tiling.json',

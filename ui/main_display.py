@@ -690,14 +690,12 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
                         if frame_num < len(timestamps)
                         else datetime.datetime.now()
                     )
-                    ts_str = ts.strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]
-
-                    image = image_utils.add_timestamp(image=image, timestamp_str=ts_str)
-
                     # Filename includes per-frame timestamp so the folder is
                     # browsable without a viewer that reads TIFF metadata.
                     # Colon-free ISO variant for Windows path-safety; millisecond
-                    # precision matches the in-image timestamp at ts_str above.
+                    # precision. The timestamp is not drawn into the pixels here:
+                    # it travels in the frame metadata, and Create Video draws it
+                    # at build time only when the timestamp overlay is enabled.
                     ts_filename = ts.strftime('%Y-%m-%d_%H-%M-%S-%f')[:-3]
                     frame_name = f'ManualVideo_Frame_{frame_num:04}_{ts_filename}'
 

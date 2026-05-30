@@ -292,15 +292,14 @@ def write_video(
             image = image_pair[0]
             ts = image_pair[1]
             del image_pair
-
-            ts_str = ts.strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]
-            image_w_timestamp = image_utils.add_timestamp(image=image, timestamp_str=ts_str)
-            del image
             video_images.task_done()
 
             frame_name = f'{name}_Frame_{frame_num:04}'
             output_file_loc = frame_folder / f'{frame_name}.tiff'
 
+            # The timestamp is not drawn into the pixels here: it travels in the
+            # frame metadata below, and Create Video draws it at build time only
+            # when the timestamp overlay is enabled.
             metadata = {
                 'datetime': ts.strftime('%Y:%m:%d %H:%M:%S'),
                 'timestamp': ts.strftime('%Y:%m:%d %H:%M:%S.%f'),
@@ -309,7 +308,7 @@ def write_video(
 
             try:
                 image_utils.write_tiff(
-                    data=image_w_timestamp,
+                    data=image,
                     metadata=metadata,
                     file_loc=output_file_loc,
                     video_frame=True,
@@ -318,6 +317,8 @@ def write_video(
                 )
             except Exception as e:
                 logger.error(f'[PROTOCOL-VIDEO] Failed to write frame {frame_num}: {e}')
+
+            del image
 
         _drain_queue(video_images)
         capture_result = frame_folder

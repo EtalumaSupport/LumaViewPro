@@ -334,6 +334,63 @@ def read_postproc_input_metadata(path: pathlib.Path) -> dict | None:
     return flat
 
 
+def read_frame_timestamp(path: pathlib.Path) -> datetime.datetime | None:
+    """Recover the per-frame capture timestamp from one recorded TIFF.
+
+    Used by the video builder to draw a per-frame timestamp overlay at
+    build time instead of burning it into the pixels at capture time, so
+    the Create-Video timestamp toggle controls whether the timestamp
+    appears. Tolerates the differing metadata shapes the capture paths
+    write:
+
+    - manual "Frames" recordings carry a flat ``timestamp_iso`` key;
+    - protocol video-step frames carry a flat ``timestamp`` (and
+      ``datetime``) key in ``%Y:%m:%d %H:%M:%S.%f`` form;
+    - protocol scan images carry the timestamp under ``Plane.Timestamp``
+      (ISO) in the structured metadata.
+
+    Args:
+        path: TIFF file path.
+
+    Returns:
+        The frame's capture time, or None when no readable timestamp is
+        present (caller falls back to its own source or skips the overlay).
+    """
+    try:
+        with tf.TiffFile(str(path)) as tif:
+            shaped = tif.shaped_metadata
+    except Exception:
+        return None
+
+    if not shaped:
+        return None
+    structured = shaped[0]
+
+    # Structured scan images nest the timestamp under Plane; frame
+    # recordings keep a flat dict. Check both, ISO first then the
+    # colon-separated capture format.
+    candidates = []
+    plane = structured.get('Plane') if isinstance(structured, dict) else None
+    if isinstance(plane, dict) and plane.get('Timestamp'):
+        candidates.append(('iso', plane['Timestamp']))
+    if structured.get('timestamp_iso'):
+        candidates.append(('iso', structured['timestamp_iso']))
+    if structured.get('timestamp'):
+        candidates.append(('%Y:%m:%d %H:%M:%S.%f', structured['timestamp']))
+    if structured.get('datetime'):
+        candidates.append(('%Y:%m:%d %H:%M:%S', structured['datetime']))
+
+    for fmt, value in candidates:
+        try:
+            if fmt == 'iso':
+                return datetime.datetime.fromisoformat(value)
+            return datetime.datetime.strptime(value, fmt)
+        except (ValueError, TypeError):
+            continue
+
+    return None
+
+
 def build_postproc_output_metadata(
     input_path: pathlib.Path,
     channel: str,

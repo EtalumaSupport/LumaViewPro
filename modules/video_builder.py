@@ -14,6 +14,12 @@ from modules.video_writer import VideoWriter
 from lvp_logger import logger
 
 
+# Manual "Frames" recordings name each frame ManualVideo_Frame_<NNNN>_<ts>.tiff.
+# The [0-9] after the prefix keeps the optional ManualVideo_Frame_HyperStack
+# container out of the frame sequence; .tif* covers .tiff and .tif.
+_MANUAL_FRAME_GLOB = 'ManualVideo_Frame_[0-9]*.tif*'
+
+
 class VideoBuilder(ProtocolPostProcessor):
     def __init__(self, *args, **kwargs):
         super().__init__(
@@ -156,7 +162,6 @@ class VideoBuilder(ProtocolPostProcessor):
         if 'video_Frame' in str(df['Filepath'].values[0]):
             df['Frame Num'] = df['Filepath'].apply(get_frame_num)
             df = df.sort_values(by=['Frame Num'], ascending=True)
-            enable_timestamp_overlay = False
 
         else:
             df = df.sort_values(by=['Scan Count'], ascending=True)
@@ -202,8 +207,18 @@ class VideoBuilder(ProtocolPostProcessor):
             # via read_tiff_with_legacy_collapse). VideoWriter applies the
             # layer false-color and any cv2 BGR-swap internally.
 
-            # Timestamp overlay and 8-bit conversion handled by VideoWriter.add_frame()
-            frame_ts = row['Timestamp'].to_pydatetime() if enable_timestamp_overlay else None
+            # Timestamp overlay and 8-bit conversion handled by VideoWriter.add_frame().
+            # Source the per-frame time from each frame's own metadata so a video
+            # built from recorded frames shows the real capture time per frame, not
+            # one repeated step time. Fall back to the dataframe's Timestamp (set
+            # from the protocol execution record for scan-image videos), guarding
+            # the case where it is the empty string the loader fills for missing
+            # values rather than a pandas Timestamp.
+            frame_ts = None
+            if enable_timestamp_overlay:
+                frame_ts = image_utils.read_frame_timestamp(image_path)
+                if frame_ts is None and hasattr(row['Timestamp'], 'to_pydatetime'):
+                    frame_ts = row['Timestamp'].to_pydatetime()
             video.add_frame(image=image, timestamp=frame_ts)
 
             if popup is not None:
@@ -303,3 +318,96 @@ class VideoBuilder(ProtocolPostProcessor):
             'error': error,
             'frame_count': frame_count,
         }
+
+    def build_from_folder(
+        self,
+        path: str | pathlib.Path,
+        tiling_configs_file_loc: pathlib.Path,
+        popup=None,
+        **kwargs: dict,
+    ) -> dict:
+        """Create video(s) from a captured folder, dispatching by recording type.
+
+        Manual "Frames" recordings carry no protocol_record.tsv and so are
+        rejected by the protocol post-processing pipeline; route them to a
+        record-less single-video build instead. Protocol scans keep the
+        standard load_folder path. Mirrors load_folder's signature so the
+        caller can swap one entry point for the other without rewiring.
+        """
+        path = pathlib.Path(path)
+        if self._is_manual_recording_folder(path):
+            return self._build_manual_recording_video(path, popup=popup, **kwargs)
+        return self.load_folder(
+            path=path,
+            tiling_configs_file_loc=tiling_configs_file_loc,
+            popup=popup,
+            **kwargs,
+        )
+
+    def _is_manual_recording_folder(self, path: pathlib.Path) -> bool:
+        # Positive detection: only a folder that actually holds manually
+        # recorded frames takes the record-less path. A protocol folder with a
+        # missing or broken record still falls through to load_folder so the
+        # user gets the informative protocol error instead of a silent raw build.
+        try:
+            return path.is_dir() and any(path.glob(_MANUAL_FRAME_GLOB))
+        except OSError:
+            return False
+
+    def _build_manual_recording_video(
+        self,
+        path: pathlib.Path,
+        popup=None,
+        *,
+        frames_per_sec: int = 5,
+        enable_timestamp_overlay: bool = False,
+        **_ignored: dict,
+    ) -> dict:
+        frame_paths = sorted(path.glob(_MANUAL_FRAME_GLOB))
+        if not frame_paths:
+            return {
+                'status': False,
+                'message': (
+                    'No recorded video frames were found in the selected folder. '
+                    'Check that the folder contains a manual "Frames" recording.'
+                ),
+            }
+
+        # Manual frames are saved as mono with no protocol record. Build the
+        # minimal dataframe _create_video needs and drive the one canonical
+        # encode path. Color None encodes grayscale; the per-frame timestamp is
+        # read from each frame's own metadata inside _create_video, so the
+        # overlay toggle authoritatively controls whether the video shows a
+        # timestamp.
+        df = pd.DataFrame(
+            {
+                'Filepath': [p.name for p in frame_paths],
+                'Scan Count': range(len(frame_paths)),
+                'Timestamp': '',
+                'Color': None,
+            }
+        )
+        output_file_loc = pathlib.Path(f'{path.name}.mp4')
+
+        try:
+            result = self._create_video(
+                path=path,
+                df=df,
+                frames_per_sec=frames_per_sec,
+                enable_timestamp_overlay=enable_timestamp_overlay,
+                output_file_loc=output_file_loc,
+                popup=popup,
+                total_groups=1,
+                current_group=1,
+            )
+        except Exception as e:
+            logger.exception(f'[{self._name}] Manual-recording video build failed')
+            return {'status': False, 'message': str(e)}
+
+        if popup is not None:
+            popup.progress = 100
+
+        if not result['status']:
+            return {'status': False, 'message': result.get('error') or 'Video generation failed.'}
+
+        return {'status': True, 'message': 'Success'}
