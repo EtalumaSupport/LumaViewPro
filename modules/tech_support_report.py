@@ -1935,14 +1935,14 @@ class TechSupportReport:
             # Critical Python packages
             critical = info.get('critical_packages', [])
             if critical:
-                f.write(f"\nCritical Python packages:\n")
+                f.write("\nCritical Python packages:\n")
                 for pkg in critical:
                     f.write(f"  {pkg}\n")
 
             # Recent USB events
             usb_events = info.get('recent_usb_events', '')
             if usb_events and 'Error' not in usb_events[:20]:
-                f.write(f"\nRecent USB/driver events (last 7 days):\n")
+                f.write("\nRecent USB/driver events (last 7 days):\n")
                 f.write(usb_events[:3000] if usb_events else '  None found\n')
 
         # Also write full pip freeze as separate file for easy diff
@@ -2072,7 +2072,7 @@ class TechSupportReport:
                 cwd=str(app_root),
             )
             with open(d / 'test_hardware_serial.txt', 'w') as f:
-                f.write(f"test_hardware_serial.py (--run-hardware)\n")
+                f.write("test_hardware_serial.py (--run-hardware)\n")
                 f.write(f"Return code: {result.returncode}\n\n")
                 f.write(result.stdout)
                 if result.stderr:
@@ -2492,7 +2492,7 @@ def main():
     print('\n')  # Newline after progress bar
     if zip_path:
         logger.info(f"  Report saved: {zip_path}")
-        logger.info(f"  Please email to: techsupport@etaluma.com")
+        logger.info("  Please email to: techsupport@etaluma.com")
     else:
         logger.info("  Report generation failed.")
         logger.info("  Contact techsupport@etaluma.com directly.")

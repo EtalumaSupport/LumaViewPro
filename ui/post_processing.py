@@ -803,7 +803,7 @@ class CellCountControls(BoxLayout):
     @staticmethod
     def _validate_method_settings_metadata(settings):
         if 'metadata' not in settings:
-            raise Exception(f'No valid metadata found')
+            raise Exception('No valid metadata found')
 
         metadata = settings['metadata']
 

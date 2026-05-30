@@ -30,7 +30,7 @@ class ProtocolPostProcessingHelper:
         raw_image_dirs = ['.', *common_utils.get_layers()]
 
         if (len(include_subpaths) != 0) and (len(exclude_subpaths) != 0):
-            raise Exception(f'Specify only include_subpaths OR exclude_subpaths. Not both.')
+            raise Exception('Specify only include_subpaths OR exclude_subpaths. Not both.')
 
         tiff_images = path.rglob('*.tif[f]')
         ome_tiff_images = path.rglob('*.ome.tif[f]')

@@ -311,7 +311,7 @@ class MicroscopeSettings(BoxLayout):
 
             if settings['profiling']['enabled']:
                 ts = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
-                profiling_save_path = os.path.join(ctx.source_path, f'./logs/profiling')
+                profiling_save_path = os.path.join(ctx.source_path, './logs/profiling')
                 MemoryLeakProfiler.start(root_log_dir=profiling_save_path)
                 logger.info('[LVP Main  ] Memory Profiler started.')
 

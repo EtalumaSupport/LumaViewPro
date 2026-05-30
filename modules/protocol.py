@@ -774,7 +774,7 @@ class Protocol:
         step_name: str,
     ):
         if step_idx < 0:
-            raise ProtocolError(f'Step idx must be > 0')
+            raise ProtocolError('Step idx must be > 0')
 
         if step_idx >= self.num_steps():
             raise ProtocolError(
@@ -796,7 +796,7 @@ class Protocol:
     ):
         def _validate_inputs():
             if step_idx < 0:
-                raise ProtocolError(f'Step idx must be > 0')
+                raise ProtocolError('Step idx must be > 0')
 
             if step_idx >= self.num_steps():
                 raise ProtocolError(
@@ -840,16 +840,16 @@ class Protocol:
 
         def _validate_inputs():
             if (before_step is None) and (after_step is None):
-                raise ProtocolError(f'Must specify after_step or before_step')
+                raise ProtocolError('Must specify after_step or before_step')
 
             if (before_step is not None) and (after_step is not None):
-                raise ProtocolError(f'Must specify only after_step or before_step, not both')
+                raise ProtocolError('Must specify only after_step or before_step, not both')
 
             if (before_step is not None) and (before_step < 0):
-                raise ProtocolError(f'before_step cannot be < 0')
+                raise ProtocolError('before_step cannot be < 0')
 
             if (after_step is not None) and (after_step > self.num_steps()):
-                raise ProtocolError(f'after_step cannot be > num_steps')
+                raise ProtocolError('after_step cannot be > num_steps')
 
         _validate_inputs()
 
@@ -926,7 +926,7 @@ class Protocol:
     def step(self, idx: int):
         def _validate():
             if idx < 0:
-                raise ProtocolError(f'Step index cannot be < 0')
+                raise ProtocolError('Step index cannot be < 0')
 
             if idx >= self.num_steps():
                 raise ProtocolError(
@@ -1582,20 +1582,20 @@ class Protocol:
             verify = next(csvreader)
         except StopIteration:
             logger.error(f'Protocol file {file_path} is empty or invalid.')
-            raise ProtocolFormatError(f'Protocol file is empty or invalid.')
+            raise ProtocolFormatError('Protocol file is empty or invalid.')
 
         if not (verify[0] == cls.PROTOCOL_FILE_HEADER):
-            raise ProtocolFormatError(f'Not a valid LumaViewPro Protocol')
+            raise ProtocolFormatError('Not a valid LumaViewPro Protocol')
 
         try:
             version_row = next(csvreader)
         except StopIteration:
             logger.error(f'Protocol file {file_path} is missing version information.')
-            raise ProtocolFormatError(f'Protocol file is missing version information.')
+            raise ProtocolFormatError('Protocol file is missing version information.')
 
         if version_row[0] != 'Version':
             logger.error(f"Unable to load {file_path} which is missing 'Version' row.")
-            raise ProtocolFormatError(f"Protocol format is missing 'Version' row.")
+            raise ProtocolFormatError("Protocol format is missing 'Version' row.")
 
         try:
             config['version'] = int(version_row[1])
@@ -1628,7 +1628,7 @@ class Protocol:
             period_row = next(csvreader)
             if period_row[0] != 'Period':
                 logger.error(f"Missing 'Period' row in protocol file {file_path}")
-                raise ProtocolFormatError(f"Missing 'Period' row in protocol file")
+                raise ProtocolFormatError("Missing 'Period' row in protocol file")
 
             minutes = float(period_row[1])
             # Period == 0 is a valid single-scan / non-periodic marker
@@ -1637,19 +1637,19 @@ class Protocol:
             # period_s == 0 as one scan rather than dividing by zero.
             if minutes < 0:
                 logger.error(f"Invalid 'Period' value in protocol file {file_path}: must be >= 0")
-                raise ProtocolFormatError(f"Invalid 'Period' value in protocol file: must be >= 0")
+                raise ProtocolFormatError("Invalid 'Period' value in protocol file: must be >= 0")
 
             config['period'] = datetime.timedelta(minutes=minutes)
 
         except StopIteration:
             logger.error(f"Missing 'Period' row in protocol file {file_path}")
-            raise ProtocolFormatError(f"Missing 'Period' row in protocol file")
+            raise ProtocolFormatError("Missing 'Period' row in protocol file")
 
         except ValueError as ve:
             logger.error(
                 f"Invalid 'Period' value in protocol file {file_path} 'Period' must be numeric: {ve}"
             )
-            raise ProtocolFormatError(f"Invalid 'Period' value in protocol file") from ve
+            raise ProtocolFormatError("Invalid 'Period' value in protocol file") from ve
 
         except ProtocolFormatError as pfe:
             raise pfe
@@ -1659,7 +1659,7 @@ class Protocol:
             duration = next(csvreader)
             if duration[0] != 'Duration':
                 logger.error(f"Missing 'Duration' row in protocol file {file_path}")
-                raise ProtocolFormatError(f"Missing 'Duration' row in protocol file")
+                raise ProtocolFormatError("Missing 'Duration' row in protocol file")
 
             hours = float(duration[1])
             # Duration == 0 mirrors Period == 0 -- valid single-scan
@@ -1671,20 +1671,20 @@ class Protocol:
             if hours < 0:
                 logger.error(f"Invalid 'Duration' value in protocol file {file_path}: must be >= 0")
                 raise ProtocolFormatError(
-                    f"Invalid 'Duration' value in protocol file: must be >= 0"
+                    "Invalid 'Duration' value in protocol file: must be >= 0"
                 )
 
             config['duration'] = datetime.timedelta(hours=hours)
 
         except StopIteration:
             logger.error(f"Missing 'Duration' row in protocol file {file_path}")
-            raise ProtocolFormatError(f"Missing 'Duration' row in protocol file")
+            raise ProtocolFormatError("Missing 'Duration' row in protocol file")
 
         except ValueError as ve:
             logger.error(
                 f"Invalid 'Duration' value in protocol file {file_path}. 'Duration' must be numeric: {ve}"
             )
-            raise ProtocolFormatError(f"Invalid 'Duration' value in protocol file") from ve
+            raise ProtocolFormatError("Invalid 'Duration' value in protocol file") from ve
 
         except ProtocolFormatError as pfe:
             raise pfe
@@ -1694,13 +1694,13 @@ class Protocol:
             labware = next(csvreader)
             if labware[0] != 'Labware':
                 logger.error(f"Invalid 'Labware' row in protocol file {file_path}")
-                raise ProtocolFormatError(f"Invalid 'Labware' row in protocol file")
+                raise ProtocolFormatError("Invalid 'Labware' row in protocol file")
 
             config['labware_id'] = labware[1]
 
         except StopIteration:
             logger.error(f"Missing 'Labware' row in protocol file {file_path}")
-            raise ProtocolFormatError(f"Missing 'Labware' row in protocol file")
+            raise ProtocolFormatError("Missing 'Labware' row in protocol file")
 
         except ProtocolFormatError as pfe:
             raise pfe
@@ -1719,7 +1719,7 @@ class Protocol:
                 config['capture_root'] = ''
         except StopIteration:
             logger.error(f'Protocol file {file_path} is incomplete.')
-            raise ProtocolFormatError(f'Protocol file is incomplete.')
+            raise ProtocolFormatError('Protocol file is incomplete.')
 
         # Search for "Steps" to indicate start of steps. Along the way,
         # optionally capture a v6 'Layer Settings' block -- a header row
@@ -1771,7 +1771,7 @@ class Protocol:
                                 config['layer_settings'][layer_name] = row_dict
             except StopIteration:
                 logger.error(f"Missing 'Steps' section in protocol file {file_path}")
-                raise ProtocolFormatError(f"Missing 'Steps' section in protocol file")
+                raise ProtocolFormatError("Missing 'Steps' section in protocol file")
 
         table_lines = []
         for line in fp:

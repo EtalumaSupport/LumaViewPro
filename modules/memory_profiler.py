@@ -73,7 +73,7 @@ class MemoryLeakProfiler:
 
         filepath = os.path.join(cls.LOG_DIR, filename)
         with open(filepath, 'w') as f:
-            f.write(f'Top 25 Memory Growth Sources (by Traceback):\n')
+            f.write('Top 25 Memory Growth Sources (by Traceback):\n')
             for stat in stats[:25]:
                 f.write(f'\n--- {stat.size_diff / 1024:.2f} KiB increase ---\n')
                 for line in stat.traceback.format():

@@ -404,7 +404,7 @@ class SequencedCaptureRunner:
             raise ValueError(f'Unsupported value for leds_state_at_end: {leds_state_at_end}')
 
         if protocol.num_steps() == 0:
-            logger.error(f'[PROTOCOL] Protocol has no steps. Cannot start run.')
+            logger.error('[PROTOCOL] Protocol has no steps. Cannot start run.')
             from modules.notification_center import notifications
 
             notifications.warning(
@@ -463,7 +463,7 @@ class SequencedCaptureRunner:
 
         try:
             if not self._scope.are_all_connected():
-                logger.error(f'[PROTOCOL] Not all scope components connected. Cannot start run.')
+                logger.error('[PROTOCOL] Not all scope components connected. Cannot start run.')
                 from modules.notification_center import notifications
 
                 notifications.error(

@@ -107,7 +107,7 @@ class ObjectiveLoader:
         short_names = [v['short_name'] for v in self._objectives.values()]
         short_names_set = set(short_names)
         if len(short_names_set) < len(short_names):
-            raise Exception(f'Duplicate short names for objectives were generated')
+            raise Exception('Duplicate short names for objectives were generated')
 
     def find_objective_id_from_short_name(self, short_name: str) -> str | None:
         for k, v in self._objectives.items():
@@ -125,7 +125,7 @@ class ObjectiveLoader:
         if ((objective_id is None) and (short_name is None)) or (
             (objective_id is not None) and (short_name is not None)
         ):
-            raise Exception(f'Must supply objective ID or short name, but not both')
+            raise Exception('Must supply objective ID or short name, but not both')
 
         if short_name is not None:
             objective_id = self.find_objective_id_from_short_name(short_name=short_name)

@@ -179,7 +179,7 @@ class ZProjector(ProtocolPostProcessor):
         project_result = self._ij_helper.zproject(images_data=images_data, method=method)
 
         if project_result is None:
-            error = f'Failed to create Z-Projection'
+            error = 'Failed to create Z-Projection'
             logger.error(error)
             return {
                 'status': False,

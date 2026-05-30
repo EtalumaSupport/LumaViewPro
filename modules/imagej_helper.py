@@ -78,7 +78,7 @@ class ImageJHelper:
                 logger.error(f'Unable to import {pkg}: {ex}')
 
     def _log_uninitialized(self):
-        logger.error(f'[ImageJ Helper] ImageJ not initialized')
+        logger.error('[ImageJ Helper] ImageJ not initialized')
 
     def zproject(self, images_data: list[np.ndarray], method: ZProjectMethod) -> np.ndarray:
         if not self._ij:
@@ -86,7 +86,7 @@ class ImageJHelper:
             return None
 
         if len(images_data) == 0:
-            logger.error(f'[ImageJ Helper] zproject -> No images provided')
+            logger.error('[ImageJ Helper] zproject -> No images provided')
             return None
 
         orig_dtype = images_data[0].dtype

@@ -166,10 +166,10 @@ class MotorBoard(SerialBoard):
                 # Legacy port reset: close and reopen to flush USB CDC
                 # buffers on Windows. Has existed since original code.
                 self.driver.close()
-                logger.debug(f'[XYZ Class ] connect() port closed for reset')
+                logger.debug('[XYZ Class ] connect() port closed for reset')
                 time.sleep(0.05)  # brief pause for Windows to release port
                 self.driver.open()
-                logger.debug(f'[XYZ Class ] connect() port reopened after reset')
+                logger.debug('[XYZ Class ] connect() port reopened after reset')
 
                 self._connect_fails = 0
                 self._connect_log_suppressed = False

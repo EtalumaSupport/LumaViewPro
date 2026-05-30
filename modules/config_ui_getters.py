@@ -150,7 +150,7 @@ def get_current_frame_dimensions() -> dict:
         frame_width = int(microscope_settings.ids['frame_width_id'].text)
         frame_height = int(microscope_settings.ids['frame_height_id'].text)
     except Exception:
-        raise ValueError(f'Invalid value for frame width/height')
+        raise ValueError('Invalid value for frame width/height')
 
     frame = {'width': frame_width, 'height': frame_height}
     return frame

@@ -43,19 +43,19 @@ class ProtocolPostProcessor(abc.ABC):
     @staticmethod
     @abc.abstractmethod
     def _get_groups(df: pd.DataFrame) -> pd.DataFrame:
-        raise NotImplementedError(f'Implement in child class')
+        raise NotImplementedError('Implement in child class')
 
     @abc.abstractmethod
     def _generate_filename(self, df: pd.DataFrame, **kwargs) -> str:
-        raise NotImplementedError(f'Implement in child class')
+        raise NotImplementedError('Implement in child class')
 
     @abc.abstractmethod
     def _filter_ignored_types(self, df: pd.DataFrame) -> pd.DataFrame:
-        raise NotImplementedError(f'Implement in child class')
+        raise NotImplementedError('Implement in child class')
 
     @abc.abstractmethod
     def _group_algorithm(path: pathlib.Path, df: pd.DataFrame):
-        raise NotImplementedError(f'Implement in child class')
+        raise NotImplementedError('Implement in child class')
 
     @staticmethod
     @abc.abstractmethod
@@ -64,7 +64,7 @@ class ProtocolPostProcessor(abc.ABC):
         alg_metadata: dict,
         root_path: pathlib.Path,
     ):
-        raise NotImplementedError(f'Implement in child class')
+        raise NotImplementedError('Implement in child class')
 
     def _get_objective_short_name_if_has_turret(self, objective_id: str) -> str | None:
         if self._has_turret:

@@ -452,7 +452,7 @@ class AutofocusRunner:
                 break
 
             if count >= num_retries:
-                raise Exception(f'Unable to grab image for autofocusing after max retries')
+                raise Exception('Unable to grab image for autofocusing after max retries')
 
         height, width = image.shape
 

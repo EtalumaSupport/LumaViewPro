@@ -302,7 +302,7 @@ class ProtocolSettings(FloatLayout):
         labware_id, labware = get_selected_labware()
 
         if labware is None:
-            logger.error(f'Labware could not be loaded')
+            logger.error('Labware could not be loaded')
             return
 
         ctx.lumaview.scope.runtime_state.set_labware(labware=labware)
@@ -409,7 +409,7 @@ class ProtocolSettings(FloatLayout):
             zstack_params = get_zstack_params()
 
             if zstack_params['range'] < 0 or zstack_params['step_size'] < 0:
-                error_msg = f'Z-Stacking parameters are not valid. Please ensure range and step size are positive values.'
+                error_msg = 'Z-Stacking parameters are not valid. Please ensure range and step size are positive values.'
                 logger.warning(error_msg)
                 from ui.notification_popup import show_notification_popup
 
@@ -421,7 +421,7 @@ class ProtocolSettings(FloatLayout):
                 )
                 return
             elif zstack_params['range'] == 0 or zstack_params['step_size'] == 0:
-                logger.warning(f'Z-stacking parameters are zero. No changes applied.')
+                logger.warning('Z-stacking parameters are zero. No changes applied.')
                 return
 
             axes_config = ctx.lumaview.scope.motion.get_axes_config()
@@ -575,7 +575,7 @@ class ProtocolSettings(FloatLayout):
             not ctx.lumaview.scope.motion.is_current_turret_position_objective_set()
         ):
             error_msg = (
-                f'Cannot create new protocol. Please set objective for current turret position.'
+                'Cannot create new protocol. Please set objective for current turret position.'
             )
             logger.error(error_msg)
 
@@ -590,7 +590,7 @@ class ProtocolSettings(FloatLayout):
             return
 
         if not self._validate_objectives_in_protocol(protocol_df=protocol.steps()):
-            error_msg = f'Cannot create new protocol. Not all objectives are in turret config.'
+            error_msg = 'Cannot create new protocol. Not all objectives are in turret config.'
             logger.error(error_msg)
             Clock.schedule_once(
                 lambda dt: Popup(
@@ -692,7 +692,7 @@ class ProtocolSettings(FloatLayout):
 
         if protocol is False:
             error_title = 'Empty Protocol Steps'
-            error_msg = f'Warning: Selected protocol had no steps. Empty protocol loaded.'
+            error_msg = 'Warning: Selected protocol had no steps. Empty protocol loaded.'
             protocol_config = get_sequenced_capture_config_from_ui()
 
             protocol = ctx.scope.create_protocol(empty_config=protocol_config)
@@ -702,7 +702,7 @@ class ProtocolSettings(FloatLayout):
             return
 
         if not self._validate_objectives_in_protocol(protocol_df=protocol.steps()):
-            error_msg = f'Cannot load protocol. Not all objectives are in turret config.'
+            error_msg = 'Cannot load protocol. Not all objectives are in turret config.'
             logger.error(error_msg)
             from ui.notification_popup import show_notification_popup
 
@@ -1100,7 +1100,7 @@ class ProtocolSettings(FloatLayout):
             if (ctx.lumaview.scope.motion.has_turret()) and (
                 not ctx.lumaview.scope.motion.is_current_turret_position_objective_set()
             ):
-                error_msg = f'Cannot modify protocol step. Please set objective for current turret position.'
+                error_msg = 'Cannot modify protocol step. Please set objective for current turret position.'
                 logger.error(error_msg)
                 show_notification_popup(title='Protocol Step Modification Error', message=error_msg)
                 return
@@ -1177,7 +1177,7 @@ class ProtocolSettings(FloatLayout):
             if (ctx.lumaview.scope.motion.has_turret()) and (
                 not ctx.lumaview.scope.motion.is_current_turret_position_objective_set()
             ):
-                error_msg = f'Cannot add step to protocol. Please set objective for current turret position.'
+                error_msg = 'Cannot add step to protocol. Please set objective for current turret position.'
                 logger.error(error_msg)
                 Clock.schedule_once(
                     lambda dt: show_notification_popup(
@@ -1511,7 +1511,7 @@ class ProtocolSettings(FloatLayout):
             ):
                 run_not_started_func()
                 live_histo_reverse()
-                logger.warning(f'Cannot start autofocus scan - files still being written to disk')
+                logger.warning('Cannot start autofocus scan - files still being written to disk')
                 show_notification_popup(
                     title='Operation Blocked',
                     message='Please wait - files are still being written to disk.',
@@ -1716,7 +1716,7 @@ class ProtocolSettings(FloatLayout):
         # Only block if starting NEW scan (button is 'down'), not if aborting (button is 'normal')
         if self.ids['run_scan_btn'].state == 'down' and file_io_executor.is_protocol_queue_active():
             run_not_started_func()
-            logger.warning(f'Cannot start scan - files still being written to disk')
+            logger.warning('Cannot start scan - files still being written to disk')
             show_notification_popup(
                 title='Operation Blocked',
                 message='Please wait - files are still being written to disk from the previous scan.',
@@ -1726,7 +1726,7 @@ class ProtocolSettings(FloatLayout):
         # State of button immediately changed upon press, so we are checking if the button was previously not pressed, and if autofocus is happening
         if self.ids['run_scan_btn'].state == 'down' and ctx.autofocus_thread.is_running:
             run_not_started_func()
-            logger.warning(f'Cannot start scan. Autofocus still in progress.')
+            logger.warning('Cannot start scan. Autofocus still in progress.')
             return
 
         run_trigger_source = sequenced_capture_runner.run_trigger_source()
@@ -1933,7 +1933,7 @@ class ProtocolSettings(FloatLayout):
                 and file_io_executor.is_protocol_queue_active()
             ):
                 run_not_started_func()
-                logger.warning(f'Cannot start protocol run - files still being written to disk')
+                logger.warning('Cannot start protocol run - files still being written to disk')
                 show_notification_popup(
                     title='Operation Blocked',
                     message='Please wait - files are still being written to disk.',
@@ -1945,7 +1945,7 @@ class ProtocolSettings(FloatLayout):
             # State of button immediately changed upon press, so we are checking if the button was previously not pressed, and if autofocus is happening
             if self.ids['run_protocol_btn'].state == 'down' and ctx.autofocus_thread.is_running:
                 run_not_started_func()
-                logger.warning(f'Cannot start protocol run. Autofocus still in progress.')
+                logger.warning('Cannot start protocol run. Autofocus still in progress.')
                 return
 
             if sequenced_capture_runner.run_in_progress() and (

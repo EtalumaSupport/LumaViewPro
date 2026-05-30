@@ -359,7 +359,7 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
             else None
         )
 
-        logger.info(f'Manual-Video] Capturing video...')
+        logger.info('Manual-Video] Capturing video...')
 
         # Considered camera-side AcquisitionFrameRate cap; rejected because
         # the cap controls AVERAGE rate while jittering individual frames
@@ -803,13 +803,13 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
                     stack_builder.create_single_recording_stack(
                         df=frame_metadata_df,
                         path=save_folder,
-                        output_file_loc=save_folder / f'ManualVideo_Frame_HyperStack.ome.tiff',
+                        output_file_loc=save_folder / 'ManualVideo_Frame_HyperStack.ome.tiff',
                         focal_length=objective['focal_length'],
                         binning_size=ui_snapshot['binning'],
                     )
 
                     logger.info(
-                        f'Manual-Video] Hyperstack created at {save_folder / f"ManualVideo_Frame_HyperStack.ome.tiff"}'
+                        f'Manual-Video] Hyperstack created at {save_folder / "ManualVideo_Frame_HyperStack.ome.tiff"}'
                     )
 
             else:

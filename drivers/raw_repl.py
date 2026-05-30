@@ -383,9 +383,9 @@ def read_file(serial_port, filename, verify=True):
             time.sleep(0.5)
             data3 = _do_read()
             if data3 == data:
-                logger.info(f'Third read matches first -- using first read')
+                logger.info('Third read matches first -- using first read')
             elif data3 == data2:
-                logger.info(f'Third read matches second -- using second read')
+                logger.info('Third read matches second -- using second read')
                 data = data2
             else:
                 logger.error(
