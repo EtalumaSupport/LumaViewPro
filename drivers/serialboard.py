@@ -738,6 +738,26 @@ class SerialBoard:
             expect_unsupported,
         )
 
+    def _log_reconnect_failure(self, command, exc):
+        """Log an auto-reconnect failure, deduped to one full error per
+        error class per error-log-interval window. A mid-operation USB yank
+        otherwise fires a fresh full-stack error for every queued command
+        (~73/sec measured on a mid-autofocus yank), flooding the error log.
+        The first failure keeps the full message; same-class repeats inside
+        the window drop to debug. Shared by every reconnect site so a flood
+        that bounces between command paths still dedupes against one window.
+        """
+        err_class = type(exc).__name__
+        now = time.monotonic()
+        last_class = getattr(self, '_last_reconnect_err_class', None)
+        last_time = getattr(self, '_last_reconnect_err_time', 0.0)
+        if last_class == err_class and (now - last_time) < self._error_log_interval:
+            _serial_log.debug(f'{self._label} {command} -> RECONNECT FAILED: same {err_class}')
+        else:
+            _serial_log.error(f'{self._label} {command} -> RECONNECT FAILED: {exc}')
+            self._last_reconnect_err_class = err_class
+            self._last_reconnect_err_time = now
+
     def _exchange_command_impl(
         self,
         command,
@@ -791,28 +811,11 @@ class SerialBoard:
                 return None
 
             if self.driver is None:
-                # #539/#632: dedupe identical reconnect failures within a 2s
-                # window. Pre-fix this fired a fresh full-stack log per command
-                # while disconnected -- measured at ~73 reconnect attempts/sec
-                # during a mid-AF USB yank, dwarfing the actual signal.
                 try:
                     logger.info(f'{self._label} Auto-reconnect triggered by {command}')
                     self.connect()
                 except Exception as e:
-                    err_class = type(e).__name__
-                    now = time.monotonic()
-                    last_class = getattr(self, '_last_reconnect_err_class', None)
-                    last_time = getattr(self, '_last_reconnect_err_time', 0.0)
-                    if last_class == err_class and (now - last_time) < 2.0:
-                        # Same error class repeated within 2s -- drop to debug;
-                        # the first occurrence already has the full stack.
-                        _serial_log.debug(
-                            f'{self._label} {command} -> RECONNECT FAILED: same {err_class}'
-                        )
-                    else:
-                        _serial_log.error(f'{self._label} {command} -> RECONNECT FAILED: {e}')
-                        self._last_reconnect_err_class = err_class
-                        self._last_reconnect_err_time = now
+                    self._log_reconnect_failure(command, e)
                     return None
 
             if self.driver is None:
@@ -955,7 +958,7 @@ class SerialBoard:
                     logger.info(f'{self._label} Auto-reconnect triggered by {command}')
                     self.connect()
                 except Exception as e:
-                    _serial_log.error(f'{self._label} {command} -> RECONNECT FAILED: {e}')
+                    self._log_reconnect_failure(command, e)
                     return None
             if self.driver is None:
                 return None
