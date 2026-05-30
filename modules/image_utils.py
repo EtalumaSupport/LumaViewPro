@@ -1482,7 +1482,10 @@ def _compute_scale_bar_overlay(height, width, dtype, is_color, objective, binnin
     scale_bar_bottom_offset = int(height / 40)
     scale_bar_right_offset = int(width / 40)
 
-    if color in common_utils.get_transmitted_layers():
+    # Bright-background modes (BF, PC) need a black bar to stay visible.
+    # Darkfield is transmitted-light but shows bright subjects on a dark
+    # field, so it takes a white bar like the fluorescence channels.
+    if color in common_utils.get_bright_background_layers():
         scale_bar_value = 0
     elif dtype == np.uint8:
         scale_bar_value = 255

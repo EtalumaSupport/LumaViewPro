@@ -268,6 +268,16 @@ def get_fluorescence_layers() -> list[str]:
     return ['Blue', 'Green', 'Red']
 
 
+def get_bright_background_layers() -> list[str]:
+    """Layers whose field of view is bright, so overlays drawn on them
+    (scale bar, annotation text) must be dark to stay visible. Brightfield
+    and phase contrast have a bright background; darkfield does not -- it
+    shows bright subjects on a dark field -- so it is excluded here even
+    though it is a transmitted-light mode.
+    """
+    return ['BF', 'PC']
+
+
 def get_luminescence_layers() -> list[str]:
     return ['Lumi']
 
