@@ -1,0 +1,39 @@
+name: Reset verification label on activity
+
+# "Fixed Needs verification" means "we believe this is fixed, awaiting the
+# reporter to confirm." The moment anyone comments after that, the issue has
+# been touched and the label is no longer trustworthy -- so strip it. The one
+# exception is our own fix-shipped handoff comments, which carry the
+# <!-- claude:annotation --> marker and are posted together WITH the label;
+# those must not remove it.
+#
+# NOTE: GitHub runs issue_comment workflows from the DEFAULT branch, so this
+# file only takes effect once it is on main.
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  issues: write
+
+jobs:
+  reset-label:
+    if: >-
+      contains(github.event.issue.labels.*.name, 'Fixed Needs verification') &&
+      !contains(github.event.comment.body, '<!-- claude:annotation -->')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Remove the verification label
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.issues.removeLabel({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              name: 'Fixed Needs verification',
+            }).catch(err => {
+              // 404 = label already absent (lost a race); anything else is real.
+              if (err.status !== 404) throw err;
+            });
