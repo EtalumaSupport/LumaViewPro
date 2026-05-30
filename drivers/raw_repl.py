@@ -558,7 +558,7 @@ def verify_firmware_running(serial_port, command='INFO', timeout=10):
         while time.time() < deadline:
             try:
                 _drain_input(serial_port)
-                serial_port.write(f'{command}\n'.encode('utf-8'))
+                serial_port.write(f'{command}\n'.encode())
                 time.sleep(0.5)
                 response = serial_port.read(4096)
                 if response:

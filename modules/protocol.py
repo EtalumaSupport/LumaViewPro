@@ -1568,13 +1568,13 @@ class Protocol:
         fp = None
 
         try:
-            with open(file_path, 'r') as fp_orig:
+            with open(file_path) as fp_orig:
                 file_data_lines = [line for line in fp_orig.readlines() if line.strip()]
                 file_content = ''.join(file_data_lines)
                 fp = io.StringIO(file_content)
         except Exception as e:
             logger.error(f'Error reading protocol file {file_path}: {e}')
-            raise IOError(f'Error reading protocol file {file_path}') from e
+            raise OSError(f'Error reading protocol file {file_path}') from e
 
         csvreader = csv.reader(fp, delimiter='\t')
 

@@ -37,7 +37,7 @@ AF_SAFETY_TIMEOUT_S = 15  # Seconds before AF is considered stuck and force-rese
 
 class VerticalControl(BoxLayout):
     def __init__(self, **kwargs):
-        super(VerticalControl, self).__init__(**kwargs)
+        super().__init__(**kwargs)
         logger.debug('[LVP Main  ] VerticalControl.__init__()')
 
         # boolean describing whether the scope is currently in the process of autofocus

@@ -153,7 +153,7 @@ def _get_capture_dir():
     """
     try:
         settings_file = settings_init._resolve_settings_path(str(_get_lvp_data_dir().parent))
-        with open(settings_file, 'r') as f:
+        with open(settings_file) as f:
             settings = json.load(f)
         live_folder = settings.get('live_folder', '')
         if live_folder:
@@ -223,7 +223,7 @@ def get_recent_protocols(n=RECENT_PROTOCOL_COUNT):
                 continue
             seen.add(real)
             try:
-                with open(json_file, 'r') as f:
+                with open(json_file) as f:
                     head = f.read(2048)
                 # Protocol files contain these keys
                 if any(k in head for k in ('"steps"', '"sequences"', '"scan"',
@@ -280,7 +280,7 @@ def _collect_system_info():
         info['cpu_cores'] = _run(['sysctl', '-n', 'hw.ncpu'])
     else:
         try:
-            with open('/proc/cpuinfo', 'r') as f:
+            with open('/proc/cpuinfo') as f:
                 info['cpu_detail'] = f.read()[:2000]
         except OSError:
             pass
@@ -301,7 +301,7 @@ def _collect_system_info():
             pass
     else:
         try:
-            with open('/proc/meminfo', 'r') as f:
+            with open('/proc/meminfo') as f:
                 info['ram_detail'] = f.read()[:1000]
         except OSError:
             pass

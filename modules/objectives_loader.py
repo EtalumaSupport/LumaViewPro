@@ -52,7 +52,7 @@ class ObjectiveLoader:
     def __init__(self, *arg, source_path: str | pathlib.Path | None = None):
         filepath = resolve_data_file('objectives.json', source_path=source_path)
         try:
-            with open(filepath, 'r') as read_file:
+            with open(filepath) as read_file:
                 self._objectives = json.load(read_file)
         except FileNotFoundError:
             logger.error(f'[Objectives] objectives.json not found at {filepath}')

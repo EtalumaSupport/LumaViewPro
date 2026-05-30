@@ -62,7 +62,7 @@ def _validate_labware(labware: dict, filepath: str) -> None:
                             )
 
 
-class LabwareLoader(object):
+class LabwareLoader:
     """A class that stores and computes actions for objective labware"""
 
     def __init__(self, *arg, source_path: str | pathlib.Path | None = None):
@@ -73,7 +73,7 @@ class LabwareLoader(object):
         # Load all Possible Labware from JSON
         filepath = resolve_data_file('labware.json', source_path=source_path)
         try:
-            with open(filepath, 'r') as read_file:
+            with open(filepath) as read_file:
                 self.labware = json.load(read_file)
         except FileNotFoundError:
             logger.error(f'[Labware   ] labware.json not found at {filepath}')
@@ -94,7 +94,7 @@ class SlideLoader(LabwareLoader):
     """A class that stores and computes actions for slides labware"""
 
     def __init__(self, *arg, source_path: str | pathlib.Path | None = None):
-        super(SlideLoader, self).__init__(*arg, source_path=source_path)
+        super().__init__(*arg, source_path=source_path)
         self.covered = True
 
 
@@ -108,7 +108,7 @@ class WellPlateLoader(LabwareLoader):
     }
 
     def __init__(self, *arg, source_path: str | pathlib.Path | None = None):
-        super(WellPlateLoader, self).__init__(*arg, source_path=source_path)
+        super().__init__(*arg, source_path=source_path)
 
     def get_plate_list(self):
         return list(self.labware['Wellplate'].keys())
@@ -135,6 +135,6 @@ class PitriDishLoader(LabwareLoader):
     """A class that stores and computes actions for petri dish labware"""
 
     def __init__(self, *arg, source_path: str | pathlib.Path | None = None):
-        super(PitriDishLoader, self).__init__(*arg, source_path=source_path)
+        super().__init__(*arg, source_path=source_path)
         self.diameter = 100
         self.z = 20

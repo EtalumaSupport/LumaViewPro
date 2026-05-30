@@ -46,7 +46,8 @@ import time
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Callable, Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
+from collections.abc import Callable
 
 import serial.tools.list_ports as list_ports
 
@@ -97,7 +98,7 @@ class BoardConfig:
     pid: int
     label: str
     line_ending: bytes
-    config_files: List[str]
+    config_files: list[str]
     uf2_prefix: str
 
     # True if RP2040 has direct USB (BOOTSEL accessible via software).
@@ -115,12 +116,12 @@ class BoardConfig:
 class UpdateResult:
     success: bool
     board_type: BoardType
-    old_version: Optional[str] = None
-    new_version: Optional[str] = None
-    config_backup_path: Optional[Path] = None
-    error_message: Optional[str] = None
-    error_stage: Optional[UpdateStage] = None
-    warnings: List[str] = field(default_factory=list)
+    old_version: str | None = None
+    new_version: str | None = None
+    config_backup_path: Path | None = None
+    error_message: str | None = None
+    error_stage: UpdateStage | None = None
+    warnings: list[str] = field(default_factory=list)
 
 
 # Progress callback: (stage, human-readable message, progress 0.0-1.0)

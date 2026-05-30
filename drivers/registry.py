@@ -63,14 +63,15 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import Any, Callable, Type
+from typing import Any, Type
+from collections.abc import Callable
 
 logger = logging.getLogger('LVP.drivers.registry')
 
 
 @dataclass
 class _RegistryEntry:
-    cls: Type[Any]
+    cls: type[Any]
     priority: int
     is_simulator: bool
 
@@ -125,7 +126,7 @@ class DriverRegistry:
 
         return decorator
 
-    def get(self, name: str) -> Type[Any]:
+    def get(self, name: str) -> type[Any]:
         """Return the class registered under `name`, or raise ValueError."""
         entry = self._entries.get(name)
         if entry is None:

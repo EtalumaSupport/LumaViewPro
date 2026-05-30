@@ -295,7 +295,7 @@ class ProtocolPostRecord:
 
     @classmethod
     def from_file(cls, file_path: pathlib.Path):
-        with open(file_path, 'r') as fp:
+        with open(file_path) as fp:
             csvreader = csv.reader(fp, delimiter='\t')
             header = next(csvreader)
             if header[0] != cls.FILE_HEADER:

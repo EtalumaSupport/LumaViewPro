@@ -59,7 +59,7 @@ class ScopeDisplay(Image):
     play = BooleanProperty(True)
 
     def __init__(self, **kwargs):
-        super(ScopeDisplay, self).__init__(**kwargs)
+        super().__init__(**kwargs)
         logger.debug('[LVP Main  ] ScopeDisplay.__init__()')
         self.play = True
         # paused / _display_running / _display_generation / _min_frame_interval /

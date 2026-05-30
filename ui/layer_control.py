@@ -85,7 +85,7 @@ class LayerControl(BoxLayout):
     show_cbt = BooleanProperty(True)
 
     def __init__(self, **kwargs):
-        super(LayerControl, self).__init__(**kwargs)
+        super().__init__(**kwargs)
 
         logger.debug('[LVP Main  ] LayerControl.__init__()')
         if self.bg_color is None:

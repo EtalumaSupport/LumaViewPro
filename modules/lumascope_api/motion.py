@@ -31,7 +31,8 @@ import contextlib
 import logging as _logging
 import threading
 import time
-from typing import TYPE_CHECKING, Iterator
+from typing import TYPE_CHECKING
+from collections.abc import Iterator
 
 from lib import profile_trace
 from lvp_logger import logger
@@ -61,7 +62,7 @@ class MotionAPI:
 
     _MOTION_POLL_INTERVAL = 0.02  # 50 Hz
 
-    def __init__(self, scope: 'Lumascope', driver: 'MotorBoardProtocol') -> None:  # noqa: ARG002
+    def __init__(self, scope: Lumascope, driver: MotorBoardProtocol) -> None:  # noqa: ARG002
         # `driver` is in the signature for backcompat (Phase 1 Lumascope
         # passes it explicitly). It is intentionally unused here: `_driver`
         # is a dynamic property that re-resolves through `_scope` on every
@@ -184,7 +185,7 @@ class MotionAPI:
             ev.set()
 
     @property
-    def _driver(self) -> 'MotorBoardProtocol':
+    def _driver(self) -> MotorBoardProtocol:
         return self._scope._motion_driver
 
     # ------------------------------------------------------------------
@@ -682,7 +683,7 @@ class MotionAPI:
         """
         return self._driver.reference_status(axis=axis)
 
-    def get_limit_switch_status(self, axis: str) -> 'tuple[int, int]':
+    def get_limit_switch_status(self, axis: str) -> tuple[int, int]:
         """Get the limit switch status for an axis.
 
         Args:
@@ -1052,7 +1053,7 @@ class MotionAPI:
         for ax in positions:
             self._fire_position_listeners(ax)
 
-    def _read_position_cache(self, axis: str | None) -> 'float | dict':
+    def _read_position_cache(self, axis: str | None) -> float | dict:
         """Shared cache-read primitive for the position-query methods.
 
         Pure cache access -- no T-axis policy here; callers decide their
@@ -1068,7 +1069,7 @@ class MotionAPI:
         with self._pos_cache_lock:
             return self._pos_cache.get(axis, 0.0)
 
-    def get_target_position(self, axis: str | None = None) -> 'float | dict | None':
+    def get_target_position(self, axis: str | None = None) -> float | dict | None:
         """Get the target position for an axis (where it is commanded to go).
 
         During MOVING: returns the target captured in _move_profile when the
@@ -1100,7 +1101,7 @@ class MotionAPI:
                 return float(profile['target_pos'])
         return self._read_position_cache(axis)
 
-    def get_current_position(self, axis: str | None = None) -> 'float | dict':
+    def get_current_position(self, axis: str | None = None) -> float | dict:
         """Get the current position for an axis.
 
         Reads from the in-memory position cache. During MOVING the cache

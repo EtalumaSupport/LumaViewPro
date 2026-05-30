@@ -31,7 +31,7 @@ class LEDBoard(SerialBoard):
         # Set by _safety_leds_off() at connect time. None when LEDS_OFF
         # send succeeded; "ExceptionType: message" when it failed. API
         # layer reads this on construction to fire a notification.
-        self.last_safety_off_error: 'str | None' = None
+        self.last_safety_off_error: str | None = None
 
         # Set by leds_off / led_on / led_off / leds_enable / leds_disable
         # per call. None on success; a short dict with op name + reason
@@ -42,7 +42,7 @@ class LEDBoard(SerialBoard):
         # harmless. The five runtime methods share one field because
         # the recovery / notification shape is identical; only the op
         # label varies.
-        self.last_command_error: 'dict | None' = None
+        self.last_command_error: dict | None = None
 
         try:
             self.connect()

@@ -67,7 +67,7 @@ class ProtocolSettings(FloatLayout):
 
     def __init__(self, **kwargs):
 
-        super(ProtocolSettings, self).__init__(**kwargs)
+        super().__init__(**kwargs)
         logger.info('[LVP Main  ] ProtocolSettings.__init__()')
 
         # Create trigger for debounced UI updates to prevent memory leaks
@@ -677,7 +677,7 @@ class ProtocolSettings(FloatLayout):
 
         try:
             protocol = ctx.scope.load_protocol(file_path=filepath)
-        except IOError:
+        except OSError:
             return False
 
         except Exception as e:

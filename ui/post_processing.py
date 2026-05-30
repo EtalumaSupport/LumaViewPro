@@ -969,7 +969,7 @@ class CellCountControls(BoxLayout):
 
     def load_method_from_file(self, file):
         logger.info(f'[LVP Main  ] CellCountContent.load_method_from_file({file})')
-        with open(file, 'r') as f:
+        with open(file) as f:
             method_settings = json.load(f)
 
         self.load_settings(settings=method_settings)
@@ -1263,4 +1263,4 @@ def open_last_save_folder():
 
 class CellCountDisplay(FloatLayout):
     def __init__(self, **kwargs):
-        super(CellCountDisplay, self).__init__(**kwargs)
+        super().__init__(**kwargs)

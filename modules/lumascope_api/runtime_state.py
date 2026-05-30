@@ -45,7 +45,7 @@ class RuntimeState:
     driver hooks ship.
     """
 
-    def __init__(self, scope: 'Lumascope') -> None:
+    def __init__(self, scope: Lumascope) -> None:
         self._scope = scope
         self.firmware_versions: dict[str, str] = {}
         """Per-board firmware version. Populated when reflash-aware
@@ -75,7 +75,7 @@ class RuntimeState:
         """
         self._labware = labware
 
-    def get_labware(self) -> 'Any | None':
+    def get_labware(self) -> Any | None:
         """Get the currently installed labware.
 
         Returns:
@@ -151,7 +151,7 @@ class RuntimeState:
         """
         self._stage_offset = stage_offset
 
-    def get_stage_offset(self) -> 'dict | None':
+    def get_stage_offset(self) -> dict | None:
         """Get the stage offset for coordinate transformations.
 
         Returns:

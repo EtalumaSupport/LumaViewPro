@@ -95,7 +95,7 @@ void main (void) {
 """)
 
     def __init__(self, **kwargs):
-        super(ShaderViewer, self).__init__(**kwargs)
+        super().__init__(**kwargs)
         logger.debug('[LVP Main  ] ShaderViewer.__init__()')
         self.canvas = RenderContext()
         self.canvas.shader.fs = fs_header + self.fs
@@ -217,7 +217,7 @@ void main (void) {
                 lx, ly = w.to_widget(x, y)
                 if w.collide_point(lx, ly):
                     return w.on_touch_down(touch)
-            super(ShaderViewer, self).on_touch_down(touch)
+            super().on_touch_down(touch)
 
     def _flush_scroll_z(self, dt):
         """Debounced scroll-to-focus: send one accumulated Z move."""

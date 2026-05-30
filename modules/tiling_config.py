@@ -17,7 +17,7 @@ class TilingConfig:
 
     def __init__(self, tiling_configs_file_loc: pathlib.Path):
         try:
-            with open(tiling_configs_file_loc, 'r') as fp:
+            with open(tiling_configs_file_loc) as fp:
                 self._available_configs = json.load(fp)
         except FileNotFoundError:
             logger.error(f'[Tiling    ] tiling.json not found at {tiling_configs_file_loc}')

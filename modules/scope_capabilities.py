@@ -33,7 +33,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from types import MappingProxyType
-from typing import Any, Callable, Mapping
+from typing import Any
+from collections.abc import Callable, Mapping
 
 from drivers.exceptions import HardwareError
 from lvp_logger import logger
@@ -143,7 +144,7 @@ class ScopeCapabilities:
     camera_binning_sizes: tuple[int, ...]
     camera_max_exposure_ms: int
 
-    camera_max_frame_size: 'tuple[int, int]'
+    camera_max_frame_size: tuple[int, int]
     """Maximum camera frame size as ``(width, height)`` in pixels.
     Per-camera-immutable: sourced from the camera driver's
     get_max_frame_size() at boot. (0, 0) when no camera driver is
@@ -221,7 +222,7 @@ class ScopeCapabilities:
         return False
 
     @classmethod
-    def from_drivers(cls, motion, led, camera, led_max_ma: int = LED_MAX_MA) -> 'ScopeCapabilities':
+    def from_drivers(cls, motion, led, camera, led_max_ma: int = LED_MAX_MA) -> ScopeCapabilities:
         """Build a ScopeCapabilities snapshot from the three drivers.
 
         Tolerant of None / Null implementations. Never raises -- if a

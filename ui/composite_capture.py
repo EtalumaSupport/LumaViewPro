@@ -35,7 +35,7 @@ class CompositeCapture(FloatLayout):
     _capturing = threading.Event()  # Thread-safe guard against rapid double-clicks
 
     def __init__(self, **kwargs):
-        super(CompositeCapture, self).__init__(**kwargs)
+        super().__init__(**kwargs)
 
     def live_capture(self):
         gui_logger.button('LIVE_CAPTURE')

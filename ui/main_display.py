@@ -35,7 +35,7 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
     def __init__(self, camera_type='ids', simulate=False, **kwargs):
         import modules.lumascope_api as lumascope_api
 
-        super(MainDisplay, self).__init__(**kwargs)
+        super().__init__(**kwargs)
         self.scope = lumascope_api.Lumascope(camera_type=camera_type, simulate=simulate)
         # LVP-A-2: camera_temps_event moved to Lumascope.start_camera_temp_logging.
         self.recording = threading.Event()
@@ -331,7 +331,7 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
                     mode=memmap_mode,
                     shape=(max_frames, frame_size['height'], frame_size['width'], 3),
                 )
-        except (OSError, IOError) as e:
+        except OSError as e:
             logger.error(f'[LVP Main  ] Failed to create memmap file: {e}')
             logger.error(f'[LVP Main  ] If this persists, manually delete: {self.memmap_location}')
             Clock.schedule_once(

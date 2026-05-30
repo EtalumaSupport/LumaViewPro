@@ -39,7 +39,7 @@ class Stage(Widget):
         return id(self)
 
     def __init__(self, **kwargs):
-        super(Stage, self).__init__(**kwargs)
+        super().__init__(**kwargs)
         logger.debug('[LVP Main  ] Stage.__init__()')
         self.ROI_min = [0, 0]
         self.ROI_max = [0, 0]

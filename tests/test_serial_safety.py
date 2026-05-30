@@ -535,7 +535,7 @@ class TestMotorBoardCommands:
         board = self._make_board()
         board.move('Z', -100)
         expected = -100 + 0x100000000
-        board.driver.write.assert_called_with(f'TARGET_WZ{expected}\n'.encode('utf-8'))
+        board.driver.write.assert_called_with(f'TARGET_WZ{expected}\n'.encode())
 
     def test_zhome_sends_zhome(self):
         """zhome() should send 'ZHOME\\n'."""
@@ -883,28 +883,28 @@ class TestMotorBoardMovement:
         board = self._make_board()
         board.move_abs_pos('Z', 99999, overshoot_enabled=False)
         expected_ustep = board.z_um2ustep(14000)
-        board.driver.write.assert_called_with(f'TARGET_WZ{expected_ustep}\n'.encode('utf-8'))
+        board.driver.write.assert_called_with(f'TARGET_WZ{expected_ustep}\n'.encode())
 
     def test_z_clamped_to_min(self):
         """move_abs_pos('Z', -100) should clamp to Z min (0um)."""
         board = self._make_board()
         board.move_abs_pos('Z', -100, overshoot_enabled=False)
         expected_ustep = board.z_um2ustep(0)
-        board.driver.write.assert_called_with(f'TARGET_WZ{expected_ustep}\n'.encode('utf-8'))
+        board.driver.write.assert_called_with(f'TARGET_WZ{expected_ustep}\n'.encode())
 
     def test_x_clamped_to_max(self):
         """move_abs_pos('X', 200000) should clamp to X max (120000um)."""
         board = self._make_board()
         board.move_abs_pos('X', 200000, overshoot_enabled=False)
         expected_ustep = board.xy_um2ustep(120000)
-        board.driver.write.assert_called_with(f'TARGET_WX{expected_ustep}\n'.encode('utf-8'))
+        board.driver.write.assert_called_with(f'TARGET_WX{expected_ustep}\n'.encode())
 
     def test_ignore_limits(self):
         """move_abs_pos with ignore_limits=True should not clamp."""
         board = self._make_board()
         board.move_abs_pos('Z', 99999, overshoot_enabled=False, ignore_limits=True)
         expected_ustep = board.z_um2ustep(99999)
-        board.driver.write.assert_called_with(f'TARGET_WZ{expected_ustep}\n'.encode('utf-8'))
+        board.driver.write.assert_called_with(f'TARGET_WZ{expected_ustep}\n'.encode())
 
     def test_unsupported_axis_raises(self):
         """move_abs_pos with unknown axis should raise."""
@@ -917,11 +917,11 @@ class TestMotorBoardMovement:
         board = self._make_board()
         # target_pos reads TARGET_R, return 50000um in usteps
         target_ustep = board.xy_um2ustep(50000)
-        board.driver.readline.return_value = f'{target_ustep}\n'.encode('utf-8')
+        board.driver.readline.return_value = f'{target_ustep}\n'.encode()
         board.move_rel_pos('X', 10000, overshoot_enabled=False)
         # Should move to 60000um
         expected_ustep = board.xy_um2ustep(60000)
-        board.driver.write.assert_called_with(f'TARGET_WX{expected_ustep}\n'.encode('utf-8'))
+        board.driver.write.assert_called_with(f'TARGET_WX{expected_ustep}\n'.encode())
 
     def test_target_status_position_reached(self):
         """target_status should return True when position_reached bit is set."""

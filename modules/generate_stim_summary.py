@@ -41,7 +41,7 @@ def parse_stimulation_profile(filepath):
     }
 
     try:
-        with open(filepath, 'r') as f:
+        with open(filepath) as f:
             lines = f.readlines()
     except Exception as ex:
         print(f'  Warning: could not read {filepath}: {ex}')

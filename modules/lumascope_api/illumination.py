@@ -51,7 +51,7 @@ class IlluminationAPI:
     listener registry. Stateful bodies live here post-Phase 3d.
     """
 
-    def __init__(self, scope: 'Lumascope', driver: 'LEDBoardProtocol') -> None:
+    def __init__(self, scope: Lumascope, driver: LEDBoardProtocol) -> None:
         self._scope = scope
         # driver argument kept for API compatibility but unused; `_driver`
         # is a @property that re-resolves `self._scope._led_driver` so
@@ -94,7 +94,7 @@ class IlluminationAPI:
         self._led_lock = profile_trace.TimedLock(threading.RLock(), name='illumination._led_lock')
 
     @property
-    def _driver(self) -> 'LEDBoardProtocol':
+    def _driver(self) -> LEDBoardProtocol:
         """Resolve the LED driver via the composition root each access.
 
         Lumascope's `_led_driver` slot is reassigned on disconnect /
@@ -489,7 +489,7 @@ class IlluminationAPI:
             fut.result(timeout=timeout_s)
 
     # --- State ---
-    def get_led_ma(self, color: str) -> 'float | None':
+    def get_led_ma(self, color: str) -> float | None:
         """Get the current illumination level for an LED channel.
 
         Reads from the API-level _led_state cache. Does NOT delegate
@@ -529,7 +529,7 @@ class IlluminationAPI:
         with self._led_owner_lock:
             return self._led_state.get(color) is not None
 
-    def led_illumination(self, color: str) -> 'float | None':
+    def led_illumination(self, color: str) -> float | None:
         """Current mA for an LED channel, or None if off / unavailable.
 
         Thin wrapper over ``get_led_ma``; see that method for the
@@ -614,7 +614,7 @@ class IlluminationAPI:
                 for color in all_colors
             }
 
-    def get_led_status(self) -> 'int | None':
+    def get_led_status(self) -> int | None:
         """Get the LED board status register.
 
         Returns:
@@ -734,7 +734,7 @@ class IlluminationAPI:
         return self._driver.wait_until_on(timeout_s)
 
     # --- Channel mapping ---
-    def ch2color(self, channel: int) -> 'str | None':
+    def ch2color(self, channel: int) -> str | None:
         """Convert a channel number to its color name string.
 
         Args:
@@ -747,7 +747,7 @@ class IlluminationAPI:
             return None
         return self._driver.ch2color(channel)
 
-    def color2ch(self, color: str) -> 'int | None':
+    def color2ch(self, color: str) -> int | None:
         """Convert a color name string to its channel number.
 
         Args:

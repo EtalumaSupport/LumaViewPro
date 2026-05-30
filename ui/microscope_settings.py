@@ -85,7 +85,7 @@ class _CoalescingApplier:
 
 class MicroscopeSettings(BoxLayout):
     def __init__(self, **kwargs):
-        super(MicroscopeSettings, self).__init__(**kwargs)
+        super().__init__(**kwargs)
         logger.debug('[LVP Main  ] MicroscopeSettings.__init__()')
         # Coalesce rapid set_frame_size requests. See
         # _CoalescingApplier + issue #624.
@@ -93,7 +93,7 @@ class MicroscopeSettings(BoxLayout):
 
         scopes_path = resolve_data_file('scopes.json')
         try:
-            with open(scopes_path, 'r') as read_file:
+            with open(scopes_path) as read_file:
                 self.scopes = json.load(read_file)
         except FileNotFoundError:
             logger.error(f'[LVP Main  ] scopes.json not found at {scopes_path}')
