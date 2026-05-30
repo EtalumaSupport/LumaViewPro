@@ -51,6 +51,27 @@ class ProtocolRunLoop:
             # from the normal path are harmless.
             self._p._cleanup()
 
+    def _return_to_first_step_between_scans(self):
+        """Pre-position the stage at the first step during the inter-scan wait.
+
+        Returning between scans (rather than at the next scan's start) means the
+        period wait elapses with the stage already at step 0, so the next scan
+        begins on time instead of after a long last-step -> first-step move.
+        Pure stage move only -- not go_to_step, which would also power the first
+        step's LED during the idle wait. No-op on the final scan, so the stage
+        is left where the last scan ended.
+        """
+        p = self._p
+        if p.remaining_scans() <= 0 or p._aborted.is_set():
+            return
+        try:
+            first_step = p._protocol.step(idx=0)
+            p._step_executor.default_move(
+                px=first_step['X'], py=first_step['Y'], z=first_step['Z']
+            )
+        except Exception as ex:
+            logger.warning(f'[PROTOCOL] Inter-scan return-to-first-step move failed: {ex}')
+
     def _run_loop_inner(self):
         """Inner run loop body."""
         p = self._p
@@ -191,6 +212,8 @@ class ProtocolRunLoop:
                 p._scan_in_progress.clear()
                 if p._state == ProtocolState.SCANNING:
                     p._set_state(ProtocolState.RUNNING)
+
+                self._return_to_first_step_between_scans()
 
             except Exception as ex:
                 # Classify: hardware disconnected = fatal (abort +
