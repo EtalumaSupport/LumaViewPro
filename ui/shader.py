@@ -7,7 +7,6 @@ from kivy.core.window import Window
 from kivy.factory import Factory
 from kivy.graphics import RenderContext
 from kivy.properties import ObjectProperty, StringProperty
-from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.scatter import Scatter
 
 import modules.app_context as _app_ctx
@@ -356,60 +355,3 @@ void main (void) {
 
 
 Factory.register('ShaderViewer', cls=ShaderViewer)
-
-
-class ShaderEditor(BoxLayout):
-    fs = StringProperty("""
-void main (void){
-	gl_FragColor =
-    white_point *
-    frag_color *
-    texture2D(texture0, tex_coord0)
-    - black_point;
-}
-""")
-    vs = StringProperty("""
-void main (void) {
-  frag_color = color;
-  tex_coord0 = vTexCoords0;
-  gl_Position =
-  projection_mat *
-  modelview_mat *
-  vec4(vPosition.xy, 0.0, 1.0);
-}
-""")
-
-    viewer = ObjectProperty(None)
-    hide_editor = ObjectProperty(None)
-    hide_editor = True
-
-    def __init__(self, **kwargs):
-        super(ShaderEditor, self).__init__(**kwargs)
-        logger.info('[LVP Main  ] ShaderEditor.__init__()')
-        self.test_canvas = RenderContext()
-        s = self.test_canvas.shader
-        self.trigger_compile = Clock.create_trigger(self.compile_shaders, -1)
-        self.bind(fs=self.trigger_compile, vs=self.trigger_compile)
-
-    def compile_shaders(self, *largs):
-        logger.info('[LVP Main  ] ShaderEditor.compile_shaders()')
-        if not self.viewer:
-            logger.warning('[LVP Main  ] ShaderEditor.compile_shaders() Fail')
-            return
-
-        # we don't use str() here because it will crash with non-ascii char
-        fs = fs_header + self.fs
-        vs = vs_header + self.vs
-
-        self.viewer.fs = fs
-        self.viewer.vs = vs
-
-    # Hide (and unhide) Shader settings
-    def toggle_editor(self):
-        logger.info('[LVP Main  ] ShaderEditor.toggle_editor()')
-        if not self.hide_editor:
-            self.hide_editor = True
-            self.pos = -285, 0
-        else:
-            self.hide_editor = False
-            self.pos = 0, 0

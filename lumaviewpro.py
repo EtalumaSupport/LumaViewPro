@@ -362,7 +362,7 @@ from ui.post_processing import (
 )
 from ui.protocol_settings import ProtocolSettings
 from ui.scope_display import ScopeDisplay
-from ui.shader import ShaderEditor, ShaderViewer
+from ui.shader import ShaderViewer
 from ui.stage import Stage
 from ui.tooltip import Tooltip, TooltipMixin
 from ui.ui_helpers import (

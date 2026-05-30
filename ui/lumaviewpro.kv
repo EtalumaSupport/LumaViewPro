@@ -1,5 +1,4 @@
 #:kivy 2.1.0
-#: import GLShaderLexer pygments.lexers.GLShaderLexer
 
 #-------------------------------------------------------------------------------
 # MIT License
@@ -265,42 +264,6 @@
             Rectangle:
                 pos: self.pos
                 size: self.size
-
-# ShaderEditor - view and edit shader code
-# ------------------------------------------
-<ShaderEditor>:
-    orientation: 'horizontal'
-    BoxLayout:
-        orientation: 'vertical'
-        # Fragment Shader Editor
-        Label:
-            text: 'Fragment Shader'
-            size_hint_y: None
-            height: self.texture_size[1] + 10
-        CodeInput:
-            text: root.fs
-            lexer: GLShaderLexer()
-            on_text: root.fs = args[1]
-
-        # Vertex Shader Editor
-        Label:
-            text: 'Vertex Shader'
-            size_hint_y: None
-            height: self.texture_size[1] + 10
-        CodeInput:
-            text: root.vs
-            lexer: GLShaderLexer()
-            on_text: root.vs = args[1]
-    ToggleButton:
-        id: toggle_editor
-        size_hint: None, None
-        size: '30dp', '60dp'
-        pos_hint: {"x":0, "y":0.5}
-        border: 0, 0, 0, 0
-        background_normal: './data/icons/right_arrow_right_arc.png'
-        background_down: './data/icons/left_arrow_right_arc.png'
-        on_press: root.toggle_editor()
-
 
 <AccordionItemXyStageControl>:
 	title: 'XY Stage Control'
