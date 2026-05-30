@@ -531,6 +531,11 @@ class ScopeDisplay(Image):
             open_layer_obj.ids['image_af_score_id'].text = new_af_text
 
     def set_camera_disconnected_display(self):
+        # Edge-logged so the post-mortem shows the moment the user was given
+        # the no-camera indicator (the only on-screen signal of a lost camera;
+        # there is no popup). Fires once per connected->absent transition, not
+        # per frame, because the caller gates on camera_disconnected_display_set.
+        logger.info('Camera display: showing no-camera indicator to user (camera_connected=False)')
         self.source = './data/icons/camera_to_USB.png'
         self.camera_disconnected_display_set = True
         # Drop the bullseye RGB scratch buffer so a reconnect at a
@@ -542,6 +547,7 @@ class ScopeDisplay(Image):
         return
 
     def source_clear(self):
+        logger.info('Camera display: camera available, live view restored')
         self.source = ''
         self.camera_disconnected_display_set = False
         return
