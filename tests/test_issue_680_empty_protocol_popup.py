@@ -137,3 +137,59 @@ def test_protocol_from_config_filters_non_acquire_layers():
         'in ui/protocol_settings.py::new_protocol may need a matching '
         'update. (#680)'
     )
+
+
+def test_new_protocol_gates_no_channel_popup_behind_channel_check():
+    """No-channel popup must be gated behind an actual channel check.
+
+    Zero steps has two causes: no channel enabled for acquisition, or a
+    labware with no wells (e.g. Blank, a 0x0 plate, which yields an empty
+    well list so the channel filter never runs). The #680 fix attributed
+    every empty protocol to "no channels", so selecting Blank with a
+    channel enabled raised a false "No Channels Selected" error (#687).
+
+    The fix consults the channel predicate inside the num_steps()==0
+    block: only the genuine no-channels case pops the warning; a no-well
+    labware with a channel enabled creates an empty protocol silently
+    (the user fills it in with Add). This test fails on the pre-fix
+    source, where the popup sits directly in the zero-step block.
+    """
+    method = _method_node('ProtocolSettings', 'new_protocol')
+
+    # new_protocol has two num_steps() ifs: the >0 z-carryover block and
+    # the ==0 empty-protocol guard. Target the guard specifically.
+    outer = None
+    for stmt in method.body:
+        if isinstance(stmt, ast.If) and 'num_steps() == 0' in ast.unparse(stmt.test):
+            outer = stmt
+            break
+    assert outer is not None, 'num_steps()==0 guard missing from new_protocol (#687)'
+
+    outer_src = ast.unparse(outer)
+    assert 'get_layer_configs' in outer_src, (
+        'new_protocol must consult get_layer_configs() inside the '
+        'num_steps()==0 block to tell "no channels" apart from "no '
+        'wells" before showing the popup. (#687)'
+    )
+
+    # The popup must NOT sit directly in the zero-step block; it must be
+    # nested inside the no-channels branch.
+    directly_in_outer = any(
+        'No Channels Selected' in ast.unparse(s)
+        for s in outer.body
+        if not isinstance(s, ast.If)
+    )
+    assert not directly_in_outer, (
+        'The "No Channels Selected" popup must be gated behind a channel '
+        'check, not fired for every empty protocol (a no-well labware '
+        'with a channel enabled must not raise a channel error). (#687)'
+    )
+
+    nested_if_has_popup = any(
+        isinstance(s, ast.If) and 'No Channels Selected' in ast.unparse(s)
+        for s in outer.body
+    )
+    assert nested_if_has_popup, (
+        'Expected the "No Channels Selected" popup nested inside the '
+        'no-channels branch within the num_steps()==0 block. (#687)'
+    )

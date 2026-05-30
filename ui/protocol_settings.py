@@ -503,21 +503,36 @@ class ProtocolSettings(FloatLayout):
             return
 
         if protocol.num_steps() == 0:
-            logger.warning(
-                '[LVP Main  ] new_protocol: no channels enabled for acquisition'
+            # Zero steps has two distinct causes: no channel is enabled for
+            # acquisition, or the labware has no wells (e.g. Blank, a 0x0
+            # plate). Only the first is a channel problem -- attribute it by
+            # checking the same channel predicate Add uses. A no-well labware
+            # with channels enabled creates an empty protocol the user builds
+            # up with Add at the current stage position.
+            layer_configs = get_layer_configs()
+            any_channel_enabled = any(
+                lc['acquire'] is not None for lc in layer_configs.values()
             )
-            from ui.notification_popup import show_notification_popup
+            if not any_channel_enabled:
+                logger.warning(
+                    '[LVP Main  ] new_protocol: no channels enabled for acquisition'
+                )
+                from ui.notification_popup import show_notification_popup
 
-            show_notification_popup(
-                title='No Channels Selected',
-                message=(
-                    'No channels are enabled for acquisition. Please enable '
-                    'at least one channel for image or video capture in the '
-                    'layer settings on the right, then create the protocol '
-                    'again.'
-                ),
+                show_notification_popup(
+                    title='No Channels Selected',
+                    message=(
+                        'No channels are enabled for acquisition. Please enable '
+                        'at least one channel for image or video capture in the '
+                        'layer settings on the right, then create the protocol '
+                        'again.'
+                    ),
+                )
+                return
+            logger.info(
+                '[LVP Main  ] new_protocol: labware has no wells; created '
+                'empty protocol (use Add to insert steps)'
             )
-            return
 
         # new_protocol_ex builds the step table from the labware + scan
         # parameters; bounded work, fits on worker_pool MED so the UI
