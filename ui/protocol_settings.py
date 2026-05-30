@@ -222,6 +222,8 @@ class ProtocolSettings(FloatLayout):
             'PROTOCOL_PERIOD', self.ids['capture_period'].text
         )
 
+        if not (hasattr(self, '_protocol') and self._protocol is not None):
+            return
         time_params = get_protocol_time_params()
         self._protocol.modify_time_params(
             period=time_params['period'],
@@ -242,6 +244,8 @@ class ProtocolSettings(FloatLayout):
             'PROTOCOL_DURATION', self.ids['capture_dur'].text
         )
 
+        if not (hasattr(self, '_protocol') and self._protocol is not None):
+            return
         time_params = get_protocol_time_params()
         self._protocol.modify_time_params(
             period=time_params['period'],
@@ -1009,6 +1013,8 @@ class ProtocolSettings(FloatLayout):
     # Goto to Previous Step
     def prev_step(self):
         logger.info('[LVP Main  ] ProtocolSettings.prev_step()')
+        if not (hasattr(self, '_protocol') and self._protocol is not None):
+            return
         num_steps = self._protocol.num_steps()
         if num_steps <= 0:
             self.curr_step = -1
@@ -1022,6 +1028,8 @@ class ProtocolSettings(FloatLayout):
     # Go to Next Step
     def next_step(self):
         logger.info('[LVP Main  ] ProtocolSettings.next_step()')
+        if not (hasattr(self, '_protocol') and self._protocol is not None):
+            return
         num_steps = self._protocol.num_steps()
         if num_steps <= 0:
             return
