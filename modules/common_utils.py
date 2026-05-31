@@ -1,12 +1,18 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 
+import ctypes
 import enum
+import gc
 import json
 import os
 import pathlib
+import platform
 import re
+import threading
+import time as _time
 
 import numpy as np
+import psutil
 
 from lvp_logger import logger
 
@@ -384,13 +390,6 @@ def max_decimal_precision(parameter: str) -> int:
     return PRECISION_MAP.get(parameter, DEFAULT_PRECISION)
 
 
-import ctypes
-import gc
-import platform
-import threading
-
-import psutil
-
 _IS_WINDOWS = platform.system() == 'Windows'
 
 
@@ -540,8 +539,6 @@ def query_windows_perf_counters():
 # come from cumulative counters. Cache the last value+timestamp and compute
 # a delta-rate on each call. Per-key state.
 # ---------------------------------------------------------------------------
-
-import time as _time
 
 _rate_state = {}  # {key: (last_value, last_ts)}
 

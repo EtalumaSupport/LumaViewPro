@@ -46,6 +46,12 @@ from modules.scope_capabilities import ScopeCapabilities
 from lvp_logger import logger, version
 import logging as _logging
 
+import modules.common_utils as common_utils
+import modules.image_utils as image_utils
+from modules.sequential_io_executor import SequentialIOExecutor, IOTask
+from modules.frame_validity import FrameValidity
+from modules.notification_center import notifications
+
 _api_log = _logging.getLogger('LVP.api')
 
 # PRE-RELEASE 4-mechanism warning bundle: this is the runtime
@@ -80,12 +86,6 @@ def _fire_pre_release_warning(stacklevel: int = 3) -> None:
     _PRE_RELEASE_WARNING_FIRED = True
     warnings.warn(_PRE_RELEASE_WARNING_TEXT, FutureWarning, stacklevel=stacklevel)
 
-
-import modules.common_utils as common_utils
-import modules.image_utils as image_utils
-from modules.sequential_io_executor import SequentialIOExecutor, IOTask
-from modules.frame_validity import FrameValidity
-from modules.notification_center import notifications
 
 # Protocol is imported function-locally in the load/create methods (keeps
 # the data class off this module's import surface); declare it for the
