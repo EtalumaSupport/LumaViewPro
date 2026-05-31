@@ -228,6 +228,18 @@ class MotorBoard(SerialBoard):
         if info is None:
             logger.error('[XYZ Class ] FULLINFO returned None -- board disconnected?')
             return {'model': 'unknown', 'serial_number': 'unknown'}
+        # Legacy firmware (pre-FULLINFO) replies with an UNKNOWN_CMD error
+        # instead of model/serial. That is an expected capability gap on older
+        # units, not a fault -- log at INFO and fall back, rather than an ERROR
+        # on every connect, which on a legacy board floods the error log and
+        # buries genuine failures (the same noise the VOLTAGE / DRVSTAT /
+        # FANSPEED diagnostic probes already suppress on unsupported firmware).
+        if 'UNKNOWN_CMD' in info or 'unknown command' in info.lower():
+            logger.info(
+                '[XYZ Class ] FULLINFO not supported on this firmware; '
+                'using model/serial fallback'
+            )
+            return {'model': 'unknown', 'serial_number': 'unknown'}
         try:
             parts = info.split()
             model = parts[parts.index('Model:') + 1]
