@@ -446,7 +446,7 @@ class ScopeDisplay(Image):
     def transform_to_bullseye_prealloc(self, image):
         if ScopeDisplay._bullseye_lut is None:
             ScopeDisplay._bullseye_lut = ScopeDisplay._build_bullseye_lut()
-        target_shape = image.shape + (3,)
+        target_shape = (*image.shape, 3)
         if self._bullseye_rgb_buf is None or self._bullseye_buf_shape != image.shape:
             self._bullseye_rgb_buf = np.empty(target_shape, dtype=np.uint8)
             self._bullseye_buf_shape = image.shape

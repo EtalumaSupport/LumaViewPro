@@ -217,9 +217,7 @@ class ScopeCapabilities:
             return True
         if getattr(self, f'camera_supports_{feature}', False):
             return True
-        if feature in self.hardware_features:
-            return True
-        return False
+        return feature in self.hardware_features
 
     @classmethod
     def from_drivers(cls, motion, led, camera, led_max_ma: int = LED_MAX_MA) -> ScopeCapabilities:

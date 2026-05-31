@@ -1203,10 +1203,7 @@ class Protocol:
 
         tiling_config = TilingConfig(tiling_configs_file_loc=tiling_configs_file_loc)
 
-        if 'positions' in input_config:
-            positions = input_config['positions']
-        else:
-            positions = None
+        positions = input_config.get('positions')
 
         # If the caller passes a per-well z map (from a prior in-memory
         # Protocol), apply it to labware-derived positions so user-tuned
@@ -1994,7 +1991,7 @@ class Protocol:
     def mark_zstack_starts_and_ends(self) -> None:
         df = self.steps().copy()
         df['Z-Stack Group Index'] = df.groupby(by=['Z-Stack Group ID']).cumcount()
-        df['First Z'] = df['Z-Stack Group Index'].apply(lambda x: True if x == 0 else False)
+        df['First Z'] = df['Z-Stack Group Index'].apply(lambda x: x == 0)
         df['Last Z'] = (
             df.groupby(by=['Z-Stack Group ID'])['Z-Stack Group Index'].transform('max')
             == df['Z-Stack Group Index']
@@ -2009,10 +2006,7 @@ class Protocol:
 
     def has_zstacks(self) -> bool:
         max_group_id = self.steps()['Z-Stack Group ID'].max()
-        if max_group_id > -1:
-            return True
-        else:
-            return False
+        return max_group_id > -1
 
     @classmethod
     def extract_data_from_step_name(cls, s):

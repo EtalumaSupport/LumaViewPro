@@ -219,10 +219,7 @@ def is_custom_name(name: str) -> bool:
         return True
 
     color = name[1]
-    if color not in get_layers():
-        return True
-
-    return False
+    return color not in get_layers()
 
 
 def get_z_slice_from_name(name: str) -> int | None:
@@ -317,7 +314,7 @@ def get_opened_layer_obj(lumaview_imagesettings):
 
 def to_bool(val) -> bool:
     if isinstance(val, str):
-        return True if val.lower() == 'true' else False
+        return val.lower() == 'true'
     elif val in ('', None):
         return False
     else:

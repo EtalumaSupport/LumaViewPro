@@ -25,10 +25,7 @@ _LUT_16_TO_8 = (np.arange(65536, dtype=np.float64) / 256).astype(np.uint8)
 
 
 def is_color_image(image) -> bool:
-    if len(image.shape) == 3 and image.shape[2] == 3:
-        return True
-
-    return False
+    return len(image.shape) == 3 and image.shape[2] == 3
 
 
 def mono_to_rgb_falsecolor(mono: np.ndarray, layer: str) -> np.ndarray:
@@ -782,18 +779,12 @@ def rgb_image_to_gray(image):
 
     def _is_grayscale(image):
         shape = image.shape
-        if (len(shape) <= 2) or (shape[2] == 1):
-            return True
-
-        return False
+        return bool((len(shape) <= 2) or (shape[2] == 1))
 
     def _values_in_one_plane(image):
         used_color_planes = get_used_color_planes(image=image)
 
-        if len(used_color_planes) <= 1:
-            return True
-        else:
-            return False
+        return len(used_color_planes) <= 1
 
     if _is_grayscale(image=image):
         return image

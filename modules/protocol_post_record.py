@@ -338,7 +338,7 @@ class ProtocolPostRecord:
 
             root_path = file_path.parent
             df['File Exists'] = df.apply(
-                lambda row: True if (root_path / row['Filepath']).is_file() else False, axis=1
+                lambda row: (root_path / row['Filepath']).is_file(), axis=1
             )
 
             if len(df) == 0:

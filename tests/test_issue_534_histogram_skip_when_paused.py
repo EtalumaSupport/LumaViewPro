@@ -121,10 +121,7 @@ def test_guards_are_early_returns():
         test_src = ast.unparse(stmt.test)
         if not all(token in test_src for token in must_contain):
             return False
-        for inner in stmt.body:
-            if isinstance(inner, ast.Return) and inner.value is None:
-                return True
-        return False
+        return any(isinstance(inner, ast.Return) and inner.value is None for inner in stmt.body)
 
     play_ok = any(
         is_if_with_bare_return(s, ('scope_display', '.play')) for s in method.body

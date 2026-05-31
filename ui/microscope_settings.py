@@ -366,7 +366,7 @@ class MicroscopeSettings(BoxLayout):
 
             # Scope auto-detection
             detected_model = lumaview.scope.diagnostics.get_microscope_model()
-            if detected_model in self.scopes.keys():
+            if detected_model in self.scopes:
                 logger.info(f'[LVP Main  ] Auto-detected scope as {detected_model}')
                 self.ids['scope_spinner'].text = detected_model
             else:

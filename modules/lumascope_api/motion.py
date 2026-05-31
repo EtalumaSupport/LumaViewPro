@@ -339,10 +339,7 @@ class MotionAPI:
                 objective ID; False if the slot is unconfigured.
         """
         position = self.get_current_position(axis='T')
-        if self._scope.runtime_state._turret_config[position] is None:
-            return False
-
-        return True
+        return self._scope.runtime_state._turret_config[position] is not None
 
     def get_axes_config(self) -> dict:
         """Get the axis configuration from the motion board.
@@ -724,9 +721,7 @@ class MotionAPI:
         """
         if self.is_any_axis_moving():
             return True
-        if self.get_overshoot():
-            return True
-        return False
+        return bool(self.get_overshoot())
 
     def set_acceleration_limit(self, val_pct: int) -> None:
         """Set the motor controller acceleration limit (percent of max).

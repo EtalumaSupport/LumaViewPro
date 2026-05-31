@@ -338,7 +338,7 @@ class VideoCreationControls(BoxLayout):
             logger.error(f'Could not retrieve valid FPS for video generation. Using {fps} fps.')
 
         ts_overlay_btn = self.ids['enable_timestamp_overlay_btn']
-        enable_timestamp_overlay = True if ts_overlay_btn.state == 'down' else False
+        enable_timestamp_overlay = ts_overlay_btn.state == 'down'
 
         if fps < 1:
             msg = 'Video generation frames/second must be >= 1 fps'
@@ -773,13 +773,11 @@ class CellCountControls(BoxLayout):
     def execute_apply_method_to_folder(self, popup, path):
         pre_text = f'Applying method to folder: {path}'
         total_images = self._post.get_num_images_in_folder(path=path)
-        image_count = 0
 
-        for image_process in self._post.apply_cell_count_to_folder(
-            path=path, settings=self._settings
+        for image_count, image_process in enumerate(
+            self._post.apply_cell_count_to_folder(path=path, settings=self._settings), start=1
         ):
             filename = image_process['filename']
-            image_count += 1
             popup.progress = int(100 * image_count / total_images)
             popup.text = f'{pre_text}\n- {image_count}/{total_images}: {filename}'
 

@@ -126,9 +126,7 @@ class IDSCamera(Camera):
         if self.active in (False, None):
             self._device_removed = True
             return False
-        if self._device_removed:
-            return False
-        return True
+        return not self._device_removed
 
     def read_diagnostic_snapshot(
         self,

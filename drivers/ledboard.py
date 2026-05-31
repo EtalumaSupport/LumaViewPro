@@ -332,10 +332,7 @@ class LEDBoard(SerialBoard):
             }
 
         def check_each_substr(substrings, result):
-            for sub_str in substrings:
-                if sub_str not in result:
-                    return False
-            return True
+            return all(sub_str in result for sub_str in substrings)
 
         if block:
             # Poll until the firmware echoes the command back, OR the

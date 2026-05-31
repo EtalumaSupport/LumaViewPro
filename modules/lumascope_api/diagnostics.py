@@ -938,7 +938,7 @@ class DiagnosticsAPI:
             return 'dltloff'
         value = config.get('dltl_value_bps')
         if isinstance(value, (int, float)) and value > 0:
-            return f'dltl{int(round(value / 1_000_000))}M'
+            return f'dltl{round(value / 1_000_000)}M'
         return 'dltlunknown'
 
     def _diagnostic_target_board(self, target: str):

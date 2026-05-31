@@ -841,7 +841,7 @@ class LayerControl(BoxLayout):
             return
         settings = _app_ctx.ctx.settings
         camera_executor = _app_ctx.ctx.camera_executor
-        enabled = True if self.ids['enable_led_btn'].state == 'down' else False
+        enabled = self.ids['enable_led_btn'].state == 'down'
         gui_logger.toggle(f'LED_{self.layer}', enabled)
         illumination = settings[self.layer]['ill_ma']
 

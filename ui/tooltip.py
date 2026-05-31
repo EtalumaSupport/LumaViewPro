@@ -84,10 +84,8 @@ class TooltipMixin:
         return_list = []
         if widget.parent is None:
             return return_list
-        if isinstance(widget.parent, kivy.uix.accordion.AccordionItem) or isinstance(
-            widget.parent, AccordionItem
-        ):
-            return return_list + [widget.parent] + self.find_accordion_parents(widget.parent)
+        if isinstance(widget.parent, (kivy.uix.accordion.AccordionItem, AccordionItem)):
+            return [*return_list, widget.parent, *self.find_accordion_parents(widget.parent)]
         else:
             return self.find_accordion_parents(widget.parent)
 
