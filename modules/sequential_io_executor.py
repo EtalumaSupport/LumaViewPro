@@ -594,7 +594,7 @@ class SequentialIOExecutor:
             fut = self.caller_futures[task]
 
         try:
-            result = fut.result(timeout=timeout)
+            fut.result(timeout=timeout)
         except Exception as e:
             logger.error(f"{self.name} Worker Error: {e}")
 

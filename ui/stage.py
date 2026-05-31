@@ -519,12 +519,6 @@ class Stage(Widget):
         scale_x = w / dim_max['x']
         scale_y = h / dim_max['y']
 
-        stage_x = settings['stage_offset']['x'] / 1000
-        stage_y = settings['stage_offset']['y'] / 1000
-
-        cols = labware.config['columns']
-        rows = labware.config['rows']
-
         well_spacing_x = labware.config['spacing']['x']
         well_spacing_y = labware.config['spacing']['y']
 
@@ -552,9 +546,6 @@ class Stage(Widget):
 
             # Remove old step locations if they exist
             Clock.schedule_once(lambda dt: self.canvas.remove_group('steps_fbo'), 0)
-
-            # Capture variables by value for the lambda
-            pos_x, pos_y, size_w, size_h = x, y, w, h
 
             # Schedule FBO creation and drawing on main thread
             # Use partial to avoid lambda closure memory accumulation

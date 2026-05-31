@@ -477,7 +477,7 @@ class LEDBoard(SerialBoard):
                 f'Response: {resp!r}'
             )
         # Confirm with Y
-        confirm_resp = self.exchange_multiline(
+        self.exchange_multiline(
             'Y', timeout=timeout, end_markers=['FACTORY', 'Engineering', 'RAW', 'ADC']
         )
         # Drain any remaining help text

@@ -599,7 +599,6 @@ class ScopeDisplay(Image):
             self._frame_interval_history.append(interval_ms)
         self._last_frame_pull_time = cycle_start
 
-        t_worker_start = cycle_start
         t_queue_wait = 0  # No queue under B1; preserve var for downstream perf code.
 
         # Snapshot counter value before scheduling increment on main thread

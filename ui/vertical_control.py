@@ -579,8 +579,6 @@ class VerticalControl(BoxLayout):
 
             for available_position in range(1, 5):
                 if selected_position == available_position:
-                    state = 'down'
-
                     # Check if an objective has been saved to that turret
                     turret_position_objective = settings['turret_objectives'][selected_position]
                     if turret_position_objective is not None:
@@ -589,9 +587,6 @@ class VerticalControl(BoxLayout):
                             lambda dt: self.update_spinner_text(selected_position), 0
                         )
                         Clock.schedule_once(lambda dt: self.select_objective(), 0)
-
-                else:
-                    state = 'normal'
 
             Clock.schedule_once(lambda dt: self.update_all_turret_btn_states(selected_position), 0)
         except Exception as e:

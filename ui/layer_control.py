@@ -353,7 +353,6 @@ class LayerControl(BoxLayout):
             self.apply_settings()
 
     def update_auto_gain(self, init: bool = False):
-        settings = _app_ctx.ctx.settings
         camera_executor = _app_ctx.ctx.camera_executor
         logger.info('[LVP Main  ] LayerControl.update_auto_gain()')
         if self.ids['auto_gain'].state == 'down':

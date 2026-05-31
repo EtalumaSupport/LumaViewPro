@@ -166,7 +166,6 @@ class ProtocolSettings(FloatLayout):
             Clock.schedule_once(self._init_ui, 0.1)
             return
         settings = ctx.settings
-        source_path = ctx.source_path
 
         self.ids['tiling_size_spinner'].values = self.tiling_config.available_configs()
         self.ids['tiling_size_spinner'].text = self.tiling_config.default_config()
@@ -666,7 +665,6 @@ class ProtocolSettings(FloatLayout):
         gui_logger.protocol_action('LOAD', filepath)
         settings = _app_ctx.ctx.settings
         ctx = _app_ctx.ctx
-        source_path = ctx.source_path
 
         logger.info('[LVP Main  ] ProtocolSettings.load_protocol()')
 
@@ -1425,7 +1423,6 @@ class ProtocolSettings(FloatLayout):
             self.ids['run_protocol_btn'].disabled = True
 
             # Update window title
-            version = ctx.version
             set_title_event_text('Writing protocol scan files to disk...')
         else:
             # No files pending - proceed with normal reset
@@ -1609,7 +1606,6 @@ class ProtocolSettings(FloatLayout):
 
         protocol_running_global = ctx.protocol_running
         file_io_executor = ctx.file_io_executor
-        version = ctx.version
 
         # Check if files are still being written
         if file_io_executor.is_protocol_queue_active():
@@ -1789,7 +1785,6 @@ class ProtocolSettings(FloatLayout):
 
         protocol_running_global = ctx.protocol_running
         file_io_executor = ctx.file_io_executor
-        version = ctx.version
 
         # Check if files are still being written
         if file_io_executor.is_protocol_queue_active():
@@ -1973,8 +1968,6 @@ class ProtocolSettings(FloatLayout):
 
             # Note: This will be quickly overwritten by the remaining number of scans
             self.ids['run_protocol_btn'].text = 'Running Protocol'
-
-            settings = _app_ctx.ctx.settings
 
             callbacks = {
                 'protocol_iterate_pre': self._update_protocol_run_button_status,

@@ -62,9 +62,6 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
         try:
             logger.info('[LVP Main  ] MainDisplay.cam_toggle()')
 
-            ctx = _app_ctx.ctx
-            settings = ctx.settings
-
             scope_display = self.ids['viewer_id'].ids['scope_display_id']
             if not self.scope.imaging.camera_active:
                 gui_logger.button('CAM_TOGGLE', 'no-op (camera inactive)')
@@ -243,7 +240,6 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
 
         self.start_ts = time.time()
         self.stop_ts = self.start_ts + max_duration
-        seconds_per_frame = 1.0 / video_fps
 
         self.memmap_location = pathlib.Path(settings['live_folder']) / 'recording_temp.dat'
 
@@ -634,7 +630,6 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
         start_time_str = kwargs.get('start_time_str', '')
         video_as_frames = kwargs.get('video_as_frames', False)
         memmap_path = kwargs.get('memmap_path')
-        video_false_color = kwargs.get('video_false_color')
 
         # H-4 fix: use UI values snapshotted on main thread by _enqueue_recording_complete()
         ui_snapshot = kwargs.get('ui_snapshot', {})

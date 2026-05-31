@@ -962,8 +962,6 @@ class Protocol:
         try:
             orig_steps_df = self.steps()
 
-            curr_step = orig_steps_df.iloc[curr_step_idx]
-
             # Add objective focal length to steps dataframe
             objectives = self._objective_loader.get_objectives_dataframe()['focal_length']
 

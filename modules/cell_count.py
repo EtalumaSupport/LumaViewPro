@@ -199,8 +199,6 @@ class CellCount:
         if 'unfiltered_contours' in include_images:
             return_images['unfiltered_contours'] = contours_img
 
-        num_unfiltered_contours = len(contours)
-
         # Labeling
         label_map = np.zeros_like(contours_img, dtype='uint16')
         for i, contour in enumerate(contours):

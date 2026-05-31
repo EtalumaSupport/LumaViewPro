@@ -23,25 +23,6 @@ _LUT_12_TO_8 = np.clip(np.arange(4096, dtype=np.float32) / 4095 * 255, 0, 255).a
 
 _LUT_16_TO_8 = (np.arange(65536, dtype=np.float64) / 256).astype(np.uint8)
 
-# Conversion to tifffile's desired datatype references
-tifffile_dtypes = {
-    'BYTE': 1,
-    'ASCII': 2,
-    'SHORT': 3,
-    'LONG': 4,
-    'RATIONAL': 5,
-    'SBYTE': 6,
-    'UNDEFINED': 7,
-    'SSHORT': 8,
-    'SLONG': 9,
-    'SRATIONAL': 10,
-    'FLOAT': 11,
-    'DOUBLE': 12,
-    'SINGLE': 13,
-    'QWORD': 16,
-    'SQWORD': 17,
-}
-
 
 def is_color_image(image) -> bool:
     if len(image.shape) == 3 and image.shape[2] == 3:
@@ -1259,7 +1240,6 @@ def generate_tiff_data(
     color: str,
 ):
 
-    dtype = tifffile_dtypes
     axes = 'YX'
 
     modality = ''
