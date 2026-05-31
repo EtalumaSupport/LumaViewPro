@@ -6244,7 +6244,7 @@ class TestSequentialIOExecutorSubmitThenShutdownNoFutureLeak:
             # Submit a batch of return_future tasks. Don't wait for them
             # to complete -- shutdown(wait=False) should cancel pending
             # and drain caller_futures regardless.
-            for i in range(20):
+            for _ in range(20):
                 task = IOTask(
                     action=lambda: None,
                     callback=lambda *a, **k: None,
@@ -6419,7 +6419,7 @@ class TestSequentialIOExecutorPriorityAware:
             _t2.sleep(0.05)
 
             executor.put(IOTask(action=low_done.set, priority=PRIORITY_LOW))
-            for i in range(50):
+            for _ in range(50):
                 executor.put(IOTask(action=lambda: None, priority=PRIORITY_MED))
 
             head.set()

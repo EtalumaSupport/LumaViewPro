@@ -372,7 +372,7 @@ class WinUsbIsoReader:
         # Allocate slots
         slots = []
         try:
-            for i in range(self.num_slots):
+            for _ in range(self.num_slots):
                 slots.append(IsoSlot(iface, self.pipe_id, buffer_size, n_packets))
 
             # Prime: submit all slots

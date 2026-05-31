@@ -73,7 +73,7 @@ def _validate_settings(settings: dict, filepath: str, logger) -> None:
         if not isinstance(layer_settings, dict):
             logger.warning(f'[Settings ] {filepath}: "{layer}" should be dict')
             continue
-        for field, expected_type in _REQUIRED_LAYER_FIELDS.items():
+        for field, _expected_type in _REQUIRED_LAYER_FIELDS.items():
             if field not in layer_settings:
                 logger.warning(f'[Settings ] {filepath}: "{layer}" missing "{field}"')
 

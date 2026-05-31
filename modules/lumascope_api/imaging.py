@@ -1481,7 +1481,7 @@ class ImagingAPI:
 
         tmp_buffer = []
         timeout_td = datetime.timedelta(seconds=timeout_s)
-        for idx in range(sum_count):
+        for _ in range(sum_count):
             start_time = datetime.datetime.now()
             stop_time = start_time + timeout_td
 

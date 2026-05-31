@@ -1237,7 +1237,7 @@ class FirmwareDiagnostics:
             }
 
         # Check for errors in responses
-        for ax, data in results['axes'].items():
+        for _ax, data in results['axes'].items():
             if 'Error' in str(data.get('home_response', '')):
                 results['passed'] = False
                 data['status'] = 'FAIL'

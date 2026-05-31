@@ -1400,7 +1400,7 @@ class TestLEDBoardStateLock:
         # Mock _write_command_fast
         board._write_command_fast = MagicMock()
         board.leds_off_fast()
-        for color, val in board.led_ma.items():
+        for _color, val in board.led_ma.items():
             assert val == -1
 
     def test_led_on_fast_uses_state_lock(self):
@@ -1525,7 +1525,7 @@ class TestSerialDesyncRecovery:
 
         # Run 25 cycles -- should not crash or desync
         successes = 0
-        for i in range(25):
+        for _ in range(25):
             board.leds_off()
             board.led_on(channel=3, mA=20)
             if board.led_ma['BF'] == 20:

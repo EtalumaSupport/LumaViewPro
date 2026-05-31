@@ -54,7 +54,7 @@ def _validate_labware(labware: dict, filepath: str) -> None:
             for subfield in ('dimensions', 'spacing', 'offset'):
                 sub = entry.get(subfield)
                 if isinstance(sub, dict):
-                    for coord, coord_type in _REQUIRED_DIMENSION_FIELDS.items():
+                    for coord, _coord_type in _REQUIRED_DIMENSION_FIELDS.items():
                         if coord not in sub:
                             logger.warning(
                                 f"[Labware   ] '{category}/{name}'.'{subfield}' "
