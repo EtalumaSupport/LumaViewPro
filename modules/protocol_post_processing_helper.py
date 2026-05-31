@@ -70,7 +70,7 @@ class ProtocolPostProcessingHelper:
     @staticmethod
     def generate_output_dir_name(record: pd.Series) -> pathlib.Path:
         # Filter to only the true values
-        record = record[record == True]
+        record = record[record == True]  # noqa: E712 -- pandas mask
 
         # Get the post-processing function names, in alphabetical order
         used_functions = sorted(record.keys().to_list())
@@ -193,7 +193,7 @@ class ProtocolPostProcessingHelper:
         # Filter out any images that are missing from the filesystem
         # This is not strictly needed since the following filter using 'image_names'
         # will also inherently remove non-existent files
-        df = df[df['File Exists'] == True]
+        df = df[df['File Exists'] == True]  # noqa: E712 -- pandas mask
 
         # Filter out any images that are not path of the selected images provided
         df = df[df['Filepath'].isin(image_names)]

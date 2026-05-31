@@ -87,7 +87,7 @@ class StackBuilder(ProtocolPostProcessor):
     def _filter_ignored_types(self, df: pd.DataFrame) -> pd.DataFrame:
 
         # Only process raw
-        df = df[df['Raw'] == True]
+        df = df[df['Raw'] == True]  # noqa: E712 -- pandas mask
 
         return df
 
