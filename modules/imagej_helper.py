@@ -39,7 +39,7 @@ class ZProjectMethod(enum.Enum):
 
     @classmethod
     def list(cls):
-        return list(map(lambda c: c.name, cls))
+        return [c.name for c in cls]
 
 
 class ImageJHelper:
