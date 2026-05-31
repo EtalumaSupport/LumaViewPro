@@ -392,7 +392,7 @@ class _Example(App):
     # Simple layout for easy example
     def build(self):
         container = Builder.load_string("""
-#:import Label kivy.core.text.Label           
+#:import Label kivy.core.text.Label
 #:set _label Label(text="\\nI am a label\\ninjected in kivy\\nmarkup string :)\\nEnjoy! --={}=--")
 #:set _another_label Label(text="Loading...\\n{}%", font_size=10, color=(1,1,0.5,1), halign="center")
 FloatLayout:
