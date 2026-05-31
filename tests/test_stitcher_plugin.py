@@ -26,7 +26,7 @@ import pytest
 
 from modules.plugins import PluginSpec, ProcessorResult
 from modules.plugins.builtin import register_builtins, stitcher_plugin
-from tests.plugin_test_harness import harness_ctx
+from tests.plugin_test_harness import harness_ctx  # noqa: F401
 
 
 # ---------------------------------------------------------------------------

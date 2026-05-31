@@ -46,7 +46,7 @@ extend-exclude = [
 # E   = pycodestyle errors        F   = pyflakes
 # W   = pycodestyle warnings      N   = pep8-naming
 # UP  = pyupgrade (modern syntax) B   = flake8-bugbear
-# A   = flake8-builtins           C4  = flake8-comprehensions
+# A   = flake8-builtins (no shadowing)  C4  = flake8-comprehensions
 # PTH = flake8-use-pathlib        RUF = ruff-specific rules
 # SIM = flake8-simplify
 #
@@ -66,7 +66,13 @@ select = ["E", "F", "W", "N", "UP", "B", "A", "C4", "PTH", "RUF", "SIM"]
 # stripped `from ui.shader import ShaderViewer` -- LVP crashed at startup with
 # `kivy.factory.FactoryException: Unknown class <ShaderViewer>`. Manual review
 # is the only safe pruning path; `unfixable` makes that the only path.
-unfixable = ["F401"]
+#
+# RUF100 (unused noqa) + RUF102 (invalid noqa code) are also unfixable.
+# noqa directives are COMMENTS; ruff's job is to improve code, not to
+# strip comments automatically. The autofix removes the whole trailing
+# comment (any human explanation after the noqa goes with it), so noqa
+# cleanup is human-review-only. ruff still REPORTS these for review.
+unfixable = ["F401", "RUF100", "RUF102"]
 
 ignore = [
     # E501 (line too long) -- ruff format handles wrapping; raw E501 is noisy.

@@ -26,7 +26,7 @@ import numpy as np
 REPO = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO))
 
-from modules import image_utils
+from modules import image_utils  # noqa: E402
 
 
 def test_convert_reuses_provided_out_buffer():

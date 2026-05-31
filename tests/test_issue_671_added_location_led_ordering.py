@@ -114,7 +114,7 @@ def _build_tsv_only_protocol():
     """Build the 8-step TSV (no user-added location yet)."""
     import pandas as pd
 
-    tiling_configs = pytest.importorskip('modules.tiling_config')
+    tiling_configs = pytest.importorskip('modules.tiling_config')  # noqa: F841
     import pathlib
 
     tiling_path = pathlib.Path(__file__).parent.parent / 'data' / 'tiling.json'

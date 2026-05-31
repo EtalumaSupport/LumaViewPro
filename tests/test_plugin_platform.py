@@ -30,7 +30,7 @@ from modules.plugins import (
     load_plugins,
     unload_plugins,
 )
-from tests.plugin_test_harness import harness_ctx
+from tests.plugin_test_harness import harness_ctx  # noqa: F401
 
 
 # ---------------------------------------------------------------------------

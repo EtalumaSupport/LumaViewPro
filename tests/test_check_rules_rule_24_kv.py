@@ -14,7 +14,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from tools.check_rules import _check_rule_24_kv
+from tools.check_rules import _check_rule_24_kv  # noqa: E402
 
 
 class TestRule24KvBlocksNonAscii:

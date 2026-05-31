@@ -62,7 +62,7 @@ class MotionAPI:
 
     _MOTION_POLL_INTERVAL = 0.02  # 50 Hz
 
-    def __init__(self, scope: Lumascope, driver: MotorBoardProtocol) -> None:
+    def __init__(self, scope: Lumascope, driver: MotorBoardProtocol) -> None:  # noqa: ARG002
         # `driver` is in the signature for backcompat (Phase 1 Lumascope
         # passes it explicitly). It is intentionally unused here: `_driver`
         # is a dynamic property that re-resolves through `_scope` on every

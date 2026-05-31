@@ -55,7 +55,7 @@ def _project_root():
 def _pyflakes_available():
     """Return True if pyflakes is importable in this environment."""
     try:
-        import pyflakes
+        import pyflakes  # noqa: F401
 
         return True
     except ImportError:

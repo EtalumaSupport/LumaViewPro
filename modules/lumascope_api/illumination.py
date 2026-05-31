@@ -57,7 +57,7 @@ class IlluminationAPI:
         # is a @property that re-resolves `self._scope._led_driver` so
         # disconnect / reconnect / test hot-swap propagate without
         # rebinding IlluminationAPI. Same pattern as MotionAPI._driver.
-        del driver
+        del driver  # noqa -- intentionally unused, kept for backward call sites
 
         # LED change listeners -- push-based UI update mechanism. Each
         # listener is called with (color, enabled, mA, owner) whenever

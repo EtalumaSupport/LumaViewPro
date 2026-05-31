@@ -454,7 +454,7 @@ def log_system_metrics(settings: dict):
     # tobytes()). The standby-cache growth in [PDH METRICS] should track
     # this product roughly.
     try:
-        from modules import app_context as _app_ctx
+        from modules import app_context as _app_ctx  # noqa: WPS433
 
         sd = _app_ctx.ctx.scope_display if _app_ctx.ctx is not None else None
     except Exception:
@@ -601,7 +601,7 @@ def log_system_metrics(settings: dict):
     # direct pre/post verification that audited buffer-reuse sites no
     # longer allocate on hot path.
     try:
-        from modules import common_utils as _cu
+        from modules import common_utils as _cu  # noqa: WPS433
 
         tm = _cu.query_tracemalloc_top_n(n=5)
         if tm:

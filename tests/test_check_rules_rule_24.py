@@ -17,7 +17,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from tools.check_rules import check_source
+from tools.check_rules import check_source  # noqa: E402
 
 
 def _rule24_violations(content: str, path: str) -> list:

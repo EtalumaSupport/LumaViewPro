@@ -6,10 +6,7 @@ import os
 # Python version check -- must run before any imports that require 3.11+
 import sys
 
-# Looks statically dead under a 3.11+ target, but it is load-bearing
-# runtime UX: it shows a friendly "needs Python 3.11+" message before an
-# import below trips a deeper, cryptic SyntaxError on 3.10. Keep it.
-if sys.version_info < (3, 11):
+if sys.version_info < (3, 11):  # noqa: UP036 -- runtime check is load-bearing UX (friendly error before deeper SyntaxError on Python 3.10).
     _ver = f'{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}'
     _msg = (
         f'LumaViewPro requires Python 3.11 or later.\n'

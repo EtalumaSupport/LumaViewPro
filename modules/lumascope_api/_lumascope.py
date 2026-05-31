@@ -29,7 +29,7 @@ except ImportError:
 # Pylon/IDS aren't found. Wrapped in try/except so dev machines without
 # pyusb / libusb1 don't crash LVP at startup (matches IDS pattern above).
 try:
-    import drivers.fx2driver
+    import drivers.fx2driver  # noqa: F401
 except ImportError:
     pass
 from drivers.camera import Camera
