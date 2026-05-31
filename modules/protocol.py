@@ -1582,7 +1582,7 @@ class Protocol:
             verify = next(csvreader)
         except StopIteration:
             logger.error(f'Protocol file {file_path} is empty or invalid.')
-            raise ProtocolFormatError('Protocol file is empty or invalid.')
+            raise ProtocolFormatError('Protocol file is empty or invalid.') from None
 
         if not (verify[0] == cls.PROTOCOL_FILE_HEADER):
             raise ProtocolFormatError('Not a valid LumaViewPro Protocol')
@@ -1591,7 +1591,7 @@ class Protocol:
             version_row = next(csvreader)
         except StopIteration:
             logger.error(f'Protocol file {file_path} is missing version information.')
-            raise ProtocolFormatError('Protocol file is missing version information.')
+            raise ProtocolFormatError('Protocol file is missing version information.') from None
 
         if version_row[0] != 'Version':
             logger.error(f"Unable to load {file_path} which is missing 'Version' row.")
@@ -1643,7 +1643,7 @@ class Protocol:
 
         except StopIteration:
             logger.error(f"Missing 'Period' row in protocol file {file_path}")
-            raise ProtocolFormatError("Missing 'Period' row in protocol file")
+            raise ProtocolFormatError("Missing 'Period' row in protocol file") from None
 
         except ValueError as ve:
             logger.error(
@@ -1678,7 +1678,7 @@ class Protocol:
 
         except StopIteration:
             logger.error(f"Missing 'Duration' row in protocol file {file_path}")
-            raise ProtocolFormatError("Missing 'Duration' row in protocol file")
+            raise ProtocolFormatError("Missing 'Duration' row in protocol file") from None
 
         except ValueError as ve:
             logger.error(
@@ -1700,7 +1700,7 @@ class Protocol:
 
         except StopIteration:
             logger.error(f"Missing 'Labware' row in protocol file {file_path}")
-            raise ProtocolFormatError("Missing 'Labware' row in protocol file")
+            raise ProtocolFormatError("Missing 'Labware' row in protocol file") from None
 
         except ProtocolFormatError as pfe:
             raise pfe
@@ -1719,7 +1719,7 @@ class Protocol:
                 config['capture_root'] = ''
         except StopIteration:
             logger.error(f'Protocol file {file_path} is incomplete.')
-            raise ProtocolFormatError('Protocol file is incomplete.')
+            raise ProtocolFormatError('Protocol file is incomplete.') from None
 
         # Search for "Steps" to indicate start of steps. Along the way,
         # optionally capture a v6 'Layer Settings' block -- a header row
@@ -1771,7 +1771,7 @@ class Protocol:
                                 config['layer_settings'][layer_name] = row_dict
             except StopIteration:
                 logger.error(f"Missing 'Steps' section in protocol file {file_path}")
-                raise ProtocolFormatError("Missing 'Steps' section in protocol file")
+                raise ProtocolFormatError("Missing 'Steps' section in protocol file") from None
 
         table_lines = []
         for line in fp:

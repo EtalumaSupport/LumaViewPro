@@ -626,9 +626,9 @@ def focus_log(positions, values, focus_round: int, source_path: str) -> int:
         log_file = os.path.join(source_path, 'logs', 'focus_log.txt')
         try:
             file = open(log_file, 'a')
-        except Exception:
+        except Exception as e:
             if not os.path.isdir(os.path.join(source_path, 'logs')):
-                raise FileNotFoundError("Couldn't find 'logs' directory.")
+                raise FileNotFoundError("Couldn't find 'logs' directory.") from e
             else:
                 raise
         for i, p in enumerate(positions):

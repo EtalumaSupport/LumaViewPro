@@ -95,17 +95,17 @@ class MicroscopeSettings(BoxLayout):
         try:
             with open(scopes_path) as read_file:
                 self.scopes = json.load(read_file)
-        except FileNotFoundError:
+        except FileNotFoundError as e:
             logger.error(f'[LVP Main  ] scopes.json not found at {scopes_path}')
             raise RuntimeError(
                 f'Required file scopes.json not found at {scopes_path}. '
                 'Please reinstall or restore from backup.'
-            )
+            ) from e
         except json.JSONDecodeError as e:
             logger.error(f'[LVP Main  ] scopes.json is corrupt: {e}')
             raise RuntimeError(
                 f'scopes.json is corrupt ({e}). Please restore from backup or reinstall.'
-            )
+            ) from e
 
         self._validate_scopes(scopes_path)
 

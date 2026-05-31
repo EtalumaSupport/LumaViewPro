@@ -502,7 +502,7 @@ def _send_fwupdate_command(board, board_config):
         raise UpdateError(
             f'FWUPDATE command failed: {e}',
             stage=UpdateStage.SENDING_FWUPDATE,
-        )
+        ) from e
 
 
 def _bootloader_via_raw_repl(board):

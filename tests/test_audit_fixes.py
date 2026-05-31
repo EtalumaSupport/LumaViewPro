@@ -8886,7 +8886,7 @@ class TestSaveLiveImageTimeoutIsFloat:
                 f"capture_and_wait raised TypeError when given save_live_image's "
                 f'default timeout_s ({timeout_default!r}): {e}. '
                 f'Phase-2 audit P2-1 regression has returned.'
-            )
+            ) from e
 
 
 class TestImagingParamNamesUseUnitSuffix:

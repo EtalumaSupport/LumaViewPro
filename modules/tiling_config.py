@@ -19,17 +19,17 @@ class TilingConfig:
         try:
             with open(tiling_configs_file_loc) as fp:
                 self._available_configs = json.load(fp)
-        except FileNotFoundError:
+        except FileNotFoundError as e:
             logger.error(f'[Tiling    ] tiling.json not found at {tiling_configs_file_loc}')
             raise RuntimeError(
                 f'Required file tiling.json not found at {tiling_configs_file_loc}. '
                 'Please reinstall or restore from backup.'
-            )
+            ) from e
         except json.JSONDecodeError as e:
             logger.error(f'[Tiling    ] tiling.json is corrupt: {e}')
             raise RuntimeError(
                 f'tiling.json is corrupt ({e}). Please restore from backup or reinstall.'
-            )
+            ) from e
 
         self._validate_tiling(tiling_configs_file_loc)
 
@@ -230,7 +230,9 @@ class TilingConfig:
         try:
             overlap_percent = float(overlap_percent)
         except (TypeError, ValueError):
-            raise ValueError(f'Tile overlap must be a number, got {overlap_percent!r}')
+            raise ValueError(
+                f'Tile overlap must be a number, got {overlap_percent!r}'
+            ) from None
 
         if overlap_percent < 0.0 or overlap_percent > 50.0:
             raise ValueError(

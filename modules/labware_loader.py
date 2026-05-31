@@ -75,17 +75,17 @@ class LabwareLoader:
         try:
             with open(filepath) as read_file:
                 self.labware = json.load(read_file)
-        except FileNotFoundError:
+        except FileNotFoundError as e:
             logger.error(f'[Labware   ] labware.json not found at {filepath}')
             raise RuntimeError(
                 f'Required file labware.json not found at {filepath}. '
                 'Please reinstall or restore from backup.'
-            )
+            ) from e
         except json.JSONDecodeError as e:
             logger.error(f'[Labware   ] labware.json is corrupt: {e}')
             raise RuntimeError(
                 f'labware.json is corrupt ({e}). Please restore from backup or reinstall.'
-            )
+            ) from e
 
         _validate_labware(self.labware, filepath)
 

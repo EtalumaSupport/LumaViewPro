@@ -131,7 +131,7 @@ def load_lvp_settings(logger, lvp_appdata):
     if os.path.exists(current_path):
         try:
             load_settings(logger, current_path, lvp_appdata)
-        except (json.JSONDecodeError, ValueError):
+        except (json.JSONDecodeError, ValueError) as e:
             # current.json is corrupt -- fall back to settings.json
             logger.warning(f'[Settings ] {current_path} is corrupt, falling back to settings.json')
             settings = None
@@ -140,7 +140,7 @@ def load_lvp_settings(logger, lvp_appdata):
             else:
                 raise FileNotFoundError(
                     f'current.json corrupt and no settings.json fallback in {data_dir}'
-                )
+                ) from e
 
         # Merge missing keys from settings.json defaults into current.json.
         # current.json drifts from settings.json as new features add keys.

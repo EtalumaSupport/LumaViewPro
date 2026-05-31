@@ -54,17 +54,17 @@ class ObjectiveLoader:
         try:
             with open(filepath) as read_file:
                 self._objectives = json.load(read_file)
-        except FileNotFoundError:
+        except FileNotFoundError as e:
             logger.error(f'[Objectives] objectives.json not found at {filepath}')
             raise RuntimeError(
                 f'Required file objectives.json not found at {filepath}. '
                 'Please reinstall or restore from backup.'
-            )
+            ) from e
         except json.JSONDecodeError as e:
             logger.error(f'[Objectives] objectives.json is corrupt: {e}')
             raise RuntimeError(
                 f'objectives.json is corrupt ({e}). Please restore from backup or reinstall.'
-            )
+            ) from e
 
         _validate_objectives(self._objectives, filepath)
         self._generate_short_names()
