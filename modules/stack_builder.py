@@ -167,13 +167,13 @@ class StackBuilder(ProtocolPostProcessor):
             pixel_size_um=pixel_size_um,
         )
 
-        options = dict(
-            photometric='minisblack',
-            tile=(128, 128),
-            compression='lzw',
-            resolutionunit='CENTIMETER',
-            maxworkers=2,
-        )
+        options = {
+            'photometric': 'minisblack',
+            'tile': (128, 128),
+            'compression': 'lzw',
+            'resolutionunit': 'CENTIMETER',
+            'maxworkers': 2,
+        }
 
         resolution = (1e4 / pixel_size_um, 1e4 / pixel_size_um)
 

@@ -1119,7 +1119,7 @@ class Protocol:
         zstack_group_id = existing_max_zstack_group_id + 1
 
         num_steps = self.num_steps()
-        new_steps = list()
+        new_steps = []
 
         for row_idx in range(num_steps):
             orig_step_df = self.step(idx=row_idx)

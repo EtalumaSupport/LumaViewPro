@@ -1290,12 +1290,12 @@ def generate_tiff_data(
         # write ThreadPoolExecutor holds an Event handle that outlives
         # cleanup. No production workflow saturates this path today;
         # added for adjacent-symmetry with the other two save paths.
-        options = dict(
-            photometric=photometric,
-            compression='lzw',
-            resolutionunit='CENTIMETER',
-            maxworkers=0,
-        )
+        options = {
+            'photometric': photometric,
+            'compression': 'lzw',
+            'resolutionunit': 'CENTIMETER',
+            'maxworkers': 0,
+        }
         if data.dtype == np.uint8:
             options['tile'] = (128, 128)
         return {
@@ -1427,11 +1427,11 @@ def generate_tiff_data(
         # bench-witnessed 8-bit Bug E soak did not exercise. Adjacent
         # symmetry: same tifffile.write() ThreadPoolExecutor pattern,
         # same leak risk; deflate single-threaded cost is negligible.
-        options = dict(
-            photometric=photometric,
-            compression='deflate',
-            maxworkers=0,
-        )
+        options = {
+            'photometric': photometric,
+            'compression': 'deflate',
+            'maxworkers': 0,
+        }
         # Resolution for ImageJ types is in pixels/pixel
         resolution = (1.0 / metadata['pixel_size_um'], 1.0 / metadata['pixel_size_um'])
     else:
@@ -1442,12 +1442,12 @@ def generate_tiff_data(
         # lib/handle_trace.py over a 28-min bench run: mean +0.967/call).
         # LZW compression now runs single-threaded -- +~10ms per 5MP save,
         # negligible vs typical 1-2 saves/sec protocol cadence.
-        options = dict(
-            photometric=photometric,
-            compression='lzw',
-            resolutionunit='CENTIMETER',
-            maxworkers=0,
-        )
+        options = {
+            'photometric': photometric,
+            'compression': 'lzw',
+            'resolutionunit': 'CENTIMETER',
+            'maxworkers': 0,
+        }
         resolution = (1e4 / metadata['pixel_size_um'], 1e4 / metadata['pixel_size_um'])
 
     # Tile setting: 8-bit images use tiles for ImageJ colormap compatibility
