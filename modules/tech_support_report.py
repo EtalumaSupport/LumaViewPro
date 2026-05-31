@@ -985,7 +985,6 @@ class FirmwareDiagnostics:
                 errors += 1
         if not timings:
             return {'error': f'All {iterations} calls failed', 'errors': errors}
-        import statistics
         return {
             'iterations': iterations,
             'errors': errors,

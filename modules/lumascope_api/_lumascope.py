@@ -686,7 +686,6 @@ class Lumascope:
 
     def _tiling_configs_path(self):
         """Resolve data/tiling.json from the registered source path."""
-        import pathlib
 
         if self._source_path is None:
             raise RuntimeError(

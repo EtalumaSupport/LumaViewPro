@@ -270,7 +270,6 @@ def log_system_metrics(settings: dict):
     # Resolve relative paths and handle missing directories gracefully.
     # On installed apps, live_folder may still be './capture' before
     # microscope_settings resolves it to Documents.
-    import pathlib
 
     resolved = pathlib.Path(path).resolve()
     if not resolved.exists():

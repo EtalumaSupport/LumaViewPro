@@ -671,7 +671,6 @@ class AutofocusRunner:
 
         plot_filename = f'autofocus_plot_{ts}.png'
         plot_outfile_loc = self._results_dir / plot_filename
-        from matplotlib.figure import Figure
 
         fig = Figure(figsize=(12, 12))
         axs = fig.add_subplot(111)
