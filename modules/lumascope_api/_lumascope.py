@@ -6,7 +6,7 @@ import os
 import pathlib
 import time
 import warnings
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
@@ -86,6 +86,12 @@ import modules.image_utils as image_utils
 from modules.sequential_io_executor import SequentialIOExecutor, IOTask
 from modules.frame_validity import FrameValidity
 from modules.notification_center import notifications
+
+# Protocol is imported function-locally in the load/create methods (keeps
+# the data class off this module's import surface); declare it for the
+# return annotations without adding a runtime import.
+if TYPE_CHECKING:
+    from modules.protocol import Protocol
 
 
 class AxisState:
