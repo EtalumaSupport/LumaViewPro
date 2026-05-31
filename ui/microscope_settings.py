@@ -789,12 +789,9 @@ class MicroscopeSettings(BoxLayout):
         fmt = self.ids['live_image_output_format_spinner'].text
         gui_logger.select('LIVE_IMAGE_OUTPUT_FORMAT', fmt)
         settings['image_output_format']['live'] = fmt
-        # The JPG quality slider applies only when the live format is JPG;
-        # disable it otherwise so it reads as inert for TIFF / OME-TIFF.
-        is_jpg = fmt == 'JPG'
-        if 'jpg_quality_slider' in self.ids:
-            self.ids['jpg_quality_slider'].disabled = not is_jpg
-            self.ids['jpg_quality_value_label'].disabled = not is_jpg
+        # The JPG-quality row's visibility (and disabled state) follows the
+        # selected format declaratively in lumaviewpro.kv (jpg_quality_row binds
+        # to live_image_output_format_spinner.text), so no toggle is needed here.
 
     def update_jpg_quality(self, value):
         settings = _app_ctx.ctx.settings

@@ -2187,7 +2187,12 @@
 				id: jpg_quality_row
 				orientation: 'horizontal'
 				size_hint_y: None
-				height: '30dp'
+				# Show the JPG-quality row only when the live format is JPG. The
+				# settings panel is crowded, so collapse the row's height and hide
+				# it rather than leave an inert greyed-out row taking up space.
+				height: '30dp' if live_image_output_format_spinner.text == 'JPG' else 0
+				opacity: 1 if live_image_output_format_spinner.text == 'JPG' else 0
+				disabled: live_image_output_format_spinner.text != 'JPG'
 				Label:
 					text: 'JPG Quality'
 					tooltip_text: 'JPEG quality 1-100. Higher = better image, larger file. Only used when Live Image Format is JPG.'
@@ -2203,6 +2208,11 @@
 					step: 5
 					value: 90
 					size_hint_x: 0.4
+					cursor_size: '20dp','20dp'
+					cursor_image: './data/icons/slider_cursor.png'
+					track_width: dp(5)
+					value_track: True
+					value_track_width: dp(5)
 					on_value: root.update_jpg_quality(self.value)
 				Label:
 					id: jpg_quality_value_label
