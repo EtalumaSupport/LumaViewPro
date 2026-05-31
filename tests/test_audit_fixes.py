@@ -11811,3 +11811,52 @@ class TestShowPopupHostWidgetProxy_F9:
             f'_HostWidgetProxy wrapper instead. Got first thread arg: '
             f'{first_arg_name!r}.'
         )
+
+
+class TestPostProcessingLoggerImported:
+    """post_processing.py called logger.error() inside an `except OSError`
+    handler that writes results.csv, but the module never imported logger.
+    With logger unbound, any CSV-write failure raised NameError instead of
+    logging -- masking the real OSError from the user. The module must import
+    logger at top level whenever it references it.
+    """
+
+    def _parse(self):
+        import ast
+        import pathlib
+
+        root = pathlib.Path(__file__).resolve().parent.parent
+        src = (root / 'modules' / 'post_processing.py').read_text()
+        return ast.parse(src)
+
+    def test_logger_imported_when_referenced(self):
+        import ast
+
+        tree = self._parse()
+
+        references_logger = any(
+            isinstance(node, ast.Name)
+            and node.id == 'logger'
+            and isinstance(node.ctx, ast.Load)
+            for node in ast.walk(tree)
+        )
+        assert references_logger, (
+            'expected post_processing.py to reference logger; the test '
+            'guards against an unbound logger and is meaningless otherwise.'
+        )
+
+        imported = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom):
+                for alias in node.names:
+                    imported.add(alias.asname or alias.name)
+            elif isinstance(node, ast.Import):
+                for alias in node.names:
+                    imported.add((alias.asname or alias.name).split('.')[0])
+
+        assert 'logger' in imported, (
+            'post_processing.py references logger but never imports it; '
+            'logger.error() in the results.csv except handler would raise '
+            'NameError and hide the real OSError. Add '
+            '`from lvp_logger import logger`.'
+        )
