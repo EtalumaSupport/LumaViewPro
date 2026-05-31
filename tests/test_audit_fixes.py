@@ -2333,7 +2333,8 @@ class TestIssue643_LumiLS820PlateViewInProtocol:
     def test_lumi_and_ls820_have_xystage_false(self):
         """Sanity: scopes.json must declare Lumi and LS820 as XYStage=False
         for the issue #643 guard to actually apply."""
-        import json, pathlib
+        import json
+        import pathlib
 
         scopes = json.loads(pathlib.Path('data/scopes.json').read_text())
         assert 'Lumi' in scopes, 'Lumi scope config missing from data/scopes.json'

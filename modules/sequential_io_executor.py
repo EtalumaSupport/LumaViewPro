@@ -257,7 +257,7 @@ class IOTask:
 
         def __call__(self):
             return self.run()
-        
+
         def __repr__(self):
             return f"<IOTask: Action: {self.action!s} Callback: {self.callback!s}>"
 
@@ -427,7 +427,7 @@ class SequentialIOExecutor:
 
         if self.protocol_running.is_set() and not self.protocol_finish.is_set():
             return None
-        
+
         # Push IO work item into queue. When return_future=True, hand
         # the caller a per-thread reusable waiter (was concurrent.futures
         # Future before; switched to drop Lock kernel-handle allocation
@@ -597,7 +597,7 @@ class SequentialIOExecutor:
             result = fut.result(timeout=timeout)
         except Exception as e:
             logger.error(f"{self.name} Worker Error: {e}")
-            
+
 
     def _run_loop(self):
         while True:
@@ -868,11 +868,11 @@ class SequentialIOExecutor:
                 self.protocol_queue.task_done()
             except queue.Empty:
                 break
-        
+
         self.cleared_protocol_queue = True
         if cleared_count > 0:
             logger.info(f"{self.name} Pending Protocol Queue Cleared ({cleared_count} tasks)")
-    
+
     def is_busy(self):
         # Returns true if tasks queued or running
         return not (self.queue.empty() and self.running_task is None)
