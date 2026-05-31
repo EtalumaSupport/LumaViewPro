@@ -1098,7 +1098,7 @@ class TestIssue602_AFExecutorLED:
 
         io = SequentialIOExecutor(name='IO_TEST')
         cam = SequentialIOExecutor(name='CAM_TEST')
-        af_ex = SequentialIOExecutor(name='AF_TEST')
+        af_ex = SequentialIOExecutor(name='AF_TEST')  # noqa: F841 -- deferred
         file_ex = SequentialIOExecutor(name='FILE_TEST')
         af = AutofocusRunner(
             scope=scope,
@@ -1125,7 +1125,7 @@ class TestIssue602_AFExecutorLED:
 
         io = SequentialIOExecutor(name='IO_TEST')
         cam = SequentialIOExecutor(name='CAM_TEST')
-        af_ex = SequentialIOExecutor(name='AF_TEST')
+        af_ex = SequentialIOExecutor(name='AF_TEST')  # noqa: F841 -- deferred
         file_ex = SequentialIOExecutor(name='FILE_TEST')
         af = AutofocusRunner(
             scope=scope,
@@ -5958,7 +5958,7 @@ class TestPylonBslPrefixedNodeFallbacks:
             'fallback for legacy ace cameras.'
         )
         # Bsl variant must come first in the call.
-        bsl_pos = body.find('BslResultingAcquisitionFrameRate')
+        bsl_pos = body.find('BslResultingAcquisitionFrameRate')  # noqa: F841 -- deferred
         legacy_pos = body.find("'ResultingFrameRate'")
         if legacy_pos != -1:  # legacy may also appear in a comment first
             # Just assert the call site has both; ordering inside the call

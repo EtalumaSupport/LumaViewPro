@@ -425,7 +425,7 @@ class TestIntegrationAutoGain:
         """After auto-gain, camera gain should have been modified."""
         # Set initial gain to something we can detect changed
         scope._camera_driver.gain(1.0)
-        initial_gain = scope._camera_driver.get_gain()
+        initial_gain = scope._camera_driver.get_gain()  # noqa: F841 -- deferred
 
         protocol = _make_protocol(
             [

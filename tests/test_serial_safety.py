@@ -202,7 +202,7 @@ class TestLEDBoardLocking:
         board.driver = None
 
         with patch.object(board, 'connect') as mock_connect:
-            resp = board.exchange_command('INFO')
+            resp = board.exchange_command('INFO')  # noqa: F841 -- deferred
             mock_connect.assert_called()
 
     def test_concurrent_exchange_commands(self):
@@ -313,7 +313,7 @@ class TestMotorBoardSafety:
         board.driver = None
 
         with patch.object(board, 'connect') as mock_connect:
-            resp = board.exchange_command('INFO')
+            resp = board.exchange_command('INFO')  # noqa: F841 -- deferred
             mock_connect.assert_called()
 
     def test_disconnect_is_threadsafe(self):
@@ -1502,7 +1502,7 @@ class TestSerialDesyncRecovery:
         """
         board = self._make_board()
         call_count = [0]
-        original_readline = board.driver.readline
+        original_readline = board.driver.readline  # noqa: F841 -- deferred
 
         def flaky_readline():
             call_count[0] += 1
@@ -1513,7 +1513,7 @@ class TestSerialDesyncRecovery:
 
         board.driver.readline = flaky_readline
         # After a timeout, stale bytes appear in buffer
-        stale_count = [0]
+        stale_count = [0]  # noqa: F841 -- deferred
 
         def dynamic_in_waiting():
             # After a timeout, simulate stale data

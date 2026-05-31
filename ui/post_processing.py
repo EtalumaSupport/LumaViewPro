@@ -547,13 +547,13 @@ class GraphingControls(BoxLayout):
             x_data = x_data.to_numpy()
 
         if 'time' in self.selected_y_axis:
-            y_time_data_original = y_data
+            y_time_data_original = y_data  # noqa: F841 -- deferred
             y_ref_time = y_data.min()
 
             # Normalize y-data for scaling purposes
             y_data = (y_data - y_ref_time).dt.total_seconds()
             y_data = y_data.to_numpy()
-            time_y = True
+            time_y = True  # noqa: F841 -- deferred
         else:
             y_data = y_data.to_numpy()
 

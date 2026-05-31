@@ -310,7 +310,7 @@ class MicroscopeSettings(BoxLayout):
             # Settings are imported at the very beginning of file
 
             if settings['profiling']['enabled']:
-                ts = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+                ts = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')  # noqa: F841 -- deferred
                 profiling_save_path = os.path.join(ctx.source_path, './logs/profiling')
                 MemoryLeakProfiler.start(root_log_dir=profiling_save_path)
                 logger.info('[LVP Main  ] Memory Profiler started.')
