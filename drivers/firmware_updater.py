@@ -46,7 +46,7 @@ import time
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Optional
 from collections.abc import Callable
 
 import serial.tools.list_ports as list_ports

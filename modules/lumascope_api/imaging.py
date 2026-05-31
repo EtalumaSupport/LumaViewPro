@@ -16,7 +16,7 @@ import os
 import pathlib
 import threading
 import time
-from typing import TYPE_CHECKING, Any, ContextManager
+from typing import TYPE_CHECKING, Any
 from collections.abc import Iterator
 
 import numpy as np
@@ -1903,7 +1903,7 @@ class ImagingAPI:
         # converged value while LVP's cache is still pre-auto.
         self._refresh_cache_from_hardware_after_auto()
 
-    def update_camera_config(self) -> ContextManager[Any]:
+    def update_camera_config(self) -> contextlib.AbstractContextManager[Any]:
         """Context manager for batched camera config updates.
 
         Usage::
