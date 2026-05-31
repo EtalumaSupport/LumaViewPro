@@ -13,8 +13,6 @@ import datetime
 import logging
 import pathlib
 
-logger = logging.getLogger('LVP.modules.config_ui_getters')
-
 import modules.app_context as _app_ctx
 import modules.common_utils as common_utils
 import modules.config_helpers as config_helpers
@@ -22,6 +20,8 @@ from modules.stack_builder import StackBuilder
 from modules.tiling_config import TilingConfig
 from modules.zstack_config import ZStackConfig
 import modules.labware as labware
+
+logger = logging.getLogger('LVP.modules.config_ui_getters')
 
 
 # ---------------------------------------------------------------------------

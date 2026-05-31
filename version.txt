@@ -1,4 +1,4 @@
 4.0.0-beta15
-2026-05-30 17:00
+2026-05-30 17:02
 chore/ruff-cleanup
-6a0bdf1c
+6297ad9c
