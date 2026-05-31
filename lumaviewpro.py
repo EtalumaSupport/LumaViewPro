@@ -6,6 +6,9 @@ import os
 # Python version check -- must run before any imports that require 3.11+
 import sys
 
+# Looks statically dead under a 3.11+ target, but it is load-bearing
+# runtime UX: it shows a friendly "needs Python 3.11+" message before an
+# import below trips a deeper, cryptic SyntaxError on 3.10. Keep it.
 if sys.version_info < (3, 11):
     _ver = f'{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}'
     _msg = (
