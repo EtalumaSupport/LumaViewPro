@@ -49,6 +49,14 @@ class SimulatedCamera(Camera):
         z_position_func: Callable[[], float] | None = None,
         timing: str = 'fast',
     ):
+        # Native (unbinned) sensor size -- the fixed ceiling. _width/_height
+        # below are the CURRENT frame size in post-binning (displayed) pixels,
+        # matching the Pylon driver's convention: set_frame_size takes the
+        # post-binning ROI, and the grabbed image is exactly that size (the
+        # sensor delivers native/binning pixels). At binning 1 the frame
+        # equals the native size.
+        self._native_width = width
+        self._native_height = height
         self._width = width
         self._height = height
         self._grab_delay = grab_delay
@@ -155,8 +163,8 @@ class SimulatedCamera(Camera):
                         for fp in sorted(image_dir.glob(ext)):
                             try:
                                 pil_img = PILImage.open(fp).convert('L')
-                                h = self._height // self._binning
-                                w = self._width // self._binning
+                                h = self._height
+                                w = self._width
                                 pil_img = pil_img.resize((w, h), PILImage.LANCZOS)
                                 images.append(np.array(pil_img, dtype=np.uint8))
                                 logger.info(f'[SimCamera ] Loaded cycle image: {fp.name}')
@@ -167,8 +175,8 @@ class SimulatedCamera(Camera):
 
         if not images:
             # Generate 4 synthetic patterns as fallback
-            h = self._height // self._binning
-            w = self._width // self._binning
+            h = self._height
+            w = self._width
             # 1: Horizontal gradient
             images.append(np.tile(np.linspace(0, 255, w, dtype=np.uint8), (h, 1)))
             # 2: Vertical gradient
@@ -371,15 +379,21 @@ class SimulatedCamera(Camera):
     def set_frame_size(self, w: int, h: int) -> None:
         """Set the simulated camera frame size, clamped to valid ranges.
 
+        ``w`` and ``h`` are post-binning (displayed) pixels, so the ceiling is
+        the native sensor size divided by the current binning factor -- the
+        same constraint Pylon enforces via ``Width.Max`` at the active binning.
+
         Args:
-            w: Target width in pixels (snapped to multiple of 48,
-                clamped to [48, 4096]).
-            h: Target height in pixels (snapped to multiple of 4,
-                clamped to [4, 4096]).
+            w: Target width in pixels (snapped to a multiple of 48,
+                clamped to [48, native_width / binning]).
+            h: Target height in pixels (snapped to a multiple of 4,
+                clamped to [4, native_height / binning]).
         """
         with self._lock:
-            self._width = max(48, min(4096, int(w / 48) * 48))
-            self._height = max(4, min(4096, int(h / 4) * 4))
+            max_w = self._native_width // self._binning
+            max_h = self._native_height // self._binning
+            self._width = max(48, min(max_w, int(w / 48) * 48))
+            self._height = max(4, min(max_h, int(h / 4) * 4))
             if _cam_log is not None:
                 _cam_log.info(f'sim set_frame_size({self._width}x{self._height})')
 
@@ -392,12 +406,18 @@ class SimulatedCamera(Camera):
         return {'width': 48, 'height': 4}
 
     def get_max_frame_size(self) -> dict:
-        """Return the simulator's maximum supported frame size.
+        """Return the maximum frame size at the current binning.
+
+        Post-binning ceiling = native sensor size / binning, matching Pylon's
+        binning-dependent ``Width.Max`` / ``Height.Max``.
 
         Returns:
-            dict: ``{'width': 4096, 'height': 4096}``.
+            dict: ``{'width': int, 'height': int}``.
         """
-        return {'width': 4096, 'height': 4096}
+        return {
+            'width': self._native_width // self._binning,
+            'height': self._native_height // self._binning,
+        }
 
     def get_frame_size(self) -> dict:
         """Return the simulated camera's current frame size.
@@ -547,6 +567,13 @@ class SimulatedCamera(Camera):
             return False
         with self._lock:
             self._binning = size
+            # Frame is in post-binning pixels, so a larger binning shrinks the
+            # post-binning ceiling (native / binning); clamp the current frame
+            # down to it, the same way Pylon clamps Width to the reduced
+            # Width.Max. The UI re-pushes set_frame_size after a binning change,
+            # but isolated binning changes (no frame re-push) still stay valid.
+            self._width = min(self._width, self._native_width // size)
+            self._height = min(self._height, self._native_height // size)
             if _cam_log is not None:
                 _cam_log.info(f'sim set_binning_size({size})')
         return True
@@ -670,8 +697,8 @@ class SimulatedCamera(Camera):
 
     def _generate_image(self) -> np.ndarray:
         """Generate a synthetic image based on current settings."""
-        h = self._height // self._binning
-        w = self._width // self._binning
+        h = self._height
+        w = self._width
 
         if self._pixel_format in ('Mono10', 'Mono12'):
             dtype = np.uint16

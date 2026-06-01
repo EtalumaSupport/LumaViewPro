@@ -18,6 +18,7 @@ binning level is reproducible and the cycle round-trips exactly.
 """
 
 import modules.binning as binning
+from drivers.simulated_camera import SimulatedCamera
 
 
 # Mimics the buggy pre-fix derivation: iterate on the displayed value, and
@@ -115,3 +116,44 @@ class TestBinningRoundTrip:
         assert binning.native_to_displayed(native, 1, align) == start
         assert binning.native_to_displayed(native, 2, align) == {'width': 960, 'height': 600}
         assert binning.native_to_displayed(native, 4, align) == {'width': 480, 'height': 300}
+
+
+class TestSimPostBinningContract:
+    """The simulated camera obeys the same post-binning frame contract as the
+    Pylon driver, so simulator runs match real hardware.
+
+    set_frame_size takes the post-binning (displayed) ROI; the grabbed image is
+    exactly that size; get_max_frame_size is the native sensor size divided by
+    the current binning; and increasing binning re-clamps the frame to the new
+    max -- the behavior observed on a Basler camera (a 1920x1200 ROI becomes
+    960x600 at 2x2).
+    """
+
+    def _grab_shape(self, cam):
+        return cam._generate_image().shape  # (height, width)
+
+    def test_set_frame_size_is_post_binning(self):
+        cam = SimulatedCamera()  # native 1920x1200
+        cam.set_binning_size(2)
+        # Max at 2x2 is native / 2.
+        assert cam.get_max_frame_size() == {'width': 960, 'height': 600}
+        cam.set_frame_size(960, 600)
+        assert cam.get_frame_size() == {'width': 960, 'height': 600}
+        assert self._grab_shape(cam) == (600, 960)
+
+    def test_binning_change_reclamps_full_frame(self):
+        cam = SimulatedCamera()
+        cam.set_frame_size(1920, 1200)  # full at 1x1
+        cam.set_binning_size(2)         # observed: 1920x1200 -> 960x600
+        assert cam.get_frame_size() == {'width': 960, 'height': 600}
+        assert self._grab_shape(cam) == (600, 960)
+
+    def test_init_path_passes_post_binning_frame(self):
+        """At binning 2, init must hand set_frame_size the displayed size
+        (960x600), not native (1920x1200). Passing native would over-size the
+        post-binning ROI on Pylon -- the cropped-ROI-at-startup bug."""
+        cam = SimulatedCamera()
+        cam.set_binning_size(2)
+        # Displayed value the init path now passes through (no * binning).
+        cam.set_frame_size(960, 600)
+        assert self._grab_shape(cam) == (600, 960)
