@@ -4181,6 +4181,9 @@
 			id: cell_count_image_id
 			allow_stretch: True
 			keep_ratio: True
+			# Hide the empty widget until a preview is actually loaded; an
+			# untextured Image otherwise renders a stray white box.
+			opacity: 1 if self.texture else 0
 			source: ""
 			canvas:
 				Color:
