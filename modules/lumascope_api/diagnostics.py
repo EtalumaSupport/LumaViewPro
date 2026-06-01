@@ -772,15 +772,24 @@ class DiagnosticsAPI:
     def get_motor_info(self) -> dict:
         """Get motor controller information.
 
+        Identity fields are constant for the life of a connection, so
+        they are served from the values FULLINFO cached at connect rather
+        than re-queried over the serial bus. This method is called once
+        per saved frame to stamp image metadata; a live FULLINFO here
+        would add a serial round-trip to every capture.
+
         Returns:
             dict: Keys 'model', 'serial_number', 'firmware_version'.
-                  Values are None/unknown if board inactive.
+                  model/serial are the real strings on a connected board,
+                  'unknown' when a connected board's FULLINFO failed to
+                  parse (the cached fallback), and None when no board is
+                  present (the null driver).
         """
-        info = self._scope._motion_driver.fullinfo()
+        driver = self._scope._motion_driver
         return {
-            'model': info.get('model', 'unknown'),
-            'serial_number': info.get('serial_number', 'unknown'),
-            'firmware_version': getattr(self._scope._motion_driver, 'firmware_version', None),
+            'model': driver.get_microscope_model(),
+            'serial_number': driver.get_serial_number(),
+            'firmware_version': getattr(driver, 'firmware_version', None),
         }
 
     def get_led_info(self) -> dict:

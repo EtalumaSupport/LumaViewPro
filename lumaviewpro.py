@@ -377,6 +377,12 @@ from ui.vertical_control import VerticalControl
 from ui.zstack import ZStack
 
 
+# current.json is written at clean shutdown (on_stop). A hard kill or crash
+# would otherwise leave no runtime-state snapshot in a tech-support bundle,
+# so it is also flushed on this interval while the app runs.
+_CURRENT_JSON_FLUSH_INTERVAL_S = 300
+
+
 class LumaViewProApp(TooltipMixin, App):
     """Main application class -- build, start, stop, tooltips."""
 
@@ -404,6 +410,11 @@ class LumaViewProApp(TooltipMixin, App):
         Clock.schedule_interval(ctx.stage.draw_labware, 1.0)
         Clock.schedule_interval(ctx.motion_settings.update_xy_stage_control_gui, 1.0)
         Clock.schedule_once(functools.partial(ctx.image_settings.set_expanded_layer, 'BF'), 0.2)
+
+        # Periodic current.json snapshot so a hard kill / crash still leaves a
+        # recent runtime-state file for tech-support bundles (it is otherwise
+        # only written at clean shutdown).
+        Clock.schedule_interval(self._flush_current_json, _CURRENT_JSON_FLUSH_INTERVAL_S)
 
         # Stage B1: publish Kivy-side layer state to scope_display_thread at
         # 30Hz. The thread cannot read Kivy widget attrs from a non-UI
@@ -1008,6 +1019,21 @@ class LumaViewProApp(TooltipMixin, App):
 
         # No protocol running - allow normal close
         return False
+
+    def _flush_current_json(self, dt: float) -> None:
+        """Periodic current.json snapshot (Clock interval callback).
+
+        Mirrors the on_stop save so a hard kill / crash still leaves recent
+        runtime state on disk. The hardware-presence gate inside
+        save_settings prevents overwriting real per-channel values with
+        slider defaults when no hardware was connected this session.
+        """
+        try:
+            ctx.motion_settings.ids['microscope_settings_id'].save_settings(
+                './data/current.json'
+            )
+        except Exception:
+            logger.exception('[LVP Main  ] periodic current.json flush failed')
 
     def on_stop(self) -> None:
         """Kivy lifecycle hook: tear down hardware, save settings, exit cleanly."""

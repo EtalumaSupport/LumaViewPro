@@ -48,6 +48,12 @@ class IDSCamera(Camera):
         self.data_stream = None
         self.remote_nodemap = None
 
+        # Cache of the active PixelFormat. PixelFormat only changes through
+        # set_pixel_format(), so the cache is refreshed there and cleared on
+        # disconnect; get_pixel_format() serves from it to avoid a live
+        # node-map read on the per-frame image-metadata path.
+        self._pixel_format_cache = None
+
         super().__init__()
 
     def connect(self) -> bool:
@@ -113,6 +119,7 @@ class IDSCamera(Camera):
                 self.remote_nodemap = None
                 self.data_stream = None
                 self.device_manager = None
+                self._pixel_format_cache = None
                 # Library.Close() deferred to atexit -- don't call here
                 logger.info('[CAM Class ] Disconnected from IDS camera')
                 return True
@@ -439,6 +446,7 @@ class IDSCamera(Camera):
         try:
             with self.update_camera_config():
                 self.remote_nodemap.FindNode("PixelFormat").SetCurrentEntry(resolved)
+            self._pixel_format_cache = resolved
             return True
         except Exception as e:
             _cam_log.error(f'[CAM Class ] set_pixel_format({resolved}) failed: {e}')
@@ -448,8 +456,16 @@ class IDSCamera(Camera):
             ) from e
 
     def get_pixel_format(self):
+        # Served from the cache populated on first read and on every
+        # set_pixel_format(); PixelFormat only changes through that setter.
+        # get_camera_info() reads this once per saved frame, so a live
+        # node-map read here would touch the SDK on every capture.
+        if self._pixel_format_cache is not None:
+            return self._pixel_format_cache
         try:
-            return self.remote_nodemap.FindNode("PixelFormat").CurrentEntry().SymbolicValue()
+            value = self.remote_nodemap.FindNode("PixelFormat").CurrentEntry().SymbolicValue()
+            self._pixel_format_cache = value
+            return value
         except Exception as e:
             _cam_log.error(f'[CAM Class ] get_pixel_format failed: {e}')
             return None
@@ -481,7 +497,7 @@ class IDSCamera(Camera):
             # Update grab timeout so long exposures don't cause perpetual timeouts
             if self.cam_image_handler:
                 self.cam_image_handler.timeout_ms = max(2000, int(exposure_ms * 2 + 500))
-            logger.info(f'[CAM Class ] Exposure set to {exposure_ms}ms')
+            logger.debug(f'[CAM Class ] Exposure set to {exposure_ms}ms')
         except Exception as e:
             if _cam_log is not None:
                 _cam_log.error(f'ids ExposureTime.SetValue({exposure_ms}ms) FAILED: {e}')
@@ -714,7 +730,7 @@ class IDSCamera(Camera):
                 _cam_log.info(f'ids GainSelector=AnalogAll Gain.SetValue({float(gain):.3f})')
             self.remote_nodemap.FindNode("GainSelector").SetCurrentEntry("AnalogAll")
             self.remote_nodemap.FindNode("Gain").SetValue(gain)
-            logger.info(f'[CAM Class ] Gain set to {gain}')
+            logger.debug(f'[CAM Class ] Gain set to {gain}')
         except Exception as e:
             if _cam_log is not None:
                 _cam_log.error(f'ids Gain.SetValue({gain}) FAILED: {e}')

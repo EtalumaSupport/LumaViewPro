@@ -148,7 +148,7 @@ def test_callers_pass_persisted_position():
     its new home.
     """
     callers = [
-        'modules/step_navigation.py',
+        'ui/step_navigation.py',
         'modules/scope_session.py',
     ]
     pattern = re.compile(

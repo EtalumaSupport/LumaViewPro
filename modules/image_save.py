@@ -510,7 +510,7 @@ def save_image(
                 rgb_buf=rgb_buf,
             )
 
-        logger.info(f'[SCOPE API ] Saving Image to {file_loc}')
+        logger.debug(f'[SCOPE API ] Saving Image to {file_loc}')
     except Exception:
         logger.exception('[SCOPE API ] Error: Unable to save. Perhaps save folder does not exist?')
         notifications.error(

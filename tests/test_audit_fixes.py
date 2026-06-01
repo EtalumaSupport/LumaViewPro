@@ -3017,7 +3017,7 @@ class TestAccordionStaysPutAcrossProtocolStopStart_AccordionDrift:
         from pathlib import Path
 
         return (
-            Path(__file__).resolve().parent.parent / 'modules' / 'step_navigation.py'
+            Path(__file__).resolve().parent.parent / 'ui' / 'step_navigation.py'
         ).read_text()
 
     def test_go_to_step_update_ui_takes_called_from_protocol_arg(self):
@@ -3076,6 +3076,49 @@ class TestAccordionStaysPutAcrossProtocolStopStart_AccordionDrift:
         assert 'called_from_protocol=called_from_protocol' in window, (
             'Schedule closure must forward called_from_protocol from '
             'go_to_step scope into go_to_step_update_ui'
+        )
+
+
+class TestProtocolStepPanelToggleIdempotent:
+    """Each protocol step scheduled go_to_step_update_ui, which forced the
+    ImageSettings panel open by calling toggle_settings() unconditionally.
+    After the first step the panel is already open, so every later step
+    re-ran the panel reposition + histogram rescheduling and logged a
+    misleading 'toggle_settings' line -- roughly one per captured frame,
+    ~15k across a long soak.
+
+    Fix: only open when the panel is not already open, so the expand/
+    collapse handler runs once when the preview opens it, not once per
+    step. toggle_settings() is an expand/collapse handler, not an
+    idempotent refresh, so it must be state-guarded at this call site.
+    """
+
+    def _body(self):
+        from pathlib import Path
+
+        src = (
+            Path(__file__).resolve().parent.parent / 'ui' / 'step_navigation.py'
+        ).read_text()
+        start = src.find('def go_to_step_update_ui(')
+        assert start != -1
+        body = src[start : start + 4000]
+        end = body.find('\ndef ', 1)
+        return body if end == -1 else body[:end]
+
+    def test_panel_toggle_guarded_by_state_check(self):
+        """The toggle_settings() call in go_to_step_update_ui must be
+        guarded by a `state != 'down'` check so it fires once per preview,
+        not once per protocol step."""
+        body = self._body()
+        idx = body.find('toggle_settings()')
+        assert idx != -1, 'toggle_settings() call must exist in go_to_step_update_ui'
+        guard_window = body[max(0, idx - 300) : idx]
+        assert "!= 'down'" in guard_window, (
+            "the ImageSettings panel toggle must be guarded by a "
+            "`state != 'down'` check so toggle_settings() runs once when the "
+            "preview opens the panel, not once per protocol step (avoids "
+            "per-step reposition + histogram churn and a misleading "
+            "toggle_settings log line)"
         )
 
 

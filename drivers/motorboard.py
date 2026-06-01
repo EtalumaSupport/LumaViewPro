@@ -275,6 +275,23 @@ class MotorBoard(SerialBoard):
             return None
         return info.get('model')
 
+    def get_serial_number(self) -> str | None:
+        """Return the cached serial number string from FULLINFO.
+
+        Served from the FULLINFO response cached at connect; the serial
+        number is fixed for the life of a connection, so this never
+        re-queries the serial bus.
+
+        Returns:
+            str | None: Serial number, or None when FULLINFO has never
+                completed (disconnected board).
+        """
+        with self._state_lock:
+            info = self._fullinfo
+        if info is None:
+            return None
+        return info.get('serial_number')
+
     def detect_present_axes(self) -> list:
         """Detect which axes are present on this board.
 

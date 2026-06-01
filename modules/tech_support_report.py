@@ -53,6 +53,7 @@ import platformdirs
 
 from modules import settings_init
 from modules.path_utils import get_script_root, get_source_root
+from modules.protocol import Protocol
 
 logger = logging.getLogger(__name__)
 
@@ -217,26 +218,36 @@ def get_recent_protocols(n=RECENT_PROTOCOL_COUNT):
     seen = set()
 
     for search_dir in search_dirs:
-        for json_file in search_dir.rglob('*.json'):
-            real = json_file.resolve()
+        for proto_file in (*search_dir.rglob('*.tsv'), *search_dir.rglob('*.json')):
+            real = proto_file.resolve()
             if real in seen:
                 continue
             seen.add(real)
             try:
-                with open(json_file) as f:
+                with open(proto_file) as f:
                     head = f.read(2048)
-                # Protocol files contain these keys
-                if any(k in head for k in ('"steps"', '"sequences"', '"scan"',
-                                           '"protocol"', '"Protocol"')):
-                    stat = json_file.stat()
-                    protocol_files.append({
-                        'path': json_file,
-                        'modified': datetime.datetime.fromtimestamp(stat.st_mtime),
-                        'name': json_file.stem,
-                        'size': stat.st_size,
-                    })
             except (OSError, UnicodeDecodeError):
                 continue
+            # LVP protocols are TSV-native: Protocol.to_file() writes a TSV
+            # whose first row is the PROTOCOL_FILE_HEADER banner, and a run
+            # in progress auto-writes its protocol (as unsaved_protocol.tsv)
+            # into the run directory -- so TSV matching is what surfaces a
+            # running protocol that was never explicitly saved. JSON is also
+            # accepted for legacy / exported protocols.
+            is_tsv_protocol = (proto_file.suffix == '.tsv'
+                               and Protocol.PROTOCOL_FILE_HEADER in head)
+            is_json_protocol = (proto_file.suffix == '.json'
+                                and any(k in head for k in
+                                        ('"steps"', '"sequences"', '"scan"',
+                                         '"protocol"', '"Protocol"')))
+            if is_tsv_protocol or is_json_protocol:
+                stat = proto_file.stat()
+                protocol_files.append({
+                    'path': proto_file,
+                    'modified': datetime.datetime.fromtimestamp(stat.st_mtime),
+                    'name': proto_file.stem,
+                    'size': stat.st_size,
+                })
 
     protocol_files.sort(key=lambda x: x['modified'], reverse=True)
     return protocol_files[:n]
@@ -2026,7 +2037,7 @@ class TechSupportReport:
 
         for p in protocols:
             try:
-                shutil.copy2(p['path'], d / f"{p['name']}.json")
+                shutil.copy2(p['path'], d / f"{p['name']}{p['path'].suffix}")
             except Exception as e:
                 logger.warning(f"Could not copy protocol {p['path']}: {e}")
 
