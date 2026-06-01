@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from lvp_logger import logger
+from lvp_logger import protocol_logger as logger
 
 import modules.common_utils as common_utils
 from modules.image_save import save_image

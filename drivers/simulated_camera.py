@@ -476,7 +476,7 @@ class SimulatedCamera(Camera):
                 _cam_log.info(
                     f'sim ExposureTime.SetValue({float(exposure_ms) * 1000.0:.0f}us) (={exposure_ms}ms)'
                 )
-            logger.info(f'[CAM Sim   ] Exposure set to {exposure_ms}ms')
+            logger.debug(f'[CAM Sim   ] Exposure set to {exposure_ms}ms')
 
     def get_exposure_t(self) -> float:
         """Return exposure time in milliseconds.
@@ -836,7 +836,7 @@ class SimulatedCamera(Camera):
             self._gain = float(gain)
             if _cam_log is not None:
                 _cam_log.info(f'sim Gain.SetValue({float(gain):.3f})')
-            logger.info(f'[CAM Sim   ] Gain set to {gain}')
+            logger.debug(f'[CAM Sim   ] Gain set to {gain}')
 
     def init_auto_gain_focus(
         self,

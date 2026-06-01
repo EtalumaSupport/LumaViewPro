@@ -112,6 +112,7 @@ API_LOG_FILE = os.path.join(log_dir, 'api.log')
 CAMERA_LOG_FILE = os.path.join(log_dir, 'camera.log')
 GUI_LOG_FILE = os.path.join(log_dir, 'gui_interactions.log')
 METRICS_LOG_FILE = os.path.join(log_dir, 'metrics.log')
+PROTOCOL_LOG_FILE = os.path.join(log_dir, 'protocol.log')
 
 
 # CustomFormatter class enables change in log format depending on log level
@@ -389,6 +390,31 @@ metrics_file_handler.addFilter(ThreadPauseFilter())
 metrics_logger.addHandler(metrics_file_handler)
 # Metrics errors/warnings still hit the errors log
 metrics_logger.addHandler(error_file_handler)
+
+# Protocol log -- dedicated file for the per-step protocol-execution
+# narrative (step records, per-channel LED/illumination, image-captured
+# events). A long protocol soak emits tens of thousands of these per run;
+# routing them here keeps the main log readable while preserving the full
+# run history. propagate=False keeps protocol detail out of the main log;
+# warnings/errors still mirror to the errors log.
+protocol_logger = logging.getLogger('LVP.protocol')
+protocol_logger.setLevel(logging.INFO)
+protocol_logger.propagate = False  # Keep protocol detail out of the main log
+
+protocol_file_handler = RotatingFileHandler(
+    PROTOCOL_LOG_FILE,
+    mode='a',
+    maxBytes=20 * 1024 * 1024,
+    backupCount=5,
+    encoding=None,
+    delay=False,
+)
+protocol_file_handler.namer = lambda name: name.replace('.log', '') + '.log'
+protocol_file_handler.setFormatter(CustomFormatter())
+protocol_file_handler.addFilter(ThreadPauseFilter())
+protocol_logger.addHandler(protocol_file_handler)
+# Protocol errors/warnings still hit the errors log
+protocol_logger.addHandler(error_file_handler)
 
 # Autofocus log -- dedicated file for AF sweep data, scores, timing.
 # Engineering mode only -- handler attached via enable_engineering_logs().

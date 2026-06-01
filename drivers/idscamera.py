@@ -481,7 +481,7 @@ class IDSCamera(Camera):
             # Update grab timeout so long exposures don't cause perpetual timeouts
             if self.cam_image_handler:
                 self.cam_image_handler.timeout_ms = max(2000, int(exposure_ms * 2 + 500))
-            logger.info(f'[CAM Class ] Exposure set to {exposure_ms}ms')
+            logger.debug(f'[CAM Class ] Exposure set to {exposure_ms}ms')
         except Exception as e:
             if _cam_log is not None:
                 _cam_log.error(f'ids ExposureTime.SetValue({exposure_ms}ms) FAILED: {e}')
@@ -714,7 +714,7 @@ class IDSCamera(Camera):
                 _cam_log.info(f'ids GainSelector=AnalogAll Gain.SetValue({float(gain):.3f})')
             self.remote_nodemap.FindNode("GainSelector").SetCurrentEntry("AnalogAll")
             self.remote_nodemap.FindNode("Gain").SetValue(gain)
-            logger.info(f'[CAM Class ] Gain set to {gain}')
+            logger.debug(f'[CAM Class ] Gain set to {gain}')
         except Exception as e:
             if _cam_log is not None:
                 _cam_log.error(f'ids Gain.SetValue({gain}) FAILED: {e}')

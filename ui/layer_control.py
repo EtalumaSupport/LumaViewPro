@@ -989,7 +989,7 @@ class LayerControl(BoxLayout):
         if getattr(self, '_initializing', False):
             return
 
-        logger.info(f'[LVP Main  ] {self.layer}_LayerControl.apply_settings()')
+        logger.debug(f'[LVP Main  ] {self.layer}_LayerControl.apply_settings()')
 
         ctx = _app_ctx.ctx
         settings = ctx.settings
