@@ -1002,7 +1002,7 @@ class Lumascope:
         Returns:
             bool: True if all three components are connected.
         """
-        logger.info('[SCOPE API ] Performing connection check...')
+        logger.debug('[SCOPE API ] Performing connection check...')
         led = not isinstance(self._led_driver, NullLEDBoard) and self._led_driver.is_connected()
         motion = self.motor_connected
         camera = self._camera_driver is not None and self._camera_driver.is_connected()
@@ -1015,7 +1015,7 @@ class Lumascope:
             logger.info('[SCOPE API ] Connection Check: Camera not connected')
 
         if led and motion and camera:
-            logger.info('[SCOPE API ] Connection Check: All components connected')
+            logger.debug('[SCOPE API ] Connection Check: All components connected')
 
         return led and motion and camera
 
