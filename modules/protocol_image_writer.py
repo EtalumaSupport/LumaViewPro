@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import datetime
 import pathlib
+import logging
 import threading
 import time
 from typing import TYPE_CHECKING
@@ -181,16 +182,21 @@ class ProtocolImageWriter:
         try:
             is_video = step['Acquire'] == 'video'
 
-            # #610 diagnostic: trace camera settings decision at each capture
-            _ag = step['Auto_Gain']
-            _curr_gain = self._scope.imaging.get_gain()
-            _curr_exp = self._scope.imaging.get_exposure_time()
-            logger.debug(
-                f'[CAPTURE DIAG] step={step.get("Name", "?")} color={step["Color"]} '
-                f'Auto_Gain={_ag!r} (type={type(_ag).__name__}) '
-                f'step_gain={step["Gain"]} step_exp={step["Exposure"]} '
-                f'camera_gain={_curr_gain} camera_exp={_curr_exp}'
-            )
+            # #610 diagnostic: trace camera settings decision at each capture.
+            # camera_gain/camera_exp are read LIVE on purpose (the point is the
+            # ACTUAL camera state vs the step's intent), so the reads are gated
+            # on debug being enabled -- otherwise two SDK reads run every step
+            # even though the line is dropped in normal operation.
+            if logger.isEnabledFor(logging.DEBUG):
+                _ag = step['Auto_Gain']
+                _curr_gain = self._scope.imaging.get_gain()
+                _curr_exp = self._scope.imaging.get_exposure_time()
+                logger.debug(
+                    f'[CAPTURE DIAG] step={step.get("Name", "?")} color={step["Color"]} '
+                    f'Auto_Gain={_ag!r} (type={type(_ag).__name__}) '
+                    f'step_gain={step["Gain"]} step_exp={step["Exposure"]} '
+                    f'camera_gain={_curr_gain} camera_exp={_curr_exp}'
+                )
 
             if not step['Auto_Gain']:
                 logger.debug(
