@@ -235,14 +235,23 @@ class ZProjectionControls(BoxLayout):
         if result['status'] is False:
             final_text += f'\n{result["message"]}'
             popup.text = final_text
-            notifications.warning(
-                'Z-Projection',
-                'No Z-Stack data found',
-                f'{result["message"]}. Pick a folder that contains a Z-stack '
-                f"run -- look under 'Manual/Z-Stacks/<timestamp>/' for a "
-                f"manual Z-stack, or a 'ProtocolData/<timestamp>/' folder "
-                f'whose protocol included Z-stack steps.',
-            )
+            if result.get('reason') == 'error':
+                # The operation itself failed (e.g. ImageJ/Java unavailable);
+                # don't send the user off to pick a different folder.
+                notifications.warning(
+                    'Z-Projection',
+                    'Z-Projection failed',
+                    result['message'],
+                )
+            else:
+                notifications.warning(
+                    'Z-Projection',
+                    'No Z-Stack data found',
+                    f'{result["message"]}. Pick a folder that contains a Z-stack '
+                    f"run -- look under 'Manual/Z-Stacks/<timestamp>/' for a "
+                    f"manual Z-stack, or a 'ProtocolData/<timestamp>/' folder "
+                    f'whose protocol included Z-stack steps.',
+                )
             Clock.schedule_once(lambda dt: popup.dismiss(), 5)
             return
 
