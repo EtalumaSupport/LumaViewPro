@@ -3097,7 +3097,7 @@ class TestProtocolStepPanelToggleIdempotent:
         from pathlib import Path
 
         src = (
-            Path(__file__).resolve().parent.parent / 'modules' / 'step_navigation.py'
+            Path(__file__).resolve().parent.parent / 'ui' / 'step_navigation.py'
         ).read_text()
         start = src.find('def go_to_step_update_ui(')
         assert start != -1
