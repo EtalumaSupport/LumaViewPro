@@ -85,7 +85,7 @@ class LayerControl(BoxLayout):
     show_cbt = BooleanProperty(True)
 
     def __init__(self, **kwargs):
-        super(LayerControl, self).__init__(**kwargs)
+        super().__init__(**kwargs)
 
         logger.debug('[LVP Main  ] LayerControl.__init__()')
         if self.bg_color is None:
@@ -353,7 +353,6 @@ class LayerControl(BoxLayout):
             self.apply_settings()
 
     def update_auto_gain(self, init: bool = False):
-        settings = _app_ctx.ctx.settings
         camera_executor = _app_ctx.ctx.camera_executor
         logger.info('[LVP Main  ] LayerControl.update_auto_gain()')
         if self.ids['auto_gain'].state == 'down':
@@ -842,7 +841,7 @@ class LayerControl(BoxLayout):
             return
         settings = _app_ctx.ctx.settings
         camera_executor = _app_ctx.ctx.camera_executor
-        enabled = True if self.ids['enable_led_btn'].state == 'down' else False
+        enabled = self.ids['enable_led_btn'].state == 'down'
         gui_logger.toggle(f'LED_{self.layer}', enabled)
         illumination = settings[self.layer]['ill_ma']
 

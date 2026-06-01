@@ -8,6 +8,10 @@ import psutil
 import tifffile as tf
 
 import modules.image_utils as image_utils
+import modules.common_utils as common_utils
+from modules.common_utils import PostFunction
+from modules.protocol_post_processor import ProtocolPostProcessor
+from modules.protocol_post_record import ProtocolPostRecord
 
 import logging
 
@@ -25,12 +29,6 @@ def _check_hyperstack_memory(num_t, num_z, num_c, h, w, dtype):
             f'{available_bytes / 1e9:.1f} GB available. Reduce Z-slices, '
             f'timepoints, or channels.'
         )
-
-
-import modules.common_utils as common_utils
-from modules.common_utils import PostFunction
-from modules.protocol_post_processor import ProtocolPostProcessor
-from modules.protocol_post_record import ProtocolPostRecord
 
 
 class StackBuilder(ProtocolPostProcessor):
@@ -89,7 +87,7 @@ class StackBuilder(ProtocolPostProcessor):
     def _filter_ignored_types(self, df: pd.DataFrame) -> pd.DataFrame:
 
         # Only process raw
-        df = df[df['Raw'] == True]
+        df = df[df['Raw'] == True]  # noqa: E712 -- pandas mask
 
         return df
 
@@ -169,13 +167,13 @@ class StackBuilder(ProtocolPostProcessor):
             pixel_size_um=pixel_size_um,
         )
 
-        options = dict(
-            photometric='minisblack',
-            tile=(128, 128),
-            compression='lzw',
-            resolutionunit='CENTIMETER',
-            maxworkers=2,
-        )
+        options = {
+            'photometric': 'minisblack',
+            'tile': (128, 128),
+            'compression': 'lzw',
+            'resolutionunit': 'CENTIMETER',
+            'maxworkers': 2,
+        }
 
         resolution = (1e4 / pixel_size_um, 1e4 / pixel_size_um)
 

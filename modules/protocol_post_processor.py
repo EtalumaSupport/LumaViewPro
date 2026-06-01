@@ -43,19 +43,19 @@ class ProtocolPostProcessor(abc.ABC):
     @staticmethod
     @abc.abstractmethod
     def _get_groups(df: pd.DataFrame) -> pd.DataFrame:
-        raise NotImplementedError(f'Implement in child class')
+        raise NotImplementedError('Implement in child class')
 
     @abc.abstractmethod
     def _generate_filename(self, df: pd.DataFrame, **kwargs) -> str:
-        raise NotImplementedError(f'Implement in child class')
+        raise NotImplementedError('Implement in child class')
 
     @abc.abstractmethod
     def _filter_ignored_types(self, df: pd.DataFrame) -> pd.DataFrame:
-        raise NotImplementedError(f'Implement in child class')
+        raise NotImplementedError('Implement in child class')
 
     @abc.abstractmethod
     def _group_algorithm(path: pathlib.Path, df: pd.DataFrame):
-        raise NotImplementedError(f'Implement in child class')
+        raise NotImplementedError('Implement in child class')
 
     @staticmethod
     @abc.abstractmethod
@@ -64,7 +64,7 @@ class ProtocolPostProcessor(abc.ABC):
         alg_metadata: dict,
         root_path: pathlib.Path,
     ):
-        raise NotImplementedError(f'Implement in child class')
+        raise NotImplementedError('Implement in child class')
 
     def _get_objective_short_name_if_has_turret(self, objective_id: str) -> str | None:
         if self._has_turret:
@@ -133,6 +133,7 @@ class ProtocolPostProcessor(abc.ABC):
         new_count = 0
         existing_count = 0
         current_group = 1
+        last_error = None
 
         for _, group in groups:
             if len(group) == 0:
@@ -176,6 +177,7 @@ class ProtocolPostProcessor(abc.ABC):
             )
 
             if not alg_results['status']:
+                last_error = alg_results.get('error')
                 logger.error(f'Failed to generate {output_file_loc_rel}: {alg_results["error"]}')
                 continue
 
@@ -213,12 +215,30 @@ class ProtocolPostProcessor(abc.ABC):
             needed = _MULTI_FRAME_REQUIREMENT.get(
                 self._post_function, 'multiple frames per scan position'
             )
+            if last_error is not None:
+                # Usable groups WERE found and attempted, but every one failed
+                # in the algorithm (e.g. ImageJ/Java not available for a
+                # Z-Projection). Surface the real failure instead of implying
+                # the folder lacked the data -- the prior message sent users
+                # hunting for missing Z-stacks when the operation itself broke.
+                logger.info(
+                    f'[{self._name} ] No {fname} output -- all groups failed: {last_error}'
+                )
+                return {
+                    'status': False,
+                    'reason': 'error',
+                    'message': (
+                        f'{fname} could not be generated: {last_error}. '
+                        f'See lumaviewpro.log for details.'
+                    ),
+                }
             logger.info(
                 f'[{self._name} ] No {fname} output generated -- '
                 f'no usable image groups (need {needed})'
             )
             return {
                 'status': False,
+                'reason': 'no_data',
                 'message': (
                     f'No {fname} was generated. {fname} requires {needed}. '
                     f'The folder may have image files but not the structure '

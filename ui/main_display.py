@@ -35,7 +35,7 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
     def __init__(self, camera_type='ids', simulate=False, **kwargs):
         import modules.lumascope_api as lumascope_api
 
-        super(MainDisplay, self).__init__(**kwargs)
+        super().__init__(**kwargs)
         self.scope = lumascope_api.Lumascope(camera_type=camera_type, simulate=simulate)
         # LVP-A-2: camera_temps_event moved to Lumascope.start_camera_temp_logging.
         self.recording = threading.Event()
@@ -61,9 +61,6 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
     def cam_toggle(self):
         try:
             logger.info('[LVP Main  ] MainDisplay.cam_toggle()')
-
-            ctx = _app_ctx.ctx
-            settings = ctx.settings
 
             scope_display = self.ids['viewer_id'].ids['scope_display_id']
             if not self.scope.imaging.camera_active:
@@ -243,7 +240,6 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
 
         self.start_ts = time.time()
         self.stop_ts = self.start_ts + max_duration
-        seconds_per_frame = 1.0 / video_fps
 
         self.memmap_location = pathlib.Path(settings['live_folder']) / 'recording_temp.dat'
 
@@ -331,7 +327,7 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
                     mode=memmap_mode,
                     shape=(max_frames, frame_size['height'], frame_size['width'], 3),
                 )
-        except (OSError, IOError) as e:
+        except OSError as e:
             logger.error(f'[LVP Main  ] Failed to create memmap file: {e}')
             logger.error(f'[LVP Main  ] If this persists, manually delete: {self.memmap_location}')
             Clock.schedule_once(
@@ -359,7 +355,7 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
             else None
         )
 
-        logger.info(f'Manual-Video] Capturing video...')
+        logger.info('Manual-Video] Capturing video...')
 
         # Considered camera-side AcquisitionFrameRate cap; rejected because
         # the cap controls AVERAGE rate while jittering individual frames
@@ -627,14 +623,13 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
         captured_frames = kwargs.get('captured_frames', 0)
         timestamps = kwargs.get('timestamps', [])
         chunks_per_frame = kwargs.get('chunks_per_frame', [])
-        tick_freq_hz = kwargs.get('tick_freq_hz', None)
-        video_frames = kwargs.get('video_frames', None)
+        tick_freq_hz = kwargs.get('tick_freq_hz')
+        video_frames = kwargs.get('video_frames')
         video_duration = kwargs.get('video_duration', 0)
-        video_save_folder = kwargs.get('video_save_folder', None)
+        video_save_folder = kwargs.get('video_save_folder')
         start_time_str = kwargs.get('start_time_str', '')
         video_as_frames = kwargs.get('video_as_frames', False)
-        memmap_path = kwargs.get('memmap_path', None)
-        video_false_color = kwargs.get('video_false_color', None)
+        memmap_path = kwargs.get('memmap_path')
 
         # H-4 fix: use UI values snapshotted on main thread by _enqueue_recording_complete()
         ui_snapshot = kwargs.get('ui_snapshot', {})
@@ -803,13 +798,13 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
                     stack_builder.create_single_recording_stack(
                         df=frame_metadata_df,
                         path=save_folder,
-                        output_file_loc=save_folder / f'ManualVideo_Frame_HyperStack.ome.tiff',
+                        output_file_loc=save_folder / 'ManualVideo_Frame_HyperStack.ome.tiff',
                         focal_length=objective['focal_length'],
                         binning_size=ui_snapshot['binning'],
                     )
 
                     logger.info(
-                        f'Manual-Video] Hyperstack created at {save_folder / f"ManualVideo_Frame_HyperStack.ome.tiff"}'
+                        f'Manual-Video] Hyperstack created at {save_folder / "ManualVideo_Frame_HyperStack.ome.tiff"}'
                     )
 
             else:

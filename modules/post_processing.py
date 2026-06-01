@@ -11,6 +11,7 @@ from matplotlib.dates import ConciseDateFormatter
 import pandas
 import modules.image_utils as image_utils
 
+from lvp_logger import logger
 from modules.cell_count import CellCount
 
 

@@ -447,9 +447,6 @@ class ImageSettings(BoxLayout):
         logger.info('[LVP Main  ] ImageSettings.toggle_settings()')
         ctx = _app_ctx.ctx
         lumaview = ctx.lumaview
-        scope_display = ctx.scope_display
-
-        # scope_display.stop()
 
         # move position of settings and stop histogram if main settings are collapsed
         if self.ids['toggle_imagesettings'].state == 'normal':

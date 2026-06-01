@@ -24,7 +24,7 @@ class LvpLock:
         try:
             self._lock_socket.bind(('127.0.0.1', self._lock_port))
             return True
-        except (socket.error, OSError) as e:
+        except OSError:
             return False
 
     @property

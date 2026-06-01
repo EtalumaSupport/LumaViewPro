@@ -251,6 +251,10 @@ if __name__ == '__main__':
     )
     from ui.progress_popup import show_popup
 
+    # Imported for its side effect: registers the global <Popup> on_open rule
+    # that adds a close (X) button to every popup app-wide.
+    import ui.popup_close  # noqa: F401
+
     # User Interface Custom Widgets
     from ui.range_slider import RangeSlider
     from ui.rounded_buttons import RoundedButton, RoundedToggleButton

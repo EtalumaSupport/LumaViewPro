@@ -59,7 +59,7 @@ class ScopeDisplay(Image):
     play = BooleanProperty(True)
 
     def __init__(self, **kwargs):
-        super(ScopeDisplay, self).__init__(**kwargs)
+        super().__init__(**kwargs)
         logger.debug('[LVP Main  ] ScopeDisplay.__init__()')
         self.play = True
         # paused / _display_running / _display_generation / _min_frame_interval /
@@ -446,7 +446,7 @@ class ScopeDisplay(Image):
     def transform_to_bullseye_prealloc(self, image):
         if ScopeDisplay._bullseye_lut is None:
             ScopeDisplay._bullseye_lut = ScopeDisplay._build_bullseye_lut()
-        target_shape = image.shape + (3,)
+        target_shape = (*image.shape, 3)
         if self._bullseye_rgb_buf is None or self._bullseye_buf_shape != image.shape:
             self._bullseye_rgb_buf = np.empty(target_shape, dtype=np.uint8)
             self._bullseye_buf_shape = image.shape
@@ -599,7 +599,6 @@ class ScopeDisplay(Image):
             self._frame_interval_history.append(interval_ms)
         self._last_frame_pull_time = cycle_start
 
-        t_worker_start = cycle_start
         t_queue_wait = 0  # No queue under B1; preserve var for downstream perf code.
 
         # Snapshot counter value before scheduling increment on main thread

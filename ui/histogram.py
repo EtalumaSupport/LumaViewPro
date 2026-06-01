@@ -17,7 +17,7 @@ class Histogram(Widget):
     layer = ObjectProperty(None)
 
     def __init__(self, **kwargs):
-        super(Histogram, self).__init__(**kwargs)
+        super().__init__(**kwargs)
         logger.debug('[LVP Main  ] Histogram.__init__()')
         if self.bg_color is None:
             self.bg_color = (1, 1, 1, 1)

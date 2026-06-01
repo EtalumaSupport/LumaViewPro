@@ -210,7 +210,7 @@ if not debug:
     _lvp_parent.propagate = False
 
 # obtains name of the module (file) importing lvp_logger
-filename = '%s' % __file__
+filename = f'{__file__}'
 file_handler = RotatingFileHandler(
     LOG_FILE,
     mode='a',

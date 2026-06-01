@@ -2187,7 +2187,12 @@
 				id: jpg_quality_row
 				orientation: 'horizontal'
 				size_hint_y: None
-				height: '30dp'
+				# Show the JPG-quality row only when the live format is JPG. The
+				# settings panel is crowded, so collapse the row's height and hide
+				# it rather than leave an inert greyed-out row taking up space.
+				height: '30dp' if live_image_output_format_spinner.text == 'JPG' else 0
+				opacity: 1 if live_image_output_format_spinner.text == 'JPG' else 0
+				disabled: live_image_output_format_spinner.text != 'JPG'
 				Label:
 					text: 'JPG Quality'
 					tooltip_text: 'JPEG quality 1-100. Higher = better image, larger file. Only used when Live Image Format is JPG.'
@@ -2203,6 +2208,11 @@
 					step: 5
 					value: 90
 					size_hint_x: 0.4
+					cursor_size: '20dp','20dp'
+					cursor_image: './data/icons/slider_cursor.png'
+					track_width: dp(5)
+					value_track: True
+					value_track_width: dp(5)
 					on_value: root.update_jpg_quality(self.value)
 				Label:
 					id: jpg_quality_value_label
@@ -3841,9 +3851,9 @@
 	orientation: 'horizontal'
 
 	# Controls
-	BoxLayout: 
+	BoxLayout:
 		orientation: 'vertical'
-		size_hint_x: 0.35
+		size_hint_x: 0.45
 
 		# Pad
 		Widget:
@@ -3853,6 +3863,8 @@
 		# Select image to load
 		FileChooseBTN:
 			text: 'Load Image'
+			size_hint_x: 0.6
+			pos_hint: {"center_x": 0.5}
 			tooltip_text: 'Select example image to configure analysis settings'
 			size_hint_y: None
 			height: '30dp'
@@ -3932,7 +3944,7 @@
 					text: 'Threshold'
 					tooltip_text: 'Object threshold against background'
 					size_hint_x: None
-					width: '90dp'
+					width: '110dp'
 					font_size: '12sp'
 				
 				ModSlider:
@@ -3941,10 +3953,16 @@
 					max: 100
 					step: 1
 					orientation: 'horizontal'
+					cursor_size: '20dp','20dp'
+					cursor_image: './data/icons/slider_cursor.png'
+					track_width: dp(5)
+					value_track: True
+					value_track_width: dp(5)
 					on_release: root.slider_adjustment_threshold()
 				Label:
 					text: f"{str(int(slider_cell_count_threshold_id.value))} %"
-					width: '60dp'
+					size_hint_x: None
+					width: '110dp'
 					font_size: '12sp'
 			
 			# Area slider
@@ -3955,7 +3973,7 @@
 					text: 'Area'
 					tooltip_text: 'Area limits for objects'
 					size_hint_x: None
-					width: '90dp'
+					width: '110dp'
 					font_size: '12sp'
 
 				RangeSlider:
@@ -3970,7 +3988,8 @@
 					on_touch_move: root.slider_adjustment_area()
 				Label:
 					id: label_cell_count_area_id
-					width: '60dp'
+					size_hint_x: None
+					width: '110dp'
 					font_size: '12sp'
 
 			# Perimeter slider
@@ -3981,7 +4000,7 @@
 					text: 'Perimeter'
 					tooltip_text: 'Perimeter limits for objects'
 					size_hint_x: None
-					width: '90dp'
+					width: '110dp'
 					font_size: '12sp'
 				
 				RangeSlider:
@@ -3996,7 +4015,8 @@
 					on_touch_move: root.slider_adjustment_perimeter()
 				Label:
 					id: label_cell_count_perimeter_id
-					width: '60dp'
+					size_hint_x: None
+					width: '110dp'
 					font_size: '12sp'
 
 			# Sphericity slider
@@ -4007,7 +4027,7 @@
 					text: 'Sphericity'
 					tooltip_text: 'Roundness limits for objects'
 					size_hint_x: None
-					width: '90dp'
+					width: '110dp'
 					font_size: '12sp'
 				
 				RangeSlider:
@@ -4022,7 +4042,8 @@
 				Label:
 					id: label_cell_count_sphericity_id
 					text: f"{round(slider_cell_count_sphericity_id.value[0],2)}-{round(slider_cell_count_sphericity_id.value[1],2)}"
-					width: '60dp'
+					size_hint_x: None
+					width: '110dp'
 					font_size: '12sp'
 
 			# Min Intensity slider
@@ -4033,7 +4054,7 @@
 					text: 'Min Intensity'
 					tooltip_text: 'Minimum intensity for objects'
 					size_hint_x: None
-					width: '90dp'
+					width: '110dp'
 					font_size: '12sp'
 				
 				RangeSlider:
@@ -4048,7 +4069,8 @@
 				Label:
 					id: label_cell_count_min_intensity_id
 					text: f"{int(slider_cell_count_min_intensity_id.value[0])}-{int(slider_cell_count_min_intensity_id.value[1])} %"
-					width: '60dp'
+					size_hint_x: None
+					width: '110dp'
 					font_size: '12sp'
 
 			# Mean Intensity slider
@@ -4059,7 +4081,7 @@
 					text: 'Mean Intensity'
 					tooltip_text: 'Mean intensity for objects'
 					size_hint_x: None
-					width: '90dp'
+					width: '110dp'
 					font_size: '12sp'
 				
 				RangeSlider:
@@ -4074,7 +4096,8 @@
 				Label:
 					id: label_cell_count_mean_intensity_id
 					text: f"{int(slider_cell_count_mean_intensity_id.value[0])}-{int(slider_cell_count_mean_intensity_id.value[1])} %"
-					width: '60dp'
+					size_hint_x: None
+					width: '110dp'
 					font_size: '12sp'
 
 			# Max Intensity slider
@@ -4085,7 +4108,7 @@
 					text: 'Max Intensity'
 					tooltip_text: 'Maximum intensity for objects'
 					size_hint_x: None
-					width: '90dp'
+					width: '110dp'
 					font_size: '12sp'
 				
 				RangeSlider:
@@ -4100,7 +4123,8 @@
 				Label:
 					id: label_cell_count_max_intensity_id
 					text: f"{int(slider_cell_count_max_intensity_id.value[0])}-{int(slider_cell_count_max_intensity_id.value[1])} %"
-					width: '60dp'
+					size_hint_x: None
+					width: '110dp'
 					font_size: '12sp'
 
 
@@ -4111,6 +4135,8 @@
 			
 		RoundedButton:
 			text: 'Apply Method to Preview'
+			size_hint_x: 0.6
+			pos_hint: {"center_x": 0.5}
 			tooltip_text: 'Re-analyze image with new settings'
 			size_hint_y: None
 			height: '30dp'
@@ -4120,6 +4146,8 @@
 		# Save method
 		FileSaveBTN:
 			text: 'Save Method As...'
+			size_hint_x: 0.6
+			pos_hint: {"center_x": 0.5}
 			tooltip_text: 'Store analysis settings in a Method file'
 			size_hint_y: None
 			height: '30dp'
@@ -4130,6 +4158,8 @@
 		# Select method to load
 		FileChooseBTN:
 			text: 'Load Method'
+			size_hint_x: 0.6
+			pos_hint: {"center_x": 0.5}
 			tooltip_text: 'Retrieve a saved analysis Method'
 			size_hint_y: None
 			height: '30dp'
@@ -4139,6 +4169,8 @@
 		# Apply method
 		FolderChooseBTN:
 			text: 'Apply Method to Folder'
+			size_hint_x: 0.6
+			pos_hint: {"center_x": 0.5}
 			tooltip_text: 'Analyze all images in a folder according to the current Method'
 			size_hint_y: None
 			height: '30dp'
@@ -4157,11 +4189,12 @@
 				rgba: 0,0,0,0
 		Image:
 			id: cell_count_image_id
-			pos_hint: {"x":0.5, "y":0.5}
+			allow_stretch: True
+			keep_ratio: True
+			# Hide the empty widget until a preview is actually loaded; an
+			# untextured Image otherwise renders a stray white box.
+			opacity: 1 if self.texture else 0
 			source: ""
 			canvas:
 				Color:
 					rgba: 0,0,0,0
-
-	# Empty widget to consume space at bottom of controls panel
-	Widget:

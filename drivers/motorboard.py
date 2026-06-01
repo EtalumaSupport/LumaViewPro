@@ -166,10 +166,10 @@ class MotorBoard(SerialBoard):
                 # Legacy port reset: close and reopen to flush USB CDC
                 # buffers on Windows. Has existed since original code.
                 self.driver.close()
-                logger.debug(f'[XYZ Class ] connect() port closed for reset')
+                logger.debug('[XYZ Class ] connect() port closed for reset')
                 time.sleep(0.05)  # brief pause for Windows to release port
                 self.driver.open()
-                logger.debug(f'[XYZ Class ] connect() port reopened after reset')
+                logger.debug('[XYZ Class ] connect() port reopened after reset')
 
                 self._connect_fails = 0
                 self._connect_log_suppressed = False
@@ -227,6 +227,18 @@ class MotorBoard(SerialBoard):
         logger.info('[XYZ Class ] MotorBoard.fullinfo(): %s', info, extra={'force_error': True})
         if info is None:
             logger.error('[XYZ Class ] FULLINFO returned None -- board disconnected?')
+            return {'model': 'unknown', 'serial_number': 'unknown'}
+        # Legacy firmware (pre-FULLINFO) replies with an UNKNOWN_CMD error
+        # instead of model/serial. That is an expected capability gap on older
+        # units, not a fault -- log at INFO and fall back, rather than an ERROR
+        # on every connect, which on a legacy board floods the error log and
+        # buries genuine failures (the same noise the VOLTAGE / DRVSTAT /
+        # FANSPEED diagnostic probes already suppress on unsupported firmware).
+        if 'UNKNOWN_CMD' in info or 'unknown command' in info.lower():
+            logger.info(
+                '[XYZ Class ] FULLINFO not supported on this firmware; '
+                'using model/serial fallback'
+            )
             return {'model': 'unknown', 'serial_number': 'unknown'}
         try:
             parts = info.split()

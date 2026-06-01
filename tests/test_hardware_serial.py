@@ -58,7 +58,7 @@ class TestLEDSerialBenchmark:
 
         median = statistics.median(times)
         p95 = sorted(times)[94]
-        print(f'\n  LED exchange_command latency (100 calls):')
+        print('\n  LED exchange_command latency (100 calls):')
         print(f'    Median: {median:.2f} ms')
         print(f'    P95:    {p95:.2f} ms')
         print(f'    Min:    {min(times):.2f} ms')
@@ -77,7 +77,7 @@ class TestLEDSerialBenchmark:
             times.append(elapsed * 1000)
 
         median = statistics.median(times)
-        print(f'\n  LED on+off cycle (50 cycles):')
+        print('\n  LED on+off cycle (50 cycles):')
         print(f'    Median: {median:.2f} ms per cycle')
         print(f'    Max:    {max(times):.2f} ms')
 
@@ -92,7 +92,7 @@ class TestLEDSerialBenchmark:
             times.append(elapsed * 1000)
 
         median = statistics.median(times)
-        print(f'\n  LED fast on+off cycle (50 cycles):')
+        print('\n  LED fast on+off cycle (50 cycles):')
         print(f'    Median: {median:.2f} ms per cycle')
         print(f'    Max:    {max(times):.2f} ms')
 
@@ -144,7 +144,7 @@ class TestMotorSerialBenchmark:
 
         median = statistics.median(times)
         p95 = sorted(times)[94]
-        print(f'\n  Motor exchange_command latency (100 calls):')
+        print('\n  Motor exchange_command latency (100 calls):')
         print(f'    Median: {median:.2f} ms')
         print(f'    P95:    {p95:.2f} ms')
         print(f'    Min:    {min(times):.2f} ms')

@@ -4,7 +4,9 @@ import os
 import pathlib
 import subprocess
 import sys
+import threading
 
+from kivy.clock import Clock
 from kivy.properties import ListProperty, StringProperty
 from kivy.uix.button import Button
 
@@ -151,6 +153,39 @@ def _macos_save_file(initial_dir=None, default_name=None):
     return None
 
 
+def _run_macos_dialog_async(button, dialog_fn, on_path):
+    """Run a blocking osascript dialog off the Kivy main thread.
+
+    osascript opens the native panel via subprocess.run; called inline it
+    blocks the Kivy event loop for the whole time the panel is open, so the
+    app beachballs ("Application Not Responding") until the user dismisses
+    it. The panel belongs to the osascript process, not LVP, so it does not
+    freeze interaction the way an in-app modal would -- which is also why the
+    Kivy button stays clickable behind it; the in-flight guard below stops a
+    second click from stacking a second panel.
+
+    subprocess.run is thread-safe, so the dialog runs on a daemon thread and
+    the chosen path is marshalled back to the main thread (Kivy is
+    single-threaded for UI) via Clock before on_path runs. on_path is invoked
+    only for a non-empty selection (user picked something, did not cancel).
+    """
+    if getattr(button, '_dialog_in_flight', False):
+        return
+    button._dialog_in_flight = True
+
+    def worker():
+        result = dialog_fn()
+
+        def deliver(_dt):
+            button._dialog_in_flight = False
+            if result:
+                on_path(result)
+
+        Clock.schedule_once(deliver, 0)
+
+    threading.Thread(target=worker, daemon=True).start()
+
+
 class FileChooseBTN(HoverBehavior, Button):
     context = StringProperty()
     selection = ListProperty([])
@@ -177,9 +212,11 @@ class FileChooseBTN(HoverBehavior, Button):
             return
 
         if sys.platform == 'darwin':
-            path = _macos_open_file(initial_dir=selected_path, filetypes=filetypes_tk)
-            if path:
-                self.handle_selection(selection=[path])
+            _run_macos_dialog_async(
+                self,
+                lambda: _macos_open_file(initial_dir=selected_path, filetypes=filetypes_tk),
+                lambda path: self.handle_selection(selection=[path]),
+            )
             return
 
         # Windows/Linux: tkinter
@@ -269,6 +306,17 @@ class FolderChooseBTN(HoverBehavior, Button):
         # platforms (macOS Finder, Windows Explorer, Linux GTK) already
         # show file listings -- the Kivy picker was duplicating UX that
         # the OS provides better. Reverted per #675.
+        if sys.platform == 'darwin':
+            # Background the osascript panel so the app does not beachball
+            # while it is open (see _run_macos_dialog_async). tkinter (below)
+            # stays on the main thread -- it is not thread-safe.
+            _run_macos_dialog_async(
+                self,
+                lambda: _macos_choose_folder(initial_dir=selected_path),
+                lambda chosen: self.handle_selection(selection=[chosen]),
+            )
+            return
+
         chosen = _platform_native_choose_folder(
             initial_dir=selected_path,
             title=f'Select folder ({context})',
@@ -332,9 +380,11 @@ class FileSaveBTN(HoverBehavior, Button):
         selected_path = _app_ctx.ctx.settings['live_folder']
 
         if sys.platform == 'darwin':
-            path = _macos_save_file(initial_dir=selected_path)
-            if path:
-                self.handle_selection(selection=[path])
+            _run_macos_dialog_async(
+                self,
+                lambda: _macos_save_file(initial_dir=selected_path),
+                lambda path: self.handle_selection(selection=[path]),
+            )
             return
 
         # Windows/Linux: tkinter

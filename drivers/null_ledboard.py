@@ -47,7 +47,7 @@ class NullLEDBoard:
         self.port = None
         self.is_v2 = False
         self._state_lock = threading.Lock()
-        self.led_ma = {color: -1 for color in self._COLOR_TO_CH}
+        self.led_ma = dict.fromkeys(self._COLOR_TO_CH, -1)
 
         logger.debug('[NULL LED  ] NullLEDBoard initialized (no LED hardware)')
 

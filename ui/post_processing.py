@@ -123,6 +123,10 @@ class ZProjectionControls(BoxLayout):
                 + '               '
             )
             self.ij_initialized = False
+            logger.info(
+                '[Z-Projection] ImageJ not yet initialized -- starting background '
+                'init and showing the wait popup (no cancel; may hang if Java is absent)'
+            )
             # Run imagej initialization in a separate thread
             # Callback to finish zprojection when imagej is initialized
             from modules.imagej_helper import init_ij
@@ -186,13 +190,32 @@ class ZProjectionControls(BoxLayout):
             self.ij_buffer_event = None
             self.ij_buffer_count = 0
 
-        if ctx.ij_helper is None:
+        # init_ij always hands back a helper; an unavailable one (no Java)
+        # has ij_helper.available False. Gate on that, not just is-None --
+        # otherwise an unavailable helper runs the projection and the user
+        # gets a generic "Failed to create Z-Projection" with no cause named.
+        if ctx.ij_helper is None or not ctx.ij_helper.available:
+            from modules.notification_center import notifications
+
             logger.error(
-                f'[Z-Projection] ij_helper is None after init_ij -- '
+                f'[Z-Projection] ImageJ is not available -- '
                 f'result={result!r} exception={exception!r}. '
-                f'pass_result may be missing or init_ij returned None.'
+                f'ImageJ/Java did not initialize.'
             )
-            popup.text = 'Failed to initialize ImageJ. Please try again.'
+            # Name the real cause: ImageJ failed to start, which on a machine
+            # without Java means there is nothing to retry until Java is
+            # installed. The old "Please try again" sent users in circles.
+            popup.text = (
+                'Z-Projection unavailable: ImageJ could not start.\n'
+                'This usually means Java is not installed or not found.'
+            )
+            notifications.error(
+                'Z-Projection',
+                'Z-Projection unavailable',
+                'ImageJ could not start, so Z-Projection cannot run. This '
+                'usually means Java is not installed or could not be found. '
+                'Install Java and retry, or see lumaviewpro.log for details.',
+            )
             Clock.schedule_once(lambda dt: popup.dismiss(), 5)
             return
 
@@ -235,14 +258,23 @@ class ZProjectionControls(BoxLayout):
         if result['status'] is False:
             final_text += f'\n{result["message"]}'
             popup.text = final_text
-            notifications.warning(
-                'Z-Projection',
-                'No Z-Stack data found',
-                f'{result["message"]}. Pick a folder that contains a Z-stack '
-                f"run -- look under 'Manual/Z-Stacks/<timestamp>/' for a "
-                f"manual Z-stack, or a 'ProtocolData/<timestamp>/' folder "
-                f'whose protocol included Z-stack steps.',
-            )
+            if result.get('reason') == 'error':
+                # The operation itself failed (e.g. ImageJ/Java unavailable);
+                # don't send the user off to pick a different folder.
+                notifications.warning(
+                    'Z-Projection',
+                    'Z-Projection failed',
+                    result['message'],
+                )
+            else:
+                notifications.warning(
+                    'Z-Projection',
+                    'No Z-Stack data found',
+                    f'{result["message"]}. Pick a folder that contains a Z-stack '
+                    f"run -- look under 'Manual/Z-Stacks/<timestamp>/' for a "
+                    f"manual Z-stack, or a 'ProtocolData/<timestamp>/' folder "
+                    f'whose protocol included Z-stack steps.',
+                )
             Clock.schedule_once(lambda dt: popup.dismiss(), 5)
             return
 
@@ -338,7 +370,7 @@ class VideoCreationControls(BoxLayout):
             logger.error(f'Could not retrieve valid FPS for video generation. Using {fps} fps.')
 
         ts_overlay_btn = self.ids['enable_timestamp_overlay_btn']
-        enable_timestamp_overlay = True if ts_overlay_btn.state == 'down' else False
+        enable_timestamp_overlay = ts_overlay_btn.state == 'down'
 
         if fps < 1:
             msg = 'Video generation frames/second must be >= 1 fps'
@@ -547,13 +579,13 @@ class GraphingControls(BoxLayout):
             x_data = x_data.to_numpy()
 
         if 'time' in self.selected_y_axis:
-            y_time_data_original = y_data
+            y_time_data_original = y_data  # noqa: F841 -- deferred
             y_ref_time = y_data.min()
 
             # Normalize y-data for scaling purposes
             y_data = (y_data - y_ref_time).dt.total_seconds()
             y_data = y_data.to_numpy()
-            time_y = True
+            time_y = True  # noqa: F841 -- deferred
         else:
             y_data = y_data.to_numpy()
 
@@ -679,8 +711,6 @@ class GraphingControls(BoxLayout):
         plt.savefig(filepath)
 
     def set_graphing_source(self, file):
-        from datetime import datetime as date_time
-
         self._source_csv = file
         self.initialize_graph()
         try:
@@ -689,9 +719,11 @@ class GraphingControls(BoxLayout):
             if self.available_axes[0] == 'file':
                 self.available_axes = self.available_axes[1:]
             if 'time' in self.available_axes:
-                self.graph_df['time'] = [
-                    date_time.strptime(datetime_obj, '%c') for datetime_obj in self.graph_df['time']
-                ]
+                # Parse to a pandas datetime64 column. A list comprehension of
+                # datetime.strptime objects yields an object-dtype column, and
+                # the .dt accessor (used by the time-axis trendline) rejects
+                # object dtype -- that crashed update_trendline on a time axis.
+                self.graph_df['time'] = pd.to_datetime(self.graph_df['time'], format='%c')
 
             self.update_available_axes()
             self.set_x_axis()
@@ -773,13 +805,11 @@ class CellCountControls(BoxLayout):
     def execute_apply_method_to_folder(self, popup, path):
         pre_text = f'Applying method to folder: {path}'
         total_images = self._post.get_num_images_in_folder(path=path)
-        image_count = 0
 
-        for image_process in self._post.apply_cell_count_to_folder(
-            path=path, settings=self._settings
+        for image_count, image_process in enumerate(
+            self._post.apply_cell_count_to_folder(path=path, settings=self._settings), start=1
         ):
             filename = image_process['filename']
-            image_count += 1
             popup.progress = int(100 * image_count / total_images)
             popup.text = f'{pre_text}\n- {image_count}/{total_images}: {filename}'
 
@@ -803,7 +833,7 @@ class CellCountControls(BoxLayout):
     @staticmethod
     def _validate_method_settings_metadata(settings):
         if 'metadata' not in settings:
-            raise Exception(f'No valid metadata found')
+            raise Exception('No valid metadata found')
 
         metadata = settings['metadata']
 
@@ -969,7 +999,7 @@ class CellCountControls(BoxLayout):
 
     def load_method_from_file(self, file):
         logger.info(f'[LVP Main  ] CellCountContent.load_method_from_file({file})')
-        with open(file, 'r') as f:
+        with open(file) as f:
             method_settings = json.load(f)
 
         self.load_settings(settings=method_settings)
@@ -1263,4 +1293,4 @@ def open_last_save_folder():
 
 class CellCountDisplay(FloatLayout):
     def __init__(self, **kwargs):
-        super(CellCountDisplay, self).__init__(**kwargs)
+        super().__init__(**kwargs)

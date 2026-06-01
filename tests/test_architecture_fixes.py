@@ -412,4 +412,4 @@ class TestTinyFileConsolidation:
                     py_compile.compile(filepath, doraise=True)
                 except py_compile.PyCompileError as e:
                     errors.append(str(e))
-        assert not errors, f'Syntax errors found:\n' + '\n'.join(errors)
+        assert not errors, 'Syntax errors found:\n' + '\n'.join(errors)

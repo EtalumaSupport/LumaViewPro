@@ -238,7 +238,7 @@ class SequencedCaptureRunner:
         try:
             self._parent_dir.mkdir(parents=True, exist_ok=True)
         except FileNotFoundError:
-            err_str = f'Unable to save data to {str(self._parent_dir)}. Please select an accessible capture location.'
+            err_str = f'Unable to save data to {self._parent_dir!s}. Please select an accessible capture location.'
             return {
                 'status': False,
                 'data': None,
@@ -280,7 +280,7 @@ class SequencedCaptureRunner:
             except FileExistsError:
                 continue
             except FileNotFoundError:
-                err_str = f'Unable to save data to {str(self._run_dir)}. Please select an accessible capture location.'
+                err_str = f'Unable to save data to {self._run_dir!s}. Please select an accessible capture location.'
                 return {
                     'status': False,
                     'data': None,
@@ -288,7 +288,7 @@ class SequencedCaptureRunner:
                 }
 
         err_str = (
-            f'Unable to save data to {str(self._run_dir)}: '
+            f'Unable to save data to {self._run_dir!s}: '
             f'exhausted 1000 collision suffixes within the same second. '
             f'Please wait a moment and retry.'
         )
@@ -404,7 +404,7 @@ class SequencedCaptureRunner:
             raise ValueError(f'Unsupported value for leds_state_at_end: {leds_state_at_end}')
 
         if protocol.num_steps() == 0:
-            logger.error(f'[PROTOCOL] Protocol has no steps. Cannot start run.')
+            logger.error('[PROTOCOL] Protocol has no steps. Cannot start run.')
             from modules.notification_center import notifications
 
             notifications.warning(
@@ -463,7 +463,7 @@ class SequencedCaptureRunner:
 
         try:
             if not self._scope.are_all_connected():
-                logger.error(f'[PROTOCOL] Not all scope components connected. Cannot start run.')
+                logger.error('[PROTOCOL] Not all scope components connected. Cannot start run.')
                 from modules.notification_center import notifications
 
                 notifications.error(

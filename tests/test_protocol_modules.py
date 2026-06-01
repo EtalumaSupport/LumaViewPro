@@ -324,31 +324,31 @@ class TestRunCleanup:
         file_exec = _FakeExecutor()
         camera_exec = _FakeExecutor()
 
-        defaults = dict(
-            get_state_fn=get_state,
-            set_state_fn=set_state,
-            run_lock=threading.Lock(),
-            scan_in_progress=threading.Event(),
-            leds_state_at_end='off',
-            original_led_states={},
-            original_autofocus_states={},
-            saved_camera_state=None,
-            return_to_position=None,
-            disable_saving_artifacts=True,
-            protocol=None,
-            protocol_execution_record=None,
-            scope=MagicMock(),
-            callbacks=ProtocolCallbacks(),
-            leds_off_fn=lambda: None,
-            led_on_fn=lambda **kw: None,
-            default_move_fn=lambda **kw: None,
-            cancel_scheduled_events_fn=lambda: None,
-            io_executor=io_exec,
-            autofocus_thread=af_thread,
-            file_io_executor=file_exec,
-            camera_executor=camera_exec,
-            set_run_in_progress_fn=lambda v: run_in_progress.__setitem__(0, v),
-        )
+        defaults = {
+            'get_state_fn': get_state,
+            'set_state_fn': set_state,
+            'run_lock': threading.Lock(),
+            'scan_in_progress': threading.Event(),
+            'leds_state_at_end': 'off',
+            'original_led_states': {},
+            'original_autofocus_states': {},
+            'saved_camera_state': None,
+            'return_to_position': None,
+            'disable_saving_artifacts': True,
+            'protocol': None,
+            'protocol_execution_record': None,
+            'scope': MagicMock(),
+            'callbacks': ProtocolCallbacks(),
+            'leds_off_fn': lambda: None,
+            'led_on_fn': lambda **kw: None,
+            'default_move_fn': lambda **kw: None,
+            'cancel_scheduled_events_fn': lambda: None,
+            'io_executor': io_exec,
+            'autofocus_thread': af_thread,
+            'file_io_executor': file_exec,
+            'camera_executor': camera_exec,
+            'set_run_in_progress_fn': lambda v: run_in_progress.__setitem__(0, v),
+        }
         defaults.update(overrides)
         return defaults, state, run_in_progress
 

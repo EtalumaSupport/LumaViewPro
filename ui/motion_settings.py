@@ -333,8 +333,6 @@ class MotionSettings(BoxLayout):
     # Hide (and unhide) motion settings
     def toggle_settings(self):
         logger.info('[LVP Main  ] MotionSettings.toggle_settings()')
-        scope_display = _app_ctx.ctx.scope_display
-        # scope_display.stop()
         self.ids['verticalcontrol_id'].update_gui()
         self.ids['protocol_settings_id'].select_labware()
 

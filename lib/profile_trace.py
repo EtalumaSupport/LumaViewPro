@@ -110,7 +110,7 @@ class timer:
     so it's safe to do non-trivial formatting inside it.
     """
 
-    __slots__ = ('filename', 'header', 'extra_fn', 't0')
+    __slots__ = ('extra_fn', 'filename', 'header', 't0')
 
     def __init__(self, filename, header, extra_fn):
         self.filename = filename
@@ -166,7 +166,7 @@ class TimedLock:
     has a similar guard for serial-call hosts).
     """
 
-    __slots__ = ('_lock', '_name', '_warn_hold_threshold_ms', '_tls')
+    __slots__ = ('_lock', '_name', '_tls', '_warn_hold_threshold_ms')
 
     def __init__(self, lock, name, warn_hold_threshold_ms=None):
         self._lock = lock

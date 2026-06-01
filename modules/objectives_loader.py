@@ -52,19 +52,19 @@ class ObjectiveLoader:
     def __init__(self, *arg, source_path: str | pathlib.Path | None = None):
         filepath = resolve_data_file('objectives.json', source_path=source_path)
         try:
-            with open(filepath, 'r') as read_file:
+            with open(filepath) as read_file:
                 self._objectives = json.load(read_file)
-        except FileNotFoundError:
+        except FileNotFoundError as e:
             logger.error(f'[Objectives] objectives.json not found at {filepath}')
             raise RuntimeError(
                 f'Required file objectives.json not found at {filepath}. '
                 'Please reinstall or restore from backup.'
-            )
+            ) from e
         except json.JSONDecodeError as e:
             logger.error(f'[Objectives] objectives.json is corrupt: {e}')
             raise RuntimeError(
                 f'objectives.json is corrupt ({e}). Please restore from backup or reinstall.'
-            )
+            ) from e
 
         _validate_objectives(self._objectives, filepath)
         self._generate_short_names()
@@ -107,7 +107,7 @@ class ObjectiveLoader:
         short_names = [v['short_name'] for v in self._objectives.values()]
         short_names_set = set(short_names)
         if len(short_names_set) < len(short_names):
-            raise Exception(f'Duplicate short names for objectives were generated')
+            raise Exception('Duplicate short names for objectives were generated')
 
     def find_objective_id_from_short_name(self, short_name: str) -> str | None:
         for k, v in self._objectives.items():
@@ -125,7 +125,7 @@ class ObjectiveLoader:
         if ((objective_id is None) and (short_name is None)) or (
             (objective_id is not None) and (short_name is not None)
         ):
-            raise Exception(f'Must supply objective ID or short name, but not both')
+            raise Exception('Must supply objective ID or short name, but not both')
 
         if short_name is not None:
             objective_id = self.find_objective_id_from_short_name(short_name=short_name)

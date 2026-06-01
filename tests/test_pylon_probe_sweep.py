@@ -38,15 +38,15 @@ class _FakeCamera:
 
 def _make_args(**overrides):
     """Minimal argparse.Namespace mirroring the tool's CLI defaults."""
-    base = dict(
-        pixel_formats=['Mono8'],
-        resolution_tuples=[(2100, 2100)],
-        dltl_modes=['On'],
-        dltl_values_mb=[],
-        gige_bw_modes=['Performance'],
-        gige_packet_sizes=[1500],
-        gige_delays=[0],
-    )
+    base = {
+        'pixel_formats': ['Mono8'],
+        'resolution_tuples': [(2100, 2100)],
+        'dltl_modes': ['On'],
+        'dltl_values_mb': [],
+        'gige_bw_modes': ['Performance'],
+        'gige_packet_sizes': [1500],
+        'gige_delays': [0],
+    }
     base.update(overrides)
     return argparse.Namespace(**base)
 

@@ -13,8 +13,6 @@ import datetime
 import logging
 import pathlib
 
-logger = logging.getLogger('LVP.modules.config_ui_getters')
-
 import modules.app_context as _app_ctx
 import modules.common_utils as common_utils
 import modules.config_helpers as config_helpers
@@ -22,6 +20,8 @@ from modules.stack_builder import StackBuilder
 from modules.tiling_config import TilingConfig
 from modules.zstack_config import ZStackConfig
 import modules.labware as labware
+
+logger = logging.getLogger('LVP.modules.config_ui_getters')
 
 
 # ---------------------------------------------------------------------------
@@ -149,8 +149,8 @@ def get_current_frame_dimensions() -> dict:
     try:
         frame_width = int(microscope_settings.ids['frame_width_id'].text)
         frame_height = int(microscope_settings.ids['frame_height_id'].text)
-    except Exception:
-        raise ValueError(f'Invalid value for frame width/height')
+    except Exception as e:
+        raise ValueError('Invalid value for frame width/height') from e
 
     frame = {'width': frame_width, 'height': frame_height}
     return frame

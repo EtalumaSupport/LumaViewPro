@@ -7,6 +7,8 @@ from kivy.properties import Property
 from kivy.uix.popup import Popup
 from kivy.lang import Builder
 
+from lvp_logger import logger
+
 
 class _PopupProxy:
     """Thread-safe proxy for CustomPopup.
@@ -78,6 +80,15 @@ def show_popup(function):
         popup = CustomPopup()  # Instantiate CustomPopup (could add some kwargs if you wish)
         app.done = False  # Reset the app.done BooleanProperty (main thread; no proxy)
         app.bind(done=popup.dismiss)  # When app.done is set to True, then popup.dismiss is fired
+        # Progress popups are a separate path from notification_center, so log
+        # open/dismiss here -- otherwise a long-running (or hung) operation behind
+        # one of these popups leaves no trace in the log.
+        logger.info(f'[Popup    ] progress popup opened for {function.__name__}')
+        popup.bind(
+            on_dismiss=lambda *_: logger.info(
+                f'[Popup    ] progress popup dismissed for {function.__name__}'
+            )
+        )
         popup.open()  # Show popup
         proxy = _PopupProxy(popup)  # Thread-safe proxy for background use
         # Wrap the host so bg-thread Kivy property writes inside the
@@ -93,7 +104,14 @@ def show_popup(function):
 
 
 class CustomPopup(Popup):
-    pass
+    def cancel(self):
+        """User-initiated escape from a progress popup. The background operation
+        runs on a daemon thread and cannot be force-killed, but dismissing the
+        popup unblocks the UI -- the way out when an op hangs (e.g. ImageJ init
+        with no Java). Any later result the thread posts to this popup is a
+        harmless no-op once it is dismissed."""
+        logger.info('[Popup    ] progress popup cancelled by user')
+        self.dismiss()
 
 
 kv = Builder.load_string(
@@ -104,15 +122,21 @@ kv = Builder.load_string(
     progress: 0
     text: ''
     title: ''
-    
+
     BoxLayout:
         orientation: 'vertical'
-        
+
         Label:
             text: root.text
-            size_hint: 1, 0.8
-            
+            size_hint: 1, 0.6
+
         ProgressBar:
             value: root.progress
+            size_hint: 1, 0.2
+
+        Button:
+            text: 'Cancel'
+            size_hint: 1, 0.2
+            on_release: root.cancel()
 """
 )

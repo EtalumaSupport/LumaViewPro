@@ -22,11 +22,24 @@ except ImportError:
 
 def init_ij():
     """Initialize ImageJ and return a helper instance."""
+    if not imagej_imported:
+        logger.error('[ImageJ Helper] init_ij: pyimagej not importable -- ImageJ unavailable')
+        return ImageJHelper()
+
     import imagej.doctor
     import imagej
 
+    # Logged because this runs on a background worker behind a no-cancel wait
+    # popup; on a machine without Java it can churn for a long time, and the
+    # operator (and the log) otherwise have no record that we are stuck here.
+    logger.info(
+        '[ImageJ Helper] init_ij: initializing ImageJ (Fiji 2.14.0). First run '
+        'downloads Fiji and requires Java; this can take a while.'
+    )
     imagej.doctor.checkup()
-    return ImageJHelper()
+    helper = ImageJHelper()
+    logger.info(f'[ImageJ Helper] init_ij: done (ImageJ available={helper._ij is not None})')
+    return helper
 
 
 class ZProjectMethod(enum.Enum):
@@ -39,7 +52,7 @@ class ZProjectMethod(enum.Enum):
 
     @classmethod
     def list(cls):
-        return list(map(lambda c: c.name, cls))
+        return [c.name for c in cls]
 
 
 class ImageJHelper:
@@ -77,8 +90,19 @@ class ImageJHelper:
             except Exception as ex:
                 logger.error(f'Unable to import {pkg}: {ex}')
 
+    @property
+    def available(self) -> bool:
+        """True when ImageJ initialized (Java present and Fiji loaded).
+
+        init_ij always returns a helper, even when Java is absent -- the
+        helper just has no live ImageJ gateway. Callers must check this
+        before running an operation; a False helper produces only generic
+        "Failed to create ..." errors deep in the algorithm otherwise.
+        """
+        return self._ij is not None
+
     def _log_uninitialized(self):
-        logger.error(f'[ImageJ Helper] ImageJ not initialized')
+        logger.error('[ImageJ Helper] ImageJ not initialized')
 
     def zproject(self, images_data: list[np.ndarray], method: ZProjectMethod) -> np.ndarray:
         if not self._ij:
@@ -86,7 +110,7 @@ class ImageJHelper:
             return None
 
         if len(images_data) == 0:
-            logger.error(f'[ImageJ Helper] zproject -> No images provided')
+            logger.error('[ImageJ Helper] zproject -> No images provided')
             return None
 
         orig_dtype = images_data[0].dtype

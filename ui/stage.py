@@ -39,7 +39,7 @@ class Stage(Widget):
         return id(self)
 
     def __init__(self, **kwargs):
-        super(Stage, self).__init__(**kwargs)
+        super().__init__(**kwargs)
         logger.debug('[LVP Main  ] Stage.__init__()')
         self.ROI_min = [0, 0]
         self.ROI_max = [0, 0]
@@ -519,12 +519,6 @@ class Stage(Widget):
         scale_x = w / dim_max['x']
         scale_y = h / dim_max['y']
 
-        stage_x = settings['stage_offset']['x'] / 1000
-        stage_y = settings['stage_offset']['y'] / 1000
-
-        cols = labware.config['columns']
-        rows = labware.config['rows']
-
         well_spacing_x = labware.config['spacing']['x']
         well_spacing_y = labware.config['spacing']['y']
 
@@ -552,9 +546,6 @@ class Stage(Widget):
 
             # Remove old step locations if they exist
             Clock.schedule_once(lambda dt: self.canvas.remove_group('steps_fbo'), 0)
-
-            # Capture variables by value for the lambda
-            pos_x, pos_y, size_w, size_h = x, y, w, h
 
             # Schedule FBO creation and drawing on main thread
             # Use partial to avoid lambda closure memory accumulation
@@ -736,7 +727,7 @@ class Stage(Widget):
         coordinate_transformer = _app_ctx.ctx.coordinate_transformer
         io_executor = _app_ctx.ctx.io_executor
 
-        if not result is None:
+        if result is not None:
             target_stage_x = result[0]
             target_stage_y = result[1]
 

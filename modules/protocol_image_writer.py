@@ -655,7 +655,7 @@ class ProtocolImageWriter:
                     frame_count=captured_frames if is_video else 1,
                     duration_sec=duration_sec if is_video else 0.0,
                 )
-                logger.info(f'Protocol-Writer] Added step to protocol execution record')
+                logger.info('Protocol-Writer] Added step to protocol execution record')
             except Exception as ex:
                 logger.error(
                     f'[Protocol-Writer] Failed to add step to protocol execution record: {ex}'

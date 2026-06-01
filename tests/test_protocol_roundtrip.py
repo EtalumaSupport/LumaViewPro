@@ -698,17 +698,17 @@ class TestRoundTripEdgeCases:
     def test_autofocus_flag(self, tmp_path):
         proto = _build_protocol([_make_step(auto_focus=True)])
         reloaded = _save_and_reload(proto, tmp_path)
-        assert reloaded.step(idx=0)['Auto_Focus'] == True
+        assert reloaded.step(idx=0)['Auto_Focus'] == True  # noqa: E712 -- exact bool check
 
     def test_auto_gain_flag(self, tmp_path):
         proto = _build_protocol([_make_step(auto_gain=True)])
         reloaded = _save_and_reload(proto, tmp_path)
-        assert reloaded.step(idx=0)['Auto_Gain'] == True
+        assert reloaded.step(idx=0)['Auto_Gain'] == True  # noqa: E712 -- exact bool check
 
     def test_false_color_flag(self, tmp_path):
         proto = _build_protocol([_make_step(false_color=True, color='Green')])
         reloaded = _save_and_reload(proto, tmp_path)
-        assert reloaded.step(idx=0)['False_Color'] == True
+        assert reloaded.step(idx=0)['False_Color'] == True  # noqa: E712 -- exact bool check
 
     def test_special_chars_in_name(self, tmp_path):
         proto = _build_protocol([_make_step(name='test step (1) - BF')])
@@ -1883,9 +1883,9 @@ class TestProtocolSaveLoadFieldLevel:
         assert s['Illumination'] == pytest.approx(234.5)
         assert s['Gain'] == pytest.approx(3.7)
         assert s['Exposure'] == pytest.approx(42.0)
-        assert s['Auto_Focus'] == True
-        assert s['Auto_Gain'] == True
-        assert s['False_Color'] == True
+        assert s['Auto_Focus'] == True  # noqa: E712 -- exact bool check
+        assert s['Auto_Gain'] == True  # noqa: E712 -- exact bool check
+        assert s['False_Color'] == True  # noqa: E712 -- exact bool check
         assert s['Sum'] == 5
         assert s['Objective'] == '20x Oly'
         assert s['Well'] == 'B3'
@@ -2261,7 +2261,7 @@ class TestProtocolAutofocusModification:
     def test_modify_autofocus_single_step(self):
         proto = _build_protocol([_make_step(auto_focus=False)])
         proto.modify_autofocus(step_idx=0, enabled=True)
-        assert proto.step(idx=0)['Auto_Focus'] == True
+        assert proto.step(idx=0)['Auto_Focus'] == True  # noqa: E712 -- exact bool check
 
     def test_modify_autofocus_all_steps(self):
         proto = _build_protocol(
@@ -2273,11 +2273,11 @@ class TestProtocolAutofocusModification:
         )
         proto.modify_autofocus_all_steps(enabled=True)
         for i in range(3):
-            assert proto.step(idx=i)['Auto_Focus'] == True
+            assert proto.step(idx=i)['Auto_Focus'] == True  # noqa: E712 -- exact bool check
 
         proto.modify_autofocus_all_steps(enabled=False)
         for i in range(3):
-            assert proto.step(idx=i)['Auto_Focus'] == False
+            assert proto.step(idx=i)['Auto_Focus'] == False  # noqa: E712 -- exact bool check
 
 
 # ===========================================================================

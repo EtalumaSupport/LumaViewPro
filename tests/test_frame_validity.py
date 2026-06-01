@@ -363,21 +363,21 @@ class TestLoadCameraTiming:
         fv = FrameValidity()
         original = dict(fv.SKIP_FRAMES)
         fv.load_camera_timing({'skip_frames': {}})
-        assert fv.SKIP_FRAMES == original
+        assert original == fv.SKIP_FRAMES
 
     def test_missing_skip_frames_key_no_change(self):
         """Config without 'skip_frames' key leaves defaults unchanged."""
         fv = FrameValidity()
         original = dict(fv.SKIP_FRAMES)
         fv.load_camera_timing({'camera_model': 'test'})
-        assert fv.SKIP_FRAMES == original
+        assert original == fv.SKIP_FRAMES
 
     def test_empty_config_no_change(self):
         """Completely empty config leaves defaults unchanged."""
         fv = FrameValidity()
         original = dict(fv.SKIP_FRAMES)
         fv.load_camera_timing({})
-        assert fv.SKIP_FRAMES == original
+        assert original == fv.SKIP_FRAMES
 
     def test_negative_count_rejected(self):
         """Negative frame counts are silently ignored."""

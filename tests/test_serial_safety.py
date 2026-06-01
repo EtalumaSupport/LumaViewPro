@@ -124,7 +124,7 @@ class TestLEDBoardLocking:
         ]
         resp = board.exchange_command('LED0_100')
         assert resp is not None
-        assert 'LED 0 set to 100 mA.' == resp
+        assert resp == 'LED 0 set to 100 mA.'
 
     def test_exchange_command_reads_past_echo(self):
         """exchange_command should skip the RE: echo and return the result."""
@@ -202,7 +202,7 @@ class TestLEDBoardLocking:
         board.driver = None
 
         with patch.object(board, 'connect') as mock_connect:
-            resp = board.exchange_command('INFO')
+            resp = board.exchange_command('INFO')  # noqa: F841 -- deferred
             mock_connect.assert_called()
 
     def test_concurrent_exchange_commands(self):
@@ -313,7 +313,7 @@ class TestMotorBoardSafety:
         board.driver = None
 
         with patch.object(board, 'connect') as mock_connect:
-            resp = board.exchange_command('INFO')
+            resp = board.exchange_command('INFO')  # noqa: F841 -- deferred
             mock_connect.assert_called()
 
     def test_disconnect_is_threadsafe(self):
@@ -535,7 +535,7 @@ class TestMotorBoardCommands:
         board = self._make_board()
         board.move('Z', -100)
         expected = -100 + 0x100000000
-        board.driver.write.assert_called_with(f'TARGET_WZ{expected}\n'.encode('utf-8'))
+        board.driver.write.assert_called_with(f'TARGET_WZ{expected}\n'.encode())
 
     def test_zhome_sends_zhome(self):
         """zhome() should send 'ZHOME\\n'."""
@@ -883,28 +883,28 @@ class TestMotorBoardMovement:
         board = self._make_board()
         board.move_abs_pos('Z', 99999, overshoot_enabled=False)
         expected_ustep = board.z_um2ustep(14000)
-        board.driver.write.assert_called_with(f'TARGET_WZ{expected_ustep}\n'.encode('utf-8'))
+        board.driver.write.assert_called_with(f'TARGET_WZ{expected_ustep}\n'.encode())
 
     def test_z_clamped_to_min(self):
         """move_abs_pos('Z', -100) should clamp to Z min (0um)."""
         board = self._make_board()
         board.move_abs_pos('Z', -100, overshoot_enabled=False)
         expected_ustep = board.z_um2ustep(0)
-        board.driver.write.assert_called_with(f'TARGET_WZ{expected_ustep}\n'.encode('utf-8'))
+        board.driver.write.assert_called_with(f'TARGET_WZ{expected_ustep}\n'.encode())
 
     def test_x_clamped_to_max(self):
         """move_abs_pos('X', 200000) should clamp to X max (120000um)."""
         board = self._make_board()
         board.move_abs_pos('X', 200000, overshoot_enabled=False)
         expected_ustep = board.xy_um2ustep(120000)
-        board.driver.write.assert_called_with(f'TARGET_WX{expected_ustep}\n'.encode('utf-8'))
+        board.driver.write.assert_called_with(f'TARGET_WX{expected_ustep}\n'.encode())
 
     def test_ignore_limits(self):
         """move_abs_pos with ignore_limits=True should not clamp."""
         board = self._make_board()
         board.move_abs_pos('Z', 99999, overshoot_enabled=False, ignore_limits=True)
         expected_ustep = board.z_um2ustep(99999)
-        board.driver.write.assert_called_with(f'TARGET_WZ{expected_ustep}\n'.encode('utf-8'))
+        board.driver.write.assert_called_with(f'TARGET_WZ{expected_ustep}\n'.encode())
 
     def test_unsupported_axis_raises(self):
         """move_abs_pos with unknown axis should raise."""
@@ -917,11 +917,11 @@ class TestMotorBoardMovement:
         board = self._make_board()
         # target_pos reads TARGET_R, return 50000um in usteps
         target_ustep = board.xy_um2ustep(50000)
-        board.driver.readline.return_value = f'{target_ustep}\n'.encode('utf-8')
+        board.driver.readline.return_value = f'{target_ustep}\n'.encode()
         board.move_rel_pos('X', 10000, overshoot_enabled=False)
         # Should move to 60000um
         expected_ustep = board.xy_um2ustep(60000)
-        board.driver.write.assert_called_with(f'TARGET_WX{expected_ustep}\n'.encode('utf-8'))
+        board.driver.write.assert_called_with(f'TARGET_WX{expected_ustep}\n'.encode())
 
     def test_target_status_position_reached(self):
         """target_status should return True when position_reached bit is set."""
@@ -1400,7 +1400,7 @@ class TestLEDBoardStateLock:
         # Mock _write_command_fast
         board._write_command_fast = MagicMock()
         board.leds_off_fast()
-        for color, val in board.led_ma.items():
+        for _color, val in board.led_ma.items():
             assert val == -1
 
     def test_led_on_fast_uses_state_lock(self):
@@ -1502,7 +1502,7 @@ class TestSerialDesyncRecovery:
         """
         board = self._make_board()
         call_count = [0]
-        original_readline = board.driver.readline
+        original_readline = board.driver.readline  # noqa: F841 -- deferred
 
         def flaky_readline():
             call_count[0] += 1
@@ -1513,7 +1513,7 @@ class TestSerialDesyncRecovery:
 
         board.driver.readline = flaky_readline
         # After a timeout, stale bytes appear in buffer
-        stale_count = [0]
+        stale_count = [0]  # noqa: F841 -- deferred
 
         def dynamic_in_waiting():
             # After a timeout, simulate stale data
@@ -1525,7 +1525,7 @@ class TestSerialDesyncRecovery:
 
         # Run 25 cycles -- should not crash or desync
         successes = 0
-        for i in range(25):
+        for _ in range(25):
             board.leds_off()
             board.led_on(channel=3, mA=20)
             if board.led_ma['BF'] == 20:
