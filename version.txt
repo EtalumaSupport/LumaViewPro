@@ -1,4 +1,3 @@
 4.0.0-beta15
-2026-05-31 23:01
-fix/sim-session-display-bugs
-646564be
+2026-05-31 23:05
+integration/beta-candidates
