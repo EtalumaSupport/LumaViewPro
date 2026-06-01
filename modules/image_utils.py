@@ -1554,13 +1554,20 @@ def _compute_scale_bar_overlay(height, width, dtype, is_color, objective, binnin
     y_start = scale_bar_bottom_offset
     y_end = y_start + scale_bar_thickness_pixels
 
-    # Render onto a blank canvas
+    # Render the bar+text geometry with a NONZERO sentinel, not the bar's real
+    # value. The mask below is built from nonzero canvas pixels; a black bar
+    # (value 0) drawn onto a zeroed canvas would leave the mask empty, so
+    # nothing would be written and the BF/PC bar would never appear. The real
+    # value (scale_bar_value, 0 for black) is applied at the masked pixels in
+    # add_scale_bar.
+    sentinel = 255 if dtype == np.uint8 else 4095
+
     if is_color:
         canvas = np.zeros((height, width, 3), dtype=dtype)
-        canvas[y_start : y_end + 1, x_start : x_end + 1, :] = scale_bar_value
+        canvas[y_start : y_end + 1, x_start : x_end + 1, :] = sentinel
     else:
         canvas = np.zeros((height, width), dtype=dtype)
-        canvas[y_start : y_end + 1, x_start : x_end + 1] = scale_bar_value
+        canvas[y_start : y_end + 1, x_start : x_end + 1] = sentinel
 
     text_x_pos = x_start
     text_y_pos = y_end + 5
@@ -1584,20 +1591,19 @@ def _compute_scale_bar_overlay(height, width, dtype, is_color, objective, binnin
         org=(text_x_pos, text_y_pos),
         fontFace=font_face,
         fontScale=font_scale,
-        color=(scale_bar_value, scale_bar_value, scale_bar_value),
+        color=(sentinel, sentinel, sentinel),
         thickness=font_thickness,
         lineType=cv2.LINE_AA,
         bottomLeftOrigin=True,
     )
 
-    # Build boolean mask of non-zero pixels
+    # Mask marks the bar+text geometry (nonzero sentinel pixels), so the value
+    # written in add_scale_bar can be anything -- including 0 for a black bar.
     if is_color:
         mask = np.any(canvas != 0, axis=2)
     else:
         mask = canvas != 0
 
-    # For black scale bars (transmitted), the overlay is zeros and mask marks where to write
-    # We need to handle this differently: store the value and use it during apply
     return canvas, mask, scale_bar_value
 
 
@@ -1638,15 +1644,10 @@ def add_scale_bar(
     cached = _scale_bar_cache
     mask = cached['mask']
 
-    if cached['value'] == 0:
-        # Black scale bar for transmitted channels -- set masked pixels to 0
-        if is_color:
-            image[mask] = 0
-        else:
-            image[mask] = 0
-    else:
-        # White scale bar -- apply overlay values
-        image[mask] = cached['overlay'][mask]
+    # Write the bar's pixel value at the masked geometry. Works for black
+    # (value 0, BF/PC) and white (255 / 4095) alike -- the mask carries the
+    # location, so the value can be 0 without erasing the bar.
+    image[mask] = cached['value']
 
     return image
 

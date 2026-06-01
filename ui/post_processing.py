@@ -123,6 +123,10 @@ class ZProjectionControls(BoxLayout):
                 + '               '
             )
             self.ij_initialized = False
+            logger.info(
+                '[Z-Projection] ImageJ not yet initialized -- starting background '
+                'init and showing the wait popup (no cancel; may hang if Java is absent)'
+            )
             # Run imagej initialization in a separate thread
             # Callback to finish zprojection when imagej is initialized
             from modules.imagej_helper import init_ij
@@ -186,13 +190,32 @@ class ZProjectionControls(BoxLayout):
             self.ij_buffer_event = None
             self.ij_buffer_count = 0
 
-        if ctx.ij_helper is None:
+        # init_ij always hands back a helper; an unavailable one (no Java)
+        # has ij_helper.available False. Gate on that, not just is-None --
+        # otherwise an unavailable helper runs the projection and the user
+        # gets a generic "Failed to create Z-Projection" with no cause named.
+        if ctx.ij_helper is None or not ctx.ij_helper.available:
+            from modules.notification_center import notifications
+
             logger.error(
-                f'[Z-Projection] ij_helper is None after init_ij -- '
+                f'[Z-Projection] ImageJ is not available -- '
                 f'result={result!r} exception={exception!r}. '
-                f'pass_result may be missing or init_ij returned None.'
+                f'ImageJ/Java did not initialize.'
             )
-            popup.text = 'Failed to initialize ImageJ. Please try again.'
+            # Name the real cause: ImageJ failed to start, which on a machine
+            # without Java means there is nothing to retry until Java is
+            # installed. The old "Please try again" sent users in circles.
+            popup.text = (
+                'Z-Projection unavailable: ImageJ could not start.\n'
+                'This usually means Java is not installed or not found.'
+            )
+            notifications.error(
+                'Z-Projection',
+                'Z-Projection unavailable',
+                'ImageJ could not start, so Z-Projection cannot run. This '
+                'usually means Java is not installed or could not be found. '
+                'Install Java and retry, or see lumaviewpro.log for details.',
+            )
             Clock.schedule_once(lambda dt: popup.dismiss(), 5)
             return
 
@@ -235,14 +258,23 @@ class ZProjectionControls(BoxLayout):
         if result['status'] is False:
             final_text += f'\n{result["message"]}'
             popup.text = final_text
-            notifications.warning(
-                'Z-Projection',
-                'No Z-Stack data found',
-                f'{result["message"]}. Pick a folder that contains a Z-stack '
-                f"run -- look under 'Manual/Z-Stacks/<timestamp>/' for a "
-                f"manual Z-stack, or a 'ProtocolData/<timestamp>/' folder "
-                f'whose protocol included Z-stack steps.',
-            )
+            if result.get('reason') == 'error':
+                # The operation itself failed (e.g. ImageJ/Java unavailable);
+                # don't send the user off to pick a different folder.
+                notifications.warning(
+                    'Z-Projection',
+                    'Z-Projection failed',
+                    result['message'],
+                )
+            else:
+                notifications.warning(
+                    'Z-Projection',
+                    'No Z-Stack data found',
+                    f'{result["message"]}. Pick a folder that contains a Z-stack '
+                    f"run -- look under 'Manual/Z-Stacks/<timestamp>/' for a "
+                    f"manual Z-stack, or a 'ProtocolData/<timestamp>/' folder "
+                    f'whose protocol included Z-stack steps.',
+                )
             Clock.schedule_once(lambda dt: popup.dismiss(), 5)
             return
 
@@ -679,8 +711,6 @@ class GraphingControls(BoxLayout):
         plt.savefig(filepath)
 
     def set_graphing_source(self, file):
-        from datetime import datetime as date_time
-
         self._source_csv = file
         self.initialize_graph()
         try:
@@ -689,9 +719,11 @@ class GraphingControls(BoxLayout):
             if self.available_axes[0] == 'file':
                 self.available_axes = self.available_axes[1:]
             if 'time' in self.available_axes:
-                self.graph_df['time'] = [
-                    date_time.strptime(datetime_obj, '%c') for datetime_obj in self.graph_df['time']
-                ]
+                # Parse to a pandas datetime64 column. A list comprehension of
+                # datetime.strptime objects yields an object-dtype column, and
+                # the .dt accessor (used by the time-axis trendline) rejects
+                # object dtype -- that crashed update_trendline on a time axis.
+                self.graph_df['time'] = pd.to_datetime(self.graph_df['time'], format='%c')
 
             self.update_available_axes()
             self.set_x_axis()
