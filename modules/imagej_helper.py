@@ -22,11 +22,24 @@ except ImportError:
 
 def init_ij():
     """Initialize ImageJ and return a helper instance."""
+    if not imagej_imported:
+        logger.error('[ImageJ Helper] init_ij: pyimagej not importable -- ImageJ unavailable')
+        return ImageJHelper()
+
     import imagej.doctor
     import imagej
 
+    # Logged because this runs on a background worker behind a no-cancel wait
+    # popup; on a machine without Java it can churn for a long time, and the
+    # operator (and the log) otherwise have no record that we are stuck here.
+    logger.info(
+        '[ImageJ Helper] init_ij: initializing ImageJ (Fiji 2.14.0). First run '
+        'downloads Fiji and requires Java; this can take a while.'
+    )
     imagej.doctor.checkup()
-    return ImageJHelper()
+    helper = ImageJHelper()
+    logger.info(f'[ImageJ Helper] init_ij: done (ImageJ available={helper._ij is not None})')
+    return helper
 
 
 class ZProjectMethod(enum.Enum):

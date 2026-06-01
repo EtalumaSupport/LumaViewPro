@@ -123,6 +123,10 @@ class ZProjectionControls(BoxLayout):
                 + '               '
             )
             self.ij_initialized = False
+            logger.info(
+                '[Z-Projection] ImageJ not yet initialized -- starting background '
+                'init and showing the wait popup (no cancel; may hang if Java is absent)'
+            )
             # Run imagej initialization in a separate thread
             # Callback to finish zprojection when imagej is initialized
             from modules.imagej_helper import init_ij
