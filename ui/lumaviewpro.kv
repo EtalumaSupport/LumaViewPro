@@ -3941,6 +3941,11 @@
 					max: 100
 					step: 1
 					orientation: 'horizontal'
+					cursor_size: '20dp','20dp'
+					cursor_image: './data/icons/slider_cursor.png'
+					track_width: dp(5)
+					value_track: True
+					value_track_width: dp(5)
 					on_release: root.slider_adjustment_threshold()
 				Label:
 					text: f"{str(int(slider_cell_count_threshold_id.value))} %"
