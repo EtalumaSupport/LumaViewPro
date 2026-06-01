@@ -2637,7 +2637,7 @@ class PylonCamera(Camera):
             if _cam_log is not None:
                 _cam_log.info(f'pylon Gain.SetValue({float(value):.3f})')
             self.active.Gain.SetValue(float(value))
-            _log_cam('info', f'[CAM Class ] Gain set to {value}')
+            _log_cam('debug', f'[CAM Class ] Gain set to {value}')
         except genicam.RuntimeException as e:
             if _cam_log is not None:
                 _cam_log.error(f'pylon Gain.SetValue({value}) FAILED: {e}')
@@ -2822,7 +2822,7 @@ class PylonCamera(Camera):
             if _cam_log is not None:
                 _cam_log.info(f'pylon ExposureTime.SetValue({us_value:.0f}us) (={exposure_ms}ms)')
             self.active.ExposureTime.SetValue(us_value)
-            _log_cam('info', f'[CAM Class ] Exposure set to {exposure_ms}ms')
+            _log_cam('debug', f'[CAM Class ] Exposure set to {exposure_ms}ms')
         except genicam.RuntimeException as e:
             if _cam_log is not None:
                 _cam_log.error(f'pylon ExposureTime.SetValue({exposure_ms}ms) FAILED: {e}')
