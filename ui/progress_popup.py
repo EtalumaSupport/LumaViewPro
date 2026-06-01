@@ -104,7 +104,14 @@ def show_popup(function):
 
 
 class CustomPopup(Popup):
-    pass
+    def cancel(self):
+        """User-initiated escape from a progress popup. The background operation
+        runs on a daemon thread and cannot be force-killed, but dismissing the
+        popup unblocks the UI -- the way out when an op hangs (e.g. ImageJ init
+        with no Java). Any later result the thread posts to this popup is a
+        harmless no-op once it is dismissed."""
+        logger.info('[Popup    ] progress popup cancelled by user')
+        self.dismiss()
 
 
 kv = Builder.load_string(
@@ -121,9 +128,15 @@ kv = Builder.load_string(
         
         Label:
             text: root.text
-            size_hint: 1, 0.8
-            
+            size_hint: 1, 0.6
+
         ProgressBar:
             value: root.progress
+            size_hint: 1, 0.2
+
+        Button:
+            text: 'Cancel'
+            size_hint: 1, 0.2
+            on_release: root.cancel()
 """
 )
