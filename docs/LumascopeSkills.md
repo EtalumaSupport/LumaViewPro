@@ -491,12 +491,15 @@ scope.imaging.apply_layer_camera_settings(
 # Frame size
 scope.imaging.set_frame_size(2048, 2048)
 scope.imaging.get_frame_size()                     # {'width': ..., 'height': ...}
-scope.imaging.get_max_width()
+scope.imaging.get_max_width()                      # max at the current binning
 scope.imaging.get_max_height()
+scope.imaging.get_native_resolution()              # {'width','height'} unbinned sensor ceiling
+scope.imaging.get_pixel_alignment()                # {'width','height'} frame-size multiple
 
 # Binning
 scope.imaging.set_binning_size(2)
 scope.imaging.get_binning_size()
+scope.imaging.get_available_binning_sizes()        # e.g. [1, 2, 4]
 
 # Acquisition frame-rate cap (camera-side; clamps sensor-readout pace)
 scope.imaging.set_max_acquisition_frame_rate(enabled=True, fps=10.0)

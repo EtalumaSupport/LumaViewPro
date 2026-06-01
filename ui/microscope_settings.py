@@ -3,7 +3,6 @@ import copy
 import datetime
 import json
 import logging
-import math
 import os
 import pathlib
 import threading
@@ -1015,37 +1014,89 @@ class MicroscopeSettings(BoxLayout):
             sizes = [1, 2, 4]
         spinner.values = [f'{s}x{s}' for s in sizes]
 
+    def _native_roi(self) -> dict:
+        """Return the unbinned ROI -- the source of truth for frame sizing.
+
+        Persisted as ``settings['frame']['native_width']/['native_height']``.
+        When absent (older settings files that stored only the displayed
+        size), reconstruct it from the displayed frame size times the current
+        binning, capped at the sensor native resolution.
+        """
+        ctx = _app_ctx.ctx
+        frame = ctx.settings['frame']
+        imaging = ctx.lumaview.scope.imaging
+        native_max = imaging.get_native_resolution()
+        if 'native_width' in frame and 'native_height' in frame:
+            native = {
+                'width': int(frame['native_width']),
+                'height': int(frame['native_height']),
+            }
+        else:
+            cur_binning = imaging.get_binning_size()
+            displayed = {'width': int(frame['width']), 'height': int(frame['height'])}
+            cap = native_max or {
+                'width': displayed['width'] * cur_binning,
+                'height': displayed['height'] * cur_binning,
+            }
+            native = binning.displayed_to_native(displayed, cur_binning, cap)
+        if native_max:
+            native['width'] = min(native['width'], native_max['width'])
+            native['height'] = min(native['height'], native_max['height'])
+        return native
+
+    def _store_native_roi(self, native: dict) -> None:
+        """Persist the native ROI source of truth into settings['frame']."""
+        frame = _app_ctx.ctx.settings['frame']
+        frame['native_width'] = int(native['width'])
+        frame['native_height'] = int(native['height'])
+
     def select_binning_size(self):
         ctx = _app_ctx.ctx
         settings = ctx.settings
-
         lumaview = ctx.lumaview
-        orig_binning_size = lumaview.scope.imaging.get_binning_size()
-        orig_frame_size = get_current_frame_dimensions()
+        imaging = lumaview.scope.imaging
 
         new_binning_size_str = self.ids['binning_spinner'].text
-
         new_binning_size = binning.binning_size_str_to_int(new_binning_size_str)
+
+        # Reject a binning level this camera does not support and restore the
+        # spinner to the camera's actual binning.
+        if new_binning_size not in imaging.get_available_binning_sizes():
+            from modules.notification_center import notifications
+
+            notifications.warning(
+                'Camera',
+                'Binning not supported',
+                f'This camera does not support {new_binning_size_str} binning.',
+            )
+            self.ids['binning_spinner'].text = binning.binning_size_int_to_str(
+                imaging.get_binning_size()
+            )
+            return
+
         settings['binning']['size'] = new_binning_size_str
-        ratio = new_binning_size / orig_binning_size
-        new_frame_size = {
-            'width': math.floor(orig_frame_size['width'] / ratio),
-            'height': math.floor(orig_frame_size['height'] / ratio),
-        }
-        self.ids['frame_width_id'].text = str(new_frame_size['width'])
-        self.ids['frame_height_id'].text = str(new_frame_size['height'])
+
+        # Native ROI is the source of truth; the displayed/captured size is
+        # native / binning. Deriving from the fixed native ROI (not the prior
+        # displayed value) is what makes binning round-trip: iterating on the
+        # already-floored displayed value lost pixels that never came back.
+        new_frame = binning.native_to_displayed(
+            self._native_roi(), new_binning_size, imaging.get_pixel_alignment()
+        )
+        self.ids['frame_width_id'].text = str(new_frame['width'])
+        self.ids['frame_height_id'].text = str(new_frame['height'])
 
         # During app init, scope.initialize() handles all hardware calls
         if ctx.initializing:
             return
 
-        # Route through camera executor to prevent race with live view grab loop
+        # Route through camera executor to prevent race with live view grab
+        # loop. The frame push is enqueued after, so it lands once the new
+        # binning is applied and the driver can clamp to the right max.
         ctx.camera_executor.put(
-            IOTask(
-                action=lumaview.scope.imaging.set_binning_size, kwargs={'size': new_binning_size}
-            )
+            IOTask(action=imaging.set_binning_size, kwargs={'size': new_binning_size})
         )
-        self.frame_size()
+        self._apply_displayed_frame(new_frame)
 
     def load_scopes(self):
         logger.info('[LVP Main  ] MicroscopeSettings.load_scopes()')
@@ -1223,9 +1274,51 @@ class MicroscopeSettings(BoxLayout):
             show_notification_popup(title='Error', message=str(e))
 
     def frame_size(self):
+        """Apply a user edit of the frame width/height fields.
+
+        The typed value is a displayed (post-binning) size, so the native ROI
+        becomes ``displayed * binning`` capped at the sensor native resolution.
+        The displayed size is then re-derived from that native ROI and applied,
+        keeping the native source of truth and the camera in sync.
+        """
         logger.info('[LVP Main  ] MicroscopeSettings.frame_size()')
         ctx = _app_ctx.ctx
+        lumaview = ctx.lumaview
 
+        if not lumaview.scope.camera_connected:
+            return
+
+        imaging = lumaview.scope.imaging
+        try:
+            typed = get_current_frame_dimensions()
+        except ValueError:
+            frame = ctx.settings['frame']
+            typed = {'width': frame['width'], 'height': frame['height']}
+
+        cur_binning = imaging.get_binning_size()
+        native_max = imaging.get_native_resolution() or {
+            'width': int(typed['width']) * cur_binning,
+            'height': int(typed['height']) * cur_binning,
+        }
+        native = binning.displayed_to_native(typed, cur_binning, native_max)
+        self._store_native_roi(native)
+
+        displayed = binning.native_to_displayed(
+            native, cur_binning, imaging.get_pixel_alignment()
+        )
+        self._apply_displayed_frame(displayed)
+
+    def _apply_displayed_frame(self, frame: dict) -> None:
+        """Persist a displayed frame size, update the UI + FOV, push to camera.
+
+        Does NOT change the native ROI -- callers that change native (a binning
+        change or a frame-field edit) do so before calling this. The size is
+        already native-anchored and aligned; the driver's set_frame_size does
+        the final clamp to the camera max at the active binning, so no live
+        max clamp is applied here (it would read a stale max during a binning
+        change before the executor applies it).
+        """
+        ctx = _app_ctx.ctx
         lumaview = ctx.lumaview
         settings = ctx.settings
         objective_helper = ctx.objective_helper
@@ -1233,27 +1326,14 @@ class MicroscopeSettings(BoxLayout):
         if not lumaview.scope.camera_connected:
             return
 
-        try:
-            current_frame_size = get_current_frame_dimensions()
-        except ValueError:
-            current_frame_size = {
-                'width': settings['frame']['width'],
-                'height': settings['frame']['height'],
-            }
-
-        width = int(min(current_frame_size['width'], lumaview.scope.imaging.get_max_width()))
-        height = int(min(current_frame_size['height'], lumaview.scope.imaging.get_max_height()))
-
+        width = int(frame['width'])
+        height = int(frame['height'])
         try:
             min_frame_size = lumaview.scope.imaging.camera_min_frame_size
             width = max(width, min_frame_size['width'])
             height = max(height, min_frame_size['height'])
-
-            max_w, max_h = lumaview.scope.capabilities.camera_max_frame_size
-            width = min(width, max_w)
-            height = min(height, max_h)
         except Exception:
-            logger.warning('[LVP Main  ] Could not clamp frame size to camera limits.')
+            logger.warning('[LVP Main  ] Could not clamp frame size to camera minimum.')
 
         settings['frame']['width'] = width
         settings['frame']['height'] = height

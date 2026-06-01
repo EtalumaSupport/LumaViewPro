@@ -1244,6 +1244,41 @@ class ImagingAPI:
         except (AttributeError, TypeError):
             return [1]
 
+    def get_native_resolution(self) -> dict:
+        """Return the sensor's physical unbinned resolution.
+
+        This is the static per-model ceiling for the native (unbinned) ROI,
+        independent of the current binning factor (unlike get_max_width/height,
+        which reflect the max settable at the current binning). Empty dict if
+        no camera or the profile does not declare it.
+
+        Returns:
+            dict: ``{'width': int, 'height': int}`` or ``{}`` if unknown.
+        """
+        if not self._driver or not self._driver.active:
+            return {}
+        try:
+            return dict(self._driver.profile.native_resolution)
+        except (AttributeError, TypeError):
+            return {}
+
+    def get_pixel_alignment(self) -> dict:
+        """Return the camera's frame-size pixel alignment.
+
+        Frame width/height must be a multiple of these values (a Pylon
+        constraint on most current models). Defaults to 4x4 when unknown.
+
+        Returns:
+            dict: ``{'width': int, 'height': int}``.
+        """
+        default = {'width': 4, 'height': 4}
+        if not self._driver or not self._driver.active:
+            return default
+        try:
+            return dict(self._driver.profile.alignment)
+        except (AttributeError, TypeError):
+            return default
+
     # --- Capture ---
     def capture_and_wait(
         self,
