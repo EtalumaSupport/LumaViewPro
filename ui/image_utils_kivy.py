@@ -23,7 +23,7 @@ def image_to_texture(image, existing: Texture | None = None) -> Texture:
     if not image_utils.is_color_image(image=image):
         image = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
 
-    buf = image.tostring()
+    buf = image.tobytes()
     size = (image.shape[1], image.shape[0])
 
     if existing is not None and existing.size == size:
