@@ -3,8 +3,10 @@
 Protocol step navigation logic extracted from lumaviewpro.py.
 
 These functions handle navigating to protocol steps (moving stage,
-updating LED/camera settings, and refreshing UI controls).
-They are re-exported by lumaviewpro.py so existing call sites work.
+updating LED/camera settings, and refreshing UI controls). They are
+GUI-coupled (Kivy widgets, Clock) and live in ui/; protocol execution
+reaches them only through the injected go_to_step callback, so the
+protocol layer never imports this module directly.
 """
 
 import logging
@@ -14,7 +16,7 @@ from modules.kivy_utils import schedule_ui as _schedule_ui
 import modules.app_context as _app_ctx
 import modules.common_utils as common_utils
 
-logger = logging.getLogger('LVP.modules.step_navigation')
+logger = logging.getLogger('LVP.ui.step_navigation')
 
 
 def go_to_step(

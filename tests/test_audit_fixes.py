@@ -3017,7 +3017,7 @@ class TestAccordionStaysPutAcrossProtocolStopStart_AccordionDrift:
         from pathlib import Path
 
         return (
-            Path(__file__).resolve().parent.parent / 'modules' / 'step_navigation.py'
+            Path(__file__).resolve().parent.parent / 'ui' / 'step_navigation.py'
         ).read_text()
 
     def test_go_to_step_update_ui_takes_called_from_protocol_arg(self):
