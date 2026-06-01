@@ -207,9 +207,16 @@ def go_to_step_update_ui(step, called_from_protocol: bool = False):
     color = step['Color']
     layer_obj = ctx.image_settings.layer_lookup(layer=color)
 
-    # Open ImageSettings panel
-    ctx.image_settings.ids['toggle_imagesettings'].state = 'down'
-    ctx.image_settings.toggle_settings()
+    # Open the ImageSettings panel so the step's settings are visible.
+    # Act only when it is not already open: this runs once per step during
+    # a protocol run, and the panel toggle is an expand/collapse handler,
+    # not an idempotent refresh -- re-invoking it on an already-open panel
+    # repeats the reposition + histogram rescheduling every step and logs a
+    # toggle line when nothing actually toggled.
+    imagesettings_toggle = ctx.image_settings.ids['toggle_imagesettings']
+    if imagesettings_toggle.state != 'down':
+        imagesettings_toggle.state = 'down'
+        ctx.image_settings.toggle_settings()
 
     # Expand accordion to step's channel ONLY for manual navigation.
     # Direct `collapse = False` on a single item doesn't propagate to
