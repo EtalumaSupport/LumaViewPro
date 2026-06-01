@@ -1132,8 +1132,12 @@ class ProtocolSettings(FloatLayout):
                 objective_id=objective_id,
             )
 
-            # Validate the modified step and warn the user if there are errors
+            # Validate the modified step and warn the user if there are errors.
+            # Video steps longer than the global video time limit are an
+            # advisory (non-blocking) warning shown alongside.
             errors = self._protocol.validate_steps()
+            video_limit = ctx.settings.get('manual_video', {}).get('max_duration_seconds', 30)
+            errors += self._protocol.video_steps_over_limit(video_limit)
             if errors:
                 msg = '\n'.join(errors)
                 Clock.schedule_once(

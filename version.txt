@@ -1,4 +1,4 @@
 4.0.0-beta15
-2026-06-01 14:55
+2026-06-01 16:06
 fix/691-manual-video-time-limit
-d2554e81
+ed3b9efe

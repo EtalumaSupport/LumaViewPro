@@ -390,3 +390,34 @@ class TestValidateForRunEmpty:
         p = _make_protocol([])
         errors = p.validate_for_run(axis_limits=_DEFAULT_AXIS_LIMITS)
         assert errors == []
+
+
+class TestVideoStepsOverLimit:
+    """Protocol.video_steps_over_limit -- advisory (non-blocking) flag for a
+    video step longer than the global video time limit."""
+
+    @staticmethod
+    def _video_step(duration):
+        step = _valid_step(Acquire='video')
+        step['Video Config'] = {'fps': 5, 'duration': duration}
+        return step
+
+    def test_image_steps_never_flagged(self):
+        p = _make_protocol([_valid_step()])  # image acquire
+        assert p.video_steps_over_limit(30) == []
+
+    def test_video_under_limit_ok(self):
+        p = _make_protocol([self._video_step(20)])
+        assert p.video_steps_over_limit(30) == []
+
+    def test_video_over_limit_flagged(self):
+        p = _make_protocol([self._video_step(90)])
+        warnings = p.video_steps_over_limit(30)
+        assert len(warnings) == 1
+        assert '90' in warnings[0] and '30' in warnings[0]
+
+    def test_over_limit_is_advisory_not_a_blocking_error(self):
+        # The limit is a soft cap: it must NOT show up as a validate_steps
+        # error (which would block the run via validate_for_run).
+        p = _make_protocol([self._video_step(90)])
+        assert [e for e in p.validate_steps() if 'time limit' in e] == []

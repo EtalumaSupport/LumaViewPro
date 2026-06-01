@@ -855,7 +855,7 @@ class MicroscopeSettings(BoxLayout):
             notifications.warning(
                 'Settings',
                 'Invalid time limit',
-                'Manual Video Time Limit must be between 1 and 3600 '
+                'Video Time Limit must be between 1 and 3600 '
                 'seconds. Reverting to previous value.',
             )
             settings.setdefault('manual_video', {})
