@@ -1,4 +1,3 @@
 4.0.0-beta15
-2026-06-01 12:34
-fix/per-frame-motor-fullinfo
-b29824d8
+2026-06-01 13:00
+integration/beta-logging-and-fixes
