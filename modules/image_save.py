@@ -308,6 +308,18 @@ def generate_image_metadata(scope: Lumascope, color, x, y, z) -> dict:
     return metadata
 
 
+def _apply_save_orientation(array):
+    """Flip the camera array to the canonical save orientation.
+
+    Single source of the save-time orientation convention, applied
+    identically to every output format (TIFF, OME-TIFF, JPG) so they
+    can never diverge. The camera delivers rows top-to-bottom; the
+    saved image -- and the stitching / tiling pipeline that reads it
+    back -- expects the vertically-flipped view.
+    """
+    return np.flip(array, 0)
+
+
 def prepare_image_for_saving(
     scope: Lumascope,
     array: np.ndarray,
@@ -352,7 +364,7 @@ def prepare_image_for_saving(
     if array.dtype == np.uint16:
         array = image_utils.convert_12bit_to_16bit(array, out=out_12to16)
 
-    array = np.flip(array, 0)
+    array = _apply_save_orientation(array)
 
     path = generate_image_save_path(
         scope,
@@ -474,12 +486,16 @@ def save_image(
     try:
         if output_format == 'JPG':
             # Convenience / sharing export: bake the displayed channel
-            # color into 8-bit pixels and write a JPEG. Encode from the
-            # raw camera array (not the TIFF-prepared image) so the JPG
-            # matches the live preview. No metadata is embedded; TIFF /
-            # OME-TIFF remain the metadata-bearing scientific formats.
+            # color into 8-bit pixels and write a JPEG. Shares the
+            # orientation convention with the TIFF path via
+            # _apply_save_orientation (the only step both formats have in
+            # common); without it the JPG saved upside-down relative to the
+            # TIFFs and the tiling pipeline that reads them. Bit depth,
+            # color baking, and metadata are format-specific: JPG is an
+            # 8-bit rendered display image, TIFF / OME-TIFF carry the
+            # 16-bit data + metadata.
             jpg_bytes = image_utils.encode_display_jpg(
-                array, color, jpeg_quality=jpeg_quality
+                _apply_save_orientation(array), color, jpeg_quality=jpeg_quality
             )
             pathlib.Path(file_loc).write_bytes(jpg_bytes)
         else:
