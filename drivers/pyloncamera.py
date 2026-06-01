@@ -162,6 +162,12 @@ class PylonCamera(Camera):
         self._max_transfer_size = _DEFAULT_MAX_TRANSFER_SIZE
         self._grab_strategy_name = _DEFAULT_GRAB_STRATEGY
 
+        # Cache of the active PixelFormat. PixelFormat only changes through
+        # set_pixel_format(), so the cache is refreshed there and cleared on
+        # disconnect; get_pixel_format() serves from it to avoid a live
+        # GenICam node read on the per-frame image-metadata path.
+        self._pixel_format_cache = None
+
         super().__init__()
 
     # _mark_disconnected() inherited from Camera base class
@@ -348,6 +354,9 @@ class PylonCamera(Camera):
                         f'continuing teardown'
                     )
                 self.active = None
+                # Invalidate the PixelFormat cache; the next connect
+                # repopulates it via init_camera_config -> set_pixel_format.
+                self._pixel_format_cache = None
                 # Reset the connection-scoped self-validation flag so
                 # the next connect re-runs the StreamGrabber NodeMap
                 # walk against whatever camera attaches.
@@ -1915,6 +1924,7 @@ class PylonCamera(Camera):
                         f'pylon PixelFormat.SetValue({pixel_format!r}) '
                         'short-circuited (already active)'
                     )
+                self._pixel_format_cache = pixel_format
                 return True
         except (genicam.RuntimeException, genicam.TimeoutException) as e:
             logger.debug(
@@ -1927,6 +1937,7 @@ class PylonCamera(Camera):
                 _cam_log.info(f'pylon PixelFormat.SetValue({pixel_format!r}) (geometry-realloc)')
             with self.update_camera_config():
                 self.active.PixelFormat.SetValue(pixel_format)
+            self._pixel_format_cache = pixel_format
             return True
         except genicam.RuntimeException as e:
             if _cam_log is not None:
@@ -1948,12 +1959,24 @@ class PylonCamera(Camera):
             ) from e
 
     def get_pixel_format(self) -> str:
-        """Return active PixelFormat (e.g. 'Mono8'); '' on inactive / read failure."""
+        """Return active PixelFormat (e.g. 'Mono8'); '' on inactive / read failure.
+
+        Served from the cache populated on first read and on every
+        set_pixel_format(); PixelFormat only changes through that setter,
+        so the cache stays valid. get_camera_info() reads this once per
+        saved frame, so a live GenICam node read here would touch the SDK
+        on every capture.
+        """
         if not self.active:
             return ''
 
+        if self._pixel_format_cache is not None:
+            return self._pixel_format_cache
+
         try:
-            return self.active.PixelFormat.GetValue()
+            value = self.active.PixelFormat.GetValue()
+            self._pixel_format_cache = value
+            return value
         except genicam.RuntimeException as e:
             _cam_log.error(
                 f'[CAM Class ] Failed to read pixel format: Camera may be disconnected - {e}'
