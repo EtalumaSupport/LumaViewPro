@@ -190,13 +190,32 @@ class ZProjectionControls(BoxLayout):
             self.ij_buffer_event = None
             self.ij_buffer_count = 0
 
-        if ctx.ij_helper is None:
+        # init_ij always hands back a helper; an unavailable one (no Java)
+        # has ij_helper.available False. Gate on that, not just is-None --
+        # otherwise an unavailable helper runs the projection and the user
+        # gets a generic "Failed to create Z-Projection" with no cause named.
+        if ctx.ij_helper is None or not ctx.ij_helper.available:
+            from modules.notification_center import notifications
+
             logger.error(
-                f'[Z-Projection] ij_helper is None after init_ij -- '
+                f'[Z-Projection] ImageJ is not available -- '
                 f'result={result!r} exception={exception!r}. '
-                f'pass_result may be missing or init_ij returned None.'
+                f'ImageJ/Java did not initialize.'
             )
-            popup.text = 'Failed to initialize ImageJ. Please try again.'
+            # Name the real cause: ImageJ failed to start, which on a machine
+            # without Java means there is nothing to retry until Java is
+            # installed. The old "Please try again" sent users in circles.
+            popup.text = (
+                'Z-Projection unavailable: ImageJ could not start.\n'
+                'This usually means Java is not installed or not found.'
+            )
+            notifications.error(
+                'Z-Projection',
+                'Z-Projection unavailable',
+                'ImageJ could not start, so Z-Projection cannot run. This '
+                'usually means Java is not installed or could not be found. '
+                'Install Java and retry, or see lumaviewpro.log for details.',
+            )
             Clock.schedule_once(lambda dt: popup.dismiss(), 5)
             return
 

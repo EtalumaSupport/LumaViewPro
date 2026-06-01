@@ -90,6 +90,17 @@ class ImageJHelper:
             except Exception as ex:
                 logger.error(f'Unable to import {pkg}: {ex}')
 
+    @property
+    def available(self) -> bool:
+        """True when ImageJ initialized (Java present and Fiji loaded).
+
+        init_ij always returns a helper, even when Java is absent -- the
+        helper just has no live ImageJ gateway. Callers must check this
+        before running an operation; a False helper produces only generic
+        "Failed to create ..." errors deep in the algorithm otherwise.
+        """
+        return self._ij is not None
+
     def _log_uninitialized(self):
         logger.error(f'[ImageJ Helper] ImageJ not initialized')
 
