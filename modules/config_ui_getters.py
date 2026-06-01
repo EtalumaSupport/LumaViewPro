@@ -243,6 +243,10 @@ def get_auto_gain_settings() -> dict:
     return config_helpers.get_auto_gain_settings(_app_ctx.ctx.settings)
 
 
+def get_ag_ae_max_exposure_ms(layer: str) -> float:
+    return config_helpers.get_ag_ae_max_exposure_ms(layer, _app_ctx.ctx.settings)
+
+
 def get_current_objective_info() -> tuple[str, dict]:
     return config_helpers.get_current_objective_info(
         _app_ctx.ctx.settings, _app_ctx.ctx.objective_helper

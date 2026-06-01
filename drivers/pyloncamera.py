@@ -2300,43 +2300,52 @@ class PylonCamera(Camera):
         except Exception as e:
             _cam_log.exception(f'[CAM Class ] Unexpected error in update_auto_gain_min_max: {e}')
 
-    def _open_auto_exposure_time_bounds_to_camera_max(self) -> None:
-        """Open AutoExposureTime bounds to the camera's native range.
+    def _set_auto_exposure_time_bounds(self, max_exposure_ms: float | None = None) -> None:
+        """Set AutoExposureTime bounds for the auto-exposure loop.
 
-        Pylon's AutoExposureTimeLowerLimit / UpperLimit nodes default
-        to a narrow band around the last-written ExposureTime when AG
-        is first engaged on a given session. That implicitly caps how
-        far AG can move exposure -- dim Red fluorescence layers in
-        live mode and dim protocol-step layers stay dim because AG
-        hits its gain cap and has no exposure headroom. Writing
-        [LowerLimit.Min, UpperLimit.Max] from the sensor itself lets
-        AG converge anywhere in the camera's physical range.
+        Lower bound is opened to the sensor minimum so AG can drop
+        exposure on bright scenes. The UPPER bound is the per-channel
+        AG/AE ceiling (`max_exposure_ms`, converted to microseconds and
+        clamped to the node's physical range), NOT the sensor max.
+        Capping the upper bound keeps AG from driving exposure to the
+        sensor maximum on dim scenes -- which washes out brightfield
+        and makes the live auto loop hunt (the flicker / "both go to
+        1000 ms" reports). When `max_exposure_ms` is None the upper
+        bound opens to the node max (legacy behavior for callers that
+        do not supply a ceiling).
 
-        Live-writable per Basler; no stop_grabbing wrap needed. Soft-
-        fails on sensors that don't expose these nodes (logs and
-        continues; AG still works on the gain axis).
+        Pylon AutoExposureTime nodes are in microseconds. Live-writable
+        per Basler; no stop_grabbing wrap needed. Soft-fails on sensors
+        that don't expose these nodes (logs and continues; AG still
+        works on the gain axis).
         """
         if not self.active:
             return
         try:
             exp_min = self.active.AutoExposureTimeLowerLimit.Min
-            exp_max = self.active.AutoExposureTimeUpperLimit.Max
+            node_max = self.active.AutoExposureTimeUpperLimit.Max
+            if max_exposure_ms is not None:
+                requested_us = max_exposure_ms * 1000.0
+                node_min = self.active.AutoExposureTimeUpperLimit.Min
+                exp_max = min(max(requested_us, node_min), node_max)
+            else:
+                exp_max = node_max
             self.active.AutoExposureTimeLowerLimit.SetValue(exp_min)
             self.active.AutoExposureTimeUpperLimit.SetValue(exp_max)
             if _cam_log is not None:
                 _cam_log.info(
                     f'pylon AutoExposureTimeLowerLimit.SetValue({exp_min}) '
-                    f'AutoExposureTimeUpperLimit.SetValue({exp_max})'
+                    f'AutoExposureTimeUpperLimit.SetValue({exp_max}) '
+                    f'(cap={max_exposure_ms}ms)'
                 )
         except (genicam.RuntimeException, genicam.TimeoutException) as e:
             _cam_log.warning(
-                '[CAM Class ] Could not open AutoExposureTime bounds; '
+                '[CAM Class ] Could not set AutoExposureTime bounds; '
                 f'AG will be limited to the cached exposure ceiling: {e}'
             )
         except Exception as e:
             _cam_log.exception(
-                '[CAM Class ] Unexpected error in '
-                f'_open_auto_exposure_time_bounds_to_camera_max: {e}'
+                f'[CAM Class ] Unexpected error in _set_auto_exposure_time_bounds: {e}'
             )
 
     # grab() inherited from Camera base class
@@ -2645,6 +2654,7 @@ class PylonCamera(Camera):
         target_brightness: float = 0.5,
         min_gain_db: float | None = None,
         max_gain_db: float | None = None,
+        ae_max_exposure_ms: float | None = None,
     ) -> None:
         """Enable or disable continuous auto-gain + auto-exposure.
 
@@ -2663,6 +2673,10 @@ class PylonCamera(Camera):
                 unchanged.
             max_gain_db: Upper bound in dB, or ``None`` to leave
                 unchanged.
+            ae_max_exposure_ms: Per-channel-class upper bound (ms) on the
+                exposure AG/AE may drive to, or ``None`` to open the
+                bound to the sensor max. Caller (which knows the layer)
+                supplies the class cap.
         """
 
         if self.active is None:
@@ -2673,21 +2687,19 @@ class PylonCamera(Camera):
             if _cam_log is not None:
                 _cam_log.info(
                     f'pylon auto_gain(state={state}, target={target_brightness}, '
-                    f'min_db={min_gain_db}, max_db={max_gain_db})'
+                    f'min_db={min_gain_db}, max_db={max_gain_db}, '
+                    f'ae_max_exp_ms={ae_max_exposure_ms})'
                 )
             if state:
                 self.update_auto_gain_target_brightness(auto_target_brightness=target_brightness)
                 self.update_auto_gain_min_max(min_gain_db=min_gain_db, max_gain_db=max_gain_db)
-                # Open AutoExposureTime bounds to the camera's native
-                # range so AG can raise exposure when gain caps out.
-                # Pre-fix the bounds were never written, so they kept
-                # whatever the Pylon driver had cached (typically near
-                # the layer's pre-AG ExposureTime). Red fluorescence
-                # layers with low signal would hit max_gain_db cap and
-                # have no exposure headroom, leaving the image dim
-                # (issue #655). Symmetric: lower bound also opened so
-                # AG can drop exposure on saturating scenes.
-                self._open_auto_exposure_time_bounds_to_camera_max()
+                # Bound AutoExposureTime before enabling AG. Upper bound is
+                # the per-class AG/AE ceiling, not the sensor max -- an
+                # uncapped bound lets AG drive exposure to the sensor
+                # maximum on dim scenes, washing out brightfield and making
+                # the live auto loop hunt (issue #655). Lower bound opened
+                # so AG can still drop exposure on saturating scenes.
+                self._set_auto_exposure_time_bounds(max_exposure_ms=ae_max_exposure_ms)
                 self.active.GainAuto.SetValue('Continuous')  # 'Off' 'Once' 'Continuous'
                 self.active.ExposureAuto.SetValue('Continuous')  # 'Off' 'Once' 'Continuous'
                 if _cam_log is not None:
@@ -2712,6 +2724,7 @@ class PylonCamera(Camera):
         target_brightness: float = 0.5,
         min_gain_db: float | None = None,
         max_gain_db: float | None = None,
+        ae_max_exposure_ms: float | None = None,
     ) -> None:
         """Run a single-shot auto-gain + auto-exposure pass.
 
@@ -2728,6 +2741,9 @@ class PylonCamera(Camera):
                 unchanged.
             max_gain_db: Upper bound in dB, or ``None`` to leave
                 unchanged.
+            ae_max_exposure_ms: Per-channel-class upper bound (ms) on the
+                exposure AG/AE may drive to, or ``None`` for the sensor
+                max.
         """
 
         if self.active is None:
@@ -2738,9 +2754,10 @@ class PylonCamera(Camera):
             if state:
                 self.update_auto_gain_target_brightness(auto_target_brightness=target_brightness)
                 self.update_auto_gain_min_max(min_gain_db=min_gain_db, max_gain_db=max_gain_db)
-                # Open exposure bounds so the one-shot AG can move
-                # exposure freely (issue #655 -- see auto_gain()).
-                self._open_auto_exposure_time_bounds_to_camera_max()
+                # Bound exposure to the per-class AG/AE ceiling so the
+                # one-shot AG can move exposure within it (issue #655 --
+                # see auto_gain()).
+                self._set_auto_exposure_time_bounds(max_exposure_ms=ae_max_exposure_ms)
                 self.active.GainAuto.SetValue('Once')  # 'Off' 'Once' 'Continuous'
                 self.active.ExposureAuto.SetValue('Once')  # 'Off' 'Once' 'Continuous'
             else:
