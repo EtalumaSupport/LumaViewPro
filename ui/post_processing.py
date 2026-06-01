@@ -692,8 +692,6 @@ class GraphingControls(BoxLayout):
         plt.savefig(filepath)
 
     def set_graphing_source(self, file):
-        from datetime import datetime as date_time
-
         self._source_csv = file
         self.initialize_graph()
         try:
@@ -702,9 +700,11 @@ class GraphingControls(BoxLayout):
             if self.available_axes[0] == 'file':
                 self.available_axes = self.available_axes[1:]
             if 'time' in self.available_axes:
-                self.graph_df['time'] = [
-                    date_time.strptime(datetime_obj, '%c') for datetime_obj in self.graph_df['time']
-                ]
+                # Parse to a pandas datetime64 column. A list comprehension of
+                # datetime.strptime objects yields an object-dtype column, and
+                # the .dt accessor (used by the time-axis trendline) rejects
+                # object dtype -- that crashed update_trendline on a time axis.
+                self.graph_df['time'] = pd.to_datetime(self.graph_df['time'], format='%c')
 
             self.update_available_axes()
             self.set_x_axis()
