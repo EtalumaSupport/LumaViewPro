@@ -326,7 +326,7 @@ def parse_intel_hex(hex_path: str) -> tuple[bytes, int]:
         buf[i] = 0xFF
     end_addr = 0
 
-    with open(hex_path, 'r') as f:
+    with open(hex_path) as f:
         for line in f:
             line = line.strip()
             if not line or line[0] != ':':
@@ -565,14 +565,14 @@ class _FX2Connection:
         ``tests/test_driver_registry.py::TestRegistryAccommodatesCompositeHardware``.
     """
 
-    _instance: '_FX2Connection | None' = None
+    _instance: _FX2Connection | None = None
     _instance_lock = threading.Lock()
 
     FIRMWARE_RE_ENUM_TIMEOUT = 15.0  # seconds to wait for re-enumeration
     FIRMWARE_CHUNK_SIZE = 0x800  # vendor req 0xA0 upload chunk
 
     @classmethod
-    def get(cls) -> '_FX2Connection':
+    def get(cls) -> _FX2Connection:
         """Return the singleton, constructing it on first call.
 
         Raises on construction failure (no FX2 hardware, no pyusb, firmware
@@ -1249,7 +1249,7 @@ class FX2Camera(Camera):
     # camera is held by the Lumascope object for the lifetime of the
     # app, not inside a `with` block).
 
-    def __enter__(self) -> 'FX2Camera':
+    def __enter__(self) -> FX2Camera:
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb) -> None:

@@ -201,10 +201,10 @@ def dry_run() -> int:
         print('No Rule 24 / 27 / 28 violations found.')
     else:
         print(
-            f'\n(Above violations are the cleanup punch list. The hook '
-            f'only blocks NEW violations on staged lines by default; '
-            f'pre-existing violations like these are surfaced here for '
-            f'visibility but do not block commits.)'
+            '\n(Above violations are the cleanup punch list. The hook '
+            'only blocks NEW violations on staged lines by default; '
+            'pre-existing violations like these are surfaced here for '
+            'visibility but do not block commits.)'
         )
     return rc
 

@@ -122,10 +122,10 @@ kv = Builder.load_string(
     progress: 0
     text: ''
     title: ''
-    
+
     BoxLayout:
         orientation: 'vertical'
-        
+
         Label:
             text: root.text
             size_hint: 1, 0.6

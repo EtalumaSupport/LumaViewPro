@@ -746,19 +746,19 @@ class StimulationController:
                     f.write(f'Illumination:    {stim_config.get("illumination", "?")} mA\n')
                     f.write(f'Pulses executed: {pulses_executed.get(color, 0)}\n')
                     f.write(f'End reason:      {end_reason}\n')
-                    f.write(f'\n--- Statistics ---\n')
+                    f.write('\n--- Statistics ---\n')
                     self._write_timing_stats(f, 'LED ON command time', on_durations)
                     self._write_timing_stats(f, 'LED OFF command time', off_durations)
                     self._write_timing_stats(f, 'Actual LED on-time', actual_on_times)
 
-                    f.write(f'\n--- Outlier Analysis ---\n')
+                    f.write('\n--- Outlier Analysis ---\n')
                     self._write_outlier_details(
                         f, actual_on_times, 'Actual on-time', expected_ms=expected_pulse_ms
                     )
                     self._write_outlier_details(f, on_durations, 'ON command')
                     self._write_outlier_details(f, off_durations, 'OFF command')
 
-                    f.write(f'\n--- Per-Pulse Event Log ---\n')
+                    f.write('\n--- Per-Pulse Event Log ---\n')
                     f.write(
                         f'{"Pulse":>6} {"ON cmd (ms)":>12} {"OFF cmd (ms)":>13} {"Actual ON (ms)":>15}\n'
                     )

@@ -967,12 +967,12 @@ class TestAxisState:
         scope._motion_driver = SimulatedMotorBoard(model='LS850T')
         present = scope._motion_driver.detect_present_axes()
         assert 'T' in present, 'LS850T sim must report T present'
-        scope.motion._pos_cache = {ax: 0.0 for ax in present}
-        scope.motion._axis_state = {ax: AxisState.UNKNOWN for ax in present}
+        scope.motion._pos_cache = dict.fromkeys(present, 0.0)
+        scope.motion._axis_state = dict.fromkeys(present, AxisState.UNKNOWN)
         scope.motion._arrival_events = {ax: threading.Event() for ax in present}
         for ev in scope.motion._arrival_events.values():
             ev.set()
-        scope.motion._move_profile = {ax: None for ax in present}
+        scope.motion._move_profile = dict.fromkeys(present)
 
         scope.motion.thome()
         assert scope.motion.get_axis_state('T') == AxisState.IDLE
@@ -1098,7 +1098,7 @@ class TestIssue602_AFExecutorLED:
 
         io = SequentialIOExecutor(name='IO_TEST')
         cam = SequentialIOExecutor(name='CAM_TEST')
-        af_ex = SequentialIOExecutor(name='AF_TEST')
+        af_ex = SequentialIOExecutor(name='AF_TEST')  # noqa: F841 -- deferred
         file_ex = SequentialIOExecutor(name='FILE_TEST')
         af = AutofocusRunner(
             scope=scope,
@@ -1125,7 +1125,7 @@ class TestIssue602_AFExecutorLED:
 
         io = SequentialIOExecutor(name='IO_TEST')
         cam = SequentialIOExecutor(name='CAM_TEST')
-        af_ex = SequentialIOExecutor(name='AF_TEST')
+        af_ex = SequentialIOExecutor(name='AF_TEST')  # noqa: F841 -- deferred
         file_ex = SequentialIOExecutor(name='FILE_TEST')
         af = AutofocusRunner(
             scope=scope,
@@ -2333,7 +2333,8 @@ class TestIssue643_LumiLS820PlateViewInProtocol:
     def test_lumi_and_ls820_have_xystage_false(self):
         """Sanity: scopes.json must declare Lumi and LS820 as XYStage=False
         for the issue #643 guard to actually apply."""
-        import json, pathlib
+        import json
+        import pathlib
 
         scopes = json.loads(pathlib.Path('data/scopes.json').read_text())
         assert 'Lumi' in scopes, 'Lumi scope config missing from data/scopes.json'
@@ -5957,7 +5958,7 @@ class TestPylonBslPrefixedNodeFallbacks:
             'fallback for legacy ace cameras.'
         )
         # Bsl variant must come first in the call.
-        bsl_pos = body.find('BslResultingAcquisitionFrameRate')
+        bsl_pos = body.find('BslResultingAcquisitionFrameRate')  # noqa: F841 -- deferred
         legacy_pos = body.find("'ResultingFrameRate'")
         if legacy_pos != -1:  # legacy may also appear in a comment first
             # Just assert the call site has both; ordering inside the call
@@ -6243,7 +6244,7 @@ class TestSequentialIOExecutorSubmitThenShutdownNoFutureLeak:
             # Submit a batch of return_future tasks. Don't wait for them
             # to complete -- shutdown(wait=False) should cancel pending
             # and drain caller_futures regardless.
-            for i in range(20):
+            for _ in range(20):
                 task = IOTask(
                     action=lambda: None,
                     callback=lambda *a, **k: None,
@@ -6418,7 +6419,7 @@ class TestSequentialIOExecutorPriorityAware:
             _t2.sleep(0.05)
 
             executor.put(IOTask(action=low_done.set, priority=PRIORITY_LOW))
-            for i in range(50):
+            for _ in range(50):
                 executor.put(IOTask(action=lambda: None, priority=PRIORITY_MED))
 
             head.set()
@@ -8886,7 +8887,7 @@ class TestSaveLiveImageTimeoutIsFloat:
                 f"capture_and_wait raised TypeError when given save_live_image's "
                 f'default timeout_s ({timeout_default!r}): {e}. '
                 f'Phase-2 audit P2-1 regression has returned.'
-            )
+            ) from e
 
 
 class TestImagingParamNamesUseUnitSuffix:
@@ -8953,7 +8954,7 @@ class TestImagingParamNamesUseUnitSuffix:
         import inspect
         from drivers.camera import Camera
 
-        method = getattr(Camera, 'exposure_t')
+        method = Camera.exposure_t
         params = set(inspect.signature(method).parameters)
         assert 'exposure_ms' in params, 'Camera.exposure_t missing exposure_ms param'
         assert 't' not in params, 'Camera.exposure_t still has bare `t` param'
@@ -10254,19 +10255,19 @@ class TestImagingAsyncSyncThreeVariantPattern:
         from modules.lumascope_api.imaging import ImagingAPI
 
         assert hasattr(ImagingAPI, 'set_gain_async')
-        assert callable(getattr(ImagingAPI, 'set_gain_async'))
+        assert callable(ImagingAPI.set_gain_async)
 
     def test_imaging_has_set_exposure_time_async(self):
         from modules.lumascope_api.imaging import ImagingAPI
 
         assert hasattr(ImagingAPI, 'set_exposure_time_async')
-        assert callable(getattr(ImagingAPI, 'set_exposure_time_async'))
+        assert callable(ImagingAPI.set_exposure_time_async)
 
     def test_imaging_has_capture_and_wait_async(self):
         from modules.lumascope_api.imaging import ImagingAPI
 
         assert hasattr(ImagingAPI, 'capture_and_wait_async')
-        assert callable(getattr(ImagingAPI, 'capture_and_wait_async'))
+        assert callable(ImagingAPI.capture_and_wait_async)
 
     def test_session_imaging_forwarders_renamed(self):
         from modules.scope_session import ScopeSession
@@ -11810,4 +11811,53 @@ class TestShowPopupHostWidgetProxy_F9:
             f'host widget to the daemon thread; pass the '
             f'_HostWidgetProxy wrapper instead. Got first thread arg: '
             f'{first_arg_name!r}.'
+        )
+
+
+class TestPostProcessingLoggerImported:
+    """post_processing.py called logger.error() inside an `except OSError`
+    handler that writes results.csv, but the module never imported logger.
+    With logger unbound, any CSV-write failure raised NameError instead of
+    logging -- masking the real OSError from the user. The module must import
+    logger at top level whenever it references it.
+    """
+
+    def _parse(self):
+        import ast
+        import pathlib
+
+        root = pathlib.Path(__file__).resolve().parent.parent
+        src = (root / 'modules' / 'post_processing.py').read_text()
+        return ast.parse(src)
+
+    def test_logger_imported_when_referenced(self):
+        import ast
+
+        tree = self._parse()
+
+        references_logger = any(
+            isinstance(node, ast.Name)
+            and node.id == 'logger'
+            and isinstance(node.ctx, ast.Load)
+            for node in ast.walk(tree)
+        )
+        assert references_logger, (
+            'expected post_processing.py to reference logger; the test '
+            'guards against an unbound logger and is meaningless otherwise.'
+        )
+
+        imported = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom):
+                for alias in node.names:
+                    imported.add(alias.asname or alias.name)
+            elif isinstance(node, ast.Import):
+                for alias in node.names:
+                    imported.add((alias.asname or alias.name).split('.')[0])
+
+        assert 'logger' in imported, (
+            'post_processing.py references logger but never imports it; '
+            'logger.error() in the results.csv except handler would raise '
+            'NameError and hide the real OSError. Add '
+            '`from lvp_logger import logger`.'
         )

@@ -91,7 +91,7 @@ class MotorConfig:
             logger.warning(f'[MotorConfig] {label} file not found: {file_path}')
             return {}
         try:
-            with open(file_path, 'r') as fp:
+            with open(file_path) as fp:
                 return json.load(fp)
         except (json.JSONDecodeError, OSError) as ex:
             logger.error(f'[MotorConfig] Failed to load {label} file {file_path}: {ex}')

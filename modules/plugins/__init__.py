@@ -30,7 +30,8 @@ import logging
 import re
 import threading
 from dataclasses import dataclass, field
-from typing import Any, Callable, Iterable, Optional
+from typing import Any, Optional
+from collections.abc import Callable, Iterable
 
 logger = logging.getLogger('lvp_logger')
 
@@ -273,7 +274,7 @@ class PostProcessingRegistry(_BaseNamespace):
             self._handlers[spec.name] = (spec, processor)
             self._record_loaded(spec)
 
-    def get(self, name: str) -> Optional[Callable]:
+    def get(self, name: str) -> Callable | None:
         with self._lock:
             entry = self._handlers.get(name)
             return entry[1] if entry is not None else None
@@ -535,7 +536,7 @@ class PluginRegistry:
                 if ns is not None:
                     ns.record_runtime_error(name, 'on_settings_changed', exc)
 
-    def _find_namespace(self, plugin_name: str) -> Optional['_BaseNamespace']:
+    def _find_namespace(self, plugin_name: str) -> _BaseNamespace | None:
         for ns in (
             self.ui,
             self.post_processing,
@@ -566,7 +567,7 @@ def _any_prefix_match(
 
 
 def _diff_settings_keys(
-    old: Optional[dict],
+    old: dict | None,
     new: dict,
     prefix: str = '',
 ) -> set[str]:
@@ -647,7 +648,7 @@ _SEMVER_RE = re.compile(r'^(\d+)\.(\d+)\.(\d+)')
 _REQ_RE = re.compile(r'^(>=|>|==|<=|<|~=)?\s*(\d+)\.(\d+)\.(\d+)')
 
 
-def _parse_semver(s: str) -> Optional[tuple[int, int, int]]:
+def _parse_semver(s: str) -> tuple[int, int, int] | None:
     """Parse leading semver triple from a string. '4.0.0-beta8' -> (4,0,0)."""
     m = _SEMVER_RE.match(s.strip())
     if not m:
@@ -655,7 +656,7 @@ def _parse_semver(s: str) -> Optional[tuple[int, int, int]]:
     return int(m.group(1)), int(m.group(2)), int(m.group(3))
 
 
-def _parse_requirement(req: str) -> Optional[tuple[str, tuple[int, int, int]]]:
+def _parse_requirement(req: str) -> tuple[str, tuple[int, int, int]] | None:
     m = _REQ_RE.match(req.strip())
     if not m:
         return None
@@ -696,7 +697,7 @@ def is_version_compatible(requires: str, host: str) -> bool:
 # ---------------------------------------------------------------------------
 
 
-def _extract_spec(module: Any) -> Optional[PluginSpec]:
+def _extract_spec(module: Any) -> PluginSpec | None:
     """Plugins expose a module-level 'spec' attribute."""
     spec = getattr(module, 'spec', None)
     if isinstance(spec, PluginSpec):

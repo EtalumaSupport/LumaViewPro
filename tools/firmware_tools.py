@@ -93,7 +93,7 @@ def cmd_backup(args):
     backup_dir.mkdir(parents=True, exist_ok=True)
 
     try:
-        print(f'Entering raw REPL...')
+        print('Entering raw REPL...')
         if not board.enter_raw_repl():
             print('ERROR: Failed to enter raw REPL')
             sys.exit(1)
@@ -287,7 +287,7 @@ def cmd_homing_test(args):
         move_between = args.move_between
 
         # Initial home to establish reference
-        print(f'\n--- Initial home (establishing reference) ---')
+        print('\n--- Initial home (establishing reference) ---')
         if len(axes) == 1:
             ok, resp, dt = _home_single(board, axes[0])
         else:
@@ -400,14 +400,14 @@ def _print_homing_summary(results, axes):
     times = [r['home_time_ms'] for r in results]
 
     print(f'\n{"=" * 70}')
-    print(f'HOMING ENDURANCE TEST SUMMARY')
+    print('HOMING ENDURANCE TEST SUMMARY')
     print(f'{"=" * 70}')
     print(f'Cycles: {n}')
     print(f'Passed: {passed}')
     print(f'Failed: {failed}')
     print(f'Pass rate: {100 * passed / n:.1f}%')
     print()
-    print(f'Homing time (ms):')
+    print('Homing time (ms):')
     print(f'  Min:  {min(times):.0f}')
     print(f'  Max:  {max(times):.0f}')
     print(f'  Mean: {sum(times) / len(times):.0f}')
@@ -424,7 +424,7 @@ def _print_homing_summary(results, axes):
             print(f'{axis}: no successful cycles')
 
     if failed:
-        print(f'\nFAILURES:')
+        print('\nFAILURES:')
         for r in results:
             if not r['success']:
                 print(f'  Cycle {r["cycle"]}: {"; ".join(r["errors"])}')

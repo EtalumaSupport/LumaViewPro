@@ -35,7 +35,7 @@ class CompositeCapture(FloatLayout):
     _capturing = threading.Event()  # Thread-safe guard against rapid double-clicks
 
     def __init__(self, **kwargs):
-        super(CompositeCapture, self).__init__(**kwargs)
+        super().__init__(**kwargs)
 
     def live_capture(self):
         gui_logger.button('LIVE_CAPTURE')
@@ -337,7 +337,6 @@ class CompositeCapture(FloatLayout):
         )
         with ctx.settings_lock:
             layer_settings = {layer: dict(settings[layer]) for layer in all_layers}
-            frame_settings = dict(settings['frame'])
             live_folder = settings['live_folder']
             image_output_format = dict(settings['image_output_format'])
 

@@ -82,7 +82,7 @@ class SimulatedLEDBoard:
             'Green': -1,
         }
         self._enabled = True
-        self._channel_states = {i: 0 for i in range(6)}  # channel -> mA
+        self._channel_states = dict.fromkeys(range(6), 0)  # channel -> mA
 
     def set_timing_mode(self, mode: str) -> None:
         """Switch timing mode: 'instant', 'fast', or 'realistic'.
@@ -193,7 +193,6 @@ class SimulatedLEDBoard:
                 return None
 
             # Failure injection: fail on specific commands
-            cmd_word = command.strip().split('_')[0] if command else ''
             if command.strip() in self._fail_on:
                 logger.warning(f'[LED Sim   ] INJECTED FAILURE: timeout on {command.strip()}')
                 _serial_log.warning(
@@ -451,7 +450,6 @@ class SimulatedLEDBoard:
         """
         lines = []
         for ch in range(6):
-            ma = self._channel_states.get(ch, 0)
             lines.append(f'LED{ch}: 0.1mA OK  1mA OK  10mA OK  100mA OK  500mA OK')
         lines.append('SELFTEST Complete')
         return lines

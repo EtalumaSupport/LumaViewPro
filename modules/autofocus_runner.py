@@ -452,7 +452,7 @@ class AutofocusRunner:
                 break
 
             if count >= num_retries:
-                raise Exception(f'Unable to grab image for autofocusing after max retries')
+                raise Exception('Unable to grab image for autofocusing after max retries')
 
         height, width = image.shape
 
@@ -671,7 +671,6 @@ class AutofocusRunner:
 
         plot_filename = f'autofocus_plot_{ts}.png'
         plot_outfile_loc = self._results_dir / plot_filename
-        from matplotlib.figure import Figure
 
         fig = Figure(figsize=(12, 12))
         axs = fig.add_subplot(111)

@@ -23,31 +23,9 @@ _LUT_12_TO_8 = np.clip(np.arange(4096, dtype=np.float32) / 4095 * 255, 0, 255).a
 
 _LUT_16_TO_8 = (np.arange(65536, dtype=np.float64) / 256).astype(np.uint8)
 
-# Conversion to tifffile's desired datatype references
-tifffile_dtypes = {
-    'BYTE': 1,
-    'ASCII': 2,
-    'SHORT': 3,
-    'LONG': 4,
-    'RATIONAL': 5,
-    'SBYTE': 6,
-    'UNDEFINED': 7,
-    'SSHORT': 8,
-    'SLONG': 9,
-    'SRATIONAL': 10,
-    'FLOAT': 11,
-    'DOUBLE': 12,
-    'SINGLE': 13,
-    'QWORD': 16,
-    'SQWORD': 17,
-}
-
 
 def is_color_image(image) -> bool:
-    if len(image.shape) == 3 and image.shape[2] == 3:
-        return True
-
-    return False
+    return len(image.shape) == 3 and image.shape[2] == 3
 
 
 def mono_to_rgb_falsecolor(mono: np.ndarray, layer: str) -> np.ndarray:
@@ -769,7 +747,7 @@ def add_false_color(array, color, output=None):
 def image_file_to_image(image_file):
     logger.info(f'[LVP image_utils  ] Loading: {image_file}')
     if not cv2.haveImageReader(image_file):
-        logger.error(f'[LVP image_utils  ] - Image not supported by OpenCV')
+        logger.error('[LVP image_utils  ] - Image not supported by OpenCV')
         return
 
     num_images = cv2.imcount(image_file)
@@ -778,7 +756,7 @@ def image_file_to_image(image_file):
     image = cv2.imread(image_file, cv2.IMREAD_UNCHANGED)
 
     if image is None:
-        logger.error(f'[LVP image_utils  ] - Unable to load file')
+        logger.error('[LVP image_utils  ] - Unable to load file')
         return
 
     return image
@@ -801,18 +779,12 @@ def rgb_image_to_gray(image):
 
     def _is_grayscale(image):
         shape = image.shape
-        if (len(shape) <= 2) or (shape[2] == 1):
-            return True
-
-        return False
+        return bool((len(shape) <= 2) or (shape[2] == 1))
 
     def _values_in_one_plane(image):
         used_color_planes = get_used_color_planes(image=image)
 
-        if len(used_color_planes) <= 1:
-            return True
-        else:
-            return False
+        return len(used_color_planes) <= 1
 
     if _is_grayscale(image=image):
         return image
@@ -1259,7 +1231,6 @@ def generate_tiff_data(
     color: str,
 ):
 
-    dtype = tifffile_dtypes
     axes = 'YX'
 
     modality = ''
@@ -1290,12 +1261,12 @@ def generate_tiff_data(
         # write ThreadPoolExecutor holds an Event handle that outlives
         # cleanup. No production workflow saturates this path today;
         # added for adjacent-symmetry with the other two save paths.
-        options = dict(
-            photometric=photometric,
-            compression='lzw',
-            resolutionunit='CENTIMETER',
-            maxworkers=0,
-        )
+        options = {
+            'photometric': photometric,
+            'compression': 'lzw',
+            'resolutionunit': 'CENTIMETER',
+            'maxworkers': 0,
+        }
         if data.dtype == np.uint8:
             options['tile'] = (128, 128)
         return {
@@ -1427,11 +1398,11 @@ def generate_tiff_data(
         # bench-witnessed 8-bit Bug E soak did not exercise. Adjacent
         # symmetry: same tifffile.write() ThreadPoolExecutor pattern,
         # same leak risk; deflate single-threaded cost is negligible.
-        options = dict(
-            photometric=photometric,
-            compression='deflate',
-            maxworkers=0,
-        )
+        options = {
+            'photometric': photometric,
+            'compression': 'deflate',
+            'maxworkers': 0,
+        }
         # Resolution for ImageJ types is in pixels/pixel
         resolution = (1.0 / metadata['pixel_size_um'], 1.0 / metadata['pixel_size_um'])
     else:
@@ -1442,12 +1413,12 @@ def generate_tiff_data(
         # lib/handle_trace.py over a 28-min bench run: mean +0.967/call).
         # LZW compression now runs single-threaded -- +~10ms per 5MP save,
         # negligible vs typical 1-2 saves/sec protocol cadence.
-        options = dict(
-            photometric=photometric,
-            compression='lzw',
-            resolutionunit='CENTIMETER',
-            maxworkers=0,
-        )
+        options = {
+            'photometric': photometric,
+            'compression': 'lzw',
+            'resolutionunit': 'CENTIMETER',
+            'maxworkers': 0,
+        }
         resolution = (1e4 / metadata['pixel_size_um'], 1e4 / metadata['pixel_size_um'])
 
     # Tile setting: 8-bit images use tiles for ImageJ colormap compatibility

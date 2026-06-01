@@ -79,12 +79,10 @@ class CellCount:
             ):
                 return False
 
-            if (criteria[criteria_key]['max'] is not None) and (
-                subject[subject_key]['val'] > criteria[criteria_key]['max']
-            ):
-                return False
-
-            return True
+            return not (
+                (criteria[criteria_key]['max'] is not None)
+                and (subject[subject_key]['val'] > criteria[criteria_key]['max'])
+            )
 
         total_object_area = 0
         total_object_intensity = 0
@@ -198,8 +196,6 @@ class CellCount:
 
         if 'unfiltered_contours' in include_images:
             return_images['unfiltered_contours'] = contours_img
-
-        num_unfiltered_contours = len(contours)
 
         # Labeling
         label_map = np.zeros_like(contours_img, dtype='uint16')

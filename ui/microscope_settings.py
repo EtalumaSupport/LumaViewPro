@@ -85,7 +85,7 @@ class _CoalescingApplier:
 
 class MicroscopeSettings(BoxLayout):
     def __init__(self, **kwargs):
-        super(MicroscopeSettings, self).__init__(**kwargs)
+        super().__init__(**kwargs)
         logger.debug('[LVP Main  ] MicroscopeSettings.__init__()')
         # Coalesce rapid set_frame_size requests. See
         # _CoalescingApplier + issue #624.
@@ -93,19 +93,19 @@ class MicroscopeSettings(BoxLayout):
 
         scopes_path = resolve_data_file('scopes.json')
         try:
-            with open(scopes_path, 'r') as read_file:
+            with open(scopes_path) as read_file:
                 self.scopes = json.load(read_file)
-        except FileNotFoundError:
+        except FileNotFoundError as e:
             logger.error(f'[LVP Main  ] scopes.json not found at {scopes_path}')
             raise RuntimeError(
                 f'Required file scopes.json not found at {scopes_path}. '
                 'Please reinstall or restore from backup.'
-            )
+            ) from e
         except json.JSONDecodeError as e:
             logger.error(f'[LVP Main  ] scopes.json is corrupt: {e}')
             raise RuntimeError(
                 f'scopes.json is corrupt ({e}). Please restore from backup or reinstall.'
-            )
+            ) from e
 
         self._validate_scopes(scopes_path)
 
@@ -310,8 +310,8 @@ class MicroscopeSettings(BoxLayout):
             # Settings are imported at the very beginning of file
 
             if settings['profiling']['enabled']:
-                ts = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
-                profiling_save_path = os.path.join(ctx.source_path, f'./logs/profiling')
+                ts = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')  # noqa: F841 -- deferred
+                profiling_save_path = os.path.join(ctx.source_path, './logs/profiling')
                 MemoryLeakProfiler.start(root_log_dir=profiling_save_path)
                 logger.info('[LVP Main  ] Memory Profiler started.')
 
@@ -358,7 +358,7 @@ class MicroscopeSettings(BoxLayout):
                     live_folder = pathlib.Path.home() / 'Documents' / 'LumaViewPro' / 'capture'
                 live_folder = live_folder.resolve()
                 live_folder.mkdir(exist_ok=True, parents=True)
-                logger.info(f'[LVP Main  ] Defaulting live image folder to {str(live_folder)}')
+                logger.info(f'[LVP Main  ] Defaulting live image folder to {live_folder!s}')
 
             settings['live_folder'] = str(live_folder)
 
@@ -366,7 +366,7 @@ class MicroscopeSettings(BoxLayout):
 
             # Scope auto-detection
             detected_model = lumaview.scope.diagnostics.get_microscope_model()
-            if detected_model in self.scopes.keys():
+            if detected_model in self.scopes:
                 logger.info(f'[LVP Main  ] Auto-detected scope as {detected_model}')
                 self.ids['scope_spinner'].text = detected_model
             else:

@@ -73,7 +73,7 @@ def _validate_settings(settings: dict, filepath: str, logger) -> None:
         if not isinstance(layer_settings, dict):
             logger.warning(f'[Settings ] {filepath}: "{layer}" should be dict')
             continue
-        for field, expected_type in _REQUIRED_LAYER_FIELDS.items():
+        for field, _expected_type in _REQUIRED_LAYER_FIELDS.items():
             if field not in layer_settings:
                 logger.warning(f'[Settings ] {filepath}: "{layer}" missing "{field}"')
 
@@ -92,7 +92,7 @@ def load_settings(logger, filename, lvp_appdata):
     # load settings JSON file
     filepath = os.path.join(lvp_appdata, filename) if not os.path.isabs(filename) else filename
     try:
-        with open(filepath, 'r') as read_file:
+        with open(filepath) as read_file:
             settings = json.load(read_file)
         _validate_settings(settings, filepath, logger)
     except json.JSONDecodeError:
@@ -131,7 +131,7 @@ def load_lvp_settings(logger, lvp_appdata):
     if os.path.exists(current_path):
         try:
             load_settings(logger, current_path, lvp_appdata)
-        except (json.JSONDecodeError, ValueError):
+        except (json.JSONDecodeError, ValueError) as e:
             # current.json is corrupt -- fall back to settings.json
             logger.warning(f'[Settings ] {current_path} is corrupt, falling back to settings.json')
             settings = None
@@ -140,14 +140,14 @@ def load_lvp_settings(logger, lvp_appdata):
             else:
                 raise FileNotFoundError(
                     f'current.json corrupt and no settings.json fallback in {data_dir}'
-                )
+                ) from e
 
         # Merge missing keys from settings.json defaults into current.json.
         # current.json drifts from settings.json as new features add keys.
         # This ensures new keys are available without losing user values.
         if settings is not None and os.path.exists(settings_path):
             try:
-                with open(settings_path, 'r') as f:
+                with open(settings_path) as f:
                     defaults = json.load(f)
                 added = _deep_merge_defaults(settings, defaults, logger=logger)
                 if added:
@@ -187,7 +187,7 @@ def load_debug_setting(directory):
         filename = _resolve_settings_path(directory)
         debug_setting_source = os.path.basename(filename)
 
-        with open(filename, 'r') as read_file:
+        with open(filename) as read_file:
             temp_settings = json.load(read_file)
 
         debug_setting = temp_settings.get('debug_mode', False)
@@ -211,7 +211,7 @@ def load_profile_trace_setting(directory):
     """
     try:
         filename = _resolve_settings_path(directory)
-        with open(filename, 'r') as read_file:
+        with open(filename) as read_file:
             temp_settings = json.load(read_file)
     except Exception:
         return {'enabled': False, 'output_dir': None}
@@ -235,7 +235,7 @@ def load_tracemalloc_setting(directory):
     """
     try:
         filename = _resolve_settings_path(directory)
-        with open(filename, 'r') as read_file:
+        with open(filename) as read_file:
             temp_settings = json.load(read_file)
     except Exception:
         return False
@@ -256,7 +256,7 @@ def load_fx2_debug_wire_setting(directory):
     """
     try:
         filename = _resolve_settings_path(directory)
-        with open(filename, 'r') as read_file:
+        with open(filename) as read_file:
             temp_settings = json.load(read_file)
     except Exception:
         return False

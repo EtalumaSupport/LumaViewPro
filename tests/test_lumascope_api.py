@@ -479,12 +479,12 @@ class TestFrameValidityDuringHoming:
         scope._motion_driver = SimulatedMotorBoard(model='LS850T')
         present = scope._motion_driver.detect_present_axes()
         assert 'T' in present
-        scope.motion._pos_cache = {ax: 0.0 for ax in present}
-        scope.motion._axis_state = {ax: AxisState.UNKNOWN for ax in present}
+        scope.motion._pos_cache = dict.fromkeys(present, 0.0)
+        scope.motion._axis_state = dict.fromkeys(present, AxisState.UNKNOWN)
         scope.motion._arrival_events = {ax: threading.Event() for ax in present}
         for ev in scope.motion._arrival_events.values():
             ev.set()
-        scope.motion._move_profile = {ax: None for ax in present}
+        scope.motion._move_profile = dict.fromkeys(present)
 
         captured = {}
         original_thome = scope._motion_driver.thome
@@ -678,12 +678,12 @@ class TestPerAxisDictsFromDriver:
         scope._motion_driver.detect_present_axes = lambda: ['Z']
         # Re-init the per-axis dicts to reflect the patched motion.
         present = scope._motion_driver.detect_present_axes()
-        scope.motion._pos_cache = {ax: 0.0 for ax in present}
-        scope.motion._axis_state = {ax: AxisState.UNKNOWN for ax in present}
+        scope.motion._pos_cache = dict.fromkeys(present, 0.0)
+        scope.motion._axis_state = dict.fromkeys(present, AxisState.UNKNOWN)
         scope.motion._arrival_events = {ax: threading.Event() for ax in present}
         for ev in scope.motion._arrival_events.values():
             ev.set()
-        scope.motion._move_profile = {ax: None for ax in present}
+        scope.motion._move_profile = dict.fromkeys(present)
 
         assert set(scope.motion._pos_cache.keys()) == {'Z'}
         assert set(scope.motion._axis_state.keys()) == {'Z'}
@@ -696,10 +696,10 @@ class TestPerAxisDictsFromDriver:
         scope = Lumascope(simulate=True)
         scope._motion_driver = NullMotionBoard()
         present = scope._motion_driver.detect_present_axes()
-        scope.motion._pos_cache = {ax: 0.0 for ax in present}
-        scope.motion._axis_state = {ax: AxisState.UNKNOWN for ax in present}
+        scope.motion._pos_cache = dict.fromkeys(present, 0.0)
+        scope.motion._axis_state = dict.fromkeys(present, AxisState.UNKNOWN)
         scope.motion._arrival_events = {ax: threading.Event() for ax in present}
-        scope.motion._move_profile = {ax: None for ax in present}
+        scope.motion._move_profile = dict.fromkeys(present)
 
         assert scope.motion._pos_cache == {}
         assert scope.motion._axis_state == {}
@@ -714,12 +714,12 @@ class TestPerAxisDictsFromDriver:
         scope = Lumascope(simulate=True)
         scope._motion_driver.detect_present_axes = lambda: ['Z']
         present = scope._motion_driver.detect_present_axes()
-        scope.motion._pos_cache = {ax: 0.0 for ax in present}
-        scope.motion._axis_state = {ax: AxisState.UNKNOWN for ax in present}
+        scope.motion._pos_cache = dict.fromkeys(present, 0.0)
+        scope.motion._axis_state = dict.fromkeys(present, AxisState.UNKNOWN)
         scope.motion._arrival_events = {ax: threading.Event() for ax in present}
         for ev in scope.motion._arrival_events.values():
             ev.set()
-        scope.motion._move_profile = {ax: None for ax in present}
+        scope.motion._move_profile = dict.fromkeys(present)
 
         scope.motion.move_absolute_position('X', 100)
         scope.motion.move_absolute_position('Y', 100)

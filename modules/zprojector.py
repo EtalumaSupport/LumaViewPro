@@ -84,13 +84,13 @@ class ZProjector(ProtocolPostProcessor):
     def _filter_ignored_types(self, df: pd.DataFrame) -> pd.DataFrame:
 
         # Skip already composited outputs
-        df = df[df[self._post_function.value] == False]
+        df = df[df[self._post_function.value] == False]  # noqa: E712 -- pandas mask
 
         # Skip videos
-        df = df[df[PostFunction.VIDEO.value] == False]
+        df = df[df[PostFunction.VIDEO.value] == False]  # noqa: E712 -- pandas mask
 
         # Skip stacks
-        df = df[df[PostFunction.HYPERSTACK.value] == False]
+        df = df[df[PostFunction.HYPERSTACK.value] == False]  # noqa: E712 -- pandas mask
 
         return df
 
@@ -179,7 +179,7 @@ class ZProjector(ProtocolPostProcessor):
         project_result = self._ij_helper.zproject(images_data=images_data, method=method)
 
         if project_result is None:
-            error = f'Failed to create Z-Projection'
+            error = 'Failed to create Z-Projection'
             logger.error(error)
             return {
                 'status': False,

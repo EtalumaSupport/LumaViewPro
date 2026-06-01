@@ -37,17 +37,26 @@ extend-exclude = [
     "data",
     ".venv",
     "*.spec",
+    # API usage examples for L2 integrators; illustrative, not shipping code.
+    "docs/api_examples",
 ]
 
 [tool.ruff.lint]
 # Default ruff is conservative (E + F). We pick a broader set per Rule 36.
 # E   = pycodestyle errors        F   = pyflakes
-# W   = pycodestyle warnings      I   = isort (import sorting)
-# N   = pep8-naming               UP  = pyupgrade (modern syntax)
-# B   = flake8-bugbear            A   = flake8-builtins (no shadowing)
-# C4  = flake8-comprehensions     PTH = flake8-use-pathlib
-# RUF = ruff-specific rules       SIM = flake8-simplify
-select = ["E", "F", "W", "I", "N", "UP", "B", "A", "C4", "PTH", "RUF", "SIM"]
+# W   = pycodestyle warnings      N   = pep8-naming
+# UP  = pyupgrade (modern syntax) B   = flake8-bugbear
+# A   = flake8-builtins (no shadowing)  C4  = flake8-comprehensions
+# PTH = flake8-use-pathlib        RUF = ruff-specific rules
+# SIM = flake8-simplify
+#
+# isort (I / I001) is deliberately NOT selected. Import order can carry
+# side-effect dependencies -- Kivy Config/env setup before the kivy import,
+# matplotlib backend selection, registration-on-import -- so an alphabetical
+# auto-sort risks a test-invisible runtime regression for purely cosmetic
+# gain. Rule 26's stdlib / third-party / first-party grouping stays a
+# human-review norm; it does not mandate alphabetical order within a group.
+select = ["E", "F", "W", "N", "UP", "B", "A", "C4", "PTH", "RUF", "SIM"]
 
 # Unused-import handling: F401 stays in `select` so ruff still flags genuinely
 # dead imports for human review, but it is REMOVED from autofix. ruff cannot
@@ -57,7 +66,13 @@ select = ["E", "F", "W", "I", "N", "UP", "B", "A", "C4", "PTH", "RUF", "SIM"]
 # stripped `from ui.shader import ShaderViewer` -- LVP crashed at startup with
 # `kivy.factory.FactoryException: Unknown class <ShaderViewer>`. Manual review
 # is the only safe pruning path; `unfixable` makes that the only path.
-unfixable = ["F401"]
+#
+# RUF100 (unused noqa) + RUF102 (invalid noqa code) are also unfixable.
+# noqa directives are COMMENTS; ruff's job is to improve code, not to
+# strip comments automatically. The autofix removes the whole trailing
+# comment (any human explanation after the noqa goes with it), so noqa
+# cleanup is human-review-only. ruff still REPORTS these for review.
+unfixable = ["F401", "RUF100", "RUF102"]
 
 ignore = [
     # E501 (line too long) -- ruff format handles wrapping; raw E501 is noisy.
@@ -77,6 +92,13 @@ ignore = [
     "N806",
     # N815 (mixedCase classvar) -- Kivy property names follow Kivy convention.
     "N815",
+    # A001 / A002 / A003 (builtin shadowing) -- A003 min/max are Kivy
+    # NumericProperty names that cannot be renamed; A001/A002 local sum /
+    # range / input / format / dir shadows are low-harm. Same class of
+    # convention exemption as N802 / N803 / N806 above.
+    "A001",
+    "A002",
+    "A003",
     # PTH (pathlib migration) -- enabled but non-blocking during audit waves; the
     # codebase has substantial os.path usage that migrates incrementally.
     # Specific PTH codes can be re-enabled per directory once migrated.
@@ -98,10 +120,36 @@ ignore = [
     "B011",
     # Tests redefine fixtures by name; F811 false-positives.
     "F811",
+    # Test classes use the TestIssueNNN_Description underscore convention
+    # for readability (which issue / finding the class covers).
+    "N801",
 ]
 "drivers/*.py" = [
     # Drivers have hardware register reads/writes with magic numbers; ruff
     # PLR2004 would flag every byte. (Re-evaluate per-driver if PLR is enabled.)
+    # Win32 ctypes Structure subclasses (winusb_iso.py) must match the API
+    # struct names exactly -- same justification as the N803/N806 HW names.
+    "N801",
+]
+"modules/common_utils.py" = [
+    # _PDH_FMT_COUNTERVALUE is a ctypes Structure mirroring the Win32 PDH
+    # struct name exactly; cannot be renamed to CapWords.
+    "N801",
+]
+"lvp_logger.py" = [
+    # Logging-bootstrap module: appdata-path resolution and logger setup
+    # must run before the subsequent imports by design.
+    "E402",
+]
+"modules/lumascope_api/motion.py" = [
+    # AxisState import placement is documented in-file as module-top-safe
+    # (circular-import ordering); the import follows that explanatory code.
+    "E402",
+]
+"tools/*.py" = [
+    # Dev utility scripts insert the repo root on sys.path before importing
+    # first-party modules; those imports legitimately follow the setup.
+    "E402",
 ]
 
 [tool.ruff.format]

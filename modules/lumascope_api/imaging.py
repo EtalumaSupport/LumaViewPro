@@ -16,7 +16,8 @@ import os
 import pathlib
 import threading
 import time
-from typing import TYPE_CHECKING, Any, ContextManager, Iterator
+from typing import TYPE_CHECKING, Any
+from collections.abc import Iterator
 
 import numpy as np
 
@@ -62,9 +63,9 @@ class _BudgetedHandler:
     auto-remove path.
     """
 
-    __slots__ = ('_imaging', '_handler', '_name', '_consecutive_over', '_removed')
+    __slots__ = ('_consecutive_over', '_handler', '_imaging', '_name', '_removed')
 
-    def __init__(self, imaging: 'ImagingAPI', handler, name: str) -> None:
+    def __init__(self, imaging: ImagingAPI, handler, name: str) -> None:
         self._imaging = imaging
         self._handler = handler
         self._name = name
@@ -125,7 +126,7 @@ class ImagingAPI:
     capture/focus events) and the frame_validity instance.
     """
 
-    def __init__(self, scope: 'Lumascope', driver: 'Camera | None') -> None:
+    def __init__(self, scope: Lumascope, driver: Camera | None) -> None:
         self._scope = scope
         # driver argument kept for API compatibility but unused; `_driver`
         # is a @property that re-resolves `self._scope._camera_driver` so
@@ -228,7 +229,7 @@ class ImagingAPI:
         self._populate_camera_cache()
 
     @property
-    def _driver(self) -> 'Camera | None':
+    def _driver(self) -> Camera | None:
         """Resolve the camera driver via the composition root each access.
 
         Lumascope's `_camera_driver` slot is reassigned on disconnect /
@@ -1251,7 +1252,7 @@ class ImagingAPI:
         sum_count: int = 1,
         sum_delay_s: float = 0,
         sum_iteration_callback=None,
-    ) -> 'np.ndarray | None':
+    ) -> np.ndarray | None:
         """Capture a frame guaranteed to reflect the current hardware state.
 
         Uses frame-based settling: drains stale frames from the camera pipeline
@@ -1386,7 +1387,7 @@ class ImagingAPI:
         sum_count: int = 1,
         sum_delay_s: float = 0,
         sum_iteration_callback=None,
-    ) -> 'np.ndarray | None':
+    ) -> np.ndarray | None:
         """Run ``capture_and_wait`` through the camera_executor and block.
 
         Args:
@@ -1433,7 +1434,7 @@ class ImagingAPI:
         sum_iteration_callback=None,
         force_new_capture: bool = False,
         new_capture_timeout_s: float = 5.0,
-    ) -> 'np.ndarray | None':
+    ) -> np.ndarray | None:
         """Grab and return an image from the camera.
 
         By default returns the last buffered frame. Set force_new_capture=True
@@ -1480,7 +1481,7 @@ class ImagingAPI:
 
         tmp_buffer = []
         timeout_td = datetime.timedelta(seconds=timeout_s)
-        for idx in range(sum_count):
+        for _ in range(sum_count):
             start_time = datetime.datetime.now()
             stop_time = start_time + timeout_td
 
@@ -1902,7 +1903,7 @@ class ImagingAPI:
         # converged value while LVP's cache is still pre-auto.
         self._refresh_cache_from_hardware_after_auto()
 
-    def update_camera_config(self) -> ContextManager[Any]:
+    def update_camera_config(self) -> contextlib.AbstractContextManager[Any]:
         """Context manager for batched camera config updates.
 
         Usage::
@@ -1978,7 +1979,7 @@ class ImagingAPI:
             self._focusing_event.clear()
 
     @property
-    def capture_return(self) -> 'np.ndarray | None':
+    def capture_return(self) -> np.ndarray | None:
         """Latest capture result (image array or None).
 
         Returns:
@@ -1996,7 +1997,7 @@ class ImagingAPI:
             self._capture_return = value
 
     @property
-    def autofocus_return(self) -> 'Any | None':
+    def autofocus_return(self) -> Any | None:
         """Latest autofocus result.
 
         Returns:
@@ -2270,7 +2271,7 @@ class ImagingAPI:
         except Exception as ex:
             logger.exception(f'[SCOPE API ] remove_frame_listener failed: {ex}')
 
-    def _remove_wrapper(self, wrapper: '_BudgetedHandler') -> None:
+    def _remove_wrapper(self, wrapper: _BudgetedHandler) -> None:
         """Internal: auto-removal path. Called by _BudgetedHandler when
         K consecutive over-budget hits trigger drop. Idempotent --
         callable safely from the SDK callback thread."""

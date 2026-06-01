@@ -370,7 +370,7 @@ class VideoCreationControls(BoxLayout):
             logger.error(f'Could not retrieve valid FPS for video generation. Using {fps} fps.')
 
         ts_overlay_btn = self.ids['enable_timestamp_overlay_btn']
-        enable_timestamp_overlay = True if ts_overlay_btn.state == 'down' else False
+        enable_timestamp_overlay = ts_overlay_btn.state == 'down'
 
         if fps < 1:
             msg = 'Video generation frames/second must be >= 1 fps'
@@ -579,13 +579,13 @@ class GraphingControls(BoxLayout):
             x_data = x_data.to_numpy()
 
         if 'time' in self.selected_y_axis:
-            y_time_data_original = y_data
+            y_time_data_original = y_data  # noqa: F841 -- deferred
             y_ref_time = y_data.min()
 
             # Normalize y-data for scaling purposes
             y_data = (y_data - y_ref_time).dt.total_seconds()
             y_data = y_data.to_numpy()
-            time_y = True
+            time_y = True  # noqa: F841 -- deferred
         else:
             y_data = y_data.to_numpy()
 
@@ -805,13 +805,11 @@ class CellCountControls(BoxLayout):
     def execute_apply_method_to_folder(self, popup, path):
         pre_text = f'Applying method to folder: {path}'
         total_images = self._post.get_num_images_in_folder(path=path)
-        image_count = 0
 
-        for image_process in self._post.apply_cell_count_to_folder(
-            path=path, settings=self._settings
+        for image_count, image_process in enumerate(
+            self._post.apply_cell_count_to_folder(path=path, settings=self._settings), start=1
         ):
             filename = image_process['filename']
-            image_count += 1
             popup.progress = int(100 * image_count / total_images)
             popup.text = f'{pre_text}\n- {image_count}/{total_images}: {filename}'
 
@@ -835,7 +833,7 @@ class CellCountControls(BoxLayout):
     @staticmethod
     def _validate_method_settings_metadata(settings):
         if 'metadata' not in settings:
-            raise Exception(f'No valid metadata found')
+            raise Exception('No valid metadata found')
 
         metadata = settings['metadata']
 
@@ -1001,7 +999,7 @@ class CellCountControls(BoxLayout):
 
     def load_method_from_file(self, file):
         logger.info(f'[LVP Main  ] CellCountContent.load_method_from_file({file})')
-        with open(file, 'r') as f:
+        with open(file) as f:
             method_settings = json.load(f)
 
         self.load_settings(settings=method_settings)
@@ -1295,4 +1293,4 @@ def open_last_save_folder():
 
 class CellCountDisplay(FloatLayout):
     def __init__(self, **kwargs):
-        super(CellCountDisplay, self).__init__(**kwargs)
+        super().__init__(**kwargs)

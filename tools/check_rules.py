@@ -470,12 +470,12 @@ def _check_rule_31c(tree: ast.AST, path: str) -> list[Violation]:
                         c.lineno,
                         c.col_offset,
                         'rule_31c',
-                        f'bare tifffile.imwrite without a paired '
-                        f'image_utils.maybe_apply_false_color (or '
-                        f'image_utils.write_tiff) call in the same '
-                        f'function. Post-processor outputs must apply '
-                        f'the false-color gate before the bare imwrite, '
-                        f'or fluorescence saves grayscale.',
+                        'bare tifffile.imwrite without a paired '
+                        'image_utils.maybe_apply_false_color (or '
+                        'image_utils.write_tiff) call in the same '
+                        'function. Post-processor outputs must apply '
+                        'the false-color gate before the bare imwrite, '
+                        'or fluorescence saves grayscale.',
                     )
                 )
     return violations

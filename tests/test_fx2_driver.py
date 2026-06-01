@@ -137,7 +137,7 @@ class TestRegistryGatedOnPrereqs:
             and fx2driver._HAS_USB_BACKEND
             and (_sys.platform == 'win32' or fx2driver._HAS_USB1)
         )
-        assert fx2driver._FX2_AVAILABLE == expected
+        assert expected == fx2driver._FX2_AVAILABLE
 
     def test_register_helper_returns_identity_when_unavailable(self, monkeypatch):
         # Force the unavailable path and verify the helper is a no-op.

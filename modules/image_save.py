@@ -41,7 +41,7 @@ if TYPE_CHECKING:
 _NUM_SEQ_DIGITS = 6
 
 
-def get_next_save_path(scope: 'Lumascope', path) -> str:
+def get_next_save_path(scope: Lumascope, path) -> str:
     """Get the next save path given an existing save path.
 
     Increments the trailing numeric ID component on the filename and
@@ -76,13 +76,13 @@ def get_next_save_path(scope: 'Lumascope', path) -> str:
 
 
 def generate_image_save_path(
-    scope: 'Lumascope',
+    scope: Lumascope,
     save_folder,
     file_root,
     append,
     tail_id_mode,
     output_format,
-) -> 'pathlib.Path':
+) -> pathlib.Path:
     """Generate a unique save path for an image given the naming inputs.
 
     Resolves collisions per ``tail_id_mode`` ("increment" auto-numbers
@@ -169,7 +169,7 @@ def generate_image_save_path(
     return path
 
 
-def generate_image_metadata(scope: 'Lumascope', color, x, y, z) -> dict:
+def generate_image_metadata(scope: Lumascope, color, x, y, z) -> dict:
     """Build TIFF metadata dict for the current capture settings and position.
 
     Args:
@@ -309,7 +309,7 @@ def generate_image_metadata(scope: 'Lumascope', color, x, y, z) -> dict:
 
 
 def prepare_image_for_saving(
-    scope: 'Lumascope',
+    scope: Lumascope,
     array: np.ndarray,
     save_folder: str,
     file_root: str,
@@ -372,7 +372,7 @@ def prepare_image_for_saving(
 
 
 def save_image(
-    scope: 'Lumascope',
+    scope: Lumascope,
     array,
     save_folder='./capture',
     file_root='img_',
@@ -512,7 +512,7 @@ def save_image(
 
 
 def save_live_image(
-    scope: 'Lumascope',
+    scope: Lumascope,
     save_folder='./capture',
     file_root='img_',
     append='ms',

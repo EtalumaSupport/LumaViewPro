@@ -16,7 +16,7 @@ def _check_python(cmd):
     """Try to run a Python command. Returns minor version or None."""
     try:
         result = subprocess.run(
-            cmd + ['-c', 'import sys; print(sys.version_info.minor)'],
+            [*cmd, '-c', 'import sys; print(sys.version_info.minor)'],
             capture_output=True,
             text=True,
             timeout=10,

@@ -99,7 +99,7 @@ def test_runner_stores_keep_led_on_on_self():
 
 def test_runner_finally_skips_led_off_when_flag_set():
     method = _method_node(_module_tree(RUNNER_SRC), 'AutofocusRunner', 'run')
-    src = ast.unparse(method)
+    src = ast.unparse(method)  # noqa: F841 -- deferred
     # Find an If gating on self._keep_led_on; in its else branch the
     # _led_off + restore_led_state calls are present.
     has_keep_guard = False

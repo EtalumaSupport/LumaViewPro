@@ -1,12 +1,18 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 
+import ctypes
 import enum
+import gc
 import json
 import os
 import pathlib
+import platform
 import re
+import threading
+import time as _time
 
 import numpy as np
+import psutil
 
 from lvp_logger import logger
 
@@ -43,7 +49,7 @@ class PostFunction(enum.Enum):
 
     @classmethod
     def list_values(cls):
-        return list(map(lambda c: c.value, cls))
+        return [c.value for c in cls]
 
 
 # ---------------------------------------------------------------------------
@@ -89,7 +95,7 @@ def generate_default_step_name(
         name = f'{name}_{color}'
 
     if tile_label not in (None, '', -1):
-        if not f'_T{tile_label}' in name:
+        if f'_T{tile_label}' not in name:
             name = f'{name}_T{tile_label}'
 
     if objective_short_name not in (None, '', -1):
@@ -99,7 +105,7 @@ def generate_default_step_name(
         name = f'{name}_Turret{turret_position}'
 
     if z_height_idx not in (None, '', -1):
-        if not f'_Z{z_height_idx}' in name:
+        if f'_Z{z_height_idx}' not in name:
             name = f'{name}_Z{z_height_idx}'
 
     DESIRED_SCAN_COUNT_DIGITS = 4
@@ -176,11 +182,6 @@ def get_layer_from_name(name: str) -> str | None:
 
 def replace_layer_in_step_name(step_name: str, new_layer_name: str) -> str | None:
 
-    # Extract basename in case we are handling protocol with separate folders per channel
-    base_name = os.path.basename(step_name)
-    # if is_custom_name(name=base_name):
-    #     return None
-
     # This replaces the parent folder when using per-channel folders for protocol runs
     split_name = list(os.path.split(step_name))
     if len(split_name) == 2:
@@ -218,10 +219,7 @@ def is_custom_name(name: str) -> bool:
         return True
 
     color = name[1]
-    if color not in get_layers():
-        return True
-
-    return False
+    return color not in get_layers()
 
 
 def get_z_slice_from_name(name: str) -> int | None:
@@ -316,7 +314,7 @@ def get_opened_layer_obj(lumaview_imagesettings):
 
 def to_bool(val) -> bool:
     if isinstance(val, str):
-        return True if val.lower() == 'true' else False
+        return val.lower() == 'true'
     elif val in ('', None):
         return False
     else:
@@ -383,14 +381,6 @@ def max_decimal_precision(parameter: str) -> int:
 
     return PRECISION_MAP.get(parameter, DEFAULT_PRECISION)
 
-
-import ctypes
-import gc
-import os
-import platform
-import threading
-
-import psutil
 
 _IS_WINDOWS = platform.system() == 'Windows'
 
@@ -541,8 +531,6 @@ def query_windows_perf_counters():
 # come from cumulative counters. Cache the last value+timestamp and compute
 # a delta-rate on each call. Per-key state.
 # ---------------------------------------------------------------------------
-
-import time as _time
 
 _rate_state = {}  # {key: (last_value, last_ts)}
 

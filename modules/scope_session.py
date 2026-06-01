@@ -19,8 +19,17 @@ Usage
 import datetime
 import os
 import threading
+from typing import TYPE_CHECKING
 
 from lvp_logger import logger
+
+# numpy and ProtocolRunner are referenced only in return annotations;
+# ProtocolRunner is imported function-locally to avoid a circular import.
+# Declare both here for the annotations without a runtime import.
+if TYPE_CHECKING:
+    import numpy as np
+
+    from modules.protocol_runner import ProtocolRunner
 
 
 class ScopeSession:

@@ -93,7 +93,7 @@ class MetricsLogger:
         self._settings = settings
 
         # Scheduler bound at start() -- None means not started.
-        self._scheduler: Optional[Scheduler] = None
+        self._scheduler: Scheduler | None = None
         # Active schedule handles per tick (so each can be cancelled
         # independently). Keys: 'system_metrics', 'executor_watchdog'.
         # Camera-temp lives on Lumascope already (LVP-A-2) -- not stored
@@ -285,7 +285,7 @@ class MetricsLogger:
         system_metrics_interval_s: float = DEFAULT_SYSTEM_METRICS_INTERVAL_S,
         executor_watchdog_interval_s: float = DEFAULT_EXECUTOR_WATCHDOG_INTERVAL_S,
         camera_temp_interval_s: float = DEFAULT_CAMERA_TEMP_INTERVAL_S,
-        start_camera_temp: Optional[bool] = None,
+        start_camera_temp: bool | None = None,
     ) -> None:
         """Schedule all periodic ticks.
 

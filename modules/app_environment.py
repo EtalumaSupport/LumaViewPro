@@ -69,7 +69,7 @@ def init_environment(main_file: str) -> AppEnvironment:
     # Check if running as installed application
     lvp_installed = False
     try:
-        with open(os.path.join(script_path, 'marker.lvpinstalled')) as f:
+        with open(os.path.join(script_path, 'marker.lvpinstalled')):
             lvp_installed = True
     except Exception:
         pass

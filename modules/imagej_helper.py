@@ -52,7 +52,7 @@ class ZProjectMethod(enum.Enum):
 
     @classmethod
     def list(cls):
-        return list(map(lambda c: c.name, cls))
+        return [c.name for c in cls]
 
 
 class ImageJHelper:
@@ -102,7 +102,7 @@ class ImageJHelper:
         return self._ij is not None
 
     def _log_uninitialized(self):
-        logger.error(f'[ImageJ Helper] ImageJ not initialized')
+        logger.error('[ImageJ Helper] ImageJ not initialized')
 
     def zproject(self, images_data: list[np.ndarray], method: ZProjectMethod) -> np.ndarray:
         if not self._ij:
@@ -110,7 +110,7 @@ class ImageJHelper:
             return None
 
         if len(images_data) == 0:
-            logger.error(f'[ImageJ Helper] zproject -> No images provided')
+            logger.error('[ImageJ Helper] zproject -> No images provided')
             return None
 
         orig_dtype = images_data[0].dtype

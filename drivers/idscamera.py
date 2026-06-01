@@ -126,9 +126,7 @@ class IDSCamera(Camera):
         if self.active in (False, None):
             self._device_removed = True
             return False
-        if self._device_removed:
-            return False
-        return True
+        return not self._device_removed
 
     def read_diagnostic_snapshot(
         self,
@@ -249,7 +247,8 @@ class IDSCamera(Camera):
         return self.data_stream.IsGrabbing()
 
     def stop_grabbing(self):
-        if _cam_log is not None: _cam_log.info('ids AcquisitionStop + StopAcquisition + Flush + RevokeBuffers')
+        if _cam_log is not None:
+            _cam_log.info('ids AcquisitionStop + StopAcquisition + Flush + RevokeBuffers')
         try:
             if self.cam_image_handler:
                 self.cam_image_handler.stop()
@@ -262,11 +261,13 @@ class IDSCamera(Camera):
             for buffer in self.data_stream.AnnouncedBuffers():
                 self.data_stream.RevokeBuffer(buffer)
         except Exception as e:
-            if _cam_log is not None: _cam_log.warning(f'ids stop_grabbing FAILED: {e}')
+            if _cam_log is not None:
+                _cam_log.warning(f'ids stop_grabbing FAILED: {e}')
             _cam_log.warning(f'[CAM Class ] stop_grabbing ignored error: {e}')
 
     def start_grabbing(self):
-        if _cam_log is not None: _cam_log.info('ids start_grabbing: alloc buffers + StartAcquisition + AcquisitionStart')
+        if _cam_log is not None:
+            _cam_log.info('ids start_grabbing: alloc buffers + StartAcquisition + AcquisitionStart')
         try:
             # Allocate buffers -- minimum + 3 extra to prevent starvation during
             # frame conversion. With only min (2-3), the camera runs out of
@@ -473,7 +474,8 @@ class IDSCamera(Camera):
         # no need for update_camera_config() stop/start cycle.
         try:
             us_value = float(exposure_ms)*1000
-            if _cam_log is not None: _cam_log.info(f'ids ExposureTime.SetValue({us_value:.0f}us) (={exposure_ms}ms)')
+            if _cam_log is not None:
+                _cam_log.info(f'ids ExposureTime.SetValue({us_value:.0f}us) (={exposure_ms}ms)')
             self.remote_nodemap.FindNode("ExposureTime").SetValue(us_value)
             self._last_exposure_ms = float(exposure_ms)
             # Update grab timeout so long exposures don't cause perpetual timeouts
@@ -481,7 +483,8 @@ class IDSCamera(Camera):
                 self.cam_image_handler.timeout_ms = max(2000, int(exposure_ms * 2 + 500))
             logger.info(f'[CAM Class ] Exposure set to {exposure_ms}ms')
         except Exception as e:
-            if _cam_log is not None: _cam_log.error(f'ids ExposureTime.SetValue({exposure_ms}ms) FAILED: {e}')
+            if _cam_log is not None:
+                _cam_log.error(f'ids ExposureTime.SetValue({exposure_ms}ms) FAILED: {e}')
             _cam_log.error(f'[CAM Class ] Exposure set failed (likely out of bounds): {e}')
 
     def get_exposure_t(self):
@@ -701,17 +704,20 @@ class IDSCamera(Camera):
 
     def gain(self, gain):
         if not self.active:
-            if _cam_log is not None: _cam_log.warning(f'ids Gain.SetValue({gain}) SKIPPED: active=None')
+            if _cam_log is not None:
+                _cam_log.warning(f'ids Gain.SetValue({gain}) SKIPPED: active=None')
             _cam_log.warning(f'[CAM Class ] Cannot set gain {gain}: camera inactive')
             return
 
         try:
-            if _cam_log is not None: _cam_log.info(f'ids GainSelector=AnalogAll Gain.SetValue({float(gain):.3f})')
+            if _cam_log is not None:
+                _cam_log.info(f'ids GainSelector=AnalogAll Gain.SetValue({float(gain):.3f})')
             self.remote_nodemap.FindNode("GainSelector").SetCurrentEntry("AnalogAll")
             self.remote_nodemap.FindNode("Gain").SetValue(gain)
             logger.info(f'[CAM Class ] Gain set to {gain}')
         except Exception as e:
-            if _cam_log is not None: _cam_log.error(f'ids Gain.SetValue({gain}) FAILED: {e}')
+            if _cam_log is not None:
+                _cam_log.error(f'ids Gain.SetValue({gain}) FAILED: {e}')
             _cam_log.error(f'[CAM Class ] Gain set failed (likely out of bounds): {e}')
             return
 

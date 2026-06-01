@@ -18,5 +18,5 @@ if TYPE_CHECKING:
 class IOAPI:
     """Trigger-IO sub-API. Empty placeholder for Phase 1."""
 
-    def __init__(self, scope: 'Lumascope') -> None:
+    def __init__(self, scope: Lumascope) -> None:
         self._scope = scope

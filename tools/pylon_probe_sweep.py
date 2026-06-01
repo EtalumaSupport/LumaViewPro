@@ -213,22 +213,32 @@ def _build_usb3_cells(args):
             for mode in args.dltl_modes:
                 if mode == 'Off':
                     cells.append(
-                        dict(pixel_format=pf, resolution=res, dltl_mode='Off', dltl_value=None)
+                        {
+                            'pixel_format': pf,
+                            'resolution': res,
+                            'dltl_mode': 'Off',
+                            'dltl_value': None,
+                        }
                     )
                 elif mode == 'On':
                     if not args.dltl_values_mb:
                         cells.append(
-                            dict(pixel_format=pf, resolution=res, dltl_mode='On', dltl_value=None)
+                            {
+                                'pixel_format': pf,
+                                'resolution': res,
+                                'dltl_mode': 'On',
+                                'dltl_value': None,
+                            }
                         )
                     else:
                         for v_mb in args.dltl_values_mb:
                             cells.append(
-                                dict(
-                                    pixel_format=pf,
-                                    resolution=res,
-                                    dltl_mode='On',
-                                    dltl_value=int(v_mb) * 1_000_000,
-                                )
+                                {
+                                    'pixel_format': pf,
+                                    'resolution': res,
+                                    'dltl_mode': 'On',
+                                    'dltl_value': int(v_mb) * 1_000_000,
+                                }
                             )
     return cells
 
@@ -242,13 +252,13 @@ def _build_gige_cells(args):
                 for pkt in args.gige_packet_sizes:
                     for delay in args.gige_delays:
                         cells.append(
-                            dict(
-                                pixel_format=pf,
-                                resolution=res,
-                                bw_mode=bw_mode,
-                                packet_size=int(pkt),
-                                delay_ticks=int(delay),
-                            )
+                            {
+                                'pixel_format': pf,
+                                'resolution': res,
+                                'bw_mode': bw_mode,
+                                'packet_size': int(pkt),
+                                'delay_ticks': int(delay),
+                            }
                         )
     return cells
 

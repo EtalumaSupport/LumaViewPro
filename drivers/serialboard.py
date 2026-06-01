@@ -18,8 +18,6 @@ from lvp_logger import logger
 from lib.profile_trace import TimedLock
 import threading
 
-_serial_log = logging.getLogger('LVP.serial')
-
 from drivers.raw_repl import (
     enter_raw_repl as _enter_raw_repl,
     exit_raw_repl as _exit_raw_repl,
@@ -33,6 +31,8 @@ try:
     from lib import profile_trace
 except ImportError:
     profile_trace = None
+
+_serial_log = logging.getLogger('LVP.serial')
 
 
 class ProtocolVersion(Enum):

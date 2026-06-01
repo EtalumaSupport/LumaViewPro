@@ -4,7 +4,7 @@ import json
 import numpy as np
 
 
-class LabWare(object):
+class LabWare:
     """A class that stores and computes actions for objective labware"""
 
     def __init__(self, *arg):
@@ -17,7 +17,7 @@ class Slide(LabWare):
     """A class that stores and computes actions for slides labware"""
 
     def __init__(self, *arg):
-        super(Slide, self).__init__()
+        super().__init__()
         self.covered = True
 
 
@@ -25,7 +25,7 @@ class WellPlate(LabWare):
     """A class that stores and computes actions for wellplate labware"""
 
     def __init__(self, config: dict, *arg):
-        super(WellPlate, self).__init__()
+        super().__init__()
 
         self.config = config
         self.ind_list = []  # ordered list of all well indices
@@ -123,6 +123,6 @@ class PitriDish(LabWare):
     """A class that stores and computes actions for petri dish labware"""
 
     def __init__(self, *arg):
-        super(PitriDish, self).__init__()
+        super().__init__()
         self.diameter = 100
         self.z = 20

@@ -153,7 +153,7 @@ def _get_capture_dir():
     """
     try:
         settings_file = settings_init._resolve_settings_path(str(_get_lvp_data_dir().parent))
-        with open(settings_file, 'r') as f:
+        with open(settings_file) as f:
             settings = json.load(f)
         live_folder = settings.get('live_folder', '')
         if live_folder:
@@ -223,7 +223,7 @@ def get_recent_protocols(n=RECENT_PROTOCOL_COUNT):
                 continue
             seen.add(real)
             try:
-                with open(json_file, 'r') as f:
+                with open(json_file) as f:
                     head = f.read(2048)
                 # Protocol files contain these keys
                 if any(k in head for k in ('"steps"', '"sequences"', '"scan"',
@@ -280,7 +280,7 @@ def _collect_system_info():
         info['cpu_cores'] = _run(['sysctl', '-n', 'hw.ncpu'])
     else:
         try:
-            with open('/proc/cpuinfo', 'r') as f:
+            with open('/proc/cpuinfo') as f:
                 info['cpu_detail'] = f.read()[:2000]
         except OSError:
             pass
@@ -301,7 +301,7 @@ def _collect_system_info():
             pass
     else:
         try:
-            with open('/proc/meminfo', 'r') as f:
+            with open('/proc/meminfo') as f:
                 info['ram_detail'] = f.read()[:1000]
         except OSError:
             pass
@@ -886,7 +886,7 @@ class FirmwareDiagnostics:
         support DRVSTAT_<axis> on this axis (legacy firmware).
         """
         if not self._scope:
-            return {ax: None for ax in 'XYZT'}
+            return dict.fromkeys('XYZT')
         return {ax: self._scope.diagnostics.read_motor_drv_status(ax)
                 for ax in 'XYZT'}
 
@@ -985,7 +985,6 @@ class FirmwareDiagnostics:
                 errors += 1
         if not timings:
             return {'error': f'All {iterations} calls failed', 'errors': errors}
-        import statistics
         return {
             'iterations': iterations,
             'errors': errors,
@@ -1238,7 +1237,7 @@ class FirmwareDiagnostics:
             }
 
         # Check for errors in responses
-        for ax, data in results['axes'].items():
+        for _ax, data in results['axes'].items():
             if 'Error' in str(data.get('home_response', '')):
                 results['passed'] = False
                 data['status'] = 'FAIL'
@@ -1935,14 +1934,14 @@ class TechSupportReport:
             # Critical Python packages
             critical = info.get('critical_packages', [])
             if critical:
-                f.write(f"\nCritical Python packages:\n")
+                f.write("\nCritical Python packages:\n")
                 for pkg in critical:
                     f.write(f"  {pkg}\n")
 
             # Recent USB events
             usb_events = info.get('recent_usb_events', '')
             if usb_events and 'Error' not in usb_events[:20]:
-                f.write(f"\nRecent USB/driver events (last 7 days):\n")
+                f.write("\nRecent USB/driver events (last 7 days):\n")
                 f.write(usb_events[:3000] if usb_events else '  None found\n')
 
         # Also write full pip freeze as separate file for easy diff
@@ -2072,7 +2071,7 @@ class TechSupportReport:
                 cwd=str(app_root),
             )
             with open(d / 'test_hardware_serial.txt', 'w') as f:
-                f.write(f"test_hardware_serial.py (--run-hardware)\n")
+                f.write("test_hardware_serial.py (--run-hardware)\n")
                 f.write(f"Return code: {result.returncode}\n\n")
                 f.write(result.stdout)
                 if result.stderr:
@@ -2492,7 +2491,7 @@ def main():
     print('\n')  # Newline after progress bar
     if zip_path:
         logger.info(f"  Report saved: {zip_path}")
-        logger.info(f"  Please email to: techsupport@etaluma.com")
+        logger.info("  Please email to: techsupport@etaluma.com")
     else:
         logger.info("  Report generation failed.")
         logger.info("  Contact techsupport@etaluma.com directly.")

@@ -25,7 +25,7 @@ class ModSlider(Slider):
 
     def __init__(self, **kwargs):
         self.register_event_type('on_release')
-        super(ModSlider, self).__init__(**kwargs)
+        super().__init__(**kwargs)
         self.user_interacting = False
         self.step = 5
 
@@ -33,7 +33,7 @@ class ModSlider(Slider):
         pass
 
     def on_touch_up(self, touch):
-        super(ModSlider, self).on_touch_up(touch)
+        super().on_touch_up(touch)
         self.user_interacting = False
         if touch.grab_current == self:
             self.dispatch('on_release')
@@ -79,7 +79,7 @@ class ModSlider(Slider):
         return out
 
     def on_touch_move(self, touch):
-        super(ModSlider, self).on_touch_move(touch)
+        super().on_touch_move(touch)
         out = super().on_touch_move(touch)
         if touch.grab_current == self:
             self.user_interacting = True

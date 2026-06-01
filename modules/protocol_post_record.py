@@ -295,18 +295,18 @@ class ProtocolPostRecord:
 
     @classmethod
     def from_file(cls, file_path: pathlib.Path):
-        with open(file_path, 'r') as fp:
+        with open(file_path) as fp:
             csvreader = csv.reader(fp, delimiter='\t')
             header = next(csvreader)
             if header[0] != cls.FILE_HEADER:
-                raise Exception(f'Invalid protocol post-processing record')
+                raise Exception('Invalid protocol post-processing record')
 
             version = next(csvreader)
             if version[0] != 'Version':
-                raise Exception(f'Version key not found')
+                raise Exception('Version key not found')
 
             if int(version[1]) not in (1,):
-                raise Exception(f'Unsupported protocol execution record version')
+                raise Exception('Unsupported protocol execution record version')
 
             # Search for "Images" to indicate start of images data
             while True:
@@ -329,7 +329,7 @@ class ProtocolPostRecord:
             ).fillna('')
 
             if len(df) == 0:
-                raise Exception(f'No steps in protocol execution record')
+                raise Exception('No steps in protocol execution record')
 
             df['Timestamp'] = pd.to_datetime(df['Timestamp'])
 
@@ -338,7 +338,7 @@ class ProtocolPostRecord:
 
             root_path = file_path.parent
             df['File Exists'] = df.apply(
-                lambda row: True if (root_path / row['Filepath']).is_file() else False, axis=1
+                lambda row: (root_path / row['Filepath']).is_file(), axis=1
             )
 
             if len(df) == 0:
