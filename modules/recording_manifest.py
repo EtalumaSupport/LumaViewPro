@@ -81,6 +81,7 @@ def build_session_manifest(
     camera_model: str | None = None,
     camera_serial: str | None = None,
     lvp_version: str | None = None,
+    channel_color: str | None = None,
 ) -> dict:
     """Build the session_manifest.json dict for one manual-video recording.
 
@@ -101,6 +102,10 @@ def build_session_manifest(
         camera_model: e.g. 'a2A3536-31umBAS' or None.
         camera_serial: device serial string or None.
         lvp_version: LumaViewPro version (line 1 of version.txt).
+        channel_color: active channel/layer color for the recording
+            ('Red', 'Green', 'Blue', 'Lumi', ...), or None for mono /
+            brightfield. Consumed by the Create-Video build so a
+            false-colored recording renders in color, not grayscale.
 
     Returns:
         dict suitable for json.dump.
@@ -132,6 +137,7 @@ def build_session_manifest(
             'frames_captured': captured_frames,
             'duration_s': float(video_duration),
             'actual_fps': fps_stats,
+            'channel_color': channel_color,
         },
         'camera': {
             'model': camera_model,

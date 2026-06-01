@@ -782,6 +782,7 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
                         camera_model=camera_model,
                         camera_serial=camera_serial,
                         lvp_version=_lvp_version,
+                        channel_color=color,
                     )
                     manifest_path = save_folder / 'session_manifest.json'
                     with open(manifest_path, 'w') as fh:
