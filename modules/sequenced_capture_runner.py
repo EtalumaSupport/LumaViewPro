@@ -461,6 +461,26 @@ class SequencedCaptureRunner:
             )
             return
 
+        # Advisory (non-blocking): flag protocol video steps longer than the
+        # global video time limit. The run still proceeds.
+        try:
+            video_limit = settings.get('manual_video', {}).get('max_duration_seconds', 30)
+            over_limit = protocol.video_steps_over_limit(video_limit)
+            if over_limit:
+                from modules.notification_center import notifications
+
+                summary = '\n'.join(f'  - {w}' for w in over_limit[:5])
+                if len(over_limit) > 5:
+                    summary += f'\n  ... and {len(over_limit) - 5} more'
+                notifications.warning(
+                    'Protocol',
+                    'Video step exceeds time limit',
+                    f'{len(over_limit)} video step(s) exceed the {video_limit}s video '
+                    f'time limit:\n{summary}',
+                )
+        except Exception as ex:
+            logger.warning(f'[PROTOCOL] Video-limit advisory check failed: {ex}')
+
         try:
             if not self._scope.are_all_connected():
                 logger.error('[PROTOCOL] Not all scope components connected. Cannot start run.')

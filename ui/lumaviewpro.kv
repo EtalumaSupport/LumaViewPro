@@ -2292,8 +2292,8 @@
 				size_hint_y: None
 				height: '30dp'
 				Label:
-					text: 'Manual Video Duration (s)'
-					tooltip_text: 'Maximum recording duration in seconds.\nMemmap is sized for max_fps * duration frames;\nlarger values need more disk space.'
+					text: 'Video Time Limit (s)'
+					tooltip_text: 'Global maximum video length, in seconds.\nManual recording auto-stops at this limit (press Record\nagain to stop sooner); a protocol video Step longer than\nthis is flagged. Memmap is sized for max_fps * limit frames.'
 					halign: 'left'
 					valign: 'middle'
 					text_size: self.size
