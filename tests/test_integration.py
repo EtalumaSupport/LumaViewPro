@@ -906,6 +906,34 @@ class TestRestAPIPrep:
         assert 'firmware_version' in info
         assert info['model'] is not None
 
+    def test_get_motor_info_serves_identity_from_cache(self):
+        """get_motor_info() must not issue a live FULLINFO.
+
+        It is called once per saved frame to stamp image metadata. Model
+        and serial number are fixed for the life of a connection, so they
+        come from the FULLINFO response cached at connect; a wire query
+        here would put a serial round-trip on every capture.
+        """
+        session = ScopeSession.create_headless()
+        driver = session.scope._motion_driver
+        original_fullinfo = driver.fullinfo
+        fullinfo_calls = []
+
+        def _counting_fullinfo(*args, **kwargs):
+            fullinfo_calls.append(1)
+            return original_fullinfo(*args, **kwargs)
+
+        driver.fullinfo = _counting_fullinfo
+        info = session.scope.diagnostics.get_motor_info()
+
+        assert fullinfo_calls == [], (
+            'get_motor_info() called fullinfo(): it must serve model and '
+            'serial number from the cached connect-time FULLINFO, not '
+            're-query the serial bus on every saved frame'
+        )
+        assert info['model'] not in (None, 'unknown')
+        assert info['serial_number'] not in (None, 'unknown')
+
     def test_get_led_info(self):
         """get_led_info() should return firmware and connection status."""
         session = ScopeSession.create_headless()

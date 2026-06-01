@@ -245,6 +245,14 @@ class NullMotionBoard:
         """
         return None
 
+    def get_serial_number(self) -> str | None:
+        """Null implementation: returns sentinel value.
+
+        Returns:
+            str | None: Always None.
+        """
+        return None
+
     def fullinfo(self) -> dict:
         """Null implementation: returns a dict with all fields blank/False.
 
