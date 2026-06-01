@@ -93,7 +93,7 @@ class RangeSlider(Widget):
     :attr:`max` is a :class:`~kivy.properties.NumericProperty` and defaults to
     100."""
 
-    padding = NumericProperty(sp(16))
+    padding = NumericProperty(sp(8))
     """Padding of the slider. The padding is used for graphical representation
     and interaction. It prevents the cursor from going out of the bounds of the
     slider bounding box.

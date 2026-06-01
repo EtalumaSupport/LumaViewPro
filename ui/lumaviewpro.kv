@@ -3949,7 +3949,8 @@
 					on_release: root.slider_adjustment_threshold()
 				Label:
 					text: f"{str(int(slider_cell_count_threshold_id.value))} %"
-					width: '60dp'
+					size_hint_x: None
+					width: '110dp'
 					font_size: '12sp'
 			
 			# Area slider
@@ -3975,7 +3976,8 @@
 					on_touch_move: root.slider_adjustment_area()
 				Label:
 					id: label_cell_count_area_id
-					width: '60dp'
+					size_hint_x: None
+					width: '110dp'
 					font_size: '12sp'
 
 			# Perimeter slider
@@ -4001,7 +4003,8 @@
 					on_touch_move: root.slider_adjustment_perimeter()
 				Label:
 					id: label_cell_count_perimeter_id
-					width: '60dp'
+					size_hint_x: None
+					width: '110dp'
 					font_size: '12sp'
 
 			# Sphericity slider
@@ -4027,7 +4030,8 @@
 				Label:
 					id: label_cell_count_sphericity_id
 					text: f"{round(slider_cell_count_sphericity_id.value[0],2)}-{round(slider_cell_count_sphericity_id.value[1],2)}"
-					width: '60dp'
+					size_hint_x: None
+					width: '110dp'
 					font_size: '12sp'
 
 			# Min Intensity slider
@@ -4053,7 +4057,8 @@
 				Label:
 					id: label_cell_count_min_intensity_id
 					text: f"{int(slider_cell_count_min_intensity_id.value[0])}-{int(slider_cell_count_min_intensity_id.value[1])} %"
-					width: '60dp'
+					size_hint_x: None
+					width: '110dp'
 					font_size: '12sp'
 
 			# Mean Intensity slider
@@ -4079,7 +4084,8 @@
 				Label:
 					id: label_cell_count_mean_intensity_id
 					text: f"{int(slider_cell_count_mean_intensity_id.value[0])}-{int(slider_cell_count_mean_intensity_id.value[1])} %"
-					width: '60dp'
+					size_hint_x: None
+					width: '110dp'
 					font_size: '12sp'
 
 			# Max Intensity slider
@@ -4105,7 +4111,8 @@
 				Label:
 					id: label_cell_count_max_intensity_id
 					text: f"{int(slider_cell_count_max_intensity_id.value[0])}-{int(slider_cell_count_max_intensity_id.value[1])} %"
-					width: '60dp'
+					size_hint_x: None
+					width: '110dp'
 					font_size: '12sp'
 
 
