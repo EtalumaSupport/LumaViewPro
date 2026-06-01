@@ -42,7 +42,7 @@ REPO = pathlib.Path(__file__).resolve().parent.parent
 MOTION_SRC = REPO / 'modules' / 'lumascope_api' / 'motion.py'
 VERTCTRL_SRC = REPO / 'ui' / 'vertical_control.py'
 UIHELPERS_SRC = REPO / 'ui' / 'ui_helpers.py'
-STEPNAV_SRC = REPO / 'modules' / 'step_navigation.py'
+STEPNAV_SRC = REPO / 'ui' / 'step_navigation.py'
 
 
 def _module_tree(path: pathlib.Path) -> ast.Module:

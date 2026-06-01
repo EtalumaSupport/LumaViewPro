@@ -39,7 +39,7 @@ from modules.config_ui_getters import (
 from modules.path_utils import get_source_root
 from modules.sequenced_capture_runner import SequencedCaptureRunMode
 from modules.sequential_io_executor import IOTask, PRIORITY_MED
-from modules.step_navigation import go_to_step
+from ui.step_navigation import go_to_step
 from modules.tiling_config import TilingConfig
 from modules.timedelta_formatter import strfdelta
 from modules import gui_logger
