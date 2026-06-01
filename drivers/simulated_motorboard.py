@@ -572,6 +572,14 @@ class SimulatedMotorBoard:
         """
         return self._fullinfo['model']
 
+    def get_serial_number(self) -> str:
+        """Return the configured serial number string.
+
+        Returns:
+            str: Serial number from the simulated FULLINFO.
+        """
+        return self._fullinfo['serial_number']
+
     # ------------------------------------------------------------------
     # Conversion functions (identical to real MotorBoard)
     # ------------------------------------------------------------------
