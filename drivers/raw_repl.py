@@ -46,7 +46,11 @@ import hashlib
 import logging
 import time
 
-logger = logging.getLogger(__name__)
+# Parent under the LVP tree so raw-REPL flash / bootloader / config-backup
+# I/O reaches the log handlers. Bare __name__ ('drivers.raw_repl') has no
+# handler, so this board-bricking-capable transport was logging into the
+# void; LVP.raw_repl propagates to the main + error logs.
+logger = logging.getLogger('LVP.raw_repl')
 
 # ---------------------------------------------------------------------------
 # MicroPython raw REPL control characters

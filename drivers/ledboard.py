@@ -1,6 +1,7 @@
 #!/usr/bin/python3
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 
+import logging
 import re
 import threading
 import time
@@ -8,6 +9,12 @@ from lvp_logger import logger
 from drivers.exceptions import HardwareError
 from drivers.serialboard import SerialBoard
 from drivers.registry import led_registry
+
+# Same dedicated serial logger SerialBoard.exchange_command() writes to, so
+# the bespoke STIM capability probe (which scans multiple lines and cannot
+# use exchange_command) still lands its send + reply in serial.log instead
+# of going dark.
+_serial_log = logging.getLogger('LVP.serial')
 
 
 @led_registry.register('rp2040', priority=100)
@@ -221,8 +228,11 @@ class LEDBoard(SerialBoard):
             self.driver.timeout = 0.3
             try:
                 self.driver.reset_input_buffer()
+                _probe_cmd = 'STIM 0 0 1 2 1'
+                _t0 = time.monotonic()
                 self.driver.write(b'STIM 0 0 1 2 1\n')
                 got_stim = False
+                resp = ''
                 deadline = time.monotonic() + 2.5
                 while time.monotonic() < deadline:
                     line = self.driver.readline()
@@ -231,10 +241,20 @@ class LEDBoard(SerialBoard):
                     s = line.decode('utf-8', 'ignore').strip()
                     if 'Command not recognized' in s:
                         got_stim = False
+                        resp = s
                         break
                     if s.startswith('STIM:') or s.startswith('STIM_DIAG:'):
                         got_stim = True
+                        resp = s
                         break
+                # Record the probe send + reply in serial.log (this path scans
+                # multiple lines and so does not go through exchange_command,
+                # which logs its own traffic).
+                _shown = resp or '(no reply)'
+                _serial_log.info(
+                    f'{self._label} {_probe_cmd} (firmware-stim probe) -> '
+                    f'{_shown!r} ({(time.monotonic() - _t0) * 1000.0:.1f}ms)'
+                )
                 # Drain residual bytes so subsequent commands see a clean buffer
                 time.sleep(0.2)
                 if self.driver.in_waiting:
