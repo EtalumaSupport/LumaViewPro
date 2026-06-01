@@ -1002,8 +1002,14 @@ class SerialBoard:
 
                 elapsed_ms = (time.monotonic() - t_start) * 1000
                 result = '\n'.join(lines) or None
+                # Log the full response content, not just the line count, so a
+                # multi-line diagnostic / calibration reply is recoverable from
+                # serial.log. Joined onto one line (grep-friendly); these
+                # exchanges are infrequent, so the verbosity is acceptable.
+                shown = ' | '.join(lines) if lines else '(no response)'
                 _serial_log.info(
-                    f'{self._label} {command} -> {len(lines)} lines ({elapsed_ms:.1f}ms)'
+                    f'{self._label} {command} -> {len(lines)} lines: {shown!r} '
+                    f'({elapsed_ms:.1f}ms)'
                 )
                 return result
 
