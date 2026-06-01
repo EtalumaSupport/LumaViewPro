@@ -242,6 +242,31 @@ def generate_image_metadata(scope: Lumascope, color, x, y, z) -> dict:
         camera_info = {'model': None}
     plate_config = getattr(scope.runtime_state._labware, 'config', None) or {}
 
+    # Per-frame camera chunk metadata, captured at grab-time for THIS frame
+    # (Pylon ace 2 / dart M / dart R carry ExposureTime + Gain + FrameID +
+    # Timestamp every frame; IDS carries ExposureTime + Gain). These are the
+    # same chunk values frame_validity checks the camera settled to, so they
+    # are the authoritative, race-free source for the frame's gain/exposure
+    # metadata. The live get_exposure_time / get_gain calls are only the
+    # fallback for cameras / frames without chunk data (simulator, legacy).
+    try:
+        handler = getattr(scope._camera_driver, 'cam_image_handler', None)
+        chunks = handler.get_last_chunks() if handler is not None else None
+    except Exception:
+        chunks = None
+    chunks = chunks or {}
+
+    _chunk_exp_us = chunks.get('ExposureTime')
+    exposure_ms_value = (
+        _chunk_exp_us / 1000.0
+        if _chunk_exp_us is not None
+        else scope.imaging.get_exposure_time()
+    )
+    _chunk_gain_db = chunks.get('Gain')
+    gain_db_value = (
+        _chunk_gain_db if _chunk_gain_db is not None else scope.imaging.get_gain()
+    )
+
     metadata = {
         'camera_make': 'Etaluma',
         'microscope': microscope_model,
@@ -257,9 +282,9 @@ def generate_image_metadata(scope: Lumascope, color, x, y, z) -> dict:
         'y_pos': py,
         'z_pos_um': z,
         'exposure_time_ms': round(
-            scope.imaging.get_exposure_time(), common_utils.max_decimal_precision('exposure')
+            exposure_ms_value, common_utils.max_decimal_precision('exposure')
         ),
-        'gain_db': round(scope.imaging.get_gain(), common_utils.max_decimal_precision('gain')),
+        'gain_db': round(gain_db_value, common_utils.max_decimal_precision('gain')),
         'illumination_ma': (
             round(_ma, common_utils.max_decimal_precision('illumination'))
             if (_ma := scope.illumination.get_led_ma(color=color)) is not None
@@ -284,26 +309,18 @@ def generate_image_metadata(scope: Lumascope, color, x, y, z) -> dict:
         },
     }
 
-    # Camera-side timestamp + frame-id provenance, when the camera
-    # supports chunk data (Pylon ace 2 / dart M / dart R always; IDS
-    # has ExposureTime/Gain but no ChunkTimestamp yet -- Stage 2 work).
-    # Read the most recent chunks; they're captured at-grab-time and
-    # are the right values for the most recent frame on this thread.
-    try:
-        handler = getattr(scope._camera_driver, 'cam_image_handler', None)
-        chunks = handler.get_last_chunks() if handler is not None else None
-    except Exception:
-        chunks = None
-    if chunks is not None:
-        ts_ticks = chunks.get('Timestamp')
-        if ts_ticks is not None:
-            metadata['timestamp_camera_ticks'] = int(ts_ticks)
-        tick_hz = getattr(scope._camera_driver, 'timestamp_tick_frequency_hz', None)
-        if tick_hz is not None:
-            metadata['timestamp_camera_tick_hz'] = int(tick_hz)
-        frame_id = chunks.get('FrameID')
-        if frame_id is not None:
-            metadata['frame_id'] = int(frame_id)
+    # Camera-side timestamp + frame-id provenance from the same grab-time
+    # chunk read above (Pylon ace 2 / dart M / dart R carry ChunkTimestamp;
+    # IDS has ExposureTime/Gain but no ChunkTimestamp yet -- Stage 2 work).
+    ts_ticks = chunks.get('Timestamp')
+    if ts_ticks is not None:
+        metadata['timestamp_camera_ticks'] = int(ts_ticks)
+    tick_hz = getattr(scope._camera_driver, 'timestamp_tick_frequency_hz', None)
+    if tick_hz is not None:
+        metadata['timestamp_camera_tick_hz'] = int(tick_hz)
+    frame_id = chunks.get('FrameID')
+    if frame_id is not None:
+        metadata['frame_id'] = int(frame_id)
 
     return metadata
 
