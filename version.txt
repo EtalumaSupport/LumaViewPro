@@ -1,4 +1,3 @@
 4.0.0-beta15
-2026-06-01 13:01
-integration/beta-logging-and-fixes
-3ae55cd6
+2026-06-01 13:07
+4.0.0-beta
