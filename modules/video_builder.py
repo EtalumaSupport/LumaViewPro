@@ -1,5 +1,6 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 
+import json
 import pathlib
 
 import pandas as pd
@@ -354,6 +355,22 @@ class VideoBuilder(ProtocolPostProcessor):
         except OSError:
             return False
 
+    def _read_manifest_channel_color(self, path: pathlib.Path) -> str | None:
+        """Return the recording's channel color from session_manifest.json.
+
+        Manual frames are saved mono, so the false-color channel is recorded
+        in the manifest at capture time. Returns None when the manifest is
+        absent (older recordings), unreadable, or carries no channel_color --
+        in which case the video encodes grayscale.
+        """
+        manifest_path = path / 'session_manifest.json'
+        try:
+            with open(manifest_path) as fh:
+                manifest = json.load(fh)
+        except (OSError, ValueError):
+            return None
+        return manifest.get('recording', {}).get('channel_color')
+
     def _build_manual_recording_video(
         self,
         path: pathlib.Path,
@@ -375,16 +392,20 @@ class VideoBuilder(ProtocolPostProcessor):
 
         # Manual frames are saved as mono with no protocol record. Build the
         # minimal dataframe _create_video needs and drive the one canonical
-        # encode path. Color None encodes grayscale; the per-frame timestamp is
-        # read from each frame's own metadata inside _create_video, so the
-        # overlay toggle authoritatively controls whether the video shows a
-        # timestamp.
+        # encode path. The channel color comes from the session manifest (the
+        # frames themselves are mono, so the color isn't recoverable from
+        # them); without it a false-colored recording would encode grayscale.
+        # None (no manifest / old recording / brightfield) encodes grayscale.
+        # The per-frame timestamp is read from each frame's own metadata inside
+        # _create_video, so the overlay toggle authoritatively controls whether
+        # the video shows a timestamp.
+        channel_color = self._read_manifest_channel_color(path)
         df = pd.DataFrame(
             {
                 'Filepath': [p.name for p in frame_paths],
                 'Scan Count': range(len(frame_paths)),
                 'Timestamp': '',
-                'Color': None,
+                'Color': channel_color,
             }
         )
         output_file_loc = pathlib.Path(f'{path.name}.mp4')

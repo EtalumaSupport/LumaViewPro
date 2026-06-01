@@ -1113,9 +1113,17 @@ class LayerControl(BoxLayout):
                 self.ids[slider_item].disabled = auto_gain_enabled
             autogain_settings = None
             if not ignore_auto_gain:
-                from modules.config_ui_getters import get_auto_gain_settings
+                from modules.config_ui_getters import (
+                    get_ag_ae_max_exposure_ms,
+                    get_auto_gain_settings,
+                )
 
                 autogain_settings = get_auto_gain_settings()
+                # Cap how far AG/AE may drive exposure for this layer's
+                # channel class (issue #655): without it AG runs exposure
+                # to the sensor max on dim scenes, washing out brightfield
+                # and making the live auto loop hunt.
+                autogain_settings['max_exposure_ms'] = get_ag_ae_max_exposure_ms(self.layer)
             camera_executor.put(
                 IOTask(
                     action=lumaview.scope.imaging.apply_layer_camera_settings,

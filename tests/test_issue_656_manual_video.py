@@ -81,7 +81,7 @@ def _write_manual_frame(folder, frame_num, *, include_iso=True, value=20000):
     return file_loc, ts
 
 
-def _make_manual_folder(tmp_path, n_frames=3, include_hyperstack=True):
+def _make_manual_folder(tmp_path, n_frames=3, include_hyperstack=True, channel_color=None):
     folder = tmp_path / 'MyRecording'
     folder.mkdir(parents=True)
     for i in range(n_frames):
@@ -91,7 +91,10 @@ def _make_manual_folder(tmp_path, n_frames=3, include_hyperstack=True):
         # treat as a frame.
         stack = np.zeros((2, 64, 64), dtype=np.uint16)
         tf.imwrite(str(folder / 'ManualVideo_Frame_HyperStack.ome.tiff'), stack)
-    (folder / 'session_manifest.json').write_text(json.dumps({'manifest_version': 1}))
+    manifest = {'manifest_version': 1}
+    if channel_color is not None:
+        manifest['recording'] = {'channel_color': channel_color}
+    (folder / 'session_manifest.json').write_text(json.dumps(manifest))
     return folder
 
 
@@ -193,6 +196,75 @@ def test_timestamp_overlay_toggle_changes_output(tmp_path):
     off_frame = _first_frame(_find_video(off_folder, off_folder.name))
     on_frame = _first_frame(_find_video(on_folder, on_folder.name))
     assert not np.array_equal(off_frame, on_frame)
+
+
+# ---------------------------------------------------------------------------
+# Channel color -- a false-colored recording must render in color, not gray
+# (the color is recovered from session_manifest.json; the frames are mono)
+# ---------------------------------------------------------------------------
+
+
+def _channel_means_bgr(frame):
+    # cv2 decodes BGR; return (B, G, R) channel means.
+    return frame[:, :, 0].mean(), frame[:, :, 1].mean(), frame[:, :, 2].mean()
+
+
+def test_manual_video_renders_channel_color_from_manifest(tmp_path):
+    folder = _make_manual_folder(
+        tmp_path, n_frames=2, include_hyperstack=False, channel_color='Red'
+    )
+    builder = VideoBuilder(has_turret=False)
+    result = builder.build_from_folder(
+        folder, tmp_path / 'tiling.json', None, frames_per_sec=5
+    )
+    assert result['status'] is True
+    b, g, r = _channel_means_bgr(_first_frame(_find_video(folder, folder.name)))
+    # 'Red' false-color -> red channel dominates; NOT grayscale (the bug).
+    assert r > g + 10 and r > b + 10, f'expected red-dominant frame, got B={b} G={g} R={r}'
+
+
+def test_manual_video_grayscale_without_channel_color(tmp_path):
+    # No channel_color in the manifest (old recording / brightfield) -> gray.
+    folder = _make_manual_folder(
+        tmp_path, n_frames=2, include_hyperstack=False, channel_color=None
+    )
+    builder = VideoBuilder(has_turret=False)
+    result = builder.build_from_folder(
+        folder, tmp_path / 'tiling.json', None, frames_per_sec=5
+    )
+    assert result['status'] is True
+    b, g, r = _channel_means_bgr(_first_frame(_find_video(folder, folder.name)))
+    assert abs(r - g) < 8 and abs(g - b) < 8, f'expected gray frame, got B={b} G={g} R={r}'
+
+
+def test_read_manifest_channel_color(tmp_path):
+    builder = VideoBuilder(has_turret=False)
+    folder = tmp_path / 'rec'
+    folder.mkdir()
+    # No manifest -> None.
+    assert builder._read_manifest_channel_color(folder) is None
+    # Manifest without the key -> None.
+    (folder / 'session_manifest.json').write_text(json.dumps({'manifest_version': 1}))
+    assert builder._read_manifest_channel_color(folder) is None
+    # Manifest with the key -> the color.
+    (folder / 'session_manifest.json').write_text(
+        json.dumps({'recording': {'channel_color': 'Green'}})
+    )
+    assert builder._read_manifest_channel_color(folder) == 'Green'
+
+
+def test_build_session_manifest_includes_channel_color():
+    from modules.recording_manifest import build_session_manifest
+
+    m = build_session_manifest(
+        timestamps=[],
+        chunks_per_frame=[],
+        tick_freq_hz=None,
+        captured_frames=0,
+        video_duration=0.0,
+        channel_color='Blue',
+    )
+    assert m['recording']['channel_color'] == 'Blue'
 
 
 def test_create_video_missing_timestamp_no_crash(tmp_path):

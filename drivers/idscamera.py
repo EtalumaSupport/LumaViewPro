@@ -727,7 +727,8 @@ class IDSCamera(Camera):
         state = True,
         target_brightness: float = 0.5,
         min_gain_db: float | None = None,
-        max_gain_db: float | None = None
+        max_gain_db: float | None = None,
+        ae_max_exposure_ms: float | None = None
     ):
         try:
             return self.remote_nodemap.HasNode("GainAuto")
@@ -740,7 +741,8 @@ class IDSCamera(Camera):
         state = True,
         target_brightness: float = 0.5,
         min_gain_db: float | None = None,
-        max_gain_db: float | None = None
+        max_gain_db: float | None = None,
+        ae_max_exposure_ms: float | None = None
     ):
         try:
             return self.remote_nodemap.HasNode("GainAuto")
