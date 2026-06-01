@@ -450,7 +450,10 @@ class ImagingAPI:
 
         Args:
             state: True to enable auto gain, False to disable.
-            settings: Dict with 'target_brightness', 'min_gain_db', 'max_gain_db'.
+            settings: Dict with 'target_brightness', 'min_gain_db', 'max_gain_db',
+                and optionally 'max_exposure_ms' (the per-channel-class upper
+                bound on the exposure AG/AE may drive to; the caller supplies it
+                since it knows the layer).
         """
 
         if not self._driver or not self._driver.active:
@@ -460,6 +463,7 @@ class ImagingAPI:
             target_brightness=settings['target_brightness'],
             min_gain_db=settings['min_gain_db'],
             max_gain_db=settings['max_gain_db'],
+            ae_max_exposure_ms=settings.get('max_exposure_ms'),
         )
         self.frame_validity.invalidate('gain')
         # Auto-gain dynamically adjusts the value; clear the manual target
@@ -1880,7 +1884,12 @@ class ImagingAPI:
         self._driver.update_auto_gain_target_brightness(target_brightness)
 
     def auto_gain_once(
-        self, state: bool, target_brightness: float, min_gain_db: float, max_gain_db: float
+        self,
+        state: bool,
+        target_brightness: float,
+        min_gain_db: float,
+        max_gain_db: float,
+        ae_max_exposure_ms: float | None = None,
     ) -> None:
         """Run auto-gain for a single frame on the camera.
 
@@ -1889,6 +1898,8 @@ class ImagingAPI:
             target_brightness: Target brightness (0.0 to 1.0).
             min_gain_db: Minimum gain in dB.
             max_gain_db: Maximum gain in dB.
+            ae_max_exposure_ms: Optional per-channel-class upper bound (ms)
+                on the exposure auto-exposure may drive to.
         """
         if not self._driver or not self._driver.active:
             return
@@ -1897,6 +1908,7 @@ class ImagingAPI:
             target_brightness=target_brightness,
             min_gain_db=min_gain_db,
             max_gain_db=max_gain_db,
+            ae_max_exposure_ms=ae_max_exposure_ms,
         )
         # One-shot AG always ends with the auto cycle complete and the
         # SDK toggled back to Off internally; hardware holds the

@@ -92,6 +92,7 @@ class VideoCaptureSession:
                 target_brightness=self._autogain_settings['target_brightness'],
                 min_gain_db=self._autogain_settings['min_gain_db'],
                 max_gain_db=self._autogain_settings['max_gain_db'],
+                ae_max_exposure_ms=self._autogain_settings.get('max_exposure_ms'),
             )
 
         duration_sec = step['Video Config']['duration']

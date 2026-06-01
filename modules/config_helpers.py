@@ -116,6 +116,29 @@ def get_auto_gain_settings(settings: dict) -> dict:
     return autogain_settings
 
 
+def get_ag_ae_max_exposure_ms(layer: str, settings: dict | None = None) -> float:
+    """Return the AG/AE exposure upper bound (ms) for a layer's channel class.
+
+    AG/AE is capped per channel class so auto-exposure cannot drive the
+    sensor toward its native max on dim scenes. Resolves the layer to its
+    class, then returns the per-install override
+    (settings['ag_ae_max_exposure_ms'][<class>]) when present, else the
+    DEFAULT_AG_AE_MAX_EXPOSURE_MS default. Unknown layers fall back to the
+    fluorescence cap.
+    """
+    if layer in common_utils.get_transmitted_layers():
+        channel_class = 'transmitted'
+    elif layer in common_utils.get_luminescence_layers():
+        channel_class = 'luminescence'
+    else:
+        channel_class = 'fluorescence'
+    if settings:
+        override = settings.get('ag_ae_max_exposure_ms', {}).get(channel_class)
+        if override is not None:
+            return float(override)
+    return DEFAULT_AG_AE_MAX_EXPOSURE_MS[channel_class]
+
+
 def get_current_objective_info(settings: dict, objective_helper) -> tuple[str, dict]:
     """Return (objective_id, objective_info_dict) from current settings."""
     objective_id = settings['objective_id']
@@ -658,6 +681,19 @@ def block_wait_for_threads(futures: list, log_loc: str = 'LVP') -> None:
 # Lumascope.camera_max_exposure returns None in that case; callers pattern
 # is `scope.imaging.camera_max_exposure or DEFAULT_MAX_EXPOSURE_MS`. See #616.
 DEFAULT_MAX_EXPOSURE_MS = 1000.0
+
+# Per-channel-class upper bound on the exposure AG/AE may drive to, in ms.
+# Distinct from the manual exposure-slider limits: on dim scenes (especially
+# with the MinimizeGain profile) AG/AE would otherwise push exposure to the
+# sensor's native max, washing out brightfield and making the live-view auto
+# loop hunt. Transmitted light is bright (short exposures); fluorescence needs
+# more; luminescence integrates long. Overridable per install via
+# settings['ag_ae_max_exposure_ms'][<class>]; these are the defaults.
+DEFAULT_AG_AE_MAX_EXPOSURE_MS = {
+    'transmitted': 50.0,
+    'fluorescence': 200.0,
+    'luminescence': 1000.0,
+}
 
 # Fallback gain slider upper bound used when no camera is connected.
 # Matches the legacy kv default (48 dB); the actual per-camera cap is

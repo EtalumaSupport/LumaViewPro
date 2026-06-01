@@ -20,8 +20,10 @@ from typing import TYPE_CHECKING
 
 from lvp_logger import logger
 
+import modules.config_helpers as config_helpers
 from modules.protocol_state_machine import ProtocolState
 from modules.sequential_io_executor import IOTask
+from modules.settings_init import settings
 
 if TYPE_CHECKING:
     from modules.sequenced_capture_runner import SequencedCaptureRunner
@@ -215,6 +217,13 @@ class ProtocolStepRunner:
         # overexposed / unconverged images. Arm once per step
         # (_auto_gain_armed_step is a one-shot keyed on _curr_step).
         if step['Auto_Gain'] and p._auto_gain_armed_step != p._curr_step:
+            # Cap AG/AE exposure to this step's channel-class ceiling
+            # (issue #655) before arming. Set on the shared settings dict
+            # so the later capture-time re-arm inherits it too. step['Color']
+            # is the layer; the per-install override is read from settings.
+            p._autogain_settings['max_exposure_ms'] = config_helpers.get_ag_ae_max_exposure_ms(
+                step['Color'], settings
+            )
             fut = p._io_executor.protocol_put(
                 IOTask(
                     action=p._scope.imaging.apply_layer_camera_settings,

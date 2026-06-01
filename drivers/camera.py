@@ -794,6 +794,7 @@ class Camera(ABC):
         target_brightness: float = 0.5,
         min_gain_db: float | None = None,
         max_gain_db: float | None = None,
+        ae_max_exposure_ms: float | None = None,
     ) -> None:
         """Enable or disable continuous auto-gain.
 
@@ -802,6 +803,9 @@ class Camera(ABC):
             target_brightness: Normalized brightness target (0.0-1.0).
             min_gain_db: Optional lower bound in dB.
             max_gain_db: Optional upper bound in dB.
+            ae_max_exposure_ms: Optional per-channel-class upper bound (ms)
+                on the exposure auto-exposure may drive to. Honored where
+                the driver supports auto-exposure bounds; ignored otherwise.
         """
         pass
 
@@ -812,6 +816,7 @@ class Camera(ABC):
         target_brightness: float = 0.5,
         min_gain_db: float | None = None,
         max_gain_db: float | None = None,
+        ae_max_exposure_ms: float | None = None,
     ) -> None:
         """Run a single auto-gain iteration.
 
@@ -820,6 +825,8 @@ class Camera(ABC):
             target_brightness: Normalized brightness target (0.0-1.0).
             min_gain_db: Optional lower bound in dB.
             max_gain_db: Optional upper bound in dB.
+            ae_max_exposure_ms: Optional per-channel-class exposure upper
+                bound (ms); honored where the driver supports it.
         """
         pass
 

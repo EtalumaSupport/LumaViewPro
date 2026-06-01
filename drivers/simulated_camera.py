@@ -868,6 +868,7 @@ class SimulatedCamera(Camera):
         target_brightness: float = 0.5,
         min_gain_db: float | None = None,
         max_gain_db: float | None = None,
+        ae_max_exposure_ms: float | None = None,
     ) -> bool:
         """Enable or disable simulated continuous auto-gain.
 
@@ -879,6 +880,8 @@ class SimulatedCamera(Camera):
             target_brightness: Normalized brightness target (0.0-1.0).
             min_gain_db: Optional lower bound in dB.
             max_gain_db: Optional upper bound in dB.
+            ae_max_exposure_ms: Accepted for interface parity; the
+                simulator has no auto-exposure bound to apply.
 
         Returns:
             bool: Always True.
@@ -905,6 +908,7 @@ class SimulatedCamera(Camera):
         target_brightness: float = 0.5,
         min_gain_db: float | None = None,
         max_gain_db: float | None = None,
+        ae_max_exposure_ms: float | None = None,
     ) -> bool:
         """Run a single simulated auto-gain iteration.
 
