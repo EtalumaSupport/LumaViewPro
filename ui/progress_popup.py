@@ -7,6 +7,8 @@ from kivy.properties import Property
 from kivy.uix.popup import Popup
 from kivy.lang import Builder
 
+from lvp_logger import logger
+
 
 class _PopupProxy:
     """Thread-safe proxy for CustomPopup.
@@ -78,6 +80,15 @@ def show_popup(function):
         popup = CustomPopup()  # Instantiate CustomPopup (could add some kwargs if you wish)
         app.done = False  # Reset the app.done BooleanProperty (main thread; no proxy)
         app.bind(done=popup.dismiss)  # When app.done is set to True, then popup.dismiss is fired
+        # Progress popups are a separate path from notification_center, so log
+        # open/dismiss here -- otherwise a long-running (or hung) operation behind
+        # one of these popups leaves no trace in the log.
+        logger.info(f'[Popup    ] progress popup opened for {function.__name__}')
+        popup.bind(
+            on_dismiss=lambda *_: logger.info(
+                f'[Popup    ] progress popup dismissed for {function.__name__}'
+            )
+        )
         popup.open()  # Show popup
         proxy = _PopupProxy(popup)  # Thread-safe proxy for background use
         # Wrap the host so bg-thread Kivy property writes inside the
