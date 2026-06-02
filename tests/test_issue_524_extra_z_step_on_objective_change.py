@@ -128,7 +128,12 @@ def test_turret_select_threads_restore_z():
     all_names = [a.arg for a in method.args.args] + [a.arg for a in method.args.kwonlyargs]
     assert 'restore_z' in all_names, 'turret_select must accept restore_z. (#524)'
     src = ast.unparse(method)
-    assert 'restore_z=restore_z' in src, (
+    # restore_z must reach tmove. In the non-protocol branch that is a
+    # direct keyword (restore_z=restore_z); in the protocol branch tmove
+    # is routed through io_executor as IOTask(tmove, kwargs={...,
+    # 'restore_z': restore_z}) so the keyword appears in dict form. Accept
+    # either -- both thread restore_z to tmove.
+    assert ('restore_z=restore_z' in src) or ("'restore_z': restore_z" in src), (
         'turret_select must pass restore_z through to tmove. (#524)'
     )
 

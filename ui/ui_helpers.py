@@ -106,13 +106,14 @@ def _handle_autofocus_ui(pos: float):
     ctx.motion_settings.ids['verticalcontrol_id'].update_autofocus_gui(pos=pos)
 
 
-# Wrapper function when moving to update UI position.
-# `protocol=True` is the on-protocol-thread case: caller is already
-# running on the io_executor / protocol thread, so it must call the
-# scope primitive directly (re-submitting to the same executor would
-# deadlock). `protocol=False` is the UI-thread case: dispatches via
-# the API's async path. Two distinct call contexts; one canonical
-# call pattern per context.
+# Wrapper to move and update the UI position. `protocol=False` (UI
+# thread) dispatches via the API's async path. `protocol=True` runs on
+# protocol_thread -- a DIFFERENT thread from the io_executor worker --
+# so the move is queued through io_executor.protocol_put and awaited,
+# keeping it ordered behind the step's leds_off/led_on on the single
+# worker. A direct call would race them and leave the prior step's LED
+# lit through the move. Awaiting is deadlock-free: the caller is
+# protocol_thread, not the worker.
 def move_absolute_position(
     axis: str,
     pos: float,
@@ -150,15 +151,20 @@ def move_absolute_position(
                 cb_kwargs={'axis': axis},
             )
         else:
-            # Already running on the io_executor (protocol thread) --
-            # call the scope primitive directly. Submitting to the
-            # same executor would deadlock.
-            ctx.scope.motion.move_absolute_position(
-                axis=axis,
-                pos=pos,
-                wait_until_complete=wait_until_complete,
-                overshoot_enabled=overshoot_enabled,
+            fut = ctx.io_executor.protocol_put(
+                IOTask(
+                    action=ctx.scope.motion.move_absolute_position,
+                    kwargs={
+                        'axis': axis,
+                        'pos': pos,
+                        'wait_until_complete': wait_until_complete,
+                        'overshoot_enabled': overshoot_enabled,
+                    },
+                ),
+                return_future=True,
             )
+            if fut:
+                fut.result(timeout=60)
 
         _schedule_ui(lambda dt: _handle_ui_update_for_axis(axis=axis), 0)
 
