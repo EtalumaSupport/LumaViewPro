@@ -286,7 +286,13 @@ def run_cleanup(
 
     # --- Fire completion callbacks ---
     _file_queue_active = file_io_executor.is_protocol_queue_active()
-    logger.info(f'[{logger_name}] Cleanup: file queue active={_file_queue_active}')
+    # Log the pending-write count so a post-run read shows HOW MANY files were
+    # still draining at protocol end, not just that the queue was non-empty.
+    _file_queue_depth = file_io_executor.protocol_queue_size()
+    logger.info(
+        f'[{logger_name}] Cleanup: file queue active={_file_queue_active} '
+        f'pending_writes={_file_queue_depth}'
+    )
     if _file_queue_active:
         if callbacks.run_complete:
             _schedule_ui(lambda dt: callbacks.run_complete(protocol=protocol), 0)
