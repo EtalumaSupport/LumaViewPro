@@ -554,7 +554,15 @@ class VerticalControl(BoxLayout):
                 if not protocol:
                     ctx.io_executor.put(IOTask(ctx.lumaview.scope.motion.thome))
                 else:
-                    ctx.lumaview.scope.motion.thome()
+                    # Protocol context runs on protocol_thread, not the io
+                    # worker -- route thome through the protocol queue so it
+                    # stays ordered ahead of the subsequent tmove/X/Y/Z and
+                    # behind the prior step's leds_off on the single worker.
+                    fut = ctx.io_executor.protocol_put(
+                        IOTask(ctx.lumaview.scope.motion.thome), return_future=True
+                    )
+                    if fut:
+                        fut.result(timeout=120)
 
             if not isinstance(selected_position, int) and not isinstance(selected_position, float):
                 if not selected_position.isdigit():
@@ -567,9 +575,19 @@ class VerticalControl(BoxLayout):
                     IOTask(ctx.lumaview.scope.motion.tmove, kwargs={'position': selected_position})
                 )
             else:
-                ctx.lumaview.scope.motion.tmove(
-                    position=selected_position, restore_z=restore_z
+                # See the thome branch above: route the protocol-context
+                # tmove through the protocol queue so it serializes with the
+                # step's other moves and LED ops on the single io worker
+                # instead of racing them from protocol_thread.
+                fut = ctx.io_executor.protocol_put(
+                    IOTask(
+                        ctx.lumaview.scope.motion.tmove,
+                        kwargs={'position': selected_position, 'restore_z': restore_z},
+                    ),
+                    return_future=True,
                 )
+                if fut:
+                    fut.result(timeout=60)
 
             # Persist user's explicit turret choice so the next session
             # (or any post-home lookup) prefers this position when the

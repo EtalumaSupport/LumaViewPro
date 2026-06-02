@@ -909,11 +909,23 @@ class Protocol:
         tile_group_id = -1
         zstack_group_id = -1
 
+        # Each channel's step takes its own saved focus; the shared live
+        # stage Z (plate_position['z']) is only a fallback when a layer has
+        # no saved focus. Mirrors the labware build path (from_config),
+        # which also reads per-layer focus. Without this, a multi-channel
+        # Add Step gives every channel the current stage Z instead of its
+        # own focus, collapsing distinct per-channel focus to one value.
+        step_z = (
+            layer_config['focus']
+            if layer_config.get('focus') is not None
+            else plate_position['z']
+        )
+
         step_dict = self._create_step_dict(
             name=step_name,
             x=plate_position['x'],
             y=plate_position['y'],
-            z=plate_position['z'],
+            z=step_z,
             af=layer_config['autofocus'],
             color=layer,
             fc=layer_config['false_color'],
