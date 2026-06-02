@@ -35,28 +35,32 @@ class _StubWidget:
         pass
 
 
-def _stub_module(name, **attrs):
+def _real_base_module(name, **attrs):
+    """Install a module exposing REAL classes (so ScopeDisplay can subclass)."""
     mod = ModuleType(name)
     for key, value in attrs.items():
         setattr(mod, key, value)
     sys.modules[name] = mod
 
 
-sys.modules.setdefault('kivy.uix', MagicMock())
-_stub_module('kivy.uix.image', Image=_StubWidget)
-_stub_module('kivy.uix.widget', Widget=_StubWidget)
-_stub_module(
+# Permissive MagicMock submodules: any attribute resolves, so this never
+# shadows names other test modules import (e.g. kivy.properties.ListProperty).
+# setdefault avoids clobbering anything conftest already provides.
+for _name in (
+    'kivy.uix',
     'kivy.graphics',
-    InstructionGroup=MagicMock(),
-    Color=MagicMock(),
-    Line=MagicMock(),
-    Ellipse=MagicMock(),
-)
-_stub_module('kivy.graphics.texture', Texture=MagicMock())
-_stub_module('kivy.metrics', dp=MagicMock())
-_stub_module('kivy.properties', BooleanProperty=MagicMock())
-_stub_module('kivy.input', MotionEvent=MagicMock())
-sys.modules.setdefault('kivy.clock', MagicMock())
+    'kivy.graphics.texture',
+    'kivy.metrics',
+    'kivy.properties',
+    'kivy.input',
+    'kivy.clock',
+):
+    sys.modules.setdefault(_name, MagicMock())
+
+# Image/Widget must be REAL, subclassable base classes for `class ScopeDisplay
+# (Image)` -- a bare MagicMock can't be a base.
+_real_base_module('kivy.uix.image', Image=_StubWidget)
+_real_base_module('kivy.uix.widget', Widget=_StubWidget)
 
 from ui.scope_display import ScopeDisplay  # noqa: E402
 
