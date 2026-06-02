@@ -1569,7 +1569,12 @@ class MotorBoard(SerialBoard):
         """
         if not 0 <= duty_pct <= 100:
             raise ValueError(f'Fan duty must be 0..100, got {duty_pct}')
-        resp = self.exchange_command(f'FAN:{duty_pct}')
+        # expect_unsupported=True suppresses the FIRMWARE ERROR warning that
+        # exchange_command emits on legacy firmware lacking FAN:<duty>. This
+        # method already treats an ERROR response as "not supported" below, so
+        # the lower-level warning is duplicate noise in the user-visible log
+        # (mirrors the VOLTAGE / DRVSTAT / FANSPEED diagnostic probes).
+        resp = self.exchange_command(f'FAN:{duty_pct}', expect_unsupported=True)
         if resp is None:
             return False
         if resp.startswith('ERROR'):
