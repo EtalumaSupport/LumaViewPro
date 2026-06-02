@@ -38,6 +38,16 @@ _IOTASK_TRACE_HEADER = (
 # `is PROTOCOL_QUEUE_FULL` so a frame can be marked capture_failed in
 # the execution record instead of silently dropped.
 PROTOCOL_QUEUE_FULL = object()
+# Sentinel returned by put() when a frame-carrying (droppable_live) task is
+# dropped because too many are already in flight on the single worker.
+LIVE_FRAME_DROPPED = object()
+
+# Max in-flight frame-carrying (droppable_live) tasks on the default queue
+# before new frames are dropped (latest-wins). Bounds the live/record image
+# backlog so a stalled single worker can't pin GBs of ~3.5 MB frame buffers
+# (the manual-record balloon). Config / motor / save tasks are NOT droppable
+# and stay unbounded. ~16 frames ~= 58 MB ceiling.
+_LIVE_FRAME_MAXSIZE = 16
 
 
 class _ReusableTaskWaiter:
@@ -164,6 +174,7 @@ class IOTask:
                      cb_args=None, cb_kwargs=None, pass_result=False,
                      slow_task_threshold_sec=None,
                      silent_on_failure=False,
+                     droppable_live: bool = False,
                      priority: int = PRIORITY_MED):
             self.action = action
             self.priority = priority
@@ -174,6 +185,12 @@ class IOTask:
             # notification. Logs are unaffected. The API/caller decides
             # whether to notify, not the executor.
             self.silent_on_failure = silent_on_failure
+            # When True, this task carries a live/preview/record frame that the
+            # display or recording can drop when the single worker falls behind
+            # (latest-wins). The executor caps in-flight droppable_live tasks so
+            # a stalled worker can't pin GBs of frame buffers. Must-execute
+            # tasks (config, motor, save) leave this False and are never dropped.
+            self.droppable_live = droppable_live
             if args is None:
                 self.args = ()
             # if it's a sequence (list, tuple, etc) but not a string
@@ -348,6 +365,13 @@ class SequentialIOExecutor:
         self.protocol_queue = queue.Queue(maxsize=protocol_queue_maxsize)
         self.protocol_queue_maxsize = protocol_queue_maxsize
         self._protocol_queue_dropped_count = 0
+        # Selective bound for frame-carrying (droppable_live) tasks on the
+        # default queue. In-flight count guarded by its own lock; incremented
+        # at put(), decremented when the worker dequeues. Must-execute tasks
+        # are unaffected -- they never set droppable_live.
+        self._live_inflight = 0
+        self._live_dropped_count = 0
+        self._live_lock = threading.Lock()
         self.protocol_running = threading.Event()
         self.protocol_finish = threading.Event()
         self.name = name
@@ -428,6 +452,28 @@ class SequentialIOExecutor:
         if self.protocol_running.is_set() and not self.protocol_finish.is_set():
             return None
 
+        # Selective backpressure: cap in-flight frame-carrying tasks so a
+        # stalled single worker can't pin GBs of frame buffers (the
+        # manual-record balloon). Drop the new frame -- latest-wins is the
+        # live/record contract -- with accounting. Must-execute tasks (config /
+        # motor / save) never set droppable_live and are unaffected.
+        if task.droppable_live:
+            with self._live_lock:
+                if self._live_inflight >= _LIVE_FRAME_MAXSIZE:
+                    self._live_dropped_count += 1
+                    n = self._live_dropped_count
+                    over = True
+                else:
+                    self._live_inflight += 1
+                    over = False
+            if over:
+                if n == 1 or n % 30 == 0:
+                    logger.warning(
+                        f"[{self.executor_name}] LIVE FRAME QUEUE FULL "
+                        f"(maxsize={_LIVE_FRAME_MAXSIZE}) -- dropping frame; "
+                        f"total drops this run: {n}")
+                return LIVE_FRAME_DROPPED
+
         # Push IO work item into queue. When return_future=True, hand
         # the caller a per-thread reusable waiter (was concurrent.futures
         # Future before; switched to drop Lock kernel-handle allocation
@@ -446,6 +492,28 @@ class SequentialIOExecutor:
         self.queue.put(task)
         task.set_name(self.executor_name)
         return fut
+
+    def admit_live_frame(self) -> bool:
+        """Backpressure gate for frame producers that have a side effect (e.g.
+        a reserved memmap slot) and so must decide to drop BEFORE producing.
+
+        Returns True if a frame may be enqueued (in-flight under the cap) or
+        False if the single worker is behind -- in which case the drop is
+        counted + throttled-logged here so the producer just returns without
+        reserving. The in-flight increment itself happens at put() for the
+        droppable_live task. Mirrors the F-2 protocol_queue drop accounting.
+        """
+        with self._live_lock:
+            if self._live_inflight < _LIVE_FRAME_MAXSIZE:
+                return True
+            self._live_dropped_count += 1
+            n = self._live_dropped_count
+        if n == 1 or n % 30 == 0:
+            logger.warning(
+                f"[{self.executor_name}] LIVE FRAME backlog at cap "
+                f"({_LIVE_FRAME_MAXSIZE}) -- dropping frame before enqueue; "
+                f"total drops this run: {n}")
+        return False
 
     def protocol_put(self, task: IOTask, return_future: bool = False):
         """
@@ -615,6 +683,11 @@ class SequentialIOExecutor:
                     else:
                         task = self.queue.get(block=True, timeout=0.2)
                         task.protocol = False
+                        # A droppable_live task has left the queue -- free its
+                        # in-flight slot so the producer can enqueue the next.
+                        if task.droppable_live:
+                            with self._live_lock:
+                                self._live_inflight -= 1
                     if profile_trace.ENABLE_PROFILE_TRACE:
                         task._t_dequeue = time.monotonic()
                 except queue.Empty:

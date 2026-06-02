@@ -396,6 +396,12 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
                 return
             if now < self._next_save_slot_ts:
                 return
+            # Backpressure: if the single CAMERA_WORKER is behind on memmap
+            # writes, drop this frame BEFORE reserving a slot -- reserving then
+            # dropping would leave an unwritten (black) slot. Bounds the
+            # in-flight image backlog that was the manual-record RAM balloon.
+            if not _app_ctx.ctx.camera_executor.admit_live_frame():
+                return
             slot_index = self._reserved_frames
             self._reserved_frames += 1
             self._next_save_slot_ts += self._save_interval_s
@@ -408,6 +414,7 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
                     'frame_ts': frame_ts,
                     'chunks': chunks,
                 },
+                droppable_live=True,
             )
         )
 
