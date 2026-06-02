@@ -33,10 +33,14 @@ import psutil
 
 from lvp_logger import logger
 
-# Number of frames of traceback context tracemalloc keeps per allocation.
-# Enough to attribute an allocation to a meaningful call site without the
-# per-allocation overhead of a deep stack.
-_TRACEMALLOC_FRAMES = 25
+# Frames of traceback tracemalloc keeps per allocation. Deliberately 1 (the
+# allocating line only): tracemalloc stores this many frame records for EVERY
+# traced allocation, so a deep value both slows startup ~6x (the whole import
+# phase runs instrumented) AND inflates RSS during a frame flood -- which would
+# distort the very footprint baseline this tool exists to measure. Depth 1
+# still identifies the top sites (e.g. the scope_display live-view blit). Raise
+# temporarily only when one specific site needs its full call chain.
+_TRACEMALLOC_FRAMES = 1
 _TOP_N = 15
 
 _lock = threading.Lock()
