@@ -286,6 +286,10 @@ class _FakeExecutor:
     def is_protocol_queue_active(self):
         return self._protocol_queue_active
 
+    def protocol_queue_size(self):
+        # Mirror the real executor: a count consistent with the active flag.
+        return 1 if self._protocol_queue_active else 0
+
     def set_protocol_complete_callback(self, callback, cb_args=None, cb_kwargs=None):
         self._complete_callback = callback
 
