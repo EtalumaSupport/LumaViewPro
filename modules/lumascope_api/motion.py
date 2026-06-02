@@ -34,6 +34,7 @@ import time
 from typing import TYPE_CHECKING
 from collections.abc import Iterator
 
+from drivers.exceptions import HardwareError
 from lib import profile_trace
 from lvp_logger import logger
 from modules.notification_center import notifications
@@ -638,9 +639,21 @@ class MotionAPI:
         Returns:
             bool: True if the axis is homed, False otherwise or on error.
         """
+        if not self._scope.motor_connected:
+            # Disconnected is an expected degradation, not an error -- the
+            # motion monitor polls this; provoking + tracing a per-poll
+            # HardwareError floods the log on a mid-move USB yank (#539).
+            return False
         try:
             status = self._driver.home_status(axis)
             return status
+        except HardwareError as e:
+            # Typed disconnect/timeout at the moment of unplug (before
+            # motor_connected flips). Expected; log without the traceback.
+            logger.warning(
+                f'[SCOPE API ] get_home_status({axis}): {e}; treating as not home'
+            )
+            return False
         except Exception as e:
             logger.exception(
                 f'[SCOPE API ] get_home_status({axis}) failed; treating as not home: {e}'
@@ -656,6 +669,12 @@ class MotionAPI:
         Returns:
             bool: True if at target (always True for T if no turret present).
         """
+        if not self._scope.motor_connected:
+            # See get_home_status: disconnected is an expected degradation;
+            # the motion monitor polls this, so don't provoke + trace a
+            # per-poll HardwareError on a mid-move USB yank (#539).
+            return False
+
         # Handle case where we want to know if turret has reached its target, but there is no turret
         if (axis == 'T') and (not self._driver.has_turret()):
             return True
@@ -663,6 +682,13 @@ class MotionAPI:
         try:
             status = self._driver.target_status(axis)
             return status
+        except HardwareError as e:
+            # Typed disconnect/timeout at the moment of unplug (before
+            # motor_connected flips). Expected; log without the traceback.
+            logger.warning(
+                f'[SCOPE API ] get_target_status({axis}): {e}; treating as not at target'
+            )
+            return False
         except Exception as e:
             logger.exception(
                 f'[SCOPE API ] get_target_status({axis}) failed; treating as not at target: {e}'
