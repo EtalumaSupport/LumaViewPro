@@ -270,7 +270,12 @@ def get_protocol_time_params() -> dict:
 
     duration = datetime.timedelta(hours=duration)
 
-    return {'period': period, 'duration': duration}
+    # 1-second floor (preserves the 0 single-scan marker) so a short
+    # interval/duration stays representable and doesn't round to 0 (#568).
+    return {
+        'period': config_helpers.floor_protocol_time(period),
+        'duration': config_helpers.floor_protocol_time(duration),
+    }
 
 
 # ---------------------------------------------------------------------------

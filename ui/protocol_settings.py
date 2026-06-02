@@ -719,8 +719,12 @@ class ProtocolSettings(FloatLayout):
         else:
             self.curr_step = 0
 
-        period = round(self._protocol.period().total_seconds() / 60, 2)
-        duration = round(self._protocol.duration().total_seconds() / 3600, 2)
+        # 6 decimals (matching the TSV write side) so a short period/duration
+        # doesn't collapse to 0.0 on reload -- a 1s duration is ~0.000278 h
+        # and rounding to 2 decimals showed 0.0 (#568). Decimal units stay
+        # awkward for short values; H:M:S entry is the tracked follow-up.
+        period = round(self._protocol.period().total_seconds() / 60, 6)
+        duration = round(self._protocol.duration().total_seconds() / 3600, 6)
         labware = self._protocol.labware()
 
         scope_configs = ctx.motion_settings.ids['microscope_settings_id'].scopes
