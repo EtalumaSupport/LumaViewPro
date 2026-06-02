@@ -1080,8 +1080,19 @@ class MicroscopeSettings(BoxLayout):
         # native / binning. Deriving from the fixed native ROI (not the prior
         # displayed value) is what makes binning round-trip: iterating on the
         # already-floored displayed value lost pixels that never came back.
+        #
+        # Persist the native ROI here too, not just on a frame-field edit.
+        # Without this, settings that never had native_* stored fall through
+        # _native_roi's reconstruction (displayed * binning) on every binning
+        # change -- and at a coarse binning the displayed value is already
+        # floored, so reconstruction shrinks native a little each step and the
+        # cycle drifts (1x1 -> 4x4 -> 1x1 came back smaller). Storing the
+        # native ROI on the first change locks the source of truth so later
+        # changes read a fixed value and round-trip exactly.
+        native = self._native_roi()
+        self._store_native_roi(native)
         new_frame = binning.native_to_displayed(
-            self._native_roi(), new_binning_size, imaging.get_pixel_alignment()
+            native, new_binning_size, imaging.get_pixel_alignment()
         )
         self.ids['frame_width_id'].text = str(new_frame['width'])
         self.ids['frame_height_id'].text = str(new_frame['height'])
