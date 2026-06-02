@@ -10,6 +10,7 @@ from unittest import mock
 import numpy as np
 import pytest
 
+import modules.video_writer as video_writer_module
 from modules.video_writer import VideoWriter
 
 
@@ -120,3 +121,64 @@ class TestEagerInitColorDeferral:
             writer.close()
         # color set -> output is always RGB; encoder opens eagerly as color.
         assert captured.get('isColor') is True
+
+
+class _FakeStream:
+    """Captures attributes the writer sets on the PyAV stream."""
+
+    def __init__(self):
+        self.thread_count = None
+        self.width = None
+        self.height = None
+        self.pix_fmt = None
+        self.options = None
+
+
+class _FakeContainer:
+    def __init__(self, stream):
+        self._stream = stream
+
+    def add_stream(self, codec, rate=None):
+        return self._stream
+
+    def close(self):
+        pass
+
+
+class TestPyavEncoderThreadCap:
+    """libx264 left at its default thread count grabs every core and starves
+    the GUI/GL main thread, freezing the app during a long post-capture encode.
+    The encoder thread count is capped to cores-2 so it scales with the machine
+    while always leaving the main thread headroom."""
+
+    def test_thread_count_capped_to_cores_minus_two(self, tmp_path):
+        fake_stream = _FakeStream()
+        fake_av = mock.MagicMock()
+        fake_av.open.return_value = _FakeContainer(fake_stream)
+
+        out = tmp_path / 'capped.mp4'
+        with mock.patch.object(video_writer_module, '_HAS_PYAV', True), \
+             mock.patch.object(video_writer_module, 'av', fake_av, create=True), \
+             mock.patch.object(video_writer_module.os, 'cpu_count', return_value=8):
+            VideoWriter(
+                output_path=out, fps=30, width=32, height=24,
+                color='Red', include_timestamp_overlay=False,
+            )
+
+        assert fake_stream.thread_count == 6, '8 cores -> 8-2 = 6 encoder threads'
+
+    def test_thread_count_floor_is_one(self, tmp_path):
+        fake_stream = _FakeStream()
+        fake_av = mock.MagicMock()
+        fake_av.open.return_value = _FakeContainer(fake_stream)
+
+        out = tmp_path / 'floor.mp4'
+        with mock.patch.object(video_writer_module, '_HAS_PYAV', True), \
+             mock.patch.object(video_writer_module, 'av', fake_av, create=True), \
+             mock.patch.object(video_writer_module.os, 'cpu_count', return_value=1):
+            VideoWriter(
+                output_path=out, fps=30, width=32, height=24,
+                color='Red', include_timestamp_overlay=False,
+            )
+
+        assert fake_stream.thread_count == 1, 'never drops below a single thread'

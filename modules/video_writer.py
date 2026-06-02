@@ -1,6 +1,7 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 
 import datetime
+import os
 import pathlib
 import threading
 
@@ -95,6 +96,12 @@ class VideoWriter:
         try:
             self._container = av.open(str(self._output_path), mode='w')
             self._stream = self._container.add_stream('libx264', rate=int(self._fps))
+            # libx264 is a software (CPU) encoder. Left at ffmpeg's default it
+            # grabs every core, starving the GUI/GL main thread -- a long
+            # post-capture encode froze an 8-core box until force-quit. Cap to
+            # cores-2 so the encode scales with the machine but always leaves
+            # headroom for the main thread.
+            self._stream.thread_count = max(1, (os.cpu_count() or 4) - 2)
             self._stream.width = width
             self._stream.height = height
             self._stream.pix_fmt = 'yuv420p'
