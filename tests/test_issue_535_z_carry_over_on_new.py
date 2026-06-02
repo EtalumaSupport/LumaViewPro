@@ -77,10 +77,14 @@ def _build_input_config(previous_well_z=None):
 
 
 def test_protocol_from_config_applies_previous_well_z():
-    """Wells named in previous_well_z get those values; others fall back."""
+    """(well, channel) entries get their carried-over Z; others fall back.
+
+    The carry-over is keyed by (well, channel) so each channel keeps its own
+    tuned Z (a per-well key pasted one channel's Z onto every channel -- #681).
+    This config has a single BF layer, so the key is (well, 'BF')."""
     from modules.protocol import Protocol
 
-    cfg = _build_input_config(previous_well_z={'A1': 5.0, 'B2': 7.5})
+    cfg = _build_input_config(previous_well_z={('A1', 'BF'): 5.0, ('B2', 'BF'): 7.5})
     protocol = Protocol.from_config(input_config=cfg, tiling_configs_file_loc=TILING_CONFIGS)
     df = protocol.steps()
 
@@ -88,8 +92,8 @@ def test_protocol_from_config_applies_previous_well_z():
     b2_z = df.loc[df['Well'] == 'B2', 'Z'].iloc[0]
     c3_z = df.loc[df['Well'] == 'C3', 'Z'].iloc[0]
 
-    assert a1_z == pytest.approx(5.0, abs=1e-6), f'A1 z={a1_z} expected 5.0 (carry-over)'
-    assert b2_z == pytest.approx(7.5, abs=1e-6), f'B2 z={b2_z} expected 7.5 (carry-over)'
+    assert a1_z == pytest.approx(5.0, abs=1e-6), f'A1 BF z={a1_z} expected 5.0 (carry-over)'
+    assert b2_z == pytest.approx(7.5, abs=1e-6), f'B2 BF z={b2_z} expected 7.5 (carry-over)'
     assert c3_z == pytest.approx(100.0, abs=1e-6), (
         f'C3 z={c3_z} expected 100.0 (layer focus fallback for un-carried wells)'
     )

@@ -1274,7 +1274,9 @@ class Protocol:
                     {
                         'x': well_x,
                         'y': well_y,
-                        'z': previous_well_z.get(well_label),
+                        # Per-(well, channel) tuned z is resolved in the layer
+                        # loop below; do not collapse it to one z per well here.
+                        'z': None,
                         'name': well_label,
                     }
                 )
@@ -1322,10 +1324,17 @@ class Protocol:
                             common_utils.max_decimal_precision('y'),
                         )  # in 'plate' coordinates
 
-                        if pos['z'] is None:
-                            z = layer_config['focus']
-                        else:
+                        # Resolve Z per (well, channel): a tuned carry-over for
+                        # this exact channel wins (so New keeps per-channel
+                        # focus, not one channel's z for all); else an explicit
+                        # manual-position z; else this channel's focus default.
+                        tuned_z = previous_well_z.get((pos.get('name'), layer_name))
+                        if tuned_z is not None:
+                            z = tuned_z
+                        elif pos['z'] is not None:
                             z = pos['z']
+                        else:
+                            z = layer_config['focus']
 
                         if zstack_slice is not None:
                             z += zstack_position_offset
