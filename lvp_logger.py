@@ -302,11 +302,15 @@ class SerialFormatter(logging.Formatter):
         )
 
 
+# Firehose trace logs (serial, camera, protocol, api) stay fully verbose
+# through the beta, but their rotation footprint is capped at 5MB x 3 files
+# so a long-soak support bundle stays small. Revisit the verbosity itself
+# (demote routine per-command traffic to DEBUG) at the 4.0.0 GA release.
 serial_file_handler = RotatingFileHandler(
     SERIAL_LOG_FILE,
     mode='a',
-    maxBytes=20 * 1024 * 1024,
-    backupCount=5,
+    maxBytes=5 * 1024 * 1024,
+    backupCount=2,
     encoding=None,
     delay=False,
 )
@@ -348,8 +352,8 @@ class CameraFormatter(logging.Formatter):
 camera_file_handler = RotatingFileHandler(
     CAMERA_LOG_FILE,
     mode='a',
-    maxBytes=20 * 1024 * 1024,
-    backupCount=5,
+    maxBytes=5 * 1024 * 1024,
+    backupCount=2,
     encoding=None,
     delay=False,
 )
@@ -404,8 +408,8 @@ protocol_logger.propagate = False  # Keep protocol detail out of the main log
 protocol_file_handler = RotatingFileHandler(
     PROTOCOL_LOG_FILE,
     mode='a',
-    maxBytes=20 * 1024 * 1024,
-    backupCount=5,
+    maxBytes=5 * 1024 * 1024,
+    backupCount=2,
     encoding=None,
     delay=False,
 )
@@ -469,8 +473,8 @@ class APIFormatter(logging.Formatter):
 _api_file_handler = RotatingFileHandler(
     API_LOG_FILE,
     mode='a',
-    maxBytes=20 * 1024 * 1024,
-    backupCount=5,
+    maxBytes=5 * 1024 * 1024,
+    backupCount=2,
     encoding=None,
     delay=True,  # Don't create file until first write
 )
