@@ -198,6 +198,7 @@ def get_image_capture_config_from_ui() -> dict:
     return {
         'output_format': output_format,
         'use_full_pixel_depth': use_full_pixel_depth,
+        'jpg_quality': int(_app_ctx.ctx.settings.get('jpg_quality', 90)),
     }
 
 

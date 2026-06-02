@@ -109,6 +109,21 @@ class ProtocolPostProcessor(abc.ABC):
                 ),
             }
 
+        # Composite, stitch, and z-projection re-read the source frames via
+        # tifffile, which cannot decode JPG. A scan saved as JPG has no
+        # re-readable source for these outputs, so stop here with a clear
+        # message instead of letting tifffile raise partway through a group.
+        source_suffixes = {pathlib.Path(str(fp)).suffix.lower() for fp in df['Filepath']}
+        if source_suffixes and source_suffixes.isdisjoint({'.tif', '.tiff'}):
+            return {
+                'status': False,
+                'message': (
+                    'Composite, stitch, and z-projection require TIFF or '
+                    'OME-TIFF source images. This scan was saved as JPG, '
+                    'which cannot be re-read for post-processing.'
+                ),
+            }
+
         root_path = results['root_path']
         protocol_post_record = results['protocol_post_record']
 
