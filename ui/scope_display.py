@@ -74,6 +74,16 @@ class ScopeDisplay(Image):
         self.use_live_image_histogram_equalization = False
         self.camera_disconnected_display_set = False
 
+        # Single-pending-blit coalescing. The display thread produces a
+        # full-frame byte buffer (~3.5 MB) per iteration and marshals the blit
+        # to the main thread via Clock. Scheduling a fresh callback per frame
+        # lets those buffers pile up whenever the main thread stalls (homing /
+        # tiling moves) -- the source of the multi-GB live-view RAM balloon.
+        # One pending slot, latest-wins, bounds the backlog to a single frame.
+        self._pending_blit = None
+        self._blit_scheduled = False
+        self._blit_lock = threading.Lock()
+
         self._bullseye_rgb_buf = None
         self._bullseye_buf_shape = None
 
@@ -720,11 +730,11 @@ class ScopeDisplay(Image):
                 bullseye_bytes = image_bullseye.tobytes()
                 bullseye_shape = image_bullseye.shape
                 g = generation
-                Clock.schedule_once(
-                    lambda dt, b=bullseye_bytes, s=bullseye_shape, gen=g: (
+                # Same single-pending-blit coalescing as the main path below.
+                self._schedule_blit(
+                    lambda b=bullseye_bytes, s=bullseye_shape, gen=g: (
                         self.create_and_set_bullseye_texture(b, s, gen)
-                    ),
-                    0,
+                    )
                 )
                 # Publish for thread.add_frame_listener fan-out
                 self._last_rendered_frame = (bullseye_bytes, bullseye_shape, time.monotonic())
@@ -740,11 +750,10 @@ class ScopeDisplay(Image):
             image_shape = image.shape
             t_blit_scheduled = time.monotonic()
             g = generation
-            Clock.schedule_once(
-                lambda dt, b=image_bytes, s=image_shape, ts=t_blit_scheduled, gen=g: (
+            self._schedule_blit(
+                lambda b=image_bytes, s=image_shape, ts=t_blit_scheduled, gen=g: (
                     self.create_and_set_texture(b, s, ts, gen)
-                ),
-                0,
+                )
             )
             # Publish for thread.add_frame_listener fan-out
             self._last_rendered_frame = (image_bytes, image_shape, t_blit_scheduled)
@@ -797,6 +806,33 @@ class ScopeDisplay(Image):
         return STATUS_OK
 
     # _schedule_next retired; ScopeDisplayThread loop owns pacing.
+
+    def _schedule_blit(self, blit_fn):
+        """Coalesce live-view blits to a single pending main-thread callback.
+
+        Called from the display thread once per rendered frame with a zero-arg
+        ``blit_fn`` that performs the texture update (capturing that frame's
+        bytes). Only the latest frame is retained: replacing ``_pending_blit``
+        drops the previous closure (and its byte buffer) for GC, and a new
+        Clock callback is scheduled only when none is already pending. So a
+        stalled main thread can accumulate at most one frame's bytes, not an
+        unbounded backlog. Intermediate frames are dropped from the DISPLAY
+        only; capture/save paths are unaffected.
+        """
+        with self._blit_lock:
+            self._pending_blit = blit_fn
+            if not self._blit_scheduled:
+                self._blit_scheduled = True
+                Clock.schedule_once(self._run_pending_blit, 0)
+
+    def _run_pending_blit(self, dt):
+        """Main-thread Clock callback: run the latest pending blit, if any."""
+        with self._blit_lock:
+            blit_fn = self._pending_blit
+            self._pending_blit = None
+            self._blit_scheduled = False
+        if blit_fn is not None:
+            blit_fn()
 
     def create_and_set_bullseye_texture(self, image_bytes, shape, generation=0):
         if generation != self._current_generation():
