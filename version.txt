@@ -1,4 +1,3 @@
 4.0.0-beta15
-2026-06-02 09:00
-fix-681-new-protocol-per-layer-focus
-17b3d499
+2026-06-02 09:07
+4.0.0-beta
