@@ -75,6 +75,11 @@ class SerialBoard:
         self.driver = None
         self._last_error_log_time = 0.0
         self._error_log_interval = 2.0  # seconds between repeated error logs
+        # monotonic() of the last failed connect(). Gates the immediate
+        # auto-reconnect so a command fired right after a failed connect
+        # (e.g. the construction-time LEDS_OFF/CONFIG) does not re-run the
+        # full open+reset+detect sequence and re-log the same failure.
+        self._last_connect_fail_time = 0.0
         self._min_command_interval = 0.0  # seconds; 0 = no rate limit (subclass can override)
         self._last_command_time = 0.0
         self.baudrate = 115200
@@ -494,6 +499,8 @@ class SerialBoard:
             try:
                 self._open_serial()
                 self._reset_firmware()
+                # Connected: clear the reconnect-backoff window.
+                self._last_connect_fail_time = 0.0
                 if self.firmware_version is not None:
                     logger.info(f'{self._label} Connected (firmware v{self.firmware_version})')
                 elif self.firmware_date is not None:
@@ -514,6 +521,7 @@ class SerialBoard:
                     logger.info(f'{self._label} Connected (legacy firmware, no version info)')
             except Exception as e:
                 self._close_driver()
+                self._last_connect_fail_time = time.monotonic()
                 logger.error(f'{self._label} connect() failed: {e}')
 
     def disconnect(self):
@@ -758,6 +766,20 @@ class SerialBoard:
             self._last_reconnect_err_class = err_class
             self._last_reconnect_err_time = now
 
+    def _reconnect_backoff_active(self) -> bool:
+        """True when a connect() failed within the backoff window, so the
+        immediate auto-reconnect should be skipped.
+
+        A board that just failed to open won't appear within a couple
+        seconds; retrying re-runs the full open+reset+detect sequence and
+        re-logs the identical failure -- the duplicate startup error when a
+        command (LEDS_OFF / CONFIG) fires right after a failed construction
+        connect. Genuine recovery of a re-plugged board happens on a
+        seconds+ timescale, past this window, so it is unaffected.
+        """
+        last_fail = getattr(self, '_last_connect_fail_time', 0.0)
+        return bool(last_fail) and (time.monotonic() - last_fail) < self._error_log_interval
+
     def _exchange_command_impl(
         self,
         command,
@@ -811,6 +833,8 @@ class SerialBoard:
                 return None
 
             if self.driver is None:
+                if self._reconnect_backoff_active():
+                    return None
                 try:
                     logger.info(f'{self._label} Auto-reconnect triggered by {command}')
                     self.connect()
@@ -954,6 +978,8 @@ class SerialBoard:
 
         with self._lock:
             if self.driver is None:
+                if self._reconnect_backoff_active():
+                    return None
                 try:
                     logger.info(f'{self._label} Auto-reconnect triggered by {command}')
                     self.connect()

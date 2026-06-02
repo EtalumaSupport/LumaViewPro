@@ -50,7 +50,7 @@ class ProtocolCallbacks:
     led_state: Callable | None = None  # (layer=, enabled=) -> None
 
     # --- Video / title bar ---
-    set_recording_title: Callable | None = None  # (progress=...) -> None
+    set_recording_title: Callable | None = None  # (elapsed_sec=..., total_sec=...) -> None
     set_writing_title: Callable | None = None  # (progress=...) -> None
     reset_title: Callable | None = None  # () -> None
 

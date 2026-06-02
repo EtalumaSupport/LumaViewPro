@@ -3502,6 +3502,12 @@ class ImageHandler(pylon.ImageEventHandler):
         distribution stays in the log without raising the noise floor.
         """
         try:
+            # Once the device is gone, the SDK fires a burst of skip
+            # callbacks during teardown -- those frames were dropped by the
+            # removal, not by LatestImageOnly pressure, so logging them is
+            # misleading noise. Mirror OnImageGrabbed's removal guard.
+            if self._parent._device_removed:
+                return
             if countOfSkippedImages > 0:
                 _cam_log.info(
                     f'[CAM Class ] OnImagesSkipped: '
