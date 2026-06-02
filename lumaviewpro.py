@@ -76,6 +76,13 @@ if __name__ == '__main__':
     if DEBUG_MODE:
         logger.info('[LVP Main  ] Debug mode is enabled.')
 
+    # Start the memory profiler before the heavy module/driver/ui imports so
+    # tracemalloc captures the resident baseline, not just post-startup growth.
+    # No-op unless memory_profile_enabled is set in the live settings.
+    from lib import memory_profile
+
+    memory_profile.start(source_path)
+
     try:
         from modules.settings_init import load_lvp_settings
 
@@ -589,6 +596,13 @@ class LumaViewProApp(TooltipMixin, App):
 
         # The atexit emergency-shutdown hook is registered in Lumascope.__init__
         # so every Lumascope user gets the same safety net automatically.
+
+        # Capture the settled startup footprint a few seconds after on_start so
+        # the camera/UI have finished initializing. No-op unless the memory
+        # profiler is enabled.
+        from lib import memory_profile
+
+        Clock.schedule_once(lambda dt: memory_profile.snapshot('cold_start_done'), 5.0)
 
         if getattr(sys, 'frozen', False):
             pyi_splash.close()
