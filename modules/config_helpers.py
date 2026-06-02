@@ -719,6 +719,22 @@ def get_frame_dimensions_from_settings(settings: dict) -> dict:
     }
 
 
+# Protocol period/duration floor. 0 is the single-scan marker and is
+# preserved; any positive value below 1 second is bumped to 1 second so a
+# short time-lapse interval/duration stays representable and doesn't round
+# to 0 on display (#568). Negative values are loader-rejected upstream.
+MIN_PROTOCOL_TIME_SECONDS = 1.0
+
+
+def floor_protocol_time(td: datetime.timedelta) -> datetime.timedelta:
+    """Clamp a protocol period/duration to a 1-second minimum, preserving
+    the 0 single-scan marker. See MIN_PROTOCOL_TIME_SECONDS."""
+    seconds = td.total_seconds()
+    if 0 < seconds < MIN_PROTOCOL_TIME_SECONDS:
+        return datetime.timedelta(seconds=MIN_PROTOCOL_TIME_SECONDS)
+    return td
+
+
 def get_protocol_time_params_from_settings(settings: dict) -> dict:
     """Read protocol time params from settings dict (no UI needed).
 
@@ -728,8 +744,8 @@ def get_protocol_time_params_from_settings(settings: dict) -> dict:
     period_minutes = float(protocol.get('period', 1))
     duration_hours = float(protocol.get('duration', 1))
     return {
-        'period': datetime.timedelta(minutes=period_minutes),
-        'duration': datetime.timedelta(hours=duration_hours),
+        'period': floor_protocol_time(datetime.timedelta(minutes=period_minutes)),
+        'duration': floor_protocol_time(datetime.timedelta(hours=duration_hours)),
     }
 
 
