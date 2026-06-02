@@ -1,4 +1,3 @@
 4.0.0-beta15
 2026-06-01 23:25
-fix-654-fan-duty-suppress
-ecd00213
+4.0.0-beta
