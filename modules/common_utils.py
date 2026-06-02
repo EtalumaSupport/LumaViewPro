@@ -525,6 +525,169 @@ def query_windows_perf_counters():
 
 
 # ---------------------------------------------------------------------------
+# Windows GPU utilization + memory via PDH "GPU Engine" counters
+#
+# Vendor-agnostic: the GPU Engine / GPU Process Memory counter sets are
+# populated by the WDDM driver model for ANY adapter -- AMD integrated, Intel,
+# NVIDIA alike -- the same data Task Manager's GPU column reads. No vendor SDK
+# (pynvml / GPUtil are NVIDIA-only and would be dead on an AMD box).
+#
+# Unlike the fixed memory counters above, GPU Engine is a WILDCARD counter:
+# one instance per (process, adapter, engine), named like
+# "pid_12345_luid_0x0..._phys_0_eng_0_engtype_3D". We add the wildcard path and
+# enumerate matching instances each collect via PdhGetFormattedCounterArray,
+# then keep only THIS process's pid and aggregate. engtype_3D is the OpenGL /
+# Kivy render engine; on an integrated GPU there is no dedicated VRAM, so
+# Shared Usage is the meaningful memory figure (Dedicated reads ~0).
+# ---------------------------------------------------------------------------
+
+_PDH_MORE_DATA = 0x800007D2
+
+
+class _GpuPdhCountersOnce:
+    _UTIL_PATH = r'\GPU Engine(*)\Utilization Percentage'
+    _SHARED_MEM_PATH = r'\GPU Process Memory(*)\Shared Usage'
+    _DEDICATED_MEM_PATH = r'\GPU Process Memory(*)\Dedicated Usage'
+
+    _PDH_FMT_DOUBLE = 0x00000200
+    _ERROR_SUCCESS = 0
+
+    def __init__(self):
+        self._initialized = False
+        self._disabled = False
+        self._query = None
+        self._counters = {}  # name -> counter handle
+        self._pid_tag = f'pid_{os.getpid()}_'
+
+    def _init(self):
+        try:
+            pdh = ctypes.WinDLL('pdh')
+            self._PdhOpenQueryW = pdh.PdhOpenQueryW
+            self._PdhAddCounterW = pdh.PdhAddCounterW
+            self._PdhCollectQueryData = pdh.PdhCollectQueryData
+            self._PdhGetFormattedCounterArrayW = pdh.PdhGetFormattedCounterArrayW
+
+            class _PDH_FMT_COUNTERVALUE(ctypes.Structure):
+                _fields_ = [
+                    ('CStatus', ctypes.c_ulong),
+                    ('doubleValue', ctypes.c_double),
+                ]
+
+            class _PDH_FMT_COUNTERVALUE_ITEM_W(ctypes.Structure):
+                _fields_ = [
+                    ('szName', ctypes.c_wchar_p),
+                    ('FmtValue', _PDH_FMT_COUNTERVALUE),
+                ]
+
+            self._ITEM = _PDH_FMT_COUNTERVALUE_ITEM_W
+
+            query = ctypes.c_void_p()
+            ret = self._PdhOpenQueryW(None, 0, ctypes.byref(query))
+            if ret != self._ERROR_SUCCESS:
+                raise OSError(f'PdhOpenQueryW failed: 0x{ret & 0xffffffff:08x}')
+            self._query = query
+
+            for name, path in (
+                ('util', self._UTIL_PATH),
+                ('shared_mem', self._SHARED_MEM_PATH),
+                ('dedicated_mem', self._DEDICATED_MEM_PATH),
+            ):
+                handle = ctypes.c_void_p()
+                ret = self._PdhAddCounterW(query, path, 0, ctypes.byref(handle))
+                if ret == self._ERROR_SUCCESS:
+                    self._counters[name] = handle
+
+            if not self._counters:
+                raise OSError('no GPU PDH counters available')
+
+            # Prime: utilization is rate-based and needs two collects before
+            # the first real value.
+            self._PdhCollectQueryData(query)
+            self._initialized = True
+        except Exception:
+            self._disabled = True
+
+    def _read_array(self, handle):
+        """Return [(instance_name, value), ...] for a wildcard counter."""
+        size = ctypes.c_ulong(0)
+        count = ctypes.c_ulong(0)
+        # First pass with a null buffer reports the required size.
+        ret = self._PdhGetFormattedCounterArrayW(
+            handle, self._PDH_FMT_DOUBLE,
+            ctypes.byref(size), ctypes.byref(count), None,
+        )
+        if (ret & 0xffffffff) != _PDH_MORE_DATA or size.value == 0:
+            return []
+        buf = (ctypes.c_byte * size.value)()
+        ret = self._PdhGetFormattedCounterArrayW(
+            handle, self._PDH_FMT_DOUBLE,
+            ctypes.byref(size), ctypes.byref(count),
+            ctypes.cast(buf, ctypes.POINTER(self._ITEM)),
+        )
+        if ret != self._ERROR_SUCCESS:
+            return []
+        items = ctypes.cast(buf, ctypes.POINTER(self._ITEM * count.value)).contents
+        out = []
+        for it in items:
+            # CStatus 0 (VALID_DATA) / 1 (NEW_DATA) both carry a usable value.
+            if it.FmtValue.CStatus in (0, 1):
+                out.append((it.szName or '', float(it.FmtValue.doubleValue)))
+        return out
+
+    def query(self):
+        """Return GPU metrics dict for this process, or {} if unavailable."""
+        if self._disabled:
+            return {}
+        if not self._initialized:
+            self._init()
+            if self._disabled:
+                return {}
+        try:
+            if self._PdhCollectQueryData(self._query) != self._ERROR_SUCCESS:
+                return {}
+            out = {}
+            if 'util' in self._counters:
+                util_total = 0.0
+                util_3d = 0.0
+                for name, val in self._read_array(self._counters['util']):
+                    if self._pid_tag in name:
+                        util_total += val
+                        if name.endswith('engtype_3D'):
+                            util_3d += val
+                out['gpu_util_total_percent'] = util_total
+                out['gpu_util_3d_percent'] = util_3d
+            for key, field in (
+                ('shared_mem', 'gpu_shared_mem_mb'),
+                ('dedicated_mem', 'gpu_dedicated_mem_mb'),
+            ):
+                if key in self._counters:
+                    total = sum(
+                        v for n, v in self._read_array(self._counters[key])
+                        if self._pid_tag in n
+                    )
+                    out[field] = total / (1024 * 1024)
+            return out
+        except Exception:
+            return {}
+
+
+_gpu_pdh_singleton = _GpuPdhCountersOnce() if _IS_WINDOWS else None
+
+
+def query_gpu_metrics():
+    """Vendor-agnostic GPU utilization + memory for this process.
+
+    Returns {} on non-Windows or if GPU PDH counters are unavailable. Keys when
+    present: gpu_util_total_percent, gpu_util_3d_percent, gpu_shared_mem_mb,
+    gpu_dedicated_mem_mb. Works for AMD / Intel / NVIDIA via the WDDM GPU Engine
+    counters (the source Task Manager's GPU column reads).
+    """
+    if _gpu_pdh_singleton is None:
+        return {}
+    return _gpu_pdh_singleton.query()
+
+
+# ---------------------------------------------------------------------------
 # Rate-tracker for cumulative counters -- TEMPORARY INSTRUMENTATION (2026-04-30)
 #
 # Several metrics we want (page faults/sec, IO write/sec, MsMpEng read/sec)
@@ -549,6 +712,82 @@ def _delta_rate(key, current_value, now=None):
     if dt < 0.5:  # avoid divide-by-near-zero on rapid back-to-back calls
         return 0.0
     return (current_value - last_value) / dt
+
+
+# ---------------------------------------------------------------------------
+# Per-thread CPU attribution
+#
+# psutil.Process.threads() returns cumulative (user + system) CPU seconds per
+# OS thread id. Caching the previous snapshot and dividing the delta by the
+# wall-clock interval gives each thread's average CPU fraction since the last
+# call. Percentages are per-core-normalized like psutil.cpu_percent (100.0 =
+# one full logical core), so the per-thread values sum to roughly the
+# [PROCESS METRICS] process CPU figure -- a built-in cross-check. OS thread
+# ids map back to Python thread names via threading.enumerate() native_id, so
+# the output lines up with the names in [THREAD METRICS]. Module-level state
+# mirrors _rate_state.
+#
+# Per-thread detail is available on Windows and Linux. macOS psutil reports
+# only a single aggregate thread (id=1), so on Mac this collapses to one
+# entry -- acceptable, since the deployment + bench target is Windows.
+# ---------------------------------------------------------------------------
+
+_thread_cpu_state = {}  # {tid: (cpu_seconds, wall_ts)}
+
+
+def thread_cpu_percentages(proc=None, now=None):
+    """Per-thread CPU percent averaged over the interval since the last call.
+
+    Returns {thread_label: percent}. Empty on the first call (no baseline yet)
+    or on error. Same-named threads (e.g. pool workers) are summed under one
+    label. 100.0 means one full logical core; the sum across threads can
+    exceed 100 on a multi-core host.
+    """
+    if proc is None:
+        proc = psutil.Process(os.getpid())
+    if now is None:
+        now = _time.monotonic()
+    try:
+        threads = proc.threads()
+    except Exception:
+        return {}
+
+    # native_id -> python thread name; native threads with no Python wrapper
+    # fall back to tid_<id>.
+    name_by_tid = {}
+    try:
+        for t in threading.enumerate():
+            nid = getattr(t, 'native_id', None)
+            if nid is not None:
+                name_by_tid[nid] = t.name
+    except Exception:
+        pass
+
+    out = {}
+    seen = set()
+    for th in threads:
+        tid = th.id
+        seen.add(tid)
+        cpu = th.user_time + th.system_time
+        prev = _thread_cpu_state.get(tid)
+        _thread_cpu_state[tid] = (cpu, now)
+        if prev is None:
+            continue
+        last_cpu, last_ts = prev
+        dt = now - last_ts
+        if dt < 0.5:  # avoid divide-by-near-zero on rapid back-to-back calls
+            continue
+        pct = (cpu - last_cpu) / dt * 100.0
+        if pct < 0.0:  # counter reset or tid reuse -- treat as no sample
+            pct = 0.0
+        label = name_by_tid.get(tid, f'tid_{tid}')
+        out[label] = out.get(label, 0.0) + pct
+
+    # Drop state for threads that exited so the cache can't grow unbounded.
+    for dead in [tid for tid in _thread_cpu_state if tid not in seen]:
+        del _thread_cpu_state[dead]
+
+    return out
 
 
 # ---------------------------------------------------------------------------

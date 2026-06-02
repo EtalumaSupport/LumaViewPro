@@ -380,6 +380,38 @@ def log_system_metrics(settings: dict):
             f'[THREAD METRICS] count={thread_count} | {names_str}',
         )
 
+    # Per-thread CPU over the interval -- which thread is hot (protocol vs
+    # scope_display vs camera). Pairs with [THREAD METRICS] counts above; same
+    # names. Empty on the first tick (needs a baseline). Percentages are
+    # per-core (100 = one full core) so total tracks [PROCESS METRICS] CPU.
+    try:
+        thread_cpu = common_utils.thread_cpu_percentages()
+    except Exception:
+        thread_cpu = {}
+    if thread_cpu:
+        ranked = sorted(thread_cpu.items(), key=lambda kv: kv[1], reverse=True)
+        hot = ' '.join(f'{name}={pct:.1f}%' for name, pct in ranked if pct >= 0.1)
+        total = sum(thread_cpu.values())
+        metrics_logger.info(
+            f'[THREAD CPU] total={total:.1f}% | {hot if hot else "(all idle)"}',
+        )
+
+    # GPU utilization + memory (Windows, vendor-agnostic via PDH GPU Engine
+    # counters -- AMD / Intel / NVIDIA alike). Empty on non-Windows or if the
+    # counters are unavailable. 3D is the OpenGL/Kivy render engine; shared
+    # memory is the meaningful figure on an integrated GPU (no dedicated VRAM).
+    try:
+        gpu = common_utils.query_gpu_metrics()
+    except Exception:
+        gpu = {}
+    if gpu:
+        metrics_logger.info(
+            f'[GPU METRICS] util={gpu.get("gpu_util_total_percent", 0.0):.1f}% '
+            f'(3d={gpu.get("gpu_util_3d_percent", 0.0):.1f}%) | '
+            f'shared_mem={gpu.get("gpu_shared_mem_mb", 0.0):.0f} MB | '
+            f'dedicated_mem={gpu.get("gpu_dedicated_mem_mb", 0.0):.0f} MB',
+        )
+
     # Python GC objects. Steady growth = closures or observers holding refs.
     gc_objects = metrics.get('gc_objects', -1)
     if gc_objects >= 0:
