@@ -4,9 +4,11 @@ name: Issue label lifecycle automation
 #
 #   (issue opened)                         -> add "New issue - needs triage"
 #   (we triage/fix: marker comment)        -> clear "New issue - needs triage"
-#   "Fixed Needs verification" + (reporter replies, no marker)
-#                                          -> strip verification, add "New data - needs retriage"
-#   "New data - needs retriage" + (we re-fix: marker comment)
+#   (handled state) + (reporter replies, no marker)
+#       handled = "Analyzed" | "Triaged - in progress" |
+#                 "Fixed Needs verification" | "More Bench testing needed"
+#                                          -> strip handled state(s), add "New data - needs retriage"
+#   "New data - needs retriage" + (we re-act: marker comment)
 #                                          -> clear "New data - needs retriage"
 #
 # A marker (<!-- claude:annotation -->) comment is our fix/triage handoff: it
@@ -43,17 +45,22 @@ jobs:
               labels: ['New issue - needs triage'],
             });
 
-  # Reporter (or anyone) commented on a "Fixed Needs verification" issue without
-  # the handoff marker: the fix claim is no longer trustworthy and there is new
-  # input to weigh. Strip the verification label, raise the retriage flag.
-  verification-to-retriage:
+  # Reporter (or anyone) commented WITHOUT the handoff marker on an issue we had
+  # already handled (analyzed / fix-in-progress / fixed-pending-verification /
+  # awaiting-bench-data). There is new input to weigh, so the handled-state claim
+  # is no longer trustworthy: strip whichever handled-state labels are present and
+  # raise the retriage flag.
+  handled-to-retriage:
     if: >-
       github.event_name == 'issue_comment' &&
-      contains(github.event.issue.labels.*.name, 'Fixed Needs verification') &&
-      !contains(github.event.comment.body, '<!-- claude:annotation -->')
+      !contains(github.event.comment.body, '<!-- claude:annotation -->') &&
+      (contains(github.event.issue.labels.*.name, 'Fixed Needs verification') ||
+       contains(github.event.issue.labels.*.name, 'Analyzed') ||
+       contains(github.event.issue.labels.*.name, 'Triaged - in progress') ||
+       contains(github.event.issue.labels.*.name, 'More Bench testing needed'))
     runs-on: ubuntu-latest
     steps:
-      - name: Strip verification label, add retriage label
+      - name: Strip handled-state labels, add retriage label
         uses: actions/github-script@v7
         with:
           script: |
@@ -62,13 +69,13 @@ jobs:
               repo: context.repo.repo,
               issue_number: context.issue.number,
             };
-            await github.rest.issues.removeLabel({
-              ...common,
-              name: 'Fixed Needs verification',
-            }).catch(err => {
-              // 404 = label already absent (lost a race); anything else is real.
-              if (err.status !== 404) throw err;
-            });
+            for (const name of ['Fixed Needs verification', 'Analyzed',
+                                'Triaged - in progress', 'More Bench testing needed']) {
+              await github.rest.issues.removeLabel({ ...common, name }).catch(err => {
+                // 404 = label already absent (lost a race); anything else is real.
+                if (err.status !== 404) throw err;
+              });
+            }
             await github.rest.issues.addLabels({
               ...common,
               labels: ['New data - needs retriage'],
