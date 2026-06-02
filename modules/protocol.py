@@ -586,37 +586,6 @@ class Protocol:
 
         return errors
 
-    def video_steps_over_limit(self, limit_seconds: float) -> list:
-        """Return advisory warnings for video steps longer than the limit.
-
-        The video Time Limit is the global ceiling on video length (it also
-        caps manual recording). A protocol video step longer than it is
-        flagged to the user, but it does NOT block the run -- this is an
-        advisory, kept out of validate_steps / validate_for_run on purpose.
-
-        Args:
-            limit_seconds: The global video time limit in seconds.
-
-        Returns:
-            list[str]: One warning per offending step; empty if none.
-        """
-        warnings = []
-        steps = self.steps()
-        if steps is None or len(steps) == 0:
-            return warnings
-        for idx, step in steps.iterrows():
-            if step.get('Acquire', 'image') != 'video':
-                continue
-            vc = step.get('Video Config', {})
-            duration = vc.get('duration', 0) if isinstance(vc, dict) else 0
-            if isinstance(duration, (int, float)) and duration > limit_seconds:
-                label = f'Step {idx + 1} ({step.get("Name", "?")})'
-                warnings.append(
-                    f'{label}: video duration {duration:g}s exceeds the '
-                    f'{limit_seconds:g}s video time limit'
-                )
-        return warnings
-
     def validate_for_run(self, axis_limits: dict = None) -> list:
         """Validate protocol is safe to execute on hardware.
 

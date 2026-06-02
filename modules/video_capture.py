@@ -138,7 +138,12 @@ class VideoCaptureSession:
             stim_thread.start()
 
         if 'set_recording_title' in self._callbacks:
-            _schedule_ui(lambda dt: self._callbacks['set_recording_title'](progress=0), 0)
+            _schedule_ui(
+                lambda dt: self._callbacks['set_recording_title'](
+                    elapsed_sec=0, total_sec=duration_sec
+                ),
+                0,
+            )
 
         logger.info('[PROTOCOL-VIDEO] Capturing video...')
 
@@ -153,10 +158,13 @@ class VideoCaptureSession:
 
         while time.time() < stop_ts:
             curr_time = time.time()
-            progress = (curr_time - start_ts) / duration_sec * 100
+            elapsed = curr_time - start_ts
             if 'set_recording_title' in self._callbacks:
                 _schedule_ui(
-                    lambda dt, p=progress: self._callbacks['set_recording_title'](progress=p), 0
+                    lambda dt, e=elapsed: self._callbacks['set_recording_title'](
+                        elapsed_sec=e, total_sec=duration_sec
+                    ),
+                    0,
                 )
 
             if not self._is_protocol_running():

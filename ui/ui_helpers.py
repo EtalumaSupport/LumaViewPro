@@ -219,11 +219,15 @@ def set_title_event_text(text):
 
 
 # Should only be called from main thread
-def set_recording_title(progress=None):
-    if progress is None:
+def set_recording_title(elapsed_sec=None, total_sec=None):
+    if elapsed_sec is None:
         set_title_event_text('Recording Video...')
+    elif total_sec:
+        set_title_event_text(
+            f'Recording Video... {int(elapsed_sec)}s / {int(total_sec)}s'
+        )
     else:
-        set_title_event_text(f'Recording Video... {int(progress)}%')
+        set_title_event_text(f'Recording Video... {int(elapsed_sec)}s')
 
 
 # Should only be called from main thread

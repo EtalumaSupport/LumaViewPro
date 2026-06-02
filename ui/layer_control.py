@@ -114,6 +114,7 @@ class LayerControl(BoxLayout):
         cast=float,
         settings_path: str | None = None,
         gui_log_name: str | None = None,
+        value_max: float | None = None,
     ) -> bool:
         """Shared validation for text input -> slider -> settings update.
 
@@ -128,6 +129,12 @@ class LayerControl(BoxLayout):
             settings_path: Dot-separated sub-path for nested settings
                           (e.g., 'video_config.duration' or 'stim_config.frequency')
             gui_log_name: Name for gui_logger.slider() call (e.g., 'GAIN')
+            value_max: Optional upper bound for the typed value when it should
+                       exceed the slider's own max -- the slider is a coarse
+                       quick-pick (e.g. video duration up to 60s) while the
+                       text box accepts a larger precise value (e.g. a
+                       multi-minute protocol video). The slider then pins at
+                       its own max; the setting + text keep the typed value.
         """
         settings = _app_ctx.ctx.settings
         slider = self.ids[slider_id]
@@ -150,7 +157,8 @@ class LayerControl(BoxLayout):
                 self._initializing = False
             return False
 
-        clipped = cast(np.clip(raw, slider.min, slider.max))
+        upper = slider.max if value_max is None else value_max
+        clipped = cast(np.clip(raw, slider.min, upper))
 
         # Update settings
         if settings_path:
@@ -167,7 +175,11 @@ class LayerControl(BoxLayout):
         # (#617). Settings are already written above.
         self._initializing = True
         try:
-            slider.value = float(clipped) if cast == float else int(clipped)
+            # The slider can only represent up to its own max; a typed value
+            # above value_max's allowance pins the slider at max while the
+            # setting + text keep the larger value.
+            slider_value = min(clipped, slider.max)
+            slider.value = float(slider_value) if cast == float else int(slider_value)
             self.ids[text_id].text = str(clipped)
         finally:
             self._initializing = False
@@ -349,6 +361,9 @@ class LayerControl(BoxLayout):
             'duration',
             cast=int,
             settings_path='video_config.duration',
+            # Slider quick-picks up to 60s; the text box accepts longer
+            # protocol videos (no protocol cap) up to a 1-hour sanity bound.
+            value_max=3600,
         ):
             self.apply_settings()
 
