@@ -315,3 +315,9 @@ def run_cleanup(
         logger.info(
             f'[{logger_name}] Cleanup: callbacks scheduled (run_complete + files_complete immediate)'
         )
+
+    # Map the footprint right after a protocol run. No-op unless the memory
+    # profiler is enabled.
+    from lib import memory_profile
+
+    memory_profile.snapshot('post_protocol')

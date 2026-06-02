@@ -243,6 +243,33 @@ def load_tracemalloc_setting(directory):
     return bool(temp_settings.get('tracemalloc_enabled', False))
 
 
+def load_memory_profile_setting(directory):
+    """Read memory_profile settings (gate + cadence).
+
+    Returns ``{"enabled": bool, "interval_s": float}``. Missing or unreadable
+    settings file resolves to ``{"enabled": False, "interval_s": 5.0}`` so the
+    caller never has to guard for absence; the memory profiler defaults OFF
+    (tracemalloc carries 10-30% process-memory overhead, the same cost as the
+    tracemalloc gate). Enable via ``memory_profile_enabled: true`` in the live
+    settings (current.json once it exists, settings.json default) -- the same
+    merged-settings path as profile_trace / tracemalloc.
+
+    Called from lib/memory_profile.py, mirroring load_profile_trace_setting /
+    load_tracemalloc_setting above.
+    """
+    try:
+        filename = _resolve_settings_path(directory)
+        with open(filename) as read_file:
+            temp_settings = json.load(read_file)
+    except Exception:
+        return {'enabled': False, 'interval_s': 5.0}
+
+    return {
+        'enabled': bool(temp_settings.get('memory_profile_enabled', False)),
+        'interval_s': float(temp_settings.get('memory_profile_interval_s', 5.0)),
+    }
+
+
 def load_fx2_debug_wire_setting(directory):
     """Read fx2_debug_wire_enabled from settings.
 
