@@ -316,6 +316,7 @@ class ProtocolImageWriter:
 
             if enable_image_saving:
                 use_full_pixel_depth = image_capture_config['use_full_pixel_depth']
+                jpeg_quality = image_capture_config.get('jpg_quality', 90)
 
                 if is_video:
                     session = VideoCaptureSession(
@@ -460,6 +461,7 @@ class ProtocolImageWriter:
                                 'use_color': use_color,
                                 'name': name,
                                 'output_format': output_format,
+                                'jpeg_quality': jpeg_quality,
                                 'step': step,
                                 'captured_image': captured_image,
                                 'step_index': curr_step,
@@ -543,6 +545,7 @@ class ProtocolImageWriter:
         use_color=None,
         name=None,
         output_format=None,
+        jpeg_quality=90,
         step=None,
         captured_image=None,
         step_index=None,
@@ -630,6 +633,7 @@ class ProtocolImageWriter:
                     # on actual collision.
                     tail_id_mode='if_collision',
                     output_format=output_format,
+                    jpeg_quality=jpeg_quality,
                     true_color=step['Color'],
                     x=step['X'],
                     y=step['Y'],

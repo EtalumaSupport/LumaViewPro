@@ -2184,18 +2184,41 @@
 					values: ('TIFF', 'OME-TIFF', 'JPG')
 
 			BoxLayout:
+				orientation: 'horizontal'
+				size_hint_y: None
+				height: '30dp'
+				Label:
+					text: 'Sequenced Image Format'
+					tooltip_text: 'Choose between TIFF, OME-TIFF,\nOME-TIFF Hyperstack, or JPG\nfor Protocol image capture.\nJPG is 8-bit lossy with no embedded metadata\nand cannot be used for composite / stitch.'
+					halign: 'left'
+					valign: 'middle'
+					text_size: self.size
+					font_size: '12sp'
+				Spinner:
+					id: sequenced_image_output_format_spinner
+					sync_height: True
+					text: 'Select'
+					font_size:'12sp'
+					option_cls: "SpinnerOption0"
+					text_autoupdate: True
+					on_text: root.select_sequenced_image_output_format()
+					values: ('TIFF', 'OME-TIFF', 'OME-TIFF Hyperstack', 'JPG')
+
+			BoxLayout:
 				id: jpg_quality_row
 				orientation: 'horizontal'
 				size_hint_y: None
-				# Show the JPG-quality row only when the live format is JPG. The
-				# settings panel is crowded, so collapse the row's height and hide
-				# it rather than leave an inert greyed-out row taking up space.
-				height: '30dp' if live_image_output_format_spinner.text == 'JPG' else 0
-				opacity: 1 if live_image_output_format_spinner.text == 'JPG' else 0
-				disabled: live_image_output_format_spinner.text != 'JPG'
+				# One shared JPG-quality control for both Live and Sequenced
+				# capture (single jpg_quality setting). Shown only when either
+				# format is JPG. The settings panel is crowded, so collapse the
+				# row's height and hide it rather than leave an inert greyed-out
+				# row taking up space.
+				height: '30dp' if live_image_output_format_spinner.text == 'JPG' or sequenced_image_output_format_spinner.text == 'JPG' else 0
+				opacity: 1 if live_image_output_format_spinner.text == 'JPG' or sequenced_image_output_format_spinner.text == 'JPG' else 0
+				disabled: live_image_output_format_spinner.text != 'JPG' and sequenced_image_output_format_spinner.text != 'JPG'
 				Label:
 					text: 'JPG Quality'
-					tooltip_text: 'JPEG quality 1-100. Higher = better image, larger file. Only used when Live Image Format is JPG.'
+					tooltip_text: 'JPEG quality 1-100. Higher = better image, larger file. Applies to both Live and Sequenced capture when their format is JPG.'
 					halign: 'left'
 					valign: 'middle'
 					text_size: self.size
@@ -2221,27 +2244,6 @@
 					valign: 'middle'
 					font_size: '12sp'
 					size_hint_x: 0.1
-
-			BoxLayout:
-				orientation: 'horizontal'
-				size_hint_y: None
-				height: '30dp'
-				Label:
-					text: 'Sequenced Image Format'
-					tooltip_text: 'Choose between TIFF, OME-TIFF, or\nOME-TIFF Hyperstack\nfor Protocol image capture'
-					halign: 'left'
-					valign: 'middle'
-					text_size: self.size
-					font_size: '12sp'
-				Spinner:
-					id: sequenced_image_output_format_spinner
-					sync_height: True
-					text: 'Select'
-					font_size:'12sp'
-					option_cls: "SpinnerOption0"
-					text_autoupdate: True
-					on_text: root.select_sequenced_image_output_format()
-					values: ('TIFF', 'OME-TIFF', 'OME-TIFF Hyperstack')
 
 			BoxLayout:
 				orientation: 'horizontal'
