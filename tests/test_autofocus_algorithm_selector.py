@@ -25,8 +25,8 @@ def _restore_default_algorithm():
 @pytest.mark.parametrize(
     'algorithm,expected_name',
     [
-        ('vollath4', 'focus_vollath4_numba'),
-        ('vollath4_numba', 'focus_vollath4_numba'),
+        ('vollath4', 'focus_vollath4_original'),
+        ('vollath4_numba', 'focus_vollath4_original'),
         ('vollath4_original', 'focus_vollath4_original'),
         ('skew', 'focus_skew'),
         ('pixel_variation', 'focus_pixel_variation'),

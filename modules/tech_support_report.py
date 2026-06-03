@@ -382,7 +382,7 @@ def _collect_system_info():
         info['pip_freeze'] = all_packages
         # Also extract the critical ones for the summary
         critical = ['kivy', 'pypylon', 'ids-peak', 'ids_peak', 'numpy',
-                     'numba', 'pyserial', 'Pillow', 'pillow', 'scipy',
+                     'pyserial', 'Pillow', 'pillow', 'scipy',
                      'opencv', 'cv2', 'psutil', 'requests', 'fastapi']
         critical_pkgs = []
         for line in all_packages.split('\n'):

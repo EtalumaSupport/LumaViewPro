@@ -1,6 +1,5 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 
-import numba as nb
 import numpy as np
 
 from lvp_logger import logger
@@ -21,9 +20,9 @@ def set_autofocus_algorithm(algorithm: str) -> None:
     # force re-deriving the dispatch then.
     global _focus_function
 
-    if algorithm in ('vollath4', 'vollath4_numba'):
-        _focus_function = focus_vollath4_numba
-    elif algorithm == 'vollath4_original':
+    if algorithm in ('vollath4', 'vollath4_numba', 'vollath4_original'):
+        # All three legacy aliases collapse to the one numpy implementation.
+        # 'vollath4_numba' is kept only so a persisted setting still resolves.
         _focus_function = focus_vollath4_original
     elif algorithm == 'skew':
         _focus_function = focus_skew
@@ -58,32 +57,18 @@ def focus_function(
     return score
 
 
-# 5000 iterations on 1000x1000 uint16: 20s
-# 96 well plate center focus takes 6m
 def focus_vollath4_original(image: np.ndarray) -> float:
-    # Journal of Microscopy, Vol. 188, Pt 3, December 1997, pp. 264-272
+    # Vollath F4 autocorrelation focus measure.
+    # Journal of Microscopy, Vol. 188, Pt 3, December 1997, pp. 264-272.
+    # einsum fuses the multiply-and-sum so neither shifted product is
+    # materialized as a temp array -- on a 1000x1000 frame that is two fewer
+    # whole-image allocations per focus score, which matters on the AF sweep
+    # hot path. float64 accumulation is required: products of uint16 pixels
+    # summed over ~1e6 elements overflow float32's mantissa.
     image = image.astype(np.float64, copy=False)
-    w, h = image.shape
-
-    sum_one = np.sum(np.multiply(image[: w - 1, :h], image[1:w, :h]))  # g(i, j).g(i+1, j)
-    sum_two = np.sum(np.multiply(image[: w - 2, :h], image[2:w, :h]))  # g(i, j).g(i+2, j)
+    sum_one = np.einsum('ij,ij->', image[:-1], image[1:])  # g(i, j).g(i+1, j)
+    sum_two = np.einsum('ij,ij->', image[:-2], image[2:])  # g(i, j).g(i+2, j)
     return sum_one - sum_two
-
-
-# 5000 iterations on 1000x1000 uint16: 0.375307 seconds
-# 96 well plate center focus takes 5m
-@nb.njit(fastmath=True)
-def focus_vollath4_numba(image: np.ndarray) -> float:
-    w, h = image.shape
-    s1 = 0.0
-    s2 = 0.0
-    for i in range(w - 1):
-        for j in range(h):
-            s1 += image[i, j] * image[i + 1, j]
-    for i in range(w - 2):
-        for j in range(h):
-            s2 += image[i, j] * image[i + 2, j]
-    return s1 - s2
 
 
 def focus_skew(image: np.ndarray) -> float:
@@ -109,16 +94,4 @@ def focus_pixel_variation(image: np.ndarray) -> float:
     return var
 
 
-_focus_function = focus_vollath4_numba
-
-
-def warmup_jit():
-    """Pre-compile numba JIT functions with a tiny array to avoid first-use lag."""
-    try:
-        dummy = np.zeros((4, 4), dtype=np.uint16)
-        focus_vollath4_numba(dummy)
-    except Exception as e:
-        logger.debug(f'Numba JIT warmup failed (AF may be slower): {e}')
-
-
-warmup_jit()
+_focus_function = focus_vollath4_original
