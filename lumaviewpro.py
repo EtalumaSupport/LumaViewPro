@@ -268,19 +268,15 @@ if __name__ == '__main__':
 
     # Most state lives on ctx (single source of truth). The few globals
     # that remain below are read by multiple methods (on_start / on_stop
-    # / on_request_close / closures) and have not been lifted onto ctx
-    # yet; build-only state lives as locals in build().
+    # / on_request_close / closures); build-only state lives as locals in
+    # build().
     show_tooltips = False
 
-    # Executors are created in build() via ExecutorBundle and bound to
-    # these named globals for backwards compat with existing readers.
-    io_executor = None
-    camera_executor = None
-    protocol_thread = None
-    file_io_executor = None
-    autofocus_thread = None
-    scope_display_thread = None
-    worker_pool = None
+    # The executor handles are the single-source-of-truth on ctx: they are
+    # locals in build() and read everywhere else (including shutdown) as
+    # ctx.<name>. executor_bundle is the one build()->on_start() handoff that
+    # is not a live executor read path -- created in build(), read once in
+    # on_start() to register the whole bundle -- so it stays a module global.
     executor_bundle = None
     ctx = None
 
@@ -430,7 +426,7 @@ class LumaViewProApp(TooltipMixin, App):
         # pushes them onto the thread; the thread reads under _config_lock
         # at each frame start. Staleness is bounded by 33ms (one tick).
         def _publish_layer_config(dt):
-            if ctx is None or scope_display_thread is None:
+            if ctx is None or ctx.scope_display_thread is None:
                 return
             active_layer = None
             active_layer_config = None
@@ -485,7 +481,7 @@ class LumaViewProApp(TooltipMixin, App):
                     if not accordion_item_obj.collapse:
                         open_layer = layer
                         break
-            scope_display_thread.update_layer_config(
+            ctx.scope_display_thread.update_layer_config(
                 active_layer,
                 active_layer_config,
                 open_layer,
@@ -623,26 +619,34 @@ class LumaViewProApp(TooltipMixin, App):
         if profiling_helper is not None:
             profiling_helper.stop()
 
-        if autofocus_thread is not None:
-            autofocus_thread.stop(timeout=2.0)
+        # Every executor handle lives on ctx; if build() never completed there
+        # is nothing to tear down. Stop order is preserved exactly (consumer
+        # threads before the lanes they consume) -- only the source of each
+        # handle changed from a module global to ctx.
+        if ctx is None:
+            logger.info('[LVP Main  ] Threads shut down.')
+            return
 
-        if scope_display_thread is not None:
-            scope_display_thread.stop()
+        if ctx.autofocus_thread is not None:
+            ctx.autofocus_thread.stop(timeout=2.0)
 
-        if protocol_thread is not None:
-            protocol_thread.stop(timeout=2.0)
+        if ctx.scope_display_thread is not None:
+            ctx.scope_display_thread.stop()
 
-        if io_executor is not None:
-            io_executor.shutdown(wait=False)
+        if ctx.protocol_thread is not None:
+            ctx.protocol_thread.stop(timeout=2.0)
 
-        if camera_executor is not None:
-            camera_executor.shutdown(wait=False)
+        if ctx.io_executor is not None:
+            ctx.io_executor.shutdown(wait=False)
 
-        if file_io_executor is not None:
-            file_io_executor.shutdown(wait=False)
+        if ctx.camera_executor is not None:
+            ctx.camera_executor.shutdown(wait=False)
 
-        if worker_pool is not None:
-            worker_pool.shutdown(wait=False)
+        if ctx.file_io_executor is not None:
+            ctx.file_io_executor.shutdown(wait=False)
+
+        if ctx.worker_pool is not None:
+            ctx.worker_pool.shutdown(wait=False)
 
         logger.info('[LVP Main  ] Threads shut down.')
 
@@ -757,9 +761,6 @@ class LumaViewProApp(TooltipMixin, App):
         # lanes (plus stage and turret aliases) and the protocol_thread, then
         # starts them; every entry point shares this topology so the watchdog
         # snapshot and engineering plugin see one truth.
-        global io_executor, camera_executor, protocol_thread
-        global file_io_executor, autofocus_thread, scope_display_thread
-        global worker_pool
         global executor_bundle
         # Clock.schedule_once is passed as the UI dispatcher so executors can post
         # callbacks to the Kivy main thread without importing Kivy themselves.

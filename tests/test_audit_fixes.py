@@ -11777,3 +11777,51 @@ class TestWindowsMachinePredicateAgrees:
                 for alias in node.names:
                     imported.add(alias.name)
         assert not any('app_environment' in m for m in imported)
+
+
+class TestExecutorHandlesSingleSourceOnCtx:
+    """The 7 executor handles were stored in module globals AND on ctx AND on
+    the bundle, read divergently (shutdown_threads read the globals; the rest
+    of the app reads ctx.X). They now live only on ctx: build() uses locals and
+    everything else, including shutdown, reads ctx.<name>. executor_bundle stays
+    a module global -- it is the single build()->on_start() handoff, not a live
+    executor read path. This pins that the redundant globals are gone.
+    """
+
+    EXECUTORS = (
+        'io_executor',
+        'camera_executor',
+        'protocol_thread',
+        'file_io_executor',
+        'autofocus_thread',
+        'scope_display_thread',
+        'worker_pool',
+    )
+
+    def _src(self):
+        import pathlib
+
+        root = pathlib.Path(__file__).resolve().parent.parent
+        return (root / 'lumaviewpro.py').read_text()
+
+    def test_no_global_declaration_of_executor_handles(self):
+        # A `global <name>` anywhere is the only way build()/shutdown could
+        # write or rebind a module-global copy; none should name an executor.
+        import ast
+
+        tree = ast.parse(self._src())
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Global):
+                for name in self.EXECUTORS:
+                    assert name not in node.names, (
+                        f'{name} is still declared `global`; the executor '
+                        'handles must live only on ctx.'
+                    )
+
+    def test_shutdown_reads_executors_from_ctx(self):
+        # shutdown_threads must tear down ctx.<name>, not bare module globals.
+        src = self._src()
+        assert 'ctx.autofocus_thread.stop' in src
+        assert 'ctx.scope_display_thread.stop' in src
+        assert 'ctx.io_executor.shutdown' in src
+        assert 'ctx.worker_pool.shutdown' in src
