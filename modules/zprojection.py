@@ -4,8 +4,7 @@
 
 Reduces a stack of equal-shape single-plane arrays along the stack axis using
 one of six standard projection methods. This is the canonical z-projection
-implementation; an identical ZProjectMethod enum also lives in
-imagej_helper.py and is removed when the Java/ImageJ backend is retired.
+implementation, replacing the former ImageJ/JVM round-trip.
 
 The function operates on a list of 2-D arrays -- the exact contract the
 ZProjector post-processor feeds it (per-color-plane slices for color images,

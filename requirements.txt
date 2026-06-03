@@ -28,12 +28,3 @@ pyenchant==3.3.0
 # backend on Windows.
 pyusb==1.3.1
 libusb1==3.4.0
-
-# Packages related to Java support
-# scyjava is imported directly by modules/imagej_helper.py and must stay
-# explicitly pinned. jgo + JPype1 are pure transitives of pyimagej/scyjava
-# and are no longer pinned here to reduce upgrade drift; they still ship
-# via transitive install and their license notices remain in
-# docs/THIRD_PARTY_NOTICES.md.
-pyimagej==1.8.0
-scyjava==1.12.5

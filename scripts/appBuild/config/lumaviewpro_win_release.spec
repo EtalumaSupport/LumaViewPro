@@ -15,7 +15,7 @@ datas = [
     ('lvp_logger.py', '.'),
 ]
 
-for pkg in ('numpy', 'scyjava', 'imglyb', 'pyimagej'):
+for pkg in ('numpy',):
     try:
         datas.extend(copy_metadata(pkg))
     except Exception:

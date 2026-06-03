@@ -107,9 +107,9 @@ class CustomPopup(Popup):
     def cancel(self):
         """User-initiated escape from a progress popup. The background operation
         runs on a daemon thread and cannot be force-killed, but dismissing the
-        popup unblocks the UI -- the way out when an op hangs (e.g. ImageJ init
-        with no Java). Any later result the thread posts to this popup is a
-        harmless no-op once it is dismissed."""
+        popup unblocks the UI -- the way out when a long post-processing op
+        stalls. Any later result the thread posts to this popup is a harmless
+        no-op once it is dismissed."""
         logger.info('[Popup    ] progress popup cancelled by user')
         self.dismiss()
 
