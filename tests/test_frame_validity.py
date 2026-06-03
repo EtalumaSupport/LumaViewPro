@@ -107,13 +107,12 @@ class TestMultipleSources:
     def test_rapid_invalidation_between_frames(self):
         """Invalidate multiple times before any frame is grabbed."""
         fv = FrameValidity()
-        fv.invalidate('led')
-        fv.invalidate('gain')
-        fv.invalidate('exposure')
-        fv.invalidate('xy_move')
-        fv.invalidate('z_move')
-        # All invalidated at frame 0, max skip is exposure=3
-        max_skip = max(FrameValidity.SKIP_FRAMES.values())
+        invalidated = ('led', 'gain', 'exposure', 'xy_move', 'z_move')
+        for source in invalidated:
+            fv.invalidate(source)
+        # All invalidated at frame 0; the wait is the max over these sources
+        # (exposure=3), not over every known source.
+        max_skip = max(FrameValidity.SKIP_FRAMES[s] for s in invalidated)
         assert fv.frames_until_valid() == max_skip
         for _ in range(max_skip):
             fv.count_frame()
@@ -735,3 +734,63 @@ class TestCountFrameWithChunks:
         assert fv.is_valid is False
         fv.count_frame(chunk_data={'Gain': 5.0})
         assert fv.is_valid is True
+
+
+class TestAutoGainSettle:
+    """Hardware continuous-AG settling as a deterministic skip-frame source.
+
+    auto_gain is a measure of the instrumentation (frames for hardware AG to
+    settle against the lit scene), not of the sample. It clears by frame count
+    only -- never early from frame content -- which is what keeps it in the
+    settle-tracker layer and reusable by a future software-AG loop.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _restore_skip_frames(self):
+        """Save and restore SKIP_FRAMES so the override test doesn't leak."""
+        original = dict(FrameValidity.SKIP_FRAMES)
+        yield
+        FrameValidity.SKIP_FRAMES.clear()
+        FrameValidity.SKIP_FRAMES.update(original)
+
+    def test_invalidate_uses_skip_count(self):
+        fv = FrameValidity()
+        fv.invalidate('auto_gain')
+        assert fv.frames_until_valid() == FrameValidity.SKIP_FRAMES['auto_gain']
+
+    def test_decrements_to_valid_by_frame_count(self):
+        fv = FrameValidity()
+        skip = FrameValidity.SKIP_FRAMES['auto_gain']
+        fv.invalidate('auto_gain')
+        for _ in range(skip):
+            assert fv.frames_until_valid() > 0
+            fv.count_frame()
+        assert fv.frames_until_valid() == 0
+
+    def test_not_cleared_early_by_chunk_content(self):
+        """Stable Gain/ExposureTime chunks must NOT shortcut the settle count.
+
+        This is the contract that distinguishes auto_gain from the rejected
+        convergence detector: auto_gain is not chunk-validatable, so passing
+        identical chunks frame-to-frame does not declare it settled early -- it
+        settles only when the measured frame count elapses.
+        """
+        fv = FrameValidity()
+        fv.invalidate('auto_gain')
+        chunks = {'Gain': 1.0, 'ExposureTime': 10000.0}
+        # One frame short of the count, even with bit-stable chunks every frame.
+        for _ in range(FrameValidity.SKIP_FRAMES['auto_gain'] - 1):
+            fv.count_frame(chunk_data=chunks)
+        assert fv.frames_until_valid() > 0
+        fv.count_frame(chunk_data=chunks)
+        assert fv.frames_until_valid() == 0
+
+    def test_not_a_motion_source(self):
+        """auto_gain settles on count alone; no settle-callback gating."""
+        assert 'auto_gain' not in FrameValidity.MOTION_SOURCES
+
+    def test_load_camera_timing_overrides_settle_count(self):
+        fv = FrameValidity()
+        fv.load_camera_timing({'skip_frames': {'auto_gain': 5}})
+        fv.invalidate('auto_gain')
+        assert fv.frames_until_valid() == 5

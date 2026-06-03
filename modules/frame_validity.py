@@ -58,6 +58,13 @@ class FrameValidity:
         'xy_move': 2,  # X or Y axis movement
         'z_move': 2,  # Z axis movement (autofocus may exclude this)
         'turret': 2,  # Turret rotation
+        # Frames for hardware continuous auto-gain to settle against the lit
+        # scene after arming. Like led/gain/exposure this is an instrumentation
+        # settling count, not a content measurement: the LED must be lit before
+        # arming so AG settles on the real scene, not a dark frame. Conservative
+        # default pending per-camera bench measurement (worst-case + margin into
+        # camera_timing/<model>.json, like the others).
+        'auto_gain': 10,
     }
 
     # Sources that require physical hardware completion in addition to frame count.
@@ -119,8 +126,9 @@ class FrameValidity:
         """Record that hardware state changed and frames need to settle.
 
         Args:
-            source: What changed ('led', 'gain', 'exposure', 'xy_move',
-                    'z_move', 'turret'). Unknown sources use DEFAULT_SKIP_FRAMES.
+            source: What changed ('led', 'gain', 'exposure', 'auto_gain',
+                    'xy_move', 'z_move', 'turret'). Unknown sources use
+                    DEFAULT_SKIP_FRAMES.
         """
         skip = self.SKIP_FRAMES.get(source, self.DEFAULT_SKIP_FRAMES)
         with self._lock:
