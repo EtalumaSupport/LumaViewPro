@@ -66,3 +66,24 @@ class TestUpdateReturnsArray:
         out = cs.update(img)
         out = cs.update(img)
         assert out is img
+
+
+class TestLutApplyBufferReuse:
+    """The LUT is applied into a reused scratch (np.take out=) instead of a
+    fresh per-frame array. The result must still equal fancy-indexing the
+    built LUT, and the scratch must resize when the frame shape changes."""
+
+    def test_output_equals_lut_applied(self):
+        cs = ContrastStretcher(window_len=3, bottom_pct=2, top_pct=2)
+        img = np.random.default_rng(0).integers(0, 256, (64, 48), dtype=np.uint8)
+        out = cs.update(img)
+        assert np.array_equal(out, cs._lut[img])
+
+    def test_scratch_resizes_on_shape_change(self):
+        cs = ContrastStretcher(window_len=3, bottom_pct=2, top_pct=2)
+        a = np.random.default_rng(1).integers(0, 256, (64, 48), dtype=np.uint8)
+        b = np.random.default_rng(2).integers(0, 256, (80, 100), dtype=np.uint8)
+        assert cs.update(a).shape == a.shape
+        out_b = cs.update(b)
+        assert out_b.shape == b.shape
+        assert np.array_equal(out_b, cs._lut[b])

@@ -27,6 +27,9 @@ class ContrastStretcher:
         }
 
         self._lut = np.arange(256, dtype=np.uint8)
+        # Reused output scratch for the LUT apply in update(); sized lazily to
+        # the frame on first use and whenever the frame shape changes.
+        self._out_buf = None
 
     def update(self, image: np.ndarray) -> np.ndarray:
 
@@ -55,4 +58,11 @@ class ContrastStretcher:
         np.clip(vals, 0, 255, out=vals)
         lut[:] = vals.astype(np.uint8)
 
-        return lut[image]
+        # Apply the LUT into a reused scratch instead of allocating a fresh
+        # full-frame array each display tick (~3.6 MB at 1900x1900, ~108 MB/s
+        # at 30 fps when histogram-eq is on). Reuse is safe: the sole consumer
+        # (scope_display) copies the result to bytes before the next update()
+        # overwrites it, and update() runs on a single thread.
+        if self._out_buf is None or self._out_buf.shape != image.shape:
+            self._out_buf = np.empty(image.shape, dtype=np.uint8)
+        return np.take(lut, image, out=self._out_buf)
