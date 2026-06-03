@@ -356,6 +356,29 @@ class ProtocolSettings(FloatLayout):
 
             logger.info('[LVP Main  ] Apply tiling to protocol')
 
+            # Guard against compounding. apply_tiling appends new tile groups
+            # to the existing steps, and there is no un-tile path yet, so
+            # applying tiling to an already-tiled protocol multiplies the tiles
+            # (e.g. 2x2 on a 2x2 -> 16). Detect the current tiling from the step
+            # names; if already tiled, refuse and tell the user to reload the
+            # untiled base first.
+            no_tiling = self.tiling_config.no_tiling_label()
+            current_tiling = self.tiling_config.determine_tiling_label_from_names(
+                self._protocol.steps()['Name'].tolist()
+            )
+            if current_tiling not in (None, no_tiling):
+                from ui.notification_popup import show_notification_popup
+
+                show_notification_popup(
+                    title='Protocol Already Tiled',
+                    message=(
+                        f'This protocol is already tiled ({current_tiling}). '
+                        f'Applying tiling again would compound it. Reload the '
+                        f'original (untiled) protocol before changing the tiling.'
+                    ),
+                )
+                return
+
             axes_config = ctx.lumaview.scope.motion.get_axes_config()
             _, labware = get_selected_labware()
             stage_offset = settings['stage_offset']
@@ -769,6 +792,23 @@ class ProtocolSettings(FloatLayout):
 
         # Make steps available for drawing locations
         ctx.stage.set_protocol_steps(df=self._protocol.steps())
+
+        # Restore the tiling selection. Tiling is baked into the steps as
+        # expanded tile positions (one row per tile, named ..._T<gridlabel>),
+        # not stored as a scalar, so the spinner otherwise stays at its 1x1
+        # default and misrepresents an already-tiled protocol. Infer the NxN
+        # label back from the tile names; fall back to no-tiling when the
+        # protocol isn't tiled (or the layout isn't square).
+        try:
+            inferred_tiling = self.tiling_config.determine_tiling_label_from_names(
+                self._protocol.steps()['Name'].tolist()
+            )
+        except Exception as e:
+            logger.warning(f'[LVP Main  ] Could not infer tiling from protocol: {e}')
+            inferred_tiling = None
+        self.ids['tiling_size_spinner'].text = (
+            inferred_tiling or self.tiling_config.no_tiling_label()
+        )
 
         self.update_step_ui()
         # Skip go_to_step during startup - will be handled by on_start if initializing,
