@@ -56,6 +56,13 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
         self.writing_progress_update = None
         self.video_writing_progress = 0
         self.video_writing_total_frames = 0
+        # Reused scratch buffers for the record-path depth conversion and
+        # false-color widening in record_helper. Sized lazily on the first
+        # frame of a record and freed at finalize. Reuse is safe: record_helper
+        # runs on the single-threaded camera_executor and copies its result
+        # into the memmap slot before the next call can overwrite the scratch.
+        self._record_convert_buf = None
+        self._record_color_buf = None
         self._pause_led_snapshot = None  # save/restore via API
 
     def cam_toggle(self):
@@ -566,6 +573,10 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
 
             # Release memmap reference from MainDisplay so file_io_executor has exclusive ownership
             self.current_video_frames = None
+            # Drop the per-record conversion scratch buffers; a record is a
+            # bounded event and these are multi-MB each.
+            self._record_convert_buf = None
+            self._record_color_buf = None
 
             # Clear recording event immediately - camera is now free
             if not self.recording.is_set():
@@ -934,13 +945,30 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
         force_to_8bit = not settings['use_full_pixel_depth'] or not settings['video_as_frames']
 
         if force_to_8bit and image.dtype != np.uint8:
-            image = image_utils.convert_12bit_to_8bit(image)
+            if self._record_convert_buf is None or self._record_convert_buf.shape != image.shape:
+                self._record_convert_buf = np.empty(image.shape, dtype=np.uint8)
+            image = image_utils.convert_12bit_to_8bit(image, out=self._record_convert_buf)
         elif image.dtype == np.uint16:
-            image = image_utils.convert_12bit_to_16bit(image)
+            if (
+                self._record_convert_buf is None
+                or self._record_convert_buf.shape != image.shape
+                or self._record_convert_buf.dtype != np.uint16
+            ):
+                self._record_convert_buf = np.empty(image.shape, dtype=np.uint16)
+            image = image_utils.convert_12bit_to_16bit(image, out=self._record_convert_buf)
 
         # Note: Currently, if image is 12/16-bit, then we ignore false coloring for video captures.
         if (image.dtype != np.uint16) and (self.video_false_color is not None):
-            image = image_utils.add_false_color(array=image, color=self.video_false_color)
+            color_shape = (image.shape[0], image.shape[1], 3)
+            if (
+                self._record_color_buf is None
+                or self._record_color_buf.shape != color_shape
+                or self._record_color_buf.dtype != image.dtype
+            ):
+                self._record_color_buf = np.empty(color_shape, dtype=image.dtype)
+            image = image_utils.add_false_color(
+                array=image, color=self.video_false_color, output=self._record_color_buf
+            )
 
         image = np.flip(image, 0)
 
