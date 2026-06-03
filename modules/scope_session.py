@@ -17,7 +17,6 @@ Usage
 """
 
 import datetime
-import os
 import threading
 from typing import TYPE_CHECKING
 
@@ -234,14 +233,19 @@ class ScopeSession:
             if default_settings is not None:
                 settings = default_settings.copy()
             else:
-                # Settings not loaded yet (e.g. headless/test usage) -- load from disk
+                # Settings not loaded yet (e.g. headless/test usage) -- resolve
+                # the same file the GUI reads (current.json first, then
+                # settings.json) so headless state matches the running app,
+                # instead of hardcoding settings.json and ignoring live state.
                 import json
 
-                settings_path = os.path.join(source_path, 'data', 'settings.json')
-                if os.path.exists(settings_path):
+                from modules.settings_init import _resolve_settings_path
+
+                try:
+                    settings_path = _resolve_settings_path(source_path)
                     with open(settings_path) as f:
                         settings = json.load(f)
-                else:
+                except FileNotFoundError:
                     settings = {}
 
         scope = lumascope_api.Lumascope(simulate=True)

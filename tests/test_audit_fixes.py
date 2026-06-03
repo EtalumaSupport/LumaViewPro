@@ -10317,6 +10317,35 @@ class TestScopeSessionBuildsFullExecutorBundle:
             cam.shutdown()
 
 
+class TestHeadlessSettingsResolutionMatchesGui:
+    """Per Settings-SSOT audit HR-4: ScopeSession.create_headless()'s deepest
+    settings fallback (the settings arg None AND settings_init.settings None)
+    opened data/settings.json directly, skipping current.json + the resolver.
+    In a headless/test context where current.json holds the live state, that
+    loaded stale defaults instead of matching the GUI's current.json-first
+    resolution. Fix: the fallback resolves via _resolve_settings_path.
+    """
+
+    def _src(self):
+        import pathlib
+
+        return pathlib.Path('modules/scope_session.py').read_text()
+
+    def test_headless_fallback_uses_resolver(self):
+        assert '_resolve_settings_path' in self._src(), (
+            'create_headless settings fallback must resolve via '
+            '_resolve_settings_path (current.json first) so headless matches '
+            'the GUI; a direct settings.json open ignores live current.json state.'
+        )
+
+    def test_headless_fallback_does_not_hardcode_settings_json_only(self):
+        src = self._src()
+        assert "os.path.join(source_path, 'data', 'settings.json')" not in src, (
+            'create_headless must not hardcode a settings.json-only open in the '
+            'headless fallback -- that bypasses current.json + the resolver.'
+        )
+
+
 class TestAutogainSettingsSnapshottedAtRunStart:
     """Per protocol-workflow audit F15: autogain_settings dict was
     referenced not snapshotted, so mid-run UI mutations of fields like
