@@ -468,6 +468,13 @@ class ImagingAPI:
         # Auto-gain dynamically adjusts the value; clear the manual target
         # so chunk-match falls back to skip-frames calibration.
         self.frame_validity.set_target('gain', None)
+        # Arming hardware continuous AG needs the camera several frames to
+        # settle against the lit scene; wait the auto_gain settle count before
+        # a capture grabs. Gated on the camera actually having hardware AG --
+        # cameras without it reach correct exposure through a future software-AG
+        # loop that reuses the gain/exposure settle sources, not this one.
+        if state and getattr(self._driver.profile, 'has_auto_gain', False):
+            self.frame_validity.invalidate('auto_gain')
         # Hardware-truth wins over cache after the auto cycle ends.
         if not state:
             self._refresh_cache_from_hardware_after_auto()

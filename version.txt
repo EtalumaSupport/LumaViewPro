@@ -1,4 +1,4 @@
 4.0.0-beta15
-2026-06-03 08:26
+2026-06-03 08:47
 feat-memory-footprint
-e7394df8
+c5925ca0

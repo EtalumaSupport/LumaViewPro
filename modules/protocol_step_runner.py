@@ -209,18 +209,25 @@ class ProtocolStepRunner:
         if step['Auto_Focus'] and p._af_future is not None and not p._af_future.done():
             return
 
-        # Arm Auto_Gain BEFORE the deadline-wait gate so the camera
-        # actually converges during the max_duration window. Previously
-        # the apply_layer_camera_settings(... auto_gain=True ...) call
-        # happened inside capture(), AFTER this gate cleared -- so AG
-        # got a single frame of convergence before grab, yielding
-        # overexposed / unconverged images. Arm once per step
+        # Light the channel LED, then arm continuous Auto_Gain against the lit
+        # scene. Hardware AG converges on whatever the camera is grabbing; if
+        # the LED is dark when AG arms, it rails on noise and the grab is mis-
+        # exposed. Lighting first lets AG settle toward the real exposure. The
+        # capture_and_wait drain then waits the measured auto_gain settle frames
+        # (invalidated inside set_auto_gain) before grabbing -- no separate
+        # timed wait. leds_off first per the additive-LED convention; capture()
+        # re-asserts the same channel idempotently. Arm once per step
         # (_auto_gain_armed_step is a one-shot keyed on _curr_step).
         if step['Auto_Gain'] and p._auto_gain_armed_step != p._curr_step:
-            # Cap AG/AE exposure to this step's channel-class ceiling
-            # (issue #655) before arming. Set on the shared settings dict
-            # so the later capture-time re-arm inherits it too. step['Color']
-            # is the layer; the per-install override is read from settings.
+            if p._scope.led_connected:
+                p._step_executor.leds_off()
+                p._step_executor.led_on(
+                    color=step['Color'], illumination=step['Illumination'], block=True
+                )
+            # Cap AG/AE exposure to this step's channel-class ceiling before
+            # arming. Set on the shared settings dict so capture() inherits it.
+            # step['Color'] is the layer; the per-install override is read from
+            # settings.
             p._autogain_settings['max_exposure_ms'] = config_helpers.get_ag_ae_max_exposure_ms(
                 step['Color'], settings
             )
@@ -239,25 +246,8 @@ class ProtocolStepRunner:
             if fut:
                 fut.result(timeout=30)
             p._auto_gain_armed_step = p._curr_step
-            # Set the convergence deadline AT ARM TIME, one-shot per
-            # step. Pre-fix the deadline was initialized once at scan-
-            # start (before AF, which takes ~10s), so the gate below
-            # was already past-deadline on the first AG step and fell
-            # through immediately -- capture grabbed ~70-120ms after
-            # arm with no real convergence window (issue #673). Setting
-            # it here + returning lets subsequent scan_iterate ticks
-            # poll the gate; they return early until the deadline
-            # expires, giving AG the full max_duration to converge.
-            p._auto_gain_deadline = (
-                time.monotonic() + p._autogain_settings['max_duration'].total_seconds()
-            )
-            return
-
-        # Wait for autogain convergence window. Subsequent ticks after
-        # the arm-tick re-enter here and return-early until the deadline
-        # set above expires; first non-returning tick falls through to
-        # capture.
-        if step['Auto_Gain'] and time.monotonic() < p._auto_gain_deadline:
+            # Return after arming; the next tick falls through to capture, where
+            # the auto_gain settle drain runs against the now-lit scene.
             return
 
         # Update Z position with autofocus results

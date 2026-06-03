@@ -9791,14 +9791,13 @@ class TestPreReleaseFutureWarning:
         # outside this test file (4-mechanism PRE-RELEASE bundle).
 
 
-class TestAutoGainArmedBeforeDeadlineWait:
-    """Auto_Gain protocol steps must enable AG BEFORE the deadline-wait
-    window, not inside capture() AFTER the wait. Otherwise AG only
-    gets a single frame of convergence before the grab -- the static-
-    read root cause of issue #673. Closes API protocol-workflow audit
-    F1; pairs with the existing #673 fix at LVP `191dfa0` which routed
-    AG through apply_layer_camera_settings inside capture() but missed
-    the ordering correction.
+class TestAutoGainArmedInScanIterate:
+    """Auto_Gain protocol steps light the channel LED and arm continuous AG
+    in scan_iterate (against the lit scene), then let the capture_and_wait
+    auto_gain settle drain wait for the camera to settle before grabbing.
+    There is no separate timed deadline-wait: settling is a measured frame
+    count (the auto_gain skip-frame source), not a wall-clock timer. capture()
+    must not re-apply AG (that would restart it mid-grab).
     """
 
     def _runner_src(self):
@@ -9837,27 +9836,16 @@ class TestAutoGainArmedBeforeDeadlineWait:
             'so a re-run does not skip AG arming.'
         )
 
-    def test_arm_block_precedes_deadline_gate_in_scan_iterate(self):
-        src = self._runner_src()
-        arm_marker = "if step['Auto_Gain'] and p._auto_gain_armed_step != p._curr_step:"
-        gate_marker = "if step['Auto_Gain'] and time.monotonic() < p._auto_gain_deadline:"
-        arm_idx = src.find(arm_marker)
-        gate_idx = src.find(gate_marker)
-        assert arm_idx >= 0, 'AG-arm block must exist in scan_iterate.'
-        assert gate_idx >= 0, 'Deadline gate must exist in scan_iterate.'
-        assert arm_idx < gate_idx, (
-            'AG-arm block must appear BEFORE the deadline gate so the '
-            'camera converges DURING the max_duration wait, not in a '
-            'single frame inside capture() AFTER the wait.'
-        )
-
     def test_arm_block_routes_apply_through_io_executor(self):
         src = self._runner_src()
-        # Find the arm block and assert it includes the IOTask submit
-        # with apply_layer_camera_settings.
+        # Bound the arm block from its `if` to the stable marker that follows
+        # it (the autofocus Z-update comment), so the slice tracks the real
+        # block rather than a fixed char count.
         arm_idx = src.find("if step['Auto_Gain'] and p._auto_gain_armed_step != p._curr_step:")
-        gate_idx = src.find("if step['Auto_Gain'] and time.monotonic() < p._auto_gain_deadline:")
-        block = src[arm_idx:gate_idx]
+        assert arm_idx >= 0, 'AG-arm block must exist in scan_iterate.'
+        end_idx = src.find('# Update Z position with autofocus results', arm_idx)
+        assert end_idx > arm_idx, 'arm block end marker not found after arm block.'
+        block = src[arm_idx:end_idx]
         assert 'p._scope.imaging.apply_layer_camera_settings' in block, (
             'Arm block must call apply_layer_camera_settings (the same path live-mode AE/AG uses).'
         )
@@ -9869,86 +9857,49 @@ class TestAutoGainArmedBeforeDeadlineWait:
 
     def test_capture_does_not_double_apply_for_ag_step(self):
         src = self._writer_src()
-        # The AG branch in capture() should no longer call apply
-        # (scan_iterate already armed AG). Locate the "Auto_Gain step"
-        # branch and assert there is no apply_layer_camera_settings
-        # call between it and the next sibling block.
-        marker = '# Auto_Gain step: scan_iterate arms AG'
+        # The AG branch in capture() must not call apply (scan_iterate already
+        # armed AG). Locate the "Auto_Gain step" branch and assert there is no
+        # apply_layer_camera_settings call in its body.
+        marker = '# Auto_Gain step: scan_iterate already lit the LED and armed AG'
         idx = src.find(marker)
         assert idx >= 0, (
             'capture() Auto_Gain branch must document that scan_iterate '
-            'arms AG; the docstring is the contract.'
+            'lit the LED and armed AG; the comment is the contract.'
         )
         # Look at the next 800 chars of the branch body.
         branch_window = src[idx : idx + 800]
         assert 'self._scope.imaging.apply_layer_camera_settings(' not in branch_window, (
             'capture() Auto_Gain branch must not call '
             'self._scope.imaging.apply_layer_camera_settings(...) -- '
-            'doing so would restart AG mid-grab and discard the '
-            'convergence the deadline-wait produced.'
+            'doing so would restart AG mid-grab and discard the settling '
+            'the capture_and_wait drain produced.'
         )
 
-    def test_deadline_is_set_inside_arm_block_not_after_gate(self):
-        """The convergence deadline must be set AT ARM TIME so it
-        actually gates THIS step. Pre-fix the deadline was initialized
-        once at scan-start before AF (which takes ~10s), so when the
-        first AG step hit the gate, `now < deadline` was already FALSE
-        and the gate fell through immediately -- capture grabbed
-        ~70-120ms after arm instead of the intended 1000ms convergence
-        window (Chris's 2026-05-22 bench evidence on beta14). Closes
-        issue #673 recurrence.
+    def test_arm_block_returns_after_arming(self):
+        """The arm block must `return` after arming so the next scan_iterate
+        tick falls through to capture, where the auto_gain settle drain runs
+        against the now-lit scene. Without the return, capture could run in the
+        same tick the LED was just lit.
         """
         src = self._runner_src()
         arm_marker = "if step['Auto_Gain'] and p._auto_gain_armed_step != p._curr_step:"
-        gate_marker = "if step['Auto_Gain'] and time.monotonic() < p._auto_gain_deadline:"
         arm_idx = src.find(arm_marker)
-        gate_idx = src.find(gate_marker)
-        assert arm_idx >= 0 and gate_idx >= 0
-        # Within the arm block (between arm marker and gate marker),
-        # the deadline MUST be set. The exact spelling allows a
-        # multi-line formulation (the deadline expression is long).
-        arm_block = src[arm_idx:gate_idx]
-        assert 'p._auto_gain_deadline' in arm_block, (
-            'Convergence deadline must be set INSIDE the arm block '
-            '(one-shot per step). Pre-fix it was set only at scan-'
-            'start before AF, so the gate fell through immediately. '
-            'Issue #673 recurrence.'
-        )
-        assert 'p._autogain_settings' in arm_block and "'max_duration'" in arm_block, (
-            'Arm-time deadline assignment must use '
-            "p._autogain_settings['max_duration'] -- the configured "
-            'convergence window. Issue #673.'
-        )
-
-    def test_arm_block_returns_after_setting_deadline(self):
-        """The arm block must `return` after setting the deadline so
-        the next scan_iterate tick polls the gate. Without the return,
-        the deadline-just-set is checked in the same tick and falls
-        through (now ~= deadline + epsilon) -- the bug recurs.
-
-        The check: between the arm block and the gate marker there
-        must be a `return` statement.
-        """
-        src = self._runner_src()
-        arm_marker = "if step['Auto_Gain'] and p._auto_gain_armed_step != p._curr_step:"
-        gate_marker = "if step['Auto_Gain'] and time.monotonic() < p._auto_gain_deadline:"
-        arm_idx = src.find(arm_marker)
-        gate_idx = src.find(gate_marker)
-        arm_block = src[arm_idx:gate_idx]
-        # Look for a bare `return` on its own indented line inside the
-        # arm block (the if-body), not at the outer function scope.
-        # The arm block is indented 8 spaces (inside an if inside the
-        # function); its body lines are indented 12 spaces.
+        assert arm_idx >= 0
+        # Bound the arm block by the stable marker that follows it (the
+        # autofocus Z-update comment) so the slice tracks the real block.
+        end_idx = src.find('# Update Z position with autofocus results', arm_idx)
+        assert end_idx > arm_idx, 'arm block end marker not found after arm block.'
+        arm_block = src[arm_idx:end_idx]
+        # Look for a bare `return` on its own indented line inside the arm
+        # block body (indented 12 spaces -- inside an if inside the function).
         return_lines = [
             line
             for line in arm_block.splitlines()
             if line.strip() == 'return' and line.startswith(' ' * 12)
         ]
         assert len(return_lines) >= 1, (
-            'Arm block must `return` after setting _auto_gain_deadline '
-            'so the next scan_iterate tick polls the gate (issue #673 '
-            'recurrence). Without the return, the deadline gate is '
-            'checked in the same tick and falls through immediately.'
+            'Arm block must `return` after arming AG so the next '
+            'scan_iterate tick falls through to capture.'
         )
 
     def test_run_loop_does_not_reset_deadline_at_scan_start(self):

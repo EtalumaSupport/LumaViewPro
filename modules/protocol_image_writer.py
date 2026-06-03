@@ -224,17 +224,14 @@ class ProtocolImageWriter:
                 self._scope.imaging.set_gain(step['Gain'])
                 self._scope.imaging.set_exposure_time(step['Exposure'])
             else:
-                # Auto_Gain step: scan_iterate arms AG via
-                # apply_layer_camera_settings BEFORE the deadline-wait
-                # window opens, so convergence runs during the wait
-                # rather than in a single frame here. By the time we
-                # reach capture() the camera has already had up to
-                # max_duration seconds of convergence; the apply is
-                # therefore skipped to avoid restarting AG mid-grab.
+                # Auto_Gain step: scan_iterate already lit the LED and armed AG
+                # against the lit scene; the apply is skipped here to avoid
+                # restarting AG mid-grab. The capture_and_wait drain below waits
+                # the auto_gain settle frames before grabbing.
                 logger.debug(
                     f'[CAPTURE DIAG] Auto_Gain step: armed in scan_iterate '
                     f'with target gain={step["Gain"]}dB exp={step["Exposure"]}ms; '
-                    f'convergence completed via _auto_gain_deadline wait'
+                    f'settle drained in capture_and_wait'
                 )
 
             # Objective short name for filename

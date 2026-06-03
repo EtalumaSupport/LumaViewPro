@@ -169,12 +169,11 @@ class SequencedCaptureRunner:
         self._scan_count = 0
         self._scan_in_progress.clear()
         self._autofocus_count = 0
-        self._auto_gain_deadline = 0.0
         # Tracks the curr_step value for which Auto_Gain was already
         # armed (apply_layer_camera_settings ... auto_gain=True fired
         # in scan_iterate). -1 means "no AG armed yet this scan."
-        # Reset alongside _auto_gain_deadline at scan-iterate entry in
-        # protocol_run_loop so each scan starts fresh.
+        # Reset at each scan start in protocol_run_loop so each scan
+        # arms once per step.
         self._auto_gain_armed_step = -1
         self._grease_redistribution_event.set()
         self._captures_taken = 0
