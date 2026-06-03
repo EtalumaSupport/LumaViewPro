@@ -9627,6 +9627,88 @@ class TestLumascopeSkillsRetiredOpticalMethods:
         )
 
 
+class TestLumascopeSkillsApiPluginDocBatch:
+    """LumascopeSkills doc-accuracy batch from the API/plugin audit
+    (F16, F20, F23, F24, F25, carryover #24). Each assertion pins both
+    that the doc no longer cites a surface that would raise at HEAD and
+    that the canonical surface it now cites actually exists, so the doc
+    and the code cannot drift apart silently again.
+    """
+
+    def _doc(self):
+        import pathlib
+
+        return pathlib.Path('docs/LumascopeSkills.md').read_text()
+
+    def test_objective_setters_not_cited_on_composition_root(self):
+        # Carryover #24: objective/turret config moved to scope.runtime_state;
+        # a doc line calling scope.set_objective(...) raises AttributeError.
+        doc = self._doc()
+        assert 'scope.set_objective(' not in doc, (
+            'LumascopeSkills.md must not cite `scope.set_objective(...)` -- '
+            'it moved to `scope.runtime_state.set_objective` / '
+            '`session.set_objective`.'
+        )
+        assert 'scope.runtime_state.set_objective' in doc
+        assert 'scope.runtime_state.get_current_objective_id' in doc
+
+    def test_objective_surface_lives_on_runtime_state_in_code(self):
+        from modules.lumascope_api import Lumascope
+
+        # The doc rewrite is only correct if Lumascope no longer carries
+        # these and runtime_state does.
+        assert not hasattr(Lumascope, 'set_objective')
+        assert hasattr(RuntimeState, 'set_objective')
+        assert hasattr(RuntimeState, 'get_current_objective_id')
+        assert hasattr(RuntimeState, 'get_turret_config')
+
+    def test_acquisition_stop_mode_not_a_public_setter_example(self):
+        # F16: the sentinel-vs-raise contract used set_acquisition_stop_mode
+        # as a public-setter example, but it is private now.
+        doc = self._doc()
+        assert 'set_acquisition_stop_mode`, `set_gain`' not in doc, (
+            'set_acquisition_stop_mode is private (_set_acquisition_stop_mode); '
+            'do not use it as a public-setter example.'
+        )
+        assert hasattr(ImagingAPI, '_set_acquisition_stop_mode')
+        assert not hasattr(ImagingAPI, 'set_acquisition_stop_mode')
+
+    def test_start_application_session_documented_and_exists(self):
+        # F24
+        from modules.scope_session import ScopeSession
+
+        doc = self._doc()
+        assert 'start_application_session' in doc
+        assert hasattr(ScopeSession, 'start_application_session')
+
+    def test_protocol_canonical_entry_points_documented(self):
+        # F25: name scope.load_protocol / scope.create_protocol as canonical
+        from modules.lumascope_api import Lumascope
+
+        doc = self._doc()
+        assert 'scope.load_protocol' in doc
+        assert 'scope.create_protocol' in doc
+        assert hasattr(Lumascope, 'load_protocol')
+        assert hasattr(Lumascope, 'create_protocol')
+
+    def test_listener_signature_overview_present(self):
+        # F20: the four differing callback signatures appear in one overview.
+        doc = self._doc()
+        for sig in (
+            'on_position(axis',
+            'on_led(color',
+            'on_camera(param',
+            'on_frame(image',
+        ):
+            assert sig in doc, f'listener overview missing {sig!r}'
+
+    def test_camera_max_frame_size_sentinel_documented(self):
+        # F23: (0, 0) is a no-camera sentinel, not a usable size.
+        doc = self._doc()
+        assert 'camera_max_frame_size` is `(0, 0)`' in doc
+        assert 'scope.camera_connected' in doc
+
+
 class TestGetLedStateShape:
     """get_led_state / get_led_states return shape must include `owner`
     (matches internal _led_state) and use None (not -1) for the
