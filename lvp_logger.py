@@ -554,6 +554,29 @@ if not debug:
 sys.excepthook = custom_except_hook
 
 
+def _collect_installed_packages() -> dict:
+    """Map distribution name -> version for every installed package.
+
+    Uses importlib.metadata (stdlib) instead of shelling out to
+    `pip freeze`: works inside the frozen exe, needs no subprocess, and
+    doesn't depend on pip being importable. Sorted case-insensitively;
+    duplicate names (rare, from overlapping metadata dirs) keep the
+    first seen.
+    """
+    import importlib.metadata as _imeta
+
+    packages: dict = {}
+    for _dist in _imeta.distributions():
+        try:
+            _name = _dist.metadata['Name']
+        except Exception:
+            _name = None
+        if not _name or _name in packages:
+            continue
+        packages[_name] = _dist.version or 'unknown'
+    return dict(sorted(packages.items(), key=lambda kv: kv[0].lower()))
+
+
 def log_environment_banner(source_path: str, version_str: str):
     """Emit the standard launch-time environment fingerprint.
 
@@ -700,6 +723,33 @@ def log_environment_banner(source_path: str, version_str: str):
         logger.info(f'[LVP Main  ] ids_peak: {_ids_ver}')
     except Exception:
         logger.info('[LVP Main  ] ids_peak: not installed')
+
+    # Full installed-package inventory. install.bat / pip upgrades change
+    # behavior -- e.g. the ffmpeg + libx264 build bundled inside `av` -- WITHOUT
+    # changing the LVP build identity above, so a support bundle has to record
+    # the exact dependency set that produced it or the run is unreproducible.
+    # Highlights line first (the versions most likely to change behavior), then
+    # the full freeze in pip `name==version` form so `grep "av==" lumaviewpro.log`
+    # answers "which av" outright.
+    try:
+        _pkgs = _collect_installed_packages()
+    except Exception as e:
+        _pkgs = {}
+        logger.info(f'[LVP Main  ] Installed packages: unavailable ({e})')
+    if _pkgs:
+        _highlights = (
+            'av', 'numpy', 'tifffile', 'imagecodecs', 'scikit-image',
+            'scipy', 'opencv-python', 'opencv-python-headless', 'pandas',
+            'matplotlib', 'Pillow',
+        )
+        _hl = ' | '.join(f'{_n}=={_pkgs[_n]}' for _n in _highlights if _n in _pkgs)
+        if _hl:
+            logger.info(f'[LVP Main  ] Key deps: {_hl}')
+        _freeze = [f'{_n}=={_v}' for _n, _v in _pkgs.items()]
+        logger.info(f'[LVP Main  ] Installed packages ({len(_freeze)}):')
+        _PER_LINE = 6
+        for _i in range(0, len(_freeze), _PER_LINE):
+            logger.info('[LVP Main  ]   ' + ', '.join(_freeze[_i:_i + _PER_LINE]))
 
     logger.info('[LVP Main  ] -----------------------------------------')
 
