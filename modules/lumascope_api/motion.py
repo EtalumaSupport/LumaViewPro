@@ -43,12 +43,8 @@ from modules.notification_center import notifications
 # bodies log to the same handler chain.
 _api_log = _logging.getLogger('LVP.api')
 
-# AxisState constants live on _lumascope.py (move to this module in a
-# later cleanup pass). Module-top import is safe because MotionAPI is
-# only constructed inside Lumascope.__init__ which means _lumascope.py
-# is fully initialized by the time motion.py first loads.
-from modules.lumascope_api._lumascope import AxisState
 from modules.lumascope_api._constants import (
+    AxisState,
     MOTOR_POSITION_LIMIT,
     _VALID_AXIS_NAMES,
 )

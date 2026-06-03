@@ -20,3 +20,12 @@ _VALID_AXIS_NAMES = ('X', 'Y', 'Z', 'T')
 # Absolute position bounds in um -- generous outer limits. Per-axis
 # travel limits are enforced by the motor board itself.
 MOTOR_POSITION_LIMIT = 1_000_000  # 1 meter in um
+
+
+class AxisState:
+    """Possible states for a motion axis."""
+
+    UNKNOWN = 'unknown'  # Not homed / state not known
+    IDLE = 'idle'  # At known position, not moving
+    MOVING = 'moving'  # Move commanded, not yet arrived
+    HOMING = 'homing'  # Homing sequence in progress

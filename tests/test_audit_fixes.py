@@ -11856,3 +11856,48 @@ class TestRawBytesPerPixel:
 
         assert raw_bytes_per_pixel('Mono8', is_color_native=True) == 3
         assert raw_bytes_per_pixel('Mono12', is_color_native=True) == 6
+
+
+class TestAxisStateLivesOnConstants:
+    """AxisState was defined on the composition root _lumascope.py and imported
+    module-top by the motion sub-API -- a sub-API depending on the root. It now
+    lives on the leaf _constants.py; _lumascope re-exports it for back-compat.
+    All historical import paths must still resolve to the one canonical class.
+    """
+
+    def test_canonical_home_is_constants(self):
+        from modules.lumascope_api._constants import AxisState
+
+        assert AxisState.__module__ == 'modules.lumascope_api._constants'
+
+    def test_all_back_compat_paths_are_one_identity(self):
+        from modules.lumascope_api import AxisState as via_pkg
+        from modules.lumascope_api._constants import AxisState as via_constants
+        from modules.lumascope_api._lumascope import AxisState as via_lumascope
+        from modules.lumascope_api.motion import AxisState as via_motion
+
+        assert via_constants is via_lumascope is via_pkg is via_motion
+
+    def test_values_intact(self):
+        from modules.lumascope_api._constants import AxisState
+
+        assert (AxisState.UNKNOWN, AxisState.IDLE, AxisState.MOVING, AxisState.HOMING) == (
+            'unknown',
+            'idle',
+            'moving',
+            'homing',
+        )
+
+    def test_motion_does_not_import_axisstate_from_lumascope(self):
+        # The wart was motion.py importing AxisState from the composition root.
+        import ast
+        import pathlib
+
+        root = pathlib.Path(__file__).resolve().parent.parent
+        tree = ast.parse((root / 'modules' / 'lumascope_api' / 'motion.py').read_text())
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom) and node.module and node.module.endswith(
+                '_lumascope'
+            ):
+                names = {a.name for a in node.names}
+                assert 'AxisState' not in names, 'motion.py must import AxisState from _constants'

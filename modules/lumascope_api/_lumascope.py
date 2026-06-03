@@ -94,13 +94,11 @@ if TYPE_CHECKING:
     from modules.protocol import Protocol
 
 
-class AxisState:
-    """Possible states for a motion axis."""
-
-    UNKNOWN = 'unknown'  # Not homed / state not known
-    IDLE = 'idle'  # At known position, not moving
-    MOVING = 'moving'  # Move commanded, not yet arrived
-    HOMING = 'homing'  # Homing sequence in progress
+# AxisState lives in the package's leaf _constants.py (so sub-API modules can
+# import it without depending on this composition root). Re-exported here as a
+# module-level name so `from modules.lumascope_api import AxisState` and
+# `from modules.lumascope_api._lumascope import AxisState` keep working.
+AxisState = _api_constants.AxisState
 
 
 # ---------------------------------------------------------------------------
