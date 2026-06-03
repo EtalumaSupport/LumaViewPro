@@ -144,12 +144,19 @@ if __name__ == '__main__':
 
             _root = _tk.Tk()
             _root.withdraw()
+            # Force the dialog to the foreground. Without this the messagebox
+            # can open behind the existing LVP window and get buried, so the
+            # user never sees why the second launch silently did nothing.
+            _root.attributes('-topmost', True)
+            _root.lift()
+            _root.focus_force()
             _mb.showerror(
                 'LumaViewPro: already running',
                 'Another copy of LumaViewPro is already running.\n\n'
                 'This copy will now close. Switch to the existing '
                 'window, or close the other instance first before '
                 'launching again.',
+                parent=_root,
             )
             _root.destroy()
         except Exception as popup_err:  # grain: ignore NAKED_EXCEPT
