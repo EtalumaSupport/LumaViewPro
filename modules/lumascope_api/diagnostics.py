@@ -83,6 +83,13 @@ class DiagnosticsAPI:
         _try('max_gain_db', lambda: self._scope._camera_driver.get_max_gain())
         _try('max_exposure_ms', lambda: self._scope._camera_driver.get_max_exposure())
 
+        # Tag the active imaging-SDK runtime so characterization output
+        # (grab-benchmark filenames, tech-support snapshots) ties to the
+        # exact Pylon SDK that produced the numbers. Best-effort: None for
+        # non-Basler cameras, where the filename keeps its unknown-SDK
+        # fallback -- this is a provenance label, not a control input.
+        info['sdk_version'] = self._safe_pylon_versions().get('pylon_sdk_version')
+
         info['temperatures'] = self.get_camera_temperatures()
         return info
 
