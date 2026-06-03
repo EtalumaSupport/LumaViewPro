@@ -150,14 +150,12 @@ class Stitcher(ProtocolPostProcessor):
         zprojector). When None (test / legacy callers), returns the
         stitched array for the caller to save.
         """
-        # Load source images via tifffile (RGB-native; returns mono 2D
-        # for single-channel TIFFs). Matches the canonical read path
-        # used by composite_generation + zprojector, replacing the
-        # legacy cv2.imread BGR-native call.
-        images = {}
-        for _, row in df.iterrows():
-            image_filepath = path / row['Filepath']
-            images[row['Filepath']] = tf.imread(str(image_filepath))
+        # Tiles are read on demand inside the placement loop (one tile resident
+        # at a time) rather than pre-loaded into a dict: the simple path places
+        # each tile independently with no overlap, so peak memory is one tile +
+        # the canvas instead of every tile + the canvas. Reads go through
+        # tifffile (RGB-native; mono 2D for single-channel TIFFs), the canonical
+        # path shared with composite_generation + zprojector.
 
         df = df.copy()
 
@@ -174,7 +172,7 @@ class Stitcher(ProtocolPostProcessor):
 
         source_image_sample_row = df.iloc[0]
         source_image_sample_filename = source_image_sample_row['Filepath']
-        source_image_sample = images[source_image_sample_filename]
+        source_image_sample = tf.imread(str(path / source_image_sample_filename))
         source_image_h = source_image_sample.shape[0]
         source_image_w = source_image_sample.shape[1]
 
@@ -205,7 +203,7 @@ class Stitcher(ProtocolPostProcessor):
 
         for _, row in df.iterrows():
             filename = row['Filepath']
-            image = images[filename]
+            image = tf.imread(str(path / filename))
             im_x = image.shape[1]
             im_y = image.shape[0]
 
