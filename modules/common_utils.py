@@ -254,6 +254,26 @@ def convert_zstack_reference_position_setting_to_config(text_label: str) -> str:
     raise Exception(f'Unknown Z-stack position reference: {text_label}')
 
 
+def raw_bytes_per_pixel(pixel_format: str, is_color_native: bool = False) -> int:
+    """Bytes per pixel of the RAW camera buffer (for data-rate readouts).
+
+    Mono8 is one byte; every other Mono format (Mono10 / Mono12 / Mono16 and
+    the packed variants such as Mono10g40IDS) is delivered in a uint16
+    container, so two bytes. Color-native cameras (none in the shipping fleet)
+    carry three channels.
+
+    Args:
+        pixel_format: SDK pixel-format name (e.g. 'Mono8', 'Mono12', 'Mono16').
+        is_color_native: Whether the camera delivers 3-channel color frames.
+
+    Returns:
+        Bytes occupied by one pixel of the raw camera frame.
+    """
+    bytes_per_channel = 1 if pixel_format == 'Mono8' else 2
+    channels = 3 if is_color_native else 1
+    return bytes_per_channel * channels
+
+
 def get_layers() -> list[str]:
     return ['BF', 'PC', 'DF', 'Blue', 'Green', 'Red', 'Lumi']
 

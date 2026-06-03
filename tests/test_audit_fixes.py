@@ -11825,3 +11825,34 @@ class TestExecutorHandlesSingleSourceOnCtx:
         assert 'ctx.scope_display_thread.stop' in src
         assert 'ctx.io_executor.shutdown' in src
         assert 'ctx.worker_pool.shutdown' in src
+
+
+class TestRawBytesPerPixel:
+    """The camera data-rate readout derived bytes/pixel from a fixed format
+    allowlist that omitted Mono16, halving the reported rate for 16-bit
+    cameras. raw_bytes_per_pixel covers every Mono format (Mono8 -> 1, all
+    others -> 2) plus the color-channel multiplier.
+    """
+
+    def test_mono8_is_one_byte(self):
+        from modules.common_utils import raw_bytes_per_pixel
+
+        assert raw_bytes_per_pixel('Mono8') == 1
+
+    def test_mono16_is_two_bytes(self):
+        # The bug: Mono16 fell through to the 1-byte default.
+        from modules.common_utils import raw_bytes_per_pixel
+
+        assert raw_bytes_per_pixel('Mono16') == 2
+
+    def test_other_mono_formats_are_two_bytes(self):
+        from modules.common_utils import raw_bytes_per_pixel
+
+        for fmt in ('Mono10', 'Mono10g40IDS', 'Mono12', 'Mono12g24IDS', 'Mono14'):
+            assert raw_bytes_per_pixel(fmt) == 2, fmt
+
+    def test_color_native_multiplies_channels(self):
+        from modules.common_utils import raw_bytes_per_pixel
+
+        assert raw_bytes_per_pixel('Mono8', is_color_native=True) == 3
+        assert raw_bytes_per_pixel('Mono12', is_color_native=True) == 6

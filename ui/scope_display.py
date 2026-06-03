@@ -668,7 +668,7 @@ class ScopeDisplay(Image):
         self._capture_fps_count += 1
         fs = ctx.scope.imaging.camera_frame_size
         pixel_format = ctx.scope.imaging.camera_pixel_format
-        bpp = 2 if pixel_format in ('Mono10', 'Mono10g40IDS', 'Mono12', 'Mono12g24IDS') else 1
+        bpp = common_utils.raw_bytes_per_pixel(pixel_format, ctx.scope.capabilities.is_color_native)
         self._last_frame_nbytes = fs.get('width', 0) * fs.get('height', 0) * bpp
         now = time.monotonic()
         elapsed = now - self._capture_fps_last_time
