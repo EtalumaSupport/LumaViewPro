@@ -128,8 +128,6 @@ class TestPostProcessorSkipsFalseColorForTransmitted:
 
         df = pd.DataFrame({'Filepath': slice_paths, 'Color': ['BF'] * 3})
         zproj = ZProjector.__new__(ZProjector)
-        zproj._ij_helper = MagicMock()
-        zproj._ij_helper.zproject.return_value = np.full((8, 8), 150, dtype=np.uint8)
         result = zproj._zproject(
             path=tmp_path,
             df=df,

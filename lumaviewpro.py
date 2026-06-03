@@ -48,7 +48,6 @@ if __name__ == '__main__':
     ############################################################################
 
     live_view_fps = 30
-    ij_helper = None
 
     # Environment setup -- paths, version, platform detection
     from modules.app_environment import init_environment
@@ -677,7 +676,6 @@ class LumaViewProApp(TooltipMixin, App):
         # composite_gen_controls register themselves on ctx in their __init__.
         global Window
         global ctx
-        ij_helper = None
 
         # AppContext binds these three as kwargs below; declared as locals here
         # so the kwargs don't NameError at runtime.
@@ -869,7 +867,6 @@ class LumaViewProApp(TooltipMixin, App):
             stage=stage,
             cell_count_content=cell_count_content,
             graphing_controls=graphing_controls,
-            ij_helper=ij_helper,
             protocol_running=protocol_running_global,
             engineering_mode=ENGINEERING_MODE,
             no_engineering=no_engineering,
