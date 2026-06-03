@@ -11901,3 +11901,25 @@ class TestAxisStateLivesOnConstants:
             ):
                 names = {a.name for a in node.names}
                 assert 'AxisState' not in names, 'motion.py must import AxisState from _constants'
+
+
+class TestSequentialIOExecutorDocstringSingleWorker:
+    """The module overview docstring described a multi-worker ThreadPoolExecutor
+    ("configurable max_workers", "up to max_workers in parallel"), contradicting
+    the actual single-worker invariant the class enforces. Pin the corrected
+    docstring so the stale parallel-worker language cannot creep back.
+    """
+
+    def _src(self):
+        import pathlib
+
+        root = pathlib.Path(__file__).resolve().parent.parent
+        return (root / 'modules' / 'sequential_io_executor.py').read_text()
+
+    def test_no_parallel_worker_language(self):
+        src = self._src()
+        assert 'max_workers in parallel' not in src
+        assert 'configurable max_workers' not in src
+
+    def test_documents_single_worker(self):
+        assert 'exactly ONE worker thread' in self._src()

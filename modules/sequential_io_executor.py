@@ -282,15 +282,19 @@ class IOTask:
 """
 SequentialIOExecutor
 - Manages a FIFO queue of IOTask instances.
-- Uses a ThreadPoolExecutor (configurable max_workers) to run tasks in the background.
-- Dispatches tasks one by one (or up to max_workers in parallel) and:
-    1. Calls task.run() on a worker thread.
+- Runs them on exactly ONE worker thread (sequential per hardware boundary):
+  one ordered command stream per executor, never overlapping. The max_workers
+  __init__ argument is retained only for call-signature back-compat and is
+  ignored -- widening it would reintroduce the task-retention surface the
+  single worker exists to avoid.
+- For each task the worker:
+    1. Calls task.run() on the worker thread.
     2. Captures (result, exception).
     3. Schedules task.on_complete(result, exception) on the main/UI thread.
 - Usage:
-    executor = SequentialIOExecutor(max_workers=2)
+    executor = SequentialIOExecutor()
     executor.start()
-    executor.enqueue(task)
+    executor.put(task)
     # ... later ...
     executor.shutdown(wait=True)
 """
