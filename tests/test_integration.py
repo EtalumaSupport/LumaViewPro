@@ -802,6 +802,17 @@ class TestHeadlessSession:
         assert isinstance(runner, ProtocolRunner)
         assert runner.session is session
 
+    def test_protocol_runner_reuses_session_file_executor(self):
+        """ProtocolRunner must reuse the session's one shared FILE executor, not
+        build a duplicate -- two executors on one disk target compete. The
+        fallback previously constructed a second FILE executor on this path.
+        """
+        session = ScopeSession.create_headless()
+        assert session.file_io_executor is not None
+        assert session.file_io_executor is session.executor_bundle.file_io_executor
+        runner = session.create_protocol_runner()
+        assert runner._file_io_executor is session.file_io_executor
+
     def test_protocol_runner_runs_protocol(self, tmp_path):
         """ProtocolRunner should execute a protocol to completion on headless session."""
         settings = {

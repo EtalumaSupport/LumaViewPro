@@ -60,6 +60,11 @@ class ScopeSession:
         # scope_display_thread cleanly. When lumaviewpro.py is the host,
         # this is None -- the host owns the bundle on ctx.executor_bundle.
         self.executor_bundle = executor_bundle
+        # The canonical file-IO executor lives on the bundle; expose it here
+        # alongside io_executor / camera_executor so callers (e.g. ProtocolRunner)
+        # source the one shared FILE executor instead of constructing a
+        # duplicate. None when no bundle was built (the GUI host owns its bundle).
+        self.file_io_executor = executor_bundle.file_io_executor if executor_bundle else None
 
         self.protocol_running = threading.Event()
         self.focus_round = 0
