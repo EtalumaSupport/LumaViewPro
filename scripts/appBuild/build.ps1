@@ -180,8 +180,6 @@ Write-Host "Building branch: $Branch"
 # Find dependencies
 # ---------------------------------------------------------------------------
 $pylon_msi = ""
-$corretto_msi = ""
-$maven_dir = ""
 
 if (-not (Test-Path $deps)) {
     New-Item $deps -ItemType Directory -Force | Out-Null
@@ -190,12 +188,6 @@ if (-not (Test-Path $deps)) {
 
 $pylon_files = Get-ChildItem -Path $deps -Filter "*pylon*USB*.msi" -ErrorAction SilentlyContinue
 if ($pylon_files) { $pylon_msi = $pylon_files[0].FullName; Write-Host "Found Pylon: $pylon_msi" }
-
-$corretto_files = Get-ChildItem -Path $deps -Filter "*corretto*.msi" -ErrorAction SilentlyContinue
-if ($corretto_files) { $corretto_msi = $corretto_files[0].FullName; Write-Host "Found Corretto: $corretto_msi" }
-
-$maven_files = Get-ChildItem -Path $deps -Directory -Filter "apache-maven*" -ErrorAction SilentlyContinue
-if ($maven_files) { $maven_dir = $maven_files[0].FullName; Write-Host "Found Maven: $maven_dir" }
 
 # ---------------------------------------------------------------------------
 # Optional dependencies — bundle uses them when present, skips silently when
@@ -245,8 +237,6 @@ if (Test-Path $fx2_dir) {
 }
 
 if (-not $pylon_msi) { Write-Host "No Pylon MSI in dependencies\ - bundle will be skipped" }
-if (-not $corretto_msi) { Write-Host "No Corretto MSI in dependencies\ - bundle will be skipped" }
-if (-not $maven_dir) { Write-Host "Warning: Apache Maven not found in dependencies\ - ImageJ will not work in installed app" }
 if (-not $ids_peak_exe) { Write-Host "No IDS Peak runtime in dependencies\ - IDS cameras will need manual driver install on customer machines" }
 if (-not $fx2_inf) { Write-Host "No FX2 WinUSB INF in dependencies\fx2\ - LVC FX2 driver will need manual install (Zadig)" }
 if (-not $fx2_libusb_dll) { Write-Host "No FX2 libusb-1.0.dll in dependencies\fx2\ - bundled LVP will not be able to talk to FX2 cameras even if WinUSB driver is installed" }
@@ -468,13 +458,6 @@ if (-not (Test-Path $installer_icon)) {
     Exit 1
 }
 
-# Copy Maven if available
-if ($maven_dir) {
-    $maven_name = Split-Path $maven_dir -Leaf
-    Copy-Item $maven_dir -Destination "$install\$maven_name" -Recurse -Force
-    Write-Host "Maven copied to install directory"
-}
-
 # ---------------------------------------------------------------------------
 # Build MSI
 # ---------------------------------------------------------------------------
@@ -511,7 +494,7 @@ Write-Host "MSI: $msi"
 # Build Bundle (if dependencies available)
 # ---------------------------------------------------------------------------
 $bundle = ""
-if ($pylon_msi -and $corretto_msi) {
+if ($pylon_msi) {
     Write-Host "`n--- WiX Bundle ---"
     $bundle = Join-Path $output_dir "$product-setup.exe"
 
@@ -530,7 +513,6 @@ if ($pylon_msi -and $corretto_msi) {
         '-d', "InstallerAssetsDir=$installer_assets_dir",
         '-d', "LVPMsiDir=$msi",
         '-d', "PylonDriverDir=$pylon_msi",
-        '-d', "CorretoMsiDir=$corretto_msi",
         '-d', "ProductName=$product",
         '-d', "ProductVersion=$wix_ver"
     )
