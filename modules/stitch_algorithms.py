@@ -426,8 +426,13 @@ def stitch_registered_tiles(
         acc_shape = (max_y - min_y, max_x - min_x, sample.shape[2])
         weight_shape = (max_y - min_y, max_x - min_x, 1)
 
-    accumulator = np.zeros(acc_shape, dtype=np.float64)
-    weights = np.zeros(weight_shape, dtype=np.float64)
+    # float32 (not float64): each whole-mosaic canvas can be multiple GB, and
+    # the blend is an integer-pixel average. Products/sums of uint8/uint16
+    # pixels over the handful of tiles overlapping any pixel stay well inside
+    # float32's exact-integer range (2**24), so the averaged result is
+    # byte-identical to float64 at half the memory.
+    accumulator = np.zeros(acc_shape, dtype=np.float32)
+    weights = np.zeros(weight_shape, dtype=np.float32)
 
     for tile in registered:
         image = tile['tile']
@@ -450,14 +455,16 @@ def stitch_registered_tiles(
 
         accumulator[dst_y0:dst_y1, dst_x0:dst_x1] += image[
             src_y0:src_y1, src_x0:src_x1
-        ].astype(np.float64)
+        ].astype(np.float32)
         weights[dst_y0:dst_y1, dst_x0:dst_x1] += 1.0
 
-    output = np.zeros(acc_shape, dtype=np.float64)
-    np.divide(accumulator, weights, out=output, where=weights > 0)
+    # Divide in place -- accumulator becomes the averaged mosaic, dropping a
+    # third whole-mosaic canvas. where=weights>0 leaves never-covered pixels
+    # at their initialized 0.
+    np.divide(accumulator, weights, out=accumulator, where=weights > 0)
 
     if np.issubdtype(sample.dtype, np.integer):
         info = np.iinfo(sample.dtype)
-        output = np.clip(output, info.min, info.max)
+        np.clip(accumulator, info.min, info.max, out=accumulator)
 
-    return output.astype(sample.dtype), registered
+    return accumulator.astype(sample.dtype), registered

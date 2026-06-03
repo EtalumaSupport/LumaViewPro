@@ -373,3 +373,61 @@ class TestPositionAwareStitcher:
             assert page.photometric == tifffile.PHOTOMETRIC.PALETTE
             assert page.colormap is not None
         assert image_utils.read_postproc_input_metadata(written) is not None
+
+
+def _reference_blend_float64(registered, sample):
+    """The average-blend as it was before the float32 change: float64
+    accumulator + weights, separate output canvas. Ground truth that the
+    float32 in-place version must reproduce byte-for-byte."""
+    min_x = min(int(t['registered_x_px']) for t in registered)
+    min_y = min(int(t['registered_y_px']) for t in registered)
+    max_x = max(int(t['registered_x_px']) + t['tile'].shape[1] for t in registered)
+    max_y = max(int(t['registered_y_px']) + t['tile'].shape[0] for t in registered)
+    if sample.ndim == 2:
+        acc_shape = (max_y - min_y, max_x - min_x)
+        weight_shape = acc_shape
+    else:
+        acc_shape = (max_y - min_y, max_x - min_x, sample.shape[2])
+        weight_shape = (max_y - min_y, max_x - min_x, 1)
+    acc = np.zeros(acc_shape, dtype=np.float64)
+    wts = np.zeros(weight_shape, dtype=np.float64)
+    for t in registered:
+        image = t['tile']
+        x0 = int(t['registered_x_px']) - min_x
+        y0 = int(t['registered_y_px']) - min_y
+        dst_x0, dst_y0 = max(0, x0), max(0, y0)
+        dst_x1 = min(acc_shape[1], x0 + image.shape[1])
+        dst_y1 = min(acc_shape[0], y0 + image.shape[0])
+        if dst_x1 <= dst_x0 or dst_y1 <= dst_y0:
+            continue
+        sx0, sy0 = dst_x0 - x0, dst_y0 - y0
+        acc[dst_y0:dst_y1, dst_x0:dst_x1] += image[
+            sy0 : sy0 + (dst_y1 - dst_y0), sx0 : sx0 + (dst_x1 - dst_x0)
+        ].astype(np.float64)
+        wts[dst_y0:dst_y1, dst_x0:dst_x1] += 1.0
+    out = np.zeros(acc_shape, dtype=np.float64)
+    np.divide(acc, wts, out=out, where=wts > 0)
+    if np.issubdtype(sample.dtype, np.integer):
+        info = np.iinfo(sample.dtype)
+        out = np.clip(out, info.min, info.max)
+    return out.astype(sample.dtype)
+
+
+@pytest.mark.parametrize('dtype,high', [(np.uint8, 255), (np.uint16, 65535)])
+@pytest.mark.parametrize('channels', [1, 3])
+def test_float32_blend_is_byte_identical_to_float64(dtype, high, channels):
+    # Two overlapping featured tiles cut from a common base so registration
+    # is deterministic and the overlap column is genuinely 2-tile-averaged.
+    rng = np.random.default_rng(99)
+    shape = (80, 180, channels) if channels == 3 else (80, 180)
+    base = rng.integers(0, high, shape, dtype=dtype)
+    tile_w, tile_h, step = 100, 80, 75
+    left = base[:tile_h, :tile_w].copy()
+    right = base[:tile_h, step : step + tile_w].copy()
+
+    out, registered = stitch_registered_tiles(
+        [{'tile': left, 'x_px': 0, 'y_px': 0}, {'tile': right, 'x_px': step, 'y_px': 0}],
+        output_shape=(tile_h, step + tile_w),
+    )
+    reference = _reference_blend_float64(registered, left)
+    assert np.array_equal(out, reference), 'float32 blend diverged from float64'
