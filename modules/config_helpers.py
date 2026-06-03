@@ -116,6 +116,15 @@ def get_auto_gain_settings(settings: dict) -> dict:
     return autogain_settings
 
 
+def get_manual_video_max_duration(settings: dict) -> float:
+    """Return the manual-video max recording duration in seconds.
+
+    Owns the canonical 30-second default so it lives in one place instead of
+    being repeated at each read site, where one copy could drift from the rest.
+    """
+    return settings.get('manual_video', {}).get('max_duration_seconds', 30)
+
+
 def get_ag_ae_max_exposure_ms(layer: str, settings: dict | None = None) -> float:
     """Return the AG/AE exposure upper bound (ms) for a layer's channel class.
 
