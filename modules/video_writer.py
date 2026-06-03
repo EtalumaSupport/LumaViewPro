@@ -1,7 +1,6 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 
 import datetime
-import os
 import pathlib
 import threading
 
@@ -96,12 +95,15 @@ class VideoWriter:
         try:
             self._container = av.open(str(self._output_path), mode='w')
             self._stream = self._container.add_stream('libx264', rate=int(self._fps))
-            # libx264 is a software (CPU) encoder. Left at ffmpeg's default it
-            # grabs every core, starving the GUI/GL main thread -- a long
-            # post-capture encode froze an 8-core box until force-quit. Cap to
-            # cores-2 so the encode scales with the machine but always leaves
-            # headroom for the main thread.
-            self._stream.thread_count = max(1, (os.cpu_count() or 4) - 2)
+            # Single-threaded on purpose. A multi-threaded libx264 builds a
+            # worker pool whose teardown (x264_threadpool_delete inside encoder
+            # close) can deadlock on a lost wakeup: a long manual video froze an
+            # 8-core box AFTER the encode finished, blocked forever joining an
+            # encoder thread at zero CPU. One thread builds no pool, so close
+            # cannot hang -- and it cannot saturate every core and starve the
+            # GUI either. Cost is a slower encode, but it runs on a background
+            # worker and the ultrafast preset keeps it bounded.
+            self._stream.thread_count = 1
             self._stream.width = width
             self._stream.height = height
             self._stream.pix_fmt = 'yuv420p'

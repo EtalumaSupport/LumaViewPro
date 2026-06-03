@@ -145,40 +145,24 @@ class _FakeContainer:
         pass
 
 
-class TestPyavEncoderThreadCap:
-    """libx264 left at its default thread count grabs every core and starves
-    the GUI/GL main thread, freezing the app during a long post-capture encode.
-    The encoder thread count is capped to cores-2 so it scales with the machine
-    while always leaving the main thread headroom."""
+class TestPyavEncoderSingleThreaded:
+    """libx264 is pinned single-threaded. A multi-threaded encoder builds a
+    worker pool whose teardown (x264_threadpool_delete) deadlocked on a lost
+    wakeup -- a long manual video froze an 8-core box AFTER the encode, blocked
+    forever joining an encoder thread. One thread builds no pool, so encoder
+    close cannot hang, and it cannot saturate every core either."""
 
-    def test_thread_count_capped_to_cores_minus_two(self, tmp_path):
+    def test_thread_count_is_one(self, tmp_path):
         fake_stream = _FakeStream()
         fake_av = mock.MagicMock()
         fake_av.open.return_value = _FakeContainer(fake_stream)
 
-        out = tmp_path / 'capped.mp4'
+        out = tmp_path / 'single.mp4'
         with mock.patch.object(video_writer_module, '_HAS_PYAV', True), \
-             mock.patch.object(video_writer_module, 'av', fake_av, create=True), \
-             mock.patch.object(video_writer_module.os, 'cpu_count', return_value=8):
+             mock.patch.object(video_writer_module, 'av', fake_av, create=True):
             VideoWriter(
                 output_path=out, fps=30, width=32, height=24,
                 color='Red', include_timestamp_overlay=False,
             )
 
-        assert fake_stream.thread_count == 6, '8 cores -> 8-2 = 6 encoder threads'
-
-    def test_thread_count_floor_is_one(self, tmp_path):
-        fake_stream = _FakeStream()
-        fake_av = mock.MagicMock()
-        fake_av.open.return_value = _FakeContainer(fake_stream)
-
-        out = tmp_path / 'floor.mp4'
-        with mock.patch.object(video_writer_module, '_HAS_PYAV', True), \
-             mock.patch.object(video_writer_module, 'av', fake_av, create=True), \
-             mock.patch.object(video_writer_module.os, 'cpu_count', return_value=1):
-            VideoWriter(
-                output_path=out, fps=30, width=32, height=24,
-                color='Red', include_timestamp_overlay=False,
-            )
-
-        assert fake_stream.thread_count == 1, 'never drops below a single thread'
+        assert fake_stream.thread_count == 1, 'no worker pool -> close cannot deadlock'
