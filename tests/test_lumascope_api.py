@@ -892,6 +892,41 @@ class TestRunGrabLifecycleBenchmark:
         except OSError:
             pass
 
+    def test_sdk_version_flows_into_diagnostic_info_and_filename(self, monkeypatch):
+        """The diagnostic snapshot must expose the imaging-SDK version, and
+        the benchmark must carry it into pylon_version + the artifact
+        filename. Without it every characterization file is tagged
+        'unknown_sdk' and can't be tied to the SDK that produced the numbers.
+        """
+        import os
+
+        scope = self._scope_with_camera()
+        # Pin a known SDK version regardless of whether pypylon is installed
+        # on the test host (absent on Mac / CI).
+        monkeypatch.setattr(
+            type(scope.diagnostics),
+            '_safe_pylon_versions',
+            staticmethod(
+                lambda: {'pypylon_version': '26.4.1', 'pylon_sdk_version': '11.5.0.1169'}
+            ),
+        )
+
+        info = scope.diagnostics.get_camera_diagnostic_info()
+        assert info.get('sdk_version') == '11.5.0.1169'
+
+        r = scope.diagnostics.run_grab_lifecycle_benchmark(num_cycles=2, inter_cycle_delay_ms=0)
+        assert r['pylon_version'] == '11.5.0.1169', (
+            'benchmark must read the SDK version from the diagnostic snapshot'
+        )
+        assert r['written_to'] is not None
+        filename = os.path.basename(r['written_to'])
+        assert 'unknown_sdk' not in filename
+        assert 'sdk11.5.0.1169' in filename
+        try:
+            os.remove(r['written_to'])
+        except OSError:
+            pass
+
 
 class TestScopeCapabilities:
     """Audit B7: ScopeCapabilities is the single source of truth for
