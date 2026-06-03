@@ -11738,3 +11738,42 @@ class TestPostProcessingLoggerImported:
             'NameError and hide the real OSError. Add '
             '`from lvp_logger import logger`.'
         )
+
+
+class TestWindowsMachinePredicateAgrees:
+    """lvp_logger and app_environment each derive the windows_machine flag
+    independently (lvp_logger is import-light and loads first, so it does not
+    import app_environment). They are allowed to stay separate ONLY because
+    both use the identical `os.name == 'nt'` predicate and therefore cannot
+    disagree. This pins that invariant: if either side switches predicates
+    (e.g. back to platform.system()), the two could diverge and this fails.
+    """
+
+    def _src(self, rel):
+        import pathlib
+
+        root = pathlib.Path(__file__).resolve().parent.parent
+        return (root / rel).read_text()
+
+    def test_lvp_logger_uses_os_name_predicate(self):
+        assert "os.name == 'nt'" in self._src('lvp_logger.py')
+
+    def test_app_environment_uses_os_name_predicate(self):
+        assert "os.name == 'nt'" in self._src('modules/app_environment.py')
+
+    def test_lvp_logger_does_not_import_app_environment(self):
+        # The independence is the point -- the foundational logger must not
+        # take an early-startup dependency on the heavier app_environment.
+        # Scan imports (not the whole source) so the explanatory comment,
+        # which names app_environment, does not trip the check.
+        import ast
+
+        tree = ast.parse(self._src('lvp_logger.py'))
+        imported = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom) and node.module:
+                imported.add(node.module)
+            elif isinstance(node, ast.Import):
+                for alias in node.names:
+                    imported.add(alias.name)
+        assert not any('app_environment' in m for m in imported)

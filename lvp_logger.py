@@ -25,6 +25,11 @@ import threading
 
 global windows_machine
 
+# Platform flag derived here independently of modules.app_environment's
+# identical os.name check, by design: lvp_logger is the lowest-level module
+# (imported before app_environment runs), so it owns its own check rather
+# than importing one. The predicate is identical in both, so the two copies
+# cannot disagree -- it is a constant, not divergent state.
 windows_machine = False
 
 # Thread-local storage for tracking paused threads
