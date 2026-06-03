@@ -52,7 +52,7 @@ To run from source on any platform (Windows, macOS, or Linux), use the install s
 - On Linux, check that your user is in the `dialout` group: `groups $USER`
 
 **"Python not found" or wrong version**
-- LumaViewPro requires Python 3.11, 3.12, or 3.13
+- LumaViewPro requires Python 3.12 or 3.13
 - On Windows, make sure "Add python.exe to PATH" was checked during installation
 - On macOS/Linux, try `python3 --version` to check your installed version
 
@@ -74,7 +74,7 @@ To report bugs or request features, please open an issue on [GitHub Issues](http
 
 ## Requirements (running from source)
 
-- **Python**: 3.11, 3.12, or 3.13
+- **Python**: 3.12 or 3.13
 - **Camera SDK**: [Basler Pylon](https://docs.baslerweb.com/pylon-software-suite) (included in the Windows installer, must be installed separately when running from source)
 - **OS**: Windows 10/11, macOS, Linux (see note below)
 
@@ -98,7 +98,7 @@ Add `--venv` to install in a virtual environment instead of system Python (e.g. 
 
 ### Manual Install: Windows
 
-1. **Install Python 3.11+** from [python.org](https://www.python.org/downloads/)
+1. **Install Python 3.12+** from [python.org](https://www.python.org/downloads/)
    - Check "Add python.exe to PATH"
    - Check "Install launcher for all users"
    - Click "Install Now"
@@ -128,7 +128,7 @@ Add `--venv` to install in a virtual environment instead of system Python (e.g. 
 
 ### Manual Install: macOS
 
-1. **Install Python 3.11+**
+1. **Install Python 3.12+**
    - Download from [python.org](https://www.python.org/downloads/macos/), or:
    ```bash
    brew install python@3.13
@@ -163,7 +163,7 @@ Add `--venv` to install in a virtual environment instead of system Python (e.g. 
 
 ### Manual Install: Linux
 
-1. **Install Python 3.11+ and system dependencies**
+1. **Install Python 3.12+ and system dependencies**
 
    Ubuntu/Debian:
    ```bash

@@ -1,6 +1,6 @@
 
 Kivy==2.3.1
-imagecodecs==2026.3.6
+imagecodecs==2026.5.10
 matplotlib==3.10.8
 numpy==2.4.4
 opencv-python-headless==4.13.0.92
@@ -9,7 +9,7 @@ pypylon==26.4.1
 pyserial==3.5
 scikit-image==0.26.0
 scipy==1.17.1
-tifffile==2026.3.3
+tifffile==2026.5.15
 platformdirs==4.4.0
 xarray==2026.2.0
 ids-peak==1.13.0.0.6

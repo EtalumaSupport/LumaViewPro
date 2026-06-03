@@ -34,7 +34,7 @@ elif command -v pacman &> /dev/null; then
         sdl2 sdl2_image sdl2_mixer sdl2_ttf
 else
     echo "Warning: Could not detect package manager."
-    echo "Please ensure Python 3.11+ and SDL2 development libraries are installed."
+    echo "Please ensure Python 3.12+ and SDL2 development libraries are installed."
 fi
 
 # --- Check Python version ---
@@ -48,7 +48,7 @@ PY_MAJOR=$(python3 -c "import sys; print(sys.version_info.major)")
 PY_MINOR=$(python3 -c "import sys; print(sys.version_info.minor)")
 
 if [ "$PY_MAJOR" -ne "$MIN_MAJOR" ] || [ "$PY_MINOR" -lt "$MIN_MINOR" ] || [ "$PY_MINOR" -gt "$MAX_MINOR" ]; then
-    echo "Error: Python $PY_VERSION found, but LumaViewPro requires Python 3.11, 3.12, or 3.13."
+    echo "Error: Python $PY_VERSION found, but LumaViewPro requires Python 3.12 or 3.13."
     echo "You may need to install a newer Python version from your package manager or https://www.python.org/downloads/"
     exit 1
 fi

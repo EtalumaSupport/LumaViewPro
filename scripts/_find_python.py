@@ -1,4 +1,4 @@
-"""Find the best Python 3.11-3.13 installation on Windows.
+"""Find the best Python 3.12-3.13 installation on Windows.
 
 Called by install_windows.bat. Prints ONLY the command to invoke
 the best Python found (e.g., "py -3.13") to stdout. Nothing else.
@@ -9,7 +9,7 @@ import shutil
 import subprocess
 import sys
 
-SUPPORTED = (11, 12, 13)
+SUPPORTED = (12, 13)
 
 
 def _check_python(cmd):
@@ -36,7 +36,7 @@ def main():
 
     # Try py launcher with specific versions (best approach on Windows)
     if shutil.which('py'):
-        for minor in reversed(SUPPORTED):  # 13, 12, 11
+        for minor in reversed(SUPPORTED):  # 13, 12
             result = _check_python(['py', f'-3.{minor}'])
             if result and result > best_minor:
                 best_minor = result
