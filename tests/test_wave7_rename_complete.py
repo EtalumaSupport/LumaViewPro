@@ -378,7 +378,6 @@ IMAGING_ONLY_METHODS = frozenset(
         'get_height',
         'get_image',
         'get_image_from_buffer',
-        'get_image_with_chunks_from_buffer',
         'get_max_height',
         'get_max_width',
         'get_pixel_format',

@@ -3746,33 +3746,6 @@ class ImageHandler(pylon.ImageEventHandler):
 
         return self._base.get_last_image()
 
-    def get_last_image_with_chunks(self) -> tuple:
-        """Return ``(success, image, timestamp, chunks)`` with validity guard.
-
-        Atomic snapshot of frame + chunks under one lock acquisition in
-        the base handler; see ``ImageHandlerBase.get_last_image_with_chunks``
-        for the rationale. This wrapper applies the same parent-camera
-        validity check as ``get_last_image``: a frame from a no-longer-
-        attached device is suppressed rather than returned.
-
-        Used by the manual-record path (``drivers/camera.py``
-        ``grab_latest_with_chunks``) so per-frame TIFF metadata pairs
-        with the correct image.
-
-        Returns:
-            tuple: ``(success: bool, image: ndarray | None,
-                timestamp: float | None, chunks: dict | None)``.
-        """
-        try:
-            if self._parent._device_removed:
-                return False, None, None, None
-            if self._parent.active is None:
-                return False, None, None, None
-        except Exception:
-            return False, None, None, None
-
-        return self._base.get_last_image_with_chunks()
-
     def register_frame_callback(self, cb) -> None:
         """Composition delegate to ``ImageHandlerBase.register_frame_callback``."""
         self._base.register_frame_callback(cb)

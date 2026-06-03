@@ -160,8 +160,7 @@ class ImagingAPI:
         self._frame_listener_lock = threading.Lock()
         self._frame_listener_wrappers: dict = {}
 
-        # Latest captured frame; populated by get_image_from_buffer /
-        # get_image_with_chunks_from_buffer.
+        # Latest captured frame; populated by get_image_from_buffer.
         self._frame_buffer = None
 
         # Boolean operation flags -- threading.Event for wait/signal.
@@ -1643,51 +1642,6 @@ class ImagingAPI:
             image = image_utils.convert_12bit_to_8bit(image)
 
         return image
-
-    def get_image_with_chunks_from_buffer(
-        self,
-        force_to_8bit: bool = True,
-    ) -> tuple:
-        """Like ``get_image_from_buffer`` but also returns the per-frame chunks dict.
-
-        Atomic snapshot: image + timestamp + chunks all came from the same
-        grab. Used by the manual-record path so per-frame TIFF metadata
-        reflects the camera-side chunk values for that exact frame (not
-        a later frame's chunks paired with this frame's image).
-
-        Returns:
-            tuple: ``(image, timestamp, chunks)`` or ``(None, None, None)``
-                if no frame is available. Chunks may be None for cameras
-                without chunk support. Per the Sentinel-return contract:
-                ``if image is None: ...`` to detect no-frame.
-        """
-        if not self._driver or not self._driver.active:
-            return None, None, None
-
-        grab_status, tmp, grab_image_ts, chunks = self._driver.grab_latest_with_chunks()
-        if not grab_status or tmp is None:
-            return None, None, None
-        self.frame_validity.count_frame(chunk_data=chunks)
-
-        with self._state_lock:
-            self._frame_buffer = tmp
-
-        use_scale_bar = self._scale_bar['enabled']
-        if self._scope.runtime_state._objective is None:
-            use_scale_bar = False
-
-        if use_scale_bar:
-            tmp = image_utils.add_scale_bar(
-                image=tmp,
-                objective=self._scope.runtime_state._objective,
-                binning_size=self._binning_size,
-                color=self._scale_bar.get('color'),
-            )
-
-        if force_to_8bit and tmp.dtype != np.uint8:
-            tmp = image_utils.convert_12bit_to_8bit(tmp)
-
-        return tmp, grab_image_ts, chunks
 
     def get_image_from_buffer(
         self, force_to_8bit: bool = True, out_8bit: np.ndarray | None = None

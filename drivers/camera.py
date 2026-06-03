@@ -50,23 +50,6 @@ class ImageHandlerBase:
                 return False, None, None
             return True, self.last_img, self.last_img_ts
 
-    def get_last_image_with_chunks(self):
-        """Return (success, image, timestamp, chunks). Atomic snapshot.
-
-        Chunks are stored alongside the frame in `_store_frame` under the
-        same lock, so reading both fields under one lock acquisition
-        guarantees they came from the same frame. Without this, a caller
-        that does `get_last_image()` followed by `get_last_chunks()` can
-        observe image-N paired with chunks-N+1 if `_store_frame` runs in
-        between (the camera thread grabs frames concurrently with the
-        consumer thread). Used by the manual-record path so per-frame
-        TIFF metadata is correct.
-        """
-        with self._frame_lock:
-            if not self.last_result:
-                return False, None, None, None
-            return True, self.last_img, self.last_img_ts, self.last_chunks
-
     def get_last_chunks(self) -> dict | None:
         """Return per-frame chunk metadata for the most recent successful grab.
 
@@ -700,36 +683,6 @@ class Camera(ABC):
         if not self.cam_image_handler:
             return
         self.cam_image_handler.unregister_frame_callback(cb)
-
-    def grab_latest_with_chunks(self) -> tuple:
-        """Like grab_latest, plus an atomic snapshot of the per-frame chunks dict.
-
-        Used by the manual-record path so per-frame TIFF metadata reflects
-        the chunks captured at the same grab as the image. Cameras without
-        chunk support return chunks=None; downstream metadata writers
-        gracefully skip the chunk-derived fields.
-
-        Returns:
-            tuple: ``(success: bool, image: np.ndarray | None,
-                timestamp: datetime | None, chunks: dict | None)``.
-        """
-        with self._state_lock:
-            if self._active is None or self._device_removed:
-                return False, None, None, None
-
-        if not self.cam_image_handler:
-            return False, None, None, None
-
-        try:
-            result, image, image_ts, chunks = self.cam_image_handler.get_last_image_with_chunks()
-            if not result or image is None:
-                return False, None, None, None
-            with self._array_lock:
-                self.array = image
-            return True, image, image_ts, chunks
-        except Exception as ex:
-            _cam_log.exception(f'[CAM Class ] grab_latest_with_chunks() failed: {ex}')
-            return False, None, None, None
 
     @abstractmethod
     def grab_new_capture(self, timeout_s: float) -> tuple:
