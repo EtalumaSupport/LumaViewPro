@@ -39,6 +39,9 @@ except ImportError:
     logger = logging.getLogger(__name__)
 
 
+# Diagnostic trace gate, toggled explicitly via enable() / disable() (not
+# mirrored from a setting). Single global owning its own on/off state -- not
+# the divergent cached-copy shape; reads here always see the latest toggle.
 ENABLE_PROFILE_TRACE = False
 _output_dir = None
 _lock = threading.Lock()

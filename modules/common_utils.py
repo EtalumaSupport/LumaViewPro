@@ -884,6 +884,9 @@ def _read_tracemalloc_gate():
     return load_tracemalloc_setting(base_dir)
 
 
+# Read once at import from the tracemalloc_enabled setting. This is a
+# diagnostic gate, not the runtime-toggleable debug_mode shape: there is no
+# setter, so flipping the setting takes effect only on the next restart.
 _tracemalloc_enabled = _read_tracemalloc_gate()
 
 
