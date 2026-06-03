@@ -1,6 +1,7 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 
 import datetime
+import os
 import pathlib
 import threading
 
@@ -95,15 +96,16 @@ class VideoWriter:
         try:
             self._container = av.open(str(self._output_path), mode='w')
             self._stream = self._container.add_stream('libx264', rate=int(self._fps))
-            # Single-threaded on purpose. A multi-threaded libx264 builds a
-            # worker pool whose teardown (x264_threadpool_delete inside encoder
-            # close) can deadlock on a lost wakeup: a long manual video froze an
-            # 8-core box AFTER the encode finished, blocked forever joining an
-            # encoder thread at zero CPU. One thread builds no pool, so close
-            # cannot hang -- and it cannot saturate every core and starve the
-            # GUI either. Cost is a slower encode, but it runs on a background
-            # worker and the ultrafast preset keeps it bounded.
-            self._stream.thread_count = 1
+            # Multi-threaded libx264, capped to cores-2 so the encode scales
+            # with the machine but always leaves headroom for the GUI/GL main
+            # thread (uncapped it grabs every core and froze the GUI mid-encode
+            # on an 8-core box). This was previously pinned to 1 thread to dodge
+            # a lost-wakeup deadlock in libx264's thread-pool teardown
+            # (x264_threadpool_delete on encoder close, which hung an 8-core box
+            # AFTER the encode finished); the libx264 bundled with av 17.0.1
+            # fixes that teardown, so the worker pool is safe again. Revert to
+            # thread_count = 1 if the encoder-close deadlock ever returns.
+            self._stream.thread_count = max(1, (os.cpu_count() or 4) - 2)
             self._stream.width = width
             self._stream.height = height
             self._stream.pix_fmt = 'yuv420p'
