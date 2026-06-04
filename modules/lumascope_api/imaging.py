@@ -1910,6 +1910,15 @@ class ImagingAPI:
             max_gain_db=max_gain_db,
             ae_max_exposure_ms=ae_max_exposure_ms,
         )
+        # One-shot AG changes both gain and exposure on the camera; the
+        # pipeline still needs frames to flush the converged values, so
+        # the validity marker must go RED until they settle. The converged
+        # values are chosen by the SDK, so clear any manual chunk-match
+        # target and fall back to skip-frames settling.
+        self.frame_validity.invalidate('gain')
+        self.frame_validity.invalidate('exposure')
+        self.frame_validity.set_target('gain', None)
+        self.frame_validity.set_target('exposure', None)
         # One-shot AG always ends with the auto cycle complete and the
         # SDK toggled back to Off internally; hardware holds the
         # converged value while LVP's cache is still pre-auto.

@@ -123,6 +123,39 @@ class TestSetExposureAlwaysInvalidatesDespiteStaleCache:
         assert 'exposure' in imaging.frame_validity.pending_sources
 
 
+class TestAutoGainOnceInvalidates:
+    """One-shot auto-gain mutates gain AND exposure on the camera but
+    historically called no invalidate at all -- a capture right after
+    could grab before the converged values flushed the pipeline."""
+
+    def test_auto_gain_once_turns_marker_red(self, sim_imaging):
+        imaging, cam = sim_imaging
+        imaging.set_gain(5.0)
+        imaging.frame_validity.reset()
+        assert imaging.frame_validity.is_valid
+        imaging.auto_gain_once(
+            state=True,
+            target_brightness=0.5,
+            min_gain_db=0.0,
+            max_gain_db=24.0,
+        )
+        assert not imaging.frame_validity.is_valid, (
+            'auto_gain_once must invalidate frame validity; it changes '
+            'gain and exposure on the camera'
+        )
+        pending = imaging.frame_validity.pending_sources
+        assert 'gain' in pending and 'exposure' in pending
+
+    def test_auto_gain_once_body_invalidates_gain_and_exposure(self):
+        body = _method_body(_imaging_src(), 'auto_gain_once')
+        assert "invalidate('gain')" in body, (
+            'auto_gain_once must invalidate the gain source'
+        )
+        assert "invalidate('exposure')" in body, (
+            'auto_gain_once must invalidate the exposure source'
+        )
+
+
 class TestNoCacheEqualitySkipInSetters:
     """Source contract: neither setter early-returns on a cache-equality
     check before invalidating. Locks the fix against revert drift. The
