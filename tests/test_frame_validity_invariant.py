@@ -21,6 +21,7 @@ import re
 import threading
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 from drivers.simulated_camera import SimulatedCamera
@@ -226,6 +227,34 @@ class TestGeometryFormatInvalidates:
     def test_set_binning_size_body_invalidates(self):
         body = _method_body(_imaging_src(), 'set_binning_size')
         assert "invalidate('binning')" in body
+
+
+class TestSaturationGuard:
+    """The save-path saturation check must catch a near-fully-saturated
+    (blown) frame and surface it, instead of only catching the all-pixels-
+    exactly-max case and then accepting it silently."""
+
+    def test_saturated_fraction_math(self):
+        full8 = np.full((4, 4), 255, dtype=np.uint8)
+        empty8 = np.zeros((4, 4), dtype=np.uint8)
+        assert ImagingAPI._saturated_fraction(full8) == pytest.approx(1.0)
+        assert ImagingAPI._saturated_fraction(empty8) == pytest.approx(0.0)
+        # A 12-bit-in-uint16 frame just below full scale still reads as
+        # saturated (the near-max threshold, not exact-max).
+        near16 = np.full((2, 2), int(65535 * 0.995), dtype=np.uint16)
+        assert ImagingAPI._saturated_fraction(near16) == pytest.approx(1.0)
+        assert ImagingAPI._saturated_fraction(None) == 0.0
+
+    def test_blown_frame_surfaced_not_silent(self):
+        body = _method_body(_imaging_src(), 'get_image')
+        assert 'notifications.warning' in body, (
+            'a blown/saturated capture must surface a warning instead of '
+            'being saved silently'
+        )
+        # The prior near-useless all-pixels-exactly-max check + silent
+        # debug-accept must be gone.
+        assert 'saturated frame confirmed on retry' not in body
+        assert '_saturated_fraction' in body
 
 
 class TestNoCacheEqualitySkipInSetters:

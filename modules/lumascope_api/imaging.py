@@ -1476,6 +1476,21 @@ class ImagingAPI:
             return fut.result(timeout=timeout_s)
         return None
 
+    # A frame at least this saturated is treated as blown -- a stale-gain
+    # or over-exposure symptom. Set high so a legitimately bright field
+    # does not trip it; a true blown-white frame saturates essentially
+    # every pixel. Surfaced (warn + notify) rather than saved silently.
+    _SATURATION_NEAR_MAX_FRACTION = 0.99  # pixel >= 99% of full scale = saturated
+    _SATURATION_BLOWN_FRACTION = 0.98  # >= 98% of pixels saturated = blown frame
+
+    @staticmethod
+    def _saturated_fraction(arr: np.ndarray | None) -> float:
+        """Fraction of pixels at or above the near-full-scale threshold."""
+        if arr is None or arr.size == 0:
+            return 0.0
+        near_max = np.iinfo(arr.dtype).max * ImagingAPI._SATURATION_NEAR_MAX_FRACTION
+        return float(np.count_nonzero(arr >= near_max)) / arr.size
+
     def get_image(
         self,
         force_to_8bit: bool = True,
@@ -1573,10 +1588,11 @@ class ImagingAPI:
                     time.sleep(0.05)
                     continue
 
-                if all_ones_check and not np.any(tmp != np.iinfo(tmp.dtype).max):
-                    # Saturated frame -- retry once to confirm, then accept.
-                    # Saturated images are valid data (exposure/illumination
-                    # too high), not a camera error. Don't loop until timeout.
+                if all_ones_check and self._saturated_fraction(tmp) >= self._SATURATION_BLOWN_FRACTION:
+                    # Near-fully-saturated frame -- retry once in case it was a
+                    # transient blip, then surface it. A blown frame is usually
+                    # an over-exposure or stale-camera-gain symptom; accepting it
+                    # silently (the prior behavior) hid real data corruption.
                     retry_frame = None
                     with self._cam_lock:
                         retry_status, _ = (
@@ -1589,13 +1605,26 @@ class ImagingAPI:
                             retry_frame = self._driver.get_array()
                     # Saturation walk is outside cam_lock -- no camera state needed,
                     # and the walk would otherwise block concurrent set_gain/set_exposure.
-                    if retry_frame is not None:
-                        if np.any(retry_frame != np.iinfo(retry_frame.dtype).max):
-                            tmp = retry_frame  # retry was OK, use it
-                        else:
-                            logger.debug(
-                                '[SCOPE API ] get_image: saturated frame confirmed on retry'
-                            )
+                    if (
+                        retry_frame is not None
+                        and self._saturated_fraction(retry_frame) < self._SATURATION_BLOWN_FRACTION
+                    ):
+                        tmp = retry_frame  # retry was clean, use it
+                    else:
+                        sat_pct = self._saturated_fraction(tmp) * 100.0
+                        logger.warning(
+                            f'[SCOPE API ] get_image: captured frame is {sat_pct:.0f}% '
+                            f'saturated -- check exposure and gain; a stale camera gain '
+                            f'can blow a whole channel and the frame may be unusable.'
+                        )
+                        from modules.notification_center import notifications
+
+                        notifications.warning(
+                            'Capture',
+                            'Saturated image',
+                            'A captured image came out almost fully white. Check this '
+                            'channel exposure and gain -- the frame may be unusable.',
+                        )
 
                 # Accept the frame
                 if earliest_image_ts is None:
