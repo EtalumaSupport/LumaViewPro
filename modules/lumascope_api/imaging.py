@@ -1509,6 +1509,12 @@ class ImagingAPI:
         to trigger a fresh capture. Multiple frames can be summed for noise
         reduction via sum_count.
 
+        This is the ungated primitive: it does NOT wait for frame validity,
+        so the returned frame may not reflect a just-changed gain, exposure,
+        LED, or stage position. For any frame you will SAVE or MEASURE as
+        truth, call capture_and_wait, which drains the camera pipeline until
+        the validity marker is GREEN before grabbing.
+
         Args:
             force_to_8bit: Convert 12-bit images to 8-bit output.
             earliest_image_ts: Reject frames captured before this timestamp.
