@@ -390,12 +390,13 @@ class ImagingAPI:
         """
         if not self._driver or not self._driver.active:
             return
-        # Always drive the setter and invalidate before the SDK write. A
-        # software-cache equality skip here once let a cache that had
-        # desynced from hardware short-circuit the invalidate, so a frame
-        # at a stale gain was captured as valid. Redundant-write avoidance
-        # belongs in the driver, which compares against the live hardware
-        # value (cannot desync), not against this cache.
+        # The validity invalidate must NEVER be gated by the software cache:
+        # a cache desynced from hardware once short-circuited it, so a frame
+        # at a stale gain was captured as valid. Always invalidate + drive the
+        # setter (the driver compares against live hardware and skips a truly
+        # redundant SDK write). The cache-equality check gates only the UI
+        # listener + info log, where a missed redundant update is harmless.
+        changed = abs(float(gain_db) - self.camera_gain) >= 0.001
         with self._cam_lock:
             self._driver.gain(gain_db)
         self.frame_validity.invalidate('gain')
@@ -404,8 +405,9 @@ class ImagingAPI:
         self.frame_validity.set_target('gain', float(gain_db))
         with self._camera_cache_lock:
             self._camera_cache['gain_db'] = float(gain_db)
-        _api_log.info(f'set_gain {gain_db}dB')
-        self._fire_camera_listeners('gain', float(gain_db))
+        if changed:
+            _api_log.info(f'set_gain {gain_db}dB')
+            self._fire_camera_listeners('gain', float(gain_db))
 
     def set_exposure_time(self, exposure_ms: float) -> None:
         """Set the camera exposure time.
@@ -415,10 +417,11 @@ class ImagingAPI:
         """
         if not self._driver or not self._driver.active:
             return
-        # No software-cache equality skip here: a cache desynced from
-        # hardware once short-circuited the invalidate below, capturing a
-        # frame at a stale exposure as valid. The driver avoids the
-        # redundant SDK write against the live hardware value instead.
+        # The validity invalidate must never be gated by the software cache:
+        # a cache desynced from hardware once short-circuited it, capturing a
+        # frame at a stale exposure as valid. Always invalidate + drive the
+        # setter; the cache-equality check gates only the UI listener + log.
+        changed = abs(float(exposure_ms) - self.camera_exposure_ms) >= 0.001
         # Sanity-check threshold: 5 microseconds. Pylon physical
         # ExposureTime minimum across Basler USB3 sensors is 10-35 us;
         # below 5 us is impossible on any sensor we ship with and
@@ -445,8 +448,9 @@ class ImagingAPI:
         self.frame_validity.set_target('exposure', float(exposure_ms) * 1000.0)
         with self._camera_cache_lock:
             self._camera_cache['exposure_ms'] = float(exposure_ms)
-        _api_log.info(f'set_exposure {exposure_ms}ms')
-        self._fire_camera_listeners('exposure', float(exposure_ms))
+        if changed:
+            _api_log.info(f'set_exposure {exposure_ms}ms')
+            self._fire_camera_listeners('exposure', float(exposure_ms))
 
     def set_auto_gain(self, state: bool, settings: dict) -> None:
         """Enable or disable automatic gain adjustment.
@@ -1617,19 +1621,14 @@ class ImagingAPI:
                     ):
                         tmp = retry_frame  # retry was clean, use it
                     else:
+                        # Log (not notify): a blown frame is self-evident on
+                        # screen and in the saved file, so a popup adds nothing.
+                        # The log line is for the post-mortem / log-analysis pass.
                         sat_pct = self._saturated_fraction(tmp) * 100.0
                         logger.warning(
                             f'[SCOPE API ] get_image: captured frame is {sat_pct:.0f}% '
-                            f'saturated -- check exposure and gain; a stale camera gain '
-                            f'can blow a whole channel and the frame may be unusable.'
-                        )
-                        from modules.notification_center import notifications
-
-                        notifications.warning(
-                            'Capture',
-                            'Saturated image',
-                            'A captured image came out almost fully white. Check this '
-                            'channel exposure and gain -- the frame may be unusable.',
+                            f'saturated -- likely over-exposure or a stale camera gain; '
+                            f'the frame may be unusable.'
                         )
 
                 # Accept the frame

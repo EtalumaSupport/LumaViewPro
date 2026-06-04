@@ -245,14 +245,14 @@ class TestSaturationGuard:
         assert ImagingAPI._saturated_fraction(near16) == pytest.approx(1.0)
         assert ImagingAPI._saturated_fraction(None) == 0.0
 
-    def test_blown_frame_surfaced_not_silent(self):
+    def test_blown_frame_logged_not_silent(self):
         body = _method_body(_imaging_src(), 'get_image')
-        assert 'notifications.warning' in body, (
-            'a blown/saturated capture must surface a warning instead of '
-            'being saved silently'
+        # A blown frame must be logged as a warning (visible in the
+        # post-mortem), replacing the prior silent debug-accept. No user
+        # notification -- a blown image is self-evident on screen.
+        assert 'logger.warning' in body and 'saturated' in body, (
+            'a blown/saturated capture must be logged as a warning'
         )
-        # The prior near-useless all-pixels-exactly-max check + silent
-        # debug-accept must be gone.
         assert 'saturated frame confirmed on retry' not in body
         assert '_saturated_fraction' in body
 
