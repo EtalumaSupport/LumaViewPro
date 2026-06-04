@@ -99,7 +99,9 @@ class IDSCamera(Camera):
         except ConnectionError as er:
             _cam_log.warning(f'[CAM Class ] IDS camera connect failed: {er}')
         except Exception as ex:
-            _cam_log.exception(f'[CAM Class ] IDS camera connect failed: {ex}')
+            # No-device / no-GenTL-path is the common case here and is an
+            # expected probe outcome; log the type + message, not the stack.
+            _cam_log.error(f'[CAM Class ] IDS camera connect failed: {type(ex).__name__}: {ex}')
             # Clean up partial state on failure
             self.active = None
             self.remote_nodemap = None

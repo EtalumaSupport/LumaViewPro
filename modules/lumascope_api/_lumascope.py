@@ -194,7 +194,7 @@ def _try_connect_board(label, ctor, null_ctor):
         )
         return null_ctor()
     except Exception as e:
-        logger.error(f'{label}: connect failed: {type(e).__name__}: {e}', exc_info=True)
+        logger.error(f'{label}: connect failed: {type(e).__name__}: {e}')
         _notify_board_failure(
             label, 'connect failed', f'Could not connect to {label}: {type(e).__name__}: {e}'
         )
@@ -426,7 +426,10 @@ class Lumascope:
                 self._camera_driver.load_cycle_images()
                 logger.info('[SCOPE API ] Using SIMULATED Camera')
         except Exception as _cam_exc:
-            logger.exception('[SCOPE API ] Camera Board Not Initialized')
+            logger.error(
+                f'[SCOPE API ] Camera Board Not Initialized: '
+                f'{type(_cam_exc).__name__}: {_cam_exc}'
+            )
             # Prior behavior logged only; the user saw no popup and
             # every camera-dependent UI action silently returned None/False.
             # Same pattern #632/#539 fixed for the LED + motor boards.
