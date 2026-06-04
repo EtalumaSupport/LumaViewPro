@@ -390,9 +390,12 @@ class ImagingAPI:
         """
         if not self._driver or not self._driver.active:
             return
-        # Skip redundant SDK call if gain hasn't changed
-        if abs(float(gain_db) - self.camera_gain) < 0.001:
-            return
+        # Always drive the setter and invalidate before the SDK write. A
+        # software-cache equality skip here once let a cache that had
+        # desynced from hardware short-circuit the invalidate, so a frame
+        # at a stale gain was captured as valid. Redundant-write avoidance
+        # belongs in the driver, which compares against the live hardware
+        # value (cannot desync), not against this cache.
         with self._cam_lock:
             self._driver.gain(gain_db)
         self.frame_validity.invalidate('gain')
@@ -412,9 +415,10 @@ class ImagingAPI:
         """
         if not self._driver or not self._driver.active:
             return
-        # Skip redundant SDK call if exposure hasn't changed
-        if abs(float(exposure_ms) - self.camera_exposure_ms) < 0.001:
-            return
+        # No software-cache equality skip here: a cache desynced from
+        # hardware once short-circuited the invalidate below, capturing a
+        # frame at a stale exposure as valid. The driver avoids the
+        # redundant SDK write against the live hardware value instead.
         # Sanity-check threshold: 5 microseconds. Pylon physical
         # ExposureTime minimum across Basler USB3 sensors is 10-35 us;
         # below 5 us is impossible on any sensor we ship with and
