@@ -200,6 +200,34 @@ class TestMotionValiditySources:
         )
 
 
+class TestGeometryFormatInvalidates:
+    """Pixel-format, frame-size, and binning changes realloc the camera
+    buffer / restart the grab engine; each must turn the marker RED so a
+    capture waits for the old geometry to flush."""
+
+    def test_geometry_sources_registered(self):
+        from modules.frame_validity import FrameValidity
+
+        for source in ('pixel_format', 'frame_size', 'binning'):
+            assert source in FrameValidity.SKIP_FRAMES, (
+                f'{source} must be a known frame-validity source'
+            )
+
+    def test_set_frame_size_turns_marker_red(self, sim_imaging):
+        imaging, _cam = sim_imaging
+        imaging.frame_validity.reset()
+        imaging.set_frame_size(640, 480)
+        assert 'frame_size' in imaging.frame_validity.pending_sources
+
+    def test_set_pixel_format_body_invalidates(self):
+        body = _method_body(_imaging_src(), 'set_pixel_format')
+        assert "invalidate('pixel_format')" in body
+
+    def test_set_binning_size_body_invalidates(self):
+        body = _method_body(_imaging_src(), 'set_binning_size')
+        assert "invalidate('binning')" in body
+
+
 class TestNoCacheEqualitySkipInSetters:
     """Source contract: neither setter early-returns on a cache-equality
     check before invalidating. Locks the fix against revert drift. The

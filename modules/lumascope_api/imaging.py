@@ -513,6 +513,7 @@ class ImagingAPI:
             self._notify_camera_absent('frame size')
             return
         self._driver.set_frame_size(w, h)
+        self.frame_validity.invalidate('frame_size')
         with self._camera_cache_lock:
             self._camera_cache['frame_size'] = {'width': int(w), 'height': int(h)}
 
@@ -560,6 +561,8 @@ class ImagingAPI:
             else:
                 ok = False
                 self._notify_camera_absent('binning')
+            if ok:
+                self.frame_validity.invalidate('binning')
             _api_log.info(f'set_binning {size}x{size} -> {ok}')
             return ok
         except Exception as ex:
@@ -604,6 +607,7 @@ class ImagingAPI:
             )
             return False
         if result:
+            self.frame_validity.invalidate('pixel_format')
             with self._camera_cache_lock:
                 self._camera_cache['pixel_format'] = pixel_format
         return result
