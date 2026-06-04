@@ -1,4 +1,4 @@
 4.0.0-beta15
-2026-06-03 23:22
+2026-06-03 23:24
 fix/frame-validity-invariant
-ba67d687
+95cf1c6f

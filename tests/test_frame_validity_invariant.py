@@ -26,6 +26,7 @@ import pytest
 from drivers.simulated_camera import SimulatedCamera
 from modules.lumascope_api import Lumascope
 from modules.lumascope_api.imaging import ImagingAPI
+from modules.lumascope_api.motion import MotionAPI
 
 
 @pytest.fixture
@@ -49,6 +50,15 @@ def _imaging_src() -> str:
         / 'modules'
         / 'lumascope_api'
         / 'imaging.py'
+    ).read_text(encoding='utf-8')
+
+
+def _motion_src() -> str:
+    return (
+        Path(__file__).resolve().parent.parent
+        / 'modules'
+        / 'lumascope_api'
+        / 'motion.py'
     ).read_text(encoding='utf-8')
 
 
@@ -153,6 +163,40 @@ class TestAutoGainOnceInvalidates:
         )
         assert "invalidate('exposure')" in body, (
             'auto_gain_once must invalidate the exposure source'
+        )
+
+
+class TestMotionValiditySources:
+    """Turret moves must record the 'turret' source (so the settle-check
+    gates on the turret reaching IDLE, not X/Y); xycenter must invalidate
+    at all."""
+
+    def test_turret_axis_maps_to_turret_source(self):
+        assert MotionAPI._AXIS_VALIDITY_SOURCE.get('T', 'xy_move') == 'turret'
+
+    def test_z_axis_maps_to_z_move(self):
+        assert MotionAPI._AXIS_VALIDITY_SOURCE.get('Z', 'xy_move') == 'z_move'
+
+    def test_xy_axes_default_to_xy_move(self):
+        assert MotionAPI._AXIS_VALIDITY_SOURCE.get('X', 'xy_move') == 'xy_move'
+        assert MotionAPI._AXIS_VALIDITY_SOURCE.get('Y', 'xy_move') == 'xy_move'
+
+    def test_move_sites_route_through_axis_mapping(self):
+        src = _motion_src()
+        # The old 2-way ternary mis-routed a turret move to 'xy_move'.
+        assert "'z_move' if axis == 'Z' else 'xy_move'" not in src, (
+            'move sites must use the axis->source mapping, not the 2-way '
+            'ternary that mis-routed turret moves to xy_move'
+        )
+        for name in ('move_absolute_position', 'move_relative_position'):
+            assert '_AXIS_VALIDITY_SOURCE' in _method_body(src, name), (
+                f'{name} must invalidate via the axis->source mapping'
+            )
+
+    def test_xycenter_invalidates_xy_move(self):
+        body = _method_body(_motion_src(), 'xycenter')
+        assert "invalidate('xy_move')" in body, (
+            'xycenter physically moves X/Y but recorded no validity source'
         )
 
 
