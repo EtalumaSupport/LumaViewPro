@@ -30,7 +30,7 @@
 		  <Component Id="MarkerFileComponent" Guid="f5103a8e-44d6-4214-aa02-73843c670f6d">
 			  <File Id="MarkerFile"
 					Name="marker.lvpinstalled"
-					Source="$(var.ProjectDir)marker.lvpinstalled"
+					Source="$(var.ProjectDir)\marker.lvpinstalled"
 					KeyPath="yes"
 					Vital="yes" />
 		  </Component>

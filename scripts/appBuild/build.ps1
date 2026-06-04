@@ -474,7 +474,11 @@ $msi_args = @(
     'build', '-arch', 'x64',
     '-d', "InstallFolderDir=$install",
     '-d', "InstallerAssetsDir=$installer_assets_dir",
-    '-d', "ProjectDir=$wix_dir\",
+    # No trailing backslash: a quoted native-command arg ending in '\'
+    # makes the closing quote escape, which corrupts the whole arg list
+    # once $wix_dir contains a space (e.g. a user profile with a space).
+    # Package.wxs supplies the path separator, same as InstallFolderDir.
+    '-d', "ProjectDir=$wix_dir",
     '-d', "ProductName=$product",
     '-d', "Version=$wix_ver"
 )
