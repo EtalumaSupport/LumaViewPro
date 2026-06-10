@@ -232,10 +232,9 @@ class ProtocolPostProcessor(abc.ABC):
             )
             if last_error is not None:
                 # Usable groups WERE found and attempted, but every one failed
-                # in the algorithm (e.g. ImageJ/Java not available for a
-                # Z-Projection). Surface the real failure instead of implying
-                # the folder lacked the data -- the prior message sent users
-                # hunting for missing Z-stacks when the operation itself broke.
+                # in the algorithm itself. Surface the real failure instead of
+                # implying the folder lacked the data -- the prior message sent
+                # users hunting for missing Z-stacks when the operation broke.
                 logger.info(
                     f'[{self._name} ] No {fname} output -- all groups failed: {last_error}'
                 )

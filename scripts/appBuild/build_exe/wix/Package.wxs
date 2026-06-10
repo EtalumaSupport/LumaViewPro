@@ -30,7 +30,7 @@
 		  <Component Id="MarkerFileComponent" Guid="f5103a8e-44d6-4214-aa02-73843c670f6d">
 			  <File Id="MarkerFile"
 					Name="marker.lvpinstalled"
-					Source="$(var.ProjectDir)marker.lvpinstalled"
+					Source="$(var.ProjectDir)\marker.lvpinstalled"
 					KeyPath="yes"
 					Vital="yes" />
 		  </Component>
@@ -72,11 +72,6 @@
 		  </Component>
 	  </StandardDirectory>
 	  
-	  <Component Id="pathComponentMaven" Guid="a096f34d-64fb-48af-ac95-1f24648ce759" KeyPath="yes">
-		  <CreateFolder />
-		  <Environment Id="PATH" Name="PATH" Value="[INSTALLFOLDER]apache-maven-3.9.8\bin" Permanent="no" Part="last" Action="set" System="yes" />
-
-	  </Component>
 	  <Component Id="pathComponentLVPInstall" Guid="e2ae148c-3520-454f-9cf7-4f5aca7ca6bd" KeyPath="yes">
 		  <CreateFolder />
 		  <Environment Id="LVPINSTALL" Name="LVP_INSTALLED" Value="True" Permanent="no" Part="last" Action="set" System="yes"/>

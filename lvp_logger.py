@@ -577,8 +577,13 @@ def _collect_installed_packages() -> dict:
     return dict(sorted(packages.items(), key=lambda kv: kv[0].lower()))
 
 
-def log_environment_banner(source_path: str, version_str: str):
+def log_environment_banner(install_path: str, version_str: str):
     """Emit the standard launch-time environment fingerprint.
+
+    ``install_path`` is the directory the executable runs from -- where
+    version.txt and .git_archival.txt ship. On an installed build this is
+    the install root, NOT the per-user data directory; on a source/dev run
+    the two coincide.
 
     Logs git hash, run time, host/OS, Python interpreter + version, Kivy,
     and camera SDK versions (pypylon binding + Pylon SDK runtime,
@@ -606,7 +611,7 @@ def log_environment_banner(source_path: str, version_str: str):
     _branch = ''
     _build_guid = ''
     try:
-        with open(os.path.join(source_path, 'version.txt')) as _vf:
+        with open(os.path.join(install_path, 'version.txt')) as _vf:
             _lines = _vf.read().splitlines()
             if len(_lines) >= 2:
                 _built = _lines[1].strip()
@@ -614,8 +619,8 @@ def log_environment_banner(source_path: str, version_str: str):
                 _branch = _lines[2].strip()
             if len(_lines) >= 4:
                 _build_guid = _lines[3].strip()
-    except Exception:
-        pass
+    except Exception as _e:
+        logger.debug(f'[LVP Main  ] version.txt not read from {install_path}: {_e}')
     logger.info(f'[LVP Main  ] Built:     {_built or "unknown"}')
     logger.info(f'[LVP Main  ] Branch:    {_branch or "unknown"}')
     logger.info(f'[LVP Main  ] BuildGUID: {_build_guid or "unknown"}')
@@ -638,7 +643,7 @@ def log_environment_banner(source_path: str, version_str: str):
     # Branch + Built + BuildGUID for triage.
     _git_hash = None
     try:
-        with open(os.path.join(source_path, '.git_archival.txt')) as _af:
+        with open(os.path.join(install_path, '.git_archival.txt')) as _af:
             for _line in _af:
                 if _line.startswith('node: ') and not _line.startswith('node: $Format'):
                     _git_hash = _line.split(': ', 1)[1].strip()[:12]
@@ -652,7 +657,7 @@ def log_environment_banner(source_path: str, version_str: str):
             _git_hash = (
                 subprocess.check_output(
                     ['git', 'rev-parse', '--short', 'HEAD'],
-                    cwd=source_path,
+                    cwd=install_path,
                     stderr=subprocess.DEVNULL,
                     timeout=2,
                 )
