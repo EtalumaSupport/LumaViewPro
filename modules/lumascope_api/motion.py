@@ -431,6 +431,12 @@ class MotionAPI:
             for ax in present_axes:
                 self._set_axis_state(ax, AxisState.IDLE)
             self.refresh_position_cache()
+            # The firmware homes the turret to position 1, so seed the cache.
+            # Without this it stays None and a subsequent tmove(1) -- e.g. the
+            # startup select-position-1 -- can't recognize the turret is
+            # already there, and runs a redundant Z-retract / rotate / restore.
+            if 'T' in present_axes:
+                self._last_turret_position = 1
             return True
         except Exception:
             logger.exception('[SCOPE API ] Homing exception')
@@ -544,6 +550,10 @@ class MotionAPI:
                 )
                 return False
             self.refresh_position_cache()
+            # Turret homes to position 1; seed the cache so a following
+            # tmove(1) is a no-op rather than a redundant Z-retract / rotate /
+            # restore (see home() for the full rationale).
+            self._last_turret_position = 1
             _api_log.info('thome DONE')
             return True
         except Exception:
