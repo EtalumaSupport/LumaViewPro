@@ -521,19 +521,14 @@ class ProtocolSettings(FloatLayout):
 
         config = get_sequenced_capture_config_from_ui()
 
-        # Carry over tuned z from the current in-memory protocol so a user
-        # who has focused doesn't lose that work on a New click. Keyed by
-        # (well, channel) so each channel keeps its own focus -- a per-well
-        # key would paste one channel's z onto every channel in the well.
-        # First row per (well, channel) wins (the bottom slice for a zstack,
-        # the single Z for a non-zstack). Each channel's focus default still
-        # wins where the user hasn't tuned that (well, channel).
-        if self._protocol is not None and self._protocol.num_steps() > 0:
-            steps = self._protocol.steps()
-            config['previous_well_z'] = {
-                (str(well), str(color)): float(group['Z'].iloc[0])
-                for (well, color), group in steps.groupby(['Well', 'Color'], sort=False)
-            }
+        # New Protocol resets each step to its channel's saved focus baseline.
+        # A per-(well, channel) Z carry-over from the prior in-memory protocol
+        # used to run here, but it harvested autofocus-refined Z along with
+        # user-tuned Z and so overrode a freshly-saved focus; it is no longer
+        # the default. Per-well focus is re-established on demand via
+        # "Autofocus All Steps". Protocol.from_config still honors an explicit
+        # previous_well_z map (left dormant) so this can return as an opt-in
+        # setting without re-plumbing.
 
         try:
             protocol = ctx.scope.create_protocol(input_config=config)

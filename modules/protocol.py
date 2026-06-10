@@ -1220,10 +1220,11 @@ class Protocol:
 
         positions = input_config.get('positions')
 
-        # If the caller passes a per-well z map (from a prior in-memory
-        # Protocol), apply it to labware-derived positions so user-tuned
-        # focus survives a New click. Empty / missing means fall back to
-        # layer_config['focus'] as before.
+        # Optional per-(well, channel) z map: when provided it overrides the
+        # layer focus for matching steps. New Protocol does NOT populate it by
+        # default -- the carry-over was removed (see
+        # ProtocolSettings.new_protocol); this path is kept dormant for a
+        # future opt-in. Empty / missing falls back to layer_config['focus'].
         previous_well_z = input_config.get('previous_well_z') or {}
 
         labware_id = input_config['labware_id']
