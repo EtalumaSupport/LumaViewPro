@@ -339,6 +339,15 @@ class ImagingAPI:
                 self._camera_cache['gain_db'] = float(gain)
             if exp is not None:
                 self._camera_cache['exposure_ms'] = float(exp)
+        # Diagnostic: record where hardware auto-gain/exposure actually
+        # converged when the cycle ended. A converged gain that stayed near
+        # the floor on a dim scene means the settle window ended before AG
+        # ramped (under-converged -> dark capture); a gain at the ceiling
+        # means the scene needs more light, not more settle frames.
+        logger.debug(
+            f'[AG CONVERGE] auto cycle ended; camera converged to '
+            f'gain={gain} dB exposure={exp} ms'
+        )
 
     def _invalidate_camera_cache(self) -> None:
         """Mark camera cache as inactive (e.g. on disconnect)."""
