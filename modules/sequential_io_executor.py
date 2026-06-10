@@ -636,6 +636,27 @@ class SequentialIOExecutor:
         self.protocol_finish.set()
         logger.info(f"{self.name} set to complete protocol then end")
 
+    def end_protocol_mode(self):
+        """Idempotent safety net for teardown paths that left this executor
+        in protocol-mode.
+
+        While ``protocol_running`` is set the worker pulls only from
+        ``protocol_queue``; if a protocol aborts or tears down without the
+        normal completion path ending this executor, the worker blocks
+        forever on ``protocol_queue.get`` and the normal queue (composite,
+        video, z-projection, manual file ops) is never served. Setting
+        ``protocol_finish`` lets the worker drain any remaining protocol
+        items (so pending file writes still flush) and then exit protocol
+        mode, returning to normal-queue service. A no-op when the executor
+        is not in protocol-mode, so it is safe to call on every teardown.
+        """
+        if self.protocol_running.is_set() and not self.protocol_finish.is_set():
+            logger.warning(
+                f"{self.name} still in protocol-mode at teardown; "
+                f"draining protocol queue then returning to normal service"
+            )
+            self.protocol_finish_then_end()
+
     def is_protocol_running(self):
         return self.protocol_running.is_set()
 
