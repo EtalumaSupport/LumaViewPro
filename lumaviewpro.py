@@ -531,13 +531,12 @@ class LumaViewProApp(TooltipMixin, App):
             except Exception as e:  # grain: ignore NAKED_EXCEPT
                 logger.warning(f'[INIT      ] update_transmitted skipped: {e}')
 
-            # Check if a protocol is loaded and has steps
-            if ctx.protocol is not None and ctx.protocol.num_steps() > 0:
-                protocol_settings = ctx.motion_settings.ids['protocol_settings_id']
-                protocol_settings.go_to_step(protocol=False)
-                return
-
-            # If no protocol, just apply settings for the default BF layer
+            # On startup stay where homing left the stage -- do NOT drive to
+            # protocol step 1. A loaded protocol's steps stay available (the
+            # steps table is rendered by load_protocol) and the user navigates
+            # to them explicitly. Apply the default BF layer's saved settings,
+            # identical to the no-protocol path, so there is no stage motion
+            # either way.
             ctx.image_settings.accordion_collapse()
 
         Clock.schedule_once(complete_initialization, 0.3)

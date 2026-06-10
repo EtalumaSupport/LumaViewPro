@@ -851,11 +851,19 @@ class LayerControl(BoxLayout):
 
     def update_led_state(self, apply_settings=True):
         # Skip hardware commands during programmatic state changes
-        # (e.g., disable_leds_for_other_layers toggling buttons)
-        if LayerControl._suppressing_led_log or self._initializing:
+        # (e.g., disable_leds_for_other_layers toggling buttons), and while
+        # autofocus owns the LED: a live UI apply -- such as the exposure
+        # field losing focus when the AF button is clicked -- must not turn
+        # off the channel autofocus is using, or AF scans a dark frame.
+        ctx = _app_ctx.ctx
+        if (
+            LayerControl._suppressing_led_log
+            or self._initializing
+            or ctx.scope.imaging.is_focusing
+        ):
             return
-        settings = _app_ctx.ctx.settings
-        camera_executor = _app_ctx.ctx.camera_executor
+        settings = ctx.settings
+        camera_executor = ctx.camera_executor
         enabled = self.ids['enable_led_btn'].state == 'down'
         gui_logger.toggle(f'LED_{self.layer}', enabled)
         illumination = settings[self.layer]['ill_ma']

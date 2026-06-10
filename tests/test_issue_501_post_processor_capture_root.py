@@ -39,6 +39,8 @@ from __future__ import annotations
 import ast
 import pathlib
 
+from modules.composite_generation import _strip_channel_token
+
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
 
@@ -149,4 +151,42 @@ def test_video_builder_uses_capture_root():
 def test_stack_builder_uses_capture_root():
     _assert_subclass_uses_capture_root_kwarg(
         'StackBuilder', POST_PROCESSORS['StackBuilder']
+    )
+
+
+# ---------------------------------------------------------------------------
+# #501 follow-up: a composite must not be named after one arbitrary channel.
+# The composite group spans every channel, but the filename took the first
+# row's step Name (e.g. 'A1_Green'), leaking that channel into the output.
+# ---------------------------------------------------------------------------
+
+
+def test_strip_channel_token_removes_channel():
+    assert _strip_channel_token('A1_Green', 'Green') == 'A1'
+    assert _strip_channel_token('A1_Green_2xOly_Z0_0000', 'Green') == 'A1_2xOly_Z0_0000'
+    assert _strip_channel_token('A1_BF', 'BF') == 'A1'
+
+
+def test_strip_channel_token_row_order_stable():
+    # Whichever channel happens to be the group's first row, the composite
+    # base name is identical -- so the output filename is row-order stable.
+    bases = {_strip_channel_token(f'A1_{c}_2xOly', c) for c in ('Green', 'Red', 'Blue', 'BF')}
+    assert bases == {'A1_2xOly'}
+
+
+def test_strip_channel_token_noop_when_absent_or_empty():
+    assert _strip_channel_token('A1_2xOly', '') == 'A1_2xOly'
+    assert _strip_channel_token('A1_2xOly', 'Green') == 'A1_2xOly'
+
+
+def test_composite_generation_strips_channel_token():
+    """_generate_filename must drop the per-channel token from the step name
+    before building the composite filename."""
+    method = _method_node(
+        POST_PROCESSORS['CompositeGeneration'], 'CompositeGeneration', '_generate_filename'
+    )
+    src = ast.unparse(method)
+    assert '_strip_channel_token' in src, (
+        'CompositeGeneration._generate_filename must strip the channel token '
+        'from the step name so the composite is not named after one channel.'
     )

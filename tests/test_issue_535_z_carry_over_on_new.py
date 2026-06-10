@@ -1,32 +1,26 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""#535 regression: per-well z values must carry over when clicking New.
+"""New Protocol resets per-channel focus; the per-well z carry-over is dormant.
 
-Bug
----
-Protocol.from_config built labware-derived positions with z=None for
-every well, then fell back to layer_config['focus']. Clicking New
-blew away whatever per-well z the user had tuned. dimin asked for
-the focus values to survive.
+Behavior
+--------
+New Protocol resets every step to its channel's saved focus baseline
+(layer_config['focus']). A per-(well, channel) Z carry-over from the prior
+in-memory protocol was added on an external request, but it harvested
+autofocus-refined Z along with user-tuned Z and overrode a freshly-saved
+focus, so it was removed as the default. Per-well focus is re-established on
+demand via "Autofocus All Steps".
 
-Fix
----
-Protocol.from_config now reads input_config['previous_well_z'] (a
-dict of well_label -> z). For labware-derived positions, the per-well
-z is the carry-over value if present, else None (falls through to
-the layer focus as before).
-
-ProtocolSettings.new_protocol builds the previous_well_z map from
-self._protocol.steps() before calling create_protocol, taking the
-first row's Z per well as the per-well base focus.
+The Protocol.from_config consumer still honors an explicitly-passed
+previous_well_z map, kept dormant so the carry-over can return as an opt-in
+setting without re-plumbing.
 
 Test approach
 -------------
-1. Functional test on Protocol.from_config: build a config with
-   previous_well_z={'A1': 5.0, 'B2': 7.5} on a 96-well plate; assert
-   the resulting steps have Z=5.0 for A1, Z=7.5 for B2, and
-   layer_config['focus'] for the rest.
-2. AST structural lock on ProtocolSettings.new_protocol so the
-   carry-over extraction runs before create_protocol.
+1. Functional tests on Protocol.from_config lock the dormant opt-in
+   machinery: an explicit previous_well_z map is applied; an empty/missing
+   map falls back to layer_config['focus'].
+2. AST structural lock on ProtocolSettings.new_protocol: it must NOT build a
+   previous_well_z carry-over (New resets to the per-channel baseline).
 """
 
 from __future__ import annotations
@@ -135,31 +129,15 @@ def _new_protocol_method() -> ast.FunctionDef:
     raise AssertionError('ProtocolSettings.new_protocol not found')
 
 
-def test_new_protocol_extracts_previous_well_z_before_create():
-    """The UI handler must extract per-well z from self._protocol and
-    pass via config['previous_well_z'] before calling create_protocol."""
+def test_new_protocol_does_not_carry_over_z_by_default():
+    """New Protocol must NOT build a previous_well_z carry-over: each step
+    resets to its channel's saved focus baseline. The carry-over was removed
+    as the default because it overrode a freshly-saved focus with
+    autofocus-refined Z; the Protocol.from_config map is kept dormant for a
+    future opt-in setting."""
     method = _new_protocol_method()
     src = ast.unparse(method)
-    assert "config['previous_well_z']" in src or 'config["previous_well_z"]' in src, (
-        'new_protocol must populate config["previous_well_z"] from '
-        'self._protocol.steps() before create_protocol. (#535)'
-    )
-    assert ('groupby' in src and "'Well'" in src) or '"Well"' in src, (
-        'new_protocol must groupby Well to build the per-well z map. (#535)'
-    )
-
-    # Ordering: assignment to config must run BEFORE the create_protocol call.
-    assign_idx = -1
-    create_idx = -1
-    for i, stmt in enumerate(method.body):
-        unparsed = ast.unparse(stmt)
-        if assign_idx == -1 and 'previous_well_z' in unparsed and 'config' in unparsed:
-            assign_idx = i
-        if create_idx == -1 and 'create_protocol' in unparsed:
-            create_idx = i
-    assert assign_idx >= 0, 'previous_well_z assignment not found in new_protocol body'
-    assert create_idx >= 0, 'create_protocol call not found in new_protocol body'
-    assert assign_idx < create_idx, (
-        f'previous_well_z must be set at statement {assign_idx} BEFORE '
-        f'create_protocol at statement {create_idx}. (#535)'
+    assert 'previous_well_z' not in src, (
+        'new_protocol must not build a previous_well_z carry-over; New resets '
+        'each step to the per-channel focus baseline.'
     )

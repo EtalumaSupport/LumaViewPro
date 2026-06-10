@@ -1,21 +1,19 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""Regression: New Protocol keeps each channel's own focus.
+"""New Protocol resets to per-channel focus; the carry-over consumer is dormant.
 
-A New Protocol carries tuned Z forward from the prior in-memory protocol so
-focus work is not lost. That carry-over used to be keyed by WELL only -- the
-first row's Z (one channel) was pasted onto every channel in the well, so
-three channels focused at 7000 / 8000 / 9000 all collapsed to 7000 after New.
-
-The carry-over is now keyed by (well, channel): each channel keeps its own
-tuned Z, and a channel the user never tuned falls back to its own focus
-default rather than inheriting a sibling channel's Z.
-
-Companion to the per-well-survival behavior (a tuned Z surviving New) and the
-Add/insert-step per-channel behavior, which the matching test files cover.
+New Protocol resets every step to its channel's saved focus baseline. The
+per-well Z carry-over (which the producer used to populate on New) was removed
+as the default because it overrode a freshly-saved focus with autofocus-refined
+Z. Protocol.from_config still honors an explicitly-passed previous_well_z map,
+kept dormant for a future opt-in -- and when given such a map it must key by
+(well, channel) so each channel keeps its own Z rather than inheriting a
+sibling channel's. These functional tests lock that dormant-machinery contract;
+the producer test confirms New no longer builds the carry-over.
 """
 
 from __future__ import annotations
 
+import ast
 import pathlib
 
 import pytest
@@ -111,15 +109,25 @@ def test_no_carry_over_uses_each_channels_focus():
     assert (df[df['Color'] == 'Red']['Z'] == 300.0).all()
 
 
-def test_producer_keys_carry_over_by_well_and_channel():
-    """Structural lock on the producer: the New-Protocol handler must build
-    previous_well_z keyed by (Well, Color), not by Well alone (a per-well key
-    is exactly what pasted one channel's Z onto every channel)."""
-    src = PROTOCOL_SETTINGS_SRC.read_text()
-    assert "groupby(['Well', 'Color']" in src or 'groupby(["Well", "Color"]' in src, (
-        'new_protocol must group the carry-over by (Well, Color) so each '
-        'channel keeps its own tuned Z.'
-    )
-    assert "groupby('Well', sort=False)" not in src, (
-        'the per-well-only carry-over (the #681 clobber source) must be gone.'
+def _new_protocol_src() -> str:
+    """Unparsed code of ProtocolSettings.new_protocol (comments stripped, so a
+    dormant-machinery mention in a comment does not trip the producer lock)."""
+    tree = ast.parse(PROTOCOL_SETTINGS_SRC.read_text())
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ClassDef) and node.name == 'ProtocolSettings':
+            for child in node.body:
+                if isinstance(child, ast.FunctionDef) and child.name == 'new_protocol':
+                    return ast.unparse(child)
+    raise AssertionError('ProtocolSettings.new_protocol not found')
+
+
+def test_producer_does_not_build_carry_over():
+    """Structural lock on the producer: New Protocol must NOT build a
+    previous_well_z carry-over -- each step resets to its channel's saved focus
+    baseline. (The dormant from_config consumer is exercised by the functional
+    tests above for the future opt-in.)"""
+    src = _new_protocol_src()
+    assert 'previous_well_z' not in src, (
+        'new_protocol must not build a previous_well_z carry-over; New resets '
+        'each step to the per-channel focus baseline.'
     )

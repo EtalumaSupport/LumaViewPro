@@ -7945,7 +7945,10 @@ class TestBfIlluminationCapAtStartup:
             'settings-panel toggle.'
         )
 
-    def test_update_transmitted_runs_before_protocol_or_accordion_branch(self):
+    def test_update_transmitted_runs_before_accordion_branch(self):
+        # Startup no longer has a separate protocol branch: it always applies
+        # the default BF layer via accordion_collapse and does not move to
+        # step 1. The cap must still be applied before that settings-apply.
         src = self._src()
         idx = src.find('def complete_initialization')
         assert idx >= 0
@@ -7953,16 +7956,9 @@ class TestBfIlluminationCapAtStartup:
         assert next_def > idx
         body = src[idx:next_def]
         ut_pos = body.find('ctx.image_settings.update_transmitted()')
-        protocol_pos = body.find('if ctx.protocol is not None')
         accordion_pos = body.find('ctx.image_settings.accordion_collapse()')
         assert ut_pos > 0
-        assert protocol_pos > 0
         assert accordion_pos > 0
-        assert ut_pos < protocol_pos, (
-            'update_transmitted() must run before the protocol-branch '
-            'early-return; otherwise protocol-startup leaves the cap '
-            'unapplied.'
-        )
         assert ut_pos < accordion_pos, (
             'update_transmitted() must run before accordion_collapse() '
             'fires apply_settings on BF, otherwise BF gets applied at '
