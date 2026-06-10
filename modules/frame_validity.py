@@ -65,6 +65,14 @@ class FrameValidity:
         # default pending per-camera bench measurement (worst-case + margin into
         # camera_timing/<model>.json, like the others).
         'auto_gain': 10,
+        # Geometry / format changes restart the grab engine or realloc the
+        # camera buffer; the pipeline needs frames to flush the old
+        # geometry before a capture reflects the new one. Conservative
+        # defaults pending per-camera bench measurement into
+        # camera_timing/<model>.json, like the others.
+        'pixel_format': 3,
+        'frame_size': 3,
+        'binning': 3,
     }
 
     # Sources that require physical hardware completion in addition to frame count.
