@@ -48,7 +48,6 @@ if __name__ == '__main__':
     ############################################################################
 
     live_view_fps = 30
-    ij_helper = None
 
     # Environment setup -- paths, version, platform detection
     from modules.app_environment import init_environment
@@ -531,13 +530,12 @@ class LumaViewProApp(TooltipMixin, App):
             except Exception as e:  # grain: ignore NAKED_EXCEPT
                 logger.warning(f'[INIT      ] update_transmitted skipped: {e}')
 
-            # Check if a protocol is loaded and has steps
-            if ctx.protocol is not None and ctx.protocol.num_steps() > 0:
-                protocol_settings = ctx.motion_settings.ids['protocol_settings_id']
-                protocol_settings.go_to_step(protocol=False)
-                return
-
-            # If no protocol, just apply settings for the default BF layer
+            # On startup stay where homing left the stage -- do NOT drive to
+            # protocol step 1. A loaded protocol's steps stay available (the
+            # steps table is rendered by load_protocol) and the user navigates
+            # to them explicitly. Apply the default BF layer's saved settings,
+            # identical to the no-protocol path, so there is no stage motion
+            # either way.
             ctx.image_settings.accordion_collapse()
 
         Clock.schedule_once(complete_initialization, 0.3)
@@ -665,7 +663,13 @@ class LumaViewProApp(TooltipMixin, App):
         # test runner, and CLI tools all get identical environment lines.
         from lvp_logger import log_environment_banner
 
-        log_environment_banner(source_path, version)
+        # Pass the install directory (script_path), not the per-user data
+        # directory (source_path). version.txt and .git_archival.txt ship next
+        # to the executable; on an installed build source_path points at the
+        # Documents data folder, which has no version.txt, so the banner would
+        # report Built/Branch/BuildGUID as "unknown". On a source/dev run the
+        # two paths are identical.
+        log_environment_banner(script_path, version)
 
         # Lock was claimed in __main__ before any Kivy import (issue #559);
         # keep a strong ref here so the bound socket survives for the
@@ -677,7 +681,6 @@ class LumaViewProApp(TooltipMixin, App):
         # composite_gen_controls register themselves on ctx in their __init__.
         global Window
         global ctx
-        ij_helper = None
 
         # AppContext binds these three as kwargs below; declared as locals here
         # so the kwargs don't NameError at runtime.
@@ -869,7 +872,6 @@ class LumaViewProApp(TooltipMixin, App):
             stage=stage,
             cell_count_content=cell_count_content,
             graphing_controls=graphing_controls,
-            ij_helper=ij_helper,
             protocol_running=protocol_running_global,
             engineering_mode=ENGINEERING_MODE,
             no_engineering=no_engineering,

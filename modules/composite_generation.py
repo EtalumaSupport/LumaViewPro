@@ -18,6 +18,25 @@ from modules.settings_init import settings
 from lvp_logger import logger
 
 
+def _strip_channel_token(name: str, channel: str) -> str:
+    """Remove a single channel token from a per-channel step name.
+
+    A composite merges every channel for one (well, position) into a single
+    image, so the per-channel step name (e.g. 'A1_Green') must not tag the
+    composite output with one arbitrary channel. Removes the first
+    '_<channel>' (or a leading '<channel>_') token; returns the name
+    unchanged when channel is empty or not present.
+    """
+    if not channel:
+        return name
+    token = str(channel)
+    if f'_{token}' in name:
+        return name.replace(f'_{token}', '', 1)
+    if name.startswith(f'{token}_'):
+        return name.replace(f'{token}_', '', 1)
+    return name
+
+
 class CompositeGeneration(ProtocolPostProcessor):
     def __init__(self, *args, **kwargs):
         super().__init__(
@@ -52,14 +71,18 @@ class CompositeGeneration(ProtocolPostProcessor):
             objective_id=row0['Objective']
         )
 
+        # The step name carries the channel (e.g. 'A1_Green'); a composite
+        # spans all channels, so drop that token before it becomes the prefix.
+        base_name = _strip_channel_token(row0['Name'], row0.get('Color', ''))
+
         # Prepend the protocol's capture_root (passed in via kwargs by
         # ProtocolPostProcessor.load_folder) so post-processed outputs
         # carry the same filename root as the per-image saves.
         capture_root = kwargs.get('capture_root', '')
         if capture_root:
-            prefix = f'{capture_root}_{row0["Name"]}'
+            prefix = f'{capture_root}_{base_name}'
         else:
-            prefix = row0['Name']
+            prefix = base_name
         name = common_utils.generate_default_step_name(
             custom_name_prefix=prefix,
             well_label=row0['Well'],

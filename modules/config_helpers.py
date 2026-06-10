@@ -116,6 +116,15 @@ def get_auto_gain_settings(settings: dict) -> dict:
     return autogain_settings
 
 
+def get_manual_video_max_duration(settings: dict) -> float:
+    """Return the manual-video max recording duration in seconds.
+
+    Owns the canonical 30-second default so it lives in one place instead of
+    being repeated at each read site, where one copy could drift from the rest.
+    """
+    return settings.get('manual_video', {}).get('max_duration_seconds', 30)
+
+
 def get_ag_ae_max_exposure_ms(layer: str, settings: dict | None = None) -> float:
     """Return the AG/AE exposure upper bound (ms) for a layer's channel class.
 
@@ -856,6 +865,38 @@ def get_zstack_params_from_settings(settings: dict) -> dict:
     }
 
 
+def build_sequenced_capture_config(values: dict) -> dict:
+    """Assemble the canonical sequenced-capture input_config from a flat values
+    dict.
+
+    Single source for the key set Protocol.from_config consumes. Every source
+    lane (UI / settings / zstack) routes its values through here, so no lane can
+    silently omit a key -- in particular tiling_overlap_percent, whose omission
+    used to force the settings/headless lane to a silent 0% overlap. The key is
+    always present here (defaulting to 0.0) rather than relying on each lane to
+    remember it. `positions` is included only when a lane supplies explicit
+    positions (the z-stack single-position case); otherwise Protocol.from_config
+    derives positions from the labware.
+    """
+    config = {
+        'labware_id': values['labware_id'],
+        'objective_id': values['objective_id'],
+        'zstack_params': values['zstack_params'],
+        'use_zstacking': values['use_zstacking'],
+        'tiling': values['tiling'],
+        'tiling_overlap_percent': values.get('tiling_overlap_percent', 0.0),
+        'layer_configs': values['layer_configs'],
+        'period': values['period'],
+        'duration': values['duration'],
+        'frame_dimensions': values['frame_dimensions'],
+        'binning_size': values['binning_size'],
+        'stim_config': values['stim_config'],
+    }
+    if 'positions' in values:
+        config['positions'] = values['positions']
+    return config
+
+
 def get_sequenced_capture_config_from_settings(
     settings: dict,
     objective_helper,
@@ -867,23 +908,19 @@ def get_sequenced_capture_config_from_settings(
     """
     objective_id, _ = get_current_objective_info(settings, objective_helper)
     time_params = get_protocol_time_params_from_settings(settings)
-    labware_id = settings.get('protocol', {}).get('labware', '')
-    tiling = settings.get('protocol', {}).get('tiling', '1x1')
-    use_zstacking = settings.get('protocol', {}).get('use_zstacking', False)
-    frame_dimensions = get_frame_dimensions_from_settings(settings)
-    zstack_params = get_zstack_params_from_settings(settings)
-    layer_configs = get_layer_configs(settings)
+    protocol = settings.get('protocol', {})
 
-    return {
-        'labware_id': labware_id,
+    return build_sequenced_capture_config({
+        'labware_id': protocol.get('labware', ''),
         'objective_id': objective_id,
-        'zstack_params': zstack_params,
-        'use_zstacking': use_zstacking,
-        'tiling': tiling,
-        'layer_configs': layer_configs,
+        'zstack_params': get_zstack_params_from_settings(settings),
+        'use_zstacking': protocol.get('use_zstacking', False),
+        'tiling': protocol.get('tiling', '1x1'),
+        'tiling_overlap_percent': protocol.get('tiling_overlap_percent', 0.0),
+        'layer_configs': get_layer_configs(settings),
         'period': time_params['period'],
         'duration': time_params['duration'],
-        'frame_dimensions': frame_dimensions,
+        'frame_dimensions': get_frame_dimensions_from_settings(settings),
         'binning_size': get_binning_from_settings(settings),
         'stim_config': get_stim_configs(settings),
-    }
+    })

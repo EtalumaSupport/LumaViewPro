@@ -850,12 +850,23 @@ class LayerControl(BoxLayout):
     _suppressing_led_log = False  # Class-level flag to prevent duplicate logging
 
     def update_led_state(self, apply_settings=True):
+        ctx = _app_ctx.ctx
+        # While autofocus owns the LED, a live UI apply -- such as the
+        # exposure field losing focus when the AF button is clicked -- must
+        # not turn off the channel autofocus is using, or AF scans a dark
+        # frame. Logged so a bench run can confirm the suppression fired.
+        if ctx.scope.imaging.is_focusing:
+            logger.debug(
+                '[LVP Main  ] update_led_state suppressed -- autofocus owns '
+                f'the LED (layer={self.layer})'
+            )
+            return
         # Skip hardware commands during programmatic state changes
-        # (e.g., disable_leds_for_other_layers toggling buttons)
+        # (e.g., disable_leds_for_other_layers toggling buttons).
         if LayerControl._suppressing_led_log or self._initializing:
             return
-        settings = _app_ctx.ctx.settings
-        camera_executor = _app_ctx.ctx.camera_executor
+        settings = ctx.settings
+        camera_executor = ctx.camera_executor
         enabled = self.ids['enable_led_btn'].state == 'down'
         gui_logger.toggle(f'LED_{self.layer}', enabled)
         illumination = settings[self.layer]['ill_ma']

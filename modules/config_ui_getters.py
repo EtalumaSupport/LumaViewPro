@@ -217,7 +217,7 @@ def get_sequenced_capture_config_from_ui() -> dict:
 
     layer_configs = get_layer_configs()
 
-    config = {
+    return config_helpers.build_sequenced_capture_config({
         'labware_id': labware_id,
         'objective_id': objective_id,
         'zstack_params': zstack_params,
@@ -230,9 +230,7 @@ def get_sequenced_capture_config_from_ui() -> dict:
         'frame_dimensions': frame_dimensions,
         'binning_size': get_binning_from_ui(),
         'stim_config': get_stim_configs(),
-    }
-
-    return config
+    })
 
 
 # ---------------------------------------------------------------------------

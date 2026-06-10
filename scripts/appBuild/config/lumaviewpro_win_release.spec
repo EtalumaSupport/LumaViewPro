@@ -15,7 +15,7 @@ datas = [
     ('lvp_logger.py', '.'),
 ]
 
-for pkg in ('numpy', 'scyjava', 'imglyb', 'pyimagej'):
+for pkg in ('numpy',):
     try:
         datas.extend(copy_metadata(pkg))
     except Exception:
@@ -115,7 +115,13 @@ exe = EXE(
     # log output is file-only (KIVY_NO_CONSOLELOG=1 at lumaviewpro.py
     # :115), so a windowed build doesn't lose any production logging.
     console=False,
-    disable_windowed_traceback=False,
+    # Suppress the PyInstaller bootloader's windowed-traceback dialog. On a
+    # hard crash (an exception escaping to the bootloader) PyInstaller pops a
+    # Windows message box containing a raw Python traceback -- a researcher
+    # must never see that. The crash is still captured: custom_except_hook
+    # logs uncaught exceptions to the file logs, and notifications.critical
+    # surfaces a plain-language popup at the app layer.
+    disable_windowed_traceback=True,
     argv_emulation=False,
     target_arch=None,
     codesign_identity=None,

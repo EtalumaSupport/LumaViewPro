@@ -20,6 +20,7 @@ from kivy.clock import Clock
 import modules.app_context as _app_ctx
 import modules.common_utils as common_utils
 from modules import gui_logger
+from modules.config_helpers import get_manual_video_max_duration
 import modules.image_utils as image_utils
 from modules.recording_manifest import build_session_manifest
 from modules.sequential_io_executor import IOTask
@@ -198,7 +199,7 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
 
         manual_video = settings.get('manual_video', {})
         max_fps = manual_video.get('max_fps', 0)
-        max_duration = manual_video.get('max_duration_seconds', 30)
+        max_duration = get_manual_video_max_duration(settings)
         # max_fps == 0 means uncapped (camera free-run rate). The
         # spinner ships at 0; non-zero is the explicit user opt-in
         # that gates pre-flight + camera-rate-toggle below.

@@ -59,6 +59,13 @@ class MotionAPI:
 
     _MOTION_POLL_INTERVAL = 0.02  # 50 Hz
 
+    # Maps a motion axis to its frame-validity source. X and Y share
+    # 'xy_move'; Z and the turret each have their own source so the
+    # settle-check gates on the correct axis reaching IDLE. A turret
+    # move that recorded 'xy_move' would clear the moment X/Y read idle,
+    # before the turret physically finished.
+    _AXIS_VALIDITY_SOURCE = {'Z': 'z_move', 'T': 'turret'}
+
     def __init__(self, scope: Lumascope, driver: MotorBoardProtocol) -> None:  # noqa: ARG002
         # `driver` is in the signature for backcompat (Phase 1 Lumascope
         # passes it explicitly). It is intentionally unused here: `_driver`
@@ -424,6 +431,12 @@ class MotionAPI:
             for ax in present_axes:
                 self._set_axis_state(ax, AxisState.IDLE)
             self.refresh_position_cache()
+            # The firmware homes the turret to position 1, so seed the cache.
+            # Without this it stays None and a subsequent tmove(1) -- e.g. the
+            # startup select-position-1 -- can't recognize the turret is
+            # already there, and runs a redundant Z-retract / rotate / restore.
+            if 'T' in present_axes:
+                self._last_turret_position = 1
             return True
         except Exception:
             logger.exception('[SCOPE API ] Homing exception')
@@ -537,6 +550,10 @@ class MotionAPI:
                 )
                 return False
             self.refresh_position_cache()
+            # Turret homes to position 1; seed the cache so a following
+            # tmove(1) is a no-op rather than a redundant Z-retract / rotate /
+            # restore (see home() for the full rationale).
+            self._last_turret_position = 1
             _api_log.info('thome DONE')
             return True
         except Exception:
@@ -1048,6 +1065,9 @@ class MotionAPI:
         self._driver.xycenter()
         self._set_axis_state('X', AxisState.IDLE)
         self._set_axis_state('Y', AxisState.IDLE)
+        # XY field of view changed -- the camera pipeline still holds
+        # frames from the old position; hold capture until they flush.
+        self._scope.imaging.frame_validity.invalidate('xy_move')
         self.refresh_position_cache()
 
     def refresh_position_cache(self) -> None:
@@ -1294,7 +1314,7 @@ class MotionAPI:
         # on its first cycle. Target is held in _move_profile[axis], where
         # get_target_position picks it up during MOVING.
         self._fire_position_listeners(axis)
-        self._scope.imaging.frame_validity.invalidate('z_move' if axis == 'Z' else 'xy_move')
+        self._scope.imaging.frame_validity.invalidate(self._AXIS_VALIDITY_SOURCE.get(axis, 'xy_move'))
         _api_log.info(f'move_abs {axis}={pos:.1f}um{" wait" if wait_until_complete else ""}')
 
         if wait_until_complete is True:
@@ -1382,7 +1402,7 @@ class MotionAPI:
         # on its first cycle. Target is held in _move_profile[axis], where
         # get_target_position picks it up during MOVING.
         self._fire_position_listeners(axis)
-        self._scope.imaging.frame_validity.invalidate('z_move' if axis == 'Z' else 'xy_move')
+        self._scope.imaging.frame_validity.invalidate(self._AXIS_VALIDITY_SOURCE.get(axis, 'xy_move'))
         _api_log.info(f'move_rel {axis}={um:+.1f}um{" wait" if wait_until_complete else ""}')
 
         if wait_until_complete is True:

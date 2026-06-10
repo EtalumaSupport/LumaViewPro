@@ -2442,19 +2442,22 @@ class TestAOC1_SaturationCheckShortCircuit:
     saturated / non-saturated / single-pixel-different / all-zero arrays.
     """
 
-    def test_source_uses_not_any_form(self):
-        # get_image body relocated to imaging.py in Wave 7 Phase 4d.
+    def test_source_uses_saturation_fraction_guard(self):
+        # The saturation check now measures the fraction of near-full-scale
+        # pixels: a real blown frame has a handful of sub-max pixels, so the
+        # old all-pixels-exactly-max test missed it and saved it silently.
         from pathlib import Path
 
         src = (
             Path(__file__).resolve().parent.parent / 'modules' / 'lumascope_api' / 'imaging.py'
         ).read_text()
-        assert 'not np.any(tmp != np.iinfo(tmp.dtype).max)' in src, (
-            'AOC-1: get_image() saturation check should use the short-circuit '
-            '`not np.any(tmp != max)` form.'
+        assert '_saturated_fraction' in src, (
+            'get_image() saturation check should use the near-full-scale '
+            'fraction guard.'
         )
-        assert 'np.all(tmp == np.iinfo(tmp.dtype).max)' not in src, (
-            'AOC-1: old `np.all(tmp == max)` form should be replaced.'
+        assert 'np.all(tmp == np.iinfo(tmp.dtype).max)' not in src
+        assert 'not np.any(tmp != np.iinfo(tmp.dtype).max)' not in src, (
+            'the all-pixels-exactly-max check missed real blown frames; replaced.'
         )
 
     def test_logical_equivalence_uint8(self):
@@ -2504,24 +2507,23 @@ class TestAOC2_RetrySaturationCheckOutsideCamLock:
     """
 
     def test_retry_saturation_walk_is_outside_cam_lock(self):
-        # get_image body relocated to imaging.py in Wave 7 Phase 4d.
         from pathlib import Path
 
         src = (
             Path(__file__).resolve().parent.parent / 'modules' / 'lumascope_api' / 'imaging.py'
         ).read_text()
-        # The old form: np.all(retry_frame == ...) inside the with self._cam_lock: block
         assert 'np.all(retry_frame == np.iinfo(retry_frame.dtype).max)' not in src, (
-            'AOC-2: old `np.all(retry_frame == max)` form should be replaced.'
+            'old `np.all(retry_frame == max)` form should be replaced.'
         )
-        # New form: short-circuit np.any check, AND structurally placed in a sibling
-        # block to the cam_lock. Verify the lock-release marker comment is present
-        # AND the retry-frame check uses the AOC-1 pattern.
+        # The retry-frame saturation walk must still run OUTSIDE cam_lock: the
+        # walk needs no camera state, and holding the lock blocked concurrent
+        # set_gain/set_exposure. The marker comment + the new fraction guard on
+        # the retry frame confirm both.
         assert 'Saturation walk is outside cam_lock' in src, (
-            'AOC-2: expected lock-release marker comment near retry-frame walk.'
+            'expected lock-release marker comment near retry-frame walk.'
         )
-        assert 'np.any(retry_frame != np.iinfo(retry_frame.dtype).max)' in src, (
-            'AOC-2: retry-frame check should use the AOC-1 short-circuit pattern.'
+        assert '_saturated_fraction(retry_frame)' in src, (
+            'retry-frame check should use the near-full-scale fraction guard.'
         )
 
     def test_retry_frame_initialized_before_lock_block(self):
@@ -7943,7 +7945,10 @@ class TestBfIlluminationCapAtStartup:
             'settings-panel toggle.'
         )
 
-    def test_update_transmitted_runs_before_protocol_or_accordion_branch(self):
+    def test_update_transmitted_runs_before_accordion_branch(self):
+        # Startup no longer has a separate protocol branch: it always applies
+        # the default BF layer via accordion_collapse and does not move to
+        # step 1. The cap must still be applied before that settings-apply.
         src = self._src()
         idx = src.find('def complete_initialization')
         assert idx >= 0
@@ -7951,16 +7956,9 @@ class TestBfIlluminationCapAtStartup:
         assert next_def > idx
         body = src[idx:next_def]
         ut_pos = body.find('ctx.image_settings.update_transmitted()')
-        protocol_pos = body.find('if ctx.protocol is not None')
         accordion_pos = body.find('ctx.image_settings.accordion_collapse()')
         assert ut_pos > 0
-        assert protocol_pos > 0
         assert accordion_pos > 0
-        assert ut_pos < protocol_pos, (
-            'update_transmitted() must run before the protocol-branch '
-            'early-return; otherwise protocol-startup leaves the cap '
-            'unapplied.'
-        )
         assert ut_pos < accordion_pos, (
             'update_transmitted() must run before accordion_collapse() '
             'fires apply_settings on BF, otherwise BF gets applied at '

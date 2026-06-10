@@ -4,11 +4,6 @@ The following third-party components bundled with LumaViewPro are distributed
 under the Apache License 2.0:
 
   - OpenCV / opencv-python-headless (https://opencv.org/) — OpenCV 4.5+
-  - xarray (https://xarray.dev/)
-  - JPype1 (https://github.com/jpype-project/jpype)
-  - pyimagej (https://github.com/imagej/pyimagej)
-  - Apache Maven (https://maven.apache.org/) — bundled in the Windows Bundle installer for ImageJ integration
-  - LLVM (https://llvm.org/) — bundled via numba's llvmlite wheel, under the Apache-2.0 + LLVM Exceptions license
 
 Individual copyright notices and upstream NOTICE content for each component
 are listed in docs/THIRD_PARTY_NOTICES.md.

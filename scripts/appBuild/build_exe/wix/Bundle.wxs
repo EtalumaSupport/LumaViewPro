@@ -18,9 +18,6 @@
   <?ifndef LVPMsiDir ?>
   	<?define LVPMsiDir = "LumaViewPro.msi" ?>
   <?endif ?>
-  <?ifndef CorretoMsiDir ?>
-  	<?define CorretoMsiDir = "amazon-corretto-8.442.06.1-windows-x64-jdk.msi" ?>
-  <?endif ?>
   <?ifndef PylonDriverDir ?>
   	<?define PylonDriverDir = "pylon_USB_Camera_Driver.msi" ?>
   <?endif ?>
@@ -55,10 +52,6 @@
 		     while MSI registration persists -> camera enumerates as unknown
 		     USB device) requires a different mechanism; tracked as a separate
 		     concern from the bench-build unblock. -->
-
-		<MsiPackage Id="AmazonCorretto8"
-					SourceFile="$(var.CorretoMsiDir)"
-					Vital="yes"/>
 
 		<!--
 		  Optional: IDS Peak runtime (USB3 transport layer + drivers for IDS

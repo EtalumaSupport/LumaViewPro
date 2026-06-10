@@ -13,7 +13,7 @@ from modules.common_utils import PostFunction
 from modules.protocol_post_processor import ProtocolPostProcessor
 from modules.protocol_post_record import ProtocolPostRecord
 
-import modules.imagej_helper as imagej_helper
+import modules.zprojection as zprojection
 
 from lvp_logger import logger
 
@@ -21,7 +21,6 @@ from lvp_logger import logger
 class ZProjector(ProtocolPostProcessor):
     def __init__(
         self,
-        ij_helper: imagej_helper.ImageJHelper = None,
         *args,
         **kwargs,
     ):
@@ -31,11 +30,6 @@ class ZProjector(ProtocolPostProcessor):
             **kwargs,
         )
         self._name = self.__class__.__name__
-
-        if ij_helper is None:
-            self._ij_helper = imagej_helper.ImageJHelper()
-        else:
-            self._ij_helper = ij_helper
 
     @staticmethod
     def _get_groups(df: pd.DataFrame) -> pd.DataFrame:
@@ -137,7 +131,7 @@ class ZProjector(ProtocolPostProcessor):
 
     @staticmethod
     def methods() -> list[str]:
-        return imagej_helper.ZProjectMethod.list()
+        return zprojection.ZProjectMethod.list()
 
     def _zproject_for_multi_channel(
         self, images_data: list[np.ndarray], method: str
@@ -152,7 +146,7 @@ class ZProjector(ProtocolPostProcessor):
             for image_data in images_data:
                 images_for_color_plane.append(image_data[:, :, used_color_plane])
 
-            project_result = self._ij_helper.zproject(
+            project_result = zprojection.zproject(
                 images_data=images_for_color_plane, method=method
             )
 
@@ -176,7 +170,7 @@ class ZProjector(ProtocolPostProcessor):
     def _zproject_for_single_channel(
         self, images_data: list[np.ndarray], method: str
     ) -> np.ndarray | None:
-        project_result = self._ij_helper.zproject(images_data=images_data, method=method)
+        project_result = zprojection.zproject(images_data=images_data, method=method)
 
         if project_result is None:
             error = 'Failed to create Z-Projection'
@@ -200,7 +194,7 @@ class ZProjector(ProtocolPostProcessor):
         method: str,
         output_file_loc: pathlib.Path,
     ):
-        method = imagej_helper.ZProjectMethod[method]
+        method = zprojection.ZProjectMethod[method]
 
         first_slice_row = df.iloc[0]
         first_slice_path = path / first_slice_row['Filepath']

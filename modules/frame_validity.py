@@ -61,10 +61,21 @@ class FrameValidity:
         # Frames for hardware continuous auto-gain to settle against the lit
         # scene after arming. Like led/gain/exposure this is an instrumentation
         # settling count, not a content measurement: the LED must be lit before
-        # arming so AG settles on the real scene, not a dark frame. Conservative
-        # default pending per-camera bench measurement (worst-case + margin into
-        # camera_timing/<model>.json, like the others).
-        'auto_gain': 10,
+        # arming so AG settles on the real scene, not a dark frame. At 10 a dim
+        # brightfield scene (low LED current, gain starting at 0) often had not
+        # converged when the frame was grabbed -- the capture came out dark.
+        # Doubled to give AG more frames to ramp; the [AG CONVERGE] diagnostic
+        # measures the real convergence need per camera for the eventual
+        # camera_timing/<model>.json value (or a brightness-converge gate).
+        'auto_gain': 20,
+        # Geometry / format changes restart the grab engine or realloc the
+        # camera buffer; the pipeline needs frames to flush the old
+        # geometry before a capture reflects the new one. Conservative
+        # defaults pending per-camera bench measurement into
+        # camera_timing/<model>.json, like the others.
+        'pixel_format': 3,
+        'frame_size': 3,
+        'binning': 3,
     }
 
     # Sources that require physical hardware completion in addition to frame count.

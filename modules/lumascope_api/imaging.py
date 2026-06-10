@@ -339,6 +339,15 @@ class ImagingAPI:
                 self._camera_cache['gain_db'] = float(gain)
             if exp is not None:
                 self._camera_cache['exposure_ms'] = float(exp)
+        # Diagnostic: record where hardware auto-gain/exposure actually
+        # converged when the cycle ended. A converged gain that stayed near
+        # the floor on a dim scene means the settle window ended before AG
+        # ramped (under-converged -> dark capture); a gain at the ceiling
+        # means the scene needs more light, not more settle frames.
+        logger.debug(
+            f'[AG CONVERGE] auto cycle ended; camera converged to '
+            f'gain={gain} dB exposure={exp} ms'
+        )
 
     def _invalidate_camera_cache(self) -> None:
         """Mark camera cache as inactive (e.g. on disconnect)."""
@@ -390,9 +399,13 @@ class ImagingAPI:
         """
         if not self._driver or not self._driver.active:
             return
-        # Skip redundant SDK call if gain hasn't changed
-        if abs(float(gain_db) - self.camera_gain) < 0.001:
-            return
+        # The validity invalidate must NEVER be gated by the software cache:
+        # a cache desynced from hardware once short-circuited it, so a frame
+        # at a stale gain was captured as valid. Always invalidate + drive the
+        # setter (the driver compares against live hardware and skips a truly
+        # redundant SDK write). The cache-equality check gates only the UI
+        # listener + info log, where a missed redundant update is harmless.
+        changed = abs(float(gain_db) - self.camera_gain) >= 0.001
         with self._cam_lock:
             self._driver.gain(gain_db)
         self.frame_validity.invalidate('gain')
@@ -401,8 +414,9 @@ class ImagingAPI:
         self.frame_validity.set_target('gain', float(gain_db))
         with self._camera_cache_lock:
             self._camera_cache['gain_db'] = float(gain_db)
-        _api_log.info(f'set_gain {gain_db}dB')
-        self._fire_camera_listeners('gain', float(gain_db))
+        if changed:
+            _api_log.info(f'set_gain {gain_db}dB')
+            self._fire_camera_listeners('gain', float(gain_db))
 
     def set_exposure_time(self, exposure_ms: float) -> None:
         """Set the camera exposure time.
@@ -412,9 +426,11 @@ class ImagingAPI:
         """
         if not self._driver or not self._driver.active:
             return
-        # Skip redundant SDK call if exposure hasn't changed
-        if abs(float(exposure_ms) - self.camera_exposure_ms) < 0.001:
-            return
+        # The validity invalidate must never be gated by the software cache:
+        # a cache desynced from hardware once short-circuited it, capturing a
+        # frame at a stale exposure as valid. Always invalidate + drive the
+        # setter; the cache-equality check gates only the UI listener + log.
+        changed = abs(float(exposure_ms) - self.camera_exposure_ms) >= 0.001
         # Sanity-check threshold: 5 microseconds. Pylon physical
         # ExposureTime minimum across Basler USB3 sensors is 10-35 us;
         # below 5 us is impossible on any sensor we ship with and
@@ -441,8 +457,9 @@ class ImagingAPI:
         self.frame_validity.set_target('exposure', float(exposure_ms) * 1000.0)
         with self._camera_cache_lock:
             self._camera_cache['exposure_ms'] = float(exposure_ms)
-        _api_log.info(f'set_exposure {exposure_ms}ms')
-        self._fire_camera_listeners('exposure', float(exposure_ms))
+        if changed:
+            _api_log.info(f'set_exposure {exposure_ms}ms')
+            self._fire_camera_listeners('exposure', float(exposure_ms))
 
     def set_auto_gain(self, state: bool, settings: dict) -> None:
         """Enable or disable automatic gain adjustment.
@@ -509,6 +526,7 @@ class ImagingAPI:
             self._notify_camera_absent('frame size')
             return
         self._driver.set_frame_size(w, h)
+        self.frame_validity.invalidate('frame_size')
         with self._camera_cache_lock:
             self._camera_cache['frame_size'] = {'width': int(w), 'height': int(h)}
 
@@ -556,6 +574,8 @@ class ImagingAPI:
             else:
                 ok = False
                 self._notify_camera_absent('binning')
+            if ok:
+                self.frame_validity.invalidate('binning')
             _api_log.info(f'set_binning {size}x{size} -> {ok}')
             return ok
         except Exception as ex:
@@ -600,6 +620,7 @@ class ImagingAPI:
             )
             return False
         if result:
+            self.frame_validity.invalidate('pixel_format')
             with self._camera_cache_lock:
                 self._camera_cache['pixel_format'] = pixel_format
         return result
@@ -1468,6 +1489,21 @@ class ImagingAPI:
             return fut.result(timeout=timeout_s)
         return None
 
+    # A frame at least this saturated is treated as blown -- a stale-gain
+    # or over-exposure symptom. Set high so a legitimately bright field
+    # does not trip it; a true blown-white frame saturates essentially
+    # every pixel. Surfaced (warn + notify) rather than saved silently.
+    _SATURATION_NEAR_MAX_FRACTION = 0.99  # pixel >= 99% of full scale = saturated
+    _SATURATION_BLOWN_FRACTION = 0.98  # >= 98% of pixels saturated = blown frame
+
+    @staticmethod
+    def _saturated_fraction(arr: np.ndarray | None) -> float:
+        """Fraction of pixels at or above the near-full-scale threshold."""
+        if arr is None or arr.size == 0:
+            return 0.0
+        near_max = np.iinfo(arr.dtype).max * ImagingAPI._SATURATION_NEAR_MAX_FRACTION
+        return float(np.count_nonzero(arr >= near_max)) / arr.size
+
     def get_image(
         self,
         force_to_8bit: bool = True,
@@ -1485,6 +1521,12 @@ class ImagingAPI:
         By default returns the last buffered frame. Set force_new_capture=True
         to trigger a fresh capture. Multiple frames can be summed for noise
         reduction via sum_count.
+
+        This is the ungated primitive: it does NOT wait for frame validity,
+        so the returned frame may not reflect a just-changed gain, exposure,
+        LED, or stage position. For any frame you will SAVE or MEASURE as
+        truth, call capture_and_wait, which drains the camera pipeline until
+        the validity marker is GREEN before grabbing.
 
         Args:
             force_to_8bit: Convert 12-bit images to 8-bit output.
@@ -1565,10 +1607,11 @@ class ImagingAPI:
                     time.sleep(0.05)
                     continue
 
-                if all_ones_check and not np.any(tmp != np.iinfo(tmp.dtype).max):
-                    # Saturated frame -- retry once to confirm, then accept.
-                    # Saturated images are valid data (exposure/illumination
-                    # too high), not a camera error. Don't loop until timeout.
+                if all_ones_check and self._saturated_fraction(tmp) >= self._SATURATION_BLOWN_FRACTION:
+                    # Near-fully-saturated frame -- retry once in case it was a
+                    # transient blip, then surface it. A blown frame is usually
+                    # an over-exposure or stale-camera-gain symptom; accepting it
+                    # silently (the prior behavior) hid real data corruption.
                     retry_frame = None
                     with self._cam_lock:
                         retry_status, _ = (
@@ -1581,13 +1624,21 @@ class ImagingAPI:
                             retry_frame = self._driver.get_array()
                     # Saturation walk is outside cam_lock -- no camera state needed,
                     # and the walk would otherwise block concurrent set_gain/set_exposure.
-                    if retry_frame is not None:
-                        if np.any(retry_frame != np.iinfo(retry_frame.dtype).max):
-                            tmp = retry_frame  # retry was OK, use it
-                        else:
-                            logger.debug(
-                                '[SCOPE API ] get_image: saturated frame confirmed on retry'
-                            )
+                    if (
+                        retry_frame is not None
+                        and self._saturated_fraction(retry_frame) < self._SATURATION_BLOWN_FRACTION
+                    ):
+                        tmp = retry_frame  # retry was clean, use it
+                    else:
+                        # Log (not notify): a blown frame is self-evident on
+                        # screen and in the saved file, so a popup adds nothing.
+                        # The log line is for the post-mortem / log-analysis pass.
+                        sat_pct = self._saturated_fraction(tmp) * 100.0
+                        logger.warning(
+                            f'[SCOPE API ] get_image: captured frame is {sat_pct:.0f}% '
+                            f'saturated -- likely over-exposure or a stale camera gain; '
+                            f'the frame may be unusable.'
+                        )
 
                 # Accept the frame
                 if earliest_image_ts is None:
@@ -1906,6 +1957,15 @@ class ImagingAPI:
             max_gain_db=max_gain_db,
             ae_max_exposure_ms=ae_max_exposure_ms,
         )
+        # One-shot AG changes both gain and exposure on the camera; the
+        # pipeline still needs frames to flush the converged values, so
+        # the validity marker must go RED until they settle. The converged
+        # values are chosen by the SDK, so clear any manual chunk-match
+        # target and fall back to skip-frames settling.
+        self.frame_validity.invalidate('gain')
+        self.frame_validity.invalidate('exposure')
+        self.frame_validity.set_target('gain', None)
+        self.frame_validity.set_target('exposure', None)
         # One-shot AG always ends with the auto cycle complete and the
         # SDK toggled back to Off internally; hardware holds the
         # converged value while LVP's cache is still pre-auto.

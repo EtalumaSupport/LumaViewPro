@@ -17,7 +17,11 @@ import modules.app_context as _app_ctx
 import modules.binning as binning
 import modules.common_utils as common_utils
 from modules import gui_logger
-from modules.config_helpers import DEFAULT_MAX_EXPOSURE_MS, DEFAULT_MAX_GAIN_DB
+from modules.config_helpers import (
+    DEFAULT_MAX_EXPOSURE_MS,
+    DEFAULT_MAX_GAIN_DB,
+    get_manual_video_max_duration,
+)
 from modules.config_ui_getters import (
     get_binning_from_ui,
     get_current_frame_dimensions,
@@ -436,7 +440,7 @@ class MicroscopeSettings(BoxLayout):
             manual_video = settings.get('manual_video', {})
             self.ids['manual_video_max_fps_input'].text = str(manual_video.get('max_fps', 0))
             self.ids['manual_video_max_duration_input'].text = str(
-                manual_video.get('max_duration_seconds', 30)
+                get_manual_video_max_duration(settings)
             )
 
             if 'live_view_fps' in settings:
@@ -858,7 +862,7 @@ class MicroscopeSettings(BoxLayout):
                 'seconds. Reverting to previous value.',
             )
             settings.setdefault('manual_video', {})
-            widget.text = str(settings['manual_video'].get('max_duration_seconds', 30))
+            widget.text = str(get_manual_video_max_duration(settings))
             return
         settings.setdefault('manual_video', {})
         settings['manual_video']['max_duration_seconds'] = value

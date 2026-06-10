@@ -97,10 +97,6 @@ class ZProjectionControls(BoxLayout):
         super().__init__(**kwargs)
         _app_ctx.register_early('zprojection_controls', self)
         Clock.schedule_once(self._init_ui, 0)
-        self.ij_initialized = False
-        self.ij_buffer_event = None
-        self.ij_buffer_count = 0
-        self.ij_buffer_interval = 0.5
 
     def _init_ui(self, dt=0):
         self.ids['zprojection_method_spinner'].values = zprojector.ZProjector.methods()
@@ -114,115 +110,11 @@ class ZProjectionControls(BoxLayout):
         popup.progress = 0
         popup.auto_dismiss = False
 
-        if ctx.ij_helper is None:
-            popup.text = (
-                '     ImageJ is not initialized.\n'
-                + 'Please wait for ImageJ to initialize.\n'
-                + '   Note: This may take some time.\n'
-                + '                  \n'
-                + '               '
-            )
-            self.ij_initialized = False
-            logger.info(
-                '[Z-Projection] ImageJ not yet initialized -- starting background '
-                'init and showing the wait popup (no cancel; may hang if Java is absent)'
-            )
-            # Run imagej initialization in a separate thread
-            # Callback to finish zprojection when imagej is initialized
-            from modules.imagej_helper import init_ij
-
-            _app_ctx.ctx.file_io_executor.put(
-                IOTask(
-                    action=init_ij,
-                    callback=self.zprojection_with_imagej,
-                    cb_args=(popup, path),
-                    pass_result=True,
-                )
-            )
-            self.ij_buffer_event = Clock.schedule_interval(
-                lambda dt: self.waiting_for_imagej(popup), self.ij_buffer_interval
-            )
-            return
-
-        self.ij_initialized = True
-        # Imagej already initialized, run zprojection
-        self.zprojection_with_imagej(popup, path)
-
-    def waiting_for_imagej(self, popup):
-        if self.ij_initialized:
-            Clock.unschedule(self.ij_buffer_event)
-            self.ij_buffer_event = None
-            self.ij_buffer_count = 0
-            return
-
-        popup.text = (
-            'ImageJ is not initialized. Please wait for ImageJ to initialize.\n'
-            + '                Note: This may take some time.\n'
-            + '                  \n'
-            + '                      '
-            + 'o   ' * self.ij_buffer_count
-        )
-        self.ij_buffer_count += 1
-        if self.ij_buffer_count > 3:
-            self.ij_buffer_count = 0
-
-        return
-
-    def zprojection_with_imagej(self, popup, path, result=None, exception=None):
-        ctx = _app_ctx.ctx
         status_map = {True: 'Success', False: 'FAILED'}
-
-        # #628: init_ij returns the ImageJHelper. Stash it before the None-check
-        # below -- without this the dispatcher dropped the result on the floor and
-        # the operator saw a misleading "Failed to initialize ImageJ" popup even
-        # though ImageJ initialized correctly.
-        if ctx.ij_helper is None and result is not None:
-            ctx.ij_helper = result
-
-        if ctx.ij_helper is not None:
-            self.ij_initialized = True
-            Clock.unschedule(self.ij_buffer_event)
-            self.ij_buffer_event = None
-            self.ij_buffer_count = 0
-
-        if self.ij_buffer_event is not None:
-            Clock.unschedule(self.ij_buffer_event)
-            self.ij_buffer_event = None
-            self.ij_buffer_count = 0
-
-        # init_ij always hands back a helper; an unavailable one (no Java)
-        # has ij_helper.available False. Gate on that, not just is-None --
-        # otherwise an unavailable helper runs the projection and the user
-        # gets a generic "Failed to create Z-Projection" with no cause named.
-        if ctx.ij_helper is None or not ctx.ij_helper.available:
-            from modules.notification_center import notifications
-
-            logger.error(
-                f'[Z-Projection] ImageJ is not available -- '
-                f'result={result!r} exception={exception!r}. '
-                f'ImageJ/Java did not initialize.'
-            )
-            # Name the real cause: ImageJ failed to start, which on a machine
-            # without Java means there is nothing to retry until Java is
-            # installed. The old "Please try again" sent users in circles.
-            popup.text = (
-                'Z-Projection unavailable: ImageJ could not start.\n'
-                'This usually means Java is not installed or not found.'
-            )
-            notifications.error(
-                'Z-Projection',
-                'Z-Projection unavailable',
-                'ImageJ could not start, so Z-Projection cannot run. This '
-                'usually means Java is not installed or could not be found. '
-                'Install Java and retry, or see lumaviewpro.log for details.',
-            )
-            Clock.schedule_once(lambda dt: popup.dismiss(), 5)
-            return
-
         popup.text = 'Generating Z-Projection images...'
 
         zproj = zprojector.ZProjector(
-            has_turret=ctx.lumaview.scope.motion.has_turret(), ij_helper=ctx.ij_helper
+            has_turret=ctx.lumaview.scope.motion.has_turret()
         )
         ctx.file_io_executor.put(
             IOTask(
@@ -259,7 +151,7 @@ class ZProjectionControls(BoxLayout):
             final_text += f'\n{result["message"]}'
             popup.text = final_text
             if result.get('reason') == 'error':
-                # The operation itself failed (e.g. ImageJ/Java unavailable);
+                # The projection itself failed (not a bad-folder case);
                 # don't send the user off to pick a different folder.
                 notifications.warning(
                     'Z-Projection',
