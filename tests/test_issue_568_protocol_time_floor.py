@@ -7,12 +7,25 @@ marker) and 6-decimal display precision so short values survive the reload.
 The full H:M:S entry is a tracked follow-up.
 """
 
+import csv
 import datetime
 import pathlib
 
+import pandas as pd
+
 import modules.config_helpers as config_helpers
+from modules.protocol import Protocol
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
+TILING_CONFIGS = REPO_ROOT / 'data' / 'tiling.json'
+
+
+def _read_protocol_row(tsv_path, key):
+    with open(tsv_path, newline='') as fp:
+        for row in csv.reader(fp, delimiter='\t'):
+            if row and row[0] == key:
+                return row[1]
+    return None
 
 
 def test_floor_preserves_zero_single_scan_marker():
@@ -57,4 +70,33 @@ def test_load_display_uses_six_decimal_precision():
     )
     assert 'total_seconds() / 60, 6)' in src, (
         'load display must round period to 6 decimals (#568)'
+    )
+
+
+def test_save_preserves_one_second_interval(tmp_path):
+    """The SAVE path must keep sub-minute Interval precision. A 1-second
+    Period written at 2-decimal minutes collapses to 0.02 min on disk -- the
+    stored value itself is corrupted (the display fix alone did not cover the
+    writer in protocol.to_file)."""
+    protocol = Protocol(
+        tiling_configs_file_loc=TILING_CONFIGS,
+        config={
+            'version': Protocol.CURRENT_VERSION,
+            'steps': pd.DataFrame(),
+            'period': datetime.timedelta(seconds=1),
+            'duration': datetime.timedelta(hours=1),
+            'labware_id': '6 well microplate',
+            'capture_root': '',
+            'tiling': '1x1',
+        },
+    )
+    out = tmp_path / 'p.tsv'
+    assert protocol.to_file(out) is None
+
+    saved_minutes = float(_read_protocol_row(out, 'Period'))
+    # 1 second = 0.016667 min; the pre-fix 2-decimal round wrote 0.02.
+    assert saved_minutes != 0.02, 'Period saved at 2-decimal minutes (data loss)'
+    assert abs(saved_minutes * 60.0 - 1.0) < 0.1, (
+        f'1s Interval must survive save; got {saved_minutes} min '
+        f'({saved_minutes * 60.0:.4f} s)'
     )

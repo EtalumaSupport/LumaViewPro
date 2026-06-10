@@ -359,8 +359,11 @@ class Protocol:
         # Z-Stack TSV round-trips cleanly. Pre-fix, Apply-Z-Projection on
         # any Manual Z-Stack aborted with "Invalid 'Period' value... must
         # be >= 0" because the writer emitted -1 (issue #669).
+        # Period (Interval) needs the same sub-minute precision as Duration:
+        # at 2 decimals a 1-second interval (0.016667 min) quantizes to 0.02
+        # min on disk, corrupting the stored value. Match Duration's 6 decimals.
         period_minutes = (
-            0 if self.period() is None else round(self.period().total_seconds() / 60.0, 2)
+            0 if self.period() is None else round(self.period().total_seconds() / 60.0, 6)
         )
         duration_hours = (
             0 if self.duration() is None else round(self.duration().total_seconds() / 3600.0, 6)
