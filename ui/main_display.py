@@ -112,11 +112,38 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
 
         # Check if video is currently being written
         if self.video_writing.is_set():
-            logger.warning('[LVP Main  ] Cannot start recording - video is being written')
+            # The video write shares the file worker with long jobs
+            # (composite generation, z-projection): the finalize can sit
+            # queued behind one for minutes while this flag stays set.
+            # Name the real situation -- "wait for the video" alone reads
+            # as a hang when a composite run is what is actually ahead.
+            _ctx = _app_ctx.ctx
+            _ahead = 0
+            _busy_with = None
+            try:
+                _ahead = _ctx.file_io_executor.queue.qsize()
+                _running = _ctx.file_io_executor.running_task
+                if _running is not None:
+                    _busy_with = getattr(_running.action, '__name__', str(_running.action))
+            except Exception as e:
+                logger.debug(f'[LVP Main  ] file-lane status read failed: {e}')
+            logger.warning(
+                f'[LVP Main  ] Cannot start recording - previous video write '
+                f'still pending on the file worker (ahead={_ahead}, '
+                f'busy_with={_busy_with})'
+            )
+            if _busy_with or _ahead:
+                _msg = (
+                    'The previous video is waiting for other file work '
+                    '(such as composite generation) to finish first.'
+                )
+            else:
+                _msg = 'The previous video is still being written.'
             Clock.schedule_once(
                 lambda dt: show_notification_popup(
                     title='Video Being Written',
-                    message='Please wait for the current video to finish writing before starting a new recording.',
+                    message=f'{_msg} It will complete automatically; '
+                    'please try recording again afterward.',
                 ),
                 0,
             )
