@@ -1142,7 +1142,14 @@ class ProtocolSettings(FloatLayout):
             ):
                 error_msg = 'Cannot modify protocol step. Please set objective for current turret position.'
                 logger.error(error_msg)
-                show_notification_popup(title='Protocol Step Modification Error', message=error_msg)
+                # Runs on the io_executor worker; Kivy widgets must be
+                # built on the main thread, so marshal via Clock.
+                Clock.schedule_once(
+                    lambda dt: show_notification_popup(
+                        title='Protocol Step Modification Error', message=error_msg
+                    ),
+                    0,
+                )
                 return
 
             step_name = common_utils.resolve_step_rename(
@@ -1191,7 +1198,13 @@ class ProtocolSettings(FloatLayout):
             logger.error(f'[UI] modify_step_ex failed: {e}', exc_info=True)
             from ui.notification_popup import show_notification_popup
 
-            show_notification_popup(title='Error', message=str(e))
+            # Runs on the io_executor worker; marshal the popup to the
+            # main thread. Bind str(e) now -- the exception variable is
+            # unbound by the time the scheduled lambda runs.
+            Clock.schedule_once(
+                lambda dt, m=str(e): show_notification_popup(title='Error', message=m),
+                0,
+            )
 
     # add_step
     def insert_step(self, after_current_step: bool = True):
@@ -1318,7 +1331,13 @@ class ProtocolSettings(FloatLayout):
             logger.error(f'[UI] insert_step_ex failed: {e}', exc_info=True)
             from ui.notification_popup import show_notification_popup
 
-            show_notification_popup(title='Error', message=str(e))
+            # Runs on the io_executor worker; marshal the popup to the
+            # main thread. Bind str(e) now -- the exception variable is
+            # unbound by the time the scheduled lambda runs.
+            Clock.schedule_once(
+                lambda dt, m=str(e): show_notification_popup(title='Error', message=m),
+                0,
+            )
 
     def update_acquire_zstack(self):
         gui_logger.toggle(
