@@ -116,8 +116,6 @@ class ProtocolStepRunner:
         if remaining_scans <= 0:
             return
 
-        step = p._protocol.step(idx=p._curr_step)
-
         # Check motion timeout
         if p._scope.motion.is_moving():
             if time.monotonic() - p._step_start_time > p.STEP_TIMEOUT_SECONDS:
@@ -140,6 +138,13 @@ class ProtocolStepRunner:
 
         if p._aborted.is_set() or not p._scan_in_progress.is_set():
             return
+
+        # Fetch the step row only after the early-return gates above.
+        # scan_iterate polls at up to ~1 kHz while motion is in flight,
+        # and protocol.step() builds a fresh pandas Series per call --
+        # fetching before the is_moving gate burned that allocation on
+        # every poll of every move.
+        step = p._protocol.step(idx=p._curr_step)
 
         # AF already pushed the Z UI to best_focus_position; do not
         # overwrite with the pre-AF step['Z']. AFE.complete() being
