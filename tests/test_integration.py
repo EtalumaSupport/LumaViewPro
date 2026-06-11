@@ -699,15 +699,6 @@ class TestIntegrationStateAssertions:
         # Camera grabbing state is managed externally, should still be active
         assert scope._camera_driver.is_grabbing()
 
-    @pytest.mark.skip(
-        reason='Executor reuse bug: second run() starts but run_complete callback '
-        'never fires. Debug shows: run enters, _reset_vars clears state, '
-        "protocol_start sets flags, run_loop task submitted -- but cleanup's "
-        "run_complete callback doesn't reach the test's done.set(). "
-        'Two fixes applied (is_protocol_queue_active, protocol_start clears '
-        'stale protocol_finish), but deeper issue remains in cleanup callback '
-        'dispatch. Needs executor simplification in 4.1.'
-    )
     def test_second_run_after_first(self, executor, scope, tmp_path):
         """A second protocol run completes after the first finishes."""
         protocol = _make_protocol([{'color': 'BF', 'illumination_ma': 50.0}])
