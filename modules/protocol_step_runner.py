@@ -295,16 +295,26 @@ class ProtocolStepRunner:
 
                 # Keep LED on between consecutive steps of the same channel
                 # (e.g., Z-stack slices). Avoids unnecessary LED cycling.
-                # Last step of a scan always evaluates _keep_led=False: the
-                # lookahead is gated on `_curr_step < num_steps - 1`, so the
-                # inter-scan period runs with LEDs off (correct). At the start
-                # of the next scan, run_loop fires leds_off again before step 0
-                # -- redundant but harmless; no data integrity impact.
+                # On non-final scans the last step always evaluates
+                # _keep_led=False so the inter-scan period runs with LEDs
+                # off (sample safety during long waits).
                 _keep_led = False
                 num_steps = p._protocol.num_steps()
                 if p._curr_step < num_steps - 1:
                     next_step = p._protocol.step(idx=p._curr_step + 1)
                     if next_step['Color'] == step['Color']:
+                        _keep_led = True
+                elif p.remaining_scans() <= 1 and p._leds_state_at_end == 'return_to_original':
+                    # Final step of the final scan: if cleanup is about to
+                    # re-light this same channel (it was lit before the run),
+                    # turning it off here produces a visible off->on blink a
+                    # few ms later -- the end-of-acquire flicker on a
+                    # live-view-lit z-stack. Hold it; cleanup's restore
+                    # adjusts the current without a dark gap and turns off
+                    # anything that should not stay lit.
+                    _orig = getattr(p, '_original_led_states', None) or {}
+                    _orig_channel = _orig.get(step['Color'])
+                    if _orig_channel and _orig_channel.get('enabled'):
                         _keep_led = True
 
                 _t_capture_start = time.monotonic()

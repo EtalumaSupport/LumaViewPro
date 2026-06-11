@@ -637,3 +637,28 @@ class TestRunCleanupCancelledHandoff:
             # claim completion.
             assert 'completed' not in mock_notif.warning.call_args[0][2]
 
+
+class TestFinalStepKeepsLedWhenCleanupRestoresIt:
+    """The final step of the final scan must not turn its LED off when
+    cleanup is about to re-light the same channel (it was lit before the
+    run): the off->on pair is a visible end-of-acquire flicker on a
+    z-stack started from a live-view-lit channel. Non-final scans keep
+    the LED-off so inter-scan waits stay dark (sample safety).
+    """
+
+    def test_keep_led_condition_present_in_scan_iterate(self):
+        import pathlib
+
+        src = pathlib.Path('modules/protocol_step_runner.py').read_text(encoding='utf-8')
+        flat = ' '.join(src.split())
+        assert 'remaining_scans() <= 1' in flat, (
+            'final-step LED keep must be gated to the FINAL scan so '
+            'inter-scan waits still run dark'
+        )
+        assert "_leds_state_at_end == 'return_to_original'" in flat.replace('"', "'"), (
+            'final-step LED keep must apply only when cleanup will restore '
+            'the original LED state'
+        )
+        assert '_original_led_states' in flat, (
+            'final-step LED keep must check the channel was lit before the run'
+        )
