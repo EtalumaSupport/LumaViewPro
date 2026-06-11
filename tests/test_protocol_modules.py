@@ -578,3 +578,62 @@ class TestProtocolImageWriterWriteCapture:
             step={'Name': 'test'},
         )
         # Should not crash -- just returns
+
+
+class TestRunCleanupCancelledHandoff:
+    """A superseding run/abort cycle cancels queued cleanup tasks (LED
+    restore, return-to-position) via the executor's pending-clear. That is
+    a normal ownership hand-off: the new cycle sets LED state and stage
+    position itself. Treating the CancelledError as a cleanup failure
+    fired an error popup per cycle when the run button was clicked
+    rapidly -- nine popups in four seconds on the bench.
+    """
+
+    def _args(self, **overrides):
+        helper = TestRunCleanup()
+        return helper._make_cleanup_args(**overrides)
+
+    def test_cancelled_led_restore_is_not_a_cleanup_error(self):
+        from concurrent.futures import CancelledError
+        from unittest.mock import patch
+        from modules.protocol_cleanup import run_cleanup
+
+        def cancelled_leds_off():
+            raise CancelledError()
+
+        args, _, _ = self._args(leds_off_fn=cancelled_leds_off)
+        with patch('modules.notification_center.notifications') as mock_notif:
+            run_cleanup(**args)
+            mock_notif.warning.assert_not_called()
+
+    def test_cancelled_return_move_is_not_a_cleanup_error(self):
+        from concurrent.futures import CancelledError
+        from unittest.mock import patch
+        from modules.protocol_cleanup import run_cleanup
+
+        def cancelled_move(**kw):
+            raise CancelledError()
+
+        args, _, _ = self._args(
+            return_to_position={'x': 1.0, 'y': 2.0, 'z': 3.0},
+            default_move_fn=cancelled_move,
+        )
+        with patch('modules.notification_center.notifications') as mock_notif:
+            run_cleanup(**args)
+            mock_notif.warning.assert_not_called()
+
+    def test_real_led_restore_failure_still_surfaces(self):
+        from unittest.mock import patch
+        from modules.protocol_cleanup import run_cleanup
+
+        def broken_leds_off():
+            raise RuntimeError('serial dead')
+
+        args, _, _ = self._args(leds_off_fn=broken_leds_off)
+        with patch('modules.notification_center.notifications') as mock_notif:
+            run_cleanup(**args)
+            mock_notif.warning.assert_called_once()
+            # Aborted runs get this summary too; the wording must not
+            # claim completion.
+            assert 'completed' not in mock_notif.warning.call_args[0][2]
+

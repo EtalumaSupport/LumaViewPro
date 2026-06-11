@@ -10,6 +10,7 @@ protocol-decomposition refactor.
 from __future__ import annotations
 
 import threading
+from concurrent.futures import CancelledError
 from typing import TYPE_CHECKING
 
 from lvp_logger import logger
@@ -143,6 +144,16 @@ def run_cleanup(
                 leds_off_fn()
         else:
             logger.error(f'Unsupported LEDs state at end value: {leds_state_at_end}')
+    except CancelledError:
+        # An overlapping abort / new-run cycle cleared the protocol queue
+        # and cancelled this restore task before it ran. The superseding
+        # cycle owns LED state from here; this is a normal hand-off, not a
+        # failure -- surfacing it as one produced a popup per cycle when
+        # the run button was clicked rapidly.
+        logger.info(
+            f'[{logger_name}] Cleanup: LED restore superseded by an '
+            'overlapping run/abort cycle'
+        )
     except Exception as ex:
         logger.error(f'[PROTOCOL] Error restoring LED states during cleanup: {ex}')
         cleanup_errors.append(f'Restore LED states: {type(ex).__name__}: {ex}')
@@ -252,6 +263,13 @@ def run_cleanup(
                 z=return_to_position['z'],
             )
             logger.info(f'[{logger_name}] Cleanup: return-to-position move issued')
+    except CancelledError:
+        # Same hand-off as the LED restore above: a superseding run/abort
+        # cycle cancelled the queued move; the new cycle owns stage position.
+        logger.info(
+            f'[{logger_name}] Cleanup: return-to-position superseded by an '
+            'overlapping run/abort cycle'
+        )
     except Exception as ex:
         logger.error(f'[PROTOCOL] Error returning to position during cleanup: {ex}')
         cleanup_errors.append(f'Return to position: {type(ex).__name__}: {ex}')
@@ -301,10 +319,13 @@ def run_cleanup(
             from modules.notification_center import notifications
 
             err_summary = '\n'.join(f'  - {e}' for e in cleanup_errors)
+            # "ended", not "completed": this summary also fires on aborted
+            # runs, and claiming completion on an abort misleads the
+            # post-mortem reader.
             notifications.warning(
                 'Protocol',
                 'Protocol cleanup issues',
-                f'Protocol completed but {len(cleanup_errors)} cleanup step(s) failed:\n'
+                f'Protocol ended but {len(cleanup_errors)} cleanup step(s) failed:\n'
                 f'{err_summary}\n'
                 f'Check LED state, camera settings, and stage position.',
             )
