@@ -48,8 +48,14 @@ set -e
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 
 # Rule 31 mechanical gate (fail fast on Rule 24 / 27 / 28 violations
-# in staged lines before any other hook side-effects).
-python3 "$REPO_ROOT/tools/check_rules.py" --staged
+# in staged lines before any other hook side-effects). Skip gracefully on
+# branches that predate the check_rules.py port (e.g. main) so the gate's
+# absence never blocks a commit there.
+if [ -f "$REPO_ROOT/tools/check_rules.py" ]; then
+    python3 "$REPO_ROOT/tools/check_rules.py" --staged
+else
+    echo "pre-commit: tools/check_rules.py absent on this branch -- skipping rule gate" >&2
+fi
 
 # version.txt refresh (LVP-specific). 4-line format:
 #   Line 1: release moniker (manual bump on promotion; path-safe)
