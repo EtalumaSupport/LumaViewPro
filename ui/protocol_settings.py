@@ -9,6 +9,7 @@ import typing
 
 import pandas as pd
 
+from kivy.app import App
 from kivy.clock import Clock
 from kivy.core.window import Window
 from kivy.properties import BooleanProperty
@@ -1353,10 +1354,25 @@ class ProtocolSettings(FloatLayout):
 
         return self._protocol.step(idx=self.curr_step)
 
+    @staticmethod
+    def _publish_protocol_running(running: bool) -> None:
+        """Mirror the protocol-running state onto the App ``protocol_running``
+        property so kv ``disabled:`` bindings grey out controls during a scan.
+
+        Written on the Kivy main thread (safe to call from any thread). The
+        ctx.protocol_running Event stays the authoritative store; this only
+        publishes a UI reflection of it.
+        """
+        app = App.get_running_app()
+        if app is None:
+            return
+        Clock.schedule_once(lambda dt: setattr(app, 'protocol_running', running), 0)
+
     def _reset_run_autofocus_scan_button(self, **kwargs):
         ctx = _app_ctx.ctx
         protocol_running_global = ctx.protocol_running
         protocol_running_global.clear()
+        self._publish_protocol_running(False)
 
         self.ids['run_autofocus_btn'].state = 'normal'
         self.ids['run_autofocus_btn'].text = 'Autofocus All Steps'
@@ -1367,6 +1383,7 @@ class ProtocolSettings(FloatLayout):
         ctx = _app_ctx.ctx
         protocol_running_global = ctx.protocol_running
         protocol_running_global.clear()
+        self._publish_protocol_running(False)
         self.ids['run_scan_btn'].state = 'normal'
         self.ids['run_scan_btn'].text = 'Run One Scan'
         self.ids['run_scan_btn'].disabled = False
@@ -1376,6 +1393,7 @@ class ProtocolSettings(FloatLayout):
         ctx = _app_ctx.ctx
         protocol_running_global = ctx.protocol_running
         protocol_running_global.clear()
+        self._publish_protocol_running(False)
         self.ids['run_protocol_btn'].state = 'normal'
         self.ids['run_protocol_btn'].text = 'Run Full Protocol'
         self.ids['run_protocol_btn'].disabled = False
@@ -1541,6 +1559,7 @@ class ProtocolSettings(FloatLayout):
 
             live_histo_off()
             ctx.stage.set_motion_capability(False)
+            self._publish_protocol_running(True)
 
             # Only block if starting NEW autofocus scan (button is 'down'), not if aborting (button is 'normal')
             if (
@@ -1785,6 +1804,7 @@ class ProtocolSettings(FloatLayout):
         # All validation passed -- now commit to running
         protocol_running_global = ctx.protocol_running
         protocol_running_global.set()
+        self._publish_protocol_running(True)
         ctx.stage.set_motion_capability(False)
 
         self.ids['run_scan_btn'].text = 'Abort One Scan'
@@ -2005,6 +2025,7 @@ class ProtocolSettings(FloatLayout):
             # All validation passed -- now commit to running
             protocol_running_global = ctx.protocol_running
             protocol_running_global.set()
+            self._publish_protocol_running(True)
             ctx.stage.set_motion_capability(False)
 
             # Note: This will be quickly overwritten by the remaining number of scans

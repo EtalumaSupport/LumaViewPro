@@ -68,6 +68,15 @@ class ScopeSession:
         self.protocol_running = threading.Event()
         self.focus_round = 0
 
+    @property
+    def is_protocol_running(self) -> bool:
+        """True while a protocol or scan is running.
+
+        Canonical read of the protocol-running state for callers holding a
+        session handle, so they need not reach into the underlying Event.
+        """
+        return self.protocol_running.is_set()
+
     # ------------------------------------------------------------------
     # Factory helpers
     # ------------------------------------------------------------------

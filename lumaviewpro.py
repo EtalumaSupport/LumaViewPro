@@ -397,6 +397,13 @@ class LumaViewProApp(TooltipMixin, App):
 
     kv_file = 'ui/lumaviewpro.kv'
 
+    # UI mirror of ctx.protocol_running (a worker-thread Event) so kv
+    # `disabled:` bindings can react to it -- a threading.Event cannot be
+    # bound in kv. The Event stays authoritative for worker-thread reads;
+    # this property is written only on the Kivy main thread when a run
+    # starts and stops, so widgets grey out for the duration of a scan.
+    protocol_running = BooleanProperty(False)
+
     def on_start(self) -> None:
         """Kivy lifecycle hook: fires after build() and before the main loop runs."""
         # Read scope through ctx so widget rebuilds (LS850 <-> LS620) don't strand it.
