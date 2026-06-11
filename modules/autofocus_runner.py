@@ -120,17 +120,6 @@ class AutofocusRunner:
             'exposure': exposure,
         }
 
-    def _led_on(self):
-        """Turn on LED for autofocus illumination (if configured).
-
-        Uses owner='autofocus' so only AF can turn this LED off.
-        """
-        if self._led_color is not None and self._scope.led_connected:
-            ch = self._scope.illumination.color2ch(self._led_color)
-            self._scope.illumination.led_on(
-                channel=ch, mA=self._led_illumination, block=True, owner='autofocus'
-            )
-
     def _led_off(self):
         """Turn off only the LED(s) that AF owns (not all LEDs)."""
         if self._led_color is not None and self._scope.led_connected:
@@ -258,14 +247,24 @@ class AutofocusRunner:
             self._scope.imaging.set_gain(self._camera_gain)
         if self._camera_exposure is not None:
             self._scope.imaging.set_exposure_time(self._camera_exposure)
-        # Clean LED state before AF's _led_on fires. led_on is additive
-        # at the API + driver layers; a Live-mode LED on a different
-        # channel would otherwise stay lit alongside the AF channel and
-        # corrupt the focus metric with mixed illumination. Pre-AF state
-        # is already snapshotted into self._saved_led_state above and
-        # restored on AF exit, so this leds_off is non-destructive.
-        self._scope.illumination.leds_off()
-        self._led_on()
+        # Make the AF channel the only lit one before scanning. A Live-mode
+        # LED on a different channel would otherwise stay lit alongside the AF
+        # channel and corrupt the focus metric with mixed illumination. Using
+        # the exclusive primitive (rather than leds_off + led_on) leaves an
+        # AF channel that is already lit at target untouched, so AF does not
+        # blink it off->on at scan start. Pre-AF state is snapshotted into
+        # self._saved_led_state above and restored on AF exit.
+        if self._led_color is not None and self._scope.led_connected:
+            self._scope.illumination.leds_exclusive(
+                channel=self._scope.illumination.color2ch(self._led_color),
+                mA=self._led_illumination,
+                block=True,
+                owner='autofocus',
+            )
+        else:
+            # No AF illumination configured -- focus on ambient; clear any
+            # Live-mode LED so it does not bias the metric.
+            self._scope.illumination.leds_off()
         # Drop Z precision for the coarse passes; the fine pass restores
         # precision ON, and all exit paths (success, abort, exception)
         # also restore ON via the finally block and reset().
@@ -380,11 +379,19 @@ class AutofocusRunner:
                 # illumination (#612).
                 _af_log.info('[AF] keep_led_on -- skipping LED off + restore')
             else:
-                self._led_off()
                 if self._saved_led_state:
+                    # restore_led_state(owner='autofocus') turns off AF-owned
+                    # channels that should not be lit and re-asserts the pre-AF
+                    # snapshot idempotently -- a channel already at its pre-AF
+                    # target is left untouched, so AF does not blink it off->on
+                    # at scan end. A separate leds_off first would turn the
+                    # channel off only for restore to re-light it.
                     self._scope.illumination.restore_led_state(
                         self._saved_led_state, owner='autofocus'
                     )
+                else:
+                    # No snapshot to restore -- just release AF's own channel.
+                    self._led_off()
             if self._saved_camera_state:
                 _af_log.info(
                     f'[AF DIAG] Restoring pre-AF camera state: '

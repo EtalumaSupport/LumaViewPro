@@ -1106,8 +1106,10 @@ class TestIssue602_AFExecutorLED:
             io_executor=io,
             file_io_executor=file_ex,
         )
-        # Verify _led_on and _led_off methods exist
-        assert hasattr(af, '_led_on')
+        # AF illuminates its own channel at scan start via the exclusive
+        # primitive (the former _led_on helper was folded into that call);
+        # _led_off still releases AF's channel.
+        assert hasattr(scope.illumination, 'leds_exclusive')
         assert hasattr(af, '_led_off')
         # Verify _reset_state initializes LED fields
         af._reset_state()

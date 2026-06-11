@@ -650,6 +650,14 @@ class SequencedCaptureRunner:
 
     def _cleanup_inner(self):
         if not self._run_in_progress_event.is_set():
+            # run-in-progress was already cleared, so run_cleanup (which
+            # ends the executors' protocol-mode) will not run here. Guarantee
+            # the io + file executors still leave protocol-mode -- an abort
+            # that cleared the run flag without ending them would otherwise
+            # wedge their worker on protocol_queue.get and starve normal file
+            # ops. Idempotent: a no-op when they are not in protocol-mode.
+            self._io_executor.end_protocol_mode()
+            self.file_io_executor.end_protocol_mode()
             return
 
         run_cleanup(
