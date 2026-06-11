@@ -977,30 +977,22 @@ class TestAxisState:
         scope.motion.thome()
         assert scope.motion.get_axis_state('T') == AxisState.IDLE
 
-    @pytest.mark.xfail(
-        reason='Pre-existing test bug surfaced by audit F9 caller-survey. '
-        'Default sim model changed from LS850 to LS850T in LVP `6b16823` '
-        "(session 10). Original test expected `'T' not in axes_present()` "
-        'which used to hold on LS850 but no longer holds on LS850T. The '
-        "naive fix (swap _motion_driver to LS850 post-init) doesn't rebuild "
-        'scope.capabilities -- motion.thome still sees T in capabilities.axes '
-        'and transitions T to IDLE. Proper fix requires either a Lumascope '
-        'constructor parameter that selects the sim model OR a '
-        'capabilities-rebuild path that re-runs detection after driver '
-        'swap. Tracked in TODO.md.',
-        strict=False,
-    )
     def test_thome_on_no_turret_scope_is_silent_noop(self, _mock_heavy_deps):
         """Audit B4 + Rule 8: calling thome() on a scope without a
         turret must not raise and must leave T in UNKNOWN state --
-        there is no phantom T axis to transition."""
-        from modules.lumascope_api import Lumascope, AxisState
-        from drivers.simulated_motorboard import SimulatedMotorBoard
+        there is no phantom T axis to transition.
 
-        scope = Lumascope(simulate=True)
-        scope._motion_driver = SimulatedMotorBoard(model='LS850')
+        Building with sim_model='LS850' (no turret) makes capabilities.axes
+        omit T from the start, so this exercises the real no-turret path --
+        unlike swapping _motion_driver post-init, which left T in the
+        already-built capabilities.
+        """
+        from modules.lumascope_api import Lumascope, AxisState
+
+        scope = Lumascope(simulate=True, sim_model='LS850')
         try:
             assert 'T' not in tuple(scope._motion_driver.detect_present_axes())
+            assert 'T' not in scope.capabilities.axes
             scope.motion.thome()
             assert scope.motion.get_axis_state('T') == AxisState.UNKNOWN
         finally:
