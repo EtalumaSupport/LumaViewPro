@@ -12,6 +12,8 @@ when a command actually reaches the driver (a self-skipped no-op does not fire),
 so counting listener events is a direct measure of "did the LED blink".
 """
 
+import threading
+
 import pytest
 
 from modules.lumascope_api import Lumascope
@@ -92,3 +94,47 @@ def test_restore_owner_scoped_leaves_other_channels_alone(scope):
     scope.illumination.restore_led_state(snapshot, owner='autofocus')
     assert scope.illumination.led_enabled(_color(scope, 0))  # ui's channel untouched
     assert scope.illumination.led_enabled(_color(scope, 1))  # autofocus's restored
+
+
+@pytest.fixture
+def scope_io(scope):
+    """Simulated scope with a started io_executor registered, so the
+    X_async LED methods (which dispatch IOTasks) run end to end. Manual
+    step navigation reaches the LED through leds_exclusive_async."""
+    from modules.sequential_io_executor import SequentialIOExecutor
+
+    ex = SequentialIOExecutor(name='TEST_LED_IO')
+    ex.start()
+    scope.register_executors(io_executor=ex)
+    yield scope
+    ex.shutdown(wait=True)
+
+
+def _run_async(fn, *args, timeout=5, **kwargs):
+    """Submit an X_async LED call and block until the io_executor runs it."""
+    done = threading.Event()
+    fn(*args, callback=lambda *a, **k: done.set(), **kwargs)
+    assert done.wait(timeout), 'async LED task did not complete in time'
+
+
+def test_leds_exclusive_async_skips_already_lit_channel(scope_io):
+    """leds_exclusive_async on a channel already at the target current emits
+    no driver command -- the manual same-color step no longer blinks."""
+    scope_io.illumination.led_on(channel=3, mA=200, owner='ui')
+
+    events = []
+    scope_io.illumination.add_led_listener(lambda c, e, m, o: events.append((c, e)))
+    _run_async(scope_io.illumination.leds_exclusive_async, 3, 200)
+
+    assert events == [], f'already-lit channel was re-commanded (flicker): {events}'
+    assert scope_io.illumination.led_enabled(_color(scope_io, 3))
+
+
+def test_leds_exclusive_async_turns_off_other_channels(scope_io):
+    """leds_exclusive_async offs other lit channels and lights the target --
+    the manual switch-to-a-new-color step."""
+    scope_io.illumination.led_on(channel=0, mA=100, owner='ui')
+    _run_async(scope_io.illumination.leds_exclusive_async, 3, 200)
+
+    assert not scope_io.illumination.led_enabled(_color(scope_io, 0))
+    assert scope_io.illumination.led_enabled(_color(scope_io, 3))

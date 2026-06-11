@@ -490,6 +490,38 @@ class IlluminationAPI:
             )
         )
 
+    def leds_exclusive_async(
+        self, channel, mA, *, callback=None, cb_kwargs=None, owner: str = ''
+    ) -> None:
+        """Submit ``leds_exclusive(channel, mA)`` to the io_executor.
+
+        Makes ``channel`` the only lit LED without blinking a channel that is
+        already correct off then on (see ``leds_exclusive``). Use this for
+        manual step navigation so stepping between consecutive same-color
+        steps holds the LED steady.
+
+        Args:
+            channel: Channel number or color name.
+            mA: LED current in milliamps.
+            callback: Optional completion callback.
+            cb_kwargs: Optional kwargs passed to the callback.
+            owner: Optional ownership tag for the LED state.
+        """
+        if not self._scope.led_connected:
+            logger.warning('[SCOPE API ] LED controller not available.')
+            return
+        kwargs = {'owner': owner} if owner else {}
+        ex = self._scope._require_executor(self._scope._io_executor, 'leds_exclusive_async')
+        ex.put(
+            IOTask(
+                action=self.leds_exclusive,
+                args=(channel, mA),
+                kwargs=kwargs,
+                callback=callback,
+                cb_kwargs=cb_kwargs,
+            )
+        )
+
     def led_on_sync(self, channel, mA, *, timeout_s=5, owner: str = '') -> None:
         """Run ``led_on`` through the io_executor and block until done.
 

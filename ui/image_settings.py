@@ -503,7 +503,6 @@ class ImageSettings(BoxLayout):
 
     def _do_accordion_collapse(self):
         logger.info('[LVP Main  ] ImageSettings.accordion_collapse()')
-        from ui.ui_helpers import scope_leds_off
 
         ctx = _app_ctx.ctx
 
@@ -539,19 +538,28 @@ class ImageSettings(BoxLayout):
         if self.ids['toggle_imagesettings'].state == 'normal':
             return
 
-        # turn off the camera update and all LEDs
-        scope_leds_off()
-
-        # apply settings for the newly-opened layer
+        # Reconcile each layer's LED to the open drawer: off the collapsed
+        # layers, apply the open one. Switching the others off individually
+        # (not a nuclear leds_off) avoids clearing the LED-state cache, which
+        # would force the open layer's own channel -- e.g. one a step just lit
+        # -- to re-fire and blink off then on. led_off self-skips a channel
+        # already off, and offing the collapsed layers here still clears a
+        # previously-lit channel when the drawer switches to a layer whose LED
+        # is off (which the open layer's apply_settings alone would not do).
         for layer in common_utils.get_layers():
             layer_accordion = self.accordion_item_lookup(layer=layer)
-            layer_is_collapsed = layer_accordion.collapse
-
-            if layer_is_collapsed:
-                continue
-
-            layer_obj = self.layer_lookup(layer=layer)
-            layer_obj.apply_settings()
+            if layer_accordion.collapse:
+                try:
+                    state = ctx.scope.illumination.get_led_state(color=layer)
+                    if state.get('enabled', False):
+                        ctx.scope.illumination.led_off_async(layer)
+                except Exception as e:
+                    logger.warning(
+                        f'[LVP Main  ] get_led_state({layer}) failed during '
+                        f'accordion-collapse LED cleanup: {e}'
+                    )
+            else:
+                self.layer_lookup(layer=layer).apply_settings()
 
     def check_settings(self, *args):
         logger.info('[LVP Main  ] ImageSettings.check_settings()')
