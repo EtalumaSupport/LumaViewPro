@@ -8523,11 +8523,44 @@ class TestSCEResetSignalsAbort:
         runner.reset()
 
         runner.protocol_thread.abort.assert_called_once()
+
+    def test_reset_defers_cleanup_to_protocol_thread_when_running(self):
+        """Cleanup (queued LED-off, camera restore, return-to-position
+        futures) must NOT run on the caller while the run loop is alive --
+        a UI abort calls reset() on the Kivy main thread, and running the
+        teardown inline froze the GUI for the duration of the queued moves.
+        The run loop's finally-block owns cleanup on the protocol thread."""
+        runner = self._make_runner()
+        runner._run_in_progress_event.set()
+        runner.protocol_thread.is_running = True
+        runner._cleanup = MagicMock()
+
+        runner.reset()
+
+        runner.protocol_thread.abort.assert_called_once()
+        runner._cleanup.assert_not_called()
+
+    def test_reset_falls_back_inline_when_thread_not_running(self):
+        """With the run flagged in progress but no live run loop (dispatch
+        failed / thread died before its finally), reset() must still clean
+        up so run state is not orphaned."""
+        runner = self._make_runner()
+        runner._run_in_progress_event.set()
+        runner.protocol_thread.is_running = False
+        runner._cleanup = MagicMock()
+
+        runner.reset()
+
         runner._cleanup.assert_called_once()
 
     def test_reset_abort_called_before_cleanup(self):
+        """Abort must precede any teardown so cleanup never races the
+        in-flight scan step (exercised on the inline-fallback path; the
+        deferred path orders abort before the run loop's own cleanup by
+        construction)."""
         runner = self._make_runner()
         runner._run_in_progress_event.set()
+        runner.protocol_thread.is_running = False
 
         order: list[str] = []
         runner.protocol_thread.abort.side_effect = lambda: order.append('abort')
@@ -8536,6 +8569,23 @@ class TestSCEResetSignalsAbort:
         runner.reset()
 
         assert order == ['abort', 'cleanup'], f'abort must be called before cleanup; got {order}'
+
+    def test_wait_for_run_idle_returns_true_when_idle(self):
+        runner = self._make_runner()
+        assert runner.wait_for_run_idle(timeout_s=0.2) is True
+
+    def test_wait_for_run_idle_times_out_while_run_unwinds(self):
+        runner = self._make_runner()
+        runner._run_in_progress_event.set()
+        assert runner.wait_for_run_idle(timeout_s=0.2) is False
+
+    def test_wait_for_run_idle_returns_when_cleanup_clears_flag(self):
+        import threading
+
+        runner = self._make_runner()
+        runner._run_in_progress_event.set()
+        threading.Timer(0.1, runner._run_in_progress_event.clear).start()
+        assert runner.wait_for_run_idle(timeout_s=2.0) is True
 
     def test_reset_noop_when_no_run_in_progress(self):
         runner = self._make_runner()
