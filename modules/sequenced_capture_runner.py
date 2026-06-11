@@ -68,7 +68,14 @@ step_dict = {
 
 class SequencedCaptureRunner:
     LOGGER_NAME = 'SeqCapExec'
-    STEP_TIMEOUT_SECONDS = 120  # Max time to wait for a single step (motion + capture)
+    # Max time for ONE continuous stage motion to complete. The timer
+    # starts when motion is first observed in flight and resets whenever
+    # the stage reports idle, so in-step autofocus time never counts
+    # against it. The longest legitimate single move (full-travel XY)
+    # finishes well inside this bound; a stage still "moving" past it is
+    # stalled hardware, not a slow move. Per PERFORMANCE_BUDGETS.md row
+    # protocol_motion_timeout_s.
+    MOTION_TIMEOUT_SECONDS = 30
 
     def __init__(
         self,
@@ -179,6 +186,7 @@ class SequencedCaptureRunner:
         self._captures_taken = 0
         self._protocol_execution_record = None
         self._step_start_time = time.monotonic()
+        self._motion_wait_start = None
         self._target_x_pos = -1
         self._target_y_pos = -1
         self._target_z_pos = -1

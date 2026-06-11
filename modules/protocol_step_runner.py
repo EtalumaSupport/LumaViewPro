@@ -116,11 +116,17 @@ class ProtocolStepRunner:
         if remaining_scans <= 0:
             return
 
-        # Check motion timeout
+        # Check motion timeout. The timer bounds ONE continuous motion:
+        # it starts when motion is first observed in flight and resets
+        # whenever the stage reports idle, so time spent in an in-step
+        # autofocus run never counts against a later move's budget.
         if p._scope.motion.is_moving():
-            if time.monotonic() - p._step_start_time > p.STEP_TIMEOUT_SECONDS:
+            if p._motion_wait_start is None:
+                p._motion_wait_start = time.monotonic()
+            if time.monotonic() - p._motion_wait_start > p.MOTION_TIMEOUT_SECONDS:
                 timeout_msg = (
-                    f'Step {p._curr_step} timed out waiting for motion ({p.STEP_TIMEOUT_SECONDS}s).'
+                    f'Step {p._curr_step} timed out waiting for motion '
+                    f'({p.MOTION_TIMEOUT_SECONDS}s).'
                 )
                 logger.error(f'[PROTOCOL] {timeout_msg} -- transitioning to ERROR state')
                 from modules.notification_center import notifications
@@ -132,6 +138,7 @@ class ProtocolStepRunner:
                 except ValueError:
                     pass
             return
+        p._motion_wait_start = None
 
         if not p._grease_redistribution_event.is_set():
             return
@@ -444,6 +451,7 @@ class ProtocolStepRunner:
         """Move to the position for a given protocol step."""
         p = self._p
         p._step_start_time = time.monotonic()
+        p._motion_wait_start = None
         if p._aborted.is_set():
             return
 

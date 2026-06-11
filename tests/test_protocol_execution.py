@@ -1867,15 +1867,15 @@ class TestCaptureFailure:
 
 
 class TestStepTimeout:
-    """P1-4: Steps that exceed STEP_TIMEOUT_SECONDS are skipped."""
+    """P1-4: Steps that exceed MOTION_TIMEOUT_SECONDS are skipped."""
 
     def test_stuck_motion_skips_step(self, executor, scope, tmp_path):
         """If motion never completes, the step times out and protocol continues."""
         from modules.sequenced_capture_runner import SequencedCaptureRunner
 
         # Use a very short timeout for the test
-        original_timeout = SequencedCaptureRunner.STEP_TIMEOUT_SECONDS
-        SequencedCaptureRunner.STEP_TIMEOUT_SECONDS = 1  # 1 second
+        original_timeout = SequencedCaptureRunner.MOTION_TIMEOUT_SECONDS
+        SequencedCaptureRunner.MOTION_TIMEOUT_SECONDS = 1  # 1 second
 
         protocol = _make_multi_step_protocol(
             [
@@ -1899,7 +1899,7 @@ class TestStepTimeout:
 
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         # Restore
-        SequencedCaptureRunner.STEP_TIMEOUT_SECONDS = original_timeout
+        SequencedCaptureRunner.MOTION_TIMEOUT_SECONDS = original_timeout
         scope.motion.get_target_status = original_get_target
 
         assert completed
@@ -2199,4 +2199,38 @@ class TestProtocolLedNoFlash:
                 break
         assert not blinked, (
             f'already-lit {color} was blinked off->on at run start: {events}'
+        )
+
+
+class TestMotionTimeoutEndsRunInsteadOfWedging:
+    """A motion timeout mid-run must END the protocol (ERROR -> cleanup ->
+    run_complete), not wedge it. Previously the timed-out scan was counted
+    complete and every later period raised an invalid ERROR->SCANNING
+    transition that the transient-failure classifier retried forever -- a
+    multi-day timelapse silently delivering nothing after one timeout."""
+
+    def test_run_completes_after_motion_timeout(self, executor, scope, tmp_path, monkeypatch):
+        from modules.protocol_state_machine import ProtocolState
+
+        executor.MOTION_TIMEOUT_SECONDS = 0.3
+        # Stage reports moving forever -> the step's motion wait must trip
+        # the timeout instead of completing.
+        monkeypatch.setattr(scope.motion, 'is_moving', lambda *a, **kw: True)
+
+        protocol = _make_single_step_protocol(color='BF')
+        completed, _ = _run_and_wait(
+            executor,
+            protocol,
+            tmp_path,
+            run_mode=SequencedCaptureRunMode.FULL_PROTOCOL,
+            max_scans=3,
+        )
+
+        assert completed, (
+            'Protocol wedged after a motion timeout: run_complete never '
+            'fired. ERROR state must terminate the run, not be retried '
+            'as a transient failure every period.'
+        )
+        assert executor._state == ProtocolState.IDLE, (
+            f'Expected IDLE after cleanup, got {executor._state}'
         )
