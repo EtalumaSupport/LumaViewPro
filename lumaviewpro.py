@@ -1112,6 +1112,22 @@ class LumaViewProApp(TooltipMixin, App):
             logger.warning(f'[LVP Main  ] metrics_logger stop failed during shutdown: {e}')
 
         ctx.motion_settings.ids['protocol_settings_id'].cancel_all_protocols()
+        # The abort above only signals; the hardware teardown (LED off,
+        # camera restore, return-to-position) runs on the protocol thread.
+        # Shutdown tears the executors down right after this block, so wait
+        # -- bounded -- for that cleanup to finish before proceeding. Per
+        # PERFORMANCE_BUDGETS.md row shutdown_protocol_cleanup_wait_s. The
+        # leds_off drain below is the belt-and-suspenders if it times out.
+        try:
+            if ctx.sequenced_capture_runner is not None and not (
+                ctx.sequenced_capture_runner.wait_for_run_idle(timeout_s=30.0)
+            ):
+                logger.warning(
+                    '[LVP Main  ] protocol cleanup still in flight after 30 s '
+                    'shutdown wait; proceeding with teardown anyway'
+                )
+        except Exception as e:  # grain: ignore NAKED_EXCEPT
+            logger.warning(f'[LVP Main  ] shutdown cleanup wait failed: {e}')
 
         # Stop the scope-display thread BEFORE the executor cascade --
         # otherwise the FPS-paced loop submits work against a half-

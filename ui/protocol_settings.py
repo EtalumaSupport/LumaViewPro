@@ -1817,6 +1817,9 @@ class ProtocolSettings(FloatLayout):
         if self.ids['run_scan_btn'].state == 'normal':
             gui_logger.protocol_action('ABORT_SCAN')
             logger.info('[LVP Main  ] ProtocolSettings.run_scan_from_ui() - User ending scan early')
+            # Hardware teardown finishes on the protocol thread; the scan
+            # run-complete callback resets this label when it ends.
+            self.ids['run_scan_btn'].text = 'Stopping...'
             self._cleanup_at_end_of_protocol(autofocus_scan=False)
             return
 
@@ -2038,6 +2041,9 @@ class ProtocolSettings(FloatLayout):
 
             if self.ids['run_protocol_btn'].state == 'normal':
                 gui_logger.protocol_action('ABORT_PROTOCOL')
+                # Hardware teardown finishes on the protocol thread; the
+                # protocol run-complete callback resets this label.
+                self.ids['run_protocol_btn'].text = 'Stopping...'
                 self._cleanup_at_end_of_protocol(autofocus_scan=False)
                 return
 
@@ -2240,15 +2246,23 @@ class ProtocolSettings(FloatLayout):
 
     def _cleanup_at_end_of_protocol(self, autofocus_scan: bool):
         ctx = _app_ctx.ctx
+        deferred_to_cleanup = False
 
         try:
             sequenced_capture_runner = ctx.sequenced_capture_runner
+            # True only on the abort flavor of this call: a run is still
+            # unwinding, so reset() returns immediately and the hardware
+            # teardown (LED off, camera restore, return-to-position) runs
+            # on the protocol thread. The post-completion flavor (run
+            # already finished; reset() is a light no-op) keeps the
+            # synchronous restore below.
+            deferred_to_cleanup = sequenced_capture_runner.run_in_progress()
             sequenced_capture_runner.reset()
             live_histo_reverse()
             self.reset_autofocus_ui()
             self._autofocus_complete_callback()
 
-            if not autofocus_scan:
+            if not autofocus_scan and not deferred_to_cleanup:
                 try:
                     create_hyperstacks_if_needed()
                 except Exception as e:
@@ -2256,12 +2270,24 @@ class ProtocolSettings(FloatLayout):
         except Exception as e:
             logger.error(f'[Protocol] Cleanup error: {e}', exc_info=True)
         finally:
-            # ALWAYS restore UI state, even if cleanup above threw.
-            # Without this, buttons stay disabled and motion stays locked.
-            self._reset_run_protocol_button()
-            self._reset_run_scan_button()
-            self._reset_run_autofocus_scan_button()
-            ctx.stage.set_motion_capability(True)
+            if deferred_to_cleanup:
+                # Cleanup is unwinding on the protocol thread; the
+                # run-complete callbacks it fires perform the full restore
+                # (buttons, motion capability, hyperstacks) when it ends.
+                # Restoring here would hand the stage back to the user
+                # while the return-to-position move is still queued, and
+                # re-arm the run buttons while the old run is tearing
+                # down. Until then the run-in-progress guards refuse new
+                # runs and the protocol-running lockout keeps the rest of
+                # the UI held -- responsive, not frozen.
+                pass
+            else:
+                # ALWAYS restore UI state, even if cleanup above threw.
+                # Without this, buttons stay disabled and motion stays locked.
+                self._reset_run_protocol_button()
+                self._reset_run_scan_button()
+                self._reset_run_autofocus_scan_button()
+                ctx.stage.set_motion_capability(True)
 
             # LED observer handles UI button sync after protocol -- no manual refresh needed
 
