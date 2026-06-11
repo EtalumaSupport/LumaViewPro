@@ -617,6 +617,10 @@ class LEDBoard(SerialBoard):
     def get_info(self) -> dict:
         """Send INFO and return parsed dict.
 
+        No caller on the 4.0 line; the connect-latency bench harness on
+        the 4.1 development line registers this as a bench callable. Not
+        dead code -- a caller search in this branch alone is misleading.
+
         Returns:
             dict: Parsed fields including ``version``, ``date``,
                 ``cal_status``, and ``raw`` (full response text). Empty

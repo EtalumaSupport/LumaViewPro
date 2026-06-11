@@ -753,6 +753,9 @@ class LumaViewProApp(TooltipMixin, App):
             Window.bind(on_keyboard=self._on_window_keyboard)
             # SDL2-only events: minimize / maximize / restore. Bind under
             # try/except so non-SDL2 window providers (rare) don't crash.
+            # Handler names are constructed dynamically here, so
+            # _on_window_minimize/_maximize/_restore have no static
+            # references -- dead-code scanners must not flag them.
             for _evt in ('on_minimize', 'on_maximize', 'on_restore'):
                 try:
                     Window.bind(**{_evt: getattr(self, f'_on_window_{_evt[3:]}')})

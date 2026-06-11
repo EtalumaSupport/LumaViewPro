@@ -522,6 +522,10 @@ class MotorBoard(SerialBoard):
     # ----------------------------------------------------------
     # SPI-direct related functions
     # ----------------------------------------------------------
+    # spi_read / get_drvstat / get_motordetect / current_pos_steps have no
+    # callers in this repo outside tests, but bench tools and tests in the
+    # companion Firmware repo import and call them -- a caller search here
+    # alone reads as dead code and is misleading.
     def spi_read(self, axis: str, addr: int) -> str:
         """Read a TMC motor driver SPI register.
 

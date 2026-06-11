@@ -44,6 +44,12 @@ class ImageHandlerBase:
         callback (GetArray().copy() in Pylon, copy() in IDS). _store_frame()
         replaces the reference (not in-place), so the returned array remains
         valid even after the next frame arrives.
+
+        On a stalled stream this keeps returning the last stored frame, so a
+        live preview can freeze without an error surfacing here. Capture and
+        autofocus paths must not rely on this method for freshness: they go
+        through grab_new_capture(), which resets the handler and waits for a
+        genuinely new frame, backed by the imaging layer's timestamp gate.
         """
         with self._frame_lock:
             if not self.last_result:
@@ -58,10 +64,11 @@ class ImageHandlerBase:
         None (default).
 
         Returned dict keys are GenICam attribute symbolic names
-        ('ExposureTime', 'Gain', 'FrameID' on Basler USB3; 'ExposureTime' /
-        'Gain' on IDS Peak which lacks ChunkFrameID). Values are floats /
-        ints as reported by the camera. Returns None when no successful
-        grab has occurred yet.
+        ('ExposureTime', 'Gain', 'FrameID' on Basler USB3). Values are
+        floats / ints as reported by the camera. Returns None when no
+        successful grab has occurred yet. Only the Pylon driver currently
+        populates chunks; the IDS driver stores frames without them, so
+        IDS consumers always see None and fall back to live read-back.
         """
         with self._frame_lock:
             if not self.last_result:

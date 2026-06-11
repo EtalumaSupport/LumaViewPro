@@ -1346,10 +1346,13 @@ class TestResetWhenNotRunning:
 class TestBackToBackRuns:
     """Run a protocol, wait for completion, then immediately run another.
 
-    NOTE: There is a real timing gap between run_complete callback and the
-    file_io_executor fully draining its protocol_finish flag (~0.2s).
-    The second run() will abort if is_protocol_queue_active() is still True.
-    We wait for that flag to clear before starting the next run.
+    Completion is two-phase by design: run_complete fires as soon as the
+    scan finishes, while queued file writes drain afterward (files_complete).
+    A second run() started while files are still writing is deliberately
+    rejected with a user-facing "Files Still Writing" notification, so any
+    correct back-to-back test must synchronize on the file queue draining --
+    that is what _wait_for_file_queue does. This is the designed contract,
+    not a workaround for an executor bug.
     """
 
     @staticmethod

@@ -1739,7 +1739,12 @@ class FX2Camera(Camera):
                 time.sleep(0.01)
 
     def _usb_event_loop(self):
-        """Pump libusb1 events in a dedicated thread."""
+        """Pump libusb1 events in a dedicated thread.
+
+        handleEventsTimeout(tv=0.1) blocks up to 100 ms per call, so even
+        when the device dies and every call raises, this loop degrades to
+        a ~10 Hz idle poll -- it does not hot-spin.
+        """
         while self._grabbing:
             try:
                 self._iso_ctx.handleEventsTimeout(tv=0.1)
