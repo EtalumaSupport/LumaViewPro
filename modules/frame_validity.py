@@ -117,6 +117,7 @@ class FrameValidity:
         self._pending = {}  # source -> frame_counter threshold for validity
         self._settle_check_fn = None  # Optional: (source) -> bool
         self._target_values = {}  # source -> requested value (for chunk-match)
+        self._last_counted_frame_ts = None  # identity of the last counted frame
 
     def set_settle_check(self, fn):
         """Register a callback that checks if a source has physically settled.
@@ -159,7 +160,7 @@ class FrameValidity:
                 ],
             )
 
-    def count_frame(self, chunk_data: dict | None = None):
+    def count_frame(self, chunk_data: dict | None = None, frame_ts=None):
         """Record that a frame was grabbed from the camera.
 
         Call this after every successful camera grab (grab() or grab_new_capture()).
@@ -175,8 +176,21 @@ class FrameValidity:
                 LED + motion + turret sources are unaffected (no chunk
                 equivalent or firmware-gated). Backward compat: if None, the
                 existing skip-frames + settle-check path is used unchanged.
+            frame_ts: Optional frame identity (the host-side store timestamp
+                returned alongside the grab). When provided, a frame already
+                counted (same timestamp) is ignored. Multiple consumers poll
+                the same buffered frame concurrently (live preview, histogram,
+                capture drains); without identity dedupe those polls expire
+                the skip counts in wall-clock time with zero new frames, and a
+                capture can then accept a frame exposed under the previous
+                gain/exposure/LED state. None counts unconditionally (callers
+                that guarantee a fresh frame per call, and legacy callers).
         """
         with self._lock:
+            if frame_ts is not None:
+                if frame_ts == self._last_counted_frame_ts:
+                    return
+                self._last_counted_frame_ts = frame_ts
             self._frame_counter += 1
             settled = [
                 s
@@ -251,6 +265,20 @@ class FrameValidity:
                 self._target_values.pop(source, None)
             else:
                 self._target_values[source] = float(value)
+
+    def target(self, source: str) -> float | None:
+        """Return the recorded target value for a source, or None if unset.
+
+        Capture paths use this to decide whether a returned frame can be
+        chunk-verified: a set target plus a present chunk key means the
+        frame must match; no target (e.g. hardware auto-gain owns the
+        value) means chunk verification does not apply.
+
+        Args:
+            source: Source name (e.g. 'gain', 'exposure').
+        """
+        with self._lock:
+            return self._target_values.get(source)
 
     def chunk_match(self, source: str, chunk_value, tolerance: float | None = None) -> bool:
         """Public float-tolerant equality between a chunk value and the recorded target.
@@ -346,3 +374,4 @@ class FrameValidity:
             self._pending.clear()
             self._frame_counter = 0
             self._target_values.clear()
+            self._last_counted_frame_ts = None

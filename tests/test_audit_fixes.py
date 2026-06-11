@@ -3572,8 +3572,11 @@ class TestCaptureAndWaitPassesChunksToValidity:
             Path(__file__).resolve().parent.parent / 'modules' / 'lumascope_api' / 'imaging.py'
         ).read_text()
         body = _function_source(src, 'capture_and_wait')
-        # Source mentions count_frame call site with chunk_data kwarg
-        assert 'count_frame(chunk_data=' in body, (
+        # Source mentions count_frame call site with chunk_data kwarg.
+        # Whitespace-tolerant: the call site reflows as arguments are added
+        # (frame_ts identity dedupe), so match the kwarg wiring itself.
+        flat = ' '.join(body.split())
+        assert 'count_frame(' in flat and 'chunk_data=self._get_latest_chunks()' in flat, (
             'capture_and_wait must call count_frame(chunk_data=...) in the '
             'drain loop so chunk-match can clear gain/exposure pending.'
         )

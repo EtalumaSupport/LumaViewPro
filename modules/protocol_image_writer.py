@@ -117,6 +117,39 @@ class ProtocolImageWriter:
         except Exception as ex:
             logger.error(f'[Protocol-Writer] Failed to record dropped capture: {ex}')
 
+    def _capture_evidence(self, image) -> str:
+        """One-line provenance for a captured frame: brightness statistics
+        plus the chunk-verified exposure / gain and capture-hold timing.
+
+        Saved-frame defects (a frame exposed under the previous channel's
+        settings saturates or mis-exposes) previously left no log trace at
+        all; this line makes every protocol capture auditable from a
+        support bundle. Brightness is computed on a strided sample so the
+        cost stays negligible at full frame rate.
+        """
+        try:
+            parts = []
+            if image is not None and getattr(image, 'size', 0) > 0:
+                sample = image[::8, ::8]
+                max_value = np.iinfo(image.dtype).max
+                sat_fraction = float(np.count_nonzero(sample >= 0.99 * max_value)) / sample.size
+                parts.append(f'mean={float(sample.mean()):.1f}')
+                parts.append(f'sat={sat_fraction * 100.0:.1f}%')
+            info = self._scope.imaging.last_capture_info or {}
+            exp_us = info.get('chunk_exposure_us')
+            gain_db = info.get('chunk_gain_db')
+            parts.append(f'exp_ms={exp_us / 1000.0:.2f}' if exp_us is not None else 'exp_ms=na')
+            parts.append(f'gain_db={gain_db:.2f}' if gain_db is not None else 'gain_db=na')
+            if info.get('hold_ms') is not None:
+                parts.append(f'hold_ms={info["hold_ms"]:.0f}')
+            if info.get('drained') is not None:
+                parts.append(f'drained={info["drained"]}')
+            return ' '.join(parts)
+        except Exception as ex:
+            # Evidence is best-effort; never let it break the capture path.
+            logger.debug(f'[Protocol-Writer] capture evidence unavailable: {ex}')
+            return ''
+
     def _get_convert_buf_12to16(self, array):
         """Get-or-allocate the 12->16 conversion buffer matching array's shape/dtype."""
         if (
@@ -431,7 +464,9 @@ class ProtocolImageWriter:
                         return
 
                     self._consecutive_capture_failures = 0  # Reset on success
-                    logger.info(f'Protocol Image Captured: {name}')
+                    logger.info(
+                        f'Protocol Image Captured: {name} {self._capture_evidence(captured_image)}'
+                    )
 
                     # DISPLAY-1: hold the captured image on screen for at
                     # least 500 ms so the user can see the saved frame

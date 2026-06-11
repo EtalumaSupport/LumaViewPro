@@ -794,3 +794,137 @@ class TestAutoGainSettle:
         fv.load_camera_timing({'skip_frames': {'auto_gain': 5}})
         fv.invalidate('auto_gain')
         assert fv.frames_until_valid() == 5
+
+
+class TestCaptureTimeChunkVerification:
+    """get_image(verify_chunk_targets=True) must reject frames whose chunk
+    metadata does not match the requested exposure / gain targets.
+
+    Skip-count settling is a heuristic; the frame that arrives after the
+    counter says valid can still be one that started exposing before a
+    long->short exposure change. The returned frame must prove its own
+    settings via chunks, or be re-grabbed until one does.
+    """
+
+    class _ChunkStubDriver:
+        """Stub camera delivering a scripted sequence of (image, chunks).
+
+        Doubles as its own image handler: _get_latest_chunks resolves
+        cam_image_handler then get_last_chunks on it.
+        """
+
+        def __init__(self, frames):
+            import numpy as np
+
+            self.active = True
+            self.cam_image_handler = self
+            self._np = np
+            self._frames = frames
+            self._i = -1
+            self.grabs = 0
+
+        def get_last_chunks(self):
+            if self._i < 0:
+                return None
+            return self._frames[min(self._i, len(self._frames) - 1)]
+
+        def grab_new_capture(self, timeout_s):
+            import datetime
+
+            self.grabs += 1
+            if self._i < len(self._frames) - 1:
+                self._i += 1
+            return True, datetime.datetime.now()
+
+        def get_array(self):
+            return self._np.full((4, 4), 128, dtype=self._np.uint8)
+
+        def is_device_removed(self):
+            return False
+
+    @staticmethod
+    def _make_imaging(driver):
+        from modules.lumascope_api import Lumascope
+        from modules.lumascope_api.imaging import ImagingAPI
+        from modules.lumascope_api.runtime_state import RuntimeState
+
+        scope = Lumascope.__new__(Lumascope)
+        scope.runtime_state = RuntimeState(scope)
+        scope._camera_driver = driver
+        imaging = ImagingAPI(scope, None)
+        scope.imaging = imaging
+        return imaging
+
+    def test_stale_chunk_frame_rejected_until_match(self):
+        stale = {'Gain': 30.0, 'ExposureTime': 100000.0}
+        fresh = {'Gain': 0.0, 'ExposureTime': 3730.0}
+        driver = self._ChunkStubDriver([stale, stale, fresh])
+        imaging = self._make_imaging(driver)
+        imaging.frame_validity.set_target('gain', 0.0)
+        imaging.frame_validity.set_target('exposure', 3730.0)
+
+        image = imaging.get_image(
+            force_new_capture=True,
+            verify_chunk_targets=True,
+            timeout_s=5.0,
+        )
+        assert image is not None
+        # Two stale frames rejected, third (matching) frame accepted.
+        assert driver.grabs == 3
+
+    def test_persistent_stale_chunks_time_out_to_none(self):
+        stale = {'Gain': 30.0, 'ExposureTime': 100000.0}
+        driver = self._ChunkStubDriver([stale])
+        imaging = self._make_imaging(driver)
+        imaging.frame_validity.set_target('exposure', 3730.0)
+
+        image = imaging.get_image(
+            force_new_capture=True,
+            verify_chunk_targets=True,
+            timeout_s=0.3,
+        )
+        assert image is None
+
+    def test_no_targets_means_no_verification(self):
+        """Hardware auto-gain clears targets; chunk mismatch must not block."""
+        stale = {'Gain': 30.0, 'ExposureTime': 100000.0}
+        driver = self._ChunkStubDriver([stale])
+        imaging = self._make_imaging(driver)
+
+        image = imaging.get_image(
+            force_new_capture=True,
+            verify_chunk_targets=True,
+            timeout_s=1.0,
+        )
+        assert image is not None
+        assert driver.grabs == 1
+
+    def test_chunkless_camera_skips_verification(self):
+        """Cameras without chunk support rely on skip-count settling alone."""
+
+        class _NoChunksDriver(self._ChunkStubDriver):
+            def get_last_chunks(self):
+                return None
+
+        driver = _NoChunksDriver([{}])
+        imaging = self._make_imaging(driver)
+        imaging.frame_validity.set_target('exposure', 3730.0)
+
+        image = imaging.get_image(
+            force_new_capture=True,
+            verify_chunk_targets=True,
+            timeout_s=1.0,
+        )
+        assert image is not None
+        assert driver.grabs == 1
+
+    def test_default_get_image_unverified(self):
+        """Without the flag the primitive stays ungated (live preview path)."""
+        stale = {'Gain': 30.0, 'ExposureTime': 100000.0}
+        driver = self._ChunkStubDriver([stale])
+        imaging = self._make_imaging(driver)
+        imaging.frame_validity.set_target('exposure', 3730.0)
+
+        image = imaging.get_image(force_new_capture=True, timeout_s=1.0)
+        assert image is not None
+        assert driver.grabs == 1

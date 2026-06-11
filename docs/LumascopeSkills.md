@@ -599,7 +599,7 @@ scope.diagnostics.get_camera_profile_info()        # sensor specs + dynamic rang
 
 ### Frame validity
 
-Frame validity is the single source of truth for "is the next frame still what I asked for?" Every hardware state change invalidates pending frames. `capture_and_wait()` drains stale frames until all sources settle.
+Frame validity is the single source of truth for "is the next frame still what I asked for?" Every hardware state change invalidates pending frames. `capture_and_wait()` drains stale frames until all sources settle, then verifies the returned frame's own chunk metadata (exposure / gain) against the requested values on cameras with chunk support -- the saved frame proves its own settings.
 
 ```python
 scope.imaging.frame_is_valid                       # True if next frame is valid
@@ -622,7 +622,11 @@ fv.frames_until_valid()                    # int -- drains remaining
 fv.frames_until_valid(exclude_sources=('z_move',))
 fv.pending_sources                         # dict {source: target_frame_counter} (snapshot)
 fv.invalidate('led')                       # mark a source dirty (usually called by API setters)
-fv.count_frame(chunk_data=None)            # mark a frame as drained (capture_and_wait does this)
+fv.count_frame(chunk_data=None, frame_ts=None)  # mark a frame as drained (capture_and_wait does this)
+                                           # pass the grab timestamp as frame_ts so the same
+                                           # buffered frame polled twice counts once; chunk_data
+                                           # (ChunkExposureTime/ChunkGain) clears gain/exposure
+                                           # deterministically when it matches the requested target
 ```
 
 `set_settle_check(fn)` is the API-only registration hook for motion-completion gating and is not used by L2 callers directly. Everything else is fair game for plugin / SDK consumers.
