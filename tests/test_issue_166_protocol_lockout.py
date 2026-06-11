@@ -28,6 +28,20 @@ def _def_source(src, name):
     return None
 
 
+def _method_in_class(src, class_name, method_name):
+    tree = ast.parse(src)
+    cls = next(
+        (n for n in ast.walk(tree) if isinstance(n, ast.ClassDef) and n.name == class_name),
+        None,
+    )
+    if cls is None:
+        return None
+    for node in ast.walk(cls):
+        if isinstance(node, ast.FunctionDef) and node.name == method_name:
+            return ast.get_source_segment(src, node)
+    return None
+
+
 def test_app_defines_protocol_running_boolean_property():
     src = _read('lumaviewpro.py')
     tree = ast.parse(src)
@@ -84,3 +98,38 @@ def test_session_exposes_is_protocol_running_accessor():
     body = _def_source(_read('modules/scope_session.py'), 'is_protocol_running')
     assert body is not None, 'ScopeSession.is_protocol_running accessor missing'
     assert 'protocol_running.is_set' in body.replace(' ', '')
+
+
+def test_postprocessing_funnel_blocks_during_protocol():
+    """The file-dialog funnel refuses the 5 post-processing actions while a
+    protocol runs -- the backstop behind the disabled buttons, so the action
+    cannot be silently dropped by the busy file executor (no do-nothing popup).
+    """
+    src = _read('ui/file_dialogs.py')
+    tree = ast.parse(src)
+    consts = {
+        n.targets[0].id: n
+        for n in tree.body
+        if isinstance(n, ast.Assign) and isinstance(n.targets[0], ast.Name)
+    }
+    assert '_POST_PROCESSING_CONTEXTS' in consts, 'post-processing context set missing'
+    ctx_tuple = ast.unparse(consts['_POST_PROCESSING_CONTEXTS'].value)
+    for c in (
+        'apply_cell_count_method_to_folder',
+        'apply_stitching_to_folder',
+        'apply_composite_gen_to_folder',
+        'apply_video_gen_to_folder',
+        'apply_zprojection_to_folder',
+    ):
+        assert c in ctx_tuple, f'{c} missing from the post-processing contexts'
+
+    body = _method_in_class(src, 'FolderChooseBTN', 'on_selection_function')
+    assert body is not None, 'FolderChooseBTN.on_selection_function missing'
+    assert '_POST_PROCESSING_CONTEXTS' in body
+    assert 'protocol_running.is_set' in body.replace(' ', '')
+    assert 'notifications.warning' in body
+    guard_idx = body.find('_POST_PROCESSING_CONTEXTS')
+    dispatch_idx = body.find('apply_composite_gen_to_folder')
+    assert guard_idx != -1 and dispatch_idx != -1 and guard_idx < dispatch_idx, (
+        'the protocol-running guard must run before the post-processing dispatch'
+    )
