@@ -50,9 +50,16 @@ jobs:
   # awaiting-bench-data). There is new input to weigh, so the handled-state claim
   # is no longer trustworthy: strip whichever handled-state labels are present and
   # raise the retriage flag.
+  #
+  # Only OPEN issues qualify. A "Close with comment" on a handled issue fires this
+  # same issue_comment event, and without the open guard the closing comment
+  # (e.g. "fixed") re-applied "New data - needs retriage" on an issue that was
+  # closed in the same breath -- polluting the retriage queue with closed issues.
+  # A genuine reopen-with-new-data path reopens the issue first, so OPEN is right.
   handled-to-retriage:
     if: >-
       github.event_name == 'issue_comment' &&
+      github.event.issue.state == 'open' &&
       !contains(github.event.comment.body, '<!-- claude:annotation -->') &&
       (contains(github.event.issue.labels.*.name, 'Fixed Needs verification') ||
        contains(github.event.issue.labels.*.name, 'Analyzed') ||
