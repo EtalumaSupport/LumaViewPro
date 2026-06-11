@@ -1229,17 +1229,21 @@ class TestIssue605_AccordionLEDProtocol:
     Fix: skip leds_off when protocol_led_on setting is active.
     """
 
-    def test_accordion_collapse_has_protocol_led_on_guard(self):
-        """accordion_collapse source must check protocol_led_on setting."""
+    def test_accordion_collapse_skips_led_cleanup_during_protocol(self):
+        """accordion_collapse must skip its LED cleanup while a protocol is
+        running, so a step's LED (turned on for 'Protocol LEDs On') is not
+        killed by the accordion-collapse event that fires when the step's
+        channel is expanded (#605). The cleanup is gated on
+        protocol_running.is_set()."""
         import pathlib
 
         source = pathlib.Path('ui/image_settings.py').read_text()
-        # Find the accordion_collapse method body
-        assert 'protocol_led_on' in source, (
-            'accordion_collapse must check protocol_led_on setting (#605)'
-        )
-        assert 'scope_leds_off' in source, (
-            'accordion_collapse must still call scope_leds_off when protocol_led_on is False'
+        idx = source.find('def _do_accordion_collapse')
+        assert idx != -1
+        body = source[idx : idx + 2500]
+        assert 'protocol_running.is_set()' in body, (
+            'accordion_collapse must skip LED cleanup when a protocol is '
+            'running so the step LED stays on (#605)'
         )
 
 

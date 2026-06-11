@@ -1033,23 +1033,24 @@ class LayerControl(BoxLayout):
 
         def disable_leds_for_other_layers(dt=None):
             if self.ids['enable_led_btn'].state == 'down':
-                # Only cycle the LED bus (leds_off + led_on) when another
-                # layer's LED is actually physically on. Without this check,
-                # every apply_settings on the current layer fires a redundant
-                # leds_off/led_on cycle, causing visible LED flicker on every
-                # slider move (#617). The guarded cycle still runs on real
-                # layer switches, preserving #614 semantics (one LED at a
-                # time at the hardware level).
+                # Turn off any OTHER layer's LED so only this layer's channel
+                # stays lit (one LED on at a time at the hardware level).
+                # Switch the others off individually rather than blanking all
+                # LEDs and re-lighting this one: the nuclear leds_off clears
+                # the LED-state cache, which forces this channel to re-fire
+                # and blink off then on on every slider move. led_off self-
+                # skips a channel that is already off, so this loop touches
+                # the bus only for a layer that is actually on -- no cycle on
+                # a plain slider move, and this layer's own LED is never
+                # disturbed (its current is owned by update_led_state).
                 if not protocol_running_global.is_set():
-                    any_other_on = False
                     for layer in common_utils.get_layers():
                         if layer == self.layer:
                             continue
                         try:
                             state = ctx.scope.illumination.get_led_state(color=layer)
                             if state.get('enabled', False):
-                                any_other_on = True
-                                break
+                                ctx.scope.illumination.led_off_async(layer)
                         except Exception as e:
                             # Defensive: if get_led_state fails for any
                             # layer (e.g. null driver, hardware fault),
@@ -1061,13 +1062,6 @@ class LayerControl(BoxLayout):
                                 f'[LVP Main  ] get_led_state({layer}) '
                                 f'failed during disable_leds_for_other_layers: {e}'
                             )
-                    if any_other_on:
-                        ctx.scope.illumination.leds_off_async()
-                        # Re-enable this layer's LED (leds_off turned it off too)
-                        ctx.scope.illumination.led_on_async(
-                            self.layer,
-                            settings[self.layer]['ill_ma'],
-                        )
                 # Update button states (visual only -- hardware already handled)
                 LayerControl._suppressing_led_log = True
                 try:
