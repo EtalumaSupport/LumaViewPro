@@ -166,18 +166,13 @@ class ProtocolRunLoop:
                 except Exception as e:
                     logger.debug(f'[PROTOCOL] Disk space check failed (proceeding anyway): {e}')
 
-                # Clean LED state before step 0 runs. Without this, a
-                # Live-mode LED enabled by the user before pressing Scan
-                # stays lit when step 0's led_on fires -- both channels
-                # illuminate the sample simultaneously and the first
-                # step's image is blown out. led_on is additive at the
-                # API + driver layers; the leds_off-before-led_on
-                # convention is documented at modules/step_navigation.py
-                # and modules/composite_capture.py. Inter-step transitions
-                # already do this in protocol_image_writer; step 0 had no
-                # previous step, so the convention was silently skipped.
-                p._step_executor.leds_off()
-
+                # No nuclear leds_off before step 0: each step's capture makes
+                # its channel exclusive (turns off every OTHER channel, leaves
+                # an already-correct channel untouched). That still kills a
+                # stray Live-mode LED so step 0 is not double-illuminated, but
+                # WITHOUT clearing the LED-state cache. Clearing the cache here
+                # forced the following same-color led_on to re-fire, blinking
+                # the LED off->on at the start of every scan.
                 p._step_executor.go_to_step(step_idx=p._curr_step)
                 # Guard: if cleanup already ran (e.g. button spam), don't proceed
                 if p._aborted.is_set() or p._state == ProtocolState.IDLE:

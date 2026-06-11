@@ -2129,3 +2129,71 @@ class TestCleanupCorrectness:
         # Should restore to 2.0/20.0, NOT to 8.0/80.0 from run A
         assert scope.imaging.get_gain() == pytest.approx(2.0, abs=0.1)
         assert scope.imaging.get_exposure_time() == pytest.approx(20.0, abs=0.1)
+
+
+class TestProtocolLedNoFlash:
+    """The capture path lights its channel exclusively (idempotent), so the
+    pre-step nuclear leds_off is unnecessary: a stray Live-mode LED on another
+    channel is killed without blinking the target off->on. This is the fix for
+    the LED flash on a protocol / Z-stack run.
+    """
+
+    def test_capture_kills_a_stray_led_as_it_lights_its_own_channel(
+        self, executor, scope, tmp_path
+    ):
+        # A stray channel lit before the run (e.g. a Live-mode LED left on a
+        # different color when the user pressed Scan).
+        stray = scope.illumination.color2ch('Red')
+        scope.illumination.led_on(channel=stray, mA=80, owner='ui')
+        assert scope.illumination.led_enabled('Red')
+
+        events = []
+        scope.illumination.add_led_listener(
+            lambda color, enabled, mA, owner: events.append((color, enabled))
+        )
+
+        protocol = _make_single_step_protocol(color='Green', illumination=60.0)
+        completed, _ = _run_and_wait(executor, protocol, tmp_path)
+        assert completed
+
+        green_on = next((i for i, (c, e) in enumerate(events) if c == 'Green' and e), None)
+        red_off = next((i for i, (c, e) in enumerate(events) if c == 'Red' and not e), None)
+        assert green_on is not None, f'Green never lit during the scan: {events}'
+        assert red_off is not None and red_off < green_on, (
+            'the stray Red LED must be turned off as the step lights Green '
+            f'(exclusive capture), not left double-illuminating the step: {events}'
+        )
+
+    def test_already_lit_channel_is_not_blinked_by_the_scan(self, executor, scope, tmp_path):
+        """A channel already lit at the step's current before Scan (the user
+        pressed Scan with the matching Live LED on) is left lit -- no off->on
+        blink at run start. The pre-step nuclear leds_off used to clear the
+        cache and force the re-light; this is the protocol/Z-stack flash.
+        """
+        color, mA = 'Green', 60.0
+        scope.illumination.led_on(channel=scope.illumination.color2ch(color), mA=mA, owner='ui')
+        assert scope.illumination.led_enabled(color)
+
+        events = []
+        scope.illumination.add_led_listener(
+            lambda c, enabled, m, owner: events.append((c, enabled))
+        )
+
+        protocol = _make_single_step_protocol(color=color, illumination=mA)
+        completed, _ = _run_and_wait(executor, protocol, tmp_path)
+        assert completed
+
+        # No "off then later on" pair on the already-lit channel == no blink.
+        # (The cleanup leds_off at the very end has no following on, so it is
+        # correctly not counted as a blink.)
+        seen_off = False
+        blinked = False
+        for c, enabled in events:
+            if c == color and not enabled:
+                seen_off = True
+            elif c == color and enabled and seen_off:
+                blinked = True
+                break
+        assert not blinked, (
+            f'already-lit {color} was blinked off->on at run start: {events}'
+        )
