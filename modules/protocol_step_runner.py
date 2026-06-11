@@ -215,13 +215,15 @@ class ProtocolStepRunner:
         # exposed. Lighting first lets AG settle toward the real exposure. The
         # capture_and_wait drain then waits the measured auto_gain settle frames
         # (invalidated inside set_auto_gain) before grabbing -- no separate
-        # timed wait. leds_off first per the additive-LED convention; capture()
-        # re-asserts the same channel idempotently. Arm once per step
+        # timed wait. The exclusive light makes this channel the only lit one;
+        # capture() re-asserts the same channel idempotently. Arm once per step
         # (_auto_gain_armed_step is a one-shot keyed on _curr_step).
         if step['Auto_Gain'] and p._auto_gain_armed_step != p._curr_step:
             if p._scope.led_connected:
-                p._step_executor.leds_off()
-                p._step_executor.led_on(
+                # Make this step's channel the only lit one, idempotently: a
+                # same-color step that kept its LED on (Z-stack slice) is left
+                # lit instead of being blinked off->on while arming AG.
+                p._step_executor.leds_exclusive(
                     color=step['Color'], illumination=step['Illumination'], block=True
                 )
             # Cap AG/AE exposure to this step's channel-class ceiling before
@@ -547,4 +549,35 @@ class ProtocolStepRunner:
             fut.result(timeout=30)
         # Sleep for 5 ms to ensure that LED properly turns on before next action
         time.sleep(0.005)
-        # LED observer handles UI sync -- no manual callback
+
+    def leds_exclusive(self, color: str, illumination: float, block: bool = True,
+                       force: bool = False):
+        """Make a single channel the only lit LED, via the IO executor.
+
+        Idempotent: a channel already lit at this illumination is left
+        untouched, so consecutive same-color steps (Z-stack slices) do not
+        flicker the LED off->on. Other channels are turned off. Replaces the
+        leds_off + led_on pair at step boundaries.
+
+        UI update is handled by the LED observer -- no manual callback needed.
+        """
+        p = self._p
+        if p._aborted.is_set() and not force:
+            return
+
+        fut = p._io_executor.protocol_put(
+            IOTask(
+                action=p._scope.illumination.leds_exclusive,
+                kwargs={
+                    'channel': p._scope.illumination.color2ch(color),
+                    'mA': illumination,
+                    'block': block,
+                    'owner': 'protocol',
+                },
+            ),
+            return_future=True,
+        )
+        if fut:
+            fut.result(timeout=30)
+        # Sleep for 5 ms to ensure that LED properly turns on before next action
+        time.sleep(0.005)

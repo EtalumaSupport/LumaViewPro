@@ -255,6 +255,42 @@ class IlluminationAPI:
         for color in self._driver.available_colors():
             self._fire_led_listeners(color, False, 0.0, '')
 
+    def leds_exclusive(self, channel, mA, *, block: bool = False, owner: str = '') -> None:
+        """Make ``channel`` the only lit LED, at ``mA``, idempotently.
+
+        Turns off every other currently-lit channel, then ensures ``channel``
+        is on at ``mA``. A channel already on at ``mA`` is left untouched, so
+        re-asserting an already-correct channel does not produce a visible
+        off-then-on blink. This is the canonical "switch illumination to a
+        single channel" primitive: autofocus needs exclusive illumination so
+        mixed light cannot corrupt the focus metric, and protocol stepping
+        needs an already-lit channel (consecutive same-color steps) to stay
+        lit rather than flicker.
+
+        Args:
+            channel: Channel number (0-5) or color name string.
+            mA: Illumination current in milliamps.
+            block: If True, wait for confirmation from the LED board.
+            owner: Ownership tag recorded for ``channel`` (see ``led_on``).
+
+        Raises:
+            ValueError: If channel or mA is out of range (via ``led_on``).
+        """
+        if not self._driver:
+            return
+        if isinstance(channel, str):
+            channel = self.color2ch(color=channel)
+        keep_color = self.ch2color(channel)
+        # Turn off every OTHER lit channel. Exclusive illumination overrides
+        # any prior ownership of the channels being cleared, so an empty owner
+        # (unconditional off) is correct here.
+        for color in list(self.get_led_states()):
+            if color != keep_color and self.led_enabled(color):
+                self.led_off(channel=color)
+        # led_on already self-skips when the channel is on at mA, so an
+        # already-correct channel is not re-commanded (no blink).
+        self.led_on(channel=channel, mA=mA, block=block, owner=owner)
+
     def leds_off_emergency(self, *, timeout_s: float = 2.0) -> None:
         """Bounded leds-off for atexit / abnormal-exit paths only.
 
@@ -661,21 +697,36 @@ class IlluminationAPI:
         saved_states = snapshot.get('states', {})
         _api_log.info(f'restore_led_state tag={tag}')
 
-        # Turn off what the owner turned on
-        if owner:
-            self.leds_off_owned(owner)
-        else:
-            self.leds_off()
+        # Channels that should be ON after restore, with their target mA.
+        target_on = {
+            color: state.get('illumination_ma', 0)
+            for color, state in saved_states.items()
+            if state.get('enabled', False) and (state.get('illumination_ma') or 0) > 0
+        }
 
-        # Restore channels that were on in the snapshot
-        for color, state in saved_states.items():
-            if state.get('enabled', False):
-                mA = state.get('illumination_ma', 0)
-                if mA and mA > 0:
-                    ch = self.color2ch(color)
-                    if ch is not None:
-                        saved_owner = snapshot.get('owners', {}).get(color, '')
-                        self.led_on(channel=ch, mA=mA, owner=saved_owner)
+        # Turn off only channels that should NOT be on after restore, so a
+        # channel already lit at its target is left untouched (no off-then-on
+        # blink). With an owner, restrict the turn-off to that owner's channels
+        # and leave other subsystems' channels alone; without an owner, clear
+        # every currently-lit channel that is not part of the restore target.
+        if owner:
+            with self._led_owner_lock:
+                owned = [c for c, own in self._led_owners.items() if own == owner]
+            for color in owned:
+                if color not in target_on:
+                    self.led_off(channel=color, owner=owner)
+        else:
+            for color in list(self.get_led_states()):
+                if color not in target_on and self.led_enabled(color):
+                    self.led_off(channel=color)
+
+        # Re-assert the target channels; led_on self-skips channels already at
+        # their target mA, so this does not blink an already-correct channel.
+        for color, mA in target_on.items():
+            ch = self.color2ch(color)
+            if ch is not None:
+                saved_owner = snapshot.get('owners', {}).get(color, '')
+                self.led_on(channel=ch, mA=mA, owner=saved_owner)
 
     def leds_off_owned(self, owner: str) -> None:
         """Turn off only the LED channels owned by *owner*.
