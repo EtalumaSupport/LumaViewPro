@@ -677,6 +677,25 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
             logger.info(f'Manual-Video] Video FPS: {calculated_fps}')
             logger.info('Manual-Video] Writing video...')
 
+            if ui_snapshot.get('active_layer_config') is None:
+                # The main-thread snapshot failed (raises when no layer
+                # accordion is open). Without the layer's false-color
+                # config the frames cannot be finalized; tell the user
+                # instead of dying on an opaque unpack TypeError that
+                # silently discarded the finished recording.
+                logger.error(
+                    'Manual-Video] No active layer config snapshot; cannot finalize recording'
+                )
+                from modules.notification_center import notifications
+
+                notifications.error(
+                    'Recording',
+                    'Recording Not Saved',
+                    'The recording could not be saved because no imaging '
+                    'layer was selected. Open a layer tab and record again.',
+                )
+                return memmap_path
+
             color, active_layer_config = ui_snapshot['active_layer_config']
 
             include_hyperstack_generation = False
@@ -899,9 +918,6 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
             if hasattr(self, 'video_save_folder'):
                 set_last_save_folder(self.video_save_folder)
 
-            # Clear video writing state - new recordings can now start
-            self.video_writing.clear()
-
             # Clear the title-bar event suffix; status bar will show FPS only.
             from ui.ui_helpers import set_title_event_text
 
@@ -923,6 +939,11 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
             logger.info('Manual-Video] Recording cleanup complete')
         except Exception as e:
             logger.exception(f'Manual-Video] Error during GUI cleanup: {e}')
+        finally:
+            # Recording can only restart once this flag clears; clear on
+            # every exit so a failure earlier in cleanup cannot leave the
+            # Record button permanently dead.
+            self.video_writing.clear()
 
     def record_helper(self, slot_index, image, frame_ts, chunks, dt=None):
         """Write one reserved frame slot on the camera_executor.
