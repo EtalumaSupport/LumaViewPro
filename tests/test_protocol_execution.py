@@ -2234,3 +2234,34 @@ class TestMotionTimeoutEndsRunInsteadOfWedging:
         assert executor._state == ProtocolState.IDLE, (
             f'Expected IDLE after cleanup, got {executor._state}'
         )
+
+
+class TestSaveFailureRecordsRow:
+    """A disk-write failure must still leave a row in the execution
+    record. The queue-full and capture-failed legs already record their
+    failures; a save_image raise previously escaped before add_step ran,
+    leaving image AND record-row silently missing -- the worst silent-
+    data-gap shape for record-keyed post-processing and run accounting."""
+
+    def test_save_image_raise_records_save_failed_row(
+        self, executor, scope, tmp_path, monkeypatch
+    ):
+        import modules.protocol_image_writer as piw
+
+        def boom(*args, **kwargs):
+            raise OSError('disk write failed (injected)')
+
+        monkeypatch.setattr(piw, 'save_image', boom)
+
+        protocol = _make_single_step_protocol(color='BF')
+        completed, _ = _run_and_wait(executor, protocol, tmp_path)
+        assert completed, 'Protocol should complete despite the save failure'
+
+        records = list((tmp_path / 'output').rglob('*.tsv'))
+        assert records, 'No execution record file was written'
+        contents = '\n'.join(r.read_text() for r in records)
+        assert 'save_failed' in contents, (
+            'A save_image failure left no row in the execution record; '
+            'the save_failed row must be written when the disk write '
+            'raises.'
+        )

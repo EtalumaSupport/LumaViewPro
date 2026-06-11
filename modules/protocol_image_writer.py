@@ -577,14 +577,30 @@ class ProtocolImageWriter:
 
         if enable_image_saving:
             if is_video:
-                capture_result = write_video(
-                    result=video_result,
-                    save_folder=save_folder,
-                    name=name,
-                    video_as_frames=video_as_frames,
-                    step=step,
-                    callbacks=self._callbacks.to_dict(),
-                )
+                # A write failure must still leave a row in the execution
+                # record -- the record is what post-processing and run
+                # accounting key off. The queue-full and capture-failed
+                # legs already record their failures; image-on-disk
+                # missing AND row missing was the last silent-gap leg.
+                try:
+                    capture_result = write_video(
+                        result=video_result,
+                        save_folder=save_folder,
+                        name=name,
+                        video_as_frames=video_as_frames,
+                        step=step,
+                        callbacks=self._callbacks.to_dict(),
+                    )
+                except Exception:
+                    self._record_dropped_capture(
+                        step=step,
+                        step_index=step_index,
+                        scan_count=scan_count,
+                        capture_time=capture_time,
+                        name=name,
+                        reason='save_failed',
+                    )
+                    raise
 
                 captured_frames = video_result.captured_frames
                 duration_sec = video_result.duration_sec
@@ -617,27 +633,41 @@ class ProtocolImageWriter:
                     and getattr(captured_image, 'ndim', 0) == 2
                 )
                 out_12to16 = self._get_convert_buf_12to16(captured_image) if is_uint16_2d else None
-                capture_result = save_image(
-                    self._scope,
-                    array=captured_image,
-                    save_folder=save_folder,
-                    file_root=None,
-                    append=name,
-                    color=use_color,
-                    # Defense-in-depth against duplicate step Names that
-                    # slip past load-time validation (#636). Plain
-                    # filename when no file exists; numeric suffix only
-                    # on actual collision.
-                    tail_id_mode='if_collision',
-                    output_format=output_format,
-                    jpeg_quality=jpeg_quality,
-                    true_color=step['Color'],
-                    x=step['X'],
-                    y=step['Y'],
-                    z=step['Z'],
-                    use_false_color_16bit=self._false_color_16bit,
-                    out_12to16=out_12to16,
-                )
+                # Same failure-row contract as the video leg above: a
+                # raise from save_image must not leave the record without
+                # a row for this step.
+                try:
+                    capture_result = save_image(
+                        self._scope,
+                        array=captured_image,
+                        save_folder=save_folder,
+                        file_root=None,
+                        append=name,
+                        color=use_color,
+                        # Defense-in-depth against duplicate step Names that
+                        # slip past load-time validation (#636). Plain
+                        # filename when no file exists; numeric suffix only
+                        # on actual collision.
+                        tail_id_mode='if_collision',
+                        output_format=output_format,
+                        jpeg_quality=jpeg_quality,
+                        true_color=step['Color'],
+                        x=step['X'],
+                        y=step['Y'],
+                        z=step['Z'],
+                        use_false_color_16bit=self._false_color_16bit,
+                        out_12to16=out_12to16,
+                    )
+                except Exception:
+                    self._record_dropped_capture(
+                        step=step,
+                        step_index=step_index,
+                        scan_count=scan_count,
+                        capture_time=capture_time,
+                        name=name,
+                        reason='save_failed',
+                    )
+                    raise
 
             if capture_result is None:
                 capture_result_filepath_name = 'unsaved'
