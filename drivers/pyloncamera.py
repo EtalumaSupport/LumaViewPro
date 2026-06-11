@@ -23,7 +23,10 @@ except ImportError:
 try:
     from lvp_logger import camera_logger as _cam_log
 except ImportError:
-    _cam_log = None
+    # Fall back to the main logger so every _cam_log call site stays
+    # safe -- the dedicated camera log is an enhancement, not a
+    # dependency, and dozens of call sites use _cam_log unguarded.
+    _cam_log = logger
 
 
 def _log_safely(message: str) -> None:

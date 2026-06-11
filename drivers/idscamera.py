@@ -9,7 +9,10 @@ from lvp_logger import logger
 try:
     from lvp_logger import camera_logger as _cam_log
 except ImportError:
-    _cam_log = None
+    # Fall back to the main logger so every _cam_log call site stays
+    # safe -- the dedicated camera log is an enhancement, not a
+    # dependency, and dozens of call sites use _cam_log unguarded.
+    _cam_log = logger
 from drivers.camera import Camera, ImageHandlerBase
 from drivers.exceptions import HardwareError
 from drivers.registry import camera_registry
@@ -479,14 +482,18 @@ class IDSCamera(Camera):
             _cam_log.error(f'[CAM Class ] get_supported_pixel_formats failed: {e}')
             return ()
 
-    def exposure_t(self, exposure_ms):
+    def exposure_t(self, exposure_ms) -> bool:
+        """Set exposure. Returns True on success, False on a confirmed
+        hardware rejection -- IDS has no chunk data, so a swallowed write
+        failure here would stream frames at the stale exposure with no
+        downstream backstop; the caller needs the failure signal."""
         if not self.active:
             _cam_log.warning(f'[CAM Class ] Cannot set exposure {exposure_ms}ms: camera inactive')
-            return
+            return False
 
         if exposure_ms > self.max_exposure:
             _cam_log.warning(f'[CAM Class ] Exposure {exposure_ms}ms exceeds max ({self.max_exposure}ms)')
-            return
+            return False
 
         # IDS allows changing exposure while acquisition is running --
         # no need for update_camera_config() stop/start cycle.
@@ -500,10 +507,12 @@ class IDSCamera(Camera):
             if self.cam_image_handler:
                 self.cam_image_handler.timeout_ms = max(2000, int(exposure_ms * 2 + 500))
             logger.debug(f'[CAM Class ] Exposure set to {exposure_ms}ms')
+            return True
         except Exception as e:
             if _cam_log is not None:
                 _cam_log.error(f'ids ExposureTime.SetValue({exposure_ms}ms) FAILED: {e}')
             _cam_log.error(f'[CAM Class ] Exposure set failed (likely out of bounds): {e}')
+            return False
 
     def get_exposure_t(self):
         if not self.active:
@@ -720,12 +729,16 @@ class IDSCamera(Camera):
             _cam_log.error(f'[CAM Class ] Read gain failed: {e}')
             return -1
 
-    def gain(self, gain):
+    def gain(self, gain) -> bool:
+        """Set gain. Returns True on success, False on a confirmed
+        hardware rejection -- IDS has no chunk data, so a swallowed write
+        failure here would stream frames at the stale gain with no
+        downstream backstop; the caller needs the failure signal."""
         if not self.active:
             if _cam_log is not None:
                 _cam_log.warning(f'ids Gain.SetValue({gain}) SKIPPED: active=None')
             _cam_log.warning(f'[CAM Class ] Cannot set gain {gain}: camera inactive')
-            return
+            return False
 
         try:
             if _cam_log is not None:
@@ -733,11 +746,12 @@ class IDSCamera(Camera):
             self.remote_nodemap.FindNode("GainSelector").SetCurrentEntry("AnalogAll")
             self.remote_nodemap.FindNode("Gain").SetValue(gain)
             logger.debug(f'[CAM Class ] Gain set to {gain}')
+            return True
         except Exception as e:
             if _cam_log is not None:
                 _cam_log.error(f'ids Gain.SetValue({gain}) FAILED: {e}')
             _cam_log.error(f'[CAM Class ] Gain set failed (likely out of bounds): {e}')
-            return
+            return False
 
 
     def auto_gain(

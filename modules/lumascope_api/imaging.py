@@ -407,16 +407,30 @@ class ImagingAPI:
         # listener + info log, where a missed redundant update is harmless.
         changed = abs(float(gain_db) - self.camera_gain) >= 0.001
         with self._cam_lock:
-            self._driver.gain(gain_db)
+            ok = self._driver.gain(gain_db)
         self.frame_validity.invalidate('gain')
-        # Record requested gain so capture_and_wait's chunk-match can clear
-        # the pending source once a frame's ChunkGain matches.
-        self.frame_validity.set_target('gain', float(gain_db))
-        with self._camera_cache_lock:
-            self._camera_cache['gain_db'] = float(gain_db)
-        if changed:
-            _api_log.info(f'set_gain {gain_db}dB')
-            self._fire_camera_listeners('gain', float(gain_db))
+        if ok is False:
+            # Confirmed hardware rejection (drivers without a confirmation
+            # signal return None). Frames keep streaming at the OLD gain,
+            # and IDS has no chunk backstop to catch the mismatch
+            # downstream -- surface it instead of recording the requested
+            # value as truth in the cache.
+            notifications.error(
+                'Camera',
+                'Camera Setting Not Applied',
+                f'The camera rejected the gain change to {float(gain_db):.1f} dB. '
+                'Captures will continue at the previous gain. Check that '
+                'the value is within the camera limits.',
+            )
+        else:
+            # Record requested gain so capture_and_wait's chunk-match can
+            # clear the pending source once a frame's ChunkGain matches.
+            self.frame_validity.set_target('gain', float(gain_db))
+            with self._camera_cache_lock:
+                self._camera_cache['gain_db'] = float(gain_db)
+            if changed:
+                _api_log.info(f'set_gain {gain_db}dB')
+                self._fire_camera_listeners('gain', float(gain_db))
 
     def set_exposure_time(self, exposure_ms: float) -> None:
         """Set the camera exposure time.
@@ -449,17 +463,32 @@ class ImagingAPI:
                 f'Call stack:\n{_caller}'
             )
         with self._cam_lock:
-            self._driver.exposure_t(exposure_ms)
+            ok = self._driver.exposure_t(exposure_ms)
         self.frame_validity.invalidate('exposure')
-        # Record requested exposure for chunk-match. ChunkExposureTime is
-        # microseconds; the API takes milliseconds. Convert at the seam so
-        # the chunk value and frame_validity's tolerance share units.
-        self.frame_validity.set_target('exposure', float(exposure_ms) * 1000.0)
-        with self._camera_cache_lock:
-            self._camera_cache['exposure_ms'] = float(exposure_ms)
-        if changed:
-            _api_log.info(f'set_exposure {exposure_ms}ms')
-            self._fire_camera_listeners('exposure', float(exposure_ms))
+        if ok is False:
+            # Confirmed hardware rejection (drivers without a confirmation
+            # signal return None). Frames keep streaming at the OLD
+            # exposure, and IDS has no chunk backstop to catch the
+            # mismatch downstream -- surface it instead of recording the
+            # requested value as truth in the cache.
+            notifications.error(
+                'Camera',
+                'Camera Setting Not Applied',
+                f'The camera rejected the exposure change to {float(exposure_ms):g} ms. '
+                'Captures will continue at the previous exposure. Check '
+                'that the value is within the camera limits.',
+            )
+        else:
+            # Record requested exposure for chunk-match. ChunkExposureTime
+            # is microseconds; the API takes milliseconds. Convert at the
+            # seam so the chunk value and frame_validity's tolerance share
+            # units.
+            self.frame_validity.set_target('exposure', float(exposure_ms) * 1000.0)
+            with self._camera_cache_lock:
+                self._camera_cache['exposure_ms'] = float(exposure_ms)
+            if changed:
+                _api_log.info(f'set_exposure {exposure_ms}ms')
+                self._fire_camera_listeners('exposure', float(exposure_ms))
 
     def set_auto_gain(self, state: bool, settings: dict) -> None:
         """Enable or disable automatic gain adjustment.
