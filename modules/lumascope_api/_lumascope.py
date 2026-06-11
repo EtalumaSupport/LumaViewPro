@@ -324,6 +324,7 @@ class Lumascope:
         camera_type: str = 'auto',
         register_atexit: bool = True,
         register_metrics: bool = True,
+        sim_model: str | None = None,
     ):
         """Initialize Microscope.
 
@@ -350,6 +351,12 @@ class Lumascope:
                 uses KivyClockScheduler, REST/headless use
                 ThreadingTimerScheduler). Tests that don't need
                 periodic logging set False.
+            sim_model: When simulating, the scope model the simulated
+                motor board reports (e.g. 'LS850', 'LS850T'). Selects
+                which axes the simulated scope presents -- an LS850 has
+                no turret, an LS850T does -- so capabilities.axes reflect
+                the chosen model end to end. Ignored when simulate is
+                False; defaults to the 'microscope' setting then 'LS850T'.
         """
         _fire_pre_release_warning()
 
@@ -378,7 +385,8 @@ class Lumascope:
         if simulate:
             from modules.settings_init import settings
 
-            motor_kwargs['model'] = settings.get('microscope', 'LS850T') if settings else 'LS850T'
+            default_model = settings.get('microscope', 'LS850T') if settings else 'LS850T'
+            motor_kwargs['model'] = sim_model or default_model
         self._motion_driver: MotorBoardProtocol = motor_registry.create(
             'auto', simulate=simulate, **motor_kwargs
         )
