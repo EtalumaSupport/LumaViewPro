@@ -372,11 +372,15 @@ class AutofocusRunner:
                         'Could not restore Z position after autofocus stopped. '
                         'Move Z manually if needed.',
                     )
-            if self._keep_led_on:
+            if self._keep_led_on and completed_successfully:
                 # Skip the off + restore cycle so the downstream capture
-                # inherits the AF LED state. The caller has guaranteed
-                # the next operation will use the same channel +
-                # illumination (#612).
+                # inherits the AF LED state -- the caller guarantees the
+                # capture that follows AF in the same step uses the same
+                # channel + illumination. Success-only: on abort or error
+                # that capture never runs, so inheriting would leave the
+                # LED lit with no owner to ever turn it off (overnight
+                # sample damage); the restore/off branch below covers
+                # those exits.
                 _af_log.info('[AF] keep_led_on -- skipping LED off + restore')
             else:
                 if self._saved_led_state:

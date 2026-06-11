@@ -92,6 +92,35 @@ def run_cleanup(
         logger.error(f'[PROTOCOL] Error cancelling scheduled events during cleanup: {ex}')
         cleanup_errors.append(f'Cancel scheduled events: {type(ex).__name__}: {ex}')
 
+    # --- Unwind any in-flight autofocus BEFORE restoring LEDs ---
+    # The AF worker lights its own channel during setup and restores
+    # LED / camera / Z state in its finally block. If the LED restore
+    # below ran first, a still-unwinding AF run would re-light or
+    # re-restore on top of it, and the protocol's intended end state
+    # would lose the race -- worst case an AF LED left on overnight.
+    # The AF Future resolves only after that finally chain finishes,
+    # so waiting on it (bounded, so a wedged AF run cannot block
+    # cleanup) guarantees the LED restore below runs last.
+    if autofocus_thread is not None:
+        _af_future = autofocus_thread.current_future
+        if _af_future is not None and not _af_future.done():
+            autofocus_thread.abort()
+            try:
+                # Returns the run's exception (normally AutofocusAborted)
+                # without raising it; raises TimeoutError on the bound.
+                _af_future.exception(timeout=5.0)
+            except TimeoutError:
+                logger.warning(
+                    f'[{logger_name}] Cleanup: autofocus still unwinding '
+                    'after 5.0 s; its exit path restores LED/camera state '
+                    'when it finishes'
+                )
+            except Exception as ex:
+                logger.warning(
+                    f'[{logger_name}] Cleanup: error waiting for autofocus '
+                    f'to unwind: {type(ex).__name__}: {ex}'
+                )
+
     # --- Restore LEDs ---
     try:
         if leds_state_at_end == 'off':
