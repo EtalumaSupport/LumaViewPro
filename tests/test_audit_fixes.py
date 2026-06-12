@@ -15,6 +15,7 @@ IMPORTANT: This file does NOT manipulate sys.modules at module level.
 All mocking is done inside fixtures/test methods and cleaned up afterward.
 """
 
+import ast
 import inspect
 import sys
 import threading
@@ -1738,134 +1739,197 @@ class TestHomeReturnsBool:
             msg='MotionAPI.thome must declare `-> bool` (Rule 37)',
         )
 
-    def test_lumascope_zhome_returns_driver_value(self):
-        """Method body must return True on success and False on failure paths.
+    @staticmethod
+    def _record_errors(monkeypatch):
+        """Route notifications.error into a list of (component, title, body)."""
+        from modules.notification_center import notifications
 
-        Body lives on MotionAPI (motion.py) after Wave 7 Phase 2c; the
-        Lumascope surface keeps a thin forwarder. Driver call uses
-        self._driver (the MotionAPI re-resolving property) per 2b/2c
-        convention, matching the home/thome tests at line 1500/1519.
-        """
-        import pathlib
-
-        source = pathlib.Path('modules/lumascope_api/motion.py').read_text()
-        idx = source.find('def zhome(self) -> bool:')
-        assert idx != -1
-        next_def = source.find('\n    def ', idx + 1)
-        body = source[idx:next_def] if next_def != -1 else source[idx : idx + 2000]
-        assert 'result = self._driver.zhome()' in body, (
-            'zhome must capture driver return into `result`'
+        calls = []
+        monkeypatch.setattr(
+            notifications, 'error', lambda *args, **kwargs: calls.append(args)
         )
-        assert 'return True' in body, 'zhome success path must `return True` (Wave 2 B9)'
-        assert 'return False' in body, 'zhome failure paths must `return False` (Wave 2 B9)'
-        assert 'Returns:' in body, 'zhome docstring must have a Returns: section (Rule 38)'
+        return calls
 
-    def test_lumascope_home_returns_driver_value(self):
-        """Method body must capture and propagate the driver's return.
+    def test_zhome_propagates_driver_true(self, sim_scope, monkeypatch):
+        errors = self._record_errors(monkeypatch)
+        monkeypatch.setattr(sim_scope._motion_driver, 'zhome', lambda: True)
+        assert sim_scope.motion.zhome() is True
+        assert errors == [], f'success path must not notify; got {errors}'
 
-        Body lives on MotionAPI (motion.py) after the Wave 7 stateless
-        decomposition; the Lumascope surface keeps a thin forwarder.
-        """
-        import pathlib
-
-        source = pathlib.Path('modules/lumascope_api/motion.py').read_text()
-        idx = source.find('def home(self) -> bool:')
-        assert idx != -1
-        next_def = source.find('\n    def ', idx + 1)
-        body = source[idx:next_def] if next_def != -1 else source[idx : idx + 3000]
-        assert 'result = self._driver.home()' in body, (
-            'home must capture driver return into `result`'
+    def test_zhome_returns_false_and_notifies_on_driver_false(
+        self, sim_scope, monkeypatch
+    ):
+        errors = self._record_errors(monkeypatch)
+        monkeypatch.setattr(sim_scope._motion_driver, 'zhome', lambda: False)
+        assert sim_scope.motion.zhome() is False
+        assert any('Homing Failed' in e for e in errors), (
+            f'driver False must notify the user (Rule 14); got {errors}'
         )
-        assert 'return True' in body, 'home success path must `return True` (Wave 2 B10)'
-        assert 'return False' in body, 'home failure paths must `return False` (Wave 2 B10)'
-        assert 'Returns:' in body, 'home docstring must have a Returns: section (Rule 38)'
 
-    def test_lumascope_thome_returns_driver_value(self):
-        """Method body must capture, notify on False, and return the bool.
+    def test_zhome_returns_false_and_notifies_on_driver_raise(
+        self, sim_scope, monkeypatch
+    ):
+        errors = self._record_errors(monkeypatch)
 
-        Pre-Wave-2, thome dropped the driver return entirely (no capture,
-        no notify on failure). This pins the captured-and-returned shape.
-        Body lives on MotionAPI (motion.py) after the Wave 7 stateless
-        decomposition; the Lumascope surface keeps a thin forwarder.
-        """
-        import pathlib
+        def boom():
+            raise HardwareError('no response from motor board')
 
-        source = pathlib.Path('modules/lumascope_api/motion.py').read_text()
-        idx = source.find('def thome(self) -> bool:')
-        assert idx != -1
-        next_def = source.find('\n    def ', idx + 1)
-        body = source[idx:next_def] if next_def != -1 else source[idx : idx + 3000]
-        assert 'result = self._driver.thome()' in body, (
-            'thome must capture driver return into `result` (Wave 2 B8)'
+        monkeypatch.setattr(sim_scope._motion_driver, 'zhome', boom)
+        assert sim_scope.motion.zhome() is False
+        assert any('Homing Error' in e for e in errors), (
+            f'driver raise must notify the user (Rule 14); got {errors}'
         )
-        assert 'return True' in body, 'thome success path must `return True` (Wave 2 B8)'
-        assert 'return False' in body, 'thome failure paths must `return False` (Wave 2 B8)'
-        assert 'Turret homing failed' in body or 'Homing Failed' in body, (
-            'thome must notify the user on driver False (Rule 14)'
+
+    def test_home_propagates_driver_true(self, sim_scope, monkeypatch):
+        errors = self._record_errors(monkeypatch)
+        monkeypatch.setattr(sim_scope._motion_driver, 'home', lambda: True)
+        assert sim_scope.motion.home() is True
+        assert errors == [], f'success path must not notify; got {errors}'
+
+    def test_home_returns_false_and_notifies_on_driver_false(
+        self, sim_scope, monkeypatch
+    ):
+        errors = self._record_errors(monkeypatch)
+        monkeypatch.setattr(sim_scope._motion_driver, 'home', lambda: False)
+        assert sim_scope.motion.home() is False
+        assert any('Homing Failed' in e for e in errors), (
+            f'driver False must notify the user (Rule 14); got {errors}'
         )
-        assert 'Returns:' in body, 'thome docstring must have a Returns: section (Rule 38)'
 
-    def test_motorboard_zhome_raises_hardware_error(self):
-        """Tier 3b D1: MotorBoard.zhome must raise HardwareError on
-        no-response and firmware-error paths, not return False (Rule 29)."""
-        import pathlib
+    def test_home_returns_false_and_notifies_on_driver_raise(
+        self, sim_scope, monkeypatch
+    ):
+        errors = self._record_errors(monkeypatch)
 
-        source = pathlib.Path('drivers/motorboard.py').read_text()
-        idx = source.find('def zhome(self) -> bool:')
-        assert idx != -1, 'MotorBoard.zhome must declare `-> bool` (Tier 1-A / Rule 37)'
-        next_def = source.find('\n    def ', idx + 1)
-        body = source[idx:next_def] if next_def != -1 else source[idx : idx + 2000]
-        # Two error paths: no-response and firmware-error
-        assert body.count('raise HardwareError(') >= 2, (
-            'MotorBoard.zhome must raise HardwareError on no-response AND firmware-error (D1)'
+        def boom():
+            raise HardwareError('firmware error')
+
+        monkeypatch.setattr(sim_scope._motion_driver, 'home', boom)
+        assert sim_scope.motion.home() is False
+        assert any('Homing Error' in e for e in errors), (
+            f'driver raise must notify the user (Rule 14); got {errors}'
         )
-        assert 'Raises:' in body, 'MotorBoard.zhome docstring must document HardwareError (Rule 38)'
 
-    def test_motorboard_home_raises_hardware_error(self):
-        """Tier 3b D1."""
-        import pathlib
+    def test_thome_propagates_driver_true(self, sim_scope, monkeypatch):
+        sim_scope._motion_driver.set_timing_mode('instant')
+        errors = self._record_errors(monkeypatch)
+        monkeypatch.setattr(sim_scope._motion_driver, 'thome', lambda: True)
+        assert sim_scope.motion.thome() is True
+        assert errors == [], f'success path must not notify; got {errors}'
 
-        source = pathlib.Path('drivers/motorboard.py').read_text()
-        idx = source.find('def home(self) -> bool:')
-        assert idx != -1
-        next_def = source.find('\n    def ', idx + 1)
-        body = source[idx:next_def] if next_def != -1 else source[idx : idx + 3000]
-        assert body.count('raise HardwareError(') >= 2, (
-            'MotorBoard.home must raise HardwareError on each failure path (D1)'
+    def test_thome_returns_false_and_notifies_on_driver_false(
+        self, sim_scope, monkeypatch
+    ):
+        sim_scope._motion_driver.set_timing_mode('instant')
+        errors = self._record_errors(monkeypatch)
+        monkeypatch.setattr(sim_scope._motion_driver, 'thome', lambda: False)
+        assert sim_scope.motion.thome() is False
+        assert any('Turret' in ' '.join(e) for e in errors), (
+            f'turret-homing failure must name the turret (Rule 14/20); got {errors}'
         )
-        assert 'Raises:' in body, 'MotorBoard.home docstring must document HardwareError (Rule 38)'
 
-    def test_motorboard_thome_raises_hardware_error(self):
-        """Tier 3b D1."""
-        import pathlib
+    def test_thome_returns_false_and_notifies_on_driver_raise(
+        self, sim_scope, monkeypatch
+    ):
+        sim_scope._motion_driver.set_timing_mode('instant')
+        errors = self._record_errors(monkeypatch)
 
-        source = pathlib.Path('drivers/motorboard.py').read_text()
-        idx = source.find('def thome(self) -> bool:')
-        assert idx != -1
-        next_def = source.find('\n    def ', idx + 1)
-        body = source[idx:next_def] if next_def != -1 else source[idx : idx + 2000]
-        assert body.count('raise HardwareError(') >= 2, (
-            'MotorBoard.thome must raise HardwareError on each failure path (D1)'
+        def boom():
+            raise HardwareError('no response from motor board')
+
+        monkeypatch.setattr(sim_scope._motion_driver, 'thome', boom)
+        assert sim_scope.motion.thome() is False
+        assert any('Turret' in ' '.join(e) for e in errors), (
+            f'turret-homing raise must notify naming the turret; got {errors}'
         )
-        assert 'Raises:' in body, 'MotorBoard.thome docstring must document HardwareError (Rule 38)'
 
-    def test_simulated_motorboard_home_family_raises_hardware_error(self):
-        """Tier 3b D1: SimulatedMotorBoard mirrors MotorBoard contract so
-        sim-backed tests exercise the same exception path as production."""
-        import pathlib
+    def test_homing_docstrings_document_returns(self):
+        """Each homing method's docstring documents the bool contract
+        (Rule 38) -- runtime introspection, not a source pin."""
+        from modules.lumascope_api.motion import MotionAPI
 
-        source = pathlib.Path('drivers/simulated_motorboard.py').read_text()
-        assert 'from drivers.exceptions import HardwareError' in source, (
-            'SimulatedMotorBoard must import HardwareError'
-        )
-        for method in ('zhome', 'home', 'thome'):
-            idx = source.find(f'def {method}(self) -> bool:')
-            assert idx != -1, f'SimulatedMotorBoard.{method} must declare `-> bool`'
-            next_def = source.find('\n    def ', idx + 1)
-            body = source[idx:next_def] if next_def != -1 else source[idx : idx + 2000]
-            assert 'raise HardwareError(' in body, (
-                f'SimulatedMotorBoard.{method} must raise HardwareError on failure (D1)'
+        for method in (MotionAPI.zhome, MotionAPI.home, MotionAPI.thome):
+            assert 'Returns:' in (method.__doc__ or ''), (
+                f'{method.__name__} docstring must have a Returns: section'
             )
+
+    @staticmethod
+    def _make_motorboard(reply):
+        """MotorBoard stub with exchange_command returning a fixed reply
+        (None simulates the no-response / timeout path)."""
+        from drivers.motorboard import MotorBoard
+
+        board = MotorBoard.__new__(MotorBoard)
+        board._state_lock = threading.Lock()
+        board.initial_homing_complete = False
+        board.initial_t_homing_complete = False
+        board.exchange_command = MagicMock(return_value=reply)
+        return board
+
+    @pytest.mark.parametrize('method', ['zhome', 'home', 'thome'])
+    def test_motorboard_homing_raises_on_no_response(self, method):
+        """Driver contract (Rule 29): no serial response raises
+        HardwareError instead of returning False."""
+        board = self._make_motorboard(None)
+        with pytest.raises(HardwareError, match='no response'):
+            getattr(board, method)()
+
+    @pytest.mark.parametrize(
+        ('method', 'reply'),
+        [
+            ('zhome', 'ERROR: Z homing failed'),
+            ('home', 'ERROR: homing aborted'),
+            ('thome', 'ERROR: T homing failed'),
+        ],
+    )
+    def test_motorboard_homing_raises_on_firmware_error(self, method, reply):
+        board = self._make_motorboard(reply)
+        with pytest.raises(HardwareError, match='firmware error'):
+            getattr(board, method)()
+
+    @pytest.mark.parametrize(
+        ('method', 'reply'),
+        [
+            ('zhome', 'Z home successful'),
+            ('home', 'XYZ home complete'),
+            ('home', 'ERROR: X not present'),
+            ('thome', 'T home successful'),
+            ('thome', 'T not present'),
+        ],
+    )
+    def test_motorboard_homing_success_and_partial_paths_return_true(
+        self, method, reply
+    ):
+        """Success replies -- including the partial-home (X/Y absent) and
+        no-turret cases the firmware reports on smaller boards -- return
+        True rather than raising."""
+        board = self._make_motorboard(reply)
+        assert getattr(board, method)() is True
+
+    def test_motorboard_homing_docstrings_document_raises(self):
+        from drivers.motorboard import MotorBoard
+
+        for method in (MotorBoard.zhome, MotorBoard.home, MotorBoard.thome):
+            assert 'Raises:' in (method.__doc__ or ''), (
+                f'MotorBoard.{method.__name__} docstring must document '
+                'HardwareError (Rule 38)'
+            )
+
+    @pytest.mark.parametrize('method', ['zhome', 'home', 'thome'])
+    def test_simulated_motorboard_mirrors_raise_contract(self, method, monkeypatch):
+        """SimulatedMotorBoard mirrors the MotorBoard exception contract
+        so sim-backed tests exercise the same raise path as production."""
+        from drivers.simulated_motorboard import SimulatedMotorBoard
+
+        board = SimulatedMotorBoard(timing='instant')
+        monkeypatch.setattr(board, 'exchange_command', lambda *a, **k: None)
+        with pytest.raises(HardwareError, match='no response'):
+            getattr(board, method)()
+        monkeypatch.setattr(
+            board, 'exchange_command', lambda *a, **k: 'ERROR: homing failed'
+        )
+        with pytest.raises(HardwareError, match='firmware error'):
+            getattr(board, method)()
 
 
 class TestDisconnectReturnsBool:
@@ -1884,27 +1948,90 @@ class TestDisconnectReturnsBool:
             msg='Lumascope.disconnect must declare `-> bool` (Wave 4 B2; Rule 37)',
         )
 
-    def test_disconnect_aggregates_and_returns_bool(self):
-        """Method body must aggregate three sub-system bools and return."""
-        import pathlib
+    @staticmethod
+    def _record_errors(monkeypatch):
+        """Route notifications.error into a list of (component, title, body)."""
+        from modules.notification_center import notifications
 
-        source = pathlib.Path('modules/lumascope_api/_lumascope.py').read_text()
-        idx = source.find('def disconnect(self) -> bool:')
-        assert idx != -1
-        next_def = source.find('\n    def ', idx + 1)
-        body = source[idx:next_def] if next_def != -1 else source[idx : idx + 4000]
-        # Each sub-system tracked independently:
-        for var in ('led_ok', 'motion_ok', 'camera_ok'):
-            assert var in body, f'disconnect must track {var} (Wave 4 B2)'
-        # Aggregation + return:
-        assert 'led_ok and motion_ok and camera_ok' in body, (
-            'disconnect must aggregate the three sub-bools (Wave 4 B2)'
+        calls = []
+        monkeypatch.setattr(
+            notifications, 'error', lambda *args, **kwargs: calls.append(args)
         )
-        assert 'return all_ok' in body, 'disconnect must return the aggregate (Wave 4 B2)'
-        # Per-failure notification (Rule 14):
-        assert 'notifications.error(' in body, 'disconnect must notify per failure (Rule 14)'
-        # Returns: docstring section (Rule 38):
-        assert 'Returns:' in body, 'disconnect docstring must have a Returns: section (Rule 38)'
+        return calls
+
+    def test_disconnect_led_failure_returns_false_and_notifies(
+        self, sim_scope, monkeypatch
+    ):
+        """An LED teardown raise must flip the aggregate to False, fire a
+        user notification, and still reset the slot to NullLEDBoard."""
+        from drivers.null_ledboard import NullLEDBoard
+
+        errors = self._record_errors(monkeypatch)
+        monkeypatch.setattr(
+            sim_scope._led_driver,
+            'disconnect',
+            MagicMock(side_effect=RuntimeError('boom')),
+            raising=False,
+        )
+        result = sim_scope.disconnect()
+        assert result is False, 'disconnect must return False when LED teardown raises'
+        assert any('LED disconnect failed' in e for e in errors), (
+            f'LED teardown raise must notify the user (Rule 14); got {errors}'
+        )
+        assert isinstance(sim_scope._led_driver, NullLEDBoard), (
+            'disconnect must reset the LED slot to NullLEDBoard even on failure'
+        )
+
+    def test_disconnect_motion_failure_returns_false_and_notifies(
+        self, sim_scope, monkeypatch
+    ):
+        from drivers.null_motorboard import NullMotionBoard
+
+        errors = self._record_errors(monkeypatch)
+        monkeypatch.setattr(
+            sim_scope._motion_driver,
+            'disconnect',
+            MagicMock(side_effect=RuntimeError('boom')),
+            raising=False,
+        )
+        result = sim_scope.disconnect()
+        assert result is False, 'disconnect must return False when motor teardown raises'
+        assert any('Motor disconnect failed' in e for e in errors), (
+            f'motor teardown raise must notify the user (Rule 14); got {errors}'
+        )
+        assert isinstance(sim_scope._motion_driver, NullMotionBoard), (
+            'disconnect must reset the motion slot to NullMotionBoard even on failure'
+        )
+
+    def test_disconnect_partial_failure_still_tears_down_others(
+        self, sim_scope, monkeypatch
+    ):
+        """Best-effort teardown: an early LED failure must not skip the
+        motion + camera teardown or the state reset."""
+        from drivers.null_ledboard import NullLEDBoard
+        from drivers.null_motorboard import NullMotionBoard
+
+        self._record_errors(monkeypatch)
+        monkeypatch.setattr(
+            sim_scope._led_driver,
+            'disconnect',
+            MagicMock(side_effect=RuntimeError('boom')),
+            raising=False,
+        )
+        result = sim_scope.disconnect()
+        assert result is False
+        assert isinstance(sim_scope._led_driver, NullLEDBoard)
+        assert isinstance(sim_scope._motion_driver, NullMotionBoard)
+        assert sim_scope._camera_driver is None, (
+            'camera teardown must still run after an LED failure'
+        )
+
+    def test_disconnect_docstring_documents_returns(self):
+        from modules.lumascope_api import Lumascope
+
+        assert 'Returns:' in (Lumascope.disconnect.__doc__ or ''), (
+            'disconnect docstring must have a Returns: section'
+        )
 
     def test_disconnect_on_simulator_returns_true(self, sim_scope):
         """Sim path: every sub-system disconnects cleanly -> True."""
@@ -1943,34 +2070,51 @@ class TestEnterEngineeringModeRaises:
             msg='LEDBoard.enter_engineering_mode must declare `-> bool` (Tier 1-A; Rule 37)',
         )
 
-    def test_ledboard_enter_engineering_mode_raises(self):
-        """Two failure paths must raise HardwareError."""
-        import pathlib
+    @staticmethod
+    def _make_ledboard(multiline_reply):
+        """LEDBoard stub with exchange_multiline returning a fixed reply
+        (None simulates the no-response / timeout path)."""
+        from drivers.ledboard import LEDBoard
 
-        source = pathlib.Path('drivers/ledboard.py').read_text()
-        idx = source.find('def enter_engineering_mode(self, timeout: float = 5.0) -> bool:')
-        assert idx != -1
-        next_def = source.find('\n    def ', idx + 1)
-        body = source[idx:next_def] if next_def != -1 else source[idx : idx + 3000]
-        assert body.count('raise HardwareError(') >= 2, (
-            'enter_engineering_mode must raise HardwareError on both failure paths (D2)'
+        board = LEDBoard.__new__(LEDBoard)
+        board._lock = threading.RLock()
+        board._label = '[LED Class ]'
+        board.driver = None
+        board.exchange_multiline = MagicMock(return_value=multiline_reply)
+        return board
+
+    def test_enter_engineering_mode_raises_on_no_response(self):
+        """Driver contract (Rule 29): no serial response raises
+        HardwareError instead of returning False."""
+        board = self._make_ledboard(None)
+        with pytest.raises(HardwareError, match='no response'):
+            board.enter_engineering_mode(timeout=0.1)
+
+    def test_enter_engineering_mode_raises_without_yn_prompt(self):
+        """A reply with no Y/N confirmation prompt (firmware too old for
+        engineering mode) must raise, not silently return False."""
+        board = self._make_ledboard('Version: EL-0925 Gen3 LED Controller')
+        with pytest.raises(HardwareError, match='Y/N'):
+            board.enter_engineering_mode(timeout=0.1)
+
+    def test_enter_engineering_mode_confirms_and_returns_true(self, monkeypatch):
+        """With a Y/N prompt presented, the method confirms with Y and
+        returns True."""
+        import time as time_mod
+
+        board = self._make_ledboard('FACTORY mode? Y/N')
+        monkeypatch.setattr(time_mod, 'sleep', lambda s: None)
+        assert board.enter_engineering_mode(timeout=0.1) is True
+        sent = [c.args[0] for c in board.exchange_multiline.call_args_list]
+        assert sent[0] == 'FACTORY' and 'Y' in sent[1:], (
+            f'must send FACTORY then confirm with Y; sent {sent}'
         )
-        assert 'Raises:' in body, (
+
+    def test_enter_engineering_mode_docstring_documents_raises(self):
+        from drivers.ledboard import LEDBoard
+
+        assert 'Raises:' in (LEDBoard.enter_engineering_mode.__doc__ or ''), (
             'enter_engineering_mode docstring must document HardwareError (Rule 38)'
-        )
-        # The legacy `return False` paths must be gone:
-        # (Sanity check -- the only `return` in the body should be
-        # `return True` on success; `return False` means migration regressed.)
-        assert 'return False' not in body, (
-            'enter_engineering_mode must no longer `return False` (Rule 29 / D2)'
-        )
-
-    def test_ledboard_imports_hardware_error(self):
-        import pathlib
-
-        source = pathlib.Path('drivers/ledboard.py').read_text()
-        assert 'from drivers.exceptions import HardwareError' in source, (
-            'ledboard must import HardwareError'
         )
 
 
@@ -2040,26 +2184,93 @@ class TestG4_MotorLogSuppression:
             'motorboard.py must not use pause_thread() -- suppresses all thread logging (G4)'
         )
 
-    def test_connect_log_suppressed_flag_exists(self, _mock_heavy_deps):
-        """MotorBoard must have _connect_log_suppressed flag."""
-        import pathlib
+    class _RecordingLogger:
+        def __init__(self):
+            self.records = []
 
-        source = pathlib.Path('drivers/motorboard.py').read_text()
-        assert '_connect_log_suppressed' in source, (
-            'MotorBoard must use _connect_log_suppressed flag for targeted suppression (G4)'
+        def __getattr__(self, level):
+            def _log(msg, *args, **kwargs):
+                self.records.append((level.upper(), str(msg)))
+
+            return _log
+
+        def count(self, level, substring=''):
+            return sum(
+                1
+                for lvl, msg in self.records
+                if lvl == level and substring in msg
+            )
+
+    def _make_failing_board(self, monkeypatch):
+        """MotorBoard whose _open_serial always raises, with a recording
+        logger swapped into the module. connect() is the real method."""
+        import drivers.motorboard as motorboard_mod
+
+        recorder = self._RecordingLogger()
+        monkeypatch.setattr(motorboard_mod, 'logger', recorder)
+
+        board = motorboard_mod.MotorBoard.__new__(motorboard_mod.MotorBoard)
+        board._lock = threading.RLock()
+        board._state_lock = threading.Lock()
+        board._label = '[XYZ Class ]'
+        board.port = '/dev/fake'
+        board.driver = None
+        board._connect_fails = 0
+        board._connect_log_suppressed = False
+
+        def fail_open():
+            raise OSError('port disappeared')
+
+        monkeypatch.setattr(board, '_open_serial', fail_open, raising=False)
+        monkeypatch.setattr(board, '_close_driver', lambda: None, raising=False)
+        return board, recorder
+
+    def test_connect_errors_suppressed_after_ten_failures(self, monkeypatch):
+        """Failures 1-9 log errors; the 10th replaces its error with ONE
+        critical announcing suppression; failures 11+ stay silent so a
+        permanently absent board cannot flood the error log."""
+        board, recorder = self._make_failing_board(monkeypatch)
+        for _ in range(12):
+            board.connect()
+        assert recorder.count('ERROR', 'connect() failed') == 9, (
+            f'only the pre-suppression failures may log errors; records: '
+            f'{recorder.records}'
+        )
+        assert recorder.count('CRITICAL', 'suppressing') == 1, (
+            'the 10th failure must announce suppression once at critical'
         )
 
-    def test_connect_log_suppressed_resets_on_success(self):
-        """_connect_log_suppressed must be reset when connection succeeds."""
-        import pathlib
+    def test_connect_error_logging_resumes_after_success(self, monkeypatch):
+        """A successful connect resets the suppression, so a LATER failure
+        logs again -- suppression is per outage, not forever."""
+        board, recorder = self._make_failing_board(monkeypatch)
+        for _ in range(11):
+            board.connect()
+        assert recorder.count('ERROR', 'connect() failed') == 9
 
-        source = pathlib.Path('drivers/motorboard.py').read_text()
-        # Find the success path (where _connect_fails = 0)
-        idx = source.find('self._connect_fails = 0', source.find('def connect'))
-        assert idx != -1
-        nearby = source[idx : idx + 200]
-        assert '_connect_log_suppressed = False' in nearby, (
-            '_connect_log_suppressed must be reset to False on successful connection (G4)'
+        # Successful connect: _open_serial provides an open driver and the
+        # post-open steps are stubbed to no-ops.
+        def ok_open():
+            board.driver = MagicMock()
+            board.driver.is_open = True
+
+        monkeypatch.setattr(board, '_open_serial', ok_open, raising=False)
+        monkeypatch.setattr(board, '_reset_firmware', lambda: None, raising=False)
+        monkeypatch.setattr(
+            board, 'fullinfo', lambda: {'model': 'LS850'}, raising=False
+        )
+        board.connect()
+
+        board.driver = None
+
+        def fail_open():
+            raise OSError('port disappeared again')
+
+        monkeypatch.setattr(board, '_open_serial', fail_open, raising=False)
+        board.connect()
+        assert recorder.count('ERROR', 'connect() failed') == 10, (
+            'after a successful connect, a fresh failure must log again '
+            f'(suppression must reset); records: {recorder.records}'
         )
 
 
@@ -2211,20 +2422,16 @@ class TestPylonChunkTimestampEnabled:
         assert chunks is not None and chunks['Timestamp'] == 987654321
 
     def test_camera_base_has_timestamp_tick_frequency_hz(self):
-        # The Camera base class declares the attribute so callers
-        # (Lumascope.generate_image_metadata) can read it without a
-        # hasattr() guard.
-        from drivers.camera import Camera
+        """The Camera base __init__ declares the attribute so callers
+        (Lumascope.generate_image_metadata) can read it without a
+        hasattr() guard. Proven on a constructed subclass -- the sim
+        camera runs the real base __init__."""
+        from drivers.simulated_camera import SimulatedCamera
 
-        # Attribute is declared in __init__; check via the source since
-        # instantiating Camera requires hardware. AST-walk would be more
-        # robust but a substring check is enough for a regression test.
-        import pathlib
-
-        source = pathlib.Path('drivers/camera.py').read_text()
-        assert 'self.timestamp_tick_frequency_hz' in source, (
-            'Camera base must declare self.timestamp_tick_frequency_hz '
-            'so generate_image_metadata can read it'
+        cam = SimulatedCamera()
+        assert hasattr(cam, 'timestamp_tick_frequency_hz'), (
+            'Camera base __init__ must set timestamp_tick_frequency_hz '
+            'so generate_image_metadata can read it without a guard'
         )
 
 
@@ -3588,30 +3795,28 @@ class TestFrameValidity_AllLedMutatorsInvalidate:
     `self._scope.imaging.frame_validity.invalidate(...)`.
     """
 
-    LED_MUTATORS = (
-        'led_on',
-        'led_off',
-        'led_on_fast',
-        'led_off_fast',
-        'leds_off_fast',
-        'leds_off',
-    )
-
-    def test_each_led_mutator_invalidates_validity(self):
-        from pathlib import Path
-
-        src = (
-            Path(__file__).resolve().parent.parent / 'modules' / 'lumascope_api' / 'illumination.py'
-        ).read_text()
+    def test_each_led_mutator_invalidates_validity(self, sim_scope):
+        illum = sim_scope.illumination
+        validity = sim_scope.imaging.frame_validity
+        mutator_calls = {
+            'led_on': lambda: illum.led_on(channel=0, mA=10),
+            'led_off': lambda: illum.led_off(channel=0),
+            'led_on_fast': lambda: illum.led_on_fast(channel=0, mA=10),
+            'led_off_fast': lambda: illum.led_off_fast(channel=0),
+            'leds_off_fast': lambda: illum.leds_off_fast(),
+            'leds_off': lambda: illum.leds_off(),
+        }
         missing = []
-        for func in self.LED_MUTATORS:
-            method_src = _function_source(src, func)
-            if 'self._scope.imaging.frame_validity.invalidate(' not in method_src:
-                missing.append(func)
+        for name, call in mutator_calls.items():
+            validity.reset()
+            assert validity.is_valid, f'reset must yield a valid baseline before {name}'
+            call()
+            if validity.is_valid or 'led' not in validity.pending_sources:
+                missing.append(name)
         assert not missing, (
-            'LED mutator coverage: each IlluminationAPI LED state-mutator must call '
-            "self._scope.imaging.frame_validity.invalidate('led') so frame_validity sees "
-            f'the transition. Missing: {missing!r}.'
+            'LED mutator coverage: each IlluminationAPI LED state-mutator must '
+            "invalidate frame validity with the 'led' source so the settle-check "
+            f'sees the transition. Missing: {missing!r}.'
         )
 
 
@@ -5324,32 +5529,49 @@ class TestPylonInitCameraConfigStyleConsistency:
         )
 
 
-class TestPylonGainParameterNotShadowingMethod:
+class TestDriverParametersNotShadowingMethods:
     """CLAUDE.md Rule 36 (identifier clarity).
 
-    PylonCamera.gain(self, gain) had the parameter shadow the method
-    name. Inside the method body, the symbol `gain` resolved to the
-    parameter -- the bound method `self.gain` was still reachable but
-    any future refactor that called the method recursively would
-    silently fail in a confusing way. Renaming to `value` removes the
-    ambiguity. Method name itself (`gain`) is L2-public and not
-    changed (Rule 30 stability); only the internal parameter name.
+    `def gain(self, gain)` had the parameter shadow the method name in
+    several camera drivers. Inside such a method body the symbol
+    resolves to the parameter -- the bound method `self.gain` is still
+    reachable, but a future refactor that calls the method recursively
+    (or reads `self.gain` expecting the method) fails in a confusing
+    way. The de-shadowed parameter name is `value`; the method names
+    themselves are L2-public and unchanged (Rule 30 stability).
 
-    Audit finding A15.
+    Originally a PylonCamera-only signature pin (audit finding A15);
+    widened to a driver-wide AST scan when the same shape was found in
+    camera.py / idscamera.py / simulated_camera.py.
     """
 
-    def test_gain_method_signature_no_self_param_shadow(self):
-        """The parameter must not shadow the method name
-        (`def gain(self, gain)`); the de-shadowed name is `value`."""
-        from tests.ast_seams import assert_def
+    def test_no_driver_method_param_shadows_its_method_name(self):
+        """No function in any drivers/*.py module may take a parameter
+        named identically to the function itself."""
+        from tests.ast_seams import REPO_ROOT, parse_module
 
-        assert_def(
-            'drivers/pyloncamera.py',
-            'gain',
-            class_name='PylonCamera',
-            params=['self', 'value'],
-            msg='PylonCamera.gain must not shadow the method name with '
-            'its parameter; use `def gain(self, value)`.',
+        offenders = []
+        for path in sorted((REPO_ROOT / 'drivers').glob('*.py')):
+            rel = path.relative_to(REPO_ROOT).as_posix()
+            tree = parse_module(rel)
+            for node in ast.walk(tree):
+                if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    continue
+                args = node.args
+                params = [
+                    a.arg
+                    for a in (*args.posonlyargs, *args.args, *args.kwonlyargs)
+                ]
+                if args.vararg:
+                    params.append(args.vararg.arg)
+                if args.kwarg:
+                    params.append(args.kwarg.arg)
+                if node.name in params:
+                    offenders.append(f'{rel}:{node.lineno} def {node.name}')
+        assert not offenders, (
+            'Driver function parameters must not shadow the method name '
+            '(use `value` for single-value setters): '
+            + ', '.join(offenders)
         )
 
 
@@ -8226,51 +8448,104 @@ class TestFx2DriverLibusbBackendProbe:
     'FX2 not applicable to this install' rather than crashing with
     NoBackendError mid-_connect.
 
-    Static-source assertions because monkeypatching pyusb backend
-    state at import time isn't reliable in unit-test env.
+    Behavioral: the module is executed FRESH under a controlled fake
+    usb tree (pyusb importable, get_backend() controllable) and fake
+    registries, so the load-time classification itself is what's
+    proven -- on this machine's real pyusb state it would be
+    environment-dependent.
     """
 
-    def _src(self):
-        import pathlib
+    @staticmethod
+    def _load_fx2_module(monkeypatch, backend):
+        import importlib.util
+        import types
 
-        return pathlib.Path('drivers/fx2driver.py').read_text()
+        # Fake pyusb tree: importable, with a controllable backend probe.
+        usb_mod = types.ModuleType('usb')
+        usb_core = types.ModuleType('usb.core')
+        usb_core.USBError = type('USBError', (OSError,), {})
+        usb_core.USBTimeoutError = type('USBTimeoutError', (OSError,), {})
+        usb_util = types.ModuleType('usb.util')
+        usb_backend = types.ModuleType('usb.backend')
+        usb_libusb1 = types.ModuleType('usb.backend.libusb1')
+        usb_libusb1.get_backend = lambda: backend
+        usb_backend.libusb1 = usb_libusb1
+        usb_mod.core = usb_core
+        usb_mod.util = usb_util
+        usb_mod.backend = usb_backend
+        usb1_mod = types.ModuleType('usb1')
 
-    def test_module_probes_libusb_backend_at_load(self):
-        src = self._src()
-        assert 'usb.backend.libusb1.get_backend()' in src, (
-            'fx2driver.py must probe usb.backend.libusb1.get_backend() '
-            'at module load so missing libusb-1.0.dll is classified '
-            'before _connect runs.'
-        )
-        assert '_HAS_USB_BACKEND' in src, (
-            'fx2driver.py must record the backend-loadable state in '
-            '_HAS_USB_BACKEND for use by the _FX2_AVAILABLE gate.'
-        )
+        for name, mod in (
+            ('usb', usb_mod),
+            ('usb.core', usb_core),
+            ('usb.util', usb_util),
+            ('usb.backend', usb_backend),
+            ('usb.backend.libusb1', usb_libusb1),
+            ('usb1', usb1_mod),
+        ):
+            monkeypatch.setitem(sys.modules, name, mod)
 
-    def test_fx2_available_gate_includes_backend_check(self):
-        src = self._src()
-        idx = src.find('_FX2_AVAILABLE = ')
-        assert idx >= 0
-        # Read up to the closing of the assignment (next blank line or
-        # next top-level statement). Captures the multi-line form.
-        end = src.find('\nif not _FX2_AVAILABLE', idx)
-        assert end > idx
-        expr = src[idx:end]
-        assert '_HAS_USB_BACKEND' in expr, (
-            '_FX2_AVAILABLE must AND in _HAS_USB_BACKEND so a '
-            'pyusb-installed-but-no-native-backend system does not '
-            'register FX2 drivers.'
-        )
+        # Recording logger + inert registries so the fresh module exec
+        # cannot touch the real driver registry or log stack.
+        records = []
 
-    def test_missing_backend_path_logs_install_hint(self):
-        src = self._src()
-        # The else-if branch for the missing-backend case must fire
-        # an INFO with concrete install instructions per platform.
-        assert 'libusb-1.0 native library not loadable' in src, (
-            'fx2driver.py must log a clear INFO when the libusb-1.0 '
-            'backend is not loadable, with platform-specific install '
-            'instructions.'
+        class _Recorder:
+            def __getattr__(self, level):
+                return lambda msg, *a, **k: records.append((level.upper(), str(msg)))
+
+        lvp_logger_mod = types.ModuleType('lvp_logger')
+        lvp_logger_mod.logger = _Recorder()
+        lvp_logger_mod.camera_logger = _Recorder()
+        monkeypatch.setitem(sys.modules, 'lvp_logger', lvp_logger_mod)
+
+        registry_mod = types.ModuleType('drivers.registry')
+        registered = []
+
+        class _Registry:
+            def register(self, name, **kwargs):
+                registered.append(name)
+                return lambda cls: cls
+
+        registry_mod.camera_registry = _Registry()
+        registry_mod.led_registry = _Registry()
+        monkeypatch.setitem(sys.modules, 'drivers.registry', registry_mod)
+
+        spec = importlib.util.spec_from_file_location(
+            'fx2driver_backend_probe_under_test', 'drivers/fx2driver.py'
         )
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module, records, registered
+
+    def test_missing_backend_classifies_unavailable_and_logs_hint(
+        self, monkeypatch
+    ):
+        """pyusb importable but get_backend() -> None (the missing-DLL
+        case): FX2 must classify as not-applicable, register nothing,
+        and log the install hint instead of raising NoBackendError."""
+        module, records, registered = self._load_fx2_module(monkeypatch, backend=None)
+        assert module._HAS_USB is True
+        assert module._HAS_USB_BACKEND is False
+        assert module._FX2_AVAILABLE is False, (
+            'pyusb-installed-but-no-native-backend must not register FX2 drivers'
+        )
+        assert registered == [], (
+            f'no driver registration may happen without a backend; got {registered}'
+        )
+        assert any(
+            lvl == 'INFO' and 'libusb-1.0 native library not loadable' in msg
+            for lvl, msg in records
+        ), f'missing-backend case must log the install hint; got {records}'
+
+    def test_loadable_backend_classifies_available(self, monkeypatch):
+        """With a loadable backend (and usb1 importable), the gate opens
+        and the FX2 drivers register."""
+        module, records, registered = self._load_fx2_module(
+            monkeypatch, backend=object()
+        )
+        assert module._HAS_USB_BACKEND is True
+        assert module._FX2_AVAILABLE is True
+        assert registered, 'FX2 drivers must register when prerequisites are met'
 
 
 # ---------------------------------------------------------------------------
@@ -9921,17 +10196,26 @@ class TestPreReleaseFutureWarning:
         assert 'PRE-RELEASE' in str(future_warnings[0].message)
 
     def test_warning_text_references_migration_plan(self):
-        # Static-source assertion the helper text names the migration
-        # plan + Etaluma support, so retiring the warning requires
-        # editing the bundle text alongside the other 3 mechanisms.
-        import pathlib
+        """The live warning message must point users at the migration
+        plan and a support contact -- editing the bundle text without
+        those pointers breaks the warning's purpose. README banner /
+        LumascopeSkills preface / CHANGELOG note are the other three
+        mechanisms, verified outside this test file."""
+        import warnings
+        from modules.lumascope_api import Lumascope
 
-        src = pathlib.Path('modules/lumascope_api/_lumascope.py').read_text()
-        assert '_PRE_RELEASE_WARNING_TEXT' in src
-        assert '_fire_pre_release_warning' in src
-        # README banner / LumascopeSkills preface / CHANGELOG note are
-        # the other three mechanisms; their existence is verified
-        # outside this test file (4-mechanism PRE-RELEASE bundle).
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter('always')
+            Lumascope(simulate=True)
+        future_warnings = [w for w in caught if issubclass(w.category, FutureWarning)]
+        assert future_warnings, 'PRE-RELEASE FutureWarning must fire on first Lumascope()'
+        msg = str(future_warnings[0].message)
+        assert 'migration plan' in msg, (
+            f'warning text must point at the migration plan; got: {msg}'
+        )
+        assert 'support' in msg.lower(), (
+            f'warning text must name a support contact; got: {msg}'
+        )
 
 
 class TestAutoGainArmedInScanIterate:
@@ -11536,86 +11820,87 @@ class TestEmergencyShutdownBoundedLeds_F6:
     its unbounded `with` semantics.
     """
 
-    def _illumination_src(self):
-        from pathlib import Path
+    @staticmethod
+    def _hold_led_lock_from_other_thread(illum):
+        """Acquire _led_lock on a helper thread (RLock is reentrant, so
+        holding it on the test thread would not block the call under
+        test). Returns the release event + the holder thread."""
+        held = threading.Event()
+        release = threading.Event()
 
-        return (
-            Path(__file__).resolve().parent.parent / 'modules' / 'lumascope_api' / 'illumination.py'
-        ).read_text()
+        def holder():
+            with illum._led_lock:
+                held.set()
+                release.wait(timeout=30.0)
 
-    def _lumascope_src(self):
-        from pathlib import Path
+        thread = threading.Thread(target=holder, daemon=True)
+        thread.start()
+        assert held.wait(timeout=5.0), 'lock-holder thread failed to start'
+        return release, thread
 
-        return (
-            Path(__file__).resolve().parent.parent / 'modules' / 'lumascope_api' / '_lumascope.py'
-        ).read_text()
-
-    def test_leds_off_emergency_method_exists(self):
-        """The bounded variant must exist as a callable method on the
-        illumination API."""
-        import re
-
-        src = self._illumination_src()
-        assert re.search(r'def leds_off_emergency\s*\(', src), (
-            'F6 regression: illumination must expose leds_off_emergency '
-            'with bounded _led_lock acquire for atexit / abnormal exit '
-            'paths.'
+    def test_leds_off_emergency_turns_leds_off_when_lock_free(self, sim_scope):
+        """Asserts at the DRIVER level: the emergency variant deliberately
+        skips the API-side state/owner/listener cleanup (those surfaces
+        may be torn down by the time atexit fires), so get_led_states()
+        is not the observable -- the hardware-off command is."""
+        illum = sim_scope.illumination
+        driver = sim_scope._led_driver
+        illum.led_on(channel=0, mA=10)
+        assert any(ma > 0 for ma in driver._channel_states.values()), (
+            'precondition: at least one LED on at the driver'
+        )
+        illum.leds_off_emergency()
+        assert not any(ma > 0 for ma in driver._channel_states.values()), (
+            'leds_off_emergency must drive every LED off when the lock is free'
         )
 
-    def test_leds_off_emergency_uses_bounded_acquire(self):
-        """The variant body must call `_led_lock.acquire(timeout=...)`
-        (NOT `with self._led_lock:`). Quote-/format-agnostic regex
-        tolerates whitespace + keyword-vs-positional timeout."""
-        import re
+    def test_leds_off_emergency_returns_when_lock_held(self, sim_scope):
+        """With _led_lock held by another thread, the bounded variant
+        must give up after its timeout and RETURN -- an unbounded
+        acquire here is the atexit deadlock."""
+        illum = sim_scope.illumination
+        release, holder = self._hold_led_lock_from_other_thread(illum)
+        try:
+            finished = threading.Event()
 
-        src = self._illumination_src()
-        # Match from `def leds_off_emergency` up to the next sibling
-        # method / decorator / class definition. Tolerates `-> None:`
-        # return annotations (`\):` would not match because the colon
-        # follows the annotation, not the paren).
-        match = re.search(
-            r'def leds_off_emergency.*?(?=\n    def |\n    @|\nclass |\Z)',
-            src,
-            re.DOTALL,
-        )
-        assert match is not None, 'leds_off_emergency body not found'
-        body = match.group(0)
-        # Must acquire with a timeout (positional or keyword).
-        bounded = re.search(
-            r'_led_lock\.acquire\s*\(\s*(timeout\s*=\s*)?[^)]*\)',
-            body,
-        )
-        assert bounded is not None, (
-            'F6 regression: leds_off_emergency must call '
-            '`_led_lock.acquire(timeout=...)`. Unbounded `with` '
-            'semantics defeat the atexit-deadlock fix.'
-        )
-        # Must NOT use the unbounded `with` form inside the body.
-        assert not re.search(r'with\s+self\._led_lock\s*:', body), (
-            'F6 regression: leds_off_emergency must not use `with '
-            'self._led_lock:` -- that is unbounded and would re-'
-            'introduce the atexit deadlock.'
-        )
+            def call():
+                illum.leds_off_emergency(timeout_s=0.2)
+                finished.set()
 
-    def test_emergency_shutdown_calls_bounded_variant(self):
-        """`_emergency_shutdown` must call `leds_off_emergency`, not
-        the unbounded `leds_off`. A revert that drops the `_emergency`
-        suffix re-introduces the deadlock surface."""
-        import re
+            worker = threading.Thread(target=call, daemon=True)
+            worker.start()
+            assert finished.wait(timeout=5.0), (
+                'leds_off_emergency must return after its bounded timeout '
+                'when _led_lock is held -- blocking here is the atexit '
+                'deadlock the bounded acquire exists to prevent'
+            )
+        finally:
+            release.set()
+            holder.join(timeout=5.0)
 
-        src = self._lumascope_src()
-        match = re.search(
-            r'def _emergency_shutdown\s*\(self\):.*?(?=\n    def |\n    @|\nclass )',
-            src,
-            re.DOTALL,
-        )
-        assert match is not None, '_emergency_shutdown body not found'
-        body = match.group(0)
-        assert re.search(r'\.leds_off_emergency\s*\(', body), (
-            'F6 regression: _emergency_shutdown must call '
-            'leds_off_emergency (bounded lock acquire) -- not '
-            'leds_off (unbounded).'
-        )
+    def test_emergency_shutdown_completes_with_led_lock_held(self, sim_scope):
+        """_emergency_shutdown must route LED teardown through the
+        bounded variant: with _led_lock held by an in-flight command, it
+        still completes. Calling unbounded leds_off would hang here."""
+        illum = sim_scope.illumination
+        release, holder = self._hold_led_lock_from_other_thread(illum)
+        try:
+            finished = threading.Event()
+
+            def call():
+                sim_scope._emergency_shutdown()
+                finished.set()
+
+            worker = threading.Thread(target=call, daemon=True)
+            worker.start()
+            assert finished.wait(timeout=10.0), (
+                '_emergency_shutdown must complete while _led_lock is held '
+                '-- it must use the bounded leds_off_emergency, not the '
+                'unbounded leds_off'
+            )
+        finally:
+            release.set()
+            holder.join(timeout=5.0)
 
 
 class TestSequentialIoExecutorWaitForIdle_F7:

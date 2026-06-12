@@ -85,27 +85,57 @@ class TestLedOnBlockAckShape:
         assert led.exchange_command.call_count >= 3
 
 
-class TestLedDriverSubstringCheckPresent:
-    """The substring-match guard on the polling loop is load-bearing.
-    A future cleanup that removes it would silently accept empty
-    responses (and unresponsive-firmware responses) as acks, leaving
-    callers thinking the LED was energized when the hardware is dark."""
+class TestLedDriverRejectsNonAckResponses:
+    """The ack guard on the polling loop is load-bearing: only a
+    command echo or an 'LED' + channel + mA substring match counts. A
+    future cleanup that loosened it to accept any non-None string would
+    leave callers thinking the LED was energized when the hardware is
+    dark (the wedged-firmware shape)."""
 
-    def test_substring_match_helper_present(self):
-        src = (REPO_ROOT / 'drivers' / 'ledboard.py').read_text()
-        assert 'check_each_substr' in src, (
-            'check_each_substr helper must be present in ledboard.py -- '
-            'the substring-match ack check guards against wedged-firmware '
-            'empty responses being misread as acks.'
+    def _make_led(self, response_sequence):
+        from drivers.ledboard import LEDBoard
+
+        led = LEDBoard.__new__(LEDBoard)
+        led._validate_and_build_led_cmd = lambda ch, mA: ('BF', f'LED{ch}_{int(mA)}')
+        led._update_state_cache = lambda color, mA: None
+        responses = list(response_sequence)
+        led.exchange_command = MagicMock(
+            side_effect=lambda cmd: responses.pop(0) if responses else None
+        )
+        return led
+
+    def test_unrelated_response_keeps_polling(self):
+        """A non-empty, non-None reply that is neither the command echo
+        nor an LED/channel/mA substring match must NOT be accepted as
+        an ack -- the loop keeps polling until timeout."""
+        import time
+
+        led = self._make_led(['ERROR: unknown command'] * 200)
+        t0 = time.monotonic()
+        led.led_on(channel=3, mA=2, block=True, timeout_s=0.1)
+        elapsed = time.monotonic() - t0
+        assert 0.08 < elapsed < 0.3, (
+            f'an unrelated reply must not break the polling loop early; '
+            f'elapsed={elapsed:.3f}s'
+        )
+        assert led.exchange_command.call_count >= 3, (
+            'the loop must keep re-polling on non-ack replies'
         )
 
-    def test_command_not_in_response_check_present(self):
-        src = (REPO_ROOT / 'drivers' / 'ledboard.py').read_text()
-        assert 'command not in response' in src, (
-            'Polling loop must include the `command not in response` '
-            'rejection clause -- this is what makes the loop wait for '
-            'a real ack instead of accepting any non-None string.'
+    def test_partial_substring_match_is_not_an_ack(self):
+        """A reply naming the wrong channel/mA must keep polling -- the
+        per-token substring check is what rejects it."""
+        import time
+
+        led = self._make_led(['LED 5 set to 9 mA.'] * 200)
+        t0 = time.monotonic()
+        led.led_on(channel=3, mA=2, block=True, timeout_s=0.1)
+        elapsed = time.monotonic() - t0
+        assert 0.08 < elapsed < 0.3, (
+            f'a wrong-channel reply must not count as an ack; '
+            f'elapsed={elapsed:.3f}s'
         )
+        assert led.exchange_command.call_count >= 3
 
 
 class TestTsrLedEngineeringRoutesThroughDriver:

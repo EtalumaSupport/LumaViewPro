@@ -851,19 +851,19 @@ class SimulatedCamera(Camera):
             return -1
         return self._gain
 
-    def gain(self, gain: float) -> None:
+    def gain(self, value: float) -> None:
         """Set the simulated camera gain.
 
         Args:
-            gain: Gain in dB.
+            value: Gain in dB.
         """
         if not self.active:
             return
         with self._lock:
-            self._gain = float(gain)
+            self._gain = float(value)
             if _cam_log is not None:
-                _cam_log.info(f'sim Gain.SetValue({float(gain):.3f})')
-            logger.debug(f'[CAM Sim   ] Gain set to {gain}')
+                _cam_log.info(f'sim Gain.SetValue({float(value):.3f})')
+            logger.debug(f'[CAM Sim   ] Gain set to {value}')
 
     def init_auto_gain_focus(
         self,

@@ -729,27 +729,27 @@ class IDSCamera(Camera):
             _cam_log.error(f'[CAM Class ] Read gain failed: {e}')
             return -1
 
-    def gain(self, gain) -> bool:
+    def gain(self, value) -> bool:
         """Set gain. Returns True on success, False on a confirmed
         hardware rejection -- IDS has no chunk data, so a swallowed write
         failure here would stream frames at the stale gain with no
         downstream backstop; the caller needs the failure signal."""
         if not self.active:
             if _cam_log is not None:
-                _cam_log.warning(f'ids Gain.SetValue({gain}) SKIPPED: active=None')
-            _cam_log.warning(f'[CAM Class ] Cannot set gain {gain}: camera inactive')
+                _cam_log.warning(f'ids Gain.SetValue({value}) SKIPPED: active=None')
+            _cam_log.warning(f'[CAM Class ] Cannot set gain {value}: camera inactive')
             return False
 
         try:
             if _cam_log is not None:
-                _cam_log.info(f'ids GainSelector=AnalogAll Gain.SetValue({float(gain):.3f})')
+                _cam_log.info(f'ids GainSelector=AnalogAll Gain.SetValue({float(value):.3f})')
             self.remote_nodemap.FindNode("GainSelector").SetCurrentEntry("AnalogAll")
-            self.remote_nodemap.FindNode("Gain").SetValue(gain)
-            logger.debug(f'[CAM Class ] Gain set to {gain}')
+            self.remote_nodemap.FindNode("Gain").SetValue(value)
+            logger.debug(f'[CAM Class ] Gain set to {value}')
             return True
         except Exception as e:
             if _cam_log is not None:
-                _cam_log.error(f'ids Gain.SetValue({gain}) FAILED: {e}')
+                _cam_log.error(f'ids Gain.SetValue({value}) FAILED: {e}')
             _cam_log.error(f'[CAM Class ] Gain set failed (likely out of bounds): {e}')
             return False
 

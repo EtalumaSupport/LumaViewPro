@@ -54,15 +54,6 @@ def _imaging_src() -> str:
     ).read_text(encoding='utf-8')
 
 
-def _motion_src() -> str:
-    return (
-        Path(__file__).resolve().parent.parent
-        / 'modules'
-        / 'lumascope_api'
-        / 'motion.py'
-    ).read_text(encoding='utf-8')
-
-
 def _method_body(src: str, name: str) -> str:
     m = re.search(
         rf'def {name}.*?(?=\n    def |\n    @|\nclass |\Z)',
@@ -182,23 +173,75 @@ class TestMotionValiditySources:
         assert MotionAPI._AXIS_VALIDITY_SOURCE.get('X', 'xy_move') == 'xy_move'
         assert MotionAPI._AXIS_VALIDITY_SOURCE.get('Y', 'xy_move') == 'xy_move'
 
-    def test_move_sites_route_through_axis_mapping(self):
-        src = _motion_src()
-        # The old 2-way ternary mis-routed a turret move to 'xy_move'.
-        assert "'z_move' if axis == 'Z' else 'xy_move'" not in src, (
-            'move sites must use the axis->source mapping, not the 2-way '
-            'ternary that mis-routed turret moves to xy_move'
-        )
-        for name in ('move_absolute_position', 'move_relative_position'):
-            assert '_AXIS_VALIDITY_SOURCE' in _method_body(src, name), (
-                f'{name} must invalidate via the axis->source mapping'
+    @staticmethod
+    def _scope_with_invalidate_recorder():
+        """Simulated scope whose frame_validity.invalidate records sources."""
+        scope = Lumascope(simulate=True)
+        scope._motion_driver.set_timing_mode('instant')
+        recorded = []
+        orig_invalidate = scope.imaging.frame_validity.invalidate
+
+        def recording_invalidate(source):
+            recorded.append(source)
+            return orig_invalidate(source)
+
+        scope.imaging.frame_validity.invalidate = recording_invalidate
+        return scope, recorded
+
+    @pytest.mark.parametrize(
+        ('axis', 'pos', 'source'),
+        [
+            ('X', 1000.0, 'xy_move'),
+            ('Y', 1000.0, 'xy_move'),
+            ('Z', 1000.0, 'z_move'),
+            ('T', 1, 'turret'),
+        ],
+    )
+    def test_move_absolute_invalidates_axis_source(self, axis, pos, source):
+        """A move on each axis must record THAT axis's validity source --
+        the old 2-way ternary mis-routed turret moves to 'xy_move', so
+        the settle-check cleared before the turret physically arrived."""
+        scope, recorded = self._scope_with_invalidate_recorder()
+        try:
+            scope.motion.move_absolute_position(axis, pos, wait_until_complete=True)
+            assert source in recorded, (
+                f'move_absolute_position({axis!r}) must invalidate {source!r}; '
+                f'recorded {recorded}'
             )
+            wrong = {'xy_move', 'z_move', 'turret'} - {source}
+            assert not wrong.intersection(recorded), (
+                f'move_absolute_position({axis!r}) invalidated the wrong '
+                f'source(s) {wrong.intersection(recorded)}; recorded {recorded}'
+            )
+        finally:
+            scope.disconnect()
+
+    @pytest.mark.parametrize(
+        ('axis', 'source'),
+        [('X', 'xy_move'), ('Y', 'xy_move'), ('Z', 'z_move')],
+    )
+    def test_move_relative_invalidates_axis_source(self, axis, source):
+        scope, recorded = self._scope_with_invalidate_recorder()
+        try:
+            scope.motion.move_relative_position(axis, 100.0, wait_until_complete=True)
+            assert source in recorded, (
+                f'move_relative_position({axis!r}) must invalidate {source!r}; '
+                f'recorded {recorded}'
+            )
+        finally:
+            scope.disconnect()
 
     def test_xycenter_invalidates_xy_move(self):
-        body = _method_body(_motion_src(), 'xycenter')
-        assert "invalidate('xy_move')" in body, (
-            'xycenter physically moves X/Y but recorded no validity source'
-        )
+        """xycenter physically moves X/Y; before the fix it recorded no
+        validity source at all."""
+        scope, recorded = self._scope_with_invalidate_recorder()
+        try:
+            scope.motion.xycenter()
+            assert 'xy_move' in recorded, (
+                f'xycenter must invalidate xy_move; recorded {recorded}'
+            )
+        finally:
+            scope.disconnect()
 
 
 class TestGeometryFormatInvalidates:

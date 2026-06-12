@@ -6,35 +6,85 @@ are_all_connected() runs on a periodic timer during a protocol scan, so its
 the main log (~1.2k/soak). Those happy-path lines are debug (routine, per
 Rule 5); the "<board> not connected" lines stay at info -- a board dropping
 out mid-run is a real degraded-path event the user should see.
+
+lvp_logger is mocked under the test conftest, so levels are asserted by
+swapping a recording logger into the module under test rather than caplog.
 """
 
-from pathlib import Path
+import pytest
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
-
-
-def _are_all_connected_body():
-    src = (REPO_ROOT / 'modules' / 'lumascope_api' / '_lumascope.py').read_text()
-    start = src.find('def are_all_connected(')
-    assert start != -1, 'are_all_connected not found'
-    body = src[start : start + 1200]
-    end = body.find('\n    def ', 1)
-    return body if end == -1 else body[:end]
+from modules.lumascope_api import Lumascope
+from modules.lumascope_api import _lumascope as lumascope_mod
 
 
-def test_happy_path_lines_are_debug():
-    body = _are_all_connected_body()
-    assert "logger.debug('[SCOPE API ] Performing connection check" in body, (
+class _RecordingLogger:
+    """Minimal logger stand-in capturing (level, message) pairs."""
+
+    def __init__(self):
+        self.records = []
+
+    def debug(self, msg, *args, **kwargs):
+        self.records.append(('DEBUG', str(msg)))
+
+    def info(self, msg, *args, **kwargs):
+        self.records.append(('INFO', str(msg)))
+
+    def warning(self, msg, *args, **kwargs):
+        self.records.append(('WARNING', str(msg)))
+
+    def error(self, msg, *args, **kwargs):
+        self.records.append(('ERROR', str(msg)))
+
+    def exception(self, msg, *args, **kwargs):
+        self.records.append(('ERROR', str(msg)))
+
+    def critical(self, msg, *args, **kwargs):
+        self.records.append(('CRITICAL', str(msg)))
+
+    def levels_for(self, substring):
+        return [lvl for lvl, msg in self.records if substring in msg]
+
+
+@pytest.fixture
+def sim_scope_with_log(monkeypatch):
+    scope = Lumascope(simulate=True)
+    recorder = _RecordingLogger()
+    monkeypatch.setattr(lumascope_mod, 'logger', recorder)
+    yield scope, recorder
+    scope.disconnect()
+
+
+def test_happy_path_lines_are_debug(sim_scope_with_log):
+    scope, log = sim_scope_with_log
+    assert scope.are_all_connected() is True, (
+        'precondition: simulated scope reports all components connected'
+    )
+    assert log.levels_for('Performing connection check') == ['DEBUG'], (
         'the periodic "Performing connection check" line must be debug'
     )
-    assert "logger.debug('[SCOPE API ] Connection Check: All components connected" in body, (
+    assert log.levels_for('All components connected') == ['DEBUG'], (
         'the happy-path "All components connected" line must be debug'
+    )
+    assert log.levels_for('not connected') == [], (
+        'no degraded-path lines may fire when everything is connected'
     )
 
 
-def test_not_connected_lines_stay_info():
-    body = _are_all_connected_body()
+def test_not_connected_lines_stay_info(sim_scope_with_log):
+    from drivers.null_ledboard import NullLEDBoard
+    from drivers.null_motorboard import NullMotionBoard
+
+    scope, log = sim_scope_with_log
+    scope._led_driver = NullLEDBoard()
+    scope._motion_driver = NullMotionBoard()
+    scope._camera_driver = None
+
+    assert scope.are_all_connected() is False
+
     for board in ('LED Board', 'Motion Board', 'Camera'):
-        assert f"logger.info('[SCOPE API ] Connection Check: {board} not connected" in body, (
+        assert log.levels_for(f'{board} not connected') == ['INFO'], (
             f'the "{board} not connected" degraded-path line must stay at info'
         )
+    assert log.levels_for('All components connected') == [], (
+        'the happy-path line must not fire when components are missing'
+    )
