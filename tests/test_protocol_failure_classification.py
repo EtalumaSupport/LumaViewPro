@@ -102,47 +102,66 @@ class TestScanLoopPropagatesExceptions:
 
 class TestRunLoopInnerClassifiesByConnection:
     """The outer ``_run_loop_inner`` exception handler must classify
-    failures by hardware connection state."""
+    failures by hardware connection state: disconnected = fatal (abort +
+    notify), still-connected = transient (silent retry on next period,
+    bounded by the consecutive-failure ceiling)."""
 
-    def test_outer_except_calls_are_all_connected(self):
-        body = _function_source(_read('modules/protocol_run_loop.py'), '_run_loop_inner')
-        assert 'are_all_connected' in body, (
-            '_run_loop_inner outer except must call are_all_connected() '
-            'to classify exceptions as fatal (disconnected) vs '
-            'transient (still connected).'
+    def _drive_failing_run_loop(self, monkeypatch, *, connected):
+        """run_loop on a runner whose every scan raises; classification
+        is steered by the mocked are_all_connected."""
+        from unittest.mock import MagicMock
+
+        from modules.notification_center import notifications
+        from tests.protocol_drives import protocol_step, run_loop_ready_runner
+
+        captured = []
+        monkeypatch.setattr(notifications, 'error', lambda *a, **k: captured.append(a))
+        runner = run_loop_ready_runner(protocol_step())
+        runner._protocol.step.side_effect = RuntimeError('serial dropped mid-step')
+        runner._scope.are_all_connected = MagicMock(return_value=connected)
+        runner._run_loop_executor.run_loop()
+        return runner, captured
+
+    def test_disconnect_aborts_with_classified_notification(self, monkeypatch):
+        from modules.protocol_state_machine import ProtocolState
+
+        runner, captured = self._drive_failing_run_loop(monkeypatch, connected=False)
+        assert len(captured) == 1 and captured[0][1] == 'Protocol Aborted', (
+            f'a disconnect must surface exactly one abort popup; got {captured}'
+        )
+        assert 'Hardware disconnected' in captured[0][2], (
+            f'the popup must name the disconnect; got {captured[0]}'
+        )
+        assert runner.protocol_state == ProtocolState.ERROR, (
+            'a disconnect mid-scan must land the run in ERROR'
+        )
+        assert runner._protocol.step.call_count == 1, (
+            'a fatal failure must abort, not retry the scan'
+        )
+        assert runner._cleanup.called
+
+    def test_transient_failure_retries_then_escalates(self, monkeypatch):
+        runner, captured = self._drive_failing_run_loop(monkeypatch, connected=True)
+        assert runner._protocol.step.call_count == 3, (
+            'transient (still-connected) failures must retry on the next '
+            f'period up to the ceiling; got {runner._protocol.step.call_count} attempts'
+        )
+        assert runner._scan_count == 0, 'failed scans must not count as completed'
+        assert len(captured) == 1, (
+            'transients are silent until the consecutive-failure ceiling; '
+            f'got {captured}'
+        )
+        assert '3 times' in captured[0][2] and 'in a row' in captured[0][2], (
+            f'the ceiling popup must name the repeated failure; got {captured[0]}'
         )
 
-    def test_fatal_branch_fires_hardware_disconnected_notification(self):
-        """The fatal branch must fire a 'Hardware disconnected' (or
-        equivalent) notification rather than the retired 'Protocol
-        scan stopped' text."""
-        src = _read('modules/protocol_run_loop.py')
-        # The exact wording can evolve, but the disconnect-shape
-        # notification must be the only error popup the outer handler
-        # fires. "Protocol scan stopped" was the retired text.
-        assert 'Protocol scan stopped' not in src, (
+    def test_retired_scan_stopped_notification_absent(self):
+        """The per-failure 'Protocol scan stopped' popup is retired --
+        transients are silent; fatals use the disconnect shape."""
+        assert 'Protocol scan stopped' not in _read('modules/protocol_run_loop.py'), (
             "'Protocol scan stopped' notification text is retired. "
             "Transient failures don't notify; disconnects use the "
             "'Hardware disconnected' / 'Protocol Aborted' shape."
-        )
-        body = _function_source(src, '_run_loop_inner')
-        assert 'Hardware disconnect' in body or 'Protocol Aborted' in body, (
-            '_run_loop_inner fatal branch must surface a hardware-'
-            'disconnect-shape notification to the user.'
-        )
-
-    def test_transient_branch_keeps_running(self):
-        """The transient branch must NOT break the outer while loop
-        or call cleanup -- it logs a warning and lets the next
-        iteration retry the scan after the protocol period elapses."""
-        body = _function_source(_read('modules/protocol_run_loop.py'), '_run_loop_inner')
-        # The transient branch is identified by the warning that
-        # mentions retry semantics. Don't pin to exact wording but
-        # require the retry intent to be present.
-        assert 'retry' in body.lower() or 'transient' in body.lower(), (
-            '_run_loop_inner outer except must log the transient case '
-            'explicitly so future readers understand the no-break '
-            'no-increment semantics.'
         )
 
     def test_outer_except_does_not_fire_generic_protocol_error(self):
@@ -165,11 +184,40 @@ class TestScanLoopBehaviorPreserved:
     maintenance after the refactor."""
 
     def test_scan_loop_still_calls_scan_iterate(self):
-        body = _function_source(_read('modules/protocol_step_runner.py'), 'scan_loop')
-        assert 'self.scan_iterate()' in body, (
-            'scan_loop must still call scan_iterate per iteration.'
+        from tests.protocol_drives import protocol_step, scan_ready_runner
+
+        runner = scan_ready_runner(protocol_step())
+        runner._step_executor.scan_loop()
+        assert runner._protocol.step.called, (
+            'scan_loop must drive scan_iterate (which fetches the step row)'
+        )
+        assert not runner._scan_in_progress.is_set(), (
+            'the single-step scan must run to completion'
         )
 
-    def test_scan_loop_still_does_periodic_gc(self):
-        body = _function_source(_read('modules/protocol_step_runner.py'), 'scan_loop')
-        assert 'gc.collect()' in body, 'scan_loop must still run the periodic GC sweep.'
+    def test_scan_loop_still_does_periodic_gc(self, monkeypatch):
+        """With >60s elapsing between maintenance checks (faked clock),
+        scan_loop must run its GC sweep."""
+        from types import SimpleNamespace
+        from unittest.mock import MagicMock
+
+        from tests.protocol_drives import protocol_step, scan_ready_runner
+
+        runner = scan_ready_runner(protocol_step())
+        ticks = {'now': 0.0}
+
+        def fake_monotonic():
+            ticks['now'] += 61.0
+            return ticks['now']
+
+        monkeypatch.setattr(
+            'modules.protocol_step_runner.time',
+            SimpleNamespace(monotonic=fake_monotonic, sleep=lambda s: None),
+        )
+        gc_recorder = MagicMock()
+        gc_recorder.collect.return_value = 0
+        monkeypatch.setattr('modules.protocol_step_runner.gc', gc_recorder)
+        runner._step_executor.scan_loop()
+        assert gc_recorder.collect.called, (
+            'scan_loop must run the periodic GC sweep on long scans'
+        )

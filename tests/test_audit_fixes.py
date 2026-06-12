@@ -1386,58 +1386,13 @@ class TestG3_AutofocusFailureNotification:
 
 # ---------------------------------------------------------------------------
 # SequencedCaptureRunner behavioral-test builders
+# (the runner builder itself is shared across test files)
 # ---------------------------------------------------------------------------
 
-
-def _bare_capture_runner(**overrides):
-    """SequencedCaptureRunner with MagicMock deps.
-
-    Enough to drive run() headlessly through its pre-run gates and
-    run-start snapshot phase; the run loop itself lands on the mocked
-    protocol_thread, so nothing scans.
-    """
-    from modules.sequenced_capture_runner import SequencedCaptureRunner
-
-    kwargs = {
-        'scope': MagicMock(),
-        'stage_offset': {},
-        'io_executor': MagicMock(),
-        'protocol_thread': MagicMock(),
-        'file_io_executor': MagicMock(),
-        'camera_executor': MagicMock(),
-        'autofocus_thread': MagicMock(),
-        'autofocus_runner': MagicMock(),
-    }
-    kwargs.update(overrides)
-    runner = SequencedCaptureRunner(**kwargs)
-    runner.file_io_executor.is_protocol_queue_active.return_value = False
-    return runner
-
-
-def _scr_run_kwargs(**overrides):
-    """Keyword args for SequencedCaptureRunner.run() with a protocol mock
-    that passes every pre-run gate; tests override the gate or snapshot
-    under test."""
-    from modules.sequenced_capture_runner import SequencedCaptureRunMode
-
-    protocol = MagicMock()
-    protocol.num_steps.return_value = 1
-    protocol.validate_for_run.return_value = []
-    protocol.period.return_value = 0
-    protocol.copy_for_execution.return_value = protocol
-    kwargs = {
-        'protocol': protocol,
-        'run_trigger_source': 'test',
-        'run_mode': SequencedCaptureRunMode.FULL_PROTOCOL,
-        'sequence_name': 'seq',
-        'image_capture_config': {},
-        'autogain_settings': {'target_brightness': 0.3},
-        'parent_dir': None,
-        'disable_saving_artifacts': True,
-        'initial_autofocus_states': {},
-    }
-    kwargs.update(overrides)
-    return kwargs
+from tests.protocol_drives import (
+    bare_capture_runner as _bare_capture_runner,
+    scr_run_kwargs as _scr_run_kwargs,
+)
 
 
 class _LockWatchingSettings(dict):
@@ -1525,71 +1480,106 @@ class TestRule14_A5_AreAllConnectedExceptionNotify:
 
 
 class TestRule14_A8_ScopeSessionHelperNotify:
-    """A8: scope_session optional helper failures must notify (Rule 14)."""
+    """A8: scope_session optional helper failures must notify (Rule 14)
+    and must not abort session construction -- a missing helper disables
+    one feature, not the whole session."""
 
-    def test_wellplate_loader_failure_notifies(self):
-        import pathlib
+    def _create_with_failing_loader(self, monkeypatch, patch_target):
+        from modules.notification_center import notifications
+        from modules.scope_session import ScopeSession
 
-        source = pathlib.Path('modules/scope_session.py').read_text()
-        idx = source.find('Could not load wellplate loader:')
-        assert idx != -1, 'Wellplate loader except branch must exist'
-        nearby = source[idx : idx + 500]
-        assert 'notifications.warning' in nearby, (
-            'Wellplate loader exception must call notifications.warning (A8 -- Rule 14)'
+        captured = []
+        monkeypatch.setattr(notifications, 'warning', lambda *a, **k: captured.append(a))
+
+        def raising_loader(*args, **kwargs):
+            raise RuntimeError('config file corrupt')
+
+        monkeypatch.setattr(patch_target, raising_loader)
+        session = ScopeSession.create(
+            settings={},
+            scope=MagicMock(),
+            io_executor=MagicMock(),
+            camera_executor=MagicMock(),
         )
-        assert 'Wellplate loader unavailable' in nearby, (
-            "Notification title must be 'Wellplate loader unavailable' (A8)"
+        return session, captured
+
+    def test_wellplate_loader_failure_notifies(self, monkeypatch):
+        session, captured = self._create_with_failing_loader(
+            monkeypatch, 'modules.labware_loader.WellPlateLoader'
+        )
+        assert session is not None, 'a failed helper must not abort the session'
+        assert captured and captured[0][1] == 'Wellplate loader unavailable', (
+            f'wellplate loader failure must warn the user; got {captured}'
         )
 
-    def test_coord_transformer_failure_notifies(self):
-        import pathlib
-
-        source = pathlib.Path('modules/scope_session.py').read_text()
-        idx = source.find('Could not load coordinate transformer:')
-        assert idx != -1, 'Coordinate transformer except branch must exist'
-        nearby = source[idx : idx + 500]
-        assert 'notifications.warning' in nearby, (
-            'Coordinate transformer exception must call notifications.warning (A8)'
+    def test_coord_transformer_failure_notifies(self, monkeypatch):
+        session, captured = self._create_with_failing_loader(
+            monkeypatch, 'modules.coord_transformations.CoordinateTransformer'
         )
-        assert 'Coordinate transformer unavailable' in nearby, (
-            "Notification title must be 'Coordinate transformer unavailable' (A8)"
+        assert session is not None
+        assert captured and captured[0][1] == 'Coordinate transformer unavailable', (
+            f'coordinate transformer failure must warn the user; got {captured}'
         )
 
-    def test_objective_helper_failure_notifies(self):
-        import pathlib
-
-        source = pathlib.Path('modules/scope_session.py').read_text()
-        idx = source.find('Could not load objective helper:')
-        assert idx != -1, 'Objective helper except branch must exist'
-        nearby = source[idx : idx + 500]
-        assert 'notifications.warning' in nearby, (
-            'Objective helper exception must call notifications.warning (A8)'
+    def test_objective_helper_failure_notifies(self, monkeypatch):
+        session, captured = self._create_with_failing_loader(
+            monkeypatch, 'modules.objectives_loader.ObjectiveLoader'
         )
-        assert 'Objective helper unavailable' in nearby, (
-            "Notification title must be 'Objective helper unavailable' (A8)"
+        assert session is not None
+        assert captured and captured[0][1] == 'Objective helper unavailable', (
+            f'objective helper failure must warn the user; got {captured}'
         )
 
 
 class TestRule14_A7_HyperstackBuildNotify:
     """A7: Hyperstack build background-thread failure must notify (Rule 14)."""
 
-    def test_hyperstack_build_exception_notifies(self):
-        """create_hyperstacks_if_needed _build() must call notifications.error
-        when stack_builder.load_folder raises."""
-        import pathlib
+    def test_hyperstack_build_exception_notifies(self, monkeypatch):
+        """A raising StackBuilder.load_folder in the background build
+        thread must log the traceback AND pop 'Hyperstack build failed'
+        -- without the popup the user only ever sees the optimistic
+        'Saving Hyperstacks' info."""
+        import modules.config_ui_getters as config_ui_getters
+        from modules.notification_center import notifications
 
-        source = pathlib.Path('modules/config_ui_getters.py').read_text()
-        # Quote-style agnostic: ruff format may use single or double
-        # quotes for the message argument.
-        idx = source.find('Error building hyperstacks')
-        assert idx != -1, 'Hyperstack build exception handler must exist'
-        nearby = source[max(0, idx - 200) : idx + 500]
-        assert 'logger.exception(' in nearby, 'Hyperstack build path must call logger.exception'
-        assert 'notifications.error' in nearby, (
-            'Hyperstack build exception path must call notifications.error (A7 -- Rule 14)'
+        popped = threading.Event()
+        captured = []
+
+        def capture_error(*args, **kwargs):
+            captured.append(args)
+            popped.set()
+
+        monkeypatch.setattr(notifications, 'error', capture_error)
+        monkeypatch.setattr(notifications, 'info', lambda *a, **k: None)
+        logger_mock = MagicMock()
+        monkeypatch.setattr(config_ui_getters, 'logger', logger_mock)
+        monkeypatch.setattr(
+            config_ui_getters,
+            'get_image_capture_config_from_ui',
+            lambda: {'output_format': {'sequenced': 'OME-TIFF Hyperstack'}},
         )
-        assert 'Hyperstack build failed' in nearby, (
-            "notification title must be 'Hyperstack build failed' (A7 -- audit recommendation)"
+        monkeypatch.setattr(
+            config_ui_getters,
+            'get_current_objective_info',
+            lambda: (None, {'focal_length': 45.0}),
+        )
+        monkeypatch.setattr(config_ui_getters, 'get_binning_from_ui', lambda: 1)
+        builder = MagicMock()
+        builder.return_value.load_folder.side_effect = RuntimeError('corrupt tile map')
+        monkeypatch.setattr(config_ui_getters, 'StackBuilder', builder)
+        fake_ctx = MagicMock()
+        fake_ctx.source_path = '.'
+        monkeypatch.setattr('modules.app_context.ctx', fake_ctx)
+
+        config_ui_getters.create_hyperstacks_if_needed()
+        assert popped.wait(timeout=5.0), (
+            'the background build thread must surface the failure popup'
+        )
+        assert captured[0][1] == 'Hyperstack build failed', (
+            f'notification title must name the failed operation; got {captured[0]}'
+        )
+        assert logger_mock.exception.called, (
+            'the build failure must land in the main log with a traceback'
         )
 
 
@@ -10573,16 +10563,6 @@ class TestAutoGainArmedInScanIterate:
     must not re-apply AG (that would restart it mid-grab).
     """
 
-    def _runner_src(self):
-        import pathlib
-
-        return pathlib.Path('modules/protocol_step_runner.py').read_text()
-
-    def _writer_src(self):
-        import pathlib
-
-        return pathlib.Path('modules/protocol_image_writer.py').read_text()
-
     def _run_loop_src(self):
         import pathlib
 
@@ -10596,31 +10576,56 @@ class TestAutoGainArmedInScanIterate:
             'state.'
         )
 
-    def test_run_loop_resets_armed_step_per_scan(self):
-        src = self._run_loop_src()
-        assert 'p._auto_gain_armed_step = -1' in src, (
-            'protocol_run_loop must reset _auto_gain_armed_step '
-            'alongside _auto_gain_deadline at the start of each scan '
-            'so a re-run does not skip AG arming.'
+    @staticmethod
+    def _queued_ag_applies(runner):
+        return [
+            c.args[0]
+            for c in runner._io_executor.protocol_put.call_args_list
+            if c.args[0].action is runner._scope.imaging.apply_layer_camera_settings
+        ]
+
+    def test_run_loop_resets_armed_step_per_scan(self, monkeypatch):
+        """Each scan must re-arm AG: a two-scan run queues the AG apply
+        twice. Without the per-scan armed-step reset, scan 2 would
+        inherit scan 1's arm and skip arming entirely."""
+        from tests.protocol_drives import protocol_step, run_loop_ready_runner
+
+        monkeypatch.setattr(
+            'modules.config_helpers.get_ag_ae_max_exposure_ms',
+            lambda color, settings: 123.0,
+        )
+        runner = run_loop_ready_runner(protocol_step(Auto_Gain=True), n_scans=2)
+        runner._run_loop_executor.run_loop()
+        assert runner._scan_count == 2, 'both scans must complete'
+        assert len(self._queued_ag_applies(runner)) == 2, (
+            'each scan must arm AG once -- the armed-step guard must reset '
+            'at scan start so a re-run does not skip AG arming'
         )
 
-    def test_arm_block_routes_apply_through_io_executor(self):
-        src = self._runner_src()
-        # Bound the arm block from its `if` to the stable marker that follows
-        # it (the autofocus Z-update comment), so the slice tracks the real
-        # block rather than a fixed char count.
-        arm_idx = src.find("if step['Auto_Gain'] and p._auto_gain_armed_step != p._curr_step:")
-        assert arm_idx >= 0, 'AG-arm block must exist in scan_iterate.'
-        end_idx = src.find('# Update Z position with autofocus results', arm_idx)
-        assert end_idx > arm_idx, 'arm block end marker not found after arm block.'
-        block = src[arm_idx:end_idx]
-        assert 'p._scope.imaging.apply_layer_camera_settings' in block, (
-            'Arm block must call apply_layer_camera_settings (the same path live-mode AE/AG uses).'
+    def test_arm_block_routes_apply_through_io_executor(self, monkeypatch):
+        """An Auto_Gain step's arm tick must route the AG apply through
+        io_executor.protocol_put (serialized with other protocol-thread
+        IO) with the step's gain/exposure and the per-class exposure cap
+        set on the shared settings dict."""
+        from tests.protocol_drives import protocol_step, scan_ready_runner
+
+        monkeypatch.setattr(
+            'modules.config_helpers.get_ag_ae_max_exposure_ms',
+            lambda color, settings: 123.0,
         )
-        assert "'auto_gain': True" in block, 'Arm block must pass auto_gain=True.'
-        assert 'IOTask' in block and 'protocol_put' in block, (
-            'Arm block must route through io_executor.protocol_put so '
-            'the apply is serialized with other protocol-thread IO.'
+        runner = scan_ready_runner(protocol_step(Auto_Gain=True))
+        runner._step_executor.scan_iterate()
+        applies = self._queued_ag_applies(runner)
+        assert len(applies) == 1, (
+            'the arm tick must queue exactly one AG apply on the io executor'
+        )
+        task = applies[0]
+        assert task.kwargs['auto_gain'] is True, 'the apply must arm continuous AG'
+        assert task.kwargs['gain_db'] == 2.0 and task.kwargs['exposure_ms'] == 10.0, (
+            "the apply must carry the step's gain/exposure"
+        )
+        assert task.kwargs['auto_gain_settings']['max_exposure_ms'] == 123.0, (
+            'the per-class AG/AE exposure cap must be set before arming'
         )
 
     @staticmethod
@@ -10665,31 +10670,30 @@ class TestAutoGainArmedInScanIterate:
         imaging.set_gain.assert_called_once_with(2.0)
         imaging.set_exposure_time.assert_called_once_with(10.0)
 
-    def test_arm_block_returns_after_arming(self):
-        """The arm block must `return` after arming so the next scan_iterate
-        tick falls through to capture, where the auto_gain settle drain runs
-        against the now-lit scene. Without the return, capture could run in the
-        same tick the LED was just lit.
-        """
-        src = self._runner_src()
-        arm_marker = "if step['Auto_Gain'] and p._auto_gain_armed_step != p._curr_step:"
-        arm_idx = src.find(arm_marker)
-        assert arm_idx >= 0
-        # Bound the arm block by the stable marker that follows it (the
-        # autofocus Z-update comment) so the slice tracks the real block.
-        end_idx = src.find('# Update Z position with autofocus results', arm_idx)
-        assert end_idx > arm_idx, 'arm block end marker not found after arm block.'
-        arm_block = src[arm_idx:end_idx]
-        # Look for a bare `return` on its own indented line inside the arm
-        # block body (indented 12 spaces -- inside an if inside the function).
-        return_lines = [
-            line
-            for line in arm_block.splitlines()
-            if line.strip() == 'return' and line.startswith(' ' * 12)
-        ]
-        assert len(return_lines) >= 1, (
-            'Arm block must `return` after arming AG so the next '
-            'scan_iterate tick falls through to capture.'
+    def test_arm_block_returns_after_arming(self, monkeypatch):
+        """The arm tick must NOT capture -- the next scan_iterate tick
+        falls through to capture, where the auto_gain settle drain runs
+        against the now-lit scene. Without the deferral, capture could
+        run in the same tick the LED was just lit."""
+        from tests.protocol_drives import protocol_step, scan_ready_runner
+
+        monkeypatch.setattr(
+            'modules.config_helpers.get_ag_ae_max_exposure_ms',
+            lambda color, settings: 123.0,
+        )
+        runner = scan_ready_runner(
+            protocol_step(Auto_Gain=True),
+            _disable_saving_artifacts=False,
+            _run_dir=MagicMock(),
+        )
+        runner._step_executor.scan_iterate()
+        assert runner._auto_gain_armed_step == 0, 'the arm must be recorded for the step'
+        assert not runner._image_writer.capture.called, (
+            'the arm tick must return before capture'
+        )
+        runner._step_executor.scan_iterate()
+        assert runner._image_writer.capture.called, (
+            'the tick after arming must fall through to capture'
         )
 
     def test_run_loop_does_not_reset_deadline_at_scan_start(self):
@@ -11123,11 +11127,25 @@ class TestHeadlessSettingsResolutionMatchesGui:
 
         return pathlib.Path('modules/scope_session.py').read_text()
 
-    def test_headless_fallback_uses_resolver(self):
-        assert '_resolve_settings_path' in self._src(), (
-            'create_headless settings fallback must resolve via '
-            '_resolve_settings_path (current.json first) so headless matches '
-            'the GUI; a direct settings.json open ignores live current.json state.'
+    def test_headless_fallback_uses_resolver(self, monkeypatch, tmp_path):
+        """With no settings loaded, create_headless must resolve the same
+        file the GUI reads -- current.json first -- so headless state
+        matches the running app."""
+        import json
+
+        import modules.settings_init as settings_init
+        from modules.scope_session import ScopeSession
+
+        monkeypatch.setattr(settings_init, 'settings', None)
+        (tmp_path / 'data').mkdir()
+        (tmp_path / 'data' / 'current.json').write_text(json.dumps({'marker': 'from-current'}))
+        (tmp_path / 'data' / 'settings.json').write_text(
+            json.dumps({'marker': 'from-settings'})
+        )
+        session = ScopeSession.create_headless(source_path=str(tmp_path))
+        assert session.settings.get('marker') == 'from-current', (
+            'the headless fallback must pick current.json (live state) over '
+            f'settings.json; got {session.settings}'
         )
 
     def test_headless_fallback_does_not_hardcode_settings_json_only(self):
@@ -11298,22 +11316,51 @@ class TestBfAfForFluorescenceSnapshottedAtRunStart:
             'mid-run toggles must not retro-affect the run-start snapshot'
         )
 
-    def test_protocol_step_runner_reads_from_snapshot(self):
-        # Static-source check: protocol_step_runner.scan_iterate must
-        # read from p._bf_af_for_fluorescence (the runner snapshot),
-        # not from ctx.settings directly.
-        import pathlib
+    def test_protocol_step_runner_reads_from_snapshot(self, monkeypatch):
+        """scan_iterate must follow the runner's run-start snapshot even
+        when ctx.settings says the opposite -- proving the per-tick read
+        comes from the snapshot, not from ctx.settings."""
+        from types import SimpleNamespace
 
-        src = pathlib.Path('modules/protocol_step_runner.py').read_text()
-        assert "p, '_bf_af_for_fluorescence'" in src or 'p._bf_af_for_fluorescence' in src, (
-            'protocol_step_runner.scan_iterate must read '
-            'bf_af_for_fluorescence from the runner snapshot, '
-            'not from ctx.settings each tick.'
+        import modules.app_context as app_context
+        from tests.protocol_drives import protocol_step, scan_ready_runner
+
+        step = protocol_step(Auto_Focus=True, Color='Red')
+
+        # Snapshot ON, ctx OFF: the fluorescence step must reuse the BF
+        # AF result instead of starting its own AF run.
+        monkeypatch.setattr(
+            app_context,
+            'ctx',
+            SimpleNamespace(
+                settings={'protocol': {'bf_af_for_fluorescence': False}},
+                settings_lock=threading.Lock(),
+            ),
         )
-        # The old per-tick settings.get path must be gone.
-        assert "ctx.settings.get('protocol', {}).get('bf_af_for_fluorescence'" not in src, (
-            'Per-tick ctx.settings read for bf_af_for_fluorescence '
-            'must be removed (replaced by snapshot read).'
+        runner = scan_ready_runner(
+            step, _bf_af_for_fluorescence=True, _update_z_pos_from_autofocus=True
+        )
+        runner._autofocus_runner.best_focus_position.return_value = 555.0
+        runner._step_executor.scan_iterate()
+        assert not runner.autofocus_thread.run_autofocus.called, (
+            'with the snapshot ON, the fluorescence step must skip its own AF'
+        )
+        runner._protocol.modify_step_z_height.assert_called_once_with(step_idx=0, z=555.0)
+
+        # Control -- snapshot OFF, ctx ON: the step runs its own AF.
+        monkeypatch.setattr(
+            app_context,
+            'ctx',
+            SimpleNamespace(
+                settings={'protocol': {'bf_af_for_fluorescence': True}},
+                settings_lock=threading.Lock(),
+            ),
+        )
+        control = scan_ready_runner(step, _bf_af_for_fluorescence=False)
+        control._step_executor.scan_iterate()
+        assert control.autofocus_thread.run_autofocus.called, (
+            'with the snapshot OFF, the step must run its own AF -- the '
+            'opposite ctx value proves ctx.settings is not consulted per tick'
         )
 
 
@@ -12291,16 +12338,26 @@ class TestSequentialIoExecutorWaitForIdle_F7:
             Path(__file__).resolve().parent.parent / 'modules' / 'sequential_io_executor.py'
         ).read_text()
 
-    def test_wait_for_idle_method_exists(self):
-        """The executor must expose `wait_for_idle(timeout=...)`."""
-        import re
+    def test_wait_for_idle_bounds_the_drain_wait(self):
+        """wait_for_idle must report False within the timeout while the
+        worker is mid-task (bounded, never indefinite) and True promptly
+        once the worker is idle."""
+        import time as _time
 
-        src = self._executor_src()
-        assert re.search(r'def wait_for_idle\s*\(self', src), (
-            'F7 regression: SequentialIOExecutor must expose '
-            'wait_for_idle(timeout=...) so callers can bound the '
-            'mid-task drain wait instead of relying on a magic-number '
-            'sleep in protocol_end.'
+        from modules.sequential_io_executor import SequentialIOExecutor
+
+        executor = SequentialIOExecutor(name='F7-TEST')
+        executor.running_task = object()
+        start = _time.monotonic()
+        assert executor.wait_for_idle(timeout=0.05) is False, (
+            'a worker still mid-task at the timeout must report False'
+        )
+        assert _time.monotonic() - start < 2.0, (
+            'the wait must be bounded by the timeout, not block teardown'
+        )
+        executor.running_task = None
+        assert executor.wait_for_idle(timeout=0.5) is True, (
+            'an idle worker must report True'
         )
 
     def test_protocol_end_does_not_sleep(self):
