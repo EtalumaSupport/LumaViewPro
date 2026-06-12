@@ -53,10 +53,30 @@ def test_convert_8bit_passthrough_ignores_out():
     assert result is img, '8-bit input returns the input unchanged; out unused'
 
 
-def test_get_image_from_buffer_threads_out_8bit():
-    # Structural lock: get_image_from_buffer must pass the caller buffer
-    # through to the LUT conversion. The with_chunks variant intentionally
-    # does not take a buffer, so this string is unique to the preview path.
-    src = (REPO / 'modules' / 'lumascope_api' / 'imaging.py').read_text()
-    assert 'convert_12bit_to_8bit(tmp, out=out_8bit)' in src
-    assert 'out_8bit: np.ndarray | None = None' in src
+def test_get_image_from_buffer_reuses_caller_buffer():
+    # The preview path must write each converted frame into the caller's
+    # buffer instead of allocating a fresh array per frame.
+    from drivers.simulated_camera import SimulatedCamera
+    from modules.lumascope_api import Lumascope
+    from modules.lumascope_api.imaging import ImagingAPI
+    from modules.lumascope_api.runtime_state import RuntimeState
+
+    cam = SimulatedCamera()
+    cam.connect()
+    assert cam.set_pixel_format('Mono12')
+    scope = Lumascope.__new__(Lumascope)
+    scope._camera_driver = cam
+    scope.runtime_state = RuntimeState(scope)
+    imaging = ImagingAPI(scope, cam)
+
+    first, _ts = imaging.get_image_from_buffer(force_to_8bit=False)
+    assert first is not None and first.dtype == np.uint16, (
+        'precondition: the 12-bit sim frame must need conversion'
+    )
+    out = np.empty(first.shape, dtype=np.uint8)
+    img1, _ = imaging.get_image_from_buffer(force_to_8bit=True, out_8bit=out)
+    img2, _ = imaging.get_image_from_buffer(force_to_8bit=True, out_8bit=out)
+    assert img1 is out and img2 is out, (
+        'get_image_from_buffer must reuse the caller-owned out_8bit '
+        'buffer on every frame, not allocate fresh arrays'
+    )

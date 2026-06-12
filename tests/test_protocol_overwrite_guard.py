@@ -16,7 +16,6 @@ Defense-in-depth, two layers:
 """
 
 import pathlib
-import re
 import textwrap
 
 import pytest
@@ -31,37 +30,72 @@ TILING_CONFIGS = REPO_ROOT / 'data' / 'tiling.json'
 # ---------------------------------------------------------------------------
 
 
-def test_lumascope_api_supports_if_collision_mode():
-    # Phase 6c (2026-05-19) relocated generate_image_save_path body
-    # from Lumascope to modules.image_save; the if_collision branch
-    # lives there now. Path retarget per Rule 48 (c); semantic intent
-    # ("generate_image_save_path supports if_collision mode") preserved.
-    #
-    # Quote-agnostic: ruff format may emit either single- or double-
-    # quoted string literals depending on the formatter pass that last
-    # touched the line (commit 4a5a2422 converted production to single
-    # quotes on 2026-05-22). Assert the comparison + the value rather
-    # than coupling to the specific quote character.
-    src = (REPO_ROOT / 'modules' / 'image_save.py').read_text()
-    assert re.search(r"""tail_id_mode\s*==\s*['"]if_collision['"]""", src), (
-        'image_save.generate_image_save_path must support the '
-        '"if_collision" tail_id_mode for write-time defense against '
-        'duplicate filenames. (#636)'
+def test_generate_image_save_path_supports_if_collision_mode(tmp_path):
+    # Write-time defense against duplicate filenames (#636): the plain
+    # name when free, a numeric suffix only on actual collision.
+    from types import SimpleNamespace
+
+    from modules import image_save
+
+    kwargs = dict(
+        scope=SimpleNamespace(),
+        save_folder=tmp_path,
+        file_root='step_',
+        append='BF',
+        tail_id_mode='if_collision',
+        output_format='TIFF',
+    )
+    first = image_save.generate_image_save_path(**kwargs)
+    assert first.name == 'step_BF.tiff', (
+        'no collision -> the plain filename, unchanged'
+    )
+    first.touch()
+    second = image_save.generate_image_save_path(**kwargs)
+    assert second.name == 'step_BF_000001.tiff', (
+        'an existing file must produce a suffixed name, never an overwrite'
     )
 
 
-def test_protocol_image_writer_uses_if_collision():
-    # Quote-agnostic: same rationale as
-    # test_lumascope_api_supports_if_collision_mode above.
-    src = (REPO_ROOT / 'modules' / 'protocol_image_writer.py').read_text()
-    assert re.search(r"""tail_id_mode\s*=\s*['"]if_collision['"]""", src), (
-        'protocol_image_writer.py must pass tail_id_mode="if_collision" '
-        'to scope.save_image -- without it, duplicate step filenames '
-        'silently overwrite. (#636)'
+def test_protocol_image_writer_uses_if_collision(monkeypatch, tmp_path):
+    # The writer must hand save_image tail_id_mode='if_collision' --
+    # without it, duplicate step filenames silently overwrite. (#636)
+    import threading
+    from unittest.mock import MagicMock
+
+    import numpy as np
+
+    from modules.protocol_callbacks import ProtocolCallbacks
+    from modules.protocol_image_writer import ProtocolImageWriter
+
+    writer = ProtocolImageWriter(
+        scope=MagicMock(),
+        callbacks=ProtocolCallbacks(),
+        aborted=threading.Event(),
+        file_io_executor=MagicMock(),
+        abort_fn=lambda: None,
+        execution_record=None,
+        leds_off_fn=lambda: None,
+        led_on_fn=lambda **kw: None,
+        is_run_in_progress_fn=lambda: True,
     )
-    assert not re.search(r'tail_id_mode\s*=\s*None\b', src), (
-        'protocol_image_writer.py must not pass tail_id_mode=None on the '
-        'save_image call (regressed to overwrite-prone behavior).'
+    recorded = []
+    monkeypatch.setattr(
+        'modules.protocol_image_writer.save_image',
+        lambda scope, **kwargs: recorded.append(kwargs) or (tmp_path / 'x.tiff'),
+    )
+    writer.write_capture(
+        enable_image_saving=True,
+        is_video=False,
+        captured_image=np.zeros((4, 4), dtype=np.uint8),
+        step={'Name': 's', 'Color': 'BF', 'X': 0.0, 'Y': 0.0, 'Z': 0.0},
+        name='s_BF',
+        save_folder=str(tmp_path),
+        use_color='BF',
+        output_format='TIFF',
+    )
+    assert recorded, 'write_capture must reach save_image'
+    assert recorded[0]['tail_id_mode'] == 'if_collision', (
+        'the protocol write must use if_collision, never None/increment'
     )
 
 

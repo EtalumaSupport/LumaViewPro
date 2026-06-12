@@ -148,15 +148,6 @@ class TestAutoGainOnceInvalidates:
         pending = imaging.frame_validity.pending_sources
         assert 'gain' in pending and 'exposure' in pending
 
-    def test_auto_gain_once_body_invalidates_gain_and_exposure(self):
-        body = _method_body(_imaging_src(), 'auto_gain_once')
-        assert "invalidate('gain')" in body, (
-            'auto_gain_once must invalidate the gain source'
-        )
-        assert "invalidate('exposure')" in body, (
-            'auto_gain_once must invalidate the exposure source'
-        )
-
 
 class TestMotionValiditySources:
     """Turret moves must record the 'turret' source (so the settle-check
@@ -263,13 +254,17 @@ class TestGeometryFormatInvalidates:
         imaging.set_frame_size(640, 480)
         assert 'frame_size' in imaging.frame_validity.pending_sources
 
-    def test_set_pixel_format_body_invalidates(self):
-        body = _method_body(_imaging_src(), 'set_pixel_format')
-        assert "invalidate('pixel_format')" in body
+    def test_set_pixel_format_turns_marker_red(self, sim_imaging):
+        imaging, _cam = sim_imaging
+        imaging.frame_validity.reset()
+        assert imaging.set_pixel_format('Mono12') is True
+        assert 'pixel_format' in imaging.frame_validity.pending_sources
 
-    def test_set_binning_size_body_invalidates(self):
-        body = _method_body(_imaging_src(), 'set_binning_size')
-        assert "invalidate('binning')" in body
+    def test_set_binning_size_turns_marker_red(self, sim_imaging):
+        imaging, _cam = sim_imaging
+        imaging.frame_validity.reset()
+        assert imaging.set_binning_size(2) is True
+        assert 'binning' in imaging.frame_validity.pending_sources
 
 
 class TestSaturationGuard:
@@ -298,29 +293,6 @@ class TestSaturationGuard:
         )
         assert 'saturated frame confirmed on retry' not in body
         assert '_saturated_fraction' in body
-
-
-class TestNoCacheEqualitySkipInSetters:
-    """Source contract: neither setter early-returns on a cache-equality
-    check before invalidating. Locks the fix against revert drift. The
-    only early return permitted is the driver-inactive guard (one
-    ``return`` per setter body)."""
-
-    def test_set_gain_has_single_early_return(self):
-        body = _method_body(_imaging_src(), 'set_gain')
-        returns = re.findall(r'^\s+return\b', body, re.M)
-        assert len(returns) == 1, (
-            'set_gain must have exactly one return (the driver-inactive '
-            f'guard); a cache-equality skip would add a second. Found {len(returns)}.'
-        )
-
-    def test_set_exposure_time_has_single_early_return(self):
-        body = _method_body(_imaging_src(), 'set_exposure_time')
-        returns = re.findall(r'^\s+return\b', body, re.M)
-        assert len(returns) == 1, (
-            'set_exposure_time must have exactly one return (the '
-            f'driver-inactive guard). Found {len(returns)}.'
-        )
 
 
 class TestRejectedSettingNotifiesAndKeepsCache:

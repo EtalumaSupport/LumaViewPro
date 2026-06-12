@@ -24,7 +24,6 @@ will plug into.
 
 from __future__ import annotations
 
-import ast
 import pathlib
 
 import numpy as np
@@ -45,36 +44,57 @@ def test_apply_save_orientation_is_vertical_flip():
     assert np.array_equal(out[0], arr[-1]) and np.array_equal(out[-1], arr[0])
 
 
-def _func_src(name: str) -> str:
-    tree = ast.parse(IMAGE_SAVE_SRC.read_text())
-    for node in ast.walk(tree):
-        if isinstance(node, ast.FunctionDef) and node.name == name:
-            return ast.unparse(node)
-    raise AssertionError(f'{name} not found in {IMAGE_SAVE_SRC}')
+def test_tiff_and_jpg_save_identical_orientation(tmp_path, monkeypatch):
+    """Both formats must land the SAME (vertically flipped) pixels on
+    disk -- the bug was the JPG branch skipping the flip and saving
+    upside-down relative to the TIFFs. (#690)"""
+    import cv2
+    import tifffile
 
+    from modules import image_save
 
-def test_tiff_prep_applies_shared_orientation_helper():
-    src = _func_src('prepare_image_for_saving')
-    assert '_apply_save_orientation(' in src, (
-        'prepare_image_for_saving (TIFF prep) must apply the shared '
-        'orientation helper. (#690)'
+    arr = np.zeros((8, 8), dtype=np.uint8)
+    arr[0, :] = 255  # bright TOP edge in camera orientation
+    stub_metadata = {
+        'plate_pos_mm': {'x': 0.0, 'y': 0.0},
+        'z_pos_um': 0.0,
+        'objective': {'name': 'stub'},
+        'exposure_time_ms': 10.0,
+        'gain_db': 0.0,
+        'illumination_ma': 0,
+        'pixel_size_um': 1.0,
+        'channel': 'BF',
+        'datetime': '2026:06:12 00:00:00',
+    }
+    monkeypatch.setattr(
+        image_save,
+        'generate_image_metadata',
+        lambda scope, color, x, y, z: dict(stub_metadata),
     )
+    from types import SimpleNamespace
 
-
-def test_jpg_branch_applies_shared_orientation_helper():
-    """The JPG save branch must flip via the shared helper -- not encode
-    the raw, unflipped array (the bug)."""
-    src = _func_src('save_image')
-    # encode_display_jpg must receive the oriented array, not a bare one.
-    assert '_apply_save_orientation(array)' in src, (
-        'save_image JPG branch must pass _apply_save_orientation(array) to '
-        'the encoder so JPG shares the TIFF orientation. (#690)'
+    scope = SimpleNamespace()
+    tiff_path = image_save.save_image(
+        scope, arr.copy(), save_folder=str(tmp_path), file_root='o_',
+        append='t', color='BF', tail_id_mode=None, output_format='TIFF',
+        use_false_color_16bit=False,
     )
-    # The helper is the single definition of the convention: no other
-    # standalone np.flip(array, 0) orientation step in save_image.
-    assert 'np.flip(array, 0)' not in src, (
-        'save_image must not re-implement the flip inline -- the shared '
-        '_apply_save_orientation helper is the single source. (#690)'
+    jpg_path = image_save.save_image(
+        scope, arr.copy(), save_folder=str(tmp_path), file_root='o_',
+        append='j', color='BF', tail_id_mode=None, output_format='JPG',
+        jpeg_quality=95,
+    )
+    tiff_px = tifffile.imread(tiff_path)
+    jpg_px = cv2.imdecode(
+        np.frombuffer(pathlib.Path(jpg_path).read_bytes(), np.uint8),
+        cv2.IMREAD_GRAYSCALE,
+    )
+    # The bright camera-top edge must land at the BOTTOM in both formats.
+    assert tiff_px[-1].mean() > 200 and tiff_px[0].mean() < 50, (
+        'TIFF must save vertically flipped'
+    )
+    assert jpg_px[-1].mean() > 200 and jpg_px[0].mean() < 50, (
+        'JPG must share the TIFF save orientation, not the raw array'
     )
 
 

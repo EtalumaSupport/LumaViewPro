@@ -1542,24 +1542,29 @@ class TestRule14_A10_ProtocolCleanupErrorCollection:
         )
 
 
-class TestRule14_A9_SetBinningSizeNotify:
-    """A9: set_binning_size exception must surface a user notification (Rule 14)."""
+class TestSetBinningSizeFailureNotifies:
+    """A failed binning change must surface a user notification -- the
+    camera silently staying at the old binning is invisible otherwise."""
 
-    def test_set_binning_size_exception_notifies(self):
-        """lumascope_api.set_binning_size must call notifications.error when
-        the underlying SDK call raises. Body relocated to imaging.py in
-        Wave 7 Phase 4d."""
-        import pathlib
+    def test_set_binning_size_exception_notifies(self, monkeypatch):
+        from modules.notification_center import notifications
 
-        source = pathlib.Path('modules/lumascope_api/imaging.py').read_text()
-        idx = source.find('def set_binning_size(self, size: int) -> bool:')
-        assert idx != -1, 'set_binning_size must exist with `-> bool` annotation'
-        method_body = source[idx : idx + 1500]
-        assert 'notifications.error' in method_body, (
-            'set_binning_size exception path must call notifications.error (A9 -- Rule 14)'
+        imaging, cam = _sim_backed_imaging()
+        captured = []
+        monkeypatch.setattr(
+            notifications, 'error', lambda *args, **kwargs: captured.append(args)
         )
-        assert 'Binning change failed' in method_body, (
-            "notification title must be 'Binning change failed' (A9 -- audit recommendation)"
+
+        def raising_set_binning_size(size):
+            raise RuntimeError('simulated SDK failure')
+
+        monkeypatch.setattr(cam, 'set_binning_size', raising_set_binning_size)
+        assert imaging.set_binning_size(2) is False, (
+            'a raising driver must surface as a False return'
+        )
+        assert captured, 'set_binning_size exception path must notify the user'
+        assert captured[0][1] == 'Binning change failed', (
+            f'notification title must name the failed operation; got {captured[0]}'
         )
 
 
@@ -1584,23 +1589,17 @@ class TestSetBinningSizeReturnsBool:
         )
 
     def test_set_binning_size_returns_driver_value(self):
-        """Method body must capture and return the driver's return value
-        on the success path, not drop it. Body relocated to imaging.py in
-        Wave 7 Phase 4d; driver access switched from self._camera_driver
-        to self._driver (the @property)."""
-        import pathlib
-
-        source = pathlib.Path('modules/lumascope_api/imaging.py').read_text()
-        idx = source.find('def set_binning_size(self, size: int) -> bool:')
-        assert idx != -1
-        # End the slice at the next def at module column 4 to scope the body
-        next_def = source.find('\n    def ', idx + 1)
-        body = source[idx:next_def] if next_def != -1 else source[idx : idx + 2000]
-        assert 'ok = self._driver.set_binning_size(size=size)' in body, (
-            'set_binning_size must capture driver return into `ok`'
+        """The API method must propagate the driver's bool -- dropping it
+        (implicit None) made char-tool's `if not ok:` misreport every
+        successful binning op as a failure."""
+        imaging, _cam = _sim_backed_imaging()
+        assert imaging.set_binning_size(2) is True, (
+            'a driver-accepted binning change must propagate as True'
         )
-        assert 'return ok' in body, 'set_binning_size success path must `return ok` (Wave 1 B1)'
-        assert 'return False' in body, 'set_binning_size exception path must `return False`'
+        assert imaging.set_binning_size(5) is False, (
+            'a driver-rejected binning size (sim supports 1-4) must '
+            'propagate as False'
+        )
 
     def test_set_binning_size_has_returns_docstring_section(self):
         """Rule 38: public methods declare what they return."""
@@ -2685,19 +2684,43 @@ class TestAOC1_SaturationCheckShortCircuit:
     saturated / non-saturated / single-pixel-different / all-zero arrays.
     """
 
-    def test_source_uses_saturation_fraction_guard(self):
-        # The saturation check now measures the fraction of near-full-scale
-        # pixels: a real blown frame has a handful of sub-max pixels, so the
-        # old all-pixels-exactly-max test missed it and saved it silently.
+    def test_blown_frame_triggers_retry_grab(self, monkeypatch):
+        """A first frame at/above the blown fraction must trigger exactly
+        one retry grab, and a clean retry frame must be the one returned.
+        The fraction guard catches real blown frames (a handful of sub-max
+        pixels) that the old all-pixels-exactly-max check saved silently."""
+        import numpy as np
+
+        imaging, cam = _sim_backed_imaging()
+        blown = np.full((4, 4), 255, dtype=np.uint8)
+        clean = np.zeros((4, 4), dtype=np.uint8)
+        arrays = [blown, clean]
+        monkeypatch.setattr(cam, 'get_array', lambda: arrays.pop(0))
+        out = imaging.get_image(all_ones_check=True)
+        assert not arrays, 'the blown first frame must trigger one retry grab'
+        assert np.array_equal(out, clean), 'the clean retry frame must be returned'
+
+    def test_below_threshold_frame_does_not_retry(self, monkeypatch):
+        """A half-saturated frame is a normal image -- no retry grab."""
+        import numpy as np
+
+        imaging, cam = _sim_backed_imaging()
+        partial = np.zeros((4, 4), dtype=np.uint8)
+        partial[:2, :] = 255  # 50% saturated, well below the blown fraction
+        arrays = [partial]
+        monkeypatch.setattr(cam, 'get_array', lambda: arrays.pop(0))
+        out = imaging.get_image(all_ones_check=True)
+        assert not arrays, 'a below-threshold frame must not trigger a retry'
+        assert np.array_equal(out, partial)
+
+    def test_old_exact_max_forms_absent(self):
+        # Absence guard: the all-pixels-exactly-max forms missed real blown
+        # frames; the fraction guard replaced them.
         from pathlib import Path
 
         src = (
             Path(__file__).resolve().parent.parent / 'modules' / 'lumascope_api' / 'imaging.py'
         ).read_text()
-        assert '_saturated_fraction' in src, (
-            'get_image() saturation check should use the near-full-scale '
-            'fraction guard.'
-        )
         assert 'np.all(tmp == np.iinfo(tmp.dtype).max)' not in src
         assert 'not np.any(tmp != np.iinfo(tmp.dtype).max)' not in src, (
             'the all-pixels-exactly-max check missed real blown frames; replaced.'
@@ -2749,46 +2772,109 @@ class TestAOC2_RetrySaturationCheckOutsideCamLock:
     (feedback_default_to_expanding_scope -- fix the cluster).
     """
 
-    def test_retry_saturation_walk_is_outside_cam_lock(self):
-        from pathlib import Path
+    def test_retry_saturation_walk_runs_outside_cam_lock(self, monkeypatch):
+        """The saturation walk needs no camera state; it must run with
+        cam_lock RELEASED so concurrent set_gain/set_exposure are not
+        blocked. Proven by probing the lock from a helper thread inside
+        every fraction call: each must find the lock acquirable."""
+        import numpy as np
 
-        src = (
-            Path(__file__).resolve().parent.parent / 'modules' / 'lumascope_api' / 'imaging.py'
-        ).read_text()
-        assert 'np.all(retry_frame == np.iinfo(retry_frame.dtype).max)' not in src, (
-            'old `np.all(retry_frame == max)` form should be replaced.'
+        imaging, cam = _sim_backed_imaging()
+        blown = np.full((4, 4), 255, dtype=np.uint8)
+        arrays = [blown, blown]  # initial + retry both blown -> full walk runs
+        monkeypatch.setattr(cam, 'get_array', lambda: arrays.pop(0))
+
+        orig_fraction = ImagingAPI._saturated_fraction
+        lock_was_free = []
+
+        def probing_fraction(frame):
+            seen = {}
+
+            def try_acquire():
+                got = imaging._cam_lock.acquire(blocking=False)
+                if got:
+                    imaging._cam_lock.release()
+                seen['free'] = got
+
+            probe = threading.Thread(target=try_acquire)
+            probe.start()
+            probe.join()
+            lock_was_free.append(seen['free'])
+            return orig_fraction(frame)
+
+        monkeypatch.setattr(
+            ImagingAPI, '_saturated_fraction', staticmethod(probing_fraction)
         )
-        # The retry-frame saturation walk must still run OUTSIDE cam_lock: the
-        # walk needs no camera state, and holding the lock blocked concurrent
-        # set_gain/set_exposure. The marker comment + the new fraction guard on
-        # the retry frame confirm both.
-        assert 'Saturation walk is outside cam_lock' in src, (
-            'expected lock-release marker comment near retry-frame walk.'
-        )
-        assert '_saturated_fraction(retry_frame)' in src, (
-            'retry-frame check should use the near-full-scale fraction guard.'
+        out = imaging.get_image(all_ones_check=True)
+        assert out is not None
+        assert len(lock_was_free) >= 2, 'gate + retry walk must both run'
+        assert all(lock_was_free), (
+            'every saturation-fraction walk must run with cam_lock released; '
+            f'probe results: {lock_was_free}'
         )
 
-    def test_retry_frame_initialized_before_lock_block(self):
-        """Structural: retry_frame must be initialized before the with block so the
-        outside-lock check can reference it whether or not the grab succeeded.
+    def test_failed_retry_grab_degrades_gracefully(self, monkeypatch):
+        """When the retry grab fails, get_image must still return the
+        original (blown) frame -- never crash on an uninitialized retry
+        buffer."""
+        import datetime as _dt
 
-        get_image body and its cam_lock now both live on ImagingAPI;
-        access is self._cam_lock directly.
-        """
-        from pathlib import Path
+        import numpy as np
 
-        src = (
-            Path(__file__).resolve().parent.parent / 'modules' / 'lumascope_api' / 'imaging.py'
-        ).read_text()
-        # Find the retry block; verify retry_frame = None precedes the with statement.
-        idx_init = src.find('retry_frame = None')
-        idx_lock = src.find('with self._cam_lock:', idx_init)
-        idx_retry_grab = src.find('retry_status', idx_lock)
-        assert idx_init != -1, 'AOC-2: expected `retry_frame = None` initializer.'
-        assert idx_init < idx_lock < idx_retry_grab, (
-            'AOC-2: retry_frame should be initialized BEFORE the with cam_lock block.'
+        imaging, cam = _sim_backed_imaging()
+        blown = np.full((4, 4), 255, dtype=np.uint8)
+        monkeypatch.setattr(cam, 'get_array', lambda: blown)
+        grab_results = iter([(True, _dt.datetime.now()), (False, None)])
+        monkeypatch.setattr(cam, 'grab', lambda: next(grab_results))
+        out = imaging.get_image(all_ones_check=True)
+        assert np.array_equal(out, blown), (
+            'a failed retry grab must fall back to the original frame'
         )
+
+
+def _bare_protocol_writer(**overrides):
+    """ProtocolImageWriter on stub collaborators; kwargs override any slot."""
+    from unittest.mock import MagicMock
+
+    from modules.protocol_callbacks import ProtocolCallbacks
+    from modules.protocol_image_writer import ProtocolImageWriter
+
+    kwargs = {
+        'scope': MagicMock(),
+        'callbacks': ProtocolCallbacks(),
+        'aborted': threading.Event(),
+        'file_io_executor': MagicMock(),
+        'abort_fn': lambda: None,
+        'execution_record': None,
+        'leds_off_fn': lambda: None,
+        'led_on_fn': lambda **kw: None,
+        'is_run_in_progress_fn': lambda: True,
+    }
+    kwargs.update(overrides)
+    return ProtocolImageWriter(**kwargs)
+
+
+def _protocol_step(**overrides):
+    """Minimal protocol step dict covering every key capture()/write_capture() read."""
+    step = {
+        'Name': 'stepA',
+        'Acquire': 'image',
+        'Auto_Gain': False,
+        'Color': 'BF',
+        'Gain': 2.0,
+        'Exposure': 10.0,
+        'Objective': '4x',
+        'Well': 'A1',
+        'Z-Slice': 0,
+        'Tile': '',
+        'Illumination': 50.0,
+        'False_Color': False,
+        'X': 0.0,
+        'Y': 0.0,
+        'Z': 0.0,
+    }
+    step.update(overrides)
+    return step
 
 
 class TestPIW3_FalseColor16bitCachedAtRunStart:
@@ -2805,48 +2891,59 @@ class TestPIW3_FalseColor16bitCachedAtRunStart:
     preserving behavior for ad-hoc callers.
     """
 
-    def test_save_image_threads_param_to_write_tiff(self):
-        from pathlib import Path
+    def test_save_image_threads_param_to_write_tiff(self, monkeypatch, tmp_path):
+        from types import SimpleNamespace
 
-        # Wave 7 Phase 6c (2026-05-19) retired the *_static chain as
-        # dead code. save_image is now the sole carrier of the
-        # use_false_color_16bit plumbing; the count-form parity check
-        # that previously enforced instance/static synchronization is
-        # vestigial. Presence-only ('in src') preserves the semantic
-        # intent: the param is accepted by save_image AND threaded to
-        # write_tiff.
-        api_src = (
-            Path(__file__).resolve().parent.parent / 'modules' / 'lumascope_api' / '_lumascope.py'
-        ).read_text()
-        module_src = (
-            Path(__file__).resolve().parent.parent / 'modules' / 'image_save.py'
-        ).read_text()
-        # save_image accepts the param (defined on Lumascope wrapper or
-        # the free function in modules.image_save -- either source carries
-        # the signature; the wrapper retires in 6f).
-        assert (
-            'use_false_color_16bit: bool | None = None' in api_src
-            or 'use_false_color_16bit: bool | None = None' in module_src
-        ), 'PIW-3: save_image should accept use_false_color_16bit.'
-        # save_image threads the param through to write_tiff.
-        assert 'use_false_color_16bit=use_false_color_16bit' in module_src, (
-            'PIW-3: save_image should pass use_false_color_16bit to write_tiff.'
+        import numpy as np
+
+        from modules import image_save
+
+        recorded = {}
+        monkeypatch.setattr(
+            'modules.image_utils.write_tiff', lambda **kwargs: recorded.update(kwargs)
+        )
+        monkeypatch.setattr(
+            image_save, 'generate_image_metadata', lambda scope, color, x, y, z: {}
+        )
+        image_save.save_image(
+            SimpleNamespace(),
+            np.zeros((4, 4), dtype=np.uint8),
+            save_folder=str(tmp_path),
+            file_root='fc_',
+            append='BF',
+            color='BF',
+            tail_id_mode=None,
+            use_false_color_16bit=True,
+        )
+        assert recorded.get('use_false_color_16bit') is True, (
+            'save_image must thread the pre-resolved use_false_color_16bit '
+            f'through to write_tiff; write_tiff saw {sorted(recorded)}'
         )
 
-    def test_protocol_image_writer_caches_at_init(self):
-        from pathlib import Path
+    def test_protocol_image_writer_caches_at_init(self, monkeypatch, tmp_path):
+        """The writer must hand save_image the value it was CONSTRUCTED
+        with -- the run-start read, not a per-save settings read."""
+        import numpy as np
 
-        src = (
-            Path(__file__).resolve().parent.parent / 'modules' / 'protocol_image_writer.py'
-        ).read_text()
-        assert 'false_color_16bit: bool = False' in src, (
-            'PIW-3: ProtocolImageWriter.__init__ should accept false_color_16bit.'
+        writer = _bare_protocol_writer(false_color_16bit=True)
+        recorded = []
+        monkeypatch.setattr(
+            'modules.protocol_image_writer.save_image',
+            lambda scope, **kwargs: recorded.append(kwargs) or (tmp_path / 'out.tiff'),
         )
-        assert 'self._false_color_16bit = false_color_16bit' in src, (
-            'PIW-3: ProtocolImageWriter should cache false_color_16bit on self.'
+        writer.write_capture(
+            enable_image_saving=True,
+            is_video=False,
+            captured_image=np.zeros((4, 4), dtype=np.uint8),
+            step=_protocol_step(),
+            name='stepA_BF',
+            save_folder=str(tmp_path),
+            use_color='BF',
+            output_format='TIFF',
         )
-        assert 'use_false_color_16bit=self._false_color_16bit' in src, (
-            'PIW-3: ProtocolImageWriter should pass the cached value to save_image.'
+        assert recorded, 'write_capture must reach save_image'
+        assert recorded[0]['use_false_color_16bit'] is True, (
+            'the constructor-cached false_color_16bit must arrive at save_image'
         )
 
     def test_sequenced_capture_runner_reads_once_at_run_start(self):
@@ -2902,48 +2999,74 @@ class TestPIW5_Convert12to16OutBuffer:
         assert result3 is not src, 'PIW-5: no-out path should still allocate a fresh array.'
         np.testing.assert_array_equal(result3, src * 16)
 
-    def test_protocol_image_writer_holds_reusable_buffer(self):
-        from pathlib import Path
+    def test_protocol_image_writer_reuses_convert_buffer(self, monkeypatch, tmp_path):
+        """Consecutive same-shape uint16 saves must share ONE conversion
+        buffer; a shape change reallocates; uint8 saves pass none."""
+        import numpy as np
 
-        src = (
-            Path(__file__).resolve().parent.parent / 'modules' / 'protocol_image_writer.py'
-        ).read_text()
-        assert 'self._convert_buf_12to16 = None' in src, (
-            'PIW-5: ProtocolImageWriter should initialize the convert buffer to None.'
-        )
-        assert '_get_convert_buf_12to16' in src, (
-            'PIW-5: ProtocolImageWriter should have a buffer-getter helper.'
-        )
-        # Shape/dtype guard: the helper must re-allocate on shape change.
-        assert 'self._convert_buf_12to16.shape != array.shape' in src, (
-            'PIW-5: buffer helper must re-allocate when input shape changes.'
-        )
-        # Save-call site passes the buffer.
-        assert 'out_12to16=out_12to16' in src, (
-            'PIW-5: _write_capture should pass the convert buffer to save_image.'
+        writer = _bare_protocol_writer()
+        buffers = []
+        monkeypatch.setattr(
+            'modules.protocol_image_writer.save_image',
+            lambda scope, **kwargs: buffers.append(kwargs['out_12to16'])
+            or (tmp_path / 'out.tiff'),
         )
 
-    def test_save_image_threads_out_12to16_to_prepare(self):
-        # Phase 6c (2026-05-19) relocated save_image +
-        # prepare_image_for_saving bodies from Lumascope to
-        # modules.image_save. Path retarget per Rule 48 (c); semantic
-        # intent (out_12to16 plumbing from save_image through
-        # prepare_image_for_saving to convert_12bit_to_16bit) preserved.
-        from pathlib import Path
+        def write(frame):
+            writer.write_capture(
+                enable_image_saving=True,
+                is_video=False,
+                captured_image=frame,
+                step=_protocol_step(),
+                name='stepA_BF',
+                save_folder=str(tmp_path),
+                use_color='BF',
+                output_format='TIFF',
+            )
 
-        src = (Path(__file__).resolve().parent.parent / 'modules' / 'image_save.py').read_text()
-        # save_image accepts the param.
-        assert 'out_12to16: np.ndarray | None = None' in src, (
-            'PIW-5: save_image / prepare_image_for_saving should accept out_12to16.'
+        write(np.zeros((6, 5), dtype=np.uint16))
+        write(np.zeros((6, 5), dtype=np.uint16))
+        assert buffers[0] is not None and buffers[0].shape == (6, 5)
+        assert buffers[1] is buffers[0], (
+            'same-shape saves must reuse one conversion buffer'
         )
-        # save_image passes to prepare_image_for_saving.
-        assert 'out_12to16=out_12to16' in src, (
-            'PIW-5: save_image should pass out_12to16 to prepare_image_for_saving.'
+        write(np.zeros((3, 3), dtype=np.uint16))
+        assert buffers[2] is not buffers[0] and buffers[2].shape == (3, 3), (
+            'a shape change must reallocate the buffer'
         )
-        # prepare_image_for_saving passes to convert_12bit_to_16bit.
-        assert 'convert_12bit_to_16bit(array, out=out_12to16)' in src, (
-            'PIW-5: prepare_image_for_saving should pass out_12to16 to the convert call.'
+        write(np.zeros((6, 5), dtype=np.uint8))
+        assert buffers[3] is None, '8-bit saves need no 12->16 conversion buffer'
+
+    def test_save_image_reuses_out_12to16_buffer(self, monkeypatch, tmp_path):
+        """The caller-supplied buffer must be the 12->16 conversion
+        destination on every save -- the whole point of the plumbing."""
+        from types import SimpleNamespace
+
+        import numpy as np
+
+        from modules import image_save
+
+        monkeypatch.setattr('modules.image_utils.write_tiff', lambda **kwargs: None)
+        monkeypatch.setattr(
+            image_save, 'generate_image_metadata', lambda scope, color, x, y, z: {}
         )
+        buf = np.zeros((4, 4), dtype=np.uint16)
+        for fill in (1, 3):
+            arr = np.full((4, 4), fill, dtype=np.uint16)
+            image_save.save_image(
+                SimpleNamespace(),
+                arr,
+                save_folder=str(tmp_path),
+                file_root='buf_',
+                append='BF',
+                color='BF',
+                tail_id_mode=None,
+                out_12to16=buf,
+            )
+            assert np.array_equal(buf, arr * 16), (
+                'save_image must use the caller-supplied out_12to16 buffer '
+                'as the 12->16 conversion destination on every save'
+            )
 
 
 class TestPIW6_PF3_FalseColorRgbPreallocated:
@@ -3003,19 +3126,17 @@ class TestPIW6_PF3_FalseColorRgbPreallocated:
             'PIW-6: protocol writer should not hold a pre-allocated rgb_buf.'
         )
 
-    def test_save_image_threads_buffers_to_write_tiff(self):
-        # Phase 6f (2026-05-19) retired the Lumascope.save_image wrapper;
-        # the free function in modules.image_save is the sole carrier of
-        # the false_color_buf / rgb_buf signature. Path retarget per
-        # Rule 48 (c); semantic intent preserved.
-        from pathlib import Path
+    def test_save_image_signature_includes_buffers(self):
+        # Post mono-native these params are pass-throughs retained as the
+        # color-audit enforcement surface (see class docstring); the
+        # signature seam is the contract until that surface retires.
+        from tests.ast_seams import assert_def
 
-        src = (Path(__file__).resolve().parent.parent / 'modules' / 'image_save.py').read_text()
-        assert 'false_color_buf: np.ndarray | None = None' in src, (
-            'PF-3: save_image should accept false_color_buf.'
-        )
-        assert 'rgb_buf: np.ndarray | None = None' in src, (
-            'PIW-6: save_image should accept rgb_buf.'
+        assert_def(
+            'modules/image_save.py', 'save_image',
+            has_params=['false_color_buf', 'rgb_buf'],
+            msg='save_image must accept the false_color_buf / rgb_buf '
+                'color-audit surface params.',
         )
 
     def test_add_false_color_uses_output_buffer(self):
@@ -3102,21 +3223,41 @@ class TestPIW2_DisksUsageDeduped:
             'PIW-2: corresponding warn log should be removed.'
         )
 
-    def test_protocol_image_writer_disk_check_kept(self):
-        from pathlib import Path
+    def test_protocol_image_writer_disk_exhaustion_aborts(self, monkeypatch, tmp_path):
+        """A failed save-folder disk check must notify, abort the protocol,
+        and never reach save_image -- the useful check stays load-bearing."""
+        import numpy as np
 
-        src = (
-            Path(__file__).resolve().parent.parent / 'modules' / 'protocol_image_writer.py'
-        ).read_text()
-        # The useful check (correct path + abort on exhaustion) must remain.
-        # Rule-35 audit 2026-05-19 finding 3 consolidated the probe call onto
-        # common_utils.check_disk_space_ok; the abort policy stayed local.
-        assert 'common_utils.check_disk_space_ok(save_folder' in src, (
-            "PIW-2: protocol_image_writer's save-folder disk check should be kept (it's the useful one)."
+        from modules.notification_center import notifications
+
+        aborts = []
+        writer = _bare_protocol_writer(abort_fn=lambda: aborts.append(1))
+        monkeypatch.setattr(
+            'modules.common_utils.check_disk_space_ok',
+            lambda folder, min_mb: (False, 12.0),
         )
-        assert 'self._abort_fn()' in src, (
-            "PIW-2: protocol_image_writer's abort-on-low-disk path should still be present."
+        saves = []
+        monkeypatch.setattr(
+            'modules.protocol_image_writer.save_image',
+            lambda scope, **kwargs: saves.append(kwargs) or (tmp_path / 'out.tiff'),
         )
+        notes = []
+        monkeypatch.setattr(
+            notifications, 'critical', lambda *args, **kwargs: notes.append(args)
+        )
+        writer.write_capture(
+            enable_image_saving=True,
+            is_video=False,
+            captured_image=np.zeros((4, 4), dtype=np.uint8),
+            step=_protocol_step(),
+            name='stepA_BF',
+            save_folder=str(tmp_path),
+            use_color='BF',
+            output_format='TIFF',
+        )
+        assert aborts == [1], 'low disk must abort the protocol'
+        assert not saves, 'no write may happen after a failed disk check'
+        assert notes, 'low disk must surface a critical notification'
 
 
 class TestProtocolCleanupRestoresLayerShader_ShaderHygiene:
@@ -3466,19 +3607,38 @@ class TestPF5_ImageBufferRetired:
             'PF-5: diagnostic-instance _image_buffer initialization should also be removed.'
         )
 
-    def test_get_image_returns_local_variable(self):
-        # get_image body relocated to imaging.py in Wave 7 Phase 4d.
-        from pathlib import Path
+    def test_get_image_returns_conversion_result(self, monkeypatch):
+        """get_image must return the 8-bit-conversion result, not a
+        pre-conversion shadow buffer."""
+        import numpy as np
 
-        src = (
-            Path(__file__).resolve().parent.parent / 'modules' / 'lumascope_api' / 'imaging.py'
-        ).read_text()
-        # The chain must use a local `image` variable.
-        assert 'image = image_utils.add_scale_bar(' in src, (
-            'PF-5: scale-bar step should bind to local `image` instead of self.image_buffer.'
+        imaging, _cam = _sim_backed_imaging()
+        assert imaging.set_pixel_format('Mono12') is True
+        sentinel = np.full((4, 4), 7, dtype=np.uint8)
+        monkeypatch.setattr(
+            'modules.image_utils.convert_12bit_to_8bit',
+            lambda image, **kwargs: sentinel,
         )
-        assert 'image = image_utils.convert_12bit_to_8bit(image)' in src, (
-            'PF-5: 8-bit convert step should bind to local `image`.'
+        out = imaging.get_image(force_to_8bit=True, timeout_s=2.0)
+        assert out is sentinel, (
+            'get_image must return the convert_12bit_to_8bit result'
+        )
+
+    def test_get_image_returns_scale_bar_result(self, monkeypatch):
+        """The scale-bar step's return value must flow into the returned
+        image, not be discarded."""
+        import numpy as np
+
+        imaging, _cam = _sim_backed_imaging()
+        sentinel = np.full((4, 4), 9, dtype=np.uint8)
+        imaging._scale_bar['enabled'] = True
+        imaging._scope.runtime_state._objective = {'magnification': 4}
+        monkeypatch.setattr(
+            'modules.image_utils.add_scale_bar', lambda **kwargs: sentinel
+        )
+        out = imaging.get_image(force_to_8bit=True, timeout_s=2.0)
+        assert out is sentinel, (
+            'get_image must return the add_scale_bar result'
         )
 
 
@@ -3538,53 +3698,6 @@ class TestPF1_CpuPoolRetired:
         )
 
 
-_SCOPE_LIKE_RECEIVERS = frozenset({'self', 'scope'})
-
-
-def _function_body_calls(source: str, func_name: str) -> set[str]:
-    """Return the set of `<scope>.<method>(...)` (or `<scope>.<subapi>.<method>(...)`)
-    attribute calls in a named function's body, where `<scope>` is either `self`
-    (instance method) or `scope` (module-level free function with scope as first arg).
-
-    Post-Wave-7 Phase 4: routes through sub-APIs (e.g. `self.imaging.capture_and_wait`)
-    are recognized as semantically equivalent to bare `self.capture_and_wait` --
-    the helper returns the leaf method name in either case. The frame-validity
-    ship-gate assertion is "the function reaches X somewhere through the API,"
-    independent of whether X is a forwarder or a sub-API method.
-
-    Post-Wave-7 Phase 6: module-level free functions in `modules.image_save`
-    (and any future class-to-module-functions extraction) take `scope` as their
-    first arg and reach the API through `scope.<subapi>.<method>`; the same
-    leaf-name recognition applies.
-    """
-    import ast
-
-    tree = ast.parse(source)
-    target = None
-    for node in ast.walk(tree):
-        if isinstance(node, ast.FunctionDef) and node.name == func_name:
-            target = node
-            break
-    if target is None:
-        raise AssertionError(f'function {func_name!r} not found in source')
-    calls: set[str] = set()
-    for sub in ast.walk(target):
-        if isinstance(sub, ast.Call) and isinstance(sub.func, ast.Attribute):
-            value = sub.func.value
-            # Bare <receiver>.<method> -- receiver is self or scope.
-            if isinstance(value, ast.Name) and value.id in _SCOPE_LIKE_RECEIVERS:
-                calls.add(sub.func.attr)
-            # <receiver>.<subapi>.<method> (e.g. self.imaging.capture_and_wait
-            # or scope.imaging.capture_and_wait).
-            elif (
-                isinstance(value, ast.Attribute)
-                and isinstance(value.value, ast.Name)
-                and value.value.id in _SCOPE_LIKE_RECEIVERS
-            ):
-                calls.add(sub.func.attr)
-    return calls
-
-
 # Bare camera-driver builders shared with the other behavioral driver
 # test files; bodies live in tests/camera_fakes.py.
 from tests.camera_fakes import (
@@ -3628,30 +3741,38 @@ class TestFrameValidity_SaveLiveImageDrainsBeforeGrab:
     Bare self.get_image(...) ships a mid-transition frame to disk on every
     manual save; the canonical helper is self.capture_and_wait(...)."""
 
-    def test_save_live_image_calls_capture_and_wait(self):
-        # Phase 6c (2026-05-19) relocated save_live_image body from
-        # Lumascope to modules.image_save (composes scope.imaging
-        # rather than self.imaging). Path retarget per Rule 48 (c);
-        # semantic intent (drain-then-grab via capture_and_wait)
-        # preserved.
-        from pathlib import Path
+    def test_save_live_image_drains_via_capture_and_wait(self, monkeypatch, tmp_path):
+        """save_live_image must grab through capture_and_wait (drain-then-
+        grab) and hand THAT frame to save_image -- never the bare
+        get_image, which would ship a mid-transition frame to disk."""
+        from types import SimpleNamespace
 
-        src = (Path(__file__).resolve().parent.parent / 'modules' / 'image_save.py').read_text()
-        calls = _function_body_calls(src, 'save_live_image')
-        assert 'capture_and_wait' in calls, (
-            'save_live_image must call scope.imaging.capture_and_wait(...) for drain-then-grab.'
+        import numpy as np
+
+        from modules import image_save
+
+        calls = []
+        frame = np.zeros((4, 4), dtype=np.uint8)
+        scope = SimpleNamespace(
+            imaging=SimpleNamespace(
+                capture_and_wait=lambda **kw: calls.append('capture_and_wait') or frame,
+                get_image=lambda **kw: calls.append('get_image') or frame,
+            ),
+            illumination=SimpleNamespace(leds_off=lambda: None),
         )
-
-    def test_save_live_image_does_not_call_bare_get_image(self):
-        # Phase 6c (2026-05-19) path retarget per Rule 48 (c); see
-        # companion test_save_live_image_calls_capture_and_wait above.
-        from pathlib import Path
-
-        src = (Path(__file__).resolve().parent.parent / 'modules' / 'image_save.py').read_text()
-        calls = _function_body_calls(src, 'save_live_image')
-        assert 'get_image' not in calls, (
-            'save_live_image must not call scope.imaging.get_image(...) directly -- '
-            'that bypasses frame_validity. Route through scope.imaging.capture_and_wait(...).'
+        saved = {}
+        monkeypatch.setattr(
+            image_save, 'save_image',
+            lambda scope, array, *args, **kwargs: saved.update(array=array)
+            or str(tmp_path / 'live.tiff'),
+        )
+        out = image_save.save_live_image(scope, save_folder=str(tmp_path))
+        assert out is not None
+        assert calls == ['capture_and_wait'], (
+            f'save_live_image must drain via capture_and_wait only; saw {calls}'
+        )
+        assert saved['array'] is frame, (
+            'the drained frame must be the one handed to save_image'
         )
 
     def test_capture_and_wait_accepts_earliest_image_ts(self):
@@ -3671,7 +3792,7 @@ class TestFrameValidity_SaveLiveImageDrainsBeforeGrab:
 def _scope_attribute_calls(source: str, func_name: str) -> set[str]:
     """Return the set of `self._scope.<method>(...)` (or
     `self._scope.<subapi>.<method>(...)`) attribute calls in a named function's
-    body. Mirrors `_function_body_calls` for the AF executor's indirect-via-_scope
+    body -- the AF executor's indirect-via-_scope
     grab pattern. Post-Wave-7 Phase 4: walks through `self._scope.imaging.<method>`
     too -- the leaf method name is returned regardless of sub-API hop."""
     import ast
@@ -3820,6 +3941,26 @@ class TestFrameValidity_AllLedMutatorsInvalidate:
         )
 
 
+def _sim_backed_imaging():
+    """ImagingAPI on a connected SimulatedCamera with a minimal scope stub.
+
+    The API object builds its own locks and frame_validity, so the scope
+    stub only needs the camera-driver slot the _driver property resolves
+    plus runtime_state (read by get_image's scale-bar gate).
+    """
+    from drivers.simulated_camera import SimulatedCamera
+    from modules.lumascope_api import Lumascope
+
+    cam = SimulatedCamera()
+    cam.connect()
+    scope = Lumascope.__new__(Lumascope)
+    scope._camera_driver = cam
+    scope.runtime_state = RuntimeState(scope)
+    imaging = ImagingAPI(scope, cam)
+    scope.imaging = imaging
+    return imaging, cam
+
+
 class TestCaptureAndWaitPassesChunksToValidity:
     """capture_and_wait's drain loop reads per-frame chunk metadata and
     passes it to count_frame so chunk-match can short-circuit skip-frames
@@ -3827,19 +3968,33 @@ class TestCaptureAndWaitPassesChunksToValidity:
     cameras without chunks return None and fall back to skip-frames."""
 
     def test_capture_and_wait_passes_chunk_data_to_count_frame(self):
-        from pathlib import Path
+        from types import SimpleNamespace
 
-        src = (
-            Path(__file__).resolve().parent.parent / 'modules' / 'lumascope_api' / 'imaging.py'
-        ).read_text()
-        body = _function_source(src, 'capture_and_wait')
-        # Source mentions count_frame call site with chunk_data kwarg.
-        # Whitespace-tolerant: the call site reflows as arguments are added
-        # (frame_ts identity dedupe), so match the kwarg wiring itself.
-        flat = ' '.join(body.split())
-        assert 'count_frame(' in flat and 'chunk_data=self._get_latest_chunks()' in flat, (
-            'capture_and_wait must call count_frame(chunk_data=...) in the '
-            'drain loop so chunk-match can clear gain/exposure pending.'
+        import numpy as np
+
+        imaging, cam = _sim_backed_imaging()
+        chunk = {'Gain': 2.0, 'ExposureTime': 5000.0}
+        cam.cam_image_handler = SimpleNamespace(get_last_chunks=lambda: dict(chunk))
+        imaging.set_gain(2.0)  # pending 'gain' forces the drain loop to run
+
+        recorded = []
+        orig_count_frame = imaging.frame_validity.count_frame
+
+        def recording_count_frame(*args, **kwargs):
+            recorded.append(kwargs)
+            return orig_count_frame(*args, **kwargs)
+
+        imaging.frame_validity.count_frame = recording_count_frame
+        # The drain loop is the contract under test; the final grab is not.
+        imaging.get_image = lambda **kwargs: np.zeros((2, 2), dtype=np.uint8)
+
+        image = imaging.capture_and_wait()
+        assert image is not None, 'drain must settle and return the frame'
+        assert recorded, 'drain loop must call count_frame at least once'
+        assert all(call.get('chunk_data') == chunk for call in recorded), (
+            'capture_and_wait must pass the per-frame chunk metadata to '
+            'count_frame so chunk-match can clear gain/exposure pending; '
+            f'got {recorded}'
         )
 
     def test_get_latest_chunks_helper_exists(self):
@@ -3884,56 +4039,54 @@ class TestLumascopeRecordsTargetForChunkMatch:
     (None) since auto dynamically changes the value and chunk-match
     against a stale manual target would be wrong."""
 
-    def test_set_gain_records_target(self):
-        from pathlib import Path
+    @staticmethod
+    def _recording_imaging():
+        """Sim-backed ImagingAPI whose frame_validity.set_target records calls."""
+        imaging, _cam = _sim_backed_imaging()
+        calls = []
+        orig_set_target = imaging.frame_validity.set_target
 
-        src = (
-            Path(__file__).resolve().parent.parent / 'modules' / 'lumascope_api' / 'imaging.py'
-        ).read_text()
-        body = _function_source(src, 'set_gain')
-        assert "self.frame_validity.set_target('gain'" in body, (
-            'set_gain must record gain target via frame_validity.set_target.'
+        def recording_set_target(source, value):
+            calls.append((source, value))
+            return orig_set_target(source, value)
+
+        imaging.frame_validity.set_target = recording_set_target
+        return imaging, calls
+
+    def test_set_gain_records_target(self):
+        imaging, calls = self._recording_imaging()
+        imaging.set_gain(5.0)
+        assert ('gain', 5.0) in calls, (
+            f'set_gain must record the gain target via set_target; got {calls}'
         )
 
     def test_set_exposure_time_records_target_in_microseconds(self):
         """ChunkExposureTime is microseconds; API takes milliseconds.
-        Conversion (* 1000) must happen at the seam so chunk-match's
-        tolerance is in matching units."""
-        from pathlib import Path
-
-        src = (
-            Path(__file__).resolve().parent.parent / 'modules' / 'lumascope_api' / 'imaging.py'
-        ).read_text()
-        body = _function_source(src, 'set_exposure_time')
-        assert "self.frame_validity.set_target('exposure'" in body, (
-            'set_exposure_time must record target via set_target.'
-        )
-        assert '1000' in body, (
-            'set_exposure_time must convert ms -> us when recording target '
-            'so chunk-match operates in microseconds.'
+        Conversion must happen at the seam so chunk-match's tolerance
+        is in matching units."""
+        imaging, calls = self._recording_imaging()
+        imaging.set_exposure_time(2.5)
+        assert ('exposure', 2500.0) in calls, (
+            'set_exposure_time must record the target in microseconds '
+            f'(ms * 1000) for chunk-match; got {calls}'
         )
 
     def test_set_auto_gain_clears_target(self):
-        from pathlib import Path
-
-        src = (
-            Path(__file__).resolve().parent.parent / 'modules' / 'lumascope_api' / 'imaging.py'
-        ).read_text()
-        body = _function_source(src, 'set_auto_gain')
-        assert "set_target('gain', None)" in body, (
-            "set_auto_gain must clear gain target (None) so chunk-match doesn't "
-            'fire against a stale manual target while auto adjusts.'
+        imaging, calls = self._recording_imaging()
+        imaging.set_auto_gain(
+            True,
+            {'target_brightness': 0.5, 'min_gain_db': 0.0, 'max_gain_db': 24.0},
+        )
+        assert ('gain', None) in calls, (
+            "set_auto_gain must clear the gain target (None) so chunk-match doesn't "
+            f'fire against a stale manual target while auto adjusts; got {calls}'
         )
 
     def test_set_auto_exposure_time_clears_target(self):
-        from pathlib import Path
-
-        src = (
-            Path(__file__).resolve().parent.parent / 'modules' / 'lumascope_api' / 'imaging.py'
-        ).read_text()
-        body = _function_source(src, 'set_auto_exposure_time')
-        assert "set_target('exposure', None)" in body, (
-            'set_auto_exposure_time must clear exposure target (None).'
+        imaging, calls = self._recording_imaging()
+        imaging.set_auto_exposure_time(True)
+        assert ('exposure', None) in calls, (
+            f'set_auto_exposure_time must clear the exposure target (None); got {calls}'
         )
 
 
@@ -9592,15 +9745,19 @@ class TestFrameValidityIsL2Stable:
 
     def test_frame_validity_is_publicly_named(self):
         """The attribute is `frame_validity`, not `_frame_validity` --
-        signals 'documented L2 surface' per Rule 27 underscore convention."""
-        from modules.lumascope_api.imaging import ImagingAPI
+        signals 'documented L2 surface' per the underscore convention."""
+        from modules.frame_validity import FrameValidity
+        from modules.lumascope_api import Lumascope
 
-        src = inspect.getsource(ImagingAPI.__init__)
-        assert 'self.frame_validity = FrameValidity()' in src, (
-            'ImagingAPI.frame_validity attribute name must remain public per audit #40 promotion.'
+        scope = Lumascope.__new__(Lumascope)
+        scope._camera_driver = None
+        api = ImagingAPI(scope, None)
+        assert isinstance(api.frame_validity, FrameValidity), (
+            'ImagingAPI must expose a FrameValidity instance under the '
+            'public frame_validity name -- L2 callers depend on it.'
         )
-        assert 'self._frame_validity' not in src, (
-            'frame_validity must not be prefixed -- the audit chose formal '
+        assert not hasattr(api, '_frame_validity'), (
+            'frame_validity must not be prefixed -- the surface is formal '
             'L2 promotion, not internal hiding.'
         )
 
@@ -10282,25 +10439,47 @@ class TestAutoGainArmedInScanIterate:
             'the apply is serialized with other protocol-thread IO.'
         )
 
+    @staticmethod
+    def _drive_capture(auto_gain):
+        from unittest.mock import MagicMock
+
+        import numpy as np
+
+        writer = _bare_protocol_writer()
+        scope = writer._scope
+        scope.motion.has_turret.return_value = False
+        scope.led_connected = False
+        scope.imaging.capture_and_wait.return_value = np.zeros((4, 4), dtype=np.uint8)
+        protocol = MagicMock()
+        protocol.capture_root.return_value = ''
+        writer.capture(
+            save_folder='/tmp',
+            step=_protocol_step(Auto_Gain=auto_gain),
+            output_format='TIFF',
+            protocol=protocol,
+            image_capture_config={'use_full_pixel_depth': False},
+            enable_image_saving=True,
+        )
+        return scope.imaging
+
     def test_capture_does_not_double_apply_for_ag_step(self):
-        src = self._writer_src()
-        # The AG branch in capture() must not call apply (scan_iterate already
-        # armed AG). Locate the "Auto_Gain step" branch and assert there is no
-        # apply_layer_camera_settings call in its body.
-        marker = '# Auto_Gain step: scan_iterate already lit the LED and armed AG'
-        idx = src.find(marker)
-        assert idx >= 0, (
-            'capture() Auto_Gain branch must document that scan_iterate '
-            'lit the LED and armed AG; the comment is the contract.'
+        """An Auto_Gain step's capture must apply NO camera settings --
+        scan_iterate already lit the LED and armed AG against the lit
+        scene; a re-apply here would restart AG mid-grab and discard the
+        settling the capture_and_wait drain produced."""
+        imaging = self._drive_capture(auto_gain=True)
+        assert not imaging.apply_layer_camera_settings.called, (
+            'AG-step capture must not re-apply layer camera settings'
         )
-        # Look at the next 800 chars of the branch body.
-        branch_window = src[idx : idx + 800]
-        assert 'self._scope.imaging.apply_layer_camera_settings(' not in branch_window, (
-            'capture() Auto_Gain branch must not call '
-            'self._scope.imaging.apply_layer_camera_settings(...) -- '
-            'doing so would restart AG mid-grab and discard the settling '
-            'the capture_and_wait drain produced.'
+        assert not imaging.set_gain.called and not imaging.set_exposure_time.called, (
+            'AG-step capture must not drive manual gain/exposure either'
         )
+
+    def test_capture_applies_settings_for_manual_step(self):
+        """Control: a non-AG step DOES drive the step gain/exposure."""
+        imaging = self._drive_capture(auto_gain=False)
+        imaging.set_gain.assert_called_once_with(2.0)
+        imaging.set_exposure_time.assert_called_once_with(10.0)
 
     def test_arm_block_returns_after_arming(self):
         """The arm block must `return` after arming so the next scan_iterate
