@@ -86,6 +86,72 @@ def fake_trigger_entry(symbolic: str, available: bool = True):
     return entry
 
 
+class FakeDiagNode:
+    """Nodemap node returning a queued sequence of values (last repeats)."""
+
+    def __init__(self, *values):
+        self._values = list(values)
+
+    def GetValue(self):
+        if len(self._values) > 1:
+            return self._values.pop(0)
+        return self._values[0]
+
+
+class RecordingNodeMap:
+    """GetNode-style nodemap that records every requested node name.
+
+    Missing names return None (the camera-nodemap missing-node shape);
+    present names return a FakeDiagNode. Pass FakeDiagNode instances as
+    values for multi-read sequences (e.g. pre/post counter reads).
+    """
+
+    def __init__(self, values=None):
+        self.requested = []
+        self._values = dict(values or {})
+
+    def GetNode(self, name):
+        self.requested.append(name)
+        value = self._values.get(name)
+        if value is None:
+            return None
+        return value if isinstance(value, FakeDiagNode) else FakeDiagNode(value)
+
+
+def diag_snapshot_pylon_camera(camera_values=None, grabber_values=None):
+    """bare_pylon_camera wired so the REAL read_diagnostic_snapshot()
+    can run: recording nodemaps on the camera and stream-grabber sides
+    so tests can assert which nodes were probed and what the snapshot
+    reported for them."""
+    cam = bare_pylon_camera()
+    nodemap = RecordingNodeMap(camera_values)
+    grabber_nodemap = RecordingNodeMap(grabber_values)
+    cam.active.GetNodeMap.return_value = nodemap
+    cam.active.GetStreamGrabberNodeMap.return_value = grabber_nodemap
+    return cam, nodemap, grabber_nodemap
+
+
+def stats_poll_pylon_camera():
+    """bare_pylon_camera prepared so one REAL _stats_poller_loop cycle
+    runs deterministically: the one-shot validation walk is skipped and
+    the live fps / temperature reads return plain values (tests override
+    per-node mocks as needed)."""
+    cam = bare_pylon_camera()
+    cam._pylon_self_validation_done = True
+    cam.active.BslResultingAcquisitionFrameRate.GetValue.return_value = 30.0
+    cam.active.TemperatureState.GetValue.return_value = 'Ok'
+    return cam
+
+
+def run_one_stats_poll(cam):
+    """Drive exactly one iteration of the real _stats_poller_loop:
+    the stop event reports not-set once, then set."""
+    ev = MagicMock()
+    ev.wait.side_effect = [False, True]
+    cam._stats_poller_stop = ev
+    cam._stats_poller_loop()
+
+
 def bare_ids_camera():
     """IDSCamera analog of bare_pylon_camera: fake remote_nodemap."""
     from drivers import idscamera

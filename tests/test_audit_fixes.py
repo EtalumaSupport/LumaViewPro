@@ -3383,13 +3383,18 @@ def _function_body_calls(source: str, func_name: str) -> set[str]:
 # Bare camera-driver builders shared with the other behavioral driver
 # test files; bodies live in tests/camera_fakes.py.
 from tests.camera_fakes import (
+    FakeDiagNode as _FakeDiagNode,
+    RecordingNodeMap as _RecordingNodeMap,
     bare_grab_worker as _bare_grab_worker,
     bare_ids_camera as _bare_ids_camera,
     bare_image_handler as _bare_image_handler,
     bare_pylon_camera as _bare_pylon_camera,
+    diag_snapshot_pylon_camera as _diag_snapshot_pylon_camera,
     disconnectable_pylon_camera as _disconnectable_pylon_camera,
     fake_trigger_entry as _fake_trigger_entry,
     init_configurable_pylon_camera as _init_configurable_pylon_camera,
+    run_one_stats_poll as _run_one_stats_poll,
+    stats_poll_pylon_camera as _stats_poll_pylon_camera,
 )
 
 
@@ -5444,20 +5449,12 @@ class TestPylonGigeDiagnosticNodeCoverage:
     set; GigE cameras report '<missing>' for URB / MaxTransferSize.
     """
 
-    def _pyloncamera_source(self):
-        from pathlib import Path
-
-        return (Path(__file__).resolve().parent.parent / 'drivers' / 'pyloncamera.py').read_text()
-
     def test_camera_nodemap_probes_gev_network_parameters(self):
-        """The 11 canonical GigE network-related camera-side nodes
-        from network-related-parameters.md must appear in the
-        camera-config probe in read_diagnostic_snapshot."""
-        src = self._pyloncamera_source()
-        idx = src.find('def read_diagnostic_snapshot(')
-        assert idx != -1
-        end = src.find('\n    def ', idx + 10)
-        body = src[idx:end]
+        """The canonical GigE network-related camera-side nodes from
+        network-related-parameters.md must be probed (and reported,
+        sentinel or value) by a real read_diagnostic_snapshot run."""
+        cam, nodemap, _grabber = _diag_snapshot_pylon_camera()
+        result = cam.read_diagnostic_snapshot(duration_s=0)
         for node in (
             'GevHeartbeatTimeout',
             'GevSCPSPacketSize',
@@ -5472,20 +5469,27 @@ class TestPylonGigeDiagnosticNodeCoverage:
             'PayloadSize',
             'BslDeviceLinkCurrentThroughput',
         ):
-            assert node in body, (
+            assert node in nodemap.requested, (
                 f'read_diagnostic_snapshot must probe {node!r} '
                 f'(per network-related-parameters.md). Missing nodes '
                 f'will not surface on dmA3536-9gm bench.'
             )
+        for key in (
+            'gev_heartbeat_timeout_ms',
+            'gev_packet_size_bytes',
+            'gev_bandwidth_assigned_bps',
+            'bandwidth_reserve_mode',
+            'payload_size_bytes',
+            'current_throughput_bps',
+        ):
+            assert key in result['config']
 
     def test_stream_grabber_probes_gige_resend_config(self):
-        """The 8 canonical GigE Packet Resend Mechanism stream-
-        grabber config nodes from stream-grabber-parameters.html
-        must appear in the stream-grabber config probe."""
-        src = self._pyloncamera_source()
-        idx = src.find('def read_diagnostic_snapshot(')
-        end = src.find('\n    def ', idx + 10)
-        body = src[idx:end]
+        """The canonical GigE Packet Resend Mechanism stream-grabber
+        config nodes from stream-grabber-parameters.html must be probed
+        on the stream-grabber nodemap."""
+        cam, _nodemap, grabber = _diag_snapshot_pylon_camera()
+        cam.read_diagnostic_snapshot(duration_s=0)
         for node in (
             'EnableResend',
             'PacketTimeout',
@@ -5495,48 +5499,41 @@ class TestPylonGigeDiagnosticNodeCoverage:
             'AutoPacketSize',
             'SocketBufferSize',
         ):
-            assert node in body, (
+            assert node in grabber.requested, (
                 f'read_diagnostic_snapshot stream-grabber config '
                 f'must probe {node!r} (per stream-grabber-parameters.'
                 f'html Packet Resend Mechanism Parameters).'
             )
 
-    def test_diag_stat_nodes_includes_gige_stat_counters(self):
-        """The 3 GigE-specific stream-grabber stat counters must be
-        in _DIAG_STAT_NODES so the pre/post deltas surface them."""
-        src = self._pyloncamera_source()
-        # Find the _DIAG_STAT_NODES tuple body
-        idx = src.find('_DIAG_STAT_NODES = (')
-        assert idx != -1
-        end = src.find(')', idx)
-        body = src[idx:end]
+    def test_diag_node_sets_include_gige_stat_counters(self):
+        """The 3 GigE-specific stream-grabber stat counters must be in
+        both _DIAG_STAT_NODES (probed pre/post) and _DIAG_STAT_COUNTERS
+        (delta computation)."""
+        from drivers.pyloncamera import PylonCamera
+
         for counter in (
             'Statistic_Resend_Packet_Count',
             'Statistic_Resend_Request_Count',
             'Statistic_Failed_Packet_Count',
         ):
-            assert counter in body, (
+            assert counter in PylonCamera._DIAG_STAT_NODES, (
                 f'_DIAG_STAT_NODES must include {counter!r} so the '
                 f'GigE resend traffic surfaces in the diagnostic '
                 f'snapshot. Per stream-grabber-parameters.html '
                 f'Statistics Parameters.'
             )
-
-    def test_diag_stat_counters_includes_gige_counters_for_deltas(self):
-        """Delta computation requires the same names in _DIAG_STAT_COUNTERS."""
-        src = self._pyloncamera_source()
-        idx = src.find('_DIAG_STAT_COUNTERS = (')
-        assert idx != -1
-        end = src.find(')', idx)
-        body = src[idx:end]
-        for counter in (
-            'Statistic_Resend_Packet_Count',
-            'Statistic_Resend_Request_Count',
-            'Statistic_Failed_Packet_Count',
-        ):
-            assert counter in body, (
+            assert counter in PylonCamera._DIAG_STAT_COUNTERS, (
                 f'_DIAG_STAT_COUNTERS must include {counter!r} for delta computation.'
             )
+
+    def test_gige_stat_counter_delta_computed_from_pre_post_reads(self):
+        """A GigE counter that advances during the sampling window must
+        come back as a numeric delta."""
+        cam, _nodemap, _grabber = _diag_snapshot_pylon_camera(
+            grabber_values={'Statistic_Resend_Packet_Count': _FakeDiagNode(2, 7)}
+        )
+        result = cam.read_diagnostic_snapshot(duration_s=0)
+        assert result['deltas']['Statistic_Resend_Packet_Count'] == 5
 
 
 class TestPylonDltlClampAndDocWarnings:
@@ -5627,53 +5624,67 @@ class TestPylonResyncProminentLog:
     Audit finding B5.
     """
 
-    def _pyloncamera_source(self):
-        from pathlib import Path
+    def _poll_once(self, cam):
+        """Run one real poller cycle with _cam_log + profile_trace
+        captured; returns (warning messages, stats-trace calls)."""
+        from unittest import mock
 
-        return (Path(__file__).resolve().parent.parent / 'drivers' / 'pyloncamera.py').read_text()
+        from drivers import pyloncamera
+
+        log = MagicMock()
+        trace_mod = MagicMock()
+        with (
+            mock.patch.object(pyloncamera, '_cam_log', log),
+            mock.patch.object(pyloncamera, 'profile_trace', trace_mod),
+        ):
+            _run_one_stats_poll(cam)
+        warnings = [str(call.args[0]) for call in log.warning.call_args_list]
+        stats_calls = [
+            call
+            for call in trace_mod.trace.call_args_list
+            if call.args[0] == 'pylon_stats_trace.csv'
+        ]
+        return warnings, stats_calls
 
     def test_resync_node_in_stats_node_names(self):
         """Statistic_Resynchronization_Count must be in the live
         stats poll set so the delta tracker has fresh data."""
-        src = self._pyloncamera_source()
-        idx = src.find('_STATS_NODE_NAMES = (')
-        assert idx != -1
-        end = src.find(')', idx)
-        body = src[idx:end]
-        assert 'Statistic_Resynchronization_Count' in body, (
-            'Statistic_Resynchronization_Count must be in '
-            '_STATS_NODE_NAMES so the live poller reads it each cycle.'
-        )
+        from drivers.pyloncamera import PylonCamera
 
-    def test_resync_prominent_log_on_positive_delta(self):
-        """Stats poller must emit a [INSTR RESYNC] warning when the
-        delta is positive."""
-        src = self._pyloncamera_source()
-        idx = src.find('def _stats_poller_loop(self):')
-        assert idx != -1
-        end = src.find('\n    def ', idx + 10)
-        body = src[idx:end]
-        assert '[INSTR RESYNC]' in body, (
-            'Stats poller must emit a [INSTR RESYNC] log line on '
-            'positive resync delta -- per Basler doc this is the '
-            'most serious error case in USB 3.0 / USB3 Vision.'
+        assert 'Statistic_Resynchronization_Count' in PylonCamera._STATS_NODE_NAMES
+
+    def test_resync_warning_on_positive_delta(self):
+        """The poller must emit a [INSTR RESYNC] warning when the count
+        advanced since the prior cycle, and track the new total."""
+        cam = _stats_poll_pylon_camera()
+        cam.active.StreamGrabber.Statistic_Resynchronization_Count.GetValue.return_value = 7
+        cam._prev_resync_count = 2
+        warnings, _ = self._poll_once(cam)
+        assert any('[INSTR RESYNC]' in m and 'delta=5' in m for m in warnings), (
+            'Stats poller must warn with [INSTR RESYNC] + the delta on '
+            'positive resync delta -- per Basler doc this is the most '
+            f'serious error case in USB 3.0 / USB3 Vision. Got {warnings!r}'
         )
-        assert '_cam_log.warning' in body and 'RESYNC' in body, (
-            'Resync delta must be logged at warning level (operator-actionable; not info).'
-        )
+        assert cam._prev_resync_count == 7
+
+    def test_resync_quiet_when_count_unchanged(self):
+        cam = _stats_poll_pylon_camera()
+        cam.active.StreamGrabber.Statistic_Resynchronization_Count.GetValue.return_value = 7
+        cam._prev_resync_count = 7
+        warnings, _ = self._poll_once(cam)
+        assert not any('[INSTR RESYNC]' in m for m in warnings)
 
     def test_resync_csv_column_present(self):
-        """The pylon_stats_trace.csv header must include the resync
-        column so historical analysis can correlate."""
-        src = self._pyloncamera_source()
-        idx = src.find("'pylon_stats_trace.csv'")
-        assert idx != -1
-        # Header is the next ~150 chars after the filename argument.
-        window = src[idx : idx + 500]
-        assert 'resync_count' in window, (
-            'pylon_stats_trace.csv header must include resync_count '
-            'column so the running total is captured per row.'
-        )
+        """The pylon_stats_trace.csv row must carry the running resync
+        total under a resync_count column."""
+        cam = _stats_poll_pylon_camera()
+        cam.active.StreamGrabber.Statistic_Resynchronization_Count.GetValue.return_value = 7
+        _, stats_calls = self._poll_once(cam)
+        assert stats_calls, 'poller cycle must write a pylon_stats_trace.csv row'
+        columns = stats_calls[0].args[1].split(',')
+        row = stats_calls[0].args[2]
+        assert 'resync_count' in columns
+        assert row[columns.index('resync_count')] == 7
 
 
 class TestPylonTemperatureStateMonitoring:
@@ -5690,57 +5701,75 @@ class TestPylonTemperatureStateMonitoring:
     Audit finding B13.
     """
 
-    def _pyloncamera_source(self):
-        from pathlib import Path
+    def _poll_once(self, cam):
+        from unittest import mock
 
-        return (Path(__file__).resolve().parent.parent / 'drivers' / 'pyloncamera.py').read_text()
+        from drivers import pyloncamera
 
-    def test_stats_poller_reads_temperature_state(self):
-        src = self._pyloncamera_source()
-        idx = src.find('def _stats_poller_loop(self):')
-        assert idx != -1
-        end = src.find('\n    def ', idx + 10)
-        body = src[idx:end]
-        assert 'TemperatureState' in body, (
-            'Stats poller must read TemperatureState each cycle '
-            'so over-temp events surface in the log.'
+        log = MagicMock()
+        info_log = MagicMock()
+        trace_mod = MagicMock()
+        with (
+            mock.patch.object(pyloncamera, '_cam_log', log),
+            mock.patch.object(pyloncamera, 'logger', info_log),
+            mock.patch.object(pyloncamera, 'profile_trace', trace_mod),
+        ):
+            _run_one_stats_poll(cam)
+        warnings = [str(call.args[0]) for call in log.warning.call_args_list]
+        infos = [str(call.args[0]) for call in info_log.info.call_args_list]
+        stats_calls = [
+            call
+            for call in trace_mod.trace.call_args_list
+            if call.args[0] == 'pylon_stats_trace.csv'
+        ]
+        return warnings, infos, stats_calls
+
+    def test_stats_poller_warns_on_critical_temperature_state(self):
+        """A transition into Critical must surface as an [INSTR TEMP]
+        warning (over-temp halts acquisition and otherwise presents as
+        an unattributed frame-rate stall), and the new state is
+        tracked."""
+        cam = _stats_poll_pylon_camera()
+        cam.active.TemperatureState.GetValue.return_value = 'Critical'
+        warnings, _infos, _ = self._poll_once(cam)
+        assert any('[INSTR TEMP]' in m and 'Critical' in m for m in warnings), (
+            f'Critical temperature state must warn with [INSTR TEMP]; got {warnings!r}'
         )
-        assert '[INSTR TEMP]' in body, (
-            'Stats poller must emit [INSTR TEMP] on temperature '
-            'state changes for log-grep visibility.'
-        )
-        assert 'Critical' in body and 'Error' in body, (
-            'Stats poller must distinguish Critical / Error states '
-            '(WARNING level) from Ok transitions (INFO level).'
-        )
+        assert cam._prev_temp_state == 'Critical'
+
+    def test_stats_poller_logs_ok_transition_at_info(self):
+        """Non-error temperature transitions are informational, not
+        operator-actionable warnings."""
+        cam = _stats_poll_pylon_camera()
+        warnings, infos, _ = self._poll_once(cam)
+        assert not any('[INSTR TEMP]' in m for m in warnings)
+        assert any('[INSTR TEMP]' in m and 'Ok' in m for m in infos)
 
     def test_read_diagnostic_snapshot_captures_thermal_state(self):
-        src = self._pyloncamera_source()
-        idx = src.find('def read_diagnostic_snapshot(')
-        assert idx != -1
-        end = src.find('\n    def ', idx + 10)
-        body = src[idx:end]
-        for node in (
-            'TemperatureState',
-            'BslTemperatureMax',
-            'BslTemperatureStatusErrorCount',
-        ):
-            assert node in body, (
-                f'read_diagnostic_snapshot must probe {node!r} so '
-                f"the camera's thermal history is captured for "
-                f'cross-host comparison.'
-            )
+        cam, _nodemap, _grabber = _diag_snapshot_pylon_camera(
+            camera_values={
+                'TemperatureState': 'Ok',
+                'BslTemperatureMax': 61.2,
+                'BslTemperatureStatusErrorCount': 0,
+            }
+        )
+        result = cam.read_diagnostic_snapshot(duration_s=0)
+        assert result['config']['temperature_state'] == 'Ok'
+        assert result['config']['temperature_max_degC'] == 61.2
+        assert result['config']['temperature_status_error_count'] == 0
 
     def test_temperature_csv_column_present(self):
-        src = self._pyloncamera_source()
-        idx = src.find("'pylon_stats_trace.csv'")
-        assert idx != -1
-        window = src[idx : idx + 500]
-        assert 'temperature_state' in window, (
-            'pylon_stats_trace.csv header must include '
-            'temperature_state column so post-hoc analysis '
-            'can correlate stalls with temperature history.'
-        )
+        """The pylon_stats_trace.csv row must carry the temperature
+        state so post-hoc analysis can correlate stalls with thermal
+        history."""
+        cam = _stats_poll_pylon_camera()
+        cam.active.TemperatureState.GetValue.return_value = 'Critical'
+        _warnings, _infos, stats_calls = self._poll_once(cam)
+        assert stats_calls
+        columns = stats_calls[0].args[1].split(',')
+        row = stats_calls[0].args[2]
+        assert 'temperature_state' in columns
+        assert row[columns.index('temperature_state')] == 'Critical'
 
 
 class TestPylonMissedFrameDeltaLog:
@@ -5757,42 +5786,55 @@ class TestPylonMissedFrameDeltaLog:
     Audit finding B14.
     """
 
-    def _pyloncamera_source(self):
-        from pathlib import Path
+    def _poll_once(self, cam):
+        from unittest import mock
 
-        return (Path(__file__).resolve().parent.parent / 'drivers' / 'pyloncamera.py').read_text()
+        from drivers import pyloncamera
+
+        log = MagicMock()
+        trace_mod = MagicMock()
+        with (
+            mock.patch.object(pyloncamera, '_cam_log', log),
+            mock.patch.object(pyloncamera, 'profile_trace', trace_mod),
+        ):
+            _run_one_stats_poll(cam)
+        warnings = [str(call.args[0]) for call in log.warning.call_args_list]
+        stats_calls = [
+            call
+            for call in trace_mod.trace.call_args_list
+            if call.args[0] == 'pylon_stats_trace.csv'
+        ]
+        return warnings, stats_calls
 
     def test_missed_frame_node_in_stats_node_names(self):
-        src = self._pyloncamera_source()
-        idx = src.find('_STATS_NODE_NAMES = (')
-        assert idx != -1
-        end = src.find(')', idx)
-        body = src[idx:end]
-        assert 'Statistic_Missed_Frame_Count' in body, (
+        from drivers.pyloncamera import PylonCamera
+
+        assert 'Statistic_Missed_Frame_Count' in PylonCamera._STATS_NODE_NAMES, (
             'Statistic_Missed_Frame_Count must be in _STATS_NODE_NAMES '
             'so the live poller reads it each cycle.'
         )
 
-    def test_missed_frame_prominent_log_on_positive_delta(self):
-        src = self._pyloncamera_source()
-        idx = src.find('def _stats_poller_loop(self):')
-        assert idx != -1
-        end = src.find('\n    def ', idx + 10)
-        body = src[idx:end]
-        assert '[INSTR MISSED]' in body, (
-            'Stats poller must emit [INSTR MISSED] on positive '
-            'missed-frame delta -- early bandwidth-stress signal.'
+    def test_missed_frame_warning_on_positive_delta(self):
+        """An advancing missed-frame count must surface as an
+        [INSTR MISSED] warning -- the early bandwidth-stress signal."""
+        cam = _stats_poll_pylon_camera()
+        cam.active.StreamGrabber.Statistic_Missed_Frame_Count.GetValue.return_value = 12
+        cam._prev_missed_frame_count = 10
+        warnings, _ = self._poll_once(cam)
+        assert any('[INSTR MISSED]' in m and 'delta=2' in m for m in warnings), (
+            f'Stats poller must warn with [INSTR MISSED] + delta; got {warnings!r}'
         )
+        assert cam._prev_missed_frame_count == 12
 
     def test_missed_frame_csv_column_present(self):
-        src = self._pyloncamera_source()
-        idx = src.find("'pylon_stats_trace.csv'")
-        assert idx != -1
-        window = src[idx : idx + 500]
-        assert 'missed_frame_count' in window, (
-            'pylon_stats_trace.csv header must include '
-            'missed_frame_count column for historical correlation.'
-        )
+        cam = _stats_poll_pylon_camera()
+        cam.active.StreamGrabber.Statistic_Missed_Frame_Count.GetValue.return_value = 12
+        _, stats_calls = self._poll_once(cam)
+        assert stats_calls
+        columns = stats_calls[0].args[1].split(',')
+        row = stats_calls[0].args[2]
+        assert 'missed_frame_count' in columns
+        assert row[columns.index('missed_frame_count')] == 12
 
 
 class TestPylonIsConnectedCallsSdkQuery:
@@ -5864,97 +5906,115 @@ class TestPylonBslPrefixedNodeFallbacks:
     Audit findings B1 + B2.
     """
 
-    def _pyloncamera_source(self):
-        from pathlib import Path
+    class _PlainNode:
+        def __init__(self, value):
+            self._value = value
 
-        return (Path(__file__).resolve().parent.parent / 'drivers' / 'pyloncamera.py').read_text()
+        def GetValue(self):
+            return self._value
 
-    def test_node_attr_get_helper_present(self):
-        """The _node_attr_get helper must exist and accept *names."""
-        src = self._pyloncamera_source()
-        assert 'def _node_attr_get(camera, *names: str)' in src, (
-            '_node_attr_get(camera, *names) helper missing -- this is '
-            'the canonical Bsl-prefix-then-legacy fallback for live '
-            'attribute-style reads.'
+    def test_node_attr_get_prefers_first_resolvable_name(self):
+        from drivers.pyloncamera import PylonCamera
+
+        class _Cam:
+            BslEffectiveExposureTime = self._PlainNode(5000.0)
+            ExposureTime = self._PlainNode(4000.0)
+
+        value = PylonCamera._node_attr_get(
+            _Cam(), 'BslEffectiveExposureTime', 'ExposureTime'
         )
-
-    def test_safe_node_accepts_multiple_names(self):
-        """_safe_node must accept *names so the diagnostic snapshot
-        can probe Bsl-prefixed-then-legacy nodes via the nodemap."""
-        src = self._pyloncamera_source()
-        assert 'def _safe_node(nodemap, *names: str)' in src, (
-            '_safe_node must accept *names (varargs) so call sites '
-            'can pass multiple candidate names for the same logical '
-            'parameter. Single-name calls remain backwards-compatible.'
+        assert value == 5000.0, (
+            '_node_attr_get must return the FIRST resolvable name '
+            '(Bsl-prefixed canonical before legacy).'
         )
 
-    def test_stats_poller_uses_bsl_resulting_frame_rate_first(self):
-        """Live frame-rate read in _stats_poller_loop must try
-        BslResultingAcquisitionFrameRate before ResultingFrameRate."""
-        src = self._pyloncamera_source()
-        idx = src.find('def _stats_poller_loop(self):')
-        assert idx != -1
-        end = src.find('def ', idx + 10)
-        body = src[idx:end]
-        assert 'BslResultingAcquisitionFrameRate' in body, (
-            '_stats_poller_loop must probe BslResultingAcquisitionFrameRate '
-            '(canonical for ace 2 / dart M/R per Basler doc).'
-        )
-        assert 'ResultingFrameRate' in body, (
-            '_stats_poller_loop must keep ResultingFrameRate as the '
-            'fallback for legacy ace cameras.'
-        )
-        # Bsl variant must come first in the call.
-        bsl_pos = body.find('BslResultingAcquisitionFrameRate')  # noqa: F841 -- deferred
-        legacy_pos = body.find("'ResultingFrameRate'")
-        if legacy_pos != -1:  # legacy may also appear in a comment first
-            # Just assert the call site has both; ordering inside the call
-            # is structural so check a tighter window.
-            pass
-        # Assert _node_attr_get is used (rather than direct attribute access)
-        assert '_node_attr_get(' in body, (
-            '_stats_poller_loop must use _node_attr_get(...) for the '
-            'frame-rate read so the Bsl-fallback pattern is centralised.'
-        )
+    def test_node_attr_get_falls_back_when_first_name_absent(self):
+        from drivers.pyloncamera import PylonCamera
 
-    def test_get_exposure_t_uses_bsl_effective_first(self):
-        """get_exposure_t must read BslEffectiveExposureTime first
-        (the doc-canonical effective value) and fall back to
-        ExposureTime (the requested set value)."""
-        src = self._pyloncamera_source()
-        idx = src.find('def get_exposure_t(self)')
-        assert idx != -1
-        end = src.find('def ', idx + 10)
-        body = src[idx:end]
-        assert 'BslEffectiveExposureTime' in body, (
-            'get_exposure_t must read BslEffectiveExposureTime first -- '
-            'per Basler exposure-time.html doc, this is the effective '
-            'value the camera actually used (vs ExposureTime which is '
-            'the requested set value).'
-        )
-        assert '_node_attr_get(' in body, (
-            'get_exposure_t must use _node_attr_get(...) for the Bsl-fallback pattern.'
-        )
+        class _Cam:
+            ExposureTime = self._PlainNode(4000.0)
 
-    def test_diag_snapshot_config_tuple_uses_bsl_fallbacks(self):
-        """read_diagnostic_snapshot config tuple must include the
-        Bsl-prefixed canonical names for ResultingFrameRate and
-        ExposureTime so cross-host comparison probes the correct
-        node on ace 2 / dart M/R."""
-        src = self._pyloncamera_source()
-        idx = src.find('def read_diagnostic_snapshot(')
-        assert idx != -1
-        end = src.find('\n    def ', idx + 10)
-        body = src[idx:end]
-        assert "'BslResultingAcquisitionFrameRate'" in body, (
-            'read_diagnostic_snapshot must probe '
-            'BslResultingAcquisitionFrameRate before ResultingFrameRate.'
+        value = PylonCamera._node_attr_get(
+            _Cam(), 'BslEffectiveExposureTime', 'ExposureTime'
         )
-        assert "'BslEffectiveExposureTime'" in body, (
-            'read_diagnostic_snapshot must probe BslEffectiveExposureTime '
-            'before ExposureTime so the snapshot reports effective '
-            'exposure on ace 2 / dart M/R.'
+        assert value == 4000.0
+
+    def test_safe_node_falls_back_across_names(self):
+        """_safe_node must probe each candidate name in order so call
+        sites can pass Bsl-prefixed-then-legacy pairs."""
+        from drivers.pyloncamera import PylonCamera
+
+        nodemap = _RecordingNodeMap({'ResultingFrameRate': 10.0})
+        value = PylonCamera._safe_node(
+            nodemap, 'BslResultingAcquisitionFrameRate', 'ResultingFrameRate'
         )
+        assert value == 10.0
+        assert nodemap.requested == [
+            'BslResultingAcquisitionFrameRate',
+            'ResultingFrameRate',
+        ]
+
+    def test_stats_poller_prefers_bsl_resulting_frame_rate(self):
+        """The live fps written to pylon_stats_trace.csv must come from
+        BslResultingAcquisitionFrameRate when the camera exposes it
+        (canonical for ace 2 / dart M/R per Basler doc)."""
+        cam = _stats_poll_pylon_camera()
+        cam.active.ResultingFrameRate.GetValue.return_value = 10.0
+        columns, row = self._poll_csv_row(cam)
+        assert row[columns.index('resulting_fps')] == '30.000'
+
+    def test_stats_poller_falls_back_to_legacy_frame_rate(self):
+        cam = _stats_poll_pylon_camera()
+        cam.active.BslResultingAcquisitionFrameRate = None
+        cam.active.ResultingFrameRate.GetValue.return_value = 10.0
+        columns, row = self._poll_csv_row(cam)
+        assert row[columns.index('resulting_fps')] == '10.000'
+
+    def _poll_csv_row(self, cam):
+        from unittest import mock
+
+        from drivers import pyloncamera
+
+        trace_mod = MagicMock()
+        with mock.patch.object(pyloncamera, 'profile_trace', trace_mod):
+            _run_one_stats_poll(cam)
+        stats_calls = [
+            call
+            for call in trace_mod.trace.call_args_list
+            if call.args[0] == 'pylon_stats_trace.csv'
+        ]
+        assert stats_calls
+        return stats_calls[0].args[1].split(','), stats_calls[0].args[2]
+
+    def test_get_exposure_t_prefers_bsl_effective(self):
+        """get_exposure_t must report the effective exposure (what the
+        camera actually used, per exposure-time.html) when the Bsl node
+        is exposed -- not the requested set value."""
+        cam = _bare_pylon_camera()
+        cam.active.BslEffectiveExposureTime.GetValue.return_value = 5000.0
+        cam.active.ExposureTime.GetValue.return_value = 4000.0
+        assert cam.get_exposure_t() == 5.0
+
+    def test_get_exposure_t_falls_back_to_set_value(self):
+        cam = _bare_pylon_camera()
+        cam.active.BslEffectiveExposureTime = None
+        cam.active.ExposureTime.GetValue.return_value = 4000.0
+        assert cam.get_exposure_t() == 4.0
+
+    def test_diag_snapshot_prefers_bsl_nodes(self):
+        """The snapshot's exposure / frame-rate entries must come from
+        the Bsl-prefixed canonical nodes when both forms are exposed."""
+        cam, _nodemap, _grabber = _diag_snapshot_pylon_camera(
+            camera_values={
+                'BslEffectiveExposureTime': 5000.0,
+                'ExposureTime': 4000.0,
+                'BslResultingAcquisitionFrameRate': 30.0,
+                'ResultingFrameRate': 10.0,
+            }
+        )
+        result = cam.read_diagnostic_snapshot(duration_s=0)
+        assert result['config']['exposure_us'] == 5000.0
+        assert result['config']['resulting_frame_rate'] == 30.0
 
     def test_node_attr_get_suppresses_getattr_exception(self):
         """_node_attr_get must NOT propagate the exception that
