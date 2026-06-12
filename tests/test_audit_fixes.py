@@ -3403,6 +3403,39 @@ def _bare_pylon_camera():
     return cam
 
 
+def _bare_image_handler():
+    """ImageHandler wired to a bare PylonCamera parent, Stage B mocked.
+
+    Drives the REAL Stage A callback (OnImageGrabbed / OnImagesSkipped)
+    with controllable fake grab results; handler._worker is a MagicMock
+    so enqueue decisions are observable and Stage B stays out of scope.
+    """
+    from drivers import pyloncamera
+
+    parent = _bare_pylon_camera()
+    parent._device_removed = False
+    parent._schedule_async_teardown = MagicMock()
+    handler = pyloncamera.ImageHandler(parent)
+    handler._worker = MagicMock()
+    return handler, parent
+
+
+def _bare_grab_worker():
+    """_PylonImageGrabWorker with a bare parent and a spied failure
+    counter, for driving Stage B classification directly."""
+    import queue as _queue_mod
+
+    from drivers import pyloncamera
+    from drivers.camera import ImageHandlerBase
+
+    parent = _bare_pylon_camera()
+    parent._device_removed = False
+    base = ImageHandlerBase()
+    base._record_failure = MagicMock(return_value=False)
+    worker = pyloncamera._PylonImageGrabWorker(parent, base, _queue_mod.Queue(maxsize=1))
+    return worker, base
+
+
 def _bare_ids_camera():
     """IDSCamera analog of _bare_pylon_camera: fake remote_nodemap."""
     import contextlib
@@ -4160,9 +4193,9 @@ class TestPylonPayloadDiscardedClassification:
       these toward MAX_CONSECUTIVE_FAILURES would falsely trip the
       128-consec auto-disconnect during AF-heavy protocols.
 
-    These tests lock the source-level shape so a future cleanup that
-    removes the elif branch or adds _record_failure inside it fires
-    the regression.
+    Behavioral since the typed pypylon stub landed: Stage B's
+    classification (_PylonImageGrabWorker._process_failure) is driven
+    directly with fake grab results and a spied failure counter.
     """
 
     def _pyloncamera_source(self):
@@ -4197,67 +4230,45 @@ class TestPylonPayloadDiscardedClassification:
             'reason payload-discarded events are safe to skip _record_failure.'
         )
 
-    def test_payload_discarded_branch_in_onimagegrabbed(self):
-        """The classification branch must exist. Structural check: a
-        future cleanup that drops the elif (collapsing payload-discarded
-        back into the warning fallback) would reintroduce log noise +
-        spurious failure-counter increments.
+    def test_payload_discarded_not_counted_logged_at_info(self):
+        """Payload-discarded is healthy acquisition: the worker logs the
+        cause at info (distribution stays visible) and does NOT count it
+        toward MAX_CONSECUTIVE_FAILURES -- counting would falsely trip
+        the auto-disconnect during AF-heavy protocols."""
+        import datetime
 
-        Post-R12 the classification lives in `_PylonImageGrabWorker._process_failure`.
-        """
-        src = self._pyloncamera_source()
-        body = _function_source(src, '_process_failure')
-        assert '_PYLON_ERR_PAYLOAD_DISCARDED' in body, (
-            '_process_failure must contain a classification branch for '
-            '_PYLON_ERR_PAYLOAD_DISCARDED. See class docstring.'
-        )
+        from drivers.pyloncamera import _PYLON_ERR_PAYLOAD_DISCARDED
 
-    def test_payload_discarded_branch_skips_record_failure(self):
-        """Key invariant: the payload-discarded branch MUST NOT call
-        _record_failure. The branch represents healthy acquisition where
-        the camera dropped a frame during a host stall; counting it
-        toward MAX_CONSECUTIVE_FAILURES would falsely trip
-        auto-disconnect during AF-heavy protocols.
+        worker, base = _bare_grab_worker()
+        gr = MagicMock()
+        gr.GetErrorCode.return_value = _PYLON_ERR_PAYLOAD_DISCARDED
+        worker._process_failure(gr, datetime.datetime.now())
+        base._record_failure.assert_not_called()
 
-        Test approach: extract the elif block in _process_failure and
-        assert _record_failure does not appear in it. Worker-side
-        classification has exactly 1 _record_failure call total (the
-        generic non-classified fallback in the else branch); the cancel
-        and payload-discarded branches both skip _record_failure for
-        branch-specific reasons (lifecycle / healthy-FIFO-drop).
-        _process_frame has its own _record_failure for GetArray
-        exceptions (different concern: GetArray failure implies device
-        gone, which IS a counted-failure-class event).
-        """
-        src = self._pyloncamera_source()
-        body = _function_source(src, '_process_failure')
-        # Total count is the structural guard.
-        total_calls = body.count('self._base._record_failure()')
-        assert total_calls == 1, (
-            f'_process_failure must have exactly 1 _record_failure() '
-            f'call (generic non-classified fallback in the else branch); '
-            f'found {total_calls}. If a second was added inside the '
-            f'payload-discarded classification branch, remove it -- '
-            f'that branch is by-design not counted toward '
-            f'MAX_CONSECUTIVE_FAILURES.'
-        )
-        # Extract just the elif block as belt-and-suspenders. Indent
-        # level is 8 spaces (method body in _process_failure).
-        elif_marker = 'elif err_code == _PYLON_ERR_PAYLOAD_DISCARDED:'
-        elif_idx = body.find(elif_marker)
-        assert elif_idx >= 0, 'elif marker not found (precondition)'
-        tail = body[elif_idx + len(elif_marker) :]
-        end = len(tail)
-        for marker in ('\n        else:', '\n        elif '):
-            i = tail.find(marker)
-            if 0 <= i < end:
-                end = i
-        elif_block = tail[:end]
-        assert '_record_failure' not in elif_block, (
-            'Payload-discarded elif branch contains _record_failure() -- '
-            "that breaks the 'healthy acquisition, not a counted failure' "
-            'invariant. See class docstring.'
-        )
+    def test_cancelled_buffer_not_counted(self):
+        """Cancelled buffers (StopGrabbing mid-flight) are SDK lifecycle
+        events, not transport failures."""
+        import datetime
+
+        from drivers.pyloncamera import _PYLON_ERR_BUFFER_CANCELED
+
+        worker, base = _bare_grab_worker()
+        gr = MagicMock()
+        gr.GetErrorCode.return_value = _PYLON_ERR_BUFFER_CANCELED
+        worker._process_failure(gr, datetime.datetime.now())
+        base._record_failure.assert_not_called()
+
+    def test_generic_transport_failure_is_counted(self):
+        """Unclassified err_codes (USB CRC, partial frame, underrun)
+        count toward the consecutive-failure cascade so a wedged
+        transport eventually trips auto-disconnect."""
+        import datetime
+
+        worker, base = _bare_grab_worker()
+        gr = MagicMock()
+        gr.GetErrorCode.return_value = 0xDEAD
+        worker._process_failure(gr, datetime.datetime.now())
+        base._record_failure.assert_called_once()
 
 
 class TestPylonDeviceNotFoundClassification:
@@ -4284,11 +4295,8 @@ class TestPylonDeviceNotFoundClassification:
       detect transport degradation (incomplete buffers, CRC errors).
       Physical removal is a different class with its own signal.
 
-    These tests lock the source-level shape so a future cleanup that
-    drops the branch or adds _record_failure inside it fires the
-    regression. Behavioral test (full cascade simulation) would
-    require a Pylon SDK callback harness; static lock is the primary
-    regression gate.
+    Behavioral since the typed pypylon stub landed: the handler is
+    instantiated and OnImageGrabbed driven with fake grab results.
     """
 
     def _pyloncamera_source(self):
@@ -4324,77 +4332,48 @@ class TestPylonDeviceNotFoundClassification:
             'the slow-path mechanism that fast classification short-circuits.'
         )
 
-    def test_device_not_found_branch_in_onimagegrabbed(self):
-        """The OnImageGrabbed body must contain the elif classification
-        branch. Structural check: a future cleanup that drops the elif
-        would reintroduce the 4-second cascade delay + log spam."""
-        src = self._pyloncamera_source()
-        body = _function_source(src, 'OnImageGrabbed')
-        assert '_PYLON_ERR_DEVICE_NOT_FOUND' in body, (
-            'OnImageGrabbed must contain a classification branch for '
-            '_PYLON_ERR_DEVICE_NOT_FOUND. See class docstring.'
-        )
-        assert 'success_no_grab_device_not_found' in body, (
-            'OnImageGrabbed device-not-found branch must set its '
-            "outcome name to 'success_no_grab_device_not_found' for "
-            'trace gating.'
-        )
+    def test_device_not_found_marks_disconnected_immediately(self):
+        """The fast path flips the connection flag in 1 frame instead of
+        128 (so the API-layer notification fires immediately) and
+        schedules async teardown off the SDK callback thread. A cleanup
+        that drops this classification would reintroduce the 4-second
+        cascade delay + log spam."""
+        from drivers.pyloncamera import _PYLON_ERR_DEVICE_NOT_FOUND
 
-    def test_device_not_found_branch_marks_disconnected(self):
-        """The device-not-found branch must call _mark_disconnected.
-        That is the entire structural point of fast classification:
-        flip the connection flag in 1 frame instead of 128 so the
-        API-layer notification fires immediately.
+        handler, parent = _bare_image_handler()
+        gr = MagicMock()
+        gr.GrabSucceeded.return_value = False
+        gr.GetErrorCode.return_value = _PYLON_ERR_DEVICE_NOT_FOUND
+        handler.OnImageGrabbed(camera=MagicMock(), grabResult=gr)
+        parent._mark_disconnected.assert_called_once()
+        parent._schedule_async_teardown.assert_called_once()
 
-        Post-R12 the disconnect fast-path stays INLINE in OnImageGrabbed
-        Stage A (so the disconnect notification doesn't wait behind
-        Stage B's worker queue). With cancel/payload-discarded/generic
-        moved to Stage B, DEVICE_NOT_FOUND is now the only err_code
-        check in Stage A -- the `elif` chain collapsed to a single `if`.
-        """
-        src = self._pyloncamera_source()
-        body = _function_source(src, 'OnImageGrabbed')
-        branch_marker = 'if err_code == _PYLON_ERR_DEVICE_NOT_FOUND:'
-        idx = body.find(branch_marker)
-        assert idx >= 0, 'DEVICE_NOT_FOUND branch marker not found (precondition)'
-        tail = body[idx + len(branch_marker) :]
-        end = len(tail)
-        for marker in ('\n                else:', '\n                elif '):
-            i = tail.find(marker)
-            if 0 <= i < end:
-                end = i
-        branch_block = tail[:end]
-        assert '_mark_disconnected' in branch_block, (
-            'Device-not-found branch must call '
-            'self._parent._mark_disconnected() -- that is the structural '
-            'point of fast classification. See class docstring.'
-        )
+    def test_device_not_found_skips_stage_b_and_failure_counter(self):
+        """Physical removal is not a counted failure: the fast path
+        handles it inline (so the notification doesn't wait behind
+        Stage B's queue) and hands NOTHING to the worker -- the
+        consecutive-failure counter exists for transport degradation,
+        and inflating it from one physical event would be misleading."""
+        from drivers.pyloncamera import _PYLON_ERR_DEVICE_NOT_FOUND
 
-    def test_device_not_found_branch_skips_record_failure(self):
-        """Physical removal is not a counted failure; the consecutive-
-        failure counter exists for transport degradation. Counting
-        device-not-found toward MAX_CONSECUTIVE_FAILURES is at best
-        redundant (we've already marked disconnected) and at worst
-        misleading (failure count inflates from a single physical
-        event)."""
-        src = self._pyloncamera_source()
-        body = _function_source(src, 'OnImageGrabbed')
-        branch_marker = 'if err_code == _PYLON_ERR_DEVICE_NOT_FOUND:'
-        idx = body.find(branch_marker)
-        assert idx >= 0, 'DEVICE_NOT_FOUND branch marker not found (precondition)'
-        tail = body[idx + len(branch_marker) :]
-        end = len(tail)
-        for marker in ('\n                else:', '\n                elif '):
-            i = tail.find(marker)
-            if 0 <= i < end:
-                end = i
-        branch_block = tail[:end]
-        assert '_record_failure' not in branch_block, (
-            'Device-not-found branch contains _record_failure() -- '
-            'physical removal is a different class of event with its '
-            'own signal (_mark_disconnected); double-counting inflates '
-            'the failure counter from one physical event. See class docstring.'
-        )
+        handler, _parent = _bare_image_handler()
+        gr = MagicMock()
+        gr.GrabSucceeded.return_value = False
+        gr.GetErrorCode.return_value = _PYLON_ERR_DEVICE_NOT_FOUND
+        handler.OnImageGrabbed(camera=MagicMock(), grabResult=gr)
+        handler._worker.enqueue.assert_not_called()
+
+    def test_other_grab_failures_hand_off_to_stage_b(self):
+        """Non-removal failures take the slow path: enqueued to the
+        worker for classification, never handled inline."""
+        handler, parent = _bare_image_handler()
+        gr = MagicMock()
+        gr.GrabSucceeded.return_value = False
+        gr.GetErrorCode.return_value = 0xDEAD
+        handler.OnImageGrabbed(camera=MagicMock(), grabResult=gr)
+        parent._mark_disconnected.assert_not_called()
+        assert handler._worker.enqueue.call_count == 1
+        assert handler._worker.enqueue.call_args[0][0] == 'fail'
 
 
 class TestPylonDisconnectDestroyDevice:
@@ -5121,31 +5100,27 @@ class TestPylonOnImageGrabbedExceptionContext:
         return (Path(__file__).resolve().parent.parent / 'drivers' / 'pyloncamera.py').read_text()
 
     def test_on_image_grabbed_outer_except_uses_contextual_message(self):
-        """Bare `logger.exception(e)` is forbidden in OnImageGrabbed.
-        The fix uses an f-string with [CAM Class ] prefix and a callback
-        identifier."""
-        src = self._pyloncamera_source()
-        idx = src.find('def OnImageGrabbed(')
-        assert idx != -1, 'Could not find ImageHandler.OnImageGrabbed.'
-        end = src.find('def ', idx + 10)
-        body = src[idx:end]
-        # Find the outer except clause (indented less than the inner ones)
-        # Easiest: the literal `_outcome = 'exception_outer'` is unique.
-        marker = "_outcome = 'exception_outer'"
-        m_idx = body.find(marker)
-        assert m_idx != -1, (
-            'Could not find OnImageGrabbed outer-except sentinel '
-            "(_outcome = 'exception_outer'). If renamed, update test."
-        )
-        window = body[m_idx : m_idx + 250]
-        assert 'logger.exception(e)' not in window, (
-            'OnImageGrabbed outer-except must NOT call logger.exception(e) '
-            'with the bare exception object -- the rendered log line lacks '
-            '[CAM Class ] prefix and callback context.'
-        )
-        assert 'OnImageGrabbed' in window or '[CAM Class ]' in window, (
-            'OnImageGrabbed outer-except logger.exception call must include '
-            'a contextual prefix. Found:\n' + window
+        """An unexpected exception inside the callback must be swallowed
+        (anything escaping into Pylon's native grab thread can resolve
+        to std::terminate on Windows) and logged with a message that
+        names the callback -- a bare exception line gives the operator
+        no indication it came from the grab path."""
+        from drivers import pyloncamera
+
+        logged = []
+        original = pyloncamera._log_safely
+        pyloncamera._log_safely = logged.append
+        try:
+            handler, _parent = _bare_image_handler()
+            handler._worker.enqueue.side_effect = ValueError('boom')
+            gr = MagicMock()
+            gr.GrabSucceeded.return_value = True
+            handler.OnImageGrabbed(camera=MagicMock(), grabResult=gr)
+        finally:
+            pyloncamera._log_safely = original
+        assert any('OnImageGrabbed' in m for m in logged), (
+            'The outer guard must log with callback context; got: '
+            f'{logged!r}'
         )
 
 
