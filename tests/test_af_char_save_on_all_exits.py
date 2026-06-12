@@ -22,86 +22,82 @@ itself.
 
 from __future__ import annotations
 
-import ast
-import datetime
 import pathlib
-from unittest.mock import MagicMock
+import threading
 
 import pandas as pd
 import pytest
 
 from modules.autofocus_runner import AutofocusRunner
+from modules.exceptions import AutofocusAborted
+from tests.af_drives import af_runner_and_scope, drive_af
 
 
-def _autofocus_runner_source() -> str:
-    return (
-        pathlib.Path(__file__).resolve().parent.parent / 'modules' / 'autofocus_runner.py'
-    ).read_text()
+class TestSaveQueuedOnEveryExitPath:
+    """The diagnostic-data save must be queued on EVERY run() exit
+    (success, abort, exception), gated on save_results_to_file. A
+    success-branch-only save (the original bug) leaves the eager-made
+    results dir empty whenever AF does not complete."""
 
+    def _queued_save_tasks(self, runner):
+        return [
+            call.args[0]
+            for call in runner._file_io_executor.protocol_put.call_args_list
+            if call.args[0].action == runner._save_autofocus_data
+        ]
 
-def _function_source(source: str, func_name: str) -> str:
-    tree = ast.parse(source)
-    for node in ast.walk(tree):
-        if isinstance(node, ast.FunctionDef) and node.name == func_name:
-            text = ast.get_source_segment(source, node)
-            if text is None:
-                raise AssertionError(f'could not extract source for {func_name!r}')
-            return text
-    raise AssertionError(f'function {func_name!r} not found in source')
-
-
-def _finally_block_of_run(source: str) -> str:
-    """Return the source text of the `finally` clause inside `run()`.
-    AST-walked so we don't false-match a `finally` in some nested
-    helper. The finally-clause body is the list of stmts under the
-    Try node whose parent's name is 'run'."""
-    tree = ast.parse(source)
-    for node in ast.walk(tree):
-        if isinstance(node, ast.FunctionDef) and node.name == 'run':
-            for sub in ast.walk(node):
-                if isinstance(sub, ast.Try) and sub.finalbody:
-                    parts = [ast.get_source_segment(source, stmt) for stmt in sub.finalbody]
-                    return '\n'.join(p for p in parts if p is not None)
-    raise AssertionError('run() finally block not found')
-
-
-class TestSaveQueuedFromFinallyNotIterate:
-    """Structural: the save queue lives in run()'s finally, not in
-    _iterate()'s success branch. Locks the fix shape so a future
-    refactor that moves it back to _iterate fires the regression."""
-
-    def test_iterate_does_not_queue_save(self):
-        body = _function_source(_autofocus_runner_source(), '_iterate')
-        assert 'self._save_autofocus_data' not in body, (
-            '_iterate() must not queue _save_autofocus_data -- the save '
-            "must fire from run()'s finally block so abort, exception, "
-            'and degenerate-curve exits also save the diagnostic data.'
+    def test_success_exit_queues_save(self, tmp_path, monkeypatch):
+        monkeypatch.setattr('modules.autofocus_functions.focus_function', lambda image: 7.0)
+        runner, _scope = af_runner_and_scope()
+        drive_af(runner, save_results_to_file=True, results_dir=tmp_path)
+        assert self._queued_save_tasks(runner), (
+            'a successful AF run must queue _save_autofocus_data'
         )
 
-    def test_finally_block_queues_save(self):
-        finally_text = _finally_block_of_run(_autofocus_runner_source())
-        assert 'self._save_autofocus_data' in finally_text, (
-            "run()'s finally block must queue _save_autofocus_data so "
-            'AF Characterization data lands on disk on every exit path.'
+    def test_exception_exit_queues_save(self, tmp_path, monkeypatch):
+        """The save fires from the finally path: an AF loop that raises
+        must still queue the diagnostic save."""
+        runner, scope = af_runner_and_scope()
+        scope.imaging.capture_and_wait.side_effect = RuntimeError('camera fault')
+        with pytest.raises(RuntimeError, match='camera fault'):
+            drive_af(runner, save_results_to_file=True, results_dir=tmp_path)
+        assert self._queued_save_tasks(runner), (
+            'an AF run that raises must still queue _save_autofocus_data -- '
+            'the failure data is the whole point of the diagnostic'
         )
 
-    def test_finally_block_gates_on_save_results_to_file(self):
-        finally_text = _finally_block_of_run(_autofocus_runner_source())
-        assert 'self._save_results_to_file' in finally_text, (
-            'Save queue in finally must be gated on _save_results_to_file '
-            "so non-engineering-mode AF runs don't write empty CSVs."
+    def test_mid_pass_abort_promotes_and_queues_save(self, tmp_path, monkeypatch):
+        """An abort after one sample must promote the unpromoted in-pass
+        data and queue the save, so partial scans land on disk."""
+        abort_event = threading.Event()
+
+        def score_then_abort(image):
+            abort_event.set()
+            return 7.0
+
+        monkeypatch.setattr('modules.autofocus_functions.focus_function', score_then_abort)
+        runner, _scope = af_runner_and_scope()
+        with pytest.raises(AutofocusAborted):
+            drive_af(
+                runner,
+                abort_event=abort_event,
+                save_results_to_file=True,
+                results_dir=tmp_path,
+            )
+        assert self._queued_save_tasks(runner), (
+            'an aborted AF run must still queue _save_autofocus_data'
+        )
+        assert len(runner._af_data_full) == 1 and runner._af_data_pass == [], (
+            'the mid-pass sample must be promoted to _af_data_full before '
+            'the save is queued, or the CSV lands empty'
         )
 
-    def test_finally_block_promotes_partial_pass_data(self):
-        """A mid-coarse-pass abort leaves data in `_af_data_pass` that
-        never got promoted to `_af_data_full`. The finally block must
-        promote it before queueing the save, or partial scans land an
-        empty CSV even with the new save path."""
-        finally_text = _finally_block_of_run(_autofocus_runner_source())
-        assert 'self._af_data_full.extend(self._af_data_pass)' in finally_text, (
-            "run()'s finally block must extend _af_data_pass into "
-            '_af_data_full before queueing the save so mid-pass aborts '
-            'still produce diagnostic data.'
+    def test_no_save_queued_when_flag_off(self, monkeypatch):
+        monkeypatch.setattr('modules.autofocus_functions.focus_function', lambda image: 7.0)
+        runner, _scope = af_runner_and_scope()
+        drive_af(runner, save_results_to_file=False)
+        assert not self._queued_save_tasks(runner), (
+            "non-engineering-mode AF runs must not queue the diagnostic save"
         )
 
 

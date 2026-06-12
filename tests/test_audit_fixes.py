@@ -1331,53 +1331,56 @@ class TestD2_LEDBoardStateCacheHelper:
 
 
 class TestG3_AutofocusFailureNotification:
-    """G3: AF failures must notify the user (Rule 14)."""
+    """G3: AF failures must notify the user (Rule 14), routed through the
+    trigger-source popup gate so unattended-protocol runs are suppressed
+    while interactive runs still notify. Notify-or-suppress edge cases
+    are covered in depth by tests/test_autofocus_notify_gate.py."""
 
-    def test_af_exception_notifies_user(self, _mock_heavy_deps):
-        """AF exception handler must surface a user-facing notification.
+    def test_af_exception_notifies_user(self, monkeypatch):
+        """A raising AF loop must pop 'Autofocus Failed' for an
+        interactive trigger and suppress the popup for a protocol
+        trigger (proves the gate routing, not a bare error call)."""
+        from modules.notification_center import notifications
+        from tests.af_drives import af_runner_and_scope, drive_af
 
-        Post-aceda41 (AF popup gate for issue #649), the direct
-        ``notifications.error`` call routes through
-        ``self._notify_af_failure(...)`` so unattended-protocol runs
-        can suppress the modal popup while non-protocol runs still
-        notify. The G3 / Rule 14 contract -- "AF failure surfaces to
-        the user" -- still holds; the helper is what enforces it.
-        Notify-or-suppress correctness is covered separately by
-        tests/test_autofocus_notify_gate.py.
-        """
-        import pathlib
+        captured = []
+        monkeypatch.setattr(notifications, 'error', lambda *a, **k: captured.append(a))
 
-        source = pathlib.Path('modules/autofocus_runner.py').read_text()
-        idx = source.find('Error during loop')
-        assert idx != -1, 'Exception handler must exist'
-        nearby = source[idx : idx + 400]
-        assert '_notify_af_failure' in nearby, (
-            'AF exception handler must call _notify_af_failure (G3 -- Rule 14)'
+        runner, scope = af_runner_and_scope()
+        scope.imaging.capture_and_wait.side_effect = RuntimeError('camera fault')
+        with pytest.raises(RuntimeError, match='camera fault'):
+            drive_af(runner)
+        assert captured and captured[0][1] == 'Autofocus Failed', (
+            f'interactive AF failure must pop Autofocus Failed; got {captured}'
         )
 
-    def test_af_degenerate_curve_notifies_user(self, _mock_heavy_deps):
-        """AF degenerate curve handler must surface a user-facing notification.
-
-        Same _notify_af_failure routing as the exception path. See
-        test_af_exception_notifies_user for the rationale.
-        """
-        import pathlib
-
-        source = pathlib.Path('modules/autofocus_runner.py').read_text()
-        idx = source.find('degenerate focus curve')
-        assert idx != -1, 'Degenerate curve handler must exist'
-        nearby = source[idx : idx + 500]
-        assert '_notify_af_failure' in nearby, (
-            'AF degenerate curve handler must call _notify_af_failure (G3 -- Rule 14)'
+        captured.clear()
+        with pytest.raises(RuntimeError, match='camera fault'):
+            drive_af(runner, run_trigger_source='protocol')
+        assert captured == [], (
+            'unattended (protocol) AF failure must suppress the modal popup'
         )
 
-    def test_af_imports_notifications(self, _mock_heavy_deps):
-        """autofocus_runner must import notifications module."""
-        import pathlib
+    def test_af_degenerate_curve_notifies_user(self, monkeypatch):
+        """A flat focus curve must pop 'Autofocus Failed' and keep the
+        scan-center Z (no best-focus move)."""
+        from modules.notification_center import notifications
+        from tests.af_drives import AF_CENTER_Z, af_runner_and_scope, drive_af
 
-        source = pathlib.Path('modules/autofocus_runner.py').read_text()
-        assert 'from modules.notification_center import notifications' in source, (
-            'autofocus_runner must import notifications (G3)'
+        captured = []
+        monkeypatch.setattr(notifications, 'error', lambda *a, **k: captured.append(a))
+        monkeypatch.setattr('modules.autofocus_functions.focus_function', lambda image: 0.0)
+
+        runner, _scope = af_runner_and_scope()
+        result = drive_af(runner)
+        assert captured and captured[0][1] == 'Autofocus Failed', (
+            f'degenerate curve must notify the user; got {captured}'
+        )
+        assert 'flat or invalid' in captured[0][2], (
+            f'popup must explain the flat/invalid curve; got {captured[0]}'
+        )
+        assert result == AF_CENTER_Z, (
+            'degenerate abort must keep the current (scan-center) Z position'
         )
 
 
@@ -4007,90 +4010,47 @@ class TestFrameValidity_SaveLiveImageDrainsBeforeGrab:
         )
 
 
-def _scope_attribute_calls(source: str, func_name: str) -> set[str]:
-    """Return the set of `self._scope.<method>(...)` (or
-    `self._scope.<subapi>.<method>(...)`) attribute calls in a named function's
-    body -- the AF executor's indirect-via-_scope
-    grab pattern. Post-Wave-7 Phase 4: walks through `self._scope.imaging.<method>`
-    too -- the leaf method name is returned regardless of sub-API hop."""
-    import ast
-
-    tree = ast.parse(source)
-    target = None
-    for node in ast.walk(tree):
-        if isinstance(node, ast.FunctionDef) and node.name == func_name:
-            target = node
-            break
-    if target is None:
-        raise AssertionError(f'function {func_name!r} not found in source')
-    calls: set[str] = set()
-    for sub in ast.walk(target):
-        if isinstance(sub, ast.Call) and isinstance(sub.func, ast.Attribute):
-            value = sub.func.value
-            # match self._scope.<method>
-            if (
-                isinstance(value, ast.Attribute)
-                and value.attr == '_scope'
-                and isinstance(value.value, ast.Name)
-                and value.value.id == 'self'
-            ):
-                calls.add(sub.func.attr)
-            # match self._scope.<subapi>.<method>
-            elif (
-                isinstance(value, ast.Attribute)
-                and isinstance(value.value, ast.Attribute)
-                and value.value.attr == '_scope'
-                and isinstance(value.value.value, ast.Name)
-                and value.value.value.id == 'self'
-            ):
-                calls.add(sub.func.attr)
-    return calls
-
-
 class TestFrameValidity_AutofocusDrainsBeforeScore:
-    """AutofocusRunner._iterate must drain LED/gain/exposure-pending
+    """AutofocusRunner's scan loop must drain LED/gain/exposure-pending
     frames before scoring. Bare get_image after Z arrival can score on a
     mid-LED-warmup or mid-gain-change frame, corrupting the focus curve
     and landing the wrong best-Z. AF excludes z_move because AF is the
     controller of Z moves; once is_moving() reports idle, Z is settled."""
 
-    def test_iterate_calls_capture_and_wait(self):
-        from pathlib import Path
+    def _drive_full_af(self, monkeypatch):
+        from tests.af_drives import af_runner_and_scope, drive_af
 
-        src = (
-            Path(__file__).resolve().parent.parent / 'modules' / 'autofocus_runner.py'
-        ).read_text()
-        calls = _scope_attribute_calls(src, '_iterate')
-        assert 'capture_and_wait' in calls, (
-            'AutofocusRunner._iterate must call self._scope.imaging.capture_and_wait(...) '
+        monkeypatch.setattr('modules.autofocus_functions.focus_function', lambda image: 7.0)
+        runner, scope = af_runner_and_scope()
+        result = drive_af(runner)
+        return scope, result
+
+    def test_iterate_calls_capture_and_wait(self, monkeypatch):
+        scope, result = self._drive_full_af(monkeypatch)
+        assert scope.imaging.capture_and_wait.called, (
+            'the AF scan loop must grab via capture_and_wait '
             'to drain LED/gain/exposure pending frames before scoring.'
         )
+        assert result is not None, 'the drive must complete with a best-focus result'
 
-    def test_iterate_does_not_call_bare_get_image(self):
-        from pathlib import Path
-
-        src = (
-            Path(__file__).resolve().parent.parent / 'modules' / 'autofocus_runner.py'
-        ).read_text()
-        calls = _scope_attribute_calls(src, '_iterate')
-        assert 'get_image' not in calls, (
-            'AutofocusRunner._iterate must not call self._scope.imaging.get_image(...) '
-            'directly -- bypasses frame_validity. Route through capture_and_wait.'
+    def test_iterate_does_not_call_bare_get_image(self, monkeypatch):
+        scope, _ = self._drive_full_af(monkeypatch)
+        assert not scope.imaging.get_image.called, (
+            'the AF scan loop must not call get_image directly -- it '
+            'bypasses frame_validity. Route through capture_and_wait.'
         )
 
-    def test_iterate_excludes_z_move_in_validity(self):
+    def test_iterate_excludes_z_move_in_validity(self, monkeypatch):
         """AF excludes z_move because is_moving() already gates motion; the
         drain is for LED/gain/exposure transitions only."""
-        from pathlib import Path
-
-        src = (
-            Path(__file__).resolve().parent.parent / 'modules' / 'autofocus_runner.py'
-        ).read_text()
-        # both call sites must specify exclude_sources=('z_move',)
-        assert "exclude_sources=('z_move',)" in src, (
-            "AutofocusRunner._iterate's capture_and_wait calls must pass "
-            "exclude_sources=('z_move',) since is_moving() already gates motion."
-        )
+        scope, _ = self._drive_full_af(monkeypatch)
+        grabs = scope.imaging.capture_and_wait.call_args_list
+        assert grabs, 'the drive must reach the camera'
+        for grab in grabs:
+            assert grab.kwargs.get('exclude_sources') == ('z_move',), (
+                'every AF grab must pass exclude_sources=(\'z_move\',) since '
+                f'is_moving() already gates motion; got {grab}'
+            )
 
 
 class TestFrameValidity_CompositeEngineeringBranchDrains:
