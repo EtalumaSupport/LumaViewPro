@@ -1739,72 +1739,119 @@ class TestHomeReturnsBool:
             msg='MotionAPI.thome must declare `-> bool` (Rule 37)',
         )
 
-    def test_lumascope_zhome_returns_driver_value(self):
-        """Method body must return True on success and False on failure paths.
+    @staticmethod
+    def _record_errors(monkeypatch):
+        """Route notifications.error into a list of (component, title, body)."""
+        from modules.notification_center import notifications
 
-        Body lives on MotionAPI (motion.py) after Wave 7 Phase 2c; the
-        Lumascope surface keeps a thin forwarder. Driver call uses
-        self._driver (the MotionAPI re-resolving property) per 2b/2c
-        convention, matching the home/thome tests at line 1500/1519.
-        """
-        import pathlib
-
-        source = pathlib.Path('modules/lumascope_api/motion.py').read_text()
-        idx = source.find('def zhome(self) -> bool:')
-        assert idx != -1
-        next_def = source.find('\n    def ', idx + 1)
-        body = source[idx:next_def] if next_def != -1 else source[idx : idx + 2000]
-        assert 'result = self._driver.zhome()' in body, (
-            'zhome must capture driver return into `result`'
+        calls = []
+        monkeypatch.setattr(
+            notifications, 'error', lambda *args, **kwargs: calls.append(args)
         )
-        assert 'return True' in body, 'zhome success path must `return True` (Wave 2 B9)'
-        assert 'return False' in body, 'zhome failure paths must `return False` (Wave 2 B9)'
-        assert 'Returns:' in body, 'zhome docstring must have a Returns: section (Rule 38)'
+        return calls
 
-    def test_lumascope_home_returns_driver_value(self):
-        """Method body must capture and propagate the driver's return.
+    def test_zhome_propagates_driver_true(self, sim_scope, monkeypatch):
+        errors = self._record_errors(monkeypatch)
+        monkeypatch.setattr(sim_scope._motion_driver, 'zhome', lambda: True)
+        assert sim_scope.motion.zhome() is True
+        assert errors == [], f'success path must not notify; got {errors}'
 
-        Body lives on MotionAPI (motion.py) after the Wave 7 stateless
-        decomposition; the Lumascope surface keeps a thin forwarder.
-        """
-        import pathlib
-
-        source = pathlib.Path('modules/lumascope_api/motion.py').read_text()
-        idx = source.find('def home(self) -> bool:')
-        assert idx != -1
-        next_def = source.find('\n    def ', idx + 1)
-        body = source[idx:next_def] if next_def != -1 else source[idx : idx + 3000]
-        assert 'result = self._driver.home()' in body, (
-            'home must capture driver return into `result`'
+    def test_zhome_returns_false_and_notifies_on_driver_false(
+        self, sim_scope, monkeypatch
+    ):
+        errors = self._record_errors(monkeypatch)
+        monkeypatch.setattr(sim_scope._motion_driver, 'zhome', lambda: False)
+        assert sim_scope.motion.zhome() is False
+        assert any('Homing Failed' in e for e in errors), (
+            f'driver False must notify the user (Rule 14); got {errors}'
         )
-        assert 'return True' in body, 'home success path must `return True` (Wave 2 B10)'
-        assert 'return False' in body, 'home failure paths must `return False` (Wave 2 B10)'
-        assert 'Returns:' in body, 'home docstring must have a Returns: section (Rule 38)'
 
-    def test_lumascope_thome_returns_driver_value(self):
-        """Method body must capture, notify on False, and return the bool.
+    def test_zhome_returns_false_and_notifies_on_driver_raise(
+        self, sim_scope, monkeypatch
+    ):
+        errors = self._record_errors(monkeypatch)
 
-        Pre-Wave-2, thome dropped the driver return entirely (no capture,
-        no notify on failure). This pins the captured-and-returned shape.
-        Body lives on MotionAPI (motion.py) after the Wave 7 stateless
-        decomposition; the Lumascope surface keeps a thin forwarder.
-        """
-        import pathlib
+        def boom():
+            raise HardwareError('no response from motor board')
 
-        source = pathlib.Path('modules/lumascope_api/motion.py').read_text()
-        idx = source.find('def thome(self) -> bool:')
-        assert idx != -1
-        next_def = source.find('\n    def ', idx + 1)
-        body = source[idx:next_def] if next_def != -1 else source[idx : idx + 3000]
-        assert 'result = self._driver.thome()' in body, (
-            'thome must capture driver return into `result` (Wave 2 B8)'
+        monkeypatch.setattr(sim_scope._motion_driver, 'zhome', boom)
+        assert sim_scope.motion.zhome() is False
+        assert any('Homing Error' in e for e in errors), (
+            f'driver raise must notify the user (Rule 14); got {errors}'
         )
-        assert 'return True' in body, 'thome success path must `return True` (Wave 2 B8)'
-        assert 'return False' in body, 'thome failure paths must `return False` (Wave 2 B8)'
-        assert 'Turret homing failed' in body or 'Homing Failed' in body, (
-            'thome must notify the user on driver False (Rule 14)'
+
+    def test_home_propagates_driver_true(self, sim_scope, monkeypatch):
+        errors = self._record_errors(monkeypatch)
+        monkeypatch.setattr(sim_scope._motion_driver, 'home', lambda: True)
+        assert sim_scope.motion.home() is True
+        assert errors == [], f'success path must not notify; got {errors}'
+
+    def test_home_returns_false_and_notifies_on_driver_false(
+        self, sim_scope, monkeypatch
+    ):
+        errors = self._record_errors(monkeypatch)
+        monkeypatch.setattr(sim_scope._motion_driver, 'home', lambda: False)
+        assert sim_scope.motion.home() is False
+        assert any('Homing Failed' in e for e in errors), (
+            f'driver False must notify the user (Rule 14); got {errors}'
         )
-        assert 'Returns:' in body, 'thome docstring must have a Returns: section (Rule 38)'
+
+    def test_home_returns_false_and_notifies_on_driver_raise(
+        self, sim_scope, monkeypatch
+    ):
+        errors = self._record_errors(monkeypatch)
+
+        def boom():
+            raise HardwareError('firmware error')
+
+        monkeypatch.setattr(sim_scope._motion_driver, 'home', boom)
+        assert sim_scope.motion.home() is False
+        assert any('Homing Error' in e for e in errors), (
+            f'driver raise must notify the user (Rule 14); got {errors}'
+        )
+
+    def test_thome_propagates_driver_true(self, sim_scope, monkeypatch):
+        sim_scope._motion_driver.set_timing_mode('instant')
+        errors = self._record_errors(monkeypatch)
+        monkeypatch.setattr(sim_scope._motion_driver, 'thome', lambda: True)
+        assert sim_scope.motion.thome() is True
+        assert errors == [], f'success path must not notify; got {errors}'
+
+    def test_thome_returns_false_and_notifies_on_driver_false(
+        self, sim_scope, monkeypatch
+    ):
+        sim_scope._motion_driver.set_timing_mode('instant')
+        errors = self._record_errors(monkeypatch)
+        monkeypatch.setattr(sim_scope._motion_driver, 'thome', lambda: False)
+        assert sim_scope.motion.thome() is False
+        assert any('Turret' in ' '.join(e) for e in errors), (
+            f'turret-homing failure must name the turret (Rule 14/20); got {errors}'
+        )
+
+    def test_thome_returns_false_and_notifies_on_driver_raise(
+        self, sim_scope, monkeypatch
+    ):
+        sim_scope._motion_driver.set_timing_mode('instant')
+        errors = self._record_errors(monkeypatch)
+
+        def boom():
+            raise HardwareError('no response from motor board')
+
+        monkeypatch.setattr(sim_scope._motion_driver, 'thome', boom)
+        assert sim_scope.motion.thome() is False
+        assert any('Turret' in ' '.join(e) for e in errors), (
+            f'turret-homing raise must notify naming the turret; got {errors}'
+        )
+
+    def test_homing_docstrings_document_returns(self):
+        """Each homing method's docstring documents the bool contract
+        (Rule 38) -- runtime introspection, not a source pin."""
+        from modules.lumascope_api.motion import MotionAPI
+
+        for method in (MotionAPI.zhome, MotionAPI.home, MotionAPI.thome):
+            assert 'Returns:' in (method.__doc__ or ''), (
+                f'{method.__name__} docstring must have a Returns: section'
+            )
 
     def test_motorboard_zhome_raises_hardware_error(self):
         """Tier 3b D1: MotorBoard.zhome must raise HardwareError on

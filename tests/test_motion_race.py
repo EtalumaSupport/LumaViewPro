@@ -33,76 +33,15 @@ checks `scope.is_moving()` before capturing each focus-curve sample. AF
 race. The fix resolves both #618 and the latent AF issue.
 """
 
-import ast
-import pathlib
-import threading
-from unittest.mock import MagicMock
-
 import pytest
 
 # Heavy deps are mocked by tests/conftest.py at module-import time.
 
 
-REPO = pathlib.Path(__file__).parent.parent
-LUMASCOPE_API = REPO / 'modules' / 'lumascope_api' / '_lumascope.py'
-MOTION_API = REPO / 'modules' / 'lumascope_api' / 'motion.py'
-
-
-# ---------------------------------------------------------------------------
-# Source-level pin (catches reverts, runs without importing Lumascope)
-# ---------------------------------------------------------------------------
-
-
-def _find_method_source(class_name: str, method_name: str) -> str:
-    # Wave 7 Phase 2c: stateful bodies live on MotionAPI in motion.py.
-    # Route by class name so existing call sites don't all need updating.
-    if class_name == 'MotionAPI':
-        src_path = MOTION_API
-    else:
-        src_path = LUMASCOPE_API
-    tree = ast.parse(src_path.read_text(encoding='utf-8'))
-    for node in ast.walk(tree):
-        if isinstance(node, ast.ClassDef) and node.name == class_name:
-            for child in node.body:
-                if isinstance(child, ast.FunctionDef) and child.name == method_name:
-                    return ast.unparse(child)
-    raise AssertionError(f'{class_name}.{method_name} not found')
-
-
-class TestSourceOrder_618:
-    """#618 source pin: motion.move_abs_pos / move_rel_pos must appear
-    BEFORE _set_axis_state(MOVING) in their respective methods.
-
-    Bodies live on MotionAPI (motion.py) after Wave 7 Phase 2c; the
-    Lumascope surface keeps a thin forwarder. The ordering invariant
-    that fixes the #618 race must be enforced at the canonical body,
-    not the forwarder.
-    """
-
-    def test_move_absolute_position_writes_hardware_first(self):
-        body = _find_method_source('MotionAPI', 'move_absolute_position')
-        move_idx = body.find('self._driver.move_abs_pos(')
-        state_idx = body.find('self._set_axis_state(axis, AxisState.MOVING)')
-        assert move_idx != -1, 'move_abs_pos call missing from move_absolute_position'
-        assert state_idx != -1, '_set_axis_state(MOVING) call missing'
-        assert move_idx < state_idx, (
-            'move_abs_pos must be called BEFORE _set_axis_state(MOVING) to avoid the #618 race'
-        )
-
-    def test_move_relative_position_writes_hardware_first(self):
-        body = _find_method_source('MotionAPI', 'move_relative_position')
-        move_idx = body.find('self._driver.move_rel_pos(')
-        state_idx = body.find('self._set_axis_state(axis, AxisState.MOVING)')
-        assert move_idx != -1, 'move_rel_pos call missing from move_relative_position'
-        assert state_idx != -1, '_set_axis_state(MOVING) call missing'
-        assert move_idx < state_idx, (
-            'move_rel_pos must be called BEFORE _set_axis_state(MOVING) to avoid the #618 race'
-        )
-
-
 # ---------------------------------------------------------------------------
 # Runtime ordering test -- uses real Lumascope(simulate=True) and traces
-# the actual call sequence.
+# the actual call sequence. (The hardware-write-before-MOVING invariant
+# is proven here behaviorally; there is no separate source-text pin.)
 # ---------------------------------------------------------------------------
 
 
@@ -303,51 +242,85 @@ class TestMoveRelProfile_674:
     predictor is ready by the time the move is observable as in-progress.
     """
 
-    def test_source_writes_profile_after_driver_before_state_transition(self):
-        """Source pin: _move_profile write must appear AFTER the
-        move_rel_pos driver call AND BEFORE the state transition to
-        MOVING. Catches a revert in either direction (#674 fix dropped,
-        or H3 fix reverted to pre-driver-call write)."""
-        body = _find_method_source('MotionAPI', 'move_relative_position')
-        profile_idx = body.find('self._move_profile[axis] = {')
-        driver_idx = body.find('self._driver.move_rel_pos(')
-        state_idx = body.find('self._set_axis_state(axis, AxisState.MOVING)')
-        assert profile_idx != -1, (
-            'move_relative_position must write self._move_profile[axis] (#674 fix)'
-        )
-        assert driver_idx != -1, 'move_rel_pos call missing'
-        assert state_idx != -1, '_set_axis_state(MOVING) missing'
-        assert driver_idx < profile_idx, (
-            'profile write must follow the driver call so start_time captures '
-            'post-serial-RT timing (H3 refinement to #674 fix)'
-        )
-        assert profile_idx < state_idx, (
-            'profile write must precede _set_axis_state(MOVING) so the '
-            'predictor is ready when the axis becomes observably MOVING'
-        )
+    def test_runtime_abs_profile_set_after_driver_returns(self):
+        """ABSOLUTE-move path: bench evidence (LS850 click-on-plate)
+        confirmed the visible bug is most dramatic on absolute moves
+        through io_executor's task queue. Hooked at the driver call's
+        RETURN moment, profile must be UNSET -- proves the write follows
+        the driver call so start_time captures post-serial-RT timing."""
+        from modules.lumascope_api import Lumascope
 
-    def test_source_move_absolute_position_h3_ordering(self):
-        """Source pin for the ABSOLUTE-move path: bench evidence
-        (2026-05-26 LS850 click-on-plate) confirmed the visible bug is
-        most dramatic on absolute moves through io_executor's task queue.
-        The H3 fix applies symmetrically: profile write must follow the
-        move_abs_pos driver call AND precede the MOVING state transition."""
-        body = _find_method_source('MotionAPI', 'move_absolute_position')
-        profile_idx = body.find('self._move_profile[axis] = {')
-        driver_idx = body.find('self._driver.move_abs_pos(')
-        state_idx = body.find('self._set_axis_state(axis, AxisState.MOVING)')
-        assert profile_idx != -1, (
-            'move_absolute_position must write self._move_profile[axis]'
+        scope = Lumascope(simulate=True)
+        scope._motion_driver.set_timing_mode('fast')
+
+        scope.motion.move_absolute_position('X', 1000.0, wait_until_complete=True)
+
+        observed = {}
+        orig_move_abs = scope._motion_driver.move_abs_pos
+
+        def snapshot_at_driver_return(axis, um, *args, **kwargs):
+            result = orig_move_abs(axis, um, *args, **kwargs)
+            with scope.motion._move_profile_lock:
+                profile = scope.motion._move_profile.get(axis)
+            observed['profile_at_driver_return'] = (
+                None if profile is None else dict(profile)
+            )
+            return result
+
+        scope._motion_driver.move_abs_pos = snapshot_at_driver_return
+
+        scope.motion.move_absolute_position('X', 1400.0, wait_until_complete=False)
+
+        assert observed.get('profile_at_driver_return') is None, (
+            'profile must be UNSET when move_abs_pos returns -- the outer '
+            'move_absolute_position writes it AFTER the driver returns. '
+            f'Observed: {observed.get("profile_at_driver_return")!r}'
         )
-        assert driver_idx != -1, 'move_abs_pos call missing'
-        assert state_idx != -1, '_set_axis_state(MOVING) missing'
-        assert driver_idx < profile_idx, (
-            'profile write must follow the driver call (H3 refinement); '
-            'start_time captured before the ~50 ms serial RT would make '
-            '_predicted_position lead the motor on every move'
+        with scope.motion._move_profile_lock:
+            profile = scope.motion._move_profile.get('X')
+        assert profile is not None, (
+            '_move_profile[X] must be written by the time '
+            'move_absolute_position returns'
         )
-        assert profile_idx < state_idx, (
-            'profile write must precede _set_axis_state(MOVING)'
+        assert profile['target_pos'] == pytest.approx(1400.0, abs=5.0)
+
+    @pytest.mark.parametrize('move', ['absolute', 'relative'])
+    def test_runtime_profile_present_at_moving_transition(self, move):
+        """The profile must already be written when the axis transitions
+        to MOVING -- otherwise the predictor reads None for an observably
+        moving axis and the crosshair falls through to the cache."""
+        from modules.lumascope_api import AxisState, Lumascope
+
+        scope = Lumascope(simulate=True)
+        scope._motion_driver.set_timing_mode('fast')
+
+        scope.motion.move_absolute_position('X', 1000.0, wait_until_complete=True)
+
+        observed = {}
+        orig_set_state = scope.motion._set_axis_state
+
+        def snapshot_at_moving(ax, state):
+            if ax == 'X' and state == AxisState.MOVING:
+                with scope.motion._move_profile_lock:
+                    profile = scope.motion._move_profile.get('X')
+                observed['profile_at_moving'] = (
+                    None if profile is None else dict(profile)
+                )
+            return orig_set_state(ax, state)
+
+        scope.motion._set_axis_state = snapshot_at_moving
+
+        if move == 'absolute':
+            scope.motion.move_absolute_position('X', 1400.0, wait_until_complete=False)
+        else:
+            scope.motion.move_relative_position('X', 400.0, wait_until_complete=False)
+
+        assert 'profile_at_moving' in observed, (
+            'the move must transition X to MOVING'
+        )
+        assert observed['profile_at_moving'] is not None, (
+            'profile must be written BEFORE _set_axis_state(MOVING) so the '
+            'predictor is ready when the axis becomes observably MOVING'
         )
 
     def test_runtime_profile_set_after_driver_returns(self):
