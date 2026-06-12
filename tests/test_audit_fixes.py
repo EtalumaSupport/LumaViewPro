@@ -5551,59 +5551,69 @@ class TestPylonDltlClampAndDocWarnings:
     transports.
     """
 
-    def _pyloncamera_source(self):
-        from pathlib import Path
+    def _camera_with_dltl_range(self, lo=1000, hi=5000):
+        cam = _bare_pylon_camera()
+        cam.active.DeviceLinkThroughputLimit.GetMin.return_value = lo
+        cam.active.DeviceLinkThroughputLimit.GetMax.return_value = hi
+        return cam
 
-        return (Path(__file__).resolve().parent.parent / 'drivers' / 'pyloncamera.py').read_text()
+    def _set_dltl(self, cam, value_bps):
+        from unittest import mock
 
-    def test_clamp_helper_present(self):
-        src = self._pyloncamera_source()
-        assert 'def _clamp_dltl_value_bps(self, value_bps: int) -> int:' in src, (
-            '_clamp_dltl_value_bps helper must exist with the documented signature.'
+        from drivers import pyloncamera
+
+        log = MagicMock()
+        with mock.patch.object(pyloncamera, '_cam_log', log):
+            result = cam.set_device_link_throughput_limit('On', value_bps=value_bps)
+        warnings = [str(call.args[0]) for call in log.warning.call_args_list]
+        return result, warnings
+
+    def test_below_minimum_clamps_to_min_and_warns(self):
+        cam = self._camera_with_dltl_range()
+        result, warnings = self._set_dltl(cam, 500)
+        assert result is True
+        cam.active.DeviceLinkThroughputLimit.SetValue.assert_called_once_with(1000)
+        assert any('clamping' in m for m in warnings), (
+            f'A clamped low DLTL value must warn the operator; got {warnings!r}'
         )
 
-    def test_clamp_calls_min_max_query(self):
-        src = self._pyloncamera_source()
-        idx = src.find('def _clamp_dltl_value_bps(')
-        assert idx != -1
-        end = src.find('\n    def ', idx + 10)
-        body = src[idx:end]
-        assert '.GetMin()' in body and '.GetMax()' in body, (
-            '_clamp_dltl_value_bps must query DeviceLinkThroughputLimit'
-            '.GetMin() and .GetMax() to determine the clamp range.'
-        )
+    def test_above_maximum_clamps_to_max_and_warns(self):
+        cam = self._camera_with_dltl_range()
+        result, warnings = self._set_dltl(cam, 9000)
+        assert result is True
+        cam.active.DeviceLinkThroughputLimit.SetValue.assert_called_once_with(5000)
+        assert any('clamping' in m for m in warnings)
 
-    def test_setter_calls_clamp_helper(self):
-        src = self._pyloncamera_source()
-        idx = src.find('def set_device_link_throughput_limit(')
-        assert idx != -1
-        end = src.find('\n    def ', idx + 10)
-        body = src[idx:end]
-        assert '_clamp_dltl_value_bps' in body, (
-            'set_device_link_throughput_limit must run value_bps '
-            'through _clamp_dltl_value_bps before SetValue.'
-        )
+    def test_in_range_value_passes_unclamped(self):
+        cam = self._camera_with_dltl_range()
+        result, warnings = self._set_dltl(cam, 3000)
+        assert result is True
+        cam.active.DeviceLinkThroughputLimit.SetValue.assert_called_once_with(3000)
+        assert not warnings
 
-    def test_docstring_records_too_low_warning(self):
-        """Rolling-shutter distortion warning must appear in the docstring."""
-        src = self._pyloncamera_source()
-        idx = src.find('def set_device_link_throughput_limit(')
-        assert idx != -1
-        end = src.find('"""', src.find('"""', idx) + 3) + 3
-        docstring = src[idx:end]
-        assert 'rolling shutter' in docstring.lower() or 'rolling-shutter' in docstring.lower(), (
+    def test_minmax_query_failure_passes_value_through(self):
+        """Best-effort contract: if the range query fails, the value is
+        written unchanged (the SDK's own OutOfRangeException then
+        surfaces through the RuntimeException branch)."""
+        cam = _bare_pylon_camera()
+        cam.active.DeviceLinkThroughputLimit.GetMin.side_effect = RuntimeError('no node')
+        result, _warnings = self._set_dltl(cam, 12345)
+        assert result is True
+        cam.active.DeviceLinkThroughputLimit.SetValue.assert_called_once_with(12345)
+
+    def test_docstring_records_both_basler_range_warnings(self):
+        # pin-justified: the docstring is the documented operator
+        # contract for picking a DLTL value (per-camera spec pages name
+        # rolling-shutter distortion when too low, corrupt/dropped
+        # frames when too high); the warning text itself is the artifact.
+        from drivers.pyloncamera import PylonCamera
+
+        docstring = (PylonCamera.set_device_link_throughput_limit.__doc__ or '').lower()
+        assert 'rolling shutter' in docstring or 'rolling-shutter' in docstring, (
             'DLTL setter docstring must record the rolling-shutter '
             'distortion warning per per-camera spec pages.'
         )
-
-    def test_docstring_records_too_high_warning(self):
-        """Corrupt/dropped frames warning must appear in the docstring."""
-        src = self._pyloncamera_source()
-        idx = src.find('def set_device_link_throughput_limit(')
-        assert idx != -1
-        end = src.find('"""', src.find('"""', idx) + 3) + 3
-        docstring = src[idx:end]
-        assert 'corrupt' in docstring.lower() or 'dropped' in docstring.lower(), (
+        assert 'corrupt' in docstring or 'dropped' in docstring, (
             'DLTL setter docstring must record the too-high warning '
             '(corrupt or dropped frames) per per-camera spec pages.'
         )
@@ -6581,60 +6591,34 @@ class TestPylonAutoGainNoUpdateCameraConfigWrap:
     .test_pylon_driver_does_not_wrap_in_update_camera_config.
     """
 
-    def _pyloncamera_source(self):
-        from pathlib import Path
-
-        return (Path(__file__).resolve().parent.parent / 'drivers' / 'pyloncamera.py').read_text()
-
-    def test_update_auto_gain_target_brightness_does_not_wrap(self):
-        body = _function_source(
-            self._pyloncamera_source(),
-            'update_auto_gain_target_brightness',
-        )
-        assert 'with self.update_camera_config' not in body, (
-            'PylonCamera.update_auto_gain_target_brightness must NOT '
-            'wrap the AutoTargetBrightness write in update_camera_config '
-            '(runtime-modifiable per Basler; wrapping would impose the '
-            'STALL-1 over-stop pattern).'
+    def test_update_auto_gain_target_brightness_writes_live(self):
+        """The write must land on the live node WITHOUT entering the
+        update_camera_config stop/start cycle."""
+        cam = _bare_pylon_camera()
+        cam.update_camera_config = MagicMock()
+        cam.active.AutoTargetBrightness.GetValue.return_value = 0.1
+        cam.update_auto_gain_target_brightness(0.5)
+        cam.active.AutoTargetBrightness.SetValue.assert_called_once_with(0.5)
+        assert not cam.update_camera_config.called, (
+            'update_auto_gain_target_brightness must NOT enter '
+            'update_camera_config -- AutoTargetBrightness is runtime-'
+            'modifiable per Basler; wrapping would impose the over-stop '
+            'pattern.'
         )
 
-    def test_update_auto_gain_min_max_does_not_wrap(self):
-        body = _function_source(
-            self._pyloncamera_source(),
-            'update_auto_gain_min_max',
-        )
-        assert 'with self.update_camera_config' not in body, (
-            'PylonCamera.update_auto_gain_min_max must NOT wrap the '
-            'AutoGainLowerLimit / AutoGainUpperLimit writes in '
-            'update_camera_config (runtime-modifiable per Basler; '
-            'wrapping would impose the STALL-1 over-stop pattern).'
-        )
-
-    def test_pylon_driver_writes_auto_target_brightness_directly(self):
-        """Sanity: the method really does call .SetValue on the node so
-        the no-wrap test isn't passing because the method is empty."""
-        body = _function_source(
-            self._pyloncamera_source(),
-            'update_auto_gain_target_brightness',
-        )
-        assert 'AutoTargetBrightness.SetValue(' in body, (
-            'PylonCamera.update_auto_gain_target_brightness must call '
-            'AutoTargetBrightness.SetValue(...) on the live nodemap.'
-        )
-
-    def test_pylon_driver_writes_auto_gain_limits_directly(self):
-        """Sanity: same as above for the min/max pair."""
-        body = _function_source(
-            self._pyloncamera_source(),
-            'update_auto_gain_min_max',
-        )
-        assert 'AutoGainLowerLimit.SetValue(' in body, (
-            'PylonCamera.update_auto_gain_min_max must call '
-            'AutoGainLowerLimit.SetValue(...) on the live nodemap.'
-        )
-        assert 'AutoGainUpperLimit.SetValue(' in body, (
-            'PylonCamera.update_auto_gain_min_max must call '
-            'AutoGainUpperLimit.SetValue(...) on the live nodemap.'
+    def test_update_auto_gain_min_max_writes_live(self):
+        cam = _bare_pylon_camera()
+        cam.update_camera_config = MagicMock()
+        cam.active.AutoGainLowerLimit.GetValue.return_value = 5.0
+        cam.active.AutoGainUpperLimit.GetValue.return_value = 20.0
+        cam.update_auto_gain_min_max(0.0, 24.0)
+        cam.active.AutoGainLowerLimit.SetValue.assert_called_once_with(0.0)
+        cam.active.AutoGainUpperLimit.SetValue.assert_called_once_with(24.0)
+        assert not cam.update_camera_config.called, (
+            'update_auto_gain_min_max must NOT enter '
+            'update_camera_config -- the auto-gain limits are runtime-'
+            'modifiable per Basler; wrapping would impose the over-stop '
+            'pattern (twice per auto_gain call).'
         )
 
 
