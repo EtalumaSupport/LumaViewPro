@@ -2182,35 +2182,33 @@ class TestPylonChunkTimestampEnabled:
     """
 
     def test_timestamp_in_chunk_targets_always(self):
-        import pathlib
-
-        source = pathlib.Path('drivers/pyloncamera.py').read_text()
         # _CHUNK_TARGETS_ALWAYS is the tuple enabled by default in
         # _enable_validity_chunks; Timestamp must be in it for every
         # camera to surface ChunkTimestamp at grab time.
-        idx = source.find('_CHUNK_TARGETS_ALWAYS')
-        assert idx >= 0, '_CHUNK_TARGETS_ALWAYS not found in pyloncamera.py'
-        decl_end = source.find(')', idx)
-        decl = source[idx:decl_end]
-        assert "'Timestamp'" in decl, (
-            "_CHUNK_TARGETS_ALWAYS must include 'Timestamp' for issue #633 "
-            'per-frame timestamps. Currently: ' + decl
+        from drivers.pyloncamera import PylonCamera
+
+        assert 'Timestamp' in PylonCamera._CHUNK_TARGETS_ALWAYS, (
+            "_CHUNK_TARGETS_ALWAYS must include 'Timestamp' for "
+            'per-frame timestamps. Currently: '
+            f'{PylonCamera._CHUNK_TARGETS_ALWAYS!r}'
         )
 
-    def test_chunktimestamp_in_grab_result_attrs(self):
-        import pathlib
+    def test_chunktimestamp_surfaces_in_validity_chunks_read(self):
+        """The read side must surface a grab result's ChunkTimestamp
+        under the 'Timestamp' dict key -- without the mapping, the
+        timestamp never reaches the metadata writer even when the
+        chunk is enabled."""
+        from drivers.pyloncamera import _read_validity_chunks
 
-        source = pathlib.Path('drivers/pyloncamera.py').read_text()
-        # _CHUNK_GRAB_RESULT_ATTRS maps SDK attr -> chunks dict key.
-        # Without this entry the read side won't surface the timestamp
-        # even if the chunk is enabled.
-        idx = source.find('_CHUNK_GRAB_RESULT_ATTRS')
-        assert idx >= 0, '_CHUNK_GRAB_RESULT_ATTRS not found in pyloncamera.py'
-        next_def = source.find('\n    def ', idx)
-        decl = source[idx:next_def] if next_def > 0 else source[idx : idx + 1000]
-        assert "'ChunkTimestamp'" in decl and "'Timestamp'" in decl, (
-            "_CHUNK_GRAB_RESULT_ATTRS must map ChunkTimestamp -> 'Timestamp'. Currently: " + decl
-        )
+        class _Node:
+            def __init__(self, value):
+                self.Value = value
+
+        class _GrabResult:
+            ChunkTimestamp = _Node(987654321)
+
+        chunks = _read_validity_chunks(_GrabResult())
+        assert chunks is not None and chunks['Timestamp'] == 987654321
 
     def test_camera_base_has_timestamp_tick_frequency_hz(self):
         # The Camera base class declares the attribute so callers
@@ -3389,6 +3387,7 @@ from tests.camera_fakes import (
     bare_ids_camera as _bare_ids_camera,
     bare_image_handler as _bare_image_handler,
     bare_pylon_camera as _bare_pylon_camera,
+    chunk_config_pylon_camera as _chunk_config_pylon_camera,
     diag_snapshot_pylon_camera as _diag_snapshot_pylon_camera,
     disconnectable_pylon_camera as _disconnectable_pylon_camera,
     fake_trigger_entry as _fake_trigger_entry,
@@ -5088,41 +5087,37 @@ class TestPylonOnImageGrabbedOwningCopy:
     queue.
     """
 
-    def _pyloncamera_source(self):
-        from pathlib import Path
+    def _grab_with_copy_recorder(self, grab_succeeded, err_code=None):
+        """Drive OnImageGrabbed with pylon.GrabResult patched to a
+        recorder, so the enqueue payload reveals whether the owning
+        copy ctor was invoked on the raw grabResult."""
+        from unittest import mock
 
-        return (Path(__file__).resolve().parent.parent / 'drivers' / 'pyloncamera.py').read_text()
+        from drivers import pyloncamera
 
-    def _on_image_grabbed_body(self):
-        src = self._pyloncamera_source()
-        idx = src.find('def OnImageGrabbed(')
-        assert idx != -1, 'Could not find ImageHandler.OnImageGrabbed.'
-        end = src.find('def ', idx + 10)
-        return src[idx:end]
+        handler, _parent = _bare_image_handler()
+        gr = MagicMock()
+        gr.GrabSucceeded.return_value = grab_succeeded
+        if err_code is not None:
+            gr.GetErrorCode.return_value = err_code
+        with mock.patch.object(
+            pyloncamera.pylon, 'GrabResult', side_effect=lambda source: ('owned', source)
+        ):
+            handler.OnImageGrabbed(camera=MagicMock(), grabResult=gr)
+        assert handler._worker.enqueue.called, 'expected an enqueue to Stage B'
+        return gr, handler._worker.enqueue.call_args.args
 
     def test_frame_enqueue_uses_owning_copy(self):
         """The 'frame' success-path enqueue must hand the worker an
         owning wrapper produced by ``pylon.GrabResult(grabResult)``,
-        not the raw SDK-delivered grabResult."""
-        body = self._on_image_grabbed_body()
-        marker = "self._worker.enqueue('frame'"
-        m_idx = body.find(marker)
-        assert m_idx != -1, (
-            "Could not find the 'frame' enqueue site in OnImageGrabbed. If renamed, update test."
-        )
-        window_start = max(0, m_idx - 400)
-        window = body[window_start : m_idx + 200]
-        assert 'pylon.GrabResult(grabResult)' in window, (
-            "OnImageGrabbed 'frame' enqueue must be preceded by an "
-            'explicit owning-copy invocation: '
-            'owned = pylon.GrabResult(grabResult). Without it, the '
-            'queued wrapper goes dangling when OnImageGrabbed returns. '
-            'Window:\n' + window
-        )
-        assert "self._worker.enqueue('frame', grabResult," not in window, (
-            'OnImageGrabbed must NOT pass the raw grabResult straight to '
-            'the worker queue -- the SWIG-director wrapper is non-owning '
-            'for callback parameters.'
+        not the raw SDK-delivered grabResult -- the raw wrapper goes
+        dangling when OnImageGrabbed returns."""
+        gr, args = self._grab_with_copy_recorder(grab_succeeded=True)
+        kind, payload = args[0], args[1]
+        assert kind == 'frame'
+        assert payload == ('owned', gr), (
+            'OnImageGrabbed must enqueue the copy-constructed owning '
+            f'wrapper, not the raw grabResult; got {payload!r}'
         )
 
     def test_fail_enqueue_uses_owning_copy(self):
@@ -5130,25 +5125,12 @@ class TestPylonOnImageGrabbedOwningCopy:
         thread handoff as the success path and needs the same owning
         wrapper. Stage B reads GetErrorCode / GetErrorDescription /
         GetBlockID through the queued reference."""
-        body = self._on_image_grabbed_body()
-        marker = "self._worker.enqueue('fail'"
-        m_idx = body.find(marker)
-        assert m_idx != -1, (
-            "Could not find the 'fail' enqueue site in OnImageGrabbed. If renamed, update test."
-        )
-        window_start = max(0, m_idx - 400)
-        window = body[window_start : m_idx + 200]
-        assert 'pylon.GrabResult(grabResult)' in window, (
-            "OnImageGrabbed 'fail' enqueue must be preceded by an "
-            'explicit owning-copy invocation: '
-            'owned = pylon.GrabResult(grabResult). Stage B reads '
-            'GetErrorCode/GetErrorDescription/GetBlockID through the '
-            'queued reference; same dangling-wrapper hazard as the '
-            'success path. Window:\n' + window
-        )
-        assert "self._worker.enqueue('fail', grabResult," not in window, (
-            'OnImageGrabbed must NOT pass the raw grabResult straight to '
-            'the worker queue on the failure path either.'
+        gr, args = self._grab_with_copy_recorder(grab_succeeded=False, err_code=123)
+        kind, payload = args[0], args[1]
+        assert kind == 'fail'
+        assert payload == ('owned', gr), (
+            'OnImageGrabbed must enqueue the copy-constructed owning '
+            f'wrapper on the failure path too; got {payload!r}'
         )
 
 
@@ -6876,11 +6858,6 @@ class TestPylonChunkSelectorProbeWithFramecounterFallback:
     diagnostic completeness, not validity correctness.
     """
 
-    def _pyloncamera_source(self):
-        from pathlib import Path
-
-        return (Path(__file__).resolve().parent.parent / 'drivers' / 'pyloncamera.py').read_text()
-
     def test_frame_identity_chunk_candidates_lists_frameid_first(self):
         """FrameID is the canonical name on most Basler cameras (data-
         chunks.html). Framecounter is the documented fallback. Probe
@@ -6894,44 +6871,62 @@ class TestPylonChunkSelectorProbeWithFramecounterFallback:
             'with FrameID first, Framecounter second (B32 fallback).'
         )
 
-    def test_enable_validity_chunks_probes_advertised_first(self):
-        """The method must call _probe_advertised_chunks before
-        attempting to enable per-chunk; otherwise it silently fails
-        on cameras advertising Framecounter instead of FrameID."""
-        body = _function_source(self._pyloncamera_source(), '_enable_validity_chunks')
-        assert '_probe_advertised_chunks(' in body, (
-            '_enable_validity_chunks must probe ChunkSelector entries '
-            'before enabling chunks (B32; refactor shares '
-            '_probe_advertised_chunks with probe_chunk_capabilities).'
+    def test_enable_validity_chunks_skips_unadvertised_targets(self):
+        """Probe-first contract: only chunks the camera actually
+        advertises are selected/enabled; unadvertised targets are
+        skipped instead of provoking SDK raises."""
+        cam = _chunk_config_pylon_camera(['ExposureTime', 'Gain'])
+        cam._enable_validity_chunks()
+        assert cam.active.ChunkSelector.writes == ['ExposureTime', 'Gain'], (
+            'only the advertised chunks may be selected; got '
+            f'{cam.active.ChunkSelector.writes!r}'
         )
 
     def test_enable_validity_chunks_falls_back_to_framecounter(self):
-        """The method must walk _FRAME_IDENTITY_CHUNK_CANDIDATES and
-        pick the first advertised name (FrameID first, Framecounter
-        second)."""
-        body = _function_source(self._pyloncamera_source(), '_enable_validity_chunks')
-        assert '_FRAME_IDENTITY_CHUNK_CANDIDATES' in body, (
-            '_enable_validity_chunks must consult '
-            '_FRAME_IDENTITY_CHUNK_CANDIDATES to fall back from '
-            'FrameID to Framecounter (B32).'
+        """A camera advertising Framecounter (not FrameID) must still
+        get a frame-identity chunk enabled, after the always-on set."""
+        cam = _chunk_config_pylon_camera(
+            ['ExposureTime', 'Gain', 'Timestamp', 'Framecounter']
+        )
+        cam._enable_validity_chunks()
+        assert cam.active.ChunkModeActive.writes == [True]
+        assert cam.active.ChunkSelector.writes == [
+            'ExposureTime',
+            'Gain',
+            'Timestamp',
+            'Framecounter',
+        ]
+        assert cam.active.ChunkEnable.writes == [True] * 4
+
+    def test_enable_validity_chunks_prefers_frameid_when_both_advertised(self):
+        cam = _chunk_config_pylon_camera(
+            ['ExposureTime', 'Gain', 'Timestamp', 'FrameID', 'Framecounter']
+        )
+        cam._enable_validity_chunks()
+        writes = cam.active.ChunkSelector.writes
+        assert 'FrameID' in writes and 'Framecounter' not in writes, (
+            'FrameID is the canonical first candidate; Framecounter '
+            f'must only be used as the fallback. Selected: {writes!r}'
         )
 
-    def test_chunk_grab_result_attrs_aliases_framecounter(self):
-        """The read-side map must include ChunkFramecounter aliased to
-        the same 'FrameID' dict key so the read works regardless of
-        which spelling the camera enabled."""
-        src = self._pyloncamera_source()
-        assert "('ChunkFrameID', 'FrameID')" in src, (
-            'ImageHandler._CHUNK_GRAB_RESULT_ATTRS must keep the '
-            "ChunkFrameID -> 'FrameID' mapping for cameras that "
-            'advertise FrameID.'
-        )
-        assert "('ChunkFramecounter', 'FrameID')" in src, (
-            'ImageHandler._CHUNK_GRAB_RESULT_ATTRS must include the '
-            "ChunkFramecounter -> 'FrameID' alias so cameras that "
-            'advertise Framecounter still produce a frame-identity '
-            'value in the chunk dict (B32).'
-        )
+    def test_read_side_aliases_framecounter_to_frameid_key(self):
+        """The read side must surface frame identity under the same
+        'FrameID' dict key regardless of which spelling the camera
+        enabled."""
+        from drivers.pyloncamera import _read_validity_chunks
+
+        class _Node:
+            def __init__(self, value):
+                self.Value = value
+
+        class _FramecounterResult:
+            ChunkFramecounter = _Node(77)
+
+        class _FrameIdResult:
+            ChunkFrameID = _Node(42)
+
+        assert _read_validity_chunks(_FramecounterResult())['FrameID'] == 77
+        assert _read_validity_chunks(_FrameIdResult())['FrameID'] == 42
 
 
 class TestAcquisitionStopModeSetter:
@@ -7611,24 +7606,21 @@ class TestPylonStreamGrabberStatusLog:
         assert_def('drivers/pyloncamera.py', '_log_stream_grabber_status')
 
     def test_start_grabbing_logs_status_before_start_call(self):
-        """Pin call-site shape: _log_stream_grabber_status fires in
-        start_grabbing BEFORE camera.StartGrabbing(...) so the trace
-        log captures the entry state, not post-start state."""
-        from pathlib import Path
-
-        src = (Path(__file__).resolve().parent.parent / 'drivers' / 'pyloncamera.py').read_text()
-        body = _function_source(src, 'start_grabbing')
-        assert '_log_stream_grabber_status' in body
-        idx_log = body.find('_log_stream_grabber_status')
-        idx_start = body.find('StartGrabbing(')
-        # idx_start of literal text "StartGrabbing(" appears in
-        # comments + the actual call. Find LAST occurrence to land
-        # on the call site (comments come first).
-        idx_start = body.rfind('StartGrabbing(')
-        assert 0 <= idx_log < idx_start, (
-            f'_log_stream_grabber_status must fire BEFORE '
-            f'StartGrabbing() in start_grabbing(); '
-            f'log_idx={idx_log} start_idx={idx_start}'
+        """_log_stream_grabber_status must fire in start_grabbing
+        BEFORE camera.StartGrabbing(...) so the trace log captures the
+        grabber's entry state, not its post-start state."""
+        cam = _bare_pylon_camera()
+        sequence = []
+        cam._log_stream_grabber_status = lambda label: sequence.append('status_log')
+        cam._start_stats_poller = MagicMock()
+        cam._grab_strategy_name = 'LatestImageOnly'
+        cam.active.IsGrabbing.return_value = False
+        cam.active.StartGrabbing.side_effect = (
+            lambda *args: sequence.append('start_grabbing')
+        )
+        cam.start_grabbing()
+        assert sequence == ['status_log', 'start_grabbing'], (
+            f'_log_stream_grabber_status must fire BEFORE StartGrabbing(); got {sequence!r}'
         )
 
     def test_log_helper_no_op_when_active_none(self):
@@ -7697,59 +7689,35 @@ class TestPylonChunkModeActiveWriteRaceGuard:
     refusing the write is safe by default.
     """
 
-    def test_guard_present_in_enable_validity_chunks(self):
-        """Pin the structural fix shape: an is_grabbing()-guarded
-        early-return at the top of _enable_validity_chunks before
-        any ChunkModeActive write."""
-        from pathlib import Path
+    def test_guard_skips_write_and_warns_when_grabbing(self):
+        """When is_grabbing() is True the method must return without
+        touching ChunkModeActive AND warn. The fake camera here is
+        fully probe-capable, so the guard is the ONLY thing standing
+        between the call and the write."""
+        from unittest import mock
 
-        src = (Path(__file__).resolve().parent.parent / 'drivers' / 'pyloncamera.py').read_text()
-        body = _function_source(src, '_enable_validity_chunks')
-        # Guard must reference is_grabbing AND must come BEFORE the
-        # ChunkModeActive write site.
-        assert 'is_grabbing' in body, (
-            '_enable_validity_chunks must guard with is_grabbing() to '
-            'avoid the ChunkModeActive write-while-grabbing race.'
+        from drivers import pyloncamera
+
+        cam = _chunk_config_pylon_camera(['ExposureTime', 'Gain', 'Timestamp', 'FrameID'])
+        cam.is_grabbing = lambda: True
+        log = MagicMock()
+        with mock.patch.object(pyloncamera, '_cam_log', log):
+            cam._enable_validity_chunks()
+        assert cam.active.ChunkModeActive.writes == [], (
+            'ChunkModeActive write must be skipped while grabbing; got '
+            f'{cam.active.ChunkModeActive.writes!r}'
         )
-        idx_guard = body.find('is_grabbing')
-        idx_write = body.find('ChunkModeActive.Value = True')
-        assert 0 <= idx_guard < idx_write, (
-            f'is_grabbing() guard must precede ChunkModeActive write; '
-            f'guard_idx={idx_guard} write_idx={idx_write}'
+        warnings = [str(call.args[0]) for call in log.warning.call_args_list]
+        assert any('ChunkModeActive' in m for m in warnings), (
+            f'the skipped write must be warned about; got {warnings!r}'
         )
 
-    def test_guard_skips_write_and_logs_warning(self):
-        """Functional test: when is_grabbing() returns True, the
-        method must return without touching ChunkModeActive."""
-        from drivers.pyloncamera import PylonCamera
-
-        write_attempted = {'count': 0}
-
-        class _ChunkModeActive:
-            @property
-            def Value(self):
-                return False
-
-            @Value.setter
-            def Value(self, v):
-                write_attempted['count'] += 1
-
-        class _FakeCamera:
-            ChunkModeActive = _ChunkModeActive()
-
-        camera = PylonCamera.__new__(PylonCamera)
-        import threading as _threading
-
-        camera._state_lock = _threading.Lock()
-        camera.active = _FakeCamera()
-        # Force is_grabbing() True via monkeypatch -- using a bound
-        # method override to avoid needing the full SDK.
-        camera.is_grabbing = lambda: True
-        camera._enable_validity_chunks()
-        assert write_attempted['count'] == 0, (
-            f'ChunkModeActive write must be skipped when grabbing; '
-            f'got {write_attempted["count"]} writes'
-        )
+    def test_write_proceeds_when_idle(self):
+        """Companion to the guard test: the same camera, not grabbing,
+        does get its ChunkModeActive write."""
+        cam = _chunk_config_pylon_camera(['ExposureTime', 'Gain', 'Timestamp', 'FrameID'])
+        cam._enable_validity_chunks()
+        assert cam.active.ChunkModeActive.writes == [True]
 
 
 class TestPylonPublicMethodAnnotationsAndDocstrings:

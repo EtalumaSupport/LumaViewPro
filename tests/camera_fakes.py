@@ -152,6 +152,41 @@ def run_one_stats_poll(cam):
     cam._stats_poller_loop()
 
 
+class WriteRecorderNode:
+    """Chunk-config style node recording every ``.Value = x`` write."""
+
+    def __init__(self):
+        object.__setattr__(self, 'writes', [])
+
+    def __setattr__(self, name, value):
+        if name == 'Value':
+            self.writes.append(value)
+        else:
+            object.__setattr__(self, name, value)
+
+
+def chunk_config_pylon_camera(advertised):
+    """bare_pylon_camera wired so the REAL _enable_validity_chunks()
+    can run: ChunkSelector advertises ``advertised`` entry names, and
+    ChunkModeActive / ChunkSelector / ChunkEnable record their Value
+    writes for sequence assertions."""
+    cam = bare_pylon_camera()
+    cam.is_grabbing = lambda: False
+    fake = cam.active
+    entries = []
+    for name in advertised:
+        entry = MagicMock()
+        entry.GetSymbolic.return_value = name
+        entries.append(entry)
+    selector_node = MagicMock()
+    selector_node.GetEntries.return_value = entries
+    fake.GetNodeMap.return_value.GetNode.return_value = selector_node
+    fake.ChunkModeActive = WriteRecorderNode()
+    fake.ChunkSelector = WriteRecorderNode()
+    fake.ChunkEnable = WriteRecorderNode()
+    return cam
+
+
 def bare_ids_camera():
     """IDSCamera analog of bare_pylon_camera: fake remote_nodemap."""
     from drivers import idscamera
